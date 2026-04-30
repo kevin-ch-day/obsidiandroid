@@ -365,30 +365,16 @@ def _print_startup_context() -> None:
     """Print lightweight session context before showing the main menu."""
     context = _latest_run_context_status()
     latest_run_id = str(context.get("latest_run_id", "")).strip() or "None yet"
-    environment_label = "Fedora Local Research"
     publication_ready = bool(context.get("has_paper_exports", False))
     provenance_ready = _latest_run_has_provenance()
 
     du.print_section("ObsidianDroid Operator Console")
-    du.print_subheader("Session Snapshot")
-    du.print_stat("Environment", environment_label)
-    du.print_stat("Latest Run", latest_run_id)
-    du.print_stat(
-        "Publication Exports",
-        _status_text(publication_ready, ready="Available", pending="Not built"),
+    du.print_info(
+        "Fedora | "
+        f"Latest run: {latest_run_id} | "
+        f"Diagnostics: {_status_text(provenance_ready, ready='Available', pending='Missing')} | "
+        f"Exports: {_status_text(publication_ready, ready='Available', pending='Not built')}"
     )
-    du.print_stat(
-        "Provenance Ready",
-        _status_text(provenance_ready, ready="Ready", pending="Not ready"),
-    )
-    print("")
-    du.print_subheader("Recommended Flow")
-    du.print_stat("Step 1", "Run Analysis")
-    du.print_stat("Step 2", "Run Status and History")
-    du.print_stat("Step 3", "Validation and Diagnostics")
-    du.print_stat("Step 4", "Research Reports")
-    print("")
-    du.print_note("Quick start: Smoke Analysis first, then Full Analysis.")
 
 
 def _show_latest_run_snapshot() -> int:
@@ -1370,20 +1356,16 @@ def _prompt_structural_analysis_action(options: List[str]) -> str:
 def _launch_pipeline_actions_menu() -> int:
     """Display run actions and execute selected pipeline path."""
     while True:
-        du.print_note(
-            "[MENU] Recommended start: Smoke Analysis for a quick sanity check, "
-            "then Full Analysis when ready."
-        )
-        options: Dict[str, str] = {
-            "Full Analysis": "Run the full pipeline with a selected profile.",
-            "Fast Development Analysis": "Run the shorter development profile for quicker local iteration.",
-            "Smoke Analysis": "Run the fastest end-to-end sanity check for the environment and pipeline.",
-            "Single-Model Analysis": "Run the pipeline while training only one selected model.",
-            "Run Through Selected Stage": "Stop after a chosen stage to inspect intermediate artifacts.",
-            "Vendor Parsing Only": "Build vendor metadata and stop before feature engineering and model training.",
-            "Retrain Models from Cached Features": "Reuse aligned feature and label caches to retrain models only.",
-        }
-        choice = mu.display_rich_menu(options, title="Choose Analysis Type", exit_label="Back")
+        options: List[str] = [
+            "Full Analysis",
+            "Fast Development Analysis",
+            "Smoke Analysis",
+            "Single-Model Analysis",
+            "Run Through Selected Stage",
+            "Vendor Parsing Only",
+            "Retrain Models from Cached Features",
+        ]
+        choice = mu.display_menu(options, title="Choose Analysis Type", exit_label="Back")
         if choice == 0:
             return 0
         if choice == 1:
@@ -1443,20 +1425,20 @@ def _launch_reuse_results_menu() -> None:
 def _launch_maintenance_menu() -> None:
     """Display maintenance/diagnostic tools."""
     while True:
-        options: Dict[str, str] = {
-            "Engine Scoring Summary": "Review DB-only AV engine readiness rankings without rerunning the pipeline.",
-            "Parser Coverage Review": "Check parser coverage from the workbook when available, otherwise use latest diagnostics snapshots.",
-            "Single Vendor Parser Diagnostic": "Inspect one vendor parser in detail against the enriched AV matrix workbook.",
-            "Parser Snapshot": "Show current observed, mapped, and unmapped vendor-column counts.",
-            "Run Health Check": "Validate required manifests, diagnostics, and provenance for a specific run ID.",
-            "Structural Diagnostics": "Generate the latest structural diagnostics view without starting a new analysis run.",
-            "Smart Output Cleanup": "Prune output artifacts with the scripted retention policy.",
-            "Legacy Confusion Cleanup": "Remove old top-level confusion matrix exports that are no longer canonical.",
-            "Legacy Model Cleanup": "Remove old top-level model export files from pre-run-scoped layouts.",
-            "Claim Artifact Map": "Generate a scaffold that maps reporting claims to supporting artifacts.",
-            "Evidence Bundle Checker": "Run strict evidence-bundle validation for one or more run IDs.",
-        }
-        choice = mu.display_rich_menu(options, title="Maintenance Tools", exit_label="Back")
+        options: List[str] = [
+            "Engine Scoring Summary",
+            "Parser Coverage Review",
+            "Single Vendor Parser Diagnostic",
+            "Parser Snapshot",
+            "Run Health Check",
+            "Structural Diagnostics",
+            "Smart Output Cleanup",
+            "Legacy Confusion Cleanup",
+            "Legacy Model Cleanup",
+            "Claim Artifact Map",
+            "Evidence Bundle Checker",
+        ]
+        choice = mu.display_menu(options, title="Maintenance Tools", exit_label="Back")
         if choice == 0:
             return
         if choice == 1:
@@ -1757,12 +1739,12 @@ def _launch_data_parser_menu() -> None:
         from utils.menu import vendor_diagnostics
 
         vendor_diagnostics.print_parser_diagnostics_state()
-        options: Dict[str, str] = {
-            "Validate Parser Coverage": "Review parser coverage from the workbook when available, otherwise fall back to latest diagnostics snapshots.",
-            "Run Single Vendor Parser Diagnostic": "Inspect one vendor parser in detail. Requires the enriched AV matrix workbook.",
-            "Show Parser Diagnostics Snapshot": "View the current observed, mapped, and unmapped vendor-column counts.",
-        }
-        choice = mu.display_rich_menu(options, title="Data Diagnostics", exit_label="Back")
+        options: List[str] = [
+            "Validate Parser Coverage",
+            "Run Single Vendor Parser Diagnostic",
+            "Show Parser Diagnostics Snapshot",
+        ]
+        choice = mu.display_menu(options, title="Data Diagnostics", exit_label="Back")
         if choice == 0:
             return
         if choice == 1:
@@ -1834,11 +1816,11 @@ def _launch_run_overview_menu() -> None:
 def _launch_research_reports_menu() -> None:
     """Display research, reporting, and evaluation workflows."""
     while True:
-        options: Dict[str, str] = {
-            "Structural Analysis": "Type, family, and malware-structure analysis workflows.",
-            "Model Evaluation": "Engine scoring, confusion exports, and latest model comparison views.",
-        }
-        choice = mu.display_rich_menu(options, title="Research Reports", exit_label="Back")
+        options: List[str] = [
+            "Structural Analysis",
+            "Model Evaluation",
+        ]
+        choice = mu.display_menu(options, title="Research Reports", exit_label="Back")
         if choice == 0:
             return
         if choice == 1:
@@ -1853,11 +1835,11 @@ def _launch_research_reports_menu() -> None:
 def _launch_validation_diagnostics_menu() -> None:
     """Display validation, reproducibility, and parser diagnostics workflows."""
     while True:
-        options: Dict[str, str] = {
-            "Reproducibility Checks": "Run health checks, evidence-bundle validation, contract views, and reproducibility-series aggregation.",
-            "Data Diagnostics": "Parser coverage, single-vendor parser diagnostics, and snapshot inspection.",
-        }
-        choice = mu.display_rich_menu(options, title="Validation and Diagnostics", exit_label="Back")
+        options: List[str] = [
+            "Reproducibility Checks",
+            "Data Diagnostics",
+        ]
+        choice = mu.display_menu(options, title="Validation and Diagnostics", exit_label="Back")
         if choice == 0:
             return
         if choice == 1:
@@ -1872,12 +1854,12 @@ def _launch_validation_diagnostics_menu() -> None:
 def _launch_operations_menu() -> None:
     """Display operational maintenance and artifact-management workflows."""
     while True:
-        options: Dict[str, str] = {
-            "Maintenance Tools": "DB-only summaries, structural diagnostics, evidence-bundle checks, and support tools.",
-            "Output Management": "Artifact cleanup, legacy export pruning, and disk-usage inspection.",
-            "Reuse Existing Results": "Backfill results warehouse state from already-generated artifacts.",
-        }
-        choice = mu.display_rich_menu(options, title="Tools and Maintenance", exit_label="Back")
+        options: List[str] = [
+            "Maintenance Tools",
+            "Output Management",
+            "Reuse Existing Results",
+        ]
+        choice = mu.display_menu(options, title="Tools and Maintenance", exit_label="Back")
         if choice == 0:
             return
         if choice == 1:
@@ -1945,12 +1927,11 @@ def _build_main_menu_commands() -> list[_MenuCommand]:
 def launch_startup_menu() -> int:
     """Run interactive startup menu loop."""
     _print_startup_context()
-    _print_operator_console_summary()
 
     while True:
         commands = _build_main_menu_commands()
-        options = {command.label: command.description for command in commands}
-        choice = mu.display_rich_menu(options, title="Select an Action")
+        options = [command.label for command in commands]
+        choice = mu.display_menu(options, title="Select an Action")
 
         if choice == 0:
             du.print_info("[MENU] Exit requested.")
@@ -1960,7 +1941,6 @@ def launch_startup_menu() -> int:
         if selected.label == "Clear Screen":
             du.clear_console()
             _print_startup_context()
-            _print_operator_console_summary()
             continue
 
         result = selected.action()

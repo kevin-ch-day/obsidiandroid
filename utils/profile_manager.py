@@ -234,64 +234,25 @@ def select_profile_interactive_quick() -> str | None:
     if not quick_entries:
         return select_profile_interactive()
 
-    descriptions: dict[str, str] = {
-        "research_all_malicious": "All malicious Android samples (exploratory policy)",
-        "all_malicious": "All malicious Android samples (legacy research profile)",
-        "banker": "Banker-focused malicious cohort",
-        "mixed": "Balanced benign + malicious dataset",
-        "benign_heavy": "Benign-dominant cohort (robustness diagnostics)",
-        "dev_fast": "Fast iteration (1 model, minimal checks)",
-        "dev_smoke": "Ultra-fast pipeline sanity check",
-    }
-    category: dict[str, str] = {
-        "research_all_malicious": "[R]",
-        "all_malicious": "[R]",
-        "banker": "[R]",
-        "mixed": "[R]",
-        "benign_heavy": "[R]",
-        "dev_fast": "[D]",
-        "dev_smoke": "[D]",
-    }
-
-    du.print_section("Execution Profile Selection")
-    du.print_note("Default recommendation: research_all_malicious")
-    du.print_info("Use development profiles only for fast local checks.")
-    du.print_info("Choose Advanced for the full research and reproducibility catalog.")
-    print("")
-    du.print_rule("Research Profiles")
-    print(" ID   Tier  Profile                  Description")
-    print(" ----------------------------------------------------------------------------")
-
     indexed_profiles: list[str] = []
     for profile_id in quick_entries:
         if profile_id.startswith("dev_"):
             continue
         indexed_profiles.append(profile_id)
-        idx = len(indexed_profiles)
-        print(
-            f" [{idx}]  {category.get(profile_id, '[R]'):>4}  "
-            f"{profile_id:<24} {descriptions.get(profile_id, 'Research profile')}"
-        )
 
-    print("")
-    du.print_rule("Development / Test Profiles")
-    print(" ----------------------------------------------------------------------------")
     for profile_id in quick_entries:
         if not profile_id.startswith("dev_"):
             continue
         indexed_profiles.append(profile_id)
-        idx = len(indexed_profiles)
-        print(
-            f" [{idx}]  {category.get(profile_id, '[D]'):>4}  "
-            f"{profile_id:<24} {descriptions.get(profile_id, 'Development profile')}"
-        )
 
     advanced_idx = len(indexed_profiles) + 1
-    print("")
-    du.print_rule("Advanced")
-    print(" ----------------------------------------------------------------------------")
-    print(f" [{advanced_idx}]  [A]   advanced                 Full profile catalog (repro/research variants)")
-    print("\n [0]  Back\n")
+
+    du.print_subheader("Execution Profile")
+    print("Press Enter for research_all_malicious.")
+    for idx, profile_id in enumerate(indexed_profiles, 1):
+        print(f"  [{idx}] {profile_id}")
+    print(f"  [{advanced_idx}] advanced")
+    print("  [0] Back\n")
 
     prompt = f"Enter selection [default=1, 0-{advanced_idx}]: "
     while True:

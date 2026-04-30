@@ -55,7 +55,7 @@ def test_main_menu_clear_screen_option(monkeypatch) -> None:
     clear_calls = {"count": 0}
 
     monkeypatch.setattr(startup_menu, "_print_startup_context", lambda: None)
-    monkeypatch.setattr(startup_menu, "_print_operator_console_summary", lambda: None)
+    monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: next(choices))
     monkeypatch.setattr(startup_menu.mu, "display_rich_menu", lambda *_args, **_kwargs: next(choices))
     monkeypatch.setattr(startup_menu.du, "clear_console", lambda: clear_calls.__setitem__("count", clear_calls["count"] + 1))
 
@@ -69,14 +69,13 @@ def test_main_menu_uses_concise_title_and_primary_workflow_order(monkeypatch) ->
     """Top-level menu should stay concise and ordered around the main workflow."""
     captured: dict[str, object] = {}
 
-    def _fake_display_rich_menu(options, *_, **kwargs):
+    def _fake_display_menu(options, *_, **kwargs):
         captured["title"] = str(kwargs.get("title", ""))
-        captured["labels"] = list(options.keys())
+        captured["labels"] = list(options)
         return 0
 
     monkeypatch.setattr(startup_menu, "_print_startup_context", lambda: None)
-    monkeypatch.setattr(startup_menu, "_print_operator_console_summary", lambda: None)
-    monkeypatch.setattr(startup_menu.mu, "display_rich_menu", _fake_display_rich_menu)
+    monkeypatch.setattr(startup_menu.mu, "display_menu", _fake_display_menu)
 
     result = startup_menu.launch_startup_menu()
 
@@ -93,15 +92,15 @@ def test_main_menu_uses_concise_title_and_primary_workflow_order(monkeypatch) ->
 
 
 def test_run_analysis_menu_uses_operator_facing_actions(monkeypatch) -> None:
-    """Run analysis submenu should use direct action labels and descriptions."""
+    """Run analysis submenu should use direct action labels."""
     captured: dict[str, object] = {}
 
-    def _fake_display_rich_menu(options, *_, **kwargs):
+    def _fake_display_menu(options, *_, **kwargs):
         captured["title"] = str(kwargs.get("title", ""))
-        captured["labels"] = list(options.keys())
+        captured["labels"] = list(options)
         return 0
 
-    monkeypatch.setattr(startup_menu.mu, "display_rich_menu", _fake_display_rich_menu)
+    monkeypatch.setattr(startup_menu.mu, "display_menu", _fake_display_menu)
 
     result = startup_menu._launch_pipeline_actions_menu()  # pylint: disable=protected-access
 
@@ -119,15 +118,15 @@ def test_run_analysis_menu_uses_operator_facing_actions(monkeypatch) -> None:
 
 
 def test_maintenance_menu_uses_operator_facing_actions(monkeypatch) -> None:
-    """Maintenance submenu should use concise labels and descriptive rich entries."""
+    """Maintenance submenu should use concise labels."""
     captured: dict[str, object] = {}
 
-    def _fake_display_rich_menu(options, *_, **kwargs):
+    def _fake_display_menu(options, *_, **kwargs):
         captured["title"] = str(kwargs.get("title", ""))
-        captured["labels"] = list(options.keys())
+        captured["labels"] = list(options)
         return 0
 
-    monkeypatch.setattr(startup_menu.mu, "display_rich_menu", _fake_display_rich_menu)
+    monkeypatch.setattr(startup_menu.mu, "display_menu", _fake_display_menu)
 
     startup_menu._launch_maintenance_menu()  # pylint: disable=protected-access
 
@@ -153,7 +152,7 @@ def test_main_menu_submenu_back_does_not_warn_invalid(monkeypatch) -> None:
     warnings: list[str] = []
 
     monkeypatch.setattr(startup_menu, "_print_startup_context", lambda: None)
-    monkeypatch.setattr(startup_menu, "_print_operator_console_summary", lambda: None)
+    monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: next(choices))
     monkeypatch.setattr(startup_menu.mu, "display_rich_menu", lambda *_args, **_kwargs: next(choices))
     monkeypatch.setattr(startup_menu.du, "print_warning", lambda message: warnings.append(str(message)))
 
@@ -164,14 +163,14 @@ def test_main_menu_submenu_back_does_not_warn_invalid(monkeypatch) -> None:
 
 
 def test_validation_diagnostics_menu_uses_back_label(monkeypatch) -> None:
-    """Rich submenus should present 0 as Back, not Exit."""
+    """Submenus should present 0 as Back, not Exit."""
     captured: list[str] = []
 
-    def _fake_display_rich_menu(*_args, **kwargs):
+    def _fake_display_menu(*_args, **kwargs):
         captured.append(str(kwargs.get("exit_label", "")))
         return 0
 
-    monkeypatch.setattr(startup_menu.mu, "display_rich_menu", _fake_display_rich_menu)
+    monkeypatch.setattr(startup_menu.mu, "display_menu", _fake_display_menu)
 
     startup_menu._launch_validation_diagnostics_menu()  # pylint: disable=protected-access
 
