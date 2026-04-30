@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "obsidiandroid"
+version = "2.1.0"
+description = "ObsidianDroid"
+readme = "README.md"
+requires-python = ">=3.10"
+dynamic = ["dependencies"]
+
+[project.scripts]
+obsidiandroid = "utils.startup_menu:main"
+
+[tool.setuptools]
+py-modules = ["main", "model_tuning", "clean_bytecode_cache", "run_ml_static_scan"]
+
+[tool.setuptools.packages.find]
+include = [
+  "analysis*",
+  "config*",
+  "data_inspect*",
+  "database*",
+  "ml_classification*",
+  "model*",
+  "profiles*",
+  "testing*",
+  "utils*",
+]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools.package-data]
+profiles = ["*.yaml"]

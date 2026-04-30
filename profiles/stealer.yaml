@@ -1,0 +1,26 @@
+profile_id: stealer
+description: Android malicious cohort filtered to stealer family type.
+evidence_mode: false
+allow_vendor_fallback_for_width: true
+allow_adaptive_top_k: true
+top_k_requested: 8
+exclude_unknown_from_main_results: false
+type_slug_filter: stealer
+cohort_gates:
+  min_samples_per_family: 3
+  require_mapped_family: true
+  require_sha256: true
+  allow_missing_package_name: true
+  max_missing_package_pct: 10.0
+model_list:
+  - random_forest
+  - balanced_random_forest
+  - xgboost
+  - logistic_regression
+parser_overrides: {}
+feature_flags:
+  enable_sample_metadata_features: true
+  enable_dynamic_generic_vendor_parsers: false
+threshold_overrides: {}
+dataset_filters:
+  mode: malicious_only

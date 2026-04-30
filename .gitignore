@@ -1,0 +1,31 @@
+# Fedora local environment
+.venv/
+venv/
+.env
+.env.*
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+testing/.pytest_tmp/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build/package artifacts
+build/
+dist/
+*.egg-info/
+
+# Runtime output and logs
+output/
+logs/
+*.log
+
+# Local database/config scratch files
+*.db
+*.sqlite
+*.sqlite3
+database/db_config.local.py

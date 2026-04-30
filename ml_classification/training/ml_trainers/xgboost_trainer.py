@@ -1,0 +1,312 @@
+# Filename: training/ml_trainers/xgboost_trainer.py
+# Purpose : Train an XGBoost classifier with structured metadata output
+
+import time
+import xgboost as xgb
+import numpy as np
+from collections import Counter
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.metrics import classification_report
+from sklearn.model_selection import train_test_split
+from config import app_config
+
+
+def _resolve_xgb_runtime_guardrails(num_classes: int) -> dict:
+    """Resolve adaptive XGBoost guardrails based on class cardinality.
+
+    Args:
+        num_classes: Number of unique labels in the training set.
+
+    Returns:
+        Dictionary containing capped n_estimators, early stopping rounds,
+        and profile metadata for diagnostics.
+    """
+    base_estimators = int(getattr(app_config, "XGB_NUM_ESTIMATORS", 200))
+    base_early_stopping = int(getattr(app_config, "XGB_EARLY_STOPPING_ROUNDS", 20))
+    adaptive_enabled = bool(getattr(app_config, "XGB_ADAPTIVE_ESTIMATORS_ENABLED", True))
+
+    medium_threshold = int(getattr(app_config, "XGB_GUARDRAIL_MEDIUM_CLASS_THRESHOLD", 25))
+    large_threshold = int(getattr(app_config, "XGB_GUARDRAIL_LARGE_CLASS_THRESHOLD", 60))
+
+    profile = "default"
+    if num_classes >= large_threshold:
+        profile = "large_multiclass"
+    elif num_classes >= medium_threshold:
+        profile = "medium_multiclass"
+
+    profile_caps = dict(getattr(app_config, "XGB_GUARDRAIL_PROFILE_CAPS", {}) or {})
+    default_caps = {
+        "default": {
+            "estimator_cap": base_estimators,
+            "early_stopping_rounds": base_early_stopping,
+        },
+        "medium_multiclass": {
+            "estimator_cap": int(getattr(app_config, "XGB_GUARDRAIL_MEDIUM_ESTIMATOR_CAP", 180)),
+            "early_stopping_rounds": int(getattr(app_config, "XGB_GUARDRAIL_MEDIUM_EARLY_STOPPING", 15)),
+        },
+        "large_multiclass": {
+            "estimator_cap": int(getattr(app_config, "XGB_GUARDRAIL_LARGE_ESTIMATOR_CAP", 120)),
+            "early_stopping_rounds": int(getattr(app_config, "XGB_GUARDRAIL_LARGE_EARLY_STOPPING", 10)),
+        },
+    }
+    merged_caps = {
+        name: {
+            **values,
+            **dict(profile_caps.get(name, {}) or {}),
+        }
+        for name, values in default_caps.items()
+    }
+    selected_caps = merged_caps.get(profile, merged_caps["default"])
+
+    cap = int(selected_caps.get("estimator_cap", base_estimators))
+    early_stopping = min(
+        base_early_stopping,
+        int(selected_caps.get("early_stopping_rounds", base_early_stopping)),
+    )
+    resolved_estimators = min(base_estimators, cap) if adaptive_enabled else base_estimators
+
+    return {
+        "adaptive_enabled": adaptive_enabled,
+        "profile": profile,
+        "base_estimators": base_estimators,
+        "resolved_estimators": resolved_estimators,
+        "estimator_cap": cap,
+        "base_early_stopping_rounds": base_early_stopping,
+        "resolved_early_stopping_rounds": early_stopping,
+    }
+
+
+def train_xgboost(
+    X_train,
+    y_train,
+    X_test=None,
+    y_test=None,
+    sample_ids=None,
+    label_encoder=None,
+    random_state=42,
+    verbose=False,
+    grid_search=False,
+    cv_folds=None,
+    **kwargs
+):
+    num_classes = len(set(y_train))
+
+    class_counts = Counter(y_train)
+
+    guardrails = _resolve_xgb_runtime_guardrails(num_classes=num_classes)
+
+    objective = "binary:logistic" if num_classes == 2 else "multi:softprob"
+    eval_metric = "logloss" if num_classes == 2 else "mlogloss"
+
+    # Main XGBoost parameter set
+    params = {
+        "n_estimators": guardrails["resolved_estimators"],
+        "max_depth": getattr(app_config, "XGB_MAX_DEPTH", 6),
+        "learning_rate": getattr(app_config, "XGB_LEARNING_RATE", 0.1),
+        "objective": objective,
+        "eval_metric": eval_metric,
+        "tree_method": "hist",
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "min_child_weight": 2,
+        "gamma": 0.2,
+        "reg_alpha": 0.1,
+        "reg_lambda": 1.0,
+        "n_jobs": -1,
+        "random_state": random_state,
+        "verbosity": 0 if not getattr(app_config, "DEBUG_MODE", False) else 1,
+    }
+    if num_classes > 2:
+        params["num_class"] = num_classes
+
+    # scale_pos_weight is only applicable to binary classification objectives.
+    if num_classes == 2:
+        majority_class_size = max(class_counts.values())
+        params["scale_pos_weight"] = majority_class_size / np.mean(list(class_counts.values()))
+
+    early_stopping_rounds = kwargs.pop(
+        "early_stopping_rounds",
+        guardrails["resolved_early_stopping_rounds"],
+    )
+
+    # Merge custom parameters after removing fit-time only kwargs.
+    model_params = {**params, **kwargs}
+    if guardrails["adaptive_enabled"]:
+        requested_estimators = int(model_params.get("n_estimators", guardrails["resolved_estimators"]))
+        model_params["n_estimators"] = min(requested_estimators, int(guardrails["estimator_cap"]))
+
+    start = time.time()
+    fit_kwargs = {}
+    calibration_enabled = bool(getattr(app_config, "ENABLE_PROBABILITY_CALIBRATION", False))
+    calibration_method = getattr(app_config, "CALIBRATION_METHOD", "sigmoid")
+    calibration_holdout = float(getattr(app_config, "CALIBRATION_HOLDOUT", 0.15))
+    X_fit, y_fit = X_train, y_train
+    X_cal, y_cal = None, None
+
+    if calibration_enabled:
+        try:
+            min_class_size = min(class_counts.values())
+            if min_class_size >= 2:
+                X_fit, X_cal, y_fit, y_cal = train_test_split(
+                    X_train,
+                    y_train,
+                    test_size=calibration_holdout,
+                    stratify=y_train,
+                    random_state=random_state,
+                )
+                if verbose:
+                    print(
+                        f"[XGBOOST] Calibration holdout prepared: fit={len(X_fit)}, cal={len(X_cal)}"
+                    )
+            else:
+                calibration_enabled = False
+        except Exception:
+            calibration_enabled = False
+
+    if grid_search or getattr(app_config, "ENABLE_XGB_GRID_SEARCH", False):
+        from sklearn.model_selection import GridSearchCV, StratifiedKFold
+
+        param_grid = getattr(
+            app_config,
+            "XGB_PARAM_GRID",
+            {
+                "n_estimators": [200, 300],
+                "max_depth": [6, 8],
+                "learning_rate": [0.05, 0.1],
+            },
+        )
+        if guardrails["adaptive_enabled"] and "n_estimators" in param_grid:
+            cap = int(guardrails["estimator_cap"])
+            capped_estimators = sorted(
+                {min(int(value), cap) for value in param_grid.get("n_estimators", [])}
+            )
+            if capped_estimators:
+                param_grid = {**param_grid, "n_estimators": capped_estimators}
+
+        min_class_size = min(class_counts.values())
+        folds = min(cv_folds or getattr(app_config, "CV_FOLDS", 3), min_class_size)
+        cv = StratifiedKFold(n_splits=folds, shuffle=True, random_state=random_state)
+
+        base_params = {k: v for k, v in model_params.items() if k not in param_grid}
+        estimator = xgb.XGBClassifier(**base_params)
+
+        grid = GridSearchCV(
+            estimator=estimator,
+            param_grid=param_grid,
+            cv=cv,
+            scoring="f1_macro",
+            n_jobs=-1,
+        )
+        grid.fit(X_fit, y_fit)
+        model = grid.best_estimator_
+        model_params.update(grid.best_params_)
+    else:
+        model = xgb.XGBClassifier(**model_params)
+
+        eval_x = X_test
+        eval_y = y_test
+        if X_cal is not None and y_cal is not None:
+            eval_x, eval_y = X_cal, y_cal
+
+        if early_stopping_rounds and eval_x is not None and eval_y is not None:
+            fit_verbose = bool(verbose and getattr(app_config, "DEBUG_MODE", False))
+            fit_kwargs = {
+                "eval_set": [(eval_x, eval_y)],
+                "early_stopping_rounds": early_stopping_rounds,
+                "verbose": fit_verbose,
+            }
+
+        try:
+            model.fit(X_fit, y_fit, **fit_kwargs)
+        except TypeError:
+            esr = fit_kwargs.pop("early_stopping_rounds", None)
+            model.set_params(early_stopping_rounds=esr)
+            model.fit(X_fit, y_fit, **fit_kwargs)
+
+    if calibration_enabled and X_cal is not None and y_cal is not None:
+        try:
+            calibrated = CalibratedClassifierCV(model, method=calibration_method, cv="prefit")
+            calibrated.fit(X_cal, y_cal)
+            model = calibrated
+        except Exception:
+            calibration_enabled = False
+
+    duration = time.time() - start
+
+    results = {
+        "metadata": {
+            "duration": duration,
+            "params": model_params,
+            "num_classes": num_classes,
+            "top_classes": class_counts.most_common(5),
+            "best_iteration": getattr(model, "best_iteration", None),
+            "xgb_guardrail_profile": guardrails["profile"],
+            "xgb_adaptive_estimators_enabled": guardrails["adaptive_enabled"],
+            "xgb_base_estimators": guardrails["base_estimators"],
+            "xgb_estimator_cap": guardrails["estimator_cap"],
+            "xgb_effective_estimators": model_params.get("n_estimators"),
+            "xgb_base_early_stopping_rounds": guardrails["base_early_stopping_rounds"],
+            "xgb_effective_early_stopping_rounds": early_stopping_rounds,
+            "calibrated": bool(calibration_enabled),
+            "calibration_method": calibration_method if calibration_enabled else None,
+            "calibration_holdout_size": len(X_cal) if X_cal is not None else 0,
+        }
+    }
+
+    # Evaluate model if test set provided
+    if X_test is not None and y_test is not None:
+        y_pred = model.predict(X_test)
+        y_prob = model.predict_proba(X_test)
+        confidences = np.max(y_prob, axis=1)
+
+        if sample_ids and len(sample_ids) == len(y_pred):
+            predictions_dict = {sid: int(pred) for sid, pred in zip(sample_ids, y_pred)}
+            labels_dict = {sid: int(label) for sid, label in zip(sample_ids, y_test)}
+            meta_dict = {
+                sid: label_encoder.classes_[pred] if label_encoder else str(pred)
+                for sid, pred in predictions_dict.items()
+            }
+        else:
+            predictions_dict = list(y_pred)
+            labels_dict = list(y_test)
+            meta_dict = [label_encoder.classes_[pred] if label_encoder else str(pred) for pred in y_pred]
+
+        report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
+
+        results.update({
+            "predictions": predictions_dict,
+            "true_labels": labels_dict,
+            "confidences": confidences,
+            "metadata": {
+                **results["metadata"],
+                "classification_report": report,
+                "average_confidence": float(np.mean(confidences))
+            },
+            "label_encoder": label_encoder,
+            "label_classes": list(label_encoder.classes_) if label_encoder else None,
+            "enriched_labels": meta_dict
+        })
+
+    return model, results
+
+
+def get_default_xgboost_params():
+    return {
+        "n_estimators": getattr(app_config, "XGB_NUM_ESTIMATORS", 200),
+        "max_depth": getattr(app_config, "XGB_MAX_DEPTH", 6),
+        "learning_rate": getattr(app_config, "XGB_LEARNING_RATE", 0.1),
+        "min_child_weight": 2,
+        "gamma": 0.2,
+        "reg_alpha": 0.1,
+        "reg_lambda": 1.0,
+        "objective": "multi:softprob",
+        "eval_metric": "mlogloss",
+        "tree_method": "hist",
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "n_jobs": -1,
+    }
+
+
+def get_model_name():
+    return "xgboost"

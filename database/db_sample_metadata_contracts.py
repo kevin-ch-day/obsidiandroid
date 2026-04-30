@@ -1,0 +1,99 @@
+"""Shared contracts and helpers for Android sample metadata query modules."""
+
+from __future__ import annotations
+
+import pandas as pd
+
+from utils import display_utils as du
+
+# === Target families used in ML modeling and reports === #
+BANKING_TROJAN_FAMILIES = (
+    "Anubis",
+    "BlackRock",
+    "Cerberus",
+    "FluBot",
+    "SharkBot",
+    "TeaBot",
+    "Chameleon",
+    "EventBot",
+    "Godfather",
+    "Cabassous",
+    "Trickbot",
+    "Marcher",
+    "Vultur",
+    "TgToxic",
+    "Golddigger",
+    "Crocodilus",
+    "Ermac",
+    "SOVA",
+    "TrickMo",
+)
+
+SUPPORTED_ANDROID_TYPE_SLUGS = (
+    "banker",
+    "dropper",
+    "adware",
+    "stealer",
+    "sms-trojan",
+    "rat",
+    "spyware",
+    "unknown",
+)
+
+QUERY_CONTRACT_VERSION = "android_samples_v1_ordered_2026-03-04"
+QUERY_ORDERING_POLICY = "ORDER BY sample_id ASC for cohort and metadata retrieval"
+QUERY_CONTRACT_NOTES = (
+    "Deterministic query ordering is enforced for key sample retrieval paths."
+)
+
+
+def get_query_contract_metadata() -> dict:
+    """Return DB query determinism contract metadata for run manifests."""
+    return {
+        "version": QUERY_CONTRACT_VERSION,
+        "ordering_policy": QUERY_ORDERING_POLICY,
+        "notes": QUERY_CONTRACT_NOTES,
+    }
+
+
+def get_supported_android_type_slugs() -> tuple[str, ...]:
+    """Return the canonical Android malware type slugs accepted by this layer."""
+    return SUPPORTED_ANDROID_TYPE_SLUGS
+
+
+def convert_to_dataframe(result: tuple[list, list], label: str = "") -> pd.DataFrame:
+    """Validate and convert a ``(columns, rows)`` query result into a DataFrame.
+
+    Args:
+        result: Two-item tuple from ``db_engine.execute_query``.
+        label: Friendly name used in display logging.
+
+    Returns:
+        A populated DataFrame when conversion succeeds, otherwise an empty DataFrame.
+    """
+    if not isinstance(result, tuple) or len(result) != 2:
+        du.print_error(f"[{label}] Unexpected return format: expected (columns, rows).")
+        return pd.DataFrame()
+
+    columns, rows = result
+
+    if not isinstance(columns, list) or not isinstance(rows, list):
+        du.print_error(
+            f"[{label}] Invalid types: Expected (list, list), got {type(columns)}, {type(rows)}."
+        )
+        return pd.DataFrame()
+
+    try:
+        dataframe = pd.DataFrame(rows, columns=columns)
+    except Exception as error:  # pylint: disable=broad-except
+        du.print_error(f"[{label}] DataFrame construction failed: {error}")
+        return pd.DataFrame()
+
+    if dataframe.empty:
+        du.print_warning(f"[{label}] Query returned 0 rows.")
+    else:
+        du.print_success(
+            f"[{label}] Loaded {len(dataframe)} rows × {len(dataframe.columns)} columns."
+        )
+
+    return dataframe

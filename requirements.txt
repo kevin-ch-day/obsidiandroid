@@ -1,0 +1,16 @@
+pandas
+numpy==2.4.2
+scikit-learn==1.8.0
+xgboost
+matplotlib
+seaborn
+scipy==1.17.0
+scikit-posthocs==0.11.4
+colorama
+joblib
+mysql-connector-python
+openpyxl
+tabulate
+imbalanced-learn==0.14.1
+PyYAML
+pytest

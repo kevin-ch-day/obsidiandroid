@@ -1,0 +1,142 @@
+"""Tests for runtime override isolation and restoration in main pipeline runs."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pandas as pd
+
+from config import app_config
+import main
+
+
+def test_runtime_overrides_are_restored_after_run(monkeypatch, tmp_path: Path) -> None:
+    """Profile runtime overrides should not leak into later runs."""
+    original_cv = bool(getattr(app_config, "ENABLE_CROSS_VALIDATION", True))
+    original_perm = bool(getattr(app_config, "ENABLE_PERMISSION_FEATURES", True))
+    original_snapshot = bool(getattr(app_config, "EXPORT_ANALYSIS_SNAPSHOT", True))
+    original_dynamic = bool(getattr(app_config, "ENABLE_DYNAMIC_GENERIC_VENDOR_PARSERS", False))
+    original_parser_mapped = float(getattr(app_config, "PARSER_MAPPED_MIN_THRESHOLD", 0.30))
+
+    monkeypatch.setattr(app_config, "ENABLE_DB_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ML_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_LOCKED_VALUE", None, raising=False)
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(main, "DIAGNOSTICS_DIR", str(tmp_path / "output" / "diagnostics"))
+    monkeypatch.setattr(main.runtime_logging, "start_runtime_logging", lambda _run_id: None)
+    monkeypatch.setattr(main.runtime_logging, "stop_runtime_logging", lambda _ctx: None)
+    monkeypatch.setattr(main, "_finalize_run_manifest", lambda **_kwargs: 0)
+    monkeypatch.setattr(
+        main.profile_manager,
+        "load_profile",
+        lambda _ref: {
+            "profile_id": "unit_restore_profile",
+            "type_slug_filter": None,
+            "cohort_gates": {},
+            "model_list": ["logistic_regression"],
+            "feature_flags": {
+                "enable_dynamic_generic_vendor_parsers": True,
+                "enable_sample_metadata_features": False,
+                "enable_permission_features": False,
+            },
+            "parser_overrides": {
+                "PARSER_MAPPED_MIN_THRESHOLD": 0.05,
+            },
+            "runtime_overrides": {
+                "ENABLE_CROSS_VALIDATION": False,
+                "EXPORT_ANALYSIS_SNAPSHOT": False,
+                "ENABLE_PERMISSION_FEATURES": False,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "load_and_prepare_samples",
+        lambda **_kwargs: pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"]}),
+    )
+
+    result = main.run_pipeline(stop_after="samples", profile_ref="unit_restore_profile")
+
+    assert result == 0
+    assert bool(getattr(app_config, "ENABLE_CROSS_VALIDATION", True)) == original_cv
+    assert bool(getattr(app_config, "ENABLE_PERMISSION_FEATURES", True)) == original_perm
+    assert bool(getattr(app_config, "EXPORT_ANALYSIS_SNAPSHOT", True)) == original_snapshot
+    assert bool(getattr(app_config, "ENABLE_DYNAMIC_GENERIC_VENDOR_PARSERS", False)) == original_dynamic
+    assert float(getattr(app_config, "PARSER_MAPPED_MIN_THRESHOLD", 0.30)) == original_parser_mapped
+
+
+def test_confusion_matrix_policy_keeps_random_forest_in_paper_mode(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "output"
+    run_id = "run123"
+    cm_dir = output_root / "runs" / run_id / "conf_matrices"
+    cm_dir.mkdir(parents=True, exist_ok=True)
+    rf_path = cm_dir / "confusion_matrix_random_forest.png"
+    xgb_path = cm_dir / "confusion_matrix_xgboost.png"
+    rf_path.write_bytes(b"rf")
+    xgb_path.write_bytes(b"xgb")
+
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "CONFUSION_MATRIX_MODE", "primary_only", raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", True, raising=False)
+
+    main._apply_confusion_matrix_policy(run_id=run_id, top_model="xgboost")
+
+    assert rf_path.exists()
+    assert xgb_path.exists()
+
+
+def test_stage_failure_finalizes_failed_run(monkeypatch, tmp_path: Path) -> None:
+    """Expected stage failures should still finalize manifest context and preflight."""
+    output_root = tmp_path / "output"
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(app_config, "ENABLE_DB_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ML_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_LOCKED_VALUE", None, raising=False)
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(main, "DIAGNOSTICS_DIR", str(output_root / "diagnostics"))
+    monkeypatch.setattr(main.runtime_logging, "start_runtime_logging", lambda _run_id: None)
+    monkeypatch.setattr(main.runtime_logging, "stop_runtime_logging", lambda _ctx: None)
+
+    def _capture_finalize(**kwargs):
+        captured["manifest_context"] = dict(kwargs["manifest_context"])
+        return 0
+
+    monkeypatch.setattr(main, "_finalize_run_manifest", _capture_finalize)
+    monkeypatch.setattr(
+        main.profile_manager,
+        "load_profile",
+        lambda _ref: {
+            "profile_id": "paper2_primary",
+            "type_slug_filter": None,
+            "cohort_gates": {},
+            "model_list": ["logistic_regression"],
+            "evidence_mode": True,
+            "evidence_perturbation_axes": ["min_malicious_detections"],
+            "feature_flags": {
+                "enable_dynamic_generic_vendor_parsers": False,
+                "enable_sample_metadata_features": False,
+                "enable_permission_features": False,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "load_and_prepare_samples",
+        lambda **_kwargs: pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"]}),
+    )
+    monkeypatch.setattr(main, "run_av_analysis_stage", lambda **_kwargs: {})
+
+    result = main.run_pipeline(profile_ref="paper2_primary")
+
+    manifest_context = captured["manifest_context"]
+    assert result == 1
+    assert manifest_context["run_status"] == "failed"
+    assert manifest_context["failed_stage"] == "av_pipeline"
+    preflight_path = output_root / "runs" / str(manifest_context["run_id"]) / "diagnostics" / "preflight_report.json"
+    payload = json.loads(preflight_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "failed"

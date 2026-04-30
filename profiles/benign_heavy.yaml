@@ -1,0 +1,27 @@
+profile_id: benign_heavy
+description: Benign-heavy Android sample cohort for robustness diagnostics.
+evidence_mode: false
+allow_vendor_fallback_for_width: true
+allow_adaptive_top_k: true
+top_k_requested: 8
+exclude_unknown_from_main_results: false
+type_slug_filter: null
+cohort_gates:
+  min_samples_per_family: 1
+  require_mapped_family: false
+  require_sha256: true
+  allow_missing_package_name: true
+  max_missing_package_pct: 10.0
+model_list:
+  - random_forest
+  - xgboost
+parser_overrides: {}
+feature_flags:
+  enable_sample_metadata_features: true
+  enable_dynamic_generic_vendor_parsers: false
+threshold_overrides: {}
+dataset_filters:
+  mode: benign_heavy
+  min_partition_size: 50
+  benign_ratio_min: 0.7
+  malicious_ratio_max: 0.3

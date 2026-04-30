@@ -1,0 +1,2 @@
+"""ObsidianDroid configuration package."""
+
