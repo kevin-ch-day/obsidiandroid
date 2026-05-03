@@ -5,7 +5,7 @@ import pandas as pd
 from utils import display_utils as du
 
 REQUIRED_METRIC_COLUMNS = {"Engine", "Coverage %", "Detection Rate", "Tier Score"}
-EXPORT_DEBUG_INPUT_PATH = "output\\debug_engine_df.xlsx"
+EXPORT_DEBUG_INPUT_PATH = "output/debug_engine_df.xlsx"
 
 def prepare_engine_metrics_for_ml(engine_df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     if engine_df.empty:

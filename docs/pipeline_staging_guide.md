@@ -4,34 +4,34 @@ This guide explains the refactored stage-based pipeline layout and how to extend
 
 ## Why staging was introduced
 
-The original `main.py` handled orchestration and most stage internals directly, which made it hard to:
+Originally a single module handled orchestration and many stage internals, which made it hard to:
 
 - reason about performance bottlenecks,
 - unit test stage behavior in isolation,
 - evolve one stage without risking unrelated sections.
 
-The staged design keeps `main.py` focused on high-level control flow and delegates heavy logic to `analysis/pipeline/stage_*.py` modules.
+Today **`analysis/pipeline/runner.py`** owns **`run_pipeline`** (stage sequencing); **`main.py`** is the CLI shell and test-stable import surface. Heavy logic stays in **`analysis/pipeline/stage_*.py`** modules.
 
 ## Current stage modules
 
-| Stage module | Responsibility | Main call site |
+| Stage module | Responsibility | Runner call site (`analysis/pipeline/runner.py`) |
 | --- | --- | --- |
-| `analysis/pipeline/stage_samples.py` | Cohort loading, gate checks, snapshot/lock controls, package integrity checks. | `load_and_prepare_samples(...)` in `main.py` |
+| `analysis/pipeline/stage_samples.py` | Cohort loading, gate checks, snapshot/lock controls, package integrity checks. | `load_and_prepare_samples(...)` |
 | `analysis/pipeline/stage_av_vendor.py` | AV analysis execution, engine lifecycle integrity, vendor metadata extraction, feature-label alignment checks. | `run_av_analysis_stage(...)`, `extract_vendor_metadata_stage(...)`, `run_feature_alignment_stage(...)` |
 | `analysis/pipeline/stage_feature_enrichment.py` | Optional metadata feature enrichment merge before vectorization. | `merge_sample_metadata_features(...)` |
 | `analysis/pipeline/stage_modeling.py` | Engine weighting, feature vector build, training, and final label resolution helpers. | `compute_engine_weights_from_pipeline(...)`, `build_feature_matrix_stage(...)`, `run_training_stage(...)`, `resolve_final_labels_stage(...)` |
 | `analysis/pipeline/stage_manifest.py` | Run manifest assembly/writing and lifecycle summary extraction. | `finalize_run_manifest_stage(...)` |
 | `analysis/pipeline/sample_preparation.py` | Shared dataset filtering and metadata-feature helper functions reused by stages. | Imported by stage modules and compatibility wrappers |
 
-## Compatibility layer in `main.py`
+## Compatibility layer
 
-`main.py` intentionally preserves wrapper functions (`compute_engine_weights`, `generate_feature_matrix`, `resolve_final_labels`) and underscore aliases (`_build_metadata_feature_frame`, etc.) so tests and older internal callers remain stable during migration.
+`main.py` re-exports **`run_pipeline`** and symbols that older tests monkeypatch (`finalize_run_manifest_stage`, `profile_manager`, `runtime_logging`, etc.). Implementations live in **`runner.py`**; **`analysis/pipeline/main_facade.py`** resolves patched attributes on `main` when orchestration runs outside `main.py`.
 
 When adding new stage modules:
 
-1. Prefer adding a new stage helper and calling it from `main.py`.
-2. Keep old helper names as wrappers if tests or downstream scripts still import them.
-3. Add deprecation comments when wrappers are intended to be removed in a future release.
+1. Add a stage helper under `analysis/pipeline/` and invoke it from **`runner.run_pipeline`** (not from `main.py`).
+2. If tests must patch a callable, expose it on **`main`** for monkeypatch compatibility or patch `analysis.pipeline.stage_*` directly.
+3. Prefer **`from utils.pipeline_entry import run_pipeline`** in new automation scripts (same implementation as `main.run_pipeline`).
 
 ## How to add a new stage
 
@@ -40,7 +40,7 @@ When adding new stage modules:
 3. **Keep integrity checks near stage boundaries** and raise `ValueError` with clear messages.
 4. **Return `None` for recoverable failure modes** only when the caller has explicit handling.
 5. **Add targeted tests** in `tests/test_stage_<name>.py` for both success and failure paths.
-6. **Wire into `main.py`** with clear “Step N” comments and stop-after support if applicable.
+6. **Wire into `analysis/pipeline/runner.py`** (`run_pipeline`) with clear “Step N” comments and `stop_after` support if applicable.
 
 ## Performance checklist for staged code
 

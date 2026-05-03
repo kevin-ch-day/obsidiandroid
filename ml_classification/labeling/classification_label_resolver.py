@@ -12,6 +12,7 @@ from ml_classification.labeling.label_builder_wrapper import build_structured_la
 from ml_classification.labeling.label_postprocessor import summarize_prediction_results
 
 from utils import display_utils as du, export_manager
+from utils.runtime_paths import resolve_diagnostics_dir
 from config import app_config
 
 
@@ -226,14 +227,8 @@ def _extract_family_slug_from_label(label: Any) -> str:
 
 
 def _resolve_diagnostics_dir() -> Path:
-    """Resolve diagnostics directory for run-scoped label audits."""
-    runtime = str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "").strip()
-    if runtime:
-        path = Path(runtime)
-    else:
-        path = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output"))) / "diagnostics"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    """Resolve diagnostics directory for run-scoped label audits (same rules as pipeline stages)."""
+    return resolve_diagnostics_dir(ensure_exists=True)
 
 
 def _build_runtime_sample_metadata_map() -> pd.DataFrame:

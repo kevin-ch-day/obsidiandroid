@@ -72,8 +72,10 @@ def _build_split_cache_key(
         pd.util.hash_pandas_object(pd.Index(features_df.index).to_series(), index=False).sum()
     )
     label_hash = int(pd.util.hash_pandas_object(pd.Series(encoded_labels), index=False).sum())
-    # Ablation feature sets differ in column count; reusing the column dimension in the key
-    # would miss the split cache and produce different train/test sample_id sets per experiment.
+    # Ablation feature sets differ in column count; use n_features_key=0 so the **same**
+    # stratified train/test indices apply across vendor / permission / fused matrices.
+    # Cached ``X_train`` / ``X_test`` DataFrames must not be reused directly — only their
+    # indices — otherwise later experiments would train on the wrong feature columns.
     ablation_lock = bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
     n_features_key = 0 if ablation_lock else int(features_df.shape[1])
     return (
@@ -306,9 +308,19 @@ def train_model_factory(
             test_size=test_size,
             random_state=random_state,
         )
+        ablation_lock = bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
         cached_split = split_cache.get(split_cache_key)
         if cached_split is not None:
             X_train, X_test, y_train, y_test = cached_split
+            if ablation_lock:
+                try:
+                    X_train = features_df.loc[X_train.index]
+                    X_test = features_df.loc[X_test.index]
+                except KeyError as exc:
+                    raise RuntimeError(
+                        "[ABLATION] Split cache indices are missing from the current feature matrix; "
+                        "cannot align cached train/test rows to this feature set."
+                    ) from exc
             du.print_info("[SPLIT] Reusing cached train/test partition for model consistency.")
         else:
             if getattr(app_config, "AUTO_ADJUST_TRAIN_TEST_SPLIT", False):

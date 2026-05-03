@@ -454,7 +454,9 @@ def run_ablation_experiments(
         setattr(app_config, "ENABLE_CV_REBALANCING", False)
     setattr(app_config, "RUNTIME_QUIET_TRAINING", True)
     setattr(app_config, "RUNTIME_ABLATION_ACTIVE", True)
+    setattr(app_config, "RUNTIME_ABLATION_SCHEMA_AUDIT_ROWS", [])
 
+    schema_audit_snapshot: list[dict[str, Any]] = []
     try:
         for experiment_name, feature_df in experiment_matrices.items():
             try:
@@ -495,10 +497,35 @@ def run_ablation_experiments(
             finally:
                 setattr(app_config, "RUNTIME_EXPERIMENT_ID", "")
     finally:
+        raw_audit = getattr(app_config, "RUNTIME_ABLATION_SCHEMA_AUDIT_ROWS", None)
+        if isinstance(raw_audit, list):
+            schema_audit_snapshot = list(raw_audit)
         setattr(app_config, "ENABLE_CROSS_VALIDATION", previous_cv)
         setattr(app_config, "ENABLE_CV_REBALANCING", previous_cv_rebalance)
         setattr(app_config, "RUNTIME_QUIET_TRAINING", previous_quiet)
         setattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)
+        setattr(app_config, "RUNTIME_ABLATION_SCHEMA_AUDIT_ROWS", [])
+
+    audit_cols = [
+        "feature_set",
+        "model",
+        "fit_column_count",
+        "predict_column_count",
+        "missing_at_predict_count",
+        "extra_at_predict_count",
+        "status",
+    ]
+    audit_df = (
+        pd.DataFrame(schema_audit_snapshot)
+        if schema_audit_snapshot
+        else pd.DataFrame(columns=audit_cols)
+    )
+    if not audit_df.empty:
+        audit_df = audit_df.reindex(columns=audit_cols)
+    audit_path = _diagnostics_dir() / "ablation_feature_schema_audit.csv"
+    audit_df.to_csv(audit_path, index=False)
+    artifact_paths.append(str(audit_path))
+    du.print_info(f"[ABLATION] Feature schema audit: {audit_path}")
 
     if not summary_rows:
         return artifact_paths

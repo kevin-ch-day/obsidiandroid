@@ -4,7 +4,7 @@
 import pandas as pd
 from utils import display_utils as du
 
-EXPORT_TIER_DEBUG_PATH = "output\\detection_tier_assignment.xlsx"
+EXPORT_TIER_DEBUG_PATH = "output/detection_tier_assignment.xlsx"
 
 DETECTION_TIER_LABELS = [
     "Exceptional Detection",

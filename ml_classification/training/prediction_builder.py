@@ -7,6 +7,7 @@ from utils import display_utils as du
 from utils import model_exporter
 from ml_classification.ml_utils import ml_result_analyzer
 from . import model_prediction
+from . import feature_schema_audit
 from config import app_config
 
 
@@ -95,6 +96,25 @@ def run_predictions_and_compile_result(
                 f"[{model_type.upper()}] Label list is empty or missing."
             )
             return {}
+
+        schema_row = feature_schema_audit.build_ablation_schema_audit_row(
+            model=model,
+            model_type=model_type,
+            features_df=features_df,
+        )
+        feature_schema_audit.append_ablation_schema_audit_row(schema_row)
+        if bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)):
+            if not feature_schema_audit.schema_audit_passes(schema_row):
+                du.print_error(
+                    f"[ABLATION-SCHEMA] {model_type}: blocked full prediction/report "
+                    f"(status={schema_row.get('status')}). "
+                    f"fit_columns={schema_row.get('fit_column_count')} "
+                    f"predict_columns={schema_row.get('predict_column_count')} "
+                    f"missing_at_predict={schema_row.get('missing_at_predict_count')} "
+                    f"extra_at_predict={schema_row.get('extra_at_predict_count')}. "
+                    "Align prediction matrix columns to the fitted feature schema."
+                )
+                return {}
 
         preds, trues, decoded_labels, confidences = (
             model_prediction.predict_all_samples(

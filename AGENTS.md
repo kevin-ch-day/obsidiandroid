@@ -5,14 +5,17 @@ These notes apply to anyone editing this codebase (humans or automated agents).
 ## Project shape
 
 - Primary language: **Python 3** (see `requirements.txt` for dependencies).
-- Entry points include CLI/menu flows (`run.sh`, `utils/startup_menu.py`), analysis pipelines under `analysis/`, ML training under `ml_classification/`, and database access under `database/`.
+- **Pipeline entry:** `main.py` is the thin CLI shell; orchestration lives in `analysis/pipeline/runner.py` (`run_pipeline`). Tests may monkeypatch symbols on `main`; `analysis/pipeline/main_facade.py` bridges those patches into the runner. For scripts, `from utils.pipeline_entry import run_pipeline` is a stable alias. A short map of `stage_*` modules is in `analysis/pipeline/README.md`.
+- Other entry points: `run.sh` / `utils/startup_menu.py` (`obsidiandroid` console script), ML training under `ml_classification/`, database access under `database/`.
 - **MySQL 8+** is assumed for cohort SQL that uses window functions (`ROW_NUMBER()`, etc.); see `database/cohort_sql_fragments.py`.
+- **Database credentials:** `database/db_config.py` reads `OBSIDIAN_DB_*` environment variables; optional repo-root `.env` is loaded when `python-dotenv` is installed. For typed access in new code, use `database.settings.load_connection_settings()`. Before long runs or CI jobs that touch the DB, run `make preflight-db` or `python -m database.split_db_health`.
 
 ## Code style
 
 - Follow [PEP 8](https://peps.python.org/pep-0008/).
 - Prefer descriptive names and type hints where they clarify contracts.
 - Use **Google-style docstrings** for public modules, classes, and functions.
+- **Paths:** use forward slashes (`"output/diagnostics"`) or `pathlib.Path` / `os.path.join`. In Python, Windows-style backslashes in string literals (e.g. `"output\\diagnostics"`) are **not** a nested path on Linux or macOS — they create a single directory name containing a backslash, which is almost never what you want.
 
 ## Scope of changes
 
@@ -58,6 +61,7 @@ Use before releases or when changing behavior covered only by slow modules.
 ## Hygiene before commit
 
 - Run **`python clean_bytecode_cache.py`** (or `make clean`) to drop `__pycache__` and stray log artifacts where relevant.
+- When changing anything that hits MySQL, run **`make preflight-db`** (or `python -m database.split_db_health`) with valid `OBSIDIAN_DB_*` / `.env` settings.
 - Optionally run **`python run_ml_static_scan.py`** to catch accidental `.predict()` misuse in ML code.
 
 ## User-facing documentation

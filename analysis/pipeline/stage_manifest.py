@@ -45,6 +45,7 @@ from analysis.pipeline.manifest.paper_figure_renderers import (
     render_paper_type_heatmap_from_table as _render_paper_type_heatmap_from_table,
     render_pipeline_architecture_figure as _render_pipeline_architecture_figure,
 )
+from analysis.pipeline.manifest.paper_compliance_checks import build_paper_compliance_checks
 
 
 def _runtime_diagnostics_dir() -> Path:
@@ -319,7 +320,7 @@ def finalize_run_manifest_stage(
             except Exception:
                 taxonomy_type_rows_evaluated = 0
 
-        compliance_checks = _build_paper_compliance_checks(
+        compliance_checks = build_paper_compliance_checks(
             paper_mode=paper_mode,
             split_hash=split_hash,
             split_audit_path=str(split_meta.get("split_audit_path", "")),
@@ -952,145 +953,6 @@ def _write_run_artifact_index(
     except Exception as exc:
         du.print_warning(f"[SUMMARY] Failed to write run artifact index: {exc}")
         return None
-
-
-def _build_paper_compliance_checks(
-    *,
-    paper_mode: bool,
-    split_hash: str,
-    split_audit_path: str,
-    duplicate_report_path: str,
-    duplicate_count: int,
-    invalid_sha_count: int,
-    vendor_gate_debug_path: str,
-    run_paths_manifest_path: str,
-    experiment_registry_path: str,
-    taxonomy_summary_path: str,
-    taxonomy_type_rows_evaluated: int,
-) -> list[dict[str, Any]]:
-    """Build compliance check payload rows."""
-    checks: list[dict[str, Any]] = []
-    checks.append(
-        _check(
-            "split_hash_present",
-            bool(split_hash),
-            "fatal",
-            "split_hash missing",
-            artifacts.ArtifactKey.SPLIT_AUDIT_CSV,
-            "Ensure split audit exports before training.",
-            enabled=paper_mode,
-        )
-    )
-    checks.append(
-        _check(
-            "split_audit_exists",
-            bool(split_audit_path) and Path(split_audit_path).exists(),
-            "fatal",
-            "split audit artifact missing",
-            artifacts.ArtifactKey.SPLIT_AUDIT_CSV,
-            "Export split_freeze_audit_<run_id>.csv prior to training.",
-            enabled=paper_mode,
-        )
-    )
-    checks.append(
-        _check(
-            "duplicate_report_exists",
-            bool(duplicate_report_path) and Path(duplicate_report_path).exists(),
-            "fatal",
-            "duplicate sha report missing",
-            artifacts.ArtifactKey.DUPLICATE_SHA_REPORT_CSV,
-            "Run duplicate SHA audit after alignment.",
-            enabled=paper_mode,
-        )
-    )
-    checks.append(
-        _check(
-            "duplicate_sha_clean",
-            duplicate_count == 0 and invalid_sha_count == 0,
-            "fatal",
-            f"duplicate/invalid sha detected (dup={duplicate_count}, invalid={invalid_sha_count})",
-            artifacts.ArtifactKey.DUPLICATE_SHA_REPORT_CSV,
-            "Fix sample universe and rerun paper mode.",
-            enabled=paper_mode,
-        )
-    )
-    checks.append(
-        _check(
-            "vendor_gate_debug_exists",
-            bool(vendor_gate_debug_path) and Path(vendor_gate_debug_path).exists(),
-            "fatal",
-            "vendor gate debug artifact missing",
-            artifacts.ArtifactKey.VENDOR_GATE_DEBUG_CSV,
-            "Export vendor gate debug CSV from feature build stage.",
-            enabled=paper_mode,
-        )
-    )
-    checks.append(
-        _check(
-            "experiment_registry_exists",
-            Path(experiment_registry_path).exists(),
-            "fatal",
-            "experiment registry missing",
-            artifacts.ArtifactKey.EXPERIMENT_REGISTRY_JSON,
-            "Ensure registry write in finalize stage.",
-            enabled=paper_mode,
-        )
-    )
-    checks.append(
-        _check(
-            "run_paths_manifest_exists",
-            Path(run_paths_manifest_path).exists(),
-            "fatal",
-            "run paths manifest missing",
-            artifacts.ArtifactKey.RUN_PATHS_MANIFEST_JSON,
-            "Ensure manifest writer persists run_paths_manifest.",
-            enabled=paper_mode,
-        )
-    )
-    checks.append(
-        _check(
-            "taxonomy_type_audit_not_blind",
-            bool(taxonomy_summary_path)
-            and Path(taxonomy_summary_path).exists()
-            and int(taxonomy_type_rows_evaluated) > 0,
-            "fatal",
-            f"taxonomy type audit blind or missing (type_rows_evaluated={int(taxonomy_type_rows_evaluated)})",
-            artifacts.ArtifactKey.RUN_PATHS_MANIFEST_JSON,
-            "Ensure taxonomy audit has type_slug_expected coverage before finalizing paper run.",
-            enabled=paper_mode,
-        )
-    )
-    return checks
-
-
-def _check(
-    check_id: str,
-    passed: bool,
-    severity: str,
-    reason: str,
-    artifact_key: str,
-    remediation: str,
-    *,
-    enabled: bool,
-) -> dict[str, Any]:
-    """Build one compliance row."""
-    if not enabled:
-        return {
-            "check_id": check_id,
-            "status": "skipped",
-            "severity": severity,
-            "reason": "paper_mode disabled",
-            "artifact_key": artifact_key,
-            "remediation": "",
-        }
-    return {
-        "check_id": check_id,
-        "status": "pass" if passed else "fail",
-        "severity": severity,
-        "reason": "" if passed else reason,
-        "artifact_key": artifact_key,
-        "remediation": "" if passed else remediation,
-    }
 
 
 def _summarize_engine_lifecycle(

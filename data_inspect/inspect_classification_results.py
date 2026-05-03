@@ -11,7 +11,7 @@ def generate_classification_summary(
     report_path,
     model_path,
     metadata=None,
-    output_dir="output\\diagnostics",
+    output_dir="output/diagnostics",
     model_name="random_forest",
 ):
     # === PART 1: Summary Header - Results Overview ===

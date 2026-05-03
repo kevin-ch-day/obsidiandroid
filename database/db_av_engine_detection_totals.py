@@ -141,7 +141,7 @@ def get_engine_detection_totals(as_dataframe: bool = True) -> pd.DataFrame:
 
 def _export_engine_stats_query(query: str):
     try:
-        EXPORT_QUERY_PATH = "output\\engine_stats_query.txt"
+        EXPORT_QUERY_PATH = "output/engine_stats_query.txt"
         with open(EXPORT_QUERY_PATH, "w", encoding="utf-8") as f:
             f.write(query.strip())
 

@@ -34,17 +34,17 @@ This guide documents the day-to-day workflow for engineers extending ObsidianDro
 
 ## Working with the Staged Pipeline
 
-The runtime pipeline is now split into stage modules under `analysis/pipeline/`.
+Orchestration lives in **`analysis/pipeline/runner.py`** (`run_pipeline`). **`main.py`** only parses CLI flags and re-exports symbols for backward-compatible tests. Stage implementations stay under **`analysis/pipeline/stage_*.py`**.
 
-- Keep `main.py` orchestration-focused; add heavy logic in `stage_*.py` modules.
+- Add heavy logic in `stage_*.py` modules, not in `runner.py`.
 - Document stage entry/exit contracts in docstrings (input columns, required keys, and failure behavior).
-- Preserve wrapper compatibility in `main.py` when moving existing helpers to stage modules.
+- Scripts that need the full pipeline should use **`from utils.pipeline_entry import run_pipeline`** or **`from main import run_pipeline`**; avoid importing deep `stage_*` internals unless you are extending a stage.
 - Add focused unit tests per stage module (for example: `tests/test_stage_<name>.py`) for success and integrity-failure paths.
 - Use [`pipeline_staging_guide.md`](pipeline_staging_guide.md) as the primary extension checklist.
 
 ## Testing Expectations
 
-- Unit tests live under `tests/`; add coverage for new features and bug fixes.
+- Unit tests live under `tests/` (see [`tests/README.md`](../tests/README.md) for slow markers and layout); add coverage for new features and bug fixes.
 - Execute fast feedback commands before pushing:
   ```bash
   pytest -q
@@ -62,10 +62,11 @@ The runtime pipeline is now split into stage modules under `analysis/pipeline/`.
 
 ## Tooling Reference
 
-- **`scripts/rebuild_features.py`** – Regenerate feature matrices when schema changes.
-- **`scripts/backfill_labels.py`** – Recompute labels for historical samples after rule updates.
-- **`testing/` utilities** – Provide fixtures and synthetic datasets for isolated validation.
-- **`run_tests.sh`** – Aggregates test execution and linting for CI parity.
+- **`scripts/README.md`** – How to run operator scripts from the repo root and DB preflight expectations.
+- **`scripts/backfill_permission_trends_warehouse.py`** – Warehouse backfills when configured.
+- **`scripts/research/`** – Publication tables, evidence bundles, structural diagnostics.
+- **`testing/` utilities** – Fixtures and synthetic datasets for isolated validation.
+- **`run_tests.sh`** / **`Makefile`** – Fast (`make test`) and full (`make test-full`) pytest; **`make preflight-db`** checks MySQL connectivity (`database.split_db_health`).
 
 ## Release Checklist
 

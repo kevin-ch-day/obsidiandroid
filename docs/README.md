@@ -12,11 +12,12 @@ ObsidianDroid is an end-to-end framework for Android malware analysis, AV engine
 | [`user_guide.md`](user_guide.md) | Task-focused instructions for installing dependencies, configuring data sources, running jobs, and interpreting results. |
 | [`developer_guide.md`](developer_guide.md) | Workflows for contributors: environment setup, branching strategy, testing expectations, and release procedures. |
 | [`pipeline_staging_guide.md`](pipeline_staging_guide.md) | Stage-by-stage reference for the refactored pipeline modules and extension patterns. |
+| [`../analysis/pipeline/README.md`](../analysis/pipeline/README.md) | Quick index of `runner.py`, `stage_*` modules, and `manifest/` helpers. |
 | [`operations_playbook.md`](operations_playbook.md) | Runbooks and checklists for production support, monitoring, incident response, and change management. |
 
 ## Quick Facts
 
-- **Entry points:** `main.py` orchestrates staged helpers under `analysis/pipeline/stage_*.py`; `model_tuning.py` handles targeted hyperparameter sweeps; `scripts/` contains recurring maintenance utilities.
+- **Entry points:** `main.py` is the CLI shell; `analysis/pipeline/runner.py` runs `run_pipeline` and calls staged helpers under `analysis/pipeline/stage_*.py`. `model_tuning.py` handles targeted hyperparameter sweeps; `scripts/` contains recurring maintenance utilities.
 - **Configuration:** YAML/JSON files in `config/` control feature toggles, model parameters, and database credentials.
 - **Outputs:** Runtime artifacts (labels, evaluation metrics, feature matrices) are written under an `output/` directory that is created on demand.
 - **Testing:** Run `pytest -q` or `./run_tests.sh` before committing changes. Additional QA helpers live under `testing/`.

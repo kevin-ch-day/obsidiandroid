@@ -5,7 +5,7 @@ import os
 import pandas as pd
 from utils import display_utils as du
 
-EXPORT_PIPELINE_SNAPSHOT = "output\\av_pipeline_snapshot.xlsx"
+EXPORT_PIPELINE_SNAPSHOT = "output/av_pipeline_snapshot.xlsx"
 
 def inspect_av_pipeline_results(pipeline_results: dict):
     if not pipeline_results:

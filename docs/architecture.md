@@ -21,6 +21,8 @@ This document explains how ObsidianDroid ingests antivirus telemetry, computes r
 3. **Model training and inference** leverage estimators defined in `ml_classification/` using configuration from `config/`.
 4. **Evaluation and export** routines write canonical family labels, diagnostics, and artifacts under `output/`.
 
+**Run-scoped path snapshot:** `analysis/pipeline/run_bounds.py` exposes `PipelineRunBounds` (set at the end of profile + evidence-mode path setup in `runner.py`, cleared when the run finishes). New diagnostics helpers can use `get_pipeline_run_bounds()` instead of re-deriving paths from scattered `app_config` keys. **DB settings surface:** `database/settings.py` provides `load_connection_settings()` as a typed view of `database/db_config` for scripts and tooling.
+
 ## Pipeline Stages in Detail
 
 ### 1. Metadata Ingestion (`database/`)
@@ -55,8 +57,10 @@ Consult [`modeling_reference.md`](modeling_reference.md) for estimator-specific 
 - `model_params/` holds estimator-specific hyperparameters.
 - `thresholds.json` defines probability or consensus cutoffs used during final family selection.
 
-### 6. Execution Entrypoints (`main.py`, `model_tuning.py`, `scripts/`)
-- `main.py` orchestrates the pipeline in order: samples → AV pipeline → vendor metadata → engine weights → feature matrix → alignment → training → optional ablation → optional permission-trends report → label resolution → manifest.
+### 6. Execution Entrypoints (`main.py`, `analysis/pipeline/runner.py`, `scripts/`)
+- `main.py` is the **thin CLI entry**: argument parsing and stable symbols for tests (`run_pipeline`, diagnostics paths, and monkeypatch-friendly re-exports).
+- `analysis/pipeline/runner.py` holds **`run_pipeline`** orchestration (same stage order as before: samples → AV pipeline → vendor metadata → engine weights → feature matrix → alignment → training → optional ablation → optional permission-trends report → label resolution → manifest).
+- `analysis/pipeline/main_facade.py` exposes **`from_main_or()`** so pytest can patch attributes on `main` (for example `finalize_run_manifest_stage`) and have **`runner.run_pipeline`** observe those bindings despite living outside `main.py`.
 - `analysis/pipeline/stage_samples.py` loads cohorts and applies gates; `stage_av_vendor.py` runs AV analysis, vendor extraction, and alignment; `stage_modeling.py` covers weights, feature matrix, training, and label resolution.
 - `analysis/pipeline/stage_permission_trends_report.py` produces permission analytics (helpers under `analysis/pipeline/permission_trends/`). `stage_manifest.py` writes the run manifest and paper/evidence exports.
 - `stage_results_warehouse.py` persists selected outputs when configured.

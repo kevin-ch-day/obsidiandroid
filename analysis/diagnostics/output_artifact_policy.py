@@ -153,6 +153,16 @@ def _init_rules() -> None:
                 description="Ablation cohort alignment audit.",
             ),
             _rule(
+                "**/ablation_feature_schema_audit.csv",
+                bucket="diagnostics_required",
+                producer="analysis.pipeline.stage_ablation",
+                run_scoped=True,
+                paper_required=False,
+                safe_delete_after_run=False,
+                duplicate_latest=False,
+                description="Ablation fit vs predict feature column audit.",
+            ),
+            _rule(
                 "**/feature_build_coverage*.json",
                 bucket="diagnostics_required",
                 producer="analysis.diagnostics.feature_build_coverage_export",

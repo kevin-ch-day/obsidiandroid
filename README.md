@@ -19,7 +19,7 @@
 
 ## Pipeline Overview
 
-The core workflow (`main.py`) executes these key steps:
+The core workflow (`main.py` → `analysis/pipeline/runner.py`) executes these key steps:
 
 1. **Load Sample Metadata** from a configured MySQL database. Connection defaults and environment overrides are defined in `database/db_config.py` (primary Erebus DB plus the Permission Intel DB; see [Configuration](#configuration) below).
 2. **Run AV Engine Analysis** via `analysis/` parsers to collect and normalize vendor labels.
@@ -45,7 +45,7 @@ ObsidianDroid/
 ├── ml_classification/      # Model training, validation, and comparison
 ├── utils/                  # Reusable utilities and exporters
 ├── testing/                # Synthetic data fuzzers, static scan helpers
-├── main.py                 # Main entry point for the full pipeline
+├── main.py                 # CLI entry (orchestration in `analysis/pipeline/runner.py`)
 ├── setup.sh                # Fedora virtual environment setup
 ├── run.sh                  # Fedora startup menu launcher
 ├── run_ml_static_scan.py   # Checks for accidental .predict() misuse in code
