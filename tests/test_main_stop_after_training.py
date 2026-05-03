@@ -75,8 +75,16 @@ def test_stop_after_training_skips_ablation_and_permission_trends(
         "extract_vendor_metadata_stage",
         lambda **_kwargs: (pd.DataFrame({"Vendor": ["v1"]}), {"v1": []}, {}, pd.DataFrame({"Final ML Score": [0.1]})),
     )
-    monkeypatch.setattr(main, "compute_engine_weights", lambda _results: pd.DataFrame({"Leakage Safe Score": [0.5]}))
-    monkeypatch.setattr(main, "generate_feature_matrix", lambda *_args, **_kwargs: feature_df.copy())
+    monkeypatch.setattr(
+        main,
+        "compute_engine_weights_from_pipeline",
+        lambda _results: pd.DataFrame({"Leakage Safe Score": [0.5]}),
+    )
+    monkeypatch.setattr(
+        main,
+        "build_feature_matrix_stage",
+        lambda *_args, **_kwargs: feature_df.copy(),
+    )
     monkeypatch.setattr(
         main,
         "run_feature_alignment_stage",
@@ -104,7 +112,7 @@ def test_stop_after_training_skips_ablation_and_permission_trends(
         lambda **_kwargs: None,
     )
     monkeypatch.setattr(main.family_distribution_report, "print_family_distribution_stats", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(main, "_finalize_run_manifest", lambda **_kwargs: 0)
+    monkeypatch.setattr(main, "finalize_run_manifest_stage", lambda **_kwargs: 0)
 
     calls = {"ablation": 0, "permission": 0}
     monkeypatch.setattr(
@@ -190,8 +198,16 @@ def test_stop_after_ablation_skips_permission_trends(
         "extract_vendor_metadata_stage",
         lambda **_kwargs: (pd.DataFrame({"Vendor": ["v1"]}), {"v1": []}, {}, pd.DataFrame({"Final ML Score": [0.1]})),
     )
-    monkeypatch.setattr(main, "compute_engine_weights", lambda _results: pd.DataFrame({"Leakage Safe Score": [0.5]}))
-    monkeypatch.setattr(main, "generate_feature_matrix", lambda *_args, **_kwargs: feature_df.copy())
+    monkeypatch.setattr(
+        main,
+        "compute_engine_weights_from_pipeline",
+        lambda _results: pd.DataFrame({"Leakage Safe Score": [0.5]}),
+    )
+    monkeypatch.setattr(
+        main,
+        "build_feature_matrix_stage",
+        lambda *_args, **_kwargs: feature_df.copy(),
+    )
     monkeypatch.setattr(
         main,
         "run_feature_alignment_stage",
@@ -219,7 +235,7 @@ def test_stop_after_ablation_skips_permission_trends(
         lambda **_kwargs: None,
     )
     monkeypatch.setattr(main.family_distribution_report, "print_family_distribution_stats", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(main, "_finalize_run_manifest", lambda **_kwargs: 0)
+    monkeypatch.setattr(main, "finalize_run_manifest_stage", lambda **_kwargs: 0)
 
     calls = {"ablation": 0, "permission": 0}
     monkeypatch.setattr(
@@ -305,8 +321,16 @@ def test_stop_after_label_resolution_with_stage_disabled(
         "extract_vendor_metadata_stage",
         lambda **_kwargs: (pd.DataFrame({"Vendor": ["v1"]}), {"v1": []}, {}, pd.DataFrame({"Final ML Score": [0.1]})),
     )
-    monkeypatch.setattr(main, "compute_engine_weights", lambda _results: pd.DataFrame({"Leakage Safe Score": [0.5]}))
-    monkeypatch.setattr(main, "generate_feature_matrix", lambda *_args, **_kwargs: feature_df.copy())
+    monkeypatch.setattr(
+        main,
+        "compute_engine_weights_from_pipeline",
+        lambda _results: pd.DataFrame({"Leakage Safe Score": [0.5]}),
+    )
+    monkeypatch.setattr(
+        main,
+        "build_feature_matrix_stage",
+        lambda *_args, **_kwargs: feature_df.copy(),
+    )
     monkeypatch.setattr(
         main,
         "run_feature_alignment_stage",
@@ -334,12 +358,12 @@ def test_stop_after_label_resolution_with_stage_disabled(
         lambda **_kwargs: None,
     )
     monkeypatch.setattr(main.family_distribution_report, "print_family_distribution_stats", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(main, "_finalize_run_manifest", lambda **_kwargs: 0)
+    monkeypatch.setattr(main, "finalize_run_manifest_stage", lambda **_kwargs: 0)
 
     calls = {"label_resolution": 0}
     monkeypatch.setattr(
         main,
-        "resolve_final_labels",
+        "resolve_final_labels_stage",
         lambda *_args, **_kwargs: calls.__setitem__("label_resolution", calls["label_resolution"] + 1) or None,
     )
 

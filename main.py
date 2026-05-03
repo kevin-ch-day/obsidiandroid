@@ -59,16 +59,6 @@ from analysis.orchestration.methodology_artifacts import (
     export_leakage_assessment,
     export_modality_method_contract,
 )
-from analysis.orchestration.metadata_features import (
-    build_metadata_feature_frame,
-    extract_vt_tag_count,
-)
-from analysis.orchestration.profile_filters import (
-    apply_dataset_filters,
-    split_benign_malicious,
-    summarize_dataset_partitions,
-    export_cohort_filter_summary,
-)
 from analysis.orchestration.runtime_reporting import (
     apply_confusion_matrix_policy as _apply_confusion_matrix_policy,
     build_run_summary_payload as _build_run_summary_payload,
@@ -86,7 +76,6 @@ from database.db_sample_metadata_contracts import get_query_contract_metadata
 
 # Default diagnostics path derived from app configuration
 DIAGNOSTICS_DIR = os.path.join(app_config.DEFAULT_OUTPUT_DIR, "diagnostics")
-COHORT_FILTER_SUMMARY_PATH = Path(DIAGNOSTICS_DIR) / "analysis_snapshot_filter_summary.latest.csv"
 # Keep legacy module constant for backward compatibility; use runtime-resolved
 # path inside run_pipeline for paper-mode routing.
 PARSER_QUALITY_PATH = Path(DIAGNOSTICS_DIR) / "parser_quality.latest.csv"
@@ -141,85 +130,6 @@ class _ScopedArtifactList(list[str]):
 class _PipelineStageFailure(RuntimeError):
     """Expected pipeline-stage failure that should finalize cleanly."""
 
-# -------------------------------------------------------------------
-# Backward-compatible wrappers (retain these so older imports/tests survive)
-# -------------------------------------------------------------------
-
-def compute_engine_weights(pipeline_results: dict) -> Optional[pd.DataFrame]:
-    """Backward-compatible wrapper for engine weight computation stage."""
-    return compute_engine_weights_from_pipeline(pipeline_results)
-
-
-def generate_feature_matrix(
-    weights_df: pd.DataFrame,
-    vendor_data: dict,
-    extra_features: pd.DataFrame | None = None,
-) -> Optional[pd.DataFrame]:
-    """Backward-compatible wrapper for feature matrix stage."""
-    try:
-        return build_feature_matrix_stage(weights_df, vendor_data, extra_features)
-    except Exception as e:
-        du.print_error(f"[ERROR] Feature matrix generation failed: {e}")
-        return None
-
-
-def resolve_final_labels(vendor_records: dict, model_output: dict) -> Optional[pd.DataFrame]:
-    """Backward-compatible wrapper for final label resolution stage."""
-    return resolve_final_labels_stage(vendor_records, model_output)
-
-
-def _extract_vt_tag_count(value: object) -> int:
-    """Backward-compatible wrapper for VT tag count parsing."""
-    return extract_vt_tag_count(value)
-
-
-def _build_metadata_feature_frame(samples_df: pd.DataFrame) -> pd.DataFrame:
-    """Backward-compatible wrapper for metadata feature construction."""
-    return build_metadata_feature_frame(samples_df)
-
-
-def _split_benign_malicious(samples_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Backward-compatible wrapper for profile partition splitting."""
-    return split_benign_malicious(samples_df)
-
-
-def _summarize_dataset_partitions(
-    source_df: pd.DataFrame,
-    output_df: pd.DataFrame,
-    benign_df: pd.DataFrame,
-    malicious_df: pd.DataFrame,
-    mode: str,
-    benign_ratio_target: float | None = None,
-) -> dict[str, Any]:
-    """Backward-compatible wrapper for partition diagnostics."""
-    return summarize_dataset_partitions(
-        source_df=source_df,
-        output_df=output_df,
-        benign_df=benign_df,
-        malicious_df=malicious_df,
-        mode=mode,
-        benign_ratio_target=benign_ratio_target,
-    )
-
-
-def _export_cohort_filter_summary(summary: dict[str, Any], run_id: str, profile_id: str) -> str:
-    """Backward-compatible wrapper for analysis snapshot filter summary export."""
-    return export_cohort_filter_summary(
-        summary=summary,
-        run_id=run_id,
-        profile_id=profile_id,
-        output_path=COHORT_FILTER_SUMMARY_PATH,
-    )
-
-
-def _apply_dataset_filters(samples_df: pd.DataFrame, profile: dict[str, Any]) -> pd.DataFrame:
-    """Backward-compatible wrapper for dataset profile filtering."""
-    return apply_dataset_filters(samples_df=samples_df, profile=profile)
-
-
-# -------------------------------------------------------------------
-# Pipeline
-# -------------------------------------------------------------------
 
 def run_pipeline(
     selected_models: Optional[Sequence[str]] = None,
@@ -374,7 +284,7 @@ def run_pipeline(
         """Finalize run manifest and record manifest stage timing."""
         stage_started = perf_counter()
         _attach_runtime_timing_context()
-        result = _finalize_run_manifest(
+        result = finalize_run_manifest_stage(
             manifest_context=manifest_context,
             profile=profile,
             samples_df=samples_df,
@@ -382,6 +292,8 @@ def run_pipeline(
             vendor_eval_df=vendor_eval,
             artifact_list=artifact_list,
         )
+        if result != 0:
+            du.print_error("[INTEGRITY] Run manifest write failure.")
         _record_stage_timing("manifest", stage_started)
         _attach_runtime_timing_context()
         return result
@@ -701,7 +613,7 @@ def run_pipeline(
             stop_after=stop_after,
             selected_models=model_list,
         )
-        weights_df = compute_engine_weights(pipeline_results)
+        weights_df = compute_engine_weights_from_pipeline(pipeline_results)
         _record_stage_timing("engine_weights", stage_started_at)
         if weights_df is None or weights_df.empty:
             _fail_pipeline("[PIPELINE] Engine weight computation failed.")
@@ -739,7 +651,11 @@ def run_pipeline(
             permission_features_df=permission_features_df,
         )
 
-        feature_df = generate_feature_matrix(weights_df, parsed_data, extra_features_df)
+        try:
+            feature_df = build_feature_matrix_stage(weights_df, parsed_data, extra_features_df)
+        except Exception as e:
+            du.print_error(f"[ERROR] Feature matrix generation failed: {e}")
+            feature_df = None
         manifest_context["permission_enrichment_degraded"] = bool(
             getattr(app_config, "RUNTIME_PERMISSION_ENRICHMENT_DEGRADED", False)
         )
@@ -975,7 +891,7 @@ def run_pipeline(
                 stop_after=stop_after,
                 selected_models=model_list,
             )
-            df_labels = resolve_final_labels(vendor_records, model_results)
+            df_labels = resolve_final_labels_stage(vendor_records, model_results)
             _record_stage_timing("label_resolution", stage_started_at)
             if df_labels is not None:
                 du.print_info(f"[PIPELINE] Final labels generated: {len(df_labels)} samples")
@@ -1073,28 +989,6 @@ def run_pipeline(
             except Exception:
                 pass
         DIAGNOSTICS_DIR = original_diagnostics_dir
-
-
-def _finalize_run_manifest(
-    manifest_context: dict,
-    profile: dict,
-    samples_df: pd.DataFrame | None,
-    pipeline_results: dict | None,
-    vendor_eval_df: pd.DataFrame | None,
-    artifact_list: list[str],
-) -> int:
-    """Backward-compatible wrapper for run-manifest finalization stage."""
-    result_code = finalize_run_manifest_stage(
-        manifest_context=manifest_context,
-        profile=profile,
-        samples_df=samples_df,
-        pipeline_results=pipeline_results,
-        vendor_eval_df=vendor_eval_df,
-        artifact_list=artifact_list,
-    )
-    if result_code != 0:
-        du.print_error("[INTEGRITY] Run manifest write failure.")
-    return result_code
 
 
 def main() -> int:

@@ -160,30 +160,6 @@ def test_zip_bundle_for_permission_trends_module_root_uses_bundle_name(tmp_path:
     assert Path(zip_path).exists()
 
 
-def test_publish_paper_exports_from_bundle_is_deprecated_noop(tmp_path: Path, monkeypatch):
-    """Legacy bundle->paper_exports mirror path should be a no-op."""
-    output_root = tmp_path / "output"
-    bundle_dir = output_root / "runs" / "r1" / "bundles" / "permission_trends"
-    (bundle_dir / "figures").mkdir(parents=True, exist_ok=True)
-    (bundle_dir / "tables").mkdir(parents=True, exist_ok=True)
-    (bundle_dir / "docs").mkdir(parents=True, exist_ok=True)
-    (bundle_dir / "figures" / "type_permission_heatmap.latest.png").write_bytes(b"png")
-    (bundle_dir / "figures" / "type_permission_heatmap_dangerous_only.latest.png").write_bytes(b"png")
-    (bundle_dir / "figures" / "banker_enrichment_top15.latest.png").write_bytes(b"png")
-    (bundle_dir / "tables" / "family_jsd_matrix_topN.latest.csv").write_text("a,b\n1,2\n", encoding="utf-8")
-    (bundle_dir / "docs" / "safe_claims.latest.txt").write_text("ok\n", encoding="utf-8")
-    monkeypatch.setattr(report_stage.app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
-
-    exported = report_stage._publish_paper_exports_from_bundle(  # pylint: disable=protected-access
-        run_id="r1",
-        bundle_dir=bundle_dir,
-    )
-
-    paper_dir = output_root / "runs" / "r1" / "paper_exports"
-    assert exported == []
-    assert not paper_dir.exists()
-
-
 def test_sample_level_permission_metrics_inclusive_counts_unknown():
     sample_core_df = pd.DataFrame({"sample_id": [1, 2]})
     permission_rows_df = pd.DataFrame(

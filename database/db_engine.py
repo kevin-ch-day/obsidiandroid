@@ -271,13 +271,46 @@ def execute_delete(table: str, condition_column: str, condition_value):
 
 
 # === Table Metadata Utility === #
-def get_table_columns(table_name: str) -> list:
+def _show_columns_statement(table_name: str) -> tuple[str, bool]:
+    """Build ``SHOW COLUMNS FROM ...`` SQL and whether it targets Permission Intel.
+
+    ``android_permission_*`` live tables exist only in Permission Intel after the
+    post-quarantine split; routing avoids silent failures when primary has no
+    matching table.
+
+    Args:
+        table_name: Unqualified name, or ``schema`.`table`` with schema matching
+            ``PERMISSION_INTEL_DB_NAME`` for PI tables.
+
+    Returns:
+        ``(sql, use_permission_intel_executor)``
     """
-    Return a list of column names for the given table.
+    raw = str(table_name).strip().strip("`")
+    if "." in raw:
+        schema_part, base_part = raw.rsplit(".", 1)
+        schema = schema_part.strip().strip("`")
+        base = base_part.strip().strip("`")
+        qualified = f"`{schema}`.`{base}`"
+        sql = f"SHOW COLUMNS FROM {qualified}"
+        pi = base.startswith("android_permission_") and schema == PERMISSION_INTEL_DB_NAME
+        return sql, pi
+    base = raw
+    if base.startswith("android_permission_"):
+        qualified = f"`{PERMISSION_INTEL_DB_NAME}`.`{base}`"
+        return f"SHOW COLUMNS FROM {qualified}", True
+    return f"SHOW COLUMNS FROM `{base}`", False
+
+
+def get_table_columns(table_name: str) -> list:
+    """Return column names for *table_name*.
+
+    Tables whose base name starts with ``android_permission_`` are inspected on
+    the Permission Intel database; other tables use the primary database.
     """
     try:
-        query = f"SHOW COLUMNS FROM `{table_name}`"
-        rows = execute_query(query, fetch=True)
+        query, use_pi = _show_columns_statement(table_name)
+        runner = execute_permission_query if use_pi else execute_query
+        rows = runner(query, fetch=True)
         return [row[0] for row in rows]
     except Exception as e:
         if getattr(app_config, "ENABLE_DB_LOGGING", True):

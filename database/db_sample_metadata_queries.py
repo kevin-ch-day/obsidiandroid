@@ -3,20 +3,16 @@
 from __future__ import annotations
 
 import pandas as pd
-import warnings
 from config import app_config
 
 from utils import display_utils as du
 from database.db_sample_metadata_contracts import (
-    BANKING_TROJAN_FAMILIES,
     SUPPORTED_ANDROID_TYPE_SLUGS,
     convert_to_dataframe,
     get_supported_android_type_slugs,
 )
 from database.db_sample_metadata_fetchers import (
     fetch_available_android_type_slugs,
-    fetch_all_android_malware,
-    fetch_android_malware_with_min_family_samples,
     fetch_sample_metadata,
     fetch_samples_by_type,
     get_type_cohort_gate_stats,
@@ -56,17 +52,6 @@ def _allowed_type_slugs() -> tuple[str, ...]:
 
     _DB_TYPE_SLUG_CACHE = db_slugs
     return db_slugs
-
-
-def load_banking_trojan_dataframe() -> pd.DataFrame:
-    """Load banker-type Android samples (legacy compatibility wrapper)."""
-    warnings.warn(
-        "load_banking_trojan_dataframe() is deprecated; use "
-        "load_samples_by_type(type_slug='banker', ...) instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return load_banker_dataframe()
 
 
 def _validate_type_slug(type_slug: str | None) -> None:
@@ -182,36 +167,6 @@ def load_spyware_dataframe(**kwargs) -> pd.DataFrame:
 def load_unknown_type_dataframe(**kwargs) -> pd.DataFrame:
     """Load unknown-type samples using the canonical type-aware query path."""
     return load_samples_by_type(type_slug="unknown", **kwargs)
-
-
-def load_all_android_malware_dataframe() -> pd.DataFrame:
-    """Load all Android malware samples as a DataFrame (deprecated wrapper)."""
-    warnings.warn(
-        "load_all_android_malware_dataframe() is deprecated; use "
-        "load_samples_by_type(type_slug=None, ...) instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    du.print_header("Loading All Android Malware Samples")
-    result = fetch_all_android_malware(as_dataframe=False)
-    return convert_to_dataframe(result, "AllAndroidMalware")
-
-
-def load_android_malware_with_min_family_samples(min_count: int = 3) -> pd.DataFrame:
-    """Load Android malware samples with minimum per-family support (deprecated)."""
-    warnings.warn(
-        "load_android_malware_with_min_family_samples() is deprecated; use "
-        "load_samples_by_type(type_slug='<canonical-slug>', min_samples_per_family=...) "
-        "for type-scoped cohorts.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    du.print_header(f"Loading Android Malware with ≥{min_count} Samples per Family")
-    result = fetch_android_malware_with_min_family_samples(
-        min_count=min_count,
-        as_dataframe=False,
-    )
-    return convert_to_dataframe(result, "MinFamilySamples")
 
 
 def load_sample_metadata_dataframe(sample_id) -> pd.DataFrame:

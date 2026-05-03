@@ -312,11 +312,19 @@ def train_model_factory(
                     min_test_per_class=getattr(app_config, "MIN_TEST_SAMPLES_PER_CLASS", 1),
                 )
             else:
+                label_counts = Counter(encoded_labels)
+                min_support = min(label_counts.values()) if label_counts else 0
+                stratify_y = encoded_labels if min_support >= 2 else None
+                if stratify_y is None and len(label_counts) > 1:
+                    du.print_warning(
+                        "[SPLIT] Stratification disabled: at least one class has fewer than 2 "
+                        "samples (sklearn stratified split requirement). Using a random split."
+                    )
                 X_train, X_test, y_train, y_test = train_test_split(
                     features_df,
                     encoded_labels,
                     test_size=test_size,
-                    stratify=encoded_labels,
+                    stratify=stratify_y,
                     random_state=random_state,
                 )
             if len(split_cache) >= 8:

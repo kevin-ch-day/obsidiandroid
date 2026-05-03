@@ -32,6 +32,25 @@ from analysis.pipeline.permission_trends_selection import (
 )
 from utils.hash_utils import hash_payload
 
+from analysis.pipeline.permission_trends.bundle_manifest import (
+    export_permission_trends_bundle_manifest as _export_permission_trends_bundle_manifest,
+    export_permission_trends_table_inventory_from_manifest as _export_permission_trends_table_inventory_from_manifest,
+    resolve_bundle_artifact_dir as _resolve_bundle_artifact_dir,
+)
+from analysis.pipeline.permission_trends.publish_paths import (
+    compute_cohort_hash as _compute_cohort_hash,
+    compute_permission_feature_hash as _compute_permission_feature_hash,
+    prune_run_stamped_pngs_in_latest_bundle as _prune_run_stamped_pngs_in_latest_bundle,
+    publish_canonical_type_heatmap as _publish_canonical_type_heatmap,
+    resolve_run_root_for_run_id as _resolve_run_root_for_run_id,
+)
+from analysis.pipeline.permission_trends.reporting_support import (
+    compact_permission_label as _compact_permission_label,
+    handle_reporting_exception as _handle_reporting_exception,
+    read_dataset_time_contract as _read_dataset_time_contract,
+    read_snapshot_meta as _read_snapshot_meta,
+    write_run_scoped_permission_artifacts as _write_run_scoped_permission_artifacts,
+)
 from analysis.pipeline.permission_trends.constants import (
     ARTIFACT_GROUP_CONTRACTS,
     ARTIFACT_GROUP_DOCS,
@@ -39,10 +58,8 @@ from analysis.pipeline.permission_trends.constants import (
     ARTIFACT_GROUP_TABLES,
     BUNDLE_CONTRACT_NAME,
     BUNDLE_CONTRACT_VERSION,
-    COMMON_PERMISSIONS,
     PERMISSION_ALIAS_MAP,
     PERMISSION_ALIAS_MAP_VERSION,
-    PERMISSION_PREFIX,
     PRIMARY_PERMISSION_VIEW,
     ReportArtifacts,
     RUN_SUFFIX_PNG_PATTERN,
@@ -107,6 +124,7 @@ def run_permission_trends_report_stage(
     feature_df: pd.DataFrame | None = None,
 ) -> list[str]:
     """Generate report artifacts for permission trends and classification patterns."""
+    _ = permission_features_df  # Optional ML-side matrix; reports use DB aggregates today.
     if not isinstance(samples_df, pd.DataFrame) or samples_df.empty:
         return []
 
@@ -3114,320 +3132,8 @@ def _export_permission_trends_bundle_readme(run_id: str, bundle_dir: Path) -> st
     return str(readme_path)
 
 
-def _canonical_bundle_artifact_id_from_path(path: Path, *, category: str) -> str:
-    """Derive canonical artifact id from bundle path."""
-    stem = str(path.stem)
-    if stem.endswith(".latest"):
-        stem = stem[: -len(".latest")]
-
-    aliases = {
-        "dangerous_distribution_by_type": "dangerous_permission_distribution_by_type",
-        "family_jsd_matrix": "family_jsd_matrix",
-        "permission_coverage_report": "permission_coverage_report",
-        "permission_discriminability_rank": "permission_discriminability_rank",
-        "type_permission_prevalence": "type_permission_prevalence",
-        "type_permission_entropy": "type_permission_entropy",
-        "type_permission_heatmap": "type_permission_heatmap",
-    }
-    for key, value in aliases.items():
-        if stem == key:
-            stem = value
-            break
-    # Ensure canonical IDs are globally unique across categories.
-    if category == "contract":
-        if stem == "permission_alias_map":
-            suffix = str(path.suffix).lower()
-            if suffix == ".csv":
-                return "permission_alias_map_csv"
-            if suffix == ".json":
-                return "permission_alias_map_json"
-    if category == "doc" and stem == "consensus_correlation_report":
-        return "consensus_correlation_report_doc"
-    return stem
-
-
-def _infer_bundle_artifact_parameters(
-    artifact_id: str,
-    *,
-    top_families_visual: int,
-    min_visual_family_support: int,
-    top_permissions: int,
-) -> dict[str, Any]:
-    """Infer parameter payload for bundle artifact manifest entry."""
-    params: dict[str, Any] = {}
-    if "top" in artifact_id and "family" in artifact_id:
-        params["top_families_visual"] = int(top_families_visual)
-        params["min_visual_family_support"] = int(min_visual_family_support)
-    if "type_permission_heatmap" in artifact_id or "discriminative" in artifact_id:
-        params["top_permissions"] = int(top_permissions)
-    return params
-
-
-def _bundle_artifact_role(artifact_id: str, category: str) -> tuple[str, bool]:
-    """Classify bundle artifact role for audit/readability."""
-    primary_ids = {
-        "type_permission_prevalence",
-        "type_permission_entropy",
-        "permission_discriminability_rank",
-        "dangerous_permission_distribution_by_type",
-        "dangerous_stats_tests",
-        "family_support_distribution",
-        "permission_coverage_report",
-    }
-    if artifact_id.startswith("family_permission_profiles_top"):
-        return "primary_structural", True
-    if artifact_id.startswith("family_permission_entropy_top"):
-        return "primary_structural", True
-    if artifact_id.startswith("family_jsd_matrix_top"):
-        return "primary_structural", True
-    if artifact_id.startswith("family_jsd_pairs_top"):
-        return "primary_structural", True
-    if artifact_id in primary_ids:
-        return "primary_structural", True
-    if category == "table" and artifact_id in {
-        "misclassified_samples_by_type",
-        "per_family_performance_spread",
-        "permission_anomaly_samples",
-        "confusion_within_vs_cross_type",
-    }:
-        return "diagnostic_table", False
-    if category == "table":
-        return "auxiliary_table", False
-    if category == "figure":
-        return "auxiliary_figure", False
-    if category == "doc":
-        return "bundle_documentation", False
-    return "bundle_contract", False
-
-
-def _bundle_table_policy(artifact_id: str) -> dict[str, Any]:
-    """Return table governance metadata for bundle inventory/audit."""
-    primary_structural = {
-        "type_permission_prevalence",
-        "type_permission_entropy",
-        "permission_discriminability_rank",
-        "dangerous_permission_distribution_by_type",
-        "dangerous_stats_tests",
-        "family_support_distribution",
-        "permission_coverage_report",
-    }
-    auxiliary_structural = {
-        "consensus_distribution",
-        "consensus_correlation_report",
-        "generic_definition_audit",
-        "generic_vs_non_generic_summary",
-    }
-    diagnostic_tables = {
-        "misclassified_samples_by_type",
-        "per_family_performance_spread",
-        "permission_anomaly_samples",
-        "confusion_within_vs_cross_type",
-    }
-    if artifact_id.startswith("family_permission_profiles_top"):
-        return {
-            "used_by": "bundle_only,paper",
-            "keep_in_permission_trends": "yes",
-            "target_location": "bundles/permission_trends/tables",
-            "needs_latex_export": "no",
-            "notes": "Core family profile table.",
-        }
-    if artifact_id.startswith("family_permission_entropy_top"):
-        return {
-            "used_by": "bundle_only,paper",
-            "keep_in_permission_trends": "yes",
-            "target_location": "bundles/permission_trends/tables",
-            "needs_latex_export": "no",
-            "notes": "Core family entropy table.",
-        }
-    if artifact_id.startswith("family_jsd_matrix_top"):
-        return {
-            "used_by": "bundle_only,paper_render",
-            "keep_in_permission_trends": "yes",
-            "target_location": "bundles/permission_trends/tables",
-            "needs_latex_export": "no",
-            "notes": "Matrix-form render/input artifact.",
-        }
-    if artifact_id.startswith("family_jsd_pairs_top"):
-        return {
-            "used_by": "paper,freeze,bundle_only",
-            "keep_in_permission_trends": "yes",
-            "target_location": "bundles/permission_trends/tables",
-            "needs_latex_export": "no",
-            "notes": "Compact pair verification artifact (audit canonical).",
-        }
-    if artifact_id in primary_structural:
-        return {
-            "used_by": "paper,bundle_only,backfill",
-            "keep_in_permission_trends": "yes",
-            "target_location": "bundles/permission_trends/tables",
-            "needs_latex_export": "yes" if artifact_id in {"dangerous_permission_distribution_by_type", "dangerous_stats_tests", "family_support_distribution"} else "no",
-            "notes": "Primary structural table.",
-        }
-    if artifact_id in auxiliary_structural:
-        return {
-            "used_by": "bundle_only,backfill",
-            "keep_in_permission_trends": "yes",
-            "target_location": "bundles/permission_trends/tables",
-            "needs_latex_export": "no",
-            "notes": "Auxiliary/supporting analysis table.",
-        }
-    if artifact_id in diagnostic_tables:
-        return {
-            "used_by": "diagnostic_only",
-            "keep_in_permission_trends": "no",
-            "target_location": "diagnostics",
-            "needs_latex_export": "no",
-            "notes": "Diagnostic table; should not live in core bundle tables.",
-        }
-    return {
-        "used_by": "bundle_only",
-        "keep_in_permission_trends": "yes",
-        "target_location": "bundles/permission_trends/tables",
-        "needs_latex_export": "no",
-        "notes": "Unclassified table; review needed.",
-    }
-
-
-def _bundle_artifact_schema_version(category: str) -> str:
-    """Return current schema version tag for bundle artifact categories."""
-    if category == "table":
-        return "table_schema_v1"
-    if category == "figure":
-        return "figure_schema_v1"
-    if category == "doc":
-        return "doc_schema_v1"
-    return "contract_schema_v1"
-
-
-def _export_permission_trends_bundle_manifest(
-    *,
-    run_id: str,
-    bundle_dir: Path,
-    top_families_visual: int,
-    min_visual_family_support: int,
-    top_permissions: int,
-    artifact_paths: list[str],
-) -> str:
-    """Export machine-readable manifest for permission_trends bundle contents."""
-    entries: list[dict[str, Any]] = []
-    seen_relative: set[str] = set()
-    for raw_path in artifact_paths:
-        if not raw_path:
-            continue
-        path = Path(str(raw_path))
-        if not path.exists():
-            continue
-        try:
-            rel = path.resolve().relative_to(bundle_dir.resolve())
-        except Exception:
-            continue
-        if len(rel.parts) < 2:
-            continue
-        category = str(rel.parts[0]).strip().lower()
-        if category not in {ARTIFACT_GROUP_CONTRACTS, ARTIFACT_GROUP_DOCS, ARTIFACT_GROUP_FIGURES, ARTIFACT_GROUP_TABLES}:
-            continue
-        normalized_category = "contract" if category == ARTIFACT_GROUP_CONTRACTS else category[:-1]
-        artifact_id = _canonical_bundle_artifact_id_from_path(path, category=normalized_category)
-        rel_norm = str(rel).replace("\\", "/")
-        if rel_norm in seen_relative:
-            continue
-        seen_relative.add(rel_norm)
-        role, is_primary = _bundle_artifact_role(
-            artifact_id=artifact_id,
-            category=normalized_category,
-        )
-        entry = {
-            "artifact_id": artifact_id,
-            "category": normalized_category,
-            "role": role,
-            "is_primary": bool(is_primary),
-            "filename": path.name,
-            "relative_path": rel_norm,
-            "parameters": _infer_bundle_artifact_parameters(
-                artifact_id,
-                top_families_visual=top_families_visual,
-                min_visual_family_support=min_visual_family_support,
-                top_permissions=top_permissions,
-            ),
-            "run_id": str(run_id),
-            "bundle_contract_version": BUNDLE_CONTRACT_VERSION,
-            "source_stage": "permission_trends_report",
-            "schema_version": _bundle_artifact_schema_version(normalized_category),
-            "status": "generated",
-            "notes": "",
-        }
-        if normalized_category == "table":
-            entry.update(_bundle_table_policy(artifact_id))
-        entries.append(
-            {
-                **entry,
-            }
-        )
-    # Keep deterministic order for easier diffing/audits.
-    entries = sorted(entries, key=lambda item: (str(item.get("category", "")), str(item.get("artifact_id", "")), str(item.get("filename", ""))))
-    manifest = {
-        "bundle_contract_name": BUNDLE_CONTRACT_NAME,
-        "bundle_contract_version": BUNDLE_CONTRACT_VERSION,
-        "run_id": str(run_id),
-        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-        "bundle_root": str(bundle_dir.resolve()),
-        "expected_categories": ["contracts", "docs", "figures", "tables"],
-        "artifacts": entries,
-    }
-    contracts_dir = _resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_CONTRACTS)
-    path = contracts_dir / "permission_trends_bundle_manifest.json"
-    path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
-    return str(path)
-
-
-def _export_permission_trends_table_inventory_from_manifest(
-    *,
-    bundle_dir: Path,
-    run_id: str,
-    manifest_path: str,
-) -> str | None:
-    """Export requested table inventory matrix derived from bundle manifest."""
-    path = Path(str(manifest_path))
-    if not path.exists():
-        return None
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    artifacts = payload.get("artifacts", []) if isinstance(payload, dict) else []
-    if not isinstance(artifacts, list):
-        return None
-    rows: list[dict[str, Any]] = []
-    for entry in artifacts:
-        if not isinstance(entry, dict):
-            continue
-        if str(entry.get("category", "")).strip() != "table":
-            continue
-        rows.append(
-            {
-                "run_id": str(run_id),
-                "artifact_id": str(entry.get("artifact_id", "")),
-                "current_filename": str(entry.get("filename", "")),
-                "role": str(entry.get("role", "")),
-                "is_primary": bool(entry.get("is_primary", False)),
-                "used_by": str(entry.get("used_by", "")),
-                "keep_in_permission_trends": str(entry.get("keep_in_permission_trends", "")),
-                "target_location": str(entry.get("target_location", "")),
-                "needs_latex_export": str(entry.get("needs_latex_export", "")),
-                "notes": str(entry.get("notes", "")),
-            }
-        )
-    out_df = pd.DataFrame(rows)
-    if not out_df.empty:
-        out_df = out_df.sort_values(["is_primary", "artifact_id"], ascending=[False, True])
-    contracts_dir = _resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_CONTRACTS)
-    out_path = contracts_dir / "permission_trends_table_inventory.csv"
-    out_df.to_csv(out_path, index=False)
-    return str(out_path)
-
-
 def _zip_bundle(bundle_dir: Path) -> str:
-    if bundle_dir.name == "permission_trends":
-        zip_path = bundle_dir.with_suffix(".zip")
-    else:
-        zip_path = bundle_dir.with_suffix(".zip")
+    zip_path = bundle_dir.with_suffix(".zip")
     with zipfile.ZipFile(zip_path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in bundle_dir.rglob("*"):
             if path.is_file():
@@ -3441,13 +3147,6 @@ def _resolve_permission_bundle_dir(run_id: str) -> Path:
     if run_id_clean:
         return _resolve_run_root_for_run_id(run_id_clean) / "bundles" / "permission_trends"
     return output_paths.output_root() / "tools" / "permission_trends"
-
-
-def _resolve_bundle_artifact_dir(bundle_dir: Path, artifact_group: str) -> Path:
-    """Resolve/create grouped subdirectory for permission_trends artifacts."""
-    out_dir = bundle_dir / str(artifact_group).strip()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    return out_dir
 
 
 def _copy_permission_bundle_to_latest(bundle_dir: Path) -> Path | None:
@@ -3465,170 +3164,3 @@ def _copy_permission_bundle_to_latest(bundle_dir: Path) -> Path | None:
     except Exception as exc:
         du.print_warning(f"[REPORT] Latest permission bundle copy skipped (non-fatal): {exc}")
         return None
-
-
-def _publish_paper_exports_from_bundle(run_id: str, bundle_dir: Path) -> list[str]:
-    """Deprecated legacy mirror path.
-
-    Paper exports are authored exclusively by stage_manifest strict export logic.
-    """
-    _ = run_id, bundle_dir
-    return []
-
-
-def _compute_cohort_hash(sample_core_df: pd.DataFrame) -> str:
-    """Compute deterministic cohort identity hash for paper artifact versioning."""
-    if not isinstance(sample_core_df, pd.DataFrame) or sample_core_df.empty:
-        return hash_payload({"sample_ids": []})
-    sample_ids = (
-        pd.to_numeric(sample_core_df.get("sample_id"), errors="coerce")
-        .dropna()
-        .astype(int)
-        .sort_values()
-        .tolist()
-    )
-    return hash_payload({"sample_ids": sample_ids})
-
-
-def _resolve_run_root_for_run_id(run_id: str) -> Path:
-    """Resolve canonical run root using runtime override when available."""
-    run_id_clean = str(run_id).strip()
-    runtime_root_raw = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
-    if runtime_root_raw:
-        runtime_root = Path(runtime_root_raw)
-        if not run_id_clean or runtime_root.name == run_id_clean:
-            return runtime_root
-    if run_id_clean:
-        return output_paths.runs_root() / run_id_clean
-    return output_paths.output_root()
-
-
-def _compute_permission_feature_hash(kept_permissions_by_view: dict[str, list[str]]) -> str:
-    """Compute deterministic feature identity hash for permission-view contract."""
-    payload = {
-        "primary_view": PRIMARY_PERMISSION_VIEW,
-        "permission_alias_map_version": PERMISSION_ALIAS_MAP_VERSION,
-        "kept_permissions_by_view": {
-            str(key): sorted([str(value) for value in values])
-            for key, values in sorted(kept_permissions_by_view.items(), key=lambda item: str(item[0]))
-        },
-    }
-    return hash_payload(payload)
-
-
-def _publish_canonical_type_heatmap(
-    source_path: str | None,
-    run_id: str,
-    cohort_hash: str,
-    permission_feature_hash: str,
-    type_heatmap_identity: str,
-) -> list[str]:
-    """Publish canonical type heatmap into run-scoped and mutable latest workspaces."""
-    if not bool(getattr(app_config, "ENABLE_LEGACY_CANONICAL_HEATMAP_EXPORT", False)):
-        return []
-    if not source_path:
-        return []
-    src = Path(source_path)
-    if not src.exists():
-        return []
-    run_paper_dir = output_paths.runs_root() / str(run_id) / "paper"
-    latest_dir = output_paths.latest_root()
-    run_paper_dir.mkdir(parents=True, exist_ok=True)
-    latest_dir.mkdir(parents=True, exist_ok=True)
-
-    run_path = run_paper_dir / "type_permission_heatmap.png"
-    latest_path = latest_dir / "type_permission_heatmap.png"
-    shutil.copy2(src, run_path)
-    shutil.copy2(src, latest_path)
-
-    identity_path = latest_dir / "type_permission_heatmap.identity.json"
-    identity_payload = {
-        "run_id": str(run_id),
-        "cohort_hash": str(cohort_hash),
-        "permission_feature_hash": str(permission_feature_hash),
-        "type_permission_heatmap_identity": str(type_heatmap_identity),
-        "source_artifact": str(src),
-    }
-    identity_path.write_text(json.dumps(identity_payload, indent=2, sort_keys=True), encoding="utf-8")
-    return [str(run_path), str(latest_path), str(identity_path)]
-
-
-def _prune_run_stamped_pngs_in_latest_bundle(bundle_dir: Path) -> list[str]:
-    """Delete legacy run-suffixed PNGs in mutable latest permission bundle."""
-    if not isinstance(bundle_dir, Path) or not bundle_dir.exists():
-        return []
-    if bundle_dir.name != "permission_trends":
-        return []
-    removed: list[str] = []
-    for png_path in bundle_dir.rglob("*.png"):
-        if not RUN_SUFFIX_PNG_PATTERN.match(png_path.name):
-            continue
-        try:
-            png_path.unlink()
-            removed.append(str(png_path))
-        except Exception:
-            continue
-    return removed
-
-
-def _write_run_scoped_permission_artifacts() -> bool:
-    """Legacy compatibility shim for run-suffixed permission-trend artifacts."""
-    return False
-
-
-def _compact_permission_label(permission_name: str) -> str:
-    """Shorten Android permission labels for chart readability."""
-    value = str(permission_name).strip()
-    if value.lower().startswith(PERMISSION_PREFIX):
-        return value[len(PERMISSION_PREFIX) :]
-    return value
-
-
-def _read_snapshot_meta() -> dict[str, str]:
-    meta_path = Path(
-        getattr(
-            app_config,
-            "ANALYSIS_SNAPSHOT_META_FILE",
-            getattr(app_config, "COHORT_SNAPSHOT_META_FILE", ""),
-        )
-    )
-    if not meta_path.exists():
-        return {}
-    parsed: dict[str, str] = {}
-    try:
-        for line in meta_path.read_text(encoding="utf-8").splitlines():
-            if "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            parsed[key.strip()] = value.strip()
-    except Exception as exc:
-        _handle_reporting_exception("read_snapshot_meta", exc, fail_in_paper=False)
-        return {}
-    return parsed
-
-
-def _read_dataset_time_contract() -> dict[str, Any]:
-    """Read dataset time contract exported by sample stage."""
-    path = Path(
-        str(
-            getattr(
-                app_config,
-                "DATASET_TIME_CONTRACT_FILE",
-                "output/diagnostics/dataset_time_contract.latest.json",
-            )
-        )
-    )
-    if not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        _handle_reporting_exception("read_dataset_time_contract", exc, fail_in_paper=False)
-        return {}
-
-
-def _handle_reporting_exception(context: str, exc: Exception, fail_in_paper: bool = False) -> None:
-    """Centralized exception policy for permission-trends reporting helpers."""
-    du.print_warning(f"[REPORT] {context} failed: {exc}")
-    if fail_in_paper and bool(getattr(app_config, "PAPER_MODE_ENABLED", False)):
-        raise

@@ -6,29 +6,6 @@ import pandas as pd
 
 from utils import display_utils as du
 
-# === Target families used in ML modeling and reports === #
-BANKING_TROJAN_FAMILIES = (
-    "Anubis",
-    "BlackRock",
-    "Cerberus",
-    "FluBot",
-    "SharkBot",
-    "TeaBot",
-    "Chameleon",
-    "EventBot",
-    "Godfather",
-    "Cabassous",
-    "Trickbot",
-    "Marcher",
-    "Vultur",
-    "TgToxic",
-    "Golddigger",
-    "Crocodilus",
-    "Ermac",
-    "SOVA",
-    "TrickMo",
-)
-
 SUPPORTED_ANDROID_TYPE_SLUGS = (
     "banker",
     "dropper",

@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-import main
+from analysis.orchestration.metadata_features import build_metadata_feature_frame
 
 
 def test_build_metadata_feature_frame_creates_expected_columns() -> None:
@@ -20,7 +20,7 @@ def test_build_metadata_feature_frame_creates_expected_columns() -> None:
         }
     )
 
-    out = main._build_metadata_feature_frame(samples_df)  # pylint: disable=protected-access
+    out = build_metadata_feature_frame(samples_df)
     assert "sample_id" in out.columns
     assert "meta__permissions" in out.columns
     assert "meta__vt_tag_count" in out.columns

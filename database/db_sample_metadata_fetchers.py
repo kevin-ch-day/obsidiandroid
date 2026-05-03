@@ -2,63 +2,7 @@
 
 from __future__ import annotations
 
-import warnings
-
 from database import db_engine
-from database.db_sample_metadata_contracts import BANKING_TROJAN_FAMILIES
-
-
-def fetch_banking_trojan_samples(as_dataframe: bool = False):
-    """Load metadata and hashes for the legacy banker cohort.
-
-    Cabassous is reclassified as FluBot for historical standardization.
-
-    Args:
-        as_dataframe: When True, ask DB layer to return a DataFrame.
-
-    Returns:
-        Query result as ``(columns, rows)`` or DataFrame depending on ``as_dataframe``.
-    """
-    warnings.warn(
-        "fetch_banking_trojan_samples() is deprecated and kept only for "
-        "backward compatibility.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    placeholders = ", ".join(["%s"] * len(BANKING_TROJAN_FAMILIES))
-    query = f"""
-        SELECT
-            y.sample_id, y.sample_label AS sample_name,
-            CASE
-                WHEN LOWER(TRIM(y.family_label)) IN ('cabassous', 'flubot') THEN 'FluBot'
-                ELSE y.family_label
-            END AS family_name,
-            y.classification_primary AS category_primary,
-            y.classification_subtype AS category_subtype,
-            y.vt_suggested_label,
-            y.vt_first_submission_at_utc AS vt_first_submission_date,
-            NULL AS vt_scan_status,
-            y.android_package_name AS package_name,
-            y.android_launcher_activity AS main_activity,
-            y.android_min_sdk AS target_min_version,
-            y.android_target_sdk AS target_sdk_version,
-            y.android_permission_count AS permissions,
-            NULL AS hash_id,
-            x.md5 AS hash_md5,
-            x.sha1 AS hash_sha1,
-            x.sha256 AS hash_sha256
-        FROM malware_sample_catalog y
-        JOIN malware_artifact_hash_registry x ON x.sha256 = y.sha256
-        WHERE LOWER(y.family_label) IN ({placeholders})
-        ORDER BY y.sample_id ASC
-    """
-    return db_engine.execute_query(
-        query,
-        params=[family.lower() for family in BANKING_TROJAN_FAMILIES],
-        fetch=True,
-        return_columns=True,
-        as_dataframe=as_dataframe,
-    )
 
 
 def fetch_samples_by_type(

@@ -9,13 +9,13 @@ import pytest
 
 from utils import artifacts
 from utils import canonicalization
-from utils import paper_mode_resolver
+from utils import evidence_mode_resolver
 from utils import path_safety
 
 
-def test_resolve_paper_mode_precedence_cli_wins() -> None:
+def test_resolve_evidence_mode_precedence_cli_wins() -> None:
     """CLI input should win over env/profile."""
-    result = paper_mode_resolver.resolve_paper_mode(
+    result = evidence_mode_resolver.resolve_evidence_mode(
         cli_value=False,
         env_value="1",
         profile={"paper_mode": True},
@@ -26,10 +26,10 @@ def test_resolve_paper_mode_precedence_cli_wins() -> None:
     assert result.source == "cli"
 
 
-def test_resolve_paper_mode_invalid_env_strict_raises() -> None:
+def test_resolve_evidence_mode_invalid_env_strict_raises() -> None:
     """Invalid strict env input should raise config error."""
-    with pytest.raises(paper_mode_resolver.PaperModeConfigError):
-        paper_mode_resolver.resolve_paper_mode(
+    with pytest.raises(evidence_mode_resolver.EvidenceModeConfigError):
+        evidence_mode_resolver.resolve_evidence_mode(
             cli_value=None,
             env_value="2",
             profile={},
@@ -38,9 +38,9 @@ def test_resolve_paper_mode_invalid_env_strict_raises() -> None:
         )
 
 
-def test_resolve_paper_mode_env_overrides_profile() -> None:
+def test_resolve_evidence_mode_env_overrides_profile() -> None:
     """Env should win over profile when CLI is not provided."""
-    result = paper_mode_resolver.resolve_paper_mode(
+    result = evidence_mode_resolver.resolve_evidence_mode(
         cli_value=None,
         env_value="0",
         profile={"paper_mode": True},
@@ -54,7 +54,7 @@ def test_resolve_paper_mode_env_overrides_profile() -> None:
 def test_enforce_immutable_lock_allows_same_value() -> None:
     """Existing lock should permit matching requested values."""
     assert (
-        paper_mode_resolver.enforce_immutable_lock(
+        evidence_mode_resolver.enforce_immutable_lock(
             locked_value=True,
             requested_value=True,
         )
@@ -64,8 +64,8 @@ def test_enforce_immutable_lock_allows_same_value() -> None:
 
 def test_enforce_immutable_lock_rejects_override() -> None:
     """Existing lock should reject value flips."""
-    with pytest.raises(paper_mode_resolver.PaperModeImmutableError):
-        paper_mode_resolver.enforce_immutable_lock(
+    with pytest.raises(evidence_mode_resolver.EvidenceModeImmutableError):
+        evidence_mode_resolver.enforce_immutable_lock(
             locked_value=False,
             requested_value=True,
         )

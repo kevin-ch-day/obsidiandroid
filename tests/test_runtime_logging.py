@@ -6,7 +6,7 @@ import io
 import sys
 from pathlib import Path
 
-from utils import runtime_logging
+from utils.logging import runtime as runtime_logging
 
 
 def test_start_runtime_logging_disabled(monkeypatch) -> None:

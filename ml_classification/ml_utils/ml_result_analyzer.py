@@ -53,20 +53,3 @@ def show_prediction_sample(predictions, label_encoder=None, limit: int = 5, mode
             lines.append(textwrap.shorten(f"{idx}. {value}", width=70, placeholder="..."))
 
     du.print_info(f"{tag} Sample Predictions:\n" + "\n".join(lines))
-
-
-def evaluate_model_performance(model, X_test, y_test, label_encoder=None, verbose=True, model_name="") -> dict:
-    """
-    Backward-compatible evaluation wrapper.
-    Canonical evaluation logic lives in ml_eval_engine.
-    """
-    from ml_classification.ml_utils import ml_eval_engine
-
-    return ml_eval_engine.evaluate_model_performance(
-        model=model,
-        X_test=X_test,
-        y_test=y_test,
-        label_encoder=label_encoder,
-        model_name=model_name or None,
-        verbose=verbose,
-    )

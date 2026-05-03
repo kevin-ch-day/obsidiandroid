@@ -173,6 +173,43 @@ def test_train_test_split_is_reused_across_models(monkeypatch):
     assert split_calls["count"] == 1
 
 
+def test_train_model_factory_uses_random_split_when_stratify_impossible(monkeypatch) -> None:
+    """A class with a single global sample cannot be stratified; training must not crash."""
+    monkeypatch.setattr(app_config, "AUTO_ADJUST_TRAIN_TEST_SPLIT", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_CROSS_VALIDATION", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "stratify_singleton_test", raising=False)
+    model_trainer_factory.reset_runtime_training_caches()
+    X = pd.DataFrame(np.random.randn(40, 3))
+    y = pd.Series([0] * 39 + [1])
+    result = model_trainer_factory.train_model_factory(
+        X,
+        y,
+        model_type="random_forest",
+        enable_grid_search=False,
+        random_state=0,
+    )
+    assert "predictions" in result
+    assert len(result["y_test"]) >= 1
+
+
+def test_balanced_split_path_when_class_has_single_sample(monkeypatch) -> None:
+    """AUTO_ADJUST split path must tolerate singleton-class cohorts."""
+    monkeypatch.setattr(app_config, "AUTO_ADJUST_TRAIN_TEST_SPLIT", True, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_CROSS_VALIDATION", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "balanced_singleton_test", raising=False)
+    model_trainer_factory.reset_runtime_training_caches()
+    X = pd.DataFrame(np.random.randn(35, 2))
+    y = pd.Series([0] * 34 + [1])
+    result = model_trainer_factory.train_model_factory(
+        X,
+        y,
+        model_type="random_forest",
+        enable_grid_search=False,
+        random_state=1,
+    )
+    assert "predictions" in result
+
+
 # --- Runtime split defaults ---
 
 

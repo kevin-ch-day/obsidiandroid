@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from utils import menu_utils
 from utils import startup_menu
+from utils.ui import menu
 
 
 def test_display_menu_returns_zero_on_keyboard_interrupt(monkeypatch) -> None:
     """Ctrl+C in menu input should return Exit code path (0)."""
     monkeypatch.setattr("builtins.input", lambda _prompt="": (_ for _ in ()).throw(KeyboardInterrupt))
-    result = menu_utils.display_menu(["Option A", "Option B"], title="Test Menu")
+    result = menu.display_menu(["Option A", "Option B"], title="Test Menu")
     assert result == 0
 
 

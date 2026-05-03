@@ -73,6 +73,47 @@ def test_fetch_banking_trojans_sql_qualifies_primary_and_pi(monkeypatch) -> None
     assert f"`{PERMISSION_INTEL_DB_NAME}`.`android_permission_dict_aosp`" in sql
 
 
+def test_get_table_columns_routes_android_permission_tables_to_pi(monkeypatch) -> None:
+    """android_permission_* metadata must not use primary SHOW COLUMNS when PI holds the table."""
+    primary_calls: list[str] = []
+    pi_calls: list[str] = []
+
+    def fake_primary(query, **_kwargs):
+        primary_calls.append(query)
+        return [["wrong"]]
+
+    def fake_pi(query, **_kwargs):
+        pi_calls.append(query)
+        return [["sample_id"], ["observed_at_utc"]]
+
+    monkeypatch.setattr(db_engine, "execute_query", fake_primary)
+    monkeypatch.setattr(db_engine, "execute_permission_query", fake_pi)
+    cols = db_engine.get_table_columns("android_permission_obs_sample")
+    assert cols == ["sample_id", "observed_at_utc"]
+    assert not primary_calls
+    assert len(pi_calls) == 1
+    assert "SHOW COLUMNS" in pi_calls[0]
+    assert PERMISSION_INTEL_DB_NAME in pi_calls[0]
+    assert "android_permission_obs_sample" in pi_calls[0]
+
+
+def test_get_table_columns_uses_primary_for_catalog_tables(monkeypatch) -> None:
+    pi_calls: list[str] = []
+
+    def fake_primary(query, **_kwargs):
+        assert "malware_sample_catalog" in query
+        return [["sample_id"]]
+
+    def fake_pi(*_args, **_kwargs):
+        pi_calls.append("should_not_run")
+        return []
+
+    monkeypatch.setattr(db_engine, "execute_query", fake_primary)
+    monkeypatch.setattr(db_engine, "execute_permission_query", fake_pi)
+    assert db_engine.get_table_columns("malware_sample_catalog") == ["sample_id"]
+    assert not pi_calls
+
+
 def test_check_split_database_health_structure(monkeypatch) -> None:
     """Health report includes expected keys (connectivity mocked)."""
     monkeypatch.setattr(

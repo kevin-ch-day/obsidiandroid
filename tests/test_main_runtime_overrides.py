@@ -26,7 +26,7 @@ def test_runtime_overrides_are_restored_after_run(monkeypatch, tmp_path: Path) -
     monkeypatch.setattr(main, "DIAGNOSTICS_DIR", str(tmp_path / "output" / "diagnostics"))
     monkeypatch.setattr(main.runtime_logging, "start_runtime_logging", lambda _run_id: None)
     monkeypatch.setattr(main.runtime_logging, "stop_runtime_logging", lambda _ctx: None)
-    monkeypatch.setattr(main, "_finalize_run_manifest", lambda **_kwargs: 0)
+    monkeypatch.setattr(main, "finalize_run_manifest_stage", lambda **_kwargs: 0)
     monkeypatch.setattr(
         main.profile_manager,
         "load_profile",
@@ -106,7 +106,7 @@ def test_stage_failure_finalizes_failed_run(monkeypatch, tmp_path: Path) -> None
         captured["manifest_context"] = dict(kwargs["manifest_context"])
         return 0
 
-    monkeypatch.setattr(main, "_finalize_run_manifest", _capture_finalize)
+    monkeypatch.setattr(main, "finalize_run_manifest_stage", _capture_finalize)
     monkeypatch.setattr(
         main.profile_manager,
         "load_profile",

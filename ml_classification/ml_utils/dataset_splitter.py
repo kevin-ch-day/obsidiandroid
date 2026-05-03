@@ -9,6 +9,8 @@ from typing import Tuple
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
+from utils import display_utils as du
+
 
 def balanced_train_test_split(
     X: pd.DataFrame,
@@ -54,11 +56,19 @@ def balanced_train_test_split(
     required_test_size = max([test_size] + required_fractions)
     required_test_size = min(max_test_size, required_test_size)
 
+    min_support = min(counts.values()) if counts else 0
+    stratify_y = y if min_support >= 2 else None
+    if stratify_y is None and len(counts) > 1:
+        du.print_warning(
+            "[SPLIT] balanced_train_test_split: stratification disabled because at least one "
+            "class has fewer than 2 samples."
+        )
+
     X_train, X_test, y_train, y_test = train_test_split(
         X,
         y,
         test_size=required_test_size,
-        stratify=y,
+        stratify=stratify_y,
         random_state=random_state,
     )
     return X_train, X_test, y_train, y_test
