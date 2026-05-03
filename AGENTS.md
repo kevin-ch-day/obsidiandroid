@@ -62,7 +62,7 @@ Use before releases or when changing behavior covered only by slow modules.
 
 - Run **`python clean_bytecode_cache.py`** (or `make clean`) to drop `__pycache__` and stray log artifacts where relevant.
 - When changing anything that hits MySQL, run **`make preflight-db`** (or `python -m database.split_db_health`) with valid `OBSIDIAN_DB_*` / `.env` settings.
-- Optionally run **`python run_ml_static_scan.py`** to catch accidental `.predict()` misuse in ML code.
+- Optionally run **`make ml-scan`** or **`python run_ml_static_scan.py`** to catch accidental `.predict()` misuse in ML code (add **`--strict`** to fail the command when warnings are found).
 
 ## User-facing documentation
 

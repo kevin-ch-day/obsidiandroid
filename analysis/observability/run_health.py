@@ -21,16 +21,24 @@ def print_unified_run_health(
     if ml_console.is_minimal():
         return
 
-    obs_path = Path(observability_json_path)
+    base = Path(observability_json_path).parent
     payload: dict[str, Any] = {}
-    paths_to_try = [obs_path]
-    if obs_path.name != "run_observability_summary.json":
-        paths_to_try.append(obs_path.parent / "run_observability_summary.json")
-    for cand in paths_to_try:
+    obs_resolved = Path(observability_json_path)
+    candidates: list[Path] = []
+    seen: set[str] = set()
+    for cand in (
+        base / "run_observability_summary.json",
+        obs_resolved,
+    ):
+        key = str(cand)
+        if key not in seen:
+            seen.add(key)
+            candidates.append(cand)
+    for cand in candidates:
         if cand.exists():
             try:
                 payload = json.loads(cand.read_text(encoding="utf-8"))
-                obs_path = cand
+                obs_resolved = cand
                 break
             except Exception:
                 payload = {}
@@ -72,11 +80,15 @@ def print_unified_run_health(
     if counts:
         du.print_stat(
             "Row funnel (observability)",
-            "governed={g}; matrix={fm}; aligned={al}; train_pool={pool}; train={tr}; test={te}".format(
-                g=counts.get("governed_cohort_rows"),
+            "sql_scope={gt}; prepared_cohort={g}; feature_matrix_rows={fm}; aligned_supervised={al}; "
+            "post_low_support_pool={pool}; train={tr}; test={te}".format(
+                gt=counts.get("cohort_sql_scope_row_count")
+                or counts.get("gate_total_candidates")
+                or counts.get("raw_candidate_rows"),
+                g=counts.get("cohort_prepared_row_count") or counts.get("governed_cohort_rows"),
                 fm=counts.get("feature_matrix_rows"),
-                al=counts.get("aligned_rows"),
-                pool=counts.get("supervised_training_rows"),
+                al=counts.get("aligned_supervised_rows") or counts.get("aligned_rows"),
+                pool=counts.get("post_low_support_training_rows") or counts.get("supervised_training_rows"),
                 tr=counts.get("train_rows"),
                 te=counts.get("test_rows"),
             ),
@@ -85,8 +97,9 @@ def print_unified_run_health(
     feats = payload.get("features") if isinstance(payload.get("features"), dict) else {}
     if feats.get("pre_prune") is not None or feats.get("post_prune") is not None:
         du.print_stat(
-            "Features pre/post prune",
-            f"{feats.get('pre_prune')} → {feats.get('post_prune')}",
+            "Feature columns pre/post prune",
+            f"{feats.get('feature_matrix_cols_pre_prune') or feats.get('pre_prune')} → "
+            f"{feats.get('feature_matrix_cols_post_prune') or feats.get('post_prune')}",
         )
 
     hostile_st = payload.get("hostile_audit_status")

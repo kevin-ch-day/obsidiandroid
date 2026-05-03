@@ -66,6 +66,63 @@ def test_runtime_overrides_are_restored_after_run(monkeypatch, tmp_path: Path) -
     assert float(getattr(app_config, "PARSER_MAPPED_MIN_THRESHOLD", 0.30)) == original_parser_mapped
 
 
+def test_stop_after_samples_writes_preflight_for_cohort_audit(monkeypatch, tmp_path: Path) -> None:
+    """Samples-only runs should emit preflight_report.json even when evidence mode is off."""
+    output_base = tmp_path / "output"
+    monkeypatch.setattr(app_config, "ENABLE_DB_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ML_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_LOCKED_VALUE", None, raising=False)
+    monkeypatch.setattr(app_config, "EVIDENCE_MODE_LOCKED_VALUE", None, raising=False)
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_base), raising=False)
+    monkeypatch.setattr(main.runtime_logging, "start_runtime_logging", lambda _run_id: None)
+    monkeypatch.setattr(main.runtime_logging, "stop_runtime_logging", lambda _ctx: None)
+    monkeypatch.setattr(main, "finalize_run_manifest_stage", lambda **_kwargs: 0)
+
+    def _fake_load(**_kwargs):
+        df = pd.DataFrame(
+            {
+                "sample_id": [1],
+                "sha256": ["a" * 64],
+                "family_canonical": ["fam_a"],
+                "type_slug": ["trojan"],
+            }
+        )
+        df.attrs["cohort_gate_stats"] = {
+            "total_candidates": 100,
+            "governed_cohort_count": 1,
+        }
+        df.attrs["cohort_gate_rows"] = []
+        return df
+
+    monkeypatch.setattr(main, "load_and_prepare_samples", _fake_load)
+    monkeypatch.setattr(
+        main.profile_manager,
+        "load_profile",
+        lambda _ref: {
+            "profile_id": "unit_samples_audit",
+            "type_slug_filter": None,
+            "cohort_gates": {},
+            "model_list": ["logistic_regression"],
+            "evidence_mode": False,
+            "feature_flags": {
+                "enable_dynamic_generic_vendor_parsers": False,
+                "enable_sample_metadata_features": False,
+                "enable_permission_features": False,
+            },
+        },
+    )
+
+    result = main.run_pipeline(stop_after="samples", profile_ref="unit_samples_audit")
+    assert result == 0
+    preflight_paths = list(output_base.rglob("preflight_report.json"))
+    assert preflight_paths, "expected preflight_report.json under output tree"
+    payload = json.loads(preflight_paths[0].read_text(encoding="utf-8"))
+    assert payload.get("status") == "stopped_after_samples"
+    audit = payload.get("samples_stage_cohort_counts") or {}
+    assert audit.get("cohort_sql_scope_row_count") == 100
+    assert audit.get("cohort_prepared_row_count") == 1
+
+
 def test_confusion_matrix_policy_keeps_random_forest_in_paper_mode(
     monkeypatch,
     tmp_path: Path,

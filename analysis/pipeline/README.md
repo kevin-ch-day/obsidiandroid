@@ -13,3 +13,9 @@ End-to-end staged workflow for cohort loading, AV/vendor processing, features, t
 | **`runtime_policy.py`** | Profile-driven feature flags and config mutations for a run. |
 
 Extension guide: [`docs/pipeline_staging_guide.md`](../../docs/pipeline_staging_guide.md).
+
+## Cohort audit (SQL scope vs prepared rows)
+
+- **Vocabulary:** [`analysis/diagnostics/cohort_vocabulary.py`](../diagnostics/cohort_vocabulary.py) — canonical manifest keys and legacy mirrors.
+- **Samples-only run:** `run_pipeline(..., stop_after="samples")` writes `diagnostics/cohort_foundation.*`, snapshot/time-contract, and `preflight_report.json` (cohort audit path).
+- **DB reconciliation (needs MySQL):** `python scripts/check_cohort_foundation.py --profile <id>` — SELECT-only counts vs profile gates.

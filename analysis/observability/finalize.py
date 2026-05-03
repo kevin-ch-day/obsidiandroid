@@ -1,4 +1,9 @@
-"""Regenerate rollup artifacts after manifest/output hygiene completes."""
+"""Regenerate rollup artifacts after manifest/output hygiene completes.
+
+``run_observability_summary.json`` uses ``cohort_sql_scope_row_count`` /
+``cohort_prepared_row_count`` as the preferred cohort population fields; legacy keys are
+still emitted for older dashboards (see ``cohort_vocabulary``).
+"""
 
 from __future__ import annotations
 
@@ -9,6 +14,12 @@ from typing import Any
 
 from utils import display_utils as du
 
+from analysis.diagnostics.cohort_vocabulary import (
+    KEY_COHORT_PREPARED_ROW_COUNT,
+    KEY_COHORT_SQL_SCOPE_ROW_COUNT,
+    read_prepared_cohort_row_count,
+    read_sql_scope_row_count,
+)
 from analysis.diagnostics.output_inventory import evaluate_paper_safe_status
 from analysis.observability.logging_audit import write_logging_audit_artifacts
 from analysis.observability.session import PipelineObservabilitySession
@@ -29,7 +40,6 @@ _RUNNER_CHAIN = [
 ]
 
 AUTHORITATIVE_SUMMARY_FILENAME = "run_observability_summary.json"
-_LEGACY_STATUS_FILENAME = "pipeline_observability_status.json"
 
 
 def _coerce_int(v: Any) -> int | None:
@@ -218,25 +228,29 @@ def finalize_pipeline_observability(
         research_warnings_msgs = [str(x) for x in rw][:32]
 
     split_blob = manifest.get("split") if isinstance(manifest.get("split"), dict) else {}
-    gov = manifest.get("cohort_size") or manifest_context.get("governed_cohort_rows")
+    gov = manifest.get("cohort_size") or read_prepared_cohort_row_count(manifest_context)
     fused = manifest_context.get("fused_feature_rows")
     aligned = manifest_context.get("aligned_supervised_rows")
     post = manifest_context.get("post_low_support_training_rows")
     tr_ct = split_blob.get("train_sample_count") or manifest.get("train_sample_count")
     te_ct = split_blob.get("test_sample_count") or manifest.get("test_sample_count")
 
-    raw_candidate_n = manifest_context.get("raw_candidate_rows")
+    sql_scope_row_count = read_sql_scope_row_count(manifest_context)
     vendor_eval_n = manifest_context.get("vendor_eval_sample_rows")
     perm_feat_n = manifest_context.get("permission_unique_rows")
 
     feat_pre = manifest.get("feature_count_pre_prune") or manifest_context.get("_aligned_feature_cols")
-    feat_post = manifest.get("feature_count_post_prune") or manifest.get("feature_matrix_row_count")
+    feat_post = (
+        manifest.get("feature_matrix_cols_post_prune")
+        or manifest.get("feature_count_post_prune")
+        or manifest.get("feature_matrix_row_count")
+    )
 
     parts: list[str] = []
     if gov not in (None, ""):
-        parts.append(f"{gov} governed")
+        parts.append(f"{gov} prepared-cohort rows")
     if fused not in (None, ""):
-        parts.append(f"{fused} feature matrix rows")
+        parts.append(f"{fused} feature_matrix_rows (fused)")
     if aligned not in (None, ""):
         parts.append(f"{aligned} aligned supervised")
     if post not in (None, ""):
@@ -246,8 +260,11 @@ def finalize_pipeline_observability(
     cohort_funnel_plain = " → ".join(parts)
 
     cohort_warn = manifest_context.get("cohort_population_warning")
-    if cohort_warn is None and fused and gov and abs(int(governed_safe(gov)) - int(fused)) > 10:
-        cohort_warn = f"governed ({gov}) vs fused ({fused}) mismatch — inspect cohort funnel + feature_build_coverage."
+    if cohort_warn is None and fused and gov and abs(int(_coerce_nonneg_int(gov)) - int(fused)) > 10:
+        cohort_warn = (
+            f"prepared cohort ({gov}) vs fused feature rows ({fused}) mismatch — "
+            "inspect cohort funnel + feature_build_coverage."
+        )
 
     model_summary = manifest.get("model_summary") or manifest_context.get("model_summary")
     top_model = ""
@@ -274,6 +291,7 @@ def finalize_pipeline_observability(
         label_stats = []
 
     top_open = _top_artifacts_to_open(resolved_run_root, diagnostics_dir, run_id)
+    obs_summary_path_str = str(diagnostics_dir / AUTHORITATIVE_SUMMARY_FILENAME)
 
     status_blob = {
         "schema_version": "2.0",
@@ -290,23 +308,34 @@ def finalize_pipeline_observability(
         "main_training_row_authority": manifest.get("main_training_row_authority")
         or manifest_context.get("main_training_row_authority"),
         "cohort_rows": _coerce_int(gov),
-        "raw_candidate_rows": _coerce_int(raw_candidate_n),
+        KEY_COHORT_SQL_SCOPE_ROW_COUNT: _coerce_int(sql_scope_row_count),
+        KEY_COHORT_PREPARED_ROW_COUNT: _coerce_int(gov),
+        "gate_total_candidates": _coerce_int(sql_scope_row_count),
+        "raw_candidate_rows": _coerce_int(sql_scope_row_count),
         "governed_cohort_rows": _coerce_int(gov),
         "vendor_eval_sample_rows": _coerce_int(vendor_eval_n),
         "permission_feature_rows": _coerce_int(perm_feat_n),
         "counts": {
-            "raw_candidate_rows": _coerce_int(raw_candidate_n),
+            KEY_COHORT_SQL_SCOPE_ROW_COUNT: _coerce_int(sql_scope_row_count),
+            KEY_COHORT_PREPARED_ROW_COUNT: _coerce_int(gov),
+            "gate_total_candidates": _coerce_int(sql_scope_row_count),
+            "raw_candidate_rows": _coerce_int(sql_scope_row_count),
             "governed_cohort_rows": _coerce_int(gov),
             "vendor_eval_sample_rows": _coerce_int(vendor_eval_n),
             "permission_feature_rows": _coerce_int(perm_feat_n),
             "feature_matrix_rows": _coerce_int(fused),
+            "aligned_supervised_rows": _coerce_int(aligned),
             "aligned_rows": _coerce_int(aligned),
+            "post_low_support_training_rows": _coerce_int(post),
             "supervised_training_rows": _coerce_int(post),
             "train_rows": _coerce_int(tr_ct),
             "test_rows": _coerce_int(te_ct),
+            "feature_matrix_cols_post_prune": _coerce_int(feat_post),
         },
         "features": {
+            "feature_matrix_cols_pre_prune": _coerce_int(feat_pre),
             "pre_prune": _coerce_int(feat_pre),
+            "feature_matrix_cols_post_prune": _coerce_int(feat_post),
             "post_prune": _coerce_int(feat_post),
         },
         "model": {"top_model": top_model, "top_macro_f1": top_macro_f1},
@@ -333,8 +362,7 @@ def finalize_pipeline_observability(
         "manifest_result_code": int(result_code),
         "row_authority": manifest.get("main_training_row_authority"),
         "paths": {
-            "run_observability_summary_json": str(diagnostics_dir / AUTHORITATIVE_SUMMARY_FILENAME),
-            "pipeline_observability_status_json": str(diagnostics_dir / _LEGACY_STATUS_FILENAME),
+            "run_observability_summary_json": obs_summary_path_str,
             "pipeline_stage_summary_csv": str(diagnostics_dir / "pipeline_stage_summary.csv"),
             "pipeline_stage_summary_md": str(diagnostics_dir / "pipeline_stage_summary.md"),
             "pipeline_events_jsonl": str(diagnostics_dir / "pipeline_events.jsonl"),
@@ -349,14 +377,11 @@ def finalize_pipeline_observability(
 
     summary_text = json.dumps(status_blob, indent=2, sort_keys=True)
     summary_path = diagnostics_dir / AUTHORITATIVE_SUMMARY_FILENAME
-    legacy_path = diagnostics_dir / _LEGACY_STATUS_FILENAME
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(summary_text, encoding="utf-8")
-    legacy_path.write_text(summary_text, encoding="utf-8")
-    for pth in (summary_path, legacy_path):
-        sp = str(pth)
-        if sp not in artifact_list:
-            artifact_list.append(sp)
+    sp = str(summary_path)
+    if sp not in artifact_list:
+        artifact_list.append(sp)
 
     _rewrite_stage_summary_md(diagnostics_dir)
     _partial_failures_md(
@@ -389,13 +414,13 @@ def diagnostic_status_path_fallback(diagnostics_dir: Path) -> Path:
     primary = diagnostics_dir / AUTHORITATIVE_SUMMARY_FILENAME
     if primary.exists():
         return primary
-    legacy = diagnostics_dir / _LEGACY_STATUS_FILENAME
-    return legacy if legacy.exists() else diagnostics_dir / "logging_audit.md"
+    return diagnostics_dir / "logging_audit.md"
 
 
-def governed_safe(v: Any) -> int:
+def _coerce_nonneg_int(value: Any) -> int:
+    """Best-effort non-negative int for comparing declared row counts."""
     try:
-        return int(v or 0)
+        return int(value or 0)
     except Exception:
         return 0
 

@@ -8,10 +8,15 @@ from typing import Any
 
 from config import app_config
 
+from analysis.diagnostics.cohort_vocabulary import (
+    read_prepared_cohort_row_count,
+    read_sql_scope_row_count,
+)
+
 
 def classify_main_training_row_authority(
     *,
-    governed_cohort_rows: int,
+    prepared_cohort_rows: int,
     vendor_merge_rows: int | None,
     fused_feature_rows: int | None,
     aligned_rows: int | None,
@@ -20,7 +25,7 @@ def classify_main_training_row_authority(
     """Return training row authority label for the primary (non-ablation) training path."""
     if main_uses_frozen_zero_fill:
         return "frozen_cohort_zero_fill"
-    gc = int(governed_cohort_rows or 0)
+    gc = int(prepared_cohort_rows or 0)
     al = int(aligned_rows or 0)
     if gc > 0 and al < gc:
         return "intersection"
@@ -34,18 +39,15 @@ def finalize_cohort_funnel_dict(manifest_context: dict[str, Any]) -> None:
     """Populate ``manifest_context['cohort_funnel']`` + ``main_training_row_authority`` from collected counts."""
     stages: list[dict[str, Any]] = []
     snap = manifest_context.get("analysis_snapshot") or {}
-    raw = manifest_context.get("raw_candidate_rows")
-    if raw is None:
-        raw = snap.get("snapshot_row_count")
-    raw = int(raw or 0)
+    sql_scope = read_sql_scope_row_count(manifest_context)
+    if sql_scope is None:
+        try:
+            sql_scope = int(snap.get("snapshot_row_count") or 0)
+        except (TypeError, ValueError):
+            sql_scope = 0
+    sql_scope_rows = int(sql_scope or 0)
 
-    mapped = manifest_context.get("mapped_known_type_samples")
-    if mapped is None:
-        mapped = int(manifest_context.get("governed_cohort_rows") or 0)
-    else:
-        mapped = int(mapped)
-
-    gov = int(manifest_context.get("governed_cohort_rows") or 0)
+    gov = int(read_prepared_cohort_row_count(manifest_context) or 0)
     perm_n = manifest_context.get("permission_unique_rows")
     if perm_n is not None:
         perm_n = int(perm_n)
@@ -62,9 +64,11 @@ def finalize_cohort_funnel_dict(manifest_context: dict[str, Any]) -> None:
     post_ls = manifest_context.get("post_low_support_training_rows")
     if post_ls is not None:
         post_ls = int(post_ls)
-    feat_matrix_rows = manifest_context.get("feature_matrix_row_count")
-    if feat_matrix_rows is not None:
-        feat_matrix_rows = int(feat_matrix_rows)
+    feat_cols_post = manifest_context.get("feature_matrix_cols_post_prune")
+    if feat_cols_post is None:
+        feat_cols_post = manifest_context.get("feature_matrix_row_count")
+    if feat_cols_post is not None:
+        feat_cols_post = int(feat_cols_post)
     train_n = manifest_context.get("train_sample_count")
     if train_n is not None:
         train_n = int(train_n)
@@ -74,19 +78,18 @@ def finalize_cohort_funnel_dict(manifest_context: dict[str, Any]) -> None:
 
     stages.append(
         {
-            "stage": "raw_candidates",
-            "row_count": raw,
-            "notes": "SQL/snapshot lineage (see analysis_snapshot.snapshot_row_count)",
+            "stage": "cohort_sql_scope",
+            "row_count": sql_scope_rows,
+            "notes": "Database head count for profile cohort SQL (joins + time contract + gates); not samples_df length",
         }
     )
     stages.append(
         {
-            "stage": "mapped_known_type_samples",
-            "row_count": mapped,
-            "notes": "Rows after cohort mapping / filters (fallback = governed cohort if unset)",
+            "stage": "prepared_cohort",
+            "row_count": gov,
+            "notes": "Rows in samples_df after load_and_prepare_samples (what downstream stages consume)",
         }
     )
-    stages.append({"stage": "governed_cohort", "row_count": gov, "notes": "Prepared samples_df"})
     stages.append(
         {
             "stage": "permission_feature_unique_samples",
@@ -124,9 +127,9 @@ def finalize_cohort_funnel_dict(manifest_context: dict[str, Any]) -> None:
     )
     stages.append(
         {
-            "stage": "training_feature_matrix_rows",
-            "row_count": feat_matrix_rows if feat_matrix_rows is not None else "",
-            "notes": "After low-information / leakage pruning (fitted columns)",
+            "stage": "training_feature_cols_post_prune",
+            "row_count": feat_cols_post if feat_cols_post is not None else "",
+            "notes": "Feature column count after low-information / leakage pruning (not sample rows)",
         }
     )
     stages.append(
@@ -146,7 +149,7 @@ def finalize_cohort_funnel_dict(manifest_context: dict[str, Any]) -> None:
 
     manifest_context["cohort_funnel"] = stages
     manifest_context["main_training_row_authority"] = classify_main_training_row_authority(
-        governed_cohort_rows=gov,
+        prepared_cohort_rows=gov,
         vendor_merge_rows=vm,
         fused_feature_rows=fused,
         aligned_rows=aligned,
@@ -183,7 +186,7 @@ def write_cohort_funnel_artifacts(
     authority = manifest_context.get("main_training_row_authority", "")
     md_path = diagnostics_dir / "cohort_funnel.md"
     lines = [
-        "# Cohort funnel (row accountability)",
+        "# Cohort funnel (SQL scope → prepared rows → features)",
         "",
         f"- **main_training_row_authority:** `{authority}`",
         "",

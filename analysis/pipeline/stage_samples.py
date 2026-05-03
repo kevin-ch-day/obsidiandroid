@@ -20,6 +20,7 @@ from analysis.orchestration.profile_filters import (
     export_cohort_filter_summary,
 )
 from analysis.pipeline.contract_filters import apply_contract_filters
+from analysis.diagnostics.cohort_foundation_export import export_cohort_foundation_bundle
 from analysis.pipeline.sample_exports import (
     augment_dataset_time_contract as _augment_dataset_time_contract,
     diagnostics_dir as _diagnostics_dir,
@@ -51,7 +52,12 @@ def load_and_prepare_samples(
         type_slug: Optional malware type filter.
 
     Returns:
-        Prepared dataframe ready for downstream AV processing.
+        Prepared dataframe ready for downstream AV processing. The dataframe may carry
+        ``attrs`` used for audits, including:
+
+        * ``cohort_gate_stats`` — snapshot dict from ``get_type_cohort_gate_stats`` (SQL scope
+          counts; field ``total_candidates`` is the SQL profile scope head count).
+        * ``cohort_gate_rows`` — optional per-gate drop bookkeeping from Python filters.
 
     Raises:
         ValueError: If resulting cohort fails integrity checks.
@@ -68,6 +74,13 @@ def load_and_prepare_samples(
     setattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", configured_min_support)
     min_support = configured_min_support
     if not type_slug:
+        if isinstance(gates, dict) and "min_samples_per_family" in gates:
+            du.print_warning(
+                "[COHORT] cohort_gates.min_samples_per_family is not applied in the SQL cohort loader "
+                "when type_slug_filter is null (all-type cohort). Per-family minimums are enforced later "
+                "during supervised training / CV. "
+                f"Profile value={configured_min_support} is still stored as RUNTIME_MIN_FAMILY_SUPPORT."
+            )
         min_support = None
     require_mapped = bool(gates.get("require_mapped_family", True))
     require_sha256 = bool(gates.get("require_sha256", True))
@@ -106,7 +119,8 @@ def load_and_prepare_samples(
         require_effective_first_seen=require_effective_first_seen,
         exclude_family_canonical=exclude_families,
     )
-    cohort_readiness_report.print_cohort_gate_stats(gate_stats)
+    gate_stats_snapshot: dict[str, Any] = dict(gate_stats)
+    cohort_readiness_report.print_cohort_sql_scope_gate_summary(gate_stats)
     log_event(
         PIPELINE_LOGGER,
         "samples_stage_start",
@@ -299,6 +313,21 @@ def load_and_prepare_samples(
         profile_id=profile_id,
         rows=int(len(samples_df)),
         columns=int(samples_df.shape[1]),
+    )
+
+    samples_df.attrs["cohort_gate_stats"] = gate_stats_snapshot
+    export_cohort_foundation_bundle(
+        diagnostics_dir=_diagnostics_dir(),
+        run_id=str(run_id or "unknown"),
+        profile_id=profile_id,
+        profile=profile if isinstance(profile, dict) else {},
+        gate_stats=gate_stats_snapshot,
+        samples_df=samples_df,
+        time_contract=time_contract,
+        type_slug=type_slug,
+        min_samples_per_family_sql=min_support,
+        configured_min_samples_per_family=configured_min_support,
+        artifact_list=artifact_list,
     )
 
     _assert_package_name_integrity(samples_df=samples_df, gates=gates)

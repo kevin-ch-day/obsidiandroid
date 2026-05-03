@@ -8,6 +8,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from analysis.diagnostics.cohort_vocabulary import read_prepared_cohort_row_count
+
 
 def _safe_int(x: Any) -> int | None:
     try:
@@ -69,7 +71,11 @@ def _scan_text_for_suspicious_claims(diagnostics_dir: Path, known_counts: dict[s
                 # heuristic: common paper typos
                 if n > min_truth and n != max_truth:
                     suspicious.append(
-                        (path.name, n, f"mentions {n}; check against governed_cohort={known_counts.get('governed_cohort')}")
+                        (
+                            path.name,
+                            n,
+                            f"mentions {n}; check against prepared_cohort={known_counts.get('prepared_cohort')}",
+                        )
                     )
     for name, n, note in suspicious[:40]:
         flags.append({"artifact": name, "population_number": n, "flag": "REVIEW_MENTION", "notes": note})
@@ -88,7 +94,7 @@ def write_cohort_population_audit(
     man = manifest if isinstance(manifest, dict) else {}
     mctx = manifest_context if isinstance(manifest_context, dict) else {}
 
-    gov = _safe_int(mctx.get("governed_cohort_rows") or man.get("cohort_size"))
+    gov = _safe_int(read_prepared_cohort_row_count(mctx) or man.get("cohort_size"))
     fused = _safe_int(mctx.get("fused_feature_rows"))
     aligned = _safe_int(mctx.get("aligned_supervised_rows"))
     vendor_m = _safe_int(mctx.get("vendor_merge_row_count"))
@@ -129,10 +135,10 @@ def write_cohort_population_audit(
 
     rows: list[dict[str, Any]] = [
         {
-            "metric": "governed_cohort_rows",
+            "metric": "cohort_prepared_row_count",
             "value": gov,
             "source": "manifest_context / manifest.cohort_size",
-            "interpretation": "Prepared cohort (samples_df) before train-time filters",
+            "interpretation": "Prepared cohort: samples_df row count before train-time matrix filters",
         },
         {
             "metric": "vendor_feature_rows",
@@ -171,22 +177,22 @@ def write_cohort_population_audit(
             "interpretation": "Test shard",
         },
         {
-            "metric": "distinct_families_canonical_governed_cohort",
+            "metric": "distinct_families_canonical_prepared_cohort",
             "value": fam_canon_cohort,
             "source": "samples_df.family_canonical",
-            "interpretation": "Unique family_canonical in governed cohort",
+            "interpretation": "Unique family_canonical in prepared cohort",
         },
         {
-            "metric": "distinct_family_ids_governed_cohort",
+            "metric": "distinct_family_ids_prepared_cohort",
             "value": fam_id_cohort,
             "source": "samples_df.family_id",
-            "interpretation": "Unique family_id in governed cohort (if column present)",
+            "interpretation": "Unique family_id in prepared cohort (if column present)",
         },
         {
-            "metric": "distinct_types_governed_cohort",
+            "metric": "distinct_types_prepared_cohort",
             "value": type_cohort,
             "source": "samples_df",
-            "interpretation": "Unique type_slug values",
+            "interpretation": "Unique type_slug values in prepared cohort",
         },
     ]
 
@@ -197,7 +203,7 @@ def write_cohort_population_audit(
                 "flag": "COHORT_SUPERSET_GT_ALIGNED",
                 "severity": "HIGH",
                 "notes": (
-                    f"Governed cohort ({gov}) exceeds aligned supervised ({aligned}); "
+                    f"Prepared cohort ({gov}) exceeds aligned supervised ({aligned}); "
                     "any figure titled 'cohort N' without naming the stage mis-states population."
                 ),
             }
@@ -231,7 +237,7 @@ def write_cohort_population_audit(
             pass
 
     known_counts = {
-        "governed_cohort": gov or 0,
+        "prepared_cohort": gov or 0,
         "aligned": aligned or 0,
         "post_low_support": post_ls or 0,
         "train": train_n or 0,
@@ -266,7 +272,7 @@ def write_cohort_population_audit(
     md_lines = [
         "# Cohort & population audit",
         "",
-        "Use these counts when wording any headline N; **never** silently substitute governed cohort ",
+        "Use these counts when wording any headline N; **never** silently substitute prepared-cohort rows ",
         "for aligned rows, train rows, or test rows.",
         "",
         "## Declared populations",

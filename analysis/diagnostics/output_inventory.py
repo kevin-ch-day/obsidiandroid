@@ -199,7 +199,9 @@ def write_run_evidence_index_md(
     counts_mirror = summary_obs.get("counts") if isinstance(summary_obs.get("counts"), dict) else {}
 
     cohort_display = cohort_size
-    if counts_mirror.get("governed_cohort_rows") is not None:
+    if counts_mirror.get("cohort_prepared_row_count") is not None:
+        cohort_display = int(counts_mirror["cohort_prepared_row_count"])
+    elif counts_mirror.get("governed_cohort_rows") is not None:
         cohort_display = int(counts_mirror["governed_cohort_rows"])
 
     aligned_training_n = int((manifest or {}).get("cohort_size", cohort_display) or 0)
@@ -208,7 +210,9 @@ def write_run_evidence_index_md(
     top_f1 = ms.get("top_macro_f1")
     train_n = (manifest or {}).get("train_sample_count") if isinstance(manifest, dict) else None
     test_n = (manifest or {}).get("test_sample_count") if isinstance(manifest, dict) else None
-    feat_n = (manifest or {}).get("feature_matrix_row_count") if isinstance(manifest, dict) else None
+    feat_n = (manifest or {}).get("feature_matrix_cols_post_prune") if isinstance(manifest, dict) else None
+    if feat_n in (None, "") and isinstance(manifest, dict):
+        feat_n = manifest.get("feature_matrix_row_count")
     if train_n in (None, "") and counts_mirror.get("train_rows") is not None:
         train_n = counts_mirror["train_rows"]
     if test_n in (None, "") and counts_mirror.get("test_rows") is not None:

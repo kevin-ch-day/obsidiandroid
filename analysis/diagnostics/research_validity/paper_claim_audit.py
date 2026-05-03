@@ -62,7 +62,12 @@ def _model_top_macro_f1(diagnostics_dir: Path, run_id: str) -> tuple[str, float 
 
 
 def _cohort_snapshot(manifest: dict[str, Any], mctx: dict[str, Any]) -> str:
-    gov = mctx.get("governed_cohort_rows") or manifest.get("cohort_size") or ""
+    gov = (
+        mctx.get("cohort_prepared_row_count")
+        or mctx.get("governed_cohort_rows")
+        or manifest.get("cohort_size")
+        or ""
+    )
     train = (
         (mctx.get("split") or {}).get("train_sample_count")
         if isinstance(mctx.get("split"), dict)
@@ -76,7 +81,7 @@ def _cohort_snapshot(manifest: dict[str, Any], mctx: dict[str, Any]) -> str:
     aligned = mctx.get("aligned_supervised_rows") or ""
     post_ls = mctx.get("post_low_support_training_rows") or ""
     return (
-        f"governed_cohort_rows≈{gov}; aligned_supervised≈{aligned}; "
+        f"prepared_cohort_rows≈{gov}; aligned_supervised≈{aligned}; "
         f"post_low_support_training≈{post_ls}; train≈{train}; test≈{test}"
     )
 

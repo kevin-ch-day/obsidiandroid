@@ -119,7 +119,7 @@ Each markdown file can be browsed directly in GitHub’s file viewer for quick n
 - **Outputs:** Results (trained models, evaluation summaries, feature matrices) are saved in `output/`, including:
   - `final_classification_labels.xlsx` – Predicted malware family per sample.
   - `diagnostics/model_comparison_summary_<run_id>.csv` - Ranked model metrics (default fast path).
-  - `diagnostics/run_observability_summary.json` – Authoritative observability rollup (stage verdicts, cohort funnel counts, audits); mirrored to `pipeline_observability_status.json`; drives terminal **Run Health** and `run_evidence_index.md`.
+  - `diagnostics/run_observability_summary.json` – Authoritative observability rollup (stage verdicts, cohort funnel counts, audits); drives terminal **Run Health** and `run_evidence_index.md` (`paths.run_observability_summary_json` in that JSON).
   - `model_comparison_summary.xlsx` - Optional ranked model workbook export.
   - Feature matrix with AV and permission-based statistics.
 
@@ -180,7 +180,7 @@ See comments in `config/settings/*.py` (or `config/app_config.py`) for full deta
 
 ## Optional Tools
 
-- `python run_ml_static_scan.py` – Scan the repo for accidental `.predict()` misuse.
+- `make ml-scan` or `python run_ml_static_scan.py` – Scan the repo for accidental `.predict()` misuse (`--strict` fails on warnings).
 - `python clean_bytecode_cache.py [path] --exclude venv` – Remove bytecode/logs.
 - `python analysis/evaluation/random_forest_diagnostics.py` – Cross-validation, weak class detection, feature importance diagnostics.
 - `python testing/data_fuzzer.py` – Generate large synthetic datasets for robustness and stress testing.

@@ -30,13 +30,26 @@ def feature_correlation_summary(df: pd.DataFrame, threshold: float = 0.8, verbos
 
 
 def detect_outliers(df: pd.DataFrame, columns: list[str], z_thresh: float = 3.5, verbose: bool = True) -> pd.DataFrame:
-    """Return rows where any specified column exceeds the z-score threshold."""
+    """Return rows where any specified column exceeds the z-score threshold.
+
+    Columns with zero variance are skipped (no z-score); they cannot contribute outliers
+    and would otherwise trigger numerical warnings from ``scipy.stats.zscore``.
+    """
     if not columns:
         return pd.DataFrame()
     subset = df[columns].dropna()
     if subset.empty:
         return pd.DataFrame()
-    z_scores = subset.apply(zscore)
+    z_parts: list[pd.Series] = []
+    for col in columns:
+        series = subset[col].astype(float)
+        std = float(series.std(ddof=0))
+        if std < 1e-12:
+            z_parts.append(pd.Series(0.0, index=series.index, dtype=float))
+        else:
+            z_parts.append(pd.Series(zscore(series.to_numpy(), ddof=0), index=series.index, dtype=float))
+    z_scores = pd.concat(z_parts, axis=1)
+    z_scores.columns = columns
     mask = (z_scores.abs() > z_thresh).any(axis=1)
     outliers = df.loc[mask]
     if verbose:

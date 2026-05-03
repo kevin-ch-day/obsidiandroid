@@ -1,4 +1,10 @@
-"""Readiness summary utilities for taxonomy-driven training cohorts."""
+"""Readiness summaries and SQL-scope gate diagnostics for training cohorts.
+
+Operator vocabulary (see ``analysis/diagnostics/cohort_vocabulary.py``):
+
+* **SQL profile scope** — database head count before rows are materialized into ``samples_df``.
+* **Prepared cohort** — rows in ``samples_df`` after fetch + Python preparation.
+"""
 
 from __future__ import annotations
 
@@ -84,20 +90,32 @@ def print_cohort_readiness_report(
     )
 
 
-def print_cohort_gate_stats(stats: dict) -> None:
-    """Print gate-level inclusion/exclusion counts for a planned cohort."""
+def print_cohort_sql_scope_gate_summary(stats: dict) -> None:
+    """Print SQL-scope inclusion/exclusion counts (same semantics as ``get_type_cohort_gate_stats``)."""
     if not isinstance(stats, dict) or not stats:
         return
 
-    du.print_section("Cohort Gate Stats")
+    du.print_section("Cohort SQL scope (gate stats)")
     du.print_stat("Type Slug", stats.get("type_slug", "unknown"))
-    du.print_stat("Total Candidates", int(stats.get("total_candidates", 0)))
+    du.print_stat("SQL profile scope (head count)", int(stats.get("total_candidates", 0)))
     du.print_stat("Excluded Unmapped Family", int(stats.get("excluded_unmapped_family", 0)))
     du.print_stat("Excluded Missing SHA256", int(stats.get("excluded_missing_sha256", 0)))
     du.print_stat("Excluded Unknown Type", int(stats.get("excluded_unknown_type_slug", 0)))
     du.print_stat("Excluded Missing Package", int(stats.get("excluded_missing_package_name", 0)))
     du.print_stat("Excluded Low Support", int(stats.get("excluded_low_support", 0)))
-    du.print_stat("Final Count (Estimate)", int(stats.get("final_count_estimate", 0)))
+    governed = int(stats.get("governed_cohort_count", stats.get("final_count_estimate", 0)))
+    du.print_stat("Governed row count from SQL (authoritative)", governed)
+    legacy = stats.get("final_count_estimate_sequential_legacy")
+    if legacy is not None and int(legacy) != governed:
+        du.print_info(
+            f"[COHORT] Sequential marginal estimate was {int(legacy)} "
+            f"(overlapping exclusion buckets — use governed SQL count above)."
+        )
+
+
+def print_cohort_gate_stats(stats: dict) -> None:
+    """Compatibility alias for :func:`print_cohort_sql_scope_gate_summary`."""
+    print_cohort_sql_scope_gate_summary(stats)
 
 
 def _family_column(df: pd.DataFrame) -> str | None:

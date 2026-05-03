@@ -62,7 +62,6 @@ def write_logging_audit_artifacts(diagnostics_dir: Path, *, run_id: str | None =
         "- `pipeline_stage_summary.md` — human-readable rollup.",
         "- `pipeline_events.jsonl` — append-only timeline (`STAGE_*`, `DATA_POPULATION_CHANGE`, etc.).",
         "- `run_observability_summary.json` — **authoritative** run-level rollup for automation, terminal **Run Health**, and `run_evidence_index.md` mirror.",
-        "- `pipeline_observability_status.json` — same payload as the summary (legacy filename mirror for older automation).",
         "- `logging_audit.md` / `logging_audit.csv` — this taxonomy + backlog inventory.",
         "- `partial_failures.md` — non-fatal stage errors (audits/ablations/evidence readiness).",
         "",

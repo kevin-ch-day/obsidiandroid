@@ -966,16 +966,6 @@ def _run_output_cleanup() -> int:
     return startup_menu_actions.run_output_cleanup()
 
 
-def _run_legacy_confusion_matrix_cleanup() -> int:
-    """Remove legacy generic confusion matrix artifacts without touching run-scoped files."""
-    return startup_menu_actions.run_legacy_confusion_matrix_cleanup()
-
-
-def _run_legacy_model_export_cleanup() -> int:
-    """Remove legacy top-level model exports under output/models/*."""
-    return startup_menu_actions.run_legacy_model_export_cleanup()
-
-
 def _run_paper_structural_diagnostics() -> int:
     """Generate consolidated structural diagnostics from latest artifacts."""
     du.print_section("Generate Structural Diagnostics")
@@ -989,7 +979,6 @@ def _run_paper_structural_diagnostics() -> int:
         getattr(app_config, "EVIDENCE_MODE_ENABLED", getattr(app_config, "PAPER_MODE_ENABLED", True))
     )
     env["SCYTALEDROID_EVIDENCE_MODE"] = "1" if evidence_mode else "0"
-    env["SCYTALEDROID_PAPER_MODE"] = env["SCYTALEDROID_EVIDENCE_MODE"]
     env["SCYTALEDROID_FIGURE_MODE"] = str(getattr(app_config, "FIGURE_MODE", "publication"))
     env["SCYTALEDROID_ANALYSIS_SCOPE"] = str(getattr(app_config, "ANALYSIS_SCOPE", "all"))
     latest_run_id = _read_latest_run_id() or ""
@@ -1452,8 +1441,6 @@ def _launch_maintenance_menu() -> None:
             "Run Health Check",
             "Structural Diagnostics",
             "Smart Output Cleanup",
-            "Legacy Confusion Cleanup",
-            "Legacy Model Cleanup",
             "Claim Artifact Map",
             "Evidence Bundle Checker",
         ]
@@ -1482,15 +1469,9 @@ def _launch_maintenance_menu() -> None:
             _run_output_cleanup()
             continue
         if choice == 8:
-            _run_legacy_confusion_matrix_cleanup()
-            continue
-        if choice == 9:
-            _run_legacy_model_export_cleanup()
-            continue
-        if choice == 10:
             _run_claim_artifact_map_scaffold()
             continue
-        if choice == 11:
+        if choice == 9:
             _run_paper2_freeze_checker()
             continue
         du.print_warning("[MENU] Invalid choice received.")
@@ -1783,8 +1764,6 @@ def _launch_output_management_menu() -> None:
     while True:
         options: List[str] = [
             "Cleanup Output Artifacts (Smart prune)",
-            "Cleanup Legacy Confusion Matrices (Quick)",
-            "Cleanup Legacy Model Exports (Quick)",
             "Show Disk Usage Summary",
         ]
         choice = mu.display_menu(options, title="Output Management", exit_label="Back")
@@ -1794,12 +1773,6 @@ def _launch_output_management_menu() -> None:
             _run_output_cleanup()
             continue
         if choice == 2:
-            _run_legacy_confusion_matrix_cleanup()
-            continue
-        if choice == 3:
-            _run_legacy_model_export_cleanup()
-            continue
-        if choice == 4:
             _show_disk_usage_summary()
             continue
         du.print_warning("[MENU] Invalid choice received.")

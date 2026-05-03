@@ -11,13 +11,6 @@ from utils import display_utils as du
 from utils.ui import menu as mu
 
 PROFILES_DIR = Path(__file__).resolve().parents[1] / "profiles"
-LEGACY_PROFILE_ALIASES = {
-    "paper2_primary": "repro_primary",
-    "paper2_sensitivity_consensus10": "repro_sensitivity_consensus10",
-    "paper2_sensitivity_family300": "repro_sensitivity_family300",
-}
-HIDDEN_PROFILE_IDS = set(LEGACY_PROFILE_ALIASES.keys())
-STRICT_REPRO_PROFILE_IDS = set(LEGACY_PROFILE_ALIASES.values())
 REQUIRED_PROFILE_KEYS = {
     "profile_id",
     "type_slug_filter",
@@ -60,10 +53,7 @@ def list_profiles() -> List[Path]:
     """List available YAML profile files."""
     if not PROFILES_DIR.exists():
         return []
-    return sorted(
-        path for path in PROFILES_DIR.glob("*.yaml")
-        if path.stem not in HIDDEN_PROFILE_IDS
-    )
+    return sorted(PROFILES_DIR.glob("*.yaml"))
 
 
 def load_profile(profile_ref: str) -> Dict[str, Any]:
@@ -85,7 +75,7 @@ def load_profile(profile_ref: str) -> Dict[str, Any]:
 
 
 def _resolve_profile_path(profile_ref: str) -> Path:
-    normalized_ref = LEGACY_PROFILE_ALIASES.get(str(profile_ref).strip(), str(profile_ref).strip())
+    normalized_ref = str(profile_ref).strip()
     candidate = Path(normalized_ref)
     if candidate.exists():
         return candidate
@@ -142,17 +132,12 @@ def _validate_profile(profile: Dict[str, Any], profile_path: Path) -> None:
             f"Profile '{profile_path}' has unsupported cohort_gates keys: [{bad_keys}]. "
             f"Allowed keys: [{allowed_keys}]."
         )
-    profile_id = LEGACY_PROFILE_ALIASES.get(
-        str(profile.get("profile_id", "")).strip(),
-        str(profile.get("profile_id", "")).strip(),
-    )
-    is_strict_repro_profile = profile_id in STRICT_REPRO_PROFILE_IDS or profile_id.startswith("repro_")
-    if is_strict_repro_profile:
+    if bool(profile.get("evidence_mode")):
         start_utc = str(cohort_gates.get("time_window_start_utc", "") or "").strip()
         end_utc = str(cohort_gates.get("time_window_end_utc", "") or "").strip()
         if not start_utc or not end_utc:
             raise ValueError(
-                "Strict reproducibility profile requires explicit time_window_start_utc and time_window_end_utc."
+                "Evidence-mode profile requires explicit time_window_start_utc and time_window_end_utc."
             )
 
 
@@ -190,7 +175,7 @@ def select_profile_interactive() -> str | None:
     selected_label = list(menu_options.keys())[choice - 1]
     if selected_label == "Enter profile id manually":
         try:
-            entered = input("Enter profile id (e.g., repro_primary): ").strip()
+            entered = input("Enter profile id (e.g., paper2_primary): ").strip()
         except KeyboardInterrupt:
             du.print_warning("[PROFILE] Selection cancelled by user (Ctrl+C).")
             return None
@@ -303,10 +288,10 @@ def _build_profile_catalog(profiles: List[Path]) -> List[tuple[str, str]]:
 
 def _profile_sort_key(profile_id: str) -> tuple[int, int, str]:
     """Return deterministic profile ordering for a cleaner selection menu."""
-    pid = LEGACY_PROFILE_ALIASES.get(str(profile_id).strip().lower(), str(profile_id).strip().lower())
-    if pid == "repro_primary":
+    pid = str(profile_id).strip().lower()
+    if pid == "paper2_primary":
         return (0, 0, pid)
-    if pid.startswith("repro_sensitivity_"):
+    if pid.startswith("paper2_sensitivity_"):
         return (1, 0, pid)
 
     core_order = {

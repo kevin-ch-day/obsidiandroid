@@ -9,46 +9,6 @@ from config import app_config
 from utils import startup_menu
 
 
-def test_cleanup_legacy_confusion_matrices_removes_only_generic(monkeypatch, tmp_path: Path) -> None:
-    """Legacy confusion cleanup should only remove generic model-only filenames."""
-    out_root = tmp_path / "output"
-    conf_dir = out_root / "conf_matrices"
-    conf_dir.mkdir(parents=True, exist_ok=True)
-    keep_file = conf_dir / "confusion_matrix_20260228T184458Z__abcd12__xgboost.png"
-    delete_file = conf_dir / "confusion_matrix_xgboost.png"
-    keep_file.write_text("keep", encoding="utf-8")
-    delete_file.write_text("delete", encoding="utf-8")
-
-    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
-    monkeypatch.setattr(startup_menu.mu, "confirm_prompt", lambda *_args, **_kwargs: True)
-
-    result = startup_menu._run_legacy_confusion_matrix_cleanup()  # pylint: disable=protected-access
-
-    assert result == 0
-    assert keep_file.exists()
-    assert not delete_file.exists()
-
-
-def test_cleanup_legacy_model_exports_removes_top_level_models(monkeypatch, tmp_path: Path) -> None:
-    """Legacy model export cleanup should remove files under output/models."""
-    out_root = tmp_path / "output"
-    model_dir = out_root / "models" / "random_forest"
-    model_dir.mkdir(parents=True, exist_ok=True)
-    model_file = model_dir / "random_forest_classifier_model.joblib"
-    meta_file = model_dir / "random_forest_classifier_model_metadata.json"
-    model_file.write_text("model", encoding="utf-8")
-    meta_file.write_text("meta", encoding="utf-8")
-
-    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
-    monkeypatch.setattr(startup_menu.mu, "confirm_prompt", lambda *_args, **_kwargs: True)
-
-    result = startup_menu._run_legacy_model_export_cleanup()  # pylint: disable=protected-access
-
-    assert result == 0
-    assert not model_file.exists()
-    assert not meta_file.exists()
-
-
 def test_main_menu_clear_screen_option(monkeypatch) -> None:
     """Main menu clear option should call clear_screen and continue loop."""
     choices = iter([6, 0])
@@ -139,8 +99,6 @@ def test_maintenance_menu_uses_operator_facing_actions(monkeypatch) -> None:
         "Run Health Check",
         "Structural Diagnostics",
         "Smart Output Cleanup",
-        "Legacy Confusion Cleanup",
-        "Legacy Model Cleanup",
         "Claim Artifact Map",
         "Evidence Bundle Checker",
     ]

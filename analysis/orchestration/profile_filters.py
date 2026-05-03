@@ -136,7 +136,7 @@ def apply_dataset_filters(samples_df: pd.DataFrame, profile: dict) -> pd.DataFra
 
     random_state = int(getattr(app_config, "RANDOM_STATE", 42))
     if mode == "malicious_only":
-        out_df = samples_df.copy()
+        out_df = malicious_df.copy()
         out_df.attrs["cohort_filter_summary"] = summarize_dataset_partitions(
             source_df=samples_df,
             output_df=out_df,

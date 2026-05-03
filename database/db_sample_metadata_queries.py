@@ -1,4 +1,9 @@
-"""Public query facade for Android malware sample metadata loaders."""
+"""Public query facade for Android malware sample metadata loaders.
+
+Cohort SQL-scope diagnostics are returned by ``get_type_cohort_gate_stats``; see that
+function's docstring and ``analysis/diagnostics/cohort_vocabulary.py`` for how counts
+relate to manifest fields.
+"""
 
 from __future__ import annotations
 

@@ -7,7 +7,6 @@ from typing import Any
 
 
 ENV_EVIDENCE_MODE = "SCYTALEDROID_EVIDENCE_MODE"
-ENV_LEGACY_PAPER_MODE = "SCYTALEDROID_PAPER_MODE"
 
 
 class EvidenceModeConfigError(ValueError):

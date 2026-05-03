@@ -58,7 +58,9 @@ def test_stage_samples_forwards_excluded_families_to_sql_layer(monkeypatch, tmp_
     monkeypatch.setattr(stage_samples, "_export_paper_cohort_sample_ids", lambda **_kwargs: "ids.csv")
     monkeypatch.setattr(stage_samples, "_export_cohort_filter_contract", lambda **_kwargs: ("a.json", "b.csv"))
     monkeypatch.setattr(stage_samples, "export_cohort_filter_summary", lambda **_kwargs: "summary.csv")
-    monkeypatch.setattr(stage_samples.cohort_readiness_report, "print_cohort_gate_stats", lambda _stats: None)
+    monkeypatch.setattr(
+        stage_samples.cohort_readiness_report, "print_cohort_sql_scope_gate_summary", lambda _stats: None
+    )
     monkeypatch.setattr(stage_samples.cohort_readiness_report, "print_cohort_readiness_report", lambda _df, gates=None: None)
     monkeypatch.setattr(stage_samples, "prepare_sample_dataframe", lambda **kwargs: kwargs["df"])
     monkeypatch.setattr(stage_samples, "apply_dataset_filters", lambda df, _profile: df)
@@ -121,7 +123,9 @@ def test_stage_samples_forwards_exclude_unknown_type_slug_to_sql_layer(monkeypat
     monkeypatch.setattr(stage_samples, "_export_paper_cohort_sample_ids", lambda **_kwargs: "ids.csv")
     monkeypatch.setattr(stage_samples, "_export_cohort_filter_contract", lambda **_kwargs: ("a.json", "b.csv"))
     monkeypatch.setattr(stage_samples, "export_cohort_filter_summary", lambda **_kwargs: "summary.csv")
-    monkeypatch.setattr(stage_samples.cohort_readiness_report, "print_cohort_gate_stats", lambda _stats: None)
+    monkeypatch.setattr(
+        stage_samples.cohort_readiness_report, "print_cohort_sql_scope_gate_summary", lambda _stats: None
+    )
     monkeypatch.setattr(stage_samples.cohort_readiness_report, "print_cohort_readiness_report", lambda _df, gates=None: None)
     monkeypatch.setattr(stage_samples, "prepare_sample_dataframe", lambda **kwargs: kwargs["df"])
     monkeypatch.setattr(stage_samples, "apply_dataset_filters", lambda df, _profile: df)
@@ -183,7 +187,9 @@ def test_stage_samples_enforces_unknown_exclusion_for_evidence_mode(monkeypatch,
     monkeypatch.setattr(stage_samples, "_export_paper_cohort_sample_ids", lambda **_kwargs: "ids.csv")
     monkeypatch.setattr(stage_samples, "_export_cohort_filter_contract", lambda **_kwargs: ("a.json", "b.csv"))
     monkeypatch.setattr(stage_samples, "export_cohort_filter_summary", lambda **_kwargs: "summary.csv")
-    monkeypatch.setattr(stage_samples.cohort_readiness_report, "print_cohort_gate_stats", lambda _stats: None)
+    monkeypatch.setattr(
+        stage_samples.cohort_readiness_report, "print_cohort_sql_scope_gate_summary", lambda _stats: None
+    )
     monkeypatch.setattr(stage_samples.cohort_readiness_report, "print_cohort_readiness_report", lambda _df, gates=None: None)
     monkeypatch.setattr(stage_samples, "prepare_sample_dataframe", lambda **kwargs: kwargs["df"])
     monkeypatch.setattr(stage_samples, "apply_dataset_filters", lambda df, _profile: df)
@@ -278,7 +284,9 @@ def test_stage_samples_sets_runtime_min_family_support_from_profile_gates(monkey
     monkeypatch.setattr(stage_samples, "_export_paper_cohort_sample_ids", lambda **_kwargs: "ids.csv")
     monkeypatch.setattr(stage_samples, "_export_cohort_filter_contract", lambda **_kwargs: ("a.json", "b.csv"))
     monkeypatch.setattr(stage_samples, "export_cohort_filter_summary", lambda **_kwargs: "summary.csv")
-    monkeypatch.setattr(stage_samples.cohort_readiness_report, "print_cohort_gate_stats", lambda _stats: None)
+    monkeypatch.setattr(
+        stage_samples.cohort_readiness_report, "print_cohort_sql_scope_gate_summary", lambda _stats: None
+    )
     monkeypatch.setattr(stage_samples.cohort_readiness_report, "print_cohort_readiness_report", lambda _df, gates=None: None)
     monkeypatch.setattr(stage_samples, "prepare_sample_dataframe", lambda **kwargs: kwargs["df"])
     monkeypatch.setattr(stage_samples, "apply_dataset_filters", lambda df, _profile: df)

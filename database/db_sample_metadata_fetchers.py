@@ -1,6 +1,12 @@
-"""Database fetchers for Android malware sample metadata cohorts."""
+"""Database fetchers for Android malware sample metadata cohorts.
+
+Row-count terminology for operators and manifests is centralized in
+``analysis/diagnostics/cohort_vocabulary.py`` (SQL profile scope vs prepared cohort).
+"""
 
 from __future__ import annotations
+
+from typing import Any
 
 from database import db_engine
 from database.cohort_sql_fragments import (
@@ -10,27 +16,31 @@ from database.cohort_sql_fragments import (
 )
 
 
-def fetch_samples_by_type(
+def _cohort_loader_sql_parts(
+    *,
     type_slug: str | None,
-    min_samples_per_family: int | None = None,
-    require_mapped_family: bool = True,
-    require_sha256: bool = True,
-    allow_missing_package_name: bool = True,
-    exclude_unknown_type_slug: bool = False,
-    limit: int | None = None,
-    effective_time_start_utc: str | None = None,
-    effective_time_end_utc: str | None = None,
-    require_effective_first_seen: bool = True,
-    exclude_family_ids: tuple[int, ...] | None = None,
-    exclude_family_canonical: tuple[str, ...] | None = None,
-    as_dataframe: bool = False,
-):
-    """Fetch Android APK samples joined to canonical family/type taxonomy."""
+    min_samples_per_family: int | None,
+    require_mapped_family: bool,
+    require_sha256: bool,
+    allow_missing_package_name: bool,
+    exclude_unknown_type_slug: bool,
+    effective_time_start_utc: str | None,
+    effective_time_end_utc: str | None,
+    require_effective_first_seen: bool,
+    exclude_family_ids: tuple[int, ...] | None,
+    exclude_family_canonical: tuple[str, ...] | None,
+) -> dict[str, Any]:
+    """Build join clauses and WHERE fragments shared by fetch and gate-stat COUNT.
+
+    Returns:
+        dict with hash_join_clause, hash_join_clause_inner, scan_one, fam_one,
+        where_clauses (list of SQL predicates), params (flat bind list in order).
+    """
     if min_samples_per_family is not None and not type_slug:
         raise ValueError("min_samples_per_family requires a non-empty type_slug.")
 
     where_clauses = ["y.platform = 'android'", "y.file_extension = 'apk'"]
-    params: list = []
+    params: list[Any] = []
     effective_ts_expr = "COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc)"
 
     if require_effective_first_seen:
@@ -82,7 +92,7 @@ def fetch_samples_by_type(
 
     if min_samples_per_family is not None:
         inner_where_clauses = ["y_inner.platform = 'android'", "y_inner.file_extension = 'apk'"]
-        inner_params: list = []
+        inner_params: list[Any] = []
         effective_ts_expr_inner = (
             "COALESCE(y_inner.vt_first_seen_itw_date, y_inner.vt_first_submission_at_utc)"
         )
@@ -155,12 +165,56 @@ def fetch_samples_by_type(
         )
         params.extend(normalized_exclude_canonical)
 
+    return {
+        "hash_join_clause": hash_join_clause,
+        "hash_join_clause_inner": hash_join_clause_inner,
+        "scan_one": scan_one,
+        "fam_one": fam_one,
+        "where_clauses": where_clauses,
+        "params": params,
+    }
+
+
+def fetch_samples_by_type(
+    type_slug: str | None,
+    min_samples_per_family: int | None = None,
+    require_mapped_family: bool = True,
+    require_sha256: bool = True,
+    allow_missing_package_name: bool = True,
+    exclude_unknown_type_slug: bool = False,
+    limit: int | None = None,
+    effective_time_start_utc: str | None = None,
+    effective_time_end_utc: str | None = None,
+    require_effective_first_seen: bool = True,
+    exclude_family_ids: tuple[int, ...] | None = None,
+    exclude_family_canonical: tuple[str, ...] | None = None,
+    as_dataframe: bool = False,
+):
+    """Fetch Android APK samples joined to canonical family/type taxonomy."""
+    parts = _cohort_loader_sql_parts(
+        type_slug=type_slug,
+        min_samples_per_family=min_samples_per_family,
+        require_mapped_family=require_mapped_family,
+        require_sha256=require_sha256,
+        allow_missing_package_name=allow_missing_package_name,
+        exclude_unknown_type_slug=exclude_unknown_type_slug,
+        effective_time_start_utc=effective_time_start_utc,
+        effective_time_end_utc=effective_time_end_utc,
+        require_effective_first_seen=require_effective_first_seen,
+        exclude_family_ids=exclude_family_ids,
+        exclude_family_canonical=exclude_family_canonical,
+    )
+    params = list(parts["params"])
+    where_sql = " AND ".join(parts["where_clauses"])
+    scan_one = parts["scan_one"]
+    fam_one = parts["fam_one"]
+    hash_join_clause = parts["hash_join_clause"]
+
     limit_clause = ""
     if isinstance(limit, int) and limit > 0:
         limit_clause = "LIMIT %s"
         params.append(limit)
 
-    where_sql = " AND ".join(where_clauses)
     query = f"""
         SELECT
             y.sample_id,
@@ -233,7 +287,20 @@ def get_type_cohort_gate_stats(
     exclude_family_ids: tuple[int, ...] | None = None,
     exclude_family_canonical: tuple[str, ...] | None = None,
 ) -> dict:
-    """Return pre-training cohort gate counts for a taxonomy type."""
+    """Return SQL-scope diagnostic counts for the cohort loader (pre-``samples_df``).
+
+    The returned dict mixes **head-count buckets** (marginal ``excluded_*`` fields can
+    overlap) with one **conjunctive** count:
+
+    * ``total_candidates`` — rows matching the loose base join + type/time filters
+      (cohort **SQL profile scope** head count).
+    * ``governed_cohort_count`` / ``final_count_estimate`` — same value: authoritative
+      COUNT for the full conjunctive cohort predicate used by ``load_samples_by_type``.
+    * ``final_count_estimate_sequential_legacy`` — legacy marginal subtraction; diagnostic
+      only when it disagrees with ``governed_cohort_count``.
+
+    See ``analysis/diagnostics/cohort_vocabulary.py`` for how these map to manifest keys.
+    """
     hash_one = latest_artifact_hash_registry_subquery()
     hash_join_clause = f"JOIN {hash_one} x ON x.sha256 = y.sha256"
     if not require_sha256:
@@ -323,19 +390,54 @@ def get_type_cohort_gate_stats(
         )
         low_support_excluded = int(rows[0][0]) if rows else 0
 
-    final_count = total_candidates
+    # Authoritative row count matching fetch_samples_by_type (conjunctive gates).
+    loader_parts = _cohort_loader_sql_parts(
+        type_slug=type_slug,
+        min_samples_per_family=min_samples_per_family,
+        require_mapped_family=require_mapped_family,
+        require_sha256=require_sha256,
+        allow_missing_package_name=allow_missing_package_name,
+        exclude_unknown_type_slug=exclude_unknown_type_slug,
+        effective_time_start_utc=effective_time_start_utc,
+        effective_time_end_utc=effective_time_end_utc,
+        require_effective_first_seen=require_effective_first_seen,
+        exclude_family_ids=exclude_family_ids,
+        exclude_family_canonical=exclude_family_canonical,
+    )
+    governed_where = " AND ".join(loader_parts["where_clauses"])
+    governed_params = tuple(loader_parts["params"])
+    governed_sql = f"""
+        SELECT COUNT(*) AS c /* cohort_governed_count */
+        FROM malware_sample_catalog y
+        {loader_parts["hash_join_clause"]}
+        LEFT JOIN {loader_parts["scan_one"]} s ON s.sample_id = y.sample_id
+        LEFT JOIN {loader_parts["fam_one"]} v ON v.sample_id = y.sample_id
+        LEFT JOIN android_malware_family f ON LOWER(f.family_slug) = v.resolved_family_lc
+        LEFT JOIN android_malware_type t ON t.type_id = f.primary_type_id
+        WHERE {governed_where}
+    """
+    _gcolumns, grows = db_engine.execute_query(
+        governed_sql,
+        params=governed_params,
+        fetch=True,
+        return_columns=True,
+    )
+    governed_cohort_count = int(grows[0][0]) if grows else 0
+
+    # Legacy sequential estimate (marginal buckets can overlap — diagnostic only).
+    final_count_legacy = total_candidates
     if require_sha256:
-        final_count -= missing_sha256
-        final_count -= missing_hash_registry
+        final_count_legacy -= missing_sha256
+        final_count_legacy -= missing_hash_registry
     if require_mapped_family:
-        final_count -= unmapped_family
+        final_count_legacy -= unmapped_family
     if not allow_missing_package_name:
-        final_count -= missing_package
+        final_count_legacy -= missing_package
     if min_samples_per_family is not None:
-        final_count -= low_support_excluded
+        final_count_legacy -= low_support_excluded
     if exclude_unknown_type_slug:
-        final_count -= unknown_type_slug
-    final_count = max(0, final_count)
+        final_count_legacy -= unknown_type_slug
+    final_count_legacy = max(0, final_count_legacy)
 
     return {
         "type_slug": type_slug or "all",
@@ -350,7 +452,9 @@ def get_type_cohort_gate_stats(
         "excluded_unknown_type_slug": unknown_type_slug if exclude_unknown_type_slug else 0,
         "excluded_family_ids": list(normalized_exclude_ids),
         "excluded_family_canonical": list(normalized_exclude_canonical),
-        "final_count_estimate": final_count,
+        "governed_cohort_count": governed_cohort_count,
+        "final_count_estimate": governed_cohort_count,
+        "final_count_estimate_sequential_legacy": final_count_legacy,
     }
 
 

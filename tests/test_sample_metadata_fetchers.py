@@ -52,6 +52,8 @@ def test_gate_stats_accounts_for_missing_hash_registry_rows(monkeypatch) -> None
     def _fake_execute_query(query, params=None, **_kwargs):
         text = str(query)
         seen_queries.append(text)
+        if "cohort_governed_count" in text:
+            return (["c"], [(79,)])
         if "COALESCE(SUM(cnt), 0) AS c" in text:
             return (["c"], [(4,)])
         if "x.sha256 IS NULL" in text:
@@ -76,7 +78,9 @@ def test_gate_stats_accounts_for_missing_hash_registry_rows(monkeypatch) -> None
     assert any("malware_artifact_hash_registry h0" in q and "_artifact_hash_rn" in q for q in seen_queries)
     assert stats["excluded_missing_sha256"] == 7
     assert stats["excluded_missing_hash_registry"] == 5
+    assert stats["governed_cohort_count"] == 79
     assert stats["final_count_estimate"] == 79
+    assert stats["final_count_estimate_sequential_legacy"] == 79
 
 
 def test_fetch_min_support_subquery_reuses_sha_join_mode(monkeypatch) -> None:
@@ -143,6 +147,8 @@ def test_gate_stats_reports_unknown_type_exclusions_when_enabled(monkeypatch) ->
     """Gate stats should account for unknown type exclusions when gate is enabled."""
     def _fake_execute_query(query, params=None, **_kwargs):
         text = str(query)
+        if "cohort_governed_count" in text:
+            return (["c"], [(89,)])
         if "COALESCE(SUM(cnt), 0) AS c" in text:
             return (["c"], [(0,)])
         if "COALESCE(LOWER(TRIM(t.type_slug)), '') = 'unknown'" in text:
@@ -164,4 +170,5 @@ def test_gate_stats_reports_unknown_type_exclusions_when_enabled(monkeypatch) ->
     )
 
     assert stats["excluded_unknown_type_slug"] == 11
+    assert stats["governed_cohort_count"] == 89
     assert stats["final_count_estimate"] == 89

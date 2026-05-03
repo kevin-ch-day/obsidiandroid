@@ -31,13 +31,13 @@ def test_load_profile_resolves_bundled_profiles_outside_repo_cwd(
     assert profile["__profile_path"].endswith("profiles/banker.yaml")
 
 
-def test_repro_profiles_exclude_dominant_families() -> None:
-    """Strict reproducibility profiles should exclude dominant families for balanced cross-type analysis."""
+def test_paper2_evidence_profiles_exclude_dominant_families() -> None:
+    """Paper #2 evidence profiles should exclude dominant families for balanced cross-type analysis."""
     expected = {"devixor", "gigabud"}
     for profile_id in (
-        "repro_primary",
-        "repro_sensitivity_consensus10",
-        "repro_sensitivity_family300",
+        "paper2_primary",
+        "paper2_sensitivity_consensus10",
+        "paper2_sensitivity_family300",
     ):
         profile = profile_manager.load_profile(profile_id)
         excluded = {
@@ -48,21 +48,21 @@ def test_repro_profiles_exclude_dominant_families() -> None:
         assert expected.issubset(excluded)
 
 
-def test_profile_sorting_prefers_repro_and_core_profiles() -> None:
-    """Sort key should rank reproducibility/core profiles before misc entries."""
+def test_profile_sorting_prefers_paper2_and_core_profiles() -> None:
+    """Sort key should rank paper2 evidence/core profiles before misc entries."""
     ordered = sorted(
         [
             "spyware",
-            "repro_sensitivity_family300",
+            "paper2_sensitivity_family300",
             "dev_smoke",
             "dev_fast",
-            "repro_primary",
+            "paper2_primary",
             "banker",
         ],
         key=profile_manager._profile_sort_key,  # pylint: disable=protected-access
     )
-    assert ordered[0] == "repro_primary"
-    assert ordered[1] == "repro_sensitivity_family300"
+    assert ordered[0] == "paper2_primary"
+    assert ordered[1] == "paper2_sensitivity_family300"
     assert ordered[2] == "banker"
     assert ordered[-2] == "dev_fast"
     assert ordered[-1] == "dev_smoke"
@@ -141,15 +141,16 @@ def test_load_profile_rejects_unknown_cohort_gate_key(tmp_path: Path, monkeypatc
         assert "unsupported cohort_gates keys" in str(exc)
 
 
-def test_load_profile_rejects_strict_repro_without_explicit_temporal_bounds(
+def test_load_profile_rejects_evidence_mode_without_explicit_temporal_bounds(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Strict reproducibility profiles must declare explicit start and end time bounds."""
-    profile_path = tmp_path / "repro_missing_bounds.yaml"
+    """Evidence-mode profiles must declare explicit start and end time bounds."""
+    profile_path = tmp_path / "evidence_missing_bounds.yaml"
     profile_path.write_text(
         "\n".join(
             [
-                "profile_id: repro_missing_bounds",
+                "profile_id: evidence_missing_bounds",
+                "evidence_mode: true",
                 "type_slug_filter: all",
                 "cohort_gates:",
                 "  min_samples_per_family: 20",
@@ -163,7 +164,7 @@ def test_load_profile_rejects_strict_repro_without_explicit_temporal_bounds(
     )
     monkeypatch.setattr(profile_manager, "PROFILES_DIR", tmp_path)
     try:
-        profile_manager.load_profile("repro_missing_bounds")
-        assert False, "Expected ValueError for missing explicit reproducibility temporal bounds"
+        profile_manager.load_profile("evidence_missing_bounds")
+        assert False, "Expected ValueError for missing explicit evidence-mode temporal bounds"
     except ValueError as exc:
-        assert "Strict reproducibility profile requires explicit time_window_start_utc and time_window_end_utc" in str(exc)
+        assert "Evidence-mode profile requires explicit time_window_start_utc and time_window_end_utc" in str(exc)

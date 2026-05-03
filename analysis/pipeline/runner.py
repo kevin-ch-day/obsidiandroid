@@ -30,6 +30,11 @@ from utils.logging import get_logger, log_event
 from utils.hash_utils import hash_payload
 from utils import output_hygiene as oh
 from analysis.pipeline.governance.integrity import enforce_run_scoped_artifact_paths
+from analysis.diagnostics.cohort_foundation_export import append_research_warnings_for_upstream_expectation
+from analysis.diagnostics.cohort_vocabulary import (
+    KEY_SAMPLES_STAGE_COHORT_COUNTS,
+    attach_cohort_row_counts_to_manifest_context,
+)
 
 # === Analysis Pipelines (staged pipeline) ===
 from analysis.pipeline.stage_av_vendor import (
@@ -377,19 +382,27 @@ def run_pipeline(
     def _write_preflight(status: str, reason: str = "") -> None:
         """Write evidence-mode preflight report for auditability."""
         nonlocal preflight_path, preflight_payload
-        if not bool(
+        evidence_on = bool(
             getattr(
                 app_config,
                 "EVIDENCE_MODE_ENABLED",
                 getattr(app_config, "PAPER_MODE_ENABLED", False),
             )
-        ):
+        )
+        samples_cohort_audit = str(stop_after).strip().lower() == "samples"
+        if not evidence_on and not samples_cohort_audit:
             return
         run_root = Path(str(getattr(app_config, "RUNTIME_RUN_ROOT", app_config.DEFAULT_OUTPUT_DIR)))
         diagnostics_dir = run_root / "diagnostics"
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         if preflight_path is None:
             preflight_path = diagnostics_dir / "preflight_report.json"
+        if samples_cohort_audit:
+            preflight_payload[KEY_SAMPLES_STAGE_COHORT_COUNTS] = {
+                "stop_after": stop_after,
+                "cohort_sql_scope_row_count": manifest_context.get("cohort_sql_scope_row_count"),
+                "cohort_prepared_row_count": manifest_context.get("cohort_prepared_row_count"),
+            }
         preflight_payload.update(
             {
                 "run_id": run_id,
@@ -449,10 +462,7 @@ def run_pipeline(
         requested_evidence_mode = (
             evidence_mode_override if evidence_mode_override is not None else paper_mode_override
         )
-        env_evidence_value = os.environ.get(
-            evidence_mode_resolver.ENV_EVIDENCE_MODE,
-            os.environ.get(evidence_mode_resolver.ENV_LEGACY_PAPER_MODE),
-        )
+        env_evidence_value = os.environ.get(evidence_mode_resolver.ENV_EVIDENCE_MODE)
         preliminary_resolution = evidence_mode_resolver.resolve_evidence_mode(
             cli_value=requested_evidence_mode,
             env_value=env_evidence_value,
@@ -677,21 +687,28 @@ def run_pipeline(
         manifest_context["dataset_time_contract_path"] = str(
             getattr(app_config, "DATASET_TIME_CONTRACT_FILE", "")
         )
-        manifest_context["raw_candidate_rows"] = int(
-            manifest_context.get("analysis_snapshot", {}).get("snapshot_row_count", len(samples_df))
+        gs = samples_df.attrs.get("cohort_gate_stats") or {}
+        sql_scope_rows = int(gs.get("total_candidates", 0) or 0)
+        prepared_rows = int(len(samples_df))
+        attach_cohort_row_counts_to_manifest_context(
+            manifest_context,
+            sql_scope_row_count=sql_scope_rows,
+            prepared_row_count=prepared_rows,
         )
-        manifest_context["governed_cohort_rows"] = int(len(samples_df))
-        manifest_context["mapped_known_type_samples"] = int(len(samples_df))
+        append_research_warnings_for_upstream_expectation(
+            manifest_context,
+            profile_id=profile_id,
+            sql_scope_row_count=sql_scope_rows,
+            gates=profile.get("cohort_gates", {}) if isinstance(profile, dict) else {},
+        )
         obs_sess = manifest_context.get("pipeline_observability")
-        raw_n_for_obs = int(
-            manifest_context.get("raw_candidate_rows", len(samples_df)) or len(samples_df)
-        )
+        raw_n_for_obs = sql_scope_rows if sql_scope_rows > 0 else prepared_rows
         if isinstance(obs_sess, PipelineObservabilitySession):
             obs_sess.log_population_transition(
-                transition="raw_candidates_to_governed_cohort",
+                transition="cohort_sql_scope_to_prepared_rows",
                 previous_count=int(raw_n_for_obs),
                 new_count=int(len(samples_df)),
-                reason="snapshot selection + cohort profile gates (+ unknown-family exclusions counted in attrs)",
+                reason="SQL profile cohort scope → samples_df after fetch + Python preparation",
                 artifact_path=str(snapshot_file),
             )
         _record_stage_timing(
@@ -705,6 +722,10 @@ def run_pipeline(
 
         if stop_after == "samples":
             _mark_run_state("partial", completed_stage="samples")
+            _write_preflight(
+                status="stopped_after_samples",
+                reason="stop_after=samples (cohort audit; later stages skipped)",
+            )
             du.print_success("[PIPELINE] Stopped after sample preparation by request.")
             pipeline_results = None
             vendor_eval = None
@@ -785,7 +806,7 @@ def run_pipeline(
             manifest_context["vendor_eval_sample_rows"] = ve_n
             obs_api.record_data_population_change(
                 manifest_context,
-                transition="governed_cohort_to_vendor_feature_rows",
+                transition="prepared_cohort_to_vendor_feature_rows",
                 previous_count=int(len(samples_df)),
                 new_count=ve_n,
                 reason="unique samples represented in vendor_eval after metadata extraction",
@@ -849,7 +870,7 @@ def run_pipeline(
             obs_sess = manifest_context.get("pipeline_observability")
             if isinstance(obs_sess, PipelineObservabilitySession):
                 obs_sess.log_population_transition(
-                    transition="governed_cohort_to_permission_feature_rows",
+                    transition="prepared_cohort_to_permission_feature_rows",
                     previous_count=int(len(samples_df)),
                     new_count=int(permission_features_df["sample_id"].nunique()),
                     reason="samples with enrichment join coverage (sparse if DB gaps)",
@@ -876,10 +897,10 @@ def run_pipeline(
         fused_cols = int(feature_df.shape[1])
         obs_sess_fm = manifest_context.get("pipeline_observability")
         if isinstance(obs_sess_fm, PipelineObservabilitySession):
-            gov_n_fm = int(manifest_context.get("governed_cohort_rows", len(samples_df)) or len(samples_df))
+            gov_n_fm = int(manifest_context.get("cohort_prepared_row_count", len(samples_df)) or len(samples_df))
             cov_path_hint = Path(DIAGNOSTICS_DIR) / f"feature_build_coverage_{run_id}.json"
             obs_sess_fm.log_population_transition(
-                transition="governed_cohort_to_fused_vendor_feature_rows",
+                transition="prepared_cohort_to_fused_vendor_feature_rows",
                 previous_count=gov_n_fm,
                 new_count=int(fused_rows),
                 reason="vendor merge intersection / row authority (+ optional enrichment join)",
@@ -888,7 +909,7 @@ def run_pipeline(
         _record_stage_timing(
             "feature_matrix",
             stage_started_at,
-            input_rows=int(manifest_context.get("governed_cohort_rows", len(samples_df)) or 0),
+            input_rows=int(manifest_context.get("cohort_prepared_row_count", len(samples_df)) or 0),
             output_rows=fused_rows,
             input_features=fused_cols,
             output_features=fused_cols,
@@ -1090,9 +1111,10 @@ def run_pipeline(
         manifest_context["post_low_support_training_rows"] = getattr(
             app_config, "RUNTIME_POST_LOW_SUPPORT_TRAINING_ROWS", None
         )
-        manifest_context["feature_matrix_row_count"] = getattr(
-            app_config, "RUNTIME_TRAINING_FINAL_FEATURE_COLUMNS", None
-        )
+        feat_cols_post = getattr(app_config, "RUNTIME_TRAINING_FINAL_FEATURE_COLUMNS", None)
+        manifest_context["feature_matrix_cols_post_prune"] = feat_cols_post
+        # Legacy manifest key: stores *column* count after pruning (misnamed "row_count").
+        manifest_context["feature_matrix_row_count"] = feat_cols_post
         manifest_context["trained_model_count"] = int(
             len(model_results) if isinstance(model_results, dict) else 0
         )

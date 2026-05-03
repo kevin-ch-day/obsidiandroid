@@ -17,6 +17,7 @@ def test_write_cohort_population_audit_writes_table(tmp_path: Path) -> None:
     )
     manifest = {"cohort_size": 2}
     mctx = {
+        "cohort_prepared_row_count": 2,
         "governed_cohort_rows": 2,
         "aligned_supervised_rows": 2,
         "train_sample_count": 1,
@@ -32,8 +33,8 @@ def test_write_cohort_population_audit_writes_table(tmp_path: Path) -> None:
     assert csv_p.exists()
     assert md_p.exists()
     text = csv_p.read_text(encoding="utf-8")
-    assert "governed_cohort_rows" in text
-    assert "distinct_families_canonical_governed_cohort" in text
+    assert "cohort_prepared_row_count" in text
+    assert "distinct_families_canonical_prepared_cohort" in text
 
 
 def test_write_hostile_audit_bundle_minimum(tmp_path: Path) -> None:

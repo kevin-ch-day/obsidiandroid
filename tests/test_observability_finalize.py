@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from analysis.observability.finalize import finalize_pipeline_observability
@@ -48,7 +49,11 @@ def test_finalize_pipeline_observability_minimal(tmp_path: Path) -> None:
     assert isinstance(out_path, Path)
     summary = diagnostic / "run_observability_summary.json"
     assert summary.exists()
-    assert (diagnostic / "pipeline_observability_status.json").exists()
+    assert not (diagnostic / "pipeline_observability_status.json").exists()
     txt = summary.read_text(encoding="utf-8")
     assert "pipeline_status" in txt and "schema_version" in txt
+    blob = json.loads(txt)
+    paths = blob.get("paths") if isinstance(blob.get("paths"), dict) else {}
+    assert "run_observability_summary_json" in paths
+    assert "pipeline_observability_status_json" not in paths
     assert ctx["_observability_finalized_once"] is True
