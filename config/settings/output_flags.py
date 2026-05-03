@@ -8,6 +8,11 @@ OUTPUT_DIAGNOSTICS_SUBDIR = "diagnostics"
 OUTPUT_LOGS_SUBDIR = "logs"
 OUTPUT_LATEST_SUBDIR = "latest"
 OUTPUT_PROMOTED_SUBDIR = "promoted"
+
+# When True, ``runs/<id>/diagnostics`` keeps run-id/timestamped names only; ``*.latest.*``
+# mirrors live under global ``output/diagnostics`` (see utils/output_hygiene.py).
+SUPPRESS_LATEST_DUPLICATES_IN_RUN_DIRS = True
+
 ENABLE_EXCEL_EXPORT = True
 ENABLE_HTML_REPORTS = False
 ENABLE_CONSOLIDATED_EXCEL_WORKBOOK = True

@@ -9,6 +9,7 @@ scikit-posthocs==0.11.4
 colorama
 joblib
 mysql-connector-python
+python-dotenv
 openpyxl
 tabulate
 imbalanced-learn==0.14.1

@@ -26,6 +26,7 @@ from utils.menu.vendor_diagnostics import (
     validate_parser_columns_from_latest_export,
 )
 from utils.menu import startup_menu_actions
+from utils import output_hygiene as oh
 
 
 @dataclass(frozen=True)
@@ -296,10 +297,24 @@ def _format_stage_label(stage_name: str | None) -> str:
     return stage_labels.get(token, token.replace("_", " ").title())
 
 
+def _resolve_pipeline_timings_path(run_root: Path) -> Path | None:
+    """Resolve stage timing export (run-scoped name preferred, then legacy .latest)."""
+    run_id = str(run_root.name or "").strip()
+    diag = run_root / "diagnostics"
+    candidates = [
+        diag / f"pipeline_stage_timings_{run_id}.csv",
+        diag / "pipeline_stage_timings.latest.csv",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _read_run_progress_summary(run_root: Path) -> tuple[str, str, float | None]:
     """Read run progress summary from stage timing exports when available."""
-    timings_path = run_root / "diagnostics" / "pipeline_stage_timings.latest.csv"
-    if not timings_path.exists():
+    timings_path = _resolve_pipeline_timings_path(run_root)
+    if timings_path is None:
         return ("Run metadata available", "Manifest recorded", None)
 
     try:
@@ -1250,14 +1265,19 @@ def _print_structural_analysis_banner() -> None:
     }
     structural_layer = layer_map.get(analysis_scope, analysis_scope)
 
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    run_snapshot_path = output_root / "runs" / latest_run_id / "diagnostics" / "analysis_snapshot.latest.csv"
-    snapshot_path = run_snapshot_path if run_snapshot_path.exists() else output_root / "diagnostics" / "analysis_snapshot.latest.csv"
+    snapshot_path: Path | None = None
+    rid_disp = str(latest_run_id).strip()
+    if rid_disp and rid_disp != "No run selected":
+        stable_root = oh.resolve_stable_output_root_for_mirrors()
+        snapshot_path = oh.resolve_analysis_snapshot_csv_path(
+            stable_root / "runs" / rid_disp / "diagnostics",
+            rid_disp,
+        )
     type_count: str | int = "Not available"
     unknown_count: str | int = "Not computed yet"
     family_visual_count: str | int = "Not available"
     try:
-        if snapshot_path.exists():
+        if snapshot_path is not None:
             snap_df = pd.read_csv(snapshot_path)
             if "type_slug" in snap_df.columns:
                 types = (

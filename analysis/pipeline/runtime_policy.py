@@ -65,6 +65,8 @@ def build_mutable_config_keys() -> set[str]:
         "RUNTIME_PERMISSION_ENRICHMENT_DEGRADED",
         "RUNTIME_EXCLUDE_UNKNOWN_FROM_MAIN_RESULTS",
         "RUNTIME_ALLOW_GLOBAL_ARTIFACTS",
+        "RUNTIME_OUTPUT_ROOT_BASE",
+        "OUTPUT_HYGIENE_MODE",
         "ANALYSIS_SNAPSHOT_FILE",
         "ANALYSIS_SNAPSHOT_META_FILE",
         "ANALYSIS_SNAPSHOT_CONFLICT_FILE",
@@ -265,6 +267,16 @@ def apply_profile_runtime_policy(
                 f"[PROFILE] Applied {len(applied_parser_overrides)} parser override(s). "
                 "Set ML_CONSOLE_MODE=debug for per-key detail."
             )
+
+    if ml_console.is_debug():
+        hygiene_mode = "debug_audit"
+    elif evidence_mode:
+        hygiene_mode = "paper_evidence"
+    elif is_dev_profile:
+        hygiene_mode = "dev_fast"
+    else:
+        hygiene_mode = "standard"
+    setattr(app_config, "OUTPUT_HYGIENE_MODE", hygiene_mode)
 
     return {
         "type_slug": type_slug,

@@ -16,6 +16,7 @@ import numpy as np
 
 from config import app_config
 from utils import canonicalization
+from utils import output_hygiene as oh
 from .training_helpers import (
     validate_training_inputs,
     get_model_trainer,
@@ -244,10 +245,14 @@ def _export_split_audit(
         "sha256_overlap_across_split_flag",
     ]
     audit_df = split_df[audit_cols].sort_values(["sha256", "sample_id"]).reset_index(drop=True)
+    audit_csv = audit_df.to_csv(index=False)
     split_path = out_dir / f"split_freeze_audit_{run_id}.csv"
-    latest_path = out_dir / "split_freeze_audit.latest.csv"
-    audit_df.to_csv(split_path, index=False)
-    audit_df.to_csv(latest_path, index=False)
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=out_dir,
+        run_filename=split_path.name,
+        csv_text=audit_csv,
+        global_latest_name="split_freeze_audit.latest.csv",
+    )
 
     meta = {
         "split_hash": split_hash,

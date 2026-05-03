@@ -14,6 +14,9 @@ from typing import Any, Callable, Optional
 
 import pandas as pd
 
+from config import app_config
+from utils import output_hygiene as oh
+
 STAGE_SLUGS: tuple[str, ...] = (
     "after_sample_prep",
     "av_binary_matrix",
@@ -432,8 +435,9 @@ def run_feature_builder_drop_trace(
     cohort_df = load_cohort_membership(cohort_path)
     vendors = load_selected_vendors_from_gate_csv(gate_path)
 
-    aligned_path = diag / "aligned_features.latest.csv.gz"
-    aligned_count = _aligned_export_sample_count(aligned_path)
+    rid = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "")
+    aligned_path = oh.resolve_aligned_features_cache_path(diag, rid)
+    aligned_count = _aligned_export_sample_count(aligned_path) if aligned_path.is_file() else None
     coverage_snap = load_feature_build_coverage_summary(diag)
 
     from analysis.evaluation import vendor_classification_parser as vcp

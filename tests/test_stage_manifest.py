@@ -84,12 +84,20 @@ def test_finalize_run_manifest_stage_success(monkeypatch) -> None:
     assert run_summary["completed_stage"] == "manifest"
 
 
-def test_write_run_summary_json_creates_canonical_and_latest(tmp_path: Path) -> None:
+def test_write_run_summary_json_creates_canonical_and_latest(
+    tmp_path: Path, monkeypatch
+) -> None:
     """Canonical run summary writer should emit run-root and diagnostics copies."""
     run_root = tmp_path / "output" / "runs" / "r1"
     diagnostics_dir = run_root / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
+    monkeypatch.setattr(
+        stage_manifest.app_config,
+        "RUNTIME_OUTPUT_ROOT_BASE",
+        str(tmp_path / "output"),
+        raising=False,
+    )
     out_path = stage_manifest._write_run_summary_json(  # pylint: disable=protected-access
         run_root=run_root,
         diagnostics_dir=diagnostics_dir,
@@ -119,7 +127,9 @@ def test_write_run_summary_json_creates_canonical_and_latest(tmp_path: Path) -> 
     assert out_path == run_root / "run_summary.json"
     assert out_path.exists()
     assert (diagnostics_dir / "run_summary_r1.json").exists()
-    assert (diagnostics_dir / "run_summary.latest.json").exists()
+    global_latest = tmp_path / "output" / "diagnostics" / "run_summary.latest.json"
+    assert global_latest.exists()
+    assert not (diagnostics_dir / "run_summary.latest.json").exists()
     payload = json.loads(out_path.read_text(encoding="utf-8"))
     assert payload["run_status"] == "failed"
     assert payload["failure_reason"] == "training crashed"

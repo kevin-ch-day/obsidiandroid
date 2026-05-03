@@ -8,9 +8,29 @@ ObsidianDroid uses two logical databases on the same MySQL/MariaDB server by def
 - Permission Intel schema (all ``android_permission_*`` live tables).
 
 Override via ``OBSIDIAN_*`` environment variables. Do not commit real passwords.
+
+Optional: place a repo-root ``.env`` or ``.env.local`` file; variables are loaded
+with ``override=False`` so existing shell exports still win.
 """
 
 import os
+from pathlib import Path
+
+
+def _load_env_files() -> None:
+    """Load optional repo-root dotenv files when python-dotenv is installed."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    root = Path(__file__).resolve().parent.parent
+    for name in (".env", ".env.local"):
+        path = root / name
+        if path.is_file():
+            load_dotenv(path, override=False)
+
+
+_load_env_files()
 
 # === MySQL Database Connection Configuration === #
 

@@ -12,6 +12,7 @@ from analysis.evaluation import vendor_feature_extractor
 from utils import display_utils as du
 from utils.logging import get_logger, log_event
 from utils.runtime_paths import resolve_diagnostics_dir
+from utils import output_hygiene as oh
 
 
 PIPELINE_LOGGER = get_logger(
@@ -187,8 +188,9 @@ def _export_parser_quality(scorecard_df: pd.DataFrame) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     export_df.to_csv(path, index=False)
     du.print_info(f"[DIAG] Parser quality report exported: {path}")
-    _export_parser_stress_test(export_df)
-    _export_parser_strengths_weaknesses(export_df)
+    if oh.should_emit_parser_stress_and_strengths_grid():
+        _export_parser_stress_test(export_df)
+        _export_parser_strengths_weaknesses(export_df)
     log_event(
         PIPELINE_LOGGER,
         "parser_quality_exported",

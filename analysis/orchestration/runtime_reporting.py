@@ -14,6 +14,7 @@ import pandas as pd
 
 from config import app_config
 from utils import display_utils as du
+from utils import output_hygiene as oh
 from utils import output_paths
 from utils.hash_utils import hash_payload
 from analysis.pipeline.governance.integrity import enforce_run_scoped_artifact_paths
@@ -104,6 +105,20 @@ def export_aligned_training_cache(
         aligned_feature_df.to_csv(feature_path, index=True)
         labels_to_write.to_csv(label_path, index=False)
         artifact_list.extend([str(feature_path), str(label_path)])
+        try:
+            rid = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "")
+            if rid and oh.run_diagnostics_should_omit_latest_duplicate():
+                ptr_feat = oh.write_global_latest_pointer(
+                    filename="aligned_features.latest.pointer.json",
+                    payload={
+                        "run_id": rid,
+                        "canonical_relative_path": str(feature_path.resolve()),
+                        "canonical_label_relative_path": str(label_path.resolve()),
+                    },
+                )
+                artifact_list.append(str(ptr_feat))
+        except Exception:
+            pass
         du.print_info(
             f"[CACHE] Aligned training cache exported: features={feature_path}, labels={label_path}"
         )
@@ -163,11 +178,15 @@ def enforce_duplicate_sha_policy(
     ).reset_index(drop=True)
 
     duplicate_count = int((duplicate_groups["count_samples"] > 1).sum())
-    report_path = diagnostics_dir / f"duplicate_sha256_report_{run_id}.csv"
-    latest_path = diagnostics_dir / "duplicate_sha256_report.latest.csv"
-    duplicate_groups.to_csv(report_path, index=False)
-    duplicate_groups.to_csv(latest_path, index=False)
-    artifact_list.extend([str(report_path), str(latest_path)])
+    csv_text = duplicate_groups.to_csv(index=False)
+    mirror_paths = oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=f"duplicate_sha256_report_{run_id}.csv",
+        csv_text=csv_text,
+        global_latest_name="duplicate_sha256_report.latest.csv",
+    )
+    report_path = mirror_paths[0]
+    artifact_list.extend(str(p) for p in mirror_paths)
 
     summary = {
         "report_path": str(report_path),
@@ -411,18 +430,20 @@ def setup_runtime_context(run_id: str, strict_run_scoped: bool = True) -> dict[s
     runtime_diagnostics.mkdir(parents=True, exist_ok=True)
 
     setattr(app_config, "RUNTIME_RUN_ROOT", str(runtime_run_root))
+    setattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root_base))
     setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(runtime_diagnostics))
-    setattr(app_config, "ANALYSIS_SNAPSHOT_FILE", str(runtime_diagnostics / "analysis_snapshot.latest.csv"))
-    setattr(app_config, "ANALYSIS_SNAPSHOT_META_FILE", str(runtime_diagnostics / "analysis_snapshot.latest.meta.txt"))
+    rid = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "unknown")
+    setattr(app_config, "ANALYSIS_SNAPSHOT_FILE", str(runtime_diagnostics / f"analysis_snapshot_{rid}.csv"))
+    setattr(app_config, "ANALYSIS_SNAPSHOT_META_FILE", str(runtime_diagnostics / f"analysis_snapshot_{rid}.meta.txt"))
     setattr(
         app_config,
         "ANALYSIS_SNAPSHOT_CONFLICT_FILE",
-        str(runtime_diagnostics / "analysis_snapshot_label_conflicts.latest.csv"),
+        str(runtime_diagnostics / f"analysis_snapshot_label_conflicts_{rid}.csv"),
     )
     setattr(app_config, "PAPER_COHORT_SAMPLE_IDS_FILE", str(runtime_diagnostics / "paper_cohort_sample_ids.csv"))
-    setattr(app_config, "DATASET_TIME_CONTRACT_FILE", str(runtime_diagnostics / "dataset_time_contract.latest.json"))
-    setattr(app_config, "ALIGNED_FEATURE_CACHE_FILE", str(runtime_diagnostics / "aligned_features.latest.csv.gz"))
-    setattr(app_config, "ALIGNED_LABEL_CACHE_FILE", str(runtime_diagnostics / "aligned_labels.latest.csv"))
+    setattr(app_config, "DATASET_TIME_CONTRACT_FILE", str(runtime_diagnostics / f"dataset_time_contract_{rid}.json"))
+    setattr(app_config, "ALIGNED_FEATURE_CACHE_FILE", str(runtime_diagnostics / f"aligned_features_{rid}.csv.gz"))
+    setattr(app_config, "ALIGNED_LABEL_CACHE_FILE", str(runtime_diagnostics / f"aligned_labels_{rid}.csv"))
     return {
         "output_root_base": output_root_base,
         "runtime_run_root": runtime_run_root,
@@ -521,11 +542,17 @@ def export_and_print_run_summary(
     diagnostics_dir = runtime_diagnostics_dir()
     run_id = str(payload.get("run_id", "unknown"))
     out_path = diagnostics_dir / f"run_health_summary_{run_id}.json"
-    latest_path = diagnostics_dir / "run_health_summary.latest.json"
     encoded = json.dumps(payload, indent=2, sort_keys=True)
     out_path.write_text(encoded, encoding="utf-8")
-    latest_path.write_text(encoded, encoding="utf-8")
-    artifact_list.extend([str(out_path), str(latest_path)])
+    paths_out = [str(out_path)]
+    if oh.run_diagnostics_should_omit_latest_duplicate() and oh.path_is_under_output_runs(diagnostics_dir):
+        global_latest = oh.write_global_latest_text(filename="run_health_summary.latest.json", text=encoded)
+        paths_out.append(str(global_latest))
+    else:
+        latest_path = diagnostics_dir / "run_health_summary.latest.json"
+        latest_path.write_text(encoded, encoding="utf-8")
+        paths_out.append(str(latest_path))
+    artifact_list.extend(paths_out)
 
     du.print_section("Run Health Summary")
     du.print_stat("Engine Count Observed", payload.get("engine_count_observed"))

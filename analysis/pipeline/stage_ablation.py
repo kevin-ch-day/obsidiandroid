@@ -18,6 +18,7 @@ from utils import ml_console
 from utils.runtime_paths import resolve_diagnostics_dir
 
 from analysis.diagnostics.ablation_cohort_diagnostics import write_ablation_cohort_gap_artifacts
+from utils import output_hygiene as oh
 
 
 class PaperCohortSource(str, Enum):
@@ -507,17 +508,25 @@ def run_ablation_experiments(
     per_family_df = pd.DataFrame(per_family_rows)
     out_dir = _diagnostics_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
-    summary_path = out_dir / "ablation_summary.csv"
-    per_family_path = out_dir / "ablation_per_family.csv"
-    latest_summary = out_dir / "ablation_summary.latest.csv"
-    latest_per_family = out_dir / "ablation_per_family.latest.csv"
-    summary_df.to_csv(summary_path, index=False)
-    summary_df.to_csv(latest_summary, index=False)
+    ablation_run = str(getattr(app_config, "RUNTIME_RUN_ID", run_id) or run_id)
+    sum_csv = summary_df.to_csv(index=False)
+    summary_mirror = oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=out_dir,
+        run_filename=f"ablation_summary_{ablation_run}.csv",
+        csv_text=sum_csv,
+        global_latest_name="ablation_summary.latest.csv",
+    )
+    summary_path = summary_mirror[0]
     _print_ablation_terminal_summary(summary_df)
     if not per_family_df.empty:
-        per_family_df.to_csv(per_family_path, index=False)
-        per_family_df.to_csv(latest_per_family, index=False)
-        artifact_paths.append(str(per_family_path))
+        pf_csv = per_family_df.to_csv(index=False)
+        pf_mirror = oh.mirror_csv_text_run_then_global(
+            diagnostics_dir=out_dir,
+            run_filename=f"ablation_per_family_{ablation_run}.csv",
+            csv_text=pf_csv,
+            global_latest_name="ablation_per_family.latest.csv",
+        )
+        artifact_paths.append(str(pf_mirror[0]))
     artifact_paths.extend([str(summary_path)])
     du.print_info(f"[ABLATION] Exported summary: {summary_path}")
     return artifact_paths

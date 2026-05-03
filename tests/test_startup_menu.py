@@ -545,7 +545,7 @@ def test_recent_runs_overview_uses_runtime_and_model_fallbacks(monkeypatch, tmp_
         ),
         encoding="utf-8",
     )
-    (diagnostics_dir / "pipeline_stage_timings.latest.csv").write_text(
+    (diagnostics_dir / f"pipeline_stage_timings_{run_id}.csv").write_text(
         "stage,duration_sec,run_id,timestamp_utc\n"
         f"samples,1.2,{run_id},2026-03-21T16:17:41.213765+00:00\n"
         f"training,3.4,{run_id},2026-03-21T16:17:41.213765+00:00\n"
@@ -669,7 +669,7 @@ def test_current_run_summary_uses_status_aware_fallbacks(monkeypatch, tmp_path: 
         ),
         encoding="utf-8",
     )
-    (diagnostics_dir / "pipeline_stage_timings.latest.csv").write_text(
+    (diagnostics_dir / f"pipeline_stage_timings_{run_id}.csv").write_text(
         "stage,duration_sec,run_id,timestamp_utc\n"
         f"samples,1.2,{run_id},2026-03-21T16:17:41.213765+00:00\n"
         f"training,3.4,{run_id},2026-03-21T16:17:41.213765+00:00\n"

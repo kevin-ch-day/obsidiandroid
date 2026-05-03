@@ -4,6 +4,7 @@ ENABLE_SNAPSHOT_LOCK = False
 SNAPSHOT_LOCK_FILE = "output/diagnostics/analysis_snapshot.lock.csv"
 REQUIRE_SNAPSHOT_LOCK_IN_EVIDENCE_MODE = True
 EXPORT_ANALYSIS_SNAPSHOT = True
+# Bootstrap defaults only; pipeline runtime overrides with run-scoped names under output/runs/<id>/diagnostics.
 ANALYSIS_SNAPSHOT_FILE = "output/diagnostics/analysis_snapshot.latest.csv"
 ANALYSIS_SNAPSHOT_META_FILE = "output/diagnostics/analysis_snapshot.latest.meta.txt"
 ANALYSIS_SNAPSHOT_CONFLICT_FILE = (

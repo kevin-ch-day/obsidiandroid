@@ -23,6 +23,7 @@ from utils import output_paths
 from utils import run_manifest
 from utils import display_utils as du
 from utils.hash_utils import hash_payload
+from utils import output_hygiene as oh
 from analysis.pipeline.manifest.hashing import (
     canonical_csv_bytes,
     dataset_hash_from_sample_ids,
@@ -409,6 +410,18 @@ def finalize_run_manifest_stage(
                     manifest=manifest,
                     result_code=1,
                 )
+                _finalize_output_hygiene_bundle(
+                    run_root=run_root,
+                    diagnostics_dir=diagnostics_dir,
+                    run_id=run_id,
+                    profile=profile,
+                    manifest=manifest,
+                    manifest_context=manifest_context,
+                    artifact_list=artifact_list,
+                    compliance_report=compliance_report,
+                    paper_mode=paper_mode,
+                    evidence_mode=evidence_mode,
+                )
                 return 1
         if paper_mode and str(compliance_report.get("overall_status")) != "pass":
             du.print_error(f"[PAPER] Compliance failed. Report: {compliance_path}")
@@ -419,6 +432,18 @@ def finalize_run_manifest_stage(
                 manifest=manifest,
                 result_code=1,
             )
+            _finalize_output_hygiene_bundle(
+                run_root=run_root,
+                diagnostics_dir=diagnostics_dir,
+                run_id=run_id,
+                profile=profile,
+                manifest=manifest,
+                manifest_context=manifest_context,
+                artifact_list=artifact_list,
+                compliance_report=compliance_report,
+                paper_mode=paper_mode,
+                evidence_mode=evidence_mode,
+            )
             return 1
         _write_run_summary_json(
             run_root=run_root,
@@ -426,6 +451,18 @@ def finalize_run_manifest_stage(
             manifest_context=manifest_context,
             manifest=manifest,
             result_code=0,
+        )
+        _finalize_output_hygiene_bundle(
+            run_root=run_root,
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            profile=profile,
+            manifest=manifest,
+            manifest_context=manifest_context,
+            artifact_list=artifact_list,
+            compliance_report=compliance_report,
+            paper_mode=paper_mode,
+            evidence_mode=evidence_mode,
         )
         return 0
     except Exception as exc:
@@ -524,15 +561,84 @@ def _write_run_summary_json(
 
         run_summary_path = run_root / "run_summary.json"
         run_summary_run_path = diagnostics_dir / f"run_summary_{run_id}.json"
-        run_summary_latest_path = diagnostics_dir / "run_summary.latest.json"
         encoded = json.dumps(payload, indent=2, sort_keys=True)
         run_summary_path.write_text(encoded, encoding="utf-8")
         run_summary_run_path.write_text(encoded, encoding="utf-8")
-        run_summary_latest_path.write_text(encoded, encoding="utf-8")
+        if oh.run_diagnostics_should_omit_latest_duplicate() and oh.path_is_under_output_runs(diagnostics_dir):
+            oh.write_global_latest_text(filename="run_summary.latest.json", text=encoded)
+        else:
+            run_summary_latest_path = diagnostics_dir / "run_summary.latest.json"
+            run_summary_latest_path.write_text(encoded, encoding="utf-8")
         return run_summary_path
     except Exception as exc:
         du.print_warning(f"[SUMMARY] Failed to write canonical run summary: {exc}")
         return None
+
+
+def _finalize_output_hygiene_bundle(
+    *,
+    run_root: Path,
+    diagnostics_dir: Path,
+    run_id: str,
+    profile: dict[str, Any],
+    manifest: dict[str, Any],
+    manifest_context: dict[str, Any],
+    artifact_list: list[str],
+    compliance_report: dict[str, Any] | None,
+    paper_mode: bool,
+    evidence_mode: bool,
+) -> None:
+    """Artifact inventory, virtual layout, run evidence index, and terminal summary."""
+    try:
+        from analysis.diagnostics import output_inventory
+
+        layout_path = output_inventory.write_virtual_layout(run_root)
+        inv_paths, summary = output_inventory.write_artifact_inventory_bundle(
+            run_root=run_root,
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            manifest_paths=list(artifact_list),
+            extra_summary={
+                "profile_id": str(profile.get("profile_id", "")),
+                "evidence_mode": evidence_mode,
+                "paper_mode": paper_mode,
+            },
+        )
+        psafe, reasons = output_inventory.evaluate_paper_safe_status(
+            paper_mode=paper_mode,
+            manifest=manifest,
+            compliance_report=compliance_report,
+        )
+        cohort_size = int(manifest.get("cohort_size", 0) or 0)
+        trained_models = list(manifest.get("trained_models", []) or [])
+        evidence_path = output_inventory.write_run_evidence_index_md(
+            run_root=run_root,
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            profile_id=str(profile.get("profile_id", "unknown")),
+            paper_mode=bool(paper_mode),
+            cohort_size=cohort_size,
+            manifest=manifest,
+            manifest_context=manifest_context,
+            trained_models=trained_models,
+            paper_safe=psafe,
+            paper_safe_reasons=reasons,
+        )
+        for p in inv_paths:
+            if p and p not in artifact_list:
+                artifact_list.append(p)
+        if layout_path and str(layout_path) not in artifact_list:
+            artifact_list.append(str(layout_path))
+        if evidence_path and str(evidence_path) not in artifact_list:
+            artifact_list.append(str(evidence_path))
+        output_inventory.print_output_hygiene_terminal_summary(
+            run_root=run_root,
+            summary=summary,
+            evidence_index_path=evidence_path,
+            paper_safe=psafe,
+        )
+    except Exception as exc:
+        du.print_warning(f"[OUTPUT] Hygiene bundle skipped: {exc}")
 
 
 def _write_run_summary_onepager(
@@ -824,9 +930,12 @@ def _write_run_artifact_index(
         lines = [
             f"# Run Artifact Index ({run_id})",
             "",
+            "**Start here for paper-style review:** `run_evidence_index.md` (run root).",
+            "",
             "Authoritative source: all artifacts under this run root.",
             "",
             f"- run_root: `{run_root}`",
+            f"- run_evidence_index: `{run_root / 'run_evidence_index.md'}`",
             f"- paper_exports: `{run_root / 'paper_exports'}`",
             f"- bundles/permission_trends: `{run_root / 'bundles' / 'permission_trends'}`",
             f"- diagnostics: `{diagnostics_dir}`",
@@ -1764,7 +1873,7 @@ def _build_strict_paper2_exports(
                 "vt_first_seen_itw_date",
                 "vt_first_submission_at_utc",
             ],
-            "source_contract_path": str(diagnostics_dir / "dataset_time_contract.latest.json"),
+            "source_contract_path": str(oh.resolve_dataset_time_contract_path(diagnostics_dir, str(run_id))),
         }
         temporal_provenance_path.write_text(
             json.dumps(temporal_provenance_payload, indent=2, sort_keys=True),

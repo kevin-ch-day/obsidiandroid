@@ -43,6 +43,8 @@ def validate_run_scoped_artifact_paths(
     """
     run_root_resolved = run_root.resolve()
     latest_root = (output_root / "latest").resolve()
+    diagnostics_root = (output_root / "diagnostics").resolve()
+    promoted_root = (output_root / "promoted").resolve()
     invalid: list[str] = []
 
     for raw_path in artifact_paths:
@@ -54,6 +56,8 @@ def validate_run_scoped_artifact_paths(
         if _is_within(candidate, run_root_resolved):
             continue
         if allow_latest and _is_within(candidate, latest_root):
+            continue
+        if allow_latest and _is_operator_mirror_path(candidate, diagnostics_root, promoted_root):
             continue
         invalid.append(path_text)
 
@@ -102,4 +106,32 @@ def _is_within(child: Path, parent: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _is_operator_mirror_path(
+    candidate: Path,
+    diagnostics_root: Path,
+    promoted_root: Path,
+) -> bool:
+    """Allow small global pointer/mirror files under ``output/diagnostics`` or ``output/promoted``."""
+    name_lower = candidate.name.lower()
+    if _is_within(candidate, promoted_root):
+        return True
+    if not _is_within(candidate, diagnostics_root):
+        return False
+    if "latest" in name_lower or "pointer" in name_lower:
+        return True
+    if name_lower.startswith("artifact_inventory."):
+        return True
+    if name_lower.startswith("cohort_filter_contract.latest"):
+        return True
+    if name_lower.startswith("run_health_summary.latest"):
+        return True
+    if name_lower.startswith("run_summary.latest"):
+        return True
+    if name_lower.startswith("split_freeze_audit.latest"):
+        return True
+    if name_lower.startswith("ablation_summary.latest"):
+        return True
+    return False
 

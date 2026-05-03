@@ -10,6 +10,7 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
+from utils import output_hygiene as oh
 
 
 def diagnostics_dir(run_id: str | None = None) -> Path:
@@ -56,16 +57,23 @@ def export_cohort_filter_contract(
         "paper_mode": bool(getattr(app_config, "PAPER_MODE_ENABLED", False)),
     }
     contract_path = out_dir / f"cohort_filter_contract_{run_id}.json"
-    contract_latest = out_dir / "cohort_filter_contract.latest.json"
     payload = json.dumps(contract, indent=2, sort_keys=True)
     contract_path.write_text(payload, encoding="utf-8")
-    contract_latest.write_text(payload, encoding="utf-8")
+    if oh.run_diagnostics_should_omit_latest_duplicate() and oh.path_is_under_output_runs(out_dir):
+        oh.write_global_latest_text(filename="cohort_filter_contract.latest.json", text=payload)
+    else:
+        contract_latest = out_dir / "cohort_filter_contract.latest.json"
+        contract_latest.write_text(payload, encoding="utf-8")
 
     gate_df = pd.DataFrame(gate_rows)
-    gate_path = out_dir / f"cohort_gate_counts_{run_id}.csv"
-    gate_latest = out_dir / "cohort_gate_counts.latest.csv"
-    gate_df.to_csv(gate_path, index=False)
-    gate_df.to_csv(gate_latest, index=False)
+    gate_csv_text = gate_df.to_csv(index=False)
+    gate_written = oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=out_dir,
+        run_filename=f"cohort_gate_counts_{run_id}.csv",
+        csv_text=gate_csv_text,
+        global_latest_name="cohort_gate_counts.latest.csv",
+    )
+    gate_path = gate_written[0]
     return str(contract_path), str(gate_path)
 
 

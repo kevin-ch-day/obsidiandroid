@@ -28,6 +28,7 @@ from utils.logging import logger as logger_manager
 from utils import output_paths
 from utils.logging import get_logger, log_event
 from utils.hash_utils import hash_payload
+from utils import output_hygiene as oh
 from analysis.pipeline.governance.integrity import enforce_run_scoped_artifact_paths
 
 # === Analysis Pipelines (staged pipeline) ===
@@ -267,8 +268,6 @@ def run_pipeline(
         if last_completed_stage and "completed_stage" not in manifest_context:
             manifest_context["completed_stage"] = last_completed_stage
         if stage_timings_sec:
-            timings_path = Path(DIAGNOSTICS_DIR) / "pipeline_stage_timings.latest.csv"
-            timings_path.parent.mkdir(parents=True, exist_ok=True)
             timings_df = pd.DataFrame(
                 [
                     {"stage": stage, "duration_sec": round(duration, 3)}
@@ -277,9 +276,17 @@ def run_pipeline(
             )
             timings_df["run_id"] = run_id
             timings_df["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
-            timings_df.to_csv(timings_path, index=False)
-            if str(timings_path) not in artifact_list:
-                artifact_list.append(str(timings_path))
+            timings_csv = timings_df.to_csv(index=False)
+            t_paths = oh.mirror_csv_text_run_then_global(
+                diagnostics_dir=Path(DIAGNOSTICS_DIR),
+                run_filename=f"pipeline_stage_timings_{run_id}.csv",
+                csv_text=timings_csv,
+                global_latest_name="pipeline_stage_timings.latest.csv",
+            )
+            for p in t_paths:
+                sp = str(p)
+                if sp not in artifact_list:
+                    artifact_list.append(sp)
 
     def _finalize_with_manifest_timing() -> int:
         """Finalize run manifest and record manifest stage timing."""
@@ -439,16 +446,20 @@ def run_pipeline(
             setattr(app_config, "RUNTIME_RUN_ROOT", str(run_root))
             setattr(app_config, "DEFAULT_OUTPUT_DIR", str(run_root))
             DIAGNOSTICS_DIR = str(run_root / "diagnostics")
-            setattr(app_config, "ANALYSIS_SNAPSHOT_FILE", str(Path(DIAGNOSTICS_DIR) / "analysis_snapshot.latest.csv"))
+            setattr(
+                app_config,
+                "ANALYSIS_SNAPSHOT_FILE",
+                str(Path(DIAGNOSTICS_DIR) / f"analysis_snapshot_{run_id}.csv"),
+            )
             setattr(
                 app_config,
                 "ANALYSIS_SNAPSHOT_META_FILE",
-                str(Path(DIAGNOSTICS_DIR) / "analysis_snapshot.latest.meta.txt"),
+                str(Path(DIAGNOSTICS_DIR) / f"analysis_snapshot_{run_id}.meta.txt"),
             )
             setattr(
                 app_config,
                 "ANALYSIS_SNAPSHOT_CONFLICT_FILE",
-                str(Path(DIAGNOSTICS_DIR) / "analysis_snapshot_label_conflicts.latest.csv"),
+                str(Path(DIAGNOSTICS_DIR) / f"analysis_snapshot_label_conflicts_{run_id}.csv"),
             )
             setattr(
                 app_config,
@@ -458,17 +469,17 @@ def run_pipeline(
             setattr(
                 app_config,
                 "DATASET_TIME_CONTRACT_FILE",
-                str(Path(DIAGNOSTICS_DIR) / "dataset_time_contract.latest.json"),
+                str(Path(DIAGNOSTICS_DIR) / f"dataset_time_contract_{run_id}.json"),
             )
             setattr(
                 app_config,
                 "ALIGNED_FEATURE_CACHE_FILE",
-                str(Path(DIAGNOSTICS_DIR) / "aligned_features.latest.csv.gz"),
+                str(Path(DIAGNOSTICS_DIR) / f"aligned_features_{run_id}.csv.gz"),
             )
             setattr(
                 app_config,
                 "ALIGNED_LABEL_CACHE_FILE",
-                str(Path(DIAGNOSTICS_DIR) / "aligned_labels.latest.csv"),
+                str(Path(DIAGNOSTICS_DIR) / f"aligned_labels_{run_id}.csv"),
             )
             du.print_info(f"[EVIDENCE] Run root: {run_root}")
         enforce_paper_perturbation_axes_policy(profile=profile, paper_mode=effective_evidence_mode)
