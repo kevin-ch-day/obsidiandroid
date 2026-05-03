@@ -1,11 +1,6 @@
 """Tests for modeling stage helper functions."""
 
-from pathlib import Path
-import sys
-
 import pandas as pd
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from analysis.pipeline import stage_modeling
 

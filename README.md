@@ -21,7 +21,7 @@
 
 The core workflow (`main.py`) executes these key steps:
 
-1. **Load Sample Metadata** from a configured MySQL database (`database/db_config.py`).
+1. **Load Sample Metadata** from a configured MySQL database. Connection defaults and environment overrides are defined in `database/db_config.py` (primary Erebus DB plus the Permission Intel DB; see [Configuration](#configuration) below).
 2. **Run AV Engine Analysis** via `analysis/` parsers to collect and normalize vendor labels.
 3. **Extract Vendor Metadata** and generate summary statistics/evaluation metrics.
 4. **Compute Engine Weights** using specificity, noise, and historical performance (see `analysis/feature_engineering/compute_vendor_scores.py`).
@@ -79,7 +79,7 @@ Each markdown file can be browsed directly in GitHub’s file viewer for quick n
    ./setup.sh
    ```
    The setup script creates `.venv`, upgrades `pip`, and installs `requirements.txt`.
-3. **(Optional for full pipeline runs) Configure MariaDB/MySQL connection** in `database/db_config.py` with your DB credentials.
+3. **(Optional for full pipeline runs) Configure MariaDB/MySQL** by setting `OBSIDIAN_DB_*` and `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (see [Configuration](#configuration)) or by editing the defaults in `database/db_config.py` for local development only. Do not commit real passwords; prefer environment variables or a secrets manager.
    The CLI can launch before database access is fully configured, but database-backed menu actions and pipeline stages still require a working database.
 4. **(Optional) Edit pipeline settings** in `config/app_config.py` (model selection, hyperparameters, etc).
 
@@ -124,6 +124,29 @@ Each markdown file can be browsed directly in GitHub’s file viewer for quick n
 ---
 
 ## Configuration
+
+### Database (split Erebus + Permission Intel)
+
+ObsidianDroid reads **operational sample metadata, VirusTotal aggregates, and catalog fields** from the primary Erebus database (default schema name `erebus_threat_intel_prod`). It reads **live Android permission intelligence** (`android_permission_*` tables) from the Permission Intel database (default `android_permission_intel`). Both schemas normally live on the same MySQL/MariaDB server; queries use the credentials below for both connections.
+
+Override via environment variables (recommended for deployment):
+
+| Variable | Purpose |
+| --- | --- |
+| `OBSIDIAN_DB_HOST`, `OBSIDIAN_DB_PORT` | Server host and port |
+| `OBSIDIAN_DB_USER`, `OBSIDIAN_DB_PASSWORD` | Credentials (same user typically has `SELECT` on both schemas) |
+| `OBSIDIAN_DB_NAME` | Primary Erebus schema |
+| `OBSIDIAN_PERMISSION_INTEL_DB_NAME` | Permission Intel schema |
+
+Defaults match `database/db_config.py`. Cross-schema SQL (for example joining `malware_sample_catalog` to `android_permission_obs_sample`) fully qualifies both schema names so ObsidianDroid does not rely on live `android_permission_*` tables inside the primary DB.
+
+Quick connectivity check (requires network access to the DB):
+
+```bash
+python -m database.split_db_health
+```
+
+### Pipeline and model settings
 
 Model and pipeline settings can be customized in `config/settings/*.py` (re-exported by `config/app_config.py`):
 - Train/test split, random seed, estimator hyperparameters.

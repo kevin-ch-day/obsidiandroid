@@ -1,14 +1,8 @@
 """Tests for metadata feature extraction in main pipeline."""
 
-from pathlib import Path
-import sys
-
 import pandas as pd
 
-# Allow importing repo root modules when tests are run from subdir contexts.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-import main  # noqa: E402
+import main
 
 
 def test_build_metadata_feature_frame_creates_expected_columns() -> None:

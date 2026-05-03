@@ -4,34 +4,43 @@ This guide documents the datasets that ObsidianDroid consumes, how they are sync
 
 ## Source of Truth
 
-ObsidianDroid does **not** call live VirusTotal APIs during execution. Instead, it reads from a project-controlled MySQL schema that mirrors the relevant VirusTotal tables alongside derived analytics tables. The database is the authoritative source for:
+ObsidianDroid does **not** call live VirusTotal APIs during execution. Instead, it reads from project-controlled MySQL schemas. **Sample catalog, VirusTotal mirrors, and vendor verdicts** live in the primary Erebus database. **Android permission intelligence** (`android_permission_*` tables) lives in the separate Permission Intel database (see below). Together they are the authoritative source for:
 
 - Vendor detections and metadata that drive label harmonization.
-- Permission manifests extracted from submitted APKs.
+- Permission observations and enrichment used for permission features and permission-trend reporting.
 - Historical engine performance measurements used in weighting and consensus scoring.
 
-## Database Layout
+## Database Layout (split model)
 
-The current ObsidianDroid pipeline reads from the following tables and views in the
-project-controlled MySQL schema:
+ObsidianDroid uses two logical databases on the same MySQL/MariaDB instance in typical deployments. Configure schema names with `OBSIDIAN_DB_NAME` (primary) and `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (Permission Intel); see `database/db_config.py`.
 
-| Schema Area | Key Tables / Views | Purpose |
+### Primary Erebus database (`OBSIDIAN_DB_NAME`, default `erebus_threat_intel_prod`)
+
+| Schema area | Key tables / views | Purpose |
 | --- | --- | --- |
-| Sample catalog | `malware_sample_catalog`, `malware_artifact_hash_registry` | Canonical sample identities, hashes, APK metadata, VT timestamps, package names, and permission counts. |
+| Sample catalog | `malware_sample_catalog`, `malware_artifact_hash_registry` | Canonical sample identities, hashes, APK metadata, VT timestamps, package names, and catalog permission counts. |
 | Family/type taxonomy | `v_android_apk_family_resolved`, `android_malware_family`, `android_malware_type` | Canonical malware family and type assignments used for cohort building and supervised labels. |
 | VirusTotal summaries | `virustotal_sample_scan_summary`, `virustotal_sample_signal_current` | Per-sample detection totals, tags, reputation, and current VT-derived summary fields. |
 | VirusTotal verdict matrix | `virustotal_sample_vendor_engine_verdicts` | Wide per-sample vendor verdict table used to build parser inputs and AV feature matrices. |
 | Vendor metadata | `virustotal_vendor_engines` | Canonical vendor names plus trusted/active flags used during engine scoring and governance. |
-| Android permissions | `android_permission_obs_sample`, `android_permission_enrich_vt_current`, `android_permission_enrich_vt_event` | Observed permission rows and enrichment tables used by permission-trend reporting and feature engineering. |
 
-Connections are managed by `database/db_config.py`. Pooling is configured directly in that module via `DB_ENABLE_POOLING`, `DB_POOL_SIZE`, and `DB_POOL_NAME`.
+### Permission Intel database (`OBSIDIAN_PERMISSION_INTEL_DB_NAME`, default `android_permission_intel`)
+
+| Schema area | Key tables | Purpose |
+| --- | --- | --- |
+| Android permissions | `android_permission_obs_sample`, `android_permission_dict_aosp`, `android_permission_dict_oem`, `android_permission_dict_unknown`, `android_permission_meta_oem_vendor`, `android_permission_enrich_vt_current`, `android_permission_enrich_vt_event` | Observed permission rows, dictionaries, OEM metadata, and enrichment used by permission-trend reporting and ML permission features. |
+
+Cross-schema reporting joins (for example banking trojan permission extracts) qualify both databases in SQL (e.g. ``primary.malware_sample_catalog`` joined to ``android_permission_intel.android_permission_obs_sample``). ObsidianDroid does **not** assume live `android_permission_*` tables exist in the primary database.
+
+Connections are built from `database/db_config.py`. Pooling applies to the primary connection when `OBSIDIAN_DB_ENABLE_POOLING` is enabled; Permission Intel uses a dedicated connection helper (`execute_permission_query` in `database/db_engine.py`).
 
 ## Replication & Refresh Cadence
 
 1. **Snapshot frequency:** Pull fresh VirusTotal exports nightly using the upstream sync job documented in the internal ops runbooks.
-2. **Ordering guarantees:** Apply engine metadata before loading detection facts to ensure foreign keys resolve.
-3. **Verification:** After each load, verify row counts and key coverage for the active ObsidianDroid tables above before running a profile. This repository does not currently ship a dedicated `validate_database_snapshot.py` helper.
-4. **Backups:** Retain seven days of dumps for rollback; the `operations_playbook.md` includes recovery instructions.
+2. **Permission Intel:** Erebus mines and stores permission intelligence; the Permission Intel schema is the live consumer-facing source for ObsidianDroid permission paths.
+3. **Ordering guarantees:** Apply engine metadata before loading detection facts to ensure foreign keys resolve.
+4. **Verification:** After each load, verify row counts and key coverage for the active ObsidianDroid tables above before running a profile. This repository does not currently ship a dedicated `validate_database_snapshot.py` helper.
+5. **Backups:** Retain seven days of dumps for rollback; the `operations_playbook.md` includes recovery instructions.
 
 ## VirusTotal Terms of Use
 
@@ -40,7 +49,7 @@ Access to replicated VirusTotal data must comply with [VirusTotal’s Terms of S
 ## Local Development Tips
 
 - Seed a development database by restoring the sanitized snapshot in `testing/fixtures/vt_snapshot.sql.gz` (if available) or by generating synthetic detections using `testing/data_fuzzer.py`.
-- Override connection settings locally by editing `database/db_config.py` during experimentation.
+- Prefer `OBSIDIAN_*` environment variables over committing credentials; local overrides can still use `database/db_config.py` defaults for non-secret fields.
 - When adding new VirusTotal columns, update both the ORM/select queries and the validation scripts to maintain coverage.
 
 ## Related Documentation
@@ -48,4 +57,3 @@ Access to replicated VirusTotal data must comply with [VirusTotal’s Terms of S
 - [`architecture.md`](architecture.md) explains how each module consumes the tables listed above.
 - [`user_guide.md`](user_guide.md) contains step-by-step configuration instructions for pointing ObsidianDroid at your database instance.
 - [`operations_playbook.md`](operations_playbook.md) provides incident response and restore workflows for the replication jobs.
-

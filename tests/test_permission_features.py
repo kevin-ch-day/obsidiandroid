@@ -21,7 +21,7 @@ def test_permission_fetch_sets_degraded_flag_on_db_error(monkeypatch) -> None:
     def _raise(*_args, **_kwargs):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr(permission_features.db_engine, "execute_query", _raise)
+    monkeypatch.setattr(permission_features.db_engine, "execute_permission_query", _raise)
     samples_df = pd.DataFrame({"sample_id": [1, 2]})
     out = permission_features.build_permission_feature_frame(samples_df)
 
@@ -42,7 +42,7 @@ def test_permission_fetch_strict_evidence_raises_integrity(monkeypatch) -> None:
     def _raise(*_args, **_kwargs):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr(permission_features.db_engine, "execute_query", _raise)
+    monkeypatch.setattr(permission_features.db_engine, "execute_permission_query", _raise)
     samples_df = pd.DataFrame({"sample_id": [1]})
     with pytest.raises(RuntimeError) as exc:
         permission_features.build_permission_feature_frame(samples_df)

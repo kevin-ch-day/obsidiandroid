@@ -1,11 +1,8 @@
-import os
-import sys
 import pandas as pd
 from sklearn.datasets import make_classification
 from sklearn.metrics import confusion_matrix, classification_report
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from ml_classification.training import model_trainer_factory
 
 

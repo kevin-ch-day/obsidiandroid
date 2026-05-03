@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 from config import app_config
 from ml_classification.training import model_prediction, pipeline_core
@@ -6,6 +7,14 @@ from ml_classification.training import model_prediction, pipeline_core
 
 class _DummyEncoder:
     classes_ = np.array(["Anubis", "other"])
+
+
+def test_align_data_returns_series() -> None:
+    features = pd.DataFrame({"feat": [1, 2]}, index=["s1", "s2"])
+    labels = pd.DataFrame({"sample_id": ["s1", "s2"], "family_name": ["A", "B"]})
+    f, l = pipeline_core.align_data(features, labels)
+    assert isinstance(l, pd.Series)
+    assert list(f.index) == ["s1", "s2"]
 
 
 def test_configured_models_defaults_to_fast_mode(monkeypatch):

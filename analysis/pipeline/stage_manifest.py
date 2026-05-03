@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from config import app_config
+from utils.latex_tables import LatexTableSpec, render_tabular
 from utils import artifacts
 from utils import compliance
 from utils import output_paths
@@ -1959,40 +1960,15 @@ def _build_paper_model_comparison_table(*, source_path: Path, output_path: Path)
     out.to_csv(output_path, index=False, float_format="%.6f")
 
 
-def _latex_escape(value: Any) -> str:
-    """Escape text for safe LaTeX table rendering."""
-    text = "" if value is None else str(value)
-    replacements = {
-        "\\": r"\textbackslash{}",
-        "&": r"\&",
-        "%": r"\%",
-        "$": r"\$",
-        "#": r"\#",
-        "_": r"\_",
-        "{": r"\{",
-        "}": r"\}",
-    }
-    for token, repl in replacements.items():
-        text = text.replace(token, repl)
-    return text
-
-
 def _write_table_latex_from_csv(*, csv_path: Path, tex_path: Path) -> None:
     """Render a compact LaTeX tabular from a CSV table."""
     df = pd.read_csv(csv_path)
-    columns = [str(col) for col in df.columns.tolist()]
-    align = "l" + "r" * max(len(columns) - 1, 0)
-    lines: list[str] = []
-    lines.append(r"\begin{tabular}{" + align + "}")
-    lines.append(r"\hline")
-    lines.append(" & ".join(_latex_escape(col) for col in columns) + r" \\")
-    lines.append(r"\hline")
-    for _, row in df.iterrows():
-        cells = [_latex_escape(row[col]) for col in columns]
-        lines.append(" & ".join(cells) + r" \\")
-    lines.append(r"\hline")
-    lines.append(r"\end{tabular}")
-    tex_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    ncols = len(df.columns)
+    align = "l" + "r" * max(ncols - 1, 0)
+    tex_path.write_text(
+        render_tabular(df, spec=LatexTableSpec(align=align, use_booktabs=False)),
+        encoding="utf-8",
+    )
 
 
 def _build_paper_registry_payload(

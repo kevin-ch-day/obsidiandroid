@@ -11,14 +11,12 @@ from database.db_sample_metadata_contracts import (
     BANKING_TROJAN_FAMILIES,
     SUPPORTED_ANDROID_TYPE_SLUGS,
     convert_to_dataframe,
-    get_query_contract_metadata,
     get_supported_android_type_slugs,
 )
 from database.db_sample_metadata_fetchers import (
     fetch_available_android_type_slugs,
     fetch_all_android_malware,
     fetch_android_malware_with_min_family_samples,
-    fetch_banking_trojan_samples,
     fetch_sample_metadata,
     fetch_samples_by_type,
     get_type_cohort_gate_stats,

@@ -1,12 +1,10 @@
-import os, sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+import pytest
 
 from ml_classification.builder.classification_row_builder import build_classification_row
 from ml_classification.builder import sample_classification_builder
 from ml_classification.inference.label_consensus_engine import resolve_consensus_label
-from model.vendor.record_core import VendorClassificationRecord
 from ml_classification.labeling import label_field_normalizer, label_format_generator
-import pytest
+from model.vendor.record_core import VendorClassificationRecord
 
 
 def test_build_row_handles_tuple_enrichment(monkeypatch):

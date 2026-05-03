@@ -82,7 +82,7 @@ from analysis.orchestration.runtime_reporting import (
     print_run_context_line as _print_run_context_line,
     setup_runtime_context,
 )
-from database import db_sample_metadata_queries
+from database.db_sample_metadata_contracts import get_query_contract_metadata
 
 # Default diagnostics path derived from app configuration
 DIAGNOSTICS_DIR = os.path.join(app_config.DEFAULT_OUTPUT_DIR, "diagnostics")
@@ -266,6 +266,13 @@ def run_pipeline(
     model_list = list(selected_models) if selected_models else None
     profile: dict[str, Any] = {}
     run_id = run_manifest.generate_run_id()
+    # Snapshot mutable config before setup_runtime_context mutates run-scoped paths
+    # (RUNTIME_DIAGNOSTICS_DIR, ANALYSIS_SNAPSHOT_*, etc.); otherwise finally restores
+    # stale run directories and leaks state across tests or sequential CLI runs.
+    mutable_config_keys = build_mutable_config_keys()
+    mutable_config_snapshot: dict[str, Any] = {
+        key: getattr(app_config, key, _CONFIG_MISSING) for key in mutable_config_keys
+    }
     setattr(app_config, "RUNTIME_RUN_ID", run_id)
     strict_run_scoped = True
     runtime_paths = setup_runtime_context(run_id=run_id, strict_run_scoped=True)
@@ -294,10 +301,6 @@ def run_pipeline(
     preflight_path: Path | None = None
     preflight_payload: dict[str, Any] = {}
     original_diagnostics_dir = DIAGNOSTICS_DIR
-    mutable_config_keys = build_mutable_config_keys()
-    mutable_config_snapshot: dict[str, Any] = {
-        key: getattr(app_config, key, _CONFIG_MISSING) for key in mutable_config_keys
-    }
     # Reset run-scoped runtime markers up-front to avoid stale cross-run leakage.
     reset_runtime_markers()
 
@@ -539,7 +542,7 @@ def run_pipeline(
         manifest_context["profile_params"] = profile
         manifest_context["config_hash"] = hash_payload(profile)
         manifest_context["dependency_versions"] = _collect_dependency_versions()
-        manifest_context["db_query_contract"] = db_sample_metadata_queries.get_query_contract_metadata()
+        manifest_context["db_query_contract"] = get_query_contract_metadata()
         _write_preflight(status="running")
         du.print_info(f"[PROFILE] Loaded profile: {profile.get('profile_id')}")
         du.print_info(

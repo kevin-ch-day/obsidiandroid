@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 from math import log
 from pathlib import Path
-import re
 import shutil
 from typing import Any
 import zipfile
@@ -17,7 +15,6 @@ import numpy as np
 import pandas as pd
 
 from config import app_config
-from database import db_engine
 from utils import display_utils as du
 from utils import output_paths
 from utils import run_manifest
@@ -35,27 +32,42 @@ from analysis.pipeline.permission_trends_selection import (
 )
 from utils.hash_utils import hash_payload
 
-
-COMMON_PERMISSIONS = (
-    "android.permission.internet",
-    "android.permission.access_network_state",
+from analysis.pipeline.permission_trends.constants import (
+    ARTIFACT_GROUP_CONTRACTS,
+    ARTIFACT_GROUP_DOCS,
+    ARTIFACT_GROUP_FIGURES,
+    ARTIFACT_GROUP_TABLES,
+    BUNDLE_CONTRACT_NAME,
+    BUNDLE_CONTRACT_VERSION,
+    COMMON_PERMISSIONS,
+    PERMISSION_ALIAS_MAP,
+    PERMISSION_ALIAS_MAP_VERSION,
+    PERMISSION_PREFIX,
+    PRIMARY_PERMISSION_VIEW,
+    ReportArtifacts,
+    RUN_SUFFIX_PNG_PATTERN,
 )
-
-PERMISSION_ALIAS_MAP_VERSION = "perm_alias_v1"
-PERMISSION_ALIAS_MAP = {
-    "android.permission.system_overlay_window": "android.permission.system_alert_window",
-    "android.permission.install_packages": "android.permission.request_install_packages",
-}
-
-PRIMARY_PERMISSION_VIEW = "aosp_only"
-PERMISSION_PREFIX = "android.permission."
-RUN_SUFFIX_PNG_PATTERN = re.compile(r".*_\d{8}T\d{6}Z__[a-z0-9]+\.png$", re.IGNORECASE)
-ARTIFACT_GROUP_FIGURES = "figures"
-ARTIFACT_GROUP_TABLES = "tables"
-ARTIFACT_GROUP_CONTRACTS = "contracts"
-ARTIFACT_GROUP_DOCS = "docs"
-BUNDLE_CONTRACT_NAME = "permission_trends"
-BUNDLE_CONTRACT_VERSION = "v1"
+from analysis.pipeline.permission_trends.sample_permission_data import (
+    attach_temporal_catalog_fields as _attach_temporal_catalog_fields,
+    build_permission_binary_matrix as _build_permission_binary_matrix,
+    build_sample_core as _build_sample_core,
+    fetch_permission_aggregates as _fetch_permission_aggregates,
+    fetch_permission_rows_for_samples as _fetch_permission_rows_for_samples,
+    fill_permission_observations as _fill_permission_observations,
+    filter_permission_rows_by_view as _filter_permission_rows_by_view,
+    permission_support_floor as _permission_support_floor,
+)
+from analysis.pipeline.permission_trends.stats_core import (
+    bh_fdr as _bh_fdr,
+    build_jsd_matrix as _build_jsd_matrix,
+    chi2_2x2_p_and_v as _chi2_2x2_p_and_v,
+    cliffs_delta as _cliffs_delta,
+    js_distance as _js_distance,
+    prevalence_entropy as _prevalence_entropy,
+    safe_series_mean as _safe_series_mean,
+    safe_series_median as _safe_series_median,
+    spearman_with_bootstrap_ci as _spearman_with_bootstrap_ci_impl,
+)
 
 
 def _import_pyplot():
@@ -75,28 +87,14 @@ def _report_figure_dpi() -> int:
     return 180
 
 
-@dataclass(frozen=True)
-class ReportArtifacts:
-    """Container for report artifact paths."""
-
-    coverage_csv: str
-    anomaly_csv: str
-    family_support_csv: str
-    dangerous_type_csv: str
-    consensus_csv: str
-    generic_audit_csv: str
-    confusion_summary_csv: str
-    confusion_summary_png: str | None
-    per_family_perf_csv: str
-    dangerous_stats_csv: str
-    consensus_correlation_csv: str
-    consensus_correlation_txt: str
-    banker_clusters_csv: str
-    banker_cluster_profiles_csv: str
-    temporal_trends_csv: str
-    temporal_trends_png: str | None
-    bundle_metadata_json: str
-    bundle_zip: str
+def _spearman_with_bootstrap_ci(
+    x: pd.Series, y: pd.Series
+) -> tuple[float, float, float, float]:
+    return _spearman_with_bootstrap_ci_impl(
+        x,
+        y,
+        bootstrap_resamples=int(getattr(app_config, "CONSENSUS_BOOTSTRAP_RESAMPLES", 2000)),
+    )
 
 
 def run_permission_trends_report_stage(
@@ -932,278 +930,6 @@ def run_permission_trends_report_stage(
         setattr(app_config, "RUNTIME_PERMISSION_BUNDLE_LATEST_DIR", str(latest_copy_dir))
     du.print_info(f"[REPORT] Permission trends artifacts exported: {bundle_dir}")
     return paths
-
-
-def _build_sample_core(samples_df: pd.DataFrame) -> pd.DataFrame:
-    working = samples_df.copy()
-    working["sample_id"] = pd.to_numeric(working["sample_id"], errors="coerce")
-    working = working.dropna(subset=["sample_id"])
-    working["sample_id"] = working["sample_id"].astype(int)
-    for col in ("sha256", "android_package_name", "family_canonical", "type_slug"):
-        if col not in working.columns:
-            working[col] = ""
-    if "family_id" not in working.columns:
-        working["family_id"] = -1
-    working["sha256"] = working["sha256"].fillna("").astype(str).str.strip().str.lower()
-    working["android_package_name"] = working["android_package_name"].fillna("").astype(str).str.strip()
-    working["family_id"] = pd.to_numeric(working["family_id"], errors="coerce").fillna(-1).astype(int)
-    working["family_canonical"] = working["family_canonical"].fillna("").astype(str).str.strip()
-    working["type_slug"] = working["type_slug"].fillna("").astype(str).str.strip().str.lower()
-    working.loc[working["type_slug"] == "", "type_slug"] = "unknown"
-    if "android_permission_count" not in working.columns:
-        working["android_permission_count"] = 0
-    working["android_permission_count"] = pd.to_numeric(
-        working["android_permission_count"], errors="coerce"
-    ).fillna(0).astype(int)
-    working = working.sort_values("sample_id").drop_duplicates(subset=["sample_id"]).copy()
-    non_empty_sha = working["sha256"].ne("")
-    if non_empty_sha.any():
-        deduped = working[non_empty_sha].drop_duplicates(subset=["sha256"], keep="first")
-        working = pd.concat([deduped, working[~non_empty_sha]], ignore_index=True)
-    if "vt_first_submission_at_utc" not in working.columns and "vt_first_submission_date" in working.columns:
-        working["vt_first_submission_at_utc"] = working["vt_first_submission_date"]
-    for col in ("vt_first_seen_itw_date", "vt_first_submission_at_utc", "effective_first_seen_at_utc"):
-        if col not in working.columns:
-            working[col] = pd.NaT
-    for col in ("effective_first_seen_year", "effective_first_seen_month"):
-        if col not in working.columns:
-            working[col] = ""
-    return working
-
-
-def _attach_temporal_catalog_fields(sample_core_df: pd.DataFrame) -> pd.DataFrame:
-    """Attach VT temporal columns from catalog for time-series analytics."""
-    out = sample_core_df.copy()
-    sample_ids = out["sample_id"].dropna().astype(int).tolist()
-    catalog_df = _fetch_temporal_fields_for_samples(sample_ids)
-    if catalog_df.empty:
-        for col in ("vt_first_seen_itw_date", "vt_first_submission_at_utc", "effective_first_seen_at_utc"):
-            out[col] = pd.to_datetime(out.get(col), errors="coerce", utc=True)
-        if "effective_first_seen_at_utc" not in out.columns:
-            out["effective_first_seen_at_utc"] = out["vt_first_seen_itw_date"].where(
-                out["vt_first_seen_itw_date"].notna(),
-                out["vt_first_submission_at_utc"],
-            )
-        out["effective_first_seen_year"] = out["effective_first_seen_at_utc"].dt.year.astype("Int64")
-        out["effective_first_seen_month"] = out["effective_first_seen_at_utc"].dt.strftime("%Y-%m")
-        out.loc[out["effective_first_seen_month"] == "NaT", "effective_first_seen_month"] = ""
-        return out
-    merged = out.merge(catalog_df, on="sample_id", how="left", suffixes=("", "_catalog"))
-    for col in ("vt_first_seen_itw_date", "vt_first_submission_at_utc"):
-        base = pd.to_datetime(merged.get(col), errors="coerce", utc=True)
-        catalog = pd.to_datetime(merged.get(f"{col}_catalog"), errors="coerce", utc=True)
-        merged[col] = base.where(base.notna(), catalog)
-        catalog_col = f"{col}_catalog"
-        if catalog_col in merged.columns:
-            merged = merged.drop(columns=[catalog_col])
-    merged["effective_first_seen_at_utc"] = pd.to_datetime(
-        merged.get("effective_first_seen_at_utc"), errors="coerce", utc=True
-    )
-    merged["effective_first_seen_at_utc"] = merged["effective_first_seen_at_utc"].where(
-        merged["effective_first_seen_at_utc"].notna(),
-        merged["vt_first_seen_itw_date"].where(
-            merged["vt_first_seen_itw_date"].notna(),
-            merged["vt_first_submission_at_utc"],
-        ),
-    )
-    merged["effective_first_seen_year"] = merged["effective_first_seen_at_utc"].dt.year.astype("Int64")
-    merged["effective_first_seen_month"] = merged["effective_first_seen_at_utc"].dt.strftime("%Y-%m")
-    merged.loc[merged["effective_first_seen_month"] == "NaT", "effective_first_seen_month"] = ""
-    return merged
-
-
-def _fetch_temporal_fields_for_samples(sample_ids: list[int]) -> pd.DataFrame:
-    """Fetch ITW/submission temporal fields from malware_sample_catalog by sample_id."""
-    if not sample_ids:
-        return pd.DataFrame(columns=["sample_id", "vt_first_seen_itw_date", "vt_first_submission_at_utc"])
-    frames: list[pd.DataFrame] = []
-    chunk_size = 500
-    for idx in range(0, len(sample_ids), chunk_size):
-        chunk = sample_ids[idx : idx + chunk_size]
-        placeholders = ", ".join(["%s"] * len(chunk))
-        query = f"""
-            SELECT
-                sample_id,
-                vt_first_seen_itw_date,
-                vt_first_submission_at_utc
-            FROM malware_sample_catalog
-            WHERE sample_id IN ({placeholders})
-        """
-        try:
-            frame = db_engine.execute_query(query, params=tuple(chunk), fetch=True, as_dataframe=True)
-        except Exception:
-            return pd.DataFrame(columns=["sample_id", "vt_first_seen_itw_date", "vt_first_submission_at_utc"])
-        if isinstance(frame, pd.DataFrame) and not frame.empty:
-            frames.append(frame)
-    if not frames:
-        return pd.DataFrame(columns=["sample_id", "vt_first_seen_itw_date", "vt_first_submission_at_utc"])
-    out = pd.concat(frames, ignore_index=True)
-    out["sample_id"] = pd.to_numeric(out["sample_id"], errors="coerce")
-    out = out.dropna(subset=["sample_id"])
-    out["sample_id"] = out["sample_id"].astype(int)
-    out["vt_first_seen_itw_date"] = pd.to_datetime(out["vt_first_seen_itw_date"], errors="coerce", utc=True)
-    out["vt_first_submission_at_utc"] = pd.to_datetime(
-        out["vt_first_submission_at_utc"], errors="coerce", utc=True
-    )
-    return out.drop_duplicates(subset=["sample_id"], keep="last")
-
-
-def _fetch_permission_aggregates() -> pd.DataFrame:
-    common_a, common_b = COMMON_PERMISSIONS
-    query = f"""
-        SELECT
-            sample_id,
-            COUNT(*) AS permission_obs_rows,
-            COUNT(DISTINCT LOWER(TRIM(permission_string))) AS permission_unique_count,
-            SUM(
-                CASE WHEN LOWER(TRIM(permission_string)) IN ('{common_a}', '{common_b}')
-                THEN 1 ELSE 0 END
-            ) AS permission_common_rows
-        FROM android_permission_obs_sample
-        GROUP BY sample_id
-    """
-    df = db_engine.execute_query(query, fetch=True, as_dataframe=True)
-    if not isinstance(df, pd.DataFrame) or df.empty:
-        return pd.DataFrame(
-            columns=[
-                "sample_id",
-                "permission_obs_rows",
-                "permission_unique_count",
-                "permission_common_rows",
-            ]
-        )
-    df["sample_id"] = pd.to_numeric(df["sample_id"], errors="coerce")
-    df = df.dropna(subset=["sample_id"])
-    df["sample_id"] = df["sample_id"].astype(int)
-    return df
-
-
-def _fill_permission_observations(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    for col in ("permission_obs_rows", "permission_unique_count", "permission_common_rows"):
-        out[col] = pd.to_numeric(out.get(col, 0), errors="coerce").fillna(0).astype(int)
-    return out
-
-
-def _fetch_permission_rows_for_samples(sample_ids: list[int]) -> pd.DataFrame:
-    if not sample_ids:
-        return pd.DataFrame(
-            columns=[
-                "sample_id",
-                "permission_string",
-                "protection_level",
-                "permission_source",
-            ]
-        )
-    chunk_size = 500
-    frames: list[pd.DataFrame] = []
-    for idx in range(0, len(sample_ids), chunk_size):
-        chunk = sample_ids[idx : idx + chunk_size]
-        placeholders = ", ".join(["%s"] * len(chunk))
-        query = f"""
-            SELECT
-                ops.sample_id,
-                LOWER(TRIM(ops.permission_string)) AS permission_string,
-                UPPER(COALESCE(a.protection_level, o.protection_level, 'UNKNOWN')) AS protection_level,
-                UPPER(COALESCE(ops.classification, 'UNKNOWN')) AS permission_source,
-                CASE WHEN a.constant_value IS NOT NULL THEN 1 ELSE 0 END AS is_aosp_dict_match,
-                CASE WHEN o.permission_string IS NOT NULL THEN 1 ELSE 0 END AS is_oem_dict_match
-            FROM android_permission_obs_sample ops
-            LEFT JOIN android_permission_dict_aosp a
-              ON LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(a.constant_value))
-            LEFT JOIN android_permission_dict_oem o
-              ON LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(o.permission_string))
-             AND (ops.vendor_id = o.vendor_id OR o.vendor_id IS NULL)
-            WHERE ops.sample_id IN ({placeholders})
-              AND ops.permission_string IS NOT NULL
-              AND TRIM(ops.permission_string) <> ''
-        """
-        frame = db_engine.execute_query(query, params=tuple(chunk), fetch=True, as_dataframe=True)
-        if isinstance(frame, pd.DataFrame) and not frame.empty:
-            frames.append(frame)
-    if not frames:
-        return pd.DataFrame(
-            columns=[
-                "sample_id",
-                "permission_string",
-                "protection_level",
-                "permission_source",
-                "is_aosp_dict_match",
-                "is_oem_dict_match",
-            ]
-        )
-    out = pd.concat(frames, ignore_index=True)
-    out["sample_id"] = pd.to_numeric(out["sample_id"], errors="coerce")
-    out = out.dropna(subset=["sample_id"])
-    out["sample_id"] = out["sample_id"].astype(int)
-    out["permission_string"] = out["permission_string"].fillna("").astype(str).str.strip().str.lower()
-    out["permission_string"] = out["permission_string"].replace(PERMISSION_ALIAS_MAP)
-    out["protection_level"] = out["protection_level"].fillna("UNKNOWN").astype(str).str.upper()
-    out["permission_source"] = out["permission_source"].fillna("UNKNOWN").astype(str).str.upper()
-    out["is_aosp_dict_match"] = pd.to_numeric(out.get("is_aosp_dict_match", 0), errors="coerce").fillna(0).astype(int)
-    out["is_oem_dict_match"] = pd.to_numeric(out.get("is_oem_dict_match", 0), errors="coerce").fillna(0).astype(int)
-    out = out[out["permission_string"] != ""].drop_duplicates(subset=["sample_id", "permission_string"])
-    return out
-
-
-def _permission_support_floor(sample_count: int) -> int:
-    return int(max(50, round(sample_count * 0.01)))
-
-
-def _filter_permission_rows_by_view(permission_rows_df: pd.DataFrame, view_name: str) -> pd.DataFrame:
-    if permission_rows_df.empty:
-        return permission_rows_df
-    view = str(view_name).strip().lower()
-    src = permission_rows_df["permission_source"].fillna("").astype(str).str.upper()
-    is_aosp_match = (
-        pd.to_numeric(permission_rows_df.get("is_aosp_dict_match", 0), errors="coerce").fillna(0).astype(int) > 0
-    )
-    is_oem_match = (
-        pd.to_numeric(permission_rows_df.get("is_oem_dict_match", 0), errors="coerce").fillna(0).astype(int) > 0
-    )
-    if view == "inclusive":
-        return permission_rows_df.copy()
-    if view == "aosp_only":
-        perm = permission_rows_df["permission_string"].fillna("").astype(str).str.lower()
-        mask = is_aosp_match & perm.str.startswith("android.permission.")
-        return permission_rows_df.loc[mask].copy()
-    if view == "ecosystem":
-        mask = (
-            is_aosp_match
-            | is_oem_match
-            | src.str.contains("GOOGLE", regex=False)
-        )
-        return permission_rows_df.loc[mask].copy()
-    return permission_rows_df.copy()
-
-
-def _build_permission_binary_matrix(
-    sample_core_df: pd.DataFrame,
-    permission_rows_df: pd.DataFrame,
-    support_floor: int,
-    forced_permissions: set[str] | None = None,
-) -> tuple[pd.DataFrame, list[str]]:
-    sample_ids = sample_core_df["sample_id"].astype(int).tolist()
-    base = pd.DataFrame({"sample_id": sample_ids})
-    if permission_rows_df.empty:
-        return base, []
-    support = permission_rows_df.groupby("permission_string")["sample_id"].nunique().sort_values(ascending=False)
-    keep = set(support[support >= support_floor].index.tolist())
-    if forced_permissions:
-        keep.update({perm for perm in forced_permissions if perm in support.index})
-    if not keep:
-        return base, []
-    work = permission_rows_df[permission_rows_df["permission_string"].isin(keep)].copy()
-    if work.empty:
-        return base, []
-    ctab = pd.crosstab(work["sample_id"], work["permission_string"])
-    ctab = (ctab > 0).astype(int).reset_index()
-    merged = base.merge(ctab, on="sample_id", how="left").fillna(0)
-    for col in merged.columns:
-        if col != "sample_id":
-            merged[col] = merged[col].astype(int)
-    keep_sorted = sorted([col for col in merged.columns if col != "sample_id"])
-    return merged, keep_sorted
 
 
 def _build_permission_coverage(df: pd.DataFrame, run_id: str, profile_id: str) -> pd.DataFrame:
@@ -2253,47 +1979,12 @@ def _build_family_permission_profiles(
     return pd.DataFrame(rows), pd.DataFrame(entropy_rows)
 
 
-def _prevalence_entropy(prevalences: list[float]) -> tuple[float, float]:
-    arr = np.array([max(0.0, min(1.0, float(v))) for v in prevalences], dtype=float)
-    if arr.size == 0 or float(arr.sum()) <= 0:
-        return 0.0, 1.0
-    probs = arr / arr.sum()
-    probs = probs[probs > 0]
-    entropy = float(-(probs * np.log(probs)).sum())
-    return entropy, float(np.exp(entropy))
 
 
-def _build_jsd_matrix(prevalence_df: pd.DataFrame, row_field: str, run_id: str) -> pd.DataFrame:
-    if prevalence_df.empty:
-        return pd.DataFrame(columns=["run_id", row_field, "other", "js_distance"])
-    pivot = prevalence_df.pivot_table(index=row_field, columns="permission", values="prevalence", fill_value=0.0)
-    names = pivot.index.tolist()
-    rows: list[dict[str, Any]] = []
-    for i, left_name in enumerate(names):
-        p = np.array(pivot.loc[left_name], dtype=float)
-        p = p / p.sum() if p.sum() > 0 else np.ones_like(p) / max(len(p), 1)
-        for j, right_name in enumerate(names):
-            if j < i:
-                continue
-            q = np.array(pivot.loc[right_name], dtype=float)
-            q = q / q.sum() if q.sum() > 0 else np.ones_like(q) / max(len(q), 1)
-            jsd = _js_distance(p, q)
-            rows.append({"run_id": run_id, row_field: left_name, "other": right_name, "js_distance": round(jsd, 6)})
-            if left_name != right_name:
-                rows.append({"run_id": run_id, row_field: right_name, "other": left_name, "js_distance": round(jsd, 6)})
-    return pd.DataFrame(rows)
 
 
-def _js_distance(p: np.ndarray, q: np.ndarray) -> float:
-    m = 0.5 * (p + q)
-    return float(np.sqrt(0.5 * (_kl_div(p, m) + _kl_div(q, m))))
 
 
-def _kl_div(p: np.ndarray, q: np.ndarray) -> float:
-    eps = 1e-12
-    p2 = np.clip(p, eps, 1.0)
-    q2 = np.clip(q, eps, 1.0)
-    return float(np.sum(p2 * np.log(p2 / q2)))
 
 
 def _build_banker_permission_enrichment(
@@ -2340,35 +2031,8 @@ def _build_banker_permission_enrichment(
     return out.sort_values(["odds_ratio", "banker_with_perm"], ascending=[False, False]).reset_index(drop=True)
 
 
-def _chi2_2x2_p_and_v(a: int, b: int, c: int, d: int) -> tuple[float, float]:
-    table = np.array([[a, b], [c, d]], dtype=float)
-    n = float(table.sum())
-    if n <= 0:
-        return 1.0, 0.0
-    try:
-        from scipy.stats import chi2_contingency
-
-        chi2, p_value, _, _ = chi2_contingency(table, correction=False)
-    except Exception:
-        return 1.0, 0.0
-    cramers_v = float(np.sqrt(max(chi2, 0.0) / n))
-    return float(p_value), cramers_v
 
 
-def _bh_fdr(p_values: list[float]) -> list[float]:
-    n = len(p_values)
-    if n == 0:
-        return []
-    indexed = sorted(enumerate(p_values), key=lambda x: (np.nan_to_num(x[1], nan=1.0), x[0]))
-    out = [1.0] * n
-    prev = 1.0
-    for rank, (idx, p_val) in enumerate(reversed(indexed), start=1):
-        true_rank = n - rank + 1
-        p = float(np.nan_to_num(p_val, nan=1.0))
-        q = min(prev, (p * n) / max(true_rank, 1))
-        prev = q
-        out[idx] = float(min(max(q, 0.0), 1.0))
-    return out
 
 
 def _build_permission_discriminability_rank(
@@ -2544,31 +2208,10 @@ def _build_sample_level_permission_metrics(
     return sample_core_df[["sample_id"]].merge(out, on="sample_id", how="left").fillna(0)
 
 
-def _cliffs_delta(a: pd.Series, b: pd.Series) -> float:
-    x = pd.to_numeric(a, errors="coerce").dropna().values
-    y = pd.to_numeric(b, errors="coerce").dropna().values
-    if len(x) == 0 or len(y) == 0:
-        return 0.0
-    gt = 0
-    lt = 0
-    for xv in x:
-        gt += int((xv > y).sum())
-        lt += int((xv < y).sum())
-    return float((gt - lt) / (len(x) * len(y)))
 
 
-def _safe_series_mean(series: pd.Series) -> float:
-    values = pd.to_numeric(series, errors="coerce").dropna()
-    if values.empty:
-        return 0.0
-    return float(values.mean())
 
 
-def _safe_series_median(series: pd.Series) -> float:
-    values = pd.to_numeric(series, errors="coerce").dropna()
-    if values.empty:
-        return 0.0
-    return float(values.median())
 
 
 def _build_consensus_correlation_report(
@@ -2631,42 +2274,8 @@ def _build_consensus_correlation_report(
     return pd.DataFrame(rows), "\n".join(lines) + "\n"
 
 
-def _spearman_with_bootstrap_ci(x: pd.Series, y: pd.Series) -> tuple[float, float, float, float]:
-    paired = pd.concat([x, y], axis=1).dropna()
-    if paired.empty:
-        return 0.0, np.nan, np.nan, np.nan
-    x_vals = paired.iloc[:, 0].astype(float).values
-    y_vals = paired.iloc[:, 1].astype(float).values
-    rho, p_value = _spearman_stat(x_vals, y_vals)
-    n = len(x_vals)
-    if n < 3:
-        return rho, p_value, np.nan, np.nan
-    rng = np.random.default_rng(42)
-    resamples = int(getattr(app_config, "CONSENSUS_BOOTSTRAP_RESAMPLES", 2000))
-    boot = []
-    for _ in range(max(resamples, 100)):
-        idx = rng.integers(0, n, size=n)
-        r, _ = _spearman_stat(x_vals[idx], y_vals[idx])
-        if not np.isnan(r):
-            boot.append(r)
-    if not boot:
-        return rho, p_value, np.nan, np.nan
-    low = float(np.quantile(boot, 0.025))
-    high = float(np.quantile(boot, 0.975))
-    return rho, p_value, low, high
 
 
-def _spearman_stat(x_vals: np.ndarray, y_vals: np.ndarray) -> tuple[float, float]:
-    try:
-        from scipy.stats import spearmanr
-
-        rho, p_value = spearmanr(x_vals, y_vals)
-        return float(rho), float(p_value)
-    except Exception:
-        x_rank = pd.Series(x_vals).rank(method="average")
-        y_rank = pd.Series(y_vals).rank(method="average")
-        rho = float(x_rank.corr(y_rank))
-        return rho, np.nan
 
 
 def _build_dangerous_stats_tests(

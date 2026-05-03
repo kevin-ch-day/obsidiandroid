@@ -1,13 +1,10 @@
 """Tests for run manifest stage helper module."""
 
-from pathlib import Path
-import sys
 import json
+from pathlib import Path
 
 import pandas as pd
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from analysis.pipeline import stage_manifest
 

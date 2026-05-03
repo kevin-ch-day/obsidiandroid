@@ -24,36 +24,29 @@ This document explains how ObsidianDroid ingests antivirus telemetry, computes r
 ## Pipeline Stages in Detail
 
 ### 1. Metadata Ingestion (`database/`)
-- `db_config.py` centralizes MySQL credentials and connection pooling.
-- `queries.py` and `loader.py` fetch raw detections, permission metadata, and vendor statistics.
-- Data access functions emit pandas DataFrames that downstream modules consume.
+- `db_config.py` centralizes MySQL credentials (including the split **primary Erebus** schema and **Permission Intel** schema via environment variables; see [`data_sources.md`](data_sources.md)).
+- `db_engine.py` runs SQL against the primary DB; `execute_permission_query()` targets Permission Intel for live `android_permission_*` tables.
+- `db_sample_metadata_fetchers.py`, `db_sample_metadata_queries.py`, and `db_sample_metadata_contracts.py` load cohorts and enforce query contracts.
+- `db_av_engine_verdicts.py` and related modules read VirusTotal-style verdict matrices and vendor metadata.
 
-#### VirusTotal-backed tables
-- `vt_av_engines` lists every VirusTotal engine along with trust and activity metadata used during scoring.
-- `vt_av_engines_results` stores per-sample detections that feed the binary engine matrix.
-- `vt_av_engine_detections` and companion rollups provide historical hit rates for disagreement analysis.
-- Sample metadata queries expose VirusTotal-derived hints such as `vt_suggested_label`, `vt_scan_status`, and first submission timestamps.
-- All access occurs through internal SQL helpers—no live API calls are issued during pipeline runs, so availability hinges on the replicated VirusTotal tables inside the project database.
+#### VirusTotal-backed tables (primary schema)
+- Typical physical names include `virustotal_vendor_engines`, `virustotal_sample_vendor_engine_verdicts`, `malware_sample_catalog`, and related summaries—see [`data_sources.md`](data_sources.md) for the authoritative list.
 
 ### 2. Label Harmonization & Vendor Scoring (`analysis/`)
-- `label_normalization/` maps vendor-specific strings to canonical family names and records alias relationships.
-- `vendor_scoring.py` estimates per-engine reliability scores based on historical accuracy.
-- `feature_engineering/` assembles:
-  - Binary permission usage vectors.
-  - Vendor consensus ratios and confidence intervals.
-  - Aggregated statistics (e.g., detection counts, time-series trends).
-- Shared helpers in `analysis/utils.py` orchestrate cleaning, deduplication, and logging.
+- `analysis/vendor_processing/` parses vendor-specific strings into normalized tokens and families.
+- `analysis/feature_engineering/compute_vendor_scores.py` derives ML-oriented vendor scores and parser gates.
+- `feature_engineering/` also builds cohort statistics, pattern metrics, and supporting aggregates used in reporting.
 
-### 3. Feature Management (`utils/`)
-- `matrix_io.py` serializes sparse/dense matrices to disk for reproducibility.
-- `config_loader.py` parses YAML/JSON settings and merges environment overrides.
-- `logging.py` standardizes structured logging to stdout and files.
+### 3. Shared Utilities (`utils/`)
+- `utils/logging/` and `utils/exporting/` handle structured logs and workbook/Excel exports.
+- `utils/output_paths.py`, `utils/run_manifest.py`, and `utils/profile_manager.py` manage run IDs, manifests, and profiles.
+- `utils/ui/` provides console UI primitives; thin shims like `display_utils.py` keep older import paths working.
 
 ### 4. Model Selection & Training (`ml_classification/`)
-- `model_factory.py` returns configured estimators (Random Forest, SVM, XGBoost, Logistic Regression, Gradient Boosting).
-- `train.py` coordinates cross-validation, hyperparameter sweeps, and persistence of fitted models.
-- `evaluation.py` produces metrics such as precision/recall per family, confusion matrices, and feature importances.
-- `ensembles/` contains stacking and voting strategies that blend multiple base learners.
+- `ml_classification/training/model_trainer_factory.py` coordinates train/test splits, optional SMOTE, and trainer dispatch.
+- `ml_classification/training/pipeline_core.py` runs the main classifier pipeline (multiple estimators, CV optional).
+- `ml_classification/vectorization/feature_vector_builder.py` and related modules assemble numerical feature matrices.
+- Trainers live under `ml_classification/training/ml_trainers/`.
 
 Consult [`modeling_reference.md`](modeling_reference.md) for estimator-specific tips, feature group definitions, and evaluation artefact summaries.
 
@@ -63,36 +56,31 @@ Consult [`modeling_reference.md`](modeling_reference.md) for estimator-specific 
 - `thresholds.json` defines probability or consensus cutoffs used during final family selection.
 
 ### 6. Execution Entrypoints (`main.py`, `model_tuning.py`, `scripts/`)
-- `main.py` is the orchestration entrypoint and now delegates major stages to dedicated helpers in `analysis/pipeline/stage_*.py`.
-- `analysis/pipeline/stage_samples.py` handles cohort load/readiness checks and reproducibility hooks.
-- `analysis/pipeline/stage_av_vendor.py` runs AV analysis, vendor metadata extraction, and feature-label alignment validation.
-- `analysis/pipeline/stage_feature_enrichment.py` applies optional metadata feature enrichment before vectorization.
-- `analysis/pipeline/stage_modeling.py` covers engine-weight calculation, feature matrix construction, model training, and final label resolution.
-- `analysis/pipeline/stage_manifest.py` centralizes run-manifest generation and persistence.
-- `analysis/pipeline/sample_preparation.py` contains shared filtering/metadata feature helpers used across stages.
-- `model_tuning.py` performs targeted hyperparameter searches based on the same configuration files.
-- `scripts/` includes CLI utilities for recurring tasks such as refreshing vendor score tables or exporting feature snapshots.
-- For extension patterns and compatibility details, see [`pipeline_staging_guide.md`](pipeline_staging_guide.md).
+- `main.py` orchestrates the pipeline in order: samples → AV pipeline → vendor metadata → engine weights → feature matrix → alignment → training → optional ablation → optional permission-trends report → label resolution → manifest.
+- `analysis/pipeline/stage_samples.py` loads cohorts and applies gates; `stage_av_vendor.py` runs AV analysis, vendor extraction, and alignment; `stage_modeling.py` covers weights, feature matrix, training, and label resolution.
+- `analysis/pipeline/stage_permission_trends_report.py` produces permission analytics (helpers under `analysis/pipeline/permission_trends/`). `stage_manifest.py` writes the run manifest and paper/evidence exports.
+- `stage_results_warehouse.py` persists selected outputs when configured.
+- Root `model_tuning.py` and `analysis/evaluation/model_tuning.py` are auxiliary tuning entrypoints; `scripts/` holds operational CLIs (warehouse backfill, research utilities).
+- For extension patterns, see [`pipeline_staging_guide.md`](pipeline_staging_guide.md) and `main.run_pipeline` / `profiles/*.yaml`.
 
-### 7. Quality Assurance (`testing/`)
-- `tests/` provides pytest suites that validate feature builders, data loaders, and model wrappers.
-- `testing/data_fuzzer.py` generates adversarial datasets to stress test transformations.
-- `testing/static_checks/` contains heuristics that guard against training/testing leakage.
+### 7. Quality Assurance (`tests/`, `testing/`)
+- `tests/` is the primary pytest tree (`pytest -q`); `tests/conftest.py` routes outputs to tmp and guards filesystem writes during tests.
+- `testing/data_fuzzer.py` stresses data transforms; `testing/scan_ml_predict_misuse.py` is invoked from `run_ml_static_scan.py` for leakage-style static checks.
 
 ## Data Contracts
 
 | Artifact | Producer | Consumer | Notes |
 | --- | --- | --- | --- |
-| `detections` DataFrame | `database/loader.py` | `analysis/label_normalization/` | Raw vendor strings keyed by sample SHA. |
-| `vendor_scores` table | `analysis/vendor_scoring.py` | `analysis/feature_engineering/`, `ml_classification/` | Weighted by historical accuracy. |
-| `feature_matrix.npz` | `analysis/feature_engineering/` | `ml_classification/train.py` | Contains permission flags, consensus ratios, and reliability weights. |
-| `labels.csv` | `ml_classification/evaluation.py` | Analysts, downstream systems | Final recommended family per sample. |
+| Vendor verdict frames | `database/db_av_engine_verdicts.py` | `analysis/pipeline/stage_av_vendor.py` | Wide per-sample vendor matrix for parsers. |
+| Sample cohort DataFrames | `database/db_sample_metadata_queries.py` | `analysis/pipeline/stage_samples.py` | Filtered by profile/type slug. |
+| Feature matrix | `analysis/pipeline/stage_modeling.py` (`build_feature_matrix_stage`) | `run_feature_alignment_stage`, training | Mix of AV-derived columns and optional permission/metadata features. |
+| Run manifest JSON | `analysis/pipeline/stage_manifest.py` | Operators, evidence bundles | Lists artifacts and run provenance. |
 
 ## Extending the System
 
-1. Add new feature builders under `analysis/feature_engineering/` and register them in `config/app_config.py`.
-2. Implement additional estimators in `ml_classification/models/` and expose them through `model_factory.py`.
-3. Update `tests/` to cover new logic and run `pytest -q` before submitting changes.
-4. Document new behaviour in `doc/user_guide.md` or dedicated markdown files to keep operators informed.
+1. Add new feature builders under `analysis/feature_engineering/` (or pipeline stages) and gate them in `config/app_config.py` / profile YAML.
+2. Add or wire estimators through `ml_classification/training/model_trainer_factory.py` and `config/settings/model_hyperparams.py`.
+3. Extend `tests/` and run `pytest -q` before submitting changes.
+4. Document operator-visible behaviour in `doc/user_guide.md` or [`data_sources.md`](data_sources.md) when changing DB contracts or outputs.
 
 By following this guide, contributors can map requirements to the correct modules and understand how data flows through ObsidianDroid.

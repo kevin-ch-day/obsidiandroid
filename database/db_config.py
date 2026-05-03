@@ -1,16 +1,37 @@
 # db_config.py
 
+"""MySQL connection configuration for ObsidianDroid.
+
+ObsidianDroid uses two logical databases on the same MySQL/MariaDB server by default:
+
+- Primary Erebus schema (samples, VirusTotal, catalog).
+- Permission Intel schema (all ``android_permission_*`` live tables).
+
+Override via ``OBSIDIAN_*`` environment variables. Do not commit real passwords.
+"""
+
+import os
+
 # === MySQL Database Connection Configuration === #
 
-DB_HOST = "localhost"                        # MySQL server hostname (default: localhost)
-DB_PORT = 3306                               # MySQL server port (default: 3306)
-DB_USER = "root"                             # MySQL username with database privileges
-DB_PASSWORD = "Password123!"                   # Password for the database user
-DB_NAME = "erebus_threat_intel_prod"        # Primary database used by ObsidianDroid platform
+DB_HOST = os.getenv("OBSIDIAN_DB_HOST", "localhost")
+DB_PORT = int(os.getenv("OBSIDIAN_DB_PORT", "3306"))
+DB_USER = os.getenv("OBSIDIAN_DB_USER", "root")
+DB_PASSWORD = os.getenv("OBSIDIAN_DB_PASSWORD", "")
+DB_NAME = os.getenv("OBSIDIAN_DB_NAME", "erebus_threat_intel_prod")
+
+PERMISSION_INTEL_DB_NAME = os.getenv(
+    "OBSIDIAN_PERMISSION_INTEL_DB_NAME",
+    "android_permission_intel",
+)
 
 # === Optional Advanced Settings === #
 
-DB_CHARSET = "utf8mb4"                       # UTF-8 multibyte charset (emoji + CJK support)
-DB_ENABLE_POOLING = False                    # Reserved: Enable for multithreaded or async apps
-DB_POOL_SIZE = 8                             # Connection pool size when pooling is enabled
-DB_POOL_NAME = "obsidiandroid_pool"               # Stable pool name for connector reuse
+DB_CHARSET = os.getenv("OBSIDIAN_DB_CHARSET", "utf8mb4")
+DB_ENABLE_POOLING = os.getenv("OBSIDIAN_DB_ENABLE_POOLING", "false").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+DB_POOL_SIZE = int(os.getenv("OBSIDIAN_DB_POOL_SIZE", "8"))
+DB_POOL_NAME = os.getenv("OBSIDIAN_DB_POOL_NAME", "obsidiandroid_pool")

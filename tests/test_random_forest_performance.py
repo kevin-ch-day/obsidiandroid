@@ -1,10 +1,6 @@
-import os
-import sys
 import time
 import pandas as pd
 from sklearn.datasets import make_classification
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from ml_classification.training.ml_trainers import random_forest_trainer
 from config import app_config

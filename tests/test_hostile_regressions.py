@@ -1,13 +1,8 @@
 """Regression tests for hostile-audit failure paths."""
 
-from pathlib import Path
-import sys
-
 import numpy as np
 import pandas as pd
 from zipfile import BadZipFile
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import app_config
 from ml_classification.training import training_helpers

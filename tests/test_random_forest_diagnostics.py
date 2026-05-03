@@ -1,7 +1,3 @@
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
 from analysis.evaluation import random_forest_diagnostics as rfd
 from config import app_config
 

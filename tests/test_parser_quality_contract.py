@@ -1,11 +1,8 @@
 """Tests for parser-quality diagnostics contract and coverage candidates export."""
 
 from pathlib import Path
-import sys
 
 import pandas as pd
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from analysis.pipeline.vendor_metadata_pipeline import _build_parser_quality_export_df
 from analysis.evaluation import vendor_parser_utils

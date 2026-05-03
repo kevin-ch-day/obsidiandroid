@@ -43,7 +43,7 @@ class WorkbookLock:
                     raise TimeoutError(f"Timed out waiting for workbook lock: {self.lock_path}")
                 time.sleep(0.2)
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(self, _exc_type, _exc, _tb) -> None:
         try:
             if self.fd is not None:
                 os.close(self.fd)

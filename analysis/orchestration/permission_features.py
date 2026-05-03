@@ -49,7 +49,7 @@ def _fetch_permission_rows(sample_ids: list[int]) -> pd.DataFrame:
               AND TRIM(ops.permission_string) <> ''
         """
         try:
-            frame = db_engine.execute_query(
+            frame = db_engine.execute_permission_query(
                 query,
                 params=tuple(chunk),
                 fetch=True,

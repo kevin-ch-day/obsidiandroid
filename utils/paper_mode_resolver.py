@@ -1,4 +1,7 @@
-"""Backward-compatible shim for legacy paper-mode resolution imports."""
+"""Backward-compatible shim for legacy paper-mode resolution imports.
+
+Re-exports for callers/tests that still import paper-mode symbol names.
+"""
 
 from __future__ import annotations
 

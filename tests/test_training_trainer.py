@@ -1,11 +1,7 @@
-import os
-import sys
 import pandas as pd
 import numpy as np
 import pytest
 from sklearn.datasets import make_classification
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from ml_classification.training.ml_trainers import (
     random_forest_trainer,

@@ -1,11 +1,6 @@
 """Tests for leakage-safe vendor scoring integration."""
 
-from pathlib import Path
-import sys
-
 import pandas as pd
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from analysis.feature_engineering import compute_vendor_scores
 

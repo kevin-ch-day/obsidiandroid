@@ -32,17 +32,21 @@ This guide walks operators through setting up their environment, executing the m
 
 ## 3. Configure Data Sources
 
-1. Update `database/db_config.py` with the host, port, username, password, and schema names that match your database.
-3. If you use read-only replicas for analytics, configure multiple connection strings in the config file.
+1. Point ObsidianDroid at your MySQL/MariaDB instance using **environment variables** (recommended) or the defaults in `database/db_config.py`:
+   - `OBSIDIAN_DB_HOST`, `OBSIDIAN_DB_PORT`, `OBSIDIAN_DB_USER`, `OBSIDIAN_DB_PASSWORD` — shared credentials for the server.
+   - `OBSIDIAN_DB_NAME` — primary Erebus schema (samples, VirusTotal mirrors, catalog).
+   - `OBSIDIAN_PERMISSION_INTEL_DB_NAME` — Permission Intel schema (all live `android_permission_*` tables).
+2. The same database user typically needs `SELECT` on **both** schemas so cross-schema joins and the Permission Intel connection helper can run.
+3. If you use read-only replicas for analytics, configure your connection parameters (or separate profiles) to target the appropriate host; ObsidianDroid still uses one logical primary name and one Permission Intel name per run.
 4. Ensure necessary tables are accessible (see [`data_sources.md`](data_sources.md) for schema details and refresh cadences):
-   - `vt_av_engines` and `vt_av_engines_results` for VirusTotal engine metadata and verdict matrices.
-   - `vt_av_engine_detections` (or equivalent rollups) for historical hit-rate analysis.
-   - `malware_samples_repository`, `malware_hash_repository`, and related metadata tables that expose VirusTotal-derived fields such as `vt_suggested_label`, `vt_scan_status`, and submission timestamps.
-   - `vt_permissions` (if populated) for permission usage tied to VirusTotal scans.
+   - Primary: `malware_sample_catalog`, `virustotal_sample_vendor_engine_verdicts`, and related VT/catalog tables.
+   - Permission Intel: `android_permission_obs_sample` and related `android_permission_*` dictionaries and enrichment tables.
+   - Legacy docs may reference `vt_*` naming; the replicated wide verdict table in this project is `virustotal_sample_vendor_engine_verdicts`.
+5. Optional smoke check when the DB is reachable: `python -m database.split_db_health` (JSON status and exit code 0 when primary, Permission Intel, and `android_permission_obs_sample` in PI are OK).
 
 ### VirusTotal integration checklist
 
-- **Data sync:** Populate the `vt_*` tables by replicating VirusTotal exports into your MySQL instance. ObsidianDroid does not call the live VirusTotal API; it reads preloaded tables, so schedule ETL jobs to keep them fresh.
+- **Data sync:** Replicate VirusTotal exports into your MySQL instance (see [`data_sources.md`](data_sources.md) for physical table names such as `virustotal_sample_vendor_engine_verdicts`). ObsidianDroid does not call the live VirusTotal API; it reads preloaded tables, so schedule ETL jobs to keep them fresh.
 - **Column hygiene:** Run `python scripts/update_vendor_scores.py` after large VirusTotal updates to refresh engine reliability weights using the latest detections.
 - **Access scope:** Provide read access only—write operations are limited to ObsidianDroid's `output/` directory on disk.
 - **Backfill strategy:** When onboarding new samples, ensure the corresponding VirusTotal reports have been ingested; otherwise, vendor consensus features will be sparse and confidence scores will degrade.
@@ -91,7 +95,7 @@ After a successful run, inspect the `output/` directory:
 
 | Symptom | Suggested Actions |
 | --- | --- |
-| `MySQLdb._exceptions.OperationalError` | Verify credentials in `database/db_config.py` and network connectivity; test with `mysql` CLI. |
+| `MySQLdb._exceptions.OperationalError` | Verify `OBSIDIAN_DB_*` credentials (or `database/db_config.py` defaults), both schema names, and network connectivity; test with `mysql` CLI. |
 | Memory exhaustion during feature build | Enable chunked processing in `config/app_config.py` or increase swap space. |
 | Model training takes too long | Disable heavy estimators (e.g., XGBoost) or reduce feature sets via config toggles. |
 | Predictions look noisy | Revisit vendor weights, adjust consensus thresholds, or inspect raw detections for mislabeled samples. |

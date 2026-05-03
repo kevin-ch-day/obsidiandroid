@@ -1,8 +1,4 @@
 from types import SimpleNamespace
-import os
-import sys
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from ml_classification.builder import prediction_utils
 from ml_classification.common.malware_family_constants import (

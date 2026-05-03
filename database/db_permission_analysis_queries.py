@@ -2,9 +2,21 @@
 # Purpose: Query Android permission data and AV reports
 
 from database import db_engine
+from database.db_config import DB_NAME, PERMISSION_INTEL_DB_NAME
+
+
+def _primary(table: str) -> str:
+    """Fully qualify a table in the primary Erebus schema."""
+    return f"`{DB_NAME}`.`{table}`"
+
+
+def _permission_intel(table: str) -> str:
+    """Fully qualify a table in the Permission Intel schema."""
+    return f"`{PERMISSION_INTEL_DB_NAME}`.`{table}`"
+
 
 def fetch_android_banking_trojans_with_permissions():
-    query = """
+    query = f"""
         SELECT
             ms.sample_id,
             ms.sample_label AS sample_name,
@@ -78,18 +90,22 @@ def fetch_android_banking_trojans_with_permissions():
                 ELSE NULL
             END AS unknown_type
 
-        FROM malware_sample_catalog ms
-        JOIN android_permission_obs_sample ops ON ms.sample_id = ops.sample_id
-        LEFT JOIN android_permission_dict_aosp kp ON ops.permission_string = kp.constant_value
-        LEFT JOIN android_permission_dict_oem mp
+        FROM {_primary("malware_sample_catalog")} ms
+        JOIN {_permission_intel("android_permission_obs_sample")} ops ON ms.sample_id = ops.sample_id
+        LEFT JOIN {_permission_intel("android_permission_dict_aosp")} kp
+            ON ops.permission_string = kp.constant_value
+        LEFT JOIN {_permission_intel("android_permission_dict_oem")} mp
             ON ops.permission_string = mp.permission_string
             AND (
                 ops.vendor_id = mp.vendor_id
                 OR ops.vendor_id IS NULL
             )
-        LEFT JOIN android_permission_dict_unknown up ON ops.permission_string = up.permission_string
-        LEFT JOIN android_permission_meta_oem_vendor ov ON ops.vendor_id = ov.vendor_id
-        LEFT JOIN android_permission_enrich_vt_current vtc ON ops.permission_string = vtc.permission_string
+        LEFT JOIN {_permission_intel("android_permission_dict_unknown")} up
+            ON ops.permission_string = up.permission_string
+        LEFT JOIN {_permission_intel("android_permission_meta_oem_vendor")} ov
+            ON ops.vendor_id = ov.vendor_id
+        LEFT JOIN {_permission_intel("android_permission_enrich_vt_current")} vtc
+            ON ops.permission_string = vtc.permission_string
         WHERE LOWER(ms.family_label) IN (
             'anubis', 'blackrock', 'cerberus', 'ermac', 'flubot',
             'sova', 'sharkbot', 'teabot', 'chameleon', 'eventbot', 'golddigger',
@@ -101,7 +117,7 @@ def fetch_android_banking_trojans_with_permissions():
     return db_engine.execute_query(query, fetch=True, return_columns=True)
 
 def fetch_android_banking_trojans_with_permissions_count():
-    query = """
+    query = f"""
         SELECT
             ms.sample_id, ms.sample_label AS sample_name,
             CASE 
@@ -109,7 +125,7 @@ def fetch_android_banking_trojans_with_permissions_count():
                 ELSE ms.family_label
             END AS family_name,
             ms.android_permission_count AS permission_count
-        FROM malware_sample_catalog ms
+        FROM {_primary("malware_sample_catalog")} ms
         WHERE LOWER(ms.family_label) IN (
             'anubis', 'blackrock', 'cerberus', 'ermac',
             'flubot', 'sova', 'sharkbot', 'teabot',
