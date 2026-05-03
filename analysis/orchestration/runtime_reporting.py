@@ -291,8 +291,11 @@ def apply_confusion_matrix_policy(run_id: str, top_model: str | None) -> None:
 
     ablation_tokens = {
         "vendor_only",
+        "vendor_full",
         "vendor_no_parsed_family",
         "permissions_only",
+        "permissions_raw",
+        "full_fused",
         "vendor_permissions_fused",
     }
     primary_candidate: Path | None = None
@@ -305,7 +308,7 @@ def apply_confusion_matrix_policy(run_id: str, top_model: str | None) -> None:
         matched_ablation = next((token for token in ablation_tokens if token in name), None)
         if matched_ablation is None and primary_candidate is None:
             primary_candidate = path
-        if matched_ablation == "vendor_permissions_fused" and ablation_candidate is None:
+        if matched_ablation in {"vendor_permissions_fused", "full_fused"} and ablation_candidate is None:
             ablation_candidate = path
 
     fallback_primary = run_cm_dir / f"confusion_matrix_{top_model}.png"

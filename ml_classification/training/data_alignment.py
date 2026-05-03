@@ -70,14 +70,20 @@ def extract_aligned_labels(
     drop_low_support: bool = True,
     min_samples_per_family: int = 3,
     verbose: bool = True,
+    forced_label_column: str | None = None,
 ) -> tuple[pd.DataFrame, pd.Series]:
-    """
-    Align features with their corresponding normalized malware family labels.
+    """Align features with labels from sample metadata.
+
+    Args:
+        features_df: Feature matrix indexed by sample id or with sample_id column upstream.
+        samples_df: Cohort dataframe with ``sample_id`` plus label columns.
+        forced_label_column: When set, use this column as the supervisory label instead of the
+            default ``family_id`` / ``family_canonical`` / ``family_name`` priority chain.
 
     Returns:
         Tuple of ``(filtered_feature_df, label_series)``.
     """
-    du.print_section("[ALIGNMENT] Aligning Features with Family Labels")
+    du.print_section("[ALIGNMENT] Aligning Features with Labels")
 
     if features_df.empty or samples_df.empty:
         du.print_error("Input feature or sample metadata is empty.")
@@ -89,18 +95,28 @@ def extract_aligned_labels(
             "Missing required column in sample metadata: sample_id"
         )
 
-    label_candidates = ["family_id", "family_canonical", "family_name"]
-    label_col = next((column for column in label_candidates if column in samples_df.columns), None)
-    if label_col is None:
-        message = (
-            "Missing label column in sample metadata. "
-            f"Tried: {label_candidates}"
-        )
-        du.print_error(message)
-        raise MissingLabelColumnError(message)
+    forced = str(forced_label_column or "").strip() or None
+    if forced:
+        if forced not in samples_df.columns:
+            message = f"Forced label column `{forced}` not found in sample metadata."
+            du.print_error(message)
+            raise MissingLabelColumnError(message)
+        label_col = forced
+    else:
+        label_candidates = ["family_id", "family_canonical", "family_name"]
+        label_col = next((column for column in label_candidates if column in samples_df.columns), None)
+        if label_col is None:
+            message = (
+                "Missing label column in sample metadata. "
+                f"Tried: {label_candidates}"
+            )
+            du.print_error(message)
+            raise MissingLabelColumnError(message)
 
-    if label_col == "family_name" and any(
-        column in samples_df.columns for column in ("family_id", "family_canonical")
+    if (
+        not forced
+        and label_col == "family_name"
+        and any(column in samples_df.columns for column in ("family_id", "family_canonical"))
     ):
         du.print_warning(
             "[ALIGNMENT] Falling back to legacy family_name label source despite canonical fields."
@@ -149,6 +165,10 @@ def extract_aligned_labels(
                 for _, row in label_map.iterrows()
                 if str(row["family_name"]).strip()
             }
+    elif label_col in {"type_slug", "family_within_type"}:
+        labels = labels.astype(str).str.strip()
+        labels = labels.replace({"": "unknown"})
+        labels = labels.fillna("unknown")
     else:
         labels = labels.astype(str).str.strip()
 
@@ -162,7 +182,7 @@ def extract_aligned_labels(
         "Golddigger": "GoldDigger",
     }
     normalization_map = normalization_map or default_map
-    if label_col != "family_id":
+    if label_col not in {"family_id", "type_slug", "family_within_type"}:
         labels = normalize_labels(labels, normalization_map)
 
     if labels.nunique() <= 1:
@@ -187,8 +207,8 @@ def extract_aligned_labels(
     if verbose:
         du.print_info(f"Classification Label Summary ({label_col})")
         du.print_stat("Total Samples", len(labels))
-        du.print_stat("Unique Families", labels.nunique())
+        du.print_stat("Unique label classes", labels.nunique())
         top = labels.value_counts().head(5)
-        du.print_stat("Top Families", ", ".join(f"{fam} ({cnt})" for fam, cnt in top.items()))
+        du.print_stat("Top labels", ", ".join(f"{fam} ({cnt})" for fam, cnt in top.items()))
 
     return features, labels

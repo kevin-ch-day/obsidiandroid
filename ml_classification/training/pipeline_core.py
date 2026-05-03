@@ -245,8 +245,10 @@ def _get_configured_models(models: Optional[List[str]] = None) -> List[str]:
 def align_data(
     features_df: pd.DataFrame,
     samples_df: pd.DataFrame,
+    *,
+    forced_label_column: str | None = None,
 ) -> Tuple[pd.DataFrame, pd.Series]:
-    """Align AV feature matrix with normalized malware family labels by sample ID."""
+    """Align AV feature matrix with supervised labels by sample ID."""
     try:
         log_event(PIPELINE_LOGGER, "align_data_start", event_id="ML_ALIGN_001")
         aligned_features, labels = data_alignment.extract_aligned_labels(
@@ -254,6 +256,7 @@ def align_data(
             samples_df=samples_df,
             drop_low_support=False,
             verbose=True,
+            forced_label_column=forced_label_column,
         )
         if labels is not None and not isinstance(labels, pd.Series):
             labels = pd.Series(labels)
@@ -577,6 +580,11 @@ def run_classifier_pipeline(
         return {}
 
     diagnostics_dir = _diagnostics_dir()
+    setattr(
+        app_config,
+        "RUNTIME_ALIGNED_ROWS_BEFORE_LOW_SUPPORT_FILTER",
+        int(len(features_df)) if isinstance(features_df, pd.DataFrame) else 0,
+    )
 
     try:
         du.print_info("[STEP 2] Family label distribution (pre-training)")
@@ -636,6 +644,11 @@ def run_classifier_pipeline(
             label_type="Filtered",
             verbose=app_config.DEBUG_MODE,
         )
+        setattr(
+            app_config,
+            "RUNTIME_POST_LOW_SUPPORT_TRAINING_ROWS",
+            int(len(features_df)) if isinstance(features_df, pd.DataFrame) else 0,
+        )
     except Exception as exc:
         du.print_warning(f"[PIPELINE] Family support filtering failed: {exc}")
         log_event(
@@ -673,6 +686,12 @@ def run_classifier_pipeline(
         )
         if leakage_path:
             du.print_info(f"[ARTIFACT] Training leakage assessment exported: {leakage_path}")
+
+    setattr(
+        app_config,
+        "RUNTIME_TRAINING_FINAL_FEATURE_COLUMNS",
+        int(features_df.shape[1]) if isinstance(features_df, pd.DataFrame) else 0,
+    )
 
     results, skipped = train_models(features_df, labels_df, models=models)
     promoted_model_key = summarize_models(results)

@@ -81,6 +81,9 @@ from analysis.pipeline.run_bounds import (
     clear_pipeline_run_bounds,
     set_pipeline_run_bounds,
 )
+from analysis.observability import PipelineObservabilitySession
+from analysis.observability import api as obs_api
+from analysis.observability.taxonomy import LogCategory, LogSeverity
 
 # Default diagnostics path derived from app configuration
 DIAGNOSTICS_DIR = os.path.join(app_config.DEFAULT_OUTPUT_DIR, "diagnostics")
@@ -234,7 +237,13 @@ def run_pipeline(
     # Reset run-scoped runtime markers up-front to avoid stale cross-run leakage.
     reset_runtime_markers()
 
-    def _record_stage_timing(stage_name: str, started_at: float) -> None:
+    def _record_stage_timing(
+        stage_name: str,
+        started_at: float,
+        *,
+        record_observability: bool = True,
+        **obs_kwargs: Any,
+    ) -> None:
         nonlocal last_completed_stage
         duration = max(0.0, perf_counter() - started_at)
         stage_timings_sec[stage_name] = duration
@@ -248,6 +257,43 @@ def run_pipeline(
             stage=stage_name,
             duration_sec=round(duration, 2),
         )
+        if not record_observability:
+            return
+        obs_sess = manifest_context.get("pipeline_observability")
+        if isinstance(obs_sess, PipelineObservabilitySession):
+            obs_copy = dict(obs_kwargs)
+            wall_start = str(manifest_context.pop("_active_stage_wall_start_iso", "") or "").strip()
+            extras: dict[str, Any] = dict(obs_copy.pop("extras", None) or {})
+            if wall_start:
+                extras.setdefault("start_time_iso", wall_start)
+            stage_status = str(obs_copy.pop("stage_status", "PASS"))
+            emit_keys = (
+                "input_rows",
+                "output_rows",
+                "input_features",
+                "output_features",
+                "rows_removed",
+                "rows_added",
+                "features_removed",
+                "features_added",
+                "major_warnings",
+                "paper_blocker_stage",
+                "artifacts_written_count",
+                "artifacts_skipped",
+                "next_stage_allowed",
+            )
+            emit_kw: dict[str, Any] = {}
+            for key in emit_keys:
+                if key in obs_copy:
+                    emit_kw[key] = obs_copy.pop(key)
+            extras.update(obs_copy)
+            obs_sess.emit_stage_completion(
+                stage_name,
+                status=stage_status,
+                duration_sec=duration,
+                extras=extras,
+                **emit_kw,
+            )
 
     def _mark_run_state(
         status: str,
@@ -276,6 +322,10 @@ def run_pipeline(
         nonlocal current_stage_name
         current_stage_name = stage_name
         manifest_context["current_stage"] = stage_name
+        manifest_context["_active_stage_wall_start_iso"] = datetime.now(timezone.utc).isoformat()
+        obs_begin = manifest_context.get("pipeline_observability")
+        if isinstance(obs_begin, PipelineObservabilitySession):
+            obs_begin.emit_stage_start(stage_name, stop_after=str(manifest_context.get("stop_after", "")))
 
     def _attach_runtime_timing_context() -> None:
         total_runtime = max(0.0, perf_counter() - pipeline_started_at)
@@ -320,7 +370,7 @@ def run_pipeline(
         )
         if result != 0:
             du.print_error("[INTEGRITY] Run manifest write failure.")
-        _record_stage_timing("manifest", stage_started)
+        _record_stage_timing("manifest", stage_started, record_observability=False)
         _attach_runtime_timing_context()
         return result
 
@@ -384,6 +434,11 @@ def run_pipeline(
 
         # Ensure diagnostics directory exists
         os.makedirs(DIAGNOSTICS_DIR, exist_ok=True)
+
+        manifest_context["pipeline_observability"] = PipelineObservabilitySession(
+            diagnostics_dir=Path(DIAGNOSTICS_DIR),
+            run_id=run_id,
+        )
 
         # Load profile
         du.print_info("[PIPELINE] Loading profile YAML...")
@@ -545,7 +600,23 @@ def run_pipeline(
                 stage_name="preflight",
             )
 
+        preflight_perf = perf_counter()
+        _begin_stage("preflight")
+
         # Step 1: Load and prepare sample metadata
+        wall_pf = manifest_context.pop("_active_stage_wall_start_iso", "")
+        obs_pf = manifest_context.get("pipeline_observability")
+        if isinstance(obs_pf, PipelineObservabilitySession):
+            ex_pf: dict[str, Any] = {}
+            if wall_pf:
+                ex_pf["start_time_iso"] = str(wall_pf)
+            obs_pf.emit_stage_completion(
+                "preflight",
+                status="PASS",
+                duration_sec=max(0.0, perf_counter() - preflight_perf),
+                next_stage_allowed=True,
+                extras=ex_pf,
+            )
         du.print_info(
             f"[PIPELINE] Stage: samples - fetching cohort (type_slug={type_slug!r})..."
         )
@@ -606,7 +677,29 @@ def run_pipeline(
         manifest_context["dataset_time_contract_path"] = str(
             getattr(app_config, "DATASET_TIME_CONTRACT_FILE", "")
         )
-        _record_stage_timing("samples", stage_started_at)
+        manifest_context["raw_candidate_rows"] = int(
+            manifest_context.get("analysis_snapshot", {}).get("snapshot_row_count", len(samples_df))
+        )
+        manifest_context["governed_cohort_rows"] = int(len(samples_df))
+        manifest_context["mapped_known_type_samples"] = int(len(samples_df))
+        obs_sess = manifest_context.get("pipeline_observability")
+        raw_n_for_obs = int(
+            manifest_context.get("raw_candidate_rows", len(samples_df)) or len(samples_df)
+        )
+        if isinstance(obs_sess, PipelineObservabilitySession):
+            obs_sess.log_population_transition(
+                transition="raw_candidates_to_governed_cohort",
+                previous_count=int(raw_n_for_obs),
+                new_count=int(len(samples_df)),
+                reason="snapshot selection + cohort profile gates (+ unknown-family exclusions counted in attrs)",
+                artifact_path=str(snapshot_file),
+            )
+        _record_stage_timing(
+            "samples",
+            stage_started_at,
+            input_rows=int(raw_n_for_obs),
+            output_rows=int(len(samples_df)),
+        )
         if samples_df is None or samples_df.empty:
             raise ValueError("No samples found after preparation.")
 
@@ -632,10 +725,32 @@ def run_pipeline(
             run_id=run_id,
             profile_id=profile_id,
             artifact_list=artifact_list,
+            manifest_context=manifest_context,
         )
-        _record_stage_timing("av_pipeline", stage_started_at)
         if not pipeline_results:
+            _record_stage_timing(
+                "av_pipeline",
+                stage_started_at,
+                stage_status="FAIL",
+                input_rows=int(len(samples_df)),
+                major_warnings="av_pipeline_returned_empty",
+            )
             _fail_pipeline("[PIPELINE] AV pipeline returned no results.")
+        eng_preview = pipeline_results.get("engine_scores") if isinstance(pipeline_results, dict) else None
+        eng_out_rows: int | str = ""
+        if isinstance(eng_preview, pd.DataFrame) and not eng_preview.empty:
+            eng_out_rows = int(
+                len(eng_preview["sample_id"].unique())
+                if "sample_id" in eng_preview.columns
+                else len(eng_preview)
+            )
+        _record_stage_timing(
+            "av_pipeline",
+            stage_started_at,
+            input_rows=int(len(samples_df)),
+            output_rows=eng_out_rows,
+            major_warnings="",
+        )
 
         if stop_after == "av_pipeline":
             _mark_run_state("partial", completed_stage="av_pipeline")
@@ -665,6 +780,17 @@ def run_pipeline(
         parser_quality_path = Path(DIAGNOSTICS_DIR) / "parser_quality.latest.csv"
         if parser_quality_path.exists():
             artifact_list.append(str(parser_quality_path))
+        if isinstance(vendor_eval, pd.DataFrame) and "sample_id" in vendor_eval.columns:
+            ve_n = int(vendor_eval["sample_id"].nunique())
+            manifest_context["vendor_eval_sample_rows"] = ve_n
+            obs_api.record_data_population_change(
+                manifest_context,
+                transition="governed_cohort_to_vendor_feature_rows",
+                previous_count=int(len(samples_df)),
+                new_count=ve_n,
+                reason="unique samples represented in vendor_eval after metadata extraction",
+                artifact_path=str(parser_quality_path) if parser_quality_path.exists() else "",
+            )
 
         if stop_after == "vendor_metadata":
             _mark_run_state("partial", completed_stage="vendor_metadata")
@@ -682,7 +808,11 @@ def run_pipeline(
             selected_models=model_list,
         )
         weights_df = compute_engine_weights_from_pipeline(pipeline_results)
-        _record_stage_timing("engine_weights", stage_started_at)
+        _record_stage_timing(
+            "engine_weights",
+            stage_started_at,
+            output_rows=int(len(weights_df)) if weights_df is not None else "",
+        )
         if weights_df is None or weights_df.empty:
             _fail_pipeline("[PIPELINE] Engine weight computation failed.")
         pipeline_results["weights_df"] = weights_df
@@ -712,6 +842,19 @@ def run_pipeline(
             samples_df=samples_df,
             feature_flags=feature_flags,
         )
+        if isinstance(permission_features_df, pd.DataFrame) and not permission_features_df.empty:
+            manifest_context["permission_unique_rows"] = int(
+                permission_features_df["sample_id"].nunique()
+            )
+            obs_sess = manifest_context.get("pipeline_observability")
+            if isinstance(obs_sess, PipelineObservabilitySession):
+                obs_sess.log_population_transition(
+                    transition="governed_cohort_to_permission_feature_rows",
+                    previous_count=int(len(samples_df)),
+                    new_count=int(permission_features_df["sample_id"].nunique()),
+                    reason="samples with enrichment join coverage (sparse if DB gaps)",
+                    artifact_path=str(Path(DIAGNOSTICS_DIR) / f"permission_feature_audit_{run_id}.csv"),
+                )
         extra_features_df = merge_sample_metadata_features(
             extra_features_df=pipeline_results.get("enriched_matrix"),
             samples_df=samples_df,
@@ -727,10 +870,38 @@ def run_pipeline(
         manifest_context["permission_enrichment_degraded"] = bool(
             getattr(app_config, "RUNTIME_PERMISSION_ENRICHMENT_DEGRADED", False)
         )
-        _record_stage_timing("feature_matrix", stage_started_at)
         if feature_df is None:
             _fail_pipeline("[PIPELINE] Feature matrix generation failed.")
+        fused_rows = int(len(feature_df))
+        fused_cols = int(feature_df.shape[1])
+        obs_sess_fm = manifest_context.get("pipeline_observability")
+        if isinstance(obs_sess_fm, PipelineObservabilitySession):
+            gov_n_fm = int(manifest_context.get("governed_cohort_rows", len(samples_df)) or len(samples_df))
+            cov_path_hint = Path(DIAGNOSTICS_DIR) / f"feature_build_coverage_{run_id}.json"
+            obs_sess_fm.log_population_transition(
+                transition="governed_cohort_to_fused_vendor_feature_rows",
+                previous_count=gov_n_fm,
+                new_count=int(fused_rows),
+                reason="vendor merge intersection / row authority (+ optional enrichment join)",
+                artifact_path=str(cov_path_hint),
+            )
+        _record_stage_timing(
+            "feature_matrix",
+            stage_started_at,
+            input_rows=int(manifest_context.get("governed_cohort_rows", len(samples_df)) or 0),
+            output_rows=fused_rows,
+            input_features=fused_cols,
+            output_features=fused_cols,
+        )
         if isinstance(feature_df, pd.DataFrame):
+            manifest_context["fused_feature_rows"] = int(len(feature_df))
+            manifest_context["vendor_merge_row_count"] = int(
+                feature_df.attrs.get(
+                    "vendor_merge_sample_id_count",
+                    len(feature_df.index),
+                )
+                or 0
+            )
             lifecycle_df = pipeline_results.get("engine_lifecycle")
             if isinstance(lifecycle_df, pd.DataFrame):
                 include_col = "included_in_model_flag"
@@ -828,9 +999,36 @@ def run_pipeline(
             samples_df=samples_df,
             diagnostics_dir=DIAGNOSTICS_DIR,
         )
-        _record_stage_timing("alignment", stage_started_at)
         if aligned_feature_df is None or aligned_labels_df is None:
             _fail_pipeline("[PIPELINE] Feature-label alignment failed.")
+        manifest_context["aligned_supervised_rows"] = int(len(aligned_feature_df))
+        manifest_context["_aligned_feature_cols"] = int(aligned_feature_df.shape[1])
+        obs_al = manifest_context.get("pipeline_observability")
+        if isinstance(obs_al, PipelineObservabilitySession):
+            split_audit_guess = str(Path(DIAGNOSTICS_DIR) / f"split_freeze_audit_{run_id}.csv")
+            obs_al.log_population_transition(
+                transition="fused_features_to_aligned_supervised",
+                previous_count=int(fused_rows),
+                new_count=int(len(aligned_feature_df)),
+                reason="ROW_ALIGNMENT align_data intersection on sample_id (+ label completeness)",
+                artifact_path=split_audit_guess,
+            )
+        obs_api.record_data_population_change(
+            manifest_context,
+            transition="feature_matrix_rows_to_aligned_rows",
+            previous_count=int(fused_rows),
+            new_count=int(len(aligned_feature_df)),
+            reason="explicit feature-matrix→aligned labeling view (matches fusion→alignment drop)",
+            artifact_path=str(Path(DIAGNOSTICS_DIR) / f"split_freeze_audit_{run_id}.csv"),
+        )
+        _record_stage_timing(
+            "alignment",
+            stage_started_at,
+            input_rows=int(fused_rows),
+            output_rows=int(len(aligned_feature_df)),
+            input_features=int(fused_cols),
+            output_features=int(aligned_feature_df.shape[1]),
+        )
         _export_aligned_training_cache(
             aligned_feature_df=aligned_feature_df,
             aligned_labels_df=aligned_labels_df,
@@ -864,7 +1062,6 @@ def run_pipeline(
             aligned_labels_df=aligned_labels_df,
             model_list=model_list,
         )
-        _record_stage_timing("training", stage_started_at)
         if not model_results:
             _fail_pipeline("[PIPELINE] Model training returned no results.")
         model_summary = _extract_model_summary(model_results)
@@ -880,12 +1077,93 @@ def run_pipeline(
         if isinstance(model_summary, dict):
             top_model_for_policy = str(model_summary.get("top_model") or "").strip() or None
         split_meta = getattr(app_config, "RUNTIME_SPLIT_METADATA", None)
+        split_audit_path_str = ""
         if isinstance(split_meta, dict):
             manifest_context["split"] = dict(split_meta)
+            manifest_context["train_sample_count"] = split_meta.get("train_sample_count")
+            manifest_context["test_sample_count"] = split_meta.get("test_sample_count")
             split_audit_path = split_meta.get("split_audit_path")
             if isinstance(split_audit_path, str) and split_audit_path:
+                split_audit_path_str = split_audit_path
                 if split_audit_path not in artifact_list:
                     artifact_list.append(split_audit_path)
+        manifest_context["post_low_support_training_rows"] = getattr(
+            app_config, "RUNTIME_POST_LOW_SUPPORT_TRAINING_ROWS", None
+        )
+        manifest_context["feature_matrix_row_count"] = getattr(
+            app_config, "RUNTIME_TRAINING_FINAL_FEATURE_COLUMNS", None
+        )
+        manifest_context["trained_model_count"] = int(
+            len(model_results) if isinstance(model_results, dict) else 0
+        )
+
+        aligned_n_obs = manifest_context.get("aligned_supervised_rows")
+        post_ls_obs = manifest_context.get("post_low_support_training_rows")
+        feats_after_obs = manifest_context.get("feature_matrix_row_count")
+        feats_before_obs = manifest_context.get("_aligned_feature_cols")
+        tr_split = manifest_context.get("train_sample_count")
+        te_split = manifest_context.get("test_sample_count")
+        try:
+            pool_for_split = int(post_ls_obs) if post_ls_obs not in (None, "") else None
+        except Exception:
+            pool_for_split = None
+        try:
+            tr_i = int(tr_split) if tr_split not in (None, "") else None
+        except Exception:
+            tr_i = None
+        try:
+            te_i = int(te_split) if te_split not in (None, "") else None
+        except Exception:
+            te_i = None
+        if tr_i is not None or te_i is not None:
+            obs_api.record_training_split_allocation(
+                manifest_context,
+                pool_rows=pool_for_split,
+                train_rows=tr_i,
+                test_rows=te_i,
+                reason="train/test split from RUNTIME_SPLIT_METADATA (post low-support mask)",
+                artifact_path=split_audit_path_str,
+            )
+        obs_tr = manifest_context.get("pipeline_observability")
+        if isinstance(obs_tr, PipelineObservabilitySession):
+            try:
+                if aligned_n_obs is not None and post_ls_obs is not None:
+                    obs_tr.log_population_transition(
+                        transition="aligned_supervised_to_post_low_support_training",
+                        previous_count=int(aligned_n_obs),
+                        new_count=int(post_ls_obs),
+                        reason="RUNTIME_POST_LOW_SUPPORT_TRAINING_ROWS min-family/support mask",
+                        artifact_path=str(Path(DIAGNOSTICS_DIR) / f"split_freeze_audit_{run_id}.csv"),
+                    )
+            except Exception:
+                pass
+            try:
+                if feats_before_obs is not None and feats_after_obs is not None:
+                    obs_tr.log_schema_change(
+                        stage_hint="training_stage_pruned_feature_matrix",
+                        previous_cols=int(feats_before_obs),
+                        new_cols=int(feats_after_obs),
+                        reason="trainer contract / leakage prune / variance filters (see modality contract CSV)",
+                        artifact_path=str(Path(DIAGNOSTICS_DIR) / f"feature_contract_{run_id}.json"),
+                    )
+            except Exception:
+                pass
+        mw_train: list[str] = []
+        if bool(manifest_context.get("permission_enrichment_degraded")):
+            mw_train.append("permission enrichment degraded flag set")
+        tr_c = manifest_context.get("train_sample_count")
+        te_c = manifest_context.get("test_sample_count")
+        if tr_c not in (None, "") or te_c not in (None, ""):
+            mw_train.append(f"split train={tr_c} test={te_c}")
+        _record_stage_timing(
+            "training",
+            stage_started_at,
+            input_rows=aligned_n_obs,
+            output_rows=post_ls_obs,
+            input_features=feats_before_obs,
+            output_features=feats_after_obs,
+            major_warnings="; ".join(mw_train) if mw_train else "",
+        )
 
         if stop_after == "training":
             _mark_run_state("partial", completed_stage="training")
@@ -910,16 +1188,55 @@ def run_pipeline(
                 permission_features_df=permission_features_df,
                 model_list=model_list,
                 run_id=run_id,
+                pipeline_results=pipeline_results,
+                manifest_context=manifest_context,
             )
-            _record_stage_timing("ablation", stage_started_at)
+            manifest_context["_ablation_run_status_summary"] = (
+                f"PASS artifact_paths={len(ablation_artifacts)} (see ablation_summary_{run_id}.csv)"
+            )
+            summ = Path(DIAGNOSTICS_DIR) / f"ablation_summary_{run_id}.csv"
+            if not summ.exists():
+                summ = Path(DIAGNOSTICS_DIR) / "ablation_summary.latest.csv"
+            obs_ab = manifest_context.get("pipeline_observability")
+            if isinstance(obs_ab, PipelineObservabilitySession):
+                obs_ab.emit_jsonl(
+                    LogCategory.ABLATION_STATUS,
+                    severity=LogSeverity.INFO,
+                    message="ablation_complete",
+                    ablation_summary_path=str(summ),
+                )
+            _record_stage_timing(
+                "ablation",
+                stage_started_at,
+                artifacts_written_count=str(len(ablation_artifacts)),
+                major_warnings=(
+                    "Multi-label experimental targets enabled; compare label_target rows in ablation summary."
+                    if bool(getattr(app_config, "ENABLE_ABLATION_MULTI_LABEL_TARGETS", True))
+                    else ""
+                ),
+                extras={"ablation_summary_path": str(summ)},
+            )
             for artifact_path in ablation_artifacts:
                 if artifact_path not in artifact_list:
                     artifact_list.append(artifact_path)
         elif run_ablation_flag and skip_ablation_for_single_model and model_list and len(model_list) == 1:
+            manifest_context["_ablation_run_status_summary"] = "SKIPPED (SKIP_ABLATIONS_FOR_SINGLE_MODEL policy)"
             du.print_info(
                 "[ABLATION] Skipped for single-model run "
                 "(set SKIP_ABLATIONS_FOR_SINGLE_MODEL=False to force)."
             )
+            obs_sk = manifest_context.get("pipeline_observability")
+            if isinstance(obs_sk, PipelineObservabilitySession):
+                obs_sk.emit_stage_completion(
+                    "ablation",
+                    status="SKIPPED",
+                    duration_sec=0.0,
+                    major_warnings="SKIP_ABLATIONS_FOR_SINGLE_MODEL=True with single-model list",
+                    next_stage_allowed=True,
+                    extras={"policy": "SKIP_ABLATIONS_FOR_SINGLE_MODEL"},
+                )
+        elif not run_ablation_flag:
+            manifest_context["_ablation_run_status_summary"] = "DISABLED (ENABLE_ABLATION_EXPERIMENTS=False)"
         _apply_confusion_matrix_policy(run_id=run_id, top_model=top_model_for_policy)
 
         if stop_after == "ablation":
@@ -940,22 +1257,36 @@ def run_pipeline(
                 profile_id=profile_id,
                 feature_df=feature_df,
             )
-            _record_stage_timing("permission_trends", stage_started_at)
+            _record_stage_timing(
+                "permission_trends",
+                stage_started_at,
+                artifacts_written_count=str(len(report_artifacts)),
+            )
             for artifact_path in report_artifacts:
                 if artifact_path not in artifact_list:
                     artifact_list.append(artifact_path)
-        elif stop_after == "permission_trends":
-            _mark_run_state("partial", completed_stage="ablation")
-            du.print_warning(
-                "[PIPELINE] stop_after='permission_trends' requested but "
-                "permission trends are disabled; stopping after ablation/training."
-            )
-            return _finalize_with_manifest_timing()
-
-        if stop_after == "permission_trends":
-            _mark_run_state("partial", completed_stage="permission_trends")
-            du.print_success("[PIPELINE] Stopped after permission trends stage by request.")
-            return _finalize_with_manifest_timing()
+            if stop_after == "permission_trends":
+                _mark_run_state("partial", completed_stage="permission_trends")
+                du.print_success("[PIPELINE] Stopped after permission trends stage by request.")
+                return _finalize_with_manifest_timing()
+        else:
+            obs_pt = manifest_context.get("pipeline_observability")
+            if isinstance(obs_pt, PipelineObservabilitySession):
+                obs_pt.emit_stage_completion(
+                    "permission_trends",
+                    status="SKIPPED",
+                    duration_sec=0.0,
+                    major_warnings="ENABLE_PERMISSION_TRENDS_REPORT=False",
+                    next_stage_allowed=True,
+                    extras={"reason": "permission_trends_disabled"},
+                )
+            if stop_after == "permission_trends":
+                _mark_run_state("partial", completed_stage="ablation")
+                du.print_warning(
+                    "[PIPELINE] stop_after='permission_trends' requested but "
+                    "permission trends are disabled; stopping after ablation/training."
+                )
+                return _finalize_with_manifest_timing()
 
         # Step 9: Final label resolution
         label_resolution_enabled = bool(getattr(app_config, "ENABLE_LABEL_RESOLUTION_STAGE", True))
@@ -970,11 +1301,22 @@ def run_pipeline(
                 selected_models=model_list,
             )
             df_labels = resolve_final_labels_stage(vendor_records, model_results)
-            _record_stage_timing("label_resolution", stage_started_at)
+            lbl_n = len(df_labels) if df_labels is not None else 0
+            _record_stage_timing("label_resolution", stage_started_at, output_rows=lbl_n)
             if df_labels is not None:
                 du.print_info(f"[PIPELINE] Final labels generated: {len(df_labels)} samples")
         else:
             du.print_info("[PIPELINE] Label resolution stage disabled by configuration.")
+            obs_lr = manifest_context.get("pipeline_observability")
+            if isinstance(obs_lr, PipelineObservabilitySession):
+                obs_lr.emit_stage_completion(
+                    "label_resolution",
+                    status="SKIPPED",
+                    duration_sec=0.0,
+                    major_warnings="ENABLE_LABEL_RESOLUTION_STAGE=False",
+                    next_stage_allowed=True,
+                    extras={"reason": "label_resolution_disabled"},
+                )
 
         if stop_after == "label_resolution":
             _mark_run_state(
@@ -1014,6 +1356,16 @@ def run_pipeline(
 
     except Exception as e:
         error_text = str(e)
+        obs_ex = manifest_context.get("pipeline_observability")
+        if isinstance(obs_ex, PipelineObservabilitySession):
+            fatalish = isinstance(e, _PipelineStageFailure)
+            obs_ex.record_partial_failure(
+                stage=str(current_stage_name or manifest_context.get("current_stage") or "unknown"),
+                error=error_text,
+                recoverable=fatalish,
+            )
+            if not fatalish:
+                obs_ex.add_warning(error_text[:2000], severity=LogSeverity.ERROR, stage_hint=str(current_stage_name))
         if error_text.startswith("[INTEGRITY]"):
             du.print_error("[INTEGRITY STOP]")
         else:

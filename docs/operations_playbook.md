@@ -45,7 +45,7 @@ This playbook equips site reliability engineers and operators with procedures fo
 
 ## Knowledge Base Suggestions
 
-Capture recurring operational knowledge in a shared wiki or `doc/` additions, such as:
+Capture recurring operational knowledge in a shared wiki or `docs/` additions, such as:
 
 - Common error codes and remediation steps.
 - Database schema diagrams and table ownership.

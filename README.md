@@ -57,11 +57,12 @@ ObsidianDroid/
 
 ## Documentation
 
-- **Documentation hub:** See [`doc/README.md`](doc/README.md) for a curated map of contributor, operator, and user guides.
-- **System architecture:** [`doc/architecture.md`](doc/architecture.md) explains end-to-end data flow and package responsibilities.
-- **Data sources:** [`doc/data_sources.md`](doc/data_sources.md) describes the replicated VirusTotal tables ObsidianDroid relies on and how to keep them synchronized.
-- **Modeling reference:** [`doc/modeling_reference.md`](doc/modeling_reference.md) summarizes supported classifiers, feature families, and evaluation artefacts.
-- **User journey:** [`doc/user_guide.md`](doc/user_guide.md) walks analysts through configuration, execution, and troubleshooting.
+- **Documentation hub:** See [`docs/README.md`](docs/README.md) for a curated map of contributor, operator, and user guides.
+- **System architecture:** [`docs/architecture.md`](docs/architecture.md) explains end-to-end data flow and package responsibilities.
+- **Pipeline staging:** [`docs/pipeline_staging_guide.md`](docs/pipeline_staging_guide.md) maps `runner.py` stages and extension points.
+- **Data sources:** [`docs/data_sources.md`](docs/data_sources.md) describes the replicated VirusTotal tables ObsidianDroid relies on and how to keep them synchronized.
+- **Modeling reference:** [`docs/modeling_reference.md`](docs/modeling_reference.md) summarizes supported classifiers, feature families, and evaluation artefacts.
+- **User journey:** [`docs/user_guide.md`](docs/user_guide.md) walks analysts through configuration, execution, and troubleshooting.
 
 Each markdown file can be browsed directly in GitHub’s file viewer for quick navigation.
 
@@ -118,6 +119,7 @@ Each markdown file can be browsed directly in GitHub’s file viewer for quick n
 - **Outputs:** Results (trained models, evaluation summaries, feature matrices) are saved in `output/`, including:
   - `final_classification_labels.xlsx` – Predicted malware family per sample.
   - `diagnostics/model_comparison_summary_<run_id>.csv` - Ranked model metrics (default fast path).
+  - `diagnostics/run_observability_summary.json` – Authoritative observability rollup (stage verdicts, cohort funnel counts, audits); mirrored to `pipeline_observability_status.json`; drives terminal **Run Health** and `run_evidence_index.md`.
   - `model_comparison_summary.xlsx` - Optional ranked model workbook export.
   - Feature matrix with AV and permission-based statistics.
 

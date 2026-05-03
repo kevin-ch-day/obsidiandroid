@@ -262,6 +262,8 @@ def _export_split_audit(
         "split_seed": int(random_state),
         "split_algorithm": "stratified_seeded",
         "split_algorithm_version": "1.0",
+        "train_sample_count": int(len(sample_ids_train)),
+        "test_sample_count": int(len(sample_ids_test)),
     }
     split_audit_cache[cache_key] = meta
     setattr(app_config, "RUNTIME_SPLIT_HASH", split_hash)

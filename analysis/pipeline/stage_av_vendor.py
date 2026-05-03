@@ -12,6 +12,8 @@ from ml_classification.ml_utils import feature_label_alignment_helper
 from config import app_config
 from utils import display_utils as du
 from utils.runtime_paths import resolve_diagnostics_dir
+from analysis.observability.session import PipelineObservabilitySession
+from analysis.observability.taxonomy import LogCategory, LogSeverity
 
 
 _REQUIRED_LABEL_COLUMNS = {"family_id", "family_canonical", "type_slug"}
@@ -27,6 +29,7 @@ def run_av_analysis_stage(
     run_id: str,
     profile_id: str,
     artifact_list: list[str],
+    manifest_context: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Run AV engine analysis and enforce lifecycle integrity checks.
 
@@ -35,6 +38,7 @@ def run_av_analysis_stage(
         run_id: Active run identifier.
         profile_id: Active profile identifier.
         artifact_list: Mutable artifact list updated with emitted artifacts.
+        manifest_context: Optional run dict holding ``pipeline_observability`` session.
 
     Returns:
         Pipeline result dictionary if successful, otherwise ``None``.
@@ -42,6 +46,12 @@ def run_av_analysis_stage(
     Raises:
         ValueError: If required outputs are missing or invalid.
     """
+    obs: PipelineObservabilitySession | None = None
+    if isinstance(manifest_context, dict):
+        maybe = manifest_context.get("pipeline_observability")
+        if isinstance(maybe, PipelineObservabilitySession):
+            obs = maybe
+
     av_config = {"run_id": run_id, "profile_context": profile_id}
     pipeline_results = av_engine_pipeline.run_av_analysis_pipeline(
         samples_df,
@@ -50,15 +60,58 @@ def run_av_analysis_stage(
     )
     if not pipeline_results:
         du.print_error("[PIPELINE] AV analysis pipeline failed.")
+        if obs is not None:
+            obs.emit_artifact_skipped(
+                reason="av_engine_pipeline_returned_falsy",
+                path_hint="binary_matrix / engine_scores",
+                detail="run_av_analysis_pipeline",
+            )
         return None
+
+    err_txt = pipeline_results.get("error")
+    if err_txt:
+        du.print_error(f"[PIPELINE] AV analysis halted: {err_txt}")
+        if obs is not None:
+            msg = str(err_txt)[:4000]
+            obs.emit_jsonl(
+                LogCategory.ERROR_RECOVERABLE,
+                severity=LogSeverity.ERROR,
+                message=msg,
+                stage_hint="av_pipeline",
+            )
+        return None
+
+    cohort_rows = int(len(samples_df))
+    try:
+        cohort_unique = (
+            int(samples_df["sample_id"].nunique()) if "sample_id" in samples_df.columns else cohort_rows
+        )
+    except Exception:
+        cohort_unique = cohort_rows
+    bm = pipeline_results.get("binary_matrix")
+    if obs is not None and isinstance(bm, pd.DataFrame) and not bm.empty:
+        try:
+            bm_rows = int(bm.index.nunique())
+        except Exception:
+            bm_rows = int(len(bm))
+        obs.log_population_transition(
+            transition="cohort_samples_to_binary_matrix_rows",
+            previous_count=cohort_unique,
+            new_count=bm_rows,
+            reason="av_binary_matrix_builder (DB verdicts → melted rows → pivot)",
+            artifact_path=str(Path(_diagnostics_dir_str()) / "engine_lifecycle.latest.csv"),
+        )
 
     engine_scores_df = pipeline_results.get("engine_scores")
     if not isinstance(engine_scores_df, pd.DataFrame) or engine_scores_df.empty:
         raise ValueError("[INTEGRITY] Engine scoring produced no rows.")
 
     lifecycle_df = pipeline_results.get("engine_lifecycle")
+    lifecycle_mirror = Path(_diagnostics_dir_str()) / "engine_lifecycle.latest.csv"
     if isinstance(lifecycle_df, pd.DataFrame):
-        artifact_list.append(str(Path(_diagnostics_dir_str()) / "engine_lifecycle.latest.csv"))
+        artifact_list.append(str(lifecycle_mirror))
+        if obs is not None:
+            obs.emit_artifact_written(str(lifecycle_mirror), detail="engine lifecycle mirror CSV")
         _assert_engine_lifecycle_integrity(lifecycle_df)
         _assert_engine_count_consistency(
             lifecycle_df=lifecycle_df,
@@ -74,6 +127,12 @@ def run_av_analysis_stage(
             "RUNTIME_ENGINE_COUNT_EXCLUDED_AFTER_GATING",
             int(engine_scores_df.attrs.get("engine_excluded_count", 0) or 0),
         )
+    elif obs is not None:
+        obs.emit_artifact_skipped(
+            reason="engine_lifecycle_not_attached_as_dataframe",
+            path_hint=str(lifecycle_mirror),
+            detail="check score_av_engines lifecycle export",
+        )
 
     return pipeline_results
 
@@ -81,6 +140,7 @@ def run_av_analysis_stage(
 def extract_vendor_metadata_stage(
     pipeline_results: dict[str, Any],
     samples_df: pd.DataFrame,
+    manifest_context: dict[str, Any] | None = None,
 ) -> tuple[pd.DataFrame, dict, dict, pd.DataFrame] | tuple[None, None, None, None]:
     """Extract vendor metadata artifacts from AV pipeline output."""
     vendor_eval, vendor_records, parsed_data, scorecard_df = (
@@ -88,6 +148,24 @@ def extract_vendor_metadata_stage(
     )
     if any(item is None for item in [vendor_eval, parsed_data, scorecard_df]):
         du.print_error("[PIPELINE] Vendor metadata extraction failed.")
+        obs: PipelineObservabilitySession | None = None
+        if isinstance(manifest_context, dict):
+            maybe_vm = manifest_context.get("pipeline_observability")
+            if isinstance(maybe_vm, PipelineObservabilitySession):
+                obs = maybe_vm
+        if obs is not None:
+            obs.emit_artifact_skipped(
+                reason="vendor_metadata_extraction_partial_or_null_components",
+                path_hint=str(Path(_diagnostics_dir_str()) / "vendor_eval*.csv"),
+                detail=(
+                    "vendor_eval "
+                    + str(vendor_eval is None)
+                    + " parsed_data "
+                    + str(parsed_data is None)
+                    + " scorecard_df "
+                    + str(scorecard_df is None)
+                ),
+            )
         return None, None, None, None
     return vendor_eval, vendor_records, parsed_data, scorecard_df
 

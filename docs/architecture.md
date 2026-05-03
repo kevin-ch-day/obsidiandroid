@@ -85,6 +85,12 @@ Consult [`modeling_reference.md`](modeling_reference.md) for estimator-specific 
 1. Add new feature builders under `analysis/feature_engineering/` (or pipeline stages) and gate them in `config/app_config.py` / profile YAML.
 2. Add or wire estimators through `ml_classification/training/model_trainer_factory.py` and `config/settings/model_hyperparams.py`.
 3. Extend `tests/` and run `pytest -q` before submitting changes.
-4. Document operator-visible behaviour in `doc/user_guide.md` or [`data_sources.md`](data_sources.md) when changing DB contracts or outputs.
+4. Document operator-visible behaviour in [`user_guide.md`](user_guide.md) or [`data_sources.md`](data_sources.md) when changing DB contracts or outputs.
+
+## Observability and research-facing audits (`analysis/observability/`)
+
+- **`analysis/observability/`** centralizes structured pipeline narration: taxonomy (`LogCategory`, `LogSeverity`), `PipelineObservabilitySession` (append-only `pipeline_events.jsonl` + `pipeline_stage_summary.csv`), stable helpers in `api.py` (`record_data_population_change`, `record_artifact_write`, etc.), and `finalize_pipeline_observability` which emits `run_observability_summary.json` (authoritative), `pipeline_stage_summary.md`, `partial_failures.md`, and logging audit artifacts.
+- **Runner integration:** `analysis/pipeline/runner.py` owns stage timing and wires population/schema transitions into the session; manifest finalization (`analysis/pipeline/stage_manifest.py`) calls finalize so terminal **Run Health** (`run_health.py`) and `run_evidence_index.md` stay aligned with `run_summary.json` / `run_manifest.json`.
+- **Research validity & hostile audit:** `analysis/diagnostics/research_validity/bundle.py` orchestrates cohort funnel, claim audit, permission audit, and delegates to `analysis/diagnostics/hostile_audit/`; exported paths feed the manifest and observability rollup.
 
 By following this guide, contributors can map requirements to the correct modules and understand how data flows through ObsidianDroid.

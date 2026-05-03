@@ -7,6 +7,8 @@ focused on pipeline step ordering.
 from __future__ import annotations
 
 import json
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 import shutil
 from typing import Any
@@ -89,6 +91,8 @@ def finalize_run_manifest_stage(
         ``0`` when manifest is written successfully, otherwise ``1``.
     """
     try:
+        manifest_context["_manifest_finalize_perf_start"] = time.perf_counter()
+        manifest_context["_manifest_finalize_wall_start_iso"] = datetime.now(timezone.utc).isoformat()
         run_id = str(manifest_context.get("run_id", "unknown"))
         paper_mode = bool(manifest_context.get("paper_mode", {}).get("resolved_value", False))
         evidence_mode = bool(profile.get("evidence_mode", False))
@@ -342,6 +346,39 @@ def finalize_run_manifest_stage(
             run_root=run_root,
             output_root=output_root,
         )
+        manifest_context["research_validity_bundle_error"] = ""
+        _rv_wall = datetime.now(timezone.utc).isoformat()
+        manifest_context["_research_bundle_wall_start_iso"] = _rv_wall
+        _rv_t0 = time.perf_counter()
+        try:
+            from analysis.diagnostics.research_validity.bundle import write_research_validity_bundle
+
+            write_research_validity_bundle(
+                run_root=run_root,
+                diagnostics_dir=diagnostics_dir,
+                run_id=run_id,
+                manifest_context=manifest_context,
+                manifest=manifest,
+                samples_df=samples_df,
+                artifact_list=artifact_list,
+                paper_mode=paper_mode,
+            )
+        except Exception as exc:
+            manifest_context["research_validity_bundle_error"] = str(exc)
+            du.print_warning(f"[AUDIT] Research validity bundle degraded: {exc}")
+        finally:
+            manifest_context["_research_bundle_duration_sec"] = max(0.0, time.perf_counter() - _rv_t0)
+        manifest["model_summary"] = manifest_context.get("model_summary") or {}
+        manifest["main_training_row_authority"] = manifest_context.get("main_training_row_authority")
+        manifest["trained_model_count"] = manifest_context.get("trained_model_count")
+        manifest["feature_matrix_row_count"] = manifest_context.get("feature_matrix_row_count")
+        split_ctx = manifest_context.get("split") if isinstance(manifest_context.get("split"), dict) else {}
+        manifest["train_sample_count"] = split_ctx.get("train_sample_count")
+        manifest["test_sample_count"] = split_ctx.get("test_sample_count")
+        manifest["ablation_multi_label_targets"] = bool(
+            getattr(app_config, "ENABLE_ABLATION_MULTI_LABEL_TARGETS", True)
+        )
+
         manifest["artifact_list"] = sorted(set(artifact_list))
         _write_manifest_with_pointer(
             manifest=manifest,
@@ -349,6 +386,7 @@ def finalize_run_manifest_stage(
             paper_mode=paper_mode,
             run_root=run_root,
         )
+        manifest_context["_evidence_readiness_failed_checks"] = []
         readiness_status = "ready"
         failed_checks: list[str] = []
         evidence_artifacts: dict[str, str] = {}
@@ -391,6 +429,7 @@ def finalize_run_manifest_stage(
                 failed_checks.append("deterministic_split_hash_present")
             if failed_checks:
                 readiness_status = "not_ready"
+            manifest_context["_evidence_readiness_failed_checks"] = list(sorted(set(failed_checks)))
             readiness_path = _write_evidence_readiness(
                 run_root=run_root,
                 status=readiness_status,
@@ -422,10 +461,14 @@ def finalize_run_manifest_stage(
                     compliance_report=compliance_report,
                     paper_mode=paper_mode,
                     evidence_mode=evidence_mode,
+                    result_code=1,
                 )
                 return 1
         if paper_mode and str(compliance_report.get("overall_status")) != "pass":
             du.print_error(f"[PAPER] Compliance failed. Report: {compliance_path}")
+            fc = manifest_context.setdefault("_evidence_readiness_failed_checks", [])
+            if isinstance(fc, list):
+                fc.append("paper_mode_compliance_overall_fail")
             _write_run_summary_json(
                 run_root=run_root,
                 diagnostics_dir=diagnostics_dir,
@@ -444,6 +487,7 @@ def finalize_run_manifest_stage(
                 compliance_report=compliance_report,
                 paper_mode=paper_mode,
                 evidence_mode=evidence_mode,
+                result_code=1,
             )
             return 1
         _write_run_summary_json(
@@ -464,6 +508,7 @@ def finalize_run_manifest_stage(
             compliance_report=compliance_report,
             paper_mode=paper_mode,
             evidence_mode=evidence_mode,
+            result_code=0,
         )
         return 0
     except Exception as exc:
@@ -515,6 +560,8 @@ def _write_run_summary_json(
 ) -> Path | None:
     """Write canonical run-summary JSON for operator history and health views."""
     try:
+        from analysis.diagnostics import output_inventory
+
         run_id = str(manifest.get("run_id", manifest_context.get("run_id", "unknown")))
         profile = manifest.get("profile_params", {}) if isinstance(manifest.get("profile_params"), dict) else {}
         model_summary = manifest.get("model_summary", {}) if isinstance(manifest.get("model_summary"), dict) else {}
@@ -537,6 +584,20 @@ def _write_run_summary_json(
                 manifest_context.get("current_stage", "") or "unknown"
             ).strip()
 
+        split_blob = manifest.get("split", {}) if isinstance(manifest.get("split"), dict) else {}
+        comp_rep: dict[str, Any] = {}
+        comp_path_str = str(manifest.get("paper_mode_compliance_report", "") or "").strip()
+        if comp_path_str:
+            try:
+                comp_rep = json.loads(Path(comp_path_str).read_text(encoding="utf-8"))
+            except Exception:
+                comp_rep = {}
+        paper_status, _psr = output_inventory.evaluate_paper_safe_status(
+            paper_mode=bool((manifest.get("paper_mode") or {}).get("resolved_value", False)),
+            manifest=manifest,
+            compliance_report=comp_rep if comp_rep else None,
+        )
+
         payload = {
             "schema_version": "1.0",
             "run_id": run_id,
@@ -553,6 +614,14 @@ def _write_run_summary_json(
             "top_model": str(model_summary.get("top_model", "") or "").strip() or None,
             "top_macro_f1": model_summary.get("top_macro_f1"),
             "model_summary": model_summary,
+            "trained_model_count": manifest.get("trained_model_count")
+            or len(list(manifest.get("trained_models") or [])),
+            "main_training_row_authority": manifest.get("main_training_row_authority"),
+            "feature_matrix_row_count": manifest.get("feature_matrix_row_count"),
+            "train_sample_count": split_blob.get("train_sample_count"),
+            "test_sample_count": split_blob.get("test_sample_count"),
+            "ablation_multi_label_targets": manifest.get("ablation_multi_label_targets"),
+            "paper_safe_status": paper_status,
             "manifest_path": str(run_root / "run_manifest.json"),
             "run_root": str(run_root),
             "paper_mode": bool((manifest.get("paper_mode") or {}).get("resolved_value", False)),
@@ -588,10 +657,13 @@ def _finalize_output_hygiene_bundle(
     compliance_report: dict[str, Any] | None,
     paper_mode: bool,
     evidence_mode: bool,
+    result_code: int = 0,
 ) -> None:
     """Artifact inventory, virtual layout, run evidence index, and terminal summary."""
     try:
         from analysis.diagnostics import output_inventory
+        from analysis.observability.finalize import finalize_pipeline_observability
+        from analysis.observability.run_health import print_unified_run_health
 
         layout_path = output_inventory.write_virtual_layout(run_root)
         inv_paths, summary = output_inventory.write_artifact_inventory_bundle(
@@ -605,7 +677,30 @@ def _finalize_output_hygiene_bundle(
                 "paper_mode": paper_mode,
             },
         )
-        psafe, reasons = output_inventory.evaluate_paper_safe_status(
+
+        mf_start = manifest_context.get("_manifest_finalize_perf_start")
+        try:
+            if isinstance(mf_start, (float, int)):
+                manifest_context["_manifest_finalize_duration_sec"] = max(
+                    0.0, float(time.perf_counter()) - float(mf_start),
+                )
+        except Exception:
+            manifest_context["_manifest_finalize_duration_sec"] = 0.0
+
+        obs_path = finalize_pipeline_observability(
+            diagnostics_dir=diagnostics_dir,
+            run_root=run_root,
+            manifest_context=manifest_context,
+            manifest=manifest,
+            artifact_list=artifact_list,
+            compliance_report=compliance_report,
+            paper_mode=bool(paper_mode),
+            evidence_mode=bool(evidence_mode),
+            result_code=int(result_code),
+            profile_id=str(profile.get("profile_id", "unknown")),
+        )
+
+        paper_safe_status, reasons = output_inventory.evaluate_paper_safe_status(
             paper_mode=paper_mode,
             manifest=manifest,
             compliance_report=compliance_report,
@@ -622,7 +717,7 @@ def _finalize_output_hygiene_bundle(
             manifest=manifest,
             manifest_context=manifest_context,
             trained_models=trained_models,
-            paper_safe=psafe,
+            paper_safe_status=paper_safe_status,
             paper_safe_reasons=reasons,
         )
         for p in inv_paths:
@@ -632,11 +727,23 @@ def _finalize_output_hygiene_bundle(
             artifact_list.append(str(layout_path))
         if evidence_path and str(evidence_path) not in artifact_list:
             artifact_list.append(str(evidence_path))
+
+        observability_json_path = (
+            obs_path
+            if obs_path is not None
+            else diagnostics_dir / "run_observability_summary.json"
+        )
         output_inventory.print_output_hygiene_terminal_summary(
             run_root=run_root,
             summary=summary,
             evidence_index_path=evidence_path,
-            paper_safe=psafe,
+            paper_safe_status=paper_safe_status,
+        )
+        print_unified_run_health(
+            inventory_summary=summary,
+            observability_json_path=observability_json_path,
+            evidence_index_path=evidence_path,
+            run_root=run_root,
         )
     except Exception as exc:
         du.print_warning(f"[OUTPUT] Hygiene bundle skipped: {exc}")

@@ -71,7 +71,7 @@ Orchestration lives in **`analysis/pipeline/runner.py`** (`run_pipeline`). **`ma
 ## Release Checklist
 
 1. Ensure the branch is up to date with `main` and all tests pass.
-2. Update documentation in `doc/` when user-facing behavior changes.
+2. Update documentation in `docs/` when user-facing behavior changes.
 3. Tag the release in Git once merged and update release notes with:
    - Summary of changes.
    - Required migrations or data refresh tasks.

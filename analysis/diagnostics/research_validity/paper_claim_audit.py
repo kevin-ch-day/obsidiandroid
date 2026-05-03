@@ -1,0 +1,339 @@
+"""Generated claim-by-evidence audit for paper alignment (strict row format)."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+
+def _read_csv_exists(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    import pandas as pd
+
+    return pd.read_csv(path).to_dict(orient="records")
+
+
+def _ablation_rows(diagnostics_dir: Path, run_id: str) -> list[dict[str, Any]]:
+    rows = _read_csv_exists(diagnostics_dir / f"ablation_summary_{run_id}.csv")
+    if not rows:
+        rows = _read_csv_exists(diagnostics_dir / "ablation_summary.latest.csv")
+    return rows
+
+
+def _max_f1_by_experiment(
+    rows: list[dict[str, Any]], *, label_target: str = "family_canonical_default"
+) -> dict[str, float]:
+    per_exp: dict[str, list[float]] = {}
+    for row in rows:
+        if str(row.get("label_target", "")) != label_target:
+            continue
+        exp = str(row.get("experiment", ""))
+        f1 = row.get("macro_f1_score")
+        if not exp or f1 is None:
+            continue
+        per_exp.setdefault(exp, []).append(float(f1))
+    return {k: max(v) for k, v in per_exp.items() if v}
+
+
+def _model_top_macro_f1(diagnostics_dir: Path, run_id: str) -> tuple[str, float | None]:
+    for name in (f"model_comparison_summary_{run_id}.csv", "model_comparison_summary.latest.csv"):
+        path = diagnostics_dir / name
+        if not path.exists():
+            continue
+        import pandas as pd
+
+        try:
+            mcdf = pd.read_csv(path)
+            if mcdf.empty or "Model" not in mcdf.columns:
+                continue
+            col = "Macro-F1 Score" if "Macro-F1 Score" in mcdf.columns else None
+            if col is None:
+                continue
+            mcdf = mcdf.dropna(subset=[col])
+            if mcdf.empty:
+                continue
+            top = mcdf.loc[mcdf[col].astype(float).idxmax()]
+            return str(top["Model"]), float(top[col])
+        except Exception:
+            continue
+    return "", None
+
+
+def _cohort_snapshot(manifest: dict[str, Any], mctx: dict[str, Any]) -> str:
+    gov = mctx.get("governed_cohort_rows") or manifest.get("cohort_size") or ""
+    train = (
+        (mctx.get("split") or {}).get("train_sample_count")
+        if isinstance(mctx.get("split"), dict)
+        else None
+    ) or manifest.get("train_sample_count") or ""
+    test = (
+        (mctx.get("split") or {}).get("test_sample_count")
+        if isinstance(mctx.get("split"), dict)
+        else None
+    ) or manifest.get("test_sample_count") or ""
+    aligned = mctx.get("aligned_supervised_rows") or ""
+    post_ls = mctx.get("post_low_support_training_rows") or ""
+    return (
+        f"governed_cohort_rows≈{gov}; aligned_supervised≈{aligned}; "
+        f"post_low_support_training≈{post_ls}; train≈{train}; test≈{test}"
+    )
+
+
+def write_paper_claim_audit_md(
+    *,
+    diagnostics_dir: Path,
+    manifest: dict[str, Any] | None,
+    manifest_context: dict[str, Any] | None,
+    run_id: str,
+) -> Path:
+    """Write ``paper_claim_audit.md`` with explicit evidence artifacts and wording guidance."""
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    path = diagnostics_dir / "paper_claim_audit.md"
+    mctx = manifest_context if isinstance(manifest_context, dict) else {}
+    man = manifest if isinstance(manifest, dict) else {}
+    model_summary = mctx.get("model_summary") or man.get("model_summary") or {}
+    top_model = str(model_summary.get("top_model", "") or "")
+
+    ablation_rows = _ablation_rows(diagnostics_dir, run_id)
+    max_by_exp = _max_f1_by_experiment(ablation_rows)
+    fused = max_by_exp.get("full_fused")
+    vend = max_by_exp.get("vendor_full")
+    if vend is None:
+        vend = max_by_exp.get("vendor_only")
+    perm_raw = max_by_exp.get("permissions_raw")
+
+    top_mod_name, top_mod_f1 = _model_top_macro_f1(diagnostics_dir, run_id)
+
+    cohort_summary = man.get("cohort_summary") or {}
+    nf = cohort_summary.get("n_families")
+    active_train = mctx.get("trained_model_count") or man.get("trained_model_count")
+
+    paper_mode = bool(mctx.get("paper_mode", {}).get("resolved_value", False))
+    compliance_path = man.get("paper_mode_compliance_report") or diagnostics_dir / f"paper_mode_compliance_report_{run_id}.json"
+
+    population_line = _cohort_snapshot(man, mctx)
+    ablation_evidence = f"ablation_summary_{run_id}.csv or ablation_summary.latest.csv"
+    model_evidence = f"model_comparison_summary_{run_id}.csv or model_comparison_summary.latest.csv"
+
+    # Permission trends: bundle paths differ; look for run-scoped or latest under diagnostics/bundles is out of scope here.
+    trend_paths = list(diagnostics_dir.glob("permission_trends*.md")) + list(
+        diagnostics_dir.glob("**/generic_consensus_vs_entropy*.png")
+    )
+    trend_evidence = trend_paths[0].name if trend_paths else "MISSING — permission trends bundle not copied to diagnostics"
+
+    claim_rows: list[dict[str, str]] = []
+
+    def add(
+        *,
+        claim: str,
+        status: str,
+        evidence_artifact: str,
+        metric_value: str,
+        population: str,
+        rationale: str,
+        safer_wording: str,
+    ) -> None:
+        claim_rows.append(
+            {
+                "claim": claim,
+                "status": status,
+                "evidence_artifact": evidence_artifact,
+                "metric_value": metric_value,
+                "population": population,
+                "rationale": rationale,
+                "safer_wording": safer_wording,
+            }
+        )
+
+    if fused is not None and vend is not None:
+        if fused + 1e-6 >= vend:
+            fused_status = "NEEDS_REVISION"
+            fused_rationale = (
+                f"full_fused max macro_f1={fused:.4f} ≥ vendor_full={vend:.4f}; fusion may not add independent lift — "
+                "check feature independence and label leakage."
+            )
+        else:
+            fused_status = "UNSUPPORTED"
+            fused_rationale = f"full_fused ({fused:.4f}) did not beat vendor_full ({vend:.4f}) on ablation summary."
+        fused_metric = f"max macro_f1 full_fused={fused}; vendor_full={vend}"
+    else:
+        fused_status = "UNSUPPORTED"
+        fused_metric = "n/a"
+        fused_rationale = "Missing fused or vendor rows for family_canonical_default in ablation summary."
+
+    add(
+        claim="Fused multimodal features are strictly best overall",
+        status=fused_status,
+        evidence_artifact=ablation_evidence,
+        metric_value=fused_metric,
+        population=population_line,
+        rationale=fused_rationale,
+        safer_wording="Report per-target ablations with baselines; state whether fused beats vendor_only on same frozen split IDs.",
+    )
+
+    if perm_raw is None:
+        perm_status, perm_metric, perm_reason = ("UNSUPPORTED", "n/a", "No permissions_raw ablation rows.")
+    else:
+        if perm_raw >= 0.35:
+            perm_status = "NEEDS_REVISION"
+            perm_metric = f"permissions_raw max macro_f1={perm_raw:.4f}"
+            perm_reason = "Define 'strong' vs majority / stratified / type-conditional baselines in baseline_comparison.csv."
+        else:
+            perm_status = "UNSUPPORTED"
+            perm_metric = f"permissions_raw max macro_f1={perm_raw:.4f}"
+            perm_reason = "Macro-F1 magnitude alone does not justify 'strong'; compare lift vs baselines."
+
+    add(
+        claim="Permissions-only model is strong for family classification",
+        status=perm_status,
+        evidence_artifact=ablation_evidence,
+        metric_value=perm_metric,
+        population=population_line + "; label_target=family_canonical_default",
+        rationale=perm_reason,
+        safer_wording="Permissions correlate with coarse capability/type structure; quantify lift vs stratified_random and vendor baselines.",
+    )
+
+    rf_status = "UNSUPPORTED"
+    rf_metric = top_mod_f1 if top_mod_f1 is not None else "n/a"
+    rf_reason = f"Ranking artifact lists top_model={top_model or 'unknown'}."
+    if top_model and "random_forest" in top_model.lower():
+        rf_status = "NEEDS_REVISION"
+        rf_reason += " Confirm on frozen split_audit hash and cite model_comparison row."
+    if top_mod_name and top_mod_name != top_model:
+        rf_metric = f"{top_mod_name} Macro-F1={top_mod_f1}"
+
+    add(
+        claim="Random Forest is the top-performing classifier family",
+        status=rf_status,
+        evidence_artifact=model_evidence + " ; manifest.model_summary.top_model",
+        metric_value=str(rf_metric),
+        population=population_line,
+        rationale=rf_reason,
+        safer_wording="State 'best-ranked on this Macro-F1 table for split hash H' rather than categorical RF superiority.",
+    )
+
+    fam39_status = "UNSUPPORTED"
+    fam39_metric = str(nf) if nf is not None else "n/a"
+    fam39_reason = "`n_families` in cohort_summary differs from trained active-class list unless verified against post-low-support mask."
+    if nf == 39:
+        fam39_status = "NEEDS_REVISION"
+        fam39_reason += " Manifest reports 39 distinct families — confirm parity with classifier `classes_` after support filter."
+
+    add(
+        claim="Models evaluate all 39 malware families uniformly",
+        status=fam39_status,
+        evidence_artifact="manifest.cohort_summary.n_families ; training reports / classifier class list",
+        metric_value=fam39_metric + f"; trained_model_count={active_train}",
+        population=population_line,
+        rationale=fam39_reason,
+        safer_wording="Enumerate active classes post `min_family_support`; Macro-F1 is over supported classes only.",
+    )
+
+    vend_no_pf = max_by_exp.get("vendor_no_parsed_family")
+    delta_note = (
+        f"vendor_full={vend}; vendor_no_parsed_family={vend_no_pf}"
+        if vend is not None and vend_no_pf is not None
+        else "see ablation CSV vendor_full vs stripped experiments"
+    )
+    add(
+        claim="Apache consensus metadata and declared permissions are complementary signals",
+        status="UNSUPPORTED",
+        evidence_artifact=ablation_evidence + " ; vendor_label_leakage_audit.csv ; baseline_comparison.csv",
+        metric_value=delta_note,
+        population=population_line,
+        rationale="Complementarity needs orthogonality / conditional improvement tests — not pairwise bar ordering alone.",
+        safer_wording="Permissions add incremental Macro-F1 of ΔX over vendor_only **on frozen split**, if row exists.",
+    )
+
+    temporal_status = "UNSUPPORTED"
+    temporal_metric = trend_evidence
+    temporal_reason = "Random split evaluations do not imply 2026 outlook; require temporal holdouts (train≤year vs test≥year)."
+    sig_path = diagnostics_dir / "signal_decomposition_summary.csv"
+    if sig_path.exists():
+        temporal_metric += f"; descriptive tables may exist near {sig_path.name}"
+    else:
+        temporal_metric += "; signal_decomposition_summary.csv missing"
+
+    add(
+        claim="Permission prevalence trends demonstrate temporal evolution 2020–2025 predictive of future years",
+        status=temporal_status,
+        evidence_artifact=str(trend_evidence),
+        metric_value="Descriptive prevalence != validated forecast",
+        population=population_line + "; see temporal_validity_audit.md",
+        rationale=temporal_reason,
+        safer_wording="Report descriptive year-stratified burdens with cohort gates; separate from supervised generalization.",
+    )
+
+    funnel_exists = (diagnostics_dir / "cohort_funnel.csv").exists()
+    add(
+        claim="Dataset construction details do not materially change conclusions",
+        status="UNSUPPORTED",
+        evidence_artifact="cohort_funnel.csv ; cohort_population_audit.csv (when hostile bundle runs)",
+        metric_value=f"funnel_present={funnel_exists}",
+        population=population_line,
+        rationale="Even small N shifts remap low-support families; must cite stage-wise populations.",
+        safer_wording="Each gate changes effective study population — disclose aligned vs governed deltas explicitly.",
+    )
+
+    comp_status = "UNSUPPORTED"
+    comp_metric = ""
+    compliance_note = "`NOT_APPLICABLE` — paper_mode off"
+    if paper_mode:
+        comp_status = "NEEDS_REVISION"
+        compliance_note = f"paper_mode ON — mandatory human review `{compliance_path}`"
+        try:
+            cpath = Path(str(compliance_path))
+            if cpath.exists():
+                payload = json.loads(cpath.read_text(encoding="utf-8"))
+                comp_metric = json.dumps(payload.get("status_counts", payload.get("checks", {})), indent=2)[:1500]
+        except Exception:
+            comp_metric = "unreadable compliance json"
+
+    add(
+        claim="Evidence pack / paper_safe status is materially valid without further operator review",
+        status=comp_status,
+        evidence_artifact=str(compliance_path),
+        metric_value=comp_metric or ("resolved_paper_mode=" + str(paper_mode)),
+        population=population_line,
+        rationale=compliance_note,
+        safer_wording="Paper safety is procedural — tie each figure to audited populations and forbid absent artifacts.",
+    )
+
+    lines = [
+        "# Paper claim audit (machine-assisted, strict)",
+        "",
+        "Each row binds a conversational claim to an **evidence artifact**, **metric/value**, ",
+        "**population string**, adjudication status, and **replacement wording**. ",
+        "`NEEDS_REVISION` means the sentence could mislead reviewers without edits; ",
+        "`UNSUPPORTED` cannot be asserted as written from current artifacts.",
+        "",
+        "| claim | status | evidence artifact | metric / value | data population used | rationale | safer replacement wording |",
+        "|-------|--------|-------------------|----------------|----------------------|-----------|----------------------------|",
+    ]
+    for row in claim_rows:
+        cells = [
+            row["claim"].replace("|", "\\|"),
+            row["status"],
+            row["evidence_artifact"].replace("|", "\\|"),
+            row["metric_value"].replace("|", "\\|"),
+            row["population"].replace("|", "\\|"),
+            row["rationale"].replace("|", "\\|"),
+            row["safer_wording"].replace("|", "\\|"),
+        ]
+        lines.append("| " + " | ".join(cells) + " |")
+
+    lines.extend(
+        [
+            "",
+            "## Reading guide",
+            "",
+            "- Prefer numbers from `cohort_population_audit.csv` once emitted (post hostile bundle). ",
+            "- Cross-check lifts with `baseline_comparison.csv`; avoid citing raw Macro-F1 alone.",
+            "",
+        ]
+    )
+
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path

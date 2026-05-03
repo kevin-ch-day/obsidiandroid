@@ -21,7 +21,15 @@ Today **`analysis/pipeline/runner.py`** owns **`run_pipeline`** (stage sequencin
 | `analysis/pipeline/stage_feature_enrichment.py` | Optional metadata feature enrichment merge before vectorization. | `merge_sample_metadata_features(...)` |
 | `analysis/pipeline/stage_modeling.py` | Engine weighting, feature vector build, training, and final label resolution helpers. | `compute_engine_weights_from_pipeline(...)`, `build_feature_matrix_stage(...)`, `run_training_stage(...)`, `resolve_final_labels_stage(...)` |
 | `analysis/pipeline/stage_manifest.py` | Run manifest assembly/writing and lifecycle summary extraction. | `finalize_run_manifest_stage(...)` |
+| `analysis/pipeline/stage_ablation.py` | Leakage-oriented ablation matrix builds, cohort gap exports, label-target stats. | `run_ablation_experiments(...)` (from `runner.py` when enabled) |
 | `analysis/pipeline/sample_preparation.py` | Shared dataset filtering and metadata-feature helper functions reused by stages. | Imported by stage modules and compatibility wrappers |
+
+## Observability (single truth layer)
+
+- **Package:** `analysis/observability/` — use `analysis.observability.api` for `record_stage_start` / `record_data_population_change` / `record_artifact_write` / `record_partial_failure` instead of ad-hoc diagnostics CSVs.
+- **Authoritative JSON:** `diagnostics/run_observability_summary.json` (legacy mirror: `pipeline_observability_status.json`) is produced during manifest output hygiene; it consolidates pipeline status, paper/evidence flags, cohort row funnel, model headline, ablation snapshot, research warnings, and open-first artifact paths.
+- **Human layers:** `pipeline_events.jsonl` (timeline), `pipeline_stage_summary.csv` / `.md`, `partial_failures.md`, `logging_audit.md` / `.csv`.
+- **Alignment:** Terminal **Run Health** and `run_evidence_index.md` read the same summary fields so they do not contradict `run_summary.json` / hostile-audit outputs for static counts and verdicts.
 
 ## Compatibility layer
 

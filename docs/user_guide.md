@@ -104,7 +104,7 @@ After a successful run, inspect the `output/` directory:
 
 - Run `python clean_bytecode_cache.py` before packaging artifacts or creating releases.
 - Keep requirements synchronized by updating `requirements.txt` when dependencies change.
-- Document new features or configuration options in this guide and in `doc/architecture.md`.
+- Document new features or configuration options in this guide and in [`architecture.md`](architecture.md).
 - Schedule periodic reruns of `python scripts/update_vendor_scores.py` to maintain reliable vendor weighting.
 
 ## 9. Getting Help

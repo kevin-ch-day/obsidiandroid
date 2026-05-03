@@ -8,7 +8,9 @@ from typing import Any
 import shutil
 
 import pandas as pd
+from pandas.api.types import is_numeric_dtype
 
+from analysis.matrix.av_binary_matrix_builder import METADATA_COLS as AV_METADATA_COLS
 from config import app_config
 from ml_classification.ml_utils import distribution_reporter
 from ml_classification.training import pipeline_core
@@ -60,11 +62,203 @@ def _build_vendor_matrix(
     )
 
 
+def _vendor_semantic_subset(encoded_df: pd.DataFrame, variant: str) -> pd.DataFrame:
+    """Drop vendor field groups from an encoded vendor-only matrix (columns are low_snake_case_*)."""
+    if not isinstance(encoded_df, pd.DataFrame) or encoded_df.empty:
+        return encoded_df if isinstance(encoded_df, pd.DataFrame) else pd.DataFrame()
+    if variant == "no_parsed_family":
+        drop_parsed, drop_threat, drop_malware_type = True, False, False
+    elif variant == "no_family_no_type":
+        drop_parsed, drop_threat, drop_malware_type = True, True, True
+    else:
+        return encoded_df.copy()
+    keep: list[str | int] = []
+    for col in encoded_df.columns:
+        low = str(col).lower()
+        if drop_parsed and "parsed_family" in low:
+            continue
+        if drop_threat and "threat_class" in low:
+            continue
+        if drop_malware_type and "malware_type" in low:
+            continue
+        keep.append(col)
+    if not keep:
+        return pd.DataFrame()
+    out = encoded_df[keep].copy()
+    for key, val in getattr(encoded_df, "attrs", {}).items():
+        out.attrs[key] = val
+    return out
+
+
+def _build_binary_detection_only_matrix(binary_matrix: pd.DataFrame | None) -> pd.DataFrame:
+    if not isinstance(binary_matrix, pd.DataFrame) or binary_matrix.empty:
+        return pd.DataFrame()
+    if "sample_id" not in binary_matrix.columns:
+        return pd.DataFrame()
+    eng_cols = [c for c in binary_matrix.columns if c not in AV_METADATA_COLS and c != "sample_id"]
+    if not eng_cols:
+        return pd.DataFrame()
+    out = binary_matrix[["sample_id"] + eng_cols].copy()
+    for col in eng_cols:
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0).astype(int)
+    return out.set_index("sample_id")
+
+
+def _build_consensus_scores_only_matrix(enriched_matrix: pd.DataFrame | None) -> pd.DataFrame:
+    """Non-engine numeric aggregates from the enriched AV scan matrix (scores / densities)."""
+    if not isinstance(enriched_matrix, pd.DataFrame) or enriched_matrix.empty:
+        return pd.DataFrame()
+    if "sample_id" not in enriched_matrix.columns:
+        return pd.DataFrame()
+    skip = set(AV_METADATA_COLS) | {"sample_id"}
+    numeric_cols: list[str] = []
+    for col in enriched_matrix.columns:
+        if col in skip:
+            continue
+        series = enriched_matrix[col]
+        if not is_numeric_dtype(series):
+            continue
+        nu = pd.to_numeric(series, errors="coerce").dropna()
+        if nu.empty:
+            continue
+        uniq = sorted({float(x) for x in nu.unique().tolist()})
+        # Drop per-engine binaries (typically {0.0, 1.0}).
+        if len(uniq) <= 3 and uniq and max(uniq) <= 1.0 and min(uniq) >= 0.0:
+            continue
+        numeric_cols.append(col)
+    if not numeric_cols:
+        return pd.DataFrame()
+    work = enriched_matrix[["sample_id"] + numeric_cols].copy()
+    return work.drop_duplicates("sample_id").set_index("sample_id")
+
+
+def _build_permissions_band_matrix(
+    permission_features_df: pd.DataFrame | None, *, subset: str
+) -> pd.DataFrame:
+    base = _build_permissions_only_matrix(permission_features_df)
+    if base.empty:
+        return base
+    raw_onehot_exclude = {
+        "perm__dangerous_count",
+        "perm__normal_count",
+        "perm__oem_count",
+        "perm__total_count",
+    }
+    if subset == "raw":
+        keep = [
+            c
+            for c in base.columns
+            if str(c).startswith("perm__")
+            and not str(c).startswith("perm_grp__")
+            and str(c) not in raw_onehot_exclude
+        ]
+    elif subset == "grouped":
+        keep = [c for c in base.columns if str(c).startswith("perm_grp__")] + [
+            c for c in base.columns if c in raw_onehot_exclude
+        ]
+    else:
+        keep = list(base.columns)
+    if not keep:
+        return pd.DataFrame(index=base.index)
+    subset_df = base[keep].copy()
+    subset_df.attrs.update(base.attrs)
+    return subset_df
+
+
+def _build_experiment_matrix_dict(
+    weights_df: pd.DataFrame,
+    parsed_data: dict[str, pd.DataFrame],
+    permission_features_df: pd.DataFrame | None,
+    pipeline_results: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Return mapping of experiment names to built feature matrices (pre-reindex)."""
+    full_vendor_fields = ["Parsed Family", "Threat Class", "Malware Type"]
+    pipelines = pipeline_results if isinstance(pipeline_results, dict) else {}
+
+    builders: dict[str, Any] = {}
+
+    builders["vendor_full"] = lambda: _build_vendor_matrix(
+        weights_df, parsed_data, full_vendor_fields, extra_features_df=None
+    )
+    builders["vendor_no_parsed_family"] = lambda: _build_vendor_matrix(
+        weights_df, parsed_data, ["Threat Class", "Malware Type"], extra_features_df=None
+    )
+
+    def _vendor_no_ft() -> pd.DataFrame:
+        raw_mat = builders["vendor_full"]()
+        if not isinstance(raw_mat, pd.DataFrame) or raw_mat.empty:
+            return pd.DataFrame()
+        trimmed = _vendor_semantic_subset(raw_mat, variant="no_family_no_type")
+        return trimmed
+
+    builders["vendor_no_family_no_type"] = _vendor_no_ft
+
+    builders["vendor_detection_binary_only"] = lambda: _build_binary_detection_only_matrix(
+        pipelines.get("binary_matrix")
+    )
+    builders["vendor_consensus_scores_only"] = lambda: _build_consensus_scores_only_matrix(
+        pipelines.get("enriched_matrix")
+    )
+
+    builders["permissions_raw"] = lambda: _build_permissions_band_matrix(
+        permission_features_df,
+        subset="raw",
+    )
+    builders["permissions_grouped"] = lambda: _build_permissions_band_matrix(
+        permission_features_df,
+        subset="grouped",
+    )
+
+    def _grp_plus_vnf() -> pd.DataFrame:
+        gmat = _build_permissions_band_matrix(permission_features_df, subset="grouped")
+        if not isinstance(gmat, pd.DataFrame) or gmat.empty:
+            return _build_vendor_matrix(weights_df, parsed_data, ["Threat Class", "Malware Type"])
+        g_df = gmat.reset_index()
+        if "sample_id" not in g_df.columns and gmat.index.name == "sample_id":
+            g_df = gmat.rename_axis("sample_id").reset_index()
+        return _build_vendor_matrix(
+            weights_df,
+            parsed_data,
+            ["Threat Class", "Malware Type"],
+            extra_features_df=g_df,
+        )
+
+    builders["permissions_grouped_plus_vendor_no_family"] = _grp_plus_vnf
+
+    builders["full_fused"] = lambda: _build_vendor_matrix(
+        weights_df,
+        parsed_data,
+        full_vendor_fields,
+        extra_features_df=permission_features_df,
+    )
+
+    return builders
+
+
+ABLATION_EXPERIMENT_ORDER: tuple[str, ...] = (
+    "vendor_full",
+    "vendor_no_parsed_family",
+    "vendor_no_family_no_type",
+    "vendor_detection_binary_only",
+    "vendor_consensus_scores_only",
+    "permissions_raw",
+    "permissions_grouped",
+    "permissions_grouped_plus_vendor_no_family",
+    "full_fused",
+)
+
+
 def _prepare_training_inputs(
     feature_df: pd.DataFrame,
     samples_df: pd.DataFrame,
+    *,
+    forced_label_column: str | None = None,
 ) -> tuple[pd.DataFrame | None, pd.Series | None]:
-    aligned_features, labels_df = pipeline_core.align_data(feature_df, samples_df)
+    aligned_features, labels_df = pipeline_core.align_data(
+        feature_df,
+        samples_df,
+        forced_label_column=forced_label_column,
+    )
     if aligned_features is None or labels_df is None:
         return None, None
 
@@ -207,6 +401,8 @@ def _copy_confusion_matrix_artifact(
     run_id: str,
     experiment: str,
     model_name: str,
+    *,
+    label_target: str | None = None,
 ) -> str | None:
     """Copy confusion matrix to a run/experiment-specific filename to avoid overwrite."""
     if not source_path:
@@ -220,7 +416,8 @@ def _copy_confusion_matrix_artifact(
         return str(src)
     out_dir = Path(app_config.DEFAULT_OUTPUT_DIR) / "conf_matrices"
     out_dir.mkdir(parents=True, exist_ok=True)
-    dst = out_dir / f"confusion_matrix_{run_id}__{experiment}__{model_name}.png"
+    exp_slug = f"{experiment}__lt_{label_target}" if label_target else experiment
+    dst = out_dir / f"confusion_matrix_{run_id}__{exp_slug}__{model_name}.png"
     try:
         shutil.copyfile(src, dst)
         return str(dst)
@@ -232,6 +429,8 @@ def _collect_experiment_rows(
     experiment: str,
     results: dict[str, dict],
     run_id: str,
+    *,
+    label_target: str = "family_canonical_default",
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     summary_rows: list[dict[str, Any]] = []
     per_family_rows: list[dict[str, Any]] = []
@@ -243,6 +442,7 @@ def _collect_experiment_rows(
         summary_rows.append(
             {
                 "experiment": experiment,
+                "label_target": label_target,
                 "model": model_name,
                 "accuracy": evaluation.get("accuracy"),
                 "macro_f1_score": evaluation.get("macro_f1_score"),
@@ -254,6 +454,7 @@ def _collect_experiment_rows(
                     run_id=run_id,
                     experiment=experiment,
                     model_name=model_name,
+                    label_target=None if label_target == "family_canonical_default" else label_target,
                 ),
             }
         )
@@ -267,6 +468,7 @@ def _collect_experiment_rows(
                 per_family_rows.append(
                     {
                         "experiment": experiment,
+                        "label_target": label_target,
                         "model": model_name,
                         "family": str(family),
                         "precision": metrics.get("precision"),
@@ -278,6 +480,34 @@ def _collect_experiment_rows(
     return summary_rows, per_family_rows
 
 
+def _ablation_label_target_stats(
+    samples_label_basis: pd.DataFrame,
+    label_targets: list[tuple[str, str | None]],
+) -> list[dict[str, Any]]:
+    """Per ablation label target: class cardinality and support spread (training universe)."""
+    out: list[dict[str, Any]] = []
+    for slug, forced_col in label_targets:
+        col = forced_col
+        if slug == "family_canonical_default":
+            col = "family_canonical"
+        if not col or col not in samples_label_basis.columns:
+            continue
+        ser = samples_label_basis[col].dropna()
+        if ser.empty:
+            continue
+        vc = ser.astype(str).str.strip().value_counts()
+        out.append(
+            {
+                "label_target": slug,
+                "column": col,
+                "class_count": int(vc.shape[0]),
+                "min_class_support": int(vc.min()),
+                "max_class_support": int(vc.max()),
+            }
+        )
+    return out
+
+
 def run_ablation_experiments(
     samples_df: pd.DataFrame,
     weights_df: pd.DataFrame,
@@ -285,21 +515,20 @@ def run_ablation_experiments(
     permission_features_df: pd.DataFrame | None,
     model_list: list[str] | None,
     run_id: str,
+    pipeline_results: dict[str, Any] | None = None,
+    manifest_context: dict[str, Any] | None = None,
 ) -> list[str]:
     """Run methodology ablations and export summary artifacts."""
+    builders = _build_experiment_matrix_dict(
+        weights_df,
+        parsed_data,
+        permission_features_df,
+        pipeline_results,
+    )
     experiments = [
-        ("vendor_only", lambda: _build_vendor_matrix(weights_df, parsed_data, ["Parsed Family", "Threat Class", "Malware Type"])),
-        ("vendor_no_parsed_family", lambda: _build_vendor_matrix(weights_df, parsed_data, ["Threat Class", "Malware Type"])),
-        ("permissions_only", lambda: _build_permissions_only_matrix(permission_features_df)),
-        (
-            "vendor_permissions_fused",
-            lambda: _build_vendor_matrix(
-                weights_df,
-                parsed_data,
-                ["Parsed Family", "Threat Class", "Malware Type"],
-                extra_features_df=permission_features_df,
-            ),
-        ),
+        (name, builders[name])
+        for name in ABLATION_EXPERIMENT_ORDER
+        if name in builders and callable(builders[name])
     ]
 
     selected_models = list(model_list or getattr(app_config, "ABLATION_MODEL_LIST", []) or [])
@@ -427,7 +656,13 @@ def run_ablation_experiments(
         "strict_evidence_or_paper_mode": bool(strict_evidence or paper_mode),
         "expected_frozen_cohort_size": len(base_ids),
         "final_training_universe_size": len(common_ids),
+        "experiment_matrix_row_counts": [
+            {"feature_set": row.get("feature_set"), "raw_matrix_ids": row.get("raw_matrix_ids")}
+            for row in gap_table_rows
+        ],
     }
+    if isinstance(manifest_context, dict):
+        manifest_context["_ablation_cohort_gap_summary"] = gap_summary_payload
     json_p, md_p, csv_p = write_ablation_cohort_gap_artifacts(
         diagnostics_dir=_diagnostics_dir(),
         run_id=run_id,
@@ -445,6 +680,25 @@ def run_ablation_experiments(
     samples_work = samples_df.copy()
     samples_work["sample_id"] = pd.to_numeric(samples_work["sample_id"], errors="coerce")
     samples_work = samples_work[samples_work["sample_id"].isin(common_ids)].copy()
+    samples_label_basis = samples_work.copy()
+    if {"family_canonical", "type_slug"} <= set(samples_label_basis.columns):
+        samples_label_basis["family_within_type"] = (
+            samples_label_basis["type_slug"].fillna("unknown").astype(str).str.strip()
+            + "::"
+            + samples_label_basis["family_canonical"].fillna("unknown").astype(str).str.strip()
+        )
+
+    label_targets: list[tuple[str, str | None]] = [("family_canonical_default", None)]
+    if bool(getattr(app_config, "ENABLE_ABLATION_MULTI_LABEL_TARGETS", True)):
+        label_targets.append(("family_id", "family_id"))
+        if "type_slug" in samples_label_basis.columns:
+            label_targets.append(("type_slug", "type_slug"))
+        if "family_within_type" in samples_label_basis.columns:
+            label_targets.append(("family_within_type", "family_within_type"))
+
+    label_stats_snapshot = _ablation_label_target_stats(samples_label_basis, label_targets)
+    if isinstance(manifest_context, dict):
+        manifest_context["_ablation_label_target_stats"] = label_stats_snapshot
 
     previous_cv = bool(getattr(app_config, "ENABLE_CROSS_VALIDATION", False))
     previous_cv_rebalance = bool(getattr(app_config, "ENABLE_CV_REBALANCING", False))
@@ -459,43 +713,57 @@ def run_ablation_experiments(
     schema_audit_snapshot: list[dict[str, Any]] = []
     try:
         for experiment_name, feature_df in experiment_matrices.items():
-            try:
-                setattr(app_config, "RUNTIME_EXPERIMENT_ID", experiment_name)
-                work_df = feature_df.copy()
-                if not reindex_zero_fill:
-                    if "sample_id" in work_df.columns:
-                        work_df["sample_id"] = pd.to_numeric(work_df["sample_id"], errors="coerce")
-                        work_df = work_df[work_df["sample_id"].isin(common_ids)].copy()
-                    else:
-                        idx_series = pd.Series(
-                            pd.to_numeric(pd.Index(work_df.index), errors="coerce"),
-                            index=work_df.index,
+            for label_slug, forced_col in label_targets:
+                combo_id = f"{experiment_name}__lt_{label_slug}"
+                try:
+                    setattr(app_config, "RUNTIME_EXPERIMENT_ID", combo_id)
+                    work_df = feature_df.copy()
+                    if not reindex_zero_fill:
+                        if "sample_id" in work_df.columns:
+                            work_df["sample_id"] = pd.to_numeric(
+                                work_df["sample_id"], errors="coerce"
+                            )
+                            work_df = work_df[work_df["sample_id"].isin(common_ids)].copy()
+                        else:
+                            idx_series = pd.Series(
+                                pd.to_numeric(pd.Index(work_df.index), errors="coerce"),
+                                index=work_df.index,
+                            )
+                            work_df = work_df.loc[idx_series.isin(common_ids)].copy()
+                    if work_df.empty:
+                        du.print_warning(
+                            f"[ABLATION] Skipping '{experiment_name}'/'{label_slug}' "
+                            "due to empty filtered feature matrix."
                         )
-                        work_df = work_df.loc[idx_series.isin(common_ids)].copy()
-                if work_df.empty:
-                    du.print_warning(f"[ABLATION] Skipping '{experiment_name}' due to empty filtered feature matrix.")
-                    continue
-                x_train, y_train = _prepare_training_inputs(work_df, samples_work)
-                if x_train is None or y_train is None or x_train.empty:
-                    du.print_warning(f"[ABLATION] Skipping '{experiment_name}' due to alignment failure.")
-                    continue
-                results, _ = pipeline_core.train_models(
-                    x_train,
-                    y_train,
-                    models=selected_models or None,
-                    save_model=ablation_save_models,
-                )
-                rows, family_rows = _collect_experiment_rows(
-                    experiment_name,
-                    results,
-                    run_id=run_id,
-                )
-                summary_rows.extend(rows)
-                per_family_rows.extend(family_rows)
-            except Exception as exc:
-                du.print_warning(f"[ABLATION] '{experiment_name}' failed: {exc}")
-            finally:
-                setattr(app_config, "RUNTIME_EXPERIMENT_ID", "")
+                        continue
+                    x_train, y_train = _prepare_training_inputs(
+                        work_df,
+                        samples_label_basis,
+                        forced_label_column=forced_col,
+                    )
+                    if x_train is None or y_train is None or x_train.empty:
+                        du.print_warning(
+                            f"[ABLATION] Skipping '{experiment_name}'/'{label_slug}' due to alignment failure."
+                        )
+                        continue
+                    results, _ = pipeline_core.train_models(
+                        x_train,
+                        y_train,
+                        models=selected_models or None,
+                        save_model=ablation_save_models,
+                    )
+                    rows, family_rows = _collect_experiment_rows(
+                        experiment_name,
+                        results,
+                        run_id=run_id,
+                        label_target=label_slug,
+                    )
+                    summary_rows.extend(rows)
+                    per_family_rows.extend(family_rows)
+                except Exception as exc:
+                    du.print_warning(f"[ABLATION] '{experiment_name}'/'{label_slug}' failed: {exc}")
+                finally:
+                    setattr(app_config, "RUNTIME_EXPERIMENT_ID", "")
     finally:
         raw_audit = getattr(app_config, "RUNTIME_ABLATION_SCHEMA_AUDIT_ROWS", None)
         if isinstance(raw_audit, list):
@@ -556,6 +824,17 @@ def run_ablation_experiments(
         artifact_paths.append(str(pf_mirror[0]))
     artifact_paths.extend([str(summary_path)])
     du.print_info(f"[ABLATION] Exported summary: {summary_path}")
+    if isinstance(manifest_context, dict):
+        from analysis.observability import api as obs_api
+
+        obs_api.record_ablation_summary(
+            manifest_context,
+            frozen_cohort_ids=len(base_ids),
+            training_universe_ids=len(common_ids),
+            experiments_built=len(experiment_matrices),
+            label_target_stats=label_stats_snapshot,
+            summary_csv_path=str(summary_path),
+        )
     return artifact_paths
 
 
@@ -575,19 +854,45 @@ def _apply_leakage_delta(summary_df: pd.DataFrame) -> pd.DataFrame:
         return summary_df
     out = summary_df.copy()
     out["leakage_sensitivity_delta"] = None
-    baseline = out[out["experiment"] == "vendor_only"][["model", "macro_f1_score"]]
-    if baseline.empty:
+    out["vendor_leakage_delta_vs_vendor_full"] = None
+    if "label_target" not in out.columns:
+        baseline = out[out["experiment"] == "vendor_full"][["model", "macro_f1_score"]]
+        if baseline.empty:
+            baseline = out[out["experiment"] == "vendor_only"][["model", "macro_f1_score"]]
+        if not baseline.empty:
+            baseline_map = {
+                str(row["model"]): float(row["macro_f1_score"])
+                for _, row in baseline.iterrows()
+                if pd.notna(row["macro_f1_score"])
+            }
+            for idx, row in out.iterrows():
+                model = str(row.get("model", ""))
+                macro_f1 = row.get("macro_f1_score")
+                if model in baseline_map and pd.notna(macro_f1):
+                    delta = round(float(macro_f1) - baseline_map[model], 6)
+                    out.at[idx, "leakage_sensitivity_delta"] = delta
+                    out.at[idx, "vendor_leakage_delta_vs_vendor_full"] = delta
         return out
-    baseline_map = {
-        str(row["model"]): float(row["macro_f1_score"])
-        for _, row in baseline.iterrows()
-        if pd.notna(row["macro_f1_score"])
-    }
-    for idx, row in out.iterrows():
-        model = str(row.get("model", ""))
-        macro_f1 = row.get("macro_f1_score")
-        if model in baseline_map and pd.notna(macro_f1):
-            out.at[idx, "leakage_sensitivity_delta"] = round(float(macro_f1) - baseline_map[model], 6)
+
+    for lt_label in sorted(out["label_target"].dropna().unique()):
+        lt_frame = out[out["label_target"] == lt_label]
+        baseline = lt_frame[lt_frame["experiment"] == "vendor_full"][["model", "macro_f1_score"]]
+        if baseline.empty:
+            continue
+        baseline_map = {
+            str(row["model"]): float(row["macro_f1_score"])
+            for _, row in baseline.iterrows()
+            if pd.notna(row["macro_f1_score"])
+        }
+        for idx, row in out.iterrows():
+            if row.get("label_target") != lt_label:
+                continue
+            model = str(row.get("model", ""))
+            macro_f1 = row.get("macro_f1_score")
+            if model in baseline_map and pd.notna(macro_f1):
+                delta = round(float(macro_f1) - baseline_map[model], 6)
+                out.at[idx, "leakage_sensitivity_delta"] = delta
+                out.at[idx, "vendor_leakage_delta_vs_vendor_full"] = delta
     return out
 
 
@@ -604,10 +909,23 @@ def _print_ablation_terminal_summary(summary_df: pd.DataFrame) -> None:
         return
     frame = frame.sort_values(["model", "macro_f1_score"], ascending=[True, False]).copy()
     frame["delta_vs_vendor_only"] = pd.to_numeric(
-        frame.get("leakage_sensitivity_delta", pd.Series([None] * len(frame))),
+        frame.get(
+            "vendor_leakage_delta_vs_vendor_full",
+            frame.get("leakage_sensitivity_delta", pd.Series([None] * len(frame))),
+        ),
         errors="coerce",
     )
-    display_cols = [col for col in ("experiment", "model", "macro_f1_score", "delta_vs_vendor_only") if col in frame.columns]
+    display_cols = [
+        col
+        for col in (
+            "experiment",
+            "label_target",
+            "model",
+            "macro_f1_score",
+            "delta_vs_vendor_only",
+        )
+        if col in frame.columns
+    ]
     if not display_cols:
         return
     du.print_table(
@@ -616,7 +934,7 @@ def _print_ablation_terminal_summary(summary_df: pd.DataFrame) -> None:
                 "experiment": "Feature Set",
                 "model": "Model",
                 "macro_f1_score": "MacroF1",
-                "delta_vs_vendor_only": "Delta vs VendorOnly",
+                "delta_vs_vendor_only": "Delta vs VendorFull",
             }
         ),
         title="Ablation Summary (Compact)",
