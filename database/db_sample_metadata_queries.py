@@ -10,11 +10,12 @@ from database.db_sample_metadata_contracts import (
     SUPPORTED_ANDROID_TYPE_SLUGS,
     convert_to_dataframe,
     get_supported_android_type_slugs,
+    log_and_assert_loader_sample_grain,
 )
 from database.db_sample_metadata_fetchers import (
     fetch_available_android_type_slugs,
     fetch_sample_metadata,
-    fetch_samples_by_type,
+    fetch_samples_by_type as _fetch_samples_by_type,
     get_type_cohort_gate_stats,
 )
 
@@ -100,7 +101,10 @@ def load_samples_by_type(
     query_type = type_slug or "all"
     label = f"Type:{query_type}"
     du.print_header(f"Loading Android Samples by Type: {query_type}")
-    result = fetch_samples_by_type(
+    du.print_info(
+        "[DB] Querying primary sample catalog (large cohorts can take several minutes)..."
+    )
+    result = _fetch_samples_by_type(
         type_slug=type_slug,
         min_samples_per_family=min_samples_per_family,
         require_mapped_family=require_mapped_family,
@@ -115,7 +119,10 @@ def load_samples_by_type(
         exclude_family_canonical=exclude_family_canonical,
         as_dataframe=False,
     )
-    return convert_to_dataframe(result, label)
+    frame = convert_to_dataframe(result, label)
+    log_and_assert_loader_sample_grain(frame, label=label)
+    du.print_info(f"[DB] Sample catalog query finished: {len(frame)} row(s).")
+    return frame
 
 
 def get_type_slug_alignment_report() -> dict[str, list[str]]:

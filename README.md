@@ -187,20 +187,24 @@ See comments in `config/settings/*.py` (or `config/app_config.py`) for full deta
 
 ## Running Tests
 
-After installing dependencies, run all tests using:
+After installing dependencies, run the **default fast suite** (recommended for local loops):
+
 ```bash
 pytest -q
-```
-Or use the helper script:
-```bash
+# or
 ./run_tests.sh
-```
-Or via Makefile:
-```bash
-make clean
-```
-```bash
+# or
 make test
+```
+
+This excludes integration-heavy modules tagged `slow` (see `pytest.ini` and `tests/conftest.py`).
+
+For the **complete** suite (CI / pre-merge):
+
+```bash
+./run_tests_full.sh
+# or
+make test-full
 ```
 
 ---

@@ -16,6 +16,22 @@ from .feature_vendor_extractor import (
 )
 
 
+def _sample_ids_from_feature_index(index) -> list[int]:
+    """Stable integer sample_ids from the encoded matrix index (may be float-like)."""
+    out: set[int] = set()
+    for v in index:
+        try:
+            x = float(v)
+            if pd.isna(x):
+                continue
+            i = int(x)
+            if float(i) == x:
+                out.add(i)
+        except (TypeError, ValueError):
+            continue
+    return sorted(out)
+
+
 def _diagnostics_dir() -> Path:
     """Resolve diagnostics directory for current runtime context."""
     runtime_dir = str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "").strip()
@@ -451,6 +467,10 @@ def build_feature_vector(
     if encoded.empty:
         du.print_error("[BUILD] Final encoded matrix is empty.")
         return pd.DataFrame()
+
+    # Row authority for downstream joins: extras merge left-onto this index only.
+    encoded.attrs["vendor_merge_sample_ids"] = _sample_ids_from_feature_index(encoded.index)
+    encoded.attrs["vendor_merge_sample_id_count"] = int(len(encoded.index))
 
     # Step 4: Feature Enrichment (optional)
     encoded, extra_encoder_mappings = _merge_extra_features(encoded, extra_features_df, verbose)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from analysis.orchestration.profile_filters import split_benign_malicious
 from config import app_config
-from database import db_sample_metadata_queries
+from database import db_sample_metadata_fetchers
 from utils import display_utils as du
 from utils.logging import get_logger, log_event
 from utils import profile_manager
@@ -40,7 +40,7 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
     if mode in {"none", "", "malicious_only"}:
         # Fast/silent preflight for standard malicious-only profiles.
         # We only need to know whether at least one row survives profile gates.
-        sample_probe_df = db_sample_metadata_queries.fetch_samples_by_type(
+        sample_probe_df = db_sample_metadata_fetchers.fetch_samples_by_type(
             type_slug=type_slug,
             min_samples_per_family=min_support,
             require_mapped_family=bool(gates.get("require_mapped_family", True)),
@@ -55,7 +55,7 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
 
     # Mixed-mode profiles need partition counts, so we still load the gated cohort.
     # Use the lower-level fetch path to avoid noisy preflight terminal banners.
-    samples_df = db_sample_metadata_queries.fetch_samples_by_type(
+    samples_df = db_sample_metadata_fetchers.fetch_samples_by_type(
         type_slug=type_slug,
         min_samples_per_family=min_support,
         require_mapped_family=bool(gates.get("require_mapped_family", True)),
@@ -108,14 +108,11 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
 def resolve_and_validate_profile(*, prefer_quick: bool = False) -> str | None:
     """Interactive profile selection with preflight validation."""
     while True:
-        try:
-            profile_id = resolve_profile_for_run(prefer_quick=prefer_quick)
-        except TypeError:
-            # Backward-compatible fallback for patched call-sites/tests.
-            profile_id = resolve_profile_for_run()
+        profile_id = resolve_profile_for_run(prefer_quick=prefer_quick)
         if not profile_id:
             return None
 
+        du.print_info("[PROFILE] Preflight: verifying cohort against the database (quick check)...")
         ok, reason = validate_profile_runnable(profile_id)
         if ok:
             log_event(MENU_LOGGER, "profile_preflight_passed", profile_id=profile_id)

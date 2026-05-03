@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+import database.db_sample_metadata_fetchers as sample_metadata_fetchers
+
 from utils.menu import profile_preflight
 
 
@@ -11,7 +13,11 @@ def test_resolve_and_validate_profile_reprompts_until_valid(monkeypatch) -> None
     """Invalid profile should re-prompt until a valid profile is selected."""
     choices = iter(["mixed", "banker"])
 
-    monkeypatch.setattr(profile_preflight, "resolve_profile_for_run", lambda: next(choices))
+    monkeypatch.setattr(
+        profile_preflight,
+        "resolve_profile_for_run",
+        lambda prefer_quick=False: next(choices),
+    )
 
     def _validate(profile_id: str) -> tuple[bool, str]:
         if profile_id == "mixed":
@@ -25,7 +31,11 @@ def test_resolve_and_validate_profile_reprompts_until_valid(monkeypatch) -> None
 
 def test_resolve_and_validate_profile_cancel(monkeypatch) -> None:
     """Cancel on profile selection should return None."""
-    monkeypatch.setattr(profile_preflight, "resolve_profile_for_run", lambda: None)
+    monkeypatch.setattr(
+        profile_preflight,
+        "resolve_profile_for_run",
+        lambda prefer_quick=False: None,
+    )
     assert profile_preflight.resolve_and_validate_profile() is None
 
 
@@ -48,7 +58,7 @@ def test_validate_profile_runnable_uses_lightweight_probe_for_malicious_only(mon
         return pd.DataFrame([{"sample_id": 1}])
 
     monkeypatch.setattr(
-        profile_preflight.db_sample_metadata_queries,
+        sample_metadata_fetchers,
         "fetch_samples_by_type",
         _fake_fetch,
     )

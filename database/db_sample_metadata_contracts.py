@@ -20,7 +20,10 @@ SUPPORTED_ANDROID_TYPE_SLUGS = (
 QUERY_CONTRACT_VERSION = "android_samples_v1_ordered_2026-03-04"
 QUERY_ORDERING_POLICY = "ORDER BY sample_id ASC for cohort and metadata retrieval"
 QUERY_CONTRACT_NOTES = (
-    "Deterministic query ordering is enforced for key sample retrieval paths."
+    "Deterministic query ordering is enforced for key sample retrieval paths. "
+    "VT scan summary, family-resolution, and artifact hash-registry joins use "
+    "ROW_NUMBER-ranked subqueries so each catalog sample_id maps to one joined row "
+    "(see database/cohort_sql_fragments.py)."
 )
 
 
@@ -74,3 +77,23 @@ def convert_to_dataframe(result: tuple[list, list], label: str = "") -> pd.DataF
         )
 
     return dataframe
+
+
+def log_and_assert_loader_sample_grain(dataframe: pd.DataFrame, *, label: str) -> None:
+    """Log row counts and enforce exactly one row per ``sample_id`` at loader boundary."""
+    if dataframe.empty or "sample_id" not in dataframe.columns:
+        return
+
+    rows_loaded = len(dataframe)
+    distinct_sample_ids = int(dataframe["sample_id"].nunique())
+    duplicate_surplus = rows_loaded - distinct_sample_ids
+    du.print_info(
+        f"[DB] Loader grain ({label}): rows_loaded={rows_loaded} "
+        f"distinct_sample_ids={distinct_sample_ids} duplicate_surplus={duplicate_surplus}"
+    )
+    if duplicate_surplus != 0:
+        raise ValueError(
+            f"[{label}] Cohort loader cardinality breach: duplicate_surplus={duplicate_surplus}. "
+            "Inspect primary SQL joins (VT summaries multiplied by sha256/sample_id, "
+            "or v_android_apk_family_resolved multiple rows per sample)."
+        )

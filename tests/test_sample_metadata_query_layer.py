@@ -16,7 +16,7 @@ def test_load_samples_by_type_supports_all_types_when_slug_none(monkeypatch) -> 
         captured.update(kwargs)
         return (["sample_id"], [(1,)])
 
-    monkeypatch.setattr(db_sample_metadata_queries, "fetch_samples_by_type", _fake_fetch)
+    monkeypatch.setattr(db_sample_metadata_queries, "_fetch_samples_by_type", _fake_fetch)
     df = db_sample_metadata_queries.load_samples_by_type(type_slug=None)
     assert not df.empty
     assert captured["type_slug"] is None
@@ -30,7 +30,7 @@ def test_load_banker_dataframe_routes_to_generic_type_loader(monkeypatch) -> Non
         captured.update(kwargs)
         return (["sample_id"], [(1,)])
 
-    monkeypatch.setattr(db_sample_metadata_queries, "fetch_samples_by_type", _fake_fetch)
+    monkeypatch.setattr(db_sample_metadata_queries, "_fetch_samples_by_type", _fake_fetch)
     df = db_sample_metadata_queries.load_banker_dataframe(limit=10)
     assert int(df.shape[0]) == 1
     assert captured["type_slug"] == "banker"

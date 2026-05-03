@@ -54,6 +54,7 @@ from analysis.pipeline.runtime_policy import (
     enforce_paper_perturbation_axes as enforce_paper_perturbation_axes_policy,
     reset_runtime_markers,
 )
+from analysis.diagnostics.feature_build_coverage_export import export_feature_build_coverage
 from analysis.orchestration.methodology_artifacts import (
     export_feature_contract,
     export_leakage_assessment,
@@ -346,6 +347,13 @@ def run_pipeline(
     try:
         du.print_banner("Malware Classification Framework")
         du.print_stat("Run ID", run_id)
+        du.print_info(
+            f"[PIPELINE] Scope: stop_after={stop_after} | profile_ref={profile_ref}"
+        )
+        du.print_info(
+            f"[PIPELINE] Paths: output_root={output_root_base} | "
+            f"run_root={runtime_run_root} | diagnostics={DIAGNOSTICS_DIR}"
+        )
         if runtime_log_context is not None:
             du.print_info(f"[LOG] Runtime stream log: {runtime_log_context.log_path}")
 
@@ -353,7 +361,11 @@ def run_pipeline(
         os.makedirs(DIAGNOSTICS_DIR, exist_ok=True)
 
         # Load profile
+        du.print_info("[PIPELINE] Loading profile YAML...")
         profile = profile_manager.load_profile(profile_ref)
+        du.print_info(
+            f"[PIPELINE] Profile: id={profile.get('profile_id')} | file={profile.get('__profile_path', '')}"
+        )
         requested_evidence_mode = (
             evidence_mode_override if evidence_mode_override is not None else paper_mode_override
         )
@@ -408,7 +420,19 @@ def run_pipeline(
             "source": evidence_mode_source,
             "raw_inputs": evidence_resolution.raw_inputs,
         }
+        if evidence_mode_source == "default_profile_ineligible":
+            manifest_context["evidence_mode"]["downgrade_reason"] = (
+                "Resolution was default without evidence_perturbation_axes; "
+                "evidence mode disabled for safety."
+            )
         manifest_context["paper_mode"] = dict(manifest_context["evidence_mode"])
+        # mode_effective: strict run-scoped / paper-style contract. resolution_source: cli|env|profile|default
+        # (source=profile + mode_effective=False means the YAML set evidence_mode: false, not a bug.)
+        du.print_info(
+            f"[EVIDENCE] mode_effective={effective_evidence_mode} "
+            f"resolution_source={evidence_mode_source} "
+            f"profile_evidence_mode={profile.get('evidence_mode')!r}"
+        )
         if effective_evidence_mode:
             run_root = output_root_base / "runs" / run_id
             run_root.mkdir(parents=True, exist_ok=True)
@@ -453,16 +477,13 @@ def run_pipeline(
             artifact_list.append(str(runtime_log_context.log_path))
         manifest_context["profile_params"] = profile
         manifest_context["config_hash"] = hash_payload(profile)
+        du.print_info("[PIPELINE] Metadata: dependency versions + DB query contract...")
         manifest_context["dependency_versions"] = _collect_dependency_versions()
         manifest_context["db_query_contract"] = get_query_contract_metadata()
         _write_preflight(status="running")
-        du.print_info(f"[PROFILE] Loaded profile: {profile.get('profile_id')}")
-        du.print_info(
-            f"[EVIDENCE] Mode={'ON' if effective_evidence_mode else 'OFF'} "
-            f"(source={evidence_resolution.source})"
-        )
 
         feature_flags = profile.get("feature_flags", {}) if isinstance(profile, dict) else {}
+        du.print_info("[PIPELINE] Applying runtime policy (feature flags, evidence strictness)...")
         policy = apply_profile_runtime_policy(
             profile=profile,
             feature_flags=feature_flags,
@@ -481,6 +502,9 @@ def run_pipeline(
             )
 
         # Step 1: Load and prepare sample metadata
+        du.print_info(
+            f"[PIPELINE] Stage: samples - fetching cohort (type_slug={type_slug!r})..."
+        )
         stage_started_at = perf_counter()
         _begin_stage("samples")
         _print_run_context_line(
@@ -700,6 +724,16 @@ def run_pipeline(
             manifest_context["vendor_fallback_used"] = bool(feature_df.attrs.get("vendor_fallback_used", False))
             manifest_context["vendor_fallback_added_count"] = int(feature_df.attrs.get("vendor_fallback_added_count", 0) or 0)
             manifest_context["non_standard_features"] = bool(feature_df.attrs.get("non_standard_features", False))
+
+            if bool(getattr(app_config, "ENABLE_FEATURE_BUILD_COVERAGE_EXPORT", True)):
+                cov_path, _cov_csv_path = export_feature_build_coverage(
+                    cohort_sample_ids=samples_df["sample_id"],
+                    feature_df=feature_df,
+                    output_dir=DIAGNOSTICS_DIR,
+                    run_id=run_id,
+                )
+                if cov_path:
+                    artifact_list.append(str(cov_path))
 
         if bool(getattr(app_config, "ENABLE_FEATURE_CONTRACT_EXPORT", True)):
             feature_contract_path = export_feature_contract(

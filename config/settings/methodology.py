@@ -1,6 +1,7 @@
 """Methodology artifacts, ablation controls, and results warehouse flags."""
 
 ENABLE_FEATURE_CONTRACT_EXPORT = True
+ENABLE_FEATURE_BUILD_COVERAGE_EXPORT = True
 ENABLE_LEAKAGE_ASSESSMENT_EXPORT = True
 ENABLE_ABLATION_EXPERIMENTS = True
 ENABLE_PERMISSION_TRENDS_REPORT = True
@@ -15,6 +16,11 @@ CONSENSUS_BOOTSTRAP_RESAMPLES = 2000
 ABLATION_MODEL_LIST = []
 ABLATION_REQUIRE_FROZEN_UNIVERSE = True
 ABLATION_MAX_MISMATCH_RATIO = 0.01
+
+# When True (default), ablation feature matrices are reindexed to the frozen label cohort
+# with zero-fill for missing vendor/permission rows so cohort size is identical across
+# feature sets (paper-safe). Set False to use legacy intersection-only alignment.
+ABLATION_COHORT_REINDEX_ZERO_FILL = True
 ENABLE_ABLATION_CROSS_VALIDATION = False
 ENABLE_ABLATION_MODEL_EXPORT = False
 PAPER_HEATMAP_TOP_K = 35

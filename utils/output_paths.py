@@ -21,6 +21,23 @@ def runs_root() -> Path:
     return output_root() / str(getattr(app_config, "OUTPUT_RUNS_SUBDIR", "runs"))
 
 
+def resolve_runtime_run_directory(run_id: str) -> Path:
+    """Return the directory that holds run-scoped artifacts (e.g. ``conf_matrices/``).
+
+    Prefers :attr:`RUNTIME_RUN_ROOT` when its final segment matches ``run_id``
+    (including evidence mode where ``DEFAULT_OUTPUT_DIR`` points at the run folder).
+    Otherwise uses ``output_root() / runs / run_id`` (standard layout).
+    """
+    rid = str(run_id).strip()
+    runtime_root_raw = getattr(app_config, "RUNTIME_RUN_ROOT", None)
+    if runtime_root_raw:
+        path = Path(str(runtime_root_raw)).expanduser().resolve()
+        if path.name == rid:
+            return path
+    runs_sub = str(getattr(app_config, "OUTPUT_RUNS_SUBDIR", "runs"))
+    return output_root() / runs_sub / rid
+
+
 def bundles_root() -> Path:
     """Return output root for paper/report bundles."""
     return output_root() / str(getattr(app_config, "OUTPUT_BUNDLES_SUBDIR", "bundles"))

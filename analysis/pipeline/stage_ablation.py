@@ -17,6 +17,8 @@ from utils import display_utils as du
 from utils import ml_console
 from utils.runtime_paths import resolve_diagnostics_dir
 
+from analysis.diagnostics.ablation_cohort_diagnostics import write_ablation_cohort_gap_artifacts
+
 
 class PaperCohortSource(str, Enum):
     """Source modes for paper cohort sample-id loading."""
@@ -99,6 +101,62 @@ def _extract_feature_sample_ids(feature_df: pd.DataFrame) -> set[int]:
     else:
         ids = pd.to_numeric(pd.Index(feature_df.index), errors="coerce")
     return set(ids.dropna().astype(int).tolist())
+
+
+def reindex_ablation_features_to_frozen_ids(
+    feature_df: pd.DataFrame,
+    frozen_sorted: list[int],
+) -> pd.DataFrame:
+    """Reindex a feature matrix to the frozen paper cohort, filling missing rows with 0.
+
+    Decouples ablation **feature effects** from **row drops** when vendor-only matrices omit
+    samples that lack parsed top-k vendor rows.
+    """
+    if not frozen_sorted:
+        return pd.DataFrame()
+    if not isinstance(feature_df, pd.DataFrame) or feature_df.empty:
+        return pd.DataFrame(index=frozen_sorted)
+
+    work = feature_df.copy()
+    if "sample_id" in work.columns:
+        work = work.drop_duplicates("sample_id", keep="last")
+        sid = pd.to_numeric(work["sample_id"], errors="coerce")
+        work = work.assign(_abl_sid=sid).dropna(subset=["_abl_sid"])
+        work["_abl_sid"] = work["_abl_sid"].astype(int)
+        work = work.set_index("_abl_sid")
+        drop_cols = [c for c in work.columns if str(c).startswith("_abl_")]
+        if drop_cols:
+            work = work.drop(columns=drop_cols, errors="ignore")
+    else:
+        work.index = pd.to_numeric(work.index, errors="coerce")
+        work = work[~pd.Index(work.index).isna()]
+        work = work[~work.index.duplicated(keep="last")]
+
+    work = work.reindex(frozen_sorted)
+    return work.fillna(0)
+
+
+def _print_ablation_cohort_integrity_table(rows: list[dict[str, Any]]) -> None:
+    """Compact terminal table: cohort vs raw matrix vs reindexed alignment."""
+    if not rows or ml_console.is_minimal():
+        return
+    frame = pd.DataFrame(rows)
+    rename_map = {
+        "feature_set": "Feature Set",
+        "expected_ids": "Expected IDs",
+        "raw_matrix_ids": "Matrix IDs",
+        "missing_vs_expected": "Missing IDs",
+        "final_aligned_ids": "Final Aligned IDs",
+        "status": "Status",
+    }
+    cols = [c for c in rename_map if c in frame.columns]
+    if not cols:
+        return
+    du.print_table(
+        frame[cols].rename(columns=rename_map),
+        title="Ablation cohort integrity (pre-train)",
+        show_index=False,
+    )
 
 
 def _load_paper_cohort_sample_ids(
@@ -252,46 +310,136 @@ def run_ablation_experiments(
 
     if not ml_console.is_minimal():
         du.print_subheader("Ablation Experiments")
+
+    reindex_zero_fill = bool(getattr(app_config, "ABLATION_COHORT_REINDEX_ZERO_FILL", True))
+    strict_evidence = bool(getattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False))
+    paper_mode = bool(getattr(app_config, "PAPER_MODE_ENABLED", False))
+    if (strict_evidence or paper_mode) and not reindex_zero_fill:
+        du.print_error(
+            "[ABLATION] Evidence/paper mode requires ABLATION_COHORT_REINDEX_ZERO_FILL=True "
+            "so ablations do not mix row-drop effects with feature ablations."
+        )
+        return artifact_paths
+
     base_ids = _load_paper_cohort_sample_ids(samples_df)
-    experiment_matrices: dict[str, pd.DataFrame] = {}
+    if not base_ids:
+        du.print_warning("[ABLATION] Empty frozen cohort — skipping ablations.")
+        return artifact_paths
+
+    frozen_sorted = sorted(base_ids)
+    experiment_matrices_raw: dict[str, pd.DataFrame] = {}
     for experiment_name, builder in experiments:
         try:
             feature_df = builder()
             if not isinstance(feature_df, pd.DataFrame) or feature_df.empty:
                 du.print_warning(f"[ABLATION] Skipping '{experiment_name}' due to empty feature matrix.")
                 continue
-            experiment_matrices[experiment_name] = feature_df
+            experiment_matrices_raw[experiment_name] = feature_df
         except Exception as exc:
             du.print_warning(f"[ABLATION] '{experiment_name}' failed during build: {exc}")
 
-    if not experiment_matrices:
+    if not experiment_matrices_raw:
         return artifact_paths
 
-    common_ids = set(base_ids)
-    for df in experiment_matrices.values():
-        common_ids &= _extract_feature_sample_ids(df)
-    require_frozen_universe = bool(getattr(app_config, "ABLATION_REQUIRE_FROZEN_UNIVERSE", True))
-    if require_frozen_universe and common_ids != base_ids:
-        mismatch_count = max(0, len(base_ids) - len(common_ids))
-        base_count = max(1, len(base_ids))
-        mismatch_ratio = mismatch_count / base_count
-        allowed_ratio = float(getattr(app_config, "ABLATION_MAX_MISMATCH_RATIO", 0.01))
-        if mismatch_ratio > allowed_ratio:
-            du.print_error(
-                "[ABLATION] Frozen cohort mismatch detected. "
+    gap_table_rows: list[dict[str, Any]] = []
+    missing_long_rows: list[dict[str, Any]] = []
+    for exp_name, raw_df in experiment_matrices_raw.items():
+        raw_ids = _extract_feature_sample_ids(raw_df)
+        missing_ct = len(set(base_ids) - raw_ids)
+        gap_table_rows.append(
+            {
+                "feature_set": exp_name,
+                "expected_ids": len(base_ids),
+                "raw_matrix_ids": len(raw_ids),
+                "missing_vs_expected": missing_ct,
+                "final_aligned_ids": len(frozen_sorted) if reindex_zero_fill else None,
+                "status": "reindex_zero_fill" if reindex_zero_fill else "raw_matrix_only",
+            }
+        )
+        for sid in sorted(set(base_ids) - raw_ids):
+            missing_long_rows.append({"feature_set": exp_name, "sample_id": sid})
+
+    missing_df = pd.DataFrame(missing_long_rows) if missing_long_rows else pd.DataFrame()
+
+    experiment_matrices: dict[str, pd.DataFrame] = {}
+    if reindex_zero_fill:
+        du.print_info(
+            "[ABLATION] Reindexing all feature sets to frozen cohort with zero-fill "
+            f"({len(frozen_sorted)} sample_ids)."
+        )
+        for exp_name, raw_df in experiment_matrices_raw.items():
+            reindexed = reindex_ablation_features_to_frozen_ids(raw_df, frozen_sorted)
+            if reindexed.shape[1] == 0:
+                du.print_warning(f"[ABLATION] '{exp_name}' has zero columns after reindex — skipping.")
+                continue
+            experiment_matrices[exp_name] = reindexed
+        for exp_name, df in list(experiment_matrices.items()):
+            idx_set = set(pd.to_numeric(df.index, errors="coerce").dropna().astype(int).tolist())
+            if idx_set != set(frozen_sorted) or len(df) != len(frozen_sorted):
+                msg = (
+                    f"[ABLATION] Post-reindex index mismatch for '{exp_name}': "
+                    f"rows={len(df)} expected={len(frozen_sorted)}."
+                )
+                if strict_evidence or paper_mode:
+                    du.print_error(msg)
+                    return artifact_paths
+                du.print_warning(msg)
+        common_ids = set(frozen_sorted)
+    else:
+        experiment_matrices = dict(experiment_matrices_raw)
+        common_ids = set(base_ids)
+        for df in experiment_matrices.values():
+            common_ids &= _extract_feature_sample_ids(df)
+        require_frozen_universe = bool(getattr(app_config, "ABLATION_REQUIRE_FROZEN_UNIVERSE", True))
+        if require_frozen_universe and common_ids != base_ids:
+            mismatch_count = max(0, len(base_ids) - len(common_ids))
+            base_count = max(1, len(base_ids))
+            mismatch_ratio = mismatch_count / base_count
+            allowed_ratio = float(getattr(app_config, "ABLATION_MAX_MISMATCH_RATIO", 0.01))
+            if mismatch_ratio > allowed_ratio:
+                du.print_error(
+                    "[ABLATION] Frozen cohort mismatch detected. "
+                    f"base_ids={len(base_ids)} common_ids={len(common_ids)} "
+                    f"mismatch={mismatch_count} ({mismatch_ratio:.2%}). "
+                    "Enable ABLATION_COHORT_REINDEX_ZERO_FILL=True or raise ABLATION_MAX_MISMATCH_RATIO."
+                )
+                return artifact_paths
+            du.print_warning(
+                "[ABLATION] Minor frozen-cohort mismatch tolerated. "
                 f"base_ids={len(base_ids)} common_ids={len(common_ids)} "
                 f"mismatch={mismatch_count} ({mismatch_ratio:.2%})"
             )
+        if not common_ids:
+            du.print_warning("[ABLATION] No common sample_id universe across experiments.")
             return artifact_paths
-        du.print_warning(
-            "[ABLATION] Minor frozen-cohort mismatch tolerated. "
-            f"base_ids={len(base_ids)} common_ids={len(common_ids)} "
-            f"mismatch={mismatch_count} ({mismatch_ratio:.2%})"
-        )
-    if not common_ids:
-        du.print_warning("[ABLATION] No common sample_id universe across experiments.")
-        return artifact_paths
-    du.print_info(f"[ABLATION] Common sample universe locked: {len(common_ids)} sample_ids")
+
+    du.print_info(f"[ABLATION] Training sample universe: {len(common_ids)} sample_ids")
+
+    for row in gap_table_rows:
+        row["final_aligned_ids"] = len(common_ids)
+        row["input_label_sample_ids"] = len(base_ids)
+        if reindex_zero_fill:
+            row["status"] = "OK"
+
+    gap_summary_payload = {
+        "ablation_cohort_reindex_zero_fill": reindex_zero_fill,
+        "strict_evidence_or_paper_mode": bool(strict_evidence or paper_mode),
+        "expected_frozen_cohort_size": len(base_ids),
+        "final_training_universe_size": len(common_ids),
+    }
+    json_p, md_p, csv_p = write_ablation_cohort_gap_artifacts(
+        diagnostics_dir=_diagnostics_dir(),
+        run_id=run_id,
+        gap_table_rows=gap_table_rows,
+        summary=gap_summary_payload,
+        missing_ids_long=missing_df if not missing_df.empty else None,
+    )
+    artifact_paths.append(str(json_p))
+    artifact_paths.append(str(md_p))
+    if csv_p is not None:
+        artifact_paths.append(str(csv_p))
+
+    _print_ablation_cohort_integrity_table(gap_table_rows)
 
     samples_work = samples_df.copy()
     samples_work["sample_id"] = pd.to_numeric(samples_work["sample_id"], errors="coerce")
@@ -304,21 +452,23 @@ def run_ablation_experiments(
         setattr(app_config, "ENABLE_CROSS_VALIDATION", False)
         setattr(app_config, "ENABLE_CV_REBALANCING", False)
     setattr(app_config, "RUNTIME_QUIET_TRAINING", True)
+    setattr(app_config, "RUNTIME_ABLATION_ACTIVE", True)
 
     try:
         for experiment_name, feature_df in experiment_matrices.items():
             try:
                 setattr(app_config, "RUNTIME_EXPERIMENT_ID", experiment_name)
                 work_df = feature_df.copy()
-                if "sample_id" in work_df.columns:
-                    work_df["sample_id"] = pd.to_numeric(work_df["sample_id"], errors="coerce")
-                    work_df = work_df[work_df["sample_id"].isin(common_ids)].copy()
-                else:
-                    idx_series = pd.Series(
-                        pd.to_numeric(pd.Index(work_df.index), errors="coerce"),
-                        index=work_df.index,
-                    )
-                    work_df = work_df.loc[idx_series.isin(common_ids)].copy()
+                if not reindex_zero_fill:
+                    if "sample_id" in work_df.columns:
+                        work_df["sample_id"] = pd.to_numeric(work_df["sample_id"], errors="coerce")
+                        work_df = work_df[work_df["sample_id"].isin(common_ids)].copy()
+                    else:
+                        idx_series = pd.Series(
+                            pd.to_numeric(pd.Index(work_df.index), errors="coerce"),
+                            index=work_df.index,
+                        )
+                        work_df = work_df.loc[idx_series.isin(common_ids)].copy()
                 if work_df.empty:
                     du.print_warning(f"[ABLATION] Skipping '{experiment_name}' due to empty filtered feature matrix.")
                     continue
@@ -347,6 +497,7 @@ def run_ablation_experiments(
         setattr(app_config, "ENABLE_CROSS_VALIDATION", previous_cv)
         setattr(app_config, "ENABLE_CV_REBALANCING", previous_cv_rebalance)
         setattr(app_config, "RUNTIME_QUIET_TRAINING", previous_quiet)
+        setattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)
 
     if not summary_rows:
         return artifact_paths

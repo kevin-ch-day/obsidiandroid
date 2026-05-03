@@ -71,9 +71,13 @@ def _build_split_cache_key(
         pd.util.hash_pandas_object(pd.Index(features_df.index).to_series(), index=False).sum()
     )
     label_hash = int(pd.util.hash_pandas_object(pd.Series(encoded_labels), index=False).sum())
+    # Ablation feature sets differ in column count; reusing the column dimension in the key
+    # would miss the split cache and produce different train/test sample_id sets per experiment.
+    ablation_lock = bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
+    n_features_key = 0 if ablation_lock else int(features_df.shape[1])
     return (
         int(len(features_df)),
-        int(features_df.shape[1]),
+        n_features_key,
         index_hash,
         label_hash,
         float(test_size),

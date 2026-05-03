@@ -1,0 +1,293 @@
+"""Feature lineage audit for the fused ML matrix (reporting only; no training changes).
+
+Maps column names to modality/source using naming conventions and exported contracts.
+"""
+
+from __future__ import annotations
+
+import csv
+import json
+from pathlib import Path
+from typing import Any
+
+# Columns produced by ``enrich_score_features.add_derived_score_features`` (primary AV DB path).
+ENRICH_SCORE_COLUMNS = frozenset(
+    {
+        "malicious_engines",
+        "total_engines",
+        "malicious_pct",
+        "malicious_ratio",
+        "is_high_consensus",
+        "detection_band",
+        "detection_flag",
+        "detection_density",
+        "engine_diversity",
+        "risk_score",
+        "risk_band",
+        "risk_rank",
+        "detection_confidence",
+    }
+)
+
+# Known merged malicious-score table merge artifacts (optional DB snapshot columns).
+COMMON_MERGE_SCORE_HINTS = frozenset(
+    {
+        "confidence_band",
+        "detection_confidence_level",
+    }
+)
+
+
+def classify_column_lineage(column_name: str, *, selected_vendors: frozenset[str] | None = None) -> dict[str, str]:
+    """Return modality/source classification for a single feature column name."""
+    name = str(column_name).strip()
+    lower = name.lower()
+
+    if lower.startswith("perm__"):
+        if lower in {"perm__dangerous_count", "perm__normal_count", "perm__oem_count", "perm__total_count"}:
+            return {
+                "lineage_group": "permission_intel_counts",
+                "modality": "permission_structural",
+                "source_system": "permission_intel_db",
+                "notes": "Aggregates from android_permission_obs_sample (protection/source buckets).",
+            }
+        return {
+            "lineage_group": "permission_intel_binary",
+            "modality": "permission_structural",
+            "source_system": "permission_intel_db",
+            "notes": "Per-permission binary indicator after min-support filtering.",
+        }
+
+    if lower.startswith("meta__"):
+        return {
+            "lineage_group": "catalog_metadata_vt_summary",
+            "modality": "catalog_static_and_vt_aggregate",
+            "source_system": "primary_db_sample_catalog_join",
+            "notes": "Engineered from malware_sample_catalog / VT summary columns (meta__ prefix). Not Permission Intel.",
+        }
+
+    for prefix in ("parsed_family_", "threat_class_", "malware_type_"):
+        if lower.startswith(prefix):
+            return {
+                "lineage_group": "vendor_parsed_av_strings",
+                "modality": "av_vendor_natural_language_labels",
+                "source_system": "primary_db_parsed_vendor_tables",
+                "notes": "Vendor-specific Parsed Family / Threat Class / Malware Type strings "
+                "(encoded to integer codes). These are AV vendor outputs, not ground-truth family_id labels.",
+            }
+
+    if lower in ENRICH_SCORE_COLUMNS or lower in COMMON_MERGE_SCORE_HINTS:
+        return {
+            "lineage_group": "av_derived_scores",
+            "modality": "av_consensus_and_detection_shape",
+            "source_system": "primary_db_verdicts_plus_enrichment",
+            "notes": "Derived from binary detection matrix + malicious scoring merge + enrich_score_features.",
+        }
+
+    # Wide binary engine columns from virustotal_sample_vendor_engine_verdicts pivot (names vary by engine).
+    if selected_vendors and lower in selected_vendors:
+        return {
+            "lineage_group": "av_engine_binary_detection",
+            "modality": "vendor_detection_binary",
+            "source_system": "primary_db_vendor_engine_verdicts",
+            "notes": "Per-engine detection flag from wide verdict row (same column stem as vendor key when applicable).",
+        }
+
+    return {
+        "lineage_group": "av_engine_binary_or_auxiliary",
+        "modality": "vendor_detection_binary_or_numeric_aux",
+        "source_system": "primary_db_av_pipeline",
+        "notes": "Typically wide AV binary columns from verdict pivot; verify against encoder_mappings.",
+    }
+
+
+def load_json_if_present(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def build_feature_lineage_report(run_diagnostics_dir: Path | str) -> dict[str, Any]:
+    """Assemble lineage JSON + tabular rows from artifacts under ``.../diagnostics``."""
+    diag = Path(run_diagnostics_dir)
+    modality_path = diag / "modality_method_contract.json"
+    contract_path = diag / "feature_contract.json"
+    leakage_txt = diag / "leakage_assessment.txt"
+    leakage_audit_latest = diag / "leakage_pruning_audit.latest.csv"
+
+    modality = load_json_if_present(modality_path) or {}
+    contract = load_json_if_present(contract_path) or {}
+
+    feature_columns: list[str] = list(contract.get("feature_columns") or [])
+    selected = contract.get("selected_vendors") or []
+    vendor_set = frozenset(str(v).strip().lower().replace("-", "").replace("_", "") for v in selected)
+
+    rows: list[dict[str, Any]] = []
+    counts: dict[str, int] = {}
+    for col in feature_columns:
+        meta = classify_column_lineage(col, selected_vendors=vendor_set)
+        group = meta["lineage_group"]
+        counts[group] = counts.get(group, 0) + 1
+        rows.append({"column_name": col, **meta})
+
+    prefix_counts_training = {
+        "perm__": sum(1 for c in feature_columns if str(c).startswith("perm__")),
+        "meta__": sum(1 for c in feature_columns if str(c).startswith("meta__")),
+        "parsed_family_": sum(1 for c in feature_columns if str(c).startswith("parsed_family_")),
+        "threat_class_": sum(1 for c in feature_columns if str(c).startswith("threat_class_")),
+        "malware_type_": sum(1 for c in feature_columns if str(c).startswith("malware_type_")),
+    }
+
+    fusion = modality.get("fusion_modality") or {}
+    permission_mod = modality.get("permission_modality") or {}
+    av_mod = modality.get("av_modality") or {}
+
+    audit_rows = 0
+    if leakage_audit_latest.is_file():
+        try:
+            import pandas as pd
+
+            audit_df = pd.read_csv(leakage_audit_latest)
+            audit_rows = int(len(audit_df))
+        except Exception:
+            audit_rows = 0
+
+    fusion_total = int(fusion.get("feature_count_total") or 0)
+    training_cols = len(feature_columns)
+    dropped_delta = max(0, fusion_total - training_cols) if fusion_total else None
+
+    narrative = {
+        "modules_av_vendor_detection_features": (
+            "analysis/matrix/av_binary_matrix_builder.py (binary pivot), "
+            "database/db_av_engine_verdicts.fetch_verdicts_simple_ids; merged into enriched_matrix in "
+            "analysis/pipeline/av_engine_pipeline.py."
+        ),
+        "modules_vendor_consensus_scoring": (
+            "Vendor scores used for **selection/gating only** via analysis/pipeline/score_av_engines.py "
+            "and ml_classification/vectorization/feature_engine_selection.py — scores are not appended "
+            "as feature columns unless merged indirectly through enrichment frames."
+        ),
+        "modules_permission_features": (
+            "analysis/orchestration/permission_features.py build_permission_feature_frame "
+            "(Permission Intel android_permission_obs_sample via execute_permission_query)."
+        ),
+        "modules_metadata_features": (
+            "analysis/pipeline/sample_preparation.py build_metadata_feature_frame "
+            "(prefix meta__, sourced from cohort dataframe / primary DB fields)."
+        ),
+        "modules_vendor_parsed_encoding": (
+            "ml_classification/vectorization/feature_vendor_extractor.py + feature_encoder.encode_features "
+            "inside ml_classification/vectorization/feature_vector_builder.build_feature_vector."
+        ),
+        "modules_fusion": (
+            "main.py merges enriched_matrix + metadata + permission, then "
+            "analysis/pipeline/stage_modeling.build_feature_matrix_stage → build_feature_vector joins "
+            "encoded vendor fields with extras."
+        ),
+        "modules_training_pruning": (
+            "ml_classification/training/pipeline_core.py: _prune_low_information_features (nunique<=1), "
+            "then _prune_potential_leakage_features; leakage audit CSV optional."
+        ),
+    }
+
+    answers = {
+        "family_label_leakage": (
+            "Training labels use family_id; features must not include canonical family_name/family_id columns. "
+            "parsed_family_* columns are **vendor-reported** strings, not Obsidian ground-truth labels — "
+            "see leakage_assessment.txt for qualitative coupling classification."
+        ),
+        "parsed_vendor_vs_pure_detection": (
+            "Vendor parsed strings use prefixes parsed_family_, threat_class_, malware_type_; "
+            "wide binary detections use engine-name stems from the verdict pivot (distinct representations)."
+        ),
+        "feature_contract_modality_labels": (
+            "feature_contract.json lists columns + encoder_mappings for categoricals; "
+            "perm__/meta__/parsed prefixes give deterministic modality without extra tags per column."
+        ),
+        "permission_intel_vs_primary_metadata": (
+            "perm__* rows originate from Permission Intel DB; meta__* rows from cohort/catalog VT aggregates "
+            "on the primary database (see doc/data_sources.md)."
+        ),
+        "evidence_paper_mode_notes": (
+            "RUNTIME_EVIDENCE_STRICT_MODE can force empty matrices when parser/top-k constraints fail; "
+            "PERMISSION_ENRICHMENT_STRICT_IN_EVIDENCE gates PI fetch failures; "
+            "PAPER_MODE_ENABLED disables vendor fallback widening — review profile + app_config."
+        ),
+    }
+
+    payload: dict[str, Any] = {
+        "artifact_sources": {
+            "modality_method_contract": str(modality_path),
+            "feature_contract": str(contract_path),
+            "leakage_assessment_txt": str(leakage_txt) if leakage_txt.is_file() else None,
+            "leakage_pruning_audit": str(leakage_audit_latest) if leakage_audit_latest.is_file() else None,
+        },
+        "fusion_stage_counts": {
+            "matrix_rows": fusion.get("matrix_shape", {}).get("rows"),
+            "matrix_columns_total": fusion_total,
+            "permission_columns": fusion.get("feature_count_permission"),
+            "vendor_parsed_columns": fusion.get("feature_count_av"),
+            "other_columns": fusion.get("feature_count_other"),
+            "permission_modality_feature_count_raw": permission_mod.get("feature_count_raw"),
+        },
+        "training_stage_counts": {
+            "feature_columns_after_pruning": training_cols,
+            "selected_vendor_count": contract.get("selected_vendor_count"),
+            "approx_columns_dropped_since_fusion": dropped_delta,
+            "leakage_pruning_audit_rows": audit_rows,
+        },
+        "lineage_group_counts_training": counts,
+        "name_prefix_counts_training": prefix_counts_training,
+        "code_reference": narrative,
+        "audit_answers": answers,
+        "warnings": [],
+    }
+
+    if fusion_total and training_cols and audit_rows:
+        inferred_low_info = max(0, fusion_total - training_cols - audit_rows)
+        payload["training_stage_counts"]["approx_low_information_drops"] = inferred_low_info
+        if inferred_low_info > 0:
+            payload["warnings"].append(
+                "approx_low_information_drops is fusion_total - training_cols - leakage_audit_rows; "
+                "exact list only appears in debug logs unless a dedicated export is added."
+            )
+
+    if not feature_columns:
+        payload["warnings"].append("feature_contract.json missing or empty — run full pipeline or pass diagnostics dir.")
+
+    return {
+        "summary": payload,
+        "column_rows": rows,
+    }
+
+
+def write_feature_lineage_artifacts(run_diagnostics_dir: Path | str) -> tuple[Path, Path]:
+    """Write ``feature_lineage_summary.json`` and ``feature_lineage_summary.csv``."""
+    diag = Path(run_diagnostics_dir)
+    diag.mkdir(parents=True, exist_ok=True)
+    built = build_feature_lineage_report(diag)
+    json_path = diag / "feature_lineage_summary.json"
+    csv_path = diag / "feature_lineage_summary.csv"
+
+    export_payload = dict(built["summary"])
+    export_payload["column_lineage"] = built["column_rows"]
+    json_path.write_text(json.dumps(export_payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    with csv_path.open("w", encoding="utf-8", newline="") as handle:
+        fieldnames = ["column_name", "lineage_group", "modality", "source_system", "notes"]
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in built["column_rows"]:
+            writer.writerow({k: row.get(k, "") for k in fieldnames})
+
+    return json_path, csv_path
+
+
+__all__ = [
+    "build_feature_lineage_report",
+    "classify_column_lineage",
+    "write_feature_lineage_artifacts",
+]

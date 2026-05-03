@@ -253,7 +253,7 @@ def apply_confusion_matrix_policy(run_id: str, top_model: str | None) -> None:
     """Apply confusion-matrix retention policy for run-scoped outputs."""
     mode = str(getattr(app_config, "CONFUSION_MATRIX_MODE", "all")).strip().lower()
 
-    run_cm_dir = Path(app_config.DEFAULT_OUTPUT_DIR) / "runs" / str(run_id) / "conf_matrices"
+    run_cm_dir = output_paths.resolve_runtime_run_directory(str(run_id)) / "conf_matrices"
     if not run_cm_dir.exists():
         return
 

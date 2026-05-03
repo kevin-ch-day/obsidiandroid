@@ -4,6 +4,14 @@ venv/
 .env
 .env.*
 
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+*.swo
+*~
+
 # Python caches
 __pycache__/
 *.py[cod]
@@ -12,12 +20,22 @@ testing/.pytest_tmp/
 .mypy_cache/
 .ruff_cache/
 .coverage
+coverage.xml
 htmlcov/
+.hypothesis/
+
+# Jupyter
+.ipynb_checkpoints/
 
 # Build/package artifacts
 build/
 dist/
 *.egg-info/
+*.egg
+
+# ML / experiment tracking (local runs)
+wandb/
+mlruns/
 
 # Runtime output and logs
 output/

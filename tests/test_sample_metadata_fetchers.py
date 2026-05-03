@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from database import db_sample_metadata_fetchers as fetchers
 
 
@@ -18,7 +20,10 @@ def test_fetch_samples_by_type_uses_left_hash_join_when_sha_not_required(monkeyp
     fetchers.fetch_samples_by_type(type_slug="banker", require_sha256=False)
 
     query = str(captured["query"])
-    assert "LEFT JOIN malware_artifact_hash_registry x ON x.sha256 = y.sha256" in query
+    m = re.search(r"(?P<left>LEFT )?JOIN \s*\(\s*SELECT z\.\*", query, re.DOTALL)
+    assert m and m.group("left") is not None
+    assert "malware_artifact_hash_registry h0" in query
+    assert "_artifact_hash_rn" in query
 
 
 def test_fetch_samples_by_type_uses_inner_hash_join_when_sha_required(monkeypatch) -> None:
@@ -34,8 +39,10 @@ def test_fetch_samples_by_type_uses_inner_hash_join_when_sha_required(monkeypatc
     fetchers.fetch_samples_by_type(type_slug="banker", require_sha256=True)
 
     query = str(captured["query"])
-    assert "JOIN malware_artifact_hash_registry x ON x.sha256 = y.sha256" in query
-    assert "LEFT JOIN malware_artifact_hash_registry x ON x.sha256 = y.sha256" not in query
+    m = re.search(r"(?P<left>LEFT )?JOIN \s*\(\s*SELECT z\.\*", query, re.DOTALL)
+    assert m and m.group("left") is None
+    assert "malware_artifact_hash_registry h0" in query
+    assert "_artifact_hash_rn" in query
 
 
 def test_gate_stats_accounts_for_missing_hash_registry_rows(monkeypatch) -> None:
@@ -66,7 +73,7 @@ def test_gate_stats_accounts_for_missing_hash_registry_rows(monkeypatch) -> None
         allow_missing_package_name=False,
     )
 
-    assert any("JOIN malware_artifact_hash_registry x ON x.sha256 = y.sha256" in q for q in seen_queries)
+    assert any("malware_artifact_hash_registry h0" in q and "_artifact_hash_rn" in q for q in seen_queries)
     assert stats["excluded_missing_sha256"] == 7
     assert stats["excluded_missing_hash_registry"] == 5
     assert stats["final_count_estimate"] == 79
@@ -89,8 +96,11 @@ def test_fetch_min_support_subquery_reuses_sha_join_mode(monkeypatch) -> None:
     )
 
     query = str(captured["query"])
-    assert "LEFT JOIN malware_artifact_hash_registry x ON x.sha256 = y.sha256" in query
-    assert "LEFT JOIN malware_artifact_hash_registry x_inner ON x_inner.sha256 = y_inner.sha256" in query
+    m = re.search(r"(?P<left>LEFT )?JOIN \s*\(\s*SELECT z\.\*", query, re.DOTALL)
+    assert m and m.group("left") is not None
+    assert "x_inner.sha256 = y_inner.sha256" in query
+    assert "malware_artifact_hash_registry h0" in query
+    assert query.count("_artifact_hash_rn") >= 2
 
 
 def test_gate_stats_query_uses_same_scan_summary_join_as_fetch(monkeypatch) -> None:
@@ -104,10 +114,10 @@ def test_gate_stats_query_uses_same_scan_summary_join_as_fetch(monkeypatch) -> N
     monkeypatch.setattr(fetchers.db_engine, "execute_query", _fake_execute_query)
     fetchers.get_type_cohort_gate_stats(type_slug="banker")
 
-    assert any(
-        "LEFT JOIN virustotal_sample_scan_summary s ON s.sample_id = y.sample_id" in q
-        for q in seen_queries
-    )
+    joined = " ".join(seen_queries)
+    assert "ROW_NUMBER()" in joined
+    assert "virustotal_sample_scan_summary" in joined
+    assert "v_android_apk_family_resolved" in joined
 
 
 def test_fetch_samples_by_type_excludes_unknown_type_slug_in_sql(monkeypatch) -> None:

@@ -11,6 +11,33 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# Whole-module slow tier: keeps default `pytest` fast; run full suite with `-m "slow or not slow"`.
+_SLOW_TEST_MODULES = frozenset(
+    {
+        "test_classification_label_resolver_taxonomy_audit.py",
+        "test_export_manager.py",
+        "test_main_stop_after_training.py",
+        "test_model_trainer_factory.py",
+        "test_paper2_scripts.py",
+        "test_stage_manifest.py",
+        "test_stage_permission_trends_report.py",
+        "test_startup_menu.py",
+        "test_training_trainer.py",
+    }
+)
+
+
+def pytest_collection_modifyitems(config, items) -> None:  # noqa: ARG001
+    """Tag known slow integration modules so default `-m "not slow"` skips them."""
+    for item in items:
+        try:
+            path = getattr(item, "path", None)
+            name = Path(path).name if path is not None else Path(item.fspath).name
+        except Exception:
+            continue
+        if name in _SLOW_TEST_MODULES:
+            item.add_marker(pytest.mark.slow)
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 

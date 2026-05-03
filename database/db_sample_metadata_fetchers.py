@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 from database import db_engine
+from database.cohort_sql_fragments import (
+    latest_artifact_hash_registry_subquery,
+    latest_family_resolution_subquery,
+    latest_vt_scan_summary_subquery,
+)
 
 
 def fetch_samples_by_type(
@@ -65,13 +70,15 @@ def fetch_samples_by_type(
         if str(family_id).strip()
     )
 
-    hash_join_clause = "JOIN malware_artifact_hash_registry x ON x.sha256 = y.sha256"
-    hash_join_clause_inner = "JOIN malware_artifact_hash_registry x_inner ON x_inner.sha256 = y_inner.sha256"
+    hash_one = latest_artifact_hash_registry_subquery()
+    hash_join_clause = f"JOIN {hash_one} x ON x.sha256 = y.sha256"
+    hash_join_clause_inner = f"JOIN {hash_one} x_inner ON x_inner.sha256 = y_inner.sha256"
     if not require_sha256:
-        hash_join_clause = "LEFT JOIN malware_artifact_hash_registry x ON x.sha256 = y.sha256"
-        hash_join_clause_inner = (
-            "LEFT JOIN malware_artifact_hash_registry x_inner ON x_inner.sha256 = y_inner.sha256"
-        )
+        hash_join_clause = f"LEFT JOIN {hash_one} x ON x.sha256 = y.sha256"
+        hash_join_clause_inner = f"LEFT JOIN {hash_one} x_inner ON x_inner.sha256 = y_inner.sha256"
+
+    scan_one = latest_vt_scan_summary_subquery()
+    fam_one = latest_family_resolution_subquery()
 
     if min_samples_per_family is not None:
         inner_where_clauses = ["y_inner.platform = 'android'", "y_inner.file_extension = 'apk'"]
@@ -121,8 +128,8 @@ def fetch_samples_by_type(
                 SELECT f_inner.family_id
                 FROM malware_sample_catalog y_inner
                 {hash_join_clause_inner}
-                LEFT JOIN virustotal_sample_scan_summary s_inner ON s_inner.sample_id = y_inner.sample_id
-                LEFT JOIN v_android_apk_family_resolved v_inner
+                LEFT JOIN {scan_one} s_inner ON s_inner.sample_id = y_inner.sample_id
+                LEFT JOIN {fam_one} v_inner
                   ON v_inner.sample_id = y_inner.sample_id
                 LEFT JOIN android_malware_family f_inner
                   ON LOWER(f_inner.family_slug) = v_inner.resolved_family_lc
@@ -196,8 +203,8 @@ def fetch_samples_by_type(
             x.sha1 AS hash_sha1
         FROM malware_sample_catalog y
         {hash_join_clause}
-        LEFT JOIN virustotal_sample_scan_summary s ON s.sample_id = y.sample_id
-        LEFT JOIN v_android_apk_family_resolved v ON v.sample_id = y.sample_id
+        LEFT JOIN {scan_one} s ON s.sample_id = y.sample_id
+        LEFT JOIN {fam_one} v ON v.sample_id = y.sample_id
         LEFT JOIN android_malware_family f ON LOWER(f.family_slug) = v.resolved_family_lc
         LEFT JOIN android_malware_type t ON t.type_id = f.primary_type_id
         WHERE {where_sql}
@@ -227,15 +234,19 @@ def get_type_cohort_gate_stats(
     exclude_family_canonical: tuple[str, ...] | None = None,
 ) -> dict:
     """Return pre-training cohort gate counts for a taxonomy type."""
-    hash_join_clause = "JOIN malware_artifact_hash_registry x ON x.sha256 = y.sha256"
+    hash_one = latest_artifact_hash_registry_subquery()
+    hash_join_clause = f"JOIN {hash_one} x ON x.sha256 = y.sha256"
     if not require_sha256:
-        hash_join_clause = "LEFT JOIN malware_artifact_hash_registry x ON x.sha256 = y.sha256"
+        hash_join_clause = f"LEFT JOIN {hash_one} x ON x.sha256 = y.sha256"
+
+    scan_one = latest_vt_scan_summary_subquery()
+    fam_one = latest_family_resolution_subquery()
 
     base_query = f"""
         FROM malware_sample_catalog y
         {hash_join_clause}
-        LEFT JOIN virustotal_sample_scan_summary s ON s.sample_id = y.sample_id
-        LEFT JOIN v_android_apk_family_resolved v ON v.sample_id = y.sample_id
+        LEFT JOIN {scan_one} s ON s.sample_id = y.sample_id
+        LEFT JOIN {fam_one} v ON v.sample_id = y.sample_id
         LEFT JOIN android_malware_family f ON LOWER(f.family_slug) = v.resolved_family_lc
         LEFT JOIN android_malware_type t ON t.type_id = f.primary_type_id
         WHERE y.platform = 'android'
@@ -357,7 +368,8 @@ def fetch_available_android_type_slugs() -> tuple[str, ...]:
 
 def fetch_all_android_malware(as_dataframe: bool = False):
     """Retrieve metadata for all Android-tagged malware samples."""
-    query = """
+    hash_one = latest_artifact_hash_registry_subquery()
+    query = f"""
         SELECT
             y.sample_id,
             y.sample_label AS sample_name,
@@ -377,7 +389,7 @@ def fetch_all_android_malware(as_dataframe: bool = False):
             x.sha1 AS hash_sha1,
             x.sha256 AS hash_sha256
         FROM malware_sample_catalog y
-        JOIN malware_artifact_hash_registry x ON x.sha256 = y.sha256
+        JOIN {hash_one} x ON x.sha256 = y.sha256
         WHERE y.platform = 'android'
         ORDER BY y.sample_id ASC
     """
@@ -391,7 +403,8 @@ def fetch_all_android_malware(as_dataframe: bool = False):
 
 def fetch_android_malware_with_min_family_samples(min_count: int = 3, as_dataframe: bool = False):
     """Get Android malware samples from families with at least ``min_count`` samples."""
-    query = """
+    hash_one = latest_artifact_hash_registry_subquery()
+    query = f"""
         SELECT
             y.sample_id,
             y.sample_label AS sample_name,
@@ -411,7 +424,7 @@ def fetch_android_malware_with_min_family_samples(min_count: int = 3, as_datafra
             x.sha1 AS hash_sha1,
             x.sha256 AS hash_sha256
         FROM malware_sample_catalog y
-        JOIN malware_artifact_hash_registry x ON x.sha256 = y.sha256
+        JOIN {hash_one} x ON x.sha256 = y.sha256
         WHERE y.platform = 'android'
           AND y.family_label IN (
               SELECT family_label
