@@ -163,16 +163,17 @@ def select_profile_interactive() -> str | None:
         du.print_error("[PROFILE] No valid profiles found in ./profiles.")
         return None
 
-    menu_options: Dict[str, str] = {
-        profile_id: profile_summary for profile_id, profile_summary in catalog
-    }
-    menu_options["Enter profile id manually"] = "Use typed profile id/path for direct selection."
+    labels = [profile_id for profile_id, _ in catalog]
+    labels.append("Enter profile id manually")
 
-    choice = mu.display_rich_menu(menu_options, title="Select Execution Profile")
+    choice = mu.display_menu(
+        labels,
+        title="Execution profile",
+    )
     if choice == 0:
         return None
 
-    selected_label = list(menu_options.keys())[choice - 1]
+    selected_label = labels[choice - 1]
     if selected_label == "Enter profile id manually":
         try:
             entered = input("Enter profile id (e.g., paper2_primary): ").strip()
@@ -230,48 +231,31 @@ def select_profile_interactive_quick() -> str | None:
             continue
         indexed_profiles.append(profile_id)
 
-    advanced_idx = len(indexed_profiles) + 1
+    more_label = "More profiles (full catalog)"
+    menu_labels = list(indexed_profiles) + [more_label]
 
-    du.print_subheader("Execution Profile")
-    print("Press Enter for research_all_malicious.")
-    for idx, profile_id in enumerate(indexed_profiles, 1):
-        print(f"  [{idx}] {profile_id}")
-    print(f"  [{advanced_idx}] advanced")
-    print("  [0] Back\n")
-
-    prompt = f"Enter selection [default=1, 0-{advanced_idx}]: "
     while True:
-        try:
-            raw = input(prompt).strip()
-        except KeyboardInterrupt:
-            du.print_warning("[PROFILE] Selection cancelled by user (Ctrl+C).")
-            return None
-
-        if raw == "":
-            choice = 1
-        else:
-            try:
-                choice = int(raw)
-            except ValueError:
-                du.print_warning("[PROFILE] Invalid input. Please enter a numeric selection.")
-                continue
-
+        choice = mu.display_menu(
+            menu_labels,
+            title="Execution profile",
+            exit_label="Back",
+            default_choice=1,
+        )
         if choice == 0:
             return None
-        if choice == advanced_idx:
+
+        selected_key = menu_labels[choice - 1]
+        if selected_key == more_label:
             return select_profile_interactive()
-        if 1 <= choice <= len(indexed_profiles):
-            selected = indexed_profiles[choice - 1]
-            try:
-                # Validate selected profile before returning so launch failures are
-                # caught at selection time with a clear message.
-                load_profile(selected)
-            except Exception as exc:
-                du.print_error(f"[PROFILE] Selected profile is invalid: {exc}")
-                continue
-            du.print_info(f"[PROFILE] Selected: {selected}")
-            return selected
-        du.print_warning("[PROFILE] Selection out of range. Try again.")
+
+        try:
+            load_profile(selected_key)
+        except Exception as exc:
+            du.print_error(f"[PROFILE] Selected profile is invalid: {exc}")
+            continue
+
+        du.print_info(f"[PROFILE] Selected: {selected_key}")
+        return selected_key
 
 
 def _build_profile_catalog(profiles: List[Path]) -> List[tuple[str, str]]:

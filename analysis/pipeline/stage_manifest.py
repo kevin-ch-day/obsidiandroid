@@ -371,7 +371,12 @@ def finalize_run_manifest_stage(
         manifest["model_summary"] = manifest_context.get("model_summary") or {}
         manifest["main_training_row_authority"] = manifest_context.get("main_training_row_authority")
         manifest["trained_model_count"] = manifest_context.get("trained_model_count")
-        manifest["feature_matrix_row_count"] = manifest_context.get("feature_matrix_row_count")
+        _feat_post_prune = manifest_context.get("feature_matrix_cols_post_prune")
+        if _feat_post_prune is None:
+            _feat_post_prune = manifest_context.get("feature_matrix_row_count")
+        manifest["feature_matrix_cols_post_prune"] = _feat_post_prune
+        # Legacy key: value is post-prune *column* count (historical misnomer "row_count").
+        manifest["feature_matrix_row_count"] = _feat_post_prune
         split_ctx = manifest_context.get("split") if isinstance(manifest_context.get("split"), dict) else {}
         manifest["train_sample_count"] = split_ctx.get("train_sample_count")
         manifest["test_sample_count"] = split_ctx.get("test_sample_count")
@@ -598,6 +603,10 @@ def _write_run_summary_json(
             compliance_report=comp_rep if comp_rep else None,
         )
 
+        feat_cols_resolved = manifest.get("feature_matrix_cols_post_prune")
+        if feat_cols_resolved is None:
+            feat_cols_resolved = manifest.get("feature_matrix_row_count")
+
         payload = {
             "schema_version": "1.0",
             "run_id": run_id,
@@ -617,7 +626,8 @@ def _write_run_summary_json(
             "trained_model_count": manifest.get("trained_model_count")
             or len(list(manifest.get("trained_models") or [])),
             "main_training_row_authority": manifest.get("main_training_row_authority"),
-            "feature_matrix_row_count": manifest.get("feature_matrix_row_count"),
+            "feature_matrix_cols_post_prune": feat_cols_resolved,
+            "feature_matrix_row_count": feat_cols_resolved,
             "train_sample_count": split_blob.get("train_sample_count"),
             "test_sample_count": split_blob.get("test_sample_count"),
             "ablation_multi_label_targets": manifest.get("ablation_multi_label_targets"),

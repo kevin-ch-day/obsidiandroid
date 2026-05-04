@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from analysis.pipeline import stage_manifest
+from analysis.pipeline.manifest.paper_compliance_checks import build_paper_compliance_checks
 
 
 def test_extract_parser_list_returns_sorted_unique_names() -> None:
@@ -391,7 +392,7 @@ def test_build_paper_compliance_checks_includes_taxonomy_type_guard(tmp_path: Pa
     tax = tmp_path / "taxonomy.json"
     tax.write_text("{}", encoding="utf-8")
 
-    checks = stage_manifest._build_paper_compliance_checks(  # pylint: disable=protected-access
+    checks = build_paper_compliance_checks(
         paper_mode=True,
         split_hash="abc",
         split_audit_path=str(split_audit),

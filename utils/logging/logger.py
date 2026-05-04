@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from config import app_config
+from utils.output_paths import project_logs_root, project_runtime_logs_dir
 
 _LOGGERS: dict[str, logging.Logger] = {}
 
@@ -17,15 +18,15 @@ def _log_level() -> int:
 
 
 def _log_dir() -> Path:
-    base = Path(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output"))
-    path = base / "diagnostics" / "logs"
+    """Rolling / fallback category logs at ``<project_logs_root>/<category>.log``."""
+    path = project_logs_root()
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def _runtime_log_dir(run_id: str) -> Path:
-    base = Path(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output"))
-    path = base / "diagnostics" / "runtime_logs" / str(run_id)
+    """Per-run category logs under ``<project_logs_root>/runtime/<run_id>/``."""
+    path = project_runtime_logs_dir(run_id)
     path.mkdir(parents=True, exist_ok=True)
     return path
 

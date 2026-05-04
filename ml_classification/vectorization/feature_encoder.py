@@ -35,7 +35,7 @@ def encode_features(
         skip_numeric (bool): Skip encoding for numeric columns.
 
     Returns:
-        pd.DataFrame: Encoded feature matrix with "sample_id" as index.
+        pd.DataFrame: Encoded feature matrix indexed by ``sample_id`` (index name set explicitly).
     """
     if df.empty:
         du.print_error("[ENCODE] Empty DataFrame — skipping encoding.")
@@ -65,12 +65,15 @@ def encode_features(
 
             _handle_low_info_columns(df, verbose)
             encoded = df.set_index("sample_id")
+            encoded.index.name = "sample_id"
             encoded.attrs["encoder_mappings"] = encoder_mappings
             return encoded
 
         elif encoding == "onehot":
             df = df.set_index("sample_id")
-            return pd.get_dummies(df, drop_first=True)
+            encoded = pd.get_dummies(df, drop_first=True)
+            encoded.index.name = "sample_id"
+            return encoded
 
         else:
             raise ValueError(f"Unsupported encoding strategy: '{encoding}' — must be 'category' or 'onehot'.")

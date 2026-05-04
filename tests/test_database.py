@@ -24,7 +24,7 @@ def test_test_connection_does_not_raise_unboundlocal_on_connect_failure(monkeypa
         raise MySQLError("boom")
 
     monkeypatch.setattr(db_engine.mysql.connector, "connect", _raise)
-    db_engine.test_connection(verbose=False)
+    assert db_engine.test_connection(verbose=False) is False
 
 
 def test_schema_table_resolution():
@@ -122,14 +122,18 @@ def test_check_split_database_health_structure(monkeypatch) -> None:
         MagicMock(side_effect=MySQLError("no db")),
     )
     report = db_engine.check_split_database_health()
-    assert set(report.keys()) == {
+    assert {
         "primary_ok",
         "permission_intel_ok",
         "permission_obs_sample_in_pi",
-    }
+        "primary_error",
+        "permission_intel_error",
+    }.issubset(set(report.keys()))
     assert report["primary_ok"] is False
     assert report["permission_intel_ok"] is False
     assert report["permission_obs_sample_in_pi"] is False
+    assert isinstance(report.get("primary_error"), str)
+    assert isinstance(report.get("permission_intel_error"), str)
 
 
 def test_db_config_obsidian_env_overrides_in_fresh_interpreter() -> None:

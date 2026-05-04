@@ -21,10 +21,14 @@ def classify_main_training_row_authority(
     fused_feature_rows: int | None,
     aligned_rows: int | None,
     main_uses_frozen_zero_fill: bool,
+    feature_matrix_row_authority: str | None = None,
 ) -> str:
     """Return training row authority label for the primary (non-ablation) training path."""
     if main_uses_frozen_zero_fill:
         return "frozen_cohort_zero_fill"
+    auth = str(feature_matrix_row_authority or "").strip().lower()
+    if auth == "governed_cohort":
+        return "governed_cohort"
     gc = int(prepared_cohort_rows or 0)
     al = int(aligned_rows or 0)
     if gc > 0 and al < gc:
@@ -58,6 +62,7 @@ def finalize_cohort_funnel_dict(manifest_context: dict[str, Any]) -> None:
     fused = manifest_context.get("fused_feature_rows")
     if fused is not None:
         fused = int(fused)
+    auth_raw = str(manifest_context.get("feature_matrix_row_authority") or "").strip()
     aligned = manifest_context.get("aligned_supervised_rows")
     if aligned is not None:
         aligned = int(aligned)
@@ -104,11 +109,17 @@ def finalize_cohort_funnel_dict(manifest_context: dict[str, Any]) -> None:
             "notes": "Vendor-merge authority count (extras left-joined onto vendor index)",
         }
     )
+    fused_notes = "Final built feature_matrix row count prior to supervised alignment"
+    if auth_raw.lower() == "governed_cohort":
+        fused_notes = (
+            "Fused ML matrix rows reindexed to governed cohort (vendor gaps unknown/zero-filled; "
+            "same row count as prepared cohort unless duplicates/null-label policy applies)"
+        )
     stages.append(
         {
             "stage": "fused_feature_rows",
             "row_count": fused if fused is not None else "",
-            "notes": "Final built feature_matrix row count prior to supervised alignment",
+            "notes": fused_notes,
         }
     )
     stages.append(
@@ -122,14 +133,22 @@ def finalize_cohort_funnel_dict(manifest_context: dict[str, Any]) -> None:
         {
             "stage": "post_low_support_training_rows",
             "row_count": post_ls if post_ls is not None else "",
-            "notes": "After min-support family pruning (training matrix rows)",
+            "notes": (
+                "Post-family-support trainable pool: rows after min-family-support filtering "
+                "(not cohort size; column pruning does not drop rows)"
+            ),
         }
     )
     stages.append(
         {
             "stage": "training_feature_cols_post_prune",
             "row_count": feat_cols_post if feat_cols_post is not None else "",
-            "notes": "Feature column count after low-information / leakage pruning (not sample rows)",
+            "column_count": feat_cols_post if feat_cols_post is not None else "",
+            "metric_kind": "training_feature_column_count",
+            "notes": (
+                "Feature column count after low-information / leakage pruning (not sample rows). "
+                "``row_count`` mirrors ``column_count`` for legacy CSV/PNG readers."
+            ),
         }
     )
     stages.append(
@@ -154,6 +173,7 @@ def finalize_cohort_funnel_dict(manifest_context: dict[str, Any]) -> None:
         fused_feature_rows=fused,
         aligned_rows=aligned,
         main_uses_frozen_zero_fill=bool(manifest_context.get("main_training_uses_zero_fill", False)),
+        feature_matrix_row_authority=str(manifest_context.get("feature_matrix_row_authority") or ""),
     )
 
 
@@ -190,14 +210,16 @@ def write_cohort_funnel_artifacts(
         "",
         f"- **main_training_row_authority:** `{authority}`",
         "",
-        "| stage | row_count | notes |",
-        "|-------|-----------|-------|",
+        "| stage | value | notes |",
+        "|-------|-------|-------|",
     ]
     for row in rows:
         stage = row.get("stage", "")
-        count = row.get("row_count", "")
+        val = row.get("column_count")
+        if val in (None, ""):
+            val = row.get("row_count", "")
         notes = str(row.get("notes", "") or "").replace("|", "\\|")
-        lines.append(f"| {stage} | {count} | {notes} |")
+        lines.append(f"| {stage} | {val} | {notes} |")
     lines.append("")
     md_path.write_text("\n".join(lines), encoding="utf-8")
     paths.append(md_path)
@@ -211,10 +233,24 @@ def write_cohort_funnel_artifacts(
 
         if rows:
             labels = [str(r.get("stage", "")) for r in rows]
-            vals = [float(r.get("row_count") or 0) for r in rows]
+
+            def _funnel_bar_value(row: dict[str, Any]) -> float:
+                cc = row.get("column_count")
+                if cc not in (None, ""):
+                    try:
+                        return float(cc)
+                    except (TypeError, ValueError):
+                        pass
+                rc = row.get("row_count")
+                try:
+                    return float(rc or 0)
+                except (TypeError, ValueError):
+                    return 0.0
+
+            vals = [_funnel_bar_value(r) for r in rows]
             fig, ax = plt.subplots(figsize=(10, max(3.5, 0.35 * len(rows))), dpi=140)
             ax.barh(labels[::-1], vals[::-1], color="#4C72B0")
-            ax.set_xlabel("Row count")
+            ax.set_xlabel("Count (rows or feature columns — see cohort_funnel.csv metric_kind)")
             ax.set_title("Cohort funnel")
             fig.tight_layout()
             fig.savefig(png_path, bbox_inches="tight")

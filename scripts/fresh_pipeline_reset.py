@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Wipe configured pipeline output/logs for a clean next run.
+"""Wipe configured pipeline output for a clean next run.
 
 Removes canonical layout under ``DEFAULT_OUTPUT_DIR`` (``runs``, ``bundles``,
-``reports``, ``diagnostics``, ``logs``, ``latest``, ``promoted``),
-``vendor_raw``, and noisy root-level bundles/legacy filenames. Optionally
-preserve the main workbook. Recreates empty layout via
+``reports``, ``diagnostics``, ``latest``, ``promoted``),
+``vendor_raw``, and noisy root-level bundles/legacy filenames. Also removes
+legacy log directories ``<output>/diagnostics/runtime_logs`` and
+``<output>/diagnostics/logs`` from older layouts (pipeline logs now live in
+repository ``logs/`` — see :func:`utils.output_paths.project_logs_root`).
+Optionally preserve the main workbook. Recreates empty layout via
 :func:`utils.output_paths.ensure_output_layout` after deletion.
 
 Destructive operations require ``--yes``. Without it, prints a dry-run plan.
@@ -20,6 +23,8 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+
+from utils import output_cleanup_clutter as occ  # noqa: E402
 
 
 def _resolve_output_root(explicit: str | None) -> Path:
@@ -38,7 +43,6 @@ def _subdir_map(base: Path) -> dict[str, Path]:
         "bundles": base / str(getattr(app_config, "OUTPUT_BUNDLES_SUBDIR", "bundles")),
         "reports": base / str(getattr(app_config, "OUTPUT_REPORTS_SUBDIR", "reports")),
         "diagnostics": base / str(getattr(app_config, "OUTPUT_DIAGNOSTICS_SUBDIR", "diagnostics")),
-        "logs": base / str(getattr(app_config, "OUTPUT_LOGS_SUBDIR", "logs")),
         "latest": base / str(getattr(app_config, "OUTPUT_LATEST_SUBDIR", "latest")),
         "promoted": base / str(getattr(app_config, "OUTPUT_PROMOTED_SUBDIR", "promoted")),
         "vendor_raw": base / "vendor_raw",
@@ -47,31 +51,13 @@ def _subdir_map(base: Path) -> dict[str, Path]:
 
 def _root_glob_targets(base: Path) -> list[Path]:
     names: list[Path] = []
-    patterns = (
-        "paper_bundle_20*",
-        "paper_bundle_20*.zip",
-        "paper_bundle_smoke*",
-        "paper_bundle_zip_smoke*",
-        "paper_bundle_unit_smoke*",
-        "paper_bundle_*smoke*.zip",
-    )
-    for pattern in patterns:
+    for pattern in occ.PAPER_BUNDLE_ARCHIVE_GLOBS + occ.PAPER_BUNDLE_SMOKE_GLOBS:
         names.extend(sorted(base.glob(pattern)))
-    legacy = (
-        "paper_bundle_latest",
-        "permission_trends",
-        "permission_trends.zip",
-        "engine_scoring_summary_log.txt",
-        "family_distribution_report.txt",
-        "obsidiandroid_outputs_copy.xlsx",
-        "obsidiandroid_outputs_snapshot.xlsx",
-        "obsidiandroid_outputs__unknown.xlsx",
-    )
-    for name in legacy:
+    for name in occ.LEGACY_OUTPUT_ROOT_FILES:
         path = base / name
         if path.exists():
             names.append(path)
-    names.extend(sorted(base.glob("obsidiandroid_outputs.corrupt_*.xlsx")))
+    names.extend(sorted(base.glob(occ.WORKBOOK_CORRUPT_GLOB)))
     return sorted({p.resolve() for p in names}, key=lambda p: str(p))
 
 
@@ -100,6 +86,11 @@ def _targets_for_wipe(base: Path, *, purge_workbooks: bool) -> list[Path]:
             if p.resolve().as_posix() not in protected
         ]
     )
+
+    for segments in occ.LEGACY_OUTPUT_LOG_DIR_SEGMENTS:
+        legacy_logs = base.joinpath(*segments)
+        if legacy_logs.exists():
+            targets.append(legacy_logs.resolve())
     if purge_workbooks:
         for name in ("obsidiandroid_outputs.xlsx", "obsidiandroid_outputs.xlsx.lock"):
             book = resolved_base / name

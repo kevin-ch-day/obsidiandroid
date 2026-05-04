@@ -65,7 +65,7 @@ Orchestration lives in **`analysis/pipeline/runner.py`** (`run_pipeline`). **`ma
 - **`scripts/README.md`** – How to run operator scripts from the repo root and DB preflight expectations.
 - **`scripts/backfill_permission_trends_warehouse.py`** – Warehouse backfills when configured.
 - **`scripts/research/`** – Publication tables, evidence bundles, structural diagnostics.
-- **`testing/` utilities** – Fixtures and synthetic datasets for isolated validation.
+- **`devtools/`** – Synthetic dataset fuzzer and ML static-scan helpers (not collected by pytest; see `tests/` for automated tests).
 - **`run_tests.sh`** / **`Makefile`** – Fast (`make test`) and full (`make test-full`) pytest; **`make preflight-db`** checks MySQL connectivity (`database.split_db_health`).
 
 ## Release Checklist

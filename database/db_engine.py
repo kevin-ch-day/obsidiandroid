@@ -21,7 +21,9 @@ from database.db_config import (
     DB_ENABLE_POOLING,
     DB_POOL_SIZE,
     DB_POOL_NAME,
+    DB_CONNECT_TIMEOUT,
 )
+from database.db_errors import mysql_error_summary, operator_facing_db_message
 from config import app_config
 from utils.logging import get_logger, log_event
 
@@ -29,6 +31,24 @@ DEBUG_SQL = False   # Set True only for dev debugging
 VERBOSE_ERRORS = False  # Toggle detailed error logs for production
 DB_LOGGER = get_logger(f"{getattr(app_config, 'APP_LOG_NAMESPACE', 'framework')}.db", "database")
 _CONNECTION_POOL = None
+
+
+def _log_mysql_failure(event: str, exc: BaseException, **extra: object) -> None:
+    """Emit a structured DB failure log (errno/sqlstate/transient when available)."""
+    if not getattr(app_config, "ENABLE_DB_LOGGING", True):
+        return
+    summary = mysql_error_summary(exc)
+    transient = bool(summary.get("transient"))
+    parts = (
+        f"{event} error_type={summary['error_type']!r} errno={summary['errno']!r} "
+        f"sqlstate={summary['sqlstate']!r} transient={transient} message={summary['message']!r}"
+    )
+    for k in sorted(extra):
+        parts += f" {k}={extra[k]!r}"
+    if transient:
+        DB_LOGGER.warning(parts, exc_info=True)
+    else:
+        DB_LOGGER.error(parts, exc_info=True)
 
 
 def _build_connect_kwargs() -> dict:
@@ -41,6 +61,7 @@ def _build_connect_kwargs() -> dict:
         "database": DB_NAME,
         "charset": DB_CHARSET,
         "autocommit": False,
+        "connection_timeout": max(2, int(DB_CONNECT_TIMEOUT)),
     }
 
 
@@ -54,6 +75,7 @@ def _build_permission_intel_connect_kwargs() -> dict:
         "database": PERMISSION_INTEL_DB_NAME,
         "charset": DB_CHARSET,
         "autocommit": False,
+        "connection_timeout": max(2, int(DB_CONNECT_TIMEOUT)),
     }
 
 
@@ -87,8 +109,7 @@ def database_connection():
         yield conn
         conn.commit()
     except Error as e:
-        if getattr(app_config, "ENABLE_DB_LOGGING", True):
-            DB_LOGGER.error("db_connection_error error=%r", e, exc_info=True)
+        _log_mysql_failure("db_connection_error", e, database=DB_NAME)
         if VERBOSE_ERRORS:
             print(f"[ERROR] DB connection error: {e}")
         if conn:
@@ -108,8 +129,11 @@ def permission_intel_database_connection():
         yield conn
         conn.commit()
     except Error as e:
-        if getattr(app_config, "ENABLE_DB_LOGGING", True):
-            DB_LOGGER.error("permission_intel_connection_error error=%r", e, exc_info=True)
+        _log_mysql_failure(
+            "permission_intel_connection_error",
+            e,
+            database=PERMISSION_INTEL_DB_NAME,
+        )
         if VERBOSE_ERRORS:
             print(f"[ERROR] Permission Intel DB connection error: {e}")
         if conn:
@@ -185,14 +209,13 @@ def _run_query(
         return rows
 
     except Error as e:
-        if getattr(app_config, "ENABLE_DB_LOGGING", True):
-            DB_LOGGER.error(
-                "sql_error error=%r duration_ms=%.2f query=%r",
-                e,
-                (perf_counter() - started) * 1000,
-                query if DEBUG_SQL else "<hidden>",
-                exc_info=True,
-            )
+        _log_mysql_failure(
+            "sql_error",
+            e,
+            log_label=log_label,
+            duration_ms=round((perf_counter() - started) * 1000, 2),
+            query_preview=query if DEBUG_SQL else "<hidden>",
+        )
         if VERBOSE_ERRORS:
             print(f"[ERROR] SQL execution failed\nQuery: {query}\nError: {e}")
         conn.rollback()
@@ -312,34 +335,40 @@ def get_table_columns(table_name: str) -> list:
         runner = execute_permission_query if use_pi else execute_query
         rows = runner(query, fetch=True)
         return [row[0] for row in rows]
+    except Error as e:
+        _log_mysql_failure("get_table_columns_error", e, table=table_name)
+        if VERBOSE_ERRORS:
+            print(f"[ERROR] Failed to get columns for '{table_name}': {e}")
+        return []
     except Exception as e:
         if getattr(app_config, "ENABLE_DB_LOGGING", True):
-            DB_LOGGER.error("get_table_columns_error table=%r error=%r", table_name, e, exc_info=True)
+            DB_LOGGER.error(
+                "get_table_columns_error table=%r error=%r",
+                table_name,
+                e,
+                exc_info=True,
+            )
         if VERBOSE_ERRORS:
             print(f"[ERROR] Failed to get columns for '{table_name}': {e}")
         return []
 
 
 # === Basic Connection Diagnostic === #
-def test_connection(verbose: bool = False):
+def test_connection(verbose: bool = False) -> bool:
+    """Return True if the primary database accepts a connection, else False."""
     conn = None
     try:
-        conn = mysql.connector.connect(
-            host=DB_HOST,
-            port=DB_PORT,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            database=DB_NAME
-        )
+        conn = mysql.connector.connect(**_build_connect_kwargs())
         if conn.is_connected() and verbose:
             print("[OK] Database connection successful.")
         if conn.is_connected() and getattr(app_config, "ENABLE_DB_LOGGING", True):
             log_event(DB_LOGGER, "test_connection_ok", host=DB_HOST, db=DB_NAME)
+        return bool(conn.is_connected())
     except Error as e:
-        if getattr(app_config, "ENABLE_DB_LOGGING", True):
-            DB_LOGGER.error("test_connection_error error=%r", e, exc_info=True)
+        _log_mysql_failure("test_connection_error", e, database=DB_NAME)
         if verbose:
             print(f"[ERROR] Connection failed: {e}")
+        return False
     finally:
         if conn and conn.is_connected():
             conn.close()
@@ -361,8 +390,11 @@ def test_permission_intel_connection(verbose: bool = False) -> bool:
             )
         return bool(conn.is_connected())
     except Error as e:
-        if getattr(app_config, "ENABLE_DB_LOGGING", True):
-            DB_LOGGER.error("test_permission_intel_error error=%r", e, exc_info=True)
+        _log_mysql_failure(
+            "test_permission_intel_error",
+            e,
+            database=PERMISSION_INTEL_DB_NAME,
+        )
         if verbose:
             print(f"[ERROR] Permission Intel connection failed: {e}")
         return False
@@ -376,12 +408,15 @@ def check_split_database_health() -> dict:
 
     Returns:
         Dict with keys: ``primary_ok``, ``permission_intel_ok``,
-        ``permission_obs_sample_in_pi`` (all booleans).
+        ``permission_obs_sample_in_pi`` (all booleans), plus optional
+        ``primary_error`` / ``permission_intel_error`` (short strings when checks fail).
     """
-    result = {
+    result: dict = {
         "primary_ok": False,
         "permission_intel_ok": False,
         "permission_obs_sample_in_pi": False,
+        "primary_error": None,
+        "permission_intel_error": None,
     }
     try:
         conn = mysql.connector.connect(**_build_connect_kwargs())
@@ -390,30 +425,46 @@ def check_split_database_health() -> dict:
         finally:
             if conn and conn.is_connected():
                 conn.close()
-    except Error:
-        pass
+    except Error as e:
+        result["primary_error"] = operator_facing_db_message(e)
+        _log_mysql_failure("split_db_health_primary_failed", e, database=DB_NAME)
 
     try:
         conn = mysql.connector.connect(**_build_permission_intel_connect_kwargs())
         try:
             if conn.is_connected():
-                result["permission_intel_ok"] = True
                 cur = conn.cursor()
-                cur.execute(
-                    """
-                    SELECT 1 FROM information_schema.tables
-                    WHERE table_schema = %s AND table_name = %s
-                    LIMIT 1
-                    """,
-                    (PERMISSION_INTEL_DB_NAME, "android_permission_obs_sample"),
-                )
-                result["permission_obs_sample_in_pi"] = cur.fetchone() is not None
-                cur.close()
+                try:
+                    cur.execute(
+                        """
+                        SELECT 1 FROM information_schema.tables
+                        WHERE table_schema = %s AND table_name = %s
+                        LIMIT 1
+                        """,
+                        (PERMISSION_INTEL_DB_NAME, "android_permission_obs_sample"),
+                    )
+                    result["permission_obs_sample_in_pi"] = cur.fetchone() is not None
+                    result["permission_intel_ok"] = True
+                except Error as inner:
+                    result["permission_intel_ok"] = False
+                    result["permission_intel_error"] = operator_facing_db_message(inner)
+                    _log_mysql_failure(
+                        "split_db_health_pi_metadata_query_failed",
+                        inner,
+                        database=PERMISSION_INTEL_DB_NAME,
+                    )
+                finally:
+                    cur.close()
         finally:
             if conn and conn.is_connected():
                 conn.close()
-    except Error:
-        pass
+    except Error as e:
+        result["permission_intel_error"] = operator_facing_db_message(e)
+        _log_mysql_failure(
+            "split_db_health_permission_intel_connect_failed",
+            e,
+            database=PERMISSION_INTEL_DB_NAME,
+        )
 
     return result
 

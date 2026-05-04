@@ -31,6 +31,25 @@ def test_validate_run_scoped_artifact_paths_passes_for_run_root(tmp_path: Path) 
     assert report.invalid_paths == tuple()
 
 
+def test_validate_run_scoped_artifact_paths_passes_for_repo_runtime_logs(tmp_path, monkeypatch) -> None:
+    """Runtime tee logs live under repo logs/runtime/<run_id>/, not under output/runs/."""
+    monkeypatch.setenv("OBSIDIANDROID_LOG_FILES_ROOT", str(tmp_path / "logs"))
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "r1"
+    run_root.mkdir(parents=True, exist_ok=True)
+    tee = tmp_path / "logs" / "runtime" / "r1" / "pipeline_runtime_r1.log"
+    tee.parent.mkdir(parents=True, exist_ok=True)
+    tee.write_text("log\n", encoding="utf-8")
+    report = validate_run_scoped_artifact_paths(
+        artifact_paths=[str(tee)],
+        run_root=run_root,
+        output_root=output_root,
+        allow_latest=True,
+    )
+    assert report.passed is True
+    assert report.invalid_paths == tuple()
+
+
 def test_validate_run_scoped_artifact_paths_fails_for_global_path(tmp_path: Path) -> None:
     """Validation should flag non-run-scoped artifacts."""
     output_root = tmp_path / "output"

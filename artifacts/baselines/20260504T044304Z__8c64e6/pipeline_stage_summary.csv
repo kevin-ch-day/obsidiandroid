@@ -1,0 +1,15 @@
+run_id,stage_name,start_time,end_time,duration_sec,status,input_rows,output_rows,input_features,output_features,rows_added,rows_removed,features_added,features_removed,major_warnings,paper_blocker,artifacts_written,artifacts_skipped,next_stage_allowed,extras_json
+20260504T044304Z__8c64e6,preflight,2026-05-04T04:43:04.664573+00:00,2026-05-04T04:43:04.665988+00:00,0.0014,PASS,,,,,,,,,,false,,,true,
+20260504T044304Z__8c64e6,samples,2026-05-04T04:43:04.668110+00:00,2026-05-04T04:43:09.648327+00:00,4.979,PASS,1814,1226,,,,,,,,false,,,true,
+20260504T044304Z__8c64e6,av_pipeline,2026-05-04T04:43:09.650254+00:00,2026-05-04T04:43:32.780498+00:00,23.1293,PASS,1226,95,,,,,,,,false,,,true,
+20260504T044304Z__8c64e6,vendor_metadata,2026-05-04T04:43:32.781097+00:00,2026-05-04T04:43:37.307367+00:00,4.5256,PASS,,,,,,,,,,false,,,true,
+20260504T044304Z__8c64e6,engine_weights,2026-05-04T04:43:37.308087+00:00,2026-05-04T04:43:58.868509+00:00,21.5586,PASS,,25,,,,,,,,false,,,true,
+20260504T044304Z__8c64e6,feature_matrix,2026-05-04T04:43:58.871390+00:00,2026-05-04T04:44:02.489427+00:00,3.6173,PASS,1226,1226,511,511,,,,,,false,,,true,
+20260504T044304Z__8c64e6,alignment,2026-05-04T04:44:14.729724+00:00,2026-05-04T04:44:14.809474+00:00,0.0782,PASS,1226,1226,511,511,,,,,,false,,,true,
+20260504T044304Z__8c64e6,training,2026-05-04T04:44:16.220180+00:00,2026-05-04T04:45:10.754945+00:00,54.533,PASS,1226,1001,511,454,,,,,split train=750 test=251,false,,,true,
+20260504T044304Z__8c64e6,ablation,2026-05-04T04:45:10.755978+00:00,2026-05-04T04:54:13.839439+00:00,543.0827,PASS,,,,,,,,,Multi-label experimental targets enabled; compare label_target rows in ablation summary.,false,5,,true,"{""ablation_summary_path"": ""/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/ablation_summary_20260504T044304Z__8c64e6.csv""}"
+20260504T044304Z__8c64e6,permission_trends,2026-05-04T04:54:13.854861+00:00,2026-05-04T04:54:48.914928+00:00,35.0574,PASS,,,,,,,,,,false,38,,true,
+20260504T044304Z__8c64e6,label_resolution,2026-05-04T04:54:48.934199+00:00,2026-05-04T04:54:51.651486+00:00,2.7163,PASS,,1001,,,,,,,,false,,,true,
+20260504T044304Z__8c64e6,research_validity,2026-05-04T04:54:51.759861+00:00,2026-05-04T04:55:02.995957+00:00,11.1298,PASS,,,,,,,,,,false,,,true,
+20260504T044304Z__8c64e6,hostile_audit,2026-05-04T04:55:00.553235+00:00,2026-05-04T04:55:02.996140+00:00,2.3365,PASS,,,,,,,,,,false,,,true,
+20260504T044304Z__8c64e6,manifest_finalization,2026-05-04T04:54:51.665654+00:00,2026-05-04T04:55:02.996278+00:00,11.3302,PASS,,,,,,,,,,false,,,true,

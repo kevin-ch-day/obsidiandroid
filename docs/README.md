@@ -20,7 +20,7 @@ ObsidianDroid is an end-to-end framework for Android malware analysis, AV engine
 - **Entry points:** `main.py` is the CLI shell; `analysis/pipeline/runner.py` runs `run_pipeline` and calls staged helpers under `analysis/pipeline/stage_*.py`. `model_tuning.py` handles targeted hyperparameter sweeps; `scripts/` contains recurring maintenance utilities.
 - **Configuration:** YAML/JSON files in `config/` control feature toggles, model parameters, and database credentials.
 - **Outputs:** Runtime artifacts (labels, evaluation metrics, feature matrices) are written under an `output/` directory that is created on demand.
-- **Testing:** Run `pytest -q` or `./run_tests.sh` before committing changes. Additional QA helpers live under `testing/`.
+- **Testing:** Run `pytest -q` or `./run_tests.sh` before committing changes. Additional QA helpers (fuzzer, static scan) live under `devtools/`, separate from `tests/`.
 - **VirusTotal data:** The pipeline consumes replicated VirusTotal tables (`vt_av_engines*`, `vt_permissions`, `vt_*_metadata`) from the project database rather than issuing live API calls. Integration specifics and required refresh cadences are captured in [`data_sources.md`](data_sources.md).
 
 Consult the documents listed above for detailed component descriptions and operator workflows.

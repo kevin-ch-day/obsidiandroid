@@ -114,3 +114,88 @@ def test_build_feature_vector_recovers_when_parser_gating_selects_zero(monkeypat
     assert not out.empty
     assert bool(out.attrs.get("vendor_fallback_used", False)) is True
     assert str(out.attrs.get("vendor_selection_policy", "")) == "explicit_widening"
+
+
+def test_merge_extra_features_joins_on_sample_id_column_with_range_index() -> None:
+    """Extras must align on ``sample_id`` when the matrix uses RangeIndex (fused-path bug)."""
+    encoded = pd.DataFrame(
+        {
+            "sample_id": [495, 579, 657],
+            "feat_a": [1, 2, 3],
+        },
+        index=pd.RangeIndex(3),
+    )
+    extra = pd.DataFrame(
+        {
+            "sample_id": [657, 495, 579],
+            "perm__android_permission_internet": [1, 1, 0],
+            "perm__total_count": [2, 2, 1],
+        }
+    )
+    out, _maps = feature_vector_builder._merge_extra_features(encoded, extra, verbose=False)
+    assert out["sample_id"].tolist() == [495, 579, 657]
+    assert out["feat_a"].tolist() == [1, 2, 3]
+    assert out["perm__android_permission_internet"].tolist() == [1, 0, 1]
+    assert out["perm__total_count"].tolist() == [2, 1, 2]
+
+
+def test_merge_extra_features_coerces_object_perm_columns_numeric() -> None:
+    """Permission bag columns must not use categorical codes (object dtype from CSV joins)."""
+    encoded = pd.DataFrame(
+        {"feat_a": [1, 2]},
+        index=pd.Index([10, 20], name="sample_id"),
+    )
+    extra = pd.DataFrame(
+        {
+            "sample_id": [10, 20],
+            "perm__android_permission_internet": ["1", "0"],
+            "perm__total_count": ["3", "0"],
+        }
+    )
+    out, maps = feature_vector_builder._merge_extra_features(encoded, extra, verbose=False)
+    assert "perm__android_permission_internet" not in maps
+    assert out["perm__android_permission_internet"].tolist() == [1, 0]
+    assert out["perm__total_count"].tolist() == [3, 0]
+
+
+def test_expand_to_cohort_authoritative_adds_permission_row_for_vendor_gap() -> None:
+    """Cohort ids without vendor merge rows still receive enrichment columns from extras."""
+    merged = pd.DataFrame(
+        {"v__threat": [1, 2], "perm__bag": [1, 0]},
+        index=pd.Index([10, 20], name="sample_id"),
+    )
+    merged.attrs["encoder_mappings"] = {
+        "v__threat": {"unknown": 0, "a": 1, "b": 2},
+        "perm__bag": {},
+    }
+    merged.attrs["vendor_merge_sample_ids"] = [10, 20]
+    extra = pd.DataFrame({"sample_id": [10, 20, 99], "perm__bag": [1, 0, 7]})
+    out = feature_vector_builder._expand_to_cohort_authoritative(
+        merged,
+        cohort_sample_ids=[10, 20, 99],
+        vendor_feature_columns=["v__threat"],
+        encoder_mappings=dict(merged.attrs["encoder_mappings"]),
+        vendor_merge_sample_ids=[10, 20],
+        extra_features_df=extra,
+        verbose=False,
+    )
+    assert len(out) == 3
+    assert int(out.loc[99, "v__threat"]) == 0
+    assert float(out.loc[99, "perm__bag"]) == 7.0
+
+
+def test_merge_extra_features_joins_on_sample_id_index_when_no_column() -> None:
+    """When ``sample_id`` is only the index, extras still align by id (not by position)."""
+    encoded = pd.DataFrame(
+        {"feat_a": [10, 20, 30]},
+        index=pd.Index([495, 579, 657], name="sample_id"),
+    )
+    extra = pd.DataFrame(
+        {
+            "sample_id": [579, 657, 495],
+            "perm__x": [0, 1, 1],
+        }
+    )
+    out, _ = feature_vector_builder._merge_extra_features(encoded, extra, verbose=False)
+    assert out["feat_a"].tolist() == [10, 20, 30]
+    assert out["perm__x"].tolist() == [1, 0, 1]

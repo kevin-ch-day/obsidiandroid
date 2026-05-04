@@ -13,7 +13,7 @@ This document explains how ObsidianDroid ingests antivirus telemetry, computes r
        │                     ▼                        │
        │              Feature matrices                 │
        │                                                ▼
-       └────────────── database/ ───────────────> testing/ + reports
+       └────────────── database/ ───────────────> devtools/ + reports
 ```
 
 1. **Metadata ingestion** loads sample identifiers, vendor detections, and contextual attributes from a MySQL database using helpers in `database/`. See [`data_sources.md`](data_sources.md) for a catalog of required tables and replication guidance.
@@ -67,9 +67,9 @@ Consult [`modeling_reference.md`](modeling_reference.md) for estimator-specific 
 - Root `model_tuning.py` and `analysis/evaluation/model_tuning.py` are auxiliary tuning entrypoints; `scripts/` holds operational CLIs (warehouse backfill, research utilities).
 - For extension patterns, see [`pipeline_staging_guide.md`](pipeline_staging_guide.md) and `main.run_pipeline` / `profiles/*.yaml`.
 
-### 7. Quality Assurance (`tests/`, `testing/`)
+### 7. Quality Assurance (`tests/`, `devtools/`)
 - `tests/` is the primary pytest tree (`pytest -q`); `tests/conftest.py` routes outputs to tmp and guards filesystem writes during tests.
-- `testing/data_fuzzer.py` stresses data transforms; `testing/scan_ml_predict_misuse.py` is invoked from `run_ml_static_scan.py` for leakage-style static checks.
+- `devtools/data_fuzzer.py` stresses data transforms; `devtools/scan_ml_predict_misuse.py` is invoked from `run_ml_static_scan.py` for leakage-style static checks.
 
 ## Data Contracts
 

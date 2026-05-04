@@ -6,16 +6,52 @@ from utils import prompt_utils as pu
 from utils.ui import console as cc
 
 
-def _print_menu_title(title: str) -> None:
-    """Print menu title."""
+def _print_breadcrumb(text: str) -> None:
+    """Print a muted navigation hint (e.g. where you are in the console)."""
+    crumb = str(text).strip()
+    if not crumb:
+        return
+    line = f"  {crumb}"
+    try:
+        print(cc.apply_color(line, fg=cc.THEME_MUTED))
+    except UnicodeEncodeError:
+        print(line.encode("ascii", errors="replace").decode("ascii"))
+
+
+def _print_menu_title(title: str, *, subtitle: str | None = None, breadcrumb: str | None = None) -> None:
+    """Print menu title and optional breadcrumb / subtitle."""
+    if breadcrumb:
+        _print_breadcrumb(breadcrumb)
     cc.print_subheader(title.upper())
+    if subtitle:
+        cc.print_info(str(subtitle).strip())
 
 
 def _print_menu_options(options: list[str], *, exit_label: str = "Exit") -> None:
-    """Print numbered menu options."""
+    """Print numbered menu options with consistent accent styling."""
     for idx, opt in enumerate(options, 1):
-        print(f"  [{idx}] {opt}")
-    print(f"  [0] {str(exit_label).strip() or 'Exit'}\n")
+        marker = cc.apply_color(f"[{idx}]", fg=cc.Fore.YELLOW, bold=True)
+        label = cc.apply_color(str(opt), fg=cc.Fore.WHITE, bold=True)
+        print(f"  {marker} {label}")
+    exit_marker = cc.apply_color("[0]", fg=cc.Fore.YELLOW, bold=True)
+    exit_text = cc.apply_color(str(exit_label).strip() or "Exit", fg=cc.Fore.WHITE, bold=True)
+    print(f"  {exit_marker} {exit_text}\n")
+
+
+def _format_action_hint(*, default_choice: int | None) -> str:
+    parts = ["0 = back", "Ctrl+C = cancel"]
+    if default_choice is not None:
+        parts.insert(1, f"Enter = default [{int(default_choice)}]")
+    return " · ".join(parts)
+
+
+def _print_menu_footer(hint: str | None) -> None:
+    if hint:
+        try:
+            print(cc.apply_color(f"  ({hint})", fg=cc.THEME_MUTED))
+        except UnicodeEncodeError:
+            print(f"  ({hint})")
+        print("")
 
 
 def _selection_prompt(max_choice: int) -> str:
@@ -32,22 +68,50 @@ def display_menu(
     title: str = "Select an Option",
     *,
     exit_label: str = "Exit",
+    subtitle: str | None = None,
+    breadcrumb: str | None = None,
+    default_choice: int | None = None,
+    action_hint: str | None = None,
 ) -> int:
-    """Render a numbered menu and return selected index."""
-    _print_menu_title(title)
-    cc.print_info("Choose a number and press Enter.")
+    """Render a numbered menu and return selected index (0 = exit/back).
+
+    Args:
+        options: Visible choices, numbered 1..N.
+        title: Short heading (shown uppercased as a subheader).
+        exit_label: Label for the zero option.
+        subtitle: Optional single line of context under the title.
+        breadcrumb: Optional muted line above the title (e.g. ``Main › Tools``).
+        default_choice: If set (1..len(options)), blank input selects that row.
+        action_hint: Footer hint; defaults to a standard key legend + default note.
+    """
+    _print_menu_title(title, subtitle=subtitle, breadcrumb=breadcrumb)
     cc.print_rule(width=cc.DEFAULT_SECTION_WIDTH)
     _print_menu_options(options, exit_label=exit_label)
-    prompt = _selection_prompt(len(options))
+    footer = action_hint if action_hint is not None else (
+        "Type a row number. " + _format_action_hint(default_choice=default_choice)
+    )
+    _print_menu_footer(footer)
+    if default_choice is not None and 1 <= int(default_choice) <= len(options):
+        prompt = cc.apply_color(
+            f"Enter your selection [default={int(default_choice)}, 0-{len(options)}]: ",
+            fg=cc.Fore.CYAN,
+            bold=True,
+        )
+    else:
+        prompt = _selection_prompt(len(options))
 
     while True:
         try:
-            choice = int(input(prompt).strip())
+            raw = input(prompt).strip()
+            if default_choice is not None and raw == "":
+                choice = int(default_choice)
+            else:
+                choice = int(raw)
             if 0 <= choice <= len(options):
                 return choice
             cc.print_warning("Selection out of range. Please choose a valid number.")
         except ValueError:
-            cc.print_warning("Invalid input. Please enter a numeric value.")
+            cc.print_warning("Invalid input. Please enter a numeric value (or blank for default).")
         except KeyboardInterrupt:
             cc.print_warning("Selection cancelled by user (Ctrl+C).")
             return 0
@@ -83,35 +147,24 @@ def display_rich_menu(
     title: str = "Available Commands",
     *,
     exit_label: str = "Exit",
+    breadcrumb: str | None = None,
+    default_choice: int | None = None,
+    action_hint: str | None = None,
 ) -> int:
-    """Display a menu with descriptions."""
-    cc.print_section(title.upper())
-    cc.print_info("Choose a number and press Enter.")
-    cc.print_rule(width=cc.DEFAULT_SECTION_WIDTH, color=cc.Fore.LIGHTBLACK_EX)
-    numbered = list(options.items())
-    for idx, (label, desc) in enumerate(numbered, 1):
-        marker = cc.apply_color(f"[{idx}]", fg=cc.Fore.YELLOW, bold=True)
-        title_text = cc.apply_color(str(label), fg=cc.Fore.WHITE, bold=True)
-        desc_text = cc.apply_color(str(desc), fg=cc.Fore.LIGHTWHITE_EX)
-        print(f"  {marker} {title_text}")
-        print(f"      {desc_text}\n")
-    cc.print_rule(width=cc.DEFAULT_SECTION_WIDTH, color=cc.Fore.LIGHTBLACK_EX)
-    exit_marker = cc.apply_color("[0]", fg=cc.Fore.YELLOW, bold=True)
-    exit_text = cc.apply_color(str(exit_label).strip() or "Exit", fg=cc.Fore.WHITE, bold=True)
-    print(f"  {exit_marker} {exit_text}\n")
-    prompt = _selection_prompt(len(numbered))
+    """Show a compact numbered menu using **labels only** (dict values are ignored).
 
-    while True:
-        try:
-            choice = int(input(prompt).strip())
-            if 0 <= choice <= len(numbered):
-                return choice
-            cc.print_warning("Selection out of range. Try again.")
-        except ValueError:
-            cc.print_warning("Invalid input. Please enter a numeric selection.")
-        except KeyboardInterrupt:
-            cc.print_warning("Selection cancelled by user (Ctrl+C).")
-            return 0
+    Kept for call sites that still pass an ordered ``dict[str, str]``; per-row description
+    lines were removed to reduce vertical space in the operator console.
+    """
+    return display_menu(
+        list(options.keys()),
+        title=title,
+        exit_label=exit_label,
+        subtitle=None,
+        breadcrumb=breadcrumb,
+        default_choice=default_choice,
+        action_hint=action_hint,
+    )
 
 
 __all__ = [

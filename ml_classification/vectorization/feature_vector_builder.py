@@ -1,6 +1,10 @@
 # Filename: ml_classification/vectorization/feature_vector_builder.py
 # Purpose  : Entry point to construct ML-ready feature matrix using modular components
 
+from __future__ import annotations
+
+from typing import Any, Iterable
+
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 from pathlib import Path
@@ -30,6 +34,24 @@ def _sample_ids_from_feature_index(index) -> list[int]:
         except (TypeError, ValueError):
             continue
     return sorted(out)
+
+
+def _resolve_merge_sample_ids(encoded: pd.DataFrame) -> pd.Series:
+    """Per-row sample_id for joining extras (prefer column over index).
+
+    After some merges/exports the encoded matrix can keep ``sample_id`` as a normal
+    column while the index is a default ``RangeIndex``. Extras must always align on
+    ``sample_id`` values, not on positional index.
+    """
+    if "sample_id" in encoded.columns:
+        return encoded["sample_id"]
+    return pd.Series(encoded.index, index=encoded.index)
+
+
+def _extra_column_is_numeric_permission_signal(col: str) -> bool:
+    """True for permission-bag / VT-count columns that must never use categorical codes."""
+    c = str(col)
+    return c.startswith("perm__") or c.startswith("perm_grp__") or c == "meta__permissions"
 
 
 def _diagnostics_dir() -> Path:
@@ -216,6 +238,149 @@ def _ensure_min_vendor_selection(
     return merged[:fallback_target]
 
 
+def _sorted_int_cohort_ids(cohort_sample_ids: Iterable[Any]) -> list[int]:
+    """Stable sorted unique integer sample_ids from a cohort iterable."""
+    out: set[int] = set()
+    for v in cohort_sample_ids:
+        try:
+            x = float(v)
+            if pd.isna(x):
+                continue
+            i = int(x)
+            if float(i) == x:
+                out.add(i)
+        except (TypeError, ValueError):
+            continue
+    return sorted(out)
+
+
+def _normalize_matrix_sample_id_index(feature_df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure the matrix is indexed by integer ``sample_id`` (drops redundant column)."""
+    df = feature_df.copy()
+    attrs = dict(df.attrs)
+    if "sample_id" in df.columns:
+        sid = pd.to_numeric(df["sample_id"], errors="coerce")
+        df = df.drop(columns=["sample_id"])
+        df.index = sid.astype("int64")
+        df.index.name = "sample_id"
+    elif df.index.name not in ("sample_id", None):
+        df.index.name = "sample_id"
+    elif df.index.name is None:
+        df.index.name = "sample_id"
+    df.attrs.update(attrs)
+    return df
+
+
+def _unknown_like_code(col: str, encoder_mappings: dict[str, dict[str, int]]) -> int:
+    """Category code used for missing vendor rows (matches ``unknown`` fill in encoding)."""
+    col_map = encoder_mappings.get(col) or {}
+    for key in ("unknown", "Unknown", "UNKNOWN", "none", "None"):
+        if key in col_map:
+            return int(col_map[key])
+    return 0
+
+
+def _encode_extra_series_raw(
+    raw: pd.Series,
+    col: str,
+    encoder_mappings: dict[str, dict[str, int]],
+) -> pd.Series:
+    """Encode enrichment-column raw values the same way as :func:`_merge_extra_features`."""
+    col_map = encoder_mappings.get(col)
+    if col_map:
+        def _map_one(v: object) -> float:
+            if pd.isna(v):
+                return float("nan")
+            s = str(v).strip()
+            if s in col_map:
+                return float(int(col_map[s]))
+            if "unknown" in col_map:
+                return float(int(col_map["unknown"]))
+            if "Unknown" in col_map:
+                return float(int(col_map["Unknown"]))
+            return float(int(next(iter(col_map.values()))))
+
+        return raw.map(_map_one)
+    return pd.to_numeric(raw, errors="coerce")
+
+
+def _prep_extra_indexed(extra_df: pd.DataFrame) -> pd.DataFrame:
+    """Deduplicate extras and index by ``sample_id`` (int64)."""
+    ex = extra_df.copy()
+    if "sample_id" not in ex.columns:
+        return pd.DataFrame()
+    sid = pd.to_numeric(ex["sample_id"], errors="coerce")
+    ex = ex.loc[sid.notna()].copy()
+    ex["sample_id"] = sid.loc[sid.notna()].round().astype("int64")
+    ex = ex.drop_duplicates("sample_id", keep="first").set_index("sample_id")
+    ex.index = ex.index.astype("int64")
+    ex.index.name = "sample_id"
+    return ex
+
+
+def _expand_to_cohort_authoritative(
+    merged: pd.DataFrame,
+    *,
+    cohort_sample_ids: Iterable[Any],
+    vendor_feature_columns: list[str],
+    encoder_mappings: dict[str, dict[str, int]],
+    vendor_merge_sample_ids: list[int],
+    extra_features_df: pd.DataFrame | None,
+    verbose: bool,
+) -> pd.DataFrame:
+    """Reindex the fused matrix to the governed cohort; zero/unknown-fill vendor-only gaps.
+
+    Permission and metadata columns are refreshed from ``extra_features_df`` for cohort rows that
+    were absent from the vendor-merge universe so PI signal is not dropped when vendor parsers fail.
+    """
+    cohort_list = _sorted_int_cohort_ids(cohort_sample_ids)
+    if not cohort_list:
+        return merged
+
+    out = _normalize_matrix_sample_id_index(merged)
+    cohort_index = pd.Index(cohort_list, dtype="int64", name="sample_id")
+
+    out = out.reindex(cohort_index)
+
+    for col in vendor_feature_columns:
+        if col not in out.columns:
+            continue
+        unk = _unknown_like_code(col, encoder_mappings)
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(unk)
+
+    non_vendor_cols = [c for c in out.columns if c not in vendor_feature_columns]
+    ex_idx = _prep_extra_indexed(extra_features_df) if isinstance(extra_features_df, pd.DataFrame) else pd.DataFrame()
+    if not ex_idx.empty:
+        ex_aligned = ex_idx.reindex(cohort_index)
+        for col in non_vendor_cols:
+            if col not in ex_aligned.columns:
+                out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0)
+                continue
+            encoded_fill = _encode_extra_series_raw(ex_aligned[col], col, encoder_mappings)
+            base = pd.to_numeric(out[col], errors="coerce")
+            out[col] = base.combine_first(encoded_fill).fillna(0)
+    else:
+        for col in non_vendor_cols:
+            out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0)
+
+    out.attrs.update(dict(merged.attrs))
+    out.attrs["vendor_merge_sample_ids"] = list(vendor_merge_sample_ids)
+    out.attrs["vendor_merge_sample_id_count"] = int(len(set(vendor_merge_sample_ids)))
+    out.attrs["cohort_governed_sample_id_count"] = int(len(cohort_list))
+    out.attrs["cohort_authoritative_row_count"] = int(len(out))
+    out.attrs["feature_matrix_row_authority"] = "governed_cohort"
+    out.attrs["vendor_feature_column_names"] = list(vendor_feature_columns)
+
+    if verbose:
+        du.print_info(
+            "[FEATURE BUILD] Cohort-authoritative matrix: "
+            f"governed_n={len(cohort_list)} rows × {out.shape[1]} cols; "
+            f"vendor_merge_n={len(set(vendor_merge_sample_ids))} "
+            "(vendor gaps filled with encoded 'unknown' / 0)."
+        )
+    return out
+
+
 def _merge_extra_features(
     encoded: pd.DataFrame,
     extra_df: pd.DataFrame,
@@ -223,6 +388,9 @@ def _merge_extra_features(
 ) -> tuple[pd.DataFrame, dict[str, dict[str, int]]]:
     """
     Merges additional enriched features into the encoded feature matrix.
+
+    Joins on ``sample_id`` explicitly (column if present, otherwise the frame index).
+    Does not assume ``encoded.index`` matches ``extra_df['sample_id']``.
     """
     if not isinstance(extra_df, pd.DataFrame) or extra_df.empty:
         return encoded, {}
@@ -231,15 +399,17 @@ def _merge_extra_features(
         du.print_warning("[BUILD] Extra feature DataFrame missing 'sample_id' column. Skipping merge.")
         return encoded, {}
 
-    extras = (
-        extra_df.drop_duplicates("sample_id")
-        .set_index("sample_id")
-        .copy()
-    )
+    extras_work = extra_df.drop_duplicates("sample_id", keep="first").copy()
+    sid_extra = pd.to_numeric(extras_work["sample_id"], errors="coerce")
+    extras_work = extras_work.loc[sid_extra.notna()].copy()
+    extras_work["sample_id"] = sid_extra.loc[sid_extra.notna()].round().astype("int64")
+    extras = extras_work.set_index("sample_id")
 
     extra_encoder_mappings: dict[str, dict[str, int]] = {}
     for col in extras.columns:
-        if is_numeric_dtype(extras[col]):
+        if _extra_column_is_numeric_permission_signal(col):
+            extras[col] = pd.to_numeric(extras[col], errors="coerce").fillna(0)
+        elif is_numeric_dtype(extras[col]):
             extras[col] = pd.to_numeric(extras[col], errors="coerce").fillna(0)
         else:
             cat_series = extras[col].astype("category")
@@ -249,7 +419,19 @@ def _merge_extra_features(
                 for code, category in enumerate(cat_series.cat.categories.tolist())
             }
 
-    result = encoded.join(extras, how="left").fillna(0)
+    join_keys = pd.to_numeric(_resolve_merge_sample_ids(encoded), errors="coerce")
+    extras_aligned = extras.copy()
+    extras_aligned.index = pd.to_numeric(extras_aligned.index, errors="coerce")
+    aligned = extras_aligned.reindex(join_keys.to_numpy())
+    aligned = aligned.reset_index(drop=True)
+
+    overlap_cols = [c for c in extras.columns if c in encoded.columns]
+    base = encoded.drop(columns=overlap_cols, errors="ignore") if overlap_cols else encoded
+    assign_kw = {str(col): aligned[col].to_numpy() for col in extras.columns}
+    additions = pd.DataFrame(assign_kw, index=base.index)
+    result = pd.concat([base, additions], axis=1).fillna(0)
+    # One copy to reduce fragmentation warnings when hundreds of columns are added at once.
+    result = result.copy()
     result.attrs.update(dict(encoded.attrs))
     if verbose:
         du.print_debug(f"[BUILD] Added extra features -> new shape: {result.shape}")
@@ -333,6 +515,7 @@ def build_feature_vector(
     encoding: str = "category",
     verbose: bool = True,
     extra_features_df: pd.DataFrame | None = None,
+    cohort_sample_ids: Iterable[Any] | None = None,
 ) -> pd.DataFrame:
     """
     Constructs an ML-ready feature matrix by:
@@ -468,8 +651,13 @@ def build_feature_vector(
         du.print_error("[BUILD] Final encoded matrix is empty.")
         return pd.DataFrame()
 
-    # Row authority for downstream joins: extras merge left-onto this index only.
-    encoded.attrs["vendor_merge_sample_ids"] = _sample_ids_from_feature_index(encoded.index)
+    vendor_feature_columns = [c for c in encoded.columns if c != "sample_id"]
+
+    # Row authority: sample_ids used for vendor rows (same keys used for extras join).
+    _merge_ids = _resolve_merge_sample_ids(encoded)
+    encoded.attrs["vendor_merge_sample_ids"] = _sample_ids_from_feature_index(
+        pd.Index(_merge_ids.dropna())
+    )
     encoded.attrs["vendor_merge_sample_id_count"] = int(len(encoded.index))
 
     # Step 4: Feature Enrichment (optional)
@@ -478,6 +666,21 @@ def build_feature_vector(
     combined_mappings = dict(encoded.attrs.get("encoder_mappings", {}))
     combined_mappings.update(extra_encoder_mappings)
     encoded.attrs["encoder_mappings"] = combined_mappings
+
+    vendor_merge_ids = list(encoded.attrs.get("vendor_merge_sample_ids") or [])
+    if cohort_sample_ids is not None:
+        cohort_list = _sorted_int_cohort_ids(cohort_sample_ids)
+        if cohort_list:
+            encoded = _expand_to_cohort_authoritative(
+                encoded,
+                cohort_sample_ids=cohort_list,
+                vendor_feature_columns=vendor_feature_columns,
+                encoder_mappings=combined_mappings,
+                vendor_merge_sample_ids=vendor_merge_ids,
+                extra_features_df=extra_features_df,
+                verbose=verbose,
+            )
+            combined_mappings = dict(encoded.attrs.get("encoder_mappings", {}))
     encoded.attrs["selected_vendors"] = list(top_vendors)
     encoded.attrs["include_fields"] = list(fields)
     encoded.attrs["feature_build_encoding"] = str(encoding)

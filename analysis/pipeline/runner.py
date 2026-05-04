@@ -35,6 +35,10 @@ from analysis.diagnostics.cohort_vocabulary import (
     KEY_SAMPLES_STAGE_COHORT_COUNTS,
     attach_cohort_row_counts_to_manifest_context,
 )
+from analysis.diagnostics.cohort_sample_id_audit import (
+    audit_cohort_sample_id_uniqueness,
+    merge_sample_id_audit_into_manifest,
+)
 
 # === Analysis Pipelines (staged pipeline) ===
 from analysis.pipeline.stage_av_vendor import (
@@ -60,7 +64,13 @@ from analysis.pipeline.runtime_policy import (
     enforce_paper_perturbation_axes as enforce_paper_perturbation_axes_policy,
     reset_runtime_markers,
 )
-from analysis.diagnostics.feature_build_coverage_export import export_feature_build_coverage
+from analysis.diagnostics.feature_build_coverage_export import (
+    export_feature_build_coverage,
+    export_feature_matrix_lineage_gate,
+    export_feature_modality_coverage_audit,
+    export_sample_stage_lineage_audit,
+)
+from analysis.diagnostics.fused_permission_matrix_audit import summarize_fused_permission_columns
 from analysis.orchestration.methodology_artifacts import (
     export_feature_contract,
     export_leakage_assessment,
@@ -75,6 +85,7 @@ from analysis.orchestration.runtime_reporting import (
     export_and_print_run_summary as _export_and_print_run_summary,
     export_model_config_snapshot as _export_model_config_snapshot,
     extract_model_summary as _extract_model_summary,
+    format_population_pipeline_summary_line as _format_population_pipeline_summary_line,
     parse_key_value_meta as _parse_key_value_meta,
     print_run_context_line as _print_run_context_line,
     setup_runtime_context,
@@ -403,6 +414,12 @@ def run_pipeline(
                 "cohort_sql_scope_row_count": manifest_context.get("cohort_sql_scope_row_count"),
                 "cohort_prepared_row_count": manifest_context.get("cohort_prepared_row_count"),
             }
+        if manifest_context.get("cohort_distinct_sample_id") is not None:
+            preflight_payload["cohort_sample_id_integrity"] = {
+                "cohort_prepared_row_count": manifest_context.get("cohort_prepared_row_count"),
+                "cohort_distinct_sample_id": manifest_context.get("cohort_distinct_sample_id"),
+                "cohort_duplicate_surplus_rows": manifest_context.get("cohort_duplicate_surplus_rows"),
+            }
         preflight_payload.update(
             {
                 "run_id": run_id,
@@ -720,6 +737,14 @@ def run_pipeline(
         if samples_df is None or samples_df.empty:
             raise ValueError("No samples found after preparation.")
 
+        _sid_audit = audit_cohort_sample_id_uniqueness(
+            samples_df,
+            diagnostics_dir=Path(DIAGNOSTICS_DIR),
+            run_id=run_id,
+            artifact_list=artifact_list,
+        )
+        merge_sample_id_audit_into_manifest(manifest_context, _sid_audit)
+
         if stop_after == "samples":
             _mark_run_state("partial", completed_stage="samples")
             _write_preflight(
@@ -772,6 +797,11 @@ def run_pipeline(
             output_rows=eng_out_rows,
             major_warnings="",
         )
+        eng_overlay_csv = str(getattr(app_config, "RUNTIME_ENGINE_METADATA_OVERLAY_CSV", "") or "").strip()
+        if eng_overlay_csv:
+            manifest_context["engine_metadata_overlay_csv"] = eng_overlay_csv
+            if eng_overlay_csv not in artifact_list:
+                artifact_list.append(eng_overlay_csv)
 
         if stop_after == "av_pipeline":
             _mark_run_state("partial", completed_stage="av_pipeline")
@@ -876,15 +906,36 @@ def run_pipeline(
                     reason="samples with enrichment join coverage (sparse if DB gaps)",
                     artifact_path=str(Path(DIAGNOSTICS_DIR) / f"permission_feature_audit_{run_id}.csv"),
                 )
+            try:
+                from analysis.diagnostics.feature_build_coverage_export import _normalize_sample_ids
+
+                setattr(
+                    app_config,
+                    "RUNTIME_PERMISSION_FRAME_SAMPLE_IDS",
+                    sorted(_normalize_sample_ids(permission_features_df["sample_id"])),
+                )
+            except Exception:
+                pass
         extra_features_df = merge_sample_metadata_features(
             extra_features_df=pipeline_results.get("enriched_matrix"),
             samples_df=samples_df,
             feature_flags=feature_flags,
             permission_features_df=permission_features_df,
         )
+        perm_fuse_audit = getattr(app_config, "RUNTIME_PERMISSION_FUSE_AUDIT", None)
+        if isinstance(perm_fuse_audit, dict) and perm_fuse_audit:
+            manifest_context["permission_fuse_audit"] = dict(perm_fuse_audit)
+        dup_csv = str(getattr(app_config, "RUNTIME_DUPLICATE_SAMPLE_ID_PRE_FUSE_CSV", "") or "").strip()
+        if dup_csv:
+            manifest_context["duplicate_sample_id_pre_fuse_csv"] = dup_csv
 
         try:
-            feature_df = build_feature_matrix_stage(weights_df, parsed_data, extra_features_df)
+            feature_df = build_feature_matrix_stage(
+                weights_df,
+                parsed_data,
+                extra_features_df,
+                cohort_sample_ids=samples_df["sample_id"],
+            )
         except Exception as e:
             du.print_error(f"[ERROR] Feature matrix generation failed: {e}")
             feature_df = None
@@ -903,7 +954,7 @@ def run_pipeline(
                 transition="prepared_cohort_to_fused_vendor_feature_rows",
                 previous_count=gov_n_fm,
                 new_count=int(fused_rows),
-                reason="vendor merge intersection / row authority (+ optional enrichment join)",
+                reason="governed cohort rows (vendor gaps unknown/zero-filled; PI/metadata from enrichment)",
                 artifact_path=str(cov_path_hint),
             )
         _record_stage_timing(
@@ -916,6 +967,42 @@ def run_pipeline(
         )
         if isinstance(feature_df, pd.DataFrame):
             manifest_context["fused_feature_rows"] = int(len(feature_df))
+            manifest_context["feature_matrix_row_authority"] = str(
+                feature_df.attrs.get("feature_matrix_row_authority") or ""
+            )
+            try:
+                from analysis.diagnostics.feature_build_coverage_export import (
+                    _matrix_row_sample_ids,
+                    _normalize_sample_ids,
+                )
+                from analysis.diagnostics.permission_training_survival_audit import (
+                    perm_prefix_nonzero_stats,
+                )
+
+                vm_list = feature_df.attrs.get("vendor_merge_sample_ids")
+                if isinstance(vm_list, list):
+                    setattr(
+                        app_config,
+                        "RUNTIME_VENDOR_MERGE_SAMPLE_IDS",
+                        sorted(_normalize_sample_ids(vm_list)),
+                    )
+                setattr(
+                    app_config,
+                    "RUNTIME_FUSED_MATRIX_SAMPLE_IDS",
+                    sorted(_matrix_row_sample_ids(feature_df)),
+                )
+                setattr(
+                    app_config,
+                    "RUNTIME_GOVERNED_COHORT_SAMPLE_IDS",
+                    sorted(_normalize_sample_ids(samples_df["sample_id"])),
+                )
+                setattr(
+                    app_config,
+                    "RUNTIME_PERM_SURVIVAL_COHORT_FUSED_BUNDLE",
+                    (perm_prefix_nonzero_stats(feature_df), int(len(feature_df))),
+                )
+            except Exception:
+                pass
             manifest_context["vendor_merge_row_count"] = int(
                 feature_df.attrs.get(
                     "vendor_merge_sample_id_count",
@@ -961,15 +1048,84 @@ def run_pipeline(
             manifest_context["vendor_fallback_added_count"] = int(feature_df.attrs.get("vendor_fallback_added_count", 0) or 0)
             manifest_context["non_standard_features"] = bool(feature_df.attrs.get("non_standard_features", False))
 
+            fused_perm_sig = summarize_fused_permission_columns(feature_df)
+            if fused_perm_sig:
+                manifest_context["fused_permission_matrix_signal"] = fused_perm_sig
+                for k, v in sorted(fused_perm_sig.items()):
+                    du.print_info(f"[FEATURES][PERM_MATRIX] {k}={v}")
+                try:
+                    fuse_audit = manifest_context.get("permission_fuse_audit")
+                    enrich_any = None
+                    if isinstance(fuse_audit, dict):
+                        enrich_any = fuse_audit.get(
+                            "post_fuse_enrichment_rows_with_any_perm_bag_column_positive"
+                        )
+                    fused_any = fused_perm_sig.get(
+                        "fused_matrix_rows_with_any_perm_like_positive"
+                    )
+                    fused_rows = fused_perm_sig.get("fused_matrix_row_count")
+                    cohort_n = manifest_context.get("cohort_prepared_row_count")
+                    if (
+                        enrich_any is not None
+                        and fused_any is not None
+                        and fused_rows is not None
+                        and cohort_n is not None
+                    ):
+                        cohort_i = int(cohort_n)
+                        fused_i = int(fused_rows)
+                        gap = max(0, cohort_i - fused_i)
+                        if (
+                            int(enrich_any) >= 50
+                            and int(fused_any) <= max(10, int(enrich_any) // 10)
+                            and gap >= 50
+                        ):
+                            du.print_info(
+                                "[FEATURES][PERM_MATRIX] note=enrichment shows many cohort rows with "
+                                "permission bag signal, but the fused ML matrix is vendor-authoritative "
+                                "(fewer rows). Permission positives often concentrate on samples dropped "
+                                "by vendor/parser gates; compare cohort_n, fused rows, and "
+                                "feature_build_coverage / unmatched_label_ids exports."
+                                f" cohort_n={cohort_i} fused_rows={fused_i} cohort_minus_fused_rows={gap} "
+                                f"enrichment_any_perm_rows≈{int(enrich_any)} "
+                                f"fused_any_perm_rows={int(fused_any)}"
+                            )
+                except Exception:
+                    pass
+
             if bool(getattr(app_config, "ENABLE_FEATURE_BUILD_COVERAGE_EXPORT", True)):
                 cov_path, _cov_csv_path = export_feature_build_coverage(
                     cohort_sample_ids=samples_df["sample_id"],
                     feature_df=feature_df,
                     output_dir=DIAGNOSTICS_DIR,
                     run_id=run_id,
+                    permission_features_df=permission_features_df
+                    if isinstance(permission_features_df, pd.DataFrame)
+                    else None,
                 )
                 if cov_path:
                     artifact_list.append(str(cov_path))
+                _mod_csv, _mod_json = export_feature_modality_coverage_audit(
+                    cohort_sample_ids=samples_df["sample_id"],
+                    feature_df=feature_df,
+                    permission_features_df=permission_features_df
+                    if isinstance(permission_features_df, pd.DataFrame)
+                    else None,
+                    output_dir=DIAGNOSTICS_DIR,
+                    run_id=run_id,
+                    samples_df=samples_df,
+                )
+                if _mod_csv:
+                    artifact_list.append(str(_mod_csv))
+                if _mod_json:
+                    artifact_list.append(str(_mod_json))
+                _gate_path = export_feature_matrix_lineage_gate(
+                    samples_df=samples_df,
+                    feature_df=feature_df,
+                    output_dir=DIAGNOSTICS_DIR,
+                    run_id=run_id,
+                )
+                if _gate_path:
+                    artifact_list.append(str(_gate_path))
 
         if bool(getattr(app_config, "ENABLE_FEATURE_CONTRACT_EXPORT", True)):
             feature_contract_path = export_feature_contract(
@@ -1111,17 +1267,37 @@ def run_pipeline(
         manifest_context["post_low_support_training_rows"] = getattr(
             app_config, "RUNTIME_POST_LOW_SUPPORT_TRAINING_ROWS", None
         )
+        perm_surv_csv = str(getattr(app_config, "RUNTIME_PERMISSION_TRAINING_SURVIVAL_CSV", "") or "").strip()
+        if perm_surv_csv:
+            manifest_context["permission_training_survival_csv"] = perm_surv_csv
+            if perm_surv_csv not in artifact_list:
+                artifact_list.append(perm_surv_csv)
+        feat_surv_csv = str(getattr(app_config, "RUNTIME_FEATURE_COLUMN_SURVIVAL_CSV", "") or "").strip()
+        if feat_surv_csv:
+            manifest_context["feature_column_survival_csv"] = feat_surv_csv
+            if feat_surv_csv not in artifact_list:
+                artifact_list.append(feat_surv_csv)
+        try:
+            _lineage_p = export_sample_stage_lineage_audit(
+                cohort_sample_ids=samples_df["sample_id"],
+                output_dir=DIAGNOSTICS_DIR,
+                run_id=run_id,
+            )
+            if _lineage_p:
+                manifest_context["sample_stage_lineage_csv"] = str(_lineage_p)
+                if str(_lineage_p) not in artifact_list:
+                    artifact_list.append(str(_lineage_p))
+        except Exception as exc:
+            du.print_warning(f"[LINEAGE] Sample stage lineage export skipped: {exc}")
         feat_cols_post = getattr(app_config, "RUNTIME_TRAINING_FINAL_FEATURE_COLUMNS", None)
         manifest_context["feature_matrix_cols_post_prune"] = feat_cols_post
-        # Legacy manifest key: stores *column* count after pruning (misnamed "row_count").
-        manifest_context["feature_matrix_row_count"] = feat_cols_post
         manifest_context["trained_model_count"] = int(
             len(model_results) if isinstance(model_results, dict) else 0
         )
 
         aligned_n_obs = manifest_context.get("aligned_supervised_rows")
         post_ls_obs = manifest_context.get("post_low_support_training_rows")
-        feats_after_obs = manifest_context.get("feature_matrix_row_count")
+        feats_after_obs = manifest_context.get("feature_matrix_cols_post_prune")
         feats_before_obs = manifest_context.get("_aligned_feature_cols")
         tr_split = manifest_context.get("train_sample_count")
         te_split = manifest_context.get("test_sample_count")
@@ -1186,6 +1362,10 @@ def run_pipeline(
             output_features=feats_after_obs,
             major_warnings="; ".join(mw_train) if mw_train else "",
         )
+        pop_line = _format_population_pipeline_summary_line(manifest_context)
+        if pop_line:
+            manifest_context["population_pipeline_summary_line"] = pop_line
+            du.print_info(f"[POPULATION] {pop_line}")
 
         if stop_after == "training":
             _mark_run_state("partial", completed_stage="training")
@@ -1327,6 +1507,19 @@ def run_pipeline(
             _record_stage_timing("label_resolution", stage_started_at, output_rows=lbl_n)
             if df_labels is not None:
                 du.print_info(f"[PIPELINE] Final labels generated: {len(df_labels)} samples")
+                tax_sum = getattr(app_config, "RUNTIME_TAXONOMY_CONSISTENCY_SUMMARY", None)
+                if isinstance(tax_sum, dict):
+                    manifest_context["taxonomy_consistency_summary"] = tax_sum
+                    tpath = tax_sum.get("mismatch_csv_path")
+                    if tpath:
+                        manifest_context["taxonomy_mismatch_csv"] = str(tpath)
+                        if str(tpath) not in artifact_list:
+                            artifact_list.append(str(tpath))
+                    pex = tax_sum.get("paper_taxonomy_excluded_sample_ids_path")
+                    if pex:
+                        manifest_context["paper_taxonomy_excluded_sample_ids_json"] = str(pex)
+                        if str(pex) not in artifact_list:
+                            artifact_list.append(str(pex))
         else:
             du.print_info("[PIPELINE] Label resolution stage disabled by configuration.")
             obs_lr = manifest_context.get("pipeline_observability")

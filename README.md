@@ -44,7 +44,7 @@ ObsidianDroid/
 ├── data_inspect/           # Jupyter notebooks, analysis scripts, reporting tools
 ├── ml_classification/      # Model training, validation, and comparison
 ├── utils/                  # Reusable utilities and exporters
-├── testing/                # Synthetic data fuzzers, static scan helpers
+├── devtools/               # Synthetic data fuzzer, ML static scan (not pytest tests)
 ├── main.py                 # CLI entry (orchestration in `analysis/pipeline/runner.py`)
 ├── setup.sh                # Fedora virtual environment setup
 ├── run.sh                  # Fedora startup menu launcher
@@ -183,7 +183,7 @@ See comments in `config/settings/*.py` (or `config/app_config.py`) for full deta
 - `make ml-scan` or `python run_ml_static_scan.py` – Scan the repo for accidental `.predict()` misuse (`--strict` fails on warnings).
 - `python clean_bytecode_cache.py [path] --exclude venv` – Remove bytecode/logs.
 - `python analysis/evaluation/random_forest_diagnostics.py` – Cross-validation, weak class detection, feature importance diagnostics.
-- `python testing/data_fuzzer.py` – Generate large synthetic datasets for robustness and stress testing.
+- `python devtools/data_fuzzer.py` – Generate large synthetic datasets for robustness and stress testing.
 
 ---
 

@@ -38,7 +38,7 @@ def test_extract_type_slug_from_label_applies_alias_map(monkeypatch) -> None:
 def test_export_taxonomy_consistency_audit_writes_mismatch_report(monkeypatch, tmp_path: Path) -> None:
     """Audit should export mismatch report when canonical type/family diverge."""
     run_id = "run_taxonomy_test"
-    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir = tmp_path / "output" / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
     runtime_meta = pd.DataFrame(
@@ -96,11 +96,45 @@ def test_export_taxonomy_consistency_audit_writes_mismatch_report(monkeypatch, t
     assert int(payload["total_mismatch_count"]) == 1
 
 
+def test_taxonomy_lineage_unknown_when_runtime_sets_not_attached(monkeypatch, tmp_path: Path) -> None:
+    """Lineage columns must be NA when RUNTIME_* id lists were never set — not all-False."""
+    diagnostics_dir = tmp_path / "output" / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+
+    runtime_meta = pd.DataFrame(
+        [{"sample_id": 1001, "type_slug": "adware", "family_canonical": "Applite"}]
+    )
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", runtime_meta, raising=False)
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_RUN_ID", "run_lineage_na", raising=False)
+    monkeypatch.setattr(resolver.app_config, "TYPE_LABEL_ALIAS_MAP", {}, raising=False)
+    for attr in (
+        "RUNTIME_FUSED_MATRIX_SAMPLE_IDS",
+        "RUNTIME_ALIGNED_SUPERVISED_SAMPLE_IDS",
+        "RUNTIME_POST_FAMILY_SUPPORT_TRAINABLE_SAMPLE_IDS",
+    ):
+        monkeypatch.setattr(resolver.app_config, attr, None, raising=False)
+
+    labels_df = pd.DataFrame(
+        [
+            {
+                "sample_id": 1001,
+                "predicted_family": "Other",
+                "classification_label": "trojan/android.banker.applite",
+            }
+        ]
+    )
+    mismatch_path, mismatch_count, _ = resolver._export_taxonomy_consistency_audit(labels_df)  # pylint: disable=protected-access
+    assert mismatch_path is not None and mismatch_count >= 1
+    mismatch_df = pd.read_csv(str(mismatch_path))
+    assert bool(mismatch_df["reached_fused_feature_matrix"].isna().all()) is True
+
+
 def test_export_taxonomy_consistency_audit_handles_missing_runtime_columns(
     monkeypatch, tmp_path: Path
 ) -> None:
     """Audit should not crash when runtime metadata lacks optional taxonomy columns."""
-    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir = tmp_path / "output" / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
     runtime_meta = pd.DataFrame([{"sample_id": 1001}])
@@ -120,7 +154,7 @@ def test_export_taxonomy_consistency_audit_uses_type_slug_expected_column(
 ) -> None:
     """Audit should evaluate type rows when runtime metadata provides type_slug_expected."""
     run_id = "run_type_expected"
-    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir = tmp_path / "output" / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
     runtime_meta = pd.DataFrame(
@@ -162,7 +196,7 @@ def test_export_taxonomy_consistency_audit_falls_back_to_type_slug_source(
 ) -> None:
     """Audit should record fallback taxonomy source when type_slug_expected is absent."""
     run_id = "run_type_fallback"
-    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir = tmp_path / "output" / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     runtime_meta = pd.DataFrame(
         [
@@ -196,7 +230,7 @@ def test_run_summary_and_export_fails_in_paper_mode_when_type_audit_blind(
     tmp_path: Path,
 ) -> None:
     """Paper mode should hard-fail when taxonomy type audit evaluates zero rows."""
-    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir = tmp_path / "output" / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     runtime_meta = pd.DataFrame([{"sample_id": 1001, "family_canonical": "Applite"}])
     labels_df = pd.DataFrame(
@@ -275,7 +309,7 @@ def test_taxonomy_audit_treats_configured_canonical_types_as_canonical(
 ) -> None:
     """Configured canonical types should prevent false noncanonical flags."""
     run_id = "run_canonical_types"
-    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir = tmp_path / "output" / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
     runtime_meta = pd.DataFrame(
@@ -317,7 +351,7 @@ def test_taxonomy_audit_handles_missing_label_and_prediction_tokens(
 ) -> None:
     """Audit should not mark family mismatches when label/prediction tokens are missing."""
     run_id = "run_missing_tokens"
-    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir = tmp_path / "output" / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
     runtime_meta = pd.DataFrame(
@@ -361,7 +395,7 @@ def test_taxonomy_audit_normalizes_alias_map_keys_and_values(
 ) -> None:
     """Type alias mappings should be normalized before taxonomy comparisons."""
     run_id = "run_alias_normalization"
-    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir = tmp_path / "output" / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
     runtime_meta = pd.DataFrame(
@@ -404,7 +438,7 @@ def test_taxonomy_audit_skips_invalid_sample_id_keys(
 ) -> None:
     """Rows with invalid sample IDs should not be evaluated by taxonomy audit joins."""
     run_id = "run_invalid_sample_ids"
-    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir = tmp_path / "output" / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
     runtime_meta = pd.DataFrame(

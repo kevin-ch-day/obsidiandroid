@@ -236,6 +236,37 @@ def print_run_context_line(
     )
 
 
+def format_population_pipeline_summary_line(manifest_context: dict[str, Any]) -> str:
+    """Return a one-line population chain for strict primary-path reporting.
+
+    Uses manifest cohort/fusion/alignment counts plus post–low-support training pool
+    and train/test split sizes when available. Distinct supervised family labels after
+    min-family-support filtering come from ``RUNTIME_TRAINING_LABEL_CLASS_COUNT`` when set.
+    """
+    gov = manifest_context.get("cohort_prepared_row_count")
+    fused = manifest_context.get("fused_feature_rows")
+    aligned = manifest_context.get("aligned_supervised_rows")
+    postls = manifest_context.get("post_low_support_training_rows")
+    tr = manifest_context.get("train_sample_count")
+    te = manifest_context.get("test_sample_count")
+    cls_n = getattr(app_config, "RUNTIME_TRAINING_LABEL_CLASS_COUNT", None)
+    if gov is None or fused is None or aligned is None or postls is None:
+        return ""
+    parts = [
+        f"governed_cohort_n={int(gov)}",
+        f"fused_feature_matrix_n={int(fused)}",
+        f"aligned_supervised_n={int(aligned)}",
+        f"post_family_support_trainable_n={int(postls)}",
+    ]
+    if tr is not None and str(tr) != "":
+        parts.append(f"train_n={int(tr)}")
+    if te is not None and str(te) != "":
+        parts.append(f"test_n={int(te)}")
+    if cls_n is not None and str(cls_n) != "":
+        parts.append(f"distinct_family_labels_after_support={int(cls_n)}")
+    return " | ".join(parts)
+
+
 def extract_model_summary(model_results: dict[str, Any]) -> dict[str, Any]:
     """Extract a compact model leaderboard summary for run reporting."""
     rows: list[dict[str, Any]] = []

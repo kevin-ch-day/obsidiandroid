@@ -2,13 +2,42 @@
 
 This module centralizes output path resolution so pipeline stages avoid
 hard-coded root-relative paths and keep artifacts organized by domain.
+
+All pipeline **file** logs (structured loggers and stdout/stderr runtime tee)
+live under :func:`project_logs_root` — repository ``logs/`` by default, not under
+``output/``. Override with env ``OBSIDIANDROID_LOG_FILES_ROOT`` for tests or
+custom deployments.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from config import app_config
+
+
+def _repository_root() -> Path:
+    """Return the repository root (parent of ``utils``)."""
+    return Path(__file__).resolve().parents[1]
+
+
+def project_logs_root() -> Path:
+    """Return the single root directory for pipeline log files.
+
+    Default: ``<repo>/logs``. Set ``OBSIDIANDROID_LOG_FILES_ROOT`` to redirect
+    (e.g. per-test temp directory).
+    """
+    override = (os.environ.get("OBSIDIANDROID_LOG_FILES_ROOT") or "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    return _repository_root() / "logs"
+
+
+def project_runtime_logs_dir(run_id: str) -> Path:
+    """Per-run directory under :func:`project_logs_root` for tee and category logs."""
+    rid = str(run_id).strip() or "unknown"
+    return project_logs_root() / "runtime" / rid
 
 
 def output_root() -> Path:
@@ -54,8 +83,8 @@ def diagnostics_root() -> Path:
 
 
 def logs_root() -> Path:
-    """Return output root for global logs."""
-    return output_root() / str(getattr(app_config, "OUTPUT_LOGS_SUBDIR", "logs"))
+    """Return the canonical pipeline log file root (same as :func:`project_logs_root`)."""
+    return project_logs_root()
 
 
 def latest_root() -> Path:

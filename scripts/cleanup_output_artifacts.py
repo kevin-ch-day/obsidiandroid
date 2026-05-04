@@ -6,6 +6,15 @@ import argparse
 import re
 from pathlib import Path
 
+from utils.output_cleanup_clutter import (
+    DIAGNOSTICS_TIMESTAMP_GLOBS,
+    LEGACY_OUTPUT_ROOT_FILES,
+    PAPER_BUNDLE_ARCHIVE_GLOBS,
+    PAPER_BUNDLE_SMOKE_GLOBS,
+    WORKBOOK_CORRUPT_GLOB,
+)
+from utils.output_paths import project_logs_root
+
 
 RUN_ID_PATTERN = re.compile(r"(\d{8}T\d{6}Z__[a-z0-9]{6})")
 
@@ -42,60 +51,56 @@ def _collect_targets(
 ) -> list[Path]:
     """Build list of cleanup targets while preserving selected recent runs."""
     targets: list[Path] = []
+    pipeline_runtime_candidates: list[Path] = []
 
     # Run-scoped bundles/archives (keep latest selected run IDs).
-    for path in output_dir.glob("paper_bundle_20*"):
-        run_id = _extract_run_id(path)
-        if run_id and run_id in keep_run_ids:
-            continue
-        targets.append(path)
-    for path in output_dir.glob("paper_bundle_20*.zip"):
-        run_id = _extract_run_id(path)
-        if run_id and run_id in keep_run_ids:
-            continue
-        targets.append(path)
+    for pattern in PAPER_BUNDLE_ARCHIVE_GLOBS:
+        for path in output_dir.glob(pattern):
+            run_id = _extract_run_id(path)
+            if run_id and run_id in keep_run_ids:
+                continue
+            targets.append(path)
+
     # Legacy global mirrors and exports now superseded by run-scoped outputs.
-    for legacy_name in (
-        "paper_bundle_latest",
-        "permission_trends",
-        "permission_trends.zip",
-        "engine_scoring_summary_log.txt",
-        "family_distribution_report.txt",
-    ):
+    for legacy_name in LEGACY_OUTPUT_ROOT_FILES:
         legacy_path = output_dir / legacy_name
         if legacy_path.exists():
             targets.append(legacy_path)
 
     # Smoke/debug bundle clutter (always remove).
-    targets.extend(output_dir.glob("paper_bundle_smoke*"))
-    targets.extend(output_dir.glob("paper_bundle_zip_smoke*"))
-    targets.extend(output_dir.glob("paper_bundle_unit_smoke*"))
-    targets.extend(output_dir.glob("paper_bundle_*smoke*.zip"))
+    for pattern in PAPER_BUNDLE_SMOKE_GLOBS:
+        targets.extend(output_dir.glob(pattern))
 
-    # Legacy workbook copies/corrupt backups.
-    targets.extend(output_dir.glob("obsidiandroid_outputs_copy.xlsx"))
-    targets.extend(output_dir.glob("obsidiandroid_outputs_snapshot.xlsx"))
-    targets.extend(output_dir.glob("obsidiandroid_outputs__unknown.xlsx"))
-    targets.extend(output_dir.glob("obsidiandroid_outputs.corrupt_*.xlsx"))
+    targets.extend(output_dir.glob(WORKBOOK_CORRUPT_GLOB))
 
     # Timestamped diagnostics duplicates (keep `.latest.*`).
     diagnostics_dir = output_dir / "diagnostics"
     if diagnostics_dir.exists():
-        diagnostics_patterns = [
-            "ablation_per_family_20*.csv",
-            "ablation_summary_20*.csv",
-            "feature_contract_20*.json",
-            "leakage_assessment_20*.txt",
-            "classifier_summary_eval_20*.txt",
-        ]
-        for pattern in diagnostics_patterns:
+        for pattern in DIAGNOSTICS_TIMESTAMP_GLOBS:
             targets.extend(diagnostics_dir.glob(pattern))
 
-        # Runtime logs: keep newest N.
+        # Legacy rolling category logs (pre–repo-root ``logs/`` layout).
+        logs_legacy_dir = diagnostics_dir / "logs"
+        if logs_legacy_dir.exists():
+            targets.extend(p for p in logs_legacy_dir.glob("*.log") if p.is_file())
+
+        # Legacy runtime logs under output/diagnostics/runtime_logs/**/
         runtime_dir = diagnostics_dir / "runtime_logs"
         if runtime_dir.exists():
-            runtime_logs = sorted(runtime_dir.glob("pipeline_runtime_*.log"), reverse=True)
-            targets.extend(runtime_logs[max(0, keep_runtime_logs):])
+            for path in runtime_dir.rglob("pipeline_runtime_*.log"):
+                if path.is_file():
+                    pipeline_runtime_candidates.append(path)
+
+    # Canonical repo logs: logs/runtime/<run_id>/pipeline_runtime_*.log
+    log_runtime_root = project_logs_root() / "runtime"
+    if log_runtime_root.exists():
+        for path in log_runtime_root.glob("*/pipeline_runtime_*.log"):
+            if path.is_file():
+                pipeline_runtime_candidates.append(path)
+
+    if pipeline_runtime_candidates:
+        pipeline_runtime_candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        targets.extend(pipeline_runtime_candidates[max(0, keep_runtime_logs) :])
 
     # Vendor raw run folders: keep latest selected run IDs.
     vendor_raw_dir = output_dir / "vendor_raw"

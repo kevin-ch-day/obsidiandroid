@@ -16,7 +16,7 @@ Thumbs.db
 __pycache__/
 *.py[cod]
 .pytest_cache/
-testing/.pytest_tmp/
+.pytest_tmp/
 .mypy_cache/
 .ruff_cache/
 .coverage

@@ -1,0 +1,9 @@
+{
+  "feature_matrix_row_authority": "governed_cohort",
+  "fused_feature_matrix_unique_rows": 1226,
+  "gap_explanation": "none",
+  "governed_distinct_sample_ids": 1226,
+  "hard_equality_governed_fused_passes": true,
+  "prepared_cohort_table_rows": 1226,
+  "run_id": "20260504T044304Z__8c64e6"
+}

@@ -274,8 +274,17 @@ def run_feature_matrix_gap_report(
     col_mix = analyze_training_column_mix(feature_contract)
     fusion_vs_train = analyze_fusion_vs_training_columns(modality, training_cols)
 
+    cohort_table_rows = int(len(cohort_df))
+    cohort_distinct_ids = (
+        int(cohort_df["sample_id"].nunique())
+        if isinstance(cohort_df, pd.DataFrame) and "sample_id" in cohort_df.columns
+        else cohort_table_rows
+    )
     stage_counts: dict[str, Any] = {
-        "cohort_rows": int(len(cohort_df)),
+        # Distinct sample_id (matches compute_stage_row_counts when skip_db_recompute=False).
+        "cohort_rows": cohort_distinct_ids,
+        "cohort_prepared_table_rows": cohort_table_rows,
+        "cohort_duplicate_surplus_rows": max(0, cohort_table_rows - cohort_distinct_ids),
         "feature_matrix_final_rows_pre_alignment": int(coverage.get("feature_matrix_unique_row_count") or 0),
         "vendor_merge_authority_rows": int(coverage.get("vendor_merge_authority_unique_count") or 0),
         "cohort_gap_rows": int(coverage.get("cohort_rows_missing_from_feature_matrix") or len(missing_ids)),

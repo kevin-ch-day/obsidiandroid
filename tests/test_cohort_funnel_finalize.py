@@ -19,6 +19,20 @@ def test_row_authority_intersection_when_alignment_shrinks() -> None:
     )
 
 
+def test_row_authority_governed_cohort_when_feature_matrix_authority_set() -> None:
+    assert (
+        classify_main_training_row_authority(
+            prepared_cohort_rows=1226,
+            vendor_merge_rows=708,
+            fused_feature_rows=1226,
+            aligned_rows=1200,
+            main_uses_frozen_zero_fill=False,
+            feature_matrix_row_authority="governed_cohort",
+        )
+        == "governed_cohort"
+    )
+
+
 def test_finalize_cohort_funnel_populates_manifest_context() -> None:
     ctx: dict = {
         "cohort_sql_scope_row_count": 50,
@@ -31,7 +45,6 @@ def test_finalize_cohort_funnel_populates_manifest_context() -> None:
         "aligned_supervised_rows": 48,
         "post_low_support_training_rows": 30,
         "feature_matrix_cols_post_prune": 120,
-        "feature_matrix_row_count": 120,
         "train_sample_count": 22,
         "test_sample_count": 8,
     }
@@ -42,3 +55,6 @@ def test_finalize_cohort_funnel_populates_manifest_context() -> None:
     assert funnel[0]["stage"] == "cohort_sql_scope"
     assert any(row.get("stage") == "prepared_cohort" for row in funnel)
     assert any(row.get("stage") == "training_feature_cols_post_prune" for row in funnel)
+    trow = next(r for r in funnel if r.get("stage") == "training_feature_cols_post_prune")
+    assert trow.get("column_count") == 120
+    assert trow.get("metric_kind") == "training_feature_column_count"

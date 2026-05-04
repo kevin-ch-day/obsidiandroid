@@ -32,8 +32,9 @@ def test_clean_bytecode_cache_scopes_log_cleanup_to_target_root(tmp_path, monkey
     target_logs.mkdir()
     (target_logs / "target.log").write_text("x")
 
+    # ``tmp_path/logs`` may already exist from autouse output/log isolation fixtures.
     cwd_logs = tmp_path / "logs"
-    cwd_logs.mkdir()
+    cwd_logs.mkdir(parents=True, exist_ok=True)
     cwd_file = cwd_logs / "cwd.log"
     cwd_file.write_text("x")
 

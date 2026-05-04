@@ -260,7 +260,7 @@ def _init_rules() -> None:
                 paper_required=False,
                 safe_delete_after_run=True,
                 duplicate_latest=False,
-                description="Runtime log streams.",
+                description="Legacy per-run log folders under diagnostics (canonical logs: repo logs/).",
             ),
             _rule(
                 "**/models/**",

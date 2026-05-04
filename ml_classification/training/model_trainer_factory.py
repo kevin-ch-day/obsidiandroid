@@ -323,7 +323,10 @@ def train_model_factory(
                         "[ABLATION] Split cache indices are missing from the current feature matrix; "
                         "cannot align cached train/test rows to this feature set."
                     ) from exc
-            du.print_info("[SPLIT] Reusing cached train/test partition for model consistency.")
+            du.print_info(
+                "[SPLIT] Reusing cached train/test partition for model consistency "
+                "(cache key includes encoded labels; different label targets use independent splits)."
+            )
         else:
             if getattr(app_config, "AUTO_ADJUST_TRAIN_TEST_SPLIT", False):
                 from ml_classification.ml_utils import dataset_splitter
@@ -380,6 +383,23 @@ def train_model_factory(
         if use_smote is None
         else bool(use_smote)
     )
+    evidence_or_paper = bool(
+        getattr(app_config, "RUNTIME_EVIDENCE_MODE", False)
+        or getattr(app_config, "PAPER_MODE_ENABLED", False)
+    )
+    disable_smote_evidence = bool(getattr(app_config, "DISABLE_SMOTE_IN_EVIDENCE_MODE", False))
+    if use_smote_effective and evidence_or_paper and disable_smote_evidence:
+        du.print_info(
+            "[SMOTE] Skipped for evidence/paper run (DISABLE_SMOTE_IN_EVIDENCE_MODE / "
+            "OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE)."
+        )
+        use_smote_effective = False
+    elif use_smote_effective and evidence_or_paper and model_type != "balanced_random_forest":
+        du.print_warning(
+            "[SMOTE] Synthetic oversampling is enabled in evidence/paper mode; "
+            "set OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE=1 to disable for stricter reproducibility."
+        )
+
     if use_smote_effective and model_type != "balanced_random_forest":
         X_train, y_train = apply_smote(X_train, y_train, random_state)
 

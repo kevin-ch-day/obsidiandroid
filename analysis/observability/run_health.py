@@ -79,9 +79,9 @@ def print_unified_run_health(
     counts = payload.get("counts") if isinstance(payload.get("counts"), dict) else {}
     if counts:
         du.print_stat(
-            "Row funnel (observability)",
-            "sql_scope={gt}; prepared_cohort={g}; feature_matrix_rows={fm}; aligned_supervised={al}; "
-            "post_low_support_pool={pool}; train={tr}; test={te}".format(
+            "Row funnel (four-count + split)",
+            "sql_scope={gt}; governed_prepared_cohort={g}; fused_feature_rows={fm}; "
+            "aligned_supervised={al}; post_family_support_trainable={pool}; train={tr}; test={te}".format(
                 gt=counts.get("cohort_sql_scope_row_count")
                 or counts.get("gate_total_candidates")
                 or counts.get("raw_candidate_rows"),

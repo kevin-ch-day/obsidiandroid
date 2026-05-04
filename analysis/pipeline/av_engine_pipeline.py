@@ -19,7 +19,7 @@ def run_av_analysis_pipeline(
     Executes the full AV engine analysis pipeline:
     1. Builds binary detection matrix from sample set.
     2. Enriches matrix with malicious score features.
-    3. Attaches engine-level metadata to matrix.
+    3. Resolves engine-level metadata and writes an overlay CSV (not appended as matrix rows).
     4. Computes detection quality tiers and scores for each engine.
 
     Args:

@@ -1,0 +1,3 @@
+run_id=20260504T044304Z__8c64e6
+profile=research_all_malicious
+frozen_at=copied from output/runs/<run_id>/diagnostics after governed cohort fused rows == 1226 lineage gate pass.

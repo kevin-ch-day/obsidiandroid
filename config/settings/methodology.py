@@ -1,5 +1,7 @@
 """Methodology artifacts, ablation controls, and results warehouse flags."""
 
+import os
+
 ENABLE_FEATURE_CONTRACT_EXPORT = True
 ENABLE_FEATURE_BUILD_COVERAGE_EXPORT = True
 ENABLE_LEAKAGE_ASSESSMENT_EXPORT = True
@@ -66,6 +68,12 @@ TYPE_LABEL_ALIAS_MAP = {
 }
 TAXONOMY_NONCANONICAL_DOMINANCE_WARN_THRESHOLD = 0.60
 TAXONOMY_NONCANONICAL_DOMINANCE_MIN_COUNT = 50
+# When True alongside paper mode, taxonomy mismatches beyond max allowed raise on finalize.
+STRICT_TAXONOMY_MISMATCH_BLOCKING = False
+TAXONOMY_MISMATCH_STRICT_MAX_ALLOWED = 0
+ENABLE_FEATURE_COLUMN_SURVIVAL_EXPORT = True
+# Evidence-mode guard for permission-trend JSD degenerate skips (pairwise probability vectors).
+PERMISSION_JSD_DEGENERATE_EVIDENCE_MAX_SKIPS = 10**9
 MAX_PERMISSIONS_HEATMAP = 16
 PERMISSION_SELECTION_METHOD = "discriminability"  # one of: discriminability, prevalence, dangerous
 MIN_FAMILY_SUPPORT_FOR_VISUAL = 20
@@ -74,3 +82,14 @@ MAX_FAMILY_HEATMAP_PERMISSIONS = 25
 EXCLUDE_UNKNOWN_TYPE_IN_VISUALS = True
 MAX_TIME_SERIES_LINES = 4
 PAPER2_STRICT_EXPORT_PROFILE = True
+
+# When True (via env OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE=1), train_model_factory skips SMOTE
+# whenever RUNTIME_EVIDENCE_MODE or PAPER_MODE_ENABLED is active. Otherwise a warning is emitted
+# if SMOTE would run in those modes.
+_DISABLE_SMOTE_EV_RAW = os.getenv("OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE", "false")
+DISABLE_SMOTE_IN_EVIDENCE_MODE = str(_DISABLE_SMOTE_EV_RAW).strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}

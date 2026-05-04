@@ -148,6 +148,7 @@ def build_feature_matrix_stage(
     weights_df: pd.DataFrame,
     vendor_data: dict,
     extra_features: pd.DataFrame | None = None,
+    cohort_sample_ids: pd.Series | list | None = None,
 ) -> Optional[pd.DataFrame]:
     """Build the model feature matrix from weighted vendor metadata.
 
@@ -176,6 +177,21 @@ def build_feature_matrix_stage(
         f"[PARAM] top_k={top_k}, score='{score_field}', "
         f"exclude_categories={exclude_categories}, min_score={min_score}"
     )
+    baseline_final_ml = str(getattr(app_config, "FEATURE_SCORE_FIELD", "Final ML Score"))
+    leak_field = str(getattr(app_config, "LEAKAGE_SAFE_SCORE_FIELD", "Leakage Safe Score"))
+    du.print_info(
+        f"[PARAM] Vendor top_k / get_top_engines_by_score sorts on '{score_field}' "
+        f"(FEATURE_SCORE_FIELD default is '{baseline_final_ml}')."
+    )
+    if (
+        bool(getattr(app_config, "ENABLE_LEAKAGE_SAFE_VENDOR_SCORING", True))
+        and score_field == leak_field
+    ):
+        du.print_info(
+            "[PARAM] Leakage Safe Score is the active selector for top_k vendors. "
+            "Vendor summary tables that emphasize 'Final ML Score', precision, or generic labels "
+            "describe different diagnostics and are not the same ranking key unless configured."
+        )
     log_event(
         PIPELINE_LOGGER,
         "feature_matrix_start",
@@ -197,6 +213,7 @@ def build_feature_matrix_stage(
             encoding="category",
             verbose=True,
             extra_features_df=extra_features,
+            cohort_sample_ids=cohort_sample_ids,
         )
         if feature_df.empty:
             raise ValueError("Feature matrix is empty.")

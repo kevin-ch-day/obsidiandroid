@@ -15,6 +15,8 @@ from utils import display_utils as du, export_manager
 from utils.runtime_paths import resolve_diagnostics_dir
 from config import app_config
 
+from analysis.diagnostics.feature_build_coverage_export import _normalize_sample_ids
+
 
 _TYPE_FROM_LABEL_RE = re.compile(r"/android\.([a-z0-9\-]+)\.", re.IGNORECASE)
 _FAMILY_FROM_LABEL_RE = re.compile(r"/android\.[a-z0-9\-]+\.([a-z0-9_\-]+)", re.IGNORECASE)
@@ -231,6 +233,96 @@ def _resolve_diagnostics_dir() -> Path:
     return resolve_diagnostics_dir(ensure_exists=True)
 
 
+def _taxonomy_row_sample_id_int(value: Any) -> int | None:
+    """Coerce a sample_id cell to int for lineage set membership."""
+    got = _normalize_sample_ids([value])
+    return next(iter(got)) if got else None
+
+
+def _annotate_taxonomy_mismatches_with_lineage(mismatches: pd.DataFrame) -> pd.DataFrame:
+    """Add cohort raw fields, fused/align/family/pool flags, and paper-pool eligibility."""
+    if mismatches is None or mismatches.empty:
+        return mismatches
+    out = mismatches.copy()
+
+    def _membership_series(sample_series: pd.Series, attr: str) -> pd.Series:
+        """NA only when runtime lineage was never attached (None); [] => empty set (all False)."""
+        raw_ids = getattr(app_config, attr, None)
+        if raw_ids is None:
+            return pd.Series(pd.NA, index=sample_series.index, dtype="boolean")
+        id_set = _normalize_sample_ids(raw_ids)
+
+        def _one(v: Any):
+            k = _taxonomy_row_sample_id_int(v)
+            if k is None:
+                return pd.NA
+            return bool(k in id_set)
+
+        return sample_series.map(_one).astype("boolean")
+
+    out["reached_fused_feature_matrix"] = _membership_series(
+        out["sample_id"], "RUNTIME_FUSED_MATRIX_SAMPLE_IDS"
+    )
+    out["reached_aligned_supervised"] = _membership_series(
+        out["sample_id"], "RUNTIME_ALIGNED_SUPERVISED_SAMPLE_IDS"
+    )
+    out["survived_family_support_filter"] = _membership_series(
+        out["sample_id"], "RUNTIME_POST_FAMILY_SUPPORT_TRAINABLE_SAMPLE_IDS"
+    )
+
+    meta = getattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", None)
+    if isinstance(meta, pd.DataFrame) and not meta.empty and "sample_id" in meta.columns:
+        wing = meta.copy()
+        wing["sample_id_key"] = wing["sample_id"].map(_normalize_sample_id_key)
+        cols = ["sample_id_key"]
+        for name in ("type_slug", "family_canonical", "family_name"):
+            if name in wing.columns:
+                cols.append(name)
+        wing = wing[cols].drop_duplicates(subset=["sample_id_key"], keep="last")
+        rename_map = {
+            "type_slug": "cohort_raw_type_slug",
+            "family_canonical": "cohort_raw_family_canonical",
+            "family_name": "cohort_raw_family_name",
+        }
+        wing = wing.rename(columns={k: v for k, v in rename_map.items() if k in wing.columns})
+        out = out.merge(wing, on="sample_id_key", how="left")
+
+    if "type_expected_source" in out.columns:
+        out["taxonomy_expected_source_field"] = out["type_expected_source"].fillna("").astype(str)
+    else:
+        out["taxonomy_expected_source_field"] = ""
+
+    paper_or_evidence = bool(getattr(app_config, "PAPER_MODE_ENABLED", False)) or bool(
+        getattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False)
+    )
+    out["eligible_primary_supervised_pool"] = out["survived_family_support_filter"]
+    # Avoid bitwise ~ on Python bool with pandas (would use integer NOT). Mismatch rows are
+    # never paper-facing under strict documentation modes.
+    if paper_or_evidence:
+        out["appears_in_paper_facing_summaries"] = False
+    else:
+        out["appears_in_paper_facing_summaries"] = out["eligible_primary_supervised_pool"]
+    return out
+
+
+def _evaluate_taxonomy_mismatch_strict_policy(mismatch_count: int) -> None:
+    """Raise when strict evidence/paper policy forbids taxonomy mismatches."""
+    max_allowed = int(getattr(app_config, "TAXONOMY_MISMATCH_STRICT_MAX_ALLOWED", 0) or 0)
+    if mismatch_count <= max_allowed:
+        return
+    strict_env = bool(getattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False)) or (
+        bool(getattr(app_config, "PAPER_MODE_ENABLED", False))
+        and bool(getattr(app_config, "STRICT_TAXONOMY_MISMATCH_BLOCKING", False))
+    )
+    if not strict_env:
+        return
+    raise RuntimeError(
+        "[TAXONOMY] Strict policy blocking: "
+        f"{mismatch_count} taxonomy mismatch(es) exceed allowed max={max_allowed}. "
+        "Review taxonomy_consistency_mismatches CSV and paper_taxonomy_excluded_sample_ids JSON."
+    )
+
+
 def _build_runtime_sample_metadata_map() -> pd.DataFrame:
     """Load runtime sample metadata map for taxonomy consistency auditing."""
     frame = getattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", None)
@@ -374,6 +466,7 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
         taxonomy_mismatches["sample_id_key"].isin(set(audit.loc[family_label_mismatch_mask, "sample_id_key"])),
         "mismatch_reason",
     ] = "label_family_mismatch"
+    taxonomy_mismatches = _annotate_taxonomy_mismatches_with_lineage(taxonomy_mismatches)
     taxonomy_mismatch_count = int(len(taxonomy_mismatches))
 
     diagnostics_dir = _resolve_diagnostics_dir()
@@ -389,14 +482,26 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
 
     taxonomy_export_cols = [
         "sample_id",
+        "sample_id_key",
+        "mismatch_reason",
+        "classification_label",
         "type_slug_expected",
         "label_type_slug",
         "type_match",
         "label_family_slug",
         "predicted_family",
+        "predicted_family_norm",
+        "family_canonical_expected",
         "label_family_match",
-        "mismatch_reason",
-        "classification_label",
+        "cohort_raw_type_slug",
+        "cohort_raw_family_canonical",
+        "cohort_raw_family_name",
+        "taxonomy_expected_source_field",
+        "reached_fused_feature_matrix",
+        "reached_aligned_supervised",
+        "survived_family_support_filter",
+        "eligible_primary_supervised_pool",
+        "appears_in_paper_facing_summaries",
     ]
     prediction_export_cols = [
         "sample_id",
@@ -407,9 +512,13 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
         "label_type_slug",
         "classification_label",
     ]
+    def _taxonomy_export_frame(frame: pd.DataFrame) -> pd.DataFrame:
+        out = frame.reindex(columns=taxonomy_export_cols)
+        return out
+
     if not taxonomy_mismatches.empty:
-        taxonomy_mismatches[taxonomy_export_cols].to_csv(mismatch_path, index=False)
-        taxonomy_mismatches[taxonomy_export_cols].to_csv(latest_path, index=False)
+        _taxonomy_export_frame(taxonomy_mismatches).to_csv(mismatch_path, index=False)
+        _taxonomy_export_frame(taxonomy_mismatches).to_csv(latest_path, index=False)
     else:
         pd.DataFrame(columns=taxonomy_export_cols).to_csv(mismatch_path, index=False)
         pd.DataFrame(columns=taxonomy_export_cols).to_csv(latest_path, index=False)
@@ -458,6 +567,31 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
             except Exception:
                 type_source_mode = str(source_vals.iloc[0]).strip()
 
+    paper_excl_path: str = ""
+    if taxonomy_mismatch_count > 0:
+        pex = diagnostics_dir / f"paper_taxonomy_excluded_sample_ids_{run_id}.json"
+        excl_ids = sorted(
+            {str(x) for x in taxonomy_mismatches["sample_id"].tolist() if str(x).strip() != ""}
+        )
+        pex.write_text(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "excluded_sample_ids": excl_ids,
+                    "excluded_count": int(len(excl_ids)),
+                    "policy_note": (
+                        "These sample_ids had taxonomy consistency mismatches; exclude from "
+                        "paper-safe taxonomy-dependent aggregates when evidence or paper mode is strict."
+                    ),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        paper_excl_path = str(pex)
+
     summary = {
         "run_id": run_id,
         "rows_evaluated": int(len(audit)),
@@ -477,6 +611,7 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
         "prediction_errors_csv_path": str(prediction_path),
         "noncanonical_type_tokens_csv_path": str(noncanonical_path),
         "type_expected_source": type_source_mode,
+        "paper_taxonomy_excluded_sample_ids_path": paper_excl_path,
     }
     payload = json.dumps(summary, indent=2, sort_keys=True)
     summary_path.write_text(payload, encoding="utf-8")
@@ -508,6 +643,9 @@ def _run_summary_and_export(
             du.print_warning("[EXPORT] Failed to export structured label results.")
 
     mismatch_path, mismatch_count, audit_summary = _export_taxonomy_consistency_audit(df)
+    if isinstance(audit_summary, dict) and audit_summary:
+        setattr(app_config, "RUNTIME_TAXONOMY_CONSISTENCY_SUMMARY", dict(audit_summary))
+    _evaluate_taxonomy_mismatch_strict_policy(mismatch_count)
     if (
         bool(getattr(app_config, "PAPER_MODE_ENABLED", False))
         and isinstance(audit_summary, dict)

@@ -9,6 +9,8 @@ ObsidianDroid uses two logical databases on the same MySQL/MariaDB server by def
 
 Override via ``OBSIDIAN_*`` environment variables. Do not commit real passwords.
 
+- ``OBSIDIAN_DB_CONNECT_TIMEOUT`` — TCP/connect timeout in seconds (default ``30``).
+
 Optional: place a repo-root ``.env`` or ``.env.local`` file; variables are loaded
 with ``override=False`` so existing shell exports still win.
 """
@@ -37,7 +39,7 @@ _load_env_files()
 DB_HOST = os.getenv("OBSIDIAN_DB_HOST", "localhost")
 DB_PORT = int(os.getenv("OBSIDIAN_DB_PORT", "3306"))
 DB_USER = os.getenv("OBSIDIAN_DB_USER", "root")
-DB_PASSWORD = os.getenv("OBSIDIAN_DB_PASSWORD", "")
+DB_PASSWORD = os.getenv("OBSIDIAN_DB_PASSWORD", "Password123!")
 DB_NAME = os.getenv("OBSIDIAN_DB_NAME", "erebus_threat_intel_prod")
 
 PERMISSION_INTEL_DB_NAME = os.getenv(
@@ -55,3 +57,6 @@ DB_ENABLE_POOLING = os.getenv("OBSIDIAN_DB_ENABLE_POOLING", "false").lower() in 
 )
 DB_POOL_SIZE = int(os.getenv("OBSIDIAN_DB_POOL_SIZE", "8"))
 DB_POOL_NAME = os.getenv("OBSIDIAN_DB_POOL_NAME", "obsidiandroid_pool")
+
+# TCP/connect timeout in seconds (passed to mysql-connector ``connection_timeout``).
+DB_CONNECT_TIMEOUT = int(os.getenv("OBSIDIAN_DB_CONNECT_TIMEOUT", "30"))

@@ -7,7 +7,9 @@ from pathlib import Path
 import pandas as pd
 
 from config import app_config
+import analysis.pipeline.runner as pipeline_runner
 import main
+from utils import family_distribution_report
 
 
 def test_stop_after_training_skips_ablation_and_permission_trends(
@@ -25,7 +27,7 @@ def test_stop_after_training_skips_ablation_and_permission_trends(
     monkeypatch.setattr(app_config, "ENABLE_DYNAMIC_GENERIC_VENDOR_PARSERS", False, raising=False)
     monkeypatch.setattr(app_config, "PAPER_MODE_LOCKED_VALUE", None, raising=False)
     monkeypatch.setattr(app_config, "RUNTIME_RUN_ROOT", str(output_root), raising=False)
-    monkeypatch.setattr(main, "DIAGNOSTICS_DIR", str(output_root / "diagnostics"))
+    monkeypatch.setattr(pipeline_runner, "DIAGNOSTICS_DIR", str(output_root / "diagnostics"))
 
     sha = "a" * 64
     samples_df = pd.DataFrame(
@@ -59,9 +61,9 @@ def test_stop_after_training_skips_ablation_and_permission_trends(
     )
     monkeypatch.setattr(main.runtime_logging, "start_runtime_logging", lambda _run_id: None)
     monkeypatch.setattr(main.runtime_logging, "stop_runtime_logging", lambda _ctx: None)
-    monkeypatch.setattr(main, "load_and_prepare_samples", lambda **_kwargs: samples_df.copy())
+    monkeypatch.setattr(pipeline_runner, "load_and_prepare_samples", lambda **_kwargs: samples_df.copy())
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "run_av_analysis_stage",
         lambda **_kwargs: {
             "engine_lifecycle": pd.DataFrame(
@@ -71,27 +73,27 @@ def test_stop_after_training_skips_ablation_and_permission_trends(
         },
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "extract_vendor_metadata_stage",
         lambda **_kwargs: (pd.DataFrame({"Vendor": ["v1"]}), {"v1": []}, {}, pd.DataFrame({"Final ML Score": [0.1]})),
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "compute_engine_weights_from_pipeline",
         lambda _results: pd.DataFrame({"Leakage Safe Score": [0.5]}),
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "build_feature_matrix_stage",
         lambda *_args, **_kwargs: feature_df.copy(),
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "run_feature_alignment_stage",
         lambda **_kwargs: (feature_df.copy(), labels_df.copy()),
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "run_training_stage",
         lambda **_kwargs: {
             "logistic_regression": {
@@ -102,26 +104,28 @@ def test_stop_after_training_skips_ablation_and_permission_trends(
         },
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "_export_model_config_snapshot",
         lambda **_kwargs: str(tmp_path / "output" / "diagnostics" / "model_config_snapshot_test.json"),
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "_enforce_duplicate_sha_policy",
         lambda **_kwargs: None,
     )
-    monkeypatch.setattr(main.family_distribution_report, "print_family_distribution_stats", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(main, "finalize_run_manifest_stage", lambda **_kwargs: 0)
+    monkeypatch.setattr(
+        family_distribution_report, "print_family_distribution_stats", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(pipeline_runner, "finalize_run_manifest_stage", lambda **_kwargs: 0)
 
     calls = {"ablation": 0, "permission": 0}
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "run_ablation_experiments",
         lambda **_kwargs: calls.__setitem__("ablation", calls["ablation"] + 1) or [],
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "run_permission_trends_report_stage",
         lambda **_kwargs: calls.__setitem__("permission", calls["permission"] + 1) or [],
     )
@@ -148,7 +152,7 @@ def test_stop_after_ablation_skips_permission_trends(
     monkeypatch.setattr(app_config, "ENABLE_DYNAMIC_GENERIC_VENDOR_PARSERS", False, raising=False)
     monkeypatch.setattr(app_config, "PAPER_MODE_LOCKED_VALUE", None, raising=False)
     monkeypatch.setattr(app_config, "RUNTIME_RUN_ROOT", str(output_root), raising=False)
-    monkeypatch.setattr(main, "DIAGNOSTICS_DIR", str(output_root / "diagnostics"))
+    monkeypatch.setattr(pipeline_runner, "DIAGNOSTICS_DIR", str(output_root / "diagnostics"))
 
     sha = "a" * 64
     samples_df = pd.DataFrame(
@@ -182,9 +186,9 @@ def test_stop_after_ablation_skips_permission_trends(
     )
     monkeypatch.setattr(main.runtime_logging, "start_runtime_logging", lambda _run_id: None)
     monkeypatch.setattr(main.runtime_logging, "stop_runtime_logging", lambda _ctx: None)
-    monkeypatch.setattr(main, "load_and_prepare_samples", lambda **_kwargs: samples_df.copy())
+    monkeypatch.setattr(pipeline_runner, "load_and_prepare_samples", lambda **_kwargs: samples_df.copy())
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "run_av_analysis_stage",
         lambda **_kwargs: {
             "engine_lifecycle": pd.DataFrame(
@@ -194,27 +198,27 @@ def test_stop_after_ablation_skips_permission_trends(
         },
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "extract_vendor_metadata_stage",
         lambda **_kwargs: (pd.DataFrame({"Vendor": ["v1"]}), {"v1": []}, {}, pd.DataFrame({"Final ML Score": [0.1]})),
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "compute_engine_weights_from_pipeline",
         lambda _results: pd.DataFrame({"Leakage Safe Score": [0.5]}),
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "build_feature_matrix_stage",
         lambda *_args, **_kwargs: feature_df.copy(),
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "run_feature_alignment_stage",
         lambda **_kwargs: (feature_df.copy(), labels_df.copy()),
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "run_training_stage",
         lambda **_kwargs: {
             "logistic_regression": {
@@ -225,26 +229,28 @@ def test_stop_after_ablation_skips_permission_trends(
         },
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "_export_model_config_snapshot",
         lambda **_kwargs: str(tmp_path / "output" / "diagnostics" / "model_config_snapshot_test.json"),
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "_enforce_duplicate_sha_policy",
         lambda **_kwargs: None,
     )
-    monkeypatch.setattr(main.family_distribution_report, "print_family_distribution_stats", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(main, "finalize_run_manifest_stage", lambda **_kwargs: 0)
+    monkeypatch.setattr(
+        family_distribution_report, "print_family_distribution_stats", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(pipeline_runner, "finalize_run_manifest_stage", lambda **_kwargs: 0)
 
     calls = {"ablation": 0, "permission": 0}
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "run_ablation_experiments",
         lambda **_kwargs: calls.__setitem__("ablation", calls["ablation"] + 1) or [],
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "run_permission_trends_report_stage",
         lambda **_kwargs: calls.__setitem__("permission", calls["permission"] + 1) or [],
     )
@@ -271,7 +277,7 @@ def test_stop_after_label_resolution_with_stage_disabled(
     monkeypatch.setattr(app_config, "ENABLE_DYNAMIC_GENERIC_VENDOR_PARSERS", False, raising=False)
     monkeypatch.setattr(app_config, "PAPER_MODE_LOCKED_VALUE", None, raising=False)
     monkeypatch.setattr(app_config, "RUNTIME_RUN_ROOT", str(output_root), raising=False)
-    monkeypatch.setattr(main, "DIAGNOSTICS_DIR", str(output_root / "diagnostics"))
+    monkeypatch.setattr(pipeline_runner, "DIAGNOSTICS_DIR", str(output_root / "diagnostics"))
 
     sha = "a" * 64
     samples_df = pd.DataFrame(
@@ -305,9 +311,9 @@ def test_stop_after_label_resolution_with_stage_disabled(
     )
     monkeypatch.setattr(main.runtime_logging, "start_runtime_logging", lambda _run_id: None)
     monkeypatch.setattr(main.runtime_logging, "stop_runtime_logging", lambda _ctx: None)
-    monkeypatch.setattr(main, "load_and_prepare_samples", lambda **_kwargs: samples_df.copy())
+    monkeypatch.setattr(pipeline_runner, "load_and_prepare_samples", lambda **_kwargs: samples_df.copy())
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "run_av_analysis_stage",
         lambda **_kwargs: {
             "engine_lifecycle": pd.DataFrame(
@@ -317,27 +323,27 @@ def test_stop_after_label_resolution_with_stage_disabled(
         },
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "extract_vendor_metadata_stage",
         lambda **_kwargs: (pd.DataFrame({"Vendor": ["v1"]}), {"v1": []}, {}, pd.DataFrame({"Final ML Score": [0.1]})),
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "compute_engine_weights_from_pipeline",
         lambda _results: pd.DataFrame({"Leakage Safe Score": [0.5]}),
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "build_feature_matrix_stage",
         lambda *_args, **_kwargs: feature_df.copy(),
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "run_feature_alignment_stage",
         lambda **_kwargs: (feature_df.copy(), labels_df.copy()),
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "run_training_stage",
         lambda **_kwargs: {
             "logistic_regression": {
@@ -348,21 +354,23 @@ def test_stop_after_label_resolution_with_stage_disabled(
         },
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "_export_model_config_snapshot",
         lambda **_kwargs: str(tmp_path / "output" / "diagnostics" / "model_config_snapshot_test.json"),
     )
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "_enforce_duplicate_sha_policy",
         lambda **_kwargs: None,
     )
-    monkeypatch.setattr(main.family_distribution_report, "print_family_distribution_stats", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(main, "finalize_run_manifest_stage", lambda **_kwargs: 0)
+    monkeypatch.setattr(
+        family_distribution_report, "print_family_distribution_stats", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(pipeline_runner, "finalize_run_manifest_stage", lambda **_kwargs: 0)
 
     calls = {"label_resolution": 0}
     monkeypatch.setattr(
-        main,
+        pipeline_runner,
         "resolve_final_labels_stage",
         lambda *_args, **_kwargs: calls.__setitem__("label_resolution", calls["label_resolution"] + 1) or None,
     )

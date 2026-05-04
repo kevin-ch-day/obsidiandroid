@@ -23,6 +23,15 @@ from utils import display_utils as du
 from utils import ml_console
 from utils import export_manager as em
 from utils.logging import get_logger, log_event
+from analysis.diagnostics.feature_build_coverage_export import _normalize_sample_ids
+from analysis.diagnostics.feature_column_survival_export import (
+    export_feature_column_survival_matrix,
+    nonzero_counts_for_columns,
+)
+from analysis.diagnostics.permission_training_survival_audit import (
+    export_permission_training_survival_audit,
+    perm_prefix_nonzero_stats,
+)
 from analysis.orchestration.methodology_artifacts import (
     export_feature_contract,
     export_leakage_assessment,
@@ -50,14 +59,17 @@ PIPELINE_LOGGER = get_logger(
 def _prune_low_information_features(features_df: pd.DataFrame) -> pd.DataFrame:
     """Drop no-variance columns to reduce noise and model complexity."""
     if features_df is None or features_df.empty:
+        setattr(app_config, "RUNTIME_LOW_INFORMATION_PRUNED_COLUMNS", [])
         return features_df
 
     low_info_cols = [
         col for col in features_df.columns if features_df[col].nunique(dropna=False) <= 1
     ]
     if not low_info_cols:
+        setattr(app_config, "RUNTIME_LOW_INFORMATION_PRUNED_COLUMNS", [])
         return features_df
 
+    setattr(app_config, "RUNTIME_LOW_INFORMATION_PRUNED_COLUMNS", list(low_info_cols))
     du.print_warning(
         f"[FEATURES] Dropping {len(low_info_cols)} low-information column(s) before training."
     )
@@ -163,6 +175,16 @@ def _diagnostics_dir() -> Path:
             )
         )
     )
+
+
+def _index_to_int_sample_ids(index: Any) -> list[int]:
+    """Stable sorted unique integer sample ids from a feature matrix index."""
+    return sorted(_normalize_sample_ids(index))
+
+
+def _perm_training_survival_bundle(features_df: pd.DataFrame) -> tuple[dict[str, int], int]:
+    """Nonzero permission-bag counts and row count for survival auditing."""
+    return (perm_prefix_nonzero_stats(features_df), int(len(features_df)))
 
 
 def _export_label_name_map(labels_df: pd.Series, diagnostics_dir: Path) -> str | None:
@@ -540,6 +562,15 @@ def run_classifier_pipeline(
         save_model=bool(save_model),
     )
 
+    cohort_fused_attrs: dict[str, Any] = {}
+    if isinstance(features_df, pd.DataFrame) and hasattr(features_df, "attrs"):
+        cohort_fused_attrs = dict(features_df.attrs)
+    setattr(
+        app_config,
+        "RUNTIME_FEATURE_NONZERO_COHORT_FUSED",
+        nonzero_counts_for_columns(features_df),
+    )
+
     du.print_info("[STEP 1] Aligning features and labels")
     if isinstance(samples_df, pd.DataFrame) and not samples_df.empty:
         split_meta_cols = [
@@ -567,6 +598,11 @@ def run_classifier_pipeline(
 
     try:
         features_df, labels_df = align_data(features_df, samples_df)
+        setattr(
+            app_config,
+            "RUNTIME_FEATURE_NONZERO_AFTER_ALIGN",
+            nonzero_counts_for_columns(features_df),
+        )
     except data_alignment.DataAlignmentError as exc:
         du.print_error("[PIPELINE] Alignment failed - aborting.")
         log_event(
@@ -585,6 +621,13 @@ def run_classifier_pipeline(
         "RUNTIME_ALIGNED_ROWS_BEFORE_LOW_SUPPORT_FILTER",
         int(len(features_df)) if isinstance(features_df, pd.DataFrame) else 0,
     )
+    setattr(
+        app_config,
+        "RUNTIME_ALIGNED_SUPERVISED_SAMPLE_IDS",
+        _index_to_int_sample_ids(features_df.index),
+    )
+    perm_surv_after_align = _perm_training_survival_bundle(features_df)
+    perm_surv_after_family = perm_surv_after_align
 
     try:
         du.print_info("[STEP 2] Family label distribution (pre-training)")
@@ -649,6 +692,22 @@ def run_classifier_pipeline(
             "RUNTIME_POST_LOW_SUPPORT_TRAINING_ROWS",
             int(len(features_df)) if isinstance(features_df, pd.DataFrame) else 0,
         )
+        setattr(
+            app_config,
+            "RUNTIME_POST_FAMILY_SUPPORT_TRAINABLE_SAMPLE_IDS",
+            _index_to_int_sample_ids(features_df.index),
+        )
+        setattr(
+            app_config,
+            "RUNTIME_TRAINING_LABEL_CLASS_COUNT",
+            int(pd.Series(labels_df).nunique()),
+        )
+        perm_surv_after_family = _perm_training_survival_bundle(features_df)
+        setattr(
+            app_config,
+            "RUNTIME_FEATURE_NONZERO_AFTER_FAMILY_SUPPORT",
+            nonzero_counts_for_columns(features_df),
+        )
     except Exception as exc:
         du.print_warning(f"[PIPELINE] Family support filtering failed: {exc}")
         log_event(
@@ -663,7 +722,48 @@ def run_classifier_pipeline(
         du.print_info(f"[ARTIFACT] Training label map exported: {label_map_path}")
 
     features_df = _prune_low_information_features(features_df)
+    setattr(
+        app_config,
+        "RUNTIME_FEATURE_NONZERO_AFTER_LOW_INFORMATION",
+        nonzero_counts_for_columns(features_df),
+    )
+    perm_surv_after_low_info = _perm_training_survival_bundle(features_df)
     features_df = _prune_potential_leakage_features(features_df, labels_df)
+    setattr(
+        app_config,
+        "RUNTIME_FEATURE_NONZERO_FINAL_TRAINING",
+        nonzero_counts_for_columns(features_df),
+    )
+    perm_surv_after_leakage = _perm_training_survival_bundle(features_df)
+    cohort_fused_bundle = getattr(app_config, "RUNTIME_PERM_SURVIVAL_COHORT_FUSED_BUNDLE", None)
+    cf_pair: tuple[dict[str, int], int] | None = None
+    if (
+        isinstance(cohort_fused_bundle, tuple)
+        and len(cohort_fused_bundle) == 2
+        and isinstance(cohort_fused_bundle[0], dict)
+    ):
+        cf_pair = (cohort_fused_bundle[0], int(cohort_fused_bundle[1]))
+    surv_path = export_permission_training_survival_audit(
+        after_align=perm_surv_after_align,
+        after_family_support=perm_surv_after_family,
+        after_low_information_prune=perm_surv_after_low_info,
+        after_leakage_prune=perm_surv_after_leakage,
+        cohort_fused=cf_pair,
+        diagnostics_dir=diagnostics_dir,
+        run_id=str(getattr(app_config, "RUNTIME_RUN_ID", "unknown")),
+    )
+    if surv_path:
+        du.print_info(f"[ARTIFACT] Permission training survival audit: {surv_path}")
+    try:
+        fs_path = export_feature_column_survival_matrix(
+            diagnostics_dir=diagnostics_dir,
+            run_id=str(getattr(app_config, "RUNTIME_RUN_ID", "unknown")),
+            feature_attrs=cohort_fused_attrs,
+        )
+        if fs_path:
+            du.print_info(f"[ARTIFACT] Feature column survival matrix: {fs_path}")
+    except Exception as exc:
+        du.print_warning(f"[FEATURE_SURVIVAL] Export skipped: {exc}")
     leakage_audit_path = _export_leakage_pruning_audit(diagnostics_dir)
     if leakage_audit_path:
         du.print_info(f"[ARTIFACT] Leakage pruning audit exported: {leakage_audit_path}")
@@ -715,7 +815,14 @@ def train_all_models(
     labels: pd.DataFrame,
     models: Optional[List[str]] = None,
 ) -> Optional[Dict[str, dict]]:
-    """Public entrypoint for training configured models."""
+    """Public entrypoint for training configured models.
+
+    Args:
+        features: Fused feature matrix (indexed by sample id).
+        labels: **Samples dataframe** with ``sample_id`` and label columns — passed through to
+            ``run_classifier_pipeline`` as ``samples_df`` (name matches legacy callers).
+        models: Optional model subset.
+    """
     du.print_section("Train Malware Classification Models")
     log_event(
         PIPELINE_LOGGER,

@@ -1,0 +1,187 @@
+{
+  "ablation": {
+    "cohort_gap_summary": {
+      "ablation_cohort_reindex_zero_fill": true,
+      "expected_frozen_cohort_size": 1226,
+      "experiment_matrix_row_counts": [
+        {
+          "feature_set": "vendor_full",
+          "raw_matrix_ids": 1226
+        },
+        {
+          "feature_set": "vendor_no_parsed_family",
+          "raw_matrix_ids": 1226
+        },
+        {
+          "feature_set": "vendor_detection_binary_only",
+          "raw_matrix_ids": 1226
+        },
+        {
+          "feature_set": "vendor_consensus_scores_only",
+          "raw_matrix_ids": 1226
+        },
+        {
+          "feature_set": "permissions_raw",
+          "raw_matrix_ids": 1226
+        },
+        {
+          "feature_set": "permissions_grouped",
+          "raw_matrix_ids": 1226
+        },
+        {
+          "feature_set": "permissions_grouped_plus_vendor_no_family",
+          "raw_matrix_ids": 1226
+        },
+        {
+          "feature_set": "full_fused",
+          "raw_matrix_ids": 1226
+        }
+      ],
+      "final_training_universe_size": 1226,
+      "strict_evidence_or_paper_mode": false,
+      "train_test_split_cache_scoping": "Per-run train/test splits are cached under a key that hashes the feature index, encoded label vector, test_size, random_state, and split policy \u2014 different ablation label targets therefore do not reuse each other's y assignments."
+    },
+    "label_target_class_stats": [
+      {
+        "class_count": 39,
+        "column": "family_canonical",
+        "label_target": "family_canonical_default",
+        "max_class_support": 197,
+        "min_class_support": 1
+      },
+      {
+        "class_count": 39,
+        "column": "family_id",
+        "label_target": "family_id",
+        "max_class_support": 197,
+        "min_class_support": 1
+      },
+      {
+        "class_count": 6,
+        "column": "type_slug",
+        "label_target": "type_slug",
+        "max_class_support": 770,
+        "min_class_support": 30
+      },
+      {
+        "class_count": 39,
+        "column": "family_within_type",
+        "label_target": "family_within_type",
+        "max_class_support": 197,
+        "min_class_support": 1
+      }
+    ],
+    "status_line": "PASS artifact_paths=5 (see ablation_summary_20260504T044304Z__8c64e6.csv)"
+  },
+  "aligned_supervised_rows": 1226,
+  "claim_audit_summary": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/paper_claim_audit.md",
+  "cohort_funnel_plain": "1226 prepared-cohort rows \u2192 1226 feature_matrix_rows (fused) \u2192 1226 aligned supervised \u2192 1001 post-family-support trainable rows (training pool after min-family filter; not cohort size) \u2192 train=750/test=251",
+  "cohort_population_warning": "",
+  "cohort_prepared_row_count": 1226,
+  "cohort_rows": 1226,
+  "cohort_sql_scope_row_count": 1814,
+  "counts": {
+    "aligned_rows": 1226,
+    "aligned_supervised_rows": 1226,
+    "cohort_prepared_row_count": 1226,
+    "cohort_sql_scope_row_count": 1814,
+    "feature_matrix_cols_post_prune": 454,
+    "feature_matrix_rows": 1226,
+    "gate_total_candidates": 1814,
+    "governed_cohort_rows": 1226,
+    "permission_feature_rows": 1226,
+    "post_low_support_training_rows": 1001,
+    "raw_candidate_rows": 1814,
+    "supervised_training_rows": 1001,
+    "test_rows": 251,
+    "train_rows": 750,
+    "vendor_eval_sample_rows": null
+  },
+  "evidence_mode": false,
+  "feature_matrix_rows": 1226,
+  "features": {
+    "feature_matrix_cols_post_prune": 454,
+    "feature_matrix_cols_pre_prune": 511,
+    "post_prune": 454,
+    "pre_prune": 511
+  },
+  "figure_audit_summary": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/figure_validity_audit.md",
+  "gate_total_candidates": 1814,
+  "governed_cohort_rows": 1226,
+  "hostile_audit_degraded": false,
+  "hostile_audit_status": "PASS",
+  "main_training_row_authority": "governed_cohort",
+  "manifest_result_code": 0,
+  "model": {
+    "top_macro_f1": 0.9101534516395198,
+    "top_model": "xgboost"
+  },
+  "model_summary": {
+    "model_rows": [
+      {
+        "accuracy": 0.9482071713147411,
+        "macro_f1": 0.9101534516395198,
+        "model": "xgboost",
+        "weighted_f1": 0.9456776122349125
+      },
+      {
+        "accuracy": 0.952191235059761,
+        "macro_f1": 0.9072237417438657,
+        "model": "random_forest",
+        "weighted_f1": 0.9479339129913303
+      },
+      {
+        "accuracy": 0.9402390438247012,
+        "macro_f1": 0.9035145651458459,
+        "model": "logistic_regression",
+        "weighted_f1": 0.9409866350825036
+      }
+    ],
+    "top_macro_f1": 0.9101534516395198,
+    "top_model": "xgboost"
+  },
+  "paper_blockers": [],
+  "paper_mode": false,
+  "paper_safe_reasons": [],
+  "paper_safe_status": "NOT_APPLICABLE",
+  "paths": {
+    "logging_audit_csv": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/logging_audit.csv",
+    "logging_audit_md": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/logging_audit.md",
+    "partial_failures_md": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/partial_failures.md",
+    "pipeline_events_jsonl": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/pipeline_events.jsonl",
+    "pipeline_stage_summary_csv": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/pipeline_stage_summary.csv",
+    "pipeline_stage_summary_md": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/pipeline_stage_summary.md",
+    "run_evidence_index_md": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/run_evidence_index.md",
+    "run_manifest_json": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/run_manifest.json",
+    "run_observability_summary_json": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/run_observability_summary.json",
+    "run_summary_json": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/run_summary.json"
+  },
+  "permission_feature_rows": 1226,
+  "pipeline_status": "PASS",
+  "post_low_support_training_rows": 1001,
+  "profile_id": "research_all_malicious",
+  "raw_candidate_rows": 1814,
+  "research_validity_error": null,
+  "research_validity_status": "PASS",
+  "research_warnings": [],
+  "research_warnings_top": [],
+  "row_authority": "governed_cohort",
+  "run_id": "20260504T044304Z__8c64e6",
+  "schema_version": "2.0",
+  "test_sample_count": 251,
+  "top_artifacts_to_open_first": [
+    "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/run_evidence_index.md",
+    "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/run_observability_summary.json",
+    "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/pipeline_stage_summary.md",
+    "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/partial_failures.md",
+    "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/paper_claim_audit.md",
+    "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/cohort_funnel.md",
+    "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/recommended_findings.md",
+    "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/paper_mode_compliance_report_20260504T044304Z__8c64e6.json",
+    "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/logging_audit.md",
+    "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/figure_validity_audit.md",
+    "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260504T044304Z__8c64e6/diagnostics/hostile_audit_partial_errors.txt"
+  ],
+  "train_sample_count": 750,
+  "vendor_eval_sample_rows": null
+}

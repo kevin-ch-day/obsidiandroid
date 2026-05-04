@@ -41,6 +41,7 @@ def _build_vendor_matrix(
     parsed_data: dict[str, pd.DataFrame],
     include_fields: list[str],
     extra_features_df: pd.DataFrame | None = None,
+    cohort_sample_ids: list[int] | None = None,
 ) -> pd.DataFrame:
     score_field = str(getattr(app_config, "FEATURE_SCORE_FIELD", "Final ML Score"))
     if bool(getattr(app_config, "ENABLE_LEAKAGE_SAFE_VENDOR_SCORING", True)):
@@ -59,6 +60,7 @@ def _build_vendor_matrix(
         encoding="category",
         verbose=False,
         extra_features_df=extra_features_df,
+        cohort_sample_ids=cohort_sample_ids,
     )
 
 
@@ -170,18 +172,24 @@ def _build_experiment_matrix_dict(
     parsed_data: dict[str, pd.DataFrame],
     permission_features_df: pd.DataFrame | None,
     pipeline_results: dict[str, Any] | None,
+    cohort_sample_ids: list[int] | None,
 ) -> dict[str, Any]:
     """Return mapping of experiment names to built feature matrices (pre-reindex)."""
     full_vendor_fields = ["Parsed Family", "Threat Class", "Malware Type"]
     pipelines = pipeline_results if isinstance(pipeline_results, dict) else {}
+    cids = cohort_sample_ids
 
     builders: dict[str, Any] = {}
 
     builders["vendor_full"] = lambda: _build_vendor_matrix(
-        weights_df, parsed_data, full_vendor_fields, extra_features_df=None
+        weights_df, parsed_data, full_vendor_fields, extra_features_df=None, cohort_sample_ids=cids
     )
     builders["vendor_no_parsed_family"] = lambda: _build_vendor_matrix(
-        weights_df, parsed_data, ["Threat Class", "Malware Type"], extra_features_df=None
+        weights_df,
+        parsed_data,
+        ["Threat Class", "Malware Type"],
+        extra_features_df=None,
+        cohort_sample_ids=cids,
     )
 
     def _vendor_no_ft() -> pd.DataFrame:
@@ -212,7 +220,12 @@ def _build_experiment_matrix_dict(
     def _grp_plus_vnf() -> pd.DataFrame:
         gmat = _build_permissions_band_matrix(permission_features_df, subset="grouped")
         if not isinstance(gmat, pd.DataFrame) or gmat.empty:
-            return _build_vendor_matrix(weights_df, parsed_data, ["Threat Class", "Malware Type"])
+            return _build_vendor_matrix(
+                weights_df,
+                parsed_data,
+                ["Threat Class", "Malware Type"],
+                cohort_sample_ids=cids,
+            )
         g_df = gmat.reset_index()
         if "sample_id" not in g_df.columns and gmat.index.name == "sample_id":
             g_df = gmat.rename_axis("sample_id").reset_index()
@@ -221,6 +234,7 @@ def _build_experiment_matrix_dict(
             parsed_data,
             ["Threat Class", "Malware Type"],
             extra_features_df=g_df,
+            cohort_sample_ids=cids,
         )
 
     builders["permissions_grouped_plus_vendor_no_family"] = _grp_plus_vnf
@@ -230,6 +244,7 @@ def _build_experiment_matrix_dict(
         parsed_data,
         full_vendor_fields,
         extra_features_df=permission_features_df,
+        cohort_sample_ids=cids,
     )
 
     return builders
@@ -519,18 +534,6 @@ def run_ablation_experiments(
     manifest_context: dict[str, Any] | None = None,
 ) -> list[str]:
     """Run methodology ablations and export summary artifacts."""
-    builders = _build_experiment_matrix_dict(
-        weights_df,
-        parsed_data,
-        permission_features_df,
-        pipeline_results,
-    )
-    experiments = [
-        (name, builders[name])
-        for name in ABLATION_EXPERIMENT_ORDER
-        if name in builders and callable(builders[name])
-    ]
-
     selected_models = list(model_list or getattr(app_config, "ABLATION_MODEL_LIST", []) or [])
     ablation_cv_enabled = bool(getattr(app_config, "ENABLE_ABLATION_CROSS_VALIDATION", False))
     ablation_save_models = bool(getattr(app_config, "ENABLE_ABLATION_MODEL_EXPORT", False))
@@ -557,6 +560,19 @@ def run_ablation_experiments(
         return artifact_paths
 
     frozen_sorted = sorted(base_ids)
+
+    builders = _build_experiment_matrix_dict(
+        weights_df,
+        parsed_data,
+        permission_features_df,
+        pipeline_results,
+        cohort_sample_ids=frozen_sorted,
+    )
+    experiments = [
+        (name, builders[name])
+        for name in ABLATION_EXPERIMENT_ORDER
+        if name in builders and callable(builders[name])
+    ]
     experiment_matrices_raw: dict[str, pd.DataFrame] = {}
     for experiment_name, builder in experiments:
         try:
@@ -656,6 +672,11 @@ def run_ablation_experiments(
         "strict_evidence_or_paper_mode": bool(strict_evidence or paper_mode),
         "expected_frozen_cohort_size": len(base_ids),
         "final_training_universe_size": len(common_ids),
+        "train_test_split_cache_scoping": (
+            "Per-run train/test splits are cached under a key that hashes the feature index, "
+            "encoded label vector, test_size, random_state, and split policy — different ablation "
+            "label targets therefore do not reuse each other's y assignments."
+        ),
         "experiment_matrix_row_counts": [
             {"feature_set": row.get("feature_set"), "raw_matrix_ids": row.get("raw_matrix_ids")}
             for row in gap_table_rows

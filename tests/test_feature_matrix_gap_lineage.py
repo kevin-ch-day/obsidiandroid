@@ -85,3 +85,55 @@ def test_run_gap_report_filesystem_only(tmp_path: Path) -> None:
     assert summary["row_loss"]["feature_matrix_rows_pre_alignment"] == 2
     assert (diag / "feature_matrix_gap_summary.json").is_file()
     assert (diag / "feature_matrix_row_lineage.csv").is_file()
+
+
+def test_run_gap_report_cohort_rows_use_distinct_sample_id(tmp_path: Path) -> None:
+    """Table row count can exceed distinct sample_id; stage cohort_rows matches nunique."""
+    diag = tmp_path / "diagnostics"
+    diag.mkdir(parents=True)
+    cohort = pd.DataFrame(
+        {
+            "sample_id": [1, 1, 2, 3],
+            "sha256": ["a", "a_dup", "b", "c"],
+            "family_canonical": ["F", "F", "F", "G"],
+        }
+    )
+    cohort.to_csv(diag / "cohort_membership.csv", index=False)
+    pd.DataFrame({"sample_id": [3]}).to_csv(diag / "unmatched_label_ids.csv", index=False)
+
+    (diag / "feature_build_coverage.latest.json").write_text(
+        json.dumps(
+            {
+                "feature_matrix_unique_row_count": 2,
+                "vendor_merge_authority_unique_count": 2,
+                "cohort_rows_missing_from_feature_matrix": 1,
+                "vendor_merge_equals_final_index": True,
+                "feature_rows_not_in_cohort": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diag / "cohort_missing_from_feature_matrix.latest.csv").write_text(
+        "sample_id\n3\n", encoding="utf-8"
+    )
+    for name, payload in (
+        (
+            "modality_method_contract.json",
+            {
+                "fusion_modality": {"feature_count_total": 10, "matrix_shape": {"columns": 10}},
+                "permission_modality": {"feature_count_raw": 5},
+            },
+        ),
+        (
+            "feature_contract.json",
+            {"feature_columns": ["c0"], "feature_shape": {"rows": 2, "columns": 1}},
+        ),
+    ):
+        (diag / name).write_text(json.dumps(payload), encoding="utf-8")
+
+    _lineage_df, _gap_detail, summary = fmgl.run_feature_matrix_gap_report(tmp_path, skip_db_recompute=True)
+    sc = summary["stage_row_counts"]
+    assert sc["cohort_rows"] == 3
+    assert sc["cohort_prepared_table_rows"] == 4
+    assert sc["cohort_duplicate_surplus_rows"] == 1
+    assert summary["row_loss"]["cohort_samples_locked"] == 3

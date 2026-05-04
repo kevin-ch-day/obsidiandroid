@@ -51,6 +51,9 @@ def isolate_output_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     diagnostics_root.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setenv("OBSIDIANDROID_TEST_OUTPUT_ROOT", str(output_root))
+    log_root = tmp_path / "logs"
+    log_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("OBSIDIANDROID_LOG_FILES_ROOT", str(log_root))
 
     repo_output_root = (REPO_ROOT / "output").resolve()
 

@@ -34,7 +34,6 @@ class _MenuCommand:
     """Descriptor for one operator-facing menu command."""
 
     label: str
-    description: str
     action: Callable[[], int | None]
 
 
@@ -75,7 +74,7 @@ def _run_to_stage(profile_id: str) -> int:
     """Run pipeline and stop after a selected stage."""
     from main import run_pipeline
 
-    stage_map = {
+    stage_map: Dict[str, str] = {
         "Samples only": "samples",
         "AV pipeline only": "av_pipeline",
         "Vendor metadata only": "vendor_metadata",
@@ -87,10 +86,15 @@ def _run_to_stage(profile_id: str) -> int:
         "Permission trends only": "permission_trends",
         "Label resolution only": "label_resolution",
     }
-    stage_names = list(stage_map.keys())
-    choice = mu.display_menu(stage_names, title="Select Pipeline Cutoff Stage")
+    choice = mu.display_menu(
+        list(stage_map.keys()),
+        title="Pipeline cutoff stage",
+        exit_label="Back",
+        breadcrumb="Main menu › Run analysis › Stage stop",
+    )
     if choice == 0:
         return 0
+    stage_names = list(stage_map.keys())
     stage_key = stage_map[stage_names[choice - 1]]
     return run_pipeline(stop_after=stage_key, profile_ref=profile_id)
 
@@ -382,13 +386,13 @@ def _print_startup_context() -> None:
     publication_ready = bool(context.get("has_paper_exports", False))
     provenance_ready = _latest_run_has_provenance()
 
-    du.print_section("ObsidianDroid Operator Console")
+    du.print_rule(" ObsidianDroid ")
     du.print_info(
-        "Fedora | "
-        f"Latest run: {latest_run_id} | "
-        f"Diagnostics: {_status_text(provenance_ready, ready='Available', pending='Missing')} | "
-        f"Exports: {_status_text(publication_ready, ready='Available', pending='Not built')}"
+        f"Latest run {latest_run_id} · "
+        f"Diagnostics {_status_text(provenance_ready, ready='ready', pending='missing')} · "
+        f"Paper exports {_status_text(publication_ready, ready='ready', pending='none')}"
     )
+    print("")
 
 
 def _show_latest_run_snapshot() -> int:
@@ -1361,19 +1365,28 @@ def _prompt_structural_analysis_action(options: List[str]) -> str:
         du.print_warning("Invalid input. Enter a valid number or I.")
 
 
+def _pipeline_run_mode_labels() -> list[str]:
+    """Ordered labels for the primary pipeline launcher."""
+    return [
+        "Full pipeline",
+        "Fast development",
+        "Smoke test",
+        "Single model only",
+        "Stop after a stage",
+        "Vendor extraction only",
+        "Retrain from cached alignment",
+    ]
+
+
 def _launch_pipeline_actions_menu() -> int:
     """Display run actions and execute selected pipeline path."""
     while True:
-        options: List[str] = [
-            "Full Analysis",
-            "Fast Development Analysis",
-            "Smoke Analysis",
-            "Single-Model Analysis",
-            "Run Through Selected Stage",
-            "Vendor Parsing Only",
-            "Retrain Models from Cached Features",
-        ]
-        choice = mu.display_menu(options, title="Choose Analysis Type", exit_label="Back")
+        choice = mu.display_menu(
+            _pipeline_run_mode_labels(),
+            title="Pipeline run mode",
+            exit_label="Back",
+            breadcrumb="Main menu › Run analysis",
+        )
         if choice == 0:
             return 0
         if choice == 1:
@@ -1390,10 +1403,15 @@ def _launch_pipeline_actions_menu() -> int:
             if not profile_id:
                 continue
             model_menu = _build_model_menu()
-            model_names = list(model_menu.keys())
-            model_choice = mu.display_menu(model_names, title="Select Single Model", exit_label="Back")
+            model_choice = mu.display_menu(
+                list(model_menu.keys()),
+                title="Single model",
+                exit_label="Back",
+                breadcrumb="Main menu › Run analysis › Single model",
+            )
             if model_choice == 0:
                 continue
+            model_names = list(model_menu.keys())
             model_key = model_menu[model_names[model_choice - 1]]
             return _run_single_model(model_key, profile_id)
         if choice == 5:
@@ -1414,11 +1432,16 @@ def _launch_pipeline_actions_menu() -> int:
 def _launch_reuse_results_menu() -> None:
     """Display reuse actions for existing artifacts and warehouse tables."""
     while True:
-        options: List[str] = [
+        reuse = [
             "Backfill Results Warehouse from Existing Artifacts",
             "Check Results Warehouse Table Status",
         ]
-        choice = mu.display_menu(options, title="Reuse Existing Results", exit_label="Back")
+        choice = mu.display_menu(
+            reuse,
+            title="Reuse existing results",
+            exit_label="Back",
+            breadcrumb="Main menu › Tools › Reuse",
+        )
         if choice == 0:
             return
         if choice == 1:
@@ -1433,7 +1456,7 @@ def _launch_reuse_results_menu() -> None:
 def _launch_maintenance_menu() -> None:
     """Display maintenance/diagnostic tools."""
     while True:
-        options: List[str] = [
+        maintenance = [
             "Engine Scoring Summary",
             "Parser Coverage Review",
             "Single Vendor Parser Diagnostic",
@@ -1444,7 +1467,12 @@ def _launch_maintenance_menu() -> None:
             "Claim Artifact Map",
             "Evidence Bundle Checker",
         ]
-        choice = mu.display_menu(options, title="Maintenance Tools", exit_label="Back")
+        choice = mu.display_menu(
+            maintenance,
+            title="Maintenance tools",
+            exit_label="Back",
+            breadcrumb="Main menu › Tools › Maintenance",
+        )
         if choice == 0:
             return
         if choice == 1:
@@ -1616,20 +1644,22 @@ def _launch_model_evaluation_menu() -> None:
             "Export Confusion Matrix",
             "Generate Claim Artifact Map",
         ]
-        options: List[str] = []
+        model_rows: List[str] = []
         for idx, label in enumerate(base_options, start=1):
             reason = unavailable_reasons.get(idx, "").strip()
-            if reason:
-                options.append(f"{label} (Unavailable: {reason})")
-            else:
-                options.append(label)
+            model_rows.append(f"{label} (Unavailable)" if reason else label)
         _print_availability_block(
             rows=[
                 ("Latest Run", str(context.get("latest_run_id", "")) or "No"),
                 ("Run-Scoped Provenance", "Yes" if _latest_run_has_provenance() else "No"),
             ]
         )
-        choice = mu.display_menu(options, title="Model Evaluation", exit_label="Back")
+        choice = mu.display_menu(
+            model_rows,
+            title="Model evaluation",
+            exit_label="Back",
+            breadcrumb="Main menu › Research › Models",
+        )
         if choice == 0:
             return
         blocked_reason = unavailable_reasons.get(int(choice), "").strip()
@@ -1689,13 +1719,10 @@ def _launch_reproducibility_menu() -> None:
             "Contract Snapshot Viewer",
             "Strict Reproducibility Series Aggregator",
         ]
-        options: List[str] = []
+        repro_rows: List[str] = []
         for idx, label in enumerate(base_options, start=1):
             reason = unavailable_reasons.get(idx, "").strip()
-            if reason:
-                options.append(f"{label} (Unavailable: {reason})")
-            else:
-                options.append(label)
+            repro_rows.append(f"{label} (Unavailable)" if reason else label)
 
         _print_availability_block(
             rows=[
@@ -1705,7 +1732,12 @@ def _launch_reproducibility_menu() -> None:
                 ("Latest Run Provenance", "Yes" if latest_has_provenance else "No"),
             ]
         )
-        choice = mu.display_menu(options, title="Reproducibility Checks", exit_label="Back")
+        choice = mu.display_menu(
+            repro_rows,
+            title="Reproducibility checks",
+            exit_label="Back",
+            breadcrumb="Main menu › Validation › Reproducibility",
+        )
         if choice == 0:
             return
         blocked_reason = unavailable_reasons.get(int(choice), "").strip()
@@ -1739,12 +1771,17 @@ def _launch_data_parser_menu() -> None:
         from utils.menu import vendor_diagnostics
 
         vendor_diagnostics.print_parser_diagnostics_state()
-        options: List[str] = [
+        data_diag = [
             "Validate Parser Coverage",
             "Run Single Vendor Parser Diagnostic",
             "Show Parser Diagnostics Snapshot",
         ]
-        choice = mu.display_menu(options, title="Data Diagnostics", exit_label="Back")
+        choice = mu.display_menu(
+            data_diag,
+            title="Data diagnostics",
+            exit_label="Back",
+            breadcrumb="Main menu › Validation › Data diagnostics",
+        )
         if choice == 0:
             return
         if choice == 1:
@@ -1762,11 +1799,16 @@ def _launch_data_parser_menu() -> None:
 def _launch_output_management_menu() -> None:
     """Display output and artifact hygiene workflows."""
     while True:
-        options: List[str] = [
+        output_opts = [
             "Cleanup Output Artifacts (Smart prune)",
             "Show Disk Usage Summary",
         ]
-        choice = mu.display_menu(options, title="Output Management", exit_label="Back")
+        choice = mu.display_menu(
+            output_opts,
+            title="Output management",
+            exit_label="Back",
+            breadcrumb="Main menu › Tools › Output",
+        )
         if choice == 0:
             return
         if choice == 1:
@@ -1781,13 +1823,18 @@ def _launch_output_management_menu() -> None:
 def _launch_run_overview_menu() -> None:
     """Display run overview and snapshot workflows."""
     while True:
-        options: List[str] = [
+        run_status = [
             "Current Run Summary",
             "Recent Run History",
             "Session and Output Details",
             "Full Run Folder History (Advanced)",
         ]
-        choice = mu.display_menu(options, title="Run Status and History", exit_label="Back")
+        choice = mu.display_menu(
+            run_status,
+            title="Run status and history",
+            exit_label="Back",
+            breadcrumb="Main menu › Run status",
+        )
         if choice == 0:
             return
         if choice == 1:
@@ -1808,11 +1855,16 @@ def _launch_run_overview_menu() -> None:
 def _launch_research_reports_menu() -> None:
     """Display research, reporting, and evaluation workflows."""
     while True:
-        options: List[str] = [
+        research = [
             "Structural Analysis",
             "Model Evaluation",
         ]
-        choice = mu.display_menu(options, title="Research Reports", exit_label="Back")
+        choice = mu.display_menu(
+            research,
+            title="Research reports",
+            exit_label="Back",
+            breadcrumb="Main menu › Research",
+        )
         if choice == 0:
             return
         if choice == 1:
@@ -1827,11 +1879,16 @@ def _launch_research_reports_menu() -> None:
 def _launch_validation_diagnostics_menu() -> None:
     """Display validation, reproducibility, and parser diagnostics workflows."""
     while True:
-        options: List[str] = [
+        validation = [
             "Reproducibility Checks",
             "Data Diagnostics",
         ]
-        choice = mu.display_menu(options, title="Validation and Diagnostics", exit_label="Back")
+        choice = mu.display_menu(
+            validation,
+            title="Validation and diagnostics",
+            exit_label="Back",
+            breadcrumb="Main menu › Validation",
+        )
         if choice == 0:
             return
         if choice == 1:
@@ -1846,12 +1903,17 @@ def _launch_validation_diagnostics_menu() -> None:
 def _launch_operations_menu() -> None:
     """Display operational maintenance and artifact-management workflows."""
     while True:
-        options: List[str] = [
+        operations = [
             "Maintenance Tools",
             "Output Management",
             "Reuse Existing Results",
         ]
-        choice = mu.display_menu(options, title="Tools and Maintenance", exit_label="Back")
+        choice = mu.display_menu(
+            operations,
+            title="Tools and maintenance",
+            exit_label="Back",
+            breadcrumb="Main menu › Tools",
+        )
         if choice == 0:
             return
         if choice == 1:
@@ -1883,36 +1945,12 @@ def _print_operator_console_summary() -> None:
 def _build_main_menu_commands() -> list[_MenuCommand]:
     """Return the redesigned top-level operator menu."""
     return [
-        _MenuCommand(
-            label="Run Analysis",
-            description="Launch full, smoke, staged, and single-model analysis runs.",
-            action=_launch_pipeline_actions_menu,
-        ),
-        _MenuCommand(
-            label="Run Status and History",
-            description="Inspect the latest run, browse previous runs, and review run outputs.",
-            action=_launch_run_overview_menu,
-        ),
-        _MenuCommand(
-            label="Research Reports",
-            description="Open structural analysis, model evaluation, and research reporting workflows.",
-            action=_launch_research_reports_menu,
-        ),
-        _MenuCommand(
-            label="Validation and Diagnostics",
-            description="Run reproducibility checks, parser diagnostics, and validation tools.",
-            action=_launch_validation_diagnostics_menu,
-        ),
-        _MenuCommand(
-            label="Tools and Maintenance",
-            description="Cleanup outputs, manage utility tasks, and reuse existing artifacts.",
-            action=_launch_operations_menu,
-        ),
-        _MenuCommand(
-            label="Clear Screen",
-            description="Refresh the console display.",
-            action=lambda: 0,
-        ),
+        _MenuCommand(label="Run Analysis", action=_launch_pipeline_actions_menu),
+        _MenuCommand(label="Run Status and History", action=_launch_run_overview_menu),
+        _MenuCommand(label="Research Reports", action=_launch_research_reports_menu),
+        _MenuCommand(label="Validation and Diagnostics", action=_launch_validation_diagnostics_menu),
+        _MenuCommand(label="Tools and Maintenance", action=_launch_operations_menu),
+        _MenuCommand(label="Clear Screen", action=lambda: 0),
     ]
 
 
@@ -1922,8 +1960,12 @@ def launch_startup_menu() -> int:
 
     while True:
         commands = _build_main_menu_commands()
-        options = [command.label for command in commands]
-        choice = mu.display_menu(options, title="Select an Action")
+        choice = mu.display_menu(
+            [c.label for c in commands],
+            title="Main menu",
+            exit_label="Exit",
+            breadcrumb="ObsidianDroid · operator console",
+        )
 
         if choice == 0:
             du.print_info("[MENU] Exit requested.")

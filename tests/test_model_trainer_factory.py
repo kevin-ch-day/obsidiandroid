@@ -104,6 +104,57 @@ def test_smote_not_called_for_balanced_random_forest(monkeypatch):
     assert not call_tracker["called"]
 
 
+def test_smote_skipped_in_evidence_when_disable_flag(monkeypatch):
+    X, y = _imbalanced_data()
+    call_tracker = {"called": False}
+
+    def fake_apply_smote(X_train, y_train, random_state):
+        call_tracker["called"] = True
+        return X_train, y_train
+
+    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_MODE", True, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_SMOTE_OVERSAMPLING", True, raising=False)
+    monkeypatch.setattr(app_config, "DISABLE_SMOTE_IN_EVIDENCE_MODE", True, raising=False)
+    monkeypatch.setattr(model_trainer_factory, "apply_smote", fake_apply_smote)
+
+    model_trainer_factory.train_model_factory(
+        X,
+        y,
+        model_type="random_forest",
+        use_smote=True,
+        enable_grid_search=False,
+        random_state=0,
+    )
+
+    assert not call_tracker["called"]
+
+
+def test_smote_warns_in_evidence_when_not_disabled(monkeypatch):
+    X, y = _imbalanced_data()
+    warnings: list[str] = []
+
+    def capture_warning(msg: str, *args, **kwargs) -> None:
+        warnings.append(str(msg))
+
+    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_MODE", True, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_SMOTE_OVERSAMPLING", True, raising=False)
+    monkeypatch.setattr(app_config, "DISABLE_SMOTE_IN_EVIDENCE_MODE", False, raising=False)
+    monkeypatch.setattr(model_trainer_factory.du, "print_warning", capture_warning)
+
+    model_trainer_factory.train_model_factory(
+        X,
+        y,
+        model_type="random_forest",
+        use_smote=True,
+        enable_grid_search=False,
+        random_state=0,
+    )
+
+    assert any("[SMOTE]" in w for w in warnings)
+
+
 def test_smote_respects_runtime_flag_when_use_smote_not_explicit(monkeypatch):
     X, y = _imbalanced_data()
     call_tracker = {"called": False}

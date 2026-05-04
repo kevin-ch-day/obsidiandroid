@@ -293,8 +293,8 @@ def build_summary(
     notes = [
         "in_vendor_gate_table reflects membership in merge_vendor_features(extract_vendor_fields("
         "top_k)) — same row universe as the encoded AV-vendor-string matrix before extras join.",
-        "_merge_extra_features uses encoded.join(extras, how='left'): cohort samples missing from "
-        "encoded rows never appear in the final matrix.",
+        "_merge_extra_features left-aligns extras on explicit sample_id (column or index): cohort "
+        "samples missing from encoded rows never appear in the final matrix.",
         "in_enrichment_frame is approximated as in_av_matrix (enriched_matrix preserves binary rows).",
     ]
     if trace_degraded:

@@ -19,7 +19,7 @@ def test_start_runtime_logging_disabled(monkeypatch) -> None:
 def test_start_and_stop_runtime_logging(monkeypatch, tmp_path: Path) -> None:
     """Mirror stdout/stderr to runtime log and restore original streams."""
     monkeypatch.setattr(runtime_logging.app_config, "LOGGING_ENABLED", True)
-    monkeypatch.setattr(runtime_logging.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setenv("OBSIDIANDROID_LOG_FILES_ROOT", str(tmp_path))
 
     original_stdout = sys.stdout
     original_stderr = sys.stderr
@@ -41,7 +41,7 @@ def test_start_and_stop_runtime_logging(monkeypatch, tmp_path: Path) -> None:
     assert "hello-out" in capture_out.getvalue()
     assert "hello-err" in capture_err.getvalue()
 
-    log_path = tmp_path / "diagnostics" / "runtime_logs" / "pipeline_runtime_runabc.log"
+    log_path = tmp_path / "runtime" / "runabc" / "pipeline_runtime_runabc.log"
     assert log_path.exists()
     content = log_path.read_text(encoding="utf-8")
     assert "hello-out" in content

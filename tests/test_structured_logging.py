@@ -8,15 +8,15 @@ from utils.logging import logger as logger_mod
 
 
 def test_get_logger_writes_category_file(monkeypatch, tmp_path: Path) -> None:
-    """Category logger should write to output/diagnostics/logs/<category>.log."""
-    monkeypatch.setattr(logger_mod.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path))
+    """Category logger should write to project logs root (repo ``logs/`` by default)."""
+    monkeypatch.setenv("OBSIDIANDROID_LOG_FILES_ROOT", str(tmp_path))
     monkeypatch.setattr(logger_mod.app_config, "LOG_LEVEL", "INFO")
     logger_mod._LOGGERS.clear()
 
     log = logger_mod.get_logger("test.logger", "ml")
     logger_mod.log_event(log, "model_start", model="random_forest", run_id="r1")
 
-    path = tmp_path / "diagnostics" / "logs" / "ml.log"
+    path = tmp_path / "ml.log"
     assert path.exists()
     text = path.read_text(encoding="utf-8")
     assert "model_start" in text
@@ -26,7 +26,7 @@ def test_get_logger_writes_category_file(monkeypatch, tmp_path: Path) -> None:
 
 def test_get_logger_reuses_cached_instance(monkeypatch, tmp_path: Path) -> None:
     """Repeated requests should return the same logger instance."""
-    monkeypatch.setattr(logger_mod.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setenv("OBSIDIANDROID_LOG_FILES_ROOT", str(tmp_path))
     logger_mod._LOGGERS.clear()
 
     a = logger_mod.get_logger("test.same", "database")

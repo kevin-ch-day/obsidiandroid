@@ -1,8 +1,13 @@
 # Filename: analysis/pipeline/attach_engine_metadata.py
-# Purpose  : Attach AV engine metadata as bottom rows to the binary detection matrix
+# Purpose  : Resolve AV engine metadata for matrices; persist overlay CSV without mutating sample rows.
+
+from pathlib import Path
 
 import pandas as pd
+
+from config import app_config
 from database import db_av_engine_detection_totals
+from utils import display_utils as du
 
 METADATA_FIELDS = [
     "detection_strategy", "is_trusted_vendor", "is_engine_active",
@@ -51,7 +56,36 @@ def _build_metadata_overlay(
     return meta_df
 
 
+def _overlay_diagnostics_dir() -> Path:
+    diag = str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "").strip()
+    if diag:
+        return Path(diag)
+    base = str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output") or "output")
+    return Path(base) / "diagnostics"
+
+
+def _write_engine_metadata_overlay_csv(meta_df: pd.DataFrame, *, verbose: bool) -> str | None:
+    """Persist engine metadata rows for inspection; does not append to the sample matrix."""
+    if meta_df.empty:
+        return None
+    out_dir = _overlay_diagnostics_dir()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
+    path = out_dir / f"engine_metadata_overlay_{run_id}.csv"
+    latest = out_dir / "engine_metadata_overlay.latest.csv"
+    meta_df.to_csv(path, index=True)
+    meta_df.to_csv(latest, index=True)
+    setattr(app_config, "RUNTIME_ENGINE_METADATA_OVERLAY_CSV", str(path))
+    if verbose:
+        du.print_info(
+            f"[AV] Engine metadata overlay written to {path} "
+            "(not concatenated onto the enriched matrix)."
+        )
+    return str(path)
+
+
 def attach_engine_metadata(matrix_df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
+    setattr(app_config, "RUNTIME_ENGINE_METADATA_OVERLAY_CSV", "")
     engine_df = fetch_engine_metadata(verbose=verbose)
     if engine_df.empty:
         return matrix_df
@@ -79,6 +113,9 @@ def attach_engine_metadata(matrix_df: pd.DataFrame, verbose: bool = True) -> pd.
         return matrix_df
 
     try:
-        return pd.concat([matrix_df, meta_df], axis=0, ignore_index=False)
-    except Exception:
-        return matrix_df
+        _write_engine_metadata_overlay_csv(meta_df, verbose=verbose)
+    except Exception as exc:
+        if verbose:
+            du.print_warning(f"[AV] Engine metadata overlay export failed: {exc}")
+        setattr(app_config, "RUNTIME_ENGINE_METADATA_OVERLAY_CSV", "")
+    return matrix_df

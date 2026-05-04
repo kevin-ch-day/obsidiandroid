@@ -5,7 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
+import json
+
 import pandas as pd
+
+from config import app_config
 
 
 def write_type_permission_figure_bundle(
@@ -30,6 +34,7 @@ def write_type_permission_figure_bundle(
         frame = build_permission_enrichment_frame(
             samples_df,
             feature_flags={"enable_permission_features": True},
+            log_frame_built=False,
         )
     except Exception:
         return
@@ -95,16 +100,62 @@ def write_type_permission_figure_bundle(
 
     try:
         import numpy as np
-        from scipy.spatial.distance import jensenshannon
+
+        from analysis.pipeline.permission_trends.stats_core import js_distance
 
         mat = np.zeros((len(fams), len(fams)))
+        skipped_pairs = 0
+
+        def _safe_prob(vec: Any) -> Any:
+            v = np.asarray(vec, dtype=float)
+            v = np.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)
+            s = float(v.sum())
+            if s <= 0.0:
+                return None
+            return v / s
+
         for i, fam_a in enumerate(fams):
-            probs_a = wide.loc[fam_a].values.astype(float)
-            probs_a = probs_a / max(probs_a.sum(), 1e-9)
+            probs_a = _safe_prob(wide.loc[fam_a].values)
             for j, fam_b in enumerate(fams):
-                probs_b = wide.loc[fam_b].values.astype(float)
-                probs_b = probs_b / max(probs_b.sum(), 1e-9)
-                mat[i, j] = float(jensenshannon(probs_a, probs_b))
+                probs_b = _safe_prob(wide.loc[fam_b].values)
+                if probs_a is None or probs_b is None:
+                    mat[i, j] = np.nan
+                    if i < j:
+                        skipped_pairs += 1
+                    continue
+                pa = np.asarray(probs_a, dtype=float)
+                pb = np.asarray(probs_b, dtype=float)
+                mat[i, j] = float(js_distance(pa, pb))
+        run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
+        if skipped_pairs and diagnostics_dir:
+            p = diagnostics_dir / "permission_jsd_skipped_degenerate_pairs.count.txt"
+            p.write_text(str(skipped_pairs), encoding="utf-8")
+            artifact_list.append(str(p))
+        if diagnostics_dir:
+            diag = {
+                "run_id": run_id,
+                "skipped_degenerate_pair_count": int(skipped_pairs),
+                "reason": "zero_sum_or_invalid_probability_vector",
+                "family_vector_count": int(len(fams)),
+            }
+            dj = diagnostics_dir / f"permission_jsd_degenerate_diagnostics_{run_id}.json"
+            djl = diagnostics_dir / "permission_jsd_degenerate_diagnostics.latest.json"
+            js_payload = json.dumps(diag, indent=2, sort_keys=True) + "\n"
+            dj.write_text(js_payload, encoding="utf-8")
+            djl.write_text(js_payload, encoding="utf-8")
+            artifact_list.append(str(djl))
+        max_skips = int(
+            getattr(app_config, "PERMISSION_JSD_DEGENERATE_EVIDENCE_MAX_SKIPS", 10**9) or 10**9
+        )
+        if (
+            skipped_pairs > max_skips
+            and bool(getattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False))
+        ):
+            raise RuntimeError(
+                "[JSD] Degenerate permission probability vectors: "
+                f"skipped_pair_count={skipped_pairs} exceeds evidence threshold={max_skips}. "
+                "See permission_jsd_degenerate_diagnostics JSON in diagnostics."
+            )
 
         fig3, ax3 = plt.subplots(figsize=(12, 10), dpi=140)
         ax3.imshow(mat, cmap="viridis")

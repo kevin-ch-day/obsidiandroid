@@ -254,7 +254,10 @@ def finalize_pipeline_observability(
     if aligned not in (None, ""):
         parts.append(f"{aligned} aligned supervised")
     if post not in (None, ""):
-        parts.append(f"{post} post-support training rows")
+        parts.append(
+            f"{post} post-family-support trainable rows "
+            "(training pool after min-family filter; not cohort size)"
+        )
     if tr_ct not in (None, "") or te_ct not in (None, ""):
         parts.append(f"train={tr_ct}/test={te_ct}")
     cohort_funnel_plain = " → ".join(parts)

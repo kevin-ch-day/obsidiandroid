@@ -56,7 +56,7 @@ Access to replicated VirusTotal data must comply with [VirusTotal’s Terms of S
 
 ## Local Development Tips
 
-- Seed a development database by restoring the sanitized snapshot in `testing/fixtures/vt_snapshot.sql.gz` (if available) or by generating synthetic detections using `testing/data_fuzzer.py`.
+- Seed a development database by restoring the sanitized snapshot in `devtools/fixtures/vt_snapshot.sql.gz` (if available) or by generating synthetic detections using `devtools/data_fuzzer.py`.
 - Prefer `OBSIDIAN_*` environment variables over committing credentials; local overrides can still use `database/db_config.py` defaults for non-secret fields.
 - When adding new VirusTotal columns, update both the ORM/select queries and the validation scripts to maintain coverage.
 

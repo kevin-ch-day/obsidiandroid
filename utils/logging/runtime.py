@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TextIO
 
 from config import app_config
+from utils.output_paths import project_runtime_logs_dir
 
 
 @dataclass
@@ -55,12 +56,7 @@ def start_runtime_logging(run_id: str) -> RuntimeLogContext | None:
 
     import sys
 
-    runtime_diag = str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "").strip()
-    runtime_run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "").strip()
-    if runtime_diag and runtime_run_id == str(run_id):
-        log_dir = Path(runtime_diag) / "runtime_logs"
-    else:
-        log_dir = Path(app_config.DEFAULT_OUTPUT_DIR) / "diagnostics" / "runtime_logs"
+    log_dir = project_runtime_logs_dir(run_id)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"pipeline_runtime_{run_id}.log"
     stream_handle = open(log_path, "w", encoding="utf-8", buffering=1)

@@ -16,7 +16,6 @@ def test_main_menu_clear_screen_option(monkeypatch) -> None:
 
     monkeypatch.setattr(startup_menu, "_print_startup_context", lambda: None)
     monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: next(choices))
-    monkeypatch.setattr(startup_menu.mu, "display_rich_menu", lambda *_args, **_kwargs: next(choices))
     monkeypatch.setattr(startup_menu.du, "clear_console", lambda: clear_calls.__setitem__("count", clear_calls["count"] + 1))
 
     result = startup_menu.launch_startup_menu()
@@ -40,7 +39,7 @@ def test_main_menu_uses_concise_title_and_primary_workflow_order(monkeypatch) ->
     result = startup_menu.launch_startup_menu()
 
     assert result == 0
-    assert captured["title"] == "Select an Action"
+    assert captured["title"] == "Main menu"
     assert captured["labels"] == [
         "Run Analysis",
         "Run Status and History",
@@ -52,7 +51,7 @@ def test_main_menu_uses_concise_title_and_primary_workflow_order(monkeypatch) ->
 
 
 def test_run_analysis_menu_uses_operator_facing_actions(monkeypatch) -> None:
-    """Run analysis submenu should use direct action labels."""
+    """Run analysis submenu should list pipeline modes in operator order."""
     captured: dict[str, object] = {}
 
     def _fake_display_menu(options, *_, **kwargs):
@@ -65,15 +64,15 @@ def test_run_analysis_menu_uses_operator_facing_actions(monkeypatch) -> None:
     result = startup_menu._launch_pipeline_actions_menu()  # pylint: disable=protected-access
 
     assert result == 0
-    assert captured["title"] == "Choose Analysis Type"
+    assert captured["title"] == "Pipeline run mode"
     assert captured["labels"] == [
-        "Full Analysis",
-        "Fast Development Analysis",
-        "Smoke Analysis",
-        "Single-Model Analysis",
-        "Run Through Selected Stage",
-        "Vendor Parsing Only",
-        "Retrain Models from Cached Features",
+        "Full pipeline",
+        "Fast development",
+        "Smoke test",
+        "Single model only",
+        "Stop after a stage",
+        "Vendor extraction only",
+        "Retrain from cached alignment",
     ]
 
 
@@ -90,7 +89,7 @@ def test_maintenance_menu_uses_operator_facing_actions(monkeypatch) -> None:
 
     startup_menu._launch_maintenance_menu()  # pylint: disable=protected-access
 
-    assert captured["title"] == "Maintenance Tools"
+    assert captured["title"] == "Maintenance tools"
     assert captured["labels"] == [
         "Engine Scoring Summary",
         "Parser Coverage Review",
@@ -111,7 +110,6 @@ def test_main_menu_submenu_back_does_not_warn_invalid(monkeypatch) -> None:
 
     monkeypatch.setattr(startup_menu, "_print_startup_context", lambda: None)
     monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: next(choices))
-    monkeypatch.setattr(startup_menu.mu, "display_rich_menu", lambda *_args, **_kwargs: next(choices))
     monkeypatch.setattr(startup_menu.du, "print_warning", lambda message: warnings.append(str(message)))
 
     result = startup_menu.launch_startup_menu()
@@ -586,7 +584,7 @@ def test_run_status_history_menu_includes_advanced_history_option(monkeypatch) -
     captured: list[str] = []
 
     def _fake_display_menu(options, *_, **__):
-        captured.extend(options)
+        captured.extend(list(options))
         return 0
 
     monkeypatch.setattr(startup_menu.mu, "display_menu", _fake_display_menu)

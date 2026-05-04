@@ -63,6 +63,32 @@ def normalize_alignment_id(value: Any) -> str:
     return str(value)
 
 
+def _is_default_positional_range_index(index: pd.Index, length: int) -> bool:
+    """True when ``index`` is ``0..length-1`` (common after ``reset_index`` without dropping ``sample_id``)."""
+    if length <= 0:
+        return True
+    if not isinstance(index, pd.RangeIndex):
+        return False
+    return index.equals(pd.RangeIndex(stop=length))
+
+
+def _maybe_promote_sample_id_column_to_index(features: pd.DataFrame) -> pd.DataFrame:
+    """Use ``sample_id`` as the row index when the frame still has a default positional index.
+
+    Without this, ``extract_aligned_labels`` normalizes ``RangeIndex`` values to ``"0".."n"`` and
+    label lookup against real sample ids fails or misaligns whenever ``sample_id`` only exists as
+    a column (e.g. some export/reload paths).
+    """
+    if "sample_id" not in features.columns:
+        return features
+    if not _is_default_positional_range_index(features.index, len(features)):
+        return features
+    out = features.set_index("sample_id", drop=True)
+    if out.index.name in (None, ""):
+        out.index.name = "sample_id"
+    return out
+
+
 def extract_aligned_labels(
     features_df: pd.DataFrame,
     samples_df: pd.DataFrame,
@@ -123,6 +149,7 @@ def extract_aligned_labels(
         )
 
     features = features_df.copy()
+    features = _maybe_promote_sample_id_column_to_index(features)
     samples = samples_df.copy()
     features.index = [normalize_alignment_id(value) for value in features.index]
     samples = samples.set_index("sample_id")
