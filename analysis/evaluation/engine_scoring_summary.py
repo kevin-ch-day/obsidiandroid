@@ -12,7 +12,7 @@ from scipy.stats import zscore
 from config import app_config
 from database import db_av_engine_detection_totals
 from utils import display_utils as du
-from utils import output_paths
+from obsidiandroid.common import output_paths
 from utils.logging import get_logger, log_event
 
 REQUIRED_FIELDS = {

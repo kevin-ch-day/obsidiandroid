@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 from config import app_config
-from utils import cohort_reproducibility as cr
+import obsidiandroid.governance.cohort_reproducibility as cr
 
 
 def test_apply_cohort_lock_filters_to_matching_ids(tmp_path):

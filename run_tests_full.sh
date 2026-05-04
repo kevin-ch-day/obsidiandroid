@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Full suite: all tests including `slow` integration modules.
+# Thin wrapper: canonical script is scripts/dev/run_tests_full.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "${ROOT}"
-exec pytest -q -m "slow or not slow" "$@"
+exec "${ROOT}/scripts/dev/run_tests_full.sh" "$@"

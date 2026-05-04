@@ -21,3 +21,18 @@ def ensure_repo_src_on_sys_path() -> None:
         return
     if src_root.is_dir() and str(src_root) not in sys.path:
         sys.path.insert(0, str(src_root))
+
+
+def repo_root() -> Path:
+    """Return the repository root for assets like ``profiles/`` and ``config/``.
+
+    When this file lives at ``<repo>/src/obsidiandroid/common/repo_paths.py``,
+    returns ``<repo>``. If the on-disk layout does not match (e.g. some installs),
+    falls back to :func:`Path.cwd`.
+    """
+    here = Path(__file__).resolve()
+    if len(here.parents) < 4:
+        return Path.cwd()
+    if here.parents[1].name == "obsidiandroid" and here.parents[2].name == "src":
+        return here.parents[3]
+    return Path.cwd()

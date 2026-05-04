@@ -6,7 +6,6 @@ These functions keep behavior stable while reducing complexity in
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 import shutil
 import subprocess

@@ -8,7 +8,7 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
-from utils import run_manifest
+import obsidiandroid.governance.run_manifest as run_manifest
 from utils.hash_utils import hash_payload
 from analysis.pipeline.governance.integrity import enforce_run_scoped_artifact_paths
 

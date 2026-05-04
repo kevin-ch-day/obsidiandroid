@@ -24,8 +24,8 @@ python scripts/diagnose_alignment_gap.py --help
 | Path | Role |
 | --- | --- |
 | `scripts/*.py` | Operator tools (cleanup, lineage, alignment diagnostics). |
-| `scripts/dev/*.py` | Import surface / package hygiene smoke checks (see [`scripts/dev/README.md`](dev/README.md)). |
-| `scripts/diagnostics/README.md` | Index of diagnostic-oriented scripts (most remain at `scripts/*.py` until a later move). |
+| `scripts/dev/*` | Shell: venv bootstrap, startup menu, pytest helpers; Python: bytecode cleanup, import smoke, ML scan, data fuzzer (see [`dev/README.md`](dev/README.md)). |
+| `scripts/diagnostics/*.py` | Data/inspection helpers (canonical; repo-root `data_inspect/` removed — use `scripts.diagnostics`). |
 | `scripts/research/*.py` | Publication tables, evidence bundles, structural diagnostics. |
 
-For architecture context see [`docs/architecture.md`](../docs/architecture.md). Repository root layout during the src-package migration is summarized in [`STRUCTURE_MIGRATION_PLAN.md`](../STRUCTURE_MIGRATION_PLAN.md).
+For architecture context see [`docs/architecture.md`](../docs/architecture.md). Repository root layout during the src-package migration is summarized in [`docs/STRUCTURE_MIGRATION_PLAN.md`](../docs/STRUCTURE_MIGRATION_PLAN.md).

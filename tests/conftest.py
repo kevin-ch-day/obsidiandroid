@@ -14,6 +14,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 _SRC_ROOT = REPO_ROOT / "src"
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 # Whole-module slow tier: keeps default `pytest` fast; run full suite with `-m "slow or not slow"`.
 _SLOW_TEST_MODULES = frozenset(
@@ -37,12 +39,10 @@ def pytest_collection_modifyitems(config, items) -> None:  # noqa: ARG001
         try:
             path = getattr(item, "path", None)
             name = Path(path).name if path is not None else Path(item.fspath).name
-        except Exception:
+        except (AttributeError, TypeError):
             continue
         if name in _SLOW_TEST_MODULES:
             item.add_marker(pytest.mark.slow)
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 
 @pytest.fixture(autouse=True)
@@ -94,7 +94,7 @@ def isolate_output_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
         except Exception:
             pass
         try:
-            from utils import run_manifest
+            import obsidiandroid.governance.run_manifest as run_manifest
 
             monkeypatch.setattr(
                 run_manifest,
@@ -120,19 +120,19 @@ def isolate_output_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
             try:
                 handler.flush()
                 handler.close()
-            except Exception:
+            except (OSError, RuntimeError, TypeError, ValueError):
                 pass
             try:
                 logger_obj.removeHandler(handler)
-            except Exception:
+            except (OSError, RuntimeError, TypeError, ValueError):
                 pass
     for handler in list(logging.getLogger().handlers):
         try:
             handler.flush()
             handler.close()
-        except Exception:
+        except (OSError, RuntimeError, TypeError, ValueError):
             pass
         try:
             logging.getLogger().removeHandler(handler)
-        except Exception:
+        except (OSError, RuntimeError, TypeError, ValueError):
             pass

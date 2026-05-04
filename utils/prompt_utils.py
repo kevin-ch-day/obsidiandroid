@@ -1,23 +1,5 @@
-# Filename: utils/prompt_utils.py
-# Purpose  : Prompt utilities for ObsidianDroid CLI
+"""Compatibility shim; implementation in :mod:`obsidiandroid.cli.prompt_utils`."""
 
-from utils.ui import console as cc
+import utils.repo_import_paths  # noqa: F401
 
-print_warning = cc.print_warning
-
-# === Prompt Helpers ===
-def prompt_yes_no(message: str, default: str = "y") -> bool:
-    default = default.lower()
-    options = "[Y/n]" if default == "y" else "[y/N]"
-    while True:
-        response = input(f"{message} {options}: ").strip().lower()
-        if not response:
-            return default == "y"
-        if response in {"y", "yes"}:
-            return True
-        if response in {"n", "no"}:
-            return False
-        print_warning("Invalid input. Please enter yes or no.")
-
-
-__all__ = ["prompt_yes_no"]
+from obsidiandroid.cli.prompt_utils import *  # noqa: F401,F403

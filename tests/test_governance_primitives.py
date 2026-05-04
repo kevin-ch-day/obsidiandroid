@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from obsidiandroid.governance import evidence_mode_resolver
-from utils import artifacts
+import obsidiandroid.governance.artifacts as artifacts
 from utils import canonicalization
 from utils import path_safety
 

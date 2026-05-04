@@ -1,5 +1,7 @@
 # ObsidianDroid: Android Malware Family Classification Framework
 
+[![CI](https://github.com/kevin-ch-day/obsidiandroid/actions/workflows/ci.yml/badge.svg)](https://github.com/kevin-ch-day/obsidiandroid/actions/workflows/ci.yml)
+
 **ObsidianDroid** is a research-focused, open source framework for Android malware analysis and classification. It aggregates VirusTotal vendor results, computes engine weights, builds feature vectors, and trains machine learning classifiers using a reproducible pipeline. ObsidianDroid is designed to be extensible, transparent, and straightforward for researchers and engineers seeking to analyze Android threats at scale.
 
 ---
@@ -36,9 +38,9 @@ All artifacts (models, reports, diagnostics) are saved under `output/`.
 
 ## Repository layout (hybrid migration)
 
-The installable package lives under **`src/obsidiandroid/`** (CLI, `common`, `pipeline` facade, …). **Legacy implementation packages** (`analysis/`, `database/`, `ml_classification/`, `model/`, …) and **`utils/`** shims remain at the repository root during the migration so existing imports and tests keep working. Details and status labels: [`STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md).
+The installable package lives under **`src/obsidiandroid/`** (CLI, `common`, `pipeline` facade, …). **Legacy implementation packages** (`analysis/`, `database/`, `ml_classification/`, `model/`, …) and **`utils/`** shims remain at the repository root during the migration so existing imports and tests keep working. Details and status labels: [`docs/STRUCTURE_MIGRATION_PLAN.md`](docs/STRUCTURE_MIGRATION_PLAN.md).
 
-**Generated / runtime artifacts** (`output/`, `logs/`, virtualenvs, caches, build outputs) are listed in **`.gitignore`** and should not be committed. Developer import modes (`pip install -e .`, `PYTHONPATH`, pytest): see [`AGENTS.md`](AGENTS.md).
+**Generated / runtime artifacts** (`output/`, `logs/`, virtualenvs, caches, build outputs) are listed in **`.gitignore`** and should not be committed. For a **source-only** tree view after local runs, run **`make clean-bytecode`** then **`make tree-source`** (ignores `output/`, `logs/`, `.venv`, pytest/coverage caches, etc.; install the `tree` utility if needed). Developer import modes (`pip install -e .`, `PYTHONPATH`, pytest): see [`docs/AGENTS.md`](docs/AGENTS.md) (repo-root [`AGENTS.md`](AGENTS.md) is a short pointer).
 
 ---
 
@@ -49,17 +51,20 @@ ObsidianDroid/
 ├── analysis/               # AV parsing and feature engineering
 ├── config/                 # YAML and JSON configs, app and model hyperparameters
 ├── database/               # DB access helpers and queries
-├── data_inspect/           # Jupyter notebooks, analysis scripts, reporting tools
+├── docs/                   # Guides (incl. AGENTS, GOVERNANCE, STRUCTURE plan)
 ├── ml_classification/      # Model training, validation, and comparison
 ├── utils/                  # Reusable utilities and exporters
-├── devtools/               # Synthetic data fuzzer, ML static scan (not pytest tests)
+├── pyproject.toml          # Packaging, dependencies, pytest defaults
 ├── main.py                 # CLI entry (orchestration in `analysis/pipeline/runner.py`)
-├── setup.sh                # Fedora virtual environment setup
-├── run.sh                  # Fedora startup menu launcher
+├── setup.sh                # Wrapper → scripts/dev/bootstrap_venv.sh
+├── run.sh                  # Wrapper → scripts/dev/launch_startup_menu.sh
+├── run_tests.sh            # Wrapper → scripts/dev/run_tests.sh (fast pytest)
+├── run_tests_full.sh       # Wrapper → scripts/dev/run_tests_full.sh
 ├── run_ml_static_scan.py   # Checks for accidental .predict() misuse in code
-├── clean_bytecode_cache.py # Utility to remove __pycache__, logs, and artifacts
+├── clean_bytecode_cache.py # Entry → scripts/dev/clean_bytecode_cache.py
 ├── src/obsidiandroid/      # Canonical Python package (CLI, common, pipeline facade, …)
-├── scripts/dev/            # Dev smoke scripts (e.g. import surface check)
+├── scripts/dev/            # Dev tools, shell + Python (venv, tests, import smoke, ML scan, fuzzer)
+├── scripts/diagnostics/   # Data inspection CLIs (see scripts/diagnostics/README.md)
 └── README.md
 ```
 
@@ -68,6 +73,8 @@ ObsidianDroid/
 ## Documentation
 
 - **Documentation hub:** See [`docs/README.md`](docs/README.md) for a curated map of contributor, operator, and user guides.
+- **Contributor / agent guide:** [`docs/AGENTS.md`](docs/AGENTS.md) (repo-root [`AGENTS.md`](AGENTS.md) links here).
+- **Governance:** [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md) describes mandatory runtime and reproducibility policies.
 - **System architecture:** [`docs/architecture.md`](docs/architecture.md) explains end-to-end data flow and package responsibilities.
 - **Pipeline staging:** [`docs/pipeline_staging_guide.md`](docs/pipeline_staging_guide.md) maps `runner.py` stages and extension points.
 - **Data sources:** [`docs/data_sources.md`](docs/data_sources.md) describes the replicated VirusTotal tables ObsidianDroid relies on and how to keep them synchronized.
@@ -188,12 +195,23 @@ See comments in `config/settings/*.py` (or `config/app_config.py`) for full deta
 
 ---
 
+## Repository layout & migration status
+
+The repo uses a **hybrid layout**: installable code in **`src/obsidiandroid/`** plus legacy top-level packages (`analysis/`, `database/`, `ml_classification/`, …). For a **full audit** of the root, CI/tooling maturity, and planned next steps (not everything fits in the tree diagram above), see **[`docs/ROOT_AND_STRUCTURE_AUDIT.md`](docs/ROOT_AND_STRUCTURE_AUDIT.md)**.
+
+---
+
 ## Optional Tools
 
+- `make ci` – **`make doc-check`** + **`make verify`** + **`make ml-scan-strict`** (same pipeline as GitHub Actions).
+- `make setup` – Same as `./setup.sh`: create/update `.venv` and install `requirements.txt`.
+- `make menu` – Same as `./run.sh`: interactive startup menu with `PYTHONPATH=src`.
+- `make install-editable` – `pip install -e .` (run with venv active) so `import obsidiandroid` works outside pytest.
+- `make tree-source` – Filtered source tree (install `tree`; run `make clean-bytecode` first for a clean view).
 - `make ml-scan` or `python run_ml_static_scan.py` – Scan the repo for accidental `.predict()` misuse (`--strict` fails on warnings).
-- `python clean_bytecode_cache.py [path] --exclude venv` – Remove bytecode/logs.
+- `make clean` / `make clean-bytecode` or `python clean_bytecode_cache.py [path] --exclude venv` – Remove bytecode/logs.
 - `python analysis/evaluation/random_forest_diagnostics.py` – Cross-validation, weak class detection, feature importance diagnostics.
-- `python devtools/data_fuzzer.py` – Generate large synthetic datasets for robustness and stress testing.
+- `python scripts/dev/data_fuzzer.py` – Generate large synthetic datasets for robustness and stress testing.
 
 ---
 
@@ -202,14 +220,16 @@ See comments in `config/settings/*.py` (or `config/app_config.py`) for full deta
 After installing dependencies, run the **default fast suite** (recommended for local loops):
 
 ```bash
+make ci                       # same as GitHub Actions: doc-check + verify + strict ML scan
+# or, without the ML strict scan:
+make verify
+# or run pytest only (after import checks manually if needed):
 pytest -q
-# or
 ./run_tests.sh
-# or
 make test
 ```
 
-This excludes integration-heavy modules tagged `slow` (see `pytest.ini` and `tests/conftest.py`).
+**`make doc-check`** scans key docs for removed phantom paths (`scripts/dev/check_doc_hygiene.py`). **`make verify`** runs the import-surface check (`scripts/dev/check_import_surface.py`) and then the fast suite. **`make ci`** runs **`doc-check`**, then **`verify`**, then **`make ml-scan-strict`**. These exclude integration-heavy modules tagged `slow` (see `pyproject.toml` `[tool.pytest.ini_options]` and `tests/conftest.py`).
 
 For the **complete** suite (CI / pre-merge):
 
@@ -226,6 +246,8 @@ make test-full
 Contributions are welcome! To propose enhancements, bug fixes, or new features:
 - Fork the repository and submit a pull request.
 - Please include tests and documentation for new features.
+- Before opening a PR, run **`make ci`** (or at least **`make verify`**) from the repo root with your venv active and **`pip install -e .`** so import smoke and the fast test suite pass. That matches **GitHub Actions** (`doc-check`, import surface, pytest, strict ML scan).
+- Layout and migration context: **[`docs/ROOT_AND_STRUCTURE_AUDIT.md`](docs/ROOT_AND_STRUCTURE_AUDIT.md)** and **[`docs/AGENTS.md`](docs/AGENTS.md)**. **Breaking change:** repo-root **`data_inspect/`** and **`devtools/`** were removed; use **`scripts.diagnostics`** and **`scripts.dev`** instead (see **`docs/STRUCTURE_MIGRATION_PLAN.md`** → Pass 24).
 - Open issues for questions, ideas, or feedback.
 
 ---

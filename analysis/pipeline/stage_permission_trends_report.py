@@ -16,8 +16,8 @@ import pandas as pd
 
 from config import app_config
 from utils import display_utils as du
-from utils import output_paths
-from utils import run_manifest
+from obsidiandroid.common import output_paths
+import obsidiandroid.governance.run_manifest as run_manifest
 from analysis.pipeline.stage_results_warehouse import persist_permission_trends_results
 from analysis.pipeline.permission_trends_selection import (
     filter_jsd_for_visual_families as _filter_jsd_for_visual_families,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from utils import latex_tables
+import obsidiandroid.reporting.latex_tables as latex_tables
 
 
 def test_model_comparison_formatting_bolds_best_and_rounds() -> None:

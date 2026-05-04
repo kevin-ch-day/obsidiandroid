@@ -9,11 +9,11 @@ import pandas as pd
 
 from config import app_config
 from database import db_sample_metadata_queries
-from utils import cohort_readiness_report
-from utils import cohort_reproducibility
+import obsidiandroid.governance.cohort_readiness_report as cohort_readiness_report
+import obsidiandroid.governance.cohort_reproducibility as cohort_reproducibility
 from utils import display_utils as du
 from utils.logging import get_logger, log_event
-from utils.sample_metadata_preprocessor import prepare_sample_dataframe
+from obsidiandroid.common.sample_metadata_preprocessor import prepare_sample_dataframe
 
 from analysis.orchestration.profile_filters import (
     apply_dataset_filters,

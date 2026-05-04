@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from config import app_config
-from utils import output_paths
+from obsidiandroid.common import output_paths
 
 
 def resolve_stable_output_root_for_mirrors() -> Path:

@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from config import app_config
-from data_inspect import inspect_classification_results as inspector
+from scripts.diagnostics import inspect_classification_results as inspector
 from ml_classification.ml_utils import (
     distribution_reporter,
     ml_comparator_summary as comparator,

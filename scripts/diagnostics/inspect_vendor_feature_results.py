@@ -1,4 +1,4 @@
-# Filename: analysis\data_inspect\inspect_vendor_feature_results.py
+# Filename: scripts/diagnostics/inspect_vendor_feature_results.py
 # Purpose  : Modular validation and diagnostics for vendor parsing output
 
 import pandas as pd

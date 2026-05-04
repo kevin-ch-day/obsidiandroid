@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TextIO
 
 from config import app_config
-from utils.output_paths import project_runtime_logs_dir
+from obsidiandroid.common.output_paths import project_runtime_logs_dir
 
 
 @dataclass

@@ -13,7 +13,7 @@ This document explains how ObsidianDroid ingests antivirus telemetry, computes r
        │                     ▼                        │
        │              Feature matrices                 │
        │                                                ▼
-       └────────────── database/ ───────────────> devtools/ + reports
+       └────────────── database/ ───────────────> scripts/ + reports
 ```
 
 1. **Metadata ingestion** loads sample identifiers, vendor detections, and contextual attributes from a MySQL database using helpers in `database/`. See [`data_sources.md`](data_sources.md) for a catalog of required tables and replication guidance.
@@ -41,7 +41,7 @@ This document explains how ObsidianDroid ingests antivirus telemetry, computes r
 
 ### 3. Shared Utilities (`utils/`)
 - `utils/logging/` and `utils/exporting/` handle structured logs and workbook/Excel exports.
-- `utils/output_paths.py`, `utils/run_manifest.py`, and `utils/profile_manager.py` manage run IDs, manifests, and profiles.
+- `obsidiandroid.common.output_paths` (legacy ``utils.output_paths`` shim), `utils/run_manifest.py`, and `obsidiandroid.cli.profile_manager` manage run IDs, manifests, and profiles.
 - `utils/ui/` provides console UI primitives; thin shims like `display_utils.py` keep older import paths working.
 
 ### 4. Model Selection & Training (`ml_classification/`)
@@ -55,7 +55,7 @@ Consult [`modeling_reference.md`](modeling_reference.md) for estimator-specific 
 ### 5. Configuration (`config/`)
 - `app_config.py` toggles feature sets, vendor inclusion criteria, and ensemble weights.
 - `model_params/` holds estimator-specific hyperparameters.
-- `thresholds.json` defines probability or consensus cutoffs used during final family selection.
+- Probability/consensus behavior is driven by **`app_config`**, profile YAML under **`profiles/`**, and labeling modules under **`ml_classification/labeling/`** (there is no standalone **`config/thresholds.json`** in this repository).
 
 ### 6. Execution Entrypoints (`main.py`, `analysis/pipeline/runner.py`, `scripts/`)
 - `main.py` is the **thin CLI entry**: argument parsing and stable symbols for tests (`run_pipeline`, diagnostics paths, and monkeypatch-friendly re-exports).
@@ -64,12 +64,12 @@ Consult [`modeling_reference.md`](modeling_reference.md) for estimator-specific 
 - `analysis/pipeline/stage_samples.py` loads cohorts and applies gates; `stage_av_vendor.py` runs AV analysis, vendor extraction, and alignment; `stage_modeling.py` covers weights, feature matrix, training, and label resolution.
 - `analysis/pipeline/stage_permission_trends_report.py` produces permission analytics (helpers under `analysis/pipeline/permission_trends/`). `stage_manifest.py` writes the run manifest and paper/evidence exports.
 - `stage_results_warehouse.py` persists selected outputs when configured.
-- Root `model_tuning.py` and `analysis/evaluation/model_tuning.py` are auxiliary tuning entrypoints; `scripts/` holds operational CLIs (warehouse backfill, research utilities).
+- `analysis/evaluation/model_tuning.py` is the tuning entrypoint; `scripts/` holds operational CLIs (warehouse backfill, research utilities).
 - For extension patterns, see [`pipeline_staging_guide.md`](pipeline_staging_guide.md) and `main.run_pipeline` / `profiles/*.yaml`.
 
-### 7. Quality Assurance (`tests/`, `devtools/`)
+### 7. Quality Assurance (`tests/`, `scripts/dev/`)
 - `tests/` is the primary pytest tree (`pytest -q`); `tests/conftest.py` routes outputs to tmp and guards filesystem writes during tests.
-- `devtools/data_fuzzer.py` stresses data transforms; `devtools/scan_ml_predict_misuse.py` is invoked from `run_ml_static_scan.py` for leakage-style static checks.
+- `scripts/dev/data_fuzzer.py` stresses data transforms; `scripts/dev/run_ml_static_scan.py` (repo-root `run_ml_static_scan.py` delegates here) calls `scan_ml_predict_misuse` for leakage-style static checks.
 
 ## Data Contracts
 

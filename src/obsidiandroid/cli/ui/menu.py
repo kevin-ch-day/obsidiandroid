@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from utils import prompt_utils as pu
+from obsidiandroid.cli import prompt_utils as pu
 from . import console as cc
 
 

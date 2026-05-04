@@ -6,7 +6,7 @@ from typing import Any
 
 import pandas as pd
 
-from utils import run_manifest
+import obsidiandroid.governance.run_manifest as run_manifest
 from utils.hash_utils import hash_payload
 
 

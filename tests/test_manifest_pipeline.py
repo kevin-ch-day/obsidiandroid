@@ -14,7 +14,7 @@ from analysis.pipeline.manifest.hashing import (
 )
 from analysis.pipeline.manifest.writer import write_manifest_atomic
 from config import app_config
-from utils import run_manifest
+import obsidiandroid.governance.run_manifest as run_manifest
 
 
 def test_write_manifest_atomic_creates_file(tmp_path: Path) -> None:

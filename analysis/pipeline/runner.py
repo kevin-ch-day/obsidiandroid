@@ -20,9 +20,9 @@ from config import app_config
 # === Database + Utilities ===
 from utils import display_utils as du
 from utils import ml_console
-from utils import family_distribution_report
-from utils import profile_manager
-from utils import run_manifest
+from obsidiandroid.reporting import family_distribution_report
+import obsidiandroid.cli.profile_manager as profile_manager
+import obsidiandroid.governance.run_manifest as run_manifest
 from obsidiandroid.governance import evidence_mode_resolver
 from utils.logging import runtime as runtime_logging
 from utils.logging import logger as logger_manager

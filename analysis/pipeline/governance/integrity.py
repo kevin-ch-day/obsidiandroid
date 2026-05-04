@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from utils.output_paths import project_runtime_logs_dir
+from obsidiandroid.common.output_paths import project_runtime_logs_dir
 
 from .exceptions import IntegrityStop
 
@@ -40,7 +40,7 @@ def validate_run_scoped_artifact_paths(
         output_root: Output root for optional latest pointer allowlist.
         allow_latest: Whether to permit ``output/latest`` descendants and operator mirrors.
 
-    Tee logs under :func:`utils.output_paths.project_runtime_logs_dir` for the same
+    Tee logs under :func:`obsidiandroid.common.output_paths.project_runtime_logs_dir` for the same
     ``run_id`` as ``run_root.name`` are allowed (repo ``logs/runtime/<run_id>/``, not under
     ``output/runs/``).
 

@@ -1,5 +1,7 @@
 # Code Review: Architecture & Performance Opportunities
 
+> **Note:** Snapshot from an earlier review cycle. Line counts and suggested splits describe historical layout before the **`analysis/pipeline/`** orchestration split and **`src/obsidiandroid/`** CLI migration; use **`analysis/pipeline/runner.py`** and **`docs/pipeline_staging_guide.md`** as the source of truth for current stages.
+
 ## Scope and approach
 
 This review focused on:

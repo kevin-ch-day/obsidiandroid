@@ -1,4 +1,4 @@
-# Filename : devtools/scan_ml_predict_misuse.py
+# Filename: scripts/dev/scan_ml_predict_misuse.py
 # Purpose  : Static scan for misuse of `.predict()` or `.predict_proba()` on objects not known to be ML models
 
 import os

@@ -215,7 +215,7 @@ def _init_rules() -> None:
             _rule(
                 "**/diagnostics/run_manifest.latest.json",
                 bucket="operator_state",
-                producer="utils.run_manifest",
+                producer="obsidiandroid.governance.run_manifest",
                 run_scoped=False,
                 paper_required=False,
                 safe_delete_after_run=True,
@@ -245,7 +245,7 @@ def _init_rules() -> None:
             _rule(
                 "**/latest/**",
                 bucket="promoted_latest",
-                producer="utils.output_paths",
+                producer="obsidiandroid.common.output_paths",
                 run_scoped=False,
                 paper_required=False,
                 safe_delete_after_run=True,

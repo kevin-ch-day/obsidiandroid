@@ -22,12 +22,15 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+_SRC = ROOT / "src"
+if _SRC.is_dir() and str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
 from database import db_engine
 from database import db_sample_metadata_queries
 from database.cohort_sql_fragments import latest_artifact_hash_registry_subquery
 from database.db_sample_metadata_fetchers import _cohort_loader_sql_parts
-from utils import profile_manager
+import obsidiandroid.cli.profile_manager as profile_manager
 from analysis.pipeline.sample_exports import resolve_dataset_time_contract
 
 

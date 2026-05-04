@@ -1,48 +1,81 @@
-# Fedora local environment
+# Fedora / Python virtual environments
 .venv/
 venv/
+env/
+ENV/
+
+# Secrets & local env (never commit real credentials)
 .env
 .env.*
+!.env.example
 
-# OS / editor noise
+# OS noise
 .DS_Store
+.AppleDouble
+.LSOverride
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editors / IDEs
 .idea/
 *.swp
 *.swo
 *~
 
-# Python caches / tooling (bytecode, test & type checker caches, packaging junk)
+# VS Code — ignore personal/local overrides if present (share repo settings via PR)
+.vscode/settings.local.json
+.vscode/*.log
+
+# Python bytecode & caches
 __pycache__/
 *.py[cod]
+*$py.class
+.Python
+
+# Test / coverage / type checker / linter caches
 .pytest_cache/
 .pytest_tmp/
 .mypy_cache/
+.dmypy.json
+dmypy.json
 .ruff_cache/
+.bandit
 .coverage
+.coverage.*
 coverage.xml
 htmlcov/
 .hypothesis/
+.tox/
+.nox/
 
 # Jupyter
 .ipynb_checkpoints/
 
-# Build/package artifacts
+# Packaging / build outputs
 build/
 dist/
+pip-wheel-metadata/
+share/python-wheels/
 *.egg-info/
 *.egg
+*.manifest
+*.spec
 
 # ML / experiment tracking (local runs)
 wandb/
 mlruns/
 
-# Runtime output and logs
+# Runtime output (pipeline, diagnostics, exports)
 output/
 logs/
 *.log
 
-# Local database/config scratch files
+# Patch / merge artifacts
+*.orig
+*.rej
+
+# Local database & SQLite scratch files
 *.db
 *.sqlite
 *.sqlite3

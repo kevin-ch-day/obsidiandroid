@@ -8,7 +8,6 @@ import json
 
 import pandas as pd
 
-from config import app_config
 from analysis.vendor_processing import vendor_parser_map
 from analysis.vendor_processing.generic_label_parser import parse_generic_classification
 from database import db_engine

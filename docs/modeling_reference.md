@@ -16,33 +16,36 @@ ObsidianDroid assembles heterogeneous features that capture AV behaviour and And
 
 ## Supported Estimators
 
-| Estimator | Module | Strengths | Key Settings |
-| --- | --- | --- | --- |
-| Random Forest | `ml_classification/models/random_forest.py` | Handles high-dimensional sparse features, stable baseline. | `n_estimators`, `max_depth`, `class_weight`. |
-| Support Vector Machine | `ml_classification/models/svm.py` | Strong margins for well-separated families; requires scaling. | `kernel`, `C`, `gamma`. |
-| Logistic Regression | `ml_classification/models/logistic_regression.py` | Fast training, probabilistic outputs, interpretable weights. | `penalty`, `C`, `solver`. |
-| XGBoost | `ml_classification/models/xgboost.py` | Captures complex non-linear interactions with regularization. | `max_depth`, `learning_rate`, `subsample`. |
-| Gradient Boosting | `ml_classification/models/gradient_boosting.py` | Strong performance on tabular data with modest tuning. | `n_estimators`, `max_depth`, `learning_rate`. |
-| Voting Ensemble | `ml_classification/ensembles/voting.py` | Aggregates base estimators for robustness. | `weights`, component model selection. |
+Training entrypoints live in **`ml_classification/training/model_trainer_factory.py`** (factory) and **`ml_classification/training/training_helpers.py`** (`get_model_trainer`). Trainer implementations:
 
-To introduce a new model, add its factory function to `ml_classification/model_factory.py`, define hyperparameters in `config/model_params/`, and cover it with tests under `tests/ml_classification/`.
+| Estimator | Trainer module | Strengths | Key settings (see trainer defaults) |
+| --- | --- | --- | --- |
+| Random Forest | `ml_classification/training/ml_trainers/random_forest.py` | High-dimensional sparse features; stable baseline. | `n_estimators`, `max_depth`, `class_weight`. |
+| Balanced Random Forest | `ml_classification/training/ml_trainers/balanced_random_forest.py` | Imbalance-aware RF variant (`imblearn`). | Same family as RF + imbalance defaults. |
+| Support Vector Machine | `ml_classification/training/ml_trainers/svm.py` | Strong margins when classes separate well; scaling used in helpers. | `kernel`, `C`, `gamma`. |
+| Logistic Regression | `ml_classification/training/ml_trainers/logistic_regression.py` | Fast, probabilistic outputs, interpretable weights. | `penalty`, `C`, `solver`. |
+| XGBoost | `ml_classification/training/ml_trainers/xgboost.py` | Non-linear interactions with regularization. | `max_depth`, `learning_rate`, `subsample`. |
+
+There is **no** separate `ml_classification/models/` package or sklearn **GradientBoosting** / **Voting** wrappers in-tree today—extend **`training_helpers.get_model_trainer`** and add a trainer module if you introduce new estimators.
+
+To introduce a new model, wire it through **`model_trainer_factory.py`** / **`get_model_trainer`**, define hyperparameters in **`config/model_params/`**, and cover it with tests under **`tests/`**.
 
 ## Hyperparameter Management
 
-- Default parameter grids live under `config/model_params/` and are loaded through `utils/config_loader.py`.
-- `model_tuning.py` orchestrates grid and random search routines. Use the `--estimator` flag to scope tuning runs.
+- Default parameter grids live under **`config/model_params/`** and are consumed via **`config/`** / **`config/settings/`** and **`config/app_config.py`** (there is no `utils/config_loader.py` in this repository).
+- `analysis/evaluation/model_tuning.py` exposes `tune_models` / `print_summary` for experimental sweeps; production grid search is driven through `ml_classification` trainers and `config/model_params/`.
 - Persist tuned parameters back into configuration files and document rationale in commit messages or the operations logbook.
 
 ## Evaluation Outputs
 
-Running `main.py` or `model_tuning.py` emits artefacts in `output/` that analysts can review:
+Running `main.py` or `analysis/evaluation/model_tuning.py` emits artefacts in `output/` that analysts can review:
 
 - `model_comparison_summary.xlsx` – ranking of estimators by F1, precision, recall, ROC-AUC.
 - `family_metrics/` – per-family confusion matrices and class-specific metrics in CSV format.
 - `feature_importance/` – SHAP and permutation importance exports for supported models.
 - `final_classification_labels.xlsx` – canonical label recommendations with consensus context.
 
-Use `analysis/evaluation/report_builder.py` to regenerate consolidated PDF/HTML reports for stakeholder distribution.
+Use **`ml_classification/reporting/ml_report_builder.py`** (and related reporting under **`ml_classification/reporting/`**) for consolidated evaluation summaries and exporter-driven artefacts under **`output/`**.
 
 ## Operational Considerations
 

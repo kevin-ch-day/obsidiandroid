@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from utils import artifacts
+import obsidiandroid.governance.artifacts as artifacts
 
 
 def build_paper_compliance_checks(

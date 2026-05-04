@@ -47,7 +47,7 @@ This guide walks operators through setting up their environment, executing the m
 ### VirusTotal integration checklist
 
 - **Data sync:** Replicate VirusTotal exports into your MySQL instance (see [`data_sources.md`](data_sources.md) for physical table names such as `virustotal_sample_vendor_engine_verdicts`). ObsidianDroid does not call the live VirusTotal API; it reads preloaded tables, so schedule ETL jobs to keep them fresh.
-- **Column hygiene:** Run `python scripts/update_vendor_scores.py` after large VirusTotal updates to refresh engine reliability weights using the latest detections.
+- **Column hygiene:** After large VirusTotal updates, rerun a **pipeline pass that includes vendor scoring** (startup menu or `main.py`) so engine weights reflect fresh detections; scoring logic lives under `analysis/feature_engineering/compute_vendor_scores.py` and is invoked from pipeline stages.
 - **Access scope:** Provide read access only—write operations are limited to ObsidianDroid's `output/` directory on disk.
 - **Backfill strategy:** When onboarding new samples, ensure the corresponding VirusTotal reports have been ingested; otherwise, vendor consensus features will be sparse and confidence scores will degrade.
 
@@ -58,7 +58,7 @@ This guide walks operators through setting up their environment, executing the m
   - Vendor inclusion/exclusion lists
   - Ensemble weighting strategies
 - Adjust estimator hyperparameters under `config/model_params/`; consult [`modeling_reference.md`](modeling_reference.md) for estimator strengths and tuning tips.
-- Modify consensus or probability thresholds in `config/thresholds.json` to tune recall vs precision.
+- Tune recall vs precision via **`config/app_config.py`**, **`config/settings/`**, and profile YAML under **`profiles/`** (there is no repo-wide `config/thresholds.json` in this tree).
 
 ## 5. Run the Workflow
 
@@ -70,14 +70,14 @@ Choose a profile-driven pipeline action from the startup menu. Use `dev_smoke` f
 
 ### Model Tuning
 ```bash
-python model_tuning.py --search-space config/model_params/grid_search.yaml
+python analysis/evaluation/model_tuning.py
 ```
-This command executes cross-validation sweeps and writes the best parameter sets under `output/tuning/`.
+This runs the module’s sample tuning workflow (`tune_models`); wire your own search grids via `config/model_params/` and `ml_classification` trainers for production sweeps.
 
-### Utility Scripts
-- `python scripts/export_feature_snapshot.py` – Save feature matrices for offline analysis.
-- `python scripts/update_vendor_scores.py` – Refresh accuracy statistics for each AV engine.
-- `python run_ml_static_scan.py` – Detect patterns that might cause train/test leakage.
+### Utility Scripts (examples)
+- `python scripts/report_feature_lineage.py --help` – Feature lineage / gap reporting helpers (see script docstrings).
+- `python scripts/report_feature_matrix_gap.py --help` – Compare expected vs built feature columns when debugging matrices.
+- `python run_ml_static_scan.py` or `make ml-scan` – Detect patterns that might cause train/test leakage in ML code.
 
 ## 6. Inspect Outputs
 
@@ -105,7 +105,7 @@ After a successful run, inspect the `output/` directory:
 - Run `python clean_bytecode_cache.py` before packaging artifacts or creating releases.
 - Keep requirements synchronized by updating `requirements.txt` when dependencies change.
 - Document new features or configuration options in this guide and in [`architecture.md`](architecture.md).
-- Schedule periodic reruns of `python scripts/update_vendor_scores.py` to maintain reliable vendor weighting.
+- Schedule periodic **pipeline runs** that refresh vendor evaluation data so weights stay aligned with your replicated VT tables.
 
 ## 9. Getting Help
 

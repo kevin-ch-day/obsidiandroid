@@ -9,7 +9,7 @@ from typing import Any
 
 import pandas as pd
 
-from utils.latex_tables import (
+from obsidiandroid.reporting.latex_tables import (
     LatexTableSpec,
     build_cohort_summary_table,
     build_dangerous_stats_table,

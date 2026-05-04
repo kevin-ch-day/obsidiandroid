@@ -18,11 +18,11 @@ import numpy as np
 import pandas as pd
 
 from config import app_config
-from utils.latex_tables import LatexTableSpec, render_tabular
-from utils import artifacts
-from utils import compliance
-from utils import output_paths
-from utils import run_manifest
+import obsidiandroid.governance.compliance as compliance
+from obsidiandroid.reporting.latex_tables import LatexTableSpec, render_tabular
+import obsidiandroid.governance.artifacts as artifacts
+from obsidiandroid.common import output_paths
+import obsidiandroid.governance.run_manifest as run_manifest
 from utils import display_utils as du
 from utils.hash_utils import hash_payload
 from utils import output_hygiene as oh

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from config import app_config
-from utils import output_paths
+from obsidiandroid.common import output_paths
 
 
 def test_resolve_runtime_run_directory_uses_layout_when_no_runtime_root(

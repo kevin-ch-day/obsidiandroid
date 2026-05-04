@@ -6,9 +6,9 @@ Removes canonical layout under ``DEFAULT_OUTPUT_DIR`` (``runs``, ``bundles``,
 ``vendor_raw``, and noisy root-level bundles/legacy filenames. Also removes
 legacy log directories ``<output>/diagnostics/runtime_logs`` and
 ``<output>/diagnostics/logs`` from older layouts (pipeline logs now live in
-repository ``logs/`` — see :func:`utils.output_paths.project_logs_root`).
+repository ``logs/`` — see :func:`obsidiandroid.common.output_paths.project_logs_root`).
 Optionally preserve the main workbook. Recreates empty layout via
-:func:`utils.output_paths.ensure_output_layout` after deletion.
+:func:`obsidiandroid.common.output_paths.ensure_output_layout` after deletion.
 
 Destructive operations require ``--yes``. Without it, prints a dry-run plan.
 """
@@ -23,14 +23,17 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+_SRC = _REPO_ROOT / "src"
+if _SRC.is_dir() and str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
-from utils import output_cleanup_clutter as occ  # noqa: E402
+from obsidiandroid.common import output_cleanup_clutter as occ  # noqa: E402
 
 
 def _resolve_output_root(explicit: str | None) -> Path:
     if explicit:
         return Path(explicit).expanduser().resolve()
-    from utils.output_paths import output_root
+    from obsidiandroid.common.output_paths import output_root
 
     return output_root()
 

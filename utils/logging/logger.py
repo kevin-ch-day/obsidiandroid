@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from config import app_config
-from utils.output_paths import project_logs_root, project_runtime_logs_dir
+from obsidiandroid.common.output_paths import project_logs_root, project_runtime_logs_dir
 
 _LOGGERS: dict[str, logging.Logger] = {}
 

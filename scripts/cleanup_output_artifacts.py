@@ -4,16 +4,22 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 from pathlib import Path
 
-from utils.output_cleanup_clutter import (
+_ROOT = Path(__file__).resolve().parents[1]
+_src = _ROOT / "src"
+if _src.is_dir() and str(_src) not in sys.path:
+    sys.path.insert(0, str(_src))
+
+from obsidiandroid.common.output_cleanup_clutter import (
     DIAGNOSTICS_TIMESTAMP_GLOBS,
     LEGACY_OUTPUT_ROOT_FILES,
     PAPER_BUNDLE_ARCHIVE_GLOBS,
     PAPER_BUNDLE_SMOKE_GLOBS,
     WORKBOOK_CORRUPT_GLOB,
 )
-from utils.output_paths import project_logs_root
+from obsidiandroid.common.output_paths import project_logs_root
 
 
 RUN_ID_PATTERN = re.compile(r"(\d{8}T\d{6}Z__[a-z0-9]{6})")

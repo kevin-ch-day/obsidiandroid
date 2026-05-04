@@ -1,4 +1,4 @@
-# Filename: analysis/data_inspect/inspect_parsed_data.py
+# Filename: scripts/diagnostics/inspect_parsed_data.py
 # Purpose  : Inspect and validate parsed vendor classification data and diagnose failure causes
 
 from utils import display_utils as du

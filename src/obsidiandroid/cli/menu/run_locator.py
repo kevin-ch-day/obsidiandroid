@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 from config import app_config
-from utils import output_paths
+from obsidiandroid.common import output_paths
 
 _RUN_ID_TIMESTAMP_PATTERN = re.compile(r"^(?P<ts>\d{8}T\d{6}Z)__.+$")
 

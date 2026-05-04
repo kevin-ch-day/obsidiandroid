@@ -4,20 +4,35 @@ This guide documents the day-to-day workflow for engineers extending ObsidianDro
 
 ## Environment Setup
 
-1. **Clone the repository** and install dependencies:
+1. **Clone the repository** and install dependencies. Either use the bundled Fedora-oriented script or a manual venv:
    ```bash
    git clone <repository-url>
    cd obsidiandroid
+   ./setup.sh
+   # or: make setup   # same as ./setup.sh
+   source .venv/bin/activate
+   make install-editable
+   ```
+   **Manual** alternative:
+   ```bash
    python -m venv .venv
    source .venv/bin/activate
    pip install --upgrade pip
    pip install -r requirements.txt
+   pip install -e .
    ```
 2. **Optional tooling:**
-   - Install `pre-commit` and run `pre-commit install` to mirror CI checks locally.
+   - Install `pre-commit` and run `pre-commit install` to use **`.pre-commit-config.yaml`** (basic whitespace/YAML checks; complements **`make verify`**).
    - Install Docker if you plan to test database snapshots or run services in containers.
+   - Install `tree` if you want **`make tree-source`** (filtered repository layout; run **`make clean-bytecode`** first to drop stray caches).
+
+### Continuous integration
+
+GitHub Actions runs **`make verify`** and **`make ml-scan-strict`** on pushes to **`main`**, on pull requests, and on **workflow dispatch** (see **`.github/workflows/ci.yml`**). The job uses a **Python 3.10 / 3.12** matrix, **`pip check`** after install, and **`contents: read`** permissions. Run **`make ci`** locally for the same gates. Dependabot bumps **GitHub Actions** monthly and **`requirements.txt`** weekly (see **`.github/dependabot.yml`**).
 
 ### Importing the `obsidiandroid` package (`src/` layout)
+
+Optional: if you use **pyenv** or **asdf**, see repo-root **`.python-version`** (**`3.12`**, aligned with CI). Supported interpreters follow **`pyproject.toml`** **`requires-python`** (currently **≥ 3.10**).
 
 Canonical library code under **`src/obsidiandroid/`** should be importable as **`obsidiandroid`**. Recommended setups:
 
@@ -55,6 +70,7 @@ Orchestration lives in **`analysis/pipeline/runner.py`** (`run_pipeline`). **`ma
 
 ## Testing Expectations
 
+- Default pytest options (fast run, `slow` marker, basetemp) are in **`pyproject.toml`** `[tool.pytest.ini_options]`.
 - Unit tests live under `tests/` (see [`tests/README.md`](../tests/README.md) for slow markers and layout); add coverage for new features and bug fixes.
 - Execute fast feedback commands before pushing:
   ```bash
@@ -71,12 +87,33 @@ Orchestration lives in **`analysis/pipeline/runner.py`** (`run_pipeline`). **`ma
 - Store credentials securely using environment variables or secret managers. Never commit secrets to the repository.
 - Use sample configuration templates in `config/` when sharing reproducible test cases.
 
+## Makefile quick reference
+
+| Target | Purpose |
+| --- | --- |
+| `make setup` | Create/refresh `.venv` and `pip install -r requirements.txt` (see `setup.sh`). |
+| `make menu` | Launch the interactive menu (`run.sh`; sets `PYTHONPATH=src`). |
+| `make install-editable` | `pip install -e .` (run inside the venv). |
+| `make test` / `make test-full` | Fast or full pytest (see `pyproject.toml` defaults). |
+| `make dev-import-check` | Import surface smoke test for `obsidiandroid` and shims. |
+| `make doc-check` | Fails if operational docs reintroduce removed phantom paths (`scripts/dev/check_doc_hygiene.py`). |
+| `make verify` | Runs `dev-import-check` logic then **fast** pytest (same as `make test` after import smoke). |
+| `make ci` | **`make doc-check`**, then **`make verify`**, then **`make ml-scan-strict`** — matches **`.github/workflows/ci.yml`**. |
+| `make ml-scan-strict` | ML call-site scan; fails on any warning (stricter than `make ml-scan`). |
+| `make clean-bytecode` | Remove `__pycache__` and common junk under the repo root. |
+| `make tree-source` | Print a filtered repo-root tree (requires `tree` on `PATH`). |
+| `make tree-obsidiandroid` | **`src/obsidiandroid/`** only — see canonical package growth vs legacy `utils/`. |
+| `make tree-utils` | **`utils/`** tree (shims + not-yet-migrated helpers). |
+| `make tree-exporting-shims` | **`utils/exporting/`** thin re-exports only. |
+| `make ml-scan` | Static scan for suspicious `.predict()` / `.predict_proba()` use. |
+| `make preflight-db` | MySQL/MariaDB connectivity check before long DB-backed runs. |
+
 ## Tooling Reference
 
 - **`scripts/README.md`** – How to run operator scripts from the repo root and DB preflight expectations.
 - **`scripts/backfill_permission_trends_warehouse.py`** – Warehouse backfills when configured.
 - **`scripts/research/`** – Publication tables, evidence bundles, structural diagnostics.
-- **`devtools/`** – Synthetic dataset fuzzer and ML static-scan helpers (not collected by pytest; see `tests/` for automated tests).
+- **`scripts/dev/`** – Synthetic dataset fuzzer, ML static-scan, venv/test wrappers (not collected by pytest; see `tests/` for automated tests). Legacy **`devtools/`** at repo root was removed.
 - **`run_tests.sh`** / **`Makefile`** – Fast (`make test`) and full (`make test-full`) pytest; **`make preflight-db`** checks MySQL connectivity (`database.split_db_health`).
 
 ## Release Checklist

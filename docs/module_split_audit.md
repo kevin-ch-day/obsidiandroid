@@ -2,52 +2,54 @@
 
 This audit identifies oversized scripts/modules and split targets to reduce maintenance risk.
 
+**Note:** Line counts below were refreshed against the tree on the date of the last audit edit; re-run the inspection scripts below before relying on exact numbers. Root `main.py` is a **compatibility shim** (~60 LOC); real CLI imports live under **`src/obsidiandroid/cli/`**. **`utils/startup_menu.py`** is a shim; the interactive menu is **`src/obsidiandroid/cli/startup_menu.py`**.
+
 ## Current hotspots (refreshed)
 
 Command used:
 
 ```bash
-python data_inspect/inspect_complexity_hotspots.py --top-files 15 --top-functions 20
+python scripts/diagnostics/inspect_complexity_hotspots.py --top-files 15 --top-functions 20
 ```
 
-Top file hotspots (production + orchestration paths):
+Representative file sizes (production + orchestration paths, approximate):
 
-- `analysis/pipeline/stage_permission_trends_report.py` (4149 LOC, max function 831 LOC)
-- `analysis/pipeline/stage_manifest.py` (2725 LOC, max function 435 LOC)
-- `utils/startup_menu.py` (1621 LOC)
-- `main.py` (1545 LOC, `run_pipeline` 745 LOC)
-- `analysis/pipeline/stage_results_warehouse.py` (1167 LOC)
-- `utils/export_manager.py` (851 LOC)
-- `ml_classification/training/pipeline_core.py` (650 LOC)
-- `ml_classification/labeling/classification_label_resolver.py` (578 LOC)
+| Module | LOC (approx.) | Notes |
+|--------|----------------|-------|
+| `analysis/pipeline/stage_permission_trends_report.py` | ~3170 | Largest stage module |
+| `src/obsidiandroid/cli/startup_menu.py` | ~2000 | Operator menu (canonical); root `utils/startup_menu.py` is a shim |
+| `analysis/pipeline/stage_manifest.py` | ~2570 | Manifest / exports |
+| `analysis/pipeline/runner.py` | ~1640 | `run_pipeline` orchestration |
+| `analysis/pipeline/stage_results_warehouse.py` | ~1170 | Results warehouse |
+| `utils/export_manager.py` | ~860 | Exports |
+| `ml_classification/training/pipeline_core.py` | ~900 | Training orchestration |
+| `ml_classification/labeling/classification_label_resolver.py` | ~750 | Label / taxonomy |
+| `main.py` (repo root) | ~60 | Shim only — not the LOC-heavy CLI |
 
-Largest function hotspots:
+Largest function hotspots (see inspect scripts for current line numbers):
 
-- `analysis/pipeline/stage_permission_trends_report.py:91` `run_permission_trends_report_stage` (831 LOC)
-- `main.py:761` `run_pipeline` (745 LOC)
-- `analysis/pipeline/stage_manifest.py:64` `finalize_run_manifest_stage` (435 LOC)
-- `analysis/pipeline/stage_manifest.py:1447` `_build_strict_paper2_exports` (403 LOC)
-- `analysis/pipeline/stage_samples.py:52` `load_and_prepare_samples` (248 LOC)
-- `ml_classification/labeling/classification_label_resolver.py:234` `_export_taxonomy_consistency_audit` (217 LOC)
-- `utils/export_manager.py:492` `write_excel_file` (213 LOC)
+- `analysis/pipeline/stage_permission_trends_report.py` — `run_permission_trends_report_stage` (very large)
+- `analysis/pipeline/runner.py` — `run_pipeline` (primary orchestration)
+- `analysis/pipeline/stage_manifest.py` — manifest finalization and paper export helpers
+- `analysis/pipeline/stage_samples.py` — `load_and_prepare_samples`
 
 ## Complexity signals to prioritize
 
 1. **Pipeline stage overload**
    - `stage_permission_trends_report.py` and `stage_manifest.py` combine orchestration, analytics, export, compliance, and persistence concerns in single modules/functions.
 2. **Control-flow depth + broad exception handling**
-   - `main.py`, `stage_manifest.py`, and `export_manager.py` contain high branch counts and multiple broad `except Exception` handlers.
+   - `analysis/pipeline/runner.py`, `stage_manifest.py`, and `export_manager.py` contain high branch counts and multiple broad `except Exception` handlers.
 3. **Operational UI mixed with workflow logic**
-   - `utils/startup_menu.py` still contains substantial action logic that should live in dedicated service modules.
+   - `src/obsidiandroid/cli/startup_menu.py` still contains substantial action logic that could move to dedicated service modules over time.
 4. **Classification label audit complexity growth**
-   - `classification_label_resolver.py` now includes increasingly rich taxonomy checks and should be split into extractor, matcher, and report-writer submodules.
+   - `classification_label_resolver.py` includes rich taxonomy checks and could be split into extractor, matcher, and report-writer submodules.
 
 ## Split priority (recommended order)
 
 1. `analysis/pipeline/stage_permission_trends_report.py`
 2. `analysis/pipeline/stage_manifest.py`
-3. `main.py`
-4. `utils/startup_menu.py`
+3. `analysis/pipeline/runner.py` (or extract stage dispatch helpers without moving files in one shot)
+4. `src/obsidiandroid/cli/startup_menu.py` (behind-menu workflows → services)
 5. `utils/export_manager.py`
 6. `ml_classification/labeling/classification_label_resolver.py`
 7. `analysis/pipeline/stage_results_warehouse.py`
@@ -77,22 +79,19 @@ Move into:
 
 Goal: isolate manifest composition vs validation vs writing.
 
-### 3) `main.py` split
+### 3) Orchestration vs CLI
 
-Move into:
+- Repo-root `main.py` should remain a **thin** import surface for tests (`import main`).
+- **`src/obsidiandroid/cli/main.py`** — CLI exports and `main()` entry.
+- **`analysis/pipeline/runner.py`** — `run_pipeline` and run-scoped helpers.
 
-- `analysis/orchestration/pipeline_runner.py`
-- `analysis/orchestration/runtime_context.py`
-- `analysis/orchestration/stage_dispatch.py`
-- `analysis/orchestration/finalization.py`
+Goal: avoid growing new logic in root `main.py`; extend `runner` / stages / `obsidiandroid.*` facades instead.
 
-Goal: keep `main.py` as a thin CLI entrypoint.
+### 4) `src/obsidiandroid/cli/startup_menu.py` split
 
-### 4) `utils/startup_menu.py` split
+Move into (conceptually):
 
-Move into:
-
-- `utils/menu/maintenance.py`
+- `utils/menu/maintenance.py` (or future `obsidiandroid.cli.menu.*` expansions)
 - `utils/menu/structural_analysis.py`
 - `utils/menu/model_evaluation.py`
 - `utils/menu/run_context.py`
@@ -133,6 +132,6 @@ Goal: isolate label extraction, mismatch detection, and report export.
 Use:
 
 ```bash
-python data_inspect/inspect_complexity_hotspots.py --top-files 30 --top-functions 30
-python data_inspect/inspect_module_size_hotspots.py --top-files 30 --top-functions 30
+python scripts/diagnostics/inspect_complexity_hotspots.py --top-files 30 --top-functions 30
+python scripts/diagnostics/inspect_module_size_hotspots.py --top-files 30 --top-functions 30
 ```

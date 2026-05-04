@@ -7,7 +7,7 @@ from config import app_config
 from database import db_sample_metadata_fetchers
 from utils import display_utils as du
 from utils.logging import get_logger, log_event
-from utils import profile_manager
+import obsidiandroid.cli.profile_manager as profile_manager
 
 MENU_LOGGER = get_logger(
     f"{getattr(app_config, 'APP_LOG_NAMESPACE', 'framework')}.menu.profile_preflight",

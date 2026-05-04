@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from utils import profile_manager
+import obsidiandroid.cli.profile_manager as profile_manager
 
 
 def test_profile_list_contains_default_profiles() -> None:

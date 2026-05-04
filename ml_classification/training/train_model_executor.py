@@ -10,7 +10,7 @@ from config import app_config
 from ml_classification.ml_utils import ml_result_validator
 from utils import display_utils as du
 from utils import ml_console
-from utils import output_paths
+from obsidiandroid.common import output_paths
 from utils.logging import get_logger, log_event
 
 from .model_evaluation import evaluate_model, display_post_training_metrics

@@ -21,7 +21,7 @@ from obsidiandroid.pipeline import (
     PARSER_QUALITY_PATH,
     run_pipeline,
 )
-from utils import profile_manager
+import obsidiandroid.cli.profile_manager as profile_manager
 from utils.logging import runtime as runtime_logging
 
 __all__ = [

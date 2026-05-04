@@ -1,7 +1,7 @@
-# Filename: main.py
-# Purpose  : Compatibility shim; implementation in ``obsidiandroid.cli.main``.
+"""Malware classification pipeline CLI and stable import surface for tests.
 
-"""Malware classification pipeline CLI and stable import surface for tests."""
+Compatibility shim; implementation in ``obsidiandroid.cli.main``.
+"""
 
 from __future__ import annotations
 

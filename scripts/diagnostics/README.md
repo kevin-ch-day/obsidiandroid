@@ -2,9 +2,9 @@
 
 Operator inspection and analysis helpers that live in this package. Run from the **repository root** so imports resolve (`analysis`, `database`, `config`, …).
 
-## Inspect modules (migrated from top-level `data_inspect/`)
+## Inspect modules (formerly top-level `data_inspect/`)
 
-The canonical implementations are **here**. **`data_inspect/`** at the repo root keeps thin compatibility shims (`from data_inspect import …`) for existing imports.
+The canonical implementations are **here**. Import them as **`scripts.diagnostics.<module>`** (or run **`python scripts/diagnostics/<script>.py`**). Repo-root **`data_inspect/`** was removed; migrate off-repo scripts from `from data_inspect import …` to **`scripts.diagnostics`**.
 
 | Module | Role |
 |--------|------|

@@ -14,13 +14,16 @@ ObsidianDroid is an end-to-end framework for Android malware analysis, AV engine
 | [`pipeline_staging_guide.md`](pipeline_staging_guide.md) | Stage-by-stage reference for the refactored pipeline modules and extension patterns. |
 | [`../analysis/pipeline/README.md`](../analysis/pipeline/README.md) | Quick index of `runner.py`, `stage_*` modules, and `manifest/` helpers. |
 | [`operations_playbook.md`](operations_playbook.md) | Runbooks and checklists for production support, monitoring, incident response, and change management. |
+| [`GOVERNANCE.md`](GOVERNANCE.md) | Mandatory governance behavior for runtime, diagnostics, and reproducibility. |
+| [`AGENTS.md`](AGENTS.md) | Contributor and automated-agent conventions (layout, testing, hygiene); repo-root `AGENTS.md` is a pointer. |
+| [`ROOT_AND_STRUCTURE_AUDIT.md`](ROOT_AND_STRUCTURE_AUDIT.md) | **Project status & deep root/layout audit** — hybrid layout rationale, what moved vs what stays, CI/professionalism checklist. |
 
 ## Quick Facts
 
-- **Entry points:** `main.py` is the CLI shell; `analysis/pipeline/runner.py` runs `run_pipeline` and calls staged helpers under `analysis/pipeline/stage_*.py`. `model_tuning.py` handles targeted hyperparameter sweeps; `scripts/` contains recurring maintenance utilities.
+- **Entry points:** Repo-root `main.py` is a thin shim; canonical CLI lives in `src/obsidiandroid/cli/main.py`. `analysis/pipeline/runner.py` runs `run_pipeline` and calls staged helpers under `analysis/pipeline/stage_*.py`. `analysis/evaluation/model_tuning.py` handles targeted hyperparameter sweeps; `scripts/` holds maintenance tools (`scripts/dev/` for hygiene/import checks, `scripts/diagnostics/` for inspection CLIs).
 - **Configuration:** YAML/JSON files in `config/` control feature toggles, model parameters, and database credentials.
 - **Outputs:** Runtime artifacts (labels, evaluation metrics, feature matrices) are written under an `output/` directory that is created on demand.
-- **Testing:** Run `pytest -q` or `./run_tests.sh` before committing changes. Additional QA helpers (fuzzer, static scan) live under `devtools/`, separate from `tests/`.
+- **Testing:** Run **`make verify`** (import smoke + fast pytest), `pytest -q`, or `make test` before committing changes. The fuzzer and ML call-site scan live under `scripts/dev/`. See **Makefile quick reference** in `developer_guide.md` for `make setup`, `make menu`, and `make install-editable`.
 - **VirusTotal data:** The pipeline consumes replicated VirusTotal tables (`vt_av_engines*`, `vt_permissions`, `vt_*_metadata`) from the project database rather than issuing live API calls. Integration specifics and required refresh cadences are captured in [`data_sources.md`](data_sources.md).
 
 Consult the documents listed above for detailed component descriptions and operator workflows.

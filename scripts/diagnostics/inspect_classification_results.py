@@ -1,4 +1,4 @@
-# Filename: classification_interpreter.py
+# Filename: scripts/diagnostics/inspect_classification_results.py
 # Purpose: Publication-grade interpretation of malware family classification results
 # Context: ObsidianDroid - ML-based evaluation using AV engine consensus and metadata scoring
 

@@ -5,19 +5,19 @@ This playbook equips site reliability engineers and operators with procedures fo
 ## Daily Checklist
 
 - **Pipeline health:** Verify the latest scheduled `main.py` run completed successfully. Review orchestrator dashboards (e.g., Airflow, Prefect) for failed tasks.
-- **Data freshness:** Confirm VirusTotal replication jobs populated the expected tables (`vt_av_engines*`, `vt_permissions`, `vt_file_metadata`, `vt_network_metadata`). Reference [`data_sources.md`](data_sources.md) for schema specifics and validation steps.
-- **Storage usage:** Monitor the `output/` and `data_inspect/` directories for growth. Archive or prune artifacts older than retention targets.
+- **Data freshness:** Confirm replication jobs populated the expected **primary** and **Permission Intel** tables (canonical names include `malware_sample_catalog`, `virustotal_sample_vendor_engine_verdicts`, `android_permission_obs_sample`; legacy `vt_*` aliases may appear in older notes). Reference [`data_sources.md`](data_sources.md) for schema specifics and validation steps.
+- **Storage usage:** Monitor `output/` for growth. Inspection CLIs live under `scripts/diagnostics/`. Archive or prune artifacts older than retention targets.
 - **Model drift signals:** Check monitoring alerts for sudden drops in precision/recall or shifts in feature distributions. Trigger retraining if thresholds are crossed.
 
 ## Weekly Checklist
 
-- **Backfill review:** Ensure delayed samples are captured by running `scripts/backfill_labels.py` against the backlog.
+- **Backfill review:** Ensure delayed samples and warehouse-dependent aggregates are caught up using **your** ETL/backlog procedures. When Permission Intel warehouse backfills are enabled, use **`scripts/backfill_permission_trends_warehouse.py`** (see **`scripts/README.md`**). This repo does **not** ship **`scripts/backfill_labels.py`**.
 - **Dependency updates:** Review security advisories and bump pinned packages when necessary. Re-run `pytest -q` and smoke-test the pipeline afterward.
 - **Dashboard hygiene:** Validate BI dashboards and shared notebooks still reflect the current schema and metrics.
 
 ## Monthly Checklist
 
-- **Model retraining:** Schedule `model_tuning.py` with the latest labeled dataset. Promote the champion model once evaluation metrics meet acceptance criteria.
+- **Model retraining:** Schedule `analysis/evaluation/model_tuning.py` (or your production tuning driver) with the latest labeled dataset. Promote the champion model once evaluation metrics meet acceptance criteria.
 - **Disaster recovery drill:** Practice restoring the database snapshot and rehydrating VirusTotal tables from backups.
 - **Documentation review:** Update user and developer guides with process changes discovered during the month.
 

@@ -11,12 +11,14 @@ from zipfile import BadZipFile
 from xml.etree.ElementTree import ParseError as XMLParseError
 from config import app_config
 from utils import display_utils as du
-from utils import output_paths
-from utils.confusion_matrix_exporter import export_confusion_matrix_image
+from obsidiandroid.common import output_paths
+from obsidiandroid.common import export_naming as naming
+from obsidiandroid.common import export_vendor_raw as vendor_raw
+from obsidiandroid.common import export_workbook as workbook
+from obsidiandroid.reporting.confusion_matrix_exporter import export_confusion_matrix_image
 from utils import ml_console
 from utils.hash_utils import hash_payload, short_hash
 from utils.logging import get_logger, log_event
-from utils.exporting import naming, vendor_raw, workbook
 import shutil
 
 # === Output Paths ===

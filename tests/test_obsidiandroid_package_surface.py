@@ -6,14 +6,185 @@ import pytest
 
 
 def test_pipeline_facade_matches_runner_public_surface() -> None:
-    """``obsidiandroid.pipeline`` should re-export the same objects as ``runner``."""
+    """``obsidiandroid.pipeline`` delegates to live ``runner`` bindings (PEP 562 __getattr__)."""
     from analysis.pipeline import runner as runner_mod
     import obsidiandroid.pipeline as facade
 
     assert facade.run_pipeline is runner_mod.run_pipeline
-    assert facade.DIAGNOSTICS_DIR == runner_mod.DIAGNOSTICS_DIR
+    assert facade.DIAGNOSTICS_DIR is runner_mod.DIAGNOSTICS_DIR
     assert facade.PIPELINE_MAIN_LOGGER is runner_mod.PIPELINE_MAIN_LOGGER
-    assert facade.PARSER_QUALITY_PATH == runner_mod.PARSER_QUALITY_PATH
+    assert facade.PARSER_QUALITY_PATH is runner_mod.PARSER_QUALITY_PATH
+
+
+def test_output_cleanup_clutter_shim_matches_canonical() -> None:
+    """``utils.output_cleanup_clutter`` delegates to ``obsidiandroid.common``."""
+    from obsidiandroid.common import output_cleanup_clutter as canon
+    from utils import output_cleanup_clutter as shim
+
+    assert shim.WORKBOOK_CORRUPT_GLOB == canon.WORKBOOK_CORRUPT_GLOB
+    assert shim.PAPER_BUNDLE_SMOKE_GLOBS == canon.PAPER_BUNDLE_SMOKE_GLOBS
+
+
+def test_output_paths_shim_matches_canonical() -> None:
+    """``utils.output_paths`` re-exports :mod:`obsidiandroid.common.output_paths`."""
+    from obsidiandroid.common import output_paths as canon
+    from utils import output_paths as shim
+
+    assert shim.output_root is canon.output_root
+    assert shim.ensure_output_layout is canon.ensure_output_layout
+
+
+def test_sample_metadata_preprocessor_shim_matches_canonical() -> None:
+    """``utils.sample_metadata_preprocessor`` delegates to ``obsidiandroid.common``."""
+    import obsidiandroid.common.sample_metadata_preprocessor as canon
+    from utils import sample_metadata_preprocessor as shim
+
+    assert shim.prepare_sample_dataframe is canon.prepare_sample_dataframe
+
+
+def test_compliance_shim_matches_canonical() -> None:
+    """``utils.compliance`` delegates to ``obsidiandroid.governance.compliance``."""
+    import obsidiandroid.governance.compliance as canon
+    from utils import compliance as shim
+
+    assert shim.build_compliance_report is canon.build_compliance_report
+
+
+def test_run_manifest_shim_matches_canonical() -> None:
+    """``utils.run_manifest`` re-exports governance canonical module."""
+    import obsidiandroid.governance.run_manifest as canon
+    from utils import run_manifest as shim
+
+    assert shim.generate_run_id is canon.generate_run_id
+    assert shim.MANIFEST_SCHEMA_VERSION == canon.MANIFEST_SCHEMA_VERSION
+
+
+def test_artifacts_shim_matches_canonical() -> None:
+    """``utils.artifacts`` re-exports governance canonical module."""
+    import obsidiandroid.governance.artifacts as canon
+    from utils import artifacts as shim
+
+    assert shim.ManifestWriter is canon.ManifestWriter
+    assert shim.ArtifactKey.SPLIT_AUDIT_CSV == canon.ArtifactKey.SPLIT_AUDIT_CSV
+
+
+def test_cohort_reproducibility_shim_matches_canonical() -> None:
+    """``utils.cohort_reproducibility`` re-exports governance canonical module."""
+    import obsidiandroid.governance.cohort_reproducibility as canon
+    from utils import cohort_reproducibility as shim
+
+    assert shim.apply_analysis_snapshot_lock is canon.apply_analysis_snapshot_lock
+    assert shim.export_analysis_snapshot is canon.export_analysis_snapshot
+
+
+def test_cohort_readiness_report_shim_matches_canonical() -> None:
+    """``utils.cohort_readiness_report`` re-exports governance canonical module."""
+    import obsidiandroid.governance.cohort_readiness_report as canon
+    from utils import cohort_readiness_report as shim
+
+    assert shim.print_cohort_readiness_report is canon.print_cohort_readiness_report
+    assert shim.print_cohort_sql_scope_gate_summary is canon.print_cohort_sql_scope_gate_summary
+
+
+def test_profile_manager_shim_matches_canonical() -> None:
+    """``utils.profile_manager`` re-exports :mod:`obsidiandroid.cli.profile_manager`."""
+    import obsidiandroid.cli.profile_manager as canon
+    from utils import profile_manager as shim
+
+    assert shim.load_profile is canon.load_profile
+    assert shim.list_profiles is canon.list_profiles
+
+
+def test_display_utils_shim_matches_canonical_display() -> None:
+    """``utils.display_utils`` re-exports :mod:`obsidiandroid.cli.ui.display`."""
+    from obsidiandroid.cli.ui import display as canon
+    from utils import display_utils as shim
+
+    assert shim.print_subheader is canon.print_subheader
+    assert shim.print_table is canon.print_table
+
+
+def test_family_distribution_report_shim_matches_canonical() -> None:
+    """``utils.family_distribution_report`` delegates to ``obsidiandroid.reporting``."""
+    import obsidiandroid.reporting.family_distribution_report as canon
+    from utils import family_distribution_report as shim
+
+    assert shim.print_family_distribution_stats is canon.print_family_distribution_stats
+
+
+def test_latex_tables_shim_matches_canonical() -> None:
+    """``utils.latex_tables`` delegates to ``obsidiandroid.reporting.latex_tables``."""
+    import obsidiandroid.reporting.latex_tables as canon
+    from utils import latex_tables as shim
+
+    assert shim.LatexTableSpec is canon.LatexTableSpec
+    assert shim.render_tabular is canon.render_tabular
+
+
+def test_av_detection_tiers_shim_matches_canonical() -> None:
+    """``utils.av_detection_tiers`` delegates to ``obsidiandroid.common``."""
+    from obsidiandroid.common import av_detection_tiers as canon
+    from utils import av_detection_tiers as shim
+
+    assert shim.get_detection_tier is canon.get_detection_tier
+    assert shim.DETECTION_TIERS == canon.DETECTION_TIERS
+
+
+def test_export_vendor_raw_shim_matches_canonical() -> None:
+    """``utils.exporting.vendor_raw`` delegates to ``obsidiandroid.common.export_vendor_raw``."""
+    from obsidiandroid.common import export_vendor_raw as canon
+    from utils.exporting import vendor_raw as shim
+
+    assert shim.is_parquet_supported is canon.is_parquet_supported
+    assert shim.export_vendor_raw_artifacts is canon.export_vendor_raw_artifacts
+
+
+def test_confusion_matrix_exporter_shim_matches_canonical() -> None:
+    """``utils.confusion_matrix_exporter`` delegates to ``obsidiandroid.reporting``."""
+    import obsidiandroid.reporting.confusion_matrix_exporter as canon
+    from utils import confusion_matrix_exporter as shim
+
+    assert shim.export_confusion_matrix_image is canon.export_confusion_matrix_image
+
+
+def test_export_workbook_shim_matches_canonical() -> None:
+    """``utils.exporting.workbook`` delegates to ``obsidiandroid.common.export_workbook``."""
+    from obsidiandroid.common import export_workbook as canon
+    from utils.exporting import workbook as shim
+
+    assert shim.WorkbookLock is canon.WorkbookLock
+    assert shim.write_sheet is canon.write_sheet
+
+
+def test_export_naming_shim_matches_canonical() -> None:
+    """``utils.exporting.naming`` delegates to ``obsidiandroid.common.export_naming``."""
+    from obsidiandroid.common import export_naming as canon
+    from utils.exporting import naming as shim
+
+    assert shim.safe_sheet_name is canon.safe_sheet_name
+    assert shim.alias_for_entry is canon.alias_for_entry
+
+
+def test_prompt_utils_shim_matches_canonical() -> None:
+    """``utils.prompt_utils`` delegates to ``obsidiandroid.cli.prompt_utils``."""
+    from obsidiandroid.cli import prompt_utils as canon
+    from utils import prompt_utils as shim
+
+    assert shim.prompt_yes_no is canon.prompt_yes_no
+    assert shim.print_warning is canon.print_warning
+
+
+def test_diagnostics_facade_modules_match_analysis_diagnostics() -> None:
+    """``obsidiandroid.diagnostics`` re-exports the same module objects as ``analysis.diagnostics``."""
+    from analysis.diagnostics import feature_lineage_report as flr_a
+    from analysis.diagnostics import output_artifact_policy as oap_a
+    from analysis.diagnostics import output_inventory as oi_a
+
+    import obsidiandroid.diagnostics as facade
+
+    assert facade.feature_lineage_report is flr_a
+    assert facade.output_artifact_policy is oap_a
+    assert facade.output_inventory is oi_a
 
 
 def test_common_repo_paths_ensure_is_idempotent() -> None:

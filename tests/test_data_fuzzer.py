@@ -1,5 +1,5 @@
 import pandas as pd
-from devtools import data_fuzzer
+from scripts.dev import data_fuzzer
 
 
 def test_generate_fuzz_data_shapes():
