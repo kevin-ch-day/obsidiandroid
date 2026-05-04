@@ -6,7 +6,8 @@ from pathlib import Path
 import json
 
 from config import app_config
-from utils import startup_menu
+
+import obsidiandroid.cli.startup_menu as startup_menu
 
 
 def test_main_menu_clear_screen_option(monkeypatch) -> None:

@@ -8,6 +8,9 @@ VENV_DIR="${ROOT_DIR}/.venv"
 
 cd "${ROOT_DIR}"
 
+# Allow ``import obsidiandroid`` when the venv has no editable install yet.
+export PYTHONPATH="${ROOT_DIR}/src:${PYTHONPATH:-}"
+
 if [[ ! -x "${VENV_DIR}/bin/python" ]]; then
     echo "Missing virtual environment at ${VENV_DIR}."
     echo "Run ./setup.sh first."

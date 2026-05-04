@@ -1,4 +1,4 @@
-.PHONY: clean test test-full preflight-db check-run-integrity ml-scan help
+.PHONY: clean test test-full preflight-db check-run-integrity ml-scan dev-import-check help
 
 help:
 	@echo "Targets:"
@@ -7,6 +7,7 @@ help:
 	@echo "  make preflight-db  - MySQL/MariaDB connectivity check (split_db_health)"
 	@echo "  make ml-scan       - static scan for suspicious .predict() / .predict_proba() sites"
 	@echo "  make clean         - remove __pycache__ and stray logs (see clean_bytecode_cache.py)"
+	@echo "  make dev-import-check  - verify obsidiandroid import paths (scripts/dev/check_import_surface.py)"
 	@echo "  make check-run-integrity RUN_ROOT=<path>  - manifest vs observability rollup (Tier A)"
 
 clean:
@@ -27,6 +28,10 @@ preflight-db:
 # Optional static scan for ML call-site hygiene (see run_ml_static_scan.py; use --strict in CI if desired).
 ml-scan:
 	python run_ml_static_scan.py
+
+# Quick smoke: obsidiandroid package and pipeline facade (editable install or PYTHONPATH=src).
+dev-import-check:
+	python scripts/dev/check_import_surface.py
 
 # Tier A QA: cohort/train/test/top-model consistency across canonical JSON sinks.
 check-run-integrity:

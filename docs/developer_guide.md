@@ -17,6 +17,17 @@ This guide documents the day-to-day workflow for engineers extending ObsidianDro
    - Install `pre-commit` and run `pre-commit install` to mirror CI checks locally.
    - Install Docker if you plan to test database snapshots or run services in containers.
 
+### Importing the `obsidiandroid` package (`src/` layout)
+
+Canonical library code under **`src/obsidiandroid/`** should be importable as **`obsidiandroid`**. Recommended setups:
+
+- **Preferred:** after dependencies, run **`pip install -e .`** from the repository root so imports work in any working directory without manual `PYTHONPATH`.
+- **Checkout-only fallback:** **`export PYTHONPATH="$PWD/src:$PYTHONPATH"`** (adjust for your shell).
+- **`./run.sh`** sets **`PYTHONPATH=<repo>/src:…`** before invoking Python so the interactive menu works without an editable install.
+- **`pytest`** prepends **`repo/src`** in **`tests/conftest.py`** so tests resolve **`obsidiandroid`** without extra env vars.
+
+Quick sanity check: **`python scripts/dev/check_import_surface.py`** or **`make dev-import-check`**.
+
 ## Branching and Code Reviews
 
 - Create topic branches from `main` for each change.
@@ -38,7 +49,7 @@ Orchestration lives in **`analysis/pipeline/runner.py`** (`run_pipeline`). **`ma
 
 - Add heavy logic in `stage_*.py` modules, not in `runner.py`.
 - Document stage entry/exit contracts in docstrings (input columns, required keys, and failure behavior).
-- Scripts that need the full pipeline should use **`from utils.pipeline_entry import run_pipeline`** or **`from main import run_pipeline`**; avoid importing deep `stage_*` internals unless you are extending a stage.
+- Scripts that need the full pipeline should use **`from obsidiandroid.pipeline import run_pipeline`**, **`from obsidiandroid.cli.pipeline_entry import run_pipeline`**, or the legacy aliases **`from utils.pipeline_entry import run_pipeline`** / **`from main import run_pipeline`**; avoid importing deep `stage_*` internals unless you are extending a stage.
 - Add focused unit tests per stage module (for example: `tests/test_stage_<name>.py`) for success and integrity-failure paths.
 - Use [`pipeline_staging_guide.md`](pipeline_staging_guide.md) as the primary extension checklist.
 

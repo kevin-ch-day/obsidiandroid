@@ -16,16 +16,20 @@ dev = [
 ]
 
 [project.scripts]
-obsidiandroid = "utils.startup_menu:main"
+obsidiandroid = "obsidiandroid.cli.startup_menu:main"
 
 [tool.setuptools]
 py-modules = ["main", "model_tuning", "clean_bytecode_cache", "run_ml_static_scan"]
 
 [tool.setuptools.packages.find]
+where = ["src", "."]
 include = [
+  "obsidiandroid*",
   "analysis*",
   "config*",
   "data_inspect*",
+  "devtools*",
+  "scripts*",
   "database*",
   "ml_classification*",
   "model*",

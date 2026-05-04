@@ -1,12 +1,13 @@
 """Stable entrypoint for automation and scripts that invoke the full pipeline.
 
-Prefer this over duplicating ``from analysis.pipeline.runner import run_pipeline`` in
-many places. CLI and tests continue to use ``from main import run_pipeline``; both
-resolve to the same implementation.
+Implementation lives in ``obsidiandroid.cli.pipeline_entry``; this module remains a
+compatibility import path.
 """
 
 from __future__ import annotations
 
-from analysis.pipeline.runner import run_pipeline
+import utils.repo_import_paths  # noqa: F401
+
+from obsidiandroid.cli.pipeline_entry import run_pipeline
 
 __all__ = ["run_pipeline"]

@@ -6,7 +6,7 @@ import pandas as pd
 
 import database.db_sample_metadata_fetchers as sample_metadata_fetchers
 
-from utils.menu import profile_preflight
+from obsidiandroid.cli.menu import profile_preflight
 
 
 def test_resolve_and_validate_profile_reprompts_until_valid(monkeypatch) -> None:

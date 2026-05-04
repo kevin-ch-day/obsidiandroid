@@ -1,28 +1,36 @@
 # Filename: main.py
-# Purpose  : Thin CLI entry — pipeline orchestration lives in ``analysis.pipeline.runner``.
+# Purpose  : Compatibility shim; implementation in ``obsidiandroid.cli.main``.
 
 """Malware classification pipeline CLI and stable import surface for tests."""
 
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
-from analysis.orchestration.runtime_reporting import (
-    apply_confusion_matrix_policy as _apply_confusion_matrix_policy,
-    enforce_duplicate_sha_policy as _enforce_duplicate_sha_policy,
-    export_model_config_snapshot as _export_model_config_snapshot,
-)
-from analysis.pipeline.stage_av_vendor import run_av_analysis_stage
-from analysis.pipeline.stage_manifest import finalize_run_manifest_stage
-from analysis.pipeline.stage_samples import load_and_prepare_samples
-from analysis.pipeline.runner import (
+_SRC_ROOT = Path(__file__).resolve().parent / "src"
+if _SRC_ROOT.is_dir() and str(_SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SRC_ROOT))
+
+from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path
+
+ensure_repo_src_on_sys_path()
+
+from obsidiandroid.cli.main import (  # noqa: F401
     DIAGNOSTICS_DIR,
     PIPELINE_MAIN_LOGGER,
     PARSER_QUALITY_PATH,
+    _apply_confusion_matrix_policy,
+    _enforce_duplicate_sha_policy,
+    _export_model_config_snapshot,
+    finalize_run_manifest_stage,
+    load_and_prepare_samples,
+    main,
+    profile_manager,
+    run_av_analysis_stage,
     run_pipeline,
+    runtime_logging,
 )
-from utils import profile_manager
-from utils.logging import runtime as runtime_logging
 
 __all__ = [
     "DIAGNOSTICS_DIR",
@@ -39,16 +47,6 @@ __all__ = [
     "run_av_analysis_stage",
     "runtime_logging",
 ]
-
-
-def main() -> int:
-    """Execute the full malware classification workflow."""
-    allow_override = "--allow-evidence-override" in sys.argv[1:]
-    allow_global = "--allow-global-artifacts" in sys.argv[1:]
-    return run_pipeline(
-        allow_evidence_override=allow_override,
-        allow_global_artifacts=allow_global,
-    )
 
 
 if __name__ == "__main__":

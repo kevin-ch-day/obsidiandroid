@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Static scan for suspicious ``.predict()`` / ``.predict_proba()`` call sites.
 
-Delegates to :func:`devtools.scan_ml_predict_misuse.run_static_predict_scan`. Writes a
+Delegates to :func:`scripts.dev.scan_ml_predict_misuse.run_static_predict_scan`. Writes a
 human-readable log under ``logs/`` at the repository root by default. Intended as an optional
 pre-commit / CI hygiene step (see ``AGENTS.md``).
 
@@ -41,8 +41,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    sys.path.insert(0, str(ROOT))
-    from devtools.scan_ml_predict_misuse import run_static_predict_scan
+    from scripts.dev.scan_ml_predict_misuse import run_static_predict_scan
 
     base = args.root.resolve()
     log_path = args.log

@@ -11,6 +11,9 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+_SRC_ROOT = REPO_ROOT / "src"
+if str(_SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SRC_ROOT))
 
 # Whole-module slow tier: keeps default `pytest` fast; run full suite with `-m "slow or not slow"`.
 _SLOW_TEST_MODULES = frozenset(

@@ -1,38 +1,5 @@
-"""Console verbosity helpers for ML pipeline terminal output."""
+"""Compatibility shim; implementation in ``obsidiandroid.common.ml_console``."""
 
-from __future__ import annotations
+import utils.repo_import_paths  # noqa: F401
 
-from config import app_config
-
-_VALID_MODES = {"minimal", "research", "debug"}
-
-
-def get_mode() -> str:
-    """Return normalized ML console mode."""
-    raw = str(getattr(app_config, "ML_CONSOLE_MODE", "research")).strip().lower()
-    if raw not in _VALID_MODES:
-        return "research"
-    return raw
-
-
-def is_minimal() -> bool:
-    """Return True when minimal terminal output is requested."""
-    return get_mode() == "minimal"
-
-
-def is_research() -> bool:
-    """Return True when research-mode terminal output is requested."""
-    return get_mode() == "research"
-
-
-def is_debug() -> bool:
-    """Return True when debug-level terminal output is requested."""
-    return get_mode() == "debug"
-
-
-def show_debug_tables(default: bool = False) -> bool:
-    """Gate noisy tabular terminal output."""
-    if is_debug():
-        return True
-    return bool(default)
-
+from obsidiandroid.common.ml_console import *  # noqa: F403

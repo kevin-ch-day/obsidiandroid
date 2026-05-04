@@ -12,7 +12,7 @@ Thumbs.db
 *.swo
 *~
 
-# Python caches
+# Python caches / tooling (bytecode, test & type checker caches, packaging junk)
 __pycache__/
 *.py[cod]
 .pytest_cache/

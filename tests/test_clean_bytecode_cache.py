@@ -1,13 +1,4 @@
-import os
-from pathlib import Path
-import importlib.util
-import sys
-
-MODULE_PATH = Path(__file__).resolve().parents[1] / "clean_bytecode_cache.py"
-spec = importlib.util.spec_from_file_location("clean_bytecode_cache", MODULE_PATH)
-cbc = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = cbc
-spec.loader.exec_module(cbc)
+import scripts.dev.clean_bytecode_cache as cbc
 
 
 def test_clean_bytecode_cache_respects_exclude_dirs(tmp_path):

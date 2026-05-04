@@ -23,7 +23,7 @@ from utils import ml_console
 from utils import family_distribution_report
 from utils import profile_manager
 from utils import run_manifest
-from utils import evidence_mode_resolver
+from obsidiandroid.governance import evidence_mode_resolver
 from utils.logging import runtime as runtime_logging
 from utils.logging import logger as logger_manager
 from utils.logging import get_logger, log_event

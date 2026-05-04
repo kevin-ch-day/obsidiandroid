@@ -6,7 +6,7 @@ This utility scans repository Python files and reports:
 3. Modules above a configured threshold.
 
 Example:
-    python data_inspect/inspect_module_size_hotspots.py --top-files 30 --top-functions 30
+    python scripts/diagnostics/inspect_module_size_hotspots.py --top-files 30 --top-functions 30
 """
 
 from __future__ import annotations

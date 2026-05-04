@@ -34,6 +34,14 @@ All artifacts (models, reports, diagnostics) are saved under `output/`.
 
 ---
 
+## Repository layout (hybrid migration)
+
+The installable package lives under **`src/obsidiandroid/`** (CLI, `common`, `pipeline` facade, …). **Legacy implementation packages** (`analysis/`, `database/`, `ml_classification/`, `model/`, …) and **`utils/`** shims remain at the repository root during the migration so existing imports and tests keep working. Details and status labels: [`STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md).
+
+**Generated / runtime artifacts** (`output/`, `logs/`, virtualenvs, caches, build outputs) are listed in **`.gitignore`** and should not be committed. Developer import modes (`pip install -e .`, `PYTHONPATH`, pytest): see [`AGENTS.md`](AGENTS.md).
+
+---
+
 ## Project Structure
 
 ```
@@ -50,6 +58,8 @@ ObsidianDroid/
 ├── run.sh                  # Fedora startup menu launcher
 ├── run_ml_static_scan.py   # Checks for accidental .predict() misuse in code
 ├── clean_bytecode_cache.py # Utility to remove __pycache__, logs, and artifacts
+├── src/obsidiandroid/      # Canonical Python package (CLI, common, pipeline facade, …)
+├── scripts/dev/            # Dev smoke scripts (e.g. import surface check)
 └── README.md
 ```
 

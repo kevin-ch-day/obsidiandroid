@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from utils import startup_menu
+import obsidiandroid.cli.startup_menu as startup_menu
 from utils.ui import menu
 
 
