@@ -7,13 +7,172 @@ import pytest
 
 def test_pipeline_facade_matches_runner_public_surface() -> None:
     """``obsidiandroid.pipeline`` delegates to live ``runner`` bindings (PEP 562 __getattr__)."""
-    from analysis.pipeline import runner as runner_mod
+    from obsidiandroid.pipeline import runner as runner_mod
     import obsidiandroid.pipeline as facade
 
     assert facade.run_pipeline is runner_mod.run_pipeline
     assert facade.DIAGNOSTICS_DIR is runner_mod.DIAGNOSTICS_DIR
     assert facade.PIPELINE_MAIN_LOGGER is runner_mod.PIPELINE_MAIN_LOGGER
     assert facade.PARSER_QUALITY_PATH is runner_mod.PARSER_QUALITY_PATH
+
+
+    module_pairs = (
+        ("attach_engine_metadata", "analysis.pipeline.attach_engine_metadata"),
+        ("av_engine_pipeline", "analysis.pipeline.av_engine_pipeline"),
+        ("contract_filters", "analysis.pipeline.contract_filters"),
+        ("engine_normalization", "analysis.pipeline.engine_normalization"),
+        ("main_facade", "analysis.pipeline.main_facade"),
+        ("runner", "analysis.pipeline.runner"),
+        ("run_bounds", "analysis.pipeline.run_bounds"),
+        ("runtime_policy", "analysis.pipeline.runtime_policy"),
+        ("sample_exports", "analysis.pipeline.sample_exports"),
+        ("sample_preparation", "analysis.pipeline.sample_preparation"),
+        ("score_av_engines", "analysis.pipeline.score_av_engines"),
+        ("stage_ablation", "analysis.pipeline.stage_ablation"),
+        ("stage_av_vendor", "analysis.pipeline.stage_av_vendor"),
+        ("stage_feature_enrichment", "analysis.pipeline.stage_feature_enrichment"),
+        ("stage_manifest", "analysis.pipeline.stage_manifest"),
+        ("stage_modeling", "analysis.pipeline.stage_modeling"),
+        ("stage_permission_trends_report", "analysis.pipeline.stage_permission_trends_report"),
+        ("stage_results_warehouse", "analysis.pipeline.stage_results_warehouse"),
+        ("stage_samples", "analysis.pipeline.stage_samples"),
+        ("vendor_metadata_pipeline", "analysis.pipeline.vendor_metadata_pipeline"),
+    )
+    import importlib
+
+    for attr, canon_name in module_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        assert getattr(facade, attr) is canon_mod
+
+
+def test_ml_facades_match_ml_classification_modules() -> None:
+    """Pass 47: minimal ML facades alias legacy module objects."""
+    import importlib
+
+    import obsidiandroid.features as features_facade
+    import obsidiandroid.labeling as labeling_facade
+    import obsidiandroid.modeling as modeling_facade
+
+    modeling_pairs = (
+        ("distribution_reporter", "ml_classification.ml_utils.distribution_reporter"),
+        ("feature_label_alignment_helper", "ml_classification.ml_utils.feature_label_alignment_helper"),
+        ("model_trainer_factory", "ml_classification.training.model_trainer_factory"),
+        ("pipeline_core", "ml_classification.training.pipeline_core"),
+    )
+    for attr, canon_name in modeling_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        assert getattr(modeling_facade, attr) is canon_mod
+        alias_mod = importlib.import_module(f"obsidiandroid.modeling.{attr}")
+        assert alias_mod is canon_mod
+
+    features_pairs = (
+        ("feature_vector_builder", "ml_classification.vectorization.feature_vector_builder"),
+    )
+    for attr, canon_name in features_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        assert getattr(features_facade, attr) is canon_mod
+        alias_mod = importlib.import_module(f"obsidiandroid.features.{attr}")
+        assert alias_mod is canon_mod
+
+    labeling_pairs = (
+        ("classification_label_resolver", "ml_classification.labeling.classification_label_resolver"),
+    )
+    for attr, canon_name in labeling_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        assert getattr(labeling_facade, attr) is canon_mod
+        alias_mod = importlib.import_module(f"obsidiandroid.labeling.{attr}")
+        assert alias_mod is canon_mod
+
+
+def test_pipeline_manifest_facade_matches_manifest_modules() -> None:
+    """Pipeline manifest facade aliases analysis.pipeline.manifest modules."""
+    import importlib
+
+    import obsidiandroid.pipeline.manifest as manifest_facade
+
+    manifest_pairs = (
+        ("hashing", "analysis.pipeline.manifest.hashing"),
+        ("paper_compliance_checks", "analysis.pipeline.manifest.paper_compliance_checks"),
+        ("paper_figure_renderers", "analysis.pipeline.manifest.paper_figure_renderers"),
+        ("runtime_support", "analysis.pipeline.manifest.runtime_support"),
+        ("writer", "analysis.pipeline.manifest.writer"),
+    )
+    for attr, canon_name in manifest_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        assert getattr(manifest_facade, attr) is canon_mod
+        alias_mod = importlib.import_module(f"obsidiandroid.pipeline.manifest.{attr}")
+        assert alias_mod is canon_mod
+
+
+def test_pipeline_artifacts_facade_matches_artifact_modules() -> None:
+    """Pipeline artifacts facade aliases analysis.pipeline.artifacts modules."""
+    import importlib
+
+    import obsidiandroid.pipeline.artifacts as artifacts_facade
+
+    artifacts_pairs = (
+        ("paths", "analysis.pipeline.artifacts.paths"),
+        ("registry", "analysis.pipeline.artifacts.registry"),
+    )
+    for attr, canon_name in artifacts_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        assert getattr(artifacts_facade, attr) is canon_mod
+        alias_mod = importlib.import_module(f"obsidiandroid.pipeline.artifacts.{attr}")
+        assert alias_mod is canon_mod
+
+
+def test_pipeline_permission_trends_facade_matches_permission_trends_modules() -> None:
+    """Pipeline permission-trends facade aliases analysis.pipeline.permission_trends modules."""
+    import importlib
+
+    import obsidiandroid.pipeline.permission_trends as permission_trends_facade
+
+    permission_trends_pairs = (
+        ("bundle_manifest", "analysis.pipeline.permission_trends.bundle_manifest"),
+        ("constants", "analysis.pipeline.permission_trends.constants"),
+        ("publish_paths", "analysis.pipeline.permission_trends.publish_paths"),
+        ("reporting_support", "analysis.pipeline.permission_trends.reporting_support"),
+        ("sample_permission_data", "analysis.pipeline.permission_trends.sample_permission_data"),
+        ("stats_core", "analysis.pipeline.permission_trends.stats_core"),
+    )
+    for attr, canon_name in permission_trends_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        assert getattr(permission_trends_facade, attr) is canon_mod
+        alias_mod = importlib.import_module(f"obsidiandroid.pipeline.permission_trends.{attr}")
+        assert alias_mod is canon_mod
+
+
+def test_vendors_facade_matches_vendor_processing_modules() -> None:
+    """Pass 51: first vendor facade slice aliases parser-map modules."""
+    import importlib
+
+    import obsidiandroid.vendors as vendors_facade
+
+    vendors_pairs = (
+        ("vendor_parser_map", "analysis.vendor_processing.vendor_parser_map"),
+    )
+    for attr, canon_name in vendors_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        assert getattr(vendors_facade, attr) is canon_mod
+        alias_mod = importlib.import_module(f"obsidiandroid.vendors.{attr}")
+        assert alias_mod is canon_mod
+
+
+def test_governance_facade_matches_pipeline_governance_modules() -> None:
+    """Pipeline governance primitives are canonical through obsidiandroid.governance."""
+    import importlib
+
+    import obsidiandroid.governance as governance_facade
+
+    governance_pairs = (
+        ("exceptions", "analysis.pipeline.governance.exceptions"),
+        ("integrity", "analysis.pipeline.governance.integrity"),
+    )
+    for attr, canon_name in governance_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        assert getattr(governance_facade, attr) is canon_mod
+        alias_mod = importlib.import_module(f"obsidiandroid.governance.{attr}")
+        assert alias_mod is canon_mod
 
 
 def test_output_cleanup_clutter_shim_matches_canonical() -> None:
@@ -319,6 +478,37 @@ def test_diagnostics_facade_modules_match_analysis_diagnostics() -> None:
 
     assert ha_bundle_f is ha_bundle_a
     assert rv_bundle_f is rv_bundle_a
+
+
+def test_database_facade_matches_database_modules() -> None:
+    """``obsidiandroid.database`` exposes the same modules as ``database.*`` (Passes 38 + 43)."""
+    import importlib
+
+    pairs = (
+        ("cohort_sql_fragments", "database.cohort_sql_fragments"),
+        ("db_config", "database.db_config"),
+        ("db_engine", "database.db_engine"),
+        ("db_errors", "database.db_errors"),
+        ("db_av_engine_detection_totals", "database.db_av_engine_detection_totals"),
+        ("db_av_engine_verdicts", "database.db_av_engine_verdicts"),
+        ("db_fetch_av_engine_raw_results", "database.db_fetch_av_engine_raw_results"),
+        ("db_permission_analysis_queries", "database.db_permission_analysis_queries"),
+        ("db_sample_metadata_contracts", "database.db_sample_metadata_contracts"),
+        ("db_sample_metadata_fetchers", "database.db_sample_metadata_fetchers"),
+        ("db_sample_metadata_queries", "database.db_sample_metadata_queries"),
+        ("db_sample_malicious_scoring", "database.db_sample_malicious_scoring"),
+        ("db_utils", "database.db_utils"),
+        ("schema_map", "database.schema_map"),
+        ("settings", "database.settings"),
+        ("split_db_health", "database.split_db_health"),
+    )
+    import obsidiandroid.database as facade
+
+    for attr, canon_name in pairs:
+        canon_mod = importlib.import_module(canon_name)
+        assert getattr(facade, attr) is canon_mod
+        alias_mod = importlib.import_module(f"obsidiandroid.database.{attr}")
+        assert alias_mod is canon_mod
 
 
 def test_common_repo_paths_ensure_is_idempotent() -> None:

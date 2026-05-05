@@ -216,6 +216,10 @@ def main() -> int:
         "obsidiandroid.cli.startup_menu",
         "obsidiandroid.cli.pipeline_entry",
         "obsidiandroid.pipeline",
+        "obsidiandroid.modeling",
+        "obsidiandroid.features",
+        "obsidiandroid.labeling",
+        "obsidiandroid.vendors",
     ):
         try:
             mod = importlib.import_module(name)
@@ -243,6 +247,228 @@ def main() -> int:
         print("FAIL: pipeline facade PIPELINE_MAIN_LOGGER mismatch", file=sys.stderr)
         return 1
     print("OK   obsidiandroid.pipeline public facade matches runner (DIAGNOSTICS_DIR, paths, logger)")
+    _pipeline_module_pairs = (
+        ("attach_engine_metadata", "analysis.pipeline.attach_engine_metadata"),
+        ("av_engine_pipeline", "analysis.pipeline.av_engine_pipeline"),
+        ("contract_filters", "analysis.pipeline.contract_filters"),
+        ("engine_normalization", "analysis.pipeline.engine_normalization"),
+        ("main_facade", "analysis.pipeline.main_facade"),
+        ("runner", "analysis.pipeline.runner"),
+        ("run_bounds", "analysis.pipeline.run_bounds"),
+        ("runtime_policy", "analysis.pipeline.runtime_policy"),
+        ("sample_exports", "analysis.pipeline.sample_exports"),
+        ("sample_preparation", "analysis.pipeline.sample_preparation"),
+        ("score_av_engines", "analysis.pipeline.score_av_engines"),
+        ("stage_ablation", "analysis.pipeline.stage_ablation"),
+        ("stage_av_vendor", "analysis.pipeline.stage_av_vendor"),
+        ("stage_feature_enrichment", "analysis.pipeline.stage_feature_enrichment"),
+        ("stage_manifest", "analysis.pipeline.stage_manifest"),
+        ("stage_modeling", "analysis.pipeline.stage_modeling"),
+        ("stage_permission_trends_report", "analysis.pipeline.stage_permission_trends_report"),
+        ("stage_results_warehouse", "analysis.pipeline.stage_results_warehouse"),
+        ("stage_samples", "analysis.pipeline.stage_samples"),
+        ("vendor_metadata_pipeline", "analysis.pipeline.vendor_metadata_pipeline"),
+    )
+    for attr, canon_name in _pipeline_module_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        facade_mod = getattr(pipeline_mod, attr)
+        if facade_mod is not canon_mod:
+            print(
+                f"FAIL: obsidiandroid.pipeline.{attr} facade mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.pipeline module aliases match analysis.pipeline")
+
+    _manifest_facade = importlib.import_module("obsidiandroid.pipeline.manifest")
+    _manifest_pairs = (
+        ("hashing", "analysis.pipeline.manifest.hashing"),
+        ("paper_compliance_checks", "analysis.pipeline.manifest.paper_compliance_checks"),
+        ("paper_figure_renderers", "analysis.pipeline.manifest.paper_figure_renderers"),
+        ("runtime_support", "analysis.pipeline.manifest.runtime_support"),
+        ("writer", "analysis.pipeline.manifest.writer"),
+    )
+    for attr, canon_name in _manifest_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        facade_mod = getattr(_manifest_facade, attr)
+        if facade_mod is not canon_mod:
+            print(
+                f"FAIL: obsidiandroid.pipeline.manifest.{attr} facade mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+        alias_mod = importlib.import_module(f"obsidiandroid.pipeline.manifest.{attr}")
+        if alias_mod is not canon_mod:
+            print(
+                f"FAIL: import obsidiandroid.pipeline.manifest.{attr} did not resolve to {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.pipeline.manifest submodules match analysis.pipeline.manifest")
+
+    _artifacts_facade = importlib.import_module("obsidiandroid.pipeline.artifacts")
+    _artifacts_pairs = (
+        ("paths", "analysis.pipeline.artifacts.paths"),
+        ("registry", "analysis.pipeline.artifacts.registry"),
+    )
+    for attr, canon_name in _artifacts_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        facade_mod = getattr(_artifacts_facade, attr)
+        if facade_mod is not canon_mod:
+            print(
+                f"FAIL: obsidiandroid.pipeline.artifacts.{attr} facade mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+        alias_mod = importlib.import_module(f"obsidiandroid.pipeline.artifacts.{attr}")
+        if alias_mod is not canon_mod:
+            print(
+                f"FAIL: import obsidiandroid.pipeline.artifacts.{attr} did not resolve to {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.pipeline.artifacts submodules match analysis.pipeline.artifacts")
+
+    _permission_trends_facade = importlib.import_module("obsidiandroid.pipeline.permission_trends")
+    _permission_trends_pairs = (
+        ("bundle_manifest", "analysis.pipeline.permission_trends.bundle_manifest"),
+        ("constants", "analysis.pipeline.permission_trends.constants"),
+        ("publish_paths", "analysis.pipeline.permission_trends.publish_paths"),
+        ("reporting_support", "analysis.pipeline.permission_trends.reporting_support"),
+        ("sample_permission_data", "analysis.pipeline.permission_trends.sample_permission_data"),
+        ("stats_core", "analysis.pipeline.permission_trends.stats_core"),
+    )
+    for attr, canon_name in _permission_trends_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        facade_mod = getattr(_permission_trends_facade, attr)
+        if facade_mod is not canon_mod:
+            print(
+                f"FAIL: obsidiandroid.pipeline.permission_trends.{attr} facade mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+        alias_mod = importlib.import_module(f"obsidiandroid.pipeline.permission_trends.{attr}")
+        if alias_mod is not canon_mod:
+            print(
+                f"FAIL: import obsidiandroid.pipeline.permission_trends.{attr} did not resolve to {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.pipeline.permission_trends submodules match analysis.pipeline.permission_trends")
+
+    _modeling_facade = importlib.import_module("obsidiandroid.modeling")
+    _modeling_pairs = (
+        ("distribution_reporter", "ml_classification.ml_utils.distribution_reporter"),
+        ("feature_label_alignment_helper", "ml_classification.ml_utils.feature_label_alignment_helper"),
+        ("model_trainer_factory", "ml_classification.training.model_trainer_factory"),
+        ("pipeline_core", "ml_classification.training.pipeline_core"),
+    )
+    for attr, canon_name in _modeling_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        facade_mod = getattr(_modeling_facade, attr)
+        if facade_mod is not canon_mod:
+            print(
+                f"FAIL: obsidiandroid.modeling.{attr} facade mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+        alias_mod = importlib.import_module(f"obsidiandroid.modeling.{attr}")
+        if alias_mod is not canon_mod:
+            print(
+                f"FAIL: import obsidiandroid.modeling.{attr} did not resolve to {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.modeling submodules match ml_classification")
+
+    _features_facade = importlib.import_module("obsidiandroid.features")
+    _features_pairs = (
+        ("feature_vector_builder", "ml_classification.vectorization.feature_vector_builder"),
+    )
+    for attr, canon_name in _features_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        facade_mod = getattr(_features_facade, attr)
+        if facade_mod is not canon_mod:
+            print(
+                f"FAIL: obsidiandroid.features.{attr} facade mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+        alias_mod = importlib.import_module(f"obsidiandroid.features.{attr}")
+        if alias_mod is not canon_mod:
+            print(
+                f"FAIL: import obsidiandroid.features.{attr} did not resolve to {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.features submodules match ml_classification")
+
+    _labeling_facade = importlib.import_module("obsidiandroid.labeling")
+    _labeling_pairs = (
+        ("classification_label_resolver", "ml_classification.labeling.classification_label_resolver"),
+    )
+    for attr, canon_name in _labeling_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        facade_mod = getattr(_labeling_facade, attr)
+        if facade_mod is not canon_mod:
+            print(
+                f"FAIL: obsidiandroid.labeling.{attr} facade mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+        alias_mod = importlib.import_module(f"obsidiandroid.labeling.{attr}")
+        if alias_mod is not canon_mod:
+            print(
+                f"FAIL: import obsidiandroid.labeling.{attr} did not resolve to {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.labeling submodules match ml_classification")
+
+    _vendors_facade = importlib.import_module("obsidiandroid.vendors")
+    _vendors_pairs = (
+        ("vendor_parser_map", "analysis.vendor_processing.vendor_parser_map"),
+    )
+    for attr, canon_name in _vendors_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        facade_mod = getattr(_vendors_facade, attr)
+        if facade_mod is not canon_mod:
+            print(
+                f"FAIL: obsidiandroid.vendors.{attr} facade mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+        alias_mod = importlib.import_module(f"obsidiandroid.vendors.{attr}")
+        if alias_mod is not canon_mod:
+            print(
+                f"FAIL: import obsidiandroid.vendors.{attr} did not resolve to {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.vendors submodules match analysis.vendor_processing")
+
+    _governance_facade = importlib.import_module("obsidiandroid.governance")
+    _governance_pairs = (
+        ("exceptions", "analysis.pipeline.governance.exceptions"),
+        ("integrity", "analysis.pipeline.governance.integrity"),
+    )
+    for attr, canon_name in _governance_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        facade_mod = getattr(_governance_facade, attr)
+        if facade_mod is not canon_mod:
+            print(
+                f"FAIL: obsidiandroid.governance.{attr} facade mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+        alias_mod = importlib.import_module(f"obsidiandroid.governance.{attr}")
+        if alias_mod is not canon_mod:
+            print(
+                f"FAIL: import obsidiandroid.governance.{attr} did not resolve to {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.governance pipeline governance aliases match analysis.pipeline.governance")
 
     common_checks = (
         "obsidiandroid.common.hash_utils",
@@ -581,6 +807,48 @@ def main() -> int:
         )
         return 1
     print("OK   obsidiandroid.diagnostics submodules match analysis.diagnostics")
+
+    try:
+        db_facade = importlib.import_module("obsidiandroid.database")
+    except Exception as exc:
+        print(f"FAIL: import obsidiandroid.database: {exc}", file=sys.stderr)
+        return 1
+    print(f"OK   obsidiandroid.database -> {_module_path(db_facade)}")
+    _database_pairs = (
+        ("cohort_sql_fragments", "database.cohort_sql_fragments"),
+        ("db_config", "database.db_config"),
+        ("db_engine", "database.db_engine"),
+        ("db_errors", "database.db_errors"),
+        ("db_av_engine_detection_totals", "database.db_av_engine_detection_totals"),
+        ("db_av_engine_verdicts", "database.db_av_engine_verdicts"),
+        ("db_fetch_av_engine_raw_results", "database.db_fetch_av_engine_raw_results"),
+        ("db_permission_analysis_queries", "database.db_permission_analysis_queries"),
+        ("db_sample_metadata_contracts", "database.db_sample_metadata_contracts"),
+        ("db_sample_metadata_fetchers", "database.db_sample_metadata_fetchers"),
+        ("db_sample_metadata_queries", "database.db_sample_metadata_queries"),
+        ("db_sample_malicious_scoring", "database.db_sample_malicious_scoring"),
+        ("db_utils", "database.db_utils"),
+        ("schema_map", "database.schema_map"),
+        ("settings", "database.settings"),
+        ("split_db_health", "database.split_db_health"),
+    )
+    for attr, canon_name in _database_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        facade_mod = getattr(db_facade, attr)
+        if facade_mod is not canon_mod:
+            print(
+                f"FAIL: obsidiandroid.database.{attr} facade mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+        alias_mod = importlib.import_module(f"obsidiandroid.database.{attr}")
+        if alias_mod is not canon_mod:
+            print(
+                f"FAIL: import obsidiandroid.database.{attr} did not resolve to {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.database submodules match database")
 
     bom_paths = collect_utf8_bom_python_sources(_REPO_ROOT)
     if bom_paths:
