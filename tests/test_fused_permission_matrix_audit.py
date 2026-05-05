@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from analysis.diagnostics.fused_permission_matrix_audit import summarize_fused_permission_columns
+from obsidiandroid.diagnostics import fused_permission_matrix_audit
 
 
 def test_summarize_fused_permission_columns_counts_internet_and_meta() -> None:
@@ -18,7 +18,7 @@ def test_summarize_fused_permission_columns_counts_internet_and_meta() -> None:
         index=[101, 102, 103],
     )
     df.index.name = "sample_id"
-    out = summarize_fused_permission_columns(df)
+    out = fused_permission_matrix_audit.summarize_fused_permission_columns(df)
     assert out["fused_matrix_row_count"] == 3
     assert out["fused_matrix_rows_with_any_perm_like_positive"] == 2
     assert out["fused_matrix_perm_internet_nonzero_rows"] == 2
@@ -28,6 +28,6 @@ def test_summarize_fused_permission_columns_counts_internet_and_meta() -> None:
 def test_summarize_fused_permission_columns_meta_only_matrix() -> None:
     df = pd.DataFrame({"meta__permissions": [1]}, index=[1])
     df.index.name = "sample_id"
-    out = summarize_fused_permission_columns(df)
+    out = fused_permission_matrix_audit.summarize_fused_permission_columns(df)
     assert out["fused_matrix_perm_like_column_count"] == 0
     assert out["fused_matrix_meta__permissions_nonzero_rows"] == 1

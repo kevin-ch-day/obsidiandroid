@@ -565,7 +565,7 @@ def _write_run_summary_json(
 ) -> Path | None:
     """Write canonical run-summary JSON for operator history and health views."""
     try:
-        from analysis.diagnostics import output_inventory
+        from obsidiandroid.diagnostics import output_inventory
 
         run_id = str(manifest.get("run_id", manifest_context.get("run_id", "unknown")))
         profile = manifest.get("profile_params", {}) if isinstance(manifest.get("profile_params"), dict) else {}
@@ -671,7 +671,7 @@ def _finalize_output_hygiene_bundle(
 ) -> None:
     """Artifact inventory, virtual layout, run evidence index, and terminal summary."""
     try:
-        from analysis.diagnostics import output_inventory
+        from obsidiandroid.diagnostics import output_inventory
         from obsidiandroid.observability.pipeline_observability.finalize import finalize_pipeline_observability
         from obsidiandroid.observability.pipeline_observability.run_health import print_unified_run_health
 

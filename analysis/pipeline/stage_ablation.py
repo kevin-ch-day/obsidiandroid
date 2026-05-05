@@ -19,7 +19,7 @@ from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 
-from analysis.diagnostics.ablation_cohort_diagnostics import write_ablation_cohort_gap_artifacts
+from obsidiandroid.diagnostics import ablation_cohort_diagnostics
 from obsidiandroid.common import output_hygiene as oh
 
 
@@ -684,7 +684,7 @@ def run_ablation_experiments(
     }
     if isinstance(manifest_context, dict):
         manifest_context["_ablation_cohort_gap_summary"] = gap_summary_payload
-    json_p, md_p, csv_p = write_ablation_cohort_gap_artifacts(
+    json_p, md_p, csv_p = ablation_cohort_diagnostics.write_ablation_cohort_gap_artifacts(
         diagnostics_dir=_diagnostics_dir(),
         run_id=run_id,
         gap_table_rows=gap_table_rows,

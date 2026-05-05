@@ -39,7 +39,7 @@ Work proceeded in **documented passes** (see **`STRUCTURE_MIGRATION_PLAN.md`**).
 |-----------|--------|
 | **Installable package** | **`pyproject.toml`**, **`pip install -e .`**, console script **`obsidiandroid`**. |
 | **Clear public API direction** | **`obsidiandroid.*`** for new code; facades for pipeline/governance/common. |
-| **Testing** | **`pytest`** defaults in **`pyproject.toml`**; fast/slow split; **~365** fast tests (as of last green run). |
+| **Testing** | **`pytest`** defaults in **`pyproject.toml`**; fast/slow split; **~390+** fast tests (default **`not slow`** selection; run **`make test-full`** for slow modules). |
 | **CI/CD** | **`.github/workflows/ci.yml`**: **`make verify`**, **`make ml-scan-strict`**, **`pip check`**, Python matrix. |
 | **Dependency hygiene** | Dependabot for **GitHub Actions** and **pip**; **`requirements.txt`** wired via dynamic metadata. |
 | **Contributor docs** | **`docs/AGENTS.md`**, **`docs/developer_guide.md`**, **`Makefile`** help, optional **`.pre-commit-config.yaml`**. |
@@ -80,8 +80,8 @@ Work proceeded in **documented passes** (see **`STRUCTURE_MIGRATION_PLAN.md`**).
 
 | Directory | Role |
 |-----------|------|
-| **`src/obsidiandroid/`** | **Canonical product package** (CLI, common, pipeline facade, governance, placeholders). |
-| **`analysis/`** | Pipeline stages, AV parsers, diagnostics glue — **core legacy implementation**. **`analysis/observability/`** is a **shim** to **`obsidiandroid.observability.pipeline_observability`** (Pass 32). |
+| **`src/obsidiandroid/`** | **Canonical product package** (CLI, common, pipeline facade, governance, reporting/observability surfaces, diagnostics facade — plus placeholder roots for domains not yet bulk-moved). |
+| **`analysis/`** | Pipeline stages, AV parsers, diagnostics glue — **core legacy implementation**. Pipeline observability APIs live under **`obsidiandroid.observability.pipeline_observability`** (Pass 32); the former **`analysis/observability`** shim path was **removed** (Pass 33). |
 | **`database/`** | DB access, cohort SQL. |
 | **`ml_classification/`** | Training, vectorization, labeling helpers. |
 | **`model/`** | Model artifacts support (as present in repo). |

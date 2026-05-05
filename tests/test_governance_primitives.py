@@ -9,8 +9,8 @@ import pytest
 
 from obsidiandroid.governance import evidence_mode_resolver
 import obsidiandroid.governance.artifacts as artifacts
-from utils import canonicalization
-from utils import path_safety
+from obsidiandroid.common import canonicalization
+from obsidiandroid.common import path_safety
 
 
 def test_resolve_evidence_mode_precedence_cli_wins() -> None:

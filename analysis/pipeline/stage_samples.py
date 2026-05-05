@@ -20,7 +20,7 @@ from analysis.orchestration.profile_filters import (
     export_cohort_filter_summary,
 )
 from analysis.pipeline.contract_filters import apply_contract_filters
-from analysis.diagnostics.cohort_foundation_export import export_cohort_foundation_bundle
+from obsidiandroid.diagnostics import cohort_foundation_export
 from analysis.pipeline.sample_exports import (
     augment_dataset_time_contract as _augment_dataset_time_contract,
     diagnostics_dir as _diagnostics_dir,
@@ -316,7 +316,7 @@ def load_and_prepare_samples(
     )
 
     samples_df.attrs["cohort_gate_stats"] = gate_stats_snapshot
-    export_cohort_foundation_bundle(
+    cohort_foundation_export.export_cohort_foundation_bundle(
         diagnostics_dir=_diagnostics_dir(),
         run_id=str(run_id or "unknown"),
         profile_id=profile_id,

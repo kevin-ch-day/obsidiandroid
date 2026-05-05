@@ -23,15 +23,9 @@ from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.reporting import export_manager as em
 from obsidiandroid.observability.logging import get_logger, log_event
-from analysis.diagnostics.feature_build_coverage_export import _normalize_sample_ids
-from analysis.diagnostics.feature_column_survival_export import (
-    export_feature_column_survival_matrix,
-    nonzero_counts_for_columns,
-)
-from analysis.diagnostics.permission_training_survival_audit import (
-    export_permission_training_survival_audit,
-    perm_prefix_nonzero_stats,
-)
+from obsidiandroid.diagnostics import feature_build_coverage_export
+from obsidiandroid.diagnostics import feature_column_survival_export
+from obsidiandroid.diagnostics import permission_training_survival_audit
 from analysis.orchestration.methodology_artifacts import (
     export_feature_contract,
     export_leakage_assessment,
@@ -179,12 +173,12 @@ def _diagnostics_dir() -> Path:
 
 def _index_to_int_sample_ids(index: Any) -> list[int]:
     """Stable sorted unique integer sample ids from a feature matrix index."""
-    return sorted(_normalize_sample_ids(index))
+    return sorted(feature_build_coverage_export._normalize_sample_ids(index))
 
 
 def _perm_training_survival_bundle(features_df: pd.DataFrame) -> tuple[dict[str, int], int]:
     """Nonzero permission-bag counts and row count for survival auditing."""
-    return (perm_prefix_nonzero_stats(features_df), int(len(features_df)))
+    return (permission_training_survival_audit.perm_prefix_nonzero_stats(features_df), int(len(features_df)))
 
 
 def _export_label_name_map(labels_df: pd.Series, diagnostics_dir: Path) -> str | None:
@@ -568,7 +562,7 @@ def run_classifier_pipeline(
     setattr(
         app_config,
         "RUNTIME_FEATURE_NONZERO_COHORT_FUSED",
-        nonzero_counts_for_columns(features_df),
+        feature_column_survival_export.nonzero_counts_for_columns(features_df),
     )
 
     du.print_info("[STEP 1] Aligning features and labels")
@@ -601,7 +595,7 @@ def run_classifier_pipeline(
         setattr(
             app_config,
             "RUNTIME_FEATURE_NONZERO_AFTER_ALIGN",
-            nonzero_counts_for_columns(features_df),
+            feature_column_survival_export.nonzero_counts_for_columns(features_df),
         )
     except data_alignment.DataAlignmentError as exc:
         du.print_error("[PIPELINE] Alignment failed - aborting.")
@@ -706,7 +700,7 @@ def run_classifier_pipeline(
         setattr(
             app_config,
             "RUNTIME_FEATURE_NONZERO_AFTER_FAMILY_SUPPORT",
-            nonzero_counts_for_columns(features_df),
+            feature_column_survival_export.nonzero_counts_for_columns(features_df),
         )
     except Exception as exc:
         du.print_warning(f"[PIPELINE] Family support filtering failed: {exc}")
@@ -725,14 +719,14 @@ def run_classifier_pipeline(
     setattr(
         app_config,
         "RUNTIME_FEATURE_NONZERO_AFTER_LOW_INFORMATION",
-        nonzero_counts_for_columns(features_df),
+        feature_column_survival_export.nonzero_counts_for_columns(features_df),
     )
     perm_surv_after_low_info = _perm_training_survival_bundle(features_df)
     features_df = _prune_potential_leakage_features(features_df, labels_df)
     setattr(
         app_config,
         "RUNTIME_FEATURE_NONZERO_FINAL_TRAINING",
-        nonzero_counts_for_columns(features_df),
+        feature_column_survival_export.nonzero_counts_for_columns(features_df),
     )
     perm_surv_after_leakage = _perm_training_survival_bundle(features_df)
     cohort_fused_bundle = getattr(app_config, "RUNTIME_PERM_SURVIVAL_COHORT_FUSED_BUNDLE", None)
@@ -743,7 +737,7 @@ def run_classifier_pipeline(
         and isinstance(cohort_fused_bundle[0], dict)
     ):
         cf_pair = (cohort_fused_bundle[0], int(cohort_fused_bundle[1]))
-    surv_path = export_permission_training_survival_audit(
+    surv_path = permission_training_survival_audit.export_permission_training_survival_audit(
         after_align=perm_surv_after_align,
         after_family_support=perm_surv_after_family,
         after_low_information_prune=perm_surv_after_low_info,
@@ -755,7 +749,7 @@ def run_classifier_pipeline(
     if surv_path:
         du.print_info(f"[ARTIFACT] Permission training survival audit: {surv_path}")
     try:
-        fs_path = export_feature_column_survival_matrix(
+        fs_path = feature_column_survival_export.export_feature_column_survival_matrix(
             diagnostics_dir=diagnostics_dir,
             run_id=str(getattr(app_config, "RUNTIME_RUN_ID", "unknown")),
             feature_attrs=cohort_fused_attrs,

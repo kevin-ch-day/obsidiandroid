@@ -7,14 +7,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.diagnostics.cohort_foundation_export import (
-    build_cohort_foundation_payload,
-    export_cohort_foundation_bundle,
-)
-from analysis.diagnostics.cohort_vocabulary import (
-    KEY_COHORT_PREPARED_ROW_COUNT,
-    KEY_COHORT_SQL_SCOPE_ROW_COUNT,
-)
+from obsidiandroid.diagnostics import cohort_foundation_export
+from obsidiandroid.diagnostics import cohort_vocabulary
 
 
 def test_export_cohort_foundation_bundle_writes_four_artifacts(tmp_path: Path) -> None:
@@ -47,7 +41,7 @@ def test_export_cohort_foundation_bundle_writes_four_artifacts(tmp_path: Path) -
         "cohort_gates": {"min_samples_per_family": 3},
     }
     time_contract = {"start_utc": "2019-01-01", "end_utc": None, "require_effective_first_seen": True}
-    paths = export_cohort_foundation_bundle(
+    paths = cohort_foundation_export.export_cohort_foundation_bundle(
         diagnostics_dir=diagnostics_dir,
         run_id="run_unit",
         profile_id="unit_cohort",
@@ -66,8 +60,8 @@ def test_export_cohort_foundation_bundle_writes_four_artifacts(tmp_path: Path) -
     assert (diagnostics_dir / "cohort_foundation_schema.csv").exists()
     blob = json.loads((diagnostics_dir / "cohort_foundation.json").read_text(encoding="utf-8"))
     assert blob["run_id"] == "run_unit"
-    assert blob[KEY_COHORT_SQL_SCOPE_ROW_COUNT] == 50
-    assert blob[KEY_COHORT_PREPARED_ROW_COUNT] == 2
+    assert blob[cohort_vocabulary.KEY_COHORT_SQL_SCOPE_ROW_COUNT] == 50
+    assert blob[cohort_vocabulary.KEY_COHORT_PREPARED_ROW_COUNT] == 2
     assert blob["gate_stats"]["total_candidates"] == 50
     assert blob["loaded_dataframe"]["rows"] == 2
 
@@ -86,7 +80,7 @@ def test_interim_warning_when_upstream_expected_min_exceeded() -> None:
         "cohort_gates": {"upstream_expected_min_gate_total": 99999},
     }
     gate_stats = {"total_candidates": 10, "governed_cohort_count": 1}
-    payload = build_cohort_foundation_payload(
+    payload = cohort_foundation_export.build_cohort_foundation_payload(
         run_id="r1",
         profile_id="research_all_malicious",
         profile=profile,

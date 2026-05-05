@@ -31,15 +31,12 @@ from obsidiandroid.observability.logging import get_logger, log_event
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.common import output_hygiene as oh
 from analysis.pipeline.governance.integrity import enforce_run_scoped_artifact_paths
-from analysis.diagnostics.cohort_foundation_export import append_research_warnings_for_upstream_expectation
-from analysis.diagnostics.cohort_vocabulary import (
-    KEY_SAMPLES_STAGE_COHORT_COUNTS,
-    attach_cohort_row_counts_to_manifest_context,
-)
-from analysis.diagnostics.cohort_sample_id_audit import (
-    audit_cohort_sample_id_uniqueness,
-    merge_sample_id_audit_into_manifest,
-)
+from obsidiandroid.diagnostics import cohort_foundation_export
+from obsidiandroid.diagnostics import cohort_sample_id_audit
+from obsidiandroid.diagnostics import cohort_vocabulary
+from obsidiandroid.diagnostics import feature_build_coverage_export
+from obsidiandroid.diagnostics import fused_permission_matrix_audit
+from obsidiandroid.diagnostics import permission_training_survival_audit
 
 # === Analysis Pipelines (staged pipeline) ===
 from analysis.pipeline.stage_av_vendor import (
@@ -66,13 +63,6 @@ from analysis.pipeline.runtime_policy import (
     enforce_paper_perturbation_axes as enforce_paper_perturbation_axes_policy,
     reset_runtime_markers,
 )
-from analysis.diagnostics.feature_build_coverage_export import (
-    export_feature_build_coverage,
-    export_feature_matrix_lineage_gate,
-    export_feature_modality_coverage_audit,
-    export_sample_stage_lineage_audit,
-)
-from analysis.diagnostics.fused_permission_matrix_audit import summarize_fused_permission_columns
 from analysis.orchestration.methodology_artifacts import (
     export_feature_contract,
     export_leakage_assessment,
@@ -418,7 +408,7 @@ def run_pipeline(
         if preflight_path is None:
             preflight_path = diagnostics_dir / "preflight_report.json"
         if samples_cohort_audit:
-            preflight_payload[KEY_SAMPLES_STAGE_COHORT_COUNTS] = {
+            preflight_payload[cohort_vocabulary.KEY_SAMPLES_STAGE_COHORT_COUNTS] = {
                 "stop_after": stop_after,
                 "cohort_sql_scope_row_count": manifest_context.get("cohort_sql_scope_row_count"),
                 "cohort_prepared_row_count": manifest_context.get("cohort_prepared_row_count"),
@@ -716,12 +706,12 @@ def run_pipeline(
         gs = samples_df.attrs.get("cohort_gate_stats") or {}
         sql_scope_rows = int(gs.get("total_candidates", 0) or 0)
         prepared_rows = int(len(samples_df))
-        attach_cohort_row_counts_to_manifest_context(
+        cohort_vocabulary.attach_cohort_row_counts_to_manifest_context(
             manifest_context,
             sql_scope_row_count=sql_scope_rows,
             prepared_row_count=prepared_rows,
         )
-        append_research_warnings_for_upstream_expectation(
+        cohort_foundation_export.append_research_warnings_for_upstream_expectation(
             manifest_context,
             profile_id=profile_id,
             sql_scope_row_count=sql_scope_rows,
@@ -746,13 +736,13 @@ def run_pipeline(
         if samples_df is None or samples_df.empty:
             raise ValueError("No samples found after preparation.")
 
-        _sid_audit = audit_cohort_sample_id_uniqueness(
+        _sid_audit = cohort_sample_id_audit.audit_cohort_sample_id_uniqueness(
             samples_df,
             diagnostics_dir=Path(DIAGNOSTICS_DIR),
             run_id=run_id,
             artifact_list=artifact_list,
         )
-        merge_sample_id_audit_into_manifest(manifest_context, _sid_audit)
+        cohort_sample_id_audit.merge_sample_id_audit_into_manifest(manifest_context, _sid_audit)
 
         if stop_after == "samples":
             _mark_run_state("partial", completed_stage="samples")
@@ -916,12 +906,14 @@ def run_pipeline(
                     artifact_path=str(Path(DIAGNOSTICS_DIR) / f"permission_feature_audit_{run_id}.csv"),
                 )
             try:
-                from analysis.diagnostics.feature_build_coverage_export import _normalize_sample_ids
-
                 setattr(
                     app_config,
                     "RUNTIME_PERMISSION_FRAME_SAMPLE_IDS",
-                    sorted(_normalize_sample_ids(permission_features_df["sample_id"])),
+                    sorted(
+                        feature_build_coverage_export._normalize_sample_ids(
+                            permission_features_df["sample_id"]
+                        )
+                    ),
                 )
             except Exception:
                 pass
@@ -980,35 +972,32 @@ def run_pipeline(
                 feature_df.attrs.get("feature_matrix_row_authority") or ""
             )
             try:
-                from analysis.diagnostics.feature_build_coverage_export import (
-                    _matrix_row_sample_ids,
-                    _normalize_sample_ids,
-                )
-                from analysis.diagnostics.permission_training_survival_audit import (
-                    perm_prefix_nonzero_stats,
-                )
-
                 vm_list = feature_df.attrs.get("vendor_merge_sample_ids")
                 if isinstance(vm_list, list):
                     setattr(
                         app_config,
                         "RUNTIME_VENDOR_MERGE_SAMPLE_IDS",
-                        sorted(_normalize_sample_ids(vm_list)),
+                        sorted(feature_build_coverage_export._normalize_sample_ids(vm_list)),
                     )
                 setattr(
                     app_config,
                     "RUNTIME_FUSED_MATRIX_SAMPLE_IDS",
-                    sorted(_matrix_row_sample_ids(feature_df)),
+                    sorted(feature_build_coverage_export._matrix_row_sample_ids(feature_df)),
                 )
                 setattr(
                     app_config,
                     "RUNTIME_GOVERNED_COHORT_SAMPLE_IDS",
-                    sorted(_normalize_sample_ids(samples_df["sample_id"])),
+                    sorted(
+                        feature_build_coverage_export._normalize_sample_ids(samples_df["sample_id"])
+                    ),
                 )
                 setattr(
                     app_config,
                     "RUNTIME_PERM_SURVIVAL_COHORT_FUSED_BUNDLE",
-                    (perm_prefix_nonzero_stats(feature_df), int(len(feature_df))),
+                    (
+                        permission_training_survival_audit.perm_prefix_nonzero_stats(feature_df),
+                        int(len(feature_df)),
+                    ),
                 )
             except Exception:
                 pass
@@ -1057,7 +1046,7 @@ def run_pipeline(
             manifest_context["vendor_fallback_added_count"] = int(feature_df.attrs.get("vendor_fallback_added_count", 0) or 0)
             manifest_context["non_standard_features"] = bool(feature_df.attrs.get("non_standard_features", False))
 
-            fused_perm_sig = summarize_fused_permission_columns(feature_df)
+            fused_perm_sig = fused_permission_matrix_audit.summarize_fused_permission_columns(feature_df)
             if fused_perm_sig:
                 manifest_context["fused_permission_matrix_signal"] = fused_perm_sig
                 for k, v in sorted(fused_perm_sig.items()):
@@ -1102,7 +1091,7 @@ def run_pipeline(
                     pass
 
             if bool(getattr(app_config, "ENABLE_FEATURE_BUILD_COVERAGE_EXPORT", True)):
-                cov_path, _cov_csv_path = export_feature_build_coverage(
+                cov_path, _cov_csv_path = feature_build_coverage_export.export_feature_build_coverage(
                     cohort_sample_ids=samples_df["sample_id"],
                     feature_df=feature_df,
                     output_dir=DIAGNOSTICS_DIR,
@@ -1113,7 +1102,7 @@ def run_pipeline(
                 )
                 if cov_path:
                     artifact_list.append(str(cov_path))
-                _mod_csv, _mod_json = export_feature_modality_coverage_audit(
+                _mod_csv, _mod_json = feature_build_coverage_export.export_feature_modality_coverage_audit(
                     cohort_sample_ids=samples_df["sample_id"],
                     feature_df=feature_df,
                     permission_features_df=permission_features_df
@@ -1127,7 +1116,7 @@ def run_pipeline(
                     artifact_list.append(str(_mod_csv))
                 if _mod_json:
                     artifact_list.append(str(_mod_json))
-                _gate_path = export_feature_matrix_lineage_gate(
+                _gate_path = feature_build_coverage_export.export_feature_matrix_lineage_gate(
                     samples_df=samples_df,
                     feature_df=feature_df,
                     output_dir=DIAGNOSTICS_DIR,
@@ -1287,7 +1276,7 @@ def run_pipeline(
             if feat_surv_csv not in artifact_list:
                 artifact_list.append(feat_surv_csv)
         try:
-            _lineage_p = export_sample_stage_lineage_audit(
+            _lineage_p = feature_build_coverage_export.export_sample_stage_lineage_audit(
                 cohort_sample_ids=samples_df["sample_id"],
                 output_dir=DIAGNOSTICS_DIR,
                 run_id=run_id,

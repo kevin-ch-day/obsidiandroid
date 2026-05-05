@@ -14,10 +14,13 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+_SRC = REPO_ROOT / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from analysis.diagnostics.feature_builder_drop_trace import run_feature_builder_drop_trace  # noqa: E402
+from obsidiandroid.diagnostics import feature_builder_drop_trace  # noqa: E402
 
 
 def main() -> int:
@@ -35,7 +38,7 @@ def main() -> int:
         help="Explicit diagnostics directory (overrides --run-root).",
     )
     args = parser.parse_args()
-    trace_df, summary = run_feature_builder_drop_trace(
+    trace_df, summary = feature_builder_drop_trace.run_feature_builder_drop_trace(
         run_root=args.run_root,
         diagnostics_dir=args.diagnostics_dir,
     )

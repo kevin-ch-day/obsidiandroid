@@ -23,10 +23,13 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+_SRC = REPO_ROOT / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from analysis.diagnostics.feature_matrix_gap_lineage import run_feature_matrix_gap_report  # noqa: E402
+from obsidiandroid.diagnostics import feature_matrix_gap_lineage  # noqa: E402
 
 
 def main() -> int:
@@ -45,7 +48,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    lineage_df, gap_detail, summary = run_feature_matrix_gap_report(
+    lineage_df, gap_detail, summary = feature_matrix_gap_lineage.run_feature_matrix_gap_report(
         args.run_root,
         chunk_size=args.chunk_size,
         skip_db_recompute=args.skip_db,

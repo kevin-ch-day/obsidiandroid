@@ -6,20 +6,16 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.diagnostics.feature_column_survival_export import (
-    export_feature_column_survival_matrix,
-    infer_feature_modality,
-    nonzero_counts_for_columns,
-)
+from obsidiandroid.diagnostics import feature_column_survival_export
 from config import app_config
 
 
 def test_infer_feature_modality(tmp_path: Path) -> None:
     attrs = {"vendor_feature_column_names": ["v_score"]}
-    assert infer_feature_modality("v_score", attrs) == "vendor"
-    assert infer_feature_modality("perm__x", {}) == "permission"
-    assert infer_feature_modality("perm_grp__y", {}) == "grouped_permission"
-    assert infer_feature_modality("meta__z", {}) == "metadata"
+    assert feature_column_survival_export.infer_feature_modality("v_score", attrs) == "vendor"
+    assert feature_column_survival_export.infer_feature_modality("perm__x", {}) == "permission"
+    assert feature_column_survival_export.infer_feature_modality("perm_grp__y", {}) == "grouped_permission"
+    assert feature_column_survival_export.infer_feature_modality("meta__z", {}) == "metadata"
 
 
 def test_export_feature_column_survival_matrix_writes_csv(monkeypatch, tmp_path: Path) -> None:
@@ -31,7 +27,7 @@ def test_export_feature_column_survival_matrix_writes_csv(monkeypatch, tmp_path:
     monkeypatch.setattr(app_config, "RUNTIME_LOW_INFORMATION_PRUNED_COLUMNS", ["b"], raising=False)
     monkeypatch.setattr(app_config, "RUNTIME_LEAKAGE_PRUNING_AUDIT", [], raising=False)
     monkeypatch.setattr(app_config, "ENABLE_FEATURE_COLUMN_SURVIVAL_EXPORT", True, raising=False)
-    out = export_feature_column_survival_matrix(
+    out = feature_column_survival_export.export_feature_column_survival_matrix(
         diagnostics_dir=tmp_path,
         run_id="u1",
         feature_attrs={"vendor_feature_column_names": []},
@@ -46,6 +42,6 @@ def test_export_feature_column_survival_matrix_writes_csv(monkeypatch, tmp_path:
 
 def test_nonzero_counts_for_columns_skips_sample_id_column() -> None:
     df = pd.DataFrame({"sample_id": [1, 2], "perm__x": [0, 1]})
-    got = nonzero_counts_for_columns(df)
+    got = feature_column_survival_export.nonzero_counts_for_columns(df)
     assert "sample_id" not in got
     assert got.get("perm__x") == 1

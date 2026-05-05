@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import pandas as pd
 
-from analysis.diagnostics.cohort_sample_id_audit import (
-    audit_cohort_sample_id_uniqueness,
-    merge_sample_id_audit_into_manifest,
-)
+from obsidiandroid.diagnostics import cohort_sample_id_audit
 
 
 def test_audit_reports_no_surplus_when_unique(tmp_path: Path) -> None:
     df = pd.DataFrame({"sample_id": [1, 2, 3], "x": [1, 2, 3]})
-    out = audit_cohort_sample_id_uniqueness(
+    out = cohort_sample_id_audit.audit_cohort_sample_id_uniqueness(
         df,
         diagnostics_dir=tmp_path,
         run_id="u1",
@@ -25,7 +22,7 @@ def test_audit_reports_no_surplus_when_unique(tmp_path: Path) -> None:
 def test_audit_exports_when_duplicates(tmp_path: Path) -> None:
     df = pd.DataFrame({"sample_id": [1, 1, 2], "x": [1, 2, 3]})
     arts: list[str] = []
-    out = audit_cohort_sample_id_uniqueness(
+    out = cohort_sample_id_audit.audit_cohort_sample_id_uniqueness(
         df,
         diagnostics_dir=tmp_path,
         run_id="d1",
@@ -38,6 +35,6 @@ def test_audit_exports_when_duplicates(tmp_path: Path) -> None:
     assert arts
 
     ctx: dict = {}
-    merge_sample_id_audit_into_manifest(ctx, out)
+    cohort_sample_id_audit.merge_sample_id_audit_into_manifest(ctx, out)
     assert ctx["cohort_distinct_sample_id"] == 2
     assert ctx["cohort_duplicate_surplus_rows"] == 1

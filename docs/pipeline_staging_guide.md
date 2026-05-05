@@ -26,7 +26,7 @@ Today **`analysis/pipeline/runner.py`** owns **`run_pipeline`** (stage sequencin
 
 ## Observability (single truth layer)
 
-- **Package:** `analysis/observability/` — use `analysis.observability.api` for `record_stage_start` / `record_data_population_change` / `record_artifact_write` / `record_partial_failure` instead of ad-hoc diagnostics CSVs.
+- **Package:** `obsidiandroid.observability.pipeline_observability` — use `obsidiandroid.observability.pipeline_observability.api` for `record_stage_start` / `record_data_population_change` / `record_artifact_write` / `record_partial_failure` instead of ad-hoc diagnostics CSVs.
 - **Authoritative JSON:** `diagnostics/run_observability_summary.json` is produced during manifest output hygiene (`paths.run_observability_summary_json`). It consolidates pipeline status, paper/evidence flags, cohort row funnel, model headline, ablation snapshot, research warnings, and open-first artifact paths.
 - **Human layers:** `pipeline_events.jsonl` (timeline), `pipeline_stage_summary.csv` / `.md`, `partial_failures.md`, `logging_audit.md` / `.csv`.
 - **Alignment:** Terminal **Run Health** and `run_evidence_index.md` read the same summary fields so they do not contradict `run_summary.json` / hostile-audit outputs for static counts and verdicts.

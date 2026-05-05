@@ -1,7 +1,8 @@
 """Pipeline run observability: session, JSONL timeline, stage summary, finalize, run health.
 
-This package is the canonical home for code that previously lived under
-``analysis/observability/``. Legacy imports remain available via thin shims there.
+This package is the canonical home for pipeline run observability (formerly under a
+legacy ``analysis/observability`` package; that shim path has been removed — import
+from here only).
 """
 
 from __future__ import annotations

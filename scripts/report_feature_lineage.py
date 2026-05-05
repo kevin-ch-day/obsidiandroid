@@ -13,10 +13,13 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+_SRC = REPO_ROOT / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from analysis.diagnostics.feature_lineage_report import write_feature_lineage_artifacts  # noqa: E402
+from obsidiandroid.diagnostics import feature_lineage_report  # noqa: E402
 
 
 def main() -> int:
@@ -30,7 +33,7 @@ def main() -> int:
         help="Path to .../output/runs/<run_id>/diagnostics (must contain feature_contract.json).",
     )
     args = parser.parse_args()
-    j, c = write_feature_lineage_artifacts(args.diagnostics_dir)
+    j, c = feature_lineage_report.write_feature_lineage_artifacts(args.diagnostics_dir)
     print(f"[OK] Wrote {j}")
     print(f"[OK] Wrote {c}")
     return 0

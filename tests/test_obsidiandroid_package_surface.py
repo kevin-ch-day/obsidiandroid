@@ -245,14 +245,6 @@ def test_logging_runtime_module_shim_matches_canonical() -> None:
     assert shim.stop_runtime_logging is canon.stop_runtime_logging
 
 
-def test_analysis_observability_api_shim_matches_canonical() -> None:
-    """``analysis.observability.api`` re-exports ``pipeline_observability.api``."""
-    import analysis.observability.api as shim
-    import obsidiandroid.observability.pipeline_observability.api as canon
-
-    assert shim.record_stage_start is canon.record_stage_start
-
-
 def test_thin_compat_shim_trees_follow_policy() -> None:
     """Legacy shim dirs stay star-import / bootstrap only (see check_import_surface)."""
     from pathlib import Path
@@ -277,15 +269,37 @@ def test_python_sources_have_no_utf8_bom_prefix() -> None:
 
 def test_diagnostics_facade_modules_match_analysis_diagnostics() -> None:
     """``obsidiandroid.diagnostics`` re-exports the same module objects as ``analysis.diagnostics``."""
-    from analysis.diagnostics import feature_lineage_report as flr_a
-    from analysis.diagnostics import output_artifact_policy as oap_a
-    from analysis.diagnostics import output_inventory as oi_a
+    import analysis.diagnostics.ablation_cohort_diagnostics as acd_a
+    import analysis.diagnostics.alignment_gap_diagnostics as agd_a
+    import analysis.diagnostics.cohort_foundation_export as cfe_a
+    import analysis.diagnostics.cohort_sample_id_audit as csia_a
+    import analysis.diagnostics.cohort_vocabulary as cv_a
+    import analysis.diagnostics.feature_builder_drop_trace as fbdt_a
+    import analysis.diagnostics.feature_build_coverage_export as fbce_a
+    import analysis.diagnostics.feature_column_survival_export as fcse_a
+    import analysis.diagnostics.feature_lineage_report as flr_a
+    import analysis.diagnostics.feature_matrix_gap_lineage as fmgl_a
+    import analysis.diagnostics.fused_permission_matrix_audit as fpma_a
+    import analysis.diagnostics.output_artifact_policy as oap_a
+    import analysis.diagnostics.output_inventory as oi_a
+    import analysis.diagnostics.permission_training_survival_audit as ptsa_a
 
     import obsidiandroid.diagnostics as facade
 
+    assert facade.ablation_cohort_diagnostics is acd_a
+    assert facade.alignment_gap_diagnostics is agd_a
+    assert facade.cohort_foundation_export is cfe_a
+    assert facade.cohort_sample_id_audit is csia_a
+    assert facade.cohort_vocabulary is cv_a
+    assert facade.feature_builder_drop_trace is fbdt_a
+    assert facade.feature_build_coverage_export is fbce_a
+    assert facade.feature_column_survival_export is fcse_a
     assert facade.feature_lineage_report is flr_a
+    assert facade.feature_matrix_gap_lineage is fmgl_a
+    assert facade.fused_permission_matrix_audit is fpma_a
     assert facade.output_artifact_policy is oap_a
     assert facade.output_inventory is oi_a
+    assert facade.permission_training_survival_audit is ptsa_a
 
 
 def test_common_repo_paths_ensure_is_idempotent() -> None:

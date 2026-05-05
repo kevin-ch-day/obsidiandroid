@@ -27,6 +27,13 @@ Quick verification: `python scripts/dev/check_import_surface.py` or `make dev-im
 | **delete_later** | Remove after callers migrate (often paired with a former shim). |
 | **needs_review** | Boundary or ownership unclear; decide before moving. |
 
+### Snapshot — current truth (update when passes land)
+
+- **Canonical code** under **`src/obsidiandroid/`** includes **CLI**, **common** (hashing, paths, exports, hygiene, …), **governance** (compliance, manifest, cohort, artifacts, …), **reporting** (notably **`export_manager`** and related exporters), **observability** (**`logging/`** + **`pipeline_observability/`**), **`pipeline`** facade → **`analysis.pipeline.runner`**, **diagnostics** facade → slices of **`analysis.diagnostics`** (operator inventory/lineage scripts use **`from obsidiandroid.diagnostics import …`**, Pass 34), **modeling** (**`model_exporter`**). Placeholder-only roots remain **`database/`**, **`vendors/`**, **`features/`**, **`labeling/`**, **`evaluation/`** under **`obsidiandroid.*`** until dedicated passes.
+- **Legacy trees** at the repo root (**`analysis/`**, **`database/`**, **`ml_classification/`**, **`model/`**, **`utils/`**) stay for compatibility and bulk of implementation; **`utils/`** is primarily **shims** plus **`repo_import_paths`**, **`export_manager`** (**`sys.modules`** alias), and entry wrappers (**`startup_menu`**, **`pipeline_entry`**).
+- **Removed (Pass 33):** the **`analysis/observability`** package — pipeline observability APIs live only under **`obsidiandroid.observability.pipeline_observability`**.
+- **Quality gates:** **`make ci`** runs doc hygiene, **`scripts/dev/check_import_surface.py`** (imports, thin-shim rules for **`utils/`** subtrees, UTF-8 BOM scan), fast pytest, and strict ML static scan.
+
 ## Pass 2 (complete): `common.repo_paths` + `pipeline` facade
 
 | Item | Status | Notes |
@@ -56,12 +63,12 @@ Quick verification: `python scripts/dev/check_import_surface.py` or `make dev-im
 | `obsidiandroid/vendors/` | **move_later** | Placeholder. |
 | `obsidiandroid/features/` | **move_later** | Placeholder. |
 | `obsidiandroid/labeling/` | **move_later** | Placeholder. |
-| `obsidiandroid/modeling/` | **move_later** | Placeholder. |
-| `obsidiandroid/evaluation/` | **move_later** | Placeholder. |
-| `obsidiandroid/diagnostics/` | **move_later** | Placeholder. |
-| `obsidiandroid/reporting/` | **move_later** | Placeholder. |
-| `obsidiandroid/observability/` | **move_later** | Placeholder. |
-| `obsidiandroid/governance/` | **partial** | `evidence_mode_resolver` lives here; compliance/manifest helpers **move_later**. |
+| `obsidiandroid/modeling/` | **partial** | **`model_exporter`** canonical; ML training stack remains **move_later** under legacy trees. |
+| `obsidiandroid/evaluation/` | **move_later** | Placeholder only ( **`__init__.py`** ). |
+| `obsidiandroid/diagnostics/` | **partial** | Facade re-exports selected **`analysis.diagnostics`** modules; implementations stay under **`analysis/`**. |
+| `obsidiandroid/reporting/` | **partial** | **`export_manager`**, LaTeX/family/confusion helpers canonical; not all reporting paths migrated. |
+| `obsidiandroid/observability/` | **partial** | **`logging/`** + **`pipeline_observability/`** canonical; package **`__init__`** re-exports **`get_logger`** / **`log_event`**. |
+| `obsidiandroid/governance/` | **partial** | Evidence mode, compliance, run manifest, artifacts, cohort readiness/reproducibility canonical; **move_later** only for any stragglers. |
 | `obsidiandroid/common/` | **partial** | Hashing, canonical CSV/SHA helpers, path safety, runtime diagnostics paths, and checkout ``repo_paths`` live here; see Pass 4. |
 
 ### CLI / entrypoint files
@@ -92,12 +99,12 @@ Quick verification: `python scripts/dev/check_import_surface.py` or `make dev-im
 | `ml_classification/labeling/` | `obsidiandroid.labeling` | **move_later** |
 | `ml_classification/training/` | `obsidiandroid.modeling` | **move_later** |
 | `analysis/evaluation/` (and related) | `obsidiandroid.evaluation` | **needs_review** (overlaps with reporting/diagnostics) |
-| `analysis/diagnostics/` | `obsidiandroid.diagnostics` | **move_later** |
-| `utils/export*`, LaTeX/workbook/paper exporters | `obsidiandroid.reporting` | **move_later** |
+| `analysis/diagnostics/` | `obsidiandroid.diagnostics` | **partial** — facade re-exports selected modules; bulk tree **move_later** |
+| `utils/export*`, LaTeX/workbook/paper exporters | `obsidiandroid.reporting` | **partial** — **`export_manager`** + several reporters canonical (**`utils.*`** shims **wrapper_kept**) |
 | `utils/evidence_mode_resolver` | `obsidiandroid.governance.evidence_mode_resolver` | **moved_now** (shim **wrapper_kept**) |
-| compliance, run manifest, cohort readiness, reproducibility | `obsidiandroid.governance` | **move_later** |
-| `analysis/observability/`, `utils/logging/` | `obsidiandroid.observability` | **move_later** |
-| `utils/hash_utils`, canonicalization, path safety, runtime/output paths | `obsidiandroid.common` | **move_later** |
+| compliance, run manifest, cohort readiness, reproducibility | `obsidiandroid.governance` | **partial** — major modules canonical (**`utils.*`** shims **wrapper_kept**) |
+| `utils/logging/` | `obsidiandroid.observability.logging` | **wrapper_kept** (shims); canonical under **`src/`** |
+| `utils/hash_utils`, canonicalization, path safety, runtime/output paths | `obsidiandroid.common` | **partial** — implementations under **`src/`**; **`utils.*`** shims **wrapper_kept** |
 
 ### Legacy layout to retire after migration
 
@@ -517,9 +524,9 @@ Heuristic for **shim vs real** (top-level **`utils/*.py`** excluding **`__init__
 | **`common_candidate`** | **`sample_metadata_preprocessor`** ✅ **moved** to **`obsidiandroid.common`** (uses **`obsidiandroid.cli.ui.display`**). |
 | **`reporting_candidate`** | **`latex_tables`** ✅ **moved**; **`family_distribution_report`** ✅ **moved** to **`obsidiandroid.reporting.family_distribution_report`** (runner imports canonical; **`utils.family_distribution_report`** shim kept). |
 | **`governance_candidate`** | **`compliance`**, **`cohort_readiness_report`**, **`cohort_reproducibility`**, **`run_manifest`**, **`artifacts`** ✅ **moved** under **`obsidiandroid.governance.*`** (shims under **`utils/`**). |
-| **`observability_candidate`** | **`logging/`** package — **high_risk_postpone** (pipeline + structured logs). |
+| **`observability_candidate`** | **Historical (Pass 26 snapshot)** — superseded: **`obsidiandroid.observability.logging`** (Pass 30) and **`pipeline_observability`** (Passes 32–33); **`analysis/observability`** shim **removed** (Pass 33). |
 | **`cli_candidate`** | **`profile_manager`** ✅ **moved** to **`obsidiandroid.cli.profile_manager`** (**`PROFILES_DIR`** = **`repo_root() / "profiles"`** in **`repo_paths`**); covered by existing **`menu/`**, **`ui/`** shims under **`utils/`**. |
-| **`high_risk_postpone`** | **`export_manager.py`** (large / pipeline-facing), **`logging/`**. |
+| **`high_risk_postpone`** | **Historical snapshot** — **`export_manager`** ✅ Pass 29; **`logging/`** ✅ Pass 30. Large remaining risk is **domain-wide** moves (**`analysis/pipeline`**, …), not these modules. |
 | **`needs_review`** | At Pass 26 snapshot: **`model_exporter.py`**, **`output_hygiene.py`** — both **moved** in **Pass 27** / **Pass 28**. |
 
 ### Scope B — Moved this pass
@@ -665,7 +672,7 @@ No additional deletes this pass (prior **`rg`** audit showed no further zero-cal
 | **`obsidiandroid.observability` package** | **updated** — re-exports **`get_logger`**, **`log_event`** for **`from obsidiandroid.observability import …`**. |
 | **Pipeline / ML import hygiene** | **updated** — **`utils.hash_utils`** / **`utils.runtime_paths`** in **`analysis/`** and **`ml_classification/labeling/`** → **`obsidiandroid.common.*`** (fewer hot-path **`utils.*`** dependencies). |
 
-**Deferred:** broad **`analysis/observability/`** tree merge (this pass is **`src/obsidiandroid/observability/logging`** only).
+**Deferred (historical note):** Pipeline observability moved to **`obsidiandroid.observability.pipeline_observability`** (Pass 32); the **`analysis/observability`** shim directory was **removed** (Pass 33). This pass delivered **`utils/logging`** → **`obsidiandroid.observability.logging`** only.
 
 ## Pass 31 (complete): canonical **`display`** / **`ml_console`** imports (implementation hygiene)
 
@@ -676,23 +683,54 @@ No additional deletes this pass (prior **`rg`** audit showed no further zero-cal
 | **`utils.display_utils` / `utils.ml_console`** | **Shims kept** — thin re-exports only. |
 | **`tests/test_display_utils.py`** | Imports canonical **`obsidiandroid.cli.ui.display`**. Shim parity: **`test_obsidiandroid_package_surface`**, **`test_obsidiandroid_common_shims`** ( **`ml_console as ml_shim`** unchanged). |
 | **`scripts/dev/check_import_surface.py`** | Asserts **`print_table`** and **`is_minimal`** shim parity. |
-| **`analysis/observability/logging_audit.py`** | Doc line updated for terminal sink path. |
+| **`obsidiandroid.observability.pipeline_observability.logging_audit`** | Terminal sink paths documented for audit artifacts (replaces legacy **`analysis/observability/logging_audit`** shim). |
 
 ## Pass 32 (complete): **`analysis/observability`** → **`obsidiandroid.observability.pipeline_observability`**
 
 | Item | Notes |
 |------|-------|
 | **`src/obsidiandroid/observability/pipeline_observability/`** | **moved_now** — **`taxonomy`**, **`session`**, **`api`**, **`logging_audit`**, **`finalize`**, **`run_health`** (same behavior as former **`analysis/observability/`**). |
-| **`analysis/observability/*.py`** | **wrapper_kept** — thin **`utils.repo_import_paths`** + **`import *`** / package re-export shims to canonical modules. |
+| **`analysis/observability/*.py`** | **wrapper_kept** at Pass 32 — thin shims (**removed** in Pass 33; use **`obsidiandroid.observability.pipeline_observability`** only). |
 | **Call sites** | **updated** — **`runner`**, **`stage_av_vendor`**, **`stage_manifest`**, **`stage_ablation`**, **`research_validity/bundle`**, **`hostile_audit/bundle`**, observability tests use **`obsidiandroid.observability.pipeline_observability.*`**. |
-| **`scripts/dev/check_import_surface.py`** | **`analysis.observability.api.record_stage_start`** identity vs canonical **`api`**. **Thin shim policies:** **`analysis/observability`** (Pass 32), repo-root **`utils/*.py`** (exclude **`repo_import_paths`**, **`export_manager`**, **`startup_menu`**, **`__init__.py`**), **`utils/exporting`** leaf modules (exclude aggregating **`__init__.py`**), **`utils/menu`**, **`utils/ui`**, **`utils/logging`** — max line counts, required **`utils.repo_import_paths`** + canonical substring, no module-level **`def`/`class`**. **UTF-8 BOM scan:** no **`*.py`** under the repo (excluding skipped dirs) may start with a BOM — breaks **`ast.parse`** and tooling. |
-| **`tests/test_obsidiandroid_package_surface.py`** | **`test_analysis_observability_api_shim_matches_canonical`**, **`test_thin_compat_shim_trees_follow_policy`**, **`test_python_sources_have_no_utf8_bom_prefix`**. |
+| **`scripts/dev/check_import_surface.py`** | **Thin shim policies:** repo-root **`utils/*.py`** (exclude **`repo_import_paths`**, **`export_manager`**, **`startup_menu`**, **`__init__.py`**), **`utils/exporting`** leaf modules (exclude aggregating **`__init__.py`**), **`utils/menu`**, **`utils/ui`**, **`utils/logging`** — max line counts, required **`utils.repo_import_paths`** + canonical substring, no module-level **`def`/`class`**. **UTF-8 BOM scan:** no **`*.py`** under the repo (excluding skipped dirs) may start with a BOM — breaks **`ast.parse`** and tooling. |
+| **`tests/test_obsidiandroid_package_surface.py`** | **`test_thin_compat_shim_trees_follow_policy`**, **`test_python_sources_have_no_utf8_bom_prefix`**. |
+
+## Pass 33 (complete): remove **`analysis/observability`** shim package (breaking for old import path)
+
+| Item | Notes |
+|------|-------|
+| **`analysis/observability/`** | **delete_later → deleted** — implementation already lived under **`obsidiandroid.observability.pipeline_observability`**; in-repo callers did not import **`analysis.observability`**. |
+| **`scripts/dev/check_import_surface.py`** | Dropped **`analysis.observability.api`** parity check and thin-shim policy for that directory. |
+| **Docs** | **`AGENTS.md`**, **`docs/architecture.md`**, **`docs/pipeline_staging_guide.md`**, **`ROOT_AND_STRUCTURE_AUDIT.md`** — document **`obsidiandroid.observability.pipeline_observability`** as the only supported import path for pipeline observability APIs. |
+| **Implementation hygiene** | **`ml_classification/training/model_trainer_factory.py`** and **`tests/test_governance_primitives.py`** — **`from utils import canonicalization`** / **`path_safety`** → **`obsidiandroid.common`**. |
+
+## Pass 34 (complete): **`obsidiandroid.diagnostics`** facade + operator / pipeline imports
+
+| Item | Notes |
+|------|-------|
+| **`obsidiandroid.diagnostics`** | Re-exports **`alignment_gap_diagnostics`**, **`feature_builder_drop_trace`**, **`feature_matrix_gap_lineage`**, **`feature_lineage_report`**, **`output_artifact_policy`**, **`output_inventory`** (same module objects as **`analysis.diagnostics.*`**). |
+| **`scripts/report_output_inventory.py`** | **`from obsidiandroid.diagnostics import output_inventory`**; prepends repo **`src/`** to **`sys.path`**. |
+| **`scripts/report_feature_lineage.py`** | **`from obsidiandroid.diagnostics import feature_lineage_report`**; **`src/`** + repo root on **`sys.path`**. |
+| **`scripts/diagnose_alignment_gap.py`**, **`scripts/trace_feature_builder_drops.py`**, **`scripts/report_feature_matrix_gap.py`** | Import via **`obsidiandroid.diagnostics`** (**`src/`** + repo root **`sys.path`**). |
+| **`scripts/dev/check_import_surface.py`** | Loops over facade vs **`analysis.diagnostics.<module>`** identity for all six exports. |
+| **`analysis/pipeline/stage_manifest.py`** | Lazy imports use **`from obsidiandroid.diagnostics import output_inventory`** for run summary + output hygiene bundle. |
+| **`tests/test_output_inventory*.py`**, **`tests/test_obsidiandroid_package_surface.py`** | Prefer **`obsidiandroid.diagnostics`** for parity tests. |
+
+## Pass 35 (complete): expand **`obsidiandroid.diagnostics`** (cohort + feature-build + ML training paths)
+
+| Item | Notes |
+|------|-------|
+| **`obsidiandroid.diagnostics`** | Adds **`ablation_cohort_diagnostics`**, **`cohort_foundation_export`**, **`cohort_sample_id_audit`**, **`cohort_vocabulary`**, **`feature_build_coverage_export`**, **`feature_column_survival_export`**, **`fused_permission_matrix_audit`**, **`permission_training_survival_audit`** (same module objects as **`analysis.diagnostics.*`**). |
+| **`analysis/pipeline/runner.py`**, **`stage_samples.py`**, **`stage_ablation.py`** | Import diagnostics via **`obsidiandroid.diagnostics`** (module attributes for callables). |
+| **`ml_classification/training/pipeline_core.py`**, **`ml_classification/labeling/classification_label_resolver.py`** | Same. |
+| **`scripts/dev/check_import_surface.py`**, **`tests/test_obsidiandroid_package_surface.py`** | Identity checks extended to all facade exports. |
+| **Unit tests** | **`test_cohort_*`**, **`test_feature_build_coverage_export`**, **`test_feature_column_survival_export`**, **`test_fused_permission_matrix_audit`** use the facade. |
 
 ## Next pass suggestions
 
-1. **`obsidiandroid.diagnostics`:** expand facade or move selected **`analysis/diagnostics`** modules incrementally (large tree; slice by submodule).
+1. **`obsidiandroid.diagnostics`:** further slices (e.g. **`research_validity`** bundle) or incremental moves from **`analysis/diagnostics`**.
 2. **Re-export policy:** Decide whether long-term tests should import `obsidiandroid.cli.*` only, or whether **`utils/`** shims should keep exposing delegate wrappers. Prefer canonical imports in tests for anything under monkeypatch.
 3. **Move `analysis/pipeline`:** Largest consumer of imports; plan re-exports from `obsidiandroid.pipeline` with root/package shims similar to CLI.
 4. **`database` naming:** When moving DB access, clarify imports: top-level `database` vs `obsidiandroid.database` to avoid mistaken cross-imports.
 5. **Docs:** Update `AGENTS.md` / `README.md` paths (`utils.pipeline_entry` vs `obsidiandroid.cli.pipeline_entry`) when you want new imports to be the documented default.
-6. **Editable install:** Confirm `pip install -e .` in CI once network allows; validates `[tool.setuptools.packages.find]` with `where = ["src", "."]`.
+6. **Editable install:** CI already runs **`pip install -e .`** (`.github/workflows/ci.yml`) before **`make verify`**; refresh this note if the workflow changes.

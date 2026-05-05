@@ -87,9 +87,9 @@ Consult [`modeling_reference.md`](modeling_reference.md) for estimator-specific 
 3. Extend `tests/` and run `pytest -q` before submitting changes.
 4. Document operator-visible behaviour in [`user_guide.md`](user_guide.md) or [`data_sources.md`](data_sources.md) when changing DB contracts or outputs.
 
-## Observability and research-facing audits (`analysis/observability/`)
+## Observability and research-facing audits (`obsidiandroid.observability.pipeline_observability`)
 
-- **`analysis/observability/`** centralizes structured pipeline narration: taxonomy (`LogCategory`, `LogSeverity`), `PipelineObservabilitySession` (append-only `pipeline_events.jsonl` + `pipeline_stage_summary.csv`), stable helpers in `api.py` (`record_data_population_change`, `record_artifact_write`, etc.), and `finalize_pipeline_observability` which emits `run_observability_summary.json` (authoritative), `pipeline_stage_summary.md`, `partial_failures.md`, and logging audit artifacts.
+- **`obsidiandroid.observability.pipeline_observability`** centralizes structured pipeline narration: taxonomy (`LogCategory`, `LogSeverity`), `PipelineObservabilitySession` (append-only `pipeline_events.jsonl` + `pipeline_stage_summary.csv`), stable helpers in `api.py` (`record_data_population_change`, `record_artifact_write`, etc.), and `finalize_pipeline_observability` which emits `run_observability_summary.json` (authoritative), `pipeline_stage_summary.md`, `partial_failures.md`, and logging audit artifacts.
 - **Runner integration:** `analysis/pipeline/runner.py` owns stage timing and wires population/schema transitions into the session; manifest finalization (`analysis/pipeline/stage_manifest.py`) calls finalize so terminal **Run Health** (`run_health.py`) and `run_evidence_index.md` stay aligned with `run_summary.json` / `run_manifest.json`.
 - **Research validity & hostile audit:** `analysis/diagnostics/research_validity/bundle.py` orchestrates cohort funnel, claim audit, permission audit, and delegates to `analysis/diagnostics/hostile_audit/`; exported paths feed the manifest and observability rollup.
 

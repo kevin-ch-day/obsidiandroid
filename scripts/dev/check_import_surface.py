@@ -2,9 +2,9 @@
 """Smoke-check that ``obsidiandroid`` and CLI/pipeline entry modules import correctly.
 
 Also enforces **thin compatibility shims** (no duplicated implementation at legacy paths):
-``analysis/observability`` (Pass 32), repo-root ``utils/*.py`` (excluding bootstrap/entry
-special cases), ``utils/exporting`` leaf modules, ``utils/menu``, ``utils/ui``, and
-``utils/logging``—see :func:`collect_thin_compat_shim_violations`.
+repo-root ``utils/*.py`` (excluding bootstrap/entry special cases), ``utils/exporting``
+leaf modules, ``utils/menu``, ``utils/ui``, and ``utils/logging``—see
+:func:`collect_thin_compat_shim_violations`.
 
 Fails if any tracked-style ``*.py`` tree under the repo starts with a **UTF-8 BOM**
 (``\ufeff``), which breaks :func:`ast.parse` and confuses diffs—see
@@ -71,17 +71,6 @@ class _ThinCompatShimPolicy:
     exclude_names: frozenset[str] = frozenset()
 
 
-_POLICY_ANALYSIS_OBSERVABILITY = _ThinCompatShimPolicy(
-    label="analysis/observability (Pass 32)",
-    relative_parts=("analysis", "observability"),
-    max_lines=32,
-    required_substrings=(
-        "utils.repo_import_paths",
-        "obsidiandroid.observability.pipeline_observability",
-    ),
-    relocate_hint="obsidiandroid.observability.pipeline_observability",
-)
-
 # Repo-root ``utils/*.py`` only (not subpackages). Excludes bootstrap, module-alias, and
 # ``if __name__ == "__main__"`` entry shims.
 _POLICY_UTILS_ROOT_SHIMS = _ThinCompatShimPolicy(
@@ -102,7 +91,6 @@ _POLICY_UTILS_ROOT_SHIMS = _ThinCompatShimPolicy(
 
 
 _THIN_COMPAT_SHIM_POLICIES: tuple[_ThinCompatShimPolicy, ...] = (
-    _POLICY_ANALYSIS_OBSERVABILITY,
     _POLICY_UTILS_ROOT_SHIMS,
     _ThinCompatShimPolicy(
         label="utils/exporting leaf shims",
@@ -189,11 +177,6 @@ def collect_thin_compat_shim_violations(repo_root: Path) -> list[str]:
         for msg in _validate_single_thin_compat_policy(repo_root, policy):
             out.append(f"[{policy.label}] {msg}")
     return out
-
-
-def validate_analysis_observability_shims(repo_root: Path) -> list[str]:
-    """Return errors for Pass 32 ``analysis/observability`` shims only (backward-compatible API)."""
-    return _validate_single_thin_compat_policy(repo_root, _POLICY_ANALYSIS_OBSERVABILITY)
 
 
 def collect_utf8_bom_python_sources(repo_root: Path) -> list[str]:
@@ -502,16 +485,6 @@ def main() -> int:
         return 1
     print(f"OK   obsidiandroid.observability.pipeline_observability -> {_module_path(pop_pkg)}")
 
-    shim_obs_api = importlib.import_module("analysis.observability.api")
-    canon_obs_api = importlib.import_module("obsidiandroid.observability.pipeline_observability.api")
-    if shim_obs_api.record_stage_start is not canon_obs_api.record_stage_start:
-        print(
-            "FAIL: analysis.observability.api.record_stage_start is not canonical pipeline_observability.api",
-            file=sys.stderr,
-        )
-        return 1
-    print("OK   analysis.observability.api matches obsidiandroid.observability.pipeline_observability.api")
-
     canon_pu = importlib.import_module("obsidiandroid.cli.prompt_utils")
     shim_pu = importlib.import_module("utils.prompt_utils")
     if shim_pu.prompt_yes_no is not canon_pu.prompt_yes_no:
@@ -541,18 +514,34 @@ def main() -> int:
         print(f"FAIL: import obsidiandroid.diagnostics: {exc}", file=sys.stderr)
         return 1
     print(f"OK   obsidiandroid.diagnostics -> {_module_path(diag_facade)}")
-    ad_oi = importlib.import_module("analysis.diagnostics.output_inventory")
-    ad_oap = importlib.import_module("analysis.diagnostics.output_artifact_policy")
-    ad_flr = importlib.import_module("analysis.diagnostics.feature_lineage_report")
-    if diag_facade.output_inventory is not ad_oi:
-        print("FAIL: obsidiandroid.diagnostics.output_inventory facade mismatch", file=sys.stderr)
-        return 1
-    if diag_facade.output_artifact_policy is not ad_oap:
-        print("FAIL: obsidiandroid.diagnostics.output_artifact_policy facade mismatch", file=sys.stderr)
-        return 1
-    if diag_facade.feature_lineage_report is not ad_flr:
-        print("FAIL: obsidiandroid.diagnostics.feature_lineage_report facade mismatch", file=sys.stderr)
-        return 1
+    _diag_pairs = (
+        ("ablation_cohort_diagnostics", "analysis.diagnostics.ablation_cohort_diagnostics"),
+        ("alignment_gap_diagnostics", "analysis.diagnostics.alignment_gap_diagnostics"),
+        ("cohort_foundation_export", "analysis.diagnostics.cohort_foundation_export"),
+        ("cohort_sample_id_audit", "analysis.diagnostics.cohort_sample_id_audit"),
+        ("cohort_vocabulary", "analysis.diagnostics.cohort_vocabulary"),
+        ("feature_builder_drop_trace", "analysis.diagnostics.feature_builder_drop_trace"),
+        ("feature_build_coverage_export", "analysis.diagnostics.feature_build_coverage_export"),
+        ("feature_column_survival_export", "analysis.diagnostics.feature_column_survival_export"),
+        ("feature_lineage_report", "analysis.diagnostics.feature_lineage_report"),
+        ("feature_matrix_gap_lineage", "analysis.diagnostics.feature_matrix_gap_lineage"),
+        ("fused_permission_matrix_audit", "analysis.diagnostics.fused_permission_matrix_audit"),
+        ("output_artifact_policy", "analysis.diagnostics.output_artifact_policy"),
+        ("output_inventory", "analysis.diagnostics.output_inventory"),
+        (
+            "permission_training_survival_audit",
+            "analysis.diagnostics.permission_training_survival_audit",
+        ),
+    )
+    for attr, canon_name in _diag_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        facade_mod = getattr(diag_facade, attr)
+        if facade_mod is not canon_mod:
+            print(
+                f"FAIL: obsidiandroid.diagnostics.{attr} facade mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
     print("OK   obsidiandroid.diagnostics submodules match analysis.diagnostics")
 
     bom_paths = collect_utf8_bom_python_sources(_REPO_ROOT)

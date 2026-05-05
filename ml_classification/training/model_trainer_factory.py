@@ -15,8 +15,7 @@ from sklearn.preprocessing import LabelEncoder
 import numpy as np
 
 from config import app_config
-from utils import canonicalization
-from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common import canonicalization, output_hygiene as oh
 from .training_helpers import (
     validate_training_inputs,
     get_model_trainer,

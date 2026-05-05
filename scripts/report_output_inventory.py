@@ -8,6 +8,15 @@ import json
 import sys
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+_SRC = REPO_ROOT / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from obsidiandroid.diagnostics import output_inventory  # noqa: E402
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -26,14 +35,8 @@ def main() -> int:
     out_dir = Path(args.output_dir).resolve() if args.output_dir else (run_root / "diagnostics")
     run_id = run_root.name
 
-    from analysis.diagnostics.output_inventory import (
-        build_inventory_rows,
-        write_artifact_inventory_bundle,
-        write_virtual_layout,
-    )
-
-    write_virtual_layout(run_root)
-    paths, summary = write_artifact_inventory_bundle(
+    output_inventory.write_virtual_layout(run_root)
+    paths, summary = output_inventory.write_artifact_inventory_bundle(
         run_root=run_root,
         diagnostics_dir=out_dir,
         run_id=run_id,

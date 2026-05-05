@@ -16,7 +16,7 @@ from obsidiandroid.reporting import export_manager
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from config import app_config
 
-from analysis.diagnostics.feature_build_coverage_export import _normalize_sample_ids
+from obsidiandroid.diagnostics import feature_build_coverage_export
 
 
 _TYPE_FROM_LABEL_RE = re.compile(r"/android\.([a-z0-9\-]+)\.", re.IGNORECASE)
@@ -236,7 +236,7 @@ def _resolve_diagnostics_dir() -> Path:
 
 def _taxonomy_row_sample_id_int(value: Any) -> int | None:
     """Coerce a sample_id cell to int for lineage set membership."""
-    got = _normalize_sample_ids([value])
+    got = feature_build_coverage_export._normalize_sample_ids([value])
     return next(iter(got)) if got else None
 
 
@@ -251,7 +251,7 @@ def _annotate_taxonomy_mismatches_with_lineage(mismatches: pd.DataFrame) -> pd.D
         raw_ids = getattr(app_config, attr, None)
         if raw_ids is None:
             return pd.Series(pd.NA, index=sample_series.index, dtype="boolean")
-        id_set = _normalize_sample_ids(raw_ids)
+        id_set = feature_build_coverage_export._normalize_sample_ids(raw_ids)
 
         def _one(v: Any):
             k = _taxonomy_row_sample_id_int(v)
