@@ -6,8 +6,8 @@ from typing import Tuple, Dict
 from analysis.evaluation import vendor_parser_utils as vp_utils
 from analysis.execution import av_parser_executor as parser_exec
 from analysis.evaluation import vendor_score_calculator as score_calc
-from model.parsing.parsed_label_metadata import ParsedLabelMetadata
-from model.vendor.record_core import VendorClassificationRecord
+from obsidiandroid.vendors.contracts.parsed_label_metadata import ParsedLabelMetadata
+from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
 
 # === Validate Parser Output Format ===
 def _validate_parsed_output(output, vendor: str) -> bool:

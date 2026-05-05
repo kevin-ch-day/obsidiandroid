@@ -13,11 +13,12 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-_SRC = REPO_ROOT / "src"
-if str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+from utils.repo_import_paths import ensure_repo_src_on_sys_path
+
+ensure_repo_src_on_sys_path()
 
 from obsidiandroid.diagnostics import feature_lineage_report  # noqa: E402
 

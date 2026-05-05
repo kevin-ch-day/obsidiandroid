@@ -4,7 +4,7 @@
 import pandas as pd
 from typing import List, Tuple, Callable, Dict, Any, Mapping
 
-from model.vendor.record_core import VendorClassificationRecord
+from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
 from obsidiandroid.cli.ui import display as du
 from analysis.execution import vendor_record_factory
 from analysis.evaluation import vendor_summary_builder

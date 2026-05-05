@@ -1,7 +1,7 @@
-"""Vendor parsing canonical aliases (Pass 51 first slice).
+"""Vendor parsing canonical surface.
 
-Implementation remains under ``analysis.vendor_processing`` for now. This package
-exposes only the docs-approved parser-map module as the canonical import surface.
+Pass 59: parser implementations moved under ``obsidiandroid.vendors.parsing``.
+This package keeps top-level compatibility for ``obsidiandroid.vendors.vendor_parser_map``.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import sys
 
 _CANONICAL_SUBMODULE_NAMES = ("vendor_parser_map",)
 _LEGACY_BY_CANONICAL = {
-    "vendor_parser_map": "analysis.vendor_processing.vendor_parser_map",
+    "vendor_parser_map": "obsidiandroid.vendors.parsing.vendor_parser_map",
 }
 
 for _name in _CANONICAL_SUBMODULE_NAMES:

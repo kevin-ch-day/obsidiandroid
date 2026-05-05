@@ -5,8 +5,8 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from model.core.record_diagnostics import RecordDiagnosticsMixin
-from model.parsing.parsed_label_metadata import ParsedLabelMetadata
-from model.vendor.feature_engine import compute_all_features
+from .parsed_label_metadata import ParsedLabelMetadata
+from .feature_engine import compute_all_features
 
 
 @dataclass

@@ -1,4 +1,4 @@
-from analysis.evaluation import random_forest_diagnostics as rfd
+from obsidiandroid.evaluation import random_forest_diagnostics as rfd
 from config import app_config
 
 

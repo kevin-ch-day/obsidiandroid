@@ -2,7 +2,7 @@
 # Purpose  : Structured normalization and data engineering logic for AV label diagnostics and classification enrichment
 
 import re
-from model.vendor.record_core import VendorClassificationRecord
+from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
 from ml_classification.inference.threat_class_engine import infer_threat_class
 from ml_classification.inference.malware_type_engine import infer_malware_type
 from ml_classification.common.malware_family_constants import (

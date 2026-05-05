@@ -52,9 +52,9 @@ Inventory source:
 | `ml_classification.labeling.label_input_validator::validate_label_resolution_inputs` | internals | `needs_wrapper` | `obsidiandroid.labeling.label_input_validator` | Validation contract matters; currently internal. |
 | `ml_classification.labeling.label_builder_wrapper::build_structured_label_output` | internals | `needs_wrapper` | `obsidiandroid.labeling.label_builder_wrapper` | Output schema needs explicit versioning before broad adoption. |
 | `ml_classification.labeling.label_postprocessor::summarize_prediction_results` | internals | `needs_wrapper` | `obsidiandroid.labeling.label_postprocessor` | Summary semantics should be stabilized first. |
-| `ml_classification.common.malware_family_constants::canonicalize_family_label` | tests, vendor processing | `needs_wrapper` | `obsidiandroid.labeling.taxonomy` | Family/type taxonomy is critical; export via focused taxonomy facade, not raw constants module. |
-| `ml_classification.common.malware_family_constants::normalize_family_name` | tests, vendor processing, internals | `needs_wrapper` | `obsidiandroid.labeling.taxonomy` | Same taxonomy boundary as above. |
-| `ml_classification.common.malware_family_constants::is_known_family_name` | tests, vendor processing, internals | `needs_wrapper` | `obsidiandroid.labeling.taxonomy` | Same taxonomy boundary as above. |
+| `ml_classification.common.malware_family_constants::canonicalize_family_label` | tests, vendor processing | `needs_wrapper` → **Pass 58 wrapper** | `obsidiandroid.labeling.taxonomy` | Implemented as delegated functions in **`obsidiandroid.labeling.taxonomy`** (not a ``sys.modules`` alias); behavior locked to legacy. |
+| `ml_classification.common.malware_family_constants::normalize_family_name` | tests, vendor processing, internals | `needs_wrapper` → **Pass 58 wrapper** | `obsidiandroid.labeling.taxonomy` | Same as above. |
+| `ml_classification.common.malware_family_constants::is_known_family_name` | tests, vendor processing, internals | `needs_wrapper` → **Pass 58 wrapper** | `obsidiandroid.labeling.taxonomy` | Same as above. |
 | `ml_classification.common.malware_family_constants::FAMILY_ALIASES` | vendor processing | `defer` | `obsidiandroid.vendors` (future) | Vendor parsing and taxonomy alias data overlap; avoid leaking mutable alias maps through labeling facade. |
 | `ml_classification.common.malware_family_constants::GENERIC_TOKENS` | internals | `internal_only` | n/a | Internal heuristic token list. |
 | `ml_classification.common::malware_family_constants` | internals | `internal_only` | n/a | Package-level internal coupling import. |
@@ -100,7 +100,7 @@ Inventory source:
 | Contract area | Current implementation anchors | Proposed boundary owner | Status (Pass 46) | Notes |
 |---|---|---|---|---|
 | Label normalization | `ml_classification.labeling.label_field_normalizer`, `label_format_generator`, `classification_label_resolver` | `obsidiandroid.labeling` | `needs_wrapper` / partial `ready_now` | Keep resolver ready; wrap normalizer/format generator with explicit schema contract. |
-| Family/type taxonomy resolution | `ml_classification.common.malware_family_constants`, `classification_label_resolver` | `obsidiandroid.labeling.taxonomy` | `needs_wrapper` | Export function-level taxonomy API, not raw constants maps/tokens. |
+| Family/type taxonomy resolution | `ml_classification.common.malware_family_constants`, `classification_label_resolver` | `obsidiandroid.labeling.taxonomy` | **Pass 58:** public normalize / known / canonicalize via wrapper; raw sets/maps still `internal_only` or `defer` | Export function-level taxonomy API, not raw constants maps/tokens. ``FAMILY_ALIASES`` remains vendor-adjacent (**defer** to ``obsidiandroid.vendors``). |
 | Vendor consensus parsing | `ml_classification.inference.label_consensus_engine` | defer to `obsidiandroid.vendors` / `obsidiandroid.evaluation` | `defer` | Boundary intentionally unresolved; do not force under labeling in Pass 46. |
 | Feature vector construction | `ml_classification.vectorization.feature_vector_builder` | `obsidiandroid.features` | `ready_now` | Strong first-slice candidate. |
 | Training pipeline core | `ml_classification.training.pipeline_core` | `obsidiandroid.modeling` | `ready_now` | Stable outer usage via CLI/pipeline/tests. |
@@ -326,3 +326,35 @@ Post-pass remaining external `ml_classification` import classification:
 | `defer` | 10 |
 | `internal_only` | 18 |
 | mixed/unclassified constant-level internal | 1 |
+
+## Pass 58: taxonomy wrapper slice (`needs_wrapper` first)
+
+**Goal:** Ship one deliberate **wrapper** (not a module identity alias) for family
+taxonomy normalization, plus tests and import-surface checks, without expanding raw
+constants exports.
+
+**Implemented**
+
+| Canonical surface | Type | Legacy backing | Notes |
+|---|---|---|---|
+| **`obsidiandroid.labeling.taxonomy`** | Wrapper module (**`needs_wrapper`** resolved) | `ml_classification.common.malware_family_constants` | Public: **`normalize_family_name`**, **`is_known_family_name`**, **`canonicalize_family_label`**. Intentionally **not** exporting **`KNOWN_FAMILIES`**, **`FAMILY_ALIASES`**, **`GENERIC_TOKENS`**, **`CANONICAL_FAMILY_DISPLAY`**. |
+
+**Caller adoption (initial)**
+
+| File | Change |
+|---|---|
+| **`tests/test_label_quality_normalization.py`** | Imports taxonomy helpers from **`obsidiandroid.labeling.taxonomy`**. |
+| **`analysis/vendor_processing/generic_label_parser.py`** | Imports **`normalize_family_name`** / **`is_known_family_name`** from taxonomy; keeps **`FAMILY_ALIASES`** from legacy until vendor façade owns alias data (**`defer`**). |
+
+**Checks**
+
+- **`scripts/dev/check_import_surface.py`**: verifies module path under **`src/obsidiandroid/labeling/taxonomy.py`** and normalization parity smoke vs legacy.
+- **`tests/test_labeling_taxonomy_wrapper.py`**: behavioral parity vs legacy; asserts wrapper functions are **not** identical to legacy objects (explicit non-alias contract).
+
+### Next ML wrapper candidates (still `needs_wrapper`, not Pass 58)
+
+Prefer explicit wrappers (or frozen façade modules) before additional alias-only surfaces:
+
+- **`data_alignment`** (modeling) — stabilize label-merge contract vs training internals.
+- **`feature_schema_audit`**, **`feature_encoder`** (features) — document inputs/outputs and defaults.
+- **Label normalization stack** (`label_field_normalizer`, `label_format_generator`, …) — schema/versioned contracts.

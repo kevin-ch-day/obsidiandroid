@@ -23,8 +23,6 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 _SRC = ROOT / "src"
-if _SRC.is_dir() and str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
 
 from obsidiandroid.database import db_engine
 from obsidiandroid.database import db_sample_metadata_queries

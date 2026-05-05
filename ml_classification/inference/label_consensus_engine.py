@@ -3,7 +3,7 @@
 
 from collections import Counter
 from typing import List, Dict, Any
-from model.vendor.record_core import VendorClassificationRecord
+from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
 from ml_classification.inference.signal_health_checker import analyze_signal_health
 
 GENERIC_TOKENS = {"generic", "unknown", "none", "agent", "malware"}

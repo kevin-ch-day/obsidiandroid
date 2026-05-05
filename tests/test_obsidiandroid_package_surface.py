@@ -84,6 +84,19 @@ def test_ml_facades_match_ml_classification_modules() -> None:
         assert alias_mod is canon_mod
 
 
+def test_labeling_taxonomy_is_wrapper_not_legacy_module_alias() -> None:
+    """Pass 58: taxonomy lives under ``src/`` and wraps (not aliases) legacy helpers."""
+    import importlib
+    from pathlib import Path
+
+    tax = importlib.import_module("obsidiandroid.labeling.taxonomy")
+    legacy = importlib.import_module("ml_classification.common.malware_family_constants")
+    assert tax is not legacy
+    path = Path(tax.__file__).resolve()
+    assert path.name == "taxonomy.py"
+    assert "obsidiandroid" in path.parts and "labeling" in path.parts
+
+
 def test_pipeline_manifest_facade_matches_manifest_modules() -> None:
     """Pipeline manifest facade aliases analysis.pipeline.manifest modules."""
     import importlib
@@ -143,19 +156,72 @@ def test_pipeline_permission_trends_facade_matches_permission_trends_modules() -
 
 
 def test_vendors_facade_matches_vendor_processing_modules() -> None:
-    """Pass 51: first vendor facade slice aliases parser-map modules."""
+    """Pass 59: vendors facade points at canonical parsing package with legacy parity."""
     import importlib
 
     import obsidiandroid.vendors as vendors_facade
 
     vendors_pairs = (
-        ("vendor_parser_map", "analysis.vendor_processing.vendor_parser_map"),
+        ("vendor_parser_map", "obsidiandroid.vendors.parsing.vendor_parser_map"),
     )
     for attr, canon_name in vendors_pairs:
         canon_mod = importlib.import_module(canon_name)
         assert getattr(vendors_facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.vendors.{attr}")
         assert alias_mod is canon_mod
+        legacy_mod = importlib.import_module(f"analysis.vendor_processing.{attr}")
+        assert legacy_mod is canon_mod
+
+
+def test_vendors_parsing_modules_match_legacy_shim_identity() -> None:
+    """Pass 59: key parser modules preserve ModuleType identity via legacy shim."""
+    import importlib
+
+    import obsidiandroid.vendors.parsing as parsing_pkg
+
+    keys = (
+        "generic_label_parser",
+        "vendor_parser_map",
+        "parser_defaults",
+        "parser_confidence_estimator",
+    )
+    for name in keys:
+        canon_mod = importlib.import_module(f"obsidiandroid.vendors.parsing.{name}")
+        assert getattr(parsing_pkg, name) is canon_mod
+        legacy_mod = importlib.import_module(f"analysis.vendor_processing.{name}")
+        assert legacy_mod is canon_mod
+
+
+def test_model_vendor_and_parsing_shims_match_vendors_contracts() -> None:
+    """Pass 60: model.parsing/model.vendor physical move with identity-preserving shims."""
+    import importlib
+
+    canon_parsed = importlib.import_module("obsidiandroid.vendors.contracts.parsed_label_metadata")
+    legacy_parsed = importlib.import_module("model.parsing.parsed_label_metadata")
+    assert legacy_parsed is canon_parsed
+
+    canon_record = importlib.import_module("obsidiandroid.vendors.contracts.record_core")
+    legacy_record = importlib.import_module("model.vendor.record_core")
+    assert legacy_record is canon_record
+
+    canon_engine = importlib.import_module("obsidiandroid.vendors.contracts.feature_engine")
+    legacy_engine = importlib.import_module("model.vendor.feature_engine")
+    assert legacy_engine is canon_engine
+
+
+def test_evaluation_leaf_shims_match_canonical_modules() -> None:
+    """Passes 61–62: analysis.evaluation leaf shims preserve module identity."""
+    import importlib
+
+    for name in (
+        "model_tuning",
+        "random_forest_diagnostics",
+        "vendor_parser_matching",
+        "vendor_classification_inspector",
+    ):
+        canon_mod = importlib.import_module(f"obsidiandroid.evaluation.{name}")
+        legacy_mod = importlib.import_module(f"analysis.evaluation.{name}")
+        assert legacy_mod is canon_mod
 
 
 def test_governance_facade_matches_pipeline_governance_modules() -> None:

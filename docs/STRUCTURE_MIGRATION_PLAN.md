@@ -42,8 +42,8 @@ Quick verification: `python scripts/dev/check_import_surface.py` or `make dev-im
 | P1 | **`README.md`** operator quickstart: **`pip install -e .`**, **`obsidiandroid`**, canonical vs legacy imports | **Partial** — layout + DB façade pointers added (**Pass 43**); deepen if operators need full command cookbook |
 | P1 | **`analysis/pipeline` physical move** under **`src/`** (keep **`analysis.pipeline.runner`** shim + monkeypatch story) | **Partial** — Pass 45 adds canonical façade module aliases; physical move still pending run-context / manifest plan |
 | P2 | **`obsidiandroid.diagnostics`** vs **`analysis.diagnostics`** tree (facade already re-exports) | **Partial** — optional physical move |
-| P2 | **`ml_classification/`** → **`obsidiandroid.modeling` / `features` / `labeling`** façades | **Partial** — Passes **46–50A** inventory, first aliases, caller batches, status audit complete |
-| P2 | Vendor / evaluation domain boundary (**`obsidiandroid.vendors`**, **`obsidiandroid.evaluation`**) | **Partial** — Pass 50B inventory/spec plus Pass 51 first vendor parser-map alias |
+| P2 | **`ml_classification/`** → **`obsidiandroid.modeling` / `features` / `labeling`** façades + **wrappers** where needed | **Partial** — Passes **46–50A** facade/adoption; **Pass 58** adds **`obsidiandroid.labeling.taxonomy`** wrapper (not raw-alias) for family normalization |
+| P2 | Vendor / evaluation domain boundary (**`obsidiandroid.vendors`**, **`obsidiandroid.evaluation`**) | **Partial** — Pass **50B** inventory/spec, Pass **51** parser-map alias, Pass **58** execution roadmap, Pass **59** physical parser move to **`obsidiandroid.vendors.parsing`** with legacy identity shim |
 | P3 | Retire **`utils/*`** shims after caller + doc sunset | **Pending** — locked policy milestone (Pass 44 cleared **`tests/`** stragglers that were not asserting shim parity) |
 | P3 | Remaining **`database.db_*`** not on façade (e.g. **`db_sample_timelines_queries`**, **`db_extract_av_label_keywords`**) — add only when call sites need canonical imports | **Optional** |
 - **Passes 41–43 (`obsidiandroid.database`):** Façade-only **`from database`** callers outside **`database/`** are migrated (Pass 41); **Pass 42** recorded the pre–Tier D audit; **Pass 43** expands the façade with four **Tier D** AV/scoring modules and migrates remaining outer callers (**`analysis/`**, tests, **`obsidiandroid.governance.run_manifest`**). **`database/*.py`** internal imports stay **`from database …`**.
@@ -62,6 +62,8 @@ Quick verification: `python scripts/dev/check_import_surface.py` or `make dev-im
 - **Pass 55 (pipeline policy/helper aliases):** **`obsidiandroid.pipeline`** now exposes stable top-level helpers (**`contract_filters`**, **`run_bounds`**, **`runtime_policy`**) and corresponding tests use canonical imports.
 - **Pass 56 (pipeline manifest subfacade):** **`obsidiandroid.pipeline.manifest`** now aliases stable manifest helper modules (**hashing**, **writer**, **runtime_support**, **paper_compliance_checks**, **paper_figure_renderers**) and manifest tests/stage imports use canonical paths.
 - **Pass 57 (pipeline nested helper subfacades):** **`obsidiandroid.pipeline.artifacts`** and **`obsidiandroid.pipeline.permission_trends`** alias stable nested helper modules; their direct tests use canonical imports.
+- **Pass 58 (ML taxonomy wrapper + vendor/eval execution roadmap):** **`obsidiandroid.labeling.taxonomy`** delegates three family helpers with an explicit **non-alias** wrapper contract; **`docs/VENDOR_EVALUATION_BOUNDARY_PLAN.md`** gains an ordered execution table (vendors vs evaluation vs internal vs reporting vs defer). No physical **`analysis/pipeline`** move; database policy unchanged.
+- **Pass 59 (physical vendor parser move):** parser modules moved from **`analysis/vendor_processing`** to **`src/obsidiandroid/vendors/parsing`**. A legacy **`analysis.vendor_processing`** package shim registers module identities via **`sys.modules`** so legacy and canonical imports resolve to the same module objects. No parser behavior changes; **`model.vendor`**/**`model.parsing`** remain deferred.
 
 ### Locked migration policy (product + imports)
 
@@ -1583,6 +1585,85 @@ rg -n "^(from analysis\.pipeline|import analysis\.pipeline)" --glob "*.py" --glo
 
 Only **`tests/test_main_stop_after_training.py`** remains, intentionally importing
 **`analysis.pipeline.runner`** as a monkeypatch-sensitive runtime surface.
+
+## Pass 59 (complete): physical vendor parser move with compatibility shim
+
+**Goal:** Physically relocate vendor parser implementations into canonical source layout while preserving legacy import compatibility and module identity.
+
+### Physical move
+
+Moved parser modules from **`analysis/vendor_processing/*.py`** to:
+
+- **`src/obsidiandroid/vendors/parsing/*.py`**
+
+### Compatibility approach
+
+- Added **`src/obsidiandroid/vendors/parsing/__init__.py`** canonical package initializer.
+- Added **`analysis/vendor_processing/__init__.py`** legacy shim that imports canonical modules and registers legacy names in **`sys.modules`**.
+- Kept **`obsidiandroid.vendors.vendor_parser_map`** compatibility by aliasing to **`obsidiandroid.vendors.parsing.vendor_parser_map`**.
+
+Identity contract now holds for key modules:
+
+- **`obsidiandroid.vendors.parsing.vendor_parser_map`**
+- **`analysis.vendor_processing.vendor_parser_map`**
+- **`obsidiandroid.vendors.vendor_parser_map`**
+
+and for parser helpers:
+
+- **`generic_label_parser`**
+- **`parser_defaults`**
+- **`parser_confidence_estimator`**
+
+### Canonical caller updates
+
+Migrated active callers to **`obsidiandroid.vendors.parsing`** imports:
+
+- **`src/obsidiandroid/cli/menu/vendor_diagnostics.py`**
+- **`analysis/evaluation/vendor_parser_utils.py`**
+- **`scripts/diagnostics/inspect_vendor_missing_patterns.py`**
+
+### Validation
+
+- **`python scripts/dev/check_doc_hygiene.py`**
+- **`python scripts/dev/check_import_surface.py`**
+- **`pytest -q tests/test_obsidiandroid_package_surface.py`**
+- **`pytest -q tests/test_vendor_parser_map.py tests/test_vendor_data_determinism.py tests/test_vendor_diagnostics_menu.py tests/test_vendor_metadata_pipeline.py tests/test_parser_quality_contract.py tests/test_engine_normalization.py`**
+- **`make ci`**
+
+All passed.
+
+## Pass 58 (complete): ML taxonomy wrapper + vendor/evaluation execution roadmap
+
+**Goal:** Boundary hardening without broad physical moves: one **explicit ML wrapper**
+for family taxonomy (**`needs_wrapper`** from **`docs/ML_BOUNDARY_PLAN.md`**), plus a
+**practical execution checklist** for vendor vs evaluation canonical packages.
+
+**Explicit non-goals:** No **`analysis/pipeline`** physical relocation; no change to
+database implementation/façade policy (**`database.*`** internal, **`obsidiandroid.database`**
+outer); no new shim layers under **`utils/`**; no **`sys.modules`** identity alias for
+the taxonomy legacy module.
+
+### ML: **`obsidiandroid.labeling.taxonomy`** (wrapper, tagged **`needs_wrapper` → implemented**)
+
+| Public API | Implementation | Contract |
+|---|---|---|
+| **`normalize_family_name`**, **`is_known_family_name`**, **`canonicalize_family_label`** | Delegates to **`ml_classification.common.malware_family_constants`** | Wrapper functions are **not** the same objects as legacy callables (allows future indirection). |
+
+**Not exported (by design):** **`KNOWN_FAMILIES`**, **`FAMILY_ALIASES`**, **`GENERIC_TOKENS`**, **`CANONICAL_FAMILY_DISPLAY`**. Vendor-oriented **`FAMILY_ALIASES`** remains on the legacy import path in **`generic_label_parser`** until a **`obsidiandroid.vendors`** contract absorbs it (**`defer`**).
+
+**Adoption:** **`tests/test_label_quality_normalization.py`**, **`analysis/vendor_processing/generic_label_parser.py`** (split: taxonomy from wrapper, aliases from legacy).
+
+**Verification:** **`scripts/dev/check_import_surface.py`**, **`tests/test_labeling_taxonomy_wrapper.py`**, **`tests/test_obsidiandroid_package_surface.py`**.
+
+### Vendor / evaluation: roadmap doc expansion
+
+**`docs/VENDOR_EVALUATION_BOUNDARY_PLAN.md`**: added **“Execution roadmap (Pass 58)”** with ordered tables for **`obsidiandroid.vendors`**, **`obsidiandroid.evaluation`**, **`internal_only`**, reporting/paper split, and deferred/coupled items.
+
+### Next milestone hints (not Pass 58)
+
+- ML: wrappers for **`data_alignment`**, **`feature_schema_audit`**, **`feature_encoder`** (see **`docs/ML_BOUNDARY_PLAN.md`**).
+- Vendors: **`needs_wrapper`** generic parser + parsed metadata + record surfaces before vendor-specific parser façades.
+- Evaluation: first slice only after **`parse_vendor_classifications`** (or equivalent) I/O contract is frozen.
 
 ## Pre-Pass 38: hard-parts roadmap (planning only)
 

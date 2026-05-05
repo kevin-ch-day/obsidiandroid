@@ -7,9 +7,9 @@ import pandas as pd
 
 from obsidiandroid.cli.ui import display as du
 from config import app_config
-from analysis.vendor_processing import vendor_parser_map
-from analysis.vendor_processing import generic_label_parser
-from analysis.evaluation import vendor_parser_matching as parser_match
+from obsidiandroid.vendors.parsing import generic_label_parser
+from obsidiandroid.vendors.parsing import vendor_parser_map
+from obsidiandroid.evaluation import vendor_parser_matching as parser_match
 from analysis.evaluation import av_results_fetcher as results_fetcher
 
 REQUIRED_COLUMNS = {"sample_id"}

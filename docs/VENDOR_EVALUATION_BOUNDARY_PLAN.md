@@ -204,6 +204,67 @@ Keep these on implementation paths for now:
 | Risk band config | `model.core.risk_band_config.RiskBandConfig`, `analysis/risk_band/assign_risk_band.py` | `obsidiandroid.vendors` or future risk domain | `defer` | Appears in adjacent vendor/evaluation flow but ownership is not settled. Do not attach to modeling. |
 | Engine weights | `ml_classification.engine_weights.*` | `obsidiandroid.evaluation` | `defer` | Treat as evaluation/scoring policy for now, not modeling. Needs contract/spec before exposure. |
 
+## Execution roadmap (Pass 58): practical domain assignment
+
+This section turns the inventory into an **ordered checklist** for façade and wrapper
+work. Each row should carry an explicit tag when implemented: **`ready_now`**,
+**`needs_wrapper`**, **`defer`**, **`internal_only`**, **`monkeypatch_sensitive`**.
+
+Treat **`obsidiandroid.reporting`** and **`obsidiandroid.governance`** as **already
+partial** canonical homes for paper/manifest/export surfaces; this table only scopes
+vendor/evaluation-heavy code.
+
+### A) Canonical target: **`obsidiandroid.vendors`**
+
+Owns “raw AV/vendor string → structured vendor-side interpretation,” without lumping
+that into **`obsidiandroid.labeling`** (taxonomy normalization for known families lives
+under **`obsidiandroid.labeling.taxonomy`** after Pass 58).
+
+| Execution order | Item | Current anchor(s) | Tag today | Notes |
+|---:|---|---|---|---|
+| 1 | Parser map entry | `obsidiandroid.vendors.parsing.vendor_parser_map` (legacy shim at `analysis.vendor_processing.vendor_parser_map`) | **moved (Pass 59)** | Physical module moved to canonical package; legacy path preserved with identity shim. |
+| 2 | Generic parser contract | `generic_label_parser.parse_generic_classification`, related | **`needs_wrapper`** | Freeze parsed output shape before canonical export. Pass 58: **taxonomy helpers** consumed from **`obsidiandroid.labeling.taxonomy`**; **`FAMILY_ALIASES`** still imported from legacy until a **vendors-local** alias contract exists. |
+| 3 | Parsed label metadata | `model.parsing.parsed_label_metadata.ParsedLabelMetadata` | **`needs_wrapper`** | Part of parser/record API, not labeling taxonomy. |
+| 4 | Vendor classification record | `model.vendor.record_core.VendorClassificationRecord` | **`needs_wrapper`** | Expose via wrapper or protocol, not raw internal fields first. |
+| 5 | Vendor feature engine helpers | `model.vendor.feature_engine` | **`needs_wrapper`** | Coupled to records; ship after record wrapper story. |
+| 6 | Vendor-specific parser modules | `obsidiandroid.vendors.parsing/*_parser.py` (legacy shim path still valid) | **partially moved (Pass 59)** | Physical relocation complete; API/wrapper exposure still deferred. |
+| 7 | Risk band config | `model.core.risk_band_config`, `analysis/risk_band/*` | **`defer`** | Ownership split between vendor policy and evaluation not settled. |
+
+### B) Canonical target: **`obsidiandroid.evaluation`**
+
+Owns scoring, comparative summaries, parser quality **as evaluation artifacts** (not
+vendor parsing internals). Nothing here should be a **`sys.modules`** alias until
+input/output contracts are explicit.
+
+| Execution order | Item | Current anchor(s) | Tag today | Notes |
+|---:|---|---|---|---|
+| 1 | AV classification parsing entry | `vendor_classification_parser.parse_vendor_classifications` | **`needs_wrapper`** | First good evaluation-facing seam if I/O is frozen. |
+| 2 | AV result fetch + evaluation helpers | `av_results_fetcher`, `evaluate_av_classifications`, … | **`defer`** | Couples DB, records, and reporting; needs spec. |
+| 3 | Engine / vendor scoring | `engine_scoring_summary`, `vendor_score_calculator`, `vendor_summary_builder` | **`defer`** | Research-sensitive policy; do not façade casually. |
+| 4 | Parser quality / matching | `vendor_parser_utils`, `vendor_parser_matching` | **`defer`** | Split “quality metric” vs “parser implementation” before export. |
+| 5 | Engine weights | `ml_classification.engine_weights.*` | **`defer`** | Belongs with evaluation policy, not **`obsidiandroid.modeling`**. |
+| 6 | RF / model diagnostics helpers | `analysis/evaluation/random_forest_diagnostics`, … | **`defer`** | Decide overlap with **`obsidiandroid.reporting`** exports first. |
+
+### C) **`internal_only`** — stay on implementation paths
+
+Keep on **`analysis.execution.*`**, record factories/runners, and vendor parser
+internals until wrappers above exist. **`monkeypatch_sensitive`** call sites stay on
+their current import paths until a deliberate patch-target migration plan exists.
+
+### D) **`obsidiandroid.reporting`** / paper outputs
+
+Place **LaTeX, confusion/family distro printers, workbook/export packaging** here (many
+already canonical). Boundary rule: evaluation computes **scores/metrics objects**;
+reporting formats them for manuscripts and operator dashboards. **`ml_classification.reporting.ml_report_builder`**
+remains **`defer`** until that split is written down.
+
+### E) **`defer` / too coupled for this quarter**
+
+- Broad **`analysis.evaluation`** façade until parser + scoring contracts exist.
+- Vendor-specific parser modules without generic/metadata wrappers.
+- **`obsidiandroid.labeling`** owning vendor consensus (`label_consensus_engine`) —
+  stays **`defer`** to vendors/evaluation per ML boundary plan.
+
 ## Pass 51 implementation status
 
 Implemented the first vendor facade slice:
@@ -335,3 +396,17 @@ Defer:
   evaluation, and scoring summary contracts are specified.
 - Vendor record / parsed metadata facade until wrapper shape is defined.
 - Engine weights until evaluation/scoring policy ownership is explicit.
+
+## Pass 59 implementation status
+
+Physical parser move completed:
+
+- `analysis/vendor_processing/*.py` moved to `src/obsidiandroid/vendors/parsing/*.py`.
+- `analysis/vendor_processing/__init__.py` now acts as a legacy compatibility shim via `sys.modules`.
+- `obsidiandroid.vendors.vendor_parser_map` now resolves through `obsidiandroid.vendors.parsing.vendor_parser_map`.
+
+Still deferred (unchanged):
+
+- `model.vendor` and `model.parsing` physical moves.
+- evaluation/scoring façade slice under `obsidiandroid.evaluation`.
+- wrapper contracts for `VendorClassificationRecord` and `ParsedLabelMetadata`.

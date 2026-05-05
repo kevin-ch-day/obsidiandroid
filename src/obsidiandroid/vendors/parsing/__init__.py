@@ -1,8 +1,8 @@
-"""Legacy compatibility shim for vendor parser modules.
+"""Canonical vendor parser package.
 
-Pass 59 physically moved parser implementations to
-``obsidiandroid.vendors.parsing``. This package keeps legacy import paths alive
-and identity-preserving by registering module aliases in ``sys.modules``.
+Pass 59 physically moved parser implementations from ``analysis.vendor_processing``
+into this package. Legacy import compatibility is maintained by
+``analysis.vendor_processing`` shim registration.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ _SUBMODULES = (
 for _name in _SUBMODULES:
     _mod = importlib.import_module(f"obsidiandroid.vendors.parsing.{_name}")
     globals()[_name] = _mod
-    sys.modules.setdefault(f"analysis.vendor_processing.{_name}", _mod)
+    sys.modules.setdefault(f"obsidiandroid.vendors.parsing.{_name}", _mod)
 
 __all__ = list(_SUBMODULES)
 

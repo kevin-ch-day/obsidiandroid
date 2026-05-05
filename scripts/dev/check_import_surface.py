@@ -219,7 +219,11 @@ def main() -> int:
         "obsidiandroid.modeling",
         "obsidiandroid.features",
         "obsidiandroid.labeling",
+        "obsidiandroid.labeling.taxonomy",
         "obsidiandroid.vendors",
+        "obsidiandroid.vendors.parsing",
+        "obsidiandroid.vendors.contracts",
+        "obsidiandroid.evaluation",
     ):
         try:
             mod = importlib.import_module(name)
@@ -423,11 +427,28 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-    print("OK   obsidiandroid.labeling submodules match ml_classification")
+    print("OK   obsidiandroid.labeling submodule aliases match ml_classification")
+
+    # Pass 58: ``labeling.taxonomy`` is a deliberate wrapper module (not a ModuleType alias).
+    taxonomy_mod = importlib.import_module("obsidiandroid.labeling.taxonomy")
+    tax_path = Path(taxonomy_mod.__file__).resolve()
+    if tax_path != (_REPO_ROOT / "src/obsidiandroid/labeling/taxonomy.py").resolve():
+        print(
+            f"FAIL: obsidiandroid.labeling.taxonomy expected at src/obsidiandroid/labeling/taxonomy.py, got {tax_path}",
+            file=sys.stderr,
+        )
+        return 1
+    import ml_classification.common.malware_family_constants as _mfc_tax
+
+    if taxonomy_mod.normalize_family_name("Flu-Bot") != _mfc_tax.normalize_family_name("Flu-Bot"):
+        print("FAIL: labeling.taxonomy.normalize_family_name diverged from legacy", file=sys.stderr)
+        return 1
+    print("OK   obsidiandroid.labeling.taxonomy wrapper resolves and matches legacy normalization")
 
     _vendors_facade = importlib.import_module("obsidiandroid.vendors")
+    _vendors_parsing_pkg = importlib.import_module("obsidiandroid.vendors.parsing")
     _vendors_pairs = (
-        ("vendor_parser_map", "analysis.vendor_processing.vendor_parser_map"),
+        ("vendor_parser_map", "obsidiandroid.vendors.parsing.vendor_parser_map"),
     )
     for attr, canon_name in _vendors_pairs:
         canon_mod = importlib.import_module(canon_name)
@@ -445,7 +466,73 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-    print("OK   obsidiandroid.vendors submodules match analysis.vendor_processing")
+        legacy_mod = importlib.import_module(f"analysis.vendor_processing.{attr}")
+        if legacy_mod is not canon_mod:
+            print(
+                f"FAIL: import analysis.vendor_processing.{attr} did not resolve to {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.vendors top-level aliases match obsidiandroid.vendors.parsing + legacy shim")
+
+    _vendors_parsing_pairs = (
+        "generic_label_parser",
+        "vendor_parser_map",
+        "parser_defaults",
+        "parser_confidence_estimator",
+    )
+    for name in _vendors_parsing_pairs:
+        canon_mod = importlib.import_module(f"obsidiandroid.vendors.parsing.{name}")
+        pkg_attr = getattr(_vendors_parsing_pkg, name)
+        if pkg_attr is not canon_mod:
+            print(
+                f"FAIL: obsidiandroid.vendors.parsing.{name} package attr mismatch",
+                file=sys.stderr,
+            )
+            return 1
+        legacy_mod = importlib.import_module(f"analysis.vendor_processing.{name}")
+        if legacy_mod is not canon_mod:
+            print(
+                f"FAIL: analysis.vendor_processing.{name} legacy shim mismatch",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.vendors.parsing key modules preserve identity with legacy shim")
+
+    # Pass 60: model.parsing / model.vendor physical move to obsidiandroid.vendors.contracts.
+    contracts_pairs = (
+        ("parsed_label_metadata", "model.parsing.parsed_label_metadata"),
+        ("record_core", "model.vendor.record_core"),
+        ("feature_engine", "model.vendor.feature_engine"),
+    )
+    for canon_name, legacy_name in contracts_pairs:
+        canon_mod = importlib.import_module(f"obsidiandroid.vendors.contracts.{canon_name}")
+        legacy_mod = importlib.import_module(legacy_name)
+        if legacy_mod is not canon_mod:
+            print(
+                f"FAIL: {legacy_name} did not resolve to obsidiandroid.vendors.contracts.{canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   model.parsing/model.vendor legacy shims match obsidiandroid.vendors.contracts")
+
+    # Passes 61–62: evaluation physical moves (small helper modules).
+    eval_pairs = (
+        "model_tuning",
+        "random_forest_diagnostics",
+        "vendor_parser_matching",
+        "vendor_classification_inspector",
+    )
+    for name in eval_pairs:
+        canon_mod = importlib.import_module(f"obsidiandroid.evaluation.{name}")
+        legacy_mod = importlib.import_module(f"analysis.evaluation.{name}")
+        if legacy_mod is not canon_mod:
+            print(
+                f"FAIL: analysis.evaluation.{name} did not resolve to obsidiandroid.evaluation.{name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   analysis.evaluation leaf shims match obsidiandroid.evaluation")
 
     _governance_facade = importlib.import_module("obsidiandroid.governance")
     _governance_pairs = (

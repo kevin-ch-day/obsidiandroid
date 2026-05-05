@@ -15,12 +15,10 @@ from typing import Dict, Optional
 
 from .parser_defaults import ParserDefaults
 from . import parser_confidence_estimator
-from model.parsing.parsed_label_metadata import ParsedLabelMetadata
-from ml_classification.common.malware_family_constants import (
-    is_known_family_name,
-    normalize_family_name,
-    FAMILY_ALIASES,
-)
+from obsidiandroid.vendors.contracts.parsed_label_metadata import ParsedLabelMetadata
+from ml_classification.common.malware_family_constants import FAMILY_ALIASES
+
+from obsidiandroid.labeling.taxonomy import is_known_family_name, normalize_family_name
 
 
 TOKEN_RE = re.compile(r"[a-z0-9]+")

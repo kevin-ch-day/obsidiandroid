@@ -2,7 +2,7 @@
 # Purpose : Select the best vendor classification record for a sample using reliability scoring
 
 from typing import Any, List, Dict, Tuple
-from model.vendor.record_core import VendorClassificationRecord
+from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
 from obsidiandroid.cli.ui import display as du
 from config import app_config
 

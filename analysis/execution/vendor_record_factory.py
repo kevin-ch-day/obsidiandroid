@@ -4,8 +4,8 @@
 import pandas as pd
 from typing import Callable, Dict, Any, Optional, Union, Mapping
 
-from model.vendor.record_core import VendorClassificationRecord
-from model.parsing.parsed_label_metadata import ParsedLabelMetadata
+from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
+from obsidiandroid.vendors.contracts.parsed_label_metadata import ParsedLabelMetadata
 from obsidiandroid.cli.ui import display as du
 
 INVALID_LABEL_TOKENS = {"", "none", "nan", "null"}

@@ -1,6 +1,6 @@
 import pandas as pd
 from ml_classification.builder import sample_classification_builder as sb
-from model.vendor.record_core import VendorClassificationRecord
+from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
 
 
 def test_builder_includes_confidence():

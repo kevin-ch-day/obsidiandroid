@@ -12,10 +12,12 @@ import argparse
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-_SRC = REPO_ROOT / "src"
-for _p in (REPO_ROOT, _SRC):
-    if _p.is_dir() and str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from utils.repo_import_paths import ensure_repo_src_on_sys_path
+
+ensure_repo_src_on_sys_path()
 
 from obsidiandroid.database import db_sample_metadata_queries
 from analysis.evaluation.vendor_classification_parser import (

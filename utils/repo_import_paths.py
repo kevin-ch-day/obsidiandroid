@@ -18,3 +18,5 @@ if _SRC_ROOT.is_dir() and str(_SRC_ROOT) not in sys.path:
 from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path
 
 ensure_repo_src_on_sys_path()
+
+__all__ = ["ensure_repo_src_on_sys_path"]

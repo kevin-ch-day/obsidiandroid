@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from model.vendor.record_core import VendorClassificationRecord
+from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
 from ml_classification.builder import vendor_record_selector
 
 

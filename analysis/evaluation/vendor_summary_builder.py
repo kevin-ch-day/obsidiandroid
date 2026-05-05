@@ -4,7 +4,7 @@
 from collections import Counter
 from typing import Dict, Set, List, Union
 import math
-from model.vendor.record_core import VendorClassificationRecord
+from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
 
 # ---------------------------------------------------------
 # Defensive Wrapper for Counter Use

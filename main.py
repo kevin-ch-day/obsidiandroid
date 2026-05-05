@@ -6,13 +6,9 @@ Compatibility shim; implementation in ``obsidiandroid.cli.main``.
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
-_SRC_ROOT = Path(__file__).resolve().parent / "src"
-if _SRC_ROOT.is_dir() and str(_SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(_SRC_ROOT))
-
-from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path
+# Standard bootstrap for source checkouts (idempotent).
+from utils.repo_import_paths import ensure_repo_src_on_sys_path
 
 ensure_repo_src_on_sys_path()
 

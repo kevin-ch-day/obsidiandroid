@@ -23,9 +23,11 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+
+from utils.repo_import_paths import ensure_repo_src_on_sys_path
+
+ensure_repo_src_on_sys_path()
 _SRC = _REPO_ROOT / "src"
-if _SRC.is_dir() and str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
 
 from obsidiandroid.common import output_cleanup_clutter as occ  # noqa: E402
 

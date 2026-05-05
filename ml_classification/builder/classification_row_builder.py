@@ -2,7 +2,7 @@
 # Purpose  : Build structured classification output rows from selected vendor records and model predictions
 
 from typing import Dict, Any, Optional
-from model.vendor.record_core import VendorClassificationRecord
+from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
 from ml_classification.labeling.label_format_generator import generate_label
 from ml_classification.labeling import label_field_normalizer
 from obsidiandroid.cli.ui import display as du

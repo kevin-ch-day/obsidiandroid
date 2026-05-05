@@ -16,6 +16,10 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from utils.repo_import_paths import ensure_repo_src_on_sys_path
+
+ensure_repo_src_on_sys_path()
+
 
 def _load_json(path: Path) -> dict[str, Any]:
     try:

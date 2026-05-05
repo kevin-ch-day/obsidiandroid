@@ -2,7 +2,7 @@
 # Description: Validates vendor classification records and performs batch-level diagnostics
 
 from typing import List, Dict
-from model.vendor.record_core import VendorClassificationRecord
+from .record_core import VendorClassificationRecord
 from obsidiandroid.cli.ui import display as du
 
 

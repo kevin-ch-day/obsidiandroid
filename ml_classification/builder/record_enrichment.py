@@ -2,7 +2,7 @@
 # Purpose : Smart enrichment of 'variant' and 'threat_class' fields using trusted vendor data and inference models
 
 from typing import Any, Dict, List, Optional, Tuple
-from model.vendor.record_core import VendorClassificationRecord
+from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
 from ml_classification.builder import classification_constants
 from ml_classification.inference.threat_class_engine import infer_threat_class
 from obsidiandroid.cli.ui import display as du

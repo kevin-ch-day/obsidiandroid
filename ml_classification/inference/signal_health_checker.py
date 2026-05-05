@@ -2,7 +2,7 @@
 # Purpose  : Analyze classification record signal quality and identify problematic or weak samples
 
 from typing import List, Dict, Union
-from model.vendor.record_core import VendorClassificationRecord
+from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
 from obsidiandroid.cli.ui import display as du
 
 

@@ -1,36 +1,48 @@
 # Filename: bitdefender_parser.py
-# Description: Structured parser for BitDefender.Falx AV labels (VirusTotal static results)
+# Description: Structured and modular parser for BitDefender.Falx AV labels, optimized for ObsidianDroid malware classification.
 
 import re
 from typing import Dict, Optional, List
 from .parser_defaults import ParserDefaults
 from . import parser_confidence_estimator
-from model.parsing.parsed_label_metadata import ParsedLabelMetadata
+from obsidiandroid.vendors.contracts.parsed_label_metadata import ParsedLabelMetadata
 
 TRUE_FAMILIES = {
     "anubis", "cerberus", "eventbot", "sharkbot", "godfather", "teabot",
     "flubot", "chameleon", "blackrock", "ermac", "sova", "brunhilda",
-    "spyahmyth", "hqwar", "polph"
+    "spyahmyth", "hqwar", "polph", "marcher", "joker", "vultur",
+    "ghimob", "bankbot", "slocker", "spyc23", "spynote", "donot",
+    "grifthorse", "androrat", "xenomorph", "mobok", "mandrake",
+    "triada", "domestickitten", "bahamut", "bitterrat", "taropeore",
+    "bingomod", "systemmonitor", "facestealer", "gravity"
 }
 
 FAMILY_ALIAS_MAP = {
-    "spyamyht": "spyahmyth", "brunhild": "brunhilda", "polph": "polph", "teabot": "teabot"
+    "spyamyht": "spyahmyth",
+    "brunhild": "brunhilda",
+    "polph": "polph",
+    "teabot": "teabot"
 }
 
-GENERIC_TOKENS = {"generic", "generickd", "genericfca", "agent", "none", "unknown", "hacktool"}
+GENERIC_TOKENS = {
+    "generic", "generickd", "genericfca", "agent", "none",
+    "unknown", "hacktool", "spyagent", "infostealer", "dropper",
+    "smsspy", "fakeapp", "hiddenapp", "downloader", "obfus", "ransom"
+}
 THREAT_HINT_TOKENS = {
-    "agent": "agent",
+    "spyagent": "spy",
+    "smsspy": "sms-trojan",
     "banker": "banker",
-    "spy": "spy",
+    "infostealer": "stealer",
     "dropper": "dropper",
     "downloader": "downloader",
     "ransom": "ransomware",
-    "adware": "adware",
+    "riskware": "riskware",
+    "fakeapp": "fake-app",
 }
 
 FAMILY_REGEX_PATTERN = re.compile(
-    r"(anubis|cerberus|eventbot|sharkbot|godfather|teabot|flubot|ermac|sova|brunhilda|chameleon|blackrock|spyahmyth|hqwar|polph)",
-    re.IGNORECASE
+    r"(" + "|".join(TRUE_FAMILIES) + ")", re.IGNORECASE
 )
 
 def split_label_parts(label: str) -> List[str]:
@@ -48,15 +60,13 @@ def resolve_family(candidate: str, full_label: str) -> str:
     if norm in TRUE_FAMILIES:
         return norm
     match = FAMILY_REGEX_PATTERN.search(full_label)
-    if match:
-        return match.group(1).lower()
-    return "unknown"
+    return match.group(1).lower() if match else "unknown"
 
-def infer_threat_class(malware_type: str, threat_hint: str = "") -> str:
+def infer_threat_class(malware_type: str, family_candidate: str = "") -> str:
     mt = malware_type.lower()
-    hint = (threat_hint or "").lower()
+    fc = (family_candidate or "").lower()
     for token, mapped in THREAT_HINT_TOKENS.items():
-        if token in hint:
+        if token in fc:
             return mapped
     if "drop" in mt:
         return "dropper"
@@ -71,18 +81,24 @@ def infer_threat_class(malware_type: str, threat_hint: str = "") -> str:
     return "trojan" if "trojan" in mt else "unknown"
 
 def extract_fields(parts: List[str], full_label: str) -> Dict[str, str]:
-    malware_type = parts[0].lower() if len(parts) > 0 else "unknown"
-    platform = parts[1].lower() if len(parts) > 1 else "unknown"
-    family_candidate = parts[2].lower() if len(parts) > 2 else "unknown"
-    threat_hint = parts[1].lower() if len(parts) > 1 else ""
-    variant = ".".join(parts[3:]).lower() if len(parts) > 3 else "unknown"
+    if parts and parts[0].lower() == "android":
+        platform = "android"
+        malware_type = parts[1].lower() if len(parts) > 1 else "unknown"
+        family_candidate = parts[2].lower() if len(parts) > 2 else "unknown"
+        variant = ".".join(parts[3:]).lower() if len(parts) > 3 else "unknown"
+    else:
+        malware_type = parts[0].lower() if len(parts) > 0 else "unknown"
+        platform = parts[1].lower() if len(parts) > 1 else "unknown"
+        family_candidate = parts[2].lower() if len(parts) > 2 else "unknown"
+        variant = ".".join(parts[3:]).lower() if len(parts) > 3 else "unknown"
+
     return {
         "malware_type": malware_type,
         "platform": platform,
         "family_candidate": family_candidate,
         "variant": variant,
         "family": resolve_family(family_candidate, full_label),
-        "threat_class": infer_threat_class(malware_type, threat_hint),
+        "threat_class": infer_threat_class(malware_type, family_candidate),
     }
 
 def is_label_edge_case(parts: List[str]) -> bool:
@@ -90,7 +106,7 @@ def is_label_edge_case(parts: List[str]) -> bool:
         len(parts) < 3
         or parts[0].lower() not in {"trojan", "android", "adware", "application"}
         or parts[1].lower() in GENERIC_TOKENS
-        or any(p.strip() == "" for p in parts)
+        or any(not p.strip() for p in parts)
     )
 
 def get_parser_metadata(engine_metadata: Optional[Dict]) -> Dict[str, str]:
@@ -99,30 +115,25 @@ def get_parser_metadata(engine_metadata: Optional[Dict]) -> Dict[str, str]:
         "signature_type": engine_metadata.get("signature_type", "pattern") if engine_metadata else "pattern"
     }
 
-def parse_bitdefender_classification(
+def parse_bitdefenderfalx_classification(
     classification: str, engine_metadata: Optional[Dict] = None
 ) -> ParsedLabelMetadata:
-    result = ParserDefaults.eight_field_fallback()
+    record = ParserDefaults.eight_field_fallback()
 
     if not classification or not isinstance(classification, str):
-        result["edge_case_type"] = "empty_or_invalid"
-        return ParsedLabelMetadata.from_dict(ParserDefaults.normalize(result))
+        record["edge_case_type"] = "empty_or_invalid"
+        return ParsedLabelMetadata.from_dict(ParserDefaults.normalize(record))
     label_lc = classification.strip().lower()
     if label_lc in {"undetected", "type-unsupported", "timeout", "failure"}:
-        result["edge_case_type"] = "no_detection"
-        return ParsedLabelMetadata.from_dict(ParserDefaults.normalize(result))
+        record["edge_case_type"] = "no_detection"
+        return ParsedLabelMetadata.from_dict(ParserDefaults.normalize(record))
 
     try:
         parts = split_label_parts(classification)
-        if len(parts) < 2:
-            result["parser_quality"] = "low"
-            result["edge_case_type"] = "too_short"
-            return ParsedLabelMetadata.from_dict(ParserDefaults.normalize(result))
-
         fields = extract_fields(parts, classification)
         meta = get_parser_metadata(engine_metadata)
 
-        result.update({
+        record.update({
             "platform": fields["platform"].capitalize(),
             "malware_type": fields["malware_type"].capitalize(),
             "family": fields["family"],
@@ -138,10 +149,10 @@ def parse_bitdefender_classification(
         })
 
         if is_label_edge_case(parts):
-            result["parser_quality"] = "low"
+            record["parser_quality"] = "low"
 
     except Exception:
-        result = ParserDefaults.eight_field_fallback()
-        result["edge_case_type"] = "parse_exception"
+        record = ParserDefaults.eight_field_fallback()
+        record["edge_case_type"] = "parse_exception"
 
-    return ParsedLabelMetadata.from_dict(ParserDefaults.normalize(result))
+    return ParsedLabelMetadata.from_dict(ParserDefaults.normalize(record))

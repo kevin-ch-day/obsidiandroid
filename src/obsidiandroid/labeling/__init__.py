@@ -1,21 +1,35 @@
-"""Labeling canonical aliases (Pass 47 minimal slice)."""
+"""Labeling package facade.
+
+This package intentionally keeps its import-time side effects minimal.
+
+- Pass 47 surfaced ``classification_label_resolver`` as a ModuleType alias.
+- Pass 58 added ``obsidiandroid.labeling.taxonomy`` as a wrapper module.
+
+Why lazy? Vendor parsing now imports taxonomy helpers; importing the full legacy
+labeling stack at package import time can create circular imports. So we use a
+PEP 562 ``__getattr__`` facade and only import legacy modules on demand.
+"""
 
 from __future__ import annotations
 
 import importlib
 import sys
 
-_CANONICAL_SUBMODULE_NAMES = ("classification_label_resolver",)
-_LEGACY_BY_CANONICAL = {
+_CANONICAL_SUBMODULE_NAMES: tuple[str, ...] = ("classification_label_resolver",)
+_LEGACY_BY_CANONICAL: dict[str, str] = {
     "classification_label_resolver": "ml_classification.labeling.classification_label_resolver",
 }
 
-for _name in _CANONICAL_SUBMODULE_NAMES:
-    _canon = importlib.import_module(_LEGACY_BY_CANONICAL[_name])
-    globals()[_name] = _canon
-    sys.modules.setdefault(f"obsidiandroid.labeling.{_name}", _canon)
+def __getattr__(name: str):
+    if name not in _LEGACY_BY_CANONICAL:
+        raise AttributeError(name)
+    mod = importlib.import_module(_LEGACY_BY_CANONICAL[name])
+    globals()[name] = mod
+    sys.modules.setdefault(f"obsidiandroid.labeling.{name}", mod)
+    return mod
+
+
+def __dir__() -> list[str]:
+    return sorted(list(globals().keys()) + list(_LEGACY_BY_CANONICAL.keys()))
 
 __all__ = list(_CANONICAL_SUBMODULE_NAMES)
-
-del _CANONICAL_SUBMODULE_NAMES, _LEGACY_BY_CANONICAL, _name, _canon
-"""Reserved for labeling utilities (see migration plan)."""

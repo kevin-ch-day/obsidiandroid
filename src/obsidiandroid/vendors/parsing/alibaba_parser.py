@@ -4,7 +4,7 @@
 from typing import Dict, Optional
 from .parser_defaults import ParserDefaults
 from . import parser_confidence_estimator
-from model.parsing.parsed_label_metadata import ParsedLabelMetadata
+from obsidiandroid.vendors.contracts.parsed_label_metadata import ParsedLabelMetadata
 
 # Known families for normalization
 KNOWN_FAMILIES = {

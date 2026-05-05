@@ -2,8 +2,8 @@
 # Description: Record builder and validation logic for AV vendor classification records
 
 from typing import List, Dict
-from model.vendor.record_core import VendorClassificationRecord
-from model.parsing.parsed_label_metadata import ParsedLabelMetadata
+from .record_core import VendorClassificationRecord
+from .parsed_label_metadata import ParsedLabelMetadata
 from model.utils.metadata_normalizer import ParsedMetadataNormalizer as Norm
 from obsidiandroid.cli.ui import display as du
 

@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from ml_classification.builder import prediction_utils
-from ml_classification.common.malware_family_constants import (
+from obsidiandroid.labeling.taxonomy import (
     canonicalize_family_label,
     is_known_family_name,
     normalize_family_name,
