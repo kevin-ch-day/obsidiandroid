@@ -8,6 +8,8 @@ from typing import Any
 
 import pandas as pd
 
+from obsidiandroid.diagnostics.split_ledger_resolve import resolve_split_freeze_csv
+
 
 def _sample_year(series: pd.Series) -> pd.Series:
     dt = pd.to_datetime(series, errors="coerce", utc=True)
@@ -84,9 +86,9 @@ def write_temporal_validity_audit(
             if isinstance(ym, int) and ym >= 2026:
                 suspicious.append(f"{r['family_canonical']} max_year>=2026 while profile may cap 2025")
 
-    split_path = diagnostics_dir / f"split_freeze_audit_{run_id}.csv"
-    if not split_path.exists():
-        split_path = diagnostics_dir / "split_freeze_audit.latest.csv"
+    split_path = resolve_split_freeze_csv(diagnostics_dir, run_id)
+    if split_path is None:
+        split_path = diagnostics_dir / f"split_freeze_audit_{run_id}.csv"
     mix_rows: list[dict[str, Any]] = []
     if split_path.exists() and year_series is not None and "sample_id" in s.columns:
         try:

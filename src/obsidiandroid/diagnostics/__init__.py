@@ -21,7 +21,10 @@ from . import feature_column_survival_export
 from . import feature_lineage_report
 from . import feature_matrix_gap_lineage
 from . import fused_permission_matrix_audit
+from . import headline_evaluation_export
 from . import output_artifact_policy
+from . import rf_feature_importance_export
+from . import split_ledger_resolve
 from . import output_inventory
 from . import permission_training_survival_audit
 
@@ -40,9 +43,12 @@ __all__ = [
     "feature_lineage_report",
     "feature_matrix_gap_lineage",
     "fused_permission_matrix_audit",
+    "headline_evaluation_export",
     "hostile_audit",
     "output_artifact_policy",
+    "split_ledger_resolve",
     "output_inventory",
     "permission_training_survival_audit",
+    "rf_feature_importance_export",
     "research_validity",
 ]

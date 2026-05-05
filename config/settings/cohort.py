@@ -13,3 +13,8 @@ RANDOM_STATE = 42
 AUTO_ADJUST_TRAIN_TEST_SPLIT = True
 MIN_TEST_SAMPLES_PER_CLASS = 2
 
+# Prefer ``sklearn.model_selection.GroupShuffleSplit`` when runtime metadata exposes
+# package_name / sha256 lineage (train/test shards never share a lineage group).
+# Headline-only: ablations keep stratified label splits for comparability tooling.
+ENABLE_GROUP_AWARE_TRAIN_TEST_SPLIT = False
+

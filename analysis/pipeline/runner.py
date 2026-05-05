@@ -245,6 +245,7 @@ def run_pipeline(
     pipeline_started_at = perf_counter()
     stage_timings_sec: dict[str, float] = {}
     current_stage_name: str | None = None
+    active_perf_stage_start: float | None = None
     last_completed_stage: str | None = None
     preflight_path: Path | None = None
     preflight_payload: dict[str, Any] = {}
@@ -334,8 +335,9 @@ def run_pipeline(
 
     def _begin_stage(stage_name: str) -> None:
         """Track the active stage for failure reporting."""
-        nonlocal current_stage_name
+        nonlocal current_stage_name, active_perf_stage_start
         current_stage_name = stage_name
+        active_perf_stage_start = perf_counter()
         manifest_context["current_stage"] = stage_name
         manifest_context["_active_stage_wall_start_iso"] = datetime.now(timezone.utc).isoformat()
         obs_begin = manifest_context.get("pipeline_observability")
@@ -1183,7 +1185,7 @@ def run_pipeline(
         manifest_context["_aligned_feature_cols"] = int(aligned_feature_df.shape[1])
         obs_al = manifest_context.get("pipeline_observability")
         if isinstance(obs_al, PipelineObservabilitySession):
-            split_audit_guess = str(Path(DIAGNOSTICS_DIR) / f"split_freeze_audit_{run_id}.csv")
+            split_audit_guess = str(Path(DIAGNOSTICS_DIR) / f"split_freeze_headline_{run_id}.csv")
             obs_al.log_population_transition(
                 transition="fused_features_to_aligned_supervised",
                 previous_count=int(fused_rows),
@@ -1197,7 +1199,7 @@ def run_pipeline(
             previous_count=int(fused_rows),
             new_count=int(len(aligned_feature_df)),
             reason="explicit feature-matrix→aligned labeling view (matches fusion→alignment drop)",
-            artifact_path=str(Path(DIAGNOSTICS_DIR) / f"split_freeze_audit_{run_id}.csv"),
+            artifact_path=str(Path(DIAGNOSTICS_DIR) / f"split_freeze_headline_{run_id}.csv"),
         )
         _record_stage_timing(
             "alignment",
@@ -1254,7 +1256,12 @@ def run_pipeline(
         top_model_for_policy = None
         if isinstance(model_summary, dict):
             top_model_for_policy = str(model_summary.get("top_model") or "").strip() or None
-        split_meta = getattr(app_config, "RUNTIME_SPLIT_METADATA", None)
+        headline_split = getattr(app_config, "RUNTIME_HEADLINE_SPLIT_METADATA", None)
+        split_meta = (
+            headline_split
+            if isinstance(headline_split, dict) and headline_split.get("split_audit_path")
+            else getattr(app_config, "RUNTIME_SPLIT_METADATA", None)
+        )
         split_audit_path_str = ""
         if isinstance(split_meta, dict):
             manifest_context["split"] = dict(split_meta)
@@ -1265,6 +1272,17 @@ def run_pipeline(
                 split_audit_path_str = split_audit_path
                 if split_audit_path not in artifact_list:
                     artifact_list.append(split_audit_path)
+        manifest_context["label_authority"] = {
+            "training_label_field": str(
+                getattr(app_config, "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD", "") or "family_id"
+            ),
+            "display_label_field": "family_canonical",
+            "label_selection_policy": "family_id_first",
+            "active_training_classes": getattr(
+                app_config, "RUNTIME_TRAINING_LABEL_CLASS_COUNT", None
+            ),
+            "cohort_family_count": int(getattr(app_config, "RUNTIME_COHORT_FAMILY_COUNT", 0) or 0),
+        }
         manifest_context["post_low_support_training_rows"] = getattr(
             app_config, "RUNTIME_POST_LOW_SUPPORT_TRAINING_ROWS", None
         )
@@ -1332,7 +1350,7 @@ def run_pipeline(
                         previous_count=int(aligned_n_obs),
                         new_count=int(post_ls_obs),
                         reason="RUNTIME_POST_LOW_SUPPORT_TRAINING_ROWS min-family/support mask",
-                        artifact_path=str(Path(DIAGNOSTICS_DIR) / f"split_freeze_audit_{run_id}.csv"),
+                        artifact_path=str(Path(DIAGNOSTICS_DIR) / f"split_freeze_headline_{run_id}.csv"),
                     )
             except Exception:
                 pass
@@ -1394,19 +1412,33 @@ def run_pipeline(
                 pipeline_results=pipeline_results,
                 manifest_context=manifest_context,
             )
-            manifest_context["_ablation_run_status_summary"] = (
-                f"PASS artifact_paths={len(ablation_artifacts)} (see ablation_summary_{run_id}.csv)"
-            )
+            outcome_path = Path(DIAGNOSTICS_DIR) / f"ablation_run_outcome_{run_id}.json"
+            outcome_status = "complete"
+            if outcome_path.is_file():
+                try:
+                    oc_payload = json.loads(outcome_path.read_text(encoding="utf-8"))
+                    outcome_status = str(oc_payload.get("ablation_grid_status") or "complete").strip().lower()
+                except Exception:
+                    outcome_status = "complete"
             summ = Path(DIAGNOSTICS_DIR) / f"ablation_summary_{run_id}.csv"
-            if not summ.exists():
-                summ = Path(DIAGNOSTICS_DIR) / "ablation_summary.latest.csv"
+            if not summ.is_file():
+                alt_partial = Path(DIAGNOSTICS_DIR) / f"ablation_summary_partial_{run_id}.csv"
+                if alt_partial.is_file():
+                    summ = alt_partial
+                else:
+                    summ = Path(DIAGNOSTICS_DIR) / "ablation_summary.latest.csv"
+            manifest_context["_ablation_run_status_summary"] = (
+                f"artifact_paths={len(ablation_artifacts)} ablation_grid_status={outcome_status} "
+                f"summary={summ.name}"
+            )
             obs_ab = manifest_context.get("pipeline_observability")
             if isinstance(obs_ab, PipelineObservabilitySession):
                 obs_ab.emit_jsonl(
                     LogCategory.ABLATION_STATUS,
                     severity=LogSeverity.INFO,
-                    message="ablation_complete",
+                    message="ablation_complete" if outcome_status == "complete" else "ablation_outcome",
                     ablation_summary_path=str(summ),
+                    ablation_grid_status=str(outcome_status),
                 )
             _record_stage_timing(
                 "ablation",
@@ -1570,6 +1602,36 @@ def run_pipeline(
         _write_preflight(status="pass")
         return _finalize_with_manifest_timing()
 
+    except KeyboardInterrupt:
+        du.print_warning(
+            "[PIPELINE] KeyboardInterrupt — recording interrupted stage, then finalizing run manifest "
+            "(partial ablation artifacts may exist under diagnostics/)."
+        )
+        if current_stage_name and active_perf_stage_start is not None:
+            _record_stage_timing(
+                str(current_stage_name),
+                active_perf_stage_start,
+                stage_status="INTERRUPTED",
+                next_stage_allowed=False,
+                major_warnings="KeyboardInterrupt (operator or session)",
+            )
+        _mark_run_state(
+            "interrupted",
+            failure_reason="KeyboardInterrupt",
+            failed_stage=str(current_stage_name or "") or "unknown",
+        )
+        _write_preflight(status="interrupted", reason="KeyboardInterrupt")
+        try:
+            _attach_runtime_timing_context()
+        except Exception:
+            pass
+        if manifest_context.get("run_id"):
+            try:
+                _finalize_with_manifest_timing()
+            except Exception as fin_exc:
+                du.print_warning(f"[PIPELINE] Manifest finalization after interrupt failed: {fin_exc}")
+        return 130
+
     except Exception as e:
         error_text = str(e)
         obs_ex = manifest_context.get("pipeline_observability")
@@ -1582,6 +1644,18 @@ def run_pipeline(
             )
             if not fatalish:
                 obs_ex.add_warning(error_text[:2000], severity=LogSeverity.ERROR, stage_hint=str(current_stage_name))
+        if (
+            current_stage_name == "ablation"
+            and active_perf_stage_start is not None
+            and last_completed_stage != "ablation"
+        ):
+            _record_stage_timing(
+                "ablation",
+                active_perf_stage_start,
+                stage_status="FAIL",
+                next_stage_allowed=False,
+                major_warnings=error_text[:900],
+            )
         if error_text.startswith("[INTEGRITY]"):
             du.print_error("[INTEGRITY STOP]")
         else:
@@ -1591,6 +1665,8 @@ def run_pipeline(
             failure_reason=error_text,
             failed_stage=current_stage_name or last_completed_stage,
         )
+        if current_stage_name == "ablation":
+            manifest_context["_ablation_run_status_summary"] = f"FAIL: {error_text[:400]}"
         _write_preflight(status="failed", reason=str(e))
         manifest_context["integrity_error"] = error_text
 

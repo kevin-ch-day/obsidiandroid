@@ -16,6 +16,10 @@ GENERIC_MIN_SUPPORT = 30
 BANKER_PATTERN_CLUSTER_K = 3
 CONSENSUS_BOOTSTRAP_RESAMPLES = 2000
 ABLATION_MODEL_LIST = []
+# When True, ablations are suppressed if training model_list resolves to exactly one trainer.
+SKIP_ABLATIONS_FOR_SINGLE_MODEL = True
+# When False, methodology ablations only evaluate the canonical family-canonical headline target (faster).
+ENABLE_ABLATION_MULTI_LABEL_TARGETS = True
 ABLATION_REQUIRE_FROZEN_UNIVERSE = True
 ABLATION_MAX_MISMATCH_RATIO = 0.01
 

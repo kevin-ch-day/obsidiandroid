@@ -5,6 +5,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common.hash_utils import hash_payload
 
 TARGET_F1_THRESHOLD = 0.80
 
@@ -30,6 +31,12 @@ def compare_model_performance(results: dict) -> pd.DataFrame:
         du.print_error("No valid results dictionary provided. Aborting model comparison.")
         return pd.DataFrame()
 
+    headline_split_meta = getattr(app_config, "RUNTIME_HEADLINE_SPLIT_METADATA", None)
+    split_hash_contract = ""
+    if isinstance(headline_split_meta, dict):
+        split_hash_contract = str(headline_split_meta.get("split_hash", "") or "")
+    feature_hash_headline = str(getattr(app_config, "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH", "") or "")
+
     summary_rows = []
     for model_name, result in results.items():
         if not isinstance(result, dict):
@@ -44,6 +51,10 @@ def compare_model_performance(results: dict) -> pd.DataFrame:
         try:
             band = str(eval_data.get("accuracy_band", "N/A"))
             band = " ".join(band.replace("\r", " ").replace("\n", " ").split())
+            mdl = result.get("model") if isinstance(result, dict) else None
+            fit_h = ""
+            if mdl is not None and hasattr(mdl, "feature_names_in_"):
+                fit_h = hash_payload(sorted(str(x) for x in mdl.feature_names_in_))
             summary_rows.append(
                 {
                     "Model": model_name,
@@ -55,6 +66,9 @@ def compare_model_performance(results: dict) -> pd.DataFrame:
                     "Samples": eval_data.get("samples_tested", 0),
                     "Classes": eval_data.get("num_classes", "-"),
                     "Band": band,
+                    "split_hash": split_hash_contract,
+                    "headline_feature_column_hash": feature_hash_headline,
+                    "fit_feature_column_hash": fit_h,
                 }
             )
         except Exception as exc:

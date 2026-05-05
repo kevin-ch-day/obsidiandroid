@@ -102,6 +102,9 @@ def run_predictions_and_compile_result(
             model_type=model_type,
             features_df=features_df,
         )
+        if bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)):
+            fit_h = str(schema_row.get("fit_feature_column_hash") or "")
+            setattr(app_config, "RUNTIME_LAST_FIT_FEATURE_COLUMN_HASH", fit_h)
         feature_schema_audit.append_ablation_schema_audit_row(schema_row)
         if bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)):
             if not feature_schema_audit.schema_audit_passes(schema_row):

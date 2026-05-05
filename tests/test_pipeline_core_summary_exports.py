@@ -191,4 +191,6 @@ def test_run_classifier_pipeline_exports_leakage_pruning_audit(
     assert audit_path.exists()
     audit_df = pd.read_csv(audit_path)
     assert "reason_code" in audit_df.columns
-    assert "sample_id" in audit_df["column_name"].tolist()
+    names = audit_df["column_name"].tolist()
+    assert "sample_id" in names
+    assert "__summary__" in names

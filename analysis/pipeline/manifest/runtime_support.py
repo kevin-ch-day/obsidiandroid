@@ -189,5 +189,9 @@ def build_manifest_payload(
         "manifest_schema_version": run_manifest.MANIFEST_SCHEMA_VERSION,
         "db_query_contract": manifest_context.get("db_query_contract", {}),
         "trained_models": [],
+        "training_provenance": dict(
+            getattr(app_config, "RUNTIME_TRAINING_PROVENANCE_SUMMARY", {})
+            or {}
+        ),
     }
 

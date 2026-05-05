@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
+import json
 from pathlib import Path
 from typing import Any
 import shutil
@@ -18,6 +19,7 @@ from obsidiandroid.features import feature_vector_builder
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
+from obsidiandroid.common.hash_utils import hash_payload
 
 from obsidiandroid.diagnostics import ablation_cohort_diagnostics
 from obsidiandroid.common import output_hygiene as oh
@@ -429,7 +431,11 @@ def _copy_confusion_matrix_artifact(
     run_scoped_token = str(Path("runs") / run_id).replace("\\", "/").lower()
     if run_scoped_token in str(src).replace("\\", "/").lower():
         return str(src)
-    out_dir = Path(app_config.DEFAULT_OUTPUT_DIR) / "conf_matrices"
+    rr = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
+    if rr:
+        out_dir = Path(rr) / "conf_matrices"
+    else:
+        out_dir = Path(app_config.DEFAULT_OUTPUT_DIR) / "runs" / run_id / "conf_matrices"
     out_dir.mkdir(parents=True, exist_ok=True)
     exp_slug = f"{experiment}__lt_{label_target}" if label_target else experiment
     dst = out_dir / f"confusion_matrix_{run_id}__{exp_slug}__{model_name}.png"
@@ -454,6 +460,26 @@ def _collect_experiment_rows(
         evaluation = result.get("evaluation", {}) if isinstance(result, dict) else {}
         metadata = result.get("metadata", {}) if isinstance(result, dict) else {}
         class_report = metadata.get("classification_report", {}) if isinstance(metadata, dict) else {}
+        idx = getattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", None)
+        row_ledger: dict[str, Any] = {}
+        if isinstance(idx, dict):
+            row_ledger = dict(
+                idx.get((str(run_id), str(experiment), str(label_target), str(model_name))) or {}
+            )
+        mdl = result.get("model")
+        fit_h = ""
+        if mdl is not None and hasattr(mdl, "feature_names_in_"):
+            fit_h = hash_payload(sorted(str(x) for x in mdl.feature_names_in_))
+        cm_path_raw = _copy_confusion_matrix_artifact(
+            source_path=evaluation.get("confusion_matrix_path"),
+            run_id=run_id,
+            experiment=experiment,
+            model_name=model_name,
+            label_target=None if label_target == "family_canonical_default" else label_target,
+        )
+        cm_p = Path(cm_path_raw) if cm_path_raw else None
+        matrix_retained = bool(cm_p is not None and cm_p.is_file())
+        matrix_status = "materialized" if matrix_retained else ("missing" if not cm_path_raw else "pruned_or_missing")
         summary_rows.append(
             {
                 "experiment": experiment,
@@ -464,13 +490,12 @@ def _collect_experiment_rows(
                 "macro_precision": evaluation.get("macro_precision"),
                 "macro_recall": evaluation.get("macro_recall"),
                 "samples_tested": evaluation.get("samples_tested"),
-                "confusion_matrix_path": _copy_confusion_matrix_artifact(
-                    source_path=evaluation.get("confusion_matrix_path"),
-                    run_id=run_id,
-                    experiment=experiment,
-                    model_name=model_name,
-                    label_target=None if label_target == "family_canonical_default" else label_target,
-                ),
+                "split_hash": row_ledger.get("split_hash"),
+                "split_ledger_path": row_ledger.get("split_audit_path"),
+                "feature_column_hash": fit_h,
+                "confusion_matrix_path": cm_path_raw,
+                "matrix_retained": int(matrix_retained),
+                "matrix_path_status": matrix_status,
             }
         )
 
@@ -534,7 +559,14 @@ def run_ablation_experiments(
     manifest_context: dict[str, Any] | None = None,
 ) -> list[str]:
     """Run methodology ablations and export summary artifacts."""
-    selected_models = list(model_list or getattr(app_config, "ABLATION_MODEL_LIST", []) or [])
+    ablation_model_override = getattr(app_config, "ABLATION_MODEL_LIST", None)
+    if isinstance(ablation_model_override, list) and len(ablation_model_override) > 0:
+        selected_models = [str(m).strip() for m in ablation_model_override if str(m).strip()]
+    else:
+        selected_models = list(model_list or []) or []
+    if not selected_models:
+        du.print_warning("[ABLATION] No models resolved for ablations (check model_list / ablation_model_list).")
+        return artifact_paths
     ablation_cv_enabled = bool(getattr(app_config, "ENABLE_ABLATION_CROSS_VALIDATION", False))
     ablation_save_models = bool(getattr(app_config, "ENABLE_ABLATION_MODEL_EXPORT", False))
     artifact_paths: list[str] = []
@@ -730,13 +762,28 @@ def run_ablation_experiments(
     setattr(app_config, "RUNTIME_QUIET_TRAINING", True)
     setattr(app_config, "RUNTIME_ABLATION_ACTIVE", True)
     setattr(app_config, "RUNTIME_ABLATION_SCHEMA_AUDIT_ROWS", [])
+    setattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", {})
+
+    audit_cols = [
+        "feature_set",
+        "model",
+        "fit_column_count",
+        "fit_feature_column_hash",
+        "predict_column_count",
+        "missing_at_predict_count",
+        "extra_at_predict_count",
+        "status",
+    ]
 
     schema_audit_snapshot: list[dict[str, Any]] = []
+    ablation_grid_exc: BaseException | None = None
     try:
         for experiment_name, feature_df in experiment_matrices.items():
             for label_slug, forced_col in label_targets:
                 combo_id = f"{experiment_name}__lt_{label_slug}"
                 try:
+                    setattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", experiment_name)
+                    setattr(app_config, "RUNTIME_ABLATION_LABEL_TARGET_SLUG", label_slug)
                     setattr(app_config, "RUNTIME_EXPERIMENT_ID", combo_id)
                     work_df = feature_df.copy()
                     if not reindex_zero_fill:
@@ -785,6 +832,16 @@ def run_ablation_experiments(
                     du.print_warning(f"[ABLATION] '{experiment_name}'/'{label_slug}' failed: {exc}")
                 finally:
                     setattr(app_config, "RUNTIME_EXPERIMENT_ID", "")
+                    setattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", "")
+    except BaseException as exc:
+        ablation_grid_exc = exc
+        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+            du.print_warning(
+                "[ABLATION] Interrupt/SystemExit inside ablation grid — schema audit "
+                "and partial summary (if any) will still be flushed."
+            )
+        else:
+            du.print_warning(f"[ABLATION] Ablation grid aborted by {type(exc).__name__}: {exc}")
     finally:
         raw_audit = getattr(app_config, "RUNTIME_ABLATION_SCHEMA_AUDIT_ROWS", None)
         if isinstance(raw_audit, list):
@@ -794,16 +851,10 @@ def run_ablation_experiments(
         setattr(app_config, "RUNTIME_QUIET_TRAINING", previous_quiet)
         setattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)
         setattr(app_config, "RUNTIME_ABLATION_SCHEMA_AUDIT_ROWS", [])
+        setattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", None)
+        setattr(app_config, "RUNTIME_ABLATION_LABEL_TARGET_SLUG", "")
+        setattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", "")
 
-    audit_cols = [
-        "feature_set",
-        "model",
-        "fit_column_count",
-        "predict_column_count",
-        "missing_at_predict_count",
-        "extra_at_predict_count",
-        "status",
-    ]
     audit_df = (
         pd.DataFrame(schema_audit_snapshot)
         if schema_audit_snapshot
@@ -811,36 +862,80 @@ def run_ablation_experiments(
     )
     if not audit_df.empty:
         audit_df = audit_df.reindex(columns=audit_cols)
+    else:
+        audit_df = pd.DataFrame(columns=audit_cols)
     audit_path = _diagnostics_dir() / "ablation_feature_schema_audit.csv"
     audit_df.to_csv(audit_path, index=False)
     artifact_paths.append(str(audit_path))
     du.print_info(f"[ABLATION] Feature schema audit: {audit_path}")
 
+    out_dir = _diagnostics_dir()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ablation_run = str(getattr(app_config, "RUNTIME_RUN_ID", run_id) or run_id)
+
+    grid_status = "complete"
+    if ablation_grid_exc is not None:
+        grid_status = "interrupted" if isinstance(ablation_grid_exc, (KeyboardInterrupt, SystemExit)) else "failed"
+    outcome_payload: dict[str, Any] = {
+        "run_id": ablation_run,
+        "ablation_grid_status": grid_status,
+        "exception_type": type(ablation_grid_exc).__name__ if ablation_grid_exc else "",
+        "exception_message": str(ablation_grid_exc) if ablation_grid_exc else "",
+        "summary_row_count": len(summary_rows),
+        "trainable_experiments": len(experiment_matrices),
+        "models": list(selected_models),
+    }
+    outcome_path = out_dir / f"ablation_run_outcome_{ablation_run}.json"
+    outcome_path.write_text(json.dumps(outcome_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    artifact_paths.append(str(outcome_path))
+
     if not summary_rows:
+        if ablation_grid_exc is not None:
+            du.print_warning("[ABLATION] No summary rows exported before abort (see ablation_run_outcome_*.json).")
+            raise ablation_grid_exc
         return artifact_paths
 
     summary_df = pd.DataFrame(summary_rows)
     summary_df = _apply_leakage_delta(summary_df)
     per_family_df = pd.DataFrame(per_family_rows)
-    out_dir = _diagnostics_dir()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    ablation_run = str(getattr(app_config, "RUNTIME_RUN_ID", run_id) or run_id)
     sum_csv = summary_df.to_csv(index=False)
+
+    summary_run_basename = f"ablation_summary_{ablation_run}.csv"
+    global_latest_name = "ablation_summary.latest.csv"
+    if ablation_grid_exc is not None:
+        summary_run_basename = f"ablation_summary_partial_{ablation_run}.csv"
+        # Do not overwrite a complete global latest snapshot with interrupted grid output.
+        global_latest_name = "ablation_summary_partial.latest.csv"
+
     summary_mirror = oh.mirror_csv_text_run_then_global(
         diagnostics_dir=out_dir,
-        run_filename=f"ablation_summary_{ablation_run}.csv",
+        run_filename=summary_run_basename,
         csv_text=sum_csv,
-        global_latest_name="ablation_summary.latest.csv",
+        global_latest_name=global_latest_name,
     )
     summary_path = summary_mirror[0]
+
+    summary_status_obs = "complete"
+    if ablation_grid_exc is not None:
+        summary_status_obs = "partial_before_abort"
+        du.print_warning(
+            f"[ABLATION] Partial methodology summary written ({summary_path}). "
+            "Evidence runs should rerun until ablation_grid_status=complete in ablation_run_outcome_*.json."
+        )
+
     _print_ablation_terminal_summary(summary_df)
     if not per_family_df.empty:
+        pf_basename = f"ablation_per_family_{ablation_run}.csv"
+        pf_latest = "ablation_per_family.latest.csv"
+        if ablation_grid_exc is not None:
+            pf_basename = f"ablation_per_family_partial_{ablation_run}.csv"
+            pf_latest = "ablation_per_family_partial.latest.csv"
         pf_csv = per_family_df.to_csv(index=False)
         pf_mirror = oh.mirror_csv_text_run_then_global(
             diagnostics_dir=out_dir,
-            run_filename=f"ablation_per_family_{ablation_run}.csv",
+            run_filename=pf_basename,
             csv_text=pf_csv,
-            global_latest_name="ablation_per_family.latest.csv",
+            global_latest_name=pf_latest,
         )
         artifact_paths.append(str(pf_mirror[0]))
     artifact_paths.extend([str(summary_path)])
@@ -855,7 +950,10 @@ def run_ablation_experiments(
             experiments_built=len(experiment_matrices),
             label_target_stats=label_stats_snapshot,
             summary_csv_path=str(summary_path),
+            summary_status=summary_status_obs,
         )
+    if ablation_grid_exc is not None:
+        raise ablation_grid_exc
     return artifact_paths
 
 

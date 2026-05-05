@@ -37,6 +37,8 @@ _TOP_MODULES = (
     "output_artifact_policy",
     "output_inventory",
     "permission_training_survival_audit",
+    "rf_feature_importance_export",
+    "split_ledger_resolve",
 )
 
 for _name in _TOP_MODULES:

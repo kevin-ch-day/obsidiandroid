@@ -181,6 +181,21 @@ def finalize_run_manifest_stage(
         )
         if contract_snapshot_path is not None and str(contract_snapshot_path) not in artifact_list:
             artifact_list.append(str(contract_snapshot_path))
+        eval_contract_path = _write_evaluation_contract_json(
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            manifest=manifest,
+            manifest_context=manifest_context,
+        )
+        if eval_contract_path is not None and str(eval_contract_path) not in artifact_list:
+            artifact_list.append(str(eval_contract_path))
+        taxonomy_auth_path = _write_taxonomy_authority_recommendation_md(
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            manifest_context=manifest_context,
+        )
+        if taxonomy_auth_path is not None and str(taxonomy_auth_path) not in artifact_list:
+            artifact_list.append(str(taxonomy_auth_path))
         artifact_index_path = _write_run_artifact_index(
             run_id=run_id,
             run_root=run_root,
@@ -884,9 +899,25 @@ def _write_experiment_contract_snapshot(
                 "source": str(paper_mode_data.get("source", "unknown")),
             },
             "target_task": {
-                "label_field": "family_canonical",
+                "training_label_field": "family_id",
+                "display_label_field": "family_canonical",
+                "label_selection_policy": "family_id_first",
+                "label_field_legacy": "family_canonical",
                 "task_type": "multiclass_classification",
                 "primary_metric": "macro_f1_mean_cv5",
+            },
+            "label_authority_reporting": {
+                "training_label_field": str(
+                    getattr(app_config, "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD", "") or ""
+                ).strip(),
+                "display_label_field": "family_canonical",
+                "label_selection_policy": "family_id_first",
+                "active_training_classes": getattr(
+                    app_config,
+                    "RUNTIME_TRAINING_LABEL_CLASS_COUNT",
+                    None,
+                ),
+                "cohort_family_count": int(getattr(app_config, "RUNTIME_COHORT_FAMILY_COUNT", 0) or 0),
             },
             "split_contract": {
                 "split_hash": split_hash,
@@ -939,6 +970,123 @@ def _write_experiment_contract_snapshot(
         return out_path
     except Exception as exc:
         du.print_warning(f"[SUMMARY] Failed to write experiment contract snapshot: {exc}")
+        return None
+
+
+def _write_evaluation_contract_json(
+    *,
+    diagnostics_dir: Path,
+    run_id: str,
+    manifest: dict[str, Any],
+    manifest_context: dict[str, Any],
+) -> Path | None:
+    """Stitch run-scoped pointers/hashes for headline evaluation evidence."""
+    try:
+        split_meta = manifest.get("split", {}) if isinstance(manifest, dict) else {}
+        label_block = {}
+        if isinstance(manifest_context, dict):
+            maybe = manifest_context.get("label_authority")
+            if isinstance(maybe, dict):
+                label_block = maybe
+        predictions_path = diagnostics_dir / f"headline_test_predictions_{run_id}.csv"
+        errors_path = diagnostics_dir / f"headline_test_errors_{run_id}.csv"
+        payload: dict[str, Any] = {
+            "schema_version": "1.0",
+            "run_id": str(run_id),
+            "split_contract": {
+                "split_hash": str(split_meta.get("split_hash", "") or ""),
+                "split_audit_path": str(split_meta.get("split_audit_path", "") or ""),
+                "split_key_hash": str(split_meta.get("split_key_hash", "") or ""),
+                "train_sample_hash": str(split_meta.get("train_sample_hash", "") or ""),
+                "test_sample_hash": str(split_meta.get("test_sample_hash", "") or ""),
+            },
+            "feature_contract": {
+                "headline_feature_column_hash": str(
+                    getattr(app_config, "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH", "") or ""
+                ),
+                "headline_feature_contract_path": str(
+                    getattr(app_config, "RUNTIME_HEADLINE_FEATURE_CONTRACT_PATH", "") or ""
+                ),
+            },
+            "label_authority": label_block,
+            "headline_test_tables": {
+                "predictions_csv": str(predictions_path),
+                "predictions_csv_exists": bool(predictions_path.is_file()),
+                "errors_csv": str(errors_path),
+                "errors_csv_exists": bool(errors_path.is_file()),
+            },
+        }
+        out_path = diagnostics_dir / f"evaluation_contract_{run_id}.json"
+        latest_path = diagnostics_dir / "evaluation_contract.latest.json"
+        text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+        out_path.write_text(text, encoding="utf-8")
+        latest_path.write_text(text, encoding="utf-8")
+        return out_path
+    except Exception as exc:
+        du.print_warning(f"[SUMMARY] evaluation_contract export skipped: {exc}")
+        return None
+
+
+def _write_taxonomy_authority_recommendation_md(
+    *,
+    diagnostics_dir: Path,
+    run_id: str,
+    manifest_context: dict[str, Any],
+) -> Path | None:
+    """Markdown analysis-only note for taxonomy / type_slug paper safety (no policy enforcement)."""
+    try:
+        mismatch_path = ""
+        if isinstance(manifest_context, dict):
+            mismatch_path = str(manifest_context.get("taxonomy_mismatch_csv", "") or "").strip()
+        lines = [
+            "# Taxonomy authority recommendation (analysis-only)",
+            "",
+            f"Run ID: `{run_id}`",
+            "",
+            "## Policy",
+            "",
+            "- Taxonomy mapping logic is unchanged in this pass; this file is reporting only.",
+            "- **type_slug** prevalence or type-level paper claims are **caution / not paper-safe** until a single authoritative type source is declared and reconciled.",
+            "",
+        ]
+        if not mismatch_path or not Path(mismatch_path).is_file():
+            lines.append("_No taxonomy mismatch export path recorded on this run._\n")
+        else:
+            df = pd.read_csv(mismatch_path)
+            lines.append(f"Source: `{mismatch_path}` — {len(df)} row(s)\n")
+            if not df.empty and "mismatch_reason" in df.columns:
+                lines.append("## Mismatch reasons (top counts)\n")
+                counts = df["mismatch_reason"].fillna("unknown").astype(str).value_counts().head(15)
+                for reason, cnt in counts.items():
+                    lines.append(f"- {reason}: {int(cnt)}")
+                lines.append("")
+            if not df.empty and {"type_slug", "type_slug_expected"} <= set(df.columns):
+                lines.append("## Top mismatch pairs (observed type_slug, expected type_slug)\n")
+                lines.append("| observed | expected | count |")
+                lines.append("| --- | --- | --- |")
+                pairs: dict[tuple[str, str], int] = {}
+                for ts, te in zip(
+                    df["type_slug"].fillna("").astype(str).str.strip().tolist(),
+                    df["type_slug_expected"].fillna("").astype(str).str.strip().tolist(),
+                ):
+                    pairs[(ts, te)] = pairs.get((ts, te), 0) + 1
+                sorted_pairs = sorted(pairs.items(), key=lambda kv: kv[1], reverse=True)[:25]
+                for (ts, te), cnt in sorted_pairs:
+                    lines.append(f"| `{ts}` | `{te}` | {int(cnt)} |")
+                lines.append("")
+            if not df.empty:
+                lines.append("## Paper-facing recommendation\n")
+                lines.append("")
+                lines.append("- **Treat type_slug-derived quantitative claims as paper-safe:** no (pending governance).")
+                lines.append("- **Suggested authority:** designate one authoritative type source for reporting; reconcile `type_mapping_mismatch` rows explicitly.\n")
+        body = "\n".join(lines).strip() + "\n"
+        out_path = diagnostics_dir / f"taxonomy_authority_recommendation_{run_id}.md"
+        latest_path = diagnostics_dir / "taxonomy_authority_recommendation.latest.md"
+        out_path.write_text(body, encoding="utf-8")
+        latest_path.write_text(body, encoding="utf-8")
+        return out_path
+    except Exception as exc:
+        du.print_warning(f"[SUMMARY] taxonomy_authority_recommendation skipped: {exc}")
         return None
 
 
@@ -1412,19 +1560,24 @@ def _find_primary_confusion_matrix(*, run_root: Path, top_model: str, evidence_m
     cm_dir = run_root / "conf_matrices"
     if not cm_dir.exists():
         return None
+    primary_stable = cm_dir / "confusion_matrix_primary.png"
+    if primary_stable.exists():
+        return primary_stable
+
+    rf_headline = cm_dir / "confusion_matrix_random_forest.png"
+    if rf_headline.exists():
+        return rf_headline
+
     if evidence_mode:
-        rf_candidate = cm_dir / "confusion_matrix_random_forest.png"
-        if rf_candidate.exists():
-            return rf_candidate
-        rf_suffix = list(cm_dir.glob("confusion_matrix_*random_forest*.png"))
+        rf_suffix = sorted(cm_dir.glob("confusion_matrix_*random_forest*.png"))
         if rf_suffix:
-            return sorted(rf_suffix)[0]
-    candidate = cm_dir / f"confusion_matrix_{top_model}.png"
-    if candidate.exists():
-        return candidate
-    with_suffix = list(cm_dir.glob(f"confusion_matrix_*{top_model}.png"))
-    if with_suffix:
-        return sorted(with_suffix)[0]
+            return rf_suffix[0]
+    tm = cm_dir / f"confusion_matrix_{top_model}.png"
+    if tm.exists():
+        return tm
+    prefixed = sorted(cm_dir.glob(f"confusion_matrix_*{top_model}*.png"))
+    if prefixed:
+        return prefixed[0]
     files = sorted(cm_dir.glob("confusion_matrix_*.png"))
     return files[0] if files else None
 
@@ -1512,6 +1665,11 @@ def _export_confusion_matrix_provenance(
         except Exception:
             test_samples = 0
 
+    headline_split = getattr(app_config, "RUNTIME_HEADLINE_SPLIT_METADATA", None)
+    split_h = ""
+    if isinstance(headline_split, dict):
+        split_h = str(headline_split.get("split_hash", "") or "")
+    feat_h = str(getattr(app_config, "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH", "") or "")
     provenance_df = pd.DataFrame(
         [
             {
@@ -1521,6 +1679,8 @@ def _export_confusion_matrix_provenance(
                 "test_sample_count": int(test_samples),
                 "trained_family_count": int(trained_family_count),
                 "confusion_matrix_path": str(conf_path.resolve()),
+                "split_hash": split_h,
+                "feature_column_hash": feat_h,
             }
         ]
     )

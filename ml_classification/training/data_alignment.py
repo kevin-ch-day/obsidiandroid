@@ -238,4 +238,5 @@ def extract_aligned_labels(
         top = labels.value_counts().head(5)
         du.print_stat("Top labels", ", ".join(f"{fam} ({cnt})" for fam, cnt in top.items()))
 
+    labels.name = str(label_col)
     return features, labels

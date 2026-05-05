@@ -474,6 +474,7 @@ def test_split_audit_cache_isolated_per_run_id(
         use_smote=False,
     )
     path_a = Path(str(getattr(app_config, "RUNTIME_SPLIT_AUDIT_PATH", "")))
+    legacy_a = path_a.parent / "split_freeze_audit_run_a.csv"
 
     monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "run_b", raising=False)
     model_trainer_factory.train_model_factory(
@@ -486,7 +487,8 @@ def test_split_audit_cache_isolated_per_run_id(
     )
     path_b = Path(str(getattr(app_config, "RUNTIME_SPLIT_AUDIT_PATH", "")))
 
-    assert path_a.name == "split_freeze_audit_run_a.csv"
-    assert path_b.name == "split_freeze_audit_run_b.csv"
+    assert path_a.name == "split_freeze_headline_run_a.csv"
+    assert path_b.name == "split_freeze_headline_run_b.csv"
     assert path_a.exists()
     assert path_b.exists()
+    assert legacy_a.exists()

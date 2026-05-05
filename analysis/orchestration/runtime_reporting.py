@@ -359,6 +359,10 @@ def apply_confusion_matrix_policy(run_id: str, top_model: str | None) -> None:
         du.print_warning("[CONFUSION] No primary confusion matrix resolved for pruning policy.")
         return
 
+    rf_stable = run_cm_dir / "confusion_matrix_random_forest.png"
+    if rf_stable.exists():
+        keep.add(rf_stable)
+
     removed = 0
     for path in files:
         if path in keep:

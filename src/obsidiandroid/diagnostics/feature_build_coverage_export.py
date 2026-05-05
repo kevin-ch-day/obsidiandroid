@@ -198,6 +198,10 @@ def export_feature_modality_coverage_audit(
         "governed_cohort_n": len(cohort_ids),
         "fused_matrix_row_n": len(idx_ids),
         "vendor_merge_n": len(vendor_ids),
+        "vendor_merge_n_note": (
+            "vendor_merge_n is the inner vendor-authority slice count before cohort expansion; "
+            "fused_matrix_row_n remains governed-cohort-authoritative (see feature_build_coverage JSON)."
+        ),
         "permission_pi_signal_positive_n": int(sum(perm_pi_positive.values())),
         "matrix_authority": feature_df.attrs.get("feature_matrix_row_authority", ""),
     }
@@ -354,6 +358,13 @@ def export_feature_build_coverage(
             "build_feature_vector (vendor-only rows are unknown/zero-filled; permissions/metadata come "
             "from the enrichment frame). See feature_vector_builder._expand_to_cohort_authoritative and "
             "_merge_extra_features."
+        ),
+        "vendor_merge_n_semantics": (
+            "vendor_merge_authority_unique_count (operator logs: vendor_merge_n) counts distinct sample_id "
+            "values that appear in the inner vendor-feature merge *before* cohort-authoritative reindex. "
+            "The fused feature matrix still emits one row per governed cohort sample_id; samples without a "
+            "vendor merge row keep vendor columns at unknown/zero-fill while permission/metadata columns "
+            "are joined from the enrichment frame."
         ),
     }
     auth = str(feature_df.attrs.get("feature_matrix_row_authority", "") or "")

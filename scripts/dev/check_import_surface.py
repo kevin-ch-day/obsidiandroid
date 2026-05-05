@@ -879,6 +879,8 @@ def main() -> int:
         "output_artifact_policy",
         "output_inventory",
         "permission_training_survival_audit",
+        "rf_feature_importance_export",
+        "split_ledger_resolve",
     )
     for name in _diag_names:
         canon_mod = importlib.import_module(f"obsidiandroid.diagnostics.{name}")

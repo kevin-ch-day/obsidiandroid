@@ -200,8 +200,10 @@ def _latest_run_has_provenance() -> bool:
         return False
     output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
     diagnostics = output_root / "runs" / run_id / "diagnostics"
+    split_ledger = diagnostics / f"split_freeze_headline_{run_id}.csv"
+    split_legacy = diagnostics / f"split_freeze_audit_{run_id}.csv"
     required = [
-        diagnostics / f"split_freeze_audit_{run_id}.csv",
+        split_ledger if split_ledger.exists() else split_legacy,
         diagnostics / f"run_paths_manifest_{run_id}.json",
         diagnostics / f"experiment_registry_{run_id}.json",
     ]

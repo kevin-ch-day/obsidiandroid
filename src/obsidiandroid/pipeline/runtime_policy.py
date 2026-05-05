@@ -27,6 +27,8 @@ RUNTIME_OVERRIDE_KEYS = (
     "ENABLE_MODEL_COMPARISON_EXCEL_EXPORT",
     "ENABLE_PERMISSION_FEATURES",
     "ENABLE_SAMPLE_METADATA_FEATURES",
+    "SKIP_ABLATIONS_FOR_SINGLE_MODEL",
+    "ENABLE_ABLATION_MULTI_LABEL_TARGETS",
     "EXPORT_ANALYSIS_SNAPSHOT",
     "EXPORT_ALIGNED_TRAINING_CACHE",
     "ENABLE_FEATURE_CONTRACT_EXPORT",
@@ -51,6 +53,16 @@ CROSS_RUN_ARTIFACT_POINTERS: dict[str, Any] = {
     "RUNTIME_SPLIT_METADATA": None,
     "RUNTIME_SPLIT_HASH": "",
     "RUNTIME_SPLIT_AUDIT_PATH": "",
+    "RUNTIME_HEADLINE_SPLIT_METADATA": None,
+    "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH": "",
+    "RUNTIME_HEADLINE_FIT_COLUMN_NAMES": None,
+    "RUNTIME_HEADLINE_FEATURE_CONTRACT_PATH": "",
+    "RUNTIME_LAST_FIT_FEATURE_COLUMN_HASH": "",
+    "RUNTIME_COHORT_ENCODER_MAPPINGS": None,
+    "RUNTIME_COHORT_FAMILY_COUNT": 0,
+    "RUNTIME_ABLATION_LABEL_TARGET_SLUG": "",
+    "RUNTIME_ABLATION_FEATURE_SET_NAME": "",
+    "RUNTIME_SPLIT_LEDGER_INDEX": None,
 }
 
 
@@ -90,6 +102,9 @@ def build_mutable_config_keys() -> set[str]:
         "RUNTIME_ALLOW_GLOBAL_ARTIFACTS",
         "RUNTIME_OUTPUT_ROOT_BASE",
         "OUTPUT_HYGIENE_MODE",
+        "ABLATION_MODEL_LIST",
+        "ENABLE_ABLATION_MULTI_LABEL_TARGETS",
+        "SKIP_ABLATIONS_FOR_SINGLE_MODEL",
         "ANALYSIS_SNAPSHOT_FILE",
         "ANALYSIS_SNAPSHOT_META_FILE",
         "ANALYSIS_SNAPSHOT_CONFLICT_FILE",
@@ -251,6 +266,16 @@ def apply_profile_runtime_policy(
             )
         ),
     )
+    setattr(
+        app_config,
+        "ENABLE_ABLATION_MULTI_LABEL_TARGETS",
+        bool(
+            feature_flags.get(
+                "enable_ablation_multi_label_targets",
+                getattr(app_config, "ENABLE_ABLATION_MULTI_LABEL_TARGETS", True),
+            )
+        ),
+    )
 
     runtime_overrides = profile.get("runtime_overrides", {}) if isinstance(profile, dict) else {}
     if isinstance(runtime_overrides, dict):
@@ -291,6 +316,21 @@ def apply_profile_runtime_policy(
                 f"[PROFILE] Applied {len(applied_parser_overrides)} parser override(s). "
                 "Set ML_CONSOLE_MODE=debug for per-key detail."
             )
+
+    if isinstance(profile, dict) and "ablation_model_list" in profile:
+        raw_abl = profile.get("ablation_model_list")
+        if raw_abl is None:
+            setattr(app_config, "ABLATION_MODEL_LIST", [])
+        elif not isinstance(raw_abl, list):
+            raise ValueError("[PROFILE] ablation_model_list must be a list or null when provided.")
+        else:
+            setattr(
+                app_config,
+                "ABLATION_MODEL_LIST",
+                [str(x).strip() for x in raw_abl if str(x).strip()],
+            )
+    else:
+        setattr(app_config, "ABLATION_MODEL_LIST", [])
 
     if ml_console.is_debug():
         hygiene_mode = "debug_audit"

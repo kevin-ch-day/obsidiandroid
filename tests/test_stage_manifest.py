@@ -249,6 +249,13 @@ def test_write_experiment_contract_snapshot_creates_files(tmp_path: Path, monkey
     monkeypatch.setattr(stage_manifest.app_config, "CV_REPEATS", 1, raising=False)
     monkeypatch.setattr(stage_manifest.app_config, "RANDOM_STATE", 42, raising=False)
     monkeypatch.setattr(stage_manifest.app_config, "PAPER_MODE_ENABLED", True, raising=False)
+    monkeypatch.setattr(
+        stage_manifest.app_config, "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD", "family_id", raising=False
+    )
+    monkeypatch.setattr(
+        stage_manifest.app_config, "RUNTIME_TRAINING_LABEL_CLASS_COUNT", 19, raising=False
+    )
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_COHORT_FAMILY_COUNT", 39, raising=False)
 
     out_path = stage_manifest._write_experiment_contract_snapshot(  # pylint: disable=protected-access
         run_id="r2",
@@ -267,6 +274,8 @@ def test_write_experiment_contract_snapshot_creates_files(tmp_path: Path, monkey
     assert payload["model_contract"]["model_config_hash"] == "mhash"
     assert payload["model_contract"]["no_model_retuning_across_perturbations"] is True
     assert payload["experiment_series"]["series_id"]
+    assert payload["target_task"]["training_label_field"] == "family_id"
+    assert payload["label_authority_reporting"]["training_label_field"] == "family_id"
 
 
 def test_contract_snapshot_detects_model_config_drift_within_series(tmp_path: Path, monkeypatch) -> None:
@@ -443,7 +452,9 @@ def test_export_trained_family_registry_writes_expected_columns(tmp_path: Path, 
     assert included_count == 1
 
 
-def test_export_confusion_matrix_provenance_uses_test_set_metadata(tmp_path: Path) -> None:
+def test_export_confusion_matrix_provenance_uses_test_set_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     run_root = tmp_path / "output" / "runs" / "r1"
     diagnostics_dir = run_root / "diagnostics"
     cm_dir = run_root / "conf_matrices"
@@ -451,10 +462,19 @@ def test_export_confusion_matrix_provenance_uses_test_set_metadata(tmp_path: Pat
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     cm_dir.mkdir(parents=True, exist_ok=True)
     model_dir.mkdir(parents=True, exist_ok=True)
-    (cm_dir / "confusion_matrix_random_forest.png").write_bytes(b"png")
+    (cm_dir / "confusion_matrix_primary.png").write_bytes(b"png")
     (model_dir / "random_forest_classifier_model_metadata.json").write_text(
         json.dumps({"evaluation": {"samples_tested": 123}}),
         encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        stage_manifest.app_config,
+        "RUNTIME_HEADLINE_SPLIT_METADATA",
+        {"split_hash": "aa" * 32},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stage_manifest.app_config, "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH", "feat_h", raising=False
     )
 
     out_path = stage_manifest._export_confusion_matrix_provenance(  # pylint: disable=protected-access
@@ -473,6 +493,9 @@ def test_export_confusion_matrix_provenance_uses_test_set_metadata(tmp_path: Pat
     assert row["eval_source"] == "test_set"
     assert int(row["test_sample_count"]) == 123
     assert int(row["trained_family_count"]) == 19
+    assert str(row["split_hash"]) == "aa" * 32
+    assert str(row["feature_column_hash"]) == "feat_h"
+    assert row["confusion_matrix_path"].endswith("confusion_matrix_primary.png")
 
 
 def test_build_cohort_limitation_summary_computes_key_shares(monkeypatch) -> None:
@@ -538,8 +561,9 @@ def test_build_strict_paper2_exports_creates_registries(tmp_path: Path, monkeypa
         encoding="utf-8",
     )
     (diagnostics_dir / f"confusion_matrix_provenance_{run_id}.csv").write_text(
-        "run_id,model_name,eval_source,test_sample_count,trained_family_count,confusion_matrix_path\n"
-        f"{run_id},random_forest,test_set,100,12,{(run_root / 'conf_matrices' / 'confusion_matrix_random_forest.png').as_posix()}\n",
+        "run_id,model_name,eval_source,test_sample_count,trained_family_count,"
+        "confusion_matrix_path,split_hash,feature_column_hash\n"
+        f"{run_id},random_forest,test_set,100,12,{(run_root / 'conf_matrices' / 'confusion_matrix_random_forest.png').as_posix()},,\n",
         encoding="utf-8",
     )
     (run_root / "conf_matrices" / "confusion_matrix_random_forest.png").write_bytes(b"d")
@@ -693,8 +717,9 @@ def test_build_strict_paper2_exports_writes_machine_manifest(tmp_path: Path, mon
         encoding="utf-8",
     )
     (diagnostics_dir / f"confusion_matrix_provenance_{run_id}.csv").write_text(
-        "run_id,model_name,eval_source,test_sample_count,trained_family_count,confusion_matrix_path\n"
-        f"{run_id},random_forest,test_set,100,12,{(run_root / 'conf_matrices' / 'confusion_matrix_random_forest.png').as_posix()}\n",
+        "run_id,model_name,eval_source,test_sample_count,trained_family_count,"
+        "confusion_matrix_path,split_hash,feature_column_hash\n"
+        f"{run_id},random_forest,test_set,100,12,{(run_root / 'conf_matrices' / 'confusion_matrix_random_forest.png').as_posix()},,\n",
         encoding="utf-8",
     )
     (run_root / "conf_matrices" / "confusion_matrix_random_forest.png").write_bytes(b"d")
@@ -830,8 +855,9 @@ def test_build_strict_paper2_exports_cleans_temp_on_late_validation_failure(
         encoding="utf-8",
     )
     (diagnostics_dir / f"confusion_matrix_provenance_{run_id}.csv").write_text(
-        "run_id,model_name,eval_source,test_sample_count,trained_family_count,confusion_matrix_path\n"
-        f"{run_id},random_forest,test_set,100,1,{(run_root / 'conf_matrices' / 'confusion_matrix_random_forest.png').as_posix()}\n",
+        "run_id,model_name,eval_source,test_sample_count,trained_family_count,"
+        "confusion_matrix_path,split_hash,feature_column_hash\n"
+        f"{run_id},random_forest,test_set,100,1,{(run_root / 'conf_matrices' / 'confusion_matrix_random_forest.png').as_posix()},,\n",
         encoding="utf-8",
     )
     (run_root / "conf_matrices" / "confusion_matrix_random_forest.png").write_bytes(b"d")

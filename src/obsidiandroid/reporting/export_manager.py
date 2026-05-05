@@ -759,6 +759,17 @@ def export_confusion_matrix(
         dpi=300,
         verbose=bool(not quiet and not ml_console.is_minimal()),
     )
+    headline_ctx = not bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
+    canon_rf = output_path.parent / "confusion_matrix_random_forest.png"
+    if headline_ctx and model_token == "random_forest":
+        try:
+            src_path = Path(str(exported_path)).resolve()
+            dst_path = canon_rf.resolve()
+            if dst_path != src_path:
+                shutil.copyfile(src_path, dst_path)
+            exported_path = str(dst_path)
+        except Exception:
+            pass
     return exported_path
 
 # === Specialized Export Functions ===

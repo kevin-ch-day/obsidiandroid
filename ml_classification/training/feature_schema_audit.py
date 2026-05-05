@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common.hash_utils import hash_payload
 
 
 def build_ablation_schema_audit_row(
@@ -44,6 +45,10 @@ def build_ablation_schema_audit_row(
         missing = extra = 0
         status = "OK" if fit_count == pred_count else "feature_count_mismatch"
 
+    fit_hash = ""
+    if fit_names is not None:
+        fit_hash = hash_payload(sorted(str(x) for x in fit_names))
+
     return {
         "feature_set": str(getattr(app_config, "RUNTIME_EXPERIMENT_ID", "") or ""),
         "model": model_type,
@@ -52,6 +57,7 @@ def build_ablation_schema_audit_row(
         "missing_at_predict_count": missing,
         "extra_at_predict_count": extra,
         "status": status,
+        "fit_feature_column_hash": fit_hash,
     }
 
 

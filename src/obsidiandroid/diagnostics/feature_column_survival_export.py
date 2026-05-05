@@ -29,6 +29,19 @@ def nonzero_counts_for_columns(features_df: pd.DataFrame | None) -> dict[str, in
     return out
 
 
+def _unknown_sentinel_code(column_name: str, encoder_mappings: dict[str, Any]) -> int | None:
+    col_map = encoder_mappings.get(column_name) or {}
+    if not isinstance(col_map, dict):
+        return None
+    for key in ("unknown", "Unknown", "UNKNOWN", "none", "None"):
+        if key in col_map:
+            try:
+                return int(col_map[key])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
 def infer_feature_modality(column_name: str, feature_attrs: dict[str, Any] | None) -> str:
     """Assign a coarse modality label for reporting."""
     c = str(column_name)
@@ -54,6 +67,7 @@ def export_feature_column_survival_matrix(
     run_id: str,
     feature_attrs: dict[str, Any] | None,
     enabled: bool | None = None,
+    final_features_df: pd.DataFrame | None = None,
 ) -> Path | None:
     """Write a CSV describing each feature column's survival through pruning stages.
 
@@ -81,6 +95,11 @@ def export_feature_column_survival_matrix(
     leak_audit = getattr(app_config, "RUNTIME_LEAKAGE_PRUNING_AUDIT", None) or []
     leak_drop = {str(row.get("column_name")) for row in leak_audit if row.get("column_name")}
 
+    encoder_mappings: dict[str, Any] = {}
+    merged = getattr(app_config, "RUNTIME_COHORT_ENCODER_MAPPINGS", None)
+    if isinstance(merged, dict):
+        encoder_mappings = merged
+
     universe = sorted(nz_cohort.keys())
     rows: list[dict[str, Any]] = []
     for name in universe:
@@ -94,6 +113,23 @@ def export_feature_column_survival_matrix(
         d_leak = name in leak_drop
         in_final = isinstance(nz_final, dict) and name in nz_final
         retained = bool(in_final)
+
+        unk_code = _unknown_sentinel_code(str(name), encoder_mappings)
+
+        numeric_fin = n_fin
+        meaningful_fin: int | None = None
+        unknown_rows_fin: int | None = None
+        if retained and isinstance(final_features_df, pd.DataFrame) and name in final_features_df.columns:
+            ser = pd.to_numeric(final_features_df[name], errors="coerce").fillna(0)
+            numeric_fin = int((ser != 0).sum())
+            if unk_code is not None:
+                unknown_rows_fin = int((ser == unk_code).sum())
+                meaningful_fin = int(((ser != 0) & (ser != unk_code)).sum())
+            else:
+                meaningful_fin = numeric_fin
+        elif retained:
+            meaningful_fin = n_fin
+
         rows.append(
             {
                 "feature_name": name,
@@ -107,6 +143,10 @@ def export_feature_column_survival_matrix(
                 "dropped_by_leakage_prune": d_leak,
                 "retained_for_training": retained,
                 "nonzero_count_final_training": n_fin if retained else None,
+                "numeric_nonzero_count_final_training": numeric_fin if retained else None,
+                "meaningful_nonzero_count_final_training": meaningful_fin,
+                "unknown_sentinel_code": unk_code if retained and unk_code is not None else None,
+                "unknown_value_row_count_final_training": unknown_rows_fin,
             }
         )
 

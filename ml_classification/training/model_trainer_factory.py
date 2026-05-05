@@ -4,13 +4,15 @@
 
 from collections import Counter
 import hashlib
+import json
+import re
 from pathlib import Path
 from typing import Any, Dict, Union
 
 from obsidiandroid.cli.ui import display as du
 
 import pandas as pd
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GroupShuffleSplit, train_test_split
 from sklearn.preprocessing import LabelEncoder
 import numpy as np
 
@@ -65,6 +67,8 @@ def _build_split_cache_key(
     encoded_labels: np.ndarray,
     test_size: float,
     random_state: int,
+    *,
+    group_aware_requested: bool,
 ) -> tuple:
     """Build a deterministic cache key for train/test split reuse."""
     index_hash = int(
@@ -77,6 +81,11 @@ def _build_split_cache_key(
     # indices — otherwise later experiments would train on the wrong feature columns.
     ablation_lock = bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
     n_features_key = 0 if ablation_lock else int(features_df.shape[1])
+    group_token = (
+        int(1)
+        if (group_aware_requested and not ablation_lock)
+        else int(0)
+    )
     return (
         int(len(features_df)),
         n_features_key,
@@ -86,6 +95,7 @@ def _build_split_cache_key(
         int(random_state),
         bool(getattr(app_config, "AUTO_ADJUST_TRAIN_TEST_SPLIT", False)),
         int(getattr(app_config, "MIN_TEST_SAMPLES_PER_CLASS", 1)),
+        group_token,
     )
 
 
@@ -137,14 +147,70 @@ def _derive_year(frame: pd.DataFrame) -> pd.Series:
     return pd.Series([None] * len(frame), index=frame.index)
 
 
+def _filename_slug(value: str, max_len: int = 64) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", str(value).strip())
+    cleaned = cleaned.strip("_") or "unknown"
+    return cleaned[:max_len]
+
+
+def _split_key_hash(split_cache_key: tuple[Any, ...]) -> str:
+    payload = json.dumps(list(split_cache_key), default=str, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _build_lineage_groups_for_split(features_df: pd.DataFrame) -> tuple[np.ndarray | None, str]:
+    """Assign integer group IDs for package lineage (fallback: sha256, then sample_id)."""
+    meta = _runtime_sample_metadata()
+    if meta.empty or "sample_id" not in meta.columns:
+        return None, "no_runtime_metadata"
+    sid_numeric = pd.to_numeric(features_df.index, errors="coerce")
+    if sid_numeric.isna().any():
+        return None, "non_numeric_feature_index"
+    bridge = pd.DataFrame({"sample_id": sid_numeric.astype(int).values}, index=features_df.index)
+    merged = bridge.merge(meta, on="sample_id", how="left")
+    merged["sha256"] = merged.get("sha256", pd.Series([""] * len(merged))).fillna("").astype(str).str.strip().str.lower()
+    pkg_col = merged.get("package_name")
+    if pkg_col is None:
+        merged["package_name"] = ""
+    else:
+        merged["package_name"] = pkg_col.fillna("").astype(str).str.strip().str.lower()
+
+    def _gid(row: pd.Series) -> str:
+        if str(row["package_name"]).strip():
+            return f"pkg:{row['package_name']}"
+        if str(row["sha256"]).strip():
+            return f"sha:{row['sha256']}"
+        return f"sid:{int(row['sample_id'])}"
+
+    g_series = merged.apply(_gid, axis=1)
+    if g_series.nunique() < 2:
+        return None, "degenerate_lineage_groups"
+    codes, _ = pd.factorize(g_series)
+    return codes.astype(np.int64), "ok"
+
+
+def _partition_sample_hash(rows: list[dict[str, str | int]]) -> str:
+    rows_sorted = sorted(rows, key=lambda item: (str(item["sha256"]), int(item["sample_id"])))
+    canonical_bytes = canonicalization.canonical_csv_bytes(
+        rows=rows_sorted,
+        fieldnames=["sample_id", "sha256"],
+    )
+    return hashlib.sha256(canonical_bytes).hexdigest()
+
+
 def _export_split_audit(
     *,
-    split_cache_key: tuple,
+    split_cache_key: tuple[Any, ...],
     sample_ids_train: list[int],
     sample_ids_test: list[int],
     random_state: int,
+    model_type: str,
+    active_class_count: int,
+    label_field: str,
+    label_target_slug: str,
+    feature_set_token: str,
 ) -> None:
-    """Export deterministic split audit and publish split hash runtime metadata."""
+    """Export deterministic split ledger(s) and publish split hash runtime metadata."""
     run_id = _runtime_training_run_id()
     runtime_dir = str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "").strip()
     if runtime_dir:
@@ -153,14 +219,40 @@ def _export_split_audit(
         out_dir = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output"))) / "diagnostics"
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    ablation = bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
+    ledger_kind = "ablation" if ablation else "headline"
+    ledger_scope: tuple[Any, ...] = (
+        ("ablation", str(feature_set_token), str(label_target_slug), str(model_type))
+        if ablation
+        else ("headline",)
+    )
+    split_key_hash = _split_key_hash(split_cache_key)
+
     run_state = _runtime_training_state()
     split_audit_cache = run_state.setdefault("split_audit_cache", {})
-    cache_key = (split_cache_key, str(out_dir.resolve()), run_id)
+    cache_key = (split_cache_key, str(out_dir.resolve()), run_id, ledger_scope)
     cached = split_audit_cache.get(cache_key)
     if cached is not None:
-        setattr(app_config, "RUNTIME_SPLIT_HASH", cached.get("split_hash"))
-        setattr(app_config, "RUNTIME_SPLIT_AUDIT_PATH", cached.get("split_audit_path"))
-        setattr(app_config, "RUNTIME_SPLIT_METADATA", dict(cached))
+        meta_copy = dict(cached)
+        setattr(app_config, "RUNTIME_SPLIT_HASH", meta_copy.get("split_hash"))
+        setattr(app_config, "RUNTIME_SPLIT_AUDIT_PATH", meta_copy.get("split_audit_path"))
+        setattr(app_config, "RUNTIME_SPLIT_METADATA", meta_copy)
+        _lk = meta_copy.get("ledger_kind")
+        if _lk in (None, "", "headline"):
+            setattr(app_config, "RUNTIME_HEADLINE_SPLIT_METADATA", dict(meta_copy))
+        if _lk == "ablation":
+            idx = getattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", None)
+            if not isinstance(idx, dict):
+                idx = {}
+            idx[
+                (
+                    run_id,
+                    str(meta_copy.get("feature_set", "")),
+                    str(meta_copy.get("label_target", "")),
+                    str(meta_copy.get("split_model_written_for", "")),
+                )
+            ] = dict(meta_copy)
+            setattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", idx)
         return
 
     paper_mode = bool(getattr(app_config, "PAPER_MODE_ENABLED", False))
@@ -206,15 +298,49 @@ def _export_split_audit(
     )
     split_hash = hashlib.sha256(canonical_bytes).hexdigest()
 
+    train_rows_pf: list[dict[str, str | int]] = []
+    test_rows_pf: list[dict[str, str | int]] = []
+    for row in canonical_rows:
+        if row["split_role"] == "train":
+            train_rows_pf.append({"sample_id": row["sample_id"], "sha256": row["sha256"]})
+        else:
+            test_rows_pf.append({"sample_id": row["sample_id"], "sha256": row["sha256"]})
+    train_sample_hash = _partition_sample_hash(train_rows_pf)
+    test_sample_hash = _partition_sample_hash(test_rows_pf)
+
     split_df["year"] = _derive_year(split_df)
-    for required_col in ("family_id", "family_name", "family_canonical"):
+    for required_col in ("family_id", "family_name", "family_canonical", "package_name"):
         if required_col not in split_df.columns:
             split_df[required_col] = None
+    def _lineage_gid_row(row: pd.Series) -> str:
+        pk = str(row.get("package_name", "")).strip().lower()
+        if pk:
+            return f"pkg:{pk}"
+        sha = str(row.get("sha256", "")).strip().lower()
+        if sha:
+            return f"sha:{sha}"
+        return f"sid:{int(row['sample_id'])}"
+
+    lineage_tokens = split_df.apply(_lineage_gid_row, axis=1)
+    split_df["split_lineage_group_id"] = lineage_tokens.map(
+        lambda tok: hashlib.sha256(str(tok).encode("utf-8")).hexdigest()[:16]
+    )
+    split_algorithm_effective = str(
+        getattr(app_config, "RUNTIME_LAST_SPLIT_ALGORITHM", "stratified_seeded") or "stratified_seeded"
+    )
     split_df["run_id"] = run_id
     split_df["split_hash"] = split_hash
     split_df["split_seed"] = int(random_state)
-    split_df["split_algorithm"] = "stratified_seeded"
-    split_df["split_algorithm_version"] = "1.0"
+    split_df["split_algorithm"] = split_algorithm_effective
+    split_df["split_algorithm_version"] = "1.1"
+    split_df["label_field"] = str(label_field)
+    split_df["label_target"] = str(label_target_slug)
+    split_df["active_class_count"] = int(active_class_count)
+    split_df["feature_set"] = str(feature_set_token)
+    split_df["model"] = str(model_type)
+    split_df["split_key_hash"] = split_key_hash
+    split_df["train_sample_hash"] = train_sample_hash
+    split_df["test_sample_hash"] = test_sample_hash
     train_sha = set(
         split_df.loc[(split_df["split_role"] == "train") & (split_df["sha256"] != ""), "sha256"].tolist()
     )
@@ -244,30 +370,76 @@ def _export_split_audit(
         "duplicate_sha_group_across_splits",
         "sha256_overlap_count",
         "sha256_overlap_across_split_flag",
+        "label_field",
+        "label_target",
+        "active_class_count",
+        "feature_set",
+        "model",
+        "split_key_hash",
+        "train_sample_hash",
+        "test_sample_hash",
     ]
     audit_df = split_df[audit_cols].sort_values(["sha256", "sample_id"]).reset_index(drop=True)
     audit_csv = audit_df.to_csv(index=False)
-    split_path = out_dir / f"split_freeze_audit_{run_id}.csv"
-    oh.mirror_csv_text_run_then_global(
-        diagnostics_dir=out_dir,
-        run_filename=split_path.name,
-        csv_text=audit_csv,
-        global_latest_name="split_freeze_audit.latest.csv",
-    )
 
-    meta = {
+    if ledger_kind == "headline":
+        headline_path_name = f"split_freeze_headline_{run_id}.csv"
+        oh.mirror_csv_text_run_then_global(
+            diagnostics_dir=out_dir,
+            run_filename=headline_path_name,
+            csv_text=audit_csv,
+            global_latest_name="split_freeze_headline.latest.csv",
+        )
+        legacy_audit_name = f"split_freeze_audit_{run_id}.csv"
+        oh.mirror_csv_text_run_then_global(
+            diagnostics_dir=out_dir,
+            run_filename=legacy_audit_name,
+            csv_text=audit_csv,
+            global_latest_name="split_freeze_audit.latest.csv",
+        )
+        primary_path = out_dir / headline_path_name
+    else:
+        ablation_name = (
+            "split_freeze_ablation__"
+            f"{_filename_slug(feature_set_token)}__{_filename_slug(label_target_slug)}__"
+            f"{_filename_slug(model_type)}__{run_id}.csv"
+        )
+        primary_path = out_dir / ablation_name
+        primary_path.write_text(audit_csv, encoding="utf-8")
+
+    meta: dict[str, Any] = {
+        "ledger_kind": ledger_kind,
         "split_hash": split_hash,
-        "split_audit_path": str(split_path),
+        "split_audit_path": str(primary_path.resolve()),
         "split_seed": int(random_state),
-        "split_algorithm": "stratified_seeded",
-        "split_algorithm_version": "1.0",
+        "split_algorithm": split_algorithm_effective,
+        "split_algorithm_version": "1.1",
         "train_sample_count": int(len(sample_ids_train)),
         "test_sample_count": int(len(sample_ids_test)),
+        "split_key_hash": split_key_hash,
+        "train_sample_hash": train_sample_hash,
+        "test_sample_hash": test_sample_hash,
+        "label_field": str(label_field),
+        "label_target": str(label_target_slug),
+        "active_class_count": int(active_class_count),
+        "feature_set": str(feature_set_token),
+        "split_model_written_for": str(model_type),
     }
-    split_audit_cache[cache_key] = meta
+    if ledger_kind == "headline":
+        meta["compat_split_audit_path"] = str((out_dir / f"split_freeze_audit_{run_id}.csv").resolve())
+
+    split_audit_cache[cache_key] = dict(meta)
     setattr(app_config, "RUNTIME_SPLIT_HASH", split_hash)
-    setattr(app_config, "RUNTIME_SPLIT_AUDIT_PATH", str(split_path))
+    setattr(app_config, "RUNTIME_SPLIT_AUDIT_PATH", str(primary_path.resolve()))
     setattr(app_config, "RUNTIME_SPLIT_METADATA", dict(meta))
+    if ledger_kind == "headline":
+        setattr(app_config, "RUNTIME_HEADLINE_SPLIT_METADATA", dict(meta))
+    else:
+        idx = getattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", None)
+        if not isinstance(idx, dict):
+            idx = {}
+        idx[(run_id, str(feature_set_token), str(label_target_slug), str(model_type))] = dict(meta)
+        setattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", idx)
 
 
 def train_model_factory(
@@ -288,6 +460,24 @@ def train_model_factory(
     validate_training_inputs(features_df, labels)
     test_size, random_state = _resolve_training_runtime_defaults(test_size, random_state)
 
+    if isinstance(labels, pd.Series):
+        label_field_resolved = str(labels.name) if labels.name is not None else "label"
+    else:
+        label_field_resolved = "label"
+    label_target_slug = str(
+        getattr(app_config, "RUNTIME_ABLATION_LABEL_TARGET_SLUG", "") or label_field_resolved
+    ).strip()
+    feature_set_token = str(getattr(app_config, "RUNTIME_EXPERIMENT_ID", "") or "").strip()
+    _ablation_gate = bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
+    if _ablation_gate:
+        fs_override = str(getattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", "") or "").strip()
+        if fs_override:
+            feature_set_token = fs_override
+    if not feature_set_token and not _ablation_gate:
+        feature_set_token = "headline_pipeline"
+    elif not feature_set_token:
+        feature_set_token = "ablation_unscoped"
+
     label_encoder = LabelEncoder()
     encoded_labels = label_encoder.fit_transform(labels)
     label_classes = list(label_encoder.classes_)
@@ -301,6 +491,20 @@ def train_model_factory(
             random_state,
         )
 
+    group_aware_cfg = bool(getattr(app_config, "ENABLE_GROUP_AWARE_TRAIN_TEST_SPLIT", False))
+    ablation_lock = bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
+    auto_adjust = bool(getattr(app_config, "AUTO_ADJUST_TRAIN_TEST_SPLIT", False))
+    if group_aware_cfg and auto_adjust:
+        du.print_warning(
+            "[SPLIT] ENABLE_GROUP_AWARE_TRAIN_TEST_SPLIT is ignored while "
+            "AUTO_ADJUST_TRAIN_TEST_SPLIT is True (balanced auto split path)."
+        )
+    group_aware_requested = bool(
+        group_aware_cfg
+        and (not auto_adjust)
+        and (not ablation_lock)
+    )
+
     try:
         split_cache = _runtime_training_state().setdefault("split_cache", {})
         split_cache_key = _build_split_cache_key(
@@ -308,8 +512,8 @@ def train_model_factory(
             encoded_labels=encoded_labels,
             test_size=test_size,
             random_state=random_state,
+            group_aware_requested=group_aware_requested,
         )
-        ablation_lock = bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
         cached_split = split_cache.get(split_cache_key)
         if cached_split is not None:
             X_train, X_test, y_train, y_test = cached_split
@@ -326,7 +530,17 @@ def train_model_factory(
                 "[SPLIT] Reusing cached train/test partition for model consistency "
                 "(cache key includes encoded labels; different label targets use independent splits)."
             )
+            cached_meta = getattr(app_config, "RUNTIME_SPLIT_METADATA", None)
+            if isinstance(cached_meta, dict) and cached_meta.get("split_algorithm"):
+                setattr(
+                    app_config,
+                    "RUNTIME_LAST_SPLIT_ALGORITHM",
+                    str(cached_meta.get("split_algorithm")),
+                )
+            else:
+                setattr(app_config, "RUNTIME_LAST_SPLIT_ALGORITHM", "stratified_seeded")
         else:
+            split_algo = "stratified_seeded"
             if getattr(app_config, "AUTO_ADJUST_TRAIN_TEST_SPLIT", False):
                 from ml_classification.ml_utils import dataset_splitter
                 X_train, X_test, y_train, y_test = dataset_splitter.balanced_train_test_split(
@@ -336,6 +550,47 @@ def train_model_factory(
                     random_state=random_state,
                     min_test_per_class=getattr(app_config, "MIN_TEST_SAMPLES_PER_CLASS", 1),
                 )
+                split_algo = "balanced_auto_adjusted_v1"
+            elif group_aware_requested:
+                groups_arr, group_note = _build_lineage_groups_for_split(features_df)
+                if groups_arr is not None:
+                    try:
+                        gss = GroupShuffleSplit(
+                            n_splits=1, test_size=test_size, random_state=random_state
+                        )
+                        train_pos, test_pos = next(
+                            gss.split(features_df, encoded_labels, groups_arr)
+                        )
+                        X_train = features_df.iloc[train_pos]
+                        X_test = features_df.iloc[test_pos]
+                        y_train = encoded_labels[train_pos]
+                        y_test = encoded_labels[test_pos]
+                        split_algo = "group_shuffle_seeded_v1"
+                        du.print_info(
+                            f"[SPLIT] Group-aware lineage split active ({group_note}); "
+                            "not label-stratified — review rare-class coverage."
+                        )
+                    except Exception as exc:
+                        du.print_warning(
+                            f"[SPLIT] Group-aware split failed ({exc}); using stratified split."
+                        )
+                        groups_arr = None
+                if groups_arr is None:
+                    label_counts = Counter(encoded_labels)
+                    min_support = min(label_counts.values()) if label_counts else 0
+                    stratify_y = encoded_labels if min_support >= 2 else None
+                    if stratify_y is None and len(label_counts) > 1:
+                        du.print_warning(
+                            "[SPLIT] Stratification disabled: at least one class has fewer than 2 "
+                            "samples (sklearn stratified split requirement). Using a random split."
+                        )
+                    X_train, X_test, y_train, y_test = train_test_split(
+                        features_df,
+                        encoded_labels,
+                        test_size=test_size,
+                        stratify=stratify_y,
+                        random_state=random_state,
+                    )
             else:
                 label_counts = Counter(encoded_labels)
                 min_support = min(label_counts.values()) if label_counts else 0
@@ -352,6 +607,7 @@ def train_model_factory(
                     stratify=stratify_y,
                     random_state=random_state,
                 )
+            setattr(app_config, "RUNTIME_LAST_SPLIT_ALGORITHM", split_algo)
             if len(split_cache) >= 8:
                 split_cache.clear()
             split_cache[split_cache_key] = (X_train, X_test, y_train, y_test)
@@ -375,6 +631,11 @@ def train_model_factory(
         sample_ids_train=sample_ids_train,
         sample_ids_test=sample_ids_test,
         random_state=random_state,
+        model_type=str(model_type),
+        active_class_count=int(len(label_classes)),
+        label_field=str(label_field_resolved),
+        label_target_slug=str(label_target_slug),
+        feature_set_token=str(feature_set_token),
     )
 
     use_smote_effective = (
@@ -401,6 +662,29 @@ def train_model_factory(
 
     if use_smote_effective and model_type != "balanced_random_forest":
         X_train, y_train = apply_smote(X_train, y_train, random_state)
+
+    prov = getattr(app_config, "RUNTIME_TRAINING_PROVENANCE_SUMMARY", None)
+    if not isinstance(prov, dict):
+        prov = {}
+    cv_active = bool(
+        cross_validate or getattr(app_config, "ENABLE_CROSS_VALIDATION", False)
+    )
+    prov.update(
+        {
+            "split_policy": str(
+                getattr(app_config, "RUNTIME_LAST_SPLIT_ALGORITHM", "") or ""
+            ),
+            "holdout_train_smote_effective_last_fit": bool(
+                use_smote_effective and model_type != "balanced_random_forest"
+            ),
+            "holdout_train_smote_config_enabled_default": bool(
+                getattr(app_config, "ENABLE_SMOTE_OVERSAMPLING", True)
+            ),
+            "cross_validate_eval_enabled": cv_active,
+            "model_trainer_model_type": str(model_type),
+        }
+    )
+    setattr(app_config, "RUNTIME_TRAINING_PROVENANCE_SUMMARY", prov)
 
     trainer = get_model_trainer(model_type)
     grid_search_flag = enable_grid_search

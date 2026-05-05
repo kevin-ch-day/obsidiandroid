@@ -18,6 +18,9 @@ def test_clear_cross_run_artifact_path_pointers_resets_documented_keys() -> None
     setattr(app_config, "RUNTIME_SPLIT_METADATA", {"split_audit_path": "/tmp/stale_split.csv"})
     setattr(app_config, "RUNTIME_SPLIT_HASH", "abc")
     setattr(app_config, "RUNTIME_SPLIT_AUDIT_PATH", "/tmp/stale_audit.csv")
+    setattr(app_config, "RUNTIME_HEADLINE_SPLIT_METADATA", {"split_hash": "x"})
+    setattr(app_config, "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH", "fh")
+    setattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", {"k": "v"})
 
     clear_cross_run_artifact_path_pointers()
 
@@ -27,6 +30,9 @@ def test_clear_cross_run_artifact_path_pointers_resets_documented_keys() -> None
     assert getattr(app_config, "RUNTIME_SPLIT_METADATA", "sentinel") is None
     assert getattr(app_config, "RUNTIME_SPLIT_HASH", None) == ""
     assert getattr(app_config, "RUNTIME_SPLIT_AUDIT_PATH", None) == ""
+    assert getattr(app_config, "RUNTIME_HEADLINE_SPLIT_METADATA", "sentinel") is None
+    assert getattr(app_config, "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH", None) == ""
+    assert getattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", "sentinel") is None
 
 
 def test_mutable_config_keys_covers_artifact_pointers() -> None:

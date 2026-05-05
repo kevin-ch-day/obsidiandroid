@@ -8,16 +8,11 @@ from typing import Any
 
 import pandas as pd
 
+from obsidiandroid.diagnostics.split_ledger_resolve import resolve_split_freeze_csv
+
 
 def _find_split_audit(diagnostics_dir: Path, run_id: str) -> Path | None:
-    for name in (
-        f"split_freeze_audit_{run_id}.csv",
-        "split_freeze_audit.latest.csv",
-    ):
-        p = diagnostics_dir / name
-        if p.exists():
-            return p
-    return None
+    return resolve_split_freeze_csv(diagnostics_dir, run_id)
 
 
 def _baseline_majority_macro_f1(y_true: pd.Series, y_majority: Any) -> float | None:
@@ -198,7 +193,8 @@ def write_baseline_comparison(
     lines = [
         "# Baseline comparison",
         "",
-        "Macro-F1 baselines compare to the **test split declared in split_freeze_audit** merged with cohort labels.",
+        "Macro-F1 baselines compare to the **test split declared in split_freeze_headline** "
+        "(or ``split_freeze_audit`` compatibility mirror) merged with cohort labels.",
         "They do **not** reproduce post-low-support training label filtering unless that filtering is mirrored in cohort rows.",
         "",
         "| baseline | Macro-F1 (or Δ) | population |",

@@ -1,0 +1,45 @@
+profile_id: dev_ablation_fast
+description: "Reduced-cost methodology ablations (RF-only grid, single headline label target)."
+evidence_mode: false
+allow_vendor_fallback_for_width: true
+allow_adaptive_top_k: true
+top_k_requested: 8
+exclude_unknown_from_main_results: false
+type_slug_filter: null
+cohort_gates:
+  min_samples_per_family: 3
+  require_mapped_family: true
+  require_sha256: true
+  allow_missing_package_name: true
+  max_missing_package_pct: 10.0
+  exclude_unknown_type_slug: false
+  min_malicious_detections: 1
+  family_cap: null
+  family_cap_seed: null
+  limit: 600
+model_list:
+  - random_forest
+ablation_model_list:
+  - random_forest
+parser_overrides: {}
+feature_flags:
+  enable_sample_metadata_features: true
+  enable_permission_features: true
+  enable_dynamic_generic_vendor_parsers: false
+  enable_ablation_multi_label_targets: false
+runtime_overrides:
+  ENABLE_CROSS_VALIDATION: false
+  ENABLE_CV_REBALANCING: false
+  ENABLE_SMOTE_OVERSAMPLING: false
+  ENABLE_ABLATION_EXPERIMENTS: true
+  SKIP_ABLATIONS_FOR_SINGLE_MODEL: false
+  ENABLE_PERMISSION_TRENDS_REPORT: false
+  ENABLE_LABEL_RESOLUTION_STAGE: false
+  ENABLE_ENGINE_WEIGHT_DB_SUMMARY: false
+  ENABLE_FAMILY_DISTRIBUTION_REPORT: false
+  ENABLE_AV_PIPELINE_EXCEL_EXPORT: false
+  ENABLE_MODEL_COMPARISON_CSV_EXPORT: true
+  ENABLE_MODEL_COMPARISON_EXCEL_EXPORT: false
+threshold_overrides: {}
+dataset_filters:
+  mode: malicious_only

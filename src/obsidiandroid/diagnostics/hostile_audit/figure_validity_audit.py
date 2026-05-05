@@ -141,7 +141,8 @@ def write_figure_validity_audit(*, diagnostics_dir: Path, run_id: str) -> Path:
             "",
             "## Comparison tables (`model_comparison_summary_*.csv`, `ablation_summary_*.csv`)",
             "",
-            "Treat as authoritative only after merging with `split_freeze_audit` population and cohort stage columns. ",
+            "Treat as authoritative only after merging with `split_freeze_headline` "
+            "(or `split_freeze_audit` compatibility mirror) population and cohort stage columns. ",
             "Do not interpolate headline N across rows with mismatched preprocessing flags.",
             "",
         ]

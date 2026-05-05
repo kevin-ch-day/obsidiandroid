@@ -163,6 +163,8 @@ def test_check_paper2_freeze_reports_pass_when_complete(tmp_path: Path, monkeypa
         filename = template.format(run_id=run_id)
         (diagnostics / filename).write_text("{}", encoding="utf-8")
 
+    (diagnostics / f"split_freeze_headline_{run_id}.csv").write_text("stub\n", encoding="utf-8")
+
     run_paths = {
         "artifacts": {
             key: {"relpath": f"diagnostics/{key}.json", "sha256": "abc123"}
@@ -204,8 +206,9 @@ def test_check_paper2_freeze_reports_pass_when_complete(tmp_path: Path, monkeypa
         encoding="utf-8",
     )
     (diagnostics / f"confusion_matrix_provenance_{run_id}.csv").write_text(
-        "run_id,model_name,eval_source,test_sample_count,trained_family_count,confusion_matrix_path\n"
-        f"{run_id},random_forest,test_set,100,12,x.png\n",
+        "run_id,model_name,eval_source,test_sample_count,trained_family_count,"
+        "confusion_matrix_path,split_hash,feature_column_hash\n"
+        f"{run_id},random_forest,test_set,100,12,x.png,,\n",
         encoding="utf-8",
     )
     (diagnostics / f"taxonomy_consistency_summary_{run_id}.json").write_text(
@@ -232,6 +235,7 @@ def test_check_paper2_freeze_accepts_lowercase_model_column(tmp_path: Path, monk
     (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
     for template in check_paper2_freeze.REQUIRED_DIAGNOSTICS_FILES:
         (diagnostics / template.format(run_id=run_id)).write_text("{}", encoding="utf-8")
+    (diagnostics / f"split_freeze_headline_{run_id}.csv").write_text("stub\n", encoding="utf-8")
     run_paths = {
         "artifacts": {
             key: {"relpath": f"diagnostics/{key}.json", "sha256": "abc123"}
@@ -264,8 +268,9 @@ def test_check_paper2_freeze_accepts_lowercase_model_column(tmp_path: Path, monk
         encoding="utf-8",
     )
     (diagnostics / f"confusion_matrix_provenance_{run_id}.csv").write_text(
-        "run_id,model_name,eval_source,test_sample_count,trained_family_count,confusion_matrix_path\n"
-        f"{run_id},random_forest,test_set,100,12,x.png\n",
+        "run_id,model_name,eval_source,test_sample_count,trained_family_count,"
+        "confusion_matrix_path,split_hash,feature_column_hash\n"
+        f"{run_id},random_forest,test_set,100,12,x.png,,\n",
         encoding="utf-8",
     )
     (diagnostics / f"taxonomy_consistency_summary_{run_id}.json").write_text(
@@ -288,6 +293,7 @@ def test_check_paper2_freeze_bundle_only_passes_without_paper_exports(
     (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
     for template in check_paper2_freeze.REQUIRED_DIAGNOSTICS_FILES:
         (diagnostics / template.format(run_id=run_id)).write_text("{}", encoding="utf-8")
+    (diagnostics / f"split_freeze_headline_{run_id}.csv").write_text("stub\n", encoding="utf-8")
     run_paths = {
         "artifacts": {
             key: {"relpath": f"diagnostics/{key}.json", "sha256": "abc123"}
@@ -314,8 +320,9 @@ def test_check_paper2_freeze_bundle_only_passes_without_paper_exports(
         encoding="utf-8",
     )
     (diagnostics / f"confusion_matrix_provenance_{run_id}.csv").write_text(
-        "run_id,model_name,eval_source,test_sample_count,trained_family_count,confusion_matrix_path\n"
-        f"{run_id},random_forest,test_set,100,12,x.png\n",
+        "run_id,model_name,eval_source,test_sample_count,trained_family_count,"
+        "confusion_matrix_path,split_hash,feature_column_hash\n"
+        f"{run_id},random_forest,test_set,100,12,x.png,,\n",
         encoding="utf-8",
     )
     (diagnostics / f"taxonomy_consistency_summary_{run_id}.json").write_text(
@@ -345,6 +352,7 @@ def test_check_paper2_freeze_fails_on_duplicate_bundle_table_ids(
     (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
     for template in check_paper2_freeze.REQUIRED_DIAGNOSTICS_FILES:
         (diagnostics / template.format(run_id=run_id)).write_text("{}", encoding="utf-8")
+    (diagnostics / f"split_freeze_headline_{run_id}.csv").write_text("stub\n", encoding="utf-8")
     run_paths = {
         "artifacts": {
             key: {"relpath": f"diagnostics/{key}.json", "sha256": "abc123"}
@@ -387,8 +395,9 @@ def test_check_paper2_freeze_fails_on_duplicate_bundle_table_ids(
         encoding="utf-8",
     )
     (diagnostics / f"confusion_matrix_provenance_{run_id}.csv").write_text(
-        "run_id,model_name,eval_source,test_sample_count,trained_family_count,confusion_matrix_path\n"
-        f"{run_id},random_forest,test_set,100,12,x.png\n",
+        "run_id,model_name,eval_source,test_sample_count,trained_family_count,"
+        "confusion_matrix_path,split_hash,feature_column_hash\n"
+        f"{run_id},random_forest,test_set,100,12,x.png,,\n",
         encoding="utf-8",
     )
     (diagnostics / f"taxonomy_consistency_summary_{run_id}.json").write_text(

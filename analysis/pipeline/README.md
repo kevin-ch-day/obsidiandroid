@@ -42,3 +42,11 @@ Extension guide: [`docs/pipeline_staging_guide.md`](../../docs/pipeline_staging_
 - **Vocabulary:** [`analysis/diagnostics/cohort_vocabulary.py`](../diagnostics/cohort_vocabulary.py) — canonical manifest keys and legacy mirrors.
 - **Samples-only run:** `run_pipeline(..., stop_after="samples")` writes `diagnostics/cohort_foundation.*`, snapshot/time-contract, and `preflight_report.json` (cohort audit path).
 - **DB reconciliation (needs MySQL):** `python scripts/check_cohort_foundation.py --profile <id>` — SELECT-only counts vs profile gates.
+
+## Ablation bookkeeping and operator interrupts
+
+- **`ablation_run_outcome_<run_id>.json`** records `ablation_grid_status` (`complete` / `failed` / `interrupted`) whenever the ablation training grid is entered. If the process is **SIGKILL’d** or **OOM-killed**, neither this file nor **`run_manifest.json`** is guaranteed (no Python `finally` runs).
+- **`KeyboardInterrupt`** logs an **`INTERRUPTED`** `STAGE_END`, runs manifest finalization best-effort (exit code **130**), and may leave **`ablation_summary_partial_<run_id>.csv`** plus **`ablation_summary_partial.latest.csv`** when partial rows completed.
+- **`RuntimeError` / `Exception` during ablation** emits **`FAIL`** for the ablation stage and still finalizes the run manifest on the normal exception path (`docs/AGENTS.md` CI parity).
+- **`stop_after="ablation"`** is the supported cut point when you only need methodology exports through that stage; **`profiles/dev_ablation_fast.yaml`** is an RF-only / reduced label-target profile for faster grids.
+- **`vendor_merge_n` vs governed cohort:** documented on `feature_build_coverage_*.json` (`vendor_merge_n_semantics`) and `feature_modality_coverage_summary_*.json` (`vendor_merge_n_note`).

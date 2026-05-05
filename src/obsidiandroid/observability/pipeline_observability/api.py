@@ -187,6 +187,7 @@ def record_ablation_summary(
     experiments_built: int,
     label_target_stats: list[dict[str, Any]],
     summary_csv_path: str,
+    summary_status: str = "complete",
 ) -> None:
     """Single JSONL anchor for ablation shapes (no per-row CSV mirroring)."""
     s = _session(manifest_context)
@@ -200,6 +201,7 @@ def record_ablation_summary(
             experiments_built=int(experiments_built),
             label_target_stats=list(label_target_stats)[:48],
             ablation_summary_csv=str(summary_csv_path),
+            summary_status=str(summary_status),
         )
 
 

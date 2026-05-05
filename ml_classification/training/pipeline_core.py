@@ -23,8 +23,11 @@ from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.reporting import export_manager as em
 from obsidiandroid.observability.logging import get_logger, log_event
+from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.diagnostics import feature_build_coverage_export
 from obsidiandroid.diagnostics import feature_column_survival_export
+from obsidiandroid.diagnostics import headline_evaluation_export
+from obsidiandroid.diagnostics import rf_feature_importance_export
 from obsidiandroid.diagnostics import permission_training_survival_audit
 from analysis.orchestration.methodology_artifacts import (
     export_feature_contract,
@@ -217,7 +220,7 @@ def _export_label_name_map(labels_df: pd.Series, diagnostics_dir: Path) -> str |
     return str(out_path)
 
 
-def _export_leakage_pruning_audit(diagnostics_dir: Path) -> str | None:
+def _export_leakage_pruning_audit(diagnostics_dir: Path, *, final_column_count: int) -> str | None:
     """Persist detailed leakage-pruning reasons for dropped feature columns."""
     audit_rows = getattr(app_config, "RUNTIME_LEAKAGE_PRUNING_AUDIT", [])
     if not isinstance(audit_rows, list):
@@ -228,6 +231,22 @@ def _export_leakage_pruning_audit(diagnostics_dir: Path) -> str | None:
     audit_df = pd.DataFrame(audit_rows)
     if audit_df.empty:
         audit_df = pd.DataFrame(columns=["column_name", "reason_code", "details"])
+    nfeat = int(final_column_count)
+    aggressive = bool(getattr(app_config, "ENABLE_AGGRESSIVE_LEAKAGE_PRUNING", False))
+    summary = pd.DataFrame(
+        [
+            {
+                "column_name": "__summary__",
+                "reason_code": "scan_completed",
+                "details": (
+                    f"columns_flagged_for_drop={len(audit_rows)}; "
+                    f"aggressive_heuristic={'on' if aggressive else 'off'}; "
+                    f"hint_final_feature_cols={nfeat}"
+                ),
+            }
+        ]
+    )
+    audit_df = pd.concat([audit_df, summary], ignore_index=True)
     out_path = diagnostics_dir / f"leakage_pruning_audit_{run_id}.csv"
     latest_path = diagnostics_dir / "leakage_pruning_audit.latest.csv"
     audit_df.to_csv(out_path, index=False)
@@ -314,6 +333,7 @@ def train_models(
         rows=int(len(features_df)) if isinstance(features_df, pd.DataFrame) else 0,
         feature_count=int(features_df.shape[1]) if isinstance(features_df, pd.DataFrame) else 0,
     )
+    setattr(app_config, "RUNTIME_TRAINING_PROVENANCE_SUMMARY", {})
 
     for model_name in models:
         quiet = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
@@ -418,6 +438,30 @@ def summarize_models(results: Dict[str, dict]) -> Optional[str]:
             csv_path = diagnostics_dir / f"model_comparison_summary_{run_id}.csv"
             summary_df.to_csv(csv_path, index=False)
             du.print_info(f"[SUMMARY] Exported comparison summary CSV to: {csv_path}")
+
+        if bool(getattr(app_config, "ENABLE_RF_IMPURITY_IMPORTANCE_EXPORT", True)):
+            rf_res = results.get("random_forest")
+            rf_model = rf_res.get("model") if isinstance(rf_res, dict) else None
+            col_names = getattr(app_config, "RUNTIME_HEADLINE_FIT_COLUMN_NAMES", None)
+            if (
+                rf_model is not None
+                and isinstance(col_names, list)
+                and col_names
+                and not bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
+            ):
+                hints_src = getattr(app_config, "RUNTIME_HEADLINE_FEATURE_MODALITY_HINTS", None)
+                modality_hints = hints_src if isinstance(hints_src, dict) else None
+                try:
+                    rf_feature_importance_export.export_rf_impurity_importances_csv(
+                        model=rf_model,
+                        feature_names=[str(x) for x in col_names],
+                        diagnostics_dir=diagnostics_dir,
+                        run_id=run_id,
+                        top_k=int(getattr(app_config, "RF_IMPORTANCE_EXPORT_TOP_K", 50)),
+                        modality_hints=modality_hints,
+                    )
+                except Exception as exc:
+                    du.print_warning(f"[RF_IMPORTANCE] Export skipped: {exc}")
 
         if bool(getattr(app_config, "ENABLE_MODEL_COMPARISON_EXCEL_EXPORT", False)):
             export_path = diagnostics_dir / f"model_comparison_summary_{run_id}.xlsx"
@@ -561,6 +605,20 @@ def run_classifier_pipeline(
         cohort_fused_attrs = dict(features_df.attrs)
     setattr(
         app_config,
+        "RUNTIME_COHORT_ENCODER_MAPPINGS",
+        dict(cohort_fused_attrs.get("encoder_mappings") or {}),
+    )
+    if isinstance(samples_df, pd.DataFrame) and "family_canonical" in samples_df.columns:
+        fc_series = samples_df["family_canonical"].fillna("").astype(str).str.strip()
+        setattr(
+            app_config,
+            "RUNTIME_COHORT_FAMILY_COUNT",
+            int(fc_series[fc_series != ""].nunique()),
+        )
+    else:
+        setattr(app_config, "RUNTIME_COHORT_FAMILY_COUNT", 0)
+    setattr(
+        app_config,
         "RUNTIME_FEATURE_NONZERO_COHORT_FUSED",
         feature_column_survival_export.nonzero_counts_for_columns(features_df),
     )
@@ -572,6 +630,7 @@ def run_classifier_pipeline(
             for col in (
                 "sample_id",
                 "sha256",
+                "package_name",
                 "family_id",
                 "family_name",
                 "family_canonical",
@@ -592,6 +651,12 @@ def run_classifier_pipeline(
 
     try:
         features_df, labels_df = align_data(features_df, samples_df)
+        if isinstance(labels_df, pd.Series) and getattr(labels_df, "name", None):
+            setattr(
+                app_config,
+                "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD",
+                str(labels_df.name),
+            )
         setattr(
             app_config,
             "RUNTIME_FEATURE_NONZERO_AFTER_ALIGN",
@@ -753,12 +818,18 @@ def run_classifier_pipeline(
             diagnostics_dir=diagnostics_dir,
             run_id=str(getattr(app_config, "RUNTIME_RUN_ID", "unknown")),
             feature_attrs=cohort_fused_attrs,
+            final_features_df=features_df,
         )
         if fs_path:
             du.print_info(f"[ARTIFACT] Feature column survival matrix: {fs_path}")
     except Exception as exc:
         du.print_warning(f"[FEATURE_SURVIVAL] Export skipped: {exc}")
-    leakage_audit_path = _export_leakage_pruning_audit(diagnostics_dir)
+    leakage_audit_path = _export_leakage_pruning_audit(
+        diagnostics_dir,
+        final_column_count=(
+            int(features_df.shape[1]) if isinstance(features_df, pd.DataFrame) else 0
+        ),
+    )
     if leakage_audit_path:
         du.print_info(f"[ARTIFACT] Leakage pruning audit exported: {leakage_audit_path}")
 
@@ -770,6 +841,7 @@ def run_classifier_pipeline(
             output_dir=str(diagnostics_dir),
         )
         if contract_path:
+            setattr(app_config, "RUNTIME_HEADLINE_FEATURE_CONTRACT_PATH", str(contract_path))
             du.print_info(f"[ARTIFACT] Training feature contract exported: {contract_path}")
     if bool(getattr(app_config, "ENABLE_LEAKAGE_ASSESSMENT_EXPORT", True)):
         run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
@@ -786,10 +858,33 @@ def run_classifier_pipeline(
         "RUNTIME_TRAINING_FINAL_FEATURE_COLUMNS",
         int(features_df.shape[1]) if isinstance(features_df, pd.DataFrame) else 0,
     )
+    if isinstance(features_df, pd.DataFrame) and not bool(
+        getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)
+    ):
+        headline_cols = [str(c) for c in features_df.columns]
+        setattr(app_config, "RUNTIME_HEADLINE_FIT_COLUMN_NAMES", headline_cols)
+        setattr(
+            app_config,
+            "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH",
+            hash_payload(sorted(headline_cols)),
+        )
 
     results, skipped = train_models(features_df, labels_df, models=models)
     promoted_model_key = summarize_models(results)
     promote_default_model(results, model_key=promoted_model_key or DEFAULT_MODEL_KEY)
+    if not bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)):
+        try:
+            headline_evaluation_export.export_headline_test_tables(
+                results=results,
+                promoted_model_key=str(promoted_model_key or DEFAULT_MODEL_KEY),
+                diagnostics_dir=diagnostics_dir,
+                run_id=str(getattr(app_config, "RUNTIME_RUN_ID", "unknown")),
+                label_field=str(
+                    getattr(app_config, "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD", "") or ""
+                ),
+            )
+        except Exception as exc:
+            du.print_warning(f"[HEADLINE_EVAL] Test evidence export skipped: {exc}")
 
     if skipped:
         du.print_warning(f"[SUMMARY] Skipped models: {', '.join(skipped)}")

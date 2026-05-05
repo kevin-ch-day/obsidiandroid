@@ -112,6 +112,29 @@ def _validate_profile(profile: Dict[str, Any], profile_path: Path) -> None:
             f"Allowed models: [{allowed}]."
         )
 
+    if "ablation_model_list" in profile:
+        ablation_models = profile.get("ablation_model_list")
+        if ablation_models is None:
+            pass
+        elif not isinstance(ablation_models, list):
+            raise ValueError(
+                f"Profile '{profile_path}' requires ablation_model_list to be a list (or null), "
+                f"not {type(ablation_models).__name__}."
+            )
+        else:
+            invalid_ablation = sorted(
+                str(model).strip()
+                for model in ablation_models
+                if str(model).strip() not in ALLOWED_MODEL_KEYS
+            )
+            if invalid_ablation:
+                allowed = ", ".join(sorted(ALLOWED_MODEL_KEYS))
+                bad = ", ".join(invalid_ablation)
+                raise ValueError(
+                    f"Profile '{profile_path}' has unsupported ablation_model_list entries: [{bad}]. "
+                    f"Allowed models: [{allowed}]."
+                )
+
     cohort_gates = profile.get("cohort_gates", {})
     invalid_gate_keys = sorted(
         str(key).strip()

@@ -92,8 +92,8 @@ def test_split_cache_key_ignores_feature_count_during_ablation(monkeypatch) -> N
         {f"c{i}": [float(j) for j in range(4)] for i in range(5)},
         index=idx,
     )
-    k1 = model_trainer_factory._build_split_cache_key(small, y, 0.25, 42)
-    k2 = model_trainer_factory._build_split_cache_key(large, y, 0.25, 42)
+    k1 = model_trainer_factory._build_split_cache_key(small, y, 0.25, 42, group_aware_requested=False)
+    k2 = model_trainer_factory._build_split_cache_key(large, y, 0.25, 42, group_aware_requested=False)
     assert k1 == k2
 
 
@@ -106,6 +106,6 @@ def test_split_cache_key_varies_with_feature_count_when_not_ablation(monkeypatch
         {f"c{i}": [float(j) for j in range(4)] for i in range(5)},
         index=idx,
     )
-    k1 = model_trainer_factory._build_split_cache_key(small, y, 0.25, 42)
-    k2 = model_trainer_factory._build_split_cache_key(large, y, 0.25, 42)
+    k1 = model_trainer_factory._build_split_cache_key(small, y, 0.25, 42, group_aware_requested=False)
+    k2 = model_trainer_factory._build_split_cache_key(large, y, 0.25, 42, group_aware_requested=False)
     assert k1 != k2
