@@ -15,7 +15,6 @@ from typing import Any
 
 import pandas as pd
 
-from config import app_config
 from obsidiandroid.database import db_config
 
 from .cohort_vocabulary import KEY_COHORT_PREPARED_ROW_COUNT, KEY_COHORT_SQL_SCOPE_ROW_COUNT

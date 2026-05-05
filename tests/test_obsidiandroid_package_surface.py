@@ -45,6 +45,16 @@ def test_pipeline_facade_matches_runner_public_surface() -> None:
         assert getattr(facade, attr) is canon_mod
 
 
+def test_pipeline_physical_leaf_modules_share_identity_with_legacy_shims() -> None:
+    """Pass 66: contract_filters, run_bounds, runtime_policy live under ``src/``."""
+    import importlib
+
+    for name in ("contract_filters", "run_bounds", "runtime_policy"):
+        physical = importlib.import_module(f"obsidiandroid.pipeline.{name}")
+        legacy = importlib.import_module(f"analysis.pipeline.{name}")
+        assert physical is legacy
+
+
 def test_ml_facades_match_ml_classification_modules() -> None:
     """Pass 47: minimal ML facades alias legacy module objects."""
     import importlib
@@ -210,17 +220,40 @@ def test_model_vendor_and_parsing_shims_match_vendors_contracts() -> None:
 
 
 def test_evaluation_leaf_shims_match_canonical_modules() -> None:
-    """Passes 61–62: analysis.evaluation leaf shims preserve module identity."""
+    """Passes 61–63: analysis.evaluation package shim preserves module identity."""
     import importlib
 
     for name in (
+        "av_results_fetcher",
+        "engine_scoring_summary",
+        "evaluate_av_classifications",
         "model_tuning",
         "random_forest_diagnostics",
-        "vendor_parser_matching",
         "vendor_classification_inspector",
+        "vendor_classification_parser",
+        "vendor_feature_extractor",
+        "vendor_parser_matching",
+        "vendor_parser_utils",
+        "vendor_score_calculator",
+        "vendor_summary_builder",
     ):
         canon_mod = importlib.import_module(f"obsidiandroid.evaluation.{name}")
         legacy_mod = importlib.import_module(f"analysis.evaluation.{name}")
+        assert legacy_mod is canon_mod
+
+
+def test_vendor_execution_shims_match_canonical_modules() -> None:
+    """Pass 64: analysis.execution package shim preserves module identity."""
+    import importlib
+
+    for name in (
+        "av_parser_executor",
+        "vendor_parser_runner",
+        "vendor_record_factory",
+        "vendor_classification_processor",
+    ):
+        canon_mod = importlib.import_module(f"obsidiandroid.vendors.execution.{name}")
+        legacy_mod = importlib.import_module(f"analysis.execution.{name}")
         assert legacy_mod is canon_mod
 
 
@@ -493,7 +526,7 @@ def test_python_sources_have_no_utf8_bom_prefix() -> None:
 
 
 def test_diagnostics_facade_modules_match_analysis_diagnostics() -> None:
-    """``obsidiandroid.diagnostics`` re-exports the same module objects as ``analysis.diagnostics``."""
+    """Pass 65: ``obsidiandroid.diagnostics`` is canonical; legacy ``analysis.diagnostics`` matches identity."""
     import analysis.diagnostics.ablation_cohort_diagnostics as acd_a
     import analysis.diagnostics.alignment_gap_diagnostics as agd_a
     import analysis.diagnostics.cohort_foundation_export as cfe_a

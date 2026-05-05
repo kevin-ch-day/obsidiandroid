@@ -1,7 +1,6 @@
 # Filename: ml_classification/classification_weight_utils.py
 
 import pandas as pd
-import numpy as np
 
 # === Validate DataFrame structure and ensure required columns exist === #
 def validate_dataframe_columns(df: pd.DataFrame, required_cols: set, context: str = "DataFrame") -> bool:

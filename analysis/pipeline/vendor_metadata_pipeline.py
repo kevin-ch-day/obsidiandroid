@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional, Tuple
 import pandas as pd
 
 from config import app_config
-from analysis.evaluation import vendor_feature_extractor
+from obsidiandroid.evaluation import vendor_feature_extractor
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.observability.logging import get_logger, log_event
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir

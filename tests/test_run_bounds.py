@@ -1,4 +1,4 @@
-"""Tests for ``analysis.pipeline.run_bounds``."""
+"""Tests for ``obsidiandroid.pipeline.run_bounds`` (legacy path is identity shim)."""
 
 from __future__ import annotations
 

@@ -22,7 +22,10 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-_SRC = ROOT / "src"
+
+from utils.repo_import_paths import ensure_repo_src_on_sys_path
+
+ensure_repo_src_on_sys_path()
 
 from obsidiandroid.database import db_engine
 from obsidiandroid.database import db_sample_metadata_queries

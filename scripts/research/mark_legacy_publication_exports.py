@@ -7,14 +7,18 @@ folder exists but fails the strict evidence-bundle checks.
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 
-try:
-    from scripts.research import check_evidence_bundle
-except ModuleNotFoundError:  # pragma: no cover - CLI fallback
-    sys.path.append(str(Path(__file__).resolve().parents[2]))
-    from scripts.research import check_evidence_bundle
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from utils.repo_import_paths import ensure_repo_src_on_sys_path
+
+ensure_repo_src_on_sys_path()
+
+from scripts.research import check_evidence_bundle
 
 
 MARKER_FILE = "publication_exports.INVALID_PRE_STRICT.txt"

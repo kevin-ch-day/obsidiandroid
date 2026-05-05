@@ -1,16 +1,16 @@
-# Filename: analysis/evaluation/vendor_parser_utils.py
+# Filename: vendor_parser_utils.py
 # Purpose  : Production-grade utilities to support the vendor classification parser pipeline
 
-from typing import Dict
 from pathlib import Path
+
 import pandas as pd
 
-from obsidiandroid.cli.ui import display as du
 from config import app_config
+from obsidiandroid.cli.ui import display as du
+from obsidiandroid.evaluation import av_results_fetcher as results_fetcher
+from obsidiandroid.evaluation import vendor_parser_matching as parser_match
 from obsidiandroid.vendors.parsing import generic_label_parser
 from obsidiandroid.vendors.parsing import vendor_parser_map
-from obsidiandroid.evaluation import vendor_parser_matching as parser_match
-from analysis.evaluation import av_results_fetcher as results_fetcher
 
 REQUIRED_COLUMNS = {"sample_id"}
 MERGE_KEY = "sample_id"
@@ -313,7 +313,7 @@ def merge_sample_metadata(av_summary_df: pd.DataFrame, samples_df: pd.DataFrame,
             samples_df[[MERGE_KEY, label_col]],
             on=MERGE_KEY,
             how="left",
-            validate="many_to_one"
+            validate="many_to_one",
         )
         merged["family_name"] = merged[label_col].astype(str).str.strip().str.lower()
         return merged

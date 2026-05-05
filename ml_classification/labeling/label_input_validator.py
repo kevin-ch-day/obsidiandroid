@@ -1,7 +1,6 @@
 # Filename: ml_classification/labeling/label_input_validator.py
 # Purpose  : Validate vendor metadata and ML model output structure before building classification labels
 
-import pandas as pd
 from obsidiandroid.cli.ui import display as du
 
 # Validate structure and contents of vendor and model result inputs

@@ -1,7 +1,7 @@
 """Integration wiring checks for export manager module consumers."""
 
-from analysis.evaluation import evaluate_av_classifications
-from analysis.evaluation import vendor_feature_extractor
+from obsidiandroid.evaluation import evaluate_av_classifications
+from obsidiandroid.evaluation import vendor_feature_extractor
 from obsidiandroid.pipeline import score_av_engines
 from obsidiandroid.modeling import pipeline_core
 from obsidiandroid.reporting import export_manager

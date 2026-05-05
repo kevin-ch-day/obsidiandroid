@@ -1,18 +1,19 @@
-# Filename: analysis/evaluation/evaluate_av_classifications.py
+# Filename: evaluate_av_classifications.py
 # Description: Orchestrates AV vendor classification analysis and optional export
 
 import pandas as pd
+
 from obsidiandroid.cli.ui import display as du
-from obsidiandroid.reporting import export_manager as em
 from obsidiandroid.evaluation import vendor_classification_inspector as inspector
-from analysis.evaluation.vendor_classification_parser import parse_vendor_classifications
+from obsidiandroid.evaluation.vendor_classification_parser import parse_vendor_classifications
+from obsidiandroid.reporting import export_manager as em
 
 
 def run_vendor_classification_analysis(
     samples_df: pd.DataFrame,
     engine_metadata: dict = None,
     export: bool = True,
-    verbose: bool = False
+    verbose: bool = False,
 ) -> dict:
     """
     Orchestrates AV vendor classification analysis:
@@ -25,7 +26,7 @@ def run_vendor_classification_analysis(
     parsed_data, summary_df, records_by_vendor, flat_df = parse_vendor_classifications(
         samples_df=samples_df,
         engine_metadata=engine_metadata,
-        verbose=verbose
+        verbose=verbose,
     )
 
     # === Failure Handling: No Scoring Results ===
@@ -44,7 +45,7 @@ def run_vendor_classification_analysis(
         "parsed_data": parsed_data,
         "summary_df": summary_df,
         "records_by_vendor": records_by_vendor,
-        "full_flat_dataframe": flat_df
+        "full_flat_dataframe": flat_df,
     }
 
 
@@ -74,5 +75,5 @@ def _empty_result_payload() -> dict:
         "parsed_data": {},
         "summary_df": pd.DataFrame(),
         "records_by_vendor": {},
-        "full_flat_dataframe": pd.DataFrame()
+        "full_flat_dataframe": pd.DataFrame(),
     }

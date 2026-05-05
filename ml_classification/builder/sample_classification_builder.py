@@ -102,7 +102,7 @@ def _build_all_classification_rows(
 
     for sample_id, pred_index in predictions.items():
         if sample_id is None or pred_index is None:
-            du.print_warning(f"[BUILDER] Missing sample ID or prediction.")
+            du.print_warning("[BUILDER] Missing sample ID or prediction.")
             failed_samples.append(str(sample_id))
             continue
 
@@ -208,7 +208,7 @@ def _gather_records_for_sample(
 
     normalized = _norm(sample_id)
     records = []
-    for vendor, rec_list in records_by_vendor.items():
+    for _vendor, rec_list in records_by_vendor.items():
         for rec in rec_list:
             try:
                 if _norm(getattr(rec, "sample_id", "")) == normalized:

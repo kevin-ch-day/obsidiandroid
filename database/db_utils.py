@@ -1,7 +1,6 @@
 # db_utils.py
 # Utility functions for AV engine column filtering and metadata lookups
 
-import pandas as pd
 from database import db_engine
 from database import schema_map
 from obsidiandroid.cli.ui import display as du
@@ -69,7 +68,7 @@ def get_trusted_active_engine_names(only_existing: bool = False, sort: bool = Tr
             trusted_col=trusted_col,
             active_col=active_col,
         )
-        cols, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
+        _cols, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
         trusted = [row[0] for row in rows]
 
         if not trusted:

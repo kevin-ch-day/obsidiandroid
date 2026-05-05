@@ -145,7 +145,7 @@ def _init_rules() -> None:
             _rule(
                 "**/ablation_cohort_gap_summary.*",
                 bucket="diagnostics_required",
-                producer="analysis.diagnostics.ablation_cohort_diagnostics",
+                producer="obsidiandroid.diagnostics.ablation_cohort_diagnostics",
                 run_scoped=True,
                 paper_required=False,
                 safe_delete_after_run=False,
@@ -165,7 +165,7 @@ def _init_rules() -> None:
             _rule(
                 "**/feature_build_coverage*.json",
                 bucket="diagnostics_required",
-                producer="analysis.diagnostics.feature_build_coverage_export",
+                producer="obsidiandroid.diagnostics.feature_build_coverage_export",
                 run_scoped=True,
                 paper_required=False,
                 safe_delete_after_run=False,
@@ -285,7 +285,7 @@ def _init_rules() -> None:
             _rule(
                 "**/artifact_inventory.*",
                 bucket="diagnostics_required",
-                producer="analysis.diagnostics.output_inventory",
+                producer="obsidiandroid.diagnostics.output_inventory",
                 run_scoped=True,
                 paper_required=False,
                 safe_delete_after_run=False,
@@ -295,7 +295,7 @@ def _init_rules() -> None:
             _rule(
                 "**/run_evidence_index.md",
                 bucket="evidence_required",
-                producer="analysis.diagnostics.output_inventory",
+                producer="obsidiandroid.diagnostics.output_inventory",
                 run_scoped=True,
                 paper_required=False,
                 safe_delete_after_run=False,
@@ -305,7 +305,7 @@ def _init_rules() -> None:
             _rule(
                 "**/virtual_layout.json",
                 bucket="diagnostics_optional",
-                producer="analysis.diagnostics.output_inventory",
+                producer="obsidiandroid.diagnostics.output_inventory",
                 run_scoped=True,
                 paper_required=False,
                 safe_delete_after_run=True,

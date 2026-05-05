@@ -17,7 +17,6 @@ from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common import output_paths
 from obsidiandroid.common.hash_utils import hash_payload
-from obsidiandroid.governance.integrity import enforce_run_scoped_artifact_paths
 
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")

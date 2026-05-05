@@ -1,10 +1,12 @@
 # Filename: vendor_summary_builder.py
 # Description: Builds per-sample parsed rows and per-vendor summary diagnostics for AV label classification
 
-from collections import Counter
-from typing import Dict, Set, List, Union
 import math
+from collections import Counter
+from typing import Dict, List, Set, Union
+
 from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
+
 
 # ---------------------------------------------------------
 # Defensive Wrapper for Counter Use
@@ -12,13 +14,14 @@ from obsidiandroid.vendors.contracts.record_core import VendorClassificationReco
 def is_counter_sanitized(obj) -> Counter:
     return obj if isinstance(obj, Counter) else Counter(obj)
 
+
 # ---------------------------------------------------------
 # Build Parsed Row Output
 # ---------------------------------------------------------
 def build_parsed_row(record: VendorClassificationRecord, true_family: str) -> Dict[str, Union[str, bool, float]]:
     has_known_family = record.is_known_family
     family_match = "Yes" if has_known_family else "No"
-    
+
     if not true_family:
         family_match = "No Ground Truth"
 
@@ -35,8 +38,9 @@ def build_parsed_row(record: VendorClassificationRecord, true_family: str) -> Di
         "Malware Type": record.malware_type,
         "Composite Tag": record.composite_tag,
         "Is Android": record.is_android,
-        "Genericity Score": record.genericity_score
+        "Genericity Score": record.genericity_score,
     }
+
 
 # ---------------------------------------------------------
 # Build Summary for a Vendor
@@ -50,7 +54,7 @@ def build_vendor_summary(
     family_counter: Counter,
     threat_counter: Counter,
     tag_counter: Counter,
-    generic_scores: List[float]
+    generic_scores: List[float],
 ) -> Dict[str, Union[str, int, float, List[str], bool]]:
 
     # Defensive counter wrapping
@@ -100,7 +104,7 @@ def build_vendor_summary(
         "Generic Family Ratio": generic_family_ratio,
         "Has Enrichment Signal": enrichment_score > 0,
         "Is Low Accuracy": match_pct < 10.0,
-        "Is Too Generic": unknown_pct > 60.0
+        "Is Too Generic": unknown_pct > 60.0,
     }
 
 

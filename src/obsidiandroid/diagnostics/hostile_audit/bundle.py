@@ -7,17 +7,17 @@ from typing import Any
 
 import pandas as pd
 
-from analysis.diagnostics.hostile_audit.baseline_comparison import write_baseline_comparison
-from analysis.diagnostics.hostile_audit.cohort_population_audit import write_cohort_population_audit
-from analysis.diagnostics.hostile_audit.figure_validity_audit import write_figure_validity_audit
-from analysis.diagnostics.hostile_audit.permission_signal_quality import write_permission_signal_quality
-from analysis.diagnostics.hostile_audit.recommended_findings import write_recommended_findings
-from analysis.diagnostics.hostile_audit.taxonomy_label_quality_audit import (
+from .baseline_comparison import write_baseline_comparison
+from .cohort_population_audit import write_cohort_population_audit
+from .figure_validity_audit import write_figure_validity_audit
+from .permission_signal_quality import write_permission_signal_quality
+from .recommended_findings import write_recommended_findings
+from .taxonomy_label_quality_audit import (
     write_taxonomy_label_quality_audit,
 )
-from analysis.diagnostics.hostile_audit.temporal_validity_audit import write_temporal_validity_audit
-from analysis.diagnostics.hostile_audit.target_validity_audit import write_target_validity_audit
-from analysis.diagnostics.hostile_audit.vendor_label_leakage_audit import write_vendor_label_leakage_audit
+from .temporal_validity_audit import write_temporal_validity_audit
+from .target_validity_audit import write_target_validity_audit
+from .vendor_label_leakage_audit import write_vendor_label_leakage_audit
 
 
 def write_hostile_audit_bundle(

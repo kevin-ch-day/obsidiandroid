@@ -7,11 +7,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from config import app_config
-from obsidiandroid.diagnostics import output_artifact_policy
+from . import output_artifact_policy
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
-from obsidiandroid.common.output_hygiene import resolve_stable_output_root_for_mirrors
 
 
 def _iter_files(root: Path) -> list[Path]:
@@ -231,7 +229,6 @@ def write_run_evidence_index_md(
     if gap_path.exists():
         gap = _load_json(gap_path)
         zfill = bool(gap.get("ablation_cohort_reindex_zero_fill", True))
-        mismatch_note = gap.get("feature_set_rows")
         ablation_ok = True
         rows_g = gap.get("feature_set_rows") if isinstance(gap.get("feature_set_rows"), list) else []
         if rows_g:

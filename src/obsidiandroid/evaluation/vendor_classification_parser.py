@@ -1,19 +1,23 @@
-# Filename: analysis/evaluation/vendor_classification_parser.py
+# Filename: vendor_classification_parser.py
 # Purpose : Production-grade parser entry for vendor AV classification and scoring.
 
+from typing import Dict, Tuple
+
 import pandas as pd
-from typing import Tuple, Dict
-from analysis.evaluation import vendor_parser_utils as vp_utils
-from analysis.execution import av_parser_executor as parser_exec
-from analysis.evaluation import vendor_score_calculator as score_calc
+
+from obsidiandroid.vendors.execution import av_parser_executor as parser_exec
+
+from obsidiandroid.evaluation import vendor_parser_utils as vp_utils
+from obsidiandroid.evaluation import vendor_score_calculator as score_calc
 from obsidiandroid.vendors.contracts.parsed_label_metadata import ParsedLabelMetadata
 from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
+
 
 # === Validate Parser Output Format ===
 def _validate_parsed_output(output, vendor: str) -> bool:
     if isinstance(output, (ParsedLabelMetadata, VendorClassificationRecord)):
         return True
-    elif isinstance(output, dict):
+    if isinstance(output, dict):
         try:
             ParsedLabelMetadata.from_dict(output)
             return True
@@ -26,7 +30,7 @@ def _validate_parsed_output(output, vendor: str) -> bool:
 def parse_vendor_classifications(
     samples_df: pd.DataFrame,
     engine_metadata: dict = None,
-    verbose: bool = False
+    verbose: bool = False,
 ) -> Tuple[Dict, pd.DataFrame, Dict, pd.DataFrame]:
     if not vp_utils.validate_input_columns(samples_df):
         return {}, pd.DataFrame(), {}, pd.DataFrame()
@@ -54,7 +58,7 @@ def parse_vendor_classifications(
             merged_df=merged_df,
             vendor_map=matched_vendors,
             metadata_lookup=engine_metadata,
-            verbose=verbose
+            verbose=verbose,
         )
     except Exception:
         return {}, pd.DataFrame(), {}, pd.DataFrame()

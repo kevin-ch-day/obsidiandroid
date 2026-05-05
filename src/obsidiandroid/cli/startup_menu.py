@@ -14,7 +14,7 @@ from typing import Callable, Dict, List
 import pandas as pd
 
 from config import app_config
-from analysis.evaluation import engine_scoring_summary
+from obsidiandroid.evaluation import engine_scoring_summary
 from obsidiandroid.modeling import pipeline_core
 from obsidiandroid.database import db_engine
 from .ui import display as du
@@ -1357,11 +1357,11 @@ def _prompt_structural_analysis_action(options: List[str]) -> str:
         if not raw:
             du.print_warning("Invalid input. Please enter a selection.")
             continue
-        token = raw.upper()
-        if token == "I":
-            return token
-        if token.isdigit() and 0 <= int(token) <= len(options):
-            return token
+        selection_upper = raw.upper()
+        if selection_upper == "I":
+            return selection_upper
+        if selection_upper.isdigit() and 0 <= int(selection_upper) <= len(options):
+            return selection_upper
         du.print_warning("Invalid input. Enter a valid number or I.")
 
 

@@ -143,7 +143,6 @@ def build_feature_lineage_report(run_diagnostics_dir: Path | str) -> dict[str, A
 
     fusion = modality.get("fusion_modality") or {}
     permission_mod = modality.get("permission_modality") or {}
-    av_mod = modality.get("av_modality") or {}
 
     audit_rows = 0
     if leakage_audit_latest.is_file():

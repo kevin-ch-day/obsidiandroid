@@ -4,6 +4,14 @@ This document is the Pass 50B docs-only inventory for the vendor, evaluation, an
 model parsing boundary. It intentionally does not add aliases, migrate callers,
 move files, or change parser/model/training/output/DB behavior.
 
+**Pass 63 update (code, not a re-audit):** Evaluation **implementation** modules that previously lived as **`analysis/evaluation/<module>.py`** files are now under **`src/obsidiandroid/evaluation/`**. Legacy imports **`analysis.evaluation.<module>`** remain valid via **`analysis/evaluation/__init__.py`** (**`sys.modules`** identity to the canonical module).
+
+**Pass 64 update (code, not a re-audit):** Vendor parser **runtime** modules that previously lived as **`analysis/execution/<module>.py`** files are now under **`src/obsidiandroid/vendors/execution/`**. Legacy **`analysis.execution.<module>`** imports remain valid via **`analysis/execution/__init__.py`**. **Pipeline** physical layout (runner/stages/manifest internals) remains deferred.
+
+**Pass 65 update (code, not a re-audit):** Run **diagnostics** (including **`research_validity/`**, **`hostile_audit/`**, and leaf diagnostics modules) that previously lived under **`analysis/diagnostics/`** are now under **`src/obsidiandroid/diagnostics/`**. Legacy **`analysis.diagnostics.*`** remains valid via **`analysis/diagnostics/__init__.py`** (**`sys.modules`** identity).
+
+The inventory tables below still describe historical file paths unless rows are refreshed in a dedicated re-audit.
+
 ## Scope
 
 Inventoried implementation areas:

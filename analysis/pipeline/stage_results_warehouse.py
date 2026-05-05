@@ -11,7 +11,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from config import app_config
 from obsidiandroid.database import db_engine
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir

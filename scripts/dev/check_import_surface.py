@@ -284,6 +284,17 @@ def main() -> int:
             return 1
     print("OK   obsidiandroid.pipeline module aliases match analysis.pipeline")
 
+    for _leaf in ("contract_filters", "run_bounds", "runtime_policy"):
+        _physical = importlib.import_module(f"obsidiandroid.pipeline.{_leaf}")
+        _legacy = importlib.import_module(f"analysis.pipeline.{_leaf}")
+        if _physical is not _legacy:
+            print(
+                f"FAIL: obsidiandroid.pipeline.{_leaf} identity mismatch vs analysis.pipeline.{_leaf}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   analysis.pipeline leaf shims match obsidiandroid.pipeline (Pass 66)")
+
     _manifest_facade = importlib.import_module("obsidiandroid.pipeline.manifest")
     _manifest_pairs = (
         ("hashing", "analysis.pipeline.manifest.hashing"),
@@ -516,12 +527,20 @@ def main() -> int:
             return 1
     print("OK   model.parsing/model.vendor legacy shims match obsidiandroid.vendors.contracts")
 
-    # Passes 61–62: evaluation physical moves (small helper modules).
+    # Passes 61–63: evaluation physical moves; legacy package registers identity.
     eval_pairs = (
+        "av_results_fetcher",
+        "engine_scoring_summary",
+        "evaluate_av_classifications",
         "model_tuning",
         "random_forest_diagnostics",
-        "vendor_parser_matching",
         "vendor_classification_inspector",
+        "vendor_classification_parser",
+        "vendor_feature_extractor",
+        "vendor_parser_matching",
+        "vendor_parser_utils",
+        "vendor_score_calculator",
+        "vendor_summary_builder",
     )
     for name in eval_pairs:
         canon_mod = importlib.import_module(f"obsidiandroid.evaluation.{name}")
@@ -532,7 +551,25 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-    print("OK   analysis.evaluation leaf shims match obsidiandroid.evaluation")
+    print("OK   analysis.evaluation package shim matches obsidiandroid.evaluation")
+
+    # Vendor execution: physical move from analysis.execution to obsidiandroid.vendors.execution.
+    exec_pairs = (
+        "av_parser_executor",
+        "vendor_parser_runner",
+        "vendor_record_factory",
+        "vendor_classification_processor",
+    )
+    for name in exec_pairs:
+        canon_mod = importlib.import_module(f"obsidiandroid.vendors.execution.{name}")
+        legacy_mod = importlib.import_module(f"analysis.execution.{name}")
+        if legacy_mod is not canon_mod:
+            print(
+                f"FAIL: analysis.execution.{name} did not resolve to obsidiandroid.vendors.execution.{name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   analysis.execution package shim matches obsidiandroid.vendors.execution")
 
     _governance_facade = importlib.import_module("obsidiandroid.governance")
     _governance_pairs = (
@@ -827,73 +864,76 @@ def main() -> int:
         print(f"FAIL: import obsidiandroid.diagnostics: {exc}", file=sys.stderr)
         return 1
     print(f"OK   obsidiandroid.diagnostics -> {_module_path(diag_facade)}")
-    _diag_pairs = (
-        ("ablation_cohort_diagnostics", "analysis.diagnostics.ablation_cohort_diagnostics"),
-        ("alignment_gap_diagnostics", "analysis.diagnostics.alignment_gap_diagnostics"),
-        ("cohort_foundation_export", "analysis.diagnostics.cohort_foundation_export"),
-        ("cohort_sample_id_audit", "analysis.diagnostics.cohort_sample_id_audit"),
-        ("cohort_vocabulary", "analysis.diagnostics.cohort_vocabulary"),
-        ("feature_builder_drop_trace", "analysis.diagnostics.feature_builder_drop_trace"),
-        ("feature_build_coverage_export", "analysis.diagnostics.feature_build_coverage_export"),
-        ("feature_column_survival_export", "analysis.diagnostics.feature_column_survival_export"),
-        ("feature_lineage_report", "analysis.diagnostics.feature_lineage_report"),
-        ("feature_matrix_gap_lineage", "analysis.diagnostics.feature_matrix_gap_lineage"),
-        ("fused_permission_matrix_audit", "analysis.diagnostics.fused_permission_matrix_audit"),
-        ("output_artifact_policy", "analysis.diagnostics.output_artifact_policy"),
-        ("output_inventory", "analysis.diagnostics.output_inventory"),
-        (
-            "permission_training_survival_audit",
-            "analysis.diagnostics.permission_training_survival_audit",
-        ),
+    _diag_names = (
+        "ablation_cohort_diagnostics",
+        "alignment_gap_diagnostics",
+        "cohort_foundation_export",
+        "cohort_sample_id_audit",
+        "cohort_vocabulary",
+        "feature_builder_drop_trace",
+        "feature_build_coverage_export",
+        "feature_column_survival_export",
+        "feature_lineage_report",
+        "feature_matrix_gap_lineage",
+        "fused_permission_matrix_audit",
+        "output_artifact_policy",
+        "output_inventory",
+        "permission_training_survival_audit",
     )
-    for attr, canon_name in _diag_pairs:
-        canon_mod = importlib.import_module(canon_name)
-        facade_mod = getattr(diag_facade, attr)
+    for name in _diag_names:
+        canon_mod = importlib.import_module(f"obsidiandroid.diagnostics.{name}")
+        legacy_mod = importlib.import_module(f"analysis.diagnostics.{name}")
+        if legacy_mod is not canon_mod:
+            print(
+                f"FAIL: analysis.diagnostics.{name} did not resolve to "
+                f"obsidiandroid.diagnostics.{name}",
+                file=sys.stderr,
+            )
+            return 1
+        facade_mod = getattr(diag_facade, name)
         if facade_mod is not canon_mod:
             print(
-                f"FAIL: obsidiandroid.diagnostics.{attr} facade mismatch vs {canon_name}",
+                f"FAIL: obsidiandroid.diagnostics.{name} facade mismatch vs canonical",
                 file=sys.stderr,
             )
             return 1
-    _diag_pkg_pairs = (
-        ("research_validity", "analysis.diagnostics.research_validity"),
-        ("hostile_audit", "analysis.diagnostics.hostile_audit"),
-    )
-    for attr, canon_name in _diag_pkg_pairs:
-        canon_pkg = importlib.import_module(canon_name)
-        facade_pkg = getattr(diag_facade, attr)
-        if facade_pkg is not canon_pkg:
+    _diag_pkg_names = ("research_validity", "hostile_audit")
+    for pkg_name in _diag_pkg_names:
+        canon_pkg = importlib.import_module(f"obsidiandroid.diagnostics.{pkg_name}")
+        legacy_pkg = importlib.import_module(f"analysis.diagnostics.{pkg_name}")
+        if legacy_pkg is not canon_pkg:
             print(
-                f"FAIL: obsidiandroid.diagnostics.{attr} package mismatch vs {canon_name}",
+                f"FAIL: analysis.diagnostics.{pkg_name} did not resolve to "
+                f"obsidiandroid.diagnostics.{pkg_name}",
                 file=sys.stderr,
             )
             return 1
-        alias_pkg = importlib.import_module(f"obsidiandroid.diagnostics.{attr}")
-        if alias_pkg is not canon_pkg:
+        if getattr(diag_facade, pkg_name) is not canon_pkg:
             print(
-                f"FAIL: import obsidiandroid.diagnostics.{attr} did not resolve to {canon_name}",
+                f"FAIL: obsidiandroid.diagnostics.{pkg_name} façade mismatch vs canonical package",
                 file=sys.stderr,
             )
             return 1
-    _rv_bundle_canon = importlib.import_module("analysis.diagnostics.research_validity.bundle")
-    _rv_bundle_alias = importlib.import_module("obsidiandroid.diagnostics.research_validity.bundle")
-    if _rv_bundle_alias is not _rv_bundle_canon:
+
+    _rv_bundle_canon = importlib.import_module("obsidiandroid.diagnostics.research_validity.bundle")
+    _rv_bundle_legacy = importlib.import_module("analysis.diagnostics.research_validity.bundle")
+    if _rv_bundle_legacy is not _rv_bundle_canon:
         print(
-            "FAIL: obsidiandroid.diagnostics.research_validity.bundle != "
-            "analysis.diagnostics.research_validity.bundle",
+            "FAIL: research_validity.bundle identity mismatch "
+            "(analysis.diagnostics vs obsidiandroid.diagnostics)",
             file=sys.stderr,
         )
         return 1
-    _ha_bundle_canon = importlib.import_module("analysis.diagnostics.hostile_audit.bundle")
-    _ha_bundle_alias = importlib.import_module("obsidiandroid.diagnostics.hostile_audit.bundle")
-    if _ha_bundle_alias is not _ha_bundle_canon:
+    _ha_bundle_canon = importlib.import_module("obsidiandroid.diagnostics.hostile_audit.bundle")
+    _ha_bundle_legacy = importlib.import_module("analysis.diagnostics.hostile_audit.bundle")
+    if _ha_bundle_legacy is not _ha_bundle_canon:
         print(
-            "FAIL: obsidiandroid.diagnostics.hostile_audit.bundle != "
-            "analysis.diagnostics.hostile_audit.bundle",
+            "FAIL: hostile_audit.bundle identity mismatch "
+            "(analysis.diagnostics vs obsidiandroid.diagnostics)",
             file=sys.stderr,
         )
         return 1
-    print("OK   obsidiandroid.diagnostics submodules match analysis.diagnostics")
+    print("OK   obsidiandroid.diagnostics package matches analysis.diagnostics shim")
 
     try:
         db_facade = importlib.import_module("obsidiandroid.database")

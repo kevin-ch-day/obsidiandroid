@@ -29,7 +29,7 @@ Quick verification: `python scripts/dev/check_import_surface.py` or `make dev-im
 
 ### Snapshot — current truth (update when passes land)
 
-- **Canonical code** under **`src/obsidiandroid/`** includes **CLI**, **common** (hashing, paths, exports, hygiene, …), **governance** (compliance, manifest, cohort, artifacts, …), **reporting** (notably **`export_manager`** and related exporters), **observability** (**`logging/`** + **`pipeline_observability/`**), **`pipeline`** facade → **`analysis.pipeline.runner`**, **diagnostics** facade → slices of **`analysis.diagnostics`** plus **`research_validity`** / **`hostile_audit`** package aliases (Pass 36), **database** façade → **`obsidiandroid.database`** re-exports curated **`database.*`** modules (Pass 38; implementation stays repo-root **`database/`**), **modeling** (**`model_exporter`**). Placeholder roots remain **`vendors/`**, **`features/`**, **`labeling/`**, **`evaluation/`** under **`obsidiandroid.*`** until dedicated passes.
+- **Canonical code** under **`src/obsidiandroid/`** includes **CLI**, **common** (hashing, paths, exports, hygiene, …), **governance** (compliance, manifest, cohort, artifacts, …), **reporting** (notably **`export_manager`** and related exporters), **observability** (**`logging/`** + **`pipeline_observability/`**), **`pipeline`** facade → **`analysis.pipeline.runner`**, **diagnostics** implementation under **`obsidiandroid.diagnostics`** (**`research_validity/`**, **`hostile_audit/`**, and leaf run diagnostics modules; Pass **65**; legacy **`analysis.diagnostics`** is package-only registration + identity — Pass **36** façade mirroring superseded), **database** façade → **`obsidiandroid.database`** re-exports curated **`database.*`** modules (Pass 38; implementation stays repo-root **`database/`**), **modeling** (**`model_exporter`**), **evaluation** implementation under **`obsidiandroid.evaluation`** (Pass 63; legacy **`analysis.evaluation`** is package-only registration + identity), **vendor parsing** under **`obsidiandroid.vendors.parsing`** (Pass 59 + legacy shim), **vendor contracts** under **`obsidiandroid.vendors.contracts`**, and **vendor execution** (parser runtime) under **`obsidiandroid.vendors.execution`** (Pass 64; legacy **`analysis.execution`** is package-only registration + identity). Remaining sizable moves under **`obsidiandroid.*`** are mainly **`features/`**, **`labeling/`** depth, and **`modeling`** ML physical trees (**`ml_classification/`**).
 - **Legacy trees** at the repo root (**`analysis/`**, **`database/`**, **`ml_classification/`**, **`model/`**, **`utils/`**) stay for compatibility and bulk of implementation; **`utils/`** is primarily **shims** plus **`repo_import_paths`**, **`export_manager`** (**`sys.modules`** alias), and entry wrappers (**`startup_menu`**, **`pipeline_entry`**).
 - **Removed (Pass 33):** the **`analysis/observability`** package — pipeline observability APIs live only under **`obsidiandroid.observability.pipeline_observability`**.
 - **Quality gates:** **`make ci`** runs doc hygiene, **`scripts/dev/check_import_surface.py`** (imports, thin-shim rules for **`utils/`** subtrees, UTF-8 BOM scan), fast pytest, and strict ML static scan.
@@ -40,10 +40,10 @@ Quick verification: `python scripts/dev/check_import_surface.py` or `make dev-im
 |----------|------|--------|
 | P0 | **`obsidiandroid.database`** thin façade + outer callers (no **`database/*.py`** internal churn) | **Done** through **Pass 43** (Tiers **A–D** narrow AV set on façade). |
 | P1 | **`README.md`** operator quickstart: **`pip install -e .`**, **`obsidiandroid`**, canonical vs legacy imports | **Partial** — layout + DB façade pointers added (**Pass 43**); deepen if operators need full command cookbook |
-| P1 | **`analysis/pipeline` physical move** under **`src/`** (keep **`analysis.pipeline.runner`** shim + monkeypatch story) | **Partial** — Pass 45 adds canonical façade module aliases; physical move still pending run-context / manifest plan |
-| P2 | **`obsidiandroid.diagnostics`** vs **`analysis.diagnostics`** tree (facade already re-exports) | **Partial** — optional physical move |
+| P1 | **`analysis/pipeline` physical move** under **`src/`** (keep **`analysis.pipeline.runner`** shim + monkeypatch story) | **Partial** — Pass 45 façade aliases; **Pass 66** physical **`contract_filters`** / **`run_bounds`** / **`runtime_policy`** under **`src/obsidiandroid/pipeline/`** with legacy shims; runner + stages still under **`analysis/pipeline/`** |
+| P2 | **`obsidiandroid.diagnostics`** vs **`analysis.diagnostics`** tree | **Done** (**Pass 65**) — implementations under **`src/obsidiandroid/diagnostics/`**; **`analysis/diagnostics/__init__.py`** identity shim only |
 | P2 | **`ml_classification/`** → **`obsidiandroid.modeling` / `features` / `labeling`** façades + **wrappers** where needed | **Partial** — Passes **46–50A** facade/adoption; **Pass 58** adds **`obsidiandroid.labeling.taxonomy`** wrapper (not raw-alias) for family normalization |
-| P2 | Vendor / evaluation domain boundary (**`obsidiandroid.vendors`**, **`obsidiandroid.evaluation`**) | **Partial** — Pass **50B** inventory/spec, Pass **51** parser-map alias, Pass **58** execution roadmap, Pass **59** physical parser move to **`obsidiandroid.vendors.parsing`** with legacy identity shim |
+| P2 | Vendor / evaluation domain boundary (**`obsidiandroid.vendors`**, **`obsidiandroid.evaluation`**) | **Partial** — Pass **50B** inventory/spec, Pass **51** parser-map alias, Pass **58** execution roadmap, Pass **59** physical parser move to **`obsidiandroid.vendors.parsing`** with legacy identity shim; Pass **63** evaluation implementations **`obsidiandroid.evaluation`**; Pass **64** vendor execution (**`analysis/execution/*`** → **`obsidiandroid.vendors.execution`**) with legacy shim |
 | P3 | Retire **`utils/*`** shims after caller + doc sunset | **Pending** — locked policy milestone (Pass 44 cleared **`tests/`** stragglers that were not asserting shim parity) |
 | P3 | Remaining **`database.db_*`** not on façade (e.g. **`db_sample_timelines_queries`**, **`db_extract_av_label_keywords`**) — add only when call sites need canonical imports | **Optional** |
 - **Passes 41–43 (`obsidiandroid.database`):** Façade-only **`from database`** callers outside **`database/`** are migrated (Pass 41); **Pass 42** recorded the pre–Tier D audit; **Pass 43** expands the façade with four **Tier D** AV/scoring modules and migrates remaining outer callers (**`analysis/`**, tests, **`obsidiandroid.governance.run_manifest`**). **`database/*.py`** internal imports stay **`from database …`**.
@@ -64,6 +64,10 @@ Quick verification: `python scripts/dev/check_import_surface.py` or `make dev-im
 - **Pass 57 (pipeline nested helper subfacades):** **`obsidiandroid.pipeline.artifacts`** and **`obsidiandroid.pipeline.permission_trends`** alias stable nested helper modules; their direct tests use canonical imports.
 - **Pass 58 (ML taxonomy wrapper + vendor/eval execution roadmap):** **`obsidiandroid.labeling.taxonomy`** delegates three family helpers with an explicit **non-alias** wrapper contract; **`docs/VENDOR_EVALUATION_BOUNDARY_PLAN.md`** gains an ordered execution table (vendors vs evaluation vs internal vs reporting vs defer). No physical **`analysis/pipeline`** move; database policy unchanged.
 - **Pass 59 (physical vendor parser move):** parser modules moved from **`analysis/vendor_processing`** to **`src/obsidiandroid/vendors/parsing`**. A legacy **`analysis.vendor_processing`** package shim registers module identities via **`sys.modules`** so legacy and canonical imports resolve to the same module objects. No parser behavior changes; **`model.vendor`**/**`model.parsing`** remain deferred.
+- **Pass 63 (evaluation physical canonicalization):** vendor AV evaluation/scoring/parser glue modules previously under **`analysis/evaluation/*.py`** now live under **`src/obsidiandroid/evaluation/`**. **`analysis/evaluation/`** retains only **`__init__.py`**, which registers **`sys.modules['analysis.evaluation.<name>']`** to the canonical modules (same **`ModuleType`** objects). Selected callers (startup menu, pipeline stages, execution, diagnostics export wiring test) import **`obsidiandroid.evaluation`**; parity tests may keep **`analysis.evaluation`**. **`model_tuning`** no longer mutates **`sys.path`** from package code. No pipeline runner move, no parser/scoring behavior changes.
+- **Pass 64 (vendor execution physical canonicalization):** vendor parser runtime modules moved from **`analysis/execution/*.py`** to **`src/obsidiandroid/vendors/execution/`**. Legacy **`analysis.execution.<name>`** imports remain valid via **`analysis/execution/__init__.py`**, which registers submodules in **`sys.modules`** for identity. Canonical callers now import **`obsidiandroid.vendors.execution`** (including the evaluation parser entrypoint and determinism tests). No parser/scoring behavior changes.
+- **Pass 65 (diagnostics physical canonicalization):** run diagnostics (**`research_validity/`**, **`hostile_audit/`**, and leaf diagnostics modules) moved from **`analysis/diagnostics/`** into **`src/obsidiandroid/diagnostics/`**. Legacy **`analysis.diagnostics.<name>`** imports remain valid via **`analysis/diagnostics/__init__.py`**, registering the same **`ModuleType`** objects. **`finalize.py`** and import-surface checks use canonical paths where updated; **`output_artifact_policy`** producer strings use **`obsidiandroid.diagnostics.*`** for diagnostics-owned emitters.
+- **Pass 66 (pipeline policy leaf physical slice):** **`contract_filters`**, **`run_bounds`**, and **`runtime_policy`** implementations live under **`src/obsidiandroid/pipeline/`**. Legacy **`analysis/pipeline/<name>.py`** files are thin shims that replace **`sys.modules[__name__]`** with the canonical module object; **`runner`**/**`stage_samples`** and the **`obsidiandroid.pipeline`** façade resolve these via **`obsidiandroid`** where updated. **`check_import_surface`** asserts legacy/canonical **`ModuleType`** identity.
 
 ### Locked migration policy (product + imports)
 
@@ -101,14 +105,14 @@ These choices govern Pass 38+ work; they intentionally favor **operator stabilit
 |------|--------|-------|
 | `obsidiandroid/__init__.py` | **moved_now** | Package root. |
 | `obsidiandroid/cli/` | **moved_now** | `main.py`, `startup_menu.py`, `pipeline_entry.py`, `menu/`, `ui/`. |
-| `obsidiandroid/pipeline/` | **move_later** | Placeholder only; code remains in `analysis/pipeline/`. |
+| `obsidiandroid/pipeline/` | **partial** (**Pass 66**) | **`contract_filters`**, **`run_bounds`**, **`runtime_policy`** canonical under **`src/`**; runner + stages remain **`analysis/pipeline/`**. |
 | `obsidiandroid/database/` | **partial** (Pass 38) | Curated façade re-exports **`database.*`** modules (same objects); implementation remains top-level **`database/`**. |
 | `obsidiandroid/vendors/` | **move_later** | Placeholder. |
 | `obsidiandroid/features/` | **move_later** | Placeholder. |
 | `obsidiandroid/labeling/` | **move_later** | Placeholder. |
 | `obsidiandroid/modeling/` | **partial** | **`model_exporter`** canonical; ML training stack remains **move_later** under legacy trees. |
-| `obsidiandroid/evaluation/` | **move_later** | Placeholder only ( **`__init__.py`** ). |
-| `obsidiandroid/diagnostics/` | **partial** | Facade re-exports selected **`analysis.diagnostics`** modules; implementations stay under **`analysis/`**. |
+| `obsidiandroid/evaluation/` | **partial** (Pass 63) | AV vendor evaluation/scoring/parser helpers canonical under **`src/`**; legacy **`analysis.evaluation`** registers submodule identity only. |
+| `obsidiandroid/diagnostics/` | **partial** (**Pass 65**) | Diagnostics implementation under **`src/`**; legacy **`analysis/diagnostics/__init__.py`** registers **`sys.modules`** identity only. |
 | `obsidiandroid/reporting/` | **partial** | **`export_manager`**, LaTeX/family/confusion helpers canonical; not all reporting paths migrated. |
 | `obsidiandroid/observability/` | **partial** | **`logging/`** + **`pipeline_observability/`** canonical; package **`__init__`** re-exports **`get_logger`** / **`log_event`**. |
 | `obsidiandroid/governance/` | **partial** | Evidence mode, compliance, run manifest, artifacts, cohort readiness/reproducibility canonical; **move_later** only for any stragglers. |
@@ -141,8 +145,8 @@ These choices govern Pass 38+ work; they intentionally favor **operator stabilit
 | `ml_classification/vectorization/` | `obsidiandroid.features` | **move_later** |
 | `ml_classification/labeling/` | `obsidiandroid.labeling` | **move_later** |
 | `ml_classification/training/` | `obsidiandroid.modeling` | **move_later** |
-| `analysis/evaluation/` (and related) | `obsidiandroid.evaluation` | **needs_review** (overlaps with reporting/diagnostics) |
-| `analysis/diagnostics/` | `obsidiandroid.diagnostics` | **partial** — facade re-exports selected modules; bulk tree **move_later** |
+| `analysis/evaluation/` (implementations were under leaf `*.py`) | `obsidiandroid.evaluation` | **partial** (**Pass 63**) — canonical modules under **`src/`**; **`analysis/evaluation/__init__.py`** only (**identity** via **`sys.modules`**) |
+| `analysis/diagnostics/` (implementations were under leaf `*.py`) | `obsidiandroid.diagnostics` | **partial** (**Pass 65**) — canonical tree under **`src/`**; **`analysis/diagnostics/__init__.py`** only (**identity**) |
 | `utils/export*`, LaTeX/workbook/paper exporters | `obsidiandroid.reporting` | **partial** — **`export_manager`** + several reporters canonical (**`utils.*`** shims **wrapper_kept**) |
 | `utils/evidence_mode_resolver` | `obsidiandroid.governance.evidence_mode_resolver` | **moved_now** (shim **wrapper_kept**) |
 | compliance, run manifest, cohort readiness, reproducibility | `obsidiandroid.governance` | **partial** — major modules canonical (**`utils.*`** shims **wrapper_kept**) |
@@ -1202,8 +1206,10 @@ rg -n "^(from ml_classification|import ml_classification)" --glob "*.py" --glob 
 | Evaluation helpers | **`analysis/evaluation/model_tuning.py`**, **`analysis/evaluation/random_forest_diagnostics.py`** |
 | Tests | **`tests/test_ablation_split_feature_columns.py`**, **`tests/test_export_manager_wiring.py`**, **`tests/test_pipeline_core_low_support_behavior.py`**, **`tests/test_pipeline_core_summary_exports.py`** |
 
-`analysis/evaluation/model_tuning.py` now also prepends repo **`src/`** when executed
-directly so **`obsidiandroid.modeling`** resolves without requiring editable install.
+**Pass 63 superseded direct-exec bootstrap:** **`model_tuning`** lives under **`src/obsidiandroid/evaluation/`**
+and **does not** mutate **`sys.path`**. At Pass 50A, the file under **`analysis/evaluation/`** prepended
+repo **`src/`** when run as a script; use **`pip install -e .`**, **`PYTHONPATH=…/src`**, or a thin wrapper
+module if a direct script entry is required.
 
 ### Explicit skips
 

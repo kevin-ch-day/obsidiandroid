@@ -28,8 +28,6 @@ def write_validity_figures(
 
     comp = diagnostics_dir / "feature_set_macro_f1_comparison.png"
     leak = diagnostics_dir / "vendor_leakage_delta.png"
-    perm_hm = diagnostics_dir / "grouped_permission_heatmap_by_type.png"
-    jsd_hm = diagnostics_dir / "permission_jsd_clustered_heatmap.png"
 
     sum_path = diagnostics_dir / "signal_decomposition_summary.csv"
     leak_path = diagnostics_dir / "vendor_leakage_delta.csv"
@@ -60,8 +58,6 @@ def write_validity_figures(
     try:
         if leak_path.exists():
             dfl = pd.read_csv(leak_path)
-            cols = {"experiment", "vendor_leakage_delta_vs_vendor_full"}
-            alt = cols - set(dfl.columns)
             use_col = (
                 "vendor_leakage_delta_vs_vendor_full"
                 if "vendor_leakage_delta_vs_vendor_full" in dfl.columns

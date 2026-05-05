@@ -27,7 +27,6 @@ if str(_REPO_ROOT) not in sys.path:
 from utils.repo_import_paths import ensure_repo_src_on_sys_path
 
 ensure_repo_src_on_sys_path()
-_SRC = _REPO_ROOT / "src"
 
 from obsidiandroid.common import output_cleanup_clutter as occ  # noqa: E402
 

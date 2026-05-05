@@ -1,7 +1,7 @@
 # Filename: vendor_record_selector.py
 # Purpose : Select the best vendor classification record for a sample using reliability scoring
 
-from typing import Any, List, Dict, Tuple
+from typing import List, Dict, Tuple
 from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
 from obsidiandroid.cli.ui import display as du
 from config import app_config
@@ -74,7 +74,7 @@ def _gather_records_for_sample(
         return list(records_by_sample_id.get(normalized, []))
 
     result = []
-    for vendor, recs in records_by_vendor.items():
+    for _vendor, recs in records_by_vendor.items():
         for r in recs:
             try:
                 if _norm(getattr(r, "sample_id", "")) == normalized:

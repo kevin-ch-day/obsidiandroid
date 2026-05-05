@@ -56,7 +56,7 @@ from analysis.pipeline.stage_modeling import (
     run_training_stage,
 )
 from analysis.pipeline.stage_manifest import finalize_run_manifest_stage
-from analysis.pipeline.runtime_policy import (
+from obsidiandroid.pipeline.runtime_policy import (
     apply_profile_runtime_policy,
     build_mutable_config_keys,
     clear_cross_run_artifact_path_pointers,
@@ -84,7 +84,7 @@ from analysis.orchestration.runtime_reporting import (
 )
 from obsidiandroid.database.db_sample_metadata_contracts import get_query_contract_metadata
 from analysis.pipeline.main_facade import from_main_or
-from analysis.pipeline.run_bounds import (
+from obsidiandroid.pipeline.run_bounds import (
     PipelineRunBounds,
     clear_pipeline_run_bounds,
     set_pipeline_run_bounds,
@@ -781,20 +781,23 @@ def run_pipeline(
                 major_warnings="av_pipeline_returned_empty",
             )
             _fail_pipeline("[PIPELINE] AV pipeline returned no results.")
+        # Summaries measure cohort rows consistently: engine_scores often has one row per engine
+        # (no sample_id); avoid reporting that as ``output_rows`` in pipeline_stage_summary.
         eng_preview = pipeline_results.get("engine_scores") if isinstance(pipeline_results, dict) else None
-        eng_out_rows: int | str = ""
+        av_summary_extras: dict[str, Any] = {}
         if isinstance(eng_preview, pd.DataFrame) and not eng_preview.empty:
-            eng_out_rows = int(
-                len(eng_preview["sample_id"].unique())
-                if "sample_id" in eng_preview.columns
-                else len(eng_preview)
-            )
+            av_summary_extras["engine_scores_table_rows"] = int(len(eng_preview))
+            if "sample_id" in eng_preview.columns:
+                av_summary_extras["engine_scores_distinct_samples"] = int(
+                    eng_preview["sample_id"].nunique(dropna=True)
+                )
         _record_stage_timing(
             "av_pipeline",
             stage_started_at,
             input_rows=int(len(samples_df)),
-            output_rows=eng_out_rows,
+            output_rows=int(len(samples_df)),
             major_warnings="",
+            extras=av_summary_extras,
         )
         eng_overlay_csv = str(getattr(app_config, "RUNTIME_ENGINE_METADATA_OVERLAY_CSV", "") or "").strip()
         if eng_overlay_csv:
@@ -818,7 +821,7 @@ def run_pipeline(
             stop_after=stop_after,
             selected_models=model_list,
         )
-        vendor_eval, vendor_records, parsed_data, scorecard_df = extract_vendor_metadata_stage(
+        vendor_eval, vendor_records, parsed_data, _scorecard_df = extract_vendor_metadata_stage(
             pipeline_results=pipeline_results,
             samples_df=samples_df,
         )

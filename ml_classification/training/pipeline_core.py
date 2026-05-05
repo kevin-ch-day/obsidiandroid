@@ -420,7 +420,7 @@ def summarize_models(results: Dict[str, dict]) -> Optional[str]:
             du.print_info(f"[SUMMARY] Exported comparison summary CSV to: {csv_path}")
 
         if bool(getattr(app_config, "ENABLE_MODEL_COMPARISON_EXCEL_EXPORT", False)):
-            export_path = OUTPUT_DIR / "model_comparison_summary.xlsx"
+            export_path = diagnostics_dir / f"model_comparison_summary_{run_id}.xlsx"
             exported_path = em.export_dataframe_to_excel(
                 df=summary_df,
                 filename=export_path.name,

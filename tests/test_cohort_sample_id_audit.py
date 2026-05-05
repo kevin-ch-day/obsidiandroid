@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 
 from obsidiandroid.diagnostics import cohort_sample_id_audit

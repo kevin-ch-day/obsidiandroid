@@ -1,26 +1,29 @@
-# Filename: analysis/execution/av_parser_executor.py
+# Filename: obsidiandroid/vendors/execution/av_parser_executor.py
 # Purpose  : Executes structured parsing of AV labels and builds classification records
 
+from __future__ import annotations
+
+from typing import Any, Dict, List, Tuple
+
 import pandas as pd
-from typing import Tuple, Dict, List, Any
-from analysis.execution import vendor_parser_runner
+
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.vendors.execution import vendor_parser_runner
 
 
 def parse_all_vendors(
     merged_df: pd.DataFrame,
     vendor_map: dict,
     metadata_lookup: dict = None,
-    verbose: bool = False
+    verbose: bool = False,
 ) -> Tuple[
     Dict[str, pd.DataFrame],
     List[dict],
     Dict[str, List[Any]],
     pd.DataFrame,
-    List[str]
+    List[str],
 ]:
-    """
-    Run all vendor parsers on the provided AV scan results.
+    """Run all vendor parsers on the provided AV scan results.
 
     Returns:
         - vendor_results: parsed DataFrames keyed by vendor name
@@ -52,12 +55,12 @@ def parse_all_vendors(
         meta_for_runner["display_name"] = vendor
 
         try:
-            parsed_df, record_list, summary, errors, stats = vendor_parser_runner.execute_vendor_parser(
+            parsed_df, record_list, summary, errors, _stats = vendor_parser_runner.execute_vendor_parser(
                 vendor=column_name,
                 meta=meta_for_runner,
                 merged_df=merged_df,
                 engine_meta=engine_meta,
-                verbose=verbose
+                verbose=verbose,
             )
         except Exception as e:
             parsing_errors.append(f"[ERROR] Parser crashed for '{vendor}': {e}")
@@ -82,3 +85,4 @@ def parse_all_vendors(
 
     result_df = pd.DataFrame(flat_record_list)
     return vendor_results, summary_rows, records_by_vendor, result_df, parsing_errors
+

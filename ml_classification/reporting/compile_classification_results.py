@@ -138,7 +138,7 @@ def _validate_record_types(records_by_vendor: dict):
                 print(f"  → Index     : {idx}")
                 print(f"  → Object    : {repr(rec)[:500]}")
                 print(f"  → Dict Keys : {list(rec.keys()) if isinstance(rec, dict) else 'N/A'}")
-                print(f"  → Suggested Fix: Check if this vendor is importing from a different module.")
+                print("  → Suggested Fix: Check if this vendor is importing from a different module.")
                 print("\n[ERROR] Aborting execution to prevent downstream signal analysis crash.\n")
                 print("[SUMMARY] Object type histogram:")
                 for tname, count in type_tracker.items():

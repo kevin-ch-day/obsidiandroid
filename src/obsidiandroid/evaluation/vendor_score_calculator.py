@@ -1,10 +1,12 @@
-# Filename: av_score_calculator.py
+# Filename: vendor_score_calculator.py
 # Description: Score AV vendors using normalized metrics and reliability penalties
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
+
 from obsidiandroid.cli.ui import display as du
+
 
 # Normalize a series using hybrid z-score + MinMax approach
 def hybrid_normalize(series: pd.Series) -> pd.Series:
@@ -14,6 +16,7 @@ def hybrid_normalize(series: pd.Series) -> pd.Series:
     z_scores = (series - series.mean()) / (series.std() + 1e-6)
     scaled = MinMaxScaler().fit_transform(z_scores.values.reshape(-1, 1)).flatten()
     return pd.Series(scaled, index=series.index)
+
 
 # Ensure all required columns exist in vendor summary data
 def validate_vendor_data(rows: list[dict], required_cols: list[str]) -> pd.DataFrame:
@@ -25,11 +28,13 @@ def validate_vendor_data(rows: list[dict], required_cols: list[str]) -> pd.DataF
     df = df.astype({col: "float64" for col in required_cols if col in df.columns})
     return df
 
+
 # Compute vendor-level diagnostic ratios
 def compute_vendor_ratios(df: pd.DataFrame) -> pd.DataFrame:
     df["Disambig Ratio"] = df["Multiple Match Labels"] / df["Detection Diversity"].replace(0, 1)
     df["Noise Ratio"] = df["Unknown Parsed (%)"] / 100.0
     return df
+
 
 # Apply MinMax-normalized z-scores to core metrics
 def normalize_all_metrics(df: pd.DataFrame) -> pd.DataFrame:
@@ -42,7 +47,7 @@ def normalize_all_metrics(df: pd.DataFrame) -> pd.DataFrame:
         "Norm_Accuracy": "Family Match Accuracy (%)",
         "Norm_Diversity": "Detection Diversity",
         "Norm_Disambig": "Disambig Ratio",
-        "Norm_Noise": "Noise Ratio"
+        "Norm_Noise": "Noise Ratio",
     }
 
     for norm_col, source_col in norm_columns.items():
@@ -56,12 +61,13 @@ def normalize_all_metrics(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
+
 # Compute final scoring components from normalized metrics
 def compute_intelligence_and_penalty(df: pd.DataFrame) -> pd.DataFrame:
     df["Intelligence Score"] = (
-        (df["Norm_Enrichment"] + 1e-5) *
-        (df["Norm_Accuracy"] + 1e-5) *
-        (df["Norm_Diversity"] + 1e-5)
+        (df["Norm_Enrichment"] + 1e-5)
+        * (df["Norm_Accuracy"] + 1e-5)
+        * (df["Norm_Diversity"] + 1e-5)
     ) ** (1 / 3)
 
     df["Reliability Penalty"] = (
@@ -71,6 +77,7 @@ def compute_intelligence_and_penalty(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
+
 # Compute final score and assign vendor performance tier
 def finalize_vendor_scores(df: pd.DataFrame) -> pd.DataFrame:
     df["Final ML Score"] = (
@@ -78,10 +85,14 @@ def finalize_vendor_scores(df: pd.DataFrame) -> pd.DataFrame:
     ).clip(lower=0.0, upper=1.0)
 
     def tier(score: float) -> str:
-        if score >= 0.75: return "High Precision"
-        if score >= 0.50: return "Strong Signal"
-        if score >= 0.25: return "Moderate"
-        if score >  0.00: return "Low Precision"
+        if score >= 0.75:
+            return "High Precision"
+        if score >= 0.50:
+            return "Strong Signal"
+        if score >= 0.25:
+            return "Moderate"
+        if score > 0.00:
+            return "Low Precision"
         return "Too Generic"
 
     df["Vendor Category"] = df["Final ML Score"].apply(tier)
@@ -92,6 +103,7 @@ def finalize_vendor_scores(df: pd.DataFrame) -> pd.DataFrame:
 
     return df.sort_values(by="Final ML Score", ascending=False).reset_index(drop=True)
 
+
 # Full scoring pipeline: validates → computes → returns final vendor score DataFrame
 def compute_vendor_scores(summary_rows: list[dict]) -> pd.DataFrame:
     if not summary_rows:
@@ -100,7 +112,7 @@ def compute_vendor_scores(summary_rows: list[dict]) -> pd.DataFrame:
 
     required = [
         "Enrichment Score", "Family Match Accuracy (%)", "Detection Diversity",
-        "Unknown Parsed (%)", "Multiple Match Labels"
+        "Unknown Parsed (%)", "Multiple Match Labels",
     ]
 
     df = validate_vendor_data(summary_rows, required)

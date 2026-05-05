@@ -1,7 +1,6 @@
 # Filename: inspect_av_pipeline_results.py
 # Purpose : Quick summary and export of AV pipeline results without manual inspection
 
-import os
 import pandas as pd
 from obsidiandroid.cli.ui import display as du
 

@@ -1,30 +1,26 @@
-# Filename: analysis/execution/vendor_classification_processor.py
+# Filename: obsidiandroid/vendors/execution/vendor_classification_processor.py
 # Purpose : Process AV vendor labels into structured records with minimal production-ready logging
 
-import pandas as pd
-from typing import List, Tuple, Callable, Dict, Any, Mapping
+from __future__ import annotations
 
-from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
+from typing import Any, Callable, Dict, List, Mapping, Tuple
+
+import pandas as pd
+
 from obsidiandroid.cli.ui import display as du
-from analysis.execution import vendor_record_factory
-from analysis.evaluation import vendor_summary_builder
+from obsidiandroid.evaluation import vendor_summary_builder
+from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
+from obsidiandroid.vendors.execution import vendor_record_factory
+
 
 def process_vendor_classification(
     vendor: str,
     meta: Dict[str, Any],
     merged_df: pd.DataFrame,
     engine_metadata: Dict[str, Any] = None,
-    debug_mode: bool = False
+    debug_mode: bool = False,
 ) -> Tuple[pd.DataFrame, List[VendorClassificationRecord], Dict[str, Any], List[Dict[str, Any]], Dict[str, Any]]:
-    """
-    Parses all labels for a single AV vendor and produces structured records and statistics.
-    Returns:
-        - Parsed row DataFrame
-        - List of VendorClassificationRecord objects
-        - Vendor summary dictionary
-        - Error logs
-        - Diagnostic statistics
-    """
+    """Parse labels for a single AV vendor and produce structured records and stats."""
     parser_func: Callable = meta.get("func")
     parser_mode: str = meta.get("type", "column")
 
@@ -57,7 +53,7 @@ def process_vendor_classification(
         error = result.get("error")
         if error == "LabelMissingOrEmpty":
             continue
-        elif error:
+        if error:
             error_log.append(_build_error_log(vendor, row_data, error))
             continue
 
@@ -88,7 +84,7 @@ def process_vendor_classification(
         family_counter=stats["family_counter"],
         threat_counter=stats["threat_counter"],
         tag_counter=stats["tag_counter"],
-        generic_scores=stats["generic_scores"]
+        generic_scores=stats["generic_scores"],
     )
 
     return pd.DataFrame(parsed_rows), record_list, summary, error_log, _finalize_stats(stats)
@@ -105,7 +101,7 @@ def _initialize_vendor_stats() -> Dict[str, Any]:
         "threat_counter": {},
         "tag_counter": {},
         "generic_scores": [],
-        "diagnostic_cases": 0
+        "diagnostic_cases": 0,
     }
 
 
@@ -119,7 +115,7 @@ def _build_error_log(vendor: str, row: Mapping[str, Any], error: str) -> Dict[st
         "vendor": vendor,
         "sample_id": row.get("sample_id", ""),
         "label": row.get(vendor, ""),
-        "error": error
+        "error": error,
     }
 
 
@@ -141,3 +137,4 @@ def _update_classification_stats(stats: Dict[str, Any], record: VendorClassifica
     score = getattr(record, "signal_score", None)
     if isinstance(score, (int, float)):
         stats["generic_scores"].append(score)
+

@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from analysis.evaluation import vendor_parser_utils as vpu
+from obsidiandroid.evaluation import vendor_parser_utils as vpu
 from config import app_config
 
 

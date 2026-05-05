@@ -218,7 +218,6 @@ def _debug_training_info(y_train, cv_folds=None):
     if cv_folds is not None:
         du.print_debug(f"Using {cv_folds} CV folds")
     if label_dist:
-        total = sum(label_dist.values())
         min_ratio = min(label_dist.values()) / max(label_dist.values())
         if min_ratio < 0.1:
             du.print_warning("Significant class imbalance detected")

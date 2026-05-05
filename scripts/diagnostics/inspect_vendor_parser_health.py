@@ -20,7 +20,7 @@ from utils.repo_import_paths import ensure_repo_src_on_sys_path
 ensure_repo_src_on_sys_path()
 
 from obsidiandroid.database import db_sample_metadata_queries
-from analysis.evaluation.vendor_classification_parser import (
+from obsidiandroid.evaluation.vendor_classification_parser import (
     parse_vendor_classifications,
 )
 from obsidiandroid.cli.ui import display as du

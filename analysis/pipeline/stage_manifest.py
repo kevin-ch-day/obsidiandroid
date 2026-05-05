@@ -394,9 +394,8 @@ def finalize_run_manifest_stage(
         manifest_context["_evidence_readiness_failed_checks"] = []
         readiness_status = "ready"
         failed_checks: list[str] = []
-        evidence_artifacts: dict[str, str] = {}
         if evidence_mode:
-            evidence_artifacts = _build_paper2_pack(
+            _build_paper2_pack(
                 run_root=run_root,
                 run_id=run_id,
                 samples_df=samples_df,

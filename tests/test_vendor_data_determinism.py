@@ -1,6 +1,6 @@
 import pandas as pd
 
-from analysis.execution.vendor_record_factory import create_vendor_record
+from obsidiandroid.vendors.execution.vendor_record_factory import create_vendor_record
 from obsidiandroid.database import db_fetch_av_engine_raw_results as fetcher
 
 

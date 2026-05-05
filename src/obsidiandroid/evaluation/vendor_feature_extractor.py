@@ -1,18 +1,19 @@
-# Filename: analysis/evaluation/vendor_feature_extractor.py
+# Filename: vendor_feature_extractor.py
 # Purpose : Extract and prepare AV vendor classification features for ML analysis pipeline
 
 import pandas as pd
-from obsidiandroid.cli.ui import display as du
-from obsidiandroid.reporting import export_manager as em
-from analysis.evaluation import evaluate_av_classifications
-from scripts.diagnostics import inspect_vendor_feature_results
+
 from config import app_config
+from obsidiandroid.cli.ui import display as du
+from obsidiandroid.evaluation import evaluate_av_classifications
+from obsidiandroid.reporting import export_manager as em
+from scripts.diagnostics import inspect_vendor_feature_results
 
 
 def extract_vendor_feature_metadata(
     av_pipeline_results: dict,
     samples_df: pd.DataFrame,
-    verbose: bool = False
+    verbose: bool = False,
 ) -> tuple:
     du.print_banner("Vendor Feature Extraction")
 
@@ -52,7 +53,7 @@ def _export_pipeline_results(pipeline_data: dict):
         if exported_path:
             du.print_success("[EXPORT] Pipeline results exported successfully.")
         else:
-            du.print_warning("[EXPORT] Pipeline results export skipped or failed.")
+            du.print_warning("[EXPORT] Pipeline export skipped or failed.")
     except Exception as e:
         du.print_error(f"[EXPORT] Pipeline export failed: {e}")
 
@@ -98,7 +99,7 @@ def _finalize_extraction_output(output: dict, verbose: bool) -> tuple:
                 output_dict=output,
                 verbose=True,
                 strict=False,
-                interactive=False
+                interactive=False,
             )
 
     return vendor_eval_df, records_by_vendor, parsed_vendor_data, vendor_scorecard_df
@@ -184,5 +185,5 @@ def _convert_tier_to_quality(tier) -> str:
         "tier 2": "medium",
         "tier 3": "medium",
         "tier 4": "low",
-        "tier 5": "low"
+        "tier 5": "low",
     }.get(tier, "low")

@@ -63,7 +63,7 @@ class VendorRecordBuilder:
         record.confidence_reason = reason
 
         if debug:
-            du.print_debug(f"[RESULT] Final Record")
+            du.print_debug("[RESULT] Final Record")
             du.print_debug(f"→ family              : {record.family}")
             du.print_debug(f"→ malware_type        : {record.malware_type}")
             du.print_debug(f"→ threat_class        : {record.threat_class}")

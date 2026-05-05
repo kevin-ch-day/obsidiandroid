@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.evaluation import vendor_parser_utils
+from obsidiandroid.evaluation import vendor_parser_utils
 from obsidiandroid.pipeline import vendor_metadata_pipeline
 
 _build_parser_quality_export_df = vendor_metadata_pipeline._build_parser_quality_export_df

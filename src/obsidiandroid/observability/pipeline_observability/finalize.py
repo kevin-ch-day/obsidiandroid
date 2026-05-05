@@ -14,13 +14,13 @@ from typing import Any
 
 from obsidiandroid.cli.ui import display as du
 
-from analysis.diagnostics.cohort_vocabulary import (
+from obsidiandroid.diagnostics.cohort_vocabulary import (
     KEY_COHORT_PREPARED_ROW_COUNT,
     KEY_COHORT_SQL_SCOPE_ROW_COUNT,
     read_prepared_cohort_row_count,
     read_sql_scope_row_count,
 )
-from analysis.diagnostics.output_inventory import evaluate_paper_safe_status
+from obsidiandroid.diagnostics.output_inventory import evaluate_paper_safe_status
 from obsidiandroid.observability.pipeline_observability.logging_audit import write_logging_audit_artifacts
 from obsidiandroid.observability.pipeline_observability.session import PipelineObservabilitySession
 

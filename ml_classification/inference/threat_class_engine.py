@@ -2,7 +2,7 @@
 # Description: AI-style threat class inference using trusted vendor labels, traits, and heuristics
 
 import re
-from typing import List, Tuple, Dict
+from typing import Dict, List
 from collections import Counter
 
 # ------------------------------------------------------------------
@@ -13,17 +13,19 @@ def infer_threat_class(
     family: str,
     traits: List[str],
     original_label: str,
-    trusted_vendor_labels: List[str] = [],
-    debug: bool = False
+    trusted_vendor_labels: List[str] | None = None,
+    debug: bool = False,
 ) -> str:
     """
     Infers a threat class using heuristics across multiple metadata sources.
     Returns the most likely threat class or 'generic' as fallback.
     """
+    if trusted_vendor_labels is None:
+        trusted_vendor_labels = []
     label = (original_label or "").lower()
     family = (family or "").lower()
     traits = [t.lower() for t in traits if t]
-    vendor_labels = [l.lower() for l in trusted_vendor_labels if l]
+    vendor_labels = [vl.lower() for vl in trusted_vendor_labels if vl]
 
     combined = " ".join([label] + vendor_labels + traits + [family])
     candidates = {}

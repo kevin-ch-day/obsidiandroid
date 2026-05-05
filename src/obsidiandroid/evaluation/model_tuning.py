@@ -1,23 +1,7 @@
-import sys
-from pathlib import Path
 import pandas as pd
 from sklearn.datasets import make_classification
 from sklearn.metrics import classification_report, confusion_matrix
-import numpy as np
 
-# Allow imports when executed directly (without adding duplicate sys.path entries).
-# When this file lives under ``repo/src/obsidiandroid/...``, the repository root is
-# the parent of ``src``.
-_this = Path(__file__).resolve()
-_repo_root: Path | None = None
-for parent in _this.parents:
-    if parent.name == "src":
-        _repo_root = parent.parent
-        break
-if _repo_root is not None:
-    src_path = str((_repo_root / "src").resolve())
-    if src_path not in sys.path:
-        sys.path.insert(0, src_path)
 from obsidiandroid.modeling import model_trainer_factory
 
 

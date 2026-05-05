@@ -6,7 +6,7 @@ from typing import Optional
 
 import pandas as pd
 
-from analysis.evaluation import engine_scoring_summary
+from obsidiandroid.evaluation import engine_scoring_summary
 from analysis.feature_engineering import compute_vendor_scores
 from config import app_config
 from obsidiandroid.labeling import classification_label_resolver

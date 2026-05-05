@@ -22,7 +22,7 @@ for _name in _SUBMODULES:
     globals()[_name] = _mod
     sys.modules.setdefault(f"model.vendor.{_name}", _mod)
 
-VendorClassificationRecord = record_core.VendorClassificationRecord
+VendorClassificationRecord = globals()["record_core"].VendorClassificationRecord
 
 __all__ = [
     "VendorClassificationRecord",

@@ -186,3 +186,19 @@ def load_sample_metadata_dataframe(sample_id) -> pd.DataFrame:
     du.print_header(f"Loading Metadata for Sample ID: {sample_id}")
     result = fetch_sample_metadata(sample_id=sample_id, as_dataframe=False)
     return convert_to_dataframe(result, f"SampleMetadata:{sample_id}")
+
+
+__all__ = [
+    "get_type_cohort_gate_stats",
+    "get_type_slug_alignment_report",
+    "load_samples_by_type",
+    "load_banker_dataframe",
+    "load_dropper_dataframe",
+    "load_adware_dataframe",
+    "load_stealer_dataframe",
+    "load_sms_trojan_dataframe",
+    "load_rat_dataframe",
+    "load_spyware_dataframe",
+    "load_unknown_type_dataframe",
+    "load_sample_metadata_dataframe",
+]

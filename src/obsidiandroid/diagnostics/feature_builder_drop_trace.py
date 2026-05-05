@@ -440,7 +440,7 @@ def run_feature_builder_drop_trace(
     aligned_count = _aligned_export_sample_count(aligned_path) if aligned_path.is_file() else None
     coverage_snap = load_feature_build_coverage_summary(diag)
 
-    from analysis.evaluation import vendor_classification_parser as vcp
+    from obsidiandroid.evaluation import vendor_classification_parser as vcp
     from analysis.matrix import av_binary_matrix_builder as avb
     from analysis.orchestration import permission_features as pf
     from analysis.pipeline import sample_preparation as sp

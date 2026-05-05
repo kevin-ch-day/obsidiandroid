@@ -48,7 +48,7 @@ def balanced_train_test_split(
     counts = Counter(y)
     # Determine the minimal fraction needed to satisfy the test count
     required_fractions = []
-    for cls, count in counts.items():
+    for _cls, count in counts.items():
         if count == 0:
             continue
         required = min(min_test_per_class, count) / count

@@ -1,7 +1,6 @@
 # Filename: db_sample_malicious_scoring.py
 # Purpose: Compute per-sample malicious detection scores based on trusted AV engines
 
-import pandas as pd
 from database import db_engine
 from database import schema_map
 from obsidiandroid.cli.ui import display as du
@@ -24,7 +23,7 @@ def get_active_trusted_engines():
         active_col=active_col,
     )
     try:
-        columns, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
+        _columns, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
         if not rows:
             du.print_debug("Trusted-engine query returned 0 rows.")
             return []
@@ -85,8 +84,8 @@ def get_existing_result_columns():
               AND TABLE_SCHEMA = %s
         """
         params = (verdicts_table, schema_map.current_schema())
-        columns, rows = db_engine.execute_query(query, params=params, fetch=True, return_columns=True)
-        if columns != ['COLUMN_NAME'] or not isinstance(rows, list):
+        _columns, rows = db_engine.execute_query(query, params=params, fetch=True, return_columns=True)
+        if _columns != ["COLUMN_NAME"] or not isinstance(rows, list):
             du.print_warning("[ERROR] Unexpected schema result format.")
             return set()
         return {r[0] for r in rows if isinstance(r, tuple) and r and r[0]}
@@ -107,11 +106,11 @@ def get_sample_malicious_score(min_engines=5):
             return ([], [])
 
         query = _build_malicious_score_query(valid_engines, min_engines)
-        columns, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
+        _columns, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
 
         if not rows:
             du.print_warning("[INFO] Malicious score query returned no rows.")
-        return rows, columns
+        return rows, _columns
 
     except Exception as e:
         du.print_warning(f"[ERROR] Malicious score query failed: {e}")

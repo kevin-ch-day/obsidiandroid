@@ -19,7 +19,10 @@ from config import app_config
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-_SRC = REPO_ROOT / "src"
+
+from utils.repo_import_paths import ensure_repo_src_on_sys_path
+
+ensure_repo_src_on_sys_path()
 
 from obsidiandroid.pipeline import stage_results_warehouse
 

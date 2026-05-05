@@ -123,9 +123,6 @@ def collect_raw_engine_labels(engine: str, sample_limit: int = 2000) -> list:
 
 # --- Main Analysis Logic ---
 def analyze_detection_keywords(sample_limit: int = 2000):
-    output_txt = "results/av_keywords_summary.txt"
-    output_excel = "results/av_keywords_training.xlsx"
-
     keyword_counter = Counter()
     keyword_to_labels = defaultdict(set)
     engine_token_map = defaultdict(Counter)
@@ -164,7 +161,7 @@ def analyze_detection_keywords(sample_limit: int = 2000):
         keyword_entropy_scores[token] = compute_entropy(label_set)
 
     du.print_info(f"[INFO] Total unique tokens extracted: {len(keyword_counter)}")
-    du.print_info(f"[INFO] Generating ML-ready output files...")
+    du.print_info("[INFO] Generating ML-ready output files...")
 
     save_txt_report(
         counter=keyword_counter,

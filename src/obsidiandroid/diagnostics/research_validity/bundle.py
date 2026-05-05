@@ -9,16 +9,17 @@ from typing import Any
 
 import pandas as pd
 
-from analysis.diagnostics.research_validity.cohort_funnel import (
+from ..hostile_audit.bundle import write_hostile_audit_bundle
+
+from .cohort_funnel import (
     finalize_cohort_funnel_dict,
     write_cohort_funnel_artifacts,
 )
-from analysis.diagnostics.research_validity.figures import write_validity_figures
-from analysis.diagnostics.hostile_audit.bundle import write_hostile_audit_bundle
-from analysis.diagnostics.research_validity.paper_claim_audit import write_paper_claim_audit_md
-from analysis.diagnostics.research_validity.permission_audit import write_permission_feature_audit_csv
-from analysis.diagnostics.research_validity.signal_export import write_signal_decomposition_artifacts
-from analysis.diagnostics.research_validity.type_permission_figures import (
+from .figures import write_validity_figures
+from .paper_claim_audit import write_paper_claim_audit_md
+from .permission_audit import write_permission_feature_audit_csv
+from .signal_export import write_signal_decomposition_artifacts
+from .type_permission_figures import (
     write_type_permission_figure_bundle,
 )
 from obsidiandroid.observability.pipeline_observability import api as obs_api

@@ -19,7 +19,7 @@ from analysis.orchestration.profile_filters import (
     apply_dataset_filters,
     export_cohort_filter_summary,
 )
-from analysis.pipeline.contract_filters import apply_contract_filters
+from obsidiandroid.pipeline.contract_filters import apply_contract_filters
 from obsidiandroid.diagnostics import cohort_foundation_export
 from analysis.pipeline.sample_exports import (
     augment_dataset_time_contract as _augment_dataset_time_contract,

@@ -1,12 +1,14 @@
-# Filename: analysis/execution/vendor_parser_runner.py
+# Filename: obsidiandroid/vendors/execution/vendor_parser_runner.py
 # Purpose : Executes a single vendor parser and builds structured classification records with minimal production logs
 
-import pandas as pd
-import traceback
-from typing import Tuple, List, Dict, Any, Optional
+from __future__ import annotations
 
-from analysis.execution import vendor_classification_processor
+from typing import Any, Dict, List, Optional, Tuple
+
+import pandas as pd
+
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.vendors.execution import vendor_classification_processor
 
 
 def execute_vendor_parser(
@@ -15,9 +17,8 @@ def execute_vendor_parser(
     merged_df: pd.DataFrame,
     engine_meta: Dict[str, Any],
     verbose: bool = False,
-    debug: bool = False  # Ignored in production
+    debug: bool = False,  # Ignored in production
 ) -> Tuple[Optional[pd.DataFrame], List[Any], Dict[str, Any], List[str], Dict[str, Any]]:
-
     parser_func = meta.get("func")
     parser_mode = meta.get("type", "column")
 
@@ -33,7 +34,7 @@ def execute_vendor_parser(
             vendor=vendor,
             meta=meta,
             merged_df=merged_df,
-            engine_metadata=engine_meta
+            engine_metadata=engine_meta,
         )
         if verbose:
             du.print_info(f"[OK] Parser completed for vendor: {vendor}")
@@ -60,14 +61,12 @@ def _validate_sample_input(vendor: str, parser_func: Any, parser_mode: str, merg
 
 
 def _print_crash_hint(error: Exception):
-    """
-    Attempt to provide intelligent hints for common parser failures.
-    """
+    """Attempt to provide intelligent hints for common parser failures."""
     hints = {
         "most_common": "You may be calling `.most_common()` on a dict instead of a Counter.",
         "attribute": "Missing object property — check if the parser returns a ParsedLabelMetadata.",
         "dict": "Parser returned a raw dict but a class object was expected.",
-        "type": "Type mismatch — check for unexpected `None` or field values."
+        "type": "Type mismatch — check for unexpected `None` or field values.",
     }
 
     error_str = str(error).lower()
@@ -78,8 +77,5 @@ def _print_crash_hint(error: Exception):
 
 
 def _return_empty_result(total: int) -> Tuple[None, List[Any], Dict[str, Any], List[str], Dict[str, Any]]:
-    return None, [], {}, [], {
-        "total": total,
-        "parsed": 0,
-        "success_rate": 0.0
-    }
+    return None, [], {}, [], {"total": total, "parsed": 0, "success_rate": 0.0}
+

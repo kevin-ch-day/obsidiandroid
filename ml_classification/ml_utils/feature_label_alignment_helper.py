@@ -30,7 +30,7 @@ def perform_feature_label_alignment(
         return None, None
 
     # Compare IDs between feature and label sets
-    shared_ids, feature_only, label_only = _preview_alignment_overlap(feature_df, label_df)
+    _shared_ids, feature_only, label_only = _preview_alignment_overlap(feature_df, label_df)
 
     # Export mismatches if requested
     if export_debug:

@@ -11,7 +11,11 @@ try:
     from colorama import Fore, Style, init as colorama_init
     colorama_init()
 except ImportError:
-    class Dummy: RESET_ALL = YELLOW = GREEN = ""
+    class Dummy:
+        RESET_ALL = ""
+        YELLOW = ""
+        GREEN = ""
+
     Fore = Style = Dummy()
 
 # --- Heuristics and Safe Patterns ---
