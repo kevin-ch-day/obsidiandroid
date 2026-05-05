@@ -12,7 +12,7 @@ from analysis.evaluation import vendor_feature_extractor
 from utils import display_utils as du
 from utils.logging import get_logger, log_event
 from utils.runtime_paths import resolve_diagnostics_dir
-from utils import output_hygiene as oh
+from obsidiandroid.common import output_hygiene as oh
 
 
 PIPELINE_LOGGER = get_logger(

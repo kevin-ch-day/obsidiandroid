@@ -3,8 +3,8 @@
 import traceback
 from pathlib import Path
 import pandas as pd
+from obsidiandroid.modeling import model_exporter
 from utils import display_utils as du
-from utils import model_exporter
 from ml_classification.ml_utils import ml_result_analyzer
 from . import model_prediction
 from . import feature_schema_audit

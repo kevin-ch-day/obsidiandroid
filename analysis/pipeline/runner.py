@@ -28,7 +28,7 @@ from utils.logging import runtime as runtime_logging
 from utils.logging import logger as logger_manager
 from utils.logging import get_logger, log_event
 from utils.hash_utils import hash_payload
-from utils import output_hygiene as oh
+from obsidiandroid.common import output_hygiene as oh
 from analysis.pipeline.governance.integrity import enforce_run_scoped_artifact_paths
 from analysis.diagnostics.cohort_foundation_export import append_research_warnings_for_upstream_expectation
 from analysis.diagnostics.cohort_vocabulary import (

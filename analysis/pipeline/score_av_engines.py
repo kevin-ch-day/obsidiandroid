@@ -14,7 +14,7 @@ from analysis.risk_band import phase_score_engines
 from config import app_config
 from database import db_engine
 from utils import display_utils as du
-from utils import export_manager as em
+from obsidiandroid.reporting import export_manager as em
 from utils.logging import get_logger, log_event
 
 # Output paths

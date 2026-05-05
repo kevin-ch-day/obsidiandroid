@@ -15,7 +15,7 @@ from typing import Any, Callable, Optional
 import pandas as pd
 
 from config import app_config
-from utils import output_hygiene as oh
+from obsidiandroid.common import output_hygiene as oh
 
 STAGE_SLUGS: tuple[str, ...] = (
     "after_sample_prep",

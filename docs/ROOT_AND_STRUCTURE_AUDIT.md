@@ -86,7 +86,7 @@ Work proceeded in **documented passes** (see **`STRUCTURE_MIGRATION_PLAN.md`**).
 | **`ml_classification/`** | Training, vectorization, labeling helpers. |
 | **`model/`** | Model artifacts support (as present in repo). |
 | **`config/`**, **`profiles/`** | Configuration and YAML profiles (**`package-data`** for profiles). |
-| **`utils/`** | Legacy + **shims** re-exporting **`obsidiandroid.common`** where applicable. |
+| **`utils/`** | Legacy + **shims** re-exporting **`obsidiandroid.*`** where applicable; **`export_manager`** implementation is canonical under **`obsidiandroid.reporting.export_manager`** ( **`utils.export_manager`** is a **module-alias shim**). **`utils/logging/`** remains real implementation until an observability pass. |
 | **`tests/`** | Pytest tree. |
 | **`scripts/`** | **`dev/`**, **`diagnostics/`**, **`research/`**, operator **`scripts/*.py`**. |
 

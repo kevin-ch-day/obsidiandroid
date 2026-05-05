@@ -45,7 +45,7 @@ def write_logging_audit_artifacts(diagnostics_dir: Path, *, run_id: str | None =
         "",
         "- **Terminal:** `utils.display_utils` (`print_*`, `[PIPELINE]` / `[EVIDENCE]` prefixes) mixed with contextual lines.",
         "- **Structured file:** `utils.logging.logger.log_event` + `PIPELINE_MAIN_LOGGER` (category `pipeline.log`).",
-        "- **Diagnostics:** run-scoped + `.latest` mirror policies via `utils.output_hygiene`.",
+        "- **Diagnostics:** run-scoped + `.latest` mirror policies via `obsidiandroid.common.output_hygiene`.",
         "- **Compliance:** `paper_mode_compliance_report_{run_id}.json` (gates when paper/evidence expectations apply).",
         "",
         "## Known gaps (prioritized backlog)",

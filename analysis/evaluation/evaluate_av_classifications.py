@@ -3,7 +3,7 @@
 
 import pandas as pd
 from utils import display_utils as du
-from utils import export_manager as em
+from obsidiandroid.reporting import export_manager as em
 from analysis.evaluation import vendor_classification_inspector as inspector
 from analysis.evaluation.vendor_classification_parser import parse_vendor_classifications
 

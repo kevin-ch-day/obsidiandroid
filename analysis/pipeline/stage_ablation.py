@@ -20,7 +20,7 @@ from utils import ml_console
 from utils.runtime_paths import resolve_diagnostics_dir
 
 from analysis.diagnostics.ablation_cohort_diagnostics import write_ablation_cohort_gap_artifacts
-from utils import output_hygiene as oh
+from obsidiandroid.common import output_hygiene as oh
 
 
 class PaperCohortSource(str, Enum):

@@ -210,6 +210,36 @@ def main() -> int:
         return 1
     print("OK   utils.confusion_matrix_exporter re-exports match obsidiandroid.reporting")
 
+    canon_em = importlib.import_module("obsidiandroid.reporting.export_manager")
+    shim_em = importlib.import_module("utils.export_manager")
+    if shim_em is not canon_em:
+        print(
+            "FAIL: utils.export_manager must alias obsidiandroid.reporting.export_manager module object",
+            file=sys.stderr,
+        )
+        return 1
+    if shim_em.export_dataframe_to_excel is not canon_em.export_dataframe_to_excel:
+        print("FAIL: export_manager.export_dataframe_to_excel shim mismatch", file=sys.stderr)
+        return 1
+    print("OK   utils.export_manager aliases obsidiandroid.reporting.export_manager")
+
+    canon_me = importlib.import_module("obsidiandroid.modeling.model_exporter")
+    shim_me = importlib.import_module("utils.model_exporter")
+    if shim_me.export_model_to_file is not canon_me.export_model_to_file:
+        print("FAIL: utils.model_exporter.export_model_to_file is not canonical", file=sys.stderr)
+        return 1
+    print("OK   utils.model_exporter re-exports match obsidiandroid.modeling.model_exporter")
+
+    canon_oh = importlib.import_module("obsidiandroid.common.output_hygiene")
+    shim_oh = importlib.import_module("utils.output_hygiene")
+    if shim_oh.resolve_stable_output_root_for_mirrors is not canon_oh.resolve_stable_output_root_for_mirrors:
+        print("FAIL: utils.output_hygiene.resolve_stable_output_root_for_mirrors is not canonical", file=sys.stderr)
+        return 1
+    if shim_oh.mirror_csv_text_run_then_global is not canon_oh.mirror_csv_text_run_then_global:
+        print("FAIL: utils.output_hygiene.mirror_csv_text_run_then_global is not canonical", file=sys.stderr)
+        return 1
+    print("OK   utils.output_hygiene re-exports match obsidiandroid.common.output_hygiene")
+
     canon_pu = importlib.import_module("obsidiandroid.cli.prompt_utils")
     shim_pu = importlib.import_module("utils.prompt_utils")
     if shim_pu.prompt_yes_no is not canon_pu.prompt_yes_no:

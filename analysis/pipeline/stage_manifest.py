@@ -25,7 +25,7 @@ from obsidiandroid.common import output_paths
 import obsidiandroid.governance.run_manifest as run_manifest
 from utils import display_utils as du
 from utils.hash_utils import hash_payload
-from utils import output_hygiene as oh
+from obsidiandroid.common import output_hygiene as oh
 from analysis.pipeline.manifest.hashing import (
     canonical_csv_bytes,
     dataset_hash_from_sample_ids,

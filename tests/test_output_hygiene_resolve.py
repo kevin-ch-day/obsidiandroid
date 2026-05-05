@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from config import app_config
-from utils import output_hygiene as oh
+from obsidiandroid.common import output_hygiene as oh
 
 
 def test_resolve_dataset_time_contract_prefers_run_scoped(tmp_path: Path) -> None:

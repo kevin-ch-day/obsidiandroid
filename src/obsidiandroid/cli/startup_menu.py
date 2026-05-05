@@ -26,7 +26,7 @@ from .menu.vendor_diagnostics import (
     validate_parser_columns_from_latest_export,
 )
 from .menu import startup_menu_actions
-from utils import output_hygiene as oh
+from obsidiandroid.common import output_hygiene as oh
 
 
 @dataclass(frozen=True)

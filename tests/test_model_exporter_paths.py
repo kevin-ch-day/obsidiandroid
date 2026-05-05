@@ -7,7 +7,7 @@ from pathlib import Path
 from sklearn.dummy import DummyClassifier
 
 from config import app_config
-from utils import model_exporter
+from obsidiandroid.modeling import model_exporter
 
 
 def test_model_exporter_writes_run_scoped_only(monkeypatch, tmp_path: Path) -> None:

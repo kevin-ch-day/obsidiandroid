@@ -10,7 +10,7 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
-from utils import output_hygiene as oh
+from obsidiandroid.common import output_hygiene as oh
 
 
 def diagnostics_dir(run_id: str | None = None) -> Path:

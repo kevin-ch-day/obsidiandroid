@@ -147,6 +147,32 @@ def test_confusion_matrix_exporter_shim_matches_canonical() -> None:
     assert shim.export_confusion_matrix_image is canon.export_confusion_matrix_image
 
 
+def test_export_manager_shim_matches_canonical() -> None:
+    """``utils.export_manager`` aliases the canonical reporting module (same module object)."""
+    import obsidiandroid.reporting.export_manager as canon
+    from utils import export_manager as shim
+
+    assert shim is canon
+    assert shim.export_dataframe_to_excel is canon.export_dataframe_to_excel
+
+
+def test_model_exporter_shim_matches_canonical() -> None:
+    """``utils.model_exporter`` re-exports :mod:`obsidiandroid.modeling.model_exporter`."""
+    import obsidiandroid.modeling.model_exporter as canon
+    from utils import model_exporter as shim
+
+    assert shim.export_model_to_file is canon.export_model_to_file
+
+
+def test_output_hygiene_shim_matches_canonical() -> None:
+    """``utils.output_hygiene`` re-exports :mod:`obsidiandroid.common.output_hygiene`."""
+    import obsidiandroid.common.output_hygiene as canon
+    from utils import output_hygiene as shim
+
+    assert shim.resolve_stable_output_root_for_mirrors is canon.resolve_stable_output_root_for_mirrors
+    assert shim.mirror_csv_text_run_then_global is canon.mirror_csv_text_run_then_global
+
+
 def test_export_workbook_shim_matches_canonical() -> None:
     """``utils.exporting.workbook`` delegates to ``obsidiandroid.common.export_workbook``."""
     from obsidiandroid.common import export_workbook as canon

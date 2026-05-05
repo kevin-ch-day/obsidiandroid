@@ -26,7 +26,7 @@ This review focused on:
 - `pipeline/orchestrator.py`: keep high-level stage sequence only.
 - `pipeline/stages/*.py`: one file per stage (`samples`, `av_pipeline`, `vendor_metadata`, `weights`, `feature_matrix`, `training`).
 - `pipeline/cohort_filters.py`: `_split_benign_malicious`, `_apply_dataset_filters`.
-- `pipeline/metadata_features.py`: `_extract_vt_tag_count`, `_build_metadata_feature_frame`.
+- `analysis/pipeline/sample_preparation.py`: `extract_vt_tag_count`, `build_metadata_feature_frame` (see also thin re-export `analysis/orchestration/metadata_features.py`).
 - `pipeline/contracts.py`: typed dataclasses for stage inputs/outputs.
 
 ---
