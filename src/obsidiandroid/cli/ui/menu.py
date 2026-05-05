@@ -85,7 +85,6 @@ def display_menu(
         action_hint: Footer hint; defaults to a standard key legend + default note.
     """
     _print_menu_title(title, subtitle=subtitle, breadcrumb=breadcrumb)
-    cc.print_rule(width=cc.DEFAULT_SECTION_WIDTH)
     _print_menu_options(options, exit_label=exit_label)
     footer = action_hint if action_hint is not None else (
         "Type a row number. " + _format_action_hint(default_choice=default_choice)
@@ -103,8 +102,15 @@ def display_menu(
     while True:
         try:
             raw = input(prompt).strip()
-            if default_choice is not None and raw == "":
-                choice = int(default_choice)
+            if raw == "":
+                if default_choice is not None:
+                    choice = int(default_choice)
+                elif str(exit_label).strip().lower() == "back":
+                    # Submenus: blank Enter behaves like choosing Back (common expectation).
+                    return 0
+                else:
+                    cc.print_info("Enter a menu number (1–{}) or 0 to exit.".format(len(options)))
+                    continue
             else:
                 choice = int(raw)
             if 0 <= choice <= len(options):

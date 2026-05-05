@@ -16,7 +16,7 @@ def test_resolve_and_validate_profile_reprompts_until_valid(monkeypatch) -> None
     monkeypatch.setattr(
         profile_preflight,
         "resolve_profile_for_run",
-        lambda prefer_quick=False: next(choices),
+        lambda prefer_quick=False, **kwargs: next(choices),
     )
 
     def _validate(profile_id: str) -> tuple[bool, str]:
@@ -34,7 +34,7 @@ def test_resolve_and_validate_profile_cancel(monkeypatch) -> None:
     monkeypatch.setattr(
         profile_preflight,
         "resolve_profile_for_run",
-        lambda prefer_quick=False: None,
+        lambda prefer_quick=False, **kwargs: None,
     )
     assert profile_preflight.resolve_and_validate_profile() is None
 

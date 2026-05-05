@@ -168,7 +168,13 @@ def _apply_policy_defaults(profile: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def select_profile_interactive() -> str | None:
+def select_profile_interactive(
+    *,
+    breadcrumb: str | None = None,
+    subtitle: str | None = None,
+    title: str = "Execution profile",
+    exit_label: str = "Back",
+) -> str | None:
     """Prompt user to select a profile id with richer context."""
     profiles = list_profiles()
     if not profiles:
@@ -184,7 +190,10 @@ def select_profile_interactive() -> str | None:
 
     choice = mu.display_menu(
         labels,
-        title="Execution profile",
+        title=title,
+        breadcrumb=breadcrumb,
+        subtitle=subtitle,
+        exit_label=exit_label,
     )
     if choice == 0:
         return None
@@ -209,7 +218,13 @@ def select_profile_interactive() -> str | None:
     return selected_label
 
 
-def select_profile_interactive_quick() -> str | None:
+def select_profile_interactive_quick(
+    *,
+    breadcrumb: str | None = None,
+    subtitle: str | None = None,
+    title: str = "Execution profile",
+    exit_label: str = "Back",
+) -> str | None:
     """Prompt a concise profile menu for common run paths.
 
     This keeps the primary UX focused on day-to-day profiles and allows
@@ -234,7 +249,12 @@ def select_profile_interactive_quick() -> str | None:
         quick_entries.append(profile_id)
 
     if not quick_entries:
-        return select_profile_interactive()
+        return select_profile_interactive(
+            breadcrumb=breadcrumb,
+            subtitle=subtitle,
+            title=title,
+            exit_label=exit_label,
+        )
 
     indexed_profiles: list[str] = []
     for profile_id in quick_entries:
@@ -253,8 +273,10 @@ def select_profile_interactive_quick() -> str | None:
     while True:
         choice = mu.display_menu(
             menu_labels,
-            title="Execution profile",
-            exit_label="Back",
+            title=title,
+            breadcrumb=breadcrumb,
+            subtitle=subtitle,
+            exit_label=exit_label,
             default_choice=1,
         )
         if choice == 0:
@@ -262,7 +284,12 @@ def select_profile_interactive_quick() -> str | None:
 
         selected_key = menu_labels[choice - 1]
         if selected_key == more_label:
-            return select_profile_interactive()
+            return select_profile_interactive(
+                breadcrumb=breadcrumb,
+                subtitle=subtitle,
+                title=title,
+                exit_label=exit_label,
+            )
 
         try:
             load_profile(selected_key)

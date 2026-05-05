@@ -15,11 +15,26 @@ MENU_LOGGER = get_logger(
 )
 
 
-def resolve_profile_for_run(*, prefer_quick: bool = False) -> str | None:
+def resolve_profile_for_run(
+    *,
+    prefer_quick: bool = False,
+    menu_breadcrumb: str | None = None,
+    menu_subtitle: str | None = None,
+    menu_title: str | None = None,
+) -> str | None:
     """Resolve execution profile interactively."""
+    title = menu_title or "Execution profile"
     if prefer_quick:
-        return profile_manager.select_profile_interactive_quick()
-    return profile_manager.select_profile_interactive()
+        return profile_manager.select_profile_interactive_quick(
+            breadcrumb=menu_breadcrumb,
+            subtitle=menu_subtitle,
+            title=title,
+        )
+    return profile_manager.select_profile_interactive(
+        breadcrumb=menu_breadcrumb,
+        subtitle=menu_subtitle,
+        title=title,
+    )
 
 
 def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
@@ -105,10 +120,21 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
     return True, ""
 
 
-def resolve_and_validate_profile(*, prefer_quick: bool = False) -> str | None:
+def resolve_and_validate_profile(
+    *,
+    prefer_quick: bool = False,
+    menu_breadcrumb: str | None = None,
+    menu_subtitle: str | None = None,
+    menu_title: str | None = None,
+) -> str | None:
     """Interactive profile selection with preflight validation."""
     while True:
-        profile_id = resolve_profile_for_run(prefer_quick=prefer_quick)
+        profile_id = resolve_profile_for_run(
+            prefer_quick=prefer_quick,
+            menu_breadcrumb=menu_breadcrumb,
+            menu_subtitle=menu_subtitle,
+            menu_title=menu_title,
+        )
         if not profile_id:
             return None
 

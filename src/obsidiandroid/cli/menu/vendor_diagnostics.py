@@ -14,8 +14,105 @@ from obsidiandroid.database import db_engine
 from obsidiandroid.vendors.contracts.parsed_label_metadata import ParsedLabelMetadata
 from .workbook_loader import load_enriched_matrix_for_menu
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
+from config import app_config
+from . import run_locator
 from ..ui import display as du
 from ..ui import menu as mu
+
+
+def _output_root() -> Path:
+    return Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+
+
+def _global_diagnostics() -> Path:
+    return _output_root() / "diagnostics"
+
+
+def _run_diagnostics(run_id: str) -> Path:
+    return _output_root() / "runs" / run_id.strip() / "diagnostics"
+
+
+def _first_existing(paths: list[Path]) -> Path | None:
+    for p in paths:
+        if p.is_file():
+            return p
+    return None
+
+
+def resolve_vendor_parser_coverage_csv() -> Path | None:
+    """Prefer run-scoped vendor_parser_coverage, then global ``.latest``."""
+    rid = run_locator.read_latest_run_id()
+    candidates: list[Path] = []
+    if rid:
+        rd = _run_diagnostics(rid)
+        candidates.extend(
+            [
+                rd / f"vendor_parser_coverage_{rid}.csv",
+                rd / "vendor_parser_coverage.latest.csv",
+            ]
+        )
+    candidates.append(_global_diagnostics() / "vendor_parser_coverage.latest.csv")
+    return _first_existing(candidates)
+
+
+def resolve_vendor_parser_coverage_candidates_csv() -> Path | None:
+    rid = run_locator.read_latest_run_id()
+    candidates: list[Path] = []
+    if rid:
+        rd = _run_diagnostics(rid)
+        candidates.extend(
+            [
+                rd / f"vendor_parser_coverage_candidates_{rid}.csv",
+                rd / "vendor_parser_coverage_candidates.latest.csv",
+            ]
+        )
+    candidates.append(_global_diagnostics() / "vendor_parser_coverage_candidates.latest.csv")
+    return _first_existing(candidates)
+
+
+def resolve_vendor_gate_pre_gate_csv() -> Path | None:
+    rid = run_locator.read_latest_run_id()
+    candidates: list[Path] = []
+    if rid:
+        rd = _run_diagnostics(rid)
+        candidates.extend(
+            [
+                rd / f"vendor_gate_top10_pre_gate_{rid}.csv",
+                rd / "vendor_gate_top10_pre_gate.latest.csv",
+            ]
+        )
+    candidates.append(_global_diagnostics() / "vendor_gate_top10_pre_gate.latest.csv")
+    return _first_existing(candidates)
+
+
+def resolve_vendor_stress_test_csv() -> Path | None:
+    rid = run_locator.read_latest_run_id()
+    candidates: list[Path] = []
+    if rid:
+        rd = _run_diagnostics(rid)
+        candidates.extend(
+            [
+                rd / f"vendor_parser_stress_test_{rid}.csv",
+                rd / "vendor_parser_stress_test.latest.csv",
+            ]
+        )
+    candidates.append(_global_diagnostics() / "vendor_parser_stress_test.latest.csv")
+    return _first_existing(candidates)
+
+
+def resolve_vendor_strengths_weaknesses_csv() -> Path | None:
+    rid = run_locator.read_latest_run_id()
+    candidates: list[Path] = []
+    if rid:
+        rd = _run_diagnostics(rid)
+        candidates.extend(
+            [
+                rd / f"vendor_parser_strengths_weaknesses_{rid}.csv",
+                rd / "vendor_parser_strengths_weaknesses.latest.csv",
+            ]
+        )
+    candidates.append(_global_diagnostics() / "vendor_parser_strengths_weaknesses.latest.csv")
+    return _first_existing(candidates)
 
 
 def _diagnostics_dir() -> Path:
@@ -46,21 +143,21 @@ def _read_latest_manifest() -> dict[str, Any]:
 
 def _parser_diagnostics_state() -> dict[str, object]:
     """Return current parser-diagnostics capability state."""
-    coverage_csv = _diagnostics_dir() / "vendor_parser_coverage.latest.csv"
-    candidates_csv = _diagnostics_dir() / "vendor_parser_coverage_candidates.latest.csv"
-    scores_csv = _diagnostics_dir() / "vendor_gate_top10_pre_gate.latest.csv"
+    coverage_csv = resolve_vendor_parser_coverage_csv()
+    candidates_csv = resolve_vendor_parser_coverage_candidates_csv()
+    scores_csv = resolve_vendor_gate_pre_gate_csv()
     try:
         workbook_df = load_enriched_matrix_for_menu(emit_warnings=False)
     except TypeError:
         workbook_df = load_enriched_matrix_for_menu()
     workbook_ready = isinstance(workbook_df, pd.DataFrame)
-    csv_ready = coverage_csv.exists()
+    csv_ready = coverage_csv is not None
     return {
         "workbook_ready": workbook_ready,
         "csv_ready": csv_ready,
-        "coverage_csv_path": coverage_csv,
-        "candidates_csv_path": candidates_csv,
-        "scores_csv_path": scores_csv,
+        "coverage_csv_path": coverage_csv or Path(),
+        "candidates_csv_path": candidates_csv or Path(),
+        "scores_csv_path": scores_csv or Path(),
     }
 
 
@@ -73,7 +170,7 @@ def print_parser_diagnostics_state() -> None:
         "Available" if state["workbook_ready"] else "Unavailable",
     )
     du.print_stat(
-        "CSV snapshot coverage",
+        "Vendor coverage CSV",
         "Available" if state["csv_ready"] else "Unavailable",
     )
     du.print_stat(
@@ -83,8 +180,69 @@ def print_parser_diagnostics_state() -> None:
     if not state["workbook_ready"]:
         du.print_note("Single-vendor diagnostics need a run completed through Vendor metadata.")
     if state["csv_ready"] and not state["workbook_ready"]:
-        du.print_info("Coverage and snapshot views can still run from the latest diagnostics CSV exports.")
+        du.print_info("Coverage and CSV views can still run from the latest run or global diagnostics exports.")
     print("")
+
+
+def print_compact_vendor_coverage_snapshot() -> int:
+    """Print compact stats from ``vendor_parser_coverage`` CSV (run-scoped path preferred)."""
+    du.print_section("Vendor parser coverage (CSV export)")
+    cov_path = resolve_vendor_parser_coverage_csv()
+    if cov_path is None:
+        du.print_warning(
+            "[MENU] Missing vendor_parser_coverage CSV. Run vendor metadata / pipeline diagnostics export first."
+        )
+        return 1
+    try:
+        coverage_df = pd.read_csv(cov_path)
+    except Exception:
+        du.print_warning("[MENU] Could not read vendor_parser_coverage CSV.")
+        return 1
+    if coverage_df.empty:
+        du.print_warning("[MENU] Vendor coverage CSV is empty.")
+        return 1
+    total = len(coverage_df)
+    mapped = int(pd.to_numeric(coverage_df.get("parser_mapped", 0), errors="coerce").fillna(0).sum())
+    du.print_stat("Source file", str(cov_path.resolve()))
+    du.print_stat("Observed vendor columns", total)
+    du.print_stat("Mapped parser columns", mapped)
+    du.print_stat("Unmapped columns", max(0, total - mapped))
+
+    stress_path = resolve_vendor_stress_test_csv()
+    if stress_path is not None:
+        try:
+            stress_df = pd.read_csv(stress_path)
+        except Exception:
+            stress_df = pd.DataFrame()
+        if not stress_df.empty:
+            top_row = stress_df.iloc[0].to_dict()
+            du.print_info(
+                "[MENU] Best stress profile: "
+                f"unknown_cut={top_row.get('unknown_cut')} "
+                f"mapped_cut={top_row.get('mapped_cut')} "
+                f"generic_cut={top_row.get('generic_cut')} "
+                f"effective_share={top_row.get('effective_inclusion_share')}"
+            )
+
+    strengths_path = resolve_vendor_strengths_weaknesses_csv()
+    if strengths_path is not None:
+        try:
+            strengths_df = pd.read_csv(strengths_path)
+        except Exception:
+            strengths_df = pd.DataFrame()
+        if not strengths_df.empty:
+            if "inclusion_status" in strengths_df.columns:
+                excluded_mask = strengths_df["inclusion_status"].astype(str).str.lower() == "exclude"
+            else:
+                excluded_mask = pd.Series([False] * len(strengths_df), index=strengths_df.index)
+            excluded = strengths_df[excluded_mask]
+            if not excluded.empty:
+                du.print_table(
+                    excluded[["vendor", "weakness_tags"]].head(10),
+                    title="Top excluded vendors (weakness tags)",
+                    show_index=False,
+                )
+    return 0
 
 
 def _print_workbook_missing_guidance() -> None:
@@ -131,7 +289,8 @@ def _print_manifest_vendor_context() -> None:
 
 def _print_parser_coverage_snapshot() -> None:
     """Print parser coverage summary from latest exported diagnostics."""
-    coverage_path = _diagnostics_dir() / "vendor_parser_coverage.latest.csv"
+    resolved = resolve_vendor_parser_coverage_csv()
+    coverage_path = resolved if resolved is not None else Path()
     coverage_df = _read_csv(coverage_path)
     if coverage_df.empty:
         du.print_warning("[MENU] Parser coverage snapshot not found. Run a full pipeline/vendor parse first.")
@@ -171,7 +330,8 @@ def _print_parser_coverage_snapshot() -> None:
 
 def _print_onboarding_candidates() -> None:
     """Print parser onboarding candidate vendors from latest export."""
-    candidates_path = _diagnostics_dir() / "vendor_parser_coverage_candidates.latest.csv"
+    resolved = resolve_vendor_parser_coverage_candidates_csv()
+    candidates_path = resolved if resolved is not None else Path()
     candidates_df = _read_csv(candidates_path)
     du.print_section("Parser Onboarding Candidates")
     if candidates_df.empty:
@@ -186,7 +346,8 @@ def _print_onboarding_candidates() -> None:
 
 def _print_pre_gate_vendor_scores() -> None:
     """Print top leakage-safe vendor scores prior to parser gate selection."""
-    scores_path = _diagnostics_dir() / "vendor_gate_top10_pre_gate.latest.csv"
+    resolved = resolve_vendor_gate_pre_gate_csv()
+    scores_path = resolved if resolved is not None else Path()
     scores_df = _read_csv(scores_path)
     if scores_df.empty:
         du.print_warning("[MENU] Pre-gate vendor score table not found for latest run.")
@@ -228,7 +389,8 @@ def validate_parser_columns_from_latest_export() -> int:
     print_parser_diagnostics_state()
     df = load_enriched_matrix_for_menu()
     if df is None:
-        coverage_df = _read_csv(_diagnostics_dir() / "vendor_parser_coverage.latest.csv")
+        cov_path = resolve_vendor_parser_coverage_csv()
+        coverage_df = _read_csv(cov_path) if cov_path is not None else pd.DataFrame()
         if coverage_df.empty:
             _print_workbook_missing_guidance()
             du.print_warning("[MENU] No parser coverage snapshot is available yet.")

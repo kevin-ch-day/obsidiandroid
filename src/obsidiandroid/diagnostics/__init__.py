@@ -20,6 +20,8 @@ from . import feature_build_coverage_export
 from . import feature_column_survival_export
 from . import feature_lineage_report
 from . import feature_matrix_gap_lineage
+from . import family_label_taxonomy_audit
+from . import reproducibility_workbench
 from . import fused_permission_matrix_audit
 from . import headline_evaluation_export
 from . import output_artifact_policy
@@ -42,6 +44,8 @@ __all__ = [
     "feature_column_survival_export",
     "feature_lineage_report",
     "feature_matrix_gap_lineage",
+    "family_label_taxonomy_audit",
+    "reproducibility_workbench",
     "fused_permission_matrix_audit",
     "headline_evaluation_export",
     "hostile_audit",

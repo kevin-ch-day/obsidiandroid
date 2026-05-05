@@ -12,7 +12,7 @@ import obsidiandroid.cli.startup_menu as startup_menu
 
 def test_main_menu_clear_screen_option(monkeypatch) -> None:
     """Main menu clear option should call clear_screen and continue loop."""
-    choices = iter([6, 0])
+    choices = iter([7, 0])
     clear_calls = {"count": 0}
 
     monkeypatch.setattr(startup_menu, "_print_startup_context", lambda: None)
@@ -45,7 +45,8 @@ def test_main_menu_uses_concise_title_and_primary_workflow_order(monkeypatch) ->
         "Run Analysis",
         "Run Status and History",
         "Research Reports",
-        "Validation and Diagnostics",
+        "Reproducibility & research validity",
+        "Data Diagnostics",
         "Tools and Maintenance",
         "Clear Screen",
     ]
@@ -77,8 +78,8 @@ def test_run_analysis_menu_uses_operator_facing_actions(monkeypatch) -> None:
     ]
 
 
-def test_maintenance_menu_uses_operator_facing_actions(monkeypatch) -> None:
-    """Maintenance submenu should use concise labels."""
+def test_tools_menu_lists_operational_actions_only(monkeypatch) -> None:
+    """Tools & maintenance should list operational items (no parser/health duplicates)."""
     captured: dict[str, object] = {}
 
     def _fake_display_menu(options, *_, **kwargs):
@@ -87,20 +88,18 @@ def test_maintenance_menu_uses_operator_facing_actions(monkeypatch) -> None:
         return 0
 
     monkeypatch.setattr(startup_menu.mu, "display_menu", _fake_display_menu)
+    monkeypatch.setattr(startup_menu.diagnostics_banners, "print_tools_maintenance_banner", lambda **_: None)
 
-    startup_menu._launch_maintenance_menu()  # pylint: disable=protected-access
+    startup_menu._launch_operations_menu()  # pylint: disable=protected-access
 
-    assert captured["title"] == "Maintenance tools"
+    assert captured["title"] == "Tools and maintenance"
     assert captured["labels"] == [
-        "Engine Scoring Summary",
-        "Parser Coverage Review",
-        "Single Vendor Parser Diagnostic",
-        "Parser Snapshot",
-        "Run Health Check",
-        "Structural Diagnostics",
         "Smart Output Cleanup",
-        "Claim Artifact Map",
-        "Evidence Bundle Checker",
+        "Show Disk Usage Summary",
+        "Reuse Existing Results",
+        "Cache / latest pointer (guidance)",
+        "Repair / migration helpers (info)",
+        "Developer utilities",
     ]
 
 
@@ -119,7 +118,7 @@ def test_main_menu_submenu_back_does_not_warn_invalid(monkeypatch) -> None:
     assert "[MENU] Invalid choice received." not in warnings
 
 
-def test_validation_diagnostics_menu_uses_back_label(monkeypatch) -> None:
+def test_reproducibility_menu_uses_back_label(monkeypatch) -> None:
     """Submenus should present 0 as Back, not Exit."""
     captured: list[str] = []
 
@@ -129,7 +128,7 @@ def test_validation_diagnostics_menu_uses_back_label(monkeypatch) -> None:
 
     monkeypatch.setattr(startup_menu.mu, "display_menu", _fake_display_menu)
 
-    startup_menu._launch_validation_diagnostics_menu()  # pylint: disable=protected-access
+    startup_menu._launch_reproducibility_menu()  # pylint: disable=protected-access
 
     assert captured == ["Back"]
 

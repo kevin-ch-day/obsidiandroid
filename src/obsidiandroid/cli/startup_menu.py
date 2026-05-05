@@ -22,11 +22,14 @@ from .ui import menu as mu
 from .menu import run_locator
 from .menu.profile_preflight import resolve_and_validate_profile
 from .menu.vendor_diagnostics import (
+    print_compact_vendor_coverage_snapshot,
     run_single_vendor_parser_check,
     validate_parser_columns_from_latest_export,
 )
+from .menu import diagnostics_banners
 from .menu import startup_menu_actions
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.diagnostics import reproducibility_workbench as repro_workbench
 
 
 @dataclass(frozen=True)
@@ -608,28 +611,24 @@ def _show_session_and_output_details() -> int:
 
 
 def _run_health_check(*, run_id: str | None = None) -> int:
-    """Run lightweight checks for evidence readiness of latest or selected run."""
-    title = "Quick Health Check"
-    if run_id:
-        title = f"Quick Health Check (run_id={run_id})"
-    du.print_section(title)
+    """Run health + artifact checks for latest or selected run (writes run-scoped diagnostics)."""
+    du.print_section("Run Health & Artifact Check")
     output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
     diagnostics_dir = output_root / "diagnostics"
     latest_manifest_path = diagnostics_dir / "run_manifest.latest.json"
 
-    rows: list[dict[str, str]] = []
-    fail_count = 0
-    warn_count = 0
+    manifest_rows: list[dict[str, str]] = []
 
-    def _add_check(name: str, status: str, detail: str) -> None:
-        """Append one health-check row and update aggregate status counters."""
-        nonlocal fail_count, warn_count
-        normalized = status.upper().strip()
-        if normalized == "FAIL":
-            fail_count += 1
-        elif normalized == "WARN":
-            warn_count += 1
-        rows.append({"check": name, "status": normalized, "detail": detail})
+    def _add_manifest_check(name: str, status: str, detail: str, *, plain: str = "", bucket: str = "manifest") -> None:
+        manifest_rows.append(
+            {
+                "check": name,
+                "status": status.upper().strip(),
+                "detail": detail,
+                "plain_language": plain,
+                "bucket": bucket,
+            }
+        )
 
     requested_run_id = (run_id or "").strip() or None
     latest_payload = _read_json_object(latest_manifest_path)
@@ -641,163 +640,161 @@ def _run_health_check(*, run_id: str | None = None) -> int:
         canonical_manifest, canonical_manifest_path = _resolve_manifest_for_run_id(requested_run_id)
         if canonical_manifest:
             resolved_run_id = str(canonical_manifest.get("run_id", "")).strip() or requested_run_id
-            _add_check("selected_run_manifest_exists", "PASS", str(canonical_manifest_path))
+            _add_manifest_check("selected_run_manifest_exists", "PASS", str(canonical_manifest_path))
         else:
-            _add_check(
+            _add_manifest_check(
                 "selected_run_manifest_exists",
                 "FAIL",
                 f"Missing canonical manifest for run_id={requested_run_id}: {canonical_manifest_path}",
             )
     else:
         if not latest_payload:
-            _add_check("latest_manifest_exists", "FAIL", f"Missing or unreadable {latest_manifest_path}")
+            _add_manifest_check("latest_manifest_exists", "FAIL", f"Missing or unreadable {latest_manifest_path}")
         else:
-            _add_check("latest_manifest_exists", "PASS", str(latest_manifest_path))
+            _add_manifest_check("latest_manifest_exists", "PASS", str(latest_manifest_path))
             canonical_manifest, resolved_run_id, canonical_manifest_path = _resolve_latest_manifest_payload()
             if canonical_manifest_path != latest_manifest_path and canonical_manifest:
-                _add_check("canonical_manifest_exists", "PASS", str(canonical_manifest_path))
+                _add_manifest_check("canonical_manifest_exists", "PASS", str(canonical_manifest_path))
 
     if not canonical_manifest:
-        du.print_table(rows, title="Run health checks", show_index=False)
-        du.print_error("[MENU] Quick health check failed.")
+        du.print_table(
+            [{"check": r["check"], "status": r["status"], "detail": r["detail"]} for r in manifest_rows],
+            title="Run health checks",
+            show_index=False,
+        )
+        du.print_error("[MENU] Health check failed (no manifest).")
         return 1
 
     effective_run_id = requested_run_id or resolved_run_id or str(canonical_manifest.get("run_id", "")).strip()
     if effective_run_id:
-        _add_check("run_id_present", "PASS", effective_run_id)
+        _add_manifest_check("run_id_present", "PASS", effective_run_id)
     else:
-        _add_check("run_id_present", "FAIL", "run_id missing in manifest payload.")
+        _add_manifest_check("run_id_present", "FAIL", "run_id missing in manifest payload.")
 
     canonical_run_id = str(canonical_manifest.get("run_id", "")).strip()
     if effective_run_id and canonical_run_id and effective_run_id != canonical_run_id:
-        _add_check(
+        _add_manifest_check(
             "manifest_run_id_consistent",
             "FAIL",
             f"requested/latest run_id={effective_run_id} differs from canonical run_id={canonical_run_id}.",
         )
     else:
-        _add_check("manifest_run_id_consistent", "PASS", canonical_run_id or effective_run_id or "n/a")
+        _add_manifest_check(
+            "manifest_run_id_consistent", "PASS", canonical_run_id or effective_run_id or "n/a"
+        )
 
     run_root_dir = output_root / "runs" / (effective_run_id or "")
-    if effective_run_id and run_root_dir.exists():
-        _add_check("run_root_exists", "PASS", str(run_root_dir))
-    elif effective_run_id:
-        _add_check("run_root_exists", "WARN", f"Missing run-scoped directory: {run_root_dir}")
-
     run_summary = _read_run_summary(run_root_dir) if run_root_dir.exists() else {}
-    if run_summary:
-        _add_check("run_summary_exists", "PASS", str(run_root_dir / "run_summary.json"))
-        run_status = str(run_summary.get("run_status", "")).strip().lower()
-        if run_status == "failed":
-            _add_check(
-                "run_summary_status",
-                "FAIL",
-                str(run_summary.get("failure_reason", "run_summary.json marks run as failed")),
-            )
-        else:
-            _add_check("run_summary_status", "PASS", run_status or "complete")
-    elif run_root_dir.exists():
-        _add_check("run_summary_exists", "WARN", f"Missing canonical run summary: {run_root_dir / 'run_summary.json'}")
 
     timestamp_utc = str(
         canonical_manifest.get("timestamp_utc", "") or latest_payload.get("created_at_utc", "")
     ).strip()
-    if timestamp_utc:
-        try:
-            parsed_ts = datetime.fromisoformat(timestamp_utc.replace("Z", "+00:00"))
-            age_hours = (datetime.now(timezone.utc) - parsed_ts).total_seconds() / 3600.0
-            if age_hours > 48:
-                _add_check("latest_run_freshness", "WARN", f"Run age is {age_hours:.1f}h (>48h).")
-            else:
-                _add_check("latest_run_freshness", "PASS", f"Run age is {age_hours:.1f}h.")
-        except ValueError:
-            _add_check("latest_run_freshness", "WARN", f"Unparseable UTC timestamp: {timestamp_utc}")
-    else:
-        _add_check("latest_run_freshness", "WARN", "No timestamp found in latest manifest.")
 
-    split_path = str((canonical_manifest.get("split") or {}).get("split_audit_path", "")).strip()
-    if split_path:
-        split_file = Path(split_path)
-        _add_check(
-            "split_audit_exists",
-            "PASS" if split_file.exists() else "FAIL",
-            str(split_file),
+    fs_rows, _, _ = repro_workbench.build_filesystem_artifact_checks(
+        output_root=output_root,
+        effective_run_id=effective_run_id or "",
+        canonical_manifest=canonical_manifest,
+        run_root=run_root_dir,
+        run_summary=run_summary,
+        timestamp_source=timestamp_utc,
+    )
+    all_rows = manifest_rows + fs_rows
+
+    def _count(rows: list[dict[str, str]]) -> tuple[int, int, int]:
+        p = sum(1 for r in rows if str(r.get("status")) == "PASS")
+        w = sum(1 for r in rows if str(r.get("status")) == "WARN")
+        f = sum(1 for r in rows if str(r.get("status")) == "FAIL")
+        return p, w, f
+
+    pass_count, warn_count, fail_count = _count(all_rows)
+
+    paper_mode = canonical_manifest.get("evidence_mode") or canonical_manifest.get("paper_mode", {})
+    ev_on = bool(paper_mode.get("resolved_value")) if isinstance(paper_mode, dict) else False
+    profile_id = str(
+        run_summary.get("profile_id") or (canonical_manifest.get("profile_params") or {}).get("profile_id") or ""
+    )
+    run_status = str(run_summary.get("run_status") or canonical_manifest.get("run_status") or "unknown")
+
+    if fail_count:
+        interpretation = "Resolve failing checks before trusting artifacts from this run."
+    elif not ev_on:
+        interpretation = (
+            "This run is development-research healthy. It is not an evidence-locked paper run."
         )
     else:
-        _add_check("split_audit_exists", "WARN", "No split_audit_path recorded in manifest.")
-
-    model_config_path = str(canonical_manifest.get("model_config_snapshot_path", "")).strip()
-    if model_config_path:
-        model_config_file = Path(model_config_path)
-    else:
-        model_config_file = diagnostics_dir / "model_config_snapshot.latest.json"
-    _add_check(
-        "model_config_snapshot_exists",
-        "PASS" if model_config_file.exists() else "FAIL",
-        str(model_config_file),
-    )
-
-    vendor_gate_path = str(canonical_manifest.get("vendor_gate_debug_path", "")).strip()
-    if vendor_gate_path:
-        vendor_gate_file = Path(vendor_gate_path)
-        _add_check(
-            "vendor_gate_debug_exists",
-            "PASS" if vendor_gate_file.exists() else "WARN",
-            str(vendor_gate_file),
-        )
-    else:
-        _add_check("vendor_gate_debug_exists", "WARN", "No vendor_gate_debug_path recorded in manifest.")
-
-    parser_quality_path = diagnostics_dir / "parser_quality.latest.csv"
-    parser_coverage_path = diagnostics_dir / "vendor_parser_coverage.latest.csv"
-    _add_check(
-        "parser_quality_snapshot_exists",
-        "PASS" if parser_quality_path.exists() else "WARN",
-        str(parser_quality_path),
-    )
-    _add_check(
-        "parser_coverage_snapshot_exists",
-        "PASS" if parser_coverage_path.exists() else "WARN",
-        str(parser_coverage_path),
-    )
-
-    if effective_run_id:
-        run_paths_manifest = diagnostics_dir / f"run_paths_manifest_{effective_run_id}.json"
-        _add_check(
-            "run_paths_manifest_exists",
-            "PASS" if run_paths_manifest.exists() else "WARN",
-            str(run_paths_manifest),
+        interpretation = (
+            "Evidence-oriented manifest flags are set — validate publication bundles and compliance exports separately."
         )
 
-    du.print_table(rows, title="Run health checks", show_index=False)
     report_run_id = effective_run_id or "unknown"
-    report_payload = {
-        "run_id": report_run_id,
-        "generated_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "summary": {
-            "pass": len(rows) - fail_count - warn_count,
-            "warn": warn_count,
-            "fail": fail_count,
+    diagnostics_out = run_root_dir / "diagnostics" if run_root_dir.exists() else diagnostics_dir
+    payload = {
+        "meta": {
+            "run_id": report_run_id,
+            "profile_id": profile_id,
+            "run_status": run_status,
+            "run_root": str(run_root_dir),
+            "evidence_mode_resolved": ev_on,
         },
-        "checks": rows,
+        "generated_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "summary": {"pass": pass_count, "warn": warn_count, "fail": fail_count},
+        "checks": all_rows,
+        "interpretation": interpretation,
+    }
+    md_path, json_path = repro_workbench.write_run_health_artifact_reports(
+        diagnostics_out_dir=diagnostics_out,
+        payload=payload,
+    )
+
+    legacy_payload = {
+        "run_id": report_run_id,
+        "generated_at_utc": payload["generated_at_utc"],
+        "summary": payload["summary"],
+        "checks": [{"check": r["check"], "status": r["status"], "detail": r["detail"]} for r in all_rows],
     }
     report_latest = diagnostics_dir / "quick_health_check.latest.json"
     report_run = diagnostics_dir / f"quick_health_check_{report_run_id}.json"
-    report_latest.write_text(json.dumps(report_payload, indent=2), encoding="utf-8")
-    report_run.write_text(json.dumps(report_payload, indent=2), encoding="utf-8")
-    du.print_info(f"[MENU] Health report: {report_run}")
+    report_latest.write_text(json.dumps(legacy_payload, indent=2), encoding="utf-8")
+    report_run.write_text(json.dumps(legacy_payload, indent=2), encoding="utf-8")
 
-    du.print_info(
-        f"[MENU] Health summary: PASS={len(rows) - fail_count - warn_count}, "
-        f"WARN={warn_count}, FAIL={fail_count}"
+    print("")
+    print("RUN HEALTH & ARTIFACT CHECK")
+    print("---------------------------")
+    du.print_stat("Run ID", report_run_id)
+    du.print_stat("Status", run_status)
+    du.print_stat("Profile", profile_id or "n/a")
+    du.print_stat("Run root", str(run_root_dir))
+    print("")
+    du.print_stat("Health PASS", str(pass_count))
+    du.print_stat("Health WARN", str(warn_count))
+    du.print_stat("Health FAIL", str(fail_count))
+    print("")
+    du.print_table(
+        [{"check": r["check"], "status": r["status"], "detail": r["detail"]} for r in all_rows],
+        title="Checks",
+        show_index=False,
     )
+    warn_plain = [r for r in all_rows if str(r.get("status")) == "WARN" and str(r.get("plain_language") or "").strip()]
+    if warn_plain:
+        print("")
+        du.print_subheader("Warnings (plain language)")
+        for r in warn_plain:
+            du.print_warning(f"{r['check']}: {r['plain_language']}")
+    print("")
+    du.print_info(f"Artifacts: {json_path}")
+    du.print_info(f"           {md_path}")
+    du.print_info(f"[MENU] Legacy mirror: {report_run}")
+    print("")
+    du.print_info(f"[MENU] Health summary: PASS={pass_count}, WARN={warn_count}, FAIL={fail_count}")
+    du.print_info(f"Interpretation: {interpretation}")
+
     if fail_count:
-        du.print_error("[MENU] Quick health check failed.")
+        du.print_error("[MENU] Health check failed.")
         return 1
     if warn_count:
-        du.print_warning("[MENU] Quick health check passed with warnings.")
+        du.print_warning("[MENU] Health check passed with warnings.")
         return 0
-    du.print_success("[MENU] Quick health check passed.")
+    du.print_success("[MENU] Health check passed.")
     return 0
 
 
@@ -814,57 +811,6 @@ def _run_health_check_for_selected_run() -> int:
         du.print_warning("[MENU] Health check cancelled (no run_id provided).")
         return 1
     return _run_health_check(run_id=selected)
-
-
-def _show_parser_diagnostics_snapshot() -> int:
-    """Print compact parser diagnostics from latest CSV exports."""
-    du.print_section("Parser Diagnostics Snapshot")
-    diagnostics_dir = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output"))) / "diagnostics"
-    coverage_path = diagnostics_dir / "vendor_parser_coverage.latest.csv"
-    stress_path = diagnostics_dir / "vendor_parser_stress_test.latest.csv"
-    strengths_path = diagnostics_dir / "vendor_parser_strengths_weaknesses.latest.csv"
-
-    if not coverage_path.exists():
-        du.print_warning("[MENU] Missing parser coverage snapshot. Run vendor metadata stage first.")
-        return 1
-
-    coverage_df = pd.read_csv(coverage_path)
-    if coverage_df.empty:
-        du.print_warning("[MENU] Parser coverage snapshot is empty.")
-        return 1
-    total = len(coverage_df)
-    mapped = int(pd.to_numeric(coverage_df.get("parser_mapped", 0), errors="coerce").fillna(0).sum())
-    du.print_stat("Observed Vendor Columns", total)
-    du.print_stat("Mapped Parser Columns", mapped)
-    du.print_stat("Unmapped Columns", max(0, total - mapped))
-
-    if stress_path.exists():
-        stress_df = pd.read_csv(stress_path)
-        if not stress_df.empty:
-            top_row = stress_df.iloc[0].to_dict()
-            du.print_info(
-                "[MENU] Best stress profile: "
-                f"unknown_cut={top_row.get('unknown_cut')} "
-                f"mapped_cut={top_row.get('mapped_cut')} "
-                f"generic_cut={top_row.get('generic_cut')} "
-                f"effective_share={top_row.get('effective_inclusion_share')}"
-            )
-
-    if strengths_path.exists():
-        strengths_df = pd.read_csv(strengths_path)
-        if not strengths_df.empty:
-            if "inclusion_status" in strengths_df.columns:
-                excluded_mask = strengths_df["inclusion_status"].astype(str).str.lower() == "exclude"
-            else:
-                excluded_mask = pd.Series([False] * len(strengths_df), index=strengths_df.index)
-            excluded = strengths_df[excluded_mask]
-            if not excluded.empty:
-                du.print_table(
-                    excluded[["vendor", "weakness_tags"]].head(10),
-                    title="Top excluded vendors (weakness tags)",
-                    show_index=False,
-                )
-    return 0
 
 
 def _prompt_run_id(default_run_id: str | None = None) -> str | None:
@@ -1048,6 +994,11 @@ def _run_claim_artifact_map_scaffold() -> int:
 def _run_paper2_freeze_checker() -> int:
     """Run strict reproducibility checks for supplied evidence run IDs."""
     du.print_section("Run Evidence Bundle Checker")
+    if not _latest_run_paper_mode_enabled():
+        du.print_info(
+            "[MENU] Latest run is not in evidence/paper mode. "
+            "This script validates strict evidence bundles—pass evidence-mode run IDs if defaults look sparse."
+        )
     script_path = Path("scripts/research/check_evidence_bundle.py")
     if not script_path.exists():
         du.print_error(f"[MENU] Missing script: {script_path}")
@@ -1455,58 +1406,6 @@ def _launch_reuse_results_menu() -> None:
         du.print_warning("[MENU] Invalid choice received.")
 
 
-def _launch_maintenance_menu() -> None:
-    """Display maintenance/diagnostic tools."""
-    while True:
-        maintenance = [
-            "Engine Scoring Summary",
-            "Parser Coverage Review",
-            "Single Vendor Parser Diagnostic",
-            "Parser Snapshot",
-            "Run Health Check",
-            "Structural Diagnostics",
-            "Smart Output Cleanup",
-            "Claim Artifact Map",
-            "Evidence Bundle Checker",
-        ]
-        choice = mu.display_menu(
-            maintenance,
-            title="Maintenance tools",
-            exit_label="Back",
-            breadcrumb="Main menu › Tools › Maintenance",
-        )
-        if choice == 0:
-            return
-        if choice == 1:
-            _run_engine_summary_only()
-            continue
-        if choice == 2:
-            validate_parser_columns_from_latest_export()
-            continue
-        if choice == 3:
-            run_single_vendor_parser_check()
-            continue
-        if choice == 4:
-            _show_parser_diagnostics_snapshot()
-            continue
-        if choice == 5:
-            _run_health_check_for_selected_run()
-            continue
-        if choice == 6:
-            _run_paper_structural_diagnostics()
-            continue
-        if choice == 7:
-            _run_output_cleanup()
-            continue
-        if choice == 8:
-            _run_claim_artifact_map_scaffold()
-            continue
-        if choice == 9:
-            _run_paper2_freeze_checker()
-            continue
-        du.print_warning("[MENU] Invalid choice received.")
-
-
 def _launch_structural_analysis_menu() -> None:
     """Display structural analysis and publication-figure workflows."""
     _warn_if_no_latest_run_context(area="Structural Analysis")
@@ -1633,18 +1532,15 @@ def _launch_model_evaluation_menu() -> None:
         unavailable_reasons: dict[int, str] = {}
         if not has_latest_run:
             unavailable_reasons = {
+                1: "no latest run",
                 2: "no latest run",
                 3: "no latest run",
-                4: "no latest run",
-                5: "no latest run",
             }
 
         base_options: List[str] = [
-            "Engine Scoring Summary",
             "Within vs Cross-Type Errors",
             "Model Comparison",
             "Export Confusion Matrix",
-            "Generate Claim Artifact Map",
         ]
         model_rows: List[str] = []
         for idx, label in enumerate(base_options, start=1):
@@ -1669,63 +1565,185 @@ def _launch_model_evaluation_menu() -> None:
             du.print_warning(f"[MENU] Action unavailable: {blocked_reason}.")
             continue
         if choice == 1:
-            _run_engine_summary_only()
-            continue
-        if choice == 2:
             _show_within_cross_type_error_snapshot()
             continue
-        if choice == 3:
+        if choice == 2:
             _show_model_comparison_snapshot()
             continue
-        if choice == 4:
+        if choice == 3:
             _handle_confusion_matrix_export()
-            continue
-        if choice == 5:
-            _run_claim_artifact_map_scaffold()
             continue
         du.print_warning("[MENU] Invalid choice received.")
 
 
+def _run_research_validity_review_menu() -> int:
+    """Aggregate dataset/modality/skeptic diagnostics into one markdown+json review."""
+    du.print_section("Research Validity Review")
+    latest_run_id = _read_latest_run_id()
+    selected = _prompt_run_id(default_run_id=latest_run_id)
+    if not selected:
+        du.print_warning("[MENU] Research validity review cancelled.")
+        return 1
+    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+    try:
+        _, md_path = repro_workbench.write_research_validity_review(
+            output_root=output_root,
+            run_id=selected,
+            print_fn=print,
+        )
+    except Exception as exc:
+        du.print_error(f"[MENU] Research validity review failed: {exc}")
+        return 1
+    du.print_success(f"[MENU] Research validity review written to {md_path}")
+    return 0
+
+
+def _compare_runs_write_summary(run_ids: list[str]) -> int:
+    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+    if len(run_ids) < 2:
+        du.print_warning("[MENU] Need at least two run IDs to compare.")
+        return 1
+    repro_workbench.write_run_comparison_summary(
+        output_root=output_root,
+        run_ids=run_ids,
+        print_fn=lambda line: print(line) if line else None,
+    )
+    return 0
+
+
+def _launch_compare_runs_menu() -> None:
+    """Run-to-run comparison without requiring evidence mode or experiment contracts."""
+    while True:
+        compare_modes = [
+            "Compare latest two runs",
+            "Compare selected run IDs (comma-separated)",
+            "Compare runs matching profile substring",
+            "Experiment contract snapshot + paired comparison",
+        ]
+        choice = mu.display_menu(
+            compare_modes,
+            title="Compare runs / experiment series",
+            exit_label="Back",
+            breadcrumb="Main menu › Reproducibility & research validity › Compare runs",
+        )
+        if choice == 0:
+            return
+        output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+        if choice == 1:
+            ids = repro_workbench.list_run_ids_newest_first(limit=2)
+            _compare_runs_write_summary(ids)
+            continue
+        if choice == 2:
+            latest = _read_latest_run_id() or ""
+            try:
+                raw = input(f"Enter run IDs (comma-separated) [{latest}]: ").strip()
+            except KeyboardInterrupt:
+                du.print_warning("[MENU] Cancelled.")
+                continue
+            raw = raw or latest
+            ids = [token.strip() for token in raw.split(",") if token.strip()]
+            _compare_runs_write_summary(ids)
+            continue
+        if choice == 3:
+            latest_rid = _read_latest_run_id() or ""
+            latest_profile = ""
+            if latest_rid:
+                latest_profile = str(
+                    _read_run_summary(output_root / "runs" / latest_rid).get("profile_id") or ""
+                ).strip()
+            hint = f" [{latest_profile}]" if latest_profile else ""
+            try:
+                query = input(
+                    f"Profile substring (match on run_summary profile_id){hint}: "
+                ).strip()
+            except KeyboardInterrupt:
+                du.print_warning("[MENU] Cancelled.")
+                continue
+            if not query and latest_profile:
+                query = latest_profile
+                du.print_info(f"[MENU] Using latest run profile_id: {query}")
+            elif not query:
+                du.print_warning("[MENU] No profile substring — enter text or rely on a latest run with profile_id.")
+                continue
+            matches: list[str] = []
+            for rid in repro_workbench.list_run_ids_newest_first():
+                summary = _read_run_summary(output_root / "runs" / rid)
+                pid = str(summary.get("profile_id") or "").strip()
+                if query.lower() in pid.lower():
+                    matches.append(rid)
+                if len(matches) >= 24:
+                    break
+            _compare_runs_write_summary(matches)
+            continue
+        if choice == 4:
+            snap_path = output_root / "diagnostics" / "experiment_contract_snapshot.latest.json"
+            payload = _read_json_object(snap_path)
+            if not payload:
+                du.print_info(f"[MENU] No experiment contract snapshot at {snap_path} (normal for many dev runs).")
+                du.print_info("[MENU] Falling back to latest-two-run comparison.")
+                _compare_runs_write_summary(repro_workbench.list_run_ids_newest_first(limit=2))
+                continue
+            series = payload.get("experiment_series") if isinstance(payload.get("experiment_series"), dict) else {}
+            cur = str(payload.get("run_id") or "").strip()
+            prev = str(series.get("previous_run_id_in_series") or "").strip()
+            du.print_stat("Snapshot run_id", cur or "n/a")
+            du.print_stat("Previous in series", prev or "n/a")
+            du.print_stat("Series ID", series.get("series_id", "n/a"))
+            ids = [rid for rid in (cur, prev) if rid]
+            if len(ids) < 2:
+                du.print_warning("[MENU] Snapshot does not reference two distinct run IDs — compare latest two instead.")
+                _compare_runs_write_summary(repro_workbench.list_run_ids_newest_first(limit=2))
+            else:
+                _compare_runs_write_summary(ids)
+            continue
+        du.print_warning("[MENU] Invalid choice received.")
+
+
+def _run_evidence_paper_readiness_menu_action() -> int:
+    """Explain evidence gates and write readiness summary under global diagnostics."""
+    du.print_section("Evidence / Paper Readiness")
+    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+    latest_run_id = _read_latest_run_id()
+    locked = _read_locked_paper_run_id()
+    ev = _latest_run_paper_mode_enabled()
+    exports = _paper_exports_available(latest_run_id)
+    try:
+        repro_workbench.write_evidence_paper_readiness(
+            output_root=output_root,
+            latest_run_id=latest_run_id,
+            locked_run_id=locked,
+            latest_evidence_mode=ev,
+            latest_paper_exports=exports,
+            print_fn=print,
+        )
+    except Exception as exc:
+        du.print_error(f"[MENU] Evidence readiness export failed: {exc}")
+        return 1
+    print("")
+    du.print_stat("Latest run evidence mode", "Yes" if ev else "No")
+    du.print_stat("Publication exports (latest)", "Yes" if exports else "No")
+    du.print_stat("Locked evidence run", locked or "(none)")
+    print("")
+    du.print_info("[MENU] Strict bundle checks: Reproducibility › Evidence / Paper Readiness › Evidence Bundle Checker.")
+    return 0
+
+
 def _launch_reproducibility_menu() -> None:
-    """Display reproducibility and evidence-bundle workflows."""
+    """Reproducibility, research validity, run comparison, and evidence readiness."""
     while True:
         context = _latest_run_context_status()
         locked_run_id = str(context.get("locked_paper_run_id", "")).strip()
         du.print_info(f"[MENU] Locked evidence run: {locked_run_id if locked_run_id else '(none)'}")
-        has_latest_run = bool(context.get("has_latest_run", False))
-        has_locked_paper_run = bool(context.get("has_locked_paper_run", False))
         latest_has_paper_exports = bool(context.get("has_paper_exports", False))
         latest_is_paper = _latest_run_paper_mode_enabled()
         latest_has_provenance = _latest_run_has_provenance()
 
-        unavailable_reasons: dict[int, str] = {}
-        if not has_latest_run:
-            unavailable_reasons[2] = "no latest run"
-            unavailable_reasons[3] = "no latest run"
-            unavailable_reasons[4] = "no latest run"
-            unavailable_reasons[5] = "no latest run"
-            unavailable_reasons[6] = "no latest run"
-        else:
-            if not latest_is_paper:
-                unavailable_reasons[3] = "latest run is not evidence mode"
-            elif not latest_has_provenance:
-                unavailable_reasons[3] = "required provenance files missing"
-            if not has_locked_paper_run:
-                unavailable_reasons[6] = "locked evidence run not set"
-
         base_options: List[str] = [
-            "Run Health Check for Specific Run ID",
-            "Quick Health Check (Latest)",
-            "Evidence Bundle Checker",
-            "Experiment Series Comparison",
-            "Contract Snapshot Viewer",
-            "Strict Reproducibility Series Aggregator",
+            "Run Health & Artifact Check",
+            "Research Validity Review",
+            "Compare Runs / Experiment Series",
+            "Evidence / Paper Readiness",
         ]
-        repro_rows: List[str] = []
-        for idx, label in enumerate(base_options, start=1):
-            reason = unavailable_reasons.get(idx, "").strip()
-            repro_rows.append(f"{label} (Unavailable)" if reason else label)
-
         _print_availability_block(
             rows=[
                 ("Locked Evidence Run", locked_run_id if locked_run_id else "No"),
@@ -1735,54 +1753,163 @@ def _launch_reproducibility_menu() -> None:
             ]
         )
         choice = mu.display_menu(
-            repro_rows,
-            title="Reproducibility checks",
+            base_options,
+            title="Reproducibility & research validity",
             exit_label="Back",
-            breadcrumb="Main menu › Validation › Reproducibility",
+            breadcrumb="Main menu › Reproducibility & research validity",
         )
         if choice == 0:
             return
-        blocked_reason = unavailable_reasons.get(int(choice), "").strip()
-        if blocked_reason:
-            du.print_warning(f"[MENU] Action unavailable: {blocked_reason}.")
-            continue
         if choice == 1:
             _run_health_check_for_selected_run()
             continue
         if choice == 2:
-            _run_quick_health_check()
+            _run_research_validity_review_menu()
             continue
         if choice == 3:
-            _run_paper2_freeze_checker()
+            _launch_compare_runs_menu()
             continue
         if choice == 4:
-            _show_experiment_series_comparison()
+            _launch_evidence_paper_readiness_hub()
             continue
-        if choice == 5:
-            _show_contract_snapshot_viewer()
+        du.print_warning("[MENU] Invalid choice received.")
+
+
+def _launch_evidence_paper_readiness_hub() -> None:
+    """Evidence readiness exports, bundle checker, and strict reproducibility aggregation."""
+    while True:
+        opts = [
+            "Evidence / paper readiness summary (export JSON/MD)",
+            "Evidence Bundle Checker",
+            "Strict reproducibility series aggregator",
+        ]
+        choice = mu.display_menu(
+            opts,
+            title="Evidence / paper readiness",
+            exit_label="Back",
+            breadcrumb="Main menu › Reproducibility & research validity › Evidence",
+        )
+        if choice == 0:
+            return
+        if choice == 1:
+            _run_evidence_paper_readiness_menu_action()
             continue
-        if choice == 6:
+        if choice == 2:
+            _run_paper2_freeze_checker()
+            continue
+        if choice == 3:
             _run_paper2_series_aggregator()
             continue
         du.print_warning("[MENU] Invalid choice received.")
 
 
-def _launch_data_parser_menu() -> None:
-    """Display parser/data diagnostics workflows."""
+def _run_family_label_taxonomy_audit_script() -> int:
+    """Invoke scripts/family_label_taxonomy_audit.py for cohort taxonomy audit."""
+    script_path = Path("scripts/family_label_taxonomy_audit.py")
+    if not script_path.is_file():
+        du.print_error(f"[MENU] Missing script: {script_path}")
+        return 1
+
+    du.print_section("Family label taxonomy audit")
+    du.print_info(
+        "Loads the labeled cohort from the database using a profile's gates (same path as pipeline samples; no training)."
+    )
+    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+    rid = _read_latest_run_id()
+    diag_args: list[str] = []
+    if rid:
+        rdiag = output_root / "runs" / rid / "diagnostics"
+        rdiag.mkdir(parents=True, exist_ok=True)
+        diag_args = ["--diagnostics-dir", str(rdiag.resolve())]
+        du.print_info(f"Writes CSV/MD into latest run diagnostics: runs/{rid}/diagnostics/")
+    else:
+        du.print_note(
+            "No latest run id — the script will use output/diagnostics/taxonomy_audit_<timestamp>/ instead."
+        )
+
+    profile_id = resolve_and_validate_profile(
+        prefer_quick=True,
+        menu_breadcrumb="Main menu › Data Diagnostics › Cohort › Taxonomy audit",
+        menu_title="Profile for cohort audit",
+        menu_subtitle=(
+            "Choose which cohort definition to audit. Blank Enter selects the default highlighted row; 0 = Back."
+        ),
+    )
+    if not profile_id:
+        du.print_warning("[MENU] Taxonomy audit cancelled (no profile).")
+        return 1
+    cmd = [sys.executable, str(script_path), "--profile", profile_id, *diag_args]
+    du.print_info(f"[MENU] Running: {' '.join(cmd)}")
+    proc = subprocess.run(cmd, check=False)
+    return int(proc.returncode)
+
+
+def _print_cohort_family_artifact_paths() -> None:
+    """List key cohort / family diagnostic paths for the latest run."""
+    du.print_section("Cohort / family artifact paths")
+    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+    rid = _read_latest_run_id()
+    if not rid:
+        du.print_warning("[MENU] No latest run — nothing to resolve.")
+        return
+    rdiag = output_root / "runs" / rid / "diagnostics"
+    du.print_stat("Run diagnostics dir", str(rdiag.resolve()))
+    candidates = [
+        "family_label_taxonomy_audit.csv",
+        "family_label_taxonomy_audit.md",
+        "support_threshold_preview.md",
+        "support_threshold_preview.csv",
+        "family_distribution.csv",
+        "low_support_families.csv",
+        "dataset_foundation_summary.md",
+    ]
+    for name in candidates:
+        p = rdiag / name
+        du.print_stat(name, "present" if p.is_file() else "missing")
+    print("")
+
+
+def _launch_cohort_family_audit_menu() -> None:
+    """Family taxonomy, support thresholds, cohort distributions."""
+    while True:
+        opts = [
+            "Run taxonomy audit (pick profile → writes to latest run diagnostics)",
+            "Show cohort / family artifact paths",
+        ]
+        choice = mu.display_menu(
+            opts,
+            title="Cohort / family label audit",
+            exit_label="Back",
+            breadcrumb="Main menu › Data Diagnostics › Cohort",
+        )
+        if choice == 0:
+            return
+        if choice == 1:
+            _run_family_label_taxonomy_audit_script()
+            continue
+        if choice == 2:
+            _print_cohort_family_artifact_paths()
+            continue
+        du.print_warning("[MENU] Invalid choice received.")
+
+
+def _launch_parser_vendor_coverage_menu() -> None:
+    """Parser coverage, vendor diagnostics, AV engine scoring from DB."""
     while True:
         from .menu import vendor_diagnostics
 
         vendor_diagnostics.print_parser_diagnostics_state()
-        data_diag = [
+        opts = [
             "Validate Parser Coverage",
-            "Run Single Vendor Parser Diagnostic",
-            "Show Parser Diagnostics Snapshot",
+            "Single Vendor Parser Diagnostic",
+            "Vendor coverage CSV snapshot (latest run)",
+            "Engine Scoring Summary (database)",
         ]
         choice = mu.display_menu(
-            data_diag,
-            title="Data diagnostics",
+            opts,
+            title="Parser & vendor coverage",
             exit_label="Back",
-            breadcrumb="Main menu › Validation › Data diagnostics",
+            breadcrumb="Main menu › Data Diagnostics › Parser vendor",
         )
         if choice == 0:
             return
@@ -1793,31 +1920,206 @@ def _launch_data_parser_menu() -> None:
             run_single_vendor_parser_check()
             continue
         if choice == 3:
-            _show_parser_diagnostics_snapshot()
+            print_compact_vendor_coverage_snapshot()
+            continue
+        if choice == 4:
+            _run_engine_summary_only()
             continue
         du.print_warning("[MENU] Invalid choice received.")
 
 
-def _launch_output_management_menu() -> None:
-    """Display output and artifact hygiene workflows."""
+def _launch_permission_intelligence_coverage_menu() -> None:
+    """Permission modality coverage pointers (reads latest run diagnostics)."""
+    du.print_section("Permission intelligence coverage")
+    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+    rid = _read_latest_run_id()
+    if not rid:
+        du.print_warning("[MENU] No latest run.")
+        return
+    rdiag = output_root / "runs" / rid / "diagnostics"
+    files = [
+        ("permission_coverage_summary.csv", "Permission coverage summary"),
+        ("dataset_foundation_summary.md", "Dataset foundation (gates + cohort)"),
+        ("modality_contribution_summary.md", "Modality contribution (permission vs vendor)"),
+        ("permission_feature_audit.csv", "Permission feature audit (if exported)"),
+        ("vendor_leakage_safety_audit.csv", "Vendor leakage safety audit"),
+    ]
+    for fname, label in files:
+        p = rdiag / fname
+        du.print_stat(label, str(p) if p.is_file() else "missing")
+    du.print_info("[MENU] Open these files under run diagnostics for detailed counts.")
+    print("")
+
+
+def _launch_feature_matrix_modality_menu() -> None:
+    """Feature contract / modality / ablation pointers."""
+    du.print_section("Feature matrix / modality coverage")
+    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+    rid = _read_latest_run_id()
+    if not rid:
+        du.print_warning("[MENU] No latest run.")
+        return
+    rdiag = output_root / "runs" / rid / "diagnostics"
+    names = [
+        ("feature_contract.json", "Feature contract"),
+        ("modality_contribution_summary.json", "Modality contribution (JSON)"),
+        ("feature_set_ablation_summary.csv", "Feature-set ablation summary"),
+        ("feature_column_survival.latest.csv", "Feature column survival"),
+        ("feature_group_survival.csv", "Feature group survival"),
+    ]
+    gdiag = output_root / "diagnostics"
+    for fname, label in names:
+        p_run = rdiag / fname
+        p_glob = gdiag / fname
+        chosen = p_run if p_run.is_file() else (p_glob if p_glob.is_file() else None)
+        du.print_stat(label, str(chosen.resolve()) if chosen else "missing")
+    print("")
+
+
+def _launch_taxonomy_consistency_review_menu() -> None:
+    """Taxonomy consistency summary and mismatch exports."""
+    du.print_section("Taxonomy consistency review")
+    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+    rid = _read_latest_run_id()
+    if not rid:
+        du.print_warning("[MENU] No latest run.")
+        return
+    rdiag = output_root / "runs" / rid / "diagnostics"
+    gdiag = output_root / "diagnostics"
+    paths = [
+        rdiag / f"taxonomy_consistency_summary_{rid}.json",
+        gdiag / "taxonomy_consistency_summary.latest.json",
+        rdiag / f"taxonomy_consistency_mismatches_{rid}.csv",
+        gdiag / "taxonomy_consistency_mismatches.latest.csv",
+        rdiag / f"prediction_errors_{rid}.csv",
+    ]
+    for p in paths:
+        du.print_stat(p.name, str(p.resolve()) if p.is_file() else "missing")
+    print("")
+
+
+def _launch_data_diagnostics_menu() -> None:
+    """Data quality: cohort, parsers, permissions, features, taxonomy, structural exports."""
+    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
     while True:
-        output_opts = [
-            "Cleanup Output Artifacts (Smart prune)",
-            "Show Disk Usage Summary",
+        diagnostics_banners.print_data_diagnostics_banner(
+            output_root=output_root,
+            latest_run_id=_read_latest_run_id(),
+        )
+        data_sections = [
+            "Cohort / Family Label Audit",
+            "Parser & Vendor Coverage",
+            "Permission Intelligence Coverage",
+            "Feature Matrix / Modality Coverage",
+            "Taxonomy Consistency Review",
         ]
         choice = mu.display_menu(
-            output_opts,
-            title="Output management",
+            data_sections,
+            title="Data diagnostics",
             exit_label="Back",
-            breadcrumb="Main menu › Tools › Output",
+            breadcrumb="Main menu › Data Diagnostics",
         )
         if choice == 0:
             return
         if choice == 1:
-            _run_output_cleanup()
+            _launch_cohort_family_audit_menu()
             continue
         if choice == 2:
-            _show_disk_usage_summary()
+            _launch_parser_vendor_coverage_menu()
+            continue
+        if choice == 3:
+            _launch_permission_intelligence_coverage_menu()
+            continue
+        if choice == 4:
+            _launch_feature_matrix_modality_menu()
+            continue
+        if choice == 5:
+            _launch_taxonomy_consistency_review_menu()
+            continue
+        du.print_warning("[MENU] Invalid choice received.")
+
+
+def _show_research_report_key_artifact_paths() -> None:
+    """Consolidated paths: index/Q1–Q3/validity audits for the latest run."""
+    du.print_section("Key research artifacts (latest run)")
+    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+    rid = _read_latest_run_id()
+    if not rid:
+        du.print_warning("[MENU] No latest run.")
+        return
+    rdiag = output_root / "runs" / rid / "diagnostics"
+
+    du.print_subheader("Evidence index & dashboard")
+    for label, name in (
+        ("Diagnostics index (markdown)", "index.md"),
+        ("Operator dashboard pointers", "operator_dashboard_snapshot.md"),
+    ):
+        p = rdiag / name
+        du.print_stat(label, str(p.resolve()) if p.is_file() else "missing")
+
+    du.print_subheader("Three-question summaries (Q1–Q3)")
+    for label, name in (
+        ("Q1 Dataset foundation", "dataset_foundation_summary.md"),
+        ("Q2 Modality contribution", "modality_contribution_summary.md"),
+        ("Q3 Model / family failure", "model_and_family_failure_summary.md"),
+    ):
+        p = rdiag / name
+        du.print_stat(label, str(p.resolve()) if p.is_file() else "missing")
+
+    du.print_subheader("Research validity & skeptic audits")
+    for label, fname in (
+        ("Headline score scope", "headline_score_scope.md"),
+        ("High-score audit", "high_score_audit.md"),
+        ("Leakage-safe score comparison", "leakage_safe_score_comparison.md"),
+        ("Research validity review", "research_validity_review.md"),
+        ("False attribution audit", "false_attribution_audit.md"),
+        ("Split contamination audit", "split_contamination_audit.md"),
+    ):
+        p = rdiag / fname
+        du.print_stat(label, str(p.resolve()) if p.is_file() else "missing")
+
+    du.print_info("[MENU] Prefer `diagnostics/index.md` under this run for the full artifact map.")
+    print("")
+
+
+def _show_cache_pointer_guidance() -> None:
+    """Explain latest pointers and where manifests live."""
+    du.print_section("Cache / latest pointers")
+    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+    du.print_stat("run_manifest.latest.json", str((output_root / "diagnostics" / "run_manifest.latest.json").resolve()))
+    du.print_stat("promoted latest_run.txt", str((output_root / "promoted" / "latest_run.txt").resolve()))
+    du.print_info("[MENU] Newest canonical manifests live under output/runs/<run_id>/run_manifest.json.")
+    print("")
+
+
+def _show_repair_migration_info() -> None:
+    """Point operators at migration/repair entrypoints (no destructive actions here)."""
+    du.print_section("Repair / migration helpers")
+    du.print_info("[MENU] Use repo scripts under scripts/ for targeted repairs (see docs/STRUCTURE_MIGRATION_PLAN.md).")
+    du.print_info("[MENU] Pipeline reruns with profile validation: Run Analysis menu.")
+    print("")
+
+
+def _launch_developer_utilities_menu() -> None:
+    """Lightweight developer reminders (non-interactive CI stays on the CLI)."""
+    while True:
+        opts = [
+            "Print suggested CI command (make ci)",
+            "Import / package surface check (info)",
+        ]
+        choice = mu.display_menu(
+            opts,
+            title="Developer utilities",
+            exit_label="Back",
+            breadcrumb="Main menu › Tools › Developer",
+        )
+        if choice == 0:
+            return
+        if choice == 1:
+            du.print_info("[MENU] From repo root: make ci   (mirrors GitHub Actions)")
+            continue
+        if choice == 2:
+            du.print_info("[MENU] Run: python scripts/dev/check_import_surface.py")
             continue
         du.print_warning("[MENU] Invalid choice received.")
 
@@ -1855,17 +2157,19 @@ def _launch_run_overview_menu() -> None:
 
 
 def _launch_research_reports_menu() -> None:
-    """Display research, reporting, and evaluation workflows."""
+    """Interpretation artifacts: figures, models, evidence index, claims."""
     while True:
         research = [
             "Structural Analysis",
             "Model Evaluation",
+            "Open key research artifact paths (index, Q1–Q3, validity)",
+            "Claim Artifact Map (generate scaffold)",
         ]
         choice = mu.display_menu(
             research,
             title="Research reports",
             exit_label="Back",
-            breadcrumb="Main menu › Research",
+            breadcrumb="Main menu › Research Reports",
         )
         if choice == 0:
             return
@@ -1875,40 +2179,32 @@ def _launch_research_reports_menu() -> None:
         if choice == 2:
             _launch_model_evaluation_menu()
             continue
-        du.print_warning("[MENU] Invalid choice received.")
-
-
-def _launch_validation_diagnostics_menu() -> None:
-    """Display validation, reproducibility, and parser diagnostics workflows."""
-    while True:
-        validation = [
-            "Reproducibility Checks",
-            "Data Diagnostics",
-        ]
-        choice = mu.display_menu(
-            validation,
-            title="Validation and diagnostics",
-            exit_label="Back",
-            breadcrumb="Main menu › Validation",
-        )
-        if choice == 0:
-            return
-        if choice == 1:
-            _launch_reproducibility_menu()
+        if choice == 3:
+            _show_research_report_key_artifact_paths()
             continue
-        if choice == 2:
-            _launch_data_parser_menu()
+        if choice == 4:
+            _run_claim_artifact_map_scaffold()
             continue
         du.print_warning("[MENU] Invalid choice received.")
 
 
 def _launch_operations_menu() -> None:
-    """Display operational maintenance and artifact-management workflows."""
+    """Operational maintenance: outputs, reuse, cleanup, pointers — not research diagnostics."""
+    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+    locked = _read_locked_paper_run_id()
     while True:
+        diagnostics_banners.print_tools_maintenance_banner(
+            output_root=output_root,
+            latest_run_id=_read_latest_run_id(),
+            locked_run_id=locked,
+        )
         operations = [
-            "Maintenance Tools",
-            "Output Management",
+            "Smart Output Cleanup",
+            "Show Disk Usage Summary",
             "Reuse Existing Results",
+            "Cache / latest pointer (guidance)",
+            "Repair / migration helpers (info)",
+            "Developer utilities",
         ]
         choice = mu.display_menu(
             operations,
@@ -1919,13 +2215,22 @@ def _launch_operations_menu() -> None:
         if choice == 0:
             return
         if choice == 1:
-            _launch_maintenance_menu()
+            _run_output_cleanup()
             continue
         if choice == 2:
-            _launch_output_management_menu()
+            _show_disk_usage_summary()
             continue
         if choice == 3:
             _launch_reuse_results_menu()
+            continue
+        if choice == 4:
+            _show_cache_pointer_guidance()
+            continue
+        if choice == 5:
+            _show_repair_migration_info()
+            continue
+        if choice == 6:
+            _launch_developer_utilities_menu()
             continue
         du.print_warning("[MENU] Invalid choice received.")
 
@@ -1950,7 +2255,8 @@ def _build_main_menu_commands() -> list[_MenuCommand]:
         _MenuCommand(label="Run Analysis", action=_launch_pipeline_actions_menu),
         _MenuCommand(label="Run Status and History", action=_launch_run_overview_menu),
         _MenuCommand(label="Research Reports", action=_launch_research_reports_menu),
-        _MenuCommand(label="Validation and Diagnostics", action=_launch_validation_diagnostics_menu),
+        _MenuCommand(label="Reproducibility & research validity", action=_launch_reproducibility_menu),
+        _MenuCommand(label="Data Diagnostics", action=_launch_data_diagnostics_menu),
         _MenuCommand(label="Tools and Maintenance", action=_launch_operations_menu),
         _MenuCommand(label="Clear Screen", action=lambda: 0),
     ]
