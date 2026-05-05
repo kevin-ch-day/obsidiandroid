@@ -8,10 +8,7 @@ from typing import Any
 
 from config import app_config
 
-from analysis.diagnostics.cohort_vocabulary import (
-    read_prepared_cohort_row_count,
-    read_sql_scope_row_count,
-)
+from ..cohort_vocabulary import read_prepared_cohort_row_count, read_sql_scope_row_count
 
 
 def classify_main_training_row_authority(

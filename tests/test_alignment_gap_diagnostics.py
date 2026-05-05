@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from analysis.diagnostics import alignment_gap_diagnostics as agd
+from obsidiandroid.diagnostics import alignment_gap_diagnostics as agd
 
 
 def test_infer_likely_missing_reason_vendor_verdicts_first() -> None:

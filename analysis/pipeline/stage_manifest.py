@@ -351,9 +351,9 @@ def finalize_run_manifest_stage(
         manifest_context["_research_bundle_wall_start_iso"] = _rv_wall
         _rv_t0 = time.perf_counter()
         try:
-            from analysis.diagnostics.research_validity.bundle import write_research_validity_bundle
+            from obsidiandroid.diagnostics import research_validity
 
-            write_research_validity_bundle(
+            research_validity.write_research_validity_bundle(
                 run_root=run_root,
                 diagnostics_dir=diagnostics_dir,
                 run_id=run_id,

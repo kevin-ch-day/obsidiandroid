@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from analysis.diagnostics.cohort_vocabulary import read_prepared_cohort_row_count
+from ..cohort_vocabulary import read_prepared_cohort_row_count
 
 
 def _safe_int(x: Any) -> int | None:

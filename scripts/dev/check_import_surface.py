@@ -542,6 +542,44 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
+    _diag_pkg_pairs = (
+        ("research_validity", "analysis.diagnostics.research_validity"),
+        ("hostile_audit", "analysis.diagnostics.hostile_audit"),
+    )
+    for attr, canon_name in _diag_pkg_pairs:
+        canon_pkg = importlib.import_module(canon_name)
+        facade_pkg = getattr(diag_facade, attr)
+        if facade_pkg is not canon_pkg:
+            print(
+                f"FAIL: obsidiandroid.diagnostics.{attr} package mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+        alias_pkg = importlib.import_module(f"obsidiandroid.diagnostics.{attr}")
+        if alias_pkg is not canon_pkg:
+            print(
+                f"FAIL: import obsidiandroid.diagnostics.{attr} did not resolve to {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    _rv_bundle_canon = importlib.import_module("analysis.diagnostics.research_validity.bundle")
+    _rv_bundle_alias = importlib.import_module("obsidiandroid.diagnostics.research_validity.bundle")
+    if _rv_bundle_alias is not _rv_bundle_canon:
+        print(
+            "FAIL: obsidiandroid.diagnostics.research_validity.bundle != "
+            "analysis.diagnostics.research_validity.bundle",
+            file=sys.stderr,
+        )
+        return 1
+    _ha_bundle_canon = importlib.import_module("analysis.diagnostics.hostile_audit.bundle")
+    _ha_bundle_alias = importlib.import_module("obsidiandroid.diagnostics.hostile_audit.bundle")
+    if _ha_bundle_alias is not _ha_bundle_canon:
+        print(
+            "FAIL: obsidiandroid.diagnostics.hostile_audit.bundle != "
+            "analysis.diagnostics.hostile_audit.bundle",
+            file=sys.stderr,
+        )
+        return 1
     print("OK   obsidiandroid.diagnostics submodules match analysis.diagnostics")
 
     bom_paths = collect_utf8_bom_python_sources(_REPO_ROOT)

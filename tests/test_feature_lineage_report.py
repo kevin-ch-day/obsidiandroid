@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from analysis.diagnostics import feature_lineage_report as flr
+from obsidiandroid.diagnostics import feature_lineage_report as flr
 
 
 def test_classify_permission_and_metadata() -> None:

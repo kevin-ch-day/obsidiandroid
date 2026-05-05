@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.diagnostics.hostile_audit.bundle import write_hostile_audit_bundle
-from analysis.diagnostics.hostile_audit.cohort_population_audit import write_cohort_population_audit
+from obsidiandroid.diagnostics.hostile_audit.bundle import write_hostile_audit_bundle
+from obsidiandroid.diagnostics.hostile_audit.cohort_population_audit import write_cohort_population_audit
 
 
 def test_write_cohort_population_audit_writes_table(tmp_path: Path) -> None:

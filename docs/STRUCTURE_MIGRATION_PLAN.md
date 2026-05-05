@@ -29,7 +29,7 @@ Quick verification: `python scripts/dev/check_import_surface.py` or `make dev-im
 
 ### Snapshot — current truth (update when passes land)
 
-- **Canonical code** under **`src/obsidiandroid/`** includes **CLI**, **common** (hashing, paths, exports, hygiene, …), **governance** (compliance, manifest, cohort, artifacts, …), **reporting** (notably **`export_manager`** and related exporters), **observability** (**`logging/`** + **`pipeline_observability/`**), **`pipeline`** facade → **`analysis.pipeline.runner`**, **diagnostics** facade → slices of **`analysis.diagnostics`** (operator inventory/lineage scripts use **`from obsidiandroid.diagnostics import …`**, Pass 34), **modeling** (**`model_exporter`**). Placeholder-only roots remain **`database/`**, **`vendors/`**, **`features/`**, **`labeling/`**, **`evaluation/`** under **`obsidiandroid.*`** until dedicated passes.
+- **Canonical code** under **`src/obsidiandroid/`** includes **CLI**, **common** (hashing, paths, exports, hygiene, …), **governance** (compliance, manifest, cohort, artifacts, …), **reporting** (notably **`export_manager`** and related exporters), **observability** (**`logging/`** + **`pipeline_observability/`**), **`pipeline`** facade → **`analysis.pipeline.runner`**, **diagnostics** facade → slices of **`analysis.diagnostics`** plus **`research_validity`** / **`hostile_audit`** package aliases (Pass 36), **modeling** (**`model_exporter`**). Placeholder-only roots remain **`database/`**, **`vendors/`**, **`features/`**, **`labeling/`**, **`evaluation/`** under **`obsidiandroid.*`** until dedicated passes.
 - **Legacy trees** at the repo root (**`analysis/`**, **`database/`**, **`ml_classification/`**, **`model/`**, **`utils/`**) stay for compatibility and bulk of implementation; **`utils/`** is primarily **shims** plus **`repo_import_paths`**, **`export_manager`** (**`sys.modules`** alias), and entry wrappers (**`startup_menu`**, **`pipeline_entry`**).
 - **Removed (Pass 33):** the **`analysis/observability`** package — pipeline observability APIs live only under **`obsidiandroid.observability.pipeline_observability`**.
 - **Quality gates:** **`make ci`** runs doc hygiene, **`scripts/dev/check_import_surface.py`** (imports, thin-shim rules for **`utils/`** subtrees, UTF-8 BOM scan), fast pytest, and strict ML static scan.
@@ -726,9 +726,27 @@ No additional deletes this pass (prior **`rg`** audit showed no further zero-cal
 | **`scripts/dev/check_import_surface.py`**, **`tests/test_obsidiandroid_package_surface.py`** | Identity checks extended to all facade exports. |
 | **Unit tests** | **`test_cohort_*`**, **`test_feature_build_coverage_export`**, **`test_feature_column_survival_export`**, **`test_fused_permission_matrix_audit`** use the facade. |
 
+## Pass 36 (complete): **`research_validity`** + **`hostile_audit`** package façade (manifest + imports)
+
+| Item | Notes |
+|------|-------|
+| **`obsidiandroid.diagnostics`** | Exposes **`research_validity`** and **`hostile_audit`** as the same package objects as **`analysis.diagnostics.research_validity`** / **`…hostile_audit`**; registers matching keys on **`sys.modules`** so paths like **`obsidiandroid.diagnostics.research_validity.cohort_funnel`** resolve to the **`analysis`** implementation. |
+| **`analysis/pipeline/stage_manifest.py`** | Calls **`research_validity.write_research_validity_bundle`** (**`from obsidiandroid.diagnostics import research_validity`**) instead of lazy **`analysis.diagnostics.research_validity.bundle`**. |
+| **`scripts/dev/check_import_surface.py`** | Verifies package + **`.bundle`** submodule identity for both trees. |
+| **`tests/test_obsidiandroid_package_surface.py`** | Asserts package and bundle parity. |
+| **`tests/test_cohort_funnel_finalize.py`**, **`tests/test_hostile_audit_bundle_smoke.py`** | Import via **`obsidiandroid.diagnostics.*`**. |
+
+## Pass 37 (complete): diagnostics import sweep (tests + inventory + relative edges)
+
+| Item | Notes |
+|------|-------|
+| **Tests** | All former **`from analysis.diagnostics import …`** in **`tests/`** now use **`obsidiandroid.diagnostics`** (six modules used by lineage/gap/feature tests). |
+| **`analysis/diagnostics/output_inventory.py`** | Classifies artifacts via **`obsidiandroid.diagnostics.output_artifact_policy`** (same module object as façade). |
+| **`analysis/diagnostics`** internals | Same-package **`from .…` / `from ..…`** for **`cohort_vocabulary`** and **`alignment_gap_diagnostics`** edges (foundation export, hostile cohort audit, **`research_validity.cohort_funnel`**, **`feature_matrix_gap_lineage`**). |
+
 ## Next pass suggestions
 
-1. **`obsidiandroid.diagnostics`:** further slices (e.g. **`research_validity`** bundle) or incremental moves from **`analysis/diagnostics`**.
+1. **`obsidiandroid.diagnostics`:** physical move of selected modules from **`analysis/diagnostics`** (optional) or façade-only expansion for remaining ad-hoc **`analysis.diagnostics`** imports in tests/scripts.
 2. **Re-export policy:** Decide whether long-term tests should import `obsidiandroid.cli.*` only, or whether **`utils/`** shims should keep exposing delegate wrappers. Prefer canonical imports in tests for anything under monkeypatch.
 3. **Move `analysis/pipeline`:** Largest consumer of imports; plan re-exports from `obsidiandroid.pipeline` with root/package shims similar to CLI.
 4. **`database` naming:** When moving DB access, clarify imports: top-level `database` vs `obsidiandroid.database` to avoid mistaken cross-imports.

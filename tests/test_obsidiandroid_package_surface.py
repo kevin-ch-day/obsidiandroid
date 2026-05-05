@@ -301,6 +301,25 @@ def test_diagnostics_facade_modules_match_analysis_diagnostics() -> None:
     assert facade.output_inventory is oi_a
     assert facade.permission_training_survival_audit is ptsa_a
 
+    import analysis.diagnostics.hostile_audit as hostile_canon_pkg
+    import analysis.diagnostics.research_validity as rv_canon_pkg
+
+    assert facade.hostile_audit is hostile_canon_pkg
+    assert facade.research_validity is rv_canon_pkg
+    import obsidiandroid.diagnostics.hostile_audit as hostile_alias_pkg
+    import obsidiandroid.diagnostics.research_validity as rv_alias_pkg
+
+    assert hostile_alias_pkg is hostile_canon_pkg
+    assert rv_alias_pkg is rv_canon_pkg
+
+    import analysis.diagnostics.hostile_audit.bundle as ha_bundle_a
+    import analysis.diagnostics.research_validity.bundle as rv_bundle_a
+    import obsidiandroid.diagnostics.hostile_audit.bundle as ha_bundle_f
+    import obsidiandroid.diagnostics.research_validity.bundle as rv_bundle_f
+
+    assert ha_bundle_f is ha_bundle_a
+    assert rv_bundle_f is rv_bundle_a
+
 
 def test_common_repo_paths_ensure_is_idempotent() -> None:
     """Repeated calls must not duplicate the checkout ``src`` entry."""

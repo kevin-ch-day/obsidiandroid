@@ -1,6 +1,6 @@
 """Cohort funnel / row authority assembly."""
 
-from analysis.diagnostics.research_validity.cohort_funnel import (
+from obsidiandroid.diagnostics.research_validity.cohort_funnel import (
     classify_main_training_row_authority,
     finalize_cohort_funnel_dict,
 )

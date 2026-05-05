@@ -18,10 +18,7 @@ import pandas as pd
 from config import app_config
 from database import db_config
 
-from analysis.diagnostics.cohort_vocabulary import (
-    KEY_COHORT_PREPARED_ROW_COUNT,
-    KEY_COHORT_SQL_SCOPE_ROW_COUNT,
-)
+from .cohort_vocabulary import KEY_COHORT_PREPARED_ROW_COUNT, KEY_COHORT_SQL_SCOPE_ROW_COUNT
 
 
 COHORT_SOURCE_TABLES = (

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.diagnostics import feature_matrix_gap_lineage as fmgl
+from obsidiandroid.diagnostics import feature_matrix_gap_lineage as fmgl
 
 
 def test_infer_primary_row_loss_stage_vendor_gap() -> None:

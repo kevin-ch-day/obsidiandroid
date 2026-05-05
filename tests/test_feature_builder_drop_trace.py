@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.diagnostics import feature_builder_drop_trace as fb
+from obsidiandroid.diagnostics import feature_builder_drop_trace as fb
 
 
 def test_load_selected_vendors_from_gate_csv(tmp_path: Path) -> None:

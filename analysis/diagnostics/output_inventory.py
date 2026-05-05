@@ -7,8 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from analysis.diagnostics.output_artifact_policy import classify_file
 from config import app_config
+from obsidiandroid.diagnostics import output_artifact_policy
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.common.output_hygiene import resolve_stable_output_root_for_mirrors
@@ -29,7 +29,7 @@ def build_inventory_rows(run_root: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     rr = run_root.resolve()
     for path in _iter_files(rr):
-        meta = classify_file(path, base=rr)
+        meta = output_artifact_policy.classify_file(path, base=rr)
         rel = meta.pop("relative_path", path.relative_to(rr).as_posix())
         try:
             sz = path.stat().st_size

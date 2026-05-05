@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.diagnostics import permission_training_survival_audit as pts
+from obsidiandroid.diagnostics import permission_training_survival_audit as pts
 from config import app_config
 
 

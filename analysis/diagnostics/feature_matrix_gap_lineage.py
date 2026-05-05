@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 import pandas as pd
 
-from analysis.diagnostics.alignment_gap_diagnostics import collect_alignment_gap_detail_frame
+from .alignment_gap_diagnostics import collect_alignment_gap_detail_frame
 from obsidiandroid.cli.ui import display as du
 
 # Renamed from alignment ``likely_missing_reason`` to paper-facing categories.

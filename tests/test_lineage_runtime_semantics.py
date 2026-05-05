@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from analysis.diagnostics import feature_build_coverage_export as fbc
+from obsidiandroid.diagnostics import feature_build_coverage_export as fbc
 from config import app_config
 
 
