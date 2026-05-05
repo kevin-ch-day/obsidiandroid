@@ -10,9 +10,9 @@ from unittest.mock import MagicMock
 
 from mysql.connector import Error as MySQLError
 
-from database import db_engine, schema_map
-from database.db_config import DB_NAME, PERMISSION_INTEL_DB_NAME
-from database.db_permission_analysis_queries import (
+from obsidiandroid.database import db_engine, schema_map
+from obsidiandroid.database.db_config import DB_NAME, PERMISSION_INTEL_DB_NAME
+from obsidiandroid.database.db_permission_analysis_queries import (
     fetch_android_banking_trojans_with_permissions,
 )
 
@@ -139,18 +139,20 @@ def test_check_split_database_health_structure(monkeypatch) -> None:
 def test_db_config_obsidian_env_overrides_in_fresh_interpreter() -> None:
     """OBSIDIAN_* env vars must override defaults (isolated process avoids import cache)."""
     repo_root = Path(__file__).resolve().parents[1]
+    src_root = repo_root / "src"
     script = textwrap.dedent(
         """
         import os
         import sys
         sys.path.insert(0, %r)
+        sys.path.insert(0, %r)
         os.environ["OBSIDIAN_DB_NAME"] = "primary_from_env"
         os.environ["OBSIDIAN_PERMISSION_INTEL_DB_NAME"] = "pi_from_env"
-        import database.db_config as cfg
+        import obsidiandroid.database.db_config as cfg
         assert cfg.DB_NAME == "primary_from_env"
         assert cfg.PERMISSION_INTEL_DB_NAME == "pi_from_env"
         """
-        % str(repo_root)
+        % (str(repo_root), str(src_root))
     )
     proc = subprocess.run(
         [sys.executable, "-c", script],

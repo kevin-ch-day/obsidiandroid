@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from analysis.pipeline.governance.exceptions import IntegrityStop
-from analysis.pipeline.governance.integrity import (
+from obsidiandroid.governance.exceptions import IntegrityStop
+from obsidiandroid.governance.integrity import (
     enforce_run_scoped_artifact_paths,
     validate_run_scoped_artifact_paths,
 )
@@ -83,4 +83,3 @@ def test_enforce_run_scoped_artifact_paths_raises_on_violation(tmp_path: Path) -
             output_root=output_root,
             allow_latest=False,
         )
-

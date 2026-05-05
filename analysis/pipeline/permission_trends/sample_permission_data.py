@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from database import db_engine
+from obsidiandroid.database import db_engine
 
 from .constants import COMMON_PERMISSIONS, PERMISSION_ALIAS_MAP
 

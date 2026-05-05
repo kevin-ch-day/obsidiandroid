@@ -12,9 +12,9 @@ from pandas.api.types import is_numeric_dtype
 
 from analysis.matrix.av_binary_matrix_builder import METADATA_COLS as AV_METADATA_COLS
 from config import app_config
-from ml_classification.ml_utils import distribution_reporter
-from ml_classification.training import pipeline_core
-from ml_classification.vectorization import feature_vector_builder
+from obsidiandroid.modeling import distribution_reporter
+from obsidiandroid.modeling import pipeline_core
+from obsidiandroid.features import feature_vector_builder
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir

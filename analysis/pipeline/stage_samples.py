@@ -8,7 +8,7 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
-from database import db_sample_metadata_queries
+from obsidiandroid.database import db_sample_metadata_queries
 import obsidiandroid.governance.cohort_readiness_report as cohort_readiness_report
 import obsidiandroid.governance.cohort_reproducibility as cohort_reproducibility
 from obsidiandroid.cli.ui import display as du

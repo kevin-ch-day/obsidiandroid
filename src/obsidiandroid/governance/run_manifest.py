@@ -10,8 +10,8 @@ from typing import Any, Dict
 from uuid import uuid4
 
 from config import app_config
-from database import db_engine
 from obsidiandroid.common.hash_utils import hash_payload, short_hash
+from obsidiandroid.database import db_engine
 
 MANIFEST_SCHEMA_VERSION = "1.0.0"
 _INITIAL_MANIFEST_PATH = (

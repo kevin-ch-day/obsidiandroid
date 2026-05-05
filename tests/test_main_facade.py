@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from analysis.pipeline import main_facade
+from obsidiandroid.pipeline import main_facade
 
 
 def test_from_main_or_returns_default_when_main_missing(monkeypatch) -> None:

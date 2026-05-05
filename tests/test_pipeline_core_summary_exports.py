@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from config import app_config
-from ml_classification.training import pipeline_core
+from obsidiandroid.modeling import pipeline_core
 
 
 def test_summarize_models_exports_csv_and_skips_excel_by_default(

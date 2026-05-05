@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from analysis.pipeline import stage_samples
+from obsidiandroid.pipeline import stage_samples
 
 
 def test_package_integrity_respects_profile_threshold_in_strict_mode(monkeypatch) -> None:

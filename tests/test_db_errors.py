@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from mysql.connector import errors
 
-from database.db_errors import (
+from obsidiandroid.database.db_errors import (
     is_transient_mysql_error,
     mysql_error_summary,
     operator_facing_db_message,

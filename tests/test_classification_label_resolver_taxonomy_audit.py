@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from ml_classification.labeling import classification_label_resolver as resolver
+from obsidiandroid.labeling import classification_label_resolver as resolver
 
 
 def test_extract_type_slug_from_label_parses_structured_path(monkeypatch) -> None:

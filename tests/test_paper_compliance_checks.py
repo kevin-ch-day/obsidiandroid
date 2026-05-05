@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from analysis.pipeline.manifest.paper_compliance_checks import build_paper_compliance_checks
+from obsidiandroid.pipeline.manifest import paper_compliance_checks
+
+build_paper_compliance_checks = paper_compliance_checks.build_paper_compliance_checks
 
 
 def test_compliance_checks_skipped_when_paper_mode_off(tmp_path: Path) -> None:

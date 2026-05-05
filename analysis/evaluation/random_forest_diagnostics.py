@@ -3,7 +3,7 @@ from sklearn.datasets import make_classification
 from sklearn.metrics import confusion_matrix, classification_report
 import numpy as np
 
-from ml_classification.training import model_trainer_factory
+from obsidiandroid.modeling import model_trainer_factory
 
 
 def run_diagnostics(

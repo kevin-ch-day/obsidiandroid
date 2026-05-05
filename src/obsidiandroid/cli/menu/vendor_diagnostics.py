@@ -10,7 +10,7 @@ import pandas as pd
 
 from analysis.vendor_processing import vendor_parser_map
 from analysis.vendor_processing.generic_label_parser import parse_generic_classification
-from database import db_engine
+from obsidiandroid.database import db_engine
 from model.parsing.parsed_label_metadata import ParsedLabelMetadata
 from .workbook_loader import load_enriched_matrix_for_menu
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir

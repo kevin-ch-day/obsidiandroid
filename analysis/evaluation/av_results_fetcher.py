@@ -3,7 +3,7 @@
 
 import pandas as pd
 from obsidiandroid.cli.ui import display as du
-from database import db_fetch_av_engine_raw_results
+from obsidiandroid.database import db_fetch_av_engine_raw_results
 
 def fetch_av_results(samples_df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
     """

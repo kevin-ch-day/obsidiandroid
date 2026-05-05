@@ -39,7 +39,7 @@ PERMISSION_GROUP_DEFINITIONS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 from config import app_config
-from database import db_engine
+from obsidiandroid.database import db_engine
 from obsidiandroid.cli.ui import display as du
 
 

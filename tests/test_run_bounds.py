@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from analysis.pipeline.run_bounds import (
-    PipelineRunBounds,
-    clear_pipeline_run_bounds,
-    get_pipeline_run_bounds,
-    set_pipeline_run_bounds,
-)
+from obsidiandroid.pipeline import run_bounds
+
+PipelineRunBounds = run_bounds.PipelineRunBounds
+clear_pipeline_run_bounds = run_bounds.clear_pipeline_run_bounds
+get_pipeline_run_bounds = run_bounds.get_pipeline_run_bounds
+set_pipeline_run_bounds = run_bounds.set_pipeline_run_bounds
 
 
 def test_run_bounds_lifecycle() -> None:

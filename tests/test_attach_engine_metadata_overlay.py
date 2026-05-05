@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.pipeline import attach_engine_metadata as am
+from obsidiandroid.pipeline import attach_engine_metadata as am
 from config import app_config
 
 

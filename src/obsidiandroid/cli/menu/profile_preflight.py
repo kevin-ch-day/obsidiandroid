@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from analysis.orchestration.profile_filters import split_benign_malicious
 from config import app_config
-from database import db_sample_metadata_fetchers
+from obsidiandroid.database import db_sample_metadata_fetchers
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.observability.logging import get_logger, log_event
 import obsidiandroid.cli.profile_manager as profile_manager

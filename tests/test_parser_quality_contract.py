@@ -4,8 +4,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.pipeline.vendor_metadata_pipeline import _build_parser_quality_export_df
 from analysis.evaluation import vendor_parser_utils
+from obsidiandroid.pipeline import vendor_metadata_pipeline
+
+_build_parser_quality_export_df = vendor_metadata_pipeline._build_parser_quality_export_df
 
 
 def test_parser_quality_inclusion_status_has_no_unknown() -> None:

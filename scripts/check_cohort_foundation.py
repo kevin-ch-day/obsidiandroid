@@ -26,12 +26,14 @@ _SRC = ROOT / "src"
 if _SRC.is_dir() and str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from database import db_engine
-from database import db_sample_metadata_queries
-from database.cohort_sql_fragments import latest_artifact_hash_registry_subquery
-from database.db_sample_metadata_fetchers import _cohort_loader_sql_parts
+from obsidiandroid.database import db_engine
+from obsidiandroid.database import db_sample_metadata_queries
+from obsidiandroid.database.cohort_sql_fragments import latest_artifact_hash_registry_subquery
+from obsidiandroid.database.db_sample_metadata_fetchers import _cohort_loader_sql_parts
 import obsidiandroid.cli.profile_manager as profile_manager
-from analysis.pipeline.sample_exports import resolve_dataset_time_contract
+from obsidiandroid.pipeline import sample_exports
+
+resolve_dataset_time_contract = sample_exports.resolve_dataset_time_contract
 
 
 def _count_raw_android_apk_with_hash_and_time(
@@ -105,7 +107,7 @@ def _count_mapped_excluded_canonical_families(
     """Rows mapped to excluded canonical family names before SQL exclusion (same join stack as gate stats)."""
     if not exclude_canonical:
         return 0
-    from database.cohort_sql_fragments import (
+    from obsidiandroid.database.cohort_sql_fragments import (
         latest_family_resolution_subquery,
         latest_vt_scan_summary_subquery,
     )

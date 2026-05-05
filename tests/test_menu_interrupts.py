@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import obsidiandroid.cli.startup_menu as startup_menu
-from utils.ui import menu
+from obsidiandroid.cli.ui import menu
 
 
 def test_display_menu_returns_zero_on_keyboard_interrupt(monkeypatch) -> None:

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from database import db_av_engine_verdicts
 from config import app_config
+
+from obsidiandroid.database import db_av_engine_verdicts
 
 
 def _mock_query_result():

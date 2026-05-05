@@ -3,7 +3,7 @@ import pytest
 import json
 from pathlib import Path
 
-from analysis.pipeline import stage_permission_trends_report as report_stage
+from obsidiandroid.pipeline import stage_permission_trends_report as report_stage
 
 
 def test_compute_consensus_metrics_produces_expected_columns():

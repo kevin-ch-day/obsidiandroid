@@ -9,7 +9,7 @@ import pandas as pd
 from config import app_config
 import analysis.pipeline.runner as pipeline_runner
 import main
-from utils import family_distribution_report
+from obsidiandroid.reporting import family_distribution_report
 
 
 def test_stop_after_training_skips_ablation_and_permission_trends(

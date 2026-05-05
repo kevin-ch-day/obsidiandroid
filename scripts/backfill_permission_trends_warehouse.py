@@ -19,8 +19,13 @@ from config import app_config
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+_SRC = REPO_ROOT / "src"
+if _SRC.is_dir() and str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
-from analysis.pipeline.stage_results_warehouse import persist_permission_trends_results
+from obsidiandroid.pipeline import stage_results_warehouse
+
+persist_permission_trends_results = stage_results_warehouse.persist_permission_trends_results
 
 
 def _read_csv(path: Path) -> pd.DataFrame:

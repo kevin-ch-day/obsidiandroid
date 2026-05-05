@@ -6,7 +6,7 @@ from zipfile import BadZipFile
 
 from config import app_config
 from ml_classification.training import training_helpers
-from utils import export_manager
+from obsidiandroid.reporting import export_manager
 
 
 def test_workbook_corruption_detector_catches_crc_error() -> None:

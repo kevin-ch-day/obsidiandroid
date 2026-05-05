@@ -3,7 +3,7 @@
 
 import pandas as pd
 from obsidiandroid.cli.ui import display as du
-from database import db_av_engine_detection_totals
+from obsidiandroid.database import db_av_engine_detection_totals
 
 
 def validate_sample_input(samples_df: pd.DataFrame) -> bool:

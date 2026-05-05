@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ml_classification.vectorization import feature_vector_builder
+from obsidiandroid.features import feature_vector_builder
 from config import app_config
 
 

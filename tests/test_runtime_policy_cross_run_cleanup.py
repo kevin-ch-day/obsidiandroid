@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from config import app_config
-from ml_classification.training import model_trainer_factory as mtf
-from analysis.pipeline.runtime_policy import (
-    CROSS_RUN_ARTIFACT_POINTERS,
-    build_mutable_config_keys,
-    clear_cross_run_artifact_path_pointers,
-)
+from obsidiandroid.modeling import model_trainer_factory as mtf
+from obsidiandroid.pipeline import runtime_policy
+
+CROSS_RUN_ARTIFACT_POINTERS = runtime_policy.CROSS_RUN_ARTIFACT_POINTERS
+build_mutable_config_keys = runtime_policy.build_mutable_config_keys
+clear_cross_run_artifact_path_pointers = runtime_policy.clear_cross_run_artifact_path_pointers
 
 
 def test_clear_cross_run_artifact_path_pointers_resets_documented_keys() -> None:

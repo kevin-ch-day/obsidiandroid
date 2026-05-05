@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from analysis.pipeline import stage_feature_enrichment as sfe
+from obsidiandroid.pipeline import stage_feature_enrichment as sfe
 from config import app_config
 
 

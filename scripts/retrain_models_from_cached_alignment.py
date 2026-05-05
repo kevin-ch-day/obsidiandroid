@@ -15,10 +15,15 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+_SRC = REPO_ROOT / "src"
+if _SRC.is_dir() and str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
-from analysis.pipeline.stage_modeling import run_training_stage
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.pipeline import stage_modeling
+
+run_training_stage = stage_modeling.run_training_stage
 
 
 def _parse_models(raw: str | None) -> list[str] | None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ml_classification.ml_utils import distribution_reporter as dr
+from obsidiandroid.modeling import distribution_reporter as dr
 
 
 def test_build_distribution_df_basic() -> None:

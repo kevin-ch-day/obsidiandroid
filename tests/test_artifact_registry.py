@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from analysis.pipeline.artifacts.registry import ArtifactRegistry
+from obsidiandroid.pipeline.artifacts.registry import ArtifactRegistry
 
 
 def test_artifact_registry_write_text_registers_metadata(tmp_path: Path) -> None:
@@ -57,4 +57,3 @@ def test_artifact_registry_register_rejects_empty_file(tmp_path: Path) -> None:
             stage_origin="tests",
             path=target,
         )
-

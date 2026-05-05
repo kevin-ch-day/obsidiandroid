@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from analysis.pipeline.runtime_policy import enforce_paper_perturbation_axes
+from obsidiandroid.pipeline import runtime_policy
+
+enforce_paper_perturbation_axes = runtime_policy.enforce_paper_perturbation_axes
 
 
 def test_enforce_paper_perturbation_axes_rejects_invalid_axis() -> None:

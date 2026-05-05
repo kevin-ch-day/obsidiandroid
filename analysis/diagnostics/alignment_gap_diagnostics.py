@@ -12,7 +12,7 @@ from typing import Any, Callable, Iterable
 
 import pandas as pd
 
-from database.db_config import DB_NAME, PERMISSION_INTEL_DB_NAME
+from obsidiandroid.database.db_config import DB_NAME, PERMISSION_INTEL_DB_NAME
 
 # Tables we probe on the primary DB (optional ones may be absent in some deployments).
 OPTIONAL_PRIMARY_TABLES = (
@@ -117,13 +117,13 @@ def _batch_ids_query(
 
 
 def db_execute_query_default(*args: Any, **kwargs: Any):
-    from database import db_engine
+    from obsidiandroid.database import db_engine
 
     return db_engine.execute_query(*args, **kwargs)
 
 
 def db_execute_permission_query_default(*args: Any, **kwargs: Any):
-    from database import db_engine
+    from obsidiandroid.database import db_engine
 
     return db_engine.execute_permission_query(*args, **kwargs)
 

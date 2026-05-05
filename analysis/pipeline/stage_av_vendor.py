@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from analysis.pipeline import av_engine_pipeline, vendor_metadata_pipeline
-from ml_classification.ml_utils import feature_label_alignment_helper
+from obsidiandroid.modeling import feature_label_alignment_helper
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir

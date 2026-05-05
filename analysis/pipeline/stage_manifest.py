@@ -26,20 +26,20 @@ import obsidiandroid.governance.run_manifest as run_manifest
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.common import output_hygiene as oh
-from analysis.pipeline.manifest.hashing import (
+from obsidiandroid.pipeline.manifest.hashing import (
     canonical_csv_bytes,
     dataset_hash_from_sample_ids,
     sha256_hex,
 )
-from analysis.pipeline.manifest.runtime_support import (
+from obsidiandroid.pipeline.manifest.runtime_support import (
     build_manifest_payload,
     build_registry_payload,
     resolve_run_root,
     runtime_diagnostics_dir as _manifest_runtime_diagnostics_dir,
     validate_run_scoped_artifact_paths as _manifest_validate_run_scoped_artifact_paths,
 )
-from analysis.pipeline.manifest.writer import write_manifest_atomic
-from analysis.pipeline.manifest.paper_figure_renderers import (
+from obsidiandroid.pipeline.manifest.writer import write_manifest_atomic
+from obsidiandroid.pipeline.manifest.paper_figure_renderers import (
     annotate_confusion_matrix_with_metrics as _annotate_confusion_matrix_with_metrics,
     export_paper_figure_qc as _export_paper_figure_qc,
     render_paper_dangerous_distribution_from_table as _render_paper_dangerous_distribution_from_table,
@@ -47,7 +47,7 @@ from analysis.pipeline.manifest.paper_figure_renderers import (
     render_paper_type_heatmap_from_table as _render_paper_type_heatmap_from_table,
     render_pipeline_architecture_figure as _render_pipeline_architecture_figure,
 )
-from analysis.pipeline.manifest.paper_compliance_checks import build_paper_compliance_checks
+from obsidiandroid.pipeline.manifest.paper_compliance_checks import build_paper_compliance_checks
 
 
 def _runtime_diagnostics_dir() -> Path:

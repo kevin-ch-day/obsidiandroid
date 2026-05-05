@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 from sklearn.datasets import make_classification
 
-from ml_classification.training import model_trainer_factory
+from obsidiandroid.modeling import model_trainer_factory
 from config import app_config
 
 

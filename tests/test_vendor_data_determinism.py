@@ -1,7 +1,7 @@
 import pandas as pd
 
 from analysis.execution.vendor_record_factory import create_vendor_record
-from database import db_fetch_av_engine_raw_results as fetcher
+from obsidiandroid.database import db_fetch_av_engine_raw_results as fetcher
 
 
 def _dummy_parser(label, metadata=None):

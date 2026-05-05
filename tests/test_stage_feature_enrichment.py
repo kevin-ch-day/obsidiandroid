@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from analysis.pipeline import stage_feature_enrichment
+from obsidiandroid.pipeline import stage_feature_enrichment
 
 
 def test_merge_sample_metadata_features_disabled_returns_original() -> None:

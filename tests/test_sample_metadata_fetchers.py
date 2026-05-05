@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from database import db_sample_metadata_fetchers as fetchers
+from obsidiandroid.database import db_sample_metadata_fetchers as fetchers
 
 
 def test_fetch_samples_by_type_uses_left_hash_join_when_sha_not_required(monkeypatch) -> None:

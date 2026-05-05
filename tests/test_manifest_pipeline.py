@@ -7,14 +7,15 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.pipeline.manifest.hashing import (
-    canonical_csv_bytes,
-    dataset_hash_from_sample_ids,
-    sha256_hex,
-)
-from analysis.pipeline.manifest.writer import write_manifest_atomic
+from obsidiandroid.pipeline.manifest import hashing
+from obsidiandroid.pipeline.manifest import writer
 from config import app_config
 import obsidiandroid.governance.run_manifest as run_manifest
+
+canonical_csv_bytes = hashing.canonical_csv_bytes
+dataset_hash_from_sample_ids = hashing.dataset_hash_from_sample_ids
+sha256_hex = hashing.sha256_hex
+write_manifest_atomic = writer.write_manifest_atomic
 
 
 def test_write_manifest_atomic_creates_file(tmp_path: Path) -> None:

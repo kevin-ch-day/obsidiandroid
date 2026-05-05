@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from analysis.pipeline import stage_samples
-from database import db_sample_metadata_queries
+from obsidiandroid.pipeline import stage_samples
+from obsidiandroid.database import db_sample_metadata_queries
 
 
 def test_load_samples_by_type_supports_all_types_when_slug_none(monkeypatch) -> None:

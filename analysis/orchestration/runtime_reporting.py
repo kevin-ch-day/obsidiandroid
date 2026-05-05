@@ -17,7 +17,7 @@ from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common import output_paths
 from obsidiandroid.common.hash_utils import hash_payload
-from analysis.pipeline.governance.integrity import enforce_run_scoped_artifact_paths
+from obsidiandroid.governance.integrity import enforce_run_scoped_artifact_paths
 
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -602,4 +602,3 @@ def export_and_print_run_summary(
     du.print_stat("Macro F1", payload.get("macro_f1"))
     du.print_stat("Family Count", payload.get("n_families"))
     du.print_stat("Top Family Share", f"{float(payload.get('top_family_share', 0.0)):.2%}")
-

@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from analysis.pipeline import vendor_metadata_pipeline
+from obsidiandroid.pipeline import vendor_metadata_pipeline
 
 
 def test_build_parser_quality_export_df_adds_stable_columns() -> None:

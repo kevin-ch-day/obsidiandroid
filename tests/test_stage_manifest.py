@@ -6,8 +6,10 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from analysis.pipeline import stage_manifest
-from analysis.pipeline.manifest.paper_compliance_checks import build_paper_compliance_checks
+from obsidiandroid.pipeline import stage_manifest
+from obsidiandroid.pipeline.manifest import paper_compliance_checks
+
+build_paper_compliance_checks = paper_compliance_checks.build_paper_compliance_checks
 
 
 def test_extract_parser_list_returns_sorted_unique_names() -> None:

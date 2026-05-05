@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-import database.db_sample_metadata_fetchers as sample_metadata_fetchers
+import obsidiandroid.database.db_sample_metadata_fetchers as sample_metadata_fetchers
 
 from obsidiandroid.cli.menu import profile_preflight
 

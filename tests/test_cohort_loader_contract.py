@@ -5,8 +5,8 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from database import db_sample_metadata_queries
-from database.db_sample_metadata_contracts import log_and_assert_loader_sample_grain
+from obsidiandroid.database import db_sample_metadata_queries
+from obsidiandroid.database.db_sample_metadata_contracts import log_and_assert_loader_sample_grain
 
 
 def test_log_and_assert_loader_sample_grain_raises_on_duplicate_sample_ids() -> None:

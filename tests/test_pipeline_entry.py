@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from analysis.pipeline import runner as runner_mod
+from obsidiandroid.pipeline import runner as runner_mod
 from utils import pipeline_entry
 
 

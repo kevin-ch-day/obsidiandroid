@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from analysis.pipeline.permission_trends import stats_core
+from obsidiandroid.pipeline.permission_trends import stats_core
 
 
 def test_js_distance_zero_for_identical() -> None:

@@ -1,8 +1,8 @@
-"""Tests for ``utils.ui.menu`` interactive helpers."""
+"""Tests for ``obsidiandroid.cli.ui.menu`` interactive helpers."""
 
 from __future__ import annotations
 
-from utils.ui import menu
+from obsidiandroid.cli.ui import menu
 
 
 def test_display_menu_blank_input_selects_default(monkeypatch) -> None:

@@ -7,7 +7,8 @@ from pathlib import Path
 import pandas as pd
 
 from config import app_config
-from utils.menu import workbook_loader
+
+from obsidiandroid.cli.menu import workbook_loader
 
 
 def test_load_enriched_matrix_for_menu_reads_reports_workbook(monkeypatch, tmp_path: Path) -> None:

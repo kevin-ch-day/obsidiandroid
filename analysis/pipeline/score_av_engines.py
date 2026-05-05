@@ -12,7 +12,7 @@ import pandas as pd
 from analysis.pipeline import engine_normalization
 from analysis.risk_band import phase_score_engines
 from config import app_config
-from database import db_engine
+from obsidiandroid.database import db_engine
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.reporting import export_manager as em
 from obsidiandroid.observability.logging import get_logger, log_event

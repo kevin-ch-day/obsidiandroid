@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 from PIL import Image
 
-from analysis.pipeline.manifest import paper_figure_renderers as pfr
+from obsidiandroid.pipeline.manifest import paper_figure_renderers as pfr
 
 
 def test_annotate_confusion_matrix_strips_csv_headers(tmp_path: Path) -> None:

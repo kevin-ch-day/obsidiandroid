@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from config import app_config
-from ml_classification.training import pipeline_core
+from obsidiandroid.modeling import pipeline_core
 
 
 def test_run_classifier_pipeline_drops_low_support_without_other_group(monkeypatch, tmp_path: Path) -> None:

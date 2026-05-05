@@ -2,9 +2,9 @@
 
 from analysis.evaluation import evaluate_av_classifications
 from analysis.evaluation import vendor_feature_extractor
-from analysis.pipeline import score_av_engines
-from ml_classification.training import pipeline_core
-from utils import export_manager
+from obsidiandroid.pipeline import score_av_engines
+from obsidiandroid.modeling import pipeline_core
+from obsidiandroid.reporting import export_manager
 
 
 def test_export_manager_shared_import_aliases_point_to_module() -> None:

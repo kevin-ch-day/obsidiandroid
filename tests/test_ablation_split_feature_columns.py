@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from config import app_config
-from ml_classification.training import model_trainer_factory
+from obsidiandroid.modeling import model_trainer_factory
 
 
 def test_ablation_split_cache_reslices_current_feature_columns(monkeypatch) -> None:

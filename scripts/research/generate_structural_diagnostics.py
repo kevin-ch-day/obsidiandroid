@@ -15,7 +15,14 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_SRC = _REPO_ROOT / "src"
+for _p in (_REPO_ROOT, _SRC):
+    if _p.is_dir() and str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 from typing import Any
 
 import pandas as pd
@@ -25,7 +32,7 @@ from sklearn.metrics import f1_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
-from database import db_engine
+from obsidiandroid.database import db_engine
 
 
 def _resolve_paths() -> dict[str, Path]:

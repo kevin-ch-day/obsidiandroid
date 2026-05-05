@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from database.cohort_sql_fragments import (
+from obsidiandroid.database.cohort_sql_fragments import (
     latest_family_resolution_subquery,
     latest_vt_scan_summary_subquery,
 )

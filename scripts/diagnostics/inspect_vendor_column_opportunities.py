@@ -25,13 +25,15 @@ import sys
 
 import pandas as pd
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+_SRC = REPO_ROOT / "src"
+for _p in (REPO_ROOT, _SRC):
+    if _p.is_dir() and str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
-from database import db_engine
-from database import db_sample_metadata_queries
-from analysis.vendor_processing.vendor_parser_map import get_vendor_parser_map
+from obsidiandroid.database import db_engine
+from obsidiandroid.database import db_sample_metadata_queries
+from obsidiandroid.vendors.vendor_parser_map import get_vendor_parser_map
 from obsidiandroid.cli.ui import display as du
 
 

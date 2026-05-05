@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from analysis.pipeline import stage_av_vendor
+from obsidiandroid.pipeline import stage_av_vendor
 from config import app_config
 
 

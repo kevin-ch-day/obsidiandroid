@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from analysis.pipeline import stage_modeling
+from obsidiandroid.pipeline import stage_modeling
 
 
 def test_run_training_stage_returns_none_when_trainer_fails(monkeypatch) -> None:

@@ -6,8 +6,10 @@ from sklearn.metrics import classification_report, confusion_matrix
 import numpy as np
 
 # Allow imports when executed directly
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-from ml_classification.training import model_trainer_factory
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, _REPO_ROOT)
+sys.path.insert(0, os.path.join(_REPO_ROOT, "src"))
+from obsidiandroid.modeling import model_trainer_factory
 
 
 def tune_models(

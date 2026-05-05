@@ -3,9 +3,9 @@
 import numpy as np
 import pandas as pd
 
-from analysis.pipeline import stage_ablation
+from obsidiandroid.pipeline import stage_ablation
 from config import app_config
-from ml_classification.training import model_trainer_factory
+from obsidiandroid.modeling import model_trainer_factory
 
 
 def test_load_paper_cohort_sample_ids_missing_column_returns_empty_set() -> None:

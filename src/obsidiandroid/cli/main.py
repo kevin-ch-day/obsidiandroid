@@ -12,13 +12,13 @@ from analysis.orchestration.runtime_reporting import (
     enforce_duplicate_sha_policy as _enforce_duplicate_sha_policy,
     export_model_config_snapshot as _export_model_config_snapshot,
 )
-from analysis.pipeline.stage_av_vendor import run_av_analysis_stage
-from analysis.pipeline.stage_manifest import finalize_run_manifest_stage
-from analysis.pipeline.stage_samples import load_and_prepare_samples
 from obsidiandroid.pipeline import (
     DIAGNOSTICS_DIR,
     PIPELINE_MAIN_LOGGER,
     PARSER_QUALITY_PATH,
+    stage_av_vendor,
+    stage_manifest,
+    stage_samples,
     run_pipeline,
 )
 import obsidiandroid.cli.profile_manager as profile_manager
@@ -39,6 +39,10 @@ __all__ = [
     "run_av_analysis_stage",
     "runtime_logging",
 ]
+
+run_av_analysis_stage = stage_av_vendor.run_av_analysis_stage
+finalize_run_manifest_stage = stage_manifest.finalize_run_manifest_stage
+load_and_prepare_samples = stage_samples.load_and_prepare_samples
 
 
 def main() -> int:

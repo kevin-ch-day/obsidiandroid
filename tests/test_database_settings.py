@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from database.settings import ObsidianConnectionSettings, load_connection_settings
+from obsidiandroid.database.settings import ObsidianConnectionSettings, load_connection_settings
 
 
 def test_load_connection_settings_matches_dataclass_fields() -> None:

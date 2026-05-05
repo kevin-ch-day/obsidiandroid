@@ -10,8 +10,8 @@ import pandas as pd
 from scipy.stats import zscore
 
 from config import app_config
-from database import db_av_engine_detection_totals
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.database import db_av_engine_detection_totals
 from obsidiandroid.common import output_paths
 from obsidiandroid.observability.logging import get_logger, log_event
 

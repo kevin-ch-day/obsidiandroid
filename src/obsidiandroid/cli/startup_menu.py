@@ -15,8 +15,8 @@ import pandas as pd
 
 from config import app_config
 from analysis.evaluation import engine_scoring_summary
-from ml_classification.training import pipeline_core
-from database import db_engine
+from obsidiandroid.modeling import pipeline_core
+from obsidiandroid.database import db_engine
 from .ui import display as du
 from .ui import menu as mu
 from .menu import run_locator

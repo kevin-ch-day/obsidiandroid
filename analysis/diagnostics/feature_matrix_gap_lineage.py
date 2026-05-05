@@ -254,7 +254,7 @@ def run_feature_matrix_gap_report(
         du.print_warning("[GAP] Missing cohort_missing_from_feature_matrix CSV; using coverage counts only.")
 
     if not skip_db_recompute and execute_query is None:
-        from database import db_engine
+        from obsidiandroid.database import db_engine
 
         execute_query = db_engine.execute_query
         execute_permission_query = db_engine.execute_permission_query

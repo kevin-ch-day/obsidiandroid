@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from utils.menu import vendor_diagnostics
+from obsidiandroid.cli.menu import vendor_diagnostics
 
 
 def test_validate_parser_coverage_uses_csv_fallback_when_workbook_missing(

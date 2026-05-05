@@ -1,6 +1,6 @@
 """Tests for vendor parser map helper utilities."""
 
-from analysis.vendor_processing import vendor_parser_map
+from obsidiandroid.vendors import vendor_parser_map
 
 
 def test_validate_vendor_parser_columns_returns_missing_keys() -> None:

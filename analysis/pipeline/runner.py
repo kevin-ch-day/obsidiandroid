@@ -82,7 +82,7 @@ from analysis.orchestration.runtime_reporting import (
     print_run_context_line as _print_run_context_line,
     setup_runtime_context,
 )
-from database.db_sample_metadata_contracts import get_query_contract_metadata
+from obsidiandroid.database.db_sample_metadata_contracts import get_query_contract_metadata
 from analysis.pipeline.main_facade import from_main_or
 from analysis.pipeline.run_bounds import (
     PipelineRunBounds,

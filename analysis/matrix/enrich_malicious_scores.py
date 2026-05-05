@@ -2,7 +2,9 @@
 # Purpose  : Enrich AV detection matrix with scoring metadata and derived features
 
 import pandas as pd
-from database import db_sample_malicious_scoring
+
+from obsidiandroid.database import db_sample_malicious_scoring
+
 from . import enrich_score_features
 
 # --- Validation ---

@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 from zipfile import BadZipFile
-from utils import export_manager
+from obsidiandroid.reporting import export_manager
 
 
 def test_export_dataframe_to_excel_creates_file(monkeypatch):
@@ -220,4 +220,3 @@ def test_export_confusion_matrix_uses_dynamic_default_output_dir(monkeypatch, tm
         )
     )
     assert path.parent == tmp_path / "output" / "runs" / "20260304T003828Z__bcfc09" / "conf_matrices"
-

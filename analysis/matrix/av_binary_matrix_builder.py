@@ -3,8 +3,9 @@
 
 import pandas as pd
 import re
-from database import db_av_engine_verdicts
+
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.database import db_av_engine_verdicts
 
 METADATA_COLS = {
     "record_id", "sample_id", "timeout", "confirmed_timeout", "failure",

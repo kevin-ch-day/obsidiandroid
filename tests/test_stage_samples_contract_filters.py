@@ -7,9 +7,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.pipeline import stage_samples
-from analysis.pipeline.contract_filters import apply_contract_filters
+from obsidiandroid.pipeline import contract_filters
+from obsidiandroid.pipeline import stage_samples
 from config import app_config
+
+apply_contract_filters = contract_filters.apply_contract_filters
 
 
 def test_apply_contract_filters_excludes_unknown_in_paper_mode(monkeypatch) -> None:

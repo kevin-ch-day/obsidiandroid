@@ -1,6 +1,6 @@
 """Tests for engine canonicalization logic."""
 
-from analysis.pipeline import engine_normalization
+from obsidiandroid.pipeline import engine_normalization
 
 
 def test_canonicalize_engine_name_basic_rules() -> None:
