@@ -520,7 +520,7 @@ Heuristic for **shim vs real** (top-level **`utils/*.py`** excluding **`__init__
 | **`observability_candidate`** | **`logging/`** package — **high_risk_postpone** (pipeline + structured logs). |
 | **`cli_candidate`** | **`profile_manager`** ✅ **moved** to **`obsidiandroid.cli.profile_manager`** (**`PROFILES_DIR`** = **`repo_root() / "profiles"`** in **`repo_paths`**); covered by existing **`menu/`**, **`ui/`** shims under **`utils/`**. |
 | **`high_risk_postpone`** | **`export_manager.py`** (large / pipeline-facing), **`logging/`**. |
-| **`needs_review`** | **`model_exporter.py`** (training + **`app_config`**); **`output_hygiene.py`** (runner imports). |
+| **`needs_review`** | At Pass 26 snapshot: **`model_exporter.py`**, **`output_hygiene.py`** — both **moved** in **Pass 27** / **Pass 28**. |
 
 ### Scope B — Moved this pass
 
@@ -539,7 +539,7 @@ Heuristic for **shim vs real** (top-level **`utils/*.py`** excluding **`__init__
 
 **Internal imports updated:** **`analysis/pipeline/stage_manifest.py`** (`compliance`, **`LatexTableSpec`** / **`render_tabular`**), **`scripts/research/export_publication_tables.py`**, **`tests/test_latex_tables.py`**, **`analysis/pipeline/stage_samples.py`** (`prepare_sample_dataframe` from **`obsidiandroid.common.sample_metadata_preprocessor`**; **`cohort_readiness_report`** / **`cohort_reproducibility`** from **`obsidiandroid.governance.*`**), **`analysis/pipeline/runner.py`** (`family_distribution_report` from **`obsidiandroid.reporting`**; **`profile_manager`** from **`obsidiandroid.cli.profile_manager`**), **`obsidiandroid.cli.main`**, **`obsidiandroid.cli.menu.profile_preflight`**, **`scripts/check_cohort_foundation.py`** (prepend **`src/`** to **`sys.path`**), **`tests/test_profile_manager.py`** (imports canonical module so **`PROFILES_DIR`** monkeypatches apply to **`load_profile`**), **`tests/test_cohort_readiness_report.py`**, **`tests/test_cohort_reproducibility.py`** (canonical governance imports).
 
-**Output paths:** **`obsidiandroid.common.output_paths`** is imported across **`analysis/pipeline/`** (manifest, permission trends, integrity), **`utils/export_manager`**, **`utils/output_hygiene`**, **`utils/logging`**, **`ml_classification/`**, **`obsidiandroid.cli.menu.run_locator`**, **`obsidiandroid.reporting.family_distribution_report`**, **`scripts/`**, and **`tests/test_output_paths.py`**.
+**Output paths / hygiene:** **`obsidiandroid.common.output_paths`** and **`obsidiandroid.common.output_hygiene`** are imported across **`analysis/pipeline/`**, **`utils/export_manager`**, **`utils/logging`**, **`ml_classification/`**, **`obsidiandroid.cli`**, **`scripts/`**, and tests (**`test_output_paths`**, **`test_output_hygiene_resolve`**). Legacy **`utils.output_hygiene`** remains a shim.
 
 **Run manifest / artifact manifest:** **`obsidiandroid.governance.run_manifest`** (runner, manifest stages, orchestration, **`tests/test_manifest_pipeline.py`**, **`tests/conftest`** monkeypatch) and **`obsidiandroid.governance.artifacts`** (**`stage_manifest`**, **`paper_compliance_checks`**, **`tests/test_governance_primitives`**).
 
@@ -553,17 +553,109 @@ No additional deletes this pass (prior **`rg`** audit showed no further zero-cal
 
 **`check_import_surface`**, **`tests/test_obsidiandroid_package_surface.py`**, fast **`pytest`**, **`doc-check`**.
 
+## Pass 27 (complete): `model_exporter` → `obsidiandroid.modeling`
+
+| Item | Status | Notes |
+|------|--------|-------|
+| **`src/obsidiandroid/modeling/model_exporter.py`** | **moved_now** | Joblib + JSON export; uses **`obsidiandroid.cli.ui.display`** for console messages and **`config.app_config`** for **`RUNTIME_RUN_ID`**. |
+| **`utils/model_exporter.py`** | **wrapper_kept** | Thin shim: **`import *`** from **`obsidiandroid.modeling.model_exporter`** (after **`repo_import_paths`**). |
+| **`ml_classification/training/prediction_builder.py`** | **updated** | Imports **`obsidiandroid.modeling.model_exporter`** (canonical). |
+| **`tests/test_model_exporter_paths.py`** | **updated** | Canonical import (same **`app_config`** monkeypatch surface). |
+| **`scripts/dev/check_import_surface.py`** | **updated** | Parity: **`utils.model_exporter.export_model_to_file`** is **`obsidiandroid.modeling.model_exporter.export_model_to_file`**. |
+| **`tests/test_obsidiandroid_package_surface.py`** | **updated** | **`test_model_exporter_shim_matches_canonical`**. |
+
+**Not in this pass:** **`utils/export_manager.py`**, **`utils/output_hygiene.py`**, **`utils/logging/`**, **`analysis/pipeline/`**, broad **`ml_classification/training/`** moves, **`database/`**, **`model/`**.
+
+### Metrics (same heuristic as Pass 26; verified after Pass 27)
+
+| Metric | After Pass 26 | After Pass 27 |
+|--------|----------------|---------------|
+| **Top-level shim-only** (`utils/*.py`, heuristic) | **16** | **17** (**`model_exporter`** is a shim) |
+| **Top-level real implementation** (heuristic) | **12** | **11** |
+| **`src/obsidiandroid/**/*.py`** | **52** (tree before this pass) | **53** (+**`modeling/model_exporter.py`**) |
+
+### Scope A — classification delta
+
+- **`shim_only`**: add **`model_exporter`**.
+- **`needs_review`**: **`model_exporter`** ✅ **Pass 27**; **`output_hygiene`** ✅ **Pass 28**.
+
+### Scope B — canonical / shim pair
+
+| Canonical | Shim |
+|-----------|------|
+| **`src/obsidiandroid/modeling/model_exporter.py`** | **`utils/model_exporter.py`** |
+
+## Pass 28 (complete): `output_hygiene` → `obsidiandroid.common`
+
+| Item | Status | Notes |
+|------|--------|-------|
+| **`src/obsidiandroid/common/output_hygiene.py`** | **moved_now** | Run-scoped vs global **`output/diagnostics`** mirrors; uses **`obsidiandroid.common.output_paths`** and **`config.app_config`**. |
+| **`utils/output_hygiene.py`** | **wrapper_kept** | Thin shim: **`import *`** from **`obsidiandroid.common.output_hygiene`**. |
+| **`analysis/pipeline/`** (runner, manifest, ablation, sample exports, vendor metadata) | **updated** | **`from obsidiandroid.common import output_hygiene as oh`**. |
+| **`analysis/diagnostics/`** (`output_inventory`, feature drop trace) | **updated** | Canonical **`output_hygiene`** imports. |
+| **`analysis/orchestration/runtime_reporting.py`** | **updated** | Canonical import. |
+| **`obsidiandroid.cli.startup_menu`** | **updated** | Canonical import. |
+| **`ml_classification/training/model_trainer_factory.py`** | **updated** | Canonical import. |
+| **`tests/test_output_hygiene_resolve.py`** | **updated** | Canonical import. |
+| **`scripts/dev/check_import_surface.py`** | **updated** | Parity on **`resolve_stable_output_root_for_mirrors`** and **`mirror_csv_text_run_then_global`**. |
+| **`tests/test_obsidiandroid_package_surface.py`** | **updated** | **`test_output_hygiene_shim_matches_canonical`**. |
+
+**Not in this pass:** **`utils/logging/`**, physical **`analysis/pipeline/`** tree move, broad **`ml_classification/training/`**, **`database/`**, **`model/`**. (**`export_manager`** moved in **Pass 29** below.)
+
+### Metrics (heuristic; after Pass 28)
+
+| Metric | After Pass 27 | After Pass 28 |
+|--------|----------------|---------------|
+| **Top-level shim-only** | **17** | **18** (**`output_hygiene`**) |
+| **Top-level real implementation** | **11** | **10** |
+| **`src/obsidiandroid/**/*.py`** | **53** | **54** (+**`common/output_hygiene.py`**) |
+
+### Scope B — canonical / shim pair
+
+| Canonical | Shim |
+|-----------|------|
+| **`src/obsidiandroid/common/output_hygiene.py`** | **`utils/output_hygiene.py`** |
+
+## Consolidation (complete): metadata feature frame
+
+| Item | Notes |
+|------|-------|
+| **`analysis/pipeline/sample_preparation`** | **Canonical** home for **`build_metadata_feature_frame`** and **`extract_vt_tag_count`** (used by **`stage_feature_enrichment`**). |
+| **`analysis/orchestration/metadata_features.py`** | **Thin re-export** of the same functions for backward-compatible imports; **`tests/test_main_metadata_features.py`** imports the canonical module. |
+
 ## Dead-code pruning (ongoing)
 
 | Item | Notes |
 |------|-------|
+| **`ml_classification/vectorization/label_decoder_utils.py`** | **Removed** — **never imported**; label decoding uses **`LabelEncoder`** / builder paths elsewhere. |
+| **`ml_classification/training/compare_models.py`** | **Removed** — **never imported**; experimental multi-model compare helper only. |
+| **`ml_classification/training/model_runner_helpers.py`** | **Removed** — only imported by **`compare_models.py`** (also removed); production training uses **`train_model_executor`**. |
+| **`analysis/evaluation/random_forest_performance_report.py`** | **Removed** — **no** imports/docs; standalone **`__main__`** helper superseded by **`random_forest_diagnostics`** / ML reporting paths. |
+| **`analysis/evaluation/vendor_classification_scoring.py`** | **Removed** — **never imported**; workflow duplicated by **`evaluate_av_classifications`** + pipeline scoring stages. |
+| **`model/parsing/vendor_parse_result.py`** | **Removed** — **`VendorParseResult`** unused; no references outside the file. |
+| **`model/vendor/record_exporter.py`**, **`record_debugger.py`** | **Removed** — **never imported**; debugging/export helpers redundant with **`record_core`** / validators. |
+| **`analysis/av_feature_engineering.py`** | **Removed** — **no** imports or doc references; overlapped conceptually with **`analysis/feature_engineering/compute_vendor_scores.py`** (the supported scoring path). |
+| **`analysis/orchestration/manifest_finalize.py`** | **Removed** — **never imported**; run manifest finalization lives in **`analysis/pipeline/stage_manifest.py`** (**`finalize_run_manifest_stage`**). |
 | **`utils/evaluation_summary_printer.py`** | **Removed** — nothing imported it; evaluation UX lives in **`ml_classification/reporting/`** and exporters. **`docs/modeling_reference.md`** updated. |
 | **`utils/df_inspector.py`** | **Removed** — interactive dataframe inspector had **no** in-repo callers. |
 
+## Pass 29 (complete): `export_manager` canonical under `obsidiandroid.reporting`
+
+| Item | Notes |
+|------|-------|
+| **`src/obsidiandroid/reporting/export_manager.py`** | **moved_now** — Excel/vendor/confusion-matrix export orchestration (formerly **`utils/export_manager.py`** body). Imports **`obsidiandroid.cli.ui.display`**, **`obsidiandroid.common.*`**, **`utils.logging`** (logging move deferred). |
+| **`utils/export_manager.py`** | **wrapper_kept** — replaces **`sys.modules['utils.export_manager']`** with the canonical module object so **`from utils import export_manager`** and **`obsidiandroid.reporting.export_manager`** are **identical** (monkeypatch + **`tests/test_export_manager_wiring.py`** stable). |
+| **Call sites** | **updated** — **`pipeline_core`**, **`score_av_engines`**, **`evaluate_av_classifications`**, **`vendor_feature_extractor`**, **`classification_label_resolver`**, **`ml_eval_engine`** use **`from obsidiandroid.reporting import export_manager`**. |
+| **`scripts/dev/check_import_surface.py`** | **updated** — asserts module identity + **`export_dataframe_to_excel`** binding. |
+| **`obsidiandroid.reporting` package** | **updated** — re-exports **`export_manager`** submodule in **`__all__`**. |
+
+**Deferred:** splitting **`export_manager`** into smaller modules; **`utils/logging/`** migration (**Pass 30+** / observability).
+
 ## Next pass suggestions
 
-1. **Re-export policy:** Decide whether long-term tests should import `obsidiandroid.cli.*` only, or whether **`utils/`** shims should keep exposing delegate wrappers. Prefer canonical imports in tests for anything under monkeypatch.
-2. **Move `analysis/pipeline`:** Largest consumer of imports; plan re-exports from `obsidiandroid.pipeline` with root/package shims similar to CLI.
-3. **`database` naming:** When moving DB access, clarify imports: top-level `database` vs `obsidiandroid.database` to avoid mistaken cross-imports.
-4. **Docs:** Update `AGENTS.md` / `README.md` paths (`utils.pipeline_entry` vs `obsidiandroid.cli.pipeline_entry`) when you want new imports to be the documented default.
-5. **Editable install:** Confirm `pip install -e .` in CI once network allows; validates `[tool.setuptools.packages.find]` with `where = ["src", "."]`.
+1. **`utils/logging/`** + **`analysis/observability/`** → **`obsidiandroid.observability`** (separate pass; keep **`utils.logging`** shim).
+2. **Re-export policy:** Decide whether long-term tests should import `obsidiandroid.cli.*` only, or whether **`utils/`** shims should keep exposing delegate wrappers. Prefer canonical imports in tests for anything under monkeypatch.
+3. **Move `analysis/pipeline`:** Largest consumer of imports; plan re-exports from `obsidiandroid.pipeline` with root/package shims similar to CLI.
+4. **`database` naming:** When moving DB access, clarify imports: top-level `database` vs `obsidiandroid.database` to avoid mistaken cross-imports.
+5. **Docs:** Update `AGENTS.md` / `README.md` paths (`utils.pipeline_entry` vs `obsidiandroid.cli.pipeline_entry`) when you want new imports to be the documented default.
+6. **Editable install:** Confirm `pip install -e .` in CI once network allows; validates `[tool.setuptools.packages.find]` with `where = ["src", "."]`.
