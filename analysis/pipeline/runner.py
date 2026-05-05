@@ -16,6 +16,7 @@ from time import perf_counter
 import pandas as pd
 
 from config import app_config
+from ml_classification.training.model_trainer_factory import reset_runtime_training_caches
 
 # === Database + Utilities ===
 from utils import display_utils as du
@@ -61,6 +62,7 @@ from analysis.pipeline.stage_manifest import finalize_run_manifest_stage
 from analysis.pipeline.runtime_policy import (
     apply_profile_runtime_policy,
     build_mutable_config_keys,
+    clear_cross_run_artifact_path_pointers,
     enforce_paper_perturbation_axes as enforce_paper_perturbation_axes_policy,
     reset_runtime_markers,
 )
@@ -218,6 +220,13 @@ def run_pipeline(
     # Snapshot mutable config before setup_runtime_context mutates run-scoped paths
     # (RUNTIME_DIAGNOSTICS_DIR, ANALYSIS_SNAPSHOT_*, etc.); otherwise finally restores
     # stale run directories and leaks state across tests or sequential CLI runs.
+    # Clear cross-run path pointers before snapshot so a prior test/run cannot leave
+    # files outside this run's RUNTIME_RUN_ROOT (strict artifact_list enforcement).
+    clear_cross_run_artifact_path_pointers()
+    # Drop per-run_id training split caches from earlier pytest cases / CLI invocations
+    # so ``RUNTIME_TRAINING_STATE`` does not grow without bound and stays out of the way
+    # of the snapshot/finally restore for this run.
+    reset_runtime_training_caches()
     mutable_config_keys = build_mutable_config_keys()
     mutable_config_snapshot: dict[str, Any] = {
         key: getattr(app_config, key, _CONFIG_MISSING) for key in mutable_config_keys
@@ -1063,16 +1072,16 @@ def run_pipeline(
                     fused_any = fused_perm_sig.get(
                         "fused_matrix_rows_with_any_perm_like_positive"
                     )
-                    fused_rows = fused_perm_sig.get("fused_matrix_row_count")
+                    perm_matrix_row_count = fused_perm_sig.get("fused_matrix_row_count")
                     cohort_n = manifest_context.get("cohort_prepared_row_count")
                     if (
                         enrich_any is not None
                         and fused_any is not None
-                        and fused_rows is not None
+                        and perm_matrix_row_count is not None
                         and cohort_n is not None
                     ):
                         cohort_i = int(cohort_n)
-                        fused_i = int(fused_rows)
+                        fused_i = int(perm_matrix_row_count)
                         gap = max(0, cohort_i - fused_i)
                         if (
                             int(enrich_any) >= 50

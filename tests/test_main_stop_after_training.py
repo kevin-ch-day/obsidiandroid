@@ -61,9 +61,9 @@ def test_stop_after_training_skips_ablation_and_permission_trends(
     )
     monkeypatch.setattr(main.runtime_logging, "start_runtime_logging", lambda _run_id: None)
     monkeypatch.setattr(main.runtime_logging, "stop_runtime_logging", lambda _ctx: None)
-    monkeypatch.setattr(pipeline_runner, "load_and_prepare_samples", lambda **_kwargs: samples_df.copy())
+    monkeypatch.setattr(main, "load_and_prepare_samples", lambda **_kwargs: samples_df.copy())
     monkeypatch.setattr(
-        pipeline_runner,
+        main,
         "run_av_analysis_stage",
         lambda **_kwargs: {
             "engine_lifecycle": pd.DataFrame(
@@ -116,7 +116,7 @@ def test_stop_after_training_skips_ablation_and_permission_trends(
     monkeypatch.setattr(
         family_distribution_report, "print_family_distribution_stats", lambda *_args, **_kwargs: None
     )
-    monkeypatch.setattr(pipeline_runner, "finalize_run_manifest_stage", lambda **_kwargs: 0)
+    monkeypatch.setattr(main, "finalize_run_manifest_stage", lambda **_kwargs: 0)
 
     calls = {"ablation": 0, "permission": 0}
     monkeypatch.setattr(
@@ -186,9 +186,9 @@ def test_stop_after_ablation_skips_permission_trends(
     )
     monkeypatch.setattr(main.runtime_logging, "start_runtime_logging", lambda _run_id: None)
     monkeypatch.setattr(main.runtime_logging, "stop_runtime_logging", lambda _ctx: None)
-    monkeypatch.setattr(pipeline_runner, "load_and_prepare_samples", lambda **_kwargs: samples_df.copy())
+    monkeypatch.setattr(main, "load_and_prepare_samples", lambda **_kwargs: samples_df.copy())
     monkeypatch.setattr(
-        pipeline_runner,
+        main,
         "run_av_analysis_stage",
         lambda **_kwargs: {
             "engine_lifecycle": pd.DataFrame(
@@ -241,7 +241,7 @@ def test_stop_after_ablation_skips_permission_trends(
     monkeypatch.setattr(
         family_distribution_report, "print_family_distribution_stats", lambda *_args, **_kwargs: None
     )
-    monkeypatch.setattr(pipeline_runner, "finalize_run_manifest_stage", lambda **_kwargs: 0)
+    monkeypatch.setattr(main, "finalize_run_manifest_stage", lambda **_kwargs: 0)
 
     calls = {"ablation": 0, "permission": 0}
     monkeypatch.setattr(
@@ -311,9 +311,9 @@ def test_stop_after_label_resolution_with_stage_disabled(
     )
     monkeypatch.setattr(main.runtime_logging, "start_runtime_logging", lambda _run_id: None)
     monkeypatch.setattr(main.runtime_logging, "stop_runtime_logging", lambda _ctx: None)
-    monkeypatch.setattr(pipeline_runner, "load_and_prepare_samples", lambda **_kwargs: samples_df.copy())
+    monkeypatch.setattr(main, "load_and_prepare_samples", lambda **_kwargs: samples_df.copy())
     monkeypatch.setattr(
-        pipeline_runner,
+        main,
         "run_av_analysis_stage",
         lambda **_kwargs: {
             "engine_lifecycle": pd.DataFrame(
@@ -366,7 +366,7 @@ def test_stop_after_label_resolution_with_stage_disabled(
     monkeypatch.setattr(
         family_distribution_report, "print_family_distribution_stats", lambda *_args, **_kwargs: None
     )
-    monkeypatch.setattr(pipeline_runner, "finalize_run_manifest_stage", lambda **_kwargs: 0)
+    monkeypatch.setattr(main, "finalize_run_manifest_stage", lambda **_kwargs: 0)
 
     calls = {"label_resolution": 0}
     monkeypatch.setattr(

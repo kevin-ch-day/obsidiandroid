@@ -12,6 +12,29 @@ End-to-end staged workflow for cohort loading, AV/vendor processing, features, t
 | **`governance/`** | Integrity / path policy helpers. |
 | **`runtime_policy.py`** | Profile-driven feature flags and config mutations for a run. |
 
+## Cross-run `app_config` hygiene
+
+Some stages stash filesystem paths on `app_config` (overlay CSVs, split audit metadata,
+permission/feature survival exports). Under strict run-scoped artifact enforcement, a
+**stale path from another test or an earlier CLI invocation** can make the next
+`run_pipeline` fail with `[INTEGRITY] non-run-scoped artifacts`.
+
+`runtime_policy.CROSS_RUN_ARTIFACT_POINTERS` lists those keys; `clear_cross_run_artifact_path_pointers()`
+resets them before each `run_pipeline` snapshot and inside `reset_runtime_markers()`.
+`run_pipeline` also calls `reset_runtime_training_caches()` before the config snapshot so
+`RUNTIME_TRAINING_STATE` (split reuse caches keyed by `RUNTIME_RUN_ID`) does not accumulate
+across tests; `RUNTIME_TRAINING_STATE` is part of `build_mutable_config_keys()` so `finally`
+restores the pre-run value after each invocation.
+
+When adding new `RUNTIME_*` paths that the runner may register as artifacts, extend that
+map and `build_mutable_config_keys()` together (see `tests/test_runtime_policy_cross_run_cleanup.py`).
+
+## CLI / test bridge (`main_facade`)
+
+Integration tests that stub pipeline stages via `import main` should patch attributes
+resolved through `main_facade.from_main_or` (see the module docstring there). Other stages
+are usually patched on `analysis.pipeline.runner`.
+
 Extension guide: [`docs/pipeline_staging_guide.md`](../../docs/pipeline_staging_guide.md).
 
 ## Cohort audit (SQL scope vs prepared rows)

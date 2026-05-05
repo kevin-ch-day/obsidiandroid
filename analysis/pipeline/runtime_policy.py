@@ -1,4 +1,9 @@
-"""Runtime profile policy helpers for pipeline orchestration."""
+"""Runtime profile policy helpers for pipeline orchestration.
+
+Includes :data:`CROSS_RUN_ARTIFACT_POINTERS` / :func:`clear_cross_run_artifact_path_pointers`
+for resetting path-like ``RUNTIME_*`` keys between pipeline runs (pytest isolation and
+strict artifact governance). See ``analysis/pipeline/README.md``.
+"""
 
 from __future__ import annotations
 
@@ -37,6 +42,23 @@ PARSER_OVERRIDE_KEYS = (
     "PARSER_ALLOW_RELAXED_MAPPED_GATE",
 )
 
+# Paths / split handles that must not leak across pytest modules or sequential CLI
+# runs; :mod:`analysis.pipeline.runner` appends these to a strict artifact list.
+CROSS_RUN_ARTIFACT_POINTERS: dict[str, Any] = {
+    "RUNTIME_ENGINE_METADATA_OVERLAY_CSV": "",
+    "RUNTIME_PERMISSION_TRAINING_SURVIVAL_CSV": "",
+    "RUNTIME_FEATURE_COLUMN_SURVIVAL_CSV": "",
+    "RUNTIME_SPLIT_METADATA": None,
+    "RUNTIME_SPLIT_HASH": "",
+    "RUNTIME_SPLIT_AUDIT_PATH": "",
+}
+
+
+def clear_cross_run_artifact_path_pointers() -> None:
+    """Clear artifact path pointers from prior runs (see ``CROSS_RUN_ARTIFACT_POINTERS``)."""
+    for key, value in CROSS_RUN_ARTIFACT_POINTERS.items():
+        setattr(app_config, key, value)
+
 
 def build_mutable_config_keys() -> set[str]:
     """Build runtime config keys that must be restored after a run."""
@@ -49,6 +71,7 @@ def build_mutable_config_keys() -> set[str]:
         "PAPER_MODE_ENABLED",
         "PAPER_MODE_LOCKED_VALUE",
         "RUNTIME_DIAGNOSTICS_DIR",
+        "RUNTIME_TRAINING_STATE",
         "RUNTIME_PROFILE_ID",
         "RUNTIME_IS_DEV_PROFILE",
         "RUNTIME_EVIDENCE_MODE",
@@ -80,11 +103,12 @@ def build_mutable_config_keys() -> set[str]:
         "ENABLE_PERMISSION_FEATURES",
         *PARSER_OVERRIDE_KEYS,
         *RUNTIME_OVERRIDE_KEYS,
-    }
+    } | set(CROSS_RUN_ARTIFACT_POINTERS)
 
 
 def reset_runtime_markers() -> None:
     """Reset run-scoped runtime markers to avoid cross-run state leakage."""
+    clear_cross_run_artifact_path_pointers()
     setattr(app_config, "RUNTIME_VENDOR_GATE_DEBUG_PATH", "")
     setattr(app_config, "RUNTIME_VENDOR_FALLBACK_USED", False)
     setattr(app_config, "RUNTIME_VENDOR_FALLBACK_ADDED_COUNT", 0)
