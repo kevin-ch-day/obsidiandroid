@@ -29,10 +29,51 @@ Quick verification: `python scripts/dev/check_import_surface.py` or `make dev-im
 
 ### Snapshot — current truth (update when passes land)
 
-- **Canonical code** under **`src/obsidiandroid/`** includes **CLI**, **common** (hashing, paths, exports, hygiene, …), **governance** (compliance, manifest, cohort, artifacts, …), **reporting** (notably **`export_manager`** and related exporters), **observability** (**`logging/`** + **`pipeline_observability/`**), **`pipeline`** facade → **`analysis.pipeline.runner`**, **diagnostics** facade → slices of **`analysis.diagnostics`** plus **`research_validity`** / **`hostile_audit`** package aliases (Pass 36), **modeling** (**`model_exporter`**). Placeholder-only roots remain **`database/`**, **`vendors/`**, **`features/`**, **`labeling/`**, **`evaluation/`** under **`obsidiandroid.*`** until dedicated passes.
+- **Canonical code** under **`src/obsidiandroid/`** includes **CLI**, **common** (hashing, paths, exports, hygiene, …), **governance** (compliance, manifest, cohort, artifacts, …), **reporting** (notably **`export_manager`** and related exporters), **observability** (**`logging/`** + **`pipeline_observability/`**), **`pipeline`** facade → **`analysis.pipeline.runner`**, **diagnostics** facade → slices of **`analysis.diagnostics`** plus **`research_validity`** / **`hostile_audit`** package aliases (Pass 36), **database** façade → **`obsidiandroid.database`** re-exports curated **`database.*`** modules (Pass 38; implementation stays repo-root **`database/`**), **modeling** (**`model_exporter`**). Placeholder roots remain **`vendors/`**, **`features/`**, **`labeling/`**, **`evaluation/`** under **`obsidiandroid.*`** until dedicated passes.
 - **Legacy trees** at the repo root (**`analysis/`**, **`database/`**, **`ml_classification/`**, **`model/`**, **`utils/`**) stay for compatibility and bulk of implementation; **`utils/`** is primarily **shims** plus **`repo_import_paths`**, **`export_manager`** (**`sys.modules`** alias), and entry wrappers (**`startup_menu`**, **`pipeline_entry`**).
 - **Removed (Pass 33):** the **`analysis/observability`** package — pipeline observability APIs live only under **`obsidiandroid.observability.pipeline_observability`**.
 - **Quality gates:** **`make ci`** runs doc hygiene, **`scripts/dev/check_import_surface.py`** (imports, thin-shim rules for **`utils/`** subtrees, UTF-8 BOM scan), fast pytest, and strict ML static scan.
+
+### Restructure backlog (living)
+
+| Priority | Item | Status |
+|----------|------|--------|
+| P0 | **`obsidiandroid.database`** thin façade + outer callers (no **`database/*.py`** internal churn) | **Done** through **Pass 43** (Tiers **A–D** narrow AV set on façade). |
+| P1 | **`README.md`** operator quickstart: **`pip install -e .`**, **`obsidiandroid`**, canonical vs legacy imports | **Partial** — layout + DB façade pointers added (**Pass 43**); deepen if operators need full command cookbook |
+| P1 | **`analysis/pipeline` physical move** under **`src/`** (keep **`analysis.pipeline.runner`** shim + monkeypatch story) | **Partial** — Pass 45 adds canonical façade module aliases; physical move still pending run-context / manifest plan |
+| P2 | **`obsidiandroid.diagnostics`** vs **`analysis.diagnostics`** tree (facade already re-exports) | **Partial** — optional physical move |
+| P2 | **`ml_classification/`** → **`obsidiandroid.modeling` / `features` / `labeling`** façades | **Partial** — Passes **46–50A** inventory, first aliases, caller batches, status audit complete |
+| P2 | Vendor / evaluation domain boundary (**`obsidiandroid.vendors`**, **`obsidiandroid.evaluation`**) | **Partial** — Pass 50B inventory/spec plus Pass 51 first vendor parser-map alias |
+| P3 | Retire **`utils/*`** shims after caller + doc sunset | **Pending** — locked policy milestone (Pass 44 cleared **`tests/`** stragglers that were not asserting shim parity) |
+| P3 | Remaining **`database.db_*`** not on façade (e.g. **`db_sample_timelines_queries`**, **`db_extract_av_label_keywords`**) — add only when call sites need canonical imports | **Optional** |
+- **Passes 41–43 (`obsidiandroid.database`):** Façade-only **`from database`** callers outside **`database/`** are migrated (Pass 41); **Pass 42** recorded the pre–Tier D audit; **Pass 43** expands the façade with four **Tier D** AV/scoring modules and migrates remaining outer callers (**`analysis/`**, tests, **`obsidiandroid.governance.run_manifest`**). **`database/*.py`** internal imports stay **`from database …`**.
+- **Pass 44 (tests → canonical CLI):** Selected **`tests/`** modules import **`obsidiandroid.cli.menu` / `obsidiandroid.cli.ui.menu`** instead of **`utils.menu` / `utils.ui`** (shims unchanged).
+- **Pass 45 (`obsidiandroid.pipeline` module aliases):** façade now lazily re-exports common **`analysis.pipeline.*`** modules (stages, scoring helpers, runner/main_facade), and tests moved to **`from obsidiandroid.pipeline import ...`** where safe.
+- **Pass 46 (ML boundary inventory/spec):** docs-first import inventory + readiness tags completed in **`docs/ML_BOUNDARY_PLAN.md`**; no code moves, no caller migrations.
+- **Pass 47 (first ML facade slice):** only Pass 46 **`ready_now`** aliases surfaced under **`obsidiandroid.modeling`**, **`obsidiandroid.features`**, and **`obsidiandroid.labeling`** with identity checks; no caller migration.
+- **Pass 48 (low-risk ML caller adoption):** small outer-caller batch migrated to Pass 47 aliases (tests + canonical CLI + selected pipeline stages), with mixed/deferred rows intentionally skipped.
+- **Pass 49 (post-Pass 48 audit):** legacy import counts and focused remaining-surface scans recorded; recommends **Pass 50A** second low-risk ML adoption batch.
+- **Pass 50A (second low-risk ML adoption):** two evaluation helpers and four tests migrated to already-surfaced ML aliases; mixed/internal-only files remain skipped.
+- **Pass 50B (vendor/evaluation boundary inventory):** docs-only boundary map completed in **`docs/VENDOR_EVALUATION_BOUNDARY_PLAN.md`**; only one clear vendor `ready_now` row found, evaluation remains deferred pending wrapper/spec work.
+- **Pass 51 (first vendor facade slice):** **`obsidiandroid.vendors.vendor_parser_map`** now aliases **`analysis.vendor_processing.vendor_parser_map`** with identity checks; one diagnostics script and parser-map tests use the canonical path.
+- **Pass 52 (pipeline facade adoption):** **`obsidiandroid.pipeline`** exposes three more top-level modules (**`sample_exports`**, **`sample_preparation`**, **`stage_results_warehouse`**) and a small outer-caller batch moved to canonical module imports.
+- **Pass 53 (utils non-parity test cleanup):** remaining behavior tests that used **`utils.export_manager`** / **`utils.family_distribution_report`** now import canonical **`obsidiandroid.reporting`** modules; only shim/parity and entry-shim tests remain on **`utils.*`**.
+- **Pass 54 (pipeline governance aliases):** stable run-integrity primitives now surface through **`obsidiandroid.governance.exceptions`** and **`obsidiandroid.governance.integrity`**; direct outer callers migrated.
+- **Pass 55 (pipeline policy/helper aliases):** **`obsidiandroid.pipeline`** now exposes stable top-level helpers (**`contract_filters`**, **`run_bounds`**, **`runtime_policy`**) and corresponding tests use canonical imports.
+- **Pass 56 (pipeline manifest subfacade):** **`obsidiandroid.pipeline.manifest`** now aliases stable manifest helper modules (**hashing**, **writer**, **runtime_support**, **paper_compliance_checks**, **paper_figure_renderers**) and manifest tests/stage imports use canonical paths.
+- **Pass 57 (pipeline nested helper subfacades):** **`obsidiandroid.pipeline.artifacts`** and **`obsidiandroid.pipeline.permission_trends`** alias stable nested helper modules; their direct tests use canonical imports.
+
+### Locked migration policy (product + imports)
+
+These choices govern Pass 38+ work; they intentionally favor **operator stability** over **tree cosmetics**.
+
+1. **Product identity** — ObsidianDroid is both a **research pipeline CLI / operator tool** and an **internal Python package** (`obsidiandroid.*`) for tooling, tests, and future integrations. **When goals conflict, priority order is:** (a) operator/research pipeline stability, (b) reproducibility and evidence integrity, (c) canonical package cleanliness, (d) external library polish. Do not change real pipeline behavior or paper/evidence outputs solely to tidy imports.
+
+2. **Canonical surface** — **`obsidiandroid.*`** is the long-term **public/canonical** import surface. Root **`analysis.*`**, **`database.*`**, **`ml_classification.*`**, **`model.*`** remain **implementation** paths until each domain has an appropriate façade and migration coverage.
+
+3. **Breaking changes / shims** — No sudden flag day. **New and internal code** should prefer **`obsidiandroid.*`**. Legacy imports remain via **shims** during migration. Retire old paths only after: internal code no longer needs them; tests rely on them only where shim parity is the point; docs do not recommend them; and at least one stable checkpoint exists after the canonical path is real. For now: **`utils.*` shims stay**, root **`main.py` stays** for operators, and legacy trees stay until façades land.
+
+4. **Tests** — **New tests should use canonical imports by default** (`obsidiandroid.*`, **`scripts.dev`**, **`scripts.diagnostics`** as already documented). Use **`utils.*`**, **`main`**, or raw **`analysis.*` / `database.*`** only when testing shims, unavoidable monkeypatch surfaces, or migration parity explicitly.
 
 ## Pass 2 (complete): `common.repo_paths` + `pipeline` facade
 
@@ -59,7 +100,7 @@ Quick verification: `python scripts/dev/check_import_surface.py` or `make dev-im
 | `obsidiandroid/__init__.py` | **moved_now** | Package root. |
 | `obsidiandroid/cli/` | **moved_now** | `main.py`, `startup_menu.py`, `pipeline_entry.py`, `menu/`, `ui/`. |
 | `obsidiandroid/pipeline/` | **move_later** | Placeholder only; code remains in `analysis/pipeline/`. |
-| `obsidiandroid/database/` | **move_later** | Placeholder only; avoid confusion with top-level `database/` package. |
+| `obsidiandroid/database/` | **partial** (Pass 38) | Curated façade re-exports **`database.*`** modules (same objects); implementation remains top-level **`database/`**. |
 | `obsidiandroid/vendors/` | **move_later** | Placeholder. |
 | `obsidiandroid/features/` | **move_later** | Placeholder. |
 | `obsidiandroid/labeling/` | **move_later** | Placeholder. |
@@ -744,11 +785,925 @@ No additional deletes this pass (prior **`rg`** audit showed no further zero-cal
 | **`analysis/diagnostics/output_inventory.py`** | Classifies artifacts via **`obsidiandroid.diagnostics.output_artifact_policy`** (same module object as façade). |
 | **`analysis/diagnostics`** internals | Same-package **`from .…` / `from ..…`** for **`cohort_vocabulary`** and **`alignment_gap_diagnostics`** edges (foundation export, hostile cohort audit, **`research_validity.cohort_funnel`**, **`feature_matrix_gap_lineage`**). |
 
+## Pass 38 (complete): **`obsidiandroid.database`** curated façade (Tier A+B+C)
+
+| Item | Notes |
+|------|-------|
+| **`src/obsidiandroid/database/__init__.py`** | Re-exports **12** **`database.*`** modules (same **`ModuleType`**); registers each **`obsidiandroid.database.<name>`** on **`sys.modules`** so submodule imports preserve identity. |
+| **Tiers A–C** | **A:** **`settings`**, **`db_config`**, **`db_engine`**, **`db_errors`**, **`split_db_health`**. **B:** **`cohort_sql_fragments`**, **`db_sample_metadata_*`**. **C:** **`db_permission_analysis_queries`**, **`db_utils`**, **`schema_map`**. |
+| **`scripts/dev/check_import_surface.py`** | Verifies façade + **`import obsidiandroid.database.<name>`** identity vs **`database.<name>`**. |
+| **`tests/test_obsidiandroid_package_surface.py`** | **`test_database_facade_matches_database_modules`**. |
+| **Callers** | **No** bulk migration — **`database.*`** remains valid. |
+
+## Pass 39 (inventory): canonical DB import migration audit
+
+**Purpose:** Record **where** `obsidiandroid.database` should be adopted next. This pass is **documentation + audit only** — **no** production caller migration, **no** behavior/env/connection changes, **no** façade expansion (Tier D needs a separate decision).
+
+### Pass 38 façade recap (canonical modules)
+
+These **12** `database.<name>` modules are re-exported with **identity** from **`obsidiandroid.database`**: **`cohort_sql_fragments`**, **`db_config`**, **`db_engine`**, **`db_errors`**, **`db_permission_analysis_queries`**, **`db_sample_metadata_contracts`**, **`db_sample_metadata_fetchers`**, **`db_sample_metadata_queries`**, **`db_utils`**, **`schema_map`**, **`settings`**, **`split_db_health`**.
+
+### Imports outside Pass 38 (still `database.*` only)
+
+Repo code also imports **`database`** modules **not** on the façade (Tier D–style analysts / AV helpers). Examples seen in **`analysis/matrix/*`**, **`analysis/evaluation/*`**, **`analysis/pipeline/*`** (`db_av_engine_detection_totals`, `db_av_engine_verdicts`), **`database/*.py`** internals, and dedicated tests. **Adopting `obsidiandroid.database` for those symbols requires a separate façade or “stay legacy” decision** — not implied by Pass 38.
+
+### 1. Import inventory (by area)
+
+Counts are **call sites** (import lines / lazy imports), not deduplicated by symbol. **“Façade OK”** means every database symbol used in that row is among the **12** Pass 38 modules.
+
+| Area | Representative files | Typical `database` symbols | Façade OK? |
+|------|---------------------|----------------------------|------------|
+| **Pipeline / runtime** | **`analysis/pipeline/runner.py`**, **`stage_samples.py`**, **`stage_results_warehouse.py`**, **`score_av_engines.py`**, **`attach_engine_metadata.py`**, **`engine_pipeline_utils.py`**, **`permission_trends/sample_permission_data.py`**, **`feature_matrix_gap_lineage.py`** (lazy) | **`db_engine`**, **`db_sample_metadata_queries`**, **`db_sample_metadata_contracts`**; plus **`db_av_engine_detection_totals`** / related **AV** modules in some pipeline files | **Mixed** — façade symbols present; **AV** imports need Tier D or stay on `database.*` |
+| **Diagnostics** | **`analysis/diagnostics/alignment_gap_diagnostics.py`**, **`cohort_foundation_export.py`**, **`feature_matrix_gap_lineage.py`** | **`db_config`** (`DB_NAME`, `PERMISSION_INTEL_DB_NAME`), **`db_engine`** (lazy / optional paths) | **Yes** |
+| **Orchestration** | **`analysis/orchestration/permission_features.py`** | **`db_engine`** | **Yes** |
+| **Matrix / enrichment** | **`analysis/matrix/av_binary_matrix_builder.py`**, **`enrich_malicious_scores.py`** | **`db_av_engine_verdicts`**, **`db_sample_malicious_scoring`** | **No** — not on façade |
+| **Evaluation / fetch** | **`analysis/evaluation/av_results_fetcher.py`**, **`engine_scoring_summary.py`** | **`db_fetch_av_engine_raw_results`**, **`db_av_engine_detection_totals`** | **No** |
+| **ML / `ml_classification/`** | *(no direct `database.*` imports found in audit)* | — | — |
+| **`analysis/feature_engineering/`**, **`model/`**, **`obsidiandroid.reporting`** | *(none in audit)* | — | — |
+| **Canonical CLI** | **`src/obsidiandroid/cli/startup_menu.py`**, **`cli/menu/profile_preflight.py`**, **`cli/menu/vendor_diagnostics.py`** | **`db_engine`**, **`db_sample_metadata_fetchers`** | **Yes** |
+| **Tests** | **`tests/test_database*.py`**, **`test_cohort_*`**, **`test_profile_preflight.py`**, **`test_sample_metadata_*`**, **`test_db_av_*`**, **`test_vendor_data_determinism.py`**, **`test_obsidiandroid_package_surface.py`**, **`check_import_surface`** strings | Mix of façade + **AV** + dynamic `import database.db_config` | **Mixed** |
+| **Scripts / tools** | **`scripts/check_cohort_foundation.py`**, **`scripts/diagnostics/inspect_*.py`**, **`scripts/research/generate_structural_diagnostics.py`** | **`db_engine`**, **`db_sample_metadata_queries`**, **`cohort_sql_fragments`**, **`db_sample_metadata_fetchers`** | **Mostly yes**; confirm per file before migrating |
+| **`database/` package (implementation)** | All **`database/db_*.py`**, **`settings.py`**, **`split_db_health.py`**, etc. | Internal **`from database import …`** / **`from database.X import …`** | **N/A** — keep **package-internal** `database.*` imports; do **not** route implementation through `obsidiandroid.database` |
+
+### 2. Risk classification (by group)
+
+| Group | Tier | Notes |
+|-------|------|--------|
+| **New / refactored tests** (non-shim) | **Safe to migrate later** | Aligns with **Locked migration policy**; identity preserved via façade. |
+| **`src/obsidiandroid/cli/*`** | **Safe to migrate later** | Already on canonical tree; low blast radius. |
+| **Pipeline / diagnostics** using **only** façade symbols | **Safe to migrate later** | Schedule away from critical release windows; run **`make ci`** + DB smoke when touching execution paths. |
+| **Scripts** (`scripts/`) | **Safe with review** | Operator-facing; migrate in small batches. |
+| **Call sites using Tier D `database.db_*` (AV, timelines, etc.)** | **Defer** | Extend Pass 38 façade (**Tier D**) or document as **intentionally legacy** until boundary review. |
+| **`database/*.py` internal imports** | **Do not migrate** (current architecture) | Keeps the implementation package self-contained and avoids circular “façade → database → façade” patterns. |
+| **Mass pipeline edit across AV + cohort in one PR** | **Requires separate architectural decision** | Split by façade coverage and test matrix. |
+
+### 3. Permission Intel boundary check
+
+**Conclusion:** Pass 38 did **not** obscure primary vs Permission Intel behavior.
+
+- **`db_engine`** (façade) is unchanged: separate connector kwargs for primary vs Permission Intel remain in **`database/db_engine.py`**.
+- **`db_config`** (façade) still exports **`DB_NAME`** and **`PERMISSION_INTEL_DB_NAME`** with the same env semantics.
+- **`db_permission_analysis_queries`** (façade) continues to qualify SQL with **`_primary()`** vs **`_permission_intel()`** using those config constants — behavior is **visible in the same module object** whether imported as `database.*` or `obsidiandroid.database.*`.
+- **`split_db_health`** (façade) remains the **health / contract** entry for split-DB expectations.
+- **`schema_map`** (façade) still reads **`DB_NAME`** from **`db_config`** as before.
+- **`alignment_gap_diagnostics`** imports **`DB_NAME`** / **`PERMISSION_INTEL_DB_NAME`** for labeling only — no routing change.
+
+### 4. Proposed migration order (future — not part of Pass 39 execution)
+
+1. **Tests** that use **only** façade modules → `obsidiandroid.database` (train contributors; low risk).  
+2. **`src/obsidiandroid/cli/*`** → façade imports.  
+3. **Scripts** with façade-only symbols (e.g. cohort foundation, selected diagnostics).  
+4. **`analysis/diagnostics`** (façade symbols only).  
+5. **`analysis/pipeline`** files that use **only** façade symbols — **exclude** or **batch separately** any file that imports **non-façade** AV modules.  
+6. **Evaluation / matrix** AV paths — only after **Tier D** façade decision or explicit “remain `database.*` forever” note.
+
+### Audit method
+
+Static search of **`*.py`** for **`from database`**, **`import database.`**, and **`from database import`** / **`import database`** (includes lazy imports). Repeat when DB surface grows.
+
+### 5. Pass 39 deliverable status
+
+- **This section** is the audit record. **No** broad caller rewrites in Pass 39 unless a follow-up explicitly approves a **trivial** subset (e.g. a single test file already under review).
+
+## Pass 40 (complete): adopt **`obsidiandroid.database`** in low-risk outer layers
+
+**Goal:** Exercise the canonical DB import path in **tests**, **canonical CLI**, **scripts**, and **one trivial pipeline import** — **no** **`database/*.py`** edits, **no** Tier D façade expansion, **no** behavior/env/connection changes.
+
+### Files migrated (imports only; same **`ModuleType`**)
+
+| Area | Files |
+|------|--------|
+| **Tests** | **`tests/test_database.py`** (incl. subprocess env assert via **`obsidiandroid.database.db_config`** + **`sys.path`** repo + **`src`**), **`test_cohort_sql_fragments.py`**, **`test_database_settings.py`**, **`test_db_errors.py`**, **`test_sample_metadata_query_layer.py`**, **`test_sample_metadata_fetchers.py`**, **`test_profile_preflight.py`**, **`test_cohort_loader_contract.py`** |
+| **`obsidiandroid.cli`** | **`startup_menu.py`**, **`menu/profile_preflight.py`**, **`menu/vendor_diagnostics.py`** |
+| **Scripts** | **`scripts/check_cohort_foundation.py`**, **`scripts/diagnostics/inspect_vendor_parser_health.py`**, **`scripts/diagnostics/inspect_vendor_column_opportunities.py`**, **`scripts/research/generate_structural_diagnostics.py`** |
+| **Pipeline (single trivial line)** | **`analysis/pipeline/runner.py`** — **`db_sample_metadata_contracts`** only |
+
+**Note:** Two **`scripts/diagnostics/*`** tools previously used **`parents[1]`** as “repo root”; corrected to **`parents[2]`** with **`src/`** added so **`obsidiandroid.database`** resolves reliably when run as scripts.
+
+### Intentionally deferred / untouched
+
+| Reason | Examples |
+|--------|----------|
+| **Non-façade DB symbols** | **`tests/test_vendor_data_determinism.py`** (`db_fetch_av_engine_raw_results`), **`tests/test_db_av_engine_verdicts_cache.py`** (`db_av_engine_verdicts`) |
+| **Mixed / non-façade pipeline & analysis** | Matrix/evaluation AV paths (Pass 39 audit); façade-only **`analysis/`** subsets deferred during Pass 40 were migrated in **Pass 41**. |
+| **`database/` implementation** | Internal **`from database …`** unchanged by policy |
+| **Façade identity tests** | **`check_import_surface`** / **`test_obsidiandroid_package_surface`** still reference **`database.*`** module names where proving parity |
+
+**Tier D policy:** Unchanged — no new façade modules in Pass 40.
+
+## Pass 41 (complete): façade-only **`analysis/`** callers (diagnostics + selected pipeline)
+
+**Goal:** Migrate remaining **non-`database/`** modules that imported **only** Pass 38 façade symbols (**Tier A–C**). Same rules as Pass 40: **no** `database/*.py` edits, **no** new façade exports, **no** behavior or connection changes.
+
+### Files migrated (imports only)
+
+| Area | Files |
+|------|--------|
+| **Diagnostics** | **`analysis/diagnostics/cohort_foundation_export.py`** (`db_config`), **`alignment_gap_diagnostics.py`** (`db_config`, lazy `db_engine`), **`feature_matrix_gap_lineage.py`** (lazy `db_engine`) |
+| **Orchestration** | **`analysis/orchestration/permission_features.py`** (`db_engine`) |
+| **Pipeline** | **`analysis/pipeline/stage_samples.py`** (`db_sample_metadata_queries`), **`stage_results_warehouse.py`**, **`score_av_engines.py`**, **`permission_trends/sample_permission_data.py`** (`db_engine`) |
+
+### Intentionally deferred (unchanged policy)
+
+| Reason | Examples |
+|--------|----------|
+| **Tier D / non-façade DB** | **`analysis/pipeline/attach_engine_metadata.py`**, **`engine_pipeline_utils.py`**, **`analysis/evaluation/*`**, **`analysis/matrix/*`** AV/scoring paths, **`tests/test_vendor_data_determinism.py`**, **`tests/test_db_av_engine_verdicts_cache.py`** |
+| **`database/` implementation** | Internal **`from database …`** |
+| **Parity / import-surface tooling** | **`check_import_surface`**, **`test_obsidiandroid_package_surface`** continue to reference **`database.*`** where identity is asserted |
+
+**Tier D policy:** Still unchanged — Pass 41 does **not** expand the curated façade.
+
+### Mixed-import note
+
+No files in this pass imported both façade and non-façade **`database.*`** modules; those remain deferred until Tier D is decided or split cleanly.
+
+## Pass 42 (complete): database façade adoption — **audit closed** (outside **`database/`**)
+
+**Goal:** Record closure of façade-only **`from database`** migration for **non-implementation** trees and list **Tier D** holdouts. **No** new **`obsidiandroid.database`** exports in this pass.
+
+### Audit result (repo-wide `*.py`)
+
+| Caller bucket | **`obsidiandroid.database` eligible imports left?** |
+|---------------|-----------------------------------------------------|
+| **`scripts/`**, **`utils/`**, **`config/`**, **`ml_classification/`**, **`model/`**, **`src/obsidiandroid/`** | **None** (already canonical or never imported **`database`**). |
+| **`analysis/`** (outside **`database/`**) | **None** for Tier **A–C**; **`database.*`** remains only where **Tier D** / scoring / AV modules are required — see below. |
+| **`tests/`** | **Two** intentionally legacy **`database.*`** imports for **Tier D** symbols (**no** façade re-export yet). |
+
+### **`database.*`** intentionally remaining (Tier D / non-façade)
+
+| Path | Imported module(s) |
+|------|--------------------|
+| **`analysis/evaluation/av_results_fetcher.py`** | **`db_fetch_av_engine_raw_results`** |
+| **`analysis/evaluation/engine_scoring_summary.py`** | **`db_av_engine_detection_totals`** |
+| **`analysis/matrix/av_binary_matrix_builder.py`** | **`db_av_engine_verdicts`** |
+| **`analysis/matrix/enrich_malicious_scores.py`** | **`db_sample_malicious_scoring`** |
+| **`analysis/pipeline/attach_engine_metadata.py`** | **`db_av_engine_detection_totals`** |
+| **`analysis/pipeline/engine_pipeline_utils.py`** | **`db_av_engine_detection_totals`** |
+| **`tests/test_db_av_engine_verdicts_cache.py`** | **`db_av_engine_verdicts`** |
+| **`tests/test_vendor_data_determinism.py`** | **`db_fetch_av_engine_raw_results`** |
+
+**Superseded (Pass 43):** façade now includes the four Tier D modules above; callers listed here were migrated — see **Pass 43**.
+
+## Pass 43 (complete): Tier D façade + final outer **`database.*`** migrations
+
+**Goal:** Put the **narrow AV/scoring Tier D surface** used by **`analysis/`** and tests onto **`obsidiandroid.database`** and switch those callers (plus **`obsidiandroid.governance.run_manifest`**) to canonical imports — **same** **`ModuleType`** as **`database.<name>`**; **no** behavior change.
+
+### Façade extensions
+
+| Submodules added (Pass 43) |
+|----------------------------|
+| **`db_av_engine_detection_totals`**, **`db_av_engine_verdicts`**, **`db_fetch_av_engine_raw_results`**, **`db_sample_malicious_scoring`** |
+
+Tooling **`scripts/dev/check_import_surface.py`** and **`tests/test_obsidiandroid_package_surface.py`** parity lists updated.
+
+### Callers migrated (imports only)
+
+| Area | Files |
+|------|--------|
+| **Evaluation** | **`analysis/evaluation/av_results_fetcher.py`**, **`engine_scoring_summary.py`** |
+| **Matrix** | **`analysis/matrix/av_binary_matrix_builder.py`**, **`enrich_malicious_scores.py`** |
+| **Pipeline** | **`analysis/pipeline/attach_engine_metadata.py`**, **`engine_pipeline_utils.py`** |
+| **Tests** | **`tests/test_db_av_engine_verdicts_cache.py`**, **`tests/test_vendor_data_determinism.py`** |
+| **Governance (`src`)** | **`obsidiandroid/governance/run_manifest.py`** |
+
+### Deferred (unchanged architecture)
+
+| Area | Notes |
+|------|--------|
+| **`database/*.py`** | Internal **`from database …`** / **`database.db_*`** imports **not** rewritten (implementation package stays self-contained). |
+| **`check_import_surface` / façade tests** | Continue to **`import_module("database.[…]")`** when asserting **`is`** identity. |
+
+### Post-pass audit
+
+Aside from **`database/`** implementation internals and tooling strings that **`import`** **`database.*`** for parity checks, **repo `*.py`** no longer uses **`from database import …`** outside **`database/`**.
+
+## Pass 44 (complete): **`tests/`** adopt canonical **CLI menu / UI** imports
+
+**Goal:** Align non–shim-parity tests with **Locked migration policy** (prefer **`obsidiandroid.*`**). **`utils.menu.*`** / **`utils.ui.menu`** remain thin shims; **`tests/test_obsidiandroid_package_surface.py`** still imports **`utils.*`** where asserting **re-export identity**.
+
+### Files migrated (imports only)
+
+| File | Change |
+|------|--------|
+| **`tests/test_workbook_loader.py`** | **`obsidiandroid.cli.menu.workbook_loader`** |
+| **`tests/test_vendor_diagnostics_menu.py`** | **`obsidiandroid.cli.menu.vendor_diagnostics`** |
+| **`tests/test_ui_menu.py`** | **`obsidiandroid.cli.ui.menu`** |
+| **`tests/test_menu_interrupts.py`** | **`obsidiandroid.cli.ui.menu`** |
+
+**Intentionally unchanged:** shim parity blocks in **`tests/test_obsidiandroid_package_surface.py`**; all **`utils/*`** shim implementations.
+
+## Pass 45 (complete): expand **`obsidiandroid.pipeline`** module aliases
+
+**Goal:** Increase canonical import adoption without a physical move by teaching **`obsidiandroid.pipeline`** to expose commonly used **`analysis.pipeline.*`** modules as thin aliases (same module objects), then migrate low-risk tests.
+
+### Façade additions
+
+`obsidiandroid.pipeline` now resolves these names via lazy imports:
+
+- `runner`, `main_facade`, `engine_normalization`, `score_av_engines`
+- `attach_engine_metadata`, `av_engine_pipeline`, `vendor_metadata_pipeline`
+- `stage_ablation`, `stage_av_vendor`, `stage_feature_enrichment`, `stage_manifest`, `stage_modeling`, `stage_permission_trends_report`, `stage_samples`
+
+### Migrations in this pass
+
+- Tests that used **`from analysis.pipeline import ...`** for the alias set now import from **`obsidiandroid.pipeline`**.
+- Import-surface guardrails updated in **`scripts/dev/check_import_surface.py`**.
+- Package-surface parity extended in **`tests/test_obsidiandroid_package_surface.py`**.
+
+**Architecture unchanged:** implementation still lives under **`analysis/pipeline/`**; no behavior changes.
+
+## Pass 46 (complete): ML façade inventory and boundary spec (docs-only)
+
+**Goal:** Produce a complete **`ml_classification`** import inventory and readiness table before implementing any ML façade aliases.
+
+Primary artifact:
+- **`docs/ML_BOUNDARY_PLAN.md`** (Pass 46 inventory/spec)
+
+Highlights:
+- AST-based inventory over repo `*.py` documented in **`docs/ML_BOUNDARY_PLAN.md`**.
+- Caller groups covered: pipeline, evaluation, diagnostics, vendor processing, CLI, scripts, tests, and **`ml_classification`** internals.
+- Every unique import target tagged: **`ready_now`**, **`needs_wrapper`**, **`defer`**, or **`internal_only`** with proposed canonical placement.
+- Research-critical contract table included for:
+  - label normalization
+  - family/type taxonomy resolution
+  - vendor consensus parsing (explicitly deferred boundary; not assumed labeling-owned)
+  - feature vector construction
+  - training pipeline core
+  - model trainer factory
+  - evidence-strict / paper-mode behavior
+  - dataset perturbation / ablation logic
+
+Non-goals honored:
+- No physical moves.
+- No façade implementation or caller migration in this pass.
+- No behavior, dataset/output, DB, or training-logic changes.
+
+## Pass 47 (complete): first minimal ML façade slice (`ready_now` only)
+
+**Goal:** Surface only Pass 46 `ready_now` rows as canonical module aliases with parity checks, no behavior changes.
+
+### Aliases added
+
+| Canonical facade | Alias name | Backing legacy module |
+|---|---|---|
+| `obsidiandroid.modeling` | `pipeline_core` | `ml_classification.training.pipeline_core` |
+| `obsidiandroid.modeling` | `model_trainer_factory` | `ml_classification.training.model_trainer_factory` |
+| `obsidiandroid.modeling` | `distribution_reporter` | `ml_classification.ml_utils.distribution_reporter` |
+| `obsidiandroid.modeling` | `feature_label_alignment_helper` | `ml_classification.ml_utils.feature_label_alignment_helper` |
+| `obsidiandroid.features` | `feature_vector_builder` | `ml_classification.vectorization.feature_vector_builder` |
+| `obsidiandroid.labeling` | `classification_label_resolver` | `ml_classification.labeling.classification_label_resolver` |
+
+### Guardrails updated
+
+- `scripts/dev/check_import_surface.py`:
+  - imports new facades
+  - checks module-object parity (`is`) for each alias
+  - checks `import obsidiandroid.<pkg>.<alias>` resolves to backing module
+- `tests/test_obsidiandroid_package_surface.py`:
+  - added ML facade parity test block for the same alias set
+
+### Explicit deferrals (unchanged)
+
+- All Pass 46 `needs_wrapper` rows
+- All Pass 46 `defer` rows (including vendor consensus parsing boundary)
+- All Pass 46 `internal_only` rows
+- No caller migration in this pass
+- No training behavior, dataset/output, evidence-strict/paper-mode, DB, or pipeline relocation changes
+
+## Pass 48 (complete): low-risk ML caller adoption (`ready_now` aliases only)
+
+**Goal:** Adopt Pass 47 canonical ML aliases in a small, controlled outer-caller batch.
+
+### Files migrated (imports only; one-to-one replacements)
+
+| Area | Files |
+|---|---|
+| Non-parity tests | `tests/test_stage_ablation.py`, `tests/test_model_trainer_factory.py`, `tests/test_feature_vector_builder.py`, `tests/test_classification_label_resolver_taxonomy_audit.py`, `tests/test_distribution_reporter.py`, `tests/test_runtime_policy_cross_run_cleanup.py` |
+| Canonical CLI | `src/obsidiandroid/cli/startup_menu.py` |
+| Small pipeline stages | `analysis/pipeline/stage_ablation.py`, `analysis/pipeline/stage_modeling.py`, `analysis/pipeline/stage_av_vendor.py` |
+
+### Intentionally deferred in this pass
+
+| File(s) | Reason |
+|---|---|
+| `tests/test_stage_feature_enrichment_fuse.py` | Mixed import surface (`feature_vector_builder` + `feature_encoder`); `feature_encoder` is Pass 46 `needs_wrapper`, so file left unchanged. |
+| Vendor/evaluation inference/parsing modules | Pass 46 marked as `defer` (boundary ambiguity retained). |
+| All `ml_classification` internals and `internal_only` rows | Out of scope by policy for low-risk outer adoption. |
+
+### Non-goals honored
+
+- No new façade aliases.
+- No caller migration beyond this small batch.
+- No ML logic, dataset/output contracts, evidence-strict/paper-mode behavior, DB behavior, or pipeline relocation changes.
+
+## Pass 49 (complete): post-Pass 48 legacy import status/audit
+
+**Goal:** Re-measure remaining legacy import surfaces after Pass 48 and recommend the
+next high-ROI migration pass. This pass is **audit/docs only**: no aliases, no caller
+migration, no physical moves, and no behavior/training/dataset/output changes.
+
+### Reproducible method
+
+Import counts used an AST scan over repo **`*.py`**, excluding generated/runtime paths
+(`.git`, `.venv`, `__pycache__`, `.pytest_cache`, `.pytest_tmp`, `output`, `logs`,
+`obsidiandroid.egg-info`, `.ruff_cache`). Focused line scans used **`rg`**:
+
+```bash
+rg -n "^(from ml_classification|import ml_classification)" --glob "*.py" --glob "!ml_classification/**" .
+rg -n "^(from analysis\.pipeline|import analysis\.pipeline)" --glob "*.py" --glob "!analysis/pipeline/**" .
+rg -n "^(from utils|import utils)" --glob "*.py" --glob "!utils/**" .
+rg -n "^(from model|import model)" --glob "*.py" --glob "!model/**" .
+rg -n "^(from database|import database)" --glob "*.py" --glob "!database/**" .
+```
+
+### Import count snapshot
+
+Counts are AST import records; file counts are unique files containing at least one
+record for that root package.
+
+| Import root | Records | Files | Interpretation |
+|---|---:|---:|---|
+| `obsidiandroid` | 548 | 273 | Canonical surface is now the dominant import root. |
+| `analysis` | 301 | 75 | Still a large implementation and test surface, especially pipeline/diagnostics. |
+| `database` | 45 | 16 | Remaining direct imports are inside repo-root `database/` implementation. |
+| `ml_classification` | 88 | 48 | Includes package internals plus remaining external tests/eval/vendor-processing edges. |
+| `model` | 37 | 31 | Vendor record / parsed metadata domain remains unfacaded. |
+| `utils` | 94 | 51 | Mostly shim parity tests plus a few legacy test patch surfaces. |
+
+### Focused remaining legacy surfaces
+
+| Surface | Current status |
+|---|---|
+| Direct `database.*` outside `database/` | **0** found. |
+| Direct `ml_classification.*` outside `ml_classification/` | **50** records: 9 surfaced-but-not-migrated, 12 `needs_wrapper`, 10 `defer`, 19 `internal_only`. Details are in **`docs/ML_BOUNDARY_PLAN.md`** Pass 49. |
+| Direct `analysis.pipeline.*` outside `analysis/pipeline/` | Remains in diagnostics, scripts, `obsidiandroid.cli.main`, and tests. Mix of public-ish stage helpers, manifest/governance internals, and test monkeypatch/contract surfaces. |
+| Direct `utils.*` outside `utils/` | Mostly shim/parity tests (`test_obsidiandroid_*_shims`, `test_obsidiandroid_package_surface`) plus a few legacy tests using `utils.export_manager`, `utils.pipeline_entry`, or `utils.family_distribution_report`. |
+| Direct `model.*` outside `model/` | Vendor parsing/record domain is still shared across `analysis/vendor_processing`, `analysis/execution`, `ml_classification`, CLI diagnostics, and tests. Boundary belongs in a future vendor/model pass. |
+
+### ML remaining-import classification
+
+See **`docs/ML_BOUNDARY_PLAN.md`** for the per-file Pass 49 table. Summary:
+
+| ML status | Records | Recommended handling |
+|---|---:|---|
+| `already surfaced alias but not migrated yet` | 9 | Good candidate for Pass 50A. |
+| `needs_wrapper` | 12 | Do not surface casually; define wrapper contracts first. |
+| `defer` | 10 | Mostly vendor/evaluation ambiguity; needs boundary design. |
+| `internal_only` | 19 | Keep on legacy/internal paths unless tests are explicitly refactored. |
+
+### Recommended next pass
+
+Recommend **Pass 50A: second low-risk ML adoption batch**.
+
+Rationale:
+- There are still **9** remaining imports that already have Pass 47 canonical aliases.
+- Candidate files are low risk when kept to one-to-one import replacements:
+  **`analysis/evaluation/model_tuning.py`**, **`analysis/evaluation/random_forest_diagnostics.py`**,
+  and straightforward tests that import only surfaced aliases.
+- This proves the first ML façade slice in more callers without expanding API surface.
+
+Defer:
+- **Pass 50B** vendor/evaluation boundary inventory until surfaced aliases are fully adopted.
+- **Pass 50C** utils cleanup until parity-test vs legacy-patch surfaces are split.
+- **Pass 50D** pipeline external caller cleanup until pipeline facade submodule coverage is widened or classified.
+
+## Pass 50A (complete): second low-risk ML adoption batch
+
+**Goal:** Migrate only remaining imports that are already covered by Pass 47 aliases,
+using one-to-one replacements. No new façade aliases, no physical moves, no caller
+migration for mixed/high-risk files, and no behavior/training/dataset/output changes.
+
+### Reproducible method
+
+Before editing, an AST scan over repo **`*.py`** (excluding generated/runtime paths and
+**`ml_classification/`** internals) matched only Pass 47 alias keys:
+
+```python
+("ml_classification.training", "pipeline_core")
+("ml_classification.training", "model_trainer_factory")
+("ml_classification.vectorization", "feature_vector_builder")
+("ml_classification.labeling", "classification_label_resolver")
+("ml_classification.ml_utils", "distribution_reporter")
+("ml_classification.ml_utils", "feature_label_alignment_helper")
+```
+
+Focused line scan:
+
+```bash
+rg -n "^(from ml_classification|import ml_classification)" --glob "*.py" --glob "!ml_classification/**" .
+```
+
+### Files migrated
+
+| Area | Files |
+|---|---|
+| Evaluation helpers | **`analysis/evaluation/model_tuning.py`**, **`analysis/evaluation/random_forest_diagnostics.py`** |
+| Tests | **`tests/test_ablation_split_feature_columns.py`**, **`tests/test_export_manager_wiring.py`**, **`tests/test_pipeline_core_low_support_behavior.py`**, **`tests/test_pipeline_core_summary_exports.py`** |
+
+`analysis/evaluation/model_tuning.py` now also prepends repo **`src/`** when executed
+directly so **`obsidiandroid.modeling`** resolves without requiring editable install.
+
+### Explicit skips
+
+| File | Reason |
+|---|---|
+| **`tests/test_pipeline_contracts.py`** | Mixed import line/file: surfaced **`pipeline_core`** plus **`model_prediction`** (`internal_only`). |
+| **`tests/test_stage_feature_enrichment_fuse.py`** | Mixed file: surfaced **`feature_vector_builder`** plus **`feature_encoder`** (`needs_wrapper`). |
+| **`tests/test_training_trainer.py`** | Mixed file: surfaced **`model_trainer_factory`** plus algorithm-specific trainers (`internal_only`). |
+| **`analysis/pipeline/runner.py`** | Explicitly out of scope; monkeypatch-sensitive / runtime-sensitive. |
+
+Post-pass remaining surfaced aliases outside **`ml_classification/`**: **3**, all in
+the mixed skipped files above. Details are mirrored in **`docs/ML_BOUNDARY_PLAN.md`**.
+
+## Pass 50B (complete): vendor/evaluation boundary inventory
+
+**Goal:** Map the vendor/evaluation/model parsing boundary before exposing anything
+new under **`obsidiandroid.vendors`** or **`obsidiandroid.evaluation`**.
+
+This pass is **docs only**: no new aliases, no caller migration, no physical moves,
+and no behavior/parser/model/training/dataset/output/DB changes.
+
+### Artifact
+
+- **`docs/VENDOR_EVALUATION_BOUNDARY_PLAN.md`**
+
+### Reproducible method
+
+Candidate files were listed with:
+
+```bash
+find analysis/vendor_processing analysis/evaluation analysis/execution model/vendor model/parsing ml_classification/engine_weights -maxdepth 2 -type f | sort
+```
+
+Focused text scan:
+
+```bash
+rg -n "vendor_processing|analysis\.evaluation|analysis\.execution|model\.vendor|model\.parsing|ml_classification\.engine_weights|risk_band_config|VendorClassificationRecord|ParsedLabelMetadata" --glob "*.py" --glob "!output/**" --glob "!logs/**" --glob "!**/__pycache__/**" .
+```
+
+Import inventory used an AST scan over repo **`*.py`**, excluding generated/runtime
+paths (`.git`, `.venv`, `venv`, `__pycache__`, `.pytest_cache`, `.pytest_tmp`,
+`output`, `logs`, `obsidiandroid.egg-info`, `.ruff_cache`) and matching these
+prefixes:
+
+```python
+(
+    "analysis.vendor_processing",
+    "analysis.evaluation",
+    "analysis.execution",
+    "model.vendor",
+    "model.parsing",
+    "model.core.risk_band_config",
+    "ml_classification.engine_weights",
+)
+```
+
+### Inventory snapshot
+
+| Metric | Count |
+|---|---:|
+| Import records | 81 |
+| Proposed **`obsidiandroid.vendors`** records | 60 |
+| Proposed **`obsidiandroid.evaluation`** records | 21 |
+
+| Readiness tag | Records | Decision |
+|---|---:|---|
+| `ready_now` | 1 | Only **`analysis.vendor_processing.vendor_parser_map.get_vendor_parser_map`** is clearly alias-ready. |
+| `needs_wrapper` | 37 | Vendor records, parsed metadata, generic parsing, and parser result contracts need stable wrappers. |
+| `defer` | 38 | Evaluation/scoring/vendor-specific parser semantics need boundary decisions first. |
+| `internal_only` | 5 | Execution builders/runners and record factories should remain implementation details. |
+| `monkeypatch_sensitive` | 0 | Static scan found none, but tests still need manual patch-surface review before migration. |
+
+### Boundary conclusions
+
+| Area | Proposed canonical domain | Pass 50B status |
+|---|---|---|
+| Vendor parser maps | **`obsidiandroid.vendors`** | `ready_now` for the parser-map entrypoint only. |
+| Generic/vendor-specific parsing | **`obsidiandroid.vendors`** | Generic parser `needs_wrapper`; vendor-specific parsers `defer`. |
+| Vendor record model | **`obsidiandroid.vendors`** | `needs_wrapper`; do not expose raw record internals first. |
+| Parsed label metadata | **`obsidiandroid.vendors`** | `needs_wrapper`; part of parser API, not labeling API by default. |
+| AV result evaluation | **`obsidiandroid.evaluation`** | `needs_wrapper`/`defer`; result contract needs spec. |
+| Engine scoring / engine weights | **`obsidiandroid.evaluation`** | `defer`; scoring policy is research-sensitive and not modeling-owned. |
+| Parser quality checks | **`obsidiandroid.evaluation`** plus vendor entrypoints | `defer`; split quality/reporting from parser implementation first. |
+| Risk band config | unresolved vendor/evaluation/risk domain | `defer`; appears adjacent but ownership is unsettled. |
+
+### Recommended next choices
+
+If continuing boundary migration, choose a tiny first **`obsidiandroid.vendors`**
+facade slice for **`vendor_parser_map`** only. A broader vendors/evaluation facade
+is not supported by the audit yet.
+
+If prioritizing visible cleanup over a one-row facade, the stronger next choices are:
+
+- pipeline external caller cleanup for already-approved pipeline facade imports
+- utils non-parity test cleanup where tests are not asserting shim behavior
+
+Defer the first **`obsidiandroid.evaluation`** facade slice until AV evaluation,
+parser quality, scoring summary, and engine weight contracts are specified.
+
+## Pass 51 (complete): first `obsidiandroid.vendors` facade slice
+
+**Goal:** Implement only the Pass 50B `ready_now` vendor parser-map surface. No
+vendor-specific parsers, generic parser wrapper, vendor record model, parsed label
+metadata, evaluation aliases, physical moves, parser changes, output changes, or
+DB behavior changes.
+
+### Facade added
+
+| Canonical module | Legacy backing module | Notes |
+|---|---|---|
+| **`obsidiandroid.vendors.vendor_parser_map`** | **`analysis.vendor_processing.vendor_parser_map`** | Thin alias with **`sys.modules`** registration so direct submodule imports preserve module identity. |
+
+### Callers migrated
+
+| Area | File | Change |
+|---|---|---|
+| Diagnostics script | **`scripts/diagnostics/inspect_vendor_column_opportunities.py`** | Imports **`get_vendor_parser_map`** from **`obsidiandroid.vendors.vendor_parser_map`**. |
+| Tests | **`tests/test_vendor_parser_map.py`** | Imports **`vendor_parser_map`** from **`obsidiandroid.vendors`**. |
+
+### Checks updated
+
+- **`scripts/dev/check_import_surface.py`** imports **`obsidiandroid.vendors`** and
+  verifies **`obsidiandroid.vendors.vendor_parser_map`** is the same module object as
+  **`analysis.vendor_processing.vendor_parser_map`**.
+- **`tests/test_obsidiandroid_package_surface.py`** adds the same package-surface
+  parity assertion.
+
+### Still deferred
+
+- Generic parser wrapper and `parse_generic_classification`.
+- Vendor-specific parser modules.
+- `VendorClassificationRecord` and `ParsedLabelMetadata` canonical wrappers.
+- `analysis.execution.*` record factories/runners.
+- `obsidiandroid.evaluation` facade slice for AV evaluation, parser quality,
+  scoring summaries, and engine weights.
+
+## Pass 52 (complete): pipeline facade widening + small outer caller cleanup
+
+**Goal:** Reduce remaining direct **`analysis.pipeline.*`** imports where the target
+is a simple top-level pipeline module and the existing **`obsidiandroid.pipeline`**
+facade pattern is sufficient. No physical moves, no runner refactor, no manifest /
+governance subpackage facade, no behavior changes.
+
+### Facade aliases added
+
+| Canonical attribute | Legacy backing module |
+|---|---|
+| **`obsidiandroid.pipeline.sample_exports`** | **`analysis.pipeline.sample_exports`** |
+| **`obsidiandroid.pipeline.sample_preparation`** | **`analysis.pipeline.sample_preparation`** |
+| **`obsidiandroid.pipeline.stage_results_warehouse`** | **`analysis.pipeline.stage_results_warehouse`** |
+
+These follow the existing Pass 45 lazy module-attribute pattern. Direct
+**`import obsidiandroid.pipeline.<name>`** is not introduced in this pass; callers use
+**`from obsidiandroid.pipeline import <module>`**.
+
+### Callers migrated
+
+| Area | File | Canonical module |
+|---|---|---|
+| Canonical CLI | **`src/obsidiandroid/cli/main.py`** | existing **`stage_av_vendor`**, **`stage_manifest`**, **`stage_samples`** facade modules |
+| Script | **`scripts/check_cohort_foundation.py`** | **`sample_exports`** |
+| Script | **`scripts/retrain_models_from_cached_alignment.py`** | **`stage_modeling`** |
+| Script | **`scripts/backfill_permission_trends_warehouse.py`** | **`stage_results_warehouse`** |
+| Test | **`tests/test_main_metadata_features.py`** | **`sample_preparation`** |
+| Test | **`tests/test_parser_quality_contract.py`** | existing **`vendor_metadata_pipeline`** facade module |
+| Analysis compatibility wrapper | **`analysis/orchestration/metadata_features.py`** | **`sample_preparation`** |
+| Diagnostics helper | **`analysis/diagnostics/hostile_audit/permission_signal_quality.py`** | existing **`stage_feature_enrichment`** facade module |
+
+The two scripts that did not already add repo **`src/`** to **`sys.path`** now do so
+before importing **`obsidiandroid.pipeline`**, preserving checkout execution without
+an editable install.
+
+### Checks updated
+
+- **`scripts/dev/check_import_surface.py`** verifies the new pipeline facade module
+  attributes match their **`analysis.pipeline.*`** backing modules.
+- **`tests/test_obsidiandroid_package_surface.py`** verifies the same package-surface
+  parity.
+
+### Still deferred
+
+- **`analysis.pipeline.runner`** monkeypatch-sensitive imports.
+- **`analysis.pipeline.manifest.*`**, **`governance.*`**, **`permission_trends.*`**,
+  **`run_bounds`**, **`runtime_policy`**, and other subdomain modules pending a
+  separate boundary/facade decision.
+
+## Pass 53 (complete): utils non-parity test cleanup
+
+**Goal:** Remove remaining **`utils.*`** imports from behavior tests where a canonical
+**`obsidiandroid.*`** module already exists. Shim/parity tests and entry-shim tests
+stay on legacy paths by design.
+
+### Files migrated
+
+| Test file | Old import | Canonical import |
+|---|---|---|
+| **`tests/test_export_manager.py`** | **`from utils import export_manager`** | **`from obsidiandroid.reporting import export_manager`** |
+| **`tests/test_export_manager_wiring.py`** | **`from utils import export_manager`** | **`from obsidiandroid.reporting import export_manager`** |
+| **`tests/test_hostile_regressions.py`** | **`from utils import export_manager`** | **`from obsidiandroid.reporting import export_manager`** |
+| **`tests/test_main_stop_after_training.py`** | **`from utils import family_distribution_report`** | **`from obsidiandroid.reporting import family_distribution_report`** |
+
+### Remaining direct `utils.*` imports outside `utils/`
+
+Focused scan:
+
+```bash
+rg -n "^(from utils|import utils)" --glob "*.py" --glob "!utils/**" tests scripts src analysis ml_classification model database
+```
+
+Remaining rows are intentional:
+
+| File | Reason |
+|---|---|
+| **`tests/test_obsidiandroid_common_shims.py`** | Shim parity test. |
+| **`tests/test_obsidiandroid_governance_shims.py`** | Shim parity test. |
+| **`tests/test_pipeline_entry.py`** | Entry-shim parity test for **`utils.pipeline_entry`**. |
+
+Result: non-parity **`utils.*`** test cleanup is complete for the current scan.
+
+## Pass 54 (complete): pipeline governance aliases
+
+**Goal:** Move stable run-integrity governance primitives behind the existing
+**`obsidiandroid.governance`** domain instead of leaving outer callers on nested
+**`analysis.pipeline.governance.*`** paths. No behavior changes, no physical moves,
+and no broad pipeline-governance package export.
+
+### Facade aliases added
+
+| Canonical module | Legacy backing module | Reason |
+|---|---|---|
+| **`obsidiandroid.governance.exceptions`** | **`analysis.pipeline.governance.exceptions`** | Typed stop/validation exceptions are governance primitives. |
+| **`obsidiandroid.governance.integrity`** | **`analysis.pipeline.governance.integrity`** | Run-scoped artifact path enforcement is governance policy, not pipeline stage logic. |
+
+The aliases preserve module identity through **`sys.modules`** registration.
+Existing concrete governance modules such as **`artifacts`**, **`run_manifest`**,
+**`compliance`**, **`cohort_readiness_report`**, **`cohort_reproducibility`**, and
+**`evidence_mode_resolver`** remain canonical implementation modules under
+**`src/obsidiandroid/governance/`**.
+
+### Callers migrated
+
+| File | Change |
+|---|---|
+| **`analysis/orchestration/runtime_reporting.py`** | Imports **`enforce_run_scoped_artifact_paths`** from **`obsidiandroid.governance.integrity`**. |
+| **`tests/test_governance_integrity.py`** | Imports **`IntegrityStop`** and integrity helpers from **`obsidiandroid.governance.*`**. |
+
+### Checks updated
+
+- **`scripts/dev/check_import_surface.py`** verifies facade attribute identity and
+  direct submodule import identity.
+- **`tests/test_obsidiandroid_package_surface.py`** verifies the same package-surface
+  parity.
+
+### Still deferred
+
+- **`analysis.pipeline.governance.policy`** and **`readiness`** pending a usage and
+  boundary check.
+- **`analysis.pipeline.manifest.*`**, **`permission_trends`**, and
+  **`artifacts.registry`** pending separate facade decisions.
+
+## Pass 55 (complete): pipeline policy/helper aliases
+
+**Goal:** Continue reducing direct **`analysis.pipeline.*`** imports for stable
+top-level helper modules that fit the existing **`obsidiandroid.pipeline`** facade.
+No nested manifest/governance/permission-trends facade, no physical moves, no
+runner refactor, and no behavior changes.
+
+### Facade aliases added
+
+| Canonical attribute | Legacy backing module | Reason |
+|---|---|---|
+| **`obsidiandroid.pipeline.contract_filters`** | **`analysis.pipeline.contract_filters`** | Cohort contract filters are stable top-level sample-stage helpers. |
+| **`obsidiandroid.pipeline.run_bounds`** | **`analysis.pipeline.run_bounds`** | Typed run-bound snapshot helpers are stable top-level runtime helpers. |
+| **`obsidiandroid.pipeline.runtime_policy`** | **`analysis.pipeline.runtime_policy`** | Profile/runtime policy helper surface already has direct tests. |
+
+### Tests migrated
+
+| Test file | Canonical module |
+|---|---|
+| **`tests/test_runtime_policy_cross_run_cleanup.py`** | **`obsidiandroid.pipeline.runtime_policy`** |
+| **`tests/test_main_paper_perturbation_axes.py`** | **`obsidiandroid.pipeline.runtime_policy`** |
+| **`tests/test_run_bounds.py`** | **`obsidiandroid.pipeline.run_bounds`** |
+| **`tests/test_stage_samples_contract_filters.py`** | **`obsidiandroid.pipeline.contract_filters`** |
+
+### Checks updated
+
+- **`scripts/dev/check_import_surface.py`** verifies the new pipeline facade module
+  attributes match their **`analysis.pipeline.*`** backing modules.
+- **`tests/test_obsidiandroid_package_surface.py`** verifies the same package-surface
+  parity.
+
+### Still deferred
+
+- **`analysis.pipeline.runner`** monkeypatch-sensitive test import.
+- **`analysis.pipeline.manifest.*`**, **`permission_trends.*`**,
+  **`artifacts.registry`**, and remaining nested domains pending a separate
+  boundary/facade decision.
+
+## Pass 56 (complete): pipeline manifest subfacade
+
+**Goal:** Expose stable manifest helper modules through a dedicated
+**`obsidiandroid.pipeline.manifest`** subpackage while keeping implementation files
+under **`analysis/pipeline/manifest/`**. No physical moves, no manifest behavior
+changes, no output/schema changes, and no runner refactor.
+
+### Facade aliases added
+
+| Canonical module | Legacy backing module | Reason |
+|---|---|---|
+| **`obsidiandroid.pipeline.manifest.hashing`** | **`analysis.pipeline.manifest.hashing`** | Deterministic manifest/evidence hashing helpers. |
+| **`obsidiandroid.pipeline.manifest.writer`** | **`analysis.pipeline.manifest.writer`** | Atomic manifest writer helper. |
+| **`obsidiandroid.pipeline.manifest.runtime_support`** | **`analysis.pipeline.manifest.runtime_support`** | Manifest runtime path/payload helpers used by stage manifest. |
+| **`obsidiandroid.pipeline.manifest.paper_compliance_checks`** | **`analysis.pipeline.manifest.paper_compliance_checks`** | Paper/evidence compliance row builder. |
+| **`obsidiandroid.pipeline.manifest.paper_figure_renderers`** | **`analysis.pipeline.manifest.paper_figure_renderers`** | Paper export figure helper surface. |
+
+All aliases preserve module identity through **`sys.modules`** registration.
+
+### Callers migrated
+
+| File | Canonical path |
+|---|---|
+| **`analysis/pipeline/stage_manifest.py`** | **`obsidiandroid.pipeline.manifest.*`** |
+| **`tests/test_manifest_pipeline.py`** | **`obsidiandroid.pipeline.manifest.hashing`**, **`writer`** |
+| **`tests/test_paper_compliance_checks.py`** | **`obsidiandroid.pipeline.manifest.paper_compliance_checks`** |
+| **`tests/test_stage_manifest.py`** | **`obsidiandroid.pipeline.manifest.paper_compliance_checks`** |
+| **`tests/test_paper_figure_renderers.py`** | **`obsidiandroid.pipeline.manifest.paper_figure_renderers`** |
+
+### Checks updated
+
+- **`scripts/dev/check_import_surface.py`** verifies facade attribute identity and
+  direct submodule import identity for the manifest aliases.
+- **`tests/test_obsidiandroid_package_surface.py`** verifies the same package-surface
+  parity.
+
+### Still deferred
+
+- **`analysis.pipeline.manifest.builder`** and **`schema`** until they have concrete
+  outer usage that justifies canonical exposure.
+- **`analysis.pipeline.permission_trends.*`** and **`analysis.pipeline.artifacts.*`**
+  pending separate boundary decisions.
+- **`analysis.pipeline.runner`** monkeypatch-sensitive test import.
+
+## Pass 57 (complete): pipeline artifacts and permission-trends subfacades
+
+**Goal:** Finish the remaining non-runner direct **`analysis.pipeline.*`** outer test
+imports by exposing stable nested helper modules through canonical pipeline
+subpackages. No behavior changes, no physical moves, no report/output changes.
+
+### Facade aliases added
+
+| Canonical package | Aliased modules | Legacy backing package |
+|---|---|---|
+| **`obsidiandroid.pipeline.artifacts`** | **`paths`**, **`registry`** | **`analysis.pipeline.artifacts`** |
+| **`obsidiandroid.pipeline.permission_trends`** | **`bundle_manifest`**, **`constants`**, **`publish_paths`**, **`reporting_support`**, **`sample_permission_data`**, **`stats_core`** | **`analysis.pipeline.permission_trends`** |
+
+All aliases preserve module identity through **`sys.modules`** registration.
+
+### Tests migrated
+
+| Test file | Canonical path |
+|---|---|
+| **`tests/test_artifact_registry.py`** | **`obsidiandroid.pipeline.artifacts.registry`** |
+| **`tests/test_permission_trends_stats_core.py`** | **`obsidiandroid.pipeline.permission_trends.stats_core`** |
+
+### Checks updated
+
+- **`scripts/dev/check_import_surface.py`** verifies facade attribute identity and
+  direct submodule import identity for both nested subfacades.
+- **`tests/test_obsidiandroid_package_surface.py`** verifies the same package-surface
+  parity.
+
+### Remaining direct `analysis.pipeline.*` outside `analysis/pipeline/`
+
+Focused scan:
+
+```bash
+rg -n "^(from analysis\.pipeline|import analysis\.pipeline)" --glob "*.py" --glob "!analysis/pipeline/**" .
+```
+
+Only **`tests/test_main_stop_after_training.py`** remains, intentionally importing
+**`analysis.pipeline.runner`** as a monkeypatch-sensitive runtime surface.
+
+## Pre-Pass 38: hard-parts roadmap (planning only)
+
+Ranked **design / code-debt** clusters that remain after diagnostics façades (Passes 34–37). Use this to sequence work without “moving files just to move files.”
+
+| Rank | Problem | Why it is hard | Primary locations | Risk if ignored | Prerequisites to fix well | Blocks (migration of) |
+|------|---------|----------------|-------------------|-----------------|----------------------------|------------------------|
+| 1 | **`app_config` + `RUNTIME_*` global mutable state** | Run-scoped facts live on a process-wide object; hard to reason about ordering, concurrency, and tests; duplicates **`manifest_context`**. | **`config/app_config.py`**, **`config/settings/*`**, **`analysis/pipeline/runner.py`**, **`analysis/pipeline/runtime_policy.py`**, **`ml_classification/**/*`**, diagnostics | Hidden cross-run bleed, brittle tests, blocks safe in-process multi-run | Narrow **context slice** (IDs, dirs, bounds, obs session); explicit clear/reset policy; avoid new `RUNTIME_*` without dual-write plan | **Pipeline** (deep), **ML**, **eval** |
+| 2 | **`analysis/pipeline` monolith + `runner` as monkeypatch hub** | Orchestration + policy + IO intertwined; **`analysis.pipeline.runner`** is a stable patch target. | **`analysis/pipeline/*.py`**, **`manifest/*`**, **`main_facade`** | Physical moves break tests and operator entrypoints | Import inventory; shim plan; optional **context** before big moves | **Pipeline** physical move, clean **ML** boundaries |
+| 3 | **Dual state: `manifest_context` vs `app_config`** | Two sources of truth for run facts; easy to diverge. | **`runner.py`**, **`stage_manifest.py`**, **`runtime_policy.py`** | Wrong evidence in manifests / audits | Document “authoritative” keys per concern; converge over time | **Governance / evidence** |
+| 4 | **`database` vs `obsidiandroid.database` ambiguity** | Two import paths to the same code; collides with mental model of “canonical.” | **`database/*`**, callers in **`analysis/`**, **`scripts/`**, **`tests/`** | Wrong imports in new code; accidental circular deps | **Thin façade** + documented rule: implementation stays top-level until retired | **Database** migration |
+| 5 | **`ml_classification` mixed concerns** | Training, vectorization, labeling, eval share a tree without a sharp public API. | **`ml_classification/training/*`**, **`vectorization/*`**, **`labeling/*`**, **`ml_utils/*`** | Façade churn, unclear ownership | Target submodule map under **`obsidiandroid.modeling`** / **`features`** / **`labeling`** (façade-first) | **ML** |
+| 6 | **Vendor: parsing / records / scoring spread** | Vendor logic in **`analysis/vendor_processing`**, **`model/`**, **`evaluation`**, **`engine_weights`**. | **`analysis/vendor_processing/*`**, **`model/*`**, **`analysis/evaluation/vendor_*`**, **`ml_classification/engine_weights`** | Duplicated contracts, hard refactors | Boundary doc + single **`obsidiandroid.vendors`** façade plan | **Vendor** |
+| 7 | **Diagnostics vs reporting vs governance overlap** | Artifact writers and “paper” narratives touch multiple packages. | **`obsidiandroid.reporting/*`**, **`obsidiandroid.governance/*`**, **`obsidiandroid.diagnostics/*`**, **`analysis/orchestration`** | Misplaced features, review thrash | Short **ADR-style** rules (already aligned with operator stability) | **Diagnostics** “purity” optional |
+| 8 | **`utils.export_manager` `sys.modules` alias** | Special case: not a thin shim file; patches may target **`utils.export_manager`**. | **`utils/export_manager.py`**, **`obsidiandroid.reporting.export_manager`** | Subtle test/import bugs if “fixed” carelessly | Dedicated pass: parity tests only, then migrate patch targets | **Reporting** shim retirement |
+| 9 | **Shim sunset preconditions** | Retire only when callers, tests, docs meet locked policy. | **`utils/*`**, root **`main.py`** | Premature removal breaks operators | Checklist in **Locked migration policy** | **All** domains |
+
+**Pass 38:** **Complete** — see Pass 38 table above; architecture spec retained below as reference.
+
+---
+
+## Pass 38 (architecture spec reference): `obsidiandroid.database` thin curated facade
+
+This pass is **not** only about import ergonomics. The database boundary involves **connection state**, **environment configuration**, **logical separation between the primary Obsidian/Erebus schema and the Permission Intel schema** (today: same MySQL server, different `database=` names), and future **interop** extensions. Pass 38 defines a **stable canonical surface** without changing runtime behavior.
+
+### High-level goal
+
+Canonical imports:
+
+```text
+obsidiandroid.database
+obsidiandroid.database.<curated submodule>   # identical ModuleType to database.<same name>
+```
+
+**Implementation home (Pass 38):** all logic remains in **`database/*.py`** at repo root. **`obsidiandroid.database`** re-exports **the same modules** documented in tiers below.
+
+**Policy:** **New/internal code → `obsidiandroid.database`** (see **Locked migration policy**). **`from database …`** remains legitimate until a deliberate sunset phase.
+
+### Architectural principles
+
+| Principle | Pass 38 behavior |
+|-----------|-------------------|
+| **Identity** | Re-export **identical module objects** to **`database.<name>`** (no duplicated implementations). |
+| **Connections** | **`database.db_engine`** remains authoritative for pooled/direct connections and Permission Intel connectors. Façade does not alter construction. |
+| **Configuration** | **`database.db_config`** holds **`OBSIDIAN_*`-backed constants** (optional dotenv load). **`database.settings`** exposes **`ObsidianConnectionSettings`** / **`load_connection_settings()`**. |
+| **Two logical databases** | Primary catalog/Erebus data vs **`PERMISSION_INTEL_DB_NAME`** Permission Intel tables — preserved as today in **`db_engine`** (`_build_connect_kwargs` vs `_build_permission_intel_connect_kwargs`). |
+| **Future interop** (Erebus/Scytale, other backends) | **Out of scope** for Pass 38. Document **additive path**: evolve **`database/*`**, then widen **`obsidiandroid.database`** exports; **`ObsidianConnectionSettings`** may grow fields in a later pass — no premature service layer here. |
+| **Logging / errors** | Re-export **`database.db_errors`** alongside engine; **`db_engine`** observability unchanged. |
+
+### Non-goals
+
+- Physical relocation of **`database/`** under **`src/`**.
+- Repository/service layer or **`RunContext`** injection.
+- New env variable names or default database names (unless fixing a documented bug separately).
+- Deprecating **`database.*`** imports in tooling or CI in this pass.
+- Automatically re-exporting every **`database.db_*`** module (narrow surface by design).
+
+### Curated façade tiers
+
+**Tier A — boundary & health (Pass 38 required)**
+
+| Canonical import | Role |
+|------------------|------|
+| **`obsidiandroid.database.settings`** | **`ObsidianConnectionSettings`**, **`load_connection_settings()`** |
+| **`obsidiandroid.database.db_config`** | Env constants, pooling flags, timeouts, primary + PI DB names |
+| **`obsidiandroid.database.db_engine`** | Connection factories, pooling, Permission Intel helpers |
+| **`obsidiandroid.database.db_errors`** | Operator-facing summaries |
+| **`obsidiandroid.database.split_db_health`** | **`preflight-db` / `-m database.split_db_health`** health entry |
+
+**Tier B — cohort & sample-metadata SQL (Pass 38 required)**
+
+| Canonical import | Role |
+|------------------|------|
+| **`obsidiandroid.database.cohort_sql_fragments`** | Shared cohort SQL |
+| **`obsidiandroid.database.db_sample_metadata_contracts`** | Loader contracts / assertions |
+| **`obsidiandroid.database.db_sample_metadata_fetchers`** | Fetch helpers |
+| **`obsidiandroid.database.db_sample_metadata_queries`** | Metadata query surface |
+
+**Tier C — auxiliary (same PR if low churn, else Pass 38.1)**
+
+| Canonical import | Role |
+|------------------|------|
+| **`obsidiandroid.database.db_permission_analysis_queries`** | Permission-analytics queries |
+| **`obsidiandroid.database.db_utils`** | Misc helpers |
+| **`obsidiandroid.database.schema_map`** | Schema/name map |
+
+**Tier D — narrow AV/analyst modules (Pass 43 subset on façade)**
+
+These **same** **`database.<name>`** module objects are re-exported on **`obsidiandroid.database`** (identity parity with **`check_import_surface`**):
+
+| Canonical import | Role |
+|------------------|------|
+| **`obsidiandroid.database.db_av_engine_detection_totals`** | Engine-level detection rollup for pipeline / scoring |
+| **`obsidiandroid.database.db_av_engine_verdicts`** | Wide verdict fetches |
+| **`obsidiandroid.database.db_fetch_av_engine_raw_results`** | Raw per-engine vendor matrix inputs |
+| **`obsidiandroid.database.db_sample_malicious_scoring`** | Malicious score enrichment |
+
+Other **`database.db_*`** helpers (e.g. **`db_sample_timelines_queries`**, **`db_extract_av_label_keywords`**, **`db_av_engine_stats`**) remain **implementation-only** until a caller needs **`obsidiandroid.database`** ergonomics — avoid widening the façade by default.
+
+### Enforcement & gates
+
+| Gate | Requirement |
+|------|----------------|
+| **Import surface** | Extend **`scripts/dev/check_import_surface.py`** to assert each exported submodule **`is`** the **`database.*`** counterpart. |
+| **Tests** | Add parity tests in **`tests/test_obsidiandroid_package_surface.py`** for Tier **A+B** (and **C** if included). |
+| **CI default** | **`make ci`** (no mandatory live DB socket for pure façade PR). |
+| **Connection changes** | If **`db_engine`** / **`db_config`** behavior changes in the **same** PR, run **`make preflight-db`** / **`python -m database.split_db_health`** locally (existing project hygiene). |
+
+### Caller migration & rollback
+
+**Migration:** Façade can land **without** bulk-editing all **`from database`** call sites. Optional: migrate a **small** set of high-visibility internal imports to prove the pattern.
+
+**Rollback:** Revert **`src/obsidiandroid/database/__init__.py`** and façade tests; **`database.*`** callers unaffected.
+
+---
+
 ## Next pass suggestions
 
-1. **`obsidiandroid.diagnostics`:** physical move of selected modules from **`analysis/diagnostics`** (optional) or façade-only expansion for remaining ad-hoc **`analysis.diagnostics`** imports in tests/scripts.
-2. **Re-export policy:** Decide whether long-term tests should import `obsidiandroid.cli.*` only, or whether **`utils/`** shims should keep exposing delegate wrappers. Prefer canonical imports in tests for anything under monkeypatch.
-3. **Move `analysis/pipeline`:** Largest consumer of imports; plan re-exports from `obsidiandroid.pipeline` with root/package shims similar to CLI.
-4. **`database` naming:** When moving DB access, clarify imports: top-level `database` vs `obsidiandroid.database` to avoid mistaken cross-imports.
-5. **Docs:** Update `AGENTS.md` / `README.md` paths (`utils.pipeline_entry` vs `obsidiandroid.cli.pipeline_entry`) when you want new imports to be the documented default.
-6. **Editable install:** CI already runs **`pip install -e .`** (`.github/workflows/ci.yml`) before **`make verify`**; refresh this note if the workflow changes.
+1. **Database surface:** **`obsidiandroid.database`** now includes **Passes 38 + 43** exports; **`python -m database.split_db_health`** etc. remain valid **`database`** module paths for CLI entry — see **Restructure backlog** for optional widenings (**`db_sample_timelines_queries`**, …).
+2. **`obsidiandroid.diagnostics`:** physical move (optional) or remaining **`analysis.diagnostics`** caller sweep in non-test code.
+3. **Re-export policy:** New tests → canonical imports; shims only for parity / monkeypatch (**Locked migration policy**).
+4. **Move `analysis/pipeline`:** After façade + context plan; keep **`analysis.pipeline.runner`** shim during transition.
+5. **Docs:** **`README.md`** / operator-facing quickstarts when **`obsidiandroid.*`** deserves first-class wording for external readers (**`docs/AGENTS.md`** already references the DB façade — Pass 42).
+6. **Editable install:** CI already runs **`pip install -e .`** before **`make verify`**; refresh if workflow changes.

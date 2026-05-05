@@ -23,7 +23,7 @@
 
 The core workflow (`main.py` → `analysis/pipeline/runner.py`) executes these key steps:
 
-1. **Load Sample Metadata** from a configured MySQL database. Connection defaults and environment overrides are defined in `database/db_config.py` (primary Erebus DB plus the Permission Intel DB; see [Configuration](#configuration) below).
+1. **Load Sample Metadata** from a configured MySQL database. Connection defaults and environment overrides are defined in **`obsidiandroid.database.db_config`** (same module as **`database/db_config.py`** — primary Erebus DB plus the Permission Intel DB; see [Configuration](#configuration) below).
 2. **Run AV Engine Analysis** via `analysis/` parsers to collect and normalize vendor labels.
 3. **Extract Vendor Metadata** and generate summary statistics/evaluation metrics.
 4. **Compute Engine Weights** using specificity, noise, and historical performance (see `analysis/feature_engineering/compute_vendor_scores.py`).
@@ -38,7 +38,7 @@ All artifacts (models, reports, diagnostics) are saved under `output/`.
 
 ## Repository layout (hybrid migration)
 
-The installable package lives under **`src/obsidiandroid/`** (CLI, `common`, `pipeline` facade, …). **Legacy implementation packages** (`analysis/`, `database/`, `ml_classification/`, `model/`, …) and **`utils/`** shims remain at the repository root during the migration so existing imports and tests keep working. Details and status labels: [`docs/STRUCTURE_MIGRATION_PLAN.md`](docs/STRUCTURE_MIGRATION_PLAN.md).
+The installable package lives under **`src/obsidiandroid/`** (CLI, `common`, **`obsidiandroid.database`**, `pipeline` facade, …). **Legacy implementation packages** (`analysis/`, `database/`, `ml_classification/`, `model/`, …) and **`utils/`** shims remain at the repository root during the migration so existing imports and tests keep working. Prefer **`from obsidiandroid.database import db_engine`** (and related façade submodules) in new code; implementation modules still live under top-level **`database/`**. Details, backlog, and pass history: [`docs/STRUCTURE_MIGRATION_PLAN.md`](docs/STRUCTURE_MIGRATION_PLAN.md).
 
 **Generated / runtime artifacts** (`output/`, `logs/`, virtualenvs, caches, build outputs) are listed in **`.gitignore`** and should not be committed. For a **source-only** tree view after local runs, run **`make clean-bytecode`** then **`make tree-source`** (ignores `output/`, `logs/`, `.venv`, pytest/coverage caches, etc.; install the `tree` utility if needed). Developer import modes (`pip install -e .`, `PYTHONPATH`, pytest): see [`docs/AGENTS.md`](docs/AGENTS.md) (repo-root [`AGENTS.md`](AGENTS.md) is a short pointer).
 
