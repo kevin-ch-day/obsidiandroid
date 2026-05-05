@@ -19,7 +19,7 @@ from obsidiandroid.common import export_vendor_raw as vendor_raw
 from obsidiandroid.common import export_workbook as workbook
 from obsidiandroid.common.hash_utils import hash_payload, short_hash
 from obsidiandroid.reporting.confusion_matrix_exporter import export_confusion_matrix_image
-from utils.logging import get_logger, log_event
+from obsidiandroid.observability.logging import get_logger, log_event
 
 # === Output Paths ===
 OUTPUT_ROOT = Path(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")).resolve()

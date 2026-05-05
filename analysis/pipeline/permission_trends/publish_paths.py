@@ -11,7 +11,7 @@ import pandas as pd
 from config import app_config
 from utils import display_utils as du
 from obsidiandroid.common import output_paths
-from utils.hash_utils import hash_payload
+from obsidiandroid.common.hash_utils import hash_payload
 
 from analysis.pipeline.permission_trends.constants import (
     PERMISSION_ALIAS_MAP_VERSION,

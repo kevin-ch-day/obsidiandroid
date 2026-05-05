@@ -30,7 +30,7 @@ from analysis.pipeline.permission_trends_selection import (
     select_permissions_for_type_heatmap as _select_permissions_for_type_heatmap,
     select_visual_families as _select_visual_families,
 )
-from utils.hash_utils import hash_payload
+from obsidiandroid.common.hash_utils import hash_payload
 
 from analysis.pipeline.permission_trends.bundle_manifest import (
     export_permission_trends_bundle_manifest as _export_permission_trends_bundle_manifest,

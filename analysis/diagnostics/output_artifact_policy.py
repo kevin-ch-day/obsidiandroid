@@ -255,7 +255,7 @@ def _init_rules() -> None:
             _rule(
                 "**/logs/**",
                 bucket="diagnostics_optional",
-                producer="utils.runtime_logging",
+                producer="obsidiandroid.observability.logging.runtime",
                 run_scoped=True,
                 paper_required=False,
                 safe_delete_after_run=True,

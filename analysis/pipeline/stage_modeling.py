@@ -13,7 +13,7 @@ from ml_classification.labeling import classification_label_resolver
 from ml_classification.training import pipeline_core
 from ml_classification.vectorization import feature_vector_builder
 from utils import display_utils as du
-from utils.logging import get_logger, log_event
+from obsidiandroid.observability.logging import get_logger, log_event
 
 
 PIPELINE_LOGGER = get_logger(

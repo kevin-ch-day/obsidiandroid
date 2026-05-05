@@ -6,7 +6,7 @@ from analysis.orchestration.profile_filters import split_benign_malicious
 from config import app_config
 from database import db_sample_metadata_fetchers
 from utils import display_utils as du
-from utils.logging import get_logger, log_event
+from obsidiandroid.observability.logging import get_logger, log_event
 import obsidiandroid.cli.profile_manager as profile_manager
 
 MENU_LOGGER = get_logger(

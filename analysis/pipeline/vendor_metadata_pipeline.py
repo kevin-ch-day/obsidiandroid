@@ -10,8 +10,8 @@ import pandas as pd
 from config import app_config
 from analysis.evaluation import vendor_feature_extractor
 from utils import display_utils as du
-from utils.logging import get_logger, log_event
-from utils.runtime_paths import resolve_diagnostics_dir
+from obsidiandroid.observability.logging import get_logger, log_event
+from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from obsidiandroid.common import output_hygiene as oh
 
 

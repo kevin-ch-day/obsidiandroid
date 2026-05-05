@@ -16,7 +16,7 @@ from config import app_config
 from utils import display_utils as du
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common import output_paths
-from utils.hash_utils import hash_payload
+from obsidiandroid.common.hash_utils import hash_payload
 from analysis.pipeline.governance.integrity import enforce_run_scoped_artifact_paths
 
 

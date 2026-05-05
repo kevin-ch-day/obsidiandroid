@@ -25,10 +25,10 @@ from obsidiandroid.reporting import family_distribution_report
 import obsidiandroid.cli.profile_manager as profile_manager
 import obsidiandroid.governance.run_manifest as run_manifest
 from obsidiandroid.governance import evidence_mode_resolver
-from utils.logging import runtime as runtime_logging
-from utils.logging import logger as logger_manager
-from utils.logging import get_logger, log_event
-from utils.hash_utils import hash_payload
+from obsidiandroid.observability.logging import runtime as runtime_logging
+from obsidiandroid.observability.logging import logger as logger_manager
+from obsidiandroid.observability.logging import get_logger, log_event
+from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.common import output_hygiene as oh
 from analysis.pipeline.governance.integrity import enforce_run_scoped_artifact_paths
 from analysis.diagnostics.cohort_foundation_export import append_research_warnings_for_upstream_expectation

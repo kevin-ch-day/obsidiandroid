@@ -25,7 +25,7 @@ from database.db_config import (
 )
 from database.db_errors import mysql_error_summary, operator_facing_db_message
 from config import app_config
-from utils.logging import get_logger, log_event
+from obsidiandroid.observability.logging import get_logger, log_event
 
 DEBUG_SQL = False   # Set True only for dev debugging
 VERBOSE_ERRORS = False  # Toggle detailed error logs for production

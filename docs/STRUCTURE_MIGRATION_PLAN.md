@@ -643,17 +643,33 @@ No additional deletes this pass (prior **`rg`** audit showed no further zero-cal
 
 | Item | Notes |
 |------|-------|
-| **`src/obsidiandroid/reporting/export_manager.py`** | **moved_now** — Excel/vendor/confusion-matrix export orchestration (formerly **`utils/export_manager.py`** body). Imports **`obsidiandroid.cli.ui.display`**, **`obsidiandroid.common.*`**, **`utils.logging`** (logging move deferred). |
+| **`src/obsidiandroid/reporting/export_manager.py`** | **moved_now** — Excel/vendor/confusion-matrix export orchestration (formerly **`utils/export_manager.py`** body). Imports **`obsidiandroid.cli.ui.display`**, **`obsidiandroid.common.*`**, **`obsidiandroid.observability.logging`** (**Pass 30**). |
 | **`utils/export_manager.py`** | **wrapper_kept** — replaces **`sys.modules['utils.export_manager']`** with the canonical module object so **`from utils import export_manager`** and **`obsidiandroid.reporting.export_manager`** are **identical** (monkeypatch + **`tests/test_export_manager_wiring.py`** stable). |
 | **Call sites** | **updated** — **`pipeline_core`**, **`score_av_engines`**, **`evaluate_av_classifications`**, **`vendor_feature_extractor`**, **`classification_label_resolver`**, **`ml_eval_engine`** use **`from obsidiandroid.reporting import export_manager`**. |
 | **`scripts/dev/check_import_surface.py`** | **updated** — asserts module identity + **`export_dataframe_to_excel`** binding. |
 | **`obsidiandroid.reporting` package** | **updated** — re-exports **`export_manager`** submodule in **`__all__`**. |
 
-**Deferred:** splitting **`export_manager`** into smaller modules; **`utils/logging/`** migration (**Pass 30+** / observability).
+**Deferred:** splitting **`export_manager`** into smaller modules.
+
+## Pass 30 (complete): `utils/logging` canonical under `obsidiandroid.observability.logging`
+
+| Item | Notes |
+|------|-------|
+| **`src/obsidiandroid/observability/logging/logger.py`** | **moved_now** — structured category loggers (**`get_logger`**, **`log_event`**, **`close_all_loggers`**). |
+| **`src/obsidiandroid/observability/logging/runtime.py`** | **moved_now** — stdout/stderr tee (**`start_runtime_logging`**, **`stop_runtime_logging`**, **`RuntimeLogContext`**). |
+| **`src/obsidiandroid/observability/logging/__init__.py`** | **moved_now** — exports **`get_logger`**, **`log_event`**, plus **`logger`** / **`runtime`** submodules for **`from … import logger as logger_manager`**. |
+| **`utils/logging/`** | **wrapper_kept** — thin **`repo_import_paths`** + **`import *`** / re-export shims to canonical modules (no **`sys.modules`** alias). |
+| **Call sites** | **updated** — CLI **`main`**, **`runner`**, pipeline stages, ML training, **`database/db_engine`**, **`export_manager`**, tests use **`obsidiandroid.observability.logging`**. |
+| **`scripts/dev/check_import_surface.py`** | **updated** — parity on package + **`logger`** + **`runtime`** submodules. |
+| **`tests/test_obsidiandroid_package_surface.py`** | **updated** — shim parity tests for **`utils.logging`**. |
+| **`obsidiandroid.observability` package** | **updated** — re-exports **`get_logger`**, **`log_event`** for **`from obsidiandroid.observability import …`**. |
+| **Pipeline / ML import hygiene** | **updated** — **`utils.hash_utils`** / **`utils.runtime_paths`** in **`analysis/`** and **`ml_classification/labeling/`** → **`obsidiandroid.common.*`** (fewer hot-path **`utils.*`** dependencies). |
+
+**Deferred:** broad **`analysis/observability/`** tree merge (this pass is **`src/obsidiandroid/observability/logging`** only). Full **`utils.display_utils`** → **`obsidiandroid.cli.ui.display`** sweep is **deferred** (large call surface).
 
 ## Next pass suggestions
 
-1. **`utils/logging/`** + **`analysis/observability/`** → **`obsidiandroid.observability`** (separate pass; keep **`utils.logging`** shim).
+1. **`analysis/observability/`** narrative-only modules vs **`obsidiandroid.observability`** — consolidate naming/docs when ready ( **`utils.logging`** shim remains).
 2. **Re-export policy:** Decide whether long-term tests should import `obsidiandroid.cli.*` only, or whether **`utils/`** shims should keep exposing delegate wrappers. Prefer canonical imports in tests for anything under monkeypatch.
 3. **Move `analysis/pipeline`:** Largest consumer of imports; plan re-exports from `obsidiandroid.pipeline` with root/package shims similar to CLI.
 4. **`database` naming:** When moving DB access, clarify imports: top-level `database` vs `obsidiandroid.database` to avoid mistaken cross-imports.

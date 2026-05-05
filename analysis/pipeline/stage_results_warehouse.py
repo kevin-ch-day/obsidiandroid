@@ -14,7 +14,7 @@ import pandas as pd
 from config import app_config
 from database import db_engine
 from utils import display_utils as du
-from utils.runtime_paths import resolve_diagnostics_dir
+from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 
 
 def _diagnostics_dir() -> Path:

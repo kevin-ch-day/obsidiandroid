@@ -15,7 +15,7 @@ from config import app_config
 from database import db_engine
 from utils import display_utils as du
 from obsidiandroid.reporting import export_manager as em
-from utils.logging import get_logger, log_event
+from obsidiandroid.observability.logging import get_logger, log_event
 
 # Output paths
 RESULTS_DIR = "output"

@@ -22,7 +22,7 @@ from obsidiandroid.pipeline import (
     run_pipeline,
 )
 import obsidiandroid.cli.profile_manager as profile_manager
-from utils.logging import runtime as runtime_logging
+from obsidiandroid.observability.logging import runtime as runtime_logging
 
 __all__ = [
     "DIAGNOSTICS_DIR",

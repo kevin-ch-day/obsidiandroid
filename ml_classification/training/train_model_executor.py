@@ -11,7 +11,7 @@ from ml_classification.ml_utils import ml_result_validator
 from utils import display_utils as du
 from utils import ml_console
 from obsidiandroid.common import output_paths
-from utils.logging import get_logger, log_event
+from obsidiandroid.observability.logging import get_logger, log_event
 
 from .model_evaluation import evaluate_model, display_post_training_metrics
 from .model_training import announce_training, train_model

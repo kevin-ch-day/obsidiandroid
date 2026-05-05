@@ -240,6 +240,51 @@ def main() -> int:
         return 1
     print("OK   utils.output_hygiene re-exports match obsidiandroid.common.output_hygiene")
 
+    try:
+        obs_pkg = importlib.import_module("obsidiandroid.observability")
+    except Exception as exc:
+        print(f"FAIL: import obsidiandroid.observability: {exc}", file=sys.stderr)
+        return 1
+    print(f"OK   obsidiandroid.observability -> {_module_path(obs_pkg)}")
+
+    try:
+        canon_olog = importlib.import_module("obsidiandroid.observability.logging")
+    except Exception as exc:
+        print(f"FAIL: import obsidiandroid.observability.logging: {exc}", file=sys.stderr)
+        return 1
+    print(f"OK   obsidiandroid.observability.logging -> {_module_path(canon_olog)}")
+
+    if obs_pkg.get_logger is not canon_olog.get_logger:
+        print("FAIL: obsidiandroid.observability.get_logger is not logging.get_logger", file=sys.stderr)
+        return 1
+    if obs_pkg.log_event is not canon_olog.log_event:
+        print("FAIL: obsidiandroid.observability.log_event is not logging.log_event", file=sys.stderr)
+        return 1
+    print("OK   obsidiandroid.observability re-exports get_logger / log_event from logging subpackage")
+
+    shim_olog = importlib.import_module("utils.logging")
+    if shim_olog.get_logger is not canon_olog.get_logger:
+        print("FAIL: utils.logging.get_logger is not canonical", file=sys.stderr)
+        return 1
+    if shim_olog.log_event is not canon_olog.log_event:
+        print("FAIL: utils.logging.log_event is not canonical", file=sys.stderr)
+        return 1
+    print("OK   utils.logging re-exports match obsidiandroid.observability.logging")
+
+    canon_olog_logger = importlib.import_module("obsidiandroid.observability.logging.logger")
+    shim_olog_logger = importlib.import_module("utils.logging.logger")
+    if shim_olog_logger.close_all_loggers is not canon_olog_logger.close_all_loggers:
+        print("FAIL: utils.logging.logger.close_all_loggers is not canonical", file=sys.stderr)
+        return 1
+    print("OK   utils.logging.logger re-exports match obsidiandroid.observability.logging.logger")
+
+    canon_olog_rt = importlib.import_module("obsidiandroid.observability.logging.runtime")
+    shim_olog_rt = importlib.import_module("utils.logging.runtime")
+    if shim_olog_rt.start_runtime_logging is not canon_olog_rt.start_runtime_logging:
+        print("FAIL: utils.logging.runtime.start_runtime_logging is not canonical", file=sys.stderr)
+        return 1
+    print("OK   utils.logging.runtime re-exports match obsidiandroid.observability.logging.runtime")
+
     canon_pu = importlib.import_module("obsidiandroid.cli.prompt_utils")
     shim_pu = importlib.import_module("utils.prompt_utils")
     if shim_pu.prompt_yes_no is not canon_pu.prompt_yes_no:

@@ -17,7 +17,7 @@ from ml_classification.training import pipeline_core
 from ml_classification.vectorization import feature_vector_builder
 from utils import display_utils as du
 from utils import ml_console
-from utils.runtime_paths import resolve_diagnostics_dir
+from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 
 from analysis.diagnostics.ablation_cohort_diagnostics import write_ablation_cohort_gap_artifacts
 from obsidiandroid.common import output_hygiene as oh

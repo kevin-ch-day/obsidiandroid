@@ -13,7 +13,7 @@ from ml_classification.labeling.label_postprocessor import summarize_prediction_
 
 from utils import display_utils as du
 from obsidiandroid.reporting import export_manager
-from utils.runtime_paths import resolve_diagnostics_dir
+from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from config import app_config
 
 from analysis.diagnostics.feature_build_coverage_export import _normalize_sample_ids

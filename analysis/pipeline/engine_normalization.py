@@ -8,7 +8,7 @@ from typing import Dict
 
 import yaml
 
-from utils.hash_utils import sha256_hex
+from obsidiandroid.common.hash_utils import sha256_hex
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 ALIASES_FILE = _REPO_ROOT / "config" / "engine_aliases.yaml"

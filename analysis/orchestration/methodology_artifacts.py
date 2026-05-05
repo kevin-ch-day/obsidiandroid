@@ -10,7 +10,7 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
-from utils.hash_utils import hash_payload
+from obsidiandroid.common.hash_utils import hash_payload
 
 
 def export_feature_contract(

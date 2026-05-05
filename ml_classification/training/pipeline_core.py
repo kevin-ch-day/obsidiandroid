@@ -22,7 +22,7 @@ from ml_classification.ml_utils import (
 from utils import display_utils as du
 from utils import ml_console
 from obsidiandroid.reporting import export_manager as em
-from utils.logging import get_logger, log_event
+from obsidiandroid.observability.logging import get_logger, log_event
 from analysis.diagnostics.feature_build_coverage_export import _normalize_sample_ids
 from analysis.diagnostics.feature_column_survival_export import (
     export_feature_column_survival_matrix,

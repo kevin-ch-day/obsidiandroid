@@ -200,6 +200,42 @@ def test_prompt_utils_shim_matches_canonical() -> None:
     assert shim.print_warning is canon.print_warning
 
 
+def test_observability_package_reexports_logging() -> None:
+    """``obsidiandroid.observability`` re-exports ``get_logger`` / ``log_event``."""
+    import obsidiandroid.observability as obs
+    import obsidiandroid.observability.logging as olog
+
+    assert obs.get_logger is olog.get_logger
+    assert obs.log_event is olog.log_event
+
+
+def test_logging_package_shim_matches_canonical() -> None:
+    """``utils.logging`` re-exports ``get_logger`` / ``log_event`` from observability."""
+    import obsidiandroid.observability.logging as canon
+    from utils import logging as shim
+
+    assert shim.get_logger is canon.get_logger
+    assert shim.log_event is canon.log_event
+
+
+def test_logging_logger_module_shim_matches_canonical() -> None:
+    """``utils.logging.logger`` delegates to ``obsidiandroid.observability.logging.logger``."""
+    import obsidiandroid.observability.logging.logger as canon
+    from utils.logging import logger as shim
+
+    assert shim.get_logger is canon.get_logger
+    assert shim.close_all_loggers is canon.close_all_loggers
+
+
+def test_logging_runtime_module_shim_matches_canonical() -> None:
+    """``utils.logging.runtime`` delegates to ``obsidiandroid.observability.logging.runtime``."""
+    import obsidiandroid.observability.logging.runtime as canon
+    from utils.logging import runtime as shim
+
+    assert shim.start_runtime_logging is canon.start_runtime_logging
+    assert shim.stop_runtime_logging is canon.stop_runtime_logging
+
+
 def test_diagnostics_facade_modules_match_analysis_diagnostics() -> None:
     """``obsidiandroid.diagnostics`` re-exports the same module objects as ``analysis.diagnostics``."""
     from analysis.diagnostics import feature_lineage_report as flr_a

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from utils.logging import logger as logger_mod
+from obsidiandroid.observability.logging import logger as logger_mod
 
 
 def test_get_logger_writes_category_file(monkeypatch, tmp_path: Path) -> None:

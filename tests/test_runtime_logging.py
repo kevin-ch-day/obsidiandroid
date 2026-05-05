@@ -6,7 +6,7 @@ import io
 import sys
 from pathlib import Path
 
-from utils.logging import runtime as runtime_logging
+from obsidiandroid.observability.logging import runtime as runtime_logging
 
 
 def test_start_runtime_logging_disabled(monkeypatch) -> None:
