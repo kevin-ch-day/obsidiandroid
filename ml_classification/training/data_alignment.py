@@ -109,7 +109,8 @@ def extract_aligned_labels(
     Returns:
         Tuple of ``(filtered_feature_df, label_series)``.
     """
-    du.print_section("[ALIGNMENT] Aligning Features with Labels")
+    if verbose:
+        du.print_section("[ALIGNMENT] Aligning Features with Labels")
 
     if features_df.empty or samples_df.empty:
         du.print_error("Input feature or sample metadata is empty.")

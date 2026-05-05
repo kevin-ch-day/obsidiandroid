@@ -23,6 +23,7 @@ from obsidiandroid.common.hash_utils import hash_payload
 
 from obsidiandroid.diagnostics import ablation_cohort_diagnostics
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.reporting.operator_dashboard import format_feature_set_label
 
 
 class PaperCohortSource(str, Enum):
@@ -290,7 +291,7 @@ def _prepare_training_inputs(
     group_label = (
         "other" if bool(getattr(app_config, "GROUP_LOW_SUPPORT_LABELS", False)) else None
     )
-    aligned_features, labels_df, _, _ = distribution_reporter.apply_min_family_support(
+    aligned_features, labels_df, _, _, _ = distribution_reporter.apply_min_family_support(
         features_df=aligned_features,
         labels_df=labels_df,
         min_support=min_support,
@@ -486,6 +487,7 @@ def _collect_experiment_rows(
                 "label_target": label_target,
                 "model": model_name,
                 "accuracy": evaluation.get("accuracy"),
+                "weighted_f1_score": evaluation.get("f1_score"),
                 "macro_f1_score": evaluation.get("macro_f1_score"),
                 "macro_precision": evaluation.get("macro_precision"),
                 "macro_recall": evaluation.get("macro_recall"),
@@ -867,7 +869,7 @@ def run_ablation_experiments(
     audit_path = _diagnostics_dir() / "ablation_feature_schema_audit.csv"
     audit_df.to_csv(audit_path, index=False)
     artifact_paths.append(str(audit_path))
-    du.print_info(f"[ABLATION] Feature schema audit: {audit_path}")
+    du.print_debug(f"[ABLATION] Feature schema audit: {audit_path.name}")
 
     out_dir = _diagnostics_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -897,6 +899,7 @@ def run_ablation_experiments(
 
     summary_df = pd.DataFrame(summary_rows)
     summary_df = _apply_leakage_delta(summary_df)
+    summary_df = _apply_full_fused_delta(summary_df)
     per_family_df = pd.DataFrame(per_family_rows)
     sum_csv = summary_df.to_csv(index=False)
 
@@ -939,7 +942,7 @@ def run_ablation_experiments(
         )
         artifact_paths.append(str(pf_mirror[0]))
     artifact_paths.extend([str(summary_path)])
-    du.print_info(f"[ABLATION] Exported summary: {summary_path}")
+    du.print_info(f"[ABLATION] Summary CSV: {summary_path.name} (see diagnostics/)")
     if isinstance(manifest_context, dict):
         from obsidiandroid.observability.pipeline_observability import api as obs_api
 
@@ -1015,47 +1018,152 @@ def _apply_leakage_delta(summary_df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _apply_full_fused_delta(summary_df: pd.DataFrame) -> pd.DataFrame:
+    """Per row: Macro-F1 minus same-model full_fused baseline (same label target)."""
+    if summary_df.empty or "macro_f1_score" not in summary_df.columns:
+        return summary_df
+    out = summary_df.copy()
+    out["delta_vs_full_fused"] = None
+    has_lt = "label_target" in out.columns
+
+    def _apply_partition(part: pd.DataFrame) -> None:
+        ff = part[part["experiment"] == "full_fused"]
+        if ff.empty:
+            return
+        baseline_map: dict[str, float] = {}
+        for _, row in ff.iterrows():
+            m = str(row.get("model", ""))
+            mf = row.get("macro_f1_score")
+            if m and mf is not None and pd.notna(mf):
+                baseline_map[m] = float(mf)
+
+        for idx, row in part.iterrows():
+            exp = row.get("experiment")
+            if exp == "full_fused":
+                out.at[idx, "delta_vs_full_fused"] = 0.0
+                continue
+            model = str(row.get("model", ""))
+            macro = row.get("macro_f1_score")
+            if model in baseline_map and macro is not None and pd.notna(macro):
+                out.at[idx, "delta_vs_full_fused"] = round(float(macro) - baseline_map[model], 6)
+
+    if has_lt:
+        for lt_label in sorted(out["label_target"].dropna().unique()):
+            sub = out[out["label_target"] == lt_label]
+            _apply_partition(sub)
+    else:
+        _apply_partition(out)
+    return out
+
+
+def _ablation_terminal_interpretation(
+    experiment: str,
+    *,
+    delta_vs_full_fused: float | None,
+    macro_f1: float,
+    weighted_f1: float | None,
+) -> str:
+    """One-line science note for the compact ablation table."""
+    exp = str(experiment)
+    w = weighted_f1
+    imbalance_note = False
+    if w is not None and not pd.isna(w) and (float(w) - float(macro_f1)) >= 0.12:
+        imbalance_note = True
+
+    if exp == "full_fused":
+        msg = "Fused baseline (all modalities)."
+    elif delta_vs_full_fused is None or (isinstance(delta_vs_full_fused, float) and pd.isna(delta_vs_full_fused)):
+        msg = "No full_fused baseline for this model/label target (see CSV)."
+    else:
+        d = float(delta_vs_full_fused)
+        if d >= -0.01:
+            if "permission" in exp:
+                msg = "Near fused: permission slice explains most of fused Macro-F1."
+            elif exp.startswith("vendor_"):
+                msg = "Near fused: vendor slice lands close to the fused stack."
+            else:
+                msg = "Comparable to fused on Macro-F1."
+        elif d <= -0.15:
+            msg = "Large Macro-F1 gap vs fused — missing modalities hurt tail classes."
+        elif exp == "vendor_detection_binary_only":
+            msg = "Detection binaries only; expect gap vs fused (no PI / parsed labels)."
+        elif exp == "vendor_consensus_scores_only":
+            msg = "Consensus scores only; weaker semantic signal than parsed+fused."
+        elif exp in {"permissions_raw", "permissions_grouped"}:
+            msg = "Permission-only; gap quantifies incremental vendor+fuse value."
+        else:
+            msg = "Moderate gap vs fused — check per-family exports for tails."
+
+    if imbalance_note:
+        msg = f"{msg} Weighted F1 ≫ macro — label prior concentrates on majors."
+    return msg
+
+
 def _print_ablation_terminal_summary(summary_df: pd.DataFrame) -> None:
-    """Print compact ablation results suitable for research terminal mode."""
+    """Best Macro-F1 per (label target × feature set) with fused delta and plain-language notes."""
     if summary_df.empty or ml_console.is_minimal():
         return
-    frame = summary_df.copy()
-    for col in ("macro_f1_score", "accuracy"):
-        if col in frame.columns:
-            frame[col] = pd.to_numeric(frame[col], errors="coerce")
-    frame = frame.dropna(subset=["macro_f1_score"])
-    if frame.empty:
+    work = summary_df.copy()
+    for col in ("macro_f1_score", "accuracy", "weighted_f1_score", "delta_vs_full_fused"):
+        if col in work.columns:
+            work[col] = pd.to_numeric(work[col], errors="coerce")
+    work = work.dropna(subset=["macro_f1_score"])
+    if work.empty:
         return
-    frame = frame.sort_values(["model", "macro_f1_score"], ascending=[True, False]).copy()
-    frame["delta_vs_vendor_only"] = pd.to_numeric(
-        frame.get(
-            "vendor_leakage_delta_vs_vendor_full",
-            frame.get("leakage_sensitivity_delta", pd.Series([None] * len(frame))),
-        ),
-        errors="coerce",
+
+    group_cols = (
+        ["label_target", "experiment"]
+        if "label_target" in work.columns
+        else ["experiment"]
     )
-    display_cols = [
-        col
-        for col in (
-            "experiment",
-            "label_target",
-            "model",
-            "macro_f1_score",
-            "delta_vs_vendor_only",
-        )
-        if col in frame.columns
-    ]
-    if not display_cols:
-        return
-    du.print_table(
-        frame[display_cols].rename(
-            columns={
-                "experiment": "Feature Set",
-                "model": "Model",
-                "macro_f1_score": "MacroF1",
-                "delta_vs_vendor_only": "Delta vs VendorFull",
+    idx = work.groupby(group_cols, sort=False)["macro_f1_score"].idxmax()
+    best = work.loc[idx].copy()
+
+    rows_out: list[dict[str, Any]] = []
+    for _, r in best.iterrows():
+        exp = str(r.get("experiment", ""))
+        lt = str(r.get("label_target", "")) if "label_target" in r.index else ""
+        model = str(r.get("model", ""))
+        macro = float(r["macro_f1_score"])
+        wf1: float | None
+        if "weighted_f1_score" in r.index and pd.notna(r.get("weighted_f1_score")):
+            wf1 = float(r["weighted_f1_score"])
+        else:
+            wf1 = None
+        acc: float | None
+        if "accuracy" in r.index and pd.notna(r.get("accuracy")):
+            acc = float(r["accuracy"])
+        else:
+            acc = None
+        dff = r.get("delta_vs_full_fused")
+        dff_f: float | None
+        if dff is not None and pd.notna(dff):
+            dff_f = float(dff)
+        else:
+            dff_f = None
+
+        rows_out.append(
+            {
+                "feature_set": format_feature_set_label(exp),
+                "label_target": lt,
+                "best_model": model,
+                "macro_f1": round(macro, 4),
+                "weighted_f1": round(wf1, 4) if wf1 is not None else None,
+                "accuracy": round(acc, 4) if acc is not None else None,
+                "delta_vs_full_fused": round(dff_f, 4) if dff_f is not None else None,
+                "interpretation": _ablation_terminal_interpretation(
+                    exp,
+                    delta_vs_full_fused=dff_f,
+                    macro_f1=macro,
+                    weighted_f1=wf1,
+                ),
             }
-        ),
-        title="Ablation Summary (Compact)",
-        show_index=False,
+        )
+
+    disp = pd.DataFrame(rows_out)
+    disp = disp.sort_values(
+        [c for c in ("label_target", "feature_set") if c in disp.columns],
+        kind="stable",
     )
+    du.print_section("ABLATION SUMMARY (best Macro-F1 per feature set × label target)")
+    du.print_table(disp, show_index=False)

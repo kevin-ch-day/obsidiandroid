@@ -22,6 +22,7 @@ from ml_classification.ml_utils import (
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.reporting import export_manager as em
+from obsidiandroid.reporting.operator_dashboard import bump_artifact_counter
 from obsidiandroid.observability.logging import get_logger, log_event
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.diagnostics import feature_build_coverage_export
@@ -53,6 +54,15 @@ PIPELINE_LOGGER = get_logger(
 )
 
 
+def _emit_feature_prune_warnings_to_terminal() -> bool:
+    """Headline training shows prune warnings; ablation/quiet repeats them too often."""
+    if bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False)):
+        return False
+    if bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)):
+        return False
+    return True
+
+
 def _prune_low_information_features(features_df: pd.DataFrame) -> pd.DataFrame:
     """Drop no-variance columns to reduce noise and model complexity."""
     if features_df is None or features_df.empty:
@@ -67,9 +77,11 @@ def _prune_low_information_features(features_df: pd.DataFrame) -> pd.DataFrame:
         return features_df
 
     setattr(app_config, "RUNTIME_LOW_INFORMATION_PRUNED_COLUMNS", list(low_info_cols))
-    du.print_warning(
-        f"[FEATURES] Dropping {len(low_info_cols)} low-information column(s) before training."
-    )
+    msg = f"[FEATURES] Dropping {len(low_info_cols)} low-information column(s) before training."
+    if _emit_feature_prune_warnings_to_terminal():
+        du.print_warning(msg)
+    else:
+        du.print_debug(msg)
     du.print_debug(f"[FEATURES] Dropped columns: {low_info_cols}")
     return features_df.drop(columns=low_info_cols, errors="ignore")
 
@@ -154,9 +166,11 @@ def _prune_potential_leakage_features(
         return features_df
 
     drop_cols = sorted(set(drop_cols))
-    du.print_warning(
-        f"[FEATURES] Dropping {len(drop_cols)} potential leakage column(s)."
-    )
+    msg = f"[FEATURES] Dropping {len(drop_cols)} potential leakage column(s)."
+    if _emit_feature_prune_warnings_to_terminal():
+        du.print_warning(msg)
+    else:
+        du.print_debug(msg)
     du.print_debug(f"[FEATURES] Leakage columns: {drop_cols}")
     return features_df.drop(columns=drop_cols, errors="ignore")
 
@@ -286,11 +300,12 @@ def align_data(
     """Align AV feature matrix with supervised labels by sample ID."""
     try:
         log_event(PIPELINE_LOGGER, "align_data_start", event_id="ML_ALIGN_001")
+        verbose_align = not bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
         aligned_features, labels = data_alignment.extract_aligned_labels(
             features_df=features_df,
             samples_df=samples_df,
             drop_low_support=False,
-            verbose=True,
+            verbose=verbose_align,
             forced_label_column=forced_label_column,
         )
         if labels is not None and not isinstance(labels, pd.Series):
@@ -437,7 +452,8 @@ def summarize_models(results: Dict[str, dict]) -> Optional[str]:
         if bool(getattr(app_config, "ENABLE_MODEL_COMPARISON_CSV_EXPORT", True)):
             csv_path = diagnostics_dir / f"model_comparison_summary_{run_id}.csv"
             summary_df.to_csv(csv_path, index=False)
-            du.print_info(f"[SUMMARY] Exported comparison summary CSV to: {csv_path}")
+            bump_artifact_counter("diagnostics", 1)
+            du.print_info(f"[SUMMARY] Model comparison leaderboard: {csv_path.name}")
 
         if bool(getattr(app_config, "ENABLE_RF_IMPURITY_IMPORTANCE_EXPORT", True)):
             rf_res = results.get("random_forest")
@@ -452,7 +468,7 @@ def summarize_models(results: Dict[str, dict]) -> Optional[str]:
                 hints_src = getattr(app_config, "RUNTIME_HEADLINE_FEATURE_MODALITY_HINTS", None)
                 modality_hints = hints_src if isinstance(hints_src, dict) else None
                 try:
-                    rf_feature_importance_export.export_rf_impurity_importances_csv(
+                    rf_out = rf_feature_importance_export.export_rf_impurity_importances_csv(
                         model=rf_model,
                         feature_names=[str(x) for x in col_names],
                         diagnostics_dir=diagnostics_dir,
@@ -460,6 +476,9 @@ def summarize_models(results: Dict[str, dict]) -> Optional[str]:
                         top_k=int(getattr(app_config, "RF_IMPORTANCE_EXPORT_TOP_K", 50)),
                         modality_hints=modality_hints,
                     )
+                    if rf_out is not None:
+                        bump_artifact_counter("diagnostics", 1)
+                        du.print_info("[SUMMARY] RF impurity importances CSV (see diagnostics/).")
                 except Exception as exc:
                     du.print_warning(f"[RF_IMPORTANCE] Export skipped: {exc}")
 
@@ -499,8 +518,7 @@ def summarize_models(results: Dict[str, dict]) -> Optional[str]:
                         model_name=active_model_key,
                     )
                 du.print_info(
-                    "[SUMMARY] Classification narrative report written to run diagnostics "
-                    "(terminal view suppressed in compact mode)."
+                    "[SUMMARY] Classification inspector report written (terminal narrative suppressed)."
                 )
 
         log_event(
@@ -705,6 +723,7 @@ def run_classifier_pipeline(
         )
 
     try:
+        setattr(app_config, "RUNTIME_LOW_SUPPORT_FAMILY_DROP_DETAIL", [])
         du.print_info("[STEP 3] Filtering low-support families")
         label_name_map = dict(getattr(labels_df, "attrs", {}).get("label_name_map", {}))
         min_support = int(
@@ -718,12 +737,13 @@ def run_classifier_pipeline(
         group_label = (
             "other" if bool(getattr(app_config, "GROUP_LOW_SUPPORT_LABELS", False)) else None
         )
-        features_df, labels_df, affected, fams = distribution_reporter.apply_min_family_support(
+        features_df, labels_df, affected, fams, low_fam_rows = distribution_reporter.apply_min_family_support(
             features_df=features_df,
             labels_df=labels_df,
             min_support=min_support,
             group_label=group_label,
         )
+        setattr(app_config, "RUNTIME_LOW_SUPPORT_FAMILY_DROP_DETAIL", list(low_fam_rows))
         if label_name_map:
             if group_label:
                 filtered_map = {
@@ -740,7 +760,10 @@ def run_classifier_pipeline(
             labels_df.attrs["label_name_map"] = filtered_map
         if fams:
             action = "grouped as 'other'" if group_label else "dropped"
-            du.print_info(f"[FILTER] {affected} samples {action} from families: {fams}")
+            fam_preview = ", ".join(f"{r.get('family')}={r.get('aligned_support')}" for r in low_fam_rows[:12])
+            if len(low_fam_rows) > 12:
+                fam_preview += ", …"
+            du.print_info(f"[FILTER] {affected} samples {action} from {fams} families: {fam_preview}")
         distribution_reporter.print_family_distribution(
             labels_df,
             label_type="Filtered",
@@ -776,9 +799,11 @@ def run_classifier_pipeline(
             error=str(exc),
         )
 
+    governance_writes: list[str] = []
     label_map_path = _export_label_name_map(labels_df, diagnostics_dir)
     if label_map_path:
-        du.print_info(f"[ARTIFACT] Training label map exported: {label_map_path}")
+        governance_writes.append(Path(label_map_path).name)
+        bump_artifact_counter("diagnostics", 1)
 
     features_df = _prune_low_information_features(features_df)
     setattr(
@@ -812,7 +837,8 @@ def run_classifier_pipeline(
         run_id=str(getattr(app_config, "RUNTIME_RUN_ID", "unknown")),
     )
     if surv_path:
-        du.print_info(f"[ARTIFACT] Permission training survival audit: {surv_path}")
+        governance_writes.append(Path(surv_path).name)
+        bump_artifact_counter("diagnostics", 1)
     try:
         fs_path = feature_column_survival_export.export_feature_column_survival_matrix(
             diagnostics_dir=diagnostics_dir,
@@ -821,7 +847,8 @@ def run_classifier_pipeline(
             final_features_df=features_df,
         )
         if fs_path:
-            du.print_info(f"[ARTIFACT] Feature column survival matrix: {fs_path}")
+            governance_writes.append(Path(fs_path).name)
+            bump_artifact_counter("diagnostics", 1)
     except Exception as exc:
         du.print_warning(f"[FEATURE_SURVIVAL] Export skipped: {exc}")
     leakage_audit_path = _export_leakage_pruning_audit(
@@ -831,7 +858,8 @@ def run_classifier_pipeline(
         ),
     )
     if leakage_audit_path:
-        du.print_info(f"[ARTIFACT] Leakage pruning audit exported: {leakage_audit_path}")
+        governance_writes.append(Path(leakage_audit_path).name)
+        bump_artifact_counter("diagnostics", 1)
 
     if bool(getattr(app_config, "ENABLE_FEATURE_CONTRACT_EXPORT", True)):
         run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
@@ -842,7 +870,8 @@ def run_classifier_pipeline(
         )
         if contract_path:
             setattr(app_config, "RUNTIME_HEADLINE_FEATURE_CONTRACT_PATH", str(contract_path))
-            du.print_info(f"[ARTIFACT] Training feature contract exported: {contract_path}")
+            governance_writes.append(Path(contract_path).name)
+            bump_artifact_counter("diagnostics", 1)
     if bool(getattr(app_config, "ENABLE_LEAKAGE_ASSESSMENT_EXPORT", True)):
         run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
         leakage_path = export_leakage_assessment(
@@ -851,7 +880,14 @@ def run_classifier_pipeline(
             output_dir=str(diagnostics_dir),
         )
         if leakage_path:
-            du.print_info(f"[ARTIFACT] Training leakage assessment exported: {leakage_path}")
+            governance_writes.append(Path(leakage_path).name)
+            bump_artifact_counter("diagnostics", 1)
+
+    if governance_writes and not bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False)):
+        du.print_info(
+            "[ARTIFACTS] Training governance CSV/JSON: "
+            + ", ".join(sorted(set(governance_writes)))
+        )
 
     setattr(
         app_config,

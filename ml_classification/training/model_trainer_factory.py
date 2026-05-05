@@ -459,6 +459,7 @@ def train_model_factory(
     """
     validate_training_inputs(features_df, labels)
     test_size, random_state = _resolve_training_runtime_defaults(test_size, random_state)
+    quiet_train = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
 
     if isinstance(labels, pd.Series):
         label_field_resolved = str(labels.name) if labels.name is not None else "label"
@@ -494,7 +495,7 @@ def train_model_factory(
     group_aware_cfg = bool(getattr(app_config, "ENABLE_GROUP_AWARE_TRAIN_TEST_SPLIT", False))
     ablation_lock = bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
     auto_adjust = bool(getattr(app_config, "AUTO_ADJUST_TRAIN_TEST_SPLIT", False))
-    if group_aware_cfg and auto_adjust:
+    if group_aware_cfg and auto_adjust and not quiet_train:
         du.print_warning(
             "[SPLIT] ENABLE_GROUP_AWARE_TRAIN_TEST_SPLIT is ignored while "
             "AUTO_ADJUST_TRAIN_TEST_SPLIT is True (balanced auto split path)."
@@ -526,10 +527,11 @@ def train_model_factory(
                         "[ABLATION] Split cache indices are missing from the current feature matrix; "
                         "cannot align cached train/test rows to this feature set."
                     ) from exc
-            du.print_info(
-                "[SPLIT] Reusing cached train/test partition for model consistency "
-                "(cache key includes encoded labels; different label targets use independent splits)."
-            )
+            if not quiet_train:
+                du.print_info(
+                    "[SPLIT] Reusing cached train/test partition for model consistency "
+                    "(cache key includes encoded labels; different label targets use independent splits)."
+                )
             cached_meta = getattr(app_config, "RUNTIME_SPLIT_METADATA", None)
             if isinstance(cached_meta, dict) and cached_meta.get("split_algorithm"):
                 setattr(
@@ -566,14 +568,16 @@ def train_model_factory(
                         y_train = encoded_labels[train_pos]
                         y_test = encoded_labels[test_pos]
                         split_algo = "group_shuffle_seeded_v1"
-                        du.print_info(
-                            f"[SPLIT] Group-aware lineage split active ({group_note}); "
-                            "not label-stratified — review rare-class coverage."
-                        )
+                        if not quiet_train:
+                            du.print_info(
+                                f"[SPLIT] Group-aware lineage split active ({group_note}); "
+                                "not label-stratified — review rare-class coverage."
+                            )
                     except Exception as exc:
-                        du.print_warning(
-                            f"[SPLIT] Group-aware split failed ({exc}); using stratified split."
-                        )
+                        if not quiet_train:
+                            du.print_warning(
+                                f"[SPLIT] Group-aware split failed ({exc}); using stratified split."
+                            )
                         groups_arr = None
                 if groups_arr is None:
                     label_counts = Counter(encoded_labels)
@@ -614,9 +618,10 @@ def train_model_factory(
     except Exception as e:
         raise RuntimeError(f"Train/test split failed: {e}")
 
-    du.print_info(
-        f"[SPLIT] Train size: {len(X_train)} | Test size: {len(X_test)}"
-    )
+    if not quiet_train:
+        du.print_info(
+            f"[SPLIT] Train size: {len(X_train)} | Test size: {len(X_test)}"
+        )
     train_dist = {int(k): int(v) for k, v in Counter(y_train).items()}
     test_dist = {int(k): int(v) for k, v in Counter(y_test).items()}
     du.print_debug(f"[SPLIT] Train dist: {train_dist}")
@@ -649,12 +654,18 @@ def train_model_factory(
     )
     disable_smote_evidence = bool(getattr(app_config, "DISABLE_SMOTE_IN_EVIDENCE_MODE", False))
     if use_smote_effective and evidence_or_paper and disable_smote_evidence:
-        du.print_info(
-            "[SMOTE] Skipped for evidence/paper run (DISABLE_SMOTE_IN_EVIDENCE_MODE / "
-            "OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE)."
-        )
+        if not quiet_train:
+            du.print_info(
+                "[SMOTE] Skipped for evidence/paper run (DISABLE_SMOTE_IN_EVIDENCE_MODE / "
+                "OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE)."
+            )
         use_smote_effective = False
-    elif use_smote_effective and evidence_or_paper and model_type != "balanced_random_forest":
+    elif (
+        use_smote_effective
+        and evidence_or_paper
+        and model_type != "balanced_random_forest"
+        and not quiet_train
+    ):
         du.print_warning(
             "[SMOTE] Synthetic oversampling is enabled in evidence/paper mode; "
             "set OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE=1 to disable for stricter reproducibility."
@@ -662,6 +673,16 @@ def train_model_factory(
 
     if use_smote_effective and model_type != "balanced_random_forest":
         X_train, y_train = apply_smote(X_train, y_train, random_state)
+        snap = getattr(app_config, "RUNTIME_SMOTE_AUDIT_LAST", None)
+        if isinstance(snap, dict):
+            snap = dict(snap)
+            snap["model_type"] = str(model_type)
+            setattr(app_config, "RUNTIME_SMOTE_AUDIT_LAST", snap)
+            by_model = getattr(app_config, "RUNTIME_SMOTE_AUDIT_BY_MODEL", None)
+            if not isinstance(by_model, dict):
+                by_model = {}
+            by_model[str(model_type)] = dict(snap)
+            setattr(app_config, "RUNTIME_SMOTE_AUDIT_BY_MODEL", by_model)
 
     prov = getattr(app_config, "RUNTIME_TRAINING_PROVENANCE_SUMMARY", None)
     if not isinstance(prov, dict):
@@ -707,6 +728,8 @@ def train_model_factory(
         "random_state": random_state,
         **kwargs,
     }
+    if quiet_train:
+        trainer_args["verbose"] = False
     if model_type in {"random_forest", "svm", "logistic_regression", "xgboost"}:
         trainer_args["grid_search"] = grid_search_flag
 

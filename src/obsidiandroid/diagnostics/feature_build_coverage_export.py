@@ -210,8 +210,8 @@ def export_feature_modality_coverage_audit(
     for target in (json_named, json_latest):
         target.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    du.print_info(
-        "[COVERAGE] Modality audit: "
+    du.print_debug(
+        "[COVERAGE] Modality audit (detail): "
         f"governed_n={summary['governed_cohort_n']} fused_n={summary['fused_matrix_row_n']} "
         f"vendor_merge_n={summary['vendor_merge_n']} pi_signal_n={summary['permission_pi_signal_positive_n']}"
     )
@@ -387,18 +387,23 @@ def export_feature_build_coverage(
     for target in (csv_named, csv_latest):
         missing_df.to_csv(target, index=False)
 
-    du.print_info(
-        "[COVERAGE] Feature build cohort gap: "
-        f"missing_from_matrix={len(missing_from_feature)} "
-        f"(cohort={len(cohort_set)}, matrix_rows={len(final_set)})."
-    )
     gpp = payload.get("gap_missing_with_any_perm_bag_positive")
-    if isinstance(gpp, int) and gpp > 0 and len(missing_from_feature) > 0:
-        du.print_info(
-            "[COVERAGE] Permission-bag signal on vendor-gap rows: "
-            f"missing_from_matrix_with_any_perm_bag_positive={gpp} "
-            f"(of gap_missing_sample_id_count={payload.get('gap_missing_sample_id_count')})"
+    gap_extra = ""
+    if (
+        isinstance(gpp, int)
+        and gpp > 0
+        and len(missing_from_feature) > 0
+        and payload.get("gap_missing_sample_id_count")
+    ):
+        gap_extra = (
+            f" | gap_rows_with_perm_bag_signal={gpp}/"
+            f"{payload.get('gap_missing_sample_id_count')}"
         )
+    du.print_info(
+        "[COVERAGE] Cohort vs fused matrix: "
+        f"missing_from_matrix={len(missing_from_feature)} "
+        f"(cohort={len(cohort_set)}, matrix_rows={len(final_set)}){gap_extra}"
+    )
     return json_latest, csv_latest
 
 
@@ -555,7 +560,7 @@ def export_sample_stage_lineage_audit(
     latest = out_dir / "sample_stage_lineage.latest.csv"
     df.to_csv(named, index=False)
     df.to_csv(latest, index=False)
-    du.print_info(f"[LINEAGE] sample_stage_lineage rows={len(df)} path={latest}")
+    du.print_debug(f"[LINEAGE] sample_stage_lineage rows={len(df)} → {latest.name}")
     return latest
 
 

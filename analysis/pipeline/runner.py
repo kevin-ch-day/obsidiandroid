@@ -92,6 +92,7 @@ from obsidiandroid.pipeline.run_bounds import (
 from obsidiandroid.observability.pipeline_observability import PipelineObservabilitySession
 from obsidiandroid.observability.pipeline_observability import api as obs_api
 from obsidiandroid.observability.pipeline_observability.taxonomy import LogCategory, LogSeverity
+import obsidiandroid.reporting.operator_dashboard as operator_dashboard
 
 # Default diagnostics path derived from app configuration
 DIAGNOSTICS_DIR = os.path.join(app_config.DEFAULT_OUTPUT_DIR, "diagnostics")
@@ -252,6 +253,7 @@ def run_pipeline(
     original_diagnostics_dir = DIAGNOSTICS_DIR
     # Reset run-scoped runtime markers up-front to avoid stale cross-run leakage.
     reset_runtime_markers()
+    operator_dashboard.clear_operator_state()
 
     def _record_stage_timing(
         stage_name: str,
@@ -1054,8 +1056,18 @@ def run_pipeline(
             fused_perm_sig = fused_permission_matrix_audit.summarize_fused_permission_columns(feature_df)
             if fused_perm_sig:
                 manifest_context["fused_permission_matrix_signal"] = fused_perm_sig
-                for k, v in sorted(fused_perm_sig.items()):
-                    du.print_info(f"[FEATURES][PERM_MATRIX] {k}={v}")
+                row_n = fused_perm_sig.get("fused_matrix_row_count")
+                any_perm = fused_perm_sig.get("fused_matrix_rows_with_any_perm_like_positive")
+                pi_like = fused_perm_sig.get("fused_matrix_perm_like_column_count")
+                du.print_subheader("Fused ML matrix — permission slice")
+                du.print_info(
+                    "  rows={rows} | cols≈perm_family {pcols} | "
+                    "rows_with_any_perm_signal={psig}".format(
+                        rows=row_n,
+                        pcols=pi_like,
+                        psig=any_perm,
+                    )
+                )
                 try:
                     fuse_audit = manifest_context.get("permission_fuse_audit")
                     enrich_any = None
@@ -1082,15 +1094,17 @@ def run_pipeline(
                             and int(fused_any) <= max(10, int(enrich_any) // 10)
                             and gap >= 50
                         ):
-                            du.print_info(
-                                "[FEATURES][PERM_MATRIX] note=enrichment shows many cohort rows with "
-                                "permission bag signal, but the fused ML matrix is vendor-authoritative "
-                                "(fewer rows). Permission positives often concentrate on samples dropped "
-                                "by vendor/parser gates; compare cohort_n, fused rows, and "
-                                "feature_build_coverage / unmatched_label_ids exports."
-                                f" cohort_n={cohort_i} fused_rows={fused_i} cohort_minus_fused_rows={gap} "
-                                f"enrichment_any_perm_rows≈{int(enrich_any)} "
-                                f"fused_any_perm_rows={int(fused_any)}"
+                            operator_dashboard.record_operator_issue(
+                                tag="COVERAGE",
+                                title="Enrichment vs fused row authority mismatch risk",
+                                lines=[
+                                    (
+                                        f"Cohort_n={cohort_i} fused_rows={fused_i} (Δ={gap}); "
+                                        f"enrichment permission-bag positives≈{int(enrich_any)}, "
+                                        f"fused perm-signal rows={int(fused_any)}."
+                                    ),
+                                    "See feature_build_coverage + permission_fuse_audit JSON for detail.",
+                                ],
                             )
                 except Exception:
                     pass
@@ -1130,6 +1144,7 @@ def run_pipeline(
                 if _gate_path:
                     artifact_list.append(str(_gate_path))
 
+        gov_notes: list[str] = []
         if bool(getattr(app_config, "ENABLE_FEATURE_CONTRACT_EXPORT", True)):
             feature_contract_path = export_feature_contract(
                 feature_df=feature_df,
@@ -1138,7 +1153,8 @@ def run_pipeline(
             )
             if feature_contract_path:
                 artifact_list.append(feature_contract_path)
-                du.print_info(f"[ARTIFACT] Feature contract exported: {feature_contract_path}")
+                operator_dashboard.bump_artifact_counter("diagnostics", 1)
+                gov_notes.append(f"feature_contract={Path(feature_contract_path).name}")
 
         if bool(getattr(app_config, "ENABLE_LEAKAGE_ASSESSMENT_EXPORT", True)):
             leakage_path = export_leakage_assessment(
@@ -1148,7 +1164,8 @@ def run_pipeline(
             )
             if leakage_path:
                 artifact_list.append(leakage_path)
-                du.print_info(f"[ARTIFACT] Leakage assessment exported: {leakage_path}")
+                operator_dashboard.bump_artifact_counter("diagnostics", 1)
+                gov_notes.append(f"leakage={Path(leakage_path).name}")
         modality_contract_path = export_modality_method_contract(
             permission_df=permission_features_df,
             fusion_feature_df=feature_df,
@@ -1157,7 +1174,10 @@ def run_pipeline(
         )
         if modality_contract_path:
             artifact_list.append(modality_contract_path)
-            du.print_info(f"[ARTIFACT] Modality method contract exported: {modality_contract_path}")
+            operator_dashboard.bump_artifact_counter("diagnostics", 1)
+            gov_notes.append(f"modality_contract={Path(modality_contract_path).name}")
+        if gov_notes:
+            du.print_info("[ARTIFACTS] Governance / contracts: " + " | ".join(gov_notes))
 
         if stop_after == "feature_matrix":
             _mark_run_state("partial", completed_stage="feature_matrix")
@@ -1596,7 +1616,22 @@ def run_pipeline(
             top_model=top_model_for_policy,
             manifest_context=manifest_context,
         )
-        _export_and_print_run_summary(payload=run_summary_payload, artifact_list=artifact_list)
+        diag_path = Path(str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", DIAGNOSTICS_DIR) or DIAGNOSTICS_DIR))
+        _export_and_print_run_summary(
+            payload=run_summary_payload,
+            artifact_list=artifact_list,
+            echo_terminal=False,
+        )
+        operator_dashboard.emit_research_operator_report(
+            diagnostics_dir=diag_path,
+            run_id=run_id,
+            profile_id=profile_id,
+            manifest_context=manifest_context,
+            samples_df=samples_df if isinstance(samples_df, pd.DataFrame) else None,
+            model_results=model_results if isinstance(model_results, dict) else {},
+            top_model=top_model_for_policy,
+            artifact_list=list(artifact_list),
+        )
         du.print_success("Classification pipeline executed successfully.")
         _mark_run_state("complete", completed_stage="manifest")
         _write_preflight(status="pass")

@@ -65,5 +65,5 @@ def export_rf_impurity_importances_csv(
     frame.head(int(top_k)).to_csv(out, index=False)
     latest = diagnostics_dir / "rf_impurity_importance.latest.csv"
     frame.head(int(top_k)).to_csv(latest, index=False)
-    du.print_info(f"[ARTIFACT] RF impurity importance (top {top_k}): {out}")
+    du.print_debug(f"[ARTIFACT] RF impurity importance (top {top_k}): {out}")
     return out

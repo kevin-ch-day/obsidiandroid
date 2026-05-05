@@ -96,9 +96,55 @@ def _log_perm_fuse_snapshot(
     *,
     internet_col: str | None,
 ) -> None:
-    stats = _fuse_stats_dict(label, base, perm, internet_col=internet_col)
-    for k, v in sorted(stats.items()):
-        du.print_info(f"[FEATURES][PERM_FUSE] {label} {k}={v}")
+    """Detail-only: full counter map is written to ``permission_fuse_audit`` JSON."""
+    del label, base, perm, internet_col
+
+
+def _permission_fuse_terminal_summary(
+    merged_out: pd.DataFrame,
+    permission_features_df: pd.DataFrame | None,
+    audit: dict[str, Any],
+    *,
+    internet_col: str | None,
+) -> None:
+    du.print_subheader("Permission feature coverage")
+    cohort_n = int(len(merged_out))
+    perm_rows = int(len(permission_features_df)) if isinstance(permission_features_df, pd.DataFrame) else 0
+    perm_cols = sum(
+        1
+        for c in merged_out.columns
+        if str(c).startswith("perm__") or str(c).startswith("perm_grp__")
+    )
+    sig_val = audit.get("post_fuse_enrichment_rows_with_any_perm_bag_column_positive")
+    if sig_val is None:
+        sig_val = audit.get("post_fuse_enrichment_rows_with_any_perm_grp_positive")
+    try:
+        signal_n = int(sig_val) if sig_val is not None else cohort_n
+    except (TypeError, ValueError):
+        signal_n = cohort_n
+
+    inet_n = audit.get(
+        "post_fuse_enrichment_perm_bag_internet_nonzero_rows",
+    )
+    if inet_n is None and internet_col and internet_col in merged_out.columns:
+        ser = pd.to_numeric(merged_out[internet_col], errors="coerce").fillna(0)
+        inet_n = int((ser > 0).sum())
+    try:
+        inet_display = str(int(inet_n)) if inet_n is not None else "—"
+    except (TypeError, ValueError):
+        inet_display = str(inet_n)
+
+    pct = lambda a, b: f"{100.0 * float(a) / float(b):.1f}%" if b else "n/a"
+    du.print_info(f"  cohort rows                         : {cohort_n}")
+    du.print_info(f"  permission frame rows               : {perm_rows or cohort_n}")
+    du.print_info(
+        f"  rows with permission-bag signal     : {signal_n} ({pct(signal_n, cohort_n)})"
+    )
+    du.print_info(f"  permission / grouped feature cols   : {perm_cols}")
+    du.print_info(
+        "  INTERNET-positive rows (merged frame): "
+        f"{inet_display}"
+    )
 
 
 def _write_permission_fuse_audit(flat: dict[str, Any]) -> None:
@@ -224,13 +270,13 @@ def _apply_permission_fuse(
         audit: dict[str, Any] = {}
         audit.update(_fuse_stats_dict("pre_permission_merge", merged, None, internet_col=internet_col))
         _write_permission_fuse_audit(audit)
+        du.print_subheader("Permission feature coverage")
+        du.print_warning("  Permission enrichment frame empty — fuse skipped (see diagnostics if unexpected).")
         return merged
 
     pre = _fuse_stats_dict("pre_permission_merge", merged, perm_coerced, internet_col=internet_col)
     pre_extra = _enrichment_modality_nonzero_counts(merged, "pre_fuse_enrichment")
     pre.update(pre_extra)
-    for k, v in sorted(pre_extra.items()):
-        du.print_info(f"[FEATURES][PERM_FUSE] pre_enrichment {k}={v}")
     _log_perm_fuse_snapshot("pre_permission_merge", merged, perm_coerced, internet_col=internet_col)
 
     merged_out = merged.merge(perm_coerced, on="sample_id", how="left", sort=False)
@@ -244,8 +290,12 @@ def _apply_permission_fuse(
     audit = {**pre, **post}
     _write_permission_fuse_audit(audit)
     _log_perm_fuse_snapshot("post_permission_merge", merged_out, None, internet_col=internet_col)
-    for k, v in sorted(post_extras.items()):
-        du.print_info(f"[FEATURES][PERM_FUSE] post_enrichment {k}={v}")
+    _permission_fuse_terminal_summary(
+        merged_out,
+        permission_features_df,
+        audit,
+        internet_col=internet_col,
+    )
     return merged_out
 
 

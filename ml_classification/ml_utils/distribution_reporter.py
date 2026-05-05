@@ -3,7 +3,7 @@
 #            Supports class imbalance detection and distribution evaluation.
 
 from collections import Counter
-from typing import List, Union
+from typing import Any, List, Union
 import pandas as pd
 
 # Threshold constants
@@ -115,7 +115,7 @@ def apply_min_family_support(
     *,
     min_support: int,
     group_label: str | None = None,
-) -> tuple[pd.DataFrame, pd.Series, int, int]:
+) -> tuple[pd.DataFrame, pd.Series, int, int, list[dict[str, Any]]]:
     """Remove or group families with sample count below ``min_support``.
 
     Parameters
@@ -133,17 +133,23 @@ def apply_min_family_support(
     Returns
     -------
     tuple
-        (filtered_features_df, filtered_labels, affected_samples, affected_fams)
+        (filtered_features_df, filtered_labels, affected_samples, n_low_families,
+        low_family_rows) where ``low_family_rows`` is
+        ``[{"family": ..., "aligned_support": int}, ...]`` sorted by family name.
     """
     if _is_empty_label_input(labels_df):
-        return features_df, labels_df, 0, 0
+        return features_df, labels_df, 0, 0, []
 
     counts = Counter(labels_df)
     low_fams = [fam for fam, cnt in counts.items() if cnt < min_support]
     if not low_fams:
-        return features_df, labels_df, 0, 0
+        return features_df, labels_df, 0, 0, []
 
     affected_samples = int(labels_df.isin(low_fams).sum())
+    low_family_rows = [
+        {"family": str(fam), "aligned_support": int(counts[fam])}
+        for fam in sorted(low_fams, key=lambda x: str(x))
+    ]
 
     if group_label is None:
         mask = ~labels_df.isin(low_fams)
@@ -152,8 +158,9 @@ def apply_min_family_support(
             labels_df.loc[mask],
             affected_samples,
             len(low_fams),
+            low_family_rows,
         )
 
     new_labels = labels_df.copy()
     new_labels.loc[new_labels.isin(low_fams)] = group_label
-    return features_df, new_labels, affected_samples, len(low_fams)
+    return features_df, new_labels, affected_samples, len(low_fams), low_family_rows

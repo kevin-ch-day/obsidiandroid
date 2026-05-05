@@ -311,8 +311,7 @@ def apply_confusion_matrix_policy(run_id: str, top_model: str | None) -> None:
         return
     if mode == "all":
         du.print_info(
-            f"[CONFUSION] Policy 'all' kept={len(files)} removed=0 "
-            f"(run_id={run_id}) dir={run_cm_dir}"
+            f"[CONFUSION] Retention policy=all: kept all {len(files)} matrix PNGs under conf_matrices/"
         )
         return
     if not top_model:
@@ -383,10 +382,11 @@ def apply_confusion_matrix_policy(run_id: str, top_model: str | None) -> None:
     except Exception:
         pass
 
-    kept_names = ", ".join(sorted(path.name for path in keep))
+    kept_names = ", ".join(sorted(path.name for path in keep)[:6])
+    suffix = " …" if len(keep) > 6 else ""
     du.print_info(
-        f"[CONFUSION] Policy '{mode}' kept={len(keep)} removed={removed} "
-        f"(top_model={top_model}) files=[{kept_names}] dir={run_cm_dir}"
+        f"[CONFUSION] Policy '{mode}': kept {len(keep)}, removed {removed} "
+        f"(top_model={top_model}) — {kept_names}{suffix}"
     )
 
 
@@ -574,8 +574,9 @@ def export_and_print_run_summary(
     *,
     payload: dict[str, Any],
     artifact_list: list[str],
+    echo_terminal: bool = True,
 ) -> None:
-    """Print and export a compact run summary under diagnostics."""
+    """Persist run health JSON; optionally echo the legacy engine-first panel to the terminal."""
     diagnostics_dir = runtime_diagnostics_dir()
     run_id = str(payload.get("run_id", "unknown"))
     out_path = diagnostics_dir / f"run_health_summary_{run_id}.json"
@@ -591,17 +592,18 @@ def export_and_print_run_summary(
         paths_out.append(str(latest_path))
     artifact_list.extend(paths_out)
 
-    du.print_section("Run Health Summary")
-    du.print_stat("Engine Count Observed", payload.get("engine_count_observed"))
-    du.print_stat("Engine Count Canonical", payload.get("engine_count_canonical"))
-    du.print_stat("Engine Count Included After Gating", payload.get("engine_count_included_after_gating"))
-    du.print_stat("Engine Count Requested Top-K", payload.get("engine_count_requested_top_k"))
-    du.print_stat("Effective Top-K", payload.get("effective_top_k"))
-    du.print_stat("Fallback Used", payload.get("fallback_used"))
-    du.print_stat("Fallback Added Count", payload.get("fallback_added_count"))
-    du.print_stat("Non-Standard Features", payload.get("non_standard_features"))
-    du.print_stat("Unknown Rate", f"{float(payload.get('unknown_rate', 0.0)):.2%}")
-    du.print_stat("Missing Package Rate", f"{float(payload.get('missing_package_rate', 0.0)):.2%}")
-    du.print_stat("Macro F1", payload.get("macro_f1"))
-    du.print_stat("Family Count", payload.get("n_families"))
-    du.print_stat("Top Family Share", f"{float(payload.get('top_family_share', 0.0)):.2%}")
+    if echo_terminal:
+        du.print_section("Run Health Summary")
+        du.print_stat("Engine Count Observed", payload.get("engine_count_observed"))
+        du.print_stat("Engine Count Canonical", payload.get("engine_count_canonical"))
+        du.print_stat("Engine Count Included After Gating", payload.get("engine_count_included_after_gating"))
+        du.print_stat("Engine Count Requested Top-K", payload.get("engine_count_requested_top_k"))
+        du.print_stat("Effective Top-K", payload.get("effective_top_k"))
+        du.print_stat("Fallback Used", payload.get("fallback_used"))
+        du.print_stat("Fallback Added Count", payload.get("fallback_added_count"))
+        du.print_stat("Non-Standard Features", payload.get("non_standard_features"))
+        du.print_stat("Unknown Rate", f"{float(payload.get('unknown_rate', 0.0)):.2%}")
+        du.print_stat("Missing Package Rate", f"{float(payload.get('missing_package_rate', 0.0)):.2%}")
+        du.print_stat("Macro F1", payload.get("macro_f1"))
+        du.print_stat("Family Count", payload.get("n_families"))
+        du.print_stat("Top Family Share", f"{float(payload.get('top_family_share', 0.0)):.2%}")

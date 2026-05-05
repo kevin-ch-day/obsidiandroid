@@ -32,7 +32,7 @@ def test_run_classifier_pipeline_drops_low_support_without_other_group(monkeypat
 
     def _fake_apply_min_family_support(**kwargs):
         captured.update(kwargs)
-        return kwargs["features_df"], kwargs["labels_df"], 0, 0
+        return kwargs["features_df"], kwargs["labels_df"], 0, 0, []
 
     monkeypatch.setattr(
         pipeline_core.distribution_reporter,

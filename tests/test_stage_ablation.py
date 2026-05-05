@@ -40,7 +40,7 @@ def test_prepare_training_inputs_uses_runtime_min_support_and_no_other_by_defaul
 
     def _fake_apply_min_family_support(**kwargs):
         captured.update(kwargs)
-        return kwargs["features_df"], kwargs["labels_df"], 0, 0
+        return kwargs["features_df"], kwargs["labels_df"], 0, 0, []
 
     monkeypatch.setattr(
         stage_ablation.distribution_reporter,

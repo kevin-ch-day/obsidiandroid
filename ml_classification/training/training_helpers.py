@@ -142,6 +142,7 @@ def perform_cross_validation(
     random_state: int,
 ) -> Optional[np.ndarray]:
     """Run stratified cross-validation and return macro-F1 scores."""
+    quiet = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
     label_counts = Counter(y)
     min_count = min(label_counts.values())
     if min_count < 2:
@@ -207,7 +208,7 @@ def perform_cross_validation(
     cv_n_jobs = int(getattr(app_config, "CV_N_JOBS", 1 if os.name == "nt" else -1))
     if bool(getattr(app_config, "CV_AVOID_NESTED_PARALLELISM", True)) and cv_n_jobs != 1:
         estimator, updated = _force_estimator_single_thread(estimator)
-        if updated:
+        if updated and not quiet:
             du.print_info(
                 "[CROSS-VAL] Nested parallelism guard enabled; "
                 f"forcing estimator threads to 1 ({', '.join(sorted(updated.keys()))})."
@@ -233,7 +234,9 @@ def perform_cross_validation(
                 n_jobs=cv_n_jobs,
             )
         score_list = [float(s) for s in scores]
-        if ml_console.is_debug():
+        if quiet:
+            pass
+        elif ml_console.is_debug():
             du.print_info(
                 f"[CROSS-VAL] {folds} folds x {repeats} repeat(s) - F1 scores: "
                 f"{', '.join(f'{s:.4f}' for s in score_list)}"
@@ -246,7 +249,7 @@ def perform_cross_validation(
                 f"[CROSS-VAL] {folds} folds x {repeats} repeat(s) "
                 f"| mean={np.mean(score_list):.4f} | std={np.std(score_list):.4f}"
             )
-        if ml_console.is_debug():
+        if not quiet and ml_console.is_debug():
             du.print_info(f"[CROSS-VAL] Mean F1: {np.mean(score_list):.4f}")
             du.print_info(f"[CROSS-VAL] Std F1: {np.std(score_list):.4f}")
         return scores
@@ -267,6 +270,11 @@ def apply_smote(
     If every class has more than one sample, apply SMOTE.
     Otherwise, use RandomOverSampler to duplicate extremely rare classes.
     """
+    quiet = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
+    original_n = int(len(X_train))
+    before_counts = {str(int(k)): int(v) for k, v in Counter(y_train).items()}
+    method_used = "none"
+    k_neighbors_used: int | None = None
     try:
         from imblearn.over_sampling import RandomOverSampler, SMOTE
 
@@ -274,27 +282,48 @@ def apply_smote(
         min_count = min(label_counts.values())
         if min_count > 1:
             k_neighbors = min(5, max(1, min_count - 1))
+            k_neighbors_used = int(k_neighbors)
             sm = SMOTE(random_state=random_state, k_neighbors=k_neighbors)
             try:
                 X_res, y_res = sm.fit_resample(X_train, y_train)
-                du.print_info(
-                    f"[SMOTE] Applied with k_neighbors={k_neighbors}; new size: {len(X_res)}"
-                )
+                method_used = "SMOTE"
+                if not quiet:
+                    du.print_info(
+                        f"[SMOTE] Applied with k_neighbors={k_neighbors}; new size: {len(X_res)}"
+                    )
             except ValueError as smote_exc:
-                du.print_warning(
-                    f"[SMOTE] Fallback to ROS due to sparse class in split: {smote_exc}"
-                )
+                if not quiet:
+                    du.print_warning(
+                        f"[SMOTE] Fallback to ROS due to sparse class in split: {smote_exc}"
+                    )
                 ros = RandomOverSampler(random_state=random_state)
                 X_res, y_res = ros.fit_resample(X_train, y_train)
-                du.print_info(f"[ROS] Applied fallback oversampling; new size: {len(X_res)}")
+                method_used = "ROS_fallback"
+                if not quiet:
+                    du.print_info(f"[ROS] Applied fallback oversampling; new size: {len(X_res)}")
         else:
             rare_classes = {cls: 2 for cls, cnt in label_counts.items() if cnt <= 1}
             ros = RandomOverSampler(random_state=random_state, sampling_strategy=rare_classes)
             X_res, y_res = ros.fit_resample(X_train, y_train)
-            du.print_info(f"[ROS] Replicated rare classes; new size: {len(X_res)}")
+            method_used = "ROS_rare_class_replication"
+            if not quiet:
+                du.print_info(f"[ROS] Replicated rare classes; new size: {len(X_res)}")
 
         dist = {int(k): int(v) for k, v in Counter(y_res).items()}
         du.print_debug(f"[RESAMPLE] Class distribution: {dist}")
+        after_counts = {str(int(k)): int(v) for k, v in Counter(y_res).items()}
+        setattr(
+            app_config,
+            "RUNTIME_SMOTE_AUDIT_LAST",
+            {
+                "original_train_n": original_n,
+                "post_resample_train_n": int(len(X_res)),
+                "method": method_used,
+                "k_neighbors": k_neighbors_used,
+                "class_counts_before": before_counts,
+                "class_counts_after": after_counts,
+            },
+        )
         return pd.DataFrame(X_res, columns=X_train.columns), pd.Series(y_res)
     except Exception as exc:
         raise RuntimeError(f"SMOTE/ROS oversampling failed: {exc}")

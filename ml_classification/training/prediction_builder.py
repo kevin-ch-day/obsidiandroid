@@ -159,7 +159,8 @@ def run_predictions_and_compile_result(
             f"[{model_type.upper()}] Confidence shape: {len(confidences)}"
         )
 
-        model_prediction.report_prediction_stats(decoded_labels, confidences)
+        if not bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False)):
+            model_prediction.report_prediction_stats(decoded_labels, confidences)
 
         label_name_map = {}
         try:

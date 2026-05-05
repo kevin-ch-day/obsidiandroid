@@ -151,7 +151,7 @@ def test_run_classifier_pipeline_exports_leakage_pruning_audit(
     monkeypatch.setattr(
         pipeline_core.distribution_reporter,
         "apply_min_family_support",
-        lambda **kwargs: (kwargs["features_df"], kwargs["labels_df"], 0, 0),
+        lambda **kwargs: (kwargs["features_df"], kwargs["labels_df"], 0, 0, []),
     )
     monkeypatch.setattr(
         pipeline_core,

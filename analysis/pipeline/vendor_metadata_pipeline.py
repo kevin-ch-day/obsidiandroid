@@ -187,7 +187,7 @@ def _export_parser_quality(scorecard_df: pd.DataFrame) -> None:
     path = _diagnostics_dir() / "parser_quality.latest.csv"
     path.parent.mkdir(parents=True, exist_ok=True)
     export_df.to_csv(path, index=False)
-    du.print_info(f"[DIAG] Parser quality report exported: {path}")
+    du.print_debug(f"[DIAG] Parser quality report exported: {path.name}")
     if oh.should_emit_parser_stress_and_strengths_grid():
         _export_parser_stress_test(export_df)
         _export_parser_strengths_weaknesses(export_df)
@@ -418,7 +418,7 @@ def _export_parser_stress_test(export_df: pd.DataFrame) -> None:
         by=["effective_inclusion_share", "include_count", "trusted_included_count"],
         ascending=[False, False, False],
     ).to_csv(out_path, index=False)
-    du.print_info(f"[DIAG] Parser stress test exported: {out_path}")
+    du.print_debug(f"[DIAG] Parser stress test exported: {out_path.name}")
 
 
 def _export_parser_strengths_weaknesses(export_df: pd.DataFrame) -> None:
@@ -483,4 +483,4 @@ def _export_parser_strengths_weaknesses(export_df: pd.DataFrame) -> None:
     pd.DataFrame(rows).sort_values(
         by=["inclusion_status", "vendor"], ascending=[True, True]
     ).to_csv(out_path, index=False)
-    du.print_info(f"[DIAG] Parser strengths/weaknesses exported: {out_path}")
+    du.print_debug(f"[DIAG] Parser strengths/weaknesses exported: {out_path.name}")
