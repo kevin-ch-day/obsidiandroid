@@ -2,7 +2,7 @@
 # Purpose : Utility functions for AV engine pipeline input validation and metadata fetching
 
 import pandas as pd
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from database import db_av_engine_detection_totals
 
 

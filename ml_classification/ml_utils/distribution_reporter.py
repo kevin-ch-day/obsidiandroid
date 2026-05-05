@@ -32,7 +32,7 @@ def print_family_distribution(
     if not verbose or _is_empty_label_input(labels):
         return
 
-    from utils import display_utils as du
+    from obsidiandroid.cli.ui import display as du
 
     counts = Counter(labels)
     low_support = [str(fam) for fam, cnt in counts.items() if cnt <= LOW_SUPPORT_THRESHOLD]
@@ -61,7 +61,7 @@ def print_family_distribution(
 # === Post-split evaluation label distribution ===
 def print_split_distributions(y_test, *, verbose: bool = False):
     if verbose:
-        from utils import display_utils as du
+        from obsidiandroid.cli.ui import display as du
         du.print_subheader("[POST-SPLIT] Evaluation Label Distribution")
         print_family_distribution(
             y_test,

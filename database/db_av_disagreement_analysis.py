@@ -4,7 +4,7 @@
 from typing import Union
 import pandas as pd
 from database import db_engine, db_utils
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 # --------------------------------------------------------
 # Step 1: Build UNION SQL to melt wide columns

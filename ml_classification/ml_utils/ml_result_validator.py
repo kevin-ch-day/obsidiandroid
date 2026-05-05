@@ -1,7 +1,7 @@
 # Filename: ml_result_validator.py
 # Purpose : Validate and debug model output structure for ObsidianDroid ML pipeline
 
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 # Required top-level keys in a valid result dictionary
 REQUIRED_KEYS = [

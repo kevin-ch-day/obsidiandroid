@@ -1,7 +1,7 @@
 import os
 import pandas as pd
-from utils.display_utils import print_table
-from utils.display_utils import clear_console
+from obsidiandroid.cli.ui.display import clear_console
+from obsidiandroid.cli.ui.display import print_table
 
 
 def test_print_table_dataframe(capsys, monkeypatch):

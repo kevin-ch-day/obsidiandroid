@@ -19,8 +19,8 @@ from config import app_config
 from ml_classification.training.model_trainer_factory import reset_runtime_training_caches
 
 # === Database + Utilities ===
-from utils import display_utils as du
-from utils import ml_console
+from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import ml_console
 from obsidiandroid.reporting import family_distribution_report
 import obsidiandroid.cli.profile_manager as profile_manager
 import obsidiandroid.governance.run_manifest as run_manifest
@@ -99,9 +99,9 @@ from analysis.pipeline.run_bounds import (
     clear_pipeline_run_bounds,
     set_pipeline_run_bounds,
 )
-from analysis.observability import PipelineObservabilitySession
-from analysis.observability import api as obs_api
-from analysis.observability.taxonomy import LogCategory, LogSeverity
+from obsidiandroid.observability.pipeline_observability import PipelineObservabilitySession
+from obsidiandroid.observability.pipeline_observability import api as obs_api
+from obsidiandroid.observability.pipeline_observability.taxonomy import LogCategory, LogSeverity
 
 # Default diagnostics path derived from app configuration
 DIAGNOSTICS_DIR = os.path.join(app_config.DEFAULT_OUTPUT_DIR, "diagnostics")

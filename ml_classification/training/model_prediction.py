@@ -4,7 +4,7 @@
 
 import numpy as np
 from typing import Tuple, List
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from config import app_config
 
 # Predict labels for all samples using a trained model

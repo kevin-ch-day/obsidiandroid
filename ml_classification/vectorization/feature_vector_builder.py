@@ -10,8 +10,8 @@ from pandas.api.types import is_numeric_dtype
 from pathlib import Path
 import hashlib
 from config import app_config
-from utils import display_utils as du
-from utils import ml_console
+from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import ml_console
 from .feature_engine_selection import get_top_engines_by_score
 from .feature_encoder import encode_features
 from .feature_vendor_extractor import (

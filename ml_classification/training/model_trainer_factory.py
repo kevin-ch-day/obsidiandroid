@@ -7,7 +7,7 @@ import hashlib
 from pathlib import Path
 from typing import Any, Dict, Union
 
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 import pandas as pd
 from sklearn.model_selection import train_test_split

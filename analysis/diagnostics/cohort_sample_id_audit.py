@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 def audit_cohort_sample_id_uniqueness(

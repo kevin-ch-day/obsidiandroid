@@ -4,7 +4,7 @@
 import pandas as pd
 from typing import List, Optional
 from config import app_config
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 def get_top_engines_by_score(

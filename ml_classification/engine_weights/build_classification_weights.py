@@ -3,7 +3,7 @@
 
 import pandas as pd
 import sys
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from . import classification_weight_utils as cwutils
 from . import classification_weight_inspector as inspector
 from . import compute_reliability_score as reliability_score

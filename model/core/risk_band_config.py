@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass, field
 from typing import List, Literal
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 # Default ordered labels for 4-bin severity
 DEFAULT_LABELS = ["Low", "Moderate", "Elevated", "Critical"]

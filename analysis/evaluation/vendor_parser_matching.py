@@ -2,7 +2,7 @@
 # Purpose : Matches AV vendor parser definitions to available columns in input data
 
 import difflib
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 def resolve_valid_vendor_columns(

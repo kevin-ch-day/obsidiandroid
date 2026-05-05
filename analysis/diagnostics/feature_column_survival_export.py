@@ -9,7 +9,7 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 def nonzero_counts_for_columns(features_df: pd.DataFrame | None) -> dict[str, int]:

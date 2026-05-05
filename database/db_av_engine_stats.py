@@ -2,7 +2,7 @@
 import re
 import pandas as pd
 from database import db_engine
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 MALICIOUS_REGEX = "trojan|backdoor|spy|rat|banker|keylogger|stealer|dropper|ransom|clipbank|loader|exploit"
 SUSPICIOUS_REGEX = "risktool|adware|grayware|heur|not[-]?a[-]?virus|monitor|obfus|pua|testkey|dualuse|demo"

@@ -12,7 +12,7 @@ from config import app_config
 from ml_classification.labeling import classification_label_resolver
 from ml_classification.training import pipeline_core
 from ml_classification.vectorization import feature_vector_builder
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from obsidiandroid.observability.logging import get_logger, log_event
 
 

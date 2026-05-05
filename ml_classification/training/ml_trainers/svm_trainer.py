@@ -9,7 +9,7 @@ from sklearn.metrics import classification_report
 from sklearn.model_selection import GridSearchCV
 import numpy as np
 from config import app_config
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 def _validate_inputs(X_train, y_train):

@@ -12,9 +12,9 @@ from sklearn.metrics import (
 import pandas as pd
 
 from config import app_config
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from obsidiandroid.reporting import export_manager
-from utils import ml_console
+from obsidiandroid.common import ml_console
 from ml_classification.reporting import ml_report_builder
 from ml_classification.ml_utils import accuracy_band_utils
 

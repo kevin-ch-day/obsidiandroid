@@ -2,7 +2,7 @@
 # Description: Evaluation and insight generation for ML-scored AV engines
 
 import pandas as pd
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 def print_engine_weight_summary(df: pd.DataFrame):
     if df.empty or "ML Weight Score" not in df.columns:

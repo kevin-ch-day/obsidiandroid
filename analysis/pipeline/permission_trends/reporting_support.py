@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from config import app_config
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 from analysis.pipeline.permission_trends.constants import PERMISSION_PREFIX
 

@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from model.vendor.record_core import VendorClassificationRecord
 from ml_classification.builder import classification_constants
 from ml_classification.inference.threat_class_engine import infer_threat_class
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 import difflib
 
 

@@ -2,7 +2,7 @@
 # Purpose  : Modular validation and diagnostics for vendor parsing output
 
 import pandas as pd
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from . import inspect_parsed_data
 
 def validate_vendor_classification_output(

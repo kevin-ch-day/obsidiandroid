@@ -9,8 +9,8 @@ from typing import Any
 
 from analysis.diagnostics.output_artifact_policy import classify_file
 from config import app_config
-from utils import display_utils as du
-from utils import ml_console
+from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import ml_console
 from obsidiandroid.common.output_hygiene import resolve_stable_output_root_for_mirrors
 
 

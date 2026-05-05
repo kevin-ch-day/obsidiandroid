@@ -18,7 +18,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from analysis.pipeline.stage_modeling import run_training_stage
 from config import app_config
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 def _parse_models(raw: str | None) -> list[str] | None:

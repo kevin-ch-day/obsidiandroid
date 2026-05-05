@@ -2,7 +2,7 @@
 # Description: Orchestrates AV vendor classification analysis and optional export
 
 import pandas as pd
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from obsidiandroid.reporting import export_manager as em
 from analysis.evaluation import vendor_classification_inspector as inspector
 from analysis.evaluation.vendor_classification_parser import parse_vendor_classifications

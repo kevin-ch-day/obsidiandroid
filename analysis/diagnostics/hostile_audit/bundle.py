@@ -158,7 +158,7 @@ def write_hostile_audit_bundle(
             artifact_list.append(sp)
         emitted.append(sp)
 
-    from analysis.observability import api as obs_api
+    from obsidiandroid.observability.pipeline_observability import api as obs_api
 
     for p_str in reversed(emitted):
         if p_str.endswith("recommended_findings.md"):

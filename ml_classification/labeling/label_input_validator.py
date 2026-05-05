@@ -2,7 +2,7 @@
 # Purpose  : Validate vendor metadata and ML model output structure before building classification labels
 
 import pandas as pd
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 # Validate structure and contents of vendor and model result inputs
 def validate_label_resolution_inputs(vendor_records: dict, model_output: dict) -> bool:

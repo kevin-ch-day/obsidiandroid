@@ -2,7 +2,7 @@
 # Description: Maps AV vendor names directly to parser functions using exact DataFrame column names
 
 from typing import Dict, List, Optional
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from . import (
     ahnlab_v3_parser,
     alibaba_parser,

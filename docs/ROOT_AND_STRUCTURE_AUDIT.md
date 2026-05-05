@@ -81,7 +81,7 @@ Work proceeded in **documented passes** (see **`STRUCTURE_MIGRATION_PLAN.md`**).
 | Directory | Role |
 |-----------|------|
 | **`src/obsidiandroid/`** | **Canonical product package** (CLI, common, pipeline facade, governance, placeholders). |
-| **`analysis/`** | Pipeline stages, AV parsers, diagnostics glue — **core legacy implementation**. |
+| **`analysis/`** | Pipeline stages, AV parsers, diagnostics glue — **core legacy implementation**. **`analysis/observability/`** is a **shim** to **`obsidiandroid.observability.pipeline_observability`** (Pass 32). |
 | **`database/`** | DB access, cohort SQL. |
 | **`ml_classification/`** | Training, vectorization, labeling helpers. |
 | **`model/`** | Model artifacts support (as present in repo). |

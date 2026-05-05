@@ -9,7 +9,7 @@ from typing import Any, Iterable
 import pandas as pd
 
 from config import app_config
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 def _perm_bag_positive_mask(

@@ -19,7 +19,7 @@ from database import db_sample_metadata_queries
 from analysis.evaluation.vendor_classification_parser import (
     parse_vendor_classifications,
 )
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 DEFAULT_OUTPUT_DIR = Path("output") / "diagnostics"

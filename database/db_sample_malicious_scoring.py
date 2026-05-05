@@ -4,7 +4,7 @@
 import pandas as pd
 from database import db_engine
 from database import schema_map
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 def get_active_trusted_engines():
     vendors_table = schema_map.table("vendor_engines")

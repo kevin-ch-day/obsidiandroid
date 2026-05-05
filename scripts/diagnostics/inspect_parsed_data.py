@@ -1,7 +1,7 @@
 # Filename: scripts/diagnostics/inspect_parsed_data.py
 # Purpose  : Inspect and validate parsed vendor classification data and diagnose failure causes
 
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 import pandas as pd
 
 # Entry point to inspect parsed vendor data

@@ -3,7 +3,7 @@
 
 from typing import Any, List, Dict, Tuple
 from model.vendor.record_core import VendorClassificationRecord
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from config import app_config
 
 

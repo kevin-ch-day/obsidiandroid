@@ -25,8 +25,8 @@ from sklearn.svm import SVC
 from imblearn.pipeline import Pipeline as ImbPipeline
 
 from config import app_config
-from utils import display_utils as du
-from utils import ml_console
+from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import ml_console
 
 from .ml_trainers.balanced_random_forest_trainer import (
     get_default_brf_params,

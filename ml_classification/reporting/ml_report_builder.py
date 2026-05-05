@@ -3,8 +3,8 @@
 
 import pandas as pd
 from config import app_config
-from utils import display_utils as du
-from utils import ml_console
+from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import ml_console
 from ml_classification.ml_utils import accuracy_band_utils
 
 

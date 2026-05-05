@@ -7,7 +7,7 @@ from analysis.matrix import enrich_malicious_scores as enrich_scores
 from analysis.pipeline import score_av_engines
 from .engine_pipeline_utils import validate_sample_input
 from .attach_engine_metadata import attach_engine_metadata
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 def run_av_analysis_pipeline(

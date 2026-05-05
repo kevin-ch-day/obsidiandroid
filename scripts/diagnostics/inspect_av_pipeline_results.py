@@ -3,7 +3,7 @@
 
 import os
 import pandas as pd
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 EXPORT_PIPELINE_SNAPSHOT = "output/av_pipeline_snapshot.xlsx"
 

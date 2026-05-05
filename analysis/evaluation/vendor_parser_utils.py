@@ -5,7 +5,7 @@ from typing import Dict
 from pathlib import Path
 import pandas as pd
 
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from config import app_config
 from analysis.vendor_processing import vendor_parser_map
 from analysis.vendor_processing import generic_label_parser

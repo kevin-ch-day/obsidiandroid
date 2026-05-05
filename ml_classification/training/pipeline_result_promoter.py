@@ -1,7 +1,7 @@
 # Filename: pipeline_result_promoter.py
 # Purpose  : Promote selected fields from the best/default ML model to top-level results for downstream access
 
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 # Default model key used to select which model's results to promote
 DEFAULT_MODEL_KEY = "xgboost"

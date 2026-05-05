@@ -8,7 +8,7 @@ import pandas as pd
 
 from config import app_config
 from database import db_engine
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 METADATA_COLS = {
     "updated_at",

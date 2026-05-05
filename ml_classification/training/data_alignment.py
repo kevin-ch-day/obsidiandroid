@@ -7,7 +7,7 @@ from typing import Any
 import pandas as pd
 
 from ml_classification.common.malware_family_constants import canonicalize_family_label
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 class DataAlignmentError(ValueError):

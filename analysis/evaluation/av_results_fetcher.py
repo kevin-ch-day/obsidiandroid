@@ -2,7 +2,7 @@
 # Description: Fetches raw AV engine results from the database for given samples with diagnostic logging.
 
 import pandas as pd
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from database import db_fetch_av_engine_raw_results
 
 def fetch_av_results(samples_df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:

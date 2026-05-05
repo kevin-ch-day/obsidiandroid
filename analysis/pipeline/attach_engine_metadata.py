@@ -7,7 +7,7 @@ import pandas as pd
 
 from config import app_config
 from database import db_av_engine_detection_totals
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 METADATA_FIELDS = [
     "detection_strategy", "is_trusted_vendor", "is_engine_active",

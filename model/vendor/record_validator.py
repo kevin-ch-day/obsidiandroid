@@ -3,7 +3,7 @@
 
 from typing import List, Dict
 from model.vendor.record_core import VendorClassificationRecord
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 def validate_record_completeness(record: VendorClassificationRecord) -> str:

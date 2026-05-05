@@ -3,7 +3,7 @@
 
 import pandas as pd
 from database import db_engine, db_sample_malicious_scoring
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 EXCLUDE_COLUMNS = {
     "sample_id", "updated_at", "record_id", "malicious", "undetected",

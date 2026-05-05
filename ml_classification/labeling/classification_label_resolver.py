@@ -11,7 +11,7 @@ from ml_classification.labeling.label_input_validator import validate_label_reso
 from ml_classification.labeling.label_builder_wrapper import build_structured_label_output
 from ml_classification.labeling.label_postprocessor import summarize_prediction_results
 
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from obsidiandroid.reporting import export_manager
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from config import app_config

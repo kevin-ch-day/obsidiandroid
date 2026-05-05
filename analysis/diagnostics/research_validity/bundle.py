@@ -21,7 +21,7 @@ from analysis.diagnostics.research_validity.signal_export import write_signal_de
 from analysis.diagnostics.research_validity.type_permission_figures import (
     write_type_permission_figure_bundle,
 )
-from analysis.observability import api as obs_api
+from obsidiandroid.observability.pipeline_observability import api as obs_api
 
 
 def write_research_validity_bundle(

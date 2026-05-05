@@ -665,11 +665,32 @@ No additional deletes this pass (prior **`rg`** audit showed no further zero-cal
 | **`obsidiandroid.observability` package** | **updated** — re-exports **`get_logger`**, **`log_event`** for **`from obsidiandroid.observability import …`**. |
 | **Pipeline / ML import hygiene** | **updated** — **`utils.hash_utils`** / **`utils.runtime_paths`** in **`analysis/`** and **`ml_classification/labeling/`** → **`obsidiandroid.common.*`** (fewer hot-path **`utils.*`** dependencies). |
 
-**Deferred:** broad **`analysis/observability/`** tree merge (this pass is **`src/obsidiandroid/observability/logging`** only). Full **`utils.display_utils`** → **`obsidiandroid.cli.ui.display`** sweep is **deferred** (large call surface).
+**Deferred:** broad **`analysis/observability/`** tree merge (this pass is **`src/obsidiandroid/observability/logging`** only).
+
+## Pass 31 (complete): canonical **`display`** / **`ml_console`** imports (implementation hygiene)
+
+| Item | Notes |
+|------|-------|
+| **Display** | **`analysis/`**, **`database/`**, **`ml_classification/`**, **`model/`**, **`scripts/`**, **`src/obsidiandroid/cli/menu/`** — **`from utils import display_utils as du`** → **`from obsidiandroid.cli.ui import display as du`**. |
+| **ML console** | Same trees — **`from utils import ml_console`** → **`from obsidiandroid.common import ml_console`**. |
+| **`utils.display_utils` / `utils.ml_console`** | **Shims kept** — thin re-exports only. |
+| **`tests/test_display_utils.py`** | Imports canonical **`obsidiandroid.cli.ui.display`**. Shim parity: **`test_obsidiandroid_package_surface`**, **`test_obsidiandroid_common_shims`** ( **`ml_console as ml_shim`** unchanged). |
+| **`scripts/dev/check_import_surface.py`** | Asserts **`print_table`** and **`is_minimal`** shim parity. |
+| **`analysis/observability/logging_audit.py`** | Doc line updated for terminal sink path. |
+
+## Pass 32 (complete): **`analysis/observability`** → **`obsidiandroid.observability.pipeline_observability`**
+
+| Item | Notes |
+|------|-------|
+| **`src/obsidiandroid/observability/pipeline_observability/`** | **moved_now** — **`taxonomy`**, **`session`**, **`api`**, **`logging_audit`**, **`finalize`**, **`run_health`** (same behavior as former **`analysis/observability/`**). |
+| **`analysis/observability/*.py`** | **wrapper_kept** — thin **`utils.repo_import_paths`** + **`import *`** / package re-export shims to canonical modules. |
+| **Call sites** | **updated** — **`runner`**, **`stage_av_vendor`**, **`stage_manifest`**, **`stage_ablation`**, **`research_validity/bundle`**, **`hostile_audit/bundle`**, observability tests use **`obsidiandroid.observability.pipeline_observability.*`**. |
+| **`scripts/dev/check_import_surface.py`** | **`analysis.observability.api.record_stage_start`** identity vs canonical **`api`**. **Thin shim policies:** **`analysis/observability`** (Pass 32), repo-root **`utils/*.py`** (exclude **`repo_import_paths`**, **`export_manager`**, **`startup_menu`**, **`__init__.py`**), **`utils/exporting`** leaf modules (exclude aggregating **`__init__.py`**), **`utils/menu`**, **`utils/ui`**, **`utils/logging`** — max line counts, required **`utils.repo_import_paths`** + canonical substring, no module-level **`def`/`class`**. **UTF-8 BOM scan:** no **`*.py`** under the repo (excluding skipped dirs) may start with a BOM — breaks **`ast.parse`** and tooling. |
+| **`tests/test_obsidiandroid_package_surface.py`** | **`test_analysis_observability_api_shim_matches_canonical`**, **`test_thin_compat_shim_trees_follow_policy`**, **`test_python_sources_have_no_utf8_bom_prefix`**. |
 
 ## Next pass suggestions
 
-1. **`analysis/observability/`** narrative-only modules vs **`obsidiandroid.observability`** — consolidate naming/docs when ready ( **`utils.logging`** shim remains).
+1. **`obsidiandroid.diagnostics`:** expand facade or move selected **`analysis/diagnostics`** modules incrementally (large tree; slice by submodule).
 2. **Re-export policy:** Decide whether long-term tests should import `obsidiandroid.cli.*` only, or whether **`utils/`** shims should keep exposing delegate wrappers. Prefer canonical imports in tests for anything under monkeypatch.
 3. **Move `analysis/pipeline`:** Largest consumer of imports; plan re-exports from `obsidiandroid.pipeline` with root/package shims similar to CLI.
 4. **`database` naming:** When moving DB access, clarify imports: top-level `database` vs `obsidiandroid.database` to avoid mistaken cross-imports.

@@ -3,7 +3,7 @@
 
 import textwrap
 
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 def display_label_encoder_info(label_encoder, model_name: str = "") -> None:

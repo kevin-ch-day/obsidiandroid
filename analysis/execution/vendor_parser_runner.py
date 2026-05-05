@@ -6,7 +6,7 @@ import traceback
 from typing import Tuple, List, Dict, Any, Optional
 
 from analysis.execution import vendor_classification_processor
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 def execute_vendor_parser(

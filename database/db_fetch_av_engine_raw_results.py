@@ -3,7 +3,7 @@
 
 import pandas as pd
 from database import db_engine
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 # Columns to drop from the raw engine results
 COLUMNS_TO_EXCLUDE = {

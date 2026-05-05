@@ -23,7 +23,7 @@ from obsidiandroid.reporting.latex_tables import LatexTableSpec, render_tabular
 import obsidiandroid.governance.artifacts as artifacts
 from obsidiandroid.common import output_paths
 import obsidiandroid.governance.run_manifest as run_manifest
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.common import output_hygiene as oh
 from analysis.pipeline.manifest.hashing import (
@@ -672,8 +672,8 @@ def _finalize_output_hygiene_bundle(
     """Artifact inventory, virtual layout, run evidence index, and terminal summary."""
     try:
         from analysis.diagnostics import output_inventory
-        from analysis.observability.finalize import finalize_pipeline_observability
-        from analysis.observability.run_health import print_unified_run_health
+        from obsidiandroid.observability.pipeline_observability.finalize import finalize_pipeline_observability
+        from obsidiandroid.observability.pipeline_observability.run_health import print_unified_run_health
 
         layout_path = output_inventory.write_virtual_layout(run_root)
         inv_paths, summary = output_inventory.write_artifact_inventory_bundle(

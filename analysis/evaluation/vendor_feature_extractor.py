@@ -2,7 +2,7 @@
 # Purpose : Extract and prepare AV vendor classification features for ML analysis pipeline
 
 import pandas as pd
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from obsidiandroid.reporting import export_manager as em
 from analysis.evaluation import evaluate_av_classifications
 from scripts.diagnostics import inspect_vendor_feature_results

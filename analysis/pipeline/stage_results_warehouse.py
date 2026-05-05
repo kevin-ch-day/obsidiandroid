@@ -1,4 +1,4 @@
-﻿"""Persist permission-trends analysis artifacts into MariaDB run-scoped tables."""
+"""Persist permission-trends analysis artifacts into MariaDB run-scoped tables."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import pandas as pd
 
 from config import app_config
 from database import db_engine
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 
 

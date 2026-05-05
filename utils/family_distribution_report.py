@@ -1,4 +1,4 @@
-﻿"""Compatibility shim; implementation in :mod:`obsidiandroid.reporting.family_distribution_report`."""
+"""Compatibility shim; implementation in :mod:`obsidiandroid.reporting.family_distribution_report`."""
 
 import utils.repo_import_paths  # noqa: F401
 

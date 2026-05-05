@@ -4,7 +4,7 @@
 import pandas as pd
 from database import db_engine
 from database import schema_map
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 # Columns to exclude from analysis in the vendor verdict table
 AV_ENGINES_RESULTS_IGNORED_COLS = {

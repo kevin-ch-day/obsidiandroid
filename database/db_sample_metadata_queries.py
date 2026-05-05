@@ -10,7 +10,7 @@ from __future__ import annotations
 import pandas as pd
 from config import app_config
 
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from database.db_sample_metadata_contracts import (
     SUPPORTED_ANDROID_TYPE_SLUGS,
     convert_to_dataframe,

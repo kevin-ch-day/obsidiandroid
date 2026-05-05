@@ -104,6 +104,15 @@ def test_display_utils_shim_matches_canonical_display() -> None:
     assert shim.print_table is canon.print_table
 
 
+def test_ml_console_shim_matches_canonical() -> None:
+    """``utils.ml_console`` re-exports :mod:`obsidiandroid.common.ml_console`."""
+    import obsidiandroid.common.ml_console as canon
+    from utils import ml_console as shim
+
+    assert shim.is_minimal is canon.is_minimal
+    assert shim.get_mode is canon.get_mode
+
+
 def test_family_distribution_report_shim_matches_canonical() -> None:
     """``utils.family_distribution_report`` delegates to ``obsidiandroid.reporting``."""
     import obsidiandroid.reporting.family_distribution_report as canon
@@ -234,6 +243,36 @@ def test_logging_runtime_module_shim_matches_canonical() -> None:
 
     assert shim.start_runtime_logging is canon.start_runtime_logging
     assert shim.stop_runtime_logging is canon.stop_runtime_logging
+
+
+def test_analysis_observability_api_shim_matches_canonical() -> None:
+    """``analysis.observability.api`` re-exports ``pipeline_observability.api``."""
+    import analysis.observability.api as shim
+    import obsidiandroid.observability.pipeline_observability.api as canon
+
+    assert shim.record_stage_start is canon.record_stage_start
+
+
+def test_thin_compat_shim_trees_follow_policy() -> None:
+    """Legacy shim dirs stay star-import / bootstrap only (see check_import_surface)."""
+    from pathlib import Path
+
+    from scripts.dev.check_import_surface import collect_thin_compat_shim_violations
+
+    repo_root = Path(__file__).resolve().parents[1]
+    errs = collect_thin_compat_shim_violations(repo_root)
+    assert errs == [], "thin compat shim violations:\n" + "\n".join(errs)
+
+
+def test_python_sources_have_no_utf8_bom_prefix() -> None:
+    """BOM-prefixed ``*.py`` files break ast.parse and CI shim checks (see check_import_surface)."""
+    from pathlib import Path
+
+    from scripts.dev.check_import_surface import collect_utf8_bom_python_sources
+
+    repo_root = Path(__file__).resolve().parents[1]
+    bad = collect_utf8_bom_python_sources(repo_root)
+    assert not bad, "UTF-8 BOM at start of:\n" + "\n".join(bad)
 
 
 def test_diagnostics_facade_modules_match_analysis_diagnostics() -> None:

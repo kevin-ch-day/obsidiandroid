@@ -9,7 +9,7 @@ from typing import Tuple
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 def balanced_train_test_split(

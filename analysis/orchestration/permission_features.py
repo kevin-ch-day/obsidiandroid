@@ -40,7 +40,7 @@ PERMISSION_GROUP_DEFINITIONS: tuple[tuple[str, re.Pattern[str]], ...] = (
 
 from config import app_config
 from database import db_engine
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 _TOKEN_PATTERN = re.compile(r"[^a-z0-9]+")

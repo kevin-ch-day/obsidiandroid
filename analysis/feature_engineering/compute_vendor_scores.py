@@ -2,7 +2,7 @@
 # Purpose : Derive ML-compatible scores from vendor classification evaluation summary
 
 import pandas as pd
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from config import app_config
 
 REQUIRED_COLUMNS = [

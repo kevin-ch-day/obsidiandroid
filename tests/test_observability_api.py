@@ -1,16 +1,16 @@
-"""Tests for analysis.observability.api facade."""
+"""Tests for :mod:`obsidiandroid.observability.pipeline_observability.api`."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from analysis.observability.api import (
+from obsidiandroid.observability.pipeline_observability.api import (
     record_data_population_change,
     record_partial_failure,
     record_training_split_allocation,
 )
-from analysis.observability.session import PipelineObservabilitySession
-from analysis.observability.taxonomy import LogCategory
+from obsidiandroid.observability.pipeline_observability.session import PipelineObservabilitySession
+from obsidiandroid.observability.pipeline_observability.taxonomy import LogCategory
 
 
 def test_api_helpers_route_to_session(tmp_path: Path) -> None:

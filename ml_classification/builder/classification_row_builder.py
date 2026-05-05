@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional
 from model.vendor.record_core import VendorClassificationRecord
 from ml_classification.labeling.label_format_generator import generate_label
 from ml_classification.labeling import label_field_normalizer
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from . import vendor_record_selector
 from . import record_enrichment
 from . import prediction_utils

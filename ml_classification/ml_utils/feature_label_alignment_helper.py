@@ -4,7 +4,7 @@
 from typing import Tuple, Optional, Set
 import pandas as pd
 import os
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from ml_classification.ml_utils import feature_alignment_utils
 
 # -------------------------------------------------------------------

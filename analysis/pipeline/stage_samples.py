@@ -11,7 +11,7 @@ from config import app_config
 from database import db_sample_metadata_queries
 import obsidiandroid.governance.cohort_readiness_report as cohort_readiness_report
 import obsidiandroid.governance.cohort_reproducibility as cohort_reproducibility
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from obsidiandroid.observability.logging import get_logger, log_event
 from obsidiandroid.common.sample_metadata_preprocessor import prepare_sample_dataframe
 

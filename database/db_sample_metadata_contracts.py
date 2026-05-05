@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 SUPPORTED_ANDROID_TYPE_SLUGS = (
     "banker",

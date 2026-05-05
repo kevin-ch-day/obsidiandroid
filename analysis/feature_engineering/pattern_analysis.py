@@ -1,7 +1,7 @@
 import pandas as pd
 from sklearn.decomposition import PCA
 from scipy.stats import zscore
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 def feature_correlation_summary(df: pd.DataFrame, threshold: float = 0.8, verbose: bool = True) -> pd.DataFrame:

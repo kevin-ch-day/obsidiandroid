@@ -3,7 +3,7 @@
 
 import pandas as pd
 from functools import reduce
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 def _normalize_vendor_key(name: str) -> str:

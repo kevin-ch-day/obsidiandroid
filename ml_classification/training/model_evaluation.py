@@ -1,7 +1,7 @@
 import traceback
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from config import app_config
-from utils import ml_console
+from obsidiandroid.common import ml_console
 from ml_classification.ml_utils import (
     distribution_reporter,
     ml_result_analyzer,

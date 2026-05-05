@@ -4,7 +4,7 @@
 import pandas as pd
 from typing import Tuple, Dict, List, Any
 from analysis.execution import vendor_parser_runner
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 def parse_all_vendors(

@@ -4,7 +4,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 # Normalize a series using hybrid z-score + MinMax approach
 def hybrid_normalize(series: pd.Series) -> pd.Series:

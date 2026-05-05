@@ -6,7 +6,7 @@ import traceback
 import numpy as np
 import pandas as pd
 
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from ml_classification.builder.prediction_utils import extract_prediction_components
 from ml_classification.builder.classification_row_builder import build_classification_row
 from ml_classification.inference.label_consensus_engine import resolve_consensus_label

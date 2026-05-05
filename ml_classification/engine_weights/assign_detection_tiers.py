@@ -2,7 +2,7 @@
 # Purpose : Assign detection performance tiers using ML weight score, reliability, and tier score
 
 import pandas as pd
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 EXPORT_TIER_DEBUG_PATH = "output/detection_tier_assignment.xlsx"
 

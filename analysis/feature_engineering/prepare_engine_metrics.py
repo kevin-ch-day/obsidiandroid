@@ -2,7 +2,7 @@
 # Purpose : Prepare and normalize AV engine scores for ML readiness in ObsidianDroid
 
 import pandas as pd
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 REQUIRED_METRIC_COLUMNS = {"Engine", "Coverage %", "Detection Rate", "Tier Score"}
 EXPORT_DEBUG_INPUT_PATH = "output/debug_engine_df.xlsx"

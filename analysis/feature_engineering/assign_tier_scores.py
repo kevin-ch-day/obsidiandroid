@@ -2,7 +2,7 @@
 # Purpose : Assign meaningful performance tiers to AV engines using detection + coverage metrics
 
 import pandas as pd
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 # Tier labels and explanations
 TIER_LABELS_VERBOSE = {

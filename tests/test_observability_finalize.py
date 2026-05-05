@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from analysis.observability.finalize import finalize_pipeline_observability
-from analysis.observability.logging_audit import write_logging_audit_artifacts
-from analysis.observability.session import PipelineObservabilitySession
-from analysis.observability.taxonomy import LogCategory
+from obsidiandroid.observability.pipeline_observability.finalize import finalize_pipeline_observability
+from obsidiandroid.observability.pipeline_observability.logging_audit import write_logging_audit_artifacts
+from obsidiandroid.observability.pipeline_observability.session import PipelineObservabilitySession
+from obsidiandroid.observability.pipeline_observability.taxonomy import LogCategory
 
 
 def test_write_logging_audit_artifacts_writes(tmp_path: Path) -> None:

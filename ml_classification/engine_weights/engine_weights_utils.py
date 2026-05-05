@@ -3,7 +3,7 @@
 
 import pandas as pd
 from . import classification_weight_utils as cwutils
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 # Required normalized metric columns
 NORMALIZATION_MAP = {

@@ -6,7 +6,7 @@ from typing import Callable, Dict, Any, Optional, Union, Mapping
 
 from model.vendor.record_core import VendorClassificationRecord
 from model.parsing.parsed_label_metadata import ParsedLabelMetadata
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 INVALID_LABEL_TOKENS = {"", "none", "nan", "null"}
 

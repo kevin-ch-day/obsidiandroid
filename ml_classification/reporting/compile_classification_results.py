@@ -2,7 +2,7 @@
 # Purpose  : Build and validate structured classification labels from ML predictions
 
 import pandas as pd
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from ml_classification.builder import sample_classification_builder
 from ml_classification.inference.label_consensus_engine import resolve_consensus_label
 

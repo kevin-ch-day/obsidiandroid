@@ -1,8 +1,10 @@
-"""Compatibility shim; canonical :mod:`obsidiandroid.observability.pipeline_observability`."""
+"""Pipeline run observability: session, JSONL timeline, stage summary, finalize, run health.
+
+This package is the canonical home for code that previously lived under
+``analysis/observability/``. Legacy imports remain available via thin shims there.
+"""
 
 from __future__ import annotations
-
-import utils.repo_import_paths  # noqa: F401
 
 from obsidiandroid.observability.pipeline_observability import api
 from obsidiandroid.observability.pipeline_observability.finalize import finalize_pipeline_observability

@@ -32,7 +32,7 @@ if str(REPO_ROOT) not in sys.path:
 from database import db_engine
 from database import db_sample_metadata_queries
 from analysis.vendor_processing.vendor_parser_map import get_vendor_parser_map
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 
 OUTPUT_DIR = Path("output") / "diagnostics"

@@ -15,8 +15,8 @@ from config import app_config
 from ml_classification.ml_utils import distribution_reporter
 from ml_classification.training import pipeline_core
 from ml_classification.vectorization import feature_vector_builder
-from utils import display_utils as du
-from utils import ml_console
+from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import ml_console
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 
 from analysis.diagnostics.ablation_cohort_diagnostics import write_ablation_cohort_gap_artifacts
@@ -846,7 +846,7 @@ def run_ablation_experiments(
     artifact_paths.extend([str(summary_path)])
     du.print_info(f"[ABLATION] Exported summary: {summary_path}")
     if isinstance(manifest_context, dict):
-        from analysis.observability import api as obs_api
+        from obsidiandroid.observability.pipeline_observability import api as obs_api
 
         obs_api.record_ablation_summary(
             manifest_context,

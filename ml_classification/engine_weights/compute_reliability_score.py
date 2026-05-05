@@ -3,7 +3,7 @@
 
 import pandas as pd
 import numpy as np
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 
 REQUIRED_COLUMNS = [
     "Detection Rate (Norm)",

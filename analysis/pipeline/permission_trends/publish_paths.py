@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from config import app_config
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_paths
 from obsidiandroid.common.hash_utils import hash_payload
 

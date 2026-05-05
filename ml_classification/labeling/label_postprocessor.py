@@ -2,7 +2,7 @@
 # Purpose  : Summarize structured predictions and run post-classification diagnostics
 
 import pandas as pd
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from ml_classification.inference import signal_health_checker
 from config import app_config
 

@@ -2,7 +2,7 @@
 # Purpose : Utility functions for handling prediction output and model metadata
 
 from typing import Dict, Tuple, Any
-from utils import display_utils as du
+from obsidiandroid.cli.ui import display as du
 from config import app_config
 from ml_classification.common.malware_family_constants import normalize_family_name
 
