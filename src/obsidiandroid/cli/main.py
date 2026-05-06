@@ -1,5 +1,5 @@
 # Filename: main.py
-# Purpose  : Thin CLI entry — pipeline orchestration lives in ``analysis.pipeline.runner``.
+# Purpose  : Thin CLI entry — ``run_pipeline`` lives in ``obsidiandroid.pipeline.runner``.
 
 """Malware classification pipeline CLI and stable import surface for tests."""
 

@@ -16,7 +16,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 # Standard bootstrap for source checkouts (idempotent).
-from utils.repo_import_paths import ensure_repo_src_on_sys_path
+from utils.repo_import_paths import ensure_repo_src_on_sys_path  # noqa: E402
 
 ensure_repo_src_on_sys_path()
 

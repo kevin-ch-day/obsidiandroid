@@ -12,8 +12,8 @@ class _DummyEncoder:
 def test_align_data_returns_series() -> None:
     features = pd.DataFrame({"feat": [1, 2]}, index=["s1", "s2"])
     labels = pd.DataFrame({"sample_id": ["s1", "s2"], "family_name": ["A", "B"]})
-    f, l = pipeline_core.align_data(features, labels)
-    assert isinstance(l, pd.Series)
+    f, lbl = pipeline_core.align_data(features, labels)
+    assert isinstance(lbl, pd.Series)
     assert list(f.index) == ["s1", "s2"]
 
 

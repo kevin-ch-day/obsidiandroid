@@ -10,7 +10,7 @@ import pandas as pd
 from config import app_config
 import obsidiandroid.governance.run_manifest as run_manifest
 from obsidiandroid.common.hash_utils import hash_payload
-from analysis.pipeline.governance.integrity import enforce_run_scoped_artifact_paths
+from obsidiandroid.governance.integrity import enforce_run_scoped_artifact_paths
 
 
 def runtime_diagnostics_dir() -> Path:

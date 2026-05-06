@@ -46,10 +46,32 @@ def test_pipeline_facade_matches_runner_public_surface() -> None:
 
 
 def test_pipeline_physical_leaf_modules_share_identity_with_legacy_shims() -> None:
-    """Pass 66: contract_filters, run_bounds, runtime_policy live under ``src/``."""
+    """Canonical pipeline modules through Pass 71 share identity with ``analysis.pipeline`` shims."""
     import importlib
 
-    for name in ("contract_filters", "run_bounds", "runtime_policy"):
+    for name in (
+        "contract_filters",
+        "run_bounds",
+        "runtime_policy",
+        "runner",
+        "main_facade",
+        "stage_samples",
+        "sample_exports",
+        "stage_av_vendor",
+        "stage_manifest",
+        "sample_preparation",
+        "stage_feature_enrichment",
+        "stage_modeling",
+        "stage_ablation",
+        "stage_results_warehouse",
+        "stage_permission_trends_report",
+        "engine_pipeline_utils",
+        "attach_engine_metadata",
+        "engine_normalization",
+        "score_av_engines",
+        "av_engine_pipeline",
+        "vendor_metadata_pipeline",
+    ):
         physical = importlib.import_module(f"obsidiandroid.pipeline.{name}")
         legacy = importlib.import_module(f"analysis.pipeline.{name}")
         assert physical is legacy
@@ -145,24 +167,26 @@ def test_pipeline_artifacts_facade_matches_artifact_modules() -> None:
 
 
 def test_pipeline_permission_trends_facade_matches_permission_trends_modules() -> None:
-    """Pipeline permission-trends facade aliases analysis.pipeline.permission_trends modules."""
+    """Pipeline permission-trends facade aliases canonical modules (**Pass 74**); legacy paths match."""
     import importlib
 
     import obsidiandroid.pipeline.permission_trends as permission_trends_facade
 
     permission_trends_pairs = (
-        ("bundle_manifest", "analysis.pipeline.permission_trends.bundle_manifest"),
-        ("constants", "analysis.pipeline.permission_trends.constants"),
-        ("publish_paths", "analysis.pipeline.permission_trends.publish_paths"),
-        ("reporting_support", "analysis.pipeline.permission_trends.reporting_support"),
-        ("sample_permission_data", "analysis.pipeline.permission_trends.sample_permission_data"),
-        ("stats_core", "analysis.pipeline.permission_trends.stats_core"),
+        ("bundle_manifest", "obsidiandroid.pipeline.permission_trends.bundle_manifest"),
+        ("constants", "obsidiandroid.pipeline.permission_trends.constants"),
+        ("publish_paths", "obsidiandroid.pipeline.permission_trends.publish_paths"),
+        ("reporting_support", "obsidiandroid.pipeline.permission_trends.reporting_support"),
+        ("sample_permission_data", "obsidiandroid.pipeline.permission_trends.sample_permission_data"),
+        ("stats_core", "obsidiandroid.pipeline.permission_trends.stats_core"),
     )
     for attr, canon_name in permission_trends_pairs:
         canon_mod = importlib.import_module(canon_name)
         assert getattr(permission_trends_facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.pipeline.permission_trends.{attr}")
         assert alias_mod is canon_mod
+        legacy_mod = importlib.import_module(f"analysis.pipeline.permission_trends.{attr}")
+        assert legacy_mod is canon_mod
 
 
 def test_vendors_facade_matches_vendor_processing_modules() -> None:
@@ -258,20 +282,24 @@ def test_vendor_execution_shims_match_canonical_modules() -> None:
 
 
 def test_governance_facade_matches_pipeline_governance_modules() -> None:
-    """Pipeline governance primitives are canonical through obsidiandroid.governance."""
+    """Pipeline governance primitives are canonical under obsidiandroid.governance (**Pass 75**)."""
     import importlib
 
     import obsidiandroid.governance as governance_facade
 
     governance_pairs = (
-        ("exceptions", "analysis.pipeline.governance.exceptions"),
-        ("integrity", "analysis.pipeline.governance.integrity"),
+        ("exceptions", "obsidiandroid.governance.exceptions"),
+        ("integrity", "obsidiandroid.governance.integrity"),
+        ("policy", "obsidiandroid.governance.policy"),
+        ("readiness", "obsidiandroid.governance.readiness"),
     )
     for attr, canon_name in governance_pairs:
         canon_mod = importlib.import_module(canon_name)
         assert getattr(governance_facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.governance.{attr}")
         assert alias_mod is canon_mod
+        legacy_mod = importlib.import_module(f"analysis.pipeline.governance.{attr}")
+        assert legacy_mod is canon_mod
 
 
 def test_output_cleanup_clutter_shim_matches_canonical() -> None:

@@ -226,7 +226,8 @@ class PipelineObservabilitySession:
         self.emit_jsonl(
             LogCategory.STAGE_END,
             severity=LogSeverity.INFO,
-            message=stage_name,
+            message=str(stage_name),
+            stage=str(stage_name),
             status=status,
             duration_sec=round(duration_sec, 4),
         )

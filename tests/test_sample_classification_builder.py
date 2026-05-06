@@ -1,4 +1,3 @@
-import pandas as pd
 from ml_classification.builder import sample_classification_builder as sb
 from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
 

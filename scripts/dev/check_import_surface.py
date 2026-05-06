@@ -3,8 +3,7 @@
 
 Also enforces **thin compatibility shims** (no duplicated implementation at legacy paths):
 repo-root ``utils/*.py`` (excluding bootstrap/entry special cases), ``utils/exporting``
-leaf modules, ``utils/menu``, ``utils/ui``, and ``utils/logging``—see
-:func:`collect_thin_compat_shim_violations`.
+leaf modules, and ``utils/logging``—see :func:`collect_thin_compat_shim_violations`.
 
 Fails if any tracked-style ``*.py`` tree under the repo starts with a **UTF-8 BOM**
 (``\ufeff``), which breaks :func:`ast.parse` and confuses diffs—see
@@ -98,22 +97,6 @@ _THIN_COMPAT_SHIM_POLICIES: tuple[_ThinCompatShimPolicy, ...] = (
         max_lines=16,
         required_substrings=("utils.repo_import_paths", "obsidiandroid.common"),
         relocate_hint="obsidiandroid.common.export_*",
-        exclude_names=frozenset({"__init__.py"}),
-    ),
-    _ThinCompatShimPolicy(
-        label="utils/menu shims",
-        relative_parts=("utils", "menu"),
-        max_lines=16,
-        required_substrings=("utils.repo_import_paths", "obsidiandroid.cli.menu"),
-        relocate_hint="obsidiandroid.cli.menu",
-        exclude_names=frozenset({"__init__.py"}),
-    ),
-    _ThinCompatShimPolicy(
-        label="utils/ui shims",
-        relative_parts=("utils", "ui"),
-        max_lines=16,
-        required_substrings=("utils.repo_import_paths", "obsidiandroid.cli.ui"),
-        relocate_hint="obsidiandroid.cli.ui",
         exclude_names=frozenset({"__init__.py"}),
     ),
     _ThinCompatShimPolicy(
@@ -284,7 +267,30 @@ def main() -> int:
             return 1
     print("OK   obsidiandroid.pipeline module aliases match analysis.pipeline")
 
-    for _leaf in ("contract_filters", "run_bounds", "runtime_policy"):
+    for _leaf in (
+        "contract_filters",
+        "run_bounds",
+        "runtime_policy",
+        "runner",
+        "main_facade",
+        "stage_samples",
+        "sample_exports",
+        "stage_av_vendor",
+        "stage_manifest",
+        "sample_preparation",
+        "stage_feature_enrichment",
+        "stage_modeling",
+        "stage_ablation",
+        "stage_results_warehouse",
+        "stage_permission_trends_report",
+        "engine_pipeline_utils",
+        "attach_engine_metadata",
+        "engine_normalization",
+        "score_av_engines",
+        "av_engine_pipeline",
+        "vendor_metadata_pipeline",
+        "permission_trends_selection",
+    ):
         _physical = importlib.import_module(f"obsidiandroid.pipeline.{_leaf}")
         _legacy = importlib.import_module(f"analysis.pipeline.{_leaf}")
         if _physical is not _legacy:
@@ -293,7 +299,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-    print("OK   analysis.pipeline leaf shims match obsidiandroid.pipeline (Pass 66)")
+    print("OK   analysis.pipeline leaf shims match obsidiandroid.pipeline (Pass 66–71, 74)")
 
     _manifest_facade = importlib.import_module("obsidiandroid.pipeline.manifest")
     _manifest_pairs = (
@@ -346,12 +352,12 @@ def main() -> int:
 
     _permission_trends_facade = importlib.import_module("obsidiandroid.pipeline.permission_trends")
     _permission_trends_pairs = (
-        ("bundle_manifest", "analysis.pipeline.permission_trends.bundle_manifest"),
-        ("constants", "analysis.pipeline.permission_trends.constants"),
-        ("publish_paths", "analysis.pipeline.permission_trends.publish_paths"),
-        ("reporting_support", "analysis.pipeline.permission_trends.reporting_support"),
-        ("sample_permission_data", "analysis.pipeline.permission_trends.sample_permission_data"),
-        ("stats_core", "analysis.pipeline.permission_trends.stats_core"),
+        ("bundle_manifest", "obsidiandroid.pipeline.permission_trends.bundle_manifest"),
+        ("constants", "obsidiandroid.pipeline.permission_trends.constants"),
+        ("publish_paths", "obsidiandroid.pipeline.permission_trends.publish_paths"),
+        ("reporting_support", "obsidiandroid.pipeline.permission_trends.reporting_support"),
+        ("sample_permission_data", "obsidiandroid.pipeline.permission_trends.sample_permission_data"),
+        ("stats_core", "obsidiandroid.pipeline.permission_trends.stats_core"),
     )
     for attr, canon_name in _permission_trends_pairs:
         canon_mod = importlib.import_module(canon_name)
@@ -369,7 +375,14 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-    print("OK   obsidiandroid.pipeline.permission_trends submodules match analysis.pipeline.permission_trends")
+        legacy_mod = importlib.import_module(f"analysis.pipeline.permission_trends.{attr}")
+        if legacy_mod is not canon_mod:
+            print(
+                f"FAIL: analysis.pipeline.permission_trends.{attr} legacy shim mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.pipeline.permission_trends submodules match legacy shims (Pass 74)")
 
     _modeling_facade = importlib.import_module("obsidiandroid.modeling")
     _modeling_pairs = (
@@ -573,8 +586,10 @@ def main() -> int:
 
     _governance_facade = importlib.import_module("obsidiandroid.governance")
     _governance_pairs = (
-        ("exceptions", "analysis.pipeline.governance.exceptions"),
-        ("integrity", "analysis.pipeline.governance.integrity"),
+        ("exceptions", "obsidiandroid.governance.exceptions"),
+        ("integrity", "obsidiandroid.governance.integrity"),
+        ("policy", "obsidiandroid.governance.policy"),
+        ("readiness", "obsidiandroid.governance.readiness"),
     )
     for attr, canon_name in _governance_pairs:
         canon_mod = importlib.import_module(canon_name)
@@ -592,7 +607,14 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-    print("OK   obsidiandroid.governance pipeline governance aliases match analysis.pipeline.governance")
+        legacy_mod = importlib.import_module(f"analysis.pipeline.governance.{attr}")
+        if legacy_mod is not canon_mod:
+            print(
+                f"FAIL: analysis.pipeline.governance.{attr} legacy shim mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.governance pipeline governance matches legacy shims (Pass 75)")
 
     common_checks = (
         "obsidiandroid.common.hash_utils",

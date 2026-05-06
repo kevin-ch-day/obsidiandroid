@@ -1,14 +1,9 @@
-"""Typed governance exceptions used by pipeline control flow."""
+"""Legacy shim: implementation lives under ``obsidiandroid.governance.exceptions``."""
 
+from __future__ import annotations
 
-class IntegrityStop(RuntimeError):
-    """Raised when run integrity requirements are violated."""
+import importlib
+import sys
 
-
-class EvidenceStop(RuntimeError):
-    """Raised when evidence-readiness requirements are violated."""
-
-
-class ConfigStop(ValueError):
-    """Raised when profile or runtime configuration is invalid."""
-
+_mod = importlib.import_module("obsidiandroid.governance.exceptions")
+sys.modules[__name__] = _mod

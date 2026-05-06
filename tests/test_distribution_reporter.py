@@ -23,11 +23,11 @@ def _sample_df_and_labels() -> tuple[pd.DataFrame, pd.Series]:
 
 def test_apply_min_family_support_remove() -> None:
     df, labels = _sample_df_and_labels()
-    f, l, affected, fams, detail = dr.apply_min_family_support(
+    f, lbl, affected, fams, detail = dr.apply_min_family_support(
         df, labels, min_support=2, group_label=None
     )
     assert len(f) == 4
-    assert "B" not in l.values
+    assert "B" not in lbl.values
     assert affected == 1
     assert fams == 1
     assert detail == [{"family": "B", "aligned_support": 1}]
@@ -35,12 +35,12 @@ def test_apply_min_family_support_remove() -> None:
 
 def test_apply_min_family_support_group() -> None:
     df, labels = _sample_df_and_labels()
-    f, l, affected, fams, detail = dr.apply_min_family_support(
+    f, lbl, affected, fams, detail = dr.apply_min_family_support(
         df, labels, min_support=2, group_label="other"
     )
     assert len(f) == 5
-    assert (l == "other").sum() == 1
-    assert "B" not in l.values
+    assert (lbl == "other").sum() == 1
+    assert "B" not in lbl.values
     assert affected == 1
     assert fams == 1
     assert detail == [{"family": "B", "aligned_support": 1}]

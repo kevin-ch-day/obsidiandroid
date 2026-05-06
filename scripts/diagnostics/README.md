@@ -27,4 +27,8 @@ Alignment, lineage, inventory, and cohort tooling remain at [`scripts/`](../READ
 
 See **`scripts/research/`** for publication and structural bundles.
 
+| Script | Role |
+|--------|------|
+| [`summarize_run_research_health.py`](summarize_run_research_health.py) | Read-only digest: leakage line, cohort lock, feature authority / vendor merge, split-freeze hygiene, stage summary vs finalization artifacts (`--run-id`, `--latest`, `--json`). Includes an **output navigator**: bucket counts from `artifact_inventory.json`, checklist of routing/research files, optional largest-on-disk paths (`--tour`). |
+
 Pipeline staging: [`docs/pipeline_staging_guide.md`](../../docs/pipeline_staging_guide.md).

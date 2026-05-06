@@ -1,1 +1,1 @@
-"""Permission trends reporting subpackage (split from ``stage_permission_trends_report``)."""
+"""Legacy permission-trends package marker (implementations under ``obsidiandroid.pipeline.permission_trends``)."""

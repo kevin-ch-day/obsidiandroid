@@ -6,7 +6,6 @@ core science questions. Heavy evidence stays in existing artifacts; these files 
 
 from __future__ import annotations
 
-import csv
 import json
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -654,6 +653,7 @@ def write_research_question_artifacts(
         "weighted_minus_macro_f1": gap_w_m,
         "weighted_macro_gap_warning": gap_w_m > 0.05,
         "type_vs_family_note": type_easier,
+        "family_within_type_macro_f1": fwt_macro,
         "family_vs_type_rows": ft_perf_rows,
     }
     (diagnostics_dir / "model_and_family_failure_summary.json").write_text(
@@ -689,7 +689,7 @@ def write_research_question_artifacts(
 
     from obsidiandroid.reporting import high_score_skeptic_audits as _hssa
 
-    skeptic_audits = _hssa.write_all_skeptic_audits(
+    _hssa.write_all_skeptic_audits(
         diagnostics_dir=diagnostics_dir,
         run_id=run_id,
         profile_id=profile_id,

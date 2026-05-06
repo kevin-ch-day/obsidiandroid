@@ -1,4 +1,8 @@
-"""Permission-trends pipeline helper canonical aliases."""
+"""Permission-trends pipeline helpers (canonical **Pass 74**).
+
+Legacy ``analysis.pipeline.permission_trends.*`` resolves to the same module objects
+via thin per-leaf shims.
+"""
 
 from __future__ import annotations
 
@@ -15,7 +19,7 @@ _CANONICAL_SUBMODULE_NAMES = (
 )
 
 for _name in _CANONICAL_SUBMODULE_NAMES:
-    _canon = importlib.import_module(f"analysis.pipeline.permission_trends.{_name}")
+    _canon = importlib.import_module(f"obsidiandroid.pipeline.permission_trends.{_name}")
     globals()[_name] = _canon
     sys.modules.setdefault(f"obsidiandroid.pipeline.permission_trends.{_name}", _canon)
 

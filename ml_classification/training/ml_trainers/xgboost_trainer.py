@@ -4,6 +4,7 @@
 import time
 import xgboost as xgb
 import numpy as np
+import pandas as pd
 from collections import Counter
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import classification_report
@@ -76,6 +77,16 @@ def _resolve_xgb_runtime_guardrails(num_classes: int) -> dict:
     }
 
 
+def _xgb_global_labels_need_contiguous_remap(encoded_y: np.ndarray, ontology_n: int) -> bool:
+    """Return True iff sklearn+XGB multiclass rejects ``encoded_y`` gaps (sparse index set)."""
+    if ontology_n <= 2:
+        return False
+    uniq = np.unique(np.asarray(encoded_y, dtype=np.int64).ravel())
+    if uniq.size < 2:
+        return False
+    return bool(not np.array_equal(uniq, np.arange(int(uniq[-1]) + 1)))
+
+
 def train_xgboost(
     X_train,
     y_train,
@@ -89,11 +100,51 @@ def train_xgboost(
     cv_folds=None,
     **kwargs
 ):
-    num_classes = len(set(y_train))
+    # Multiclass sklearn XGBoost requires ``unique(y) == arange(max(y)+1)``.
+    # Rare train splits + SMOTE/ROS can drop a middle encoded class; remap to contiguous indices.
+    y_train_ser = y_train if isinstance(y_train, pd.Series) else pd.Series(np.asarray(y_train).ravel())
+    y_train_flat = np.asarray(y_train_ser.to_numpy(dtype=np.int64, copy=False)).ravel()
 
-    class_counts = Counter(y_train)
+    if label_encoder is not None and hasattr(label_encoder, "classes_"):
+        ontology_n = int(len(label_encoder.classes_))
+    elif y_train_flat.size:
+        ontology_n = int(y_train_flat.max()) + 1
+    else:
+        ontology_n = 0
 
-    guardrails = _resolve_xgb_runtime_guardrails(num_classes=num_classes)
+    present_codes, present_uniques_series = pd.factorize(y_train_ser, sort=True)
+    present_encoded_order = np.asarray(present_uniques_series, dtype=np.int64)
+    remap_to_contiguous = _xgb_global_labels_need_contiguous_remap(y_train_flat, ontology_n)
+
+    if remap_to_contiguous:
+        y_supervised = pd.Series(np.asarray(present_codes, dtype=np.int64), index=y_train_ser.index)
+        present_encoded_lookup = present_encoded_order
+    else:
+        y_supervised = pd.Series(y_train_ser.to_numpy(dtype=np.int64, copy=False), index=y_train_ser.index)
+        present_encoded_lookup = None
+
+    if y_supervised.size:
+        num_classes = int(np.max(y_supervised.to_numpy(dtype=np.int64, copy=False))) + 1
+    else:
+        num_classes = 0
+
+    def _global_to_supervised(ys) -> pd.Series:
+        if ys is None:
+            return ys
+        raw = ys if isinstance(ys, pd.Series) else pd.Series(np.asarray(ys).ravel())
+        if present_encoded_lookup is None:
+            return raw.astype(np.int64, copy=False)
+        lut = {int(c): i for i, c in enumerate(present_encoded_lookup.tolist())}
+        return pd.Series(
+            [lut[int(v)] for v in raw.to_numpy(dtype=np.int64, copy=False)],
+            index=raw.index,
+        )
+
+    class_counts = Counter(y_supervised)
+
+    train_cardinality = int(len(present_encoded_order))
+    guardrail_n = max(int(ontology_n or train_cardinality), train_cardinality or 1)
+    guardrails = _resolve_xgb_runtime_guardrails(num_classes=guardrail_n)
 
     objective = "binary:logistic" if num_classes == 2 else "multi:softprob"
     eval_metric = "logloss" if num_classes == 2 else "mlogloss"
@@ -140,7 +191,7 @@ def train_xgboost(
     calibration_enabled = bool(getattr(app_config, "ENABLE_PROBABILITY_CALIBRATION", False))
     calibration_method = getattr(app_config, "CALIBRATION_METHOD", "sigmoid")
     calibration_holdout = float(getattr(app_config, "CALIBRATION_HOLDOUT", 0.15))
-    X_fit, y_fit = X_train, y_train
+    X_fit, y_fit = X_train, y_supervised
     X_cal, y_cal = None, None
 
     if calibration_enabled:
@@ -149,9 +200,9 @@ def train_xgboost(
             if min_class_size >= 2:
                 X_fit, X_cal, y_fit, y_cal = train_test_split(
                     X_train,
-                    y_train,
+                    y_supervised,
                     test_size=calibration_holdout,
-                    stratify=y_train,
+                    stratify=y_supervised,
                     random_state=random_state,
                 )
                 if verbose:
@@ -207,6 +258,8 @@ def train_xgboost(
         eval_y = y_test
         if X_cal is not None and y_cal is not None:
             eval_x, eval_y = X_cal, y_cal
+        elif y_test is not None and present_encoded_lookup is not None:
+            eval_y = _global_to_supervised(y_test)
 
         if early_stopping_rounds and eval_x is not None and eval_y is not None:
             fit_verbose = bool(verbose and getattr(app_config, "DEBUG_MODE", False))
@@ -238,6 +291,10 @@ def train_xgboost(
             "duration": duration,
             "params": model_params,
             "num_classes": num_classes,
+            "ontology_classes": ontology_n if ontology_n else None,
+            "xgb_encoded_label_remap": present_encoded_lookup.tolist()
+            if present_encoded_lookup is not None
+            else None,
             "top_classes": class_counts.most_common(5),
             "best_iteration": getattr(model, "best_iteration", None),
             "xgb_guardrail_profile": guardrails["profile"],
@@ -256,22 +313,35 @@ def train_xgboost(
     # Evaluate model if test set provided
     if X_test is not None and y_test is not None:
         y_pred = model.predict(X_test)
+        y_pred_global_idx = np.asarray(y_pred, dtype=np.int64).ravel()
+        if present_encoded_lookup is not None:
+            y_pred_global_idx = present_encoded_lookup[y_pred_global_idx]
+
         y_prob = model.predict_proba(X_test)
         confidences = np.max(y_prob, axis=1)
 
-        if sample_ids and len(sample_ids) == len(y_pred):
-            predictions_dict = {sid: int(pred) for sid, pred in zip(sample_ids, y_pred)}
-            labels_dict = {sid: int(label) for sid, label in zip(sample_ids, y_test)}
-            meta_dict = {
-                sid: label_encoder.classes_[pred] if label_encoder else str(pred)
-                for sid, pred in predictions_dict.items()
-            }
-        else:
-            predictions_dict = list(y_pred)
-            labels_dict = list(y_test)
-            meta_dict = [label_encoder.classes_[pred] if label_encoder else str(pred) for pred in y_pred]
+        def _decoded_row(encoded_idx: int):
+            return (
+                label_encoder.classes_[encoded_idx]
+                if label_encoder is not None and 0 <= encoded_idx < len(label_encoder.classes_)
+                else str(encoded_idx)
+            )
 
-        report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
+        if sample_ids and len(sample_ids) == len(y_pred_global_idx):
+            predictions_dict = {sid: int(pred) for sid, pred in zip(sample_ids, y_pred_global_idx)}
+            labels_dict = {sid: int(label) for sid, label in zip(sample_ids, y_test)}
+            meta_dict = {sid: _decoded_row(pred) for sid, pred in predictions_dict.items()}
+        else:
+            predictions_dict = list(y_pred_global_idx)
+            labels_dict = list(y_test)
+            meta_dict = [_decoded_row(int(pred)) for pred in y_pred_global_idx]
+
+        report = classification_report(
+            pd.Series(np.asarray(y_test).ravel(), dtype=np.int64),
+            y_pred_global_idx,
+            output_dict=True,
+            zero_division=0,
+        )
 
         results.update({
             "predictions": predictions_dict,

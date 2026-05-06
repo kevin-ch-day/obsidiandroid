@@ -91,10 +91,7 @@ Goal: avoid growing new logic in root `main.py`; extend `runner` / stages / `obs
 
 Move into (conceptually):
 
-- `utils/menu/maintenance.py` (or future `obsidiandroid.cli.menu.*` expansions)
-- `utils/menu/structural_analysis.py`
-- `utils/menu/model_evaluation.py`
-- `utils/menu/run_context.py`
+- `obsidiandroid.cli.menu` (maintenance, structural analysis, model evaluation, run context — canonical; legacy **`utils/menu/`** removed)
 
 Goal: menu rendering + dispatch only; move workflows to service functions.
 

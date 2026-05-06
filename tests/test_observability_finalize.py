@@ -28,6 +28,17 @@ def test_pipeline_observability_session_writes_stage_start(tmp_path: Path) -> No
     assert "samples" in txt
 
 
+def test_pipeline_observability_session_stage_end_includes_stage_field(tmp_path: Path) -> None:
+    """STAGE_END must mirror STAGE_START (``stage`` field) for JSONL consumers."""
+    sess = PipelineObservabilitySession(diagnostics_dir=tmp_path, run_id="r1")
+    sess.emit_stage_completion("training", status="PASS", duration_sec=1.5)
+    jl = tmp_path / "pipeline_events.jsonl"
+    blob = json.loads(jl.read_text(encoding="utf-8").strip().splitlines()[-1])
+    assert blob.get("category") == LogCategory.STAGE_END.value
+    assert blob.get("stage") == "training"
+    assert blob.get("message") == "training"
+
+
 def test_finalize_pipeline_observability_minimal(tmp_path: Path) -> None:
     diagnostic = tmp_path / "diag"
     diagnostic.mkdir(parents=True, exist_ok=True)

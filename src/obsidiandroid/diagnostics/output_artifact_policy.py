@@ -45,7 +45,7 @@ def _init_rules() -> None:
             _rule(
                 "run_manifest.json",
                 bucket="evidence_required",
-                producer="analysis.pipeline.stage_manifest",
+                producer="obsidiandroid.pipeline.stage_manifest",
                 run_scoped=True,
                 paper_required=True,
                 safe_delete_after_run=False,
@@ -55,7 +55,7 @@ def _init_rules() -> None:
             _rule(
                 "**/run_manifest.json",
                 bucket="evidence_required",
-                producer="analysis.pipeline.stage_manifest",
+                producer="obsidiandroid.pipeline.stage_manifest",
                 run_scoped=True,
                 paper_required=True,
                 safe_delete_after_run=False,
@@ -65,7 +65,7 @@ def _init_rules() -> None:
             _rule(
                 "**/run_summary.json",
                 bucket="evidence_required",
-                producer="analysis.pipeline.stage_manifest",
+                producer="obsidiandroid.pipeline.stage_manifest",
                 run_scoped=True,
                 paper_required=False,
                 safe_delete_after_run=False,
@@ -75,7 +75,7 @@ def _init_rules() -> None:
             _rule(
                 "**/paper2_pack/**",
                 bucket="evidence_required",
-                producer="analysis.pipeline.stage_manifest",
+                producer="obsidiandroid.pipeline.stage_manifest",
                 run_scoped=True,
                 paper_required=True,
                 safe_delete_after_run=False,
@@ -85,7 +85,7 @@ def _init_rules() -> None:
             _rule(
                 "**/cohort_filter_contract_*.json",
                 bucket="evidence_required",
-                producer="analysis.pipeline.sample_exports",
+                producer="obsidiandroid.pipeline.sample_exports",
                 run_scoped=True,
                 paper_required=True,
                 safe_delete_after_run=False,
@@ -95,7 +95,7 @@ def _init_rules() -> None:
             _rule(
                 "**/experiment_registry_*.json",
                 bucket="diagnostics_required",
-                producer="analysis.pipeline.stage_manifest",
+                producer="obsidiandroid.pipeline.stage_manifest",
                 run_scoped=True,
                 paper_required=False,
                 safe_delete_after_run=False,
@@ -125,7 +125,7 @@ def _init_rules() -> None:
             _rule(
                 "**/paper_mode_compliance_report_*.json",
                 bucket="diagnostics_required",
-                producer="analysis.pipeline.stage_manifest",
+                producer="obsidiandroid.pipeline.stage_manifest",
                 run_scoped=True,
                 paper_required=True,
                 safe_delete_after_run=False,
@@ -135,7 +135,7 @@ def _init_rules() -> None:
             _rule(
                 "**/ablation_summary*.csv",
                 bucket="diagnostics_required",
-                producer="analysis.pipeline.stage_ablation",
+                producer="obsidiandroid.pipeline.stage_ablation",
                 run_scoped=True,
                 paper_required=False,
                 safe_delete_after_run=False,
@@ -155,7 +155,7 @@ def _init_rules() -> None:
             _rule(
                 "**/ablation_feature_schema_audit.csv",
                 bucket="diagnostics_required",
-                producer="analysis.pipeline.stage_ablation",
+                producer="obsidiandroid.pipeline.stage_ablation",
                 run_scoped=True,
                 paper_required=False,
                 safe_delete_after_run=False,
@@ -185,7 +185,7 @@ def _init_rules() -> None:
             _rule(
                 "**/vendor_parser_stress_test*.csv",
                 bucket="debug_only",
-                producer="analysis.pipeline.vendor_metadata_pipeline",
+                producer="obsidiandroid.pipeline.vendor_metadata_pipeline",
                 run_scoped=True,
                 paper_required=False,
                 safe_delete_after_run=True,
@@ -225,7 +225,7 @@ def _init_rules() -> None:
             _rule(
                 "**/diagnostics/latest_run_pointer.json",
                 bucket="operator_state",
-                producer="analysis.pipeline.stage_manifest",
+                producer="obsidiandroid.pipeline.stage_manifest",
                 run_scoped=False,
                 paper_required=False,
                 safe_delete_after_run=True,
@@ -235,7 +235,7 @@ def _init_rules() -> None:
             _rule(
                 "**/promoted/latest_run*.json",
                 bucket="promoted_latest",
-                producer="analysis.pipeline.stage_manifest",
+                producer="obsidiandroid.pipeline.stage_manifest",
                 run_scoped=False,
                 paper_required=False,
                 safe_delete_after_run=True,

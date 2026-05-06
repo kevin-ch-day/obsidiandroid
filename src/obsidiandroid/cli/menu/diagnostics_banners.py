@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -42,8 +41,9 @@ def print_data_diagnostics_banner(*, output_root: Path, latest_run_id: str | Non
         rdiag = output_root / "runs" / latest_run_id / "diagnostics"
         fam_audit = (rdiag / "family_label_taxonomy_audit.csv").is_file()
         sup_prev = (rdiag / "support_threshold_preview.md").is_file()
+        latest_tax = output_root / "diagnostics" / "taxonomy_consistency_summary.latest.json"
         tax = _read_json(rdiag / f"taxonomy_consistency_summary_{latest_run_id}.json") or _read_json(
-            gdiag / "taxonomy_consistency_summary.latest.json"
+            latest_tax
         )
         tax_n = tax.get("taxonomy_mismatch_count", tax.get("total_mismatch_count", "—"))
         q2 = _read_json(rdiag / "modality_contribution_summary.json")

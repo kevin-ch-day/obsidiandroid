@@ -1,8 +1,13 @@
 """Pipeline orchestration namespace (facade over ``analysis.pipeline``).
 
-Re-exports stable, public symbols from :mod:`analysis.pipeline.runner`; policy
-leaf modules **contract_filters**, **run_bounds**, and **runtime_policy** are
-implemented under this package (**Pass 66**). Attributes resolve via
+:mod:`obsidiandroid.pipeline.runner` holds ``run_pipeline`` (**Pass 67**);
+:mod:`analysis.pipeline.runner` is an identity shim to the same module object.
+**main_facade**, **stage_samples**, **sample_exports**, **stage_av_vendor**, **stage_manifest**,
+the remaining **runner**-wired stages (**Pass 70**), the AV/vendor pipeline chain (**Pass 71**), and
+**permission_trends/** helpers plus **permission_trends_selection** (**Pass 74**) are canonical.
+
+Policy leaf modules **contract_filters**, **run_bounds**, and **runtime_policy**
+are also implemented under this package (**Pass 66**). Attributes resolve via
 :func:`__getattr__` so runner bindings stay aligned when tests monkeypatch
 :mod:`analysis.pipeline.runner` (e.g. ``DIAGNOSTICS_DIR``).
 
@@ -48,8 +53,33 @@ _RUNNER_ATTRS = {
     "run_pipeline",
 }
 
-# Pass 66: implementation under ``obsidiandroid.pipeline``; legacy paths are thin shims.
-_PIPELINE_PHYSICAL_MODULES = frozenset({"contract_filters", "run_bounds", "runtime_policy"})
+# Pass 66–71: implementation under ``obsidiandroid.pipeline``; legacy paths are thin shims.
+_PIPELINE_PHYSICAL_MODULES = frozenset(
+    {
+        "contract_filters",
+        "run_bounds",
+        "runtime_policy",
+        "runner",
+        "main_facade",
+        "stage_samples",
+        "sample_exports",
+        "stage_av_vendor",
+        "stage_manifest",
+        "sample_preparation",
+        "stage_feature_enrichment",
+        "stage_modeling",
+        "stage_ablation",
+        "stage_results_warehouse",
+        "stage_permission_trends_report",
+        "engine_pipeline_utils",
+        "attach_engine_metadata",
+        "engine_normalization",
+        "score_av_engines",
+        "av_engine_pipeline",
+        "vendor_metadata_pipeline",
+        "permission_trends_selection",
+    }
+)
 
 
 def __getattr__(name: str) -> Any:

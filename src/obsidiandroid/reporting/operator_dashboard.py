@@ -7,7 +7,6 @@ cohort semantics, modality coverage, model leaderboard context, and claim hygien
 from __future__ import annotations
 
 import json
-from collections import Counter
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 

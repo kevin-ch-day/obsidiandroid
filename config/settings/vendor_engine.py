@@ -10,6 +10,23 @@ ENGINE_TIER_THRESHOLDS = {
     "low": 40.0,
     "weak": 20.0,
 }
+
+# Composite ``ML Readiness Score`` weights (applied after per-field normalization in
+# ``obsidiandroid.evaluation.engine_scoring_summary``). Values are renormalized to sum to 1.
+# Default shifts mass away from ``threat_signal_score`` when the DB column has little spread
+# (min–max normalization then adds almost no discriminative signal).
+ENGINE_READINESS_SCORE_WEIGHTS = {
+    "malicious_pct": 0.45,
+    "coverage_pct": 0.40,
+    "threat_signal_score": 0.15,
+}
+
+# Fields to normalize with percentile rank in [0, 1] instead of min–max (better when the
+# raw range is extremely narrow across engines).
+ENGINE_READINESS_PERCENTILE_RANK_FIELDS: tuple[str, ...] = ("threat_signal_score",)
+
+# Tukey fence multiplier for readiness-score IQR outlier tagging in summaries.
+ENGINE_READINESS_IQR_MULTIPLIER = 1.5
 ENGINE_MIN_SAMPLES_SCANNED = 10
 ENGINE_MIN_COVERAGE_PCT = 20.0
 ENGINE_MIN_POSITIVE_FLAGS = 5

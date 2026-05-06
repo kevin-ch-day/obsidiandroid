@@ -25,7 +25,7 @@ REQUIRED_FIELDS = {
     "threat_signal_score",
 }
 
-ML_SCORE_WEIGHTS = {
+DEFAULT_READINESS_WEIGHTS: dict[str, float] = {
     "malicious_pct": 0.4,
     "coverage_pct": 0.3,
     "threat_signal_score": 0.3,
@@ -43,6 +43,23 @@ SUMMARY_LOGGER = get_logger(
     f"{getattr(app_config, 'APP_LOG_NAMESPACE', 'framework')}.evaluation.engine_scoring_summary",
     "analysis",
 )
+
+
+def _effective_readiness_weights() -> dict[str, float]:
+    weights = dict(DEFAULT_READINESS_WEIGHTS)
+    raw = getattr(app_config, "ENGINE_READINESS_SCORE_WEIGHTS", None)
+    if isinstance(raw, dict):
+        for k in list(weights.keys()):
+            if k in raw:
+                try:
+                    weights[k] = float(raw[k])
+                except (TypeError, ValueError):
+                    pass
+    positive = {k: max(0.0, float(v)) for k, v in weights.items()}
+    s = sum(positive.values())
+    if s <= 0:
+        return dict(DEFAULT_READINESS_WEIGHTS)
+    return {k: positive[k] / s for k in sorted(positive.keys())}
 
 
 def build_av_engine_scoring_summary_from_db() -> pd.DataFrame:
@@ -108,21 +125,31 @@ def build_av_engine_scoring_summary_from_db() -> pd.DataFrame:
 def _compute_engine_scores(df: pd.DataFrame) -> pd.DataFrame:
     """Compute ML readiness scores and assign scoring tiers."""
     try:
-        if not _normalize_numeric_fields(df, list(ML_SCORE_WEIGHTS.keys())):
+        ml_weights = _effective_readiness_weights()
+        rank_fields_raw = getattr(app_config, "ENGINE_READINESS_PERCENTILE_RANK_FIELDS", ()) or ()
+        rank_fields = {str(x) for x in rank_fields_raw if str(x) in ml_weights}
+
+        if not _normalize_numeric_fields(df, list(ml_weights.keys())):
             return pd.DataFrame()
 
-        for field in ML_SCORE_WEIGHTS:
-            df[f"{field}_norm"] = _min_max_scale(df[field])
+        for field in ml_weights:
+            if field in rank_fields:
+                df[f"{field}_norm"] = _percentile_rank_scale(df[field])
+            else:
+                df[f"{field}_norm"] = _min_max_scale(df[field])
 
-        df["ML Readiness Score"] = _calculate_readiness_score(df, ML_SCORE_WEIGHTS)
+        df["ML Readiness Score"] = _calculate_readiness_score(df, ml_weights)
         df["z_score"] = zscore(df["ML Readiness Score"].fillna(0.0))
 
         q1 = df["ML Readiness Score"].quantile(0.25)
         q3 = df["ML Readiness Score"].quantile(0.75)
         iqr = q3 - q1
+        iqr_k = float(getattr(app_config, "ENGINE_READINESS_IQR_MULTIPLIER", 1.5) or 1.5)
+        if iqr_k <= 0:
+            iqr_k = 1.5
         df["iqr_flag"] = (
-            (df["ML Readiness Score"] < q1 - 1.5 * iqr)
-            | (df["ML Readiness Score"] > q3 + 1.5 * iqr)
+            (df["ML Readiness Score"] < q1 - iqr_k * iqr)
+            | (df["ML Readiness Score"] > q3 + iqr_k * iqr)
         ).astype(int)
 
         _assign_tiers(df)
@@ -207,6 +234,15 @@ def _min_max_scale(series: pd.Series) -> pd.Series:
     if max_val <= min_val:
         return pd.Series(0.0, index=vals.index)
     return (vals - min_val) / (max_val - min_val)
+
+
+def _percentile_rank_scale(series: pd.Series) -> pd.Series:
+    """Map values to average-tie percentile ranks in ``[0, 1]`` (relative ordering among engines)."""
+    vals = pd.to_numeric(series, errors="coerce").fillna(0.0).astype(float)
+    if vals.notna().sum() <= 1:
+        return pd.Series(0.0, index=vals.index)
+    ranked = vals.rank(method="average", pct=True)
+    return ranked.fillna(0.0)
 
 
 def _assign_tiers(df: pd.DataFrame):

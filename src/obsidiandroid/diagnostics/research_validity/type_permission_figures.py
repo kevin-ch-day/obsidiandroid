@@ -29,7 +29,7 @@ def write_type_permission_figure_bundle(
         matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
 
-        from analysis.pipeline.stage_feature_enrichment import build_permission_enrichment_frame
+        from obsidiandroid.pipeline.stage_feature_enrichment import build_permission_enrichment_frame
 
         frame = build_permission_enrichment_frame(
             samples_df,
@@ -101,7 +101,7 @@ def write_type_permission_figure_bundle(
     try:
         import numpy as np
 
-        from analysis.pipeline.permission_trends.stats_core import js_distance
+        from obsidiandroid.pipeline.permission_trends.stats_core import js_distance
 
         mat = np.zeros((len(fams), len(fams)))
         skipped_pairs = 0

@@ -42,7 +42,7 @@ This document explains how ObsidianDroid ingests antivirus telemetry, computes r
 ### 3. Shared Utilities (`utils/`)
 - `utils/logging/` and `utils/exporting/` handle structured logs and workbook/Excel exports.
 - `obsidiandroid.common.output_paths` (legacy ``utils.output_paths`` shim), `utils/run_manifest.py`, and `obsidiandroid.cli.profile_manager` manage run IDs, manifests, and profiles.
-- `utils/ui/` provides console UI primitives; thin shims like `display_utils.py` keep older import paths working.
+- `utils/display_utils.py` re-exports `obsidiandroid.cli.ui.display` for older import paths; use `obsidiandroid.cli.ui` for new code.
 
 ### 4. Model Selection & Training (`ml_classification/`)
 - `ml_classification/training/model_trainer_factory.py` coordinates train/test splits, optional SMOTE, and trainer dispatch.

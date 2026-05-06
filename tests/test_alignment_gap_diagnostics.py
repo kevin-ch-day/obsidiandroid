@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pandas as pd
-import pytest
 
 from obsidiandroid.diagnostics import alignment_gap_diagnostics as agd
 

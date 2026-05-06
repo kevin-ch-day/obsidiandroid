@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import pytest
 from sklearn.datasets import make_classification
+from sklearn.preprocessing import LabelEncoder
 
 from ml_classification.training.ml_trainers import (
     random_forest_trainer,
@@ -367,6 +368,32 @@ def test_xgboost_binary_uses_binary_objective(monkeypatch):
     )
     assert result["metadata"]["params"]["objective"] == "binary:logistic"
     assert "num_class" not in result["metadata"]["params"]
+
+
+def test_xgboost_num_class_uses_label_encoder_when_train_omits_label(monkeypatch):
+    """Regression: sparse present-class count must not shrink XGBoost ``num_class`` vs encoder."""
+    le = LabelEncoder()
+    le.fit(["a", "b", "c", "d"])
+    rng = np.random.default_rng(0)
+    n = 60
+    X = pd.DataFrame(rng.standard_normal((n, 8)))
+    # Encoded 0,2,3 only — class 1 missing from training (as after a split / resample edge case).
+    y_sparse = pd.Series(np.array([0] * 15 + [2] * 15 + [3] * 15 + [0] * 15))
+    monkeypatch.setattr(app_config, "XGB_NUM_ESTIMATORS", 12, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_PROBABILITY_CALIBRATION", False, raising=False)
+    model, result = xgboost_trainer.train_xgboost(
+        X,
+        y_sparse,
+        X_test=X,
+        y_test=y_sparse,
+        label_encoder=le,
+        early_stopping_rounds=0,
+        verbose=False,
+    )
+    assert result["metadata"]["num_classes"] == 3  # contiguous fit space covers {0,2,3} → 3 XGB logits
+    assert result["metadata"]["ontology_classes"] == 4  # encoder still holds 4 string classes
+    assert result["metadata"]["xgb_encoded_label_remap"] == [0, 2, 3]
+    assert int(model.get_params().get("num_class", 0)) == 3
 
 
 def test_xgboost_guardrail_profile_caps_override(monkeypatch):

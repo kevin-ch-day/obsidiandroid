@@ -32,7 +32,7 @@ from config import app_config
 from obsidiandroid.cli import profile_manager
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.diagnostics import family_label_taxonomy_audit as fam_audit
-from analysis.pipeline.stage_samples import load_and_prepare_samples
+from obsidiandroid.pipeline.stage_samples import load_and_prepare_samples
 
 
 def main() -> int:

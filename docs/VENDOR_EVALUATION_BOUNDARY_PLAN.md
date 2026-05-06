@@ -10,7 +10,9 @@ move files, or change parser/model/training/output/DB behavior.
 
 **Pass 65 update (code, not a re-audit):** Run **diagnostics** (including **`research_validity/`**, **`hostile_audit/`**, and leaf diagnostics modules) that previously lived under **`analysis/diagnostics/`** are now under **`src/obsidiandroid/diagnostics/`**. Legacy **`analysis.diagnostics.*`** remains valid via **`analysis/diagnostics/__init__.py`** (**`sys.modules`** identity).
 
-The inventory tables below still describe historical file paths unless rows are refreshed in a dedicated re-audit.
+**Plan refresh (2026-05, documentation only):** Passes **59** / **63** / **64** / **65** mean **`analysis/vendor_processing/`**, **`analysis/evaluation/`**, **`analysis/execution/`**, and **`analysis/diagnostics/`** are **no longer leaf implementation trees** — each is a **package-only shim** (**`__init__.py`** + **`sys.modules`** registration). Implementations live under **`src/obsidiandroid/`**. The **Import inventory** table below remains the **Pass 50B static snapshot** (useful for *who imports whom*); **Current source path** for those modules should be read as “**legacy import prefix; file is under `obsidiandroid.…`**.” A full row-by-row rescan is optional.
+
+The summary metrics and boundary narrative below were written for the pre-move layout; treat **readiness tags** as **conceptual** until a dedicated re-audit reruns the AST scan.
 
 ## Scope
 
@@ -268,12 +270,12 @@ remains **`defer`** until that split is written down.
 
 ### E) **`defer` / too coupled for this quarter**
 
-- Broad **`analysis.evaluation`** façade until parser + scoring contracts exist.
-- Vendor-specific parser modules without generic/metadata wrappers.
+- **Public** evaluation façade (documented stable I/O for scoring, parser quality exports, AV evaluation helpers) until parser + scoring **contracts** exist — *physical* modules already live under **`obsidiandroid.evaluation`** (Pass **63**).
+- Vendor-specific parser **API surface** (beyond imports working) without generic/metadata wrappers — *implementations* live under **`obsidiandroid.vendors.parsing`** (Pass **59**).
 - **`obsidiandroid.labeling`** owning vendor consensus (`label_consensus_engine`) —
   stays **`defer`** to vendors/evaluation per ML boundary plan.
 
-## Pass 51 implementation status
+## Pass 51 implementation status (historical)
 
 Implemented the first vendor facade slice:
 
@@ -288,14 +290,16 @@ Implemented the first vendor facade slice:
 - `tests/test_vendor_parser_map.py` now imports `vendor_parser_map` from
   `obsidiandroid.vendors`.
 
-Still deferred after Pass 51:
+## Open work after physical migration (Passes 59–64; updated 2026-05)
 
-- Generic parser wrapper and `parse_generic_classification`.
-- Vendor-specific parser modules.
-- `VendorClassificationRecord` and `ParsedLabelMetadata` wrapper/API shape.
-- `analysis.execution.*` record factories/runners.
-- First `obsidiandroid.evaluation` facade slice for AV evaluation, parser quality,
-  scoring summaries, and engine weights.
+**Done (physical):** Vendor parser leaf modules (**Pass 59**), evaluation glue modules (**Pass 63**), vendor parser runtime / execution (**Pass 64**). Legacy **`analysis.*`** import paths remain valid via identity shims.
+
+**Still open (contracts / hygiene, not “move files”):**
+
+- Generic parser **wrapper** and a frozen **`parse_generic_classification`** contract.
+- **`VendorClassificationRecord`** and **`ParsedLabelMetadata`**: stable **`obsidiandroid.vendors`**-level wrappers (types still authoritative in **`model.*`** until then).
+- **Evaluation façade**: explicit public I/O for **`vendor_classification_parser`**, parser-quality exports, scoring summaries; **`ml_classification.engine_weights`** policy ownership aligned with evaluation (see execution roadmap above).
+- **Callers**: prefer **`obsidiandroid.evaluation`** and **`obsidiandroid.vendors.execution`** in new code; migrate stragglers opportunistically (**`rg`** is enough; the Pass 50B table is not maintained row-by-row).
 
 ## Import inventory
 
@@ -383,27 +387,9 @@ Still deferred after Pass 51:
 | `tests/test_vendor_parser_map.py` | `analysis.vendor_processing::vendor_parser_map` | `analysis/vendor_processing/` | `obsidiandroid.vendors` | `ready_now` (migrated Pass 51) |
 | `tests/test_vendor_record_indexing.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
 
-## Pass 51 recommendation
+## Pass 51 recommendation (superseded for physical layout)
 
-The audit supported a very small vendor facade slice, but it does not support a
-broad vendor/evaluation facade yet.
-
-Pass 51 completed the tiny first slice:
-
-- `obsidiandroid.vendors.vendor_parser_map`
-
-Better immediate cleanup choices after Pass 51:
-
-- **Pipeline external caller cleanup** for already-approved pipeline facade imports.
-- **Utils non-parity test cleanup** where tests are not explicitly asserting shim
-  behavior.
-
-Defer:
-
-- First `obsidiandroid.evaluation` facade slice until parser quality, AV result
-  evaluation, and scoring summary contracts are specified.
-- Vendor record / parsed metadata facade until wrapper shape is defined.
-- Engine weights until evaluation/scoring policy ownership is explicit.
+Pass **51** scoped the first vendor **façade** slice (`obsidiandroid.vendors.vendor_parser_map`). Passes **59**, **63**, and **64** later **physically** moved parser, evaluation, and vendor-execution **implementations** into **`src/obsidiandroid/`**. Remaining gaps are **wrapper contracts** and **documented public APIs**, not “where the files live.” See **Open work after physical migration** above.
 
 ## Pass 59 implementation status
 
@@ -413,8 +399,8 @@ Physical parser move completed:
 - `analysis/vendor_processing/__init__.py` now acts as a legacy compatibility shim via `sys.modules`.
 - `obsidiandroid.vendors.vendor_parser_map` now resolves through `obsidiandroid.vendors.parsing.vendor_parser_map`.
 
-Still deferred (unchanged):
+Still deferred (unchanged from a **types / API** perspective):
 
 - `model.vendor` and `model.parsing` physical moves.
-- evaluation/scoring façade slice under `obsidiandroid.evaluation`.
-- wrapper contracts for `VendorClassificationRecord` and `ParsedLabelMetadata`.
+- Evaluation **public façade** (stable I/O) for scoring / parser-quality / AV helpers — modules already under **`obsidiandroid.evaluation`**.
+- Wrapper contracts for `VendorClassificationRecord` and `ParsedLabelMetadata`.
