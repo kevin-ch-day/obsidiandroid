@@ -677,6 +677,28 @@ def main() -> int:
         return 1
     print("OK   malware-family constants canonical module matches legacy shim")
 
+    _mlu = importlib.import_module("ml_classification.ml_utils")
+    _mlu_ds = importlib.import_module("ml_classification.ml_utils.dataset_splitter")
+    if getattr(_mlu, "dataset_splitter") is not _mlu_ds:
+        print(
+            "FAIL: ml_classification.ml_utils.dataset_splitter getattr mismatch vs explicit submodule import",
+            file=sys.stderr,
+        )
+        return 1
+    _mlc = importlib.import_module("ml_classification.common")
+    _mlc_mfc = importlib.import_module("ml_classification.common.malware_family_constants")
+    if getattr(_mlc, "malware_family_constants") is not _mlc_mfc:
+        print(
+            "FAIL: ml_classification.common.malware_family_constants getattr mismatch "
+            "vs explicit submodule import",
+            file=sys.stderr,
+        )
+        return 1
+    del _mlu, _mlu_ds, _mlc, _mlc_mfc
+    print(
+        "OK   ml_classification.ml_utils / common package accessors match submodule imports (Pass 99)"
+    )
+
     _cb_facade = importlib.import_module("obsidiandroid.classification_builder")
     _cb_submods = (
         "classification_constants",

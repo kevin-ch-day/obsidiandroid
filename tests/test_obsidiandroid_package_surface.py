@@ -248,6 +248,19 @@ def test_malware_family_constants_legacy_shim_matches_canonical_module() -> None
     assert canon.canonicalize_family_label("Cabassous") == "FluBot"
 
 
+def test_ml_classification_common_and_ml_utils_packages_lazy_attributes() -> None:
+    """Pass 99: legacy package ``__getattr__`` matches explicit submodule imports."""
+    import importlib
+
+    mlu = importlib.import_module("ml_classification.ml_utils")
+    mlu_ds = importlib.import_module("ml_classification.ml_utils.dataset_splitter")
+    assert getattr(mlu, "dataset_splitter") is mlu_ds
+
+    mlc = importlib.import_module("ml_classification.common")
+    mlc_mfc = importlib.import_module("ml_classification.common.malware_family_constants")
+    assert getattr(mlc, "malware_family_constants") is mlc_mfc
+
+
 def test_pipeline_manifest_facade_matches_manifest_modules() -> None:
     """Pipeline manifest: canonical under ``obsidiandroid.pipeline.manifest``; analysis shims match."""
     import importlib
