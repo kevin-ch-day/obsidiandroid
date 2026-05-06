@@ -76,7 +76,9 @@ _POLICY_UTILS_ROOT_SHIMS = _ThinCompatShimPolicy(
     label="utils/*.py root shims",
     relative_parts=("utils",),
     max_lines=24,
-    required_substrings=("utils.repo_import_paths", "obsidiandroid"),
+    # Bootstrap: ``utils/__init__.py`` imports ``utils.repo_import_paths`` once (Pass 102);
+    # leaf shims only need the canonical re-export substring.
+    required_substrings=("obsidiandroid",),
     relocate_hint="src/obsidiandroid",
     exclude_names=frozenset(
         {
@@ -95,7 +97,7 @@ _THIN_COMPAT_SHIM_POLICIES: tuple[_ThinCompatShimPolicy, ...] = (
         label="utils/exporting leaf shims",
         relative_parts=("utils", "exporting"),
         max_lines=16,
-        required_substrings=("utils.repo_import_paths", "obsidiandroid.common"),
+        required_substrings=("obsidiandroid.common",),
         relocate_hint="obsidiandroid.common.export_*",
         exclude_names=frozenset({"__init__.py"}),
     ),
@@ -103,7 +105,7 @@ _THIN_COMPAT_SHIM_POLICIES: tuple[_ThinCompatShimPolicy, ...] = (
         label="utils/logging shims",
         relative_parts=("utils", "logging"),
         max_lines=24,
-        required_substrings=("utils.repo_import_paths", "obsidiandroid.observability.logging"),
+        required_substrings=("obsidiandroid.observability.logging",),
         relocate_hint="obsidiandroid.observability.logging",
     ),
 )
@@ -156,6 +158,17 @@ def _validate_single_thin_compat_policy(repo_root: Path, policy: _ThinCompatShim
 def collect_thin_compat_shim_violations(repo_root: Path) -> list[str]:
     """Run all thin-compat shim policies; return prefixed error lines (empty if OK)."""
     out: list[str] = []
+    utils_init = repo_root.joinpath("utils", "__init__.py")
+    try:
+        init_txt = utils_init.read_text(encoding="utf-8")
+    except OSError as exc:
+        out.append(f"[utils package bootstrap] {utils_init.relative_to(repo_root)}: cannot read ({exc})")
+    else:
+        if "utils.repo_import_paths" not in init_txt:
+            out.append(
+                "[utils package bootstrap] utils/__init__.py must import utils.repo_import_paths "
+                "(checkout sys.path bootstrap; Pass 102)"
+            )
     for policy in _THIN_COMPAT_SHIM_POLICIES:
         for msg in _validate_single_thin_compat_policy(repo_root, policy):
             out.append(f"[{policy.label}] {msg}")

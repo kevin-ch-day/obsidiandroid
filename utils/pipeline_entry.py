@@ -6,7 +6,6 @@ compatibility import path.
 
 from __future__ import annotations
 
-import utils.repo_import_paths  # noqa: F401
 
 from obsidiandroid.cli.pipeline_entry import run_pipeline
 

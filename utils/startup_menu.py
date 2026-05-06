@@ -6,7 +6,6 @@ compatibility import path (including ``python -m utils.startup_menu``).
 
 from __future__ import annotations
 
-import utils.repo_import_paths  # noqa: F401
 
 from obsidiandroid.cli.startup_menu import *  # noqa: F403
 
