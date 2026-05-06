@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from ml_classification.builder import prediction_utils
+from obsidiandroid.classification_builder import prediction_utils
 from obsidiandroid.labeling.taxonomy import (
     canonicalize_family_label,
     is_known_family_name,

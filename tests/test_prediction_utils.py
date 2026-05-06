@@ -1,5 +1,5 @@
-import ml_classification.builder.prediction_utils as pu
-import ml_classification.builder.sample_classification_builder as sb
+import obsidiandroid.classification_builder.prediction_utils as pu
+import obsidiandroid.classification_builder.sample_classification_builder as sb
 
 
 class DummyRecord:

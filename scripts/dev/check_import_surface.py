@@ -677,6 +677,35 @@ def main() -> int:
         return 1
     print("OK   malware-family constants canonical module matches legacy shim")
 
+    _cb_facade = importlib.import_module("obsidiandroid.classification_builder")
+    _cb_submods = (
+        "classification_constants",
+        "classification_row_builder",
+        "prediction_utils",
+        "record_enrichment",
+        "sample_classification_builder",
+        "vendor_record_selector",
+    )
+    for name in _cb_submods:
+        canon_cb = importlib.import_module(f"obsidiandroid.classification_builder.{name}")
+        facade_cb = getattr(_cb_facade, name)
+        if facade_cb is not canon_cb:
+            print(
+                f"FAIL: obsidiandroid.classification_builder.{name} facade mismatch vs canonical submodule",
+                file=sys.stderr,
+            )
+            return 1
+        legacy_cb = importlib.import_module(f"ml_classification.builder.{name}")
+        if legacy_cb is not canon_cb:
+            print(
+                f"FAIL: ml_classification.builder.{name} did not resolve to "
+                f"obsidiandroid.classification_builder.{name}",
+                file=sys.stderr,
+            )
+            return 1
+    del _cb_facade, _cb_submods, name, canon_cb, facade_cb, legacy_cb
+    print("OK   obsidiandroid.classification_builder matches ml_classification.builder shims")
+
     _vendors_facade = importlib.import_module("obsidiandroid.vendors")
     _vendors_parsing_pkg = importlib.import_module("obsidiandroid.vendors.parsing")
     _vendors_pairs = (

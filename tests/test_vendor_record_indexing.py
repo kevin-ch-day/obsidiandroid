@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
-from ml_classification.builder import vendor_record_selector
+from obsidiandroid.classification_builder import vendor_record_selector
 
 
 def test_select_best_vendor_record_uses_preindexed_records() -> None:

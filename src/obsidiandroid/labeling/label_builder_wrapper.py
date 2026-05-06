@@ -4,7 +4,7 @@
 import pandas as pd
 from typing import Optional, Dict, Any
 from obsidiandroid.cli.ui import display as du
-from ml_classification.builder import sample_classification_builder
+from obsidiandroid.classification_builder import sample_classification_builder
 from obsidiandroid.labeling.malware_family_constants import normalize_family_name
 from config import app_config
 

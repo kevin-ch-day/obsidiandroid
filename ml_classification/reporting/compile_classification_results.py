@@ -3,7 +3,7 @@
 
 import pandas as pd
 from obsidiandroid.cli.ui import display as du
-from ml_classification.builder import sample_classification_builder
+from obsidiandroid.classification_builder import sample_classification_builder
 from ml_classification.inference.label_consensus_engine import resolve_consensus_label
 
 

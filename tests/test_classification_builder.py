@@ -1,7 +1,7 @@
 import pytest
 
-from ml_classification.builder.classification_row_builder import build_classification_row
-from ml_classification.builder import sample_classification_builder
+from obsidiandroid.classification_builder.classification_row_builder import build_classification_row
+from obsidiandroid.classification_builder import sample_classification_builder
 from ml_classification.inference.label_consensus_engine import resolve_consensus_label
 from obsidiandroid.labeling import label_field_normalizer, label_format_generator
 from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
@@ -16,15 +16,15 @@ def test_build_row_handles_tuple_enrichment(monkeypatch):
     metadata = {}
 
     monkeypatch.setattr(
-        'ml_classification.builder.classification_row_builder.vendor_record_selector.select_best_vendor_record',
+        'obsidiandroid.classification_builder.classification_row_builder.vendor_record_selector.select_best_vendor_record',
         lambda *a, **k: record
     )
-    monkeypatch.setattr('ml_classification.builder.classification_row_builder.record_enrichment.enrich_variant_from_trusted_vendors', lambda *a, **k: ('variant', 1.0, 'src', []))
-    monkeypatch.setattr('ml_classification.builder.classification_row_builder.record_enrichment.enrich_threat_class_if_unknown', lambda *a, **k: ('threat', 1.0, 'src', []))
-    monkeypatch.setattr('ml_classification.builder.classification_row_builder.generate_label', lambda **kw: 'label')
-    monkeypatch.setattr('ml_classification.builder.classification_row_builder.prediction_utils.check_label_completeness', lambda *a, **k: True, raising=False)
-    monkeypatch.setattr('ml_classification.builder.classification_row_builder.prediction_utils.get_category_vector_string', lambda r: 'vect', raising=False)
-    monkeypatch.setattr('ml_classification.builder.classification_row_builder.prediction_utils.get_sample_confidence', lambda *a, **k: 0.5, raising=False)
+    monkeypatch.setattr('obsidiandroid.classification_builder.classification_row_builder.record_enrichment.enrich_variant_from_trusted_vendors', lambda *a, **k: ('variant', 1.0, 'src', []))
+    monkeypatch.setattr('obsidiandroid.classification_builder.classification_row_builder.record_enrichment.enrich_threat_class_if_unknown', lambda *a, **k: ('threat', 1.0, 'src', []))
+    monkeypatch.setattr('obsidiandroid.classification_builder.classification_row_builder.generate_label', lambda **kw: 'label')
+    monkeypatch.setattr('obsidiandroid.classification_builder.classification_row_builder.prediction_utils.check_label_completeness', lambda *a, **k: True, raising=False)
+    monkeypatch.setattr('obsidiandroid.classification_builder.classification_row_builder.prediction_utils.get_category_vector_string', lambda r: 'vect', raising=False)
+    monkeypatch.setattr('obsidiandroid.classification_builder.classification_row_builder.prediction_utils.get_sample_confidence', lambda *a, **k: 0.5, raising=False)
 
     row = build_classification_row(sample_id, 0, label_decoder, true_labels, metadata, records_by_vendor, label_format='structured', include_confidence=False)
     assert row['classification_label'] == 'label'
@@ -50,11 +50,11 @@ def test_consensus_resolution_overrides_fields(monkeypatch):
         'label_encoder': LE(),
     }
 
-    monkeypatch.setattr('ml_classification.builder.vendor_record_selector.select_best_vendor_record',
+    monkeypatch.setattr('obsidiandroid.classification_builder.vendor_record_selector.select_best_vendor_record',
                         lambda *a, **k: rec2)
-    monkeypatch.setattr('ml_classification.builder.classification_row_builder.record_enrichment.enrich_variant_from_trusted_vendors',
+    monkeypatch.setattr('obsidiandroid.classification_builder.classification_row_builder.record_enrichment.enrich_variant_from_trusted_vendors',
                         lambda *a, **k: rec2.variant)
-    monkeypatch.setattr('ml_classification.builder.classification_row_builder.record_enrichment.enrich_threat_class_if_unknown',
+    monkeypatch.setattr('obsidiandroid.classification_builder.classification_row_builder.record_enrichment.enrich_threat_class_if_unknown',
                         lambda *a, **k: rec2.threat_class)
 
     df = sample_classification_builder.build_sample_classification_records(
