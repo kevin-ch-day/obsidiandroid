@@ -98,13 +98,18 @@ def test_ml_facades_match_ml_classification_modules() -> None:
         assert alias_mod is canon_mod
 
     features_pairs = (
-        ("feature_vector_builder", "ml_classification.vectorization.feature_vector_builder"),
+        ("feature_encoder", "obsidiandroid.features.vectorization.feature_encoder"),
+        ("feature_engine_selection", "obsidiandroid.features.vectorization.feature_engine_selection"),
+        ("feature_vector_builder", "obsidiandroid.features.vectorization.feature_vector_builder"),
+        ("feature_vendor_extractor", "obsidiandroid.features.vectorization.feature_vendor_extractor"),
     )
     for attr, canon_name in features_pairs:
         canon_mod = importlib.import_module(canon_name)
         assert getattr(features_facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.features.{attr}")
         assert alias_mod is canon_mod
+        legacy_mod = importlib.import_module(f"ml_classification.vectorization.{attr}")
+        assert legacy_mod is canon_mod
 
     labeling_pairs = (
         ("classification_label_resolver", "ml_classification.labeling.classification_label_resolver"),

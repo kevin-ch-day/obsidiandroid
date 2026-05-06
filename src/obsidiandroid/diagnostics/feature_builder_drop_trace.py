@@ -87,7 +87,7 @@ def _sample_ids_in_topk_merge(
     selected_vendors: list[str],
     fields: list[str],
 ) -> set[int]:
-    from ml_classification.vectorization.feature_vendor_extractor import (
+    from obsidiandroid.features.feature_vendor_extractor import (
         extract_vendor_fields,
         merge_vendor_features,
     )

@@ -3,7 +3,7 @@
 import pandas as pd
 from config import app_config
 
-from ml_classification.vectorization.feature_engine_selection import get_top_engines_by_score
+from obsidiandroid.features.feature_engine_selection import get_top_engines_by_score
 
 
 def test_get_top_engines_enforce_included_filter() -> None:

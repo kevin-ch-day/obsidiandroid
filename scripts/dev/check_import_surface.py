@@ -504,7 +504,10 @@ def main() -> int:
 
     _features_facade = importlib.import_module("obsidiandroid.features")
     _features_pairs = (
-        ("feature_vector_builder", "ml_classification.vectorization.feature_vector_builder"),
+        ("feature_encoder", "obsidiandroid.features.vectorization.feature_encoder"),
+        ("feature_engine_selection", "obsidiandroid.features.vectorization.feature_engine_selection"),
+        ("feature_vector_builder", "obsidiandroid.features.vectorization.feature_vector_builder"),
+        ("feature_vendor_extractor", "obsidiandroid.features.vectorization.feature_vendor_extractor"),
     )
     for attr, canon_name in _features_pairs:
         canon_mod = importlib.import_module(canon_name)
@@ -522,7 +525,16 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-    print("OK   obsidiandroid.features submodules match ml_classification")
+        legacy_mod = importlib.import_module(f"ml_classification.vectorization.{attr}")
+        if legacy_mod is not canon_mod:
+            print(
+                f"FAIL: ml_classification.vectorization.{attr} legacy shim mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print(
+        "OK   obsidiandroid.features physical vectorization; ml_classification.vectorization shims identical (Pass 83)"
+    )
 
     _labeling_facade = importlib.import_module("obsidiandroid.labeling")
     _labeling_pairs = (
