@@ -733,6 +733,47 @@ def main() -> int:
     del _inf_facade, _inf_submods, name, canon_inf, facade_inf, legacy_inf
     print("OK   obsidiandroid.inference matches ml_classification.inference shims")
 
+    _ew_facade = importlib.import_module("obsidiandroid.engine_weights")
+    _ew_submods = (
+        "assign_detection_tiers",
+        "build_classification_weights",
+        "classification_weight_inspector",
+        "classification_weight_utils",
+        "compute_reliability_score",
+        "engine_weights_utils",
+    )
+    for name in _ew_submods:
+        canon_ew = importlib.import_module(f"obsidiandroid.engine_weights.{name}")
+        facade_ew = getattr(_ew_facade, name)
+        if facade_ew is not canon_ew:
+            print(
+                f"FAIL: obsidiandroid.engine_weights.{name} facade mismatch vs canonical submodule",
+                file=sys.stderr,
+            )
+            return 1
+        legacy_ew = importlib.import_module(f"ml_classification.engine_weights.{name}")
+        if legacy_ew is not canon_ew:
+            print(
+                f"FAIL: ml_classification.engine_weights.{name} did not resolve to "
+                f"obsidiandroid.engine_weights.{name}",
+                file=sys.stderr,
+            )
+            return 1
+    del _ew_facade, _ew_submods, name, canon_ew, facade_ew, legacy_ew
+    print("OK   obsidiandroid.engine_weights matches ml_classification.engine_weights shims")
+
+    canon_ccr = importlib.import_module("obsidiandroid.reporting.compile_classification_results")
+    legacy_ccr = importlib.import_module("ml_classification.reporting.compile_classification_results")
+    if legacy_ccr is not canon_ccr:
+        print(
+            "FAIL: ml_classification.reporting.compile_classification_results did not resolve to "
+            "obsidiandroid.reporting.compile_classification_results",
+            file=sys.stderr,
+        )
+        return 1
+    del canon_ccr, legacy_ccr
+    print("OK   obsidiandroid.reporting.compile_classification_results shim matches canonical")
+
     _vendors_facade = importlib.import_module("obsidiandroid.vendors")
     _vendors_parsing_pkg = importlib.import_module("obsidiandroid.vendors.parsing")
     _vendors_pairs = (

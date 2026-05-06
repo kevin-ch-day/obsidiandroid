@@ -205,6 +205,24 @@ def test_ml_facades_match_ml_classification_modules() -> None:
         assert getattr(inf_facade, name) is canon_inf
         assert importlib.import_module(f"ml_classification.inference.{name}") is canon_inf
 
+    ew_facade = importlib.import_module("obsidiandroid.engine_weights")
+    for name in (
+        "assign_detection_tiers",
+        "build_classification_weights",
+        "classification_weight_inspector",
+        "classification_weight_utils",
+        "compute_reliability_score",
+        "engine_weights_utils",
+    ):
+        canon_ew = importlib.import_module(f"obsidiandroid.engine_weights.{name}")
+        assert getattr(ew_facade, name) is canon_ew
+        assert importlib.import_module(f"ml_classification.engine_weights.{name}") is canon_ew
+
+    assert (
+        importlib.import_module("ml_classification.reporting.compile_classification_results")
+        is importlib.import_module("obsidiandroid.reporting.compile_classification_results")
+    )
+
 
 def test_labeling_taxonomy_is_wrapper_not_legacy_module_alias() -> None:
     """Pass 58: taxonomy lives under ``src/`` and wraps (not aliases) legacy helpers."""
