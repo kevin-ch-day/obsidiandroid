@@ -1,8 +1,8 @@
 """Stable malware-family taxonomy helpers (Pass 58).
 
-Pass 46 tagged ``ml_classification.common.malware_family_constants`` normalization
-functions as ``needs_wrapper`` because outer callers should not depend on mutable
-tables and package layout under ``ml_classification``.
+Pass 46 tagged legacy malware-family normalization functions as ``needs_wrapper``
+because outer callers should not depend on mutable tables and package layout under
+``ml_classification``.
 
 **Surface:** ``needs_wrapper`` → implemented here as an explicit delegation wrapper,
 not as a ``sys.modules`` alias to the legacy module.
@@ -26,22 +26,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from ml_classification.common import malware_family_constants as _legacy
+from obsidiandroid.labeling import malware_family_constants as _constants
 
 
 def normalize_family_name(name: Any) -> str:
     """Normalize a vendor or metadata family string to a canonical lowercase token."""
-    return _legacy.normalize_family_name(name)
+    return _constants.normalize_family_name(name)
 
 
 def is_known_family_name(name: str) -> bool:
     """Return True if ``name`` maps to a cohort-known malware family token."""
-    return _legacy.is_known_family_name(name)
+    return _constants.is_known_family_name(name)
 
 
 def canonicalize_family_label(name: str) -> str:
     """Return a display-oriented canonical label for reporting and training merges."""
-    return _legacy.canonicalize_family_label(name)
+    return _constants.canonicalize_family_label(name)
 
 
 __all__ = [

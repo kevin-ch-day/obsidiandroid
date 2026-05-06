@@ -2,10 +2,8 @@ import traceback
 from obsidiandroid.cli.ui import display as du
 from config import app_config
 from obsidiandroid.common import ml_console
-from ml_classification.ml_utils import (
-    distribution_reporter,
-    ml_result_analyzer,
-)
+from obsidiandroid.modeling import distribution_reporter
+from obsidiandroid.modeling import ml_result_analyzer
 
 
 def evaluate_model(model, X_test, y_test, label_encoder, model_name: str | None = None):

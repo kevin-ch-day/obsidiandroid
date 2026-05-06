@@ -15,12 +15,14 @@ import sys
 _CANONICAL_SUBMODULE_NAMES = (
     "feature_encoder",
     "feature_engine_selection",
+    "feature_schema_audit",
     "feature_vector_builder",
     "feature_vendor_extractor",
 )
 _LEGACY_BY_CANONICAL = {
     "feature_encoder": "obsidiandroid.features.vectorization.feature_encoder",
     "feature_engine_selection": "obsidiandroid.features.vectorization.feature_engine_selection",
+    "feature_schema_audit": "obsidiandroid.features.feature_schema_audit",
     "feature_vector_builder": "obsidiandroid.features.vectorization.feature_vector_builder",
     "feature_vendor_extractor": "obsidiandroid.features.vectorization.feature_vendor_extractor",
 }

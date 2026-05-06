@@ -2,7 +2,8 @@
 # Purpose : Assigns a categorical risk band to each sample based on its risk_score using either quantile or range-based methods.
 
 import pandas as pd
-from model.core.risk_band_config import RiskBandConfig
+
+from obsidiandroid.risk_band.risk_band_config import RiskBandConfig
 
 # Risk band severity scores for sorting or visualization
 RISK_BAND_SEVERITY = {

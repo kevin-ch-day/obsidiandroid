@@ -4,7 +4,7 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from model.core.record_diagnostics import RecordDiagnosticsMixin
+from .record_diagnostics import RecordDiagnosticsMixin
 from .parsed_label_metadata import ParsedLabelMetadata
 from .feature_engine import compute_all_features
 

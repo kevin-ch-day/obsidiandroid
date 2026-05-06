@@ -4,7 +4,7 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 
 from config import app_config
-from ml_classification.training import feature_schema_audit
+from obsidiandroid.features import feature_schema_audit
 
 
 def test_schema_audit_ok_when_names_match(monkeypatch) -> None:

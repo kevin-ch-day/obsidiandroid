@@ -2,7 +2,7 @@
 
 This package intentionally keeps its import-time side effects minimal.
 
-- Pass 47 surfaced ``classification_label_resolver`` as a ModuleType alias.
+- Pass 86 moved ``classification_label_resolver`` physically under this package.
 - Pass 58 added ``obsidiandroid.labeling.taxonomy`` as a wrapper module.
 
 Why lazy? Vendor parsing now imports taxonomy helpers; importing the full legacy
@@ -17,7 +17,7 @@ import sys
 
 _CANONICAL_SUBMODULE_NAMES: tuple[str, ...] = ("classification_label_resolver",)
 _LEGACY_BY_CANONICAL: dict[str, str] = {
-    "classification_label_resolver": "ml_classification.labeling.classification_label_resolver",
+    "classification_label_resolver": "obsidiandroid.labeling.classification_label_resolver",
 }
 
 def __getattr__(name: str):

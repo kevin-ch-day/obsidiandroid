@@ -15,9 +15,7 @@ import pandas as pd
 from config import app_config
 from scripts.diagnostics import inspect_classification_results as inspector
 from ml_classification.ml_utils import (
-    distribution_reporter,
     ml_comparator_summary as comparator,
-    ml_result_validator,
 )
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
@@ -35,7 +33,9 @@ from obsidiandroid.orchestration.methodology_artifacts import (
     export_leakage_assessment,
 )
 
-from . import data_alignment
+from obsidiandroid.modeling import data_alignment
+from obsidiandroid.modeling import distribution_reporter
+from obsidiandroid.modeling import ml_result_validator
 from . import pipeline_result_promoter
 from . import train_model_executor
 

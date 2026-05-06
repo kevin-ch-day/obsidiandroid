@@ -1,4 +1,4 @@
-"""Tests for ``ml_classification.ml_utils.distribution_reporter``."""
+"""Tests for ``obsidiandroid.modeling.distribution_reporter``."""
 
 from __future__ import annotations
 

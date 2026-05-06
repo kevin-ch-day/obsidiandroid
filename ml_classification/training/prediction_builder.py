@@ -5,9 +5,9 @@ from pathlib import Path
 import pandas as pd
 from obsidiandroid.modeling import model_exporter
 from obsidiandroid.cli.ui import display as du
-from ml_classification.ml_utils import ml_result_analyzer
-from . import model_prediction
-from . import feature_schema_audit
+from obsidiandroid.modeling import ml_result_analyzer
+from obsidiandroid.modeling import model_prediction
+from obsidiandroid.features import feature_schema_audit
 from config import app_config
 
 

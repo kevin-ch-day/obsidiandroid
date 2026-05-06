@@ -10,6 +10,10 @@ move files, or change parser/model/training/output/DB behavior.
 
 **Pass 65 update (code, not a re-audit):** Run **diagnostics** (including **`research_validity/`**, **`hostile_audit/`**, and leaf diagnostics modules) that previously lived under **`analysis/diagnostics/`** are now under **`src/obsidiandroid/diagnostics/`**. Legacy **`analysis.diagnostics.*`** remains valid via **`analysis/diagnostics/__init__.py`** (**`sys.modules`** identity).
 
+**Pass 84 update (code, not a re-audit):** Remaining small **`model.*`** helper implementations used by canonical vendor/risk-band code are now canonical: **`model.core.risk_band_config`** → **`obsidiandroid.risk_band.risk_band_config`**; **`model.core.record_diagnostics`** and **`model.utils.metadata_normalizer`** → **`obsidiandroid.vendors.contracts`**. Legacy paths remain valid through thin **`sys.modules`** identity shims.
+
+**Pass 85 update (code, not a re-audit):** Malware-family constants now live at **`obsidiandroid.labeling.malware_family_constants`** with legacy **`ml_classification.common.malware_family_constants`** preserved as an identity shim. Generic vendor parsing imports **`FAMILY_ALIASES`** from the canonical constants module, while public normalization callers should continue to prefer **`obsidiandroid.labeling.taxonomy`** wrapper functions.
+
 **Plan refresh (2026-05, documentation only):** Passes **59** / **63** / **64** / **65** mean **`analysis/vendor_processing/`**, **`analysis/evaluation/`**, **`analysis/execution/`**, and **`analysis/diagnostics/`** are **no longer leaf implementation trees** — each is a **package-only shim** (**`__init__.py`** + **`sys.modules`** registration). Implementations live under **`src/obsidiandroid/`**. The **Import inventory** table below remains the **Pass 50B static snapshot** (useful for *who imports whom*); **Current source path** for those modules should be read as “**legacy import prefix; file is under `obsidiandroid.…`**.” A full row-by-row rescan is optional.
 
 The summary metrics and boundary narrative below were written for the pre-move layout; treat **readiness tags** as **conceptual** until a dedicated re-audit reruns the AST scan.
@@ -233,7 +237,7 @@ under **`obsidiandroid.labeling.taxonomy`** after Pass 58).
 | Execution order | Item | Current anchor(s) | Tag today | Notes |
 |---:|---|---|---|---|
 | 1 | Parser map entry | `obsidiandroid.vendors.parsing.vendor_parser_map` (legacy shim at `analysis.vendor_processing.vendor_parser_map`) | **moved (Pass 59)** | Physical module moved to canonical package; legacy path preserved with identity shim. |
-| 2 | Generic parser contract | `generic_label_parser.parse_generic_classification`, related | **`needs_wrapper`** | Freeze parsed output shape before canonical export. Pass 58: **taxonomy helpers** consumed from **`obsidiandroid.labeling.taxonomy`**; **`FAMILY_ALIASES`** still imported from legacy until a **vendors-local** alias contract exists. |
+| 2 | Generic parser contract | `generic_label_parser.parse_generic_classification`, related | **`needs_wrapper`** | Freeze parsed output shape before canonical export. Pass 58: **taxonomy helpers** consumed from **`obsidiandroid.labeling.taxonomy`**; Pass 85: **`FAMILY_ALIASES`** imported from canonical **`obsidiandroid.labeling.malware_family_constants`**. |
 | 3 | Parsed label metadata | `model.parsing.parsed_label_metadata.ParsedLabelMetadata` | **`needs_wrapper`** | Part of parser/record API, not labeling taxonomy. |
 | 4 | Vendor classification record | `model.vendor.record_core.VendorClassificationRecord` | **`needs_wrapper`** | Expose via wrapper or protocol, not raw internal fields first. |
 | 5 | Vendor feature engine helpers | `model.vendor.feature_engine` | **`needs_wrapper`** | Coupled to records; ship after record wrapper story. |

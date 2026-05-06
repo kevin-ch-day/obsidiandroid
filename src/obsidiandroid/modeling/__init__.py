@@ -1,12 +1,17 @@
 """ML modeling helpers and thin canonical aliases.
 
-Pass 47 exposes a minimal, docs-approved alias set backed by
-``ml_classification.*`` module objects (identity-preserving):
+Pass 47 exposed a minimal, docs-approved alias set backed by identity-preserving
+module objects. Pass 87 physically moved the small ML utility helpers while keeping
+legacy shims:
 
 - :mod:`obsidiandroid.modeling.pipeline_core`
 - :mod:`obsidiandroid.modeling.model_trainer_factory`
-- :mod:`obsidiandroid.modeling.distribution_reporter`
-- :mod:`obsidiandroid.modeling.feature_label_alignment_helper`
+- :mod:`obsidiandroid.modeling.data_alignment` (physical)
+- :mod:`obsidiandroid.modeling.distribution_reporter` (physical)
+- :mod:`obsidiandroid.modeling.feature_label_alignment_helper` (physical)
+- :mod:`obsidiandroid.modeling.ml_result_analyzer` (physical)
+- :mod:`obsidiandroid.modeling.ml_result_validator` (physical)
+- :mod:`obsidiandroid.modeling.model_prediction` (physical)
 
 See :mod:`obsidiandroid.modeling.model_exporter` for persisted model artifacts.
 """
@@ -17,15 +22,23 @@ import importlib
 import sys
 
 _CANONICAL_SUBMODULE_NAMES = (
+    "data_alignment",
     "distribution_reporter",
     "feature_label_alignment_helper",
+    "ml_result_analyzer",
+    "ml_result_validator",
+    "model_prediction",
     "model_trainer_factory",
     "pipeline_core",
 )
 
 _LEGACY_BY_CANONICAL = {
-    "distribution_reporter": "ml_classification.ml_utils.distribution_reporter",
-    "feature_label_alignment_helper": "ml_classification.ml_utils.feature_label_alignment_helper",
+    "data_alignment": "obsidiandroid.modeling.data_alignment",
+    "distribution_reporter": "obsidiandroid.modeling.distribution_reporter",
+    "feature_label_alignment_helper": "obsidiandroid.modeling.feature_label_alignment_helper",
+    "ml_result_analyzer": "obsidiandroid.modeling.ml_result_analyzer",
+    "ml_result_validator": "obsidiandroid.modeling.ml_result_validator",
+    "model_prediction": "obsidiandroid.modeling.model_prediction",
     "model_trainer_factory": "ml_classification.training.model_trainer_factory",
     "pipeline_core": "ml_classification.training.pipeline_core",
 }

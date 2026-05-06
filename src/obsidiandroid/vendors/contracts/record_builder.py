@@ -4,7 +4,7 @@
 from typing import List, Dict
 from .record_core import VendorClassificationRecord
 from .parsed_label_metadata import ParsedLabelMetadata
-from model.utils.metadata_normalizer import ParsedMetadataNormalizer as Norm
+from .metadata_normalizer import ParsedMetadataNormalizer as Norm
 from obsidiandroid.cli.ui import display as du
 
 

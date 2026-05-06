@@ -7,10 +7,10 @@ from time import time
 import pandas as pd
 
 from config import app_config
-from ml_classification.ml_utils import ml_result_validator
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.common import output_paths
+from obsidiandroid.modeling import ml_result_validator
 from obsidiandroid.observability.logging import get_logger, log_event
 
 from .model_evaluation import evaluate_model, display_post_training_metrics

@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from config import app_config
-from ml_classification.training import model_prediction
+from obsidiandroid.modeling import model_prediction
 from obsidiandroid.modeling import pipeline_core
 
 

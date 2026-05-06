@@ -16,8 +16,7 @@ from typing import Dict, Optional
 from .parser_defaults import ParserDefaults
 from . import parser_confidence_estimator
 from obsidiandroid.vendors.contracts.parsed_label_metadata import ParsedLabelMetadata
-from ml_classification.common.malware_family_constants import FAMILY_ALIASES
-
+from obsidiandroid.labeling.malware_family_constants import FAMILY_ALIASES
 from obsidiandroid.labeling.taxonomy import is_known_family_name, normalize_family_name
 
 

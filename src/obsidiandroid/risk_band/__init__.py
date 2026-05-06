@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import sys
 
-from . import assign_risk_band, phase_score_engines
+from . import assign_risk_band, phase_score_engines, risk_band_config
 
-__all__ = ["assign_risk_band", "phase_score_engines"]
+__all__ = ["assign_risk_band", "phase_score_engines", "risk_band_config"]
 
 _LEGACY_RISK_BAND_PREFIX = "analysis.risk_band."
 for _name in __all__:
     sys.modules[_LEGACY_RISK_BAND_PREFIX + _name] = sys.modules[__name__ + "." + _name]
-

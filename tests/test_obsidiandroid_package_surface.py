@@ -86,8 +86,12 @@ def test_ml_facades_match_ml_classification_modules() -> None:
     import obsidiandroid.modeling as modeling_facade
 
     modeling_pairs = (
-        ("distribution_reporter", "ml_classification.ml_utils.distribution_reporter"),
-        ("feature_label_alignment_helper", "ml_classification.ml_utils.feature_label_alignment_helper"),
+        ("data_alignment", "obsidiandroid.modeling.data_alignment"),
+        ("distribution_reporter", "obsidiandroid.modeling.distribution_reporter"),
+        ("feature_label_alignment_helper", "obsidiandroid.modeling.feature_label_alignment_helper"),
+        ("ml_result_analyzer", "obsidiandroid.modeling.ml_result_analyzer"),
+        ("ml_result_validator", "obsidiandroid.modeling.ml_result_validator"),
+        ("model_prediction", "obsidiandroid.modeling.model_prediction"),
         ("model_trainer_factory", "ml_classification.training.model_trainer_factory"),
         ("pipeline_core", "ml_classification.training.pipeline_core"),
     )
@@ -96,10 +100,28 @@ def test_ml_facades_match_ml_classification_modules() -> None:
         assert getattr(modeling_facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.modeling.{attr}")
         assert alias_mod is canon_mod
+        if attr in {
+            "data_alignment",
+            "distribution_reporter",
+            "feature_label_alignment_helper",
+            "ml_result_analyzer",
+            "ml_result_validator",
+            "model_prediction",
+        }:
+            if attr in {"data_alignment", "model_prediction"}:
+                legacy_mod = importlib.import_module(f"ml_classification.training.{attr}")
+            else:
+                legacy_mod = importlib.import_module(f"ml_classification.ml_utils.{attr}")
+            assert legacy_mod is canon_mod
+
+    feature_alignment_canon = importlib.import_module("obsidiandroid.modeling.feature_alignment_utils")
+    feature_alignment_legacy = importlib.import_module("ml_classification.ml_utils.feature_alignment_utils")
+    assert feature_alignment_legacy is feature_alignment_canon
 
     features_pairs = (
         ("feature_encoder", "obsidiandroid.features.vectorization.feature_encoder"),
         ("feature_engine_selection", "obsidiandroid.features.vectorization.feature_engine_selection"),
+        ("feature_schema_audit", "obsidiandroid.features.feature_schema_audit"),
         ("feature_vector_builder", "obsidiandroid.features.vectorization.feature_vector_builder"),
         ("feature_vendor_extractor", "obsidiandroid.features.vectorization.feature_vendor_extractor"),
     )
@@ -108,17 +130,22 @@ def test_ml_facades_match_ml_classification_modules() -> None:
         assert getattr(features_facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.features.{attr}")
         assert alias_mod is canon_mod
-        legacy_mod = importlib.import_module(f"ml_classification.vectorization.{attr}")
+        if attr == "feature_schema_audit":
+            legacy_mod = importlib.import_module("ml_classification.training.feature_schema_audit")
+        else:
+            legacy_mod = importlib.import_module(f"ml_classification.vectorization.{attr}")
         assert legacy_mod is canon_mod
 
     labeling_pairs = (
-        ("classification_label_resolver", "ml_classification.labeling.classification_label_resolver"),
+        ("classification_label_resolver", "obsidiandroid.labeling.classification_label_resolver"),
     )
     for attr, canon_name in labeling_pairs:
         canon_mod = importlib.import_module(canon_name)
         assert getattr(labeling_facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.labeling.{attr}")
         assert alias_mod is canon_mod
+        legacy_mod = importlib.import_module(f"ml_classification.labeling.{attr}")
+        assert legacy_mod is canon_mod
 
 
 def test_labeling_taxonomy_is_wrapper_not_legacy_module_alias() -> None:
@@ -132,6 +159,17 @@ def test_labeling_taxonomy_is_wrapper_not_legacy_module_alias() -> None:
     path = Path(tax.__file__).resolve()
     assert path.name == "taxonomy.py"
     assert "obsidiandroid" in path.parts and "labeling" in path.parts
+
+
+def test_malware_family_constants_legacy_shim_matches_canonical_module() -> None:
+    """Malware-family constants live canonically under ``obsidiandroid.labeling``."""
+    import importlib
+
+    canon = importlib.import_module("obsidiandroid.labeling.malware_family_constants")
+    legacy = importlib.import_module("ml_classification.common.malware_family_constants")
+    assert legacy is canon
+    assert canon.normalize_family_name("Flu-Bot") == "flubot"
+    assert canon.canonicalize_family_label("Cabassous") == "FluBot"
 
 
 def test_pipeline_manifest_facade_matches_manifest_modules() -> None:
@@ -306,7 +344,7 @@ def test_vendors_parsing_modules_match_legacy_shim_identity() -> None:
 
 
 def test_model_vendor_and_parsing_shims_match_vendors_contracts() -> None:
-    """Pass 60: model.parsing/model.vendor physical move with identity-preserving shims."""
+    """Vendor contract legacy shims preserve identity with canonical modules."""
     import importlib
 
     canon_parsed = importlib.import_module("obsidiandroid.vendors.contracts.parsed_label_metadata")
@@ -320,6 +358,23 @@ def test_model_vendor_and_parsing_shims_match_vendors_contracts() -> None:
     canon_engine = importlib.import_module("obsidiandroid.vendors.contracts.feature_engine")
     legacy_engine = importlib.import_module("model.vendor.feature_engine")
     assert legacy_engine is canon_engine
+
+    canon_diag = importlib.import_module("obsidiandroid.vendors.contracts.record_diagnostics")
+    legacy_diag = importlib.import_module("model.core.record_diagnostics")
+    assert legacy_diag is canon_diag
+
+    canon_norm = importlib.import_module("obsidiandroid.vendors.contracts.metadata_normalizer")
+    legacy_norm = importlib.import_module("model.utils.metadata_normalizer")
+    assert legacy_norm is canon_norm
+
+
+def test_model_risk_band_config_shim_matches_canonical_module() -> None:
+    """Risk-band config legacy shim preserves identity with canonical module."""
+    import importlib
+
+    canon_mod = importlib.import_module("obsidiandroid.risk_band.risk_band_config")
+    legacy_mod = importlib.import_module("model.core.risk_band_config")
+    assert legacy_mod is canon_mod
 
 
 def test_evaluation_leaf_shims_match_canonical_modules() -> None:

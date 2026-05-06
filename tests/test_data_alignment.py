@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from ml_classification.training import data_alignment
+from obsidiandroid.modeling import data_alignment
 
 
 def test_extract_aligned_labels_raises_on_missing_sample_ids_without_mutating_inputs() -> None:

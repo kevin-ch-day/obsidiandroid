@@ -6,7 +6,7 @@ from obsidiandroid.labeling.taxonomy import (
     is_known_family_name,
     normalize_family_name,
 )
-from ml_classification.training import data_alignment
+from obsidiandroid.modeling import data_alignment
 import pandas as pd
 
 
