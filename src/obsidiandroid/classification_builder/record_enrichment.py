@@ -4,7 +4,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
 from . import classification_constants
-from ml_classification.inference.threat_class_engine import infer_threat_class
+from obsidiandroid.inference.threat_class_engine import infer_threat_class
 from obsidiandroid.cli.ui import display as du
 import difflib
 

@@ -706,6 +706,33 @@ def main() -> int:
     del _cb_facade, _cb_submods, name, canon_cb, facade_cb, legacy_cb
     print("OK   obsidiandroid.classification_builder matches ml_classification.builder shims")
 
+    _inf_facade = importlib.import_module("obsidiandroid.inference")
+    _inf_submods = (
+        "label_consensus_engine",
+        "malware_type_engine",
+        "signal_health_checker",
+        "threat_class_engine",
+    )
+    for name in _inf_submods:
+        canon_inf = importlib.import_module(f"obsidiandroid.inference.{name}")
+        facade_inf = getattr(_inf_facade, name)
+        if facade_inf is not canon_inf:
+            print(
+                f"FAIL: obsidiandroid.inference.{name} facade mismatch vs canonical submodule",
+                file=sys.stderr,
+            )
+            return 1
+        legacy_inf = importlib.import_module(f"ml_classification.inference.{name}")
+        if legacy_inf is not canon_inf:
+            print(
+                f"FAIL: ml_classification.inference.{name} did not resolve to "
+                f"obsidiandroid.inference.{name}",
+                file=sys.stderr,
+            )
+            return 1
+    del _inf_facade, _inf_submods, name, canon_inf, facade_inf, legacy_inf
+    print("OK   obsidiandroid.inference matches ml_classification.inference shims")
+
     _vendors_facade = importlib.import_module("obsidiandroid.vendors")
     _vendors_parsing_pkg = importlib.import_module("obsidiandroid.vendors.parsing")
     _vendors_pairs = (

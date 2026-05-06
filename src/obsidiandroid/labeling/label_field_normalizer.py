@@ -3,8 +3,8 @@
 
 import re
 from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
-from ml_classification.inference.threat_class_engine import infer_threat_class
-from ml_classification.inference.malware_type_engine import infer_malware_type
+from obsidiandroid.inference.threat_class_engine import infer_threat_class
+from obsidiandroid.inference.malware_type_engine import infer_malware_type
 from obsidiandroid.labeling.malware_family_constants import (
     GENERIC_TOKENS,
     is_known_family_name,

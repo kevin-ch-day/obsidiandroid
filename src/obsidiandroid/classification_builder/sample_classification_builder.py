@@ -9,7 +9,7 @@ import pandas as pd
 from obsidiandroid.cli.ui import display as du
 from .prediction_utils import extract_prediction_components
 from .classification_row_builder import build_classification_row
-from ml_classification.inference.label_consensus_engine import resolve_consensus_label
+from obsidiandroid.inference.label_consensus_engine import resolve_consensus_label
 from config import app_config
 
 def build_sample_classification_records(

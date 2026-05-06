@@ -4,7 +4,7 @@
 import pandas as pd
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.classification_builder import sample_classification_builder
-from ml_classification.inference.label_consensus_engine import resolve_consensus_label
+from obsidiandroid.inference.label_consensus_engine import resolve_consensus_label
 
 
 def build_structured_classification_results(

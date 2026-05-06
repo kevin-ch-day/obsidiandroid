@@ -3,7 +3,7 @@
 
 import pandas as pd
 from obsidiandroid.cli.ui import display as du
-from ml_classification.inference import signal_health_checker
+from obsidiandroid.inference import signal_health_checker
 from config import app_config
 
 UNKNOWN_THRESHOLD = 0.75

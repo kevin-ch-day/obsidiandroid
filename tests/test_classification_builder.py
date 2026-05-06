@@ -2,7 +2,7 @@ import pytest
 
 from obsidiandroid.classification_builder.classification_row_builder import build_classification_row
 from obsidiandroid.classification_builder import sample_classification_builder
-from ml_classification.inference.label_consensus_engine import resolve_consensus_label
+from obsidiandroid.inference.label_consensus_engine import resolve_consensus_label
 from obsidiandroid.labeling import label_field_normalizer, label_format_generator
 from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
 

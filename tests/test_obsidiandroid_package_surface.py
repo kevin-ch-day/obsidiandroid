@@ -194,6 +194,17 @@ def test_ml_facades_match_ml_classification_modules() -> None:
         assert getattr(cb_facade, name) is canon_cb
         assert importlib.import_module(f"ml_classification.builder.{name}") is canon_cb
 
+    inf_facade = importlib.import_module("obsidiandroid.inference")
+    for name in (
+        "label_consensus_engine",
+        "malware_type_engine",
+        "signal_health_checker",
+        "threat_class_engine",
+    ):
+        canon_inf = importlib.import_module(f"obsidiandroid.inference.{name}")
+        assert getattr(inf_facade, name) is canon_inf
+        assert importlib.import_module(f"ml_classification.inference.{name}") is canon_inf
+
 
 def test_labeling_taxonomy_is_wrapper_not_legacy_module_alias() -> None:
     """Pass 58: taxonomy lives under ``src/`` and wraps (not aliases) legacy helpers."""
