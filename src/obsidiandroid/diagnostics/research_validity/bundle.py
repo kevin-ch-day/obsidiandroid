@@ -9,6 +9,12 @@ from typing import Any
 
 import pandas as pd
 
+from config import app_config
+
+from ..contract_and_taxonomy_reports import (
+    write_headline_vs_ablation_contract_reports,
+    write_taxonomy_type_authority_reports,
+)
 from ..hostile_audit.bundle import write_hostile_audit_bundle
 
 from .cohort_funnel import (
@@ -100,6 +106,27 @@ def write_research_validity_bundle(
     if str(claim_path) not in artifact_list:
         artifact_list.append(str(claim_path))
     obs_api.record_artifact_write(manifest_context, claim_path, detail="research_validity:paper_claim_audit")
+
+    try:
+        _h_md, _h_csv, _ = write_headline_vs_ablation_contract_reports(
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            manifest_context=dict(manifest_context) if isinstance(manifest_context, dict) else None,
+            runtime_headline_hash=str(
+                getattr(app_config, "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH", "") or ""
+            ).strip()
+            or None,
+        )
+        for p in (_h_md, _h_csv):
+            if p and str(p) not in artifact_list:
+                artifact_list.append(str(p))
+        _t_md, _t_csv = write_taxonomy_type_authority_reports(diagnostics_dir, run_id)
+        for p in (_t_md, _t_csv):
+            if p and str(p) not in artifact_list:
+                artifact_list.append(str(p))
+    except Exception:
+        # Non-fatal: manifest finalization should not fail on report helpers.
+        pass
 
     hostile_wall = datetime.now(timezone.utc).isoformat()
     hostile_t0 = perf_counter()

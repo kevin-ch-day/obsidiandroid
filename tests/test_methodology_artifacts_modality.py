@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.orchestration import methodology_artifacts
+from obsidiandroid.orchestration import methodology_artifacts
 
 
 def test_export_modality_method_contract_writes_expected_fields(tmp_path: Path) -> None:

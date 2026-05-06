@@ -1,21 +1,9 @@
-"""Pure manifest payload assembly helpers."""
+"""Legacy shim: implementation lives under ``obsidiandroid.pipeline.manifest.builder``."""
 
 from __future__ import annotations
 
-from typing import Any
+import importlib
+import sys
 
-
-def build_manifest_payload(base_payload: dict[str, Any], *, artifacts: list[str]) -> dict[str, Any]:
-    """Build final manifest payload without performing I/O.
-
-    Args:
-        base_payload: Caller-provided manifest dictionary.
-        artifacts: Materialized artifact paths.
-
-    Returns:
-        New manifest dictionary with stable artifact list.
-    """
-    manifest = dict(base_payload)
-    manifest["artifact_list"] = sorted(set(map(str, artifacts)))
-    return manifest
-
+_mod = importlib.import_module("obsidiandroid.pipeline.manifest.builder")
+sys.modules[__name__] = _mod

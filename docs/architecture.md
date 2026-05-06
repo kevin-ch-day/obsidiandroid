@@ -17,7 +17,7 @@ This document explains how ObsidianDroid ingests antivirus telemetry, computes r
 ```
 
 1. **Metadata ingestion** loads sample identifiers, vendor detections, and contextual attributes from a MySQL database using helpers in `database/`. See [`data_sources.md`](data_sources.md) for a catalog of required tables and replication guidance.
-2. **Analysis and feature engineering** normalize AV labels, score vendors, and build per-sample feature matrices in `analysis/` with shared helpers in `utils/`.
+2. **Analysis and feature engineering** normalize AV labels, score vendors, and build per-sample feature matrices in **canonical** `src/obsidiandroid/` modules (with legacy `analysis.*` and `utils.*` shims retained during migration).
 3. **Model training and inference** leverage estimators defined in `ml_classification/` using configuration from `config/`.
 4. **Evaluation and export** routines write canonical family labels, diagnostics, and artifacts under `output/`.
 
@@ -36,7 +36,7 @@ This document explains how ObsidianDroid ingests antivirus telemetry, computes r
 
 ### 2. Label Harmonization & Vendor Scoring (`analysis/`)
 - `analysis/vendor_processing/` parses vendor-specific strings into normalized tokens and families.
-- `analysis/feature_engineering/compute_vendor_scores.py` derives ML-oriented vendor scores and parser gates.
+- `obsidiandroid/feature_engineering/compute_vendor_scores.py` (legacy `analysis.feature_engineering.*` shims) derives ML-oriented vendor scores and parser gates.
 - `feature_engineering/` also builds cohort statistics, pattern metrics, and supporting aggregates used in reporting.
 
 ### 3. Shared Utilities (`utils/`)
@@ -57,14 +57,14 @@ Consult [`modeling_reference.md`](modeling_reference.md) for estimator-specific 
 - `model_params/` holds estimator-specific hyperparameters.
 - Probability/consensus behavior is driven by **`app_config`**, profile YAML under **`profiles/`**, and labeling modules under **`ml_classification/labeling/`** (there is no standalone **`config/thresholds.json`** in this repository).
 
-### 6. Execution Entrypoints (`main.py`, `analysis/pipeline/runner.py`, `scripts/`)
+### 6. Execution Entrypoints (`main.py`, `obsidiandroid.pipeline.runner`, `scripts/`)
 - `main.py` is the **thin CLI entry**: argument parsing and stable symbols for tests (`run_pipeline`, diagnostics paths, and monkeypatch-friendly re-exports).
-- `analysis/pipeline/runner.py` holds **`run_pipeline`** orchestration (same stage order as before: samples → AV pipeline → vendor metadata → engine weights → feature matrix → alignment → training → optional ablation → optional permission-trends report → label resolution → manifest).
+- `src/obsidiandroid/pipeline/runner.py` holds **`run_pipeline`** orchestration; legacy `analysis.pipeline.runner` is an identity shim to the same module.
 - `analysis/pipeline/main_facade.py` exposes **`from_main_or()`** so pytest can patch attributes on `main` (for example `finalize_run_manifest_stage`) and have **`runner.run_pipeline`** observe those bindings despite living outside `main.py`.
 - `analysis/pipeline/stage_samples.py` loads cohorts and applies gates; `stage_av_vendor.py` runs AV analysis, vendor extraction, and alignment; `stage_modeling.py` covers weights, feature matrix, training, and label resolution.
 - `analysis/pipeline/stage_permission_trends_report.py` produces permission analytics (helpers under `analysis/pipeline/permission_trends/`). `stage_manifest.py` writes the run manifest and paper/evidence exports.
 - `stage_results_warehouse.py` persists selected outputs when configured.
-- `analysis/evaluation/model_tuning.py` is the tuning entrypoint; `scripts/` holds operational CLIs (warehouse backfill, research utilities).
+- `python -m obsidiandroid.evaluation.model_tuning` is the tuning entrypoint; `scripts/` holds operational CLIs (warehouse backfill, research utilities).
 - For extension patterns, see [`pipeline_staging_guide.md`](pipeline_staging_guide.md) and `main.run_pipeline` / `profiles/*.yaml`.
 
 ### 7. Quality Assurance (`tests/`, `scripts/dev/`)
@@ -82,7 +82,7 @@ Consult [`modeling_reference.md`](modeling_reference.md) for estimator-specific 
 
 ## Extending the System
 
-1. Add new feature builders under `analysis/feature_engineering/` (or pipeline stages) and gate them in `config/app_config.py` / profile YAML.
+1. Add new feature builders under `src/obsidiandroid/feature_engineering/` (legacy `analysis.feature_engineering.*` shim) or via pipeline stages, and gate them in `config/app_config.py` / profile YAML.
 2. Add or wire estimators through `ml_classification/training/model_trainer_factory.py` and `config/settings/model_hyperparams.py`.
 3. Extend `tests/` and run `pytest -q` before submitting changes.
 4. Document operator-visible behaviour in [`user_guide.md`](user_guide.md) or [`data_sources.md`](data_sources.md) when changing DB contracts or outputs.
@@ -90,7 +90,7 @@ Consult [`modeling_reference.md`](modeling_reference.md) for estimator-specific 
 ## Observability and research-facing audits (`obsidiandroid.observability.pipeline_observability`)
 
 - **`obsidiandroid.observability.pipeline_observability`** centralizes structured pipeline narration: taxonomy (`LogCategory`, `LogSeverity`), `PipelineObservabilitySession` (append-only `pipeline_events.jsonl` + `pipeline_stage_summary.csv`), stable helpers in `api.py` (`record_data_population_change`, `record_artifact_write`, etc.), and `finalize_pipeline_observability` which emits `run_observability_summary.json` (authoritative), `pipeline_stage_summary.md`, `partial_failures.md`, and logging audit artifacts.
-- **Runner integration:** `analysis/pipeline/runner.py` owns stage timing and wires population/schema transitions into the session; manifest finalization (`analysis/pipeline/stage_manifest.py`) calls finalize so terminal **Run Health** (`run_health.py`) and `run_evidence_index.md` stay aligned with `run_summary.json` / `run_manifest.json`.
+- **Runner integration:** canonical `obsidiandroid.pipeline.runner` owns stage timing and wires population/schema transitions into the session; manifest finalization (`analysis/pipeline/stage_manifest.py`, legacy path) calls finalize so terminal **Run Health** (`run_health.py`) and `run_evidence_index.md` stay aligned with `run_summary.json` / `run_manifest.json`.
 - **Research validity & hostile audit:** `analysis/diagnostics/research_validity/bundle.py` orchestrates cohort funnel, claim audit, permission audit, and delegates to `analysis/diagnostics/hostile_audit/`; exported paths feed the manifest and observability rollup.
 
 By following this guide, contributors can map requirements to the correct modules and understand how data flows through ObsidianDroid.

@@ -7,7 +7,7 @@ This module extracts preprocessing logic from ``main.py`` to keep pipeline
 orchestration compact and easier to test in isolation.
 
 ``build_metadata_feature_frame`` and ``extract_vt_tag_count`` are the **canonical**
-metadata-feature builders; :mod:`analysis.orchestration.metadata_features` re-exports
+metadata-feature builders; :mod:`obsidiandroid.orchestration.metadata_features` re-exports
 them for backward-compatible imports only.
 """
 

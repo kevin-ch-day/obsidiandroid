@@ -1,4 +1,7 @@
-"""Feature-engineering canonical aliases (Pass 47 minimal slice)."""
+"""Feature-engineering canonical aliases (Pass 47 minimal slice).
+
+Reserved for feature matrix and vectorization; see ``docs/ML_BOUNDARY_PLAN.md``.
+"""
 
 from __future__ import annotations
 
@@ -18,4 +21,3 @@ for _name in _CANONICAL_SUBMODULE_NAMES:
 __all__ = list(_CANONICAL_SUBMODULE_NAMES)
 
 del _CANONICAL_SUBMODULE_NAMES, _LEGACY_BY_CANONICAL, _name, _canon
-"""Reserved for feature matrix and vectorization (see migration plan)."""

@@ -20,7 +20,7 @@ ObsidianDroid is an end-to-end framework for Android malware analysis, AV engine
 
 ## Quick Facts
 
-- **Entry points:** Repo-root `main.py` is a thin shim; canonical CLI lives in `src/obsidiandroid/cli/main.py`. `analysis/pipeline/runner.py` runs `run_pipeline` and calls staged helpers under `analysis/pipeline/stage_*.py`. `analysis/evaluation/model_tuning.py` handles targeted hyperparameter sweeps; `scripts/` holds maintenance tools (`scripts/dev/` for hygiene/import checks, `scripts/diagnostics/` for inspection CLIs).
+- **Entry points:** Repo-root `main.py` is a thin shim; canonical CLI lives in `src/obsidiandroid/cli/main.py`. Canonical pipeline orchestration is `src/obsidiandroid/pipeline/runner.py` (legacy `analysis.pipeline.runner` is an identity shim) and stages still live under legacy `analysis/pipeline/stage_*.py` paths. Model tuning entrypoint: `python -m obsidiandroid.evaluation.model_tuning`. `scripts/` holds maintenance tools (`scripts/dev/` for hygiene/import checks, `scripts/diagnostics/` for inspection CLIs).
 - **Configuration:** YAML/JSON files in `config/` control feature toggles, model parameters, and database credentials.
 - **Outputs:** Runtime artifacts (labels, evaluation metrics, feature matrices) are written under an `output/` directory that is created on demand.
 - **Testing:** Run **`make verify`** (import smoke + fast pytest), `pytest -q`, or `make test` before committing changes. The fuzzer and ML call-site scan live under `scripts/dev/`. See **Makefile quick reference** in `developer_guide.md` for `make setup`, `make menu`, and `make install-editable`.

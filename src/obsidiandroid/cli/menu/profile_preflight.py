@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from analysis.orchestration.profile_filters import split_benign_malicious
+from obsidiandroid.orchestration.profile_filters import split_benign_malicious
 from config import app_config
 from obsidiandroid.database import db_sample_metadata_fetchers
 from obsidiandroid.cli.ui import display as du

@@ -15,7 +15,7 @@ import pandas as pd
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 
-from analysis.orchestration.permission_features import build_permission_feature_frame
+from obsidiandroid.orchestration.permission_features import build_permission_feature_frame
 from obsidiandroid.pipeline.sample_preparation import build_metadata_feature_frame
 
 

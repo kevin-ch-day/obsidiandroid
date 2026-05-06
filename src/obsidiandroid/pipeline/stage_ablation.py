@@ -15,7 +15,7 @@ import shutil
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
-from analysis.matrix.av_binary_matrix_builder import METADATA_COLS as AV_METADATA_COLS
+from obsidiandroid.matrix.av_binary_matrix_builder import METADATA_COLS as AV_METADATA_COLS
 from config import app_config
 from obsidiandroid.modeling import distribution_reporter
 from obsidiandroid.modeling import pipeline_core

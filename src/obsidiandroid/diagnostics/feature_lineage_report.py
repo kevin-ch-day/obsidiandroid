@@ -160,7 +160,7 @@ def build_feature_lineage_report(run_diagnostics_dir: Path | str) -> dict[str, A
 
     narrative = {
         "modules_av_vendor_detection_features": (
-            "analysis/matrix/av_binary_matrix_builder.py (binary pivot), "
+            "obsidiandroid/matrix/av_binary_matrix_builder.py (binary pivot), "
             "database/db_av_engine_verdicts.fetch_verdicts_simple_ids; merged into enriched_matrix in "
             "analysis/pipeline/av_engine_pipeline.py."
         ),
@@ -170,7 +170,7 @@ def build_feature_lineage_report(run_diagnostics_dir: Path | str) -> dict[str, A
             "as feature columns unless merged indirectly through enrichment frames."
         ),
         "modules_permission_features": (
-            "analysis/orchestration/permission_features.py build_permission_feature_frame "
+            "obsidiandroid/orchestration/permission_features.py build_permission_feature_frame "
             "(Permission Intel android_permission_obs_sample via execute_permission_query)."
         ),
         "modules_metadata_features": (

@@ -17,7 +17,7 @@ This playbook equips site reliability engineers and operators with procedures fo
 
 ## Monthly Checklist
 
-- **Model retraining:** Schedule `analysis/evaluation/model_tuning.py` (or your production tuning driver) with the latest labeled dataset. Promote the champion model once evaluation metrics meet acceptance criteria.
+- **Model retraining:** Schedule `python -m obsidiandroid.evaluation.model_tuning` (or your production tuning driver) with the latest labeled dataset. Promote the champion model once evaluation metrics meet acceptance criteria.
 - **Disaster recovery drill:** Practice restoring the database snapshot and rehydrating VirusTotal tables from backups.
 - **Documentation review:** Update user and developer guides with process changes discovered during the month.
 

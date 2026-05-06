@@ -1,6 +1,6 @@
 # Code Review: Architecture & Performance Opportunities
 
-> **Note:** Snapshot from an earlier review cycle. Line counts and suggested splits describe historical layout before the **`analysis/pipeline/`** orchestration split and **`src/obsidiandroid/`** CLI migration; use **`analysis/pipeline/runner.py`** and **`docs/pipeline_staging_guide.md`** as the source of truth for current stages.
+> **Note:** Snapshot from an earlier review cycle. Line counts and suggested splits describe historical layout before the stage split and `src/obsidiandroid/` migration; use canonical **`src/obsidiandroid/pipeline/runner.py`** (legacy `analysis.pipeline.runner` shim) and **`docs/pipeline_staging_guide.md`** as the source of truth for current stages.
 
 ## Scope and approach
 
@@ -26,7 +26,7 @@ This review focused on:
 - `pipeline/orchestrator.py`: keep high-level stage sequence only.
 - `pipeline/stages/*.py`: one file per stage (`samples`, `av_pipeline`, `vendor_metadata`, `weights`, `feature_matrix`, `training`).
 - `pipeline/cohort_filters.py`: `_split_benign_malicious`, `_apply_dataset_filters`.
-- `analysis/pipeline/sample_preparation.py`: `extract_vt_tag_count`, `build_metadata_feature_frame` (see also thin re-export `analysis/orchestration/metadata_features.py`).
+- `obsidiandroid/pipeline/sample_preparation.py`: `extract_vt_tag_count`, `build_metadata_feature_frame` (see also thin re-export `obsidiandroid/orchestration/metadata_features.py`; legacy `analysis/orchestration` shims identical).
 - `pipeline/contracts.py`: typed dataclasses for stage inputs/outputs.
 
 ---

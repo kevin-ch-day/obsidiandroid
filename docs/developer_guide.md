@@ -60,7 +60,7 @@ Quick sanity check: **`python scripts/dev/check_import_surface.py`** or **`make 
 
 ## Working with the Staged Pipeline
 
-Orchestration lives in **`analysis/pipeline/runner.py`** (`run_pipeline`). **`main.py`** only parses CLI flags and re-exports symbols for backward-compatible tests. Stage implementations stay under **`analysis/pipeline/stage_*.py`**.
+Orchestration lives in **`src/obsidiandroid/pipeline/runner.py`** (`run_pipeline`). Legacy **`analysis.pipeline.runner`** is an identity shim to the same module. **`main.py`** is a thin CLI shell + compatibility surface; tests may monkeypatch `main` symbols which are bridged into the runner via the legacy `analysis/pipeline/main_facade.py` shim.
 
 - Add heavy logic in `stage_*.py` modules, not in `runner.py`.
 - Document stage entry/exit contracts in docstrings (input columns, required keys, and failure behavior).

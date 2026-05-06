@@ -19,7 +19,7 @@ Representative file sizes (production + orchestration paths, approximate):
 | `analysis/pipeline/stage_permission_trends_report.py` | ~3170 | Largest stage module |
 | `src/obsidiandroid/cli/startup_menu.py` | ~2000 | Operator menu (canonical); root `utils/startup_menu.py` is a shim |
 | `analysis/pipeline/stage_manifest.py` | ~2570 | Manifest / exports |
-| `analysis/pipeline/runner.py` | ~1640 | `run_pipeline` orchestration |
+| `src/obsidiandroid/pipeline/runner.py` | ~1640 | `run_pipeline` orchestration (legacy `analysis.pipeline.runner` is a shim) |
 | `analysis/pipeline/stage_results_warehouse.py` | ~1170 | Results warehouse |
 | `utils/export_manager.py` | ~860 | Exports |
 | `ml_classification/training/pipeline_core.py` | ~900 | Training orchestration |
@@ -29,7 +29,7 @@ Representative file sizes (production + orchestration paths, approximate):
 Largest function hotspots (see inspect scripts for current line numbers):
 
 - `analysis/pipeline/stage_permission_trends_report.py` — `run_permission_trends_report_stage` (very large)
-- `analysis/pipeline/runner.py` — `run_pipeline` (primary orchestration)
+- `src/obsidiandroid/pipeline/runner.py` — `run_pipeline` (primary orchestration; legacy shim exists)
 - `analysis/pipeline/stage_manifest.py` — manifest finalization and paper export helpers
 - `analysis/pipeline/stage_samples.py` — `load_and_prepare_samples`
 
@@ -38,7 +38,7 @@ Largest function hotspots (see inspect scripts for current line numbers):
 1. **Pipeline stage overload**
    - `stage_permission_trends_report.py` and `stage_manifest.py` combine orchestration, analytics, export, compliance, and persistence concerns in single modules/functions.
 2. **Control-flow depth + broad exception handling**
-   - `analysis/pipeline/runner.py`, `stage_manifest.py`, and `export_manager.py` contain high branch counts and multiple broad `except Exception` handlers.
+   - `src/obsidiandroid/pipeline/runner.py` (legacy shim exists), `stage_manifest.py`, and `export_manager.py` contain high branch counts and multiple broad `except Exception` handlers.
 3. **Operational UI mixed with workflow logic**
    - `src/obsidiandroid/cli/startup_menu.py` still contains substantial action logic that could move to dedicated service modules over time.
 4. **Classification label audit complexity growth**
@@ -48,7 +48,7 @@ Largest function hotspots (see inspect scripts for current line numbers):
 
 1. `analysis/pipeline/stage_permission_trends_report.py`
 2. `analysis/pipeline/stage_manifest.py`
-3. `analysis/pipeline/runner.py` (or extract stage dispatch helpers without moving files in one shot)
+3. `src/obsidiandroid/pipeline/runner.py` (or extract stage dispatch helpers without moving files in one shot)
 4. `src/obsidiandroid/cli/startup_menu.py` (behind-menu workflows → services)
 5. `utils/export_manager.py`
 6. `ml_classification/labeling/classification_label_resolver.py`
@@ -83,7 +83,7 @@ Goal: isolate manifest composition vs validation vs writing.
 
 - Repo-root `main.py` should remain a **thin** import surface for tests (`import main`).
 - **`src/obsidiandroid/cli/main.py`** — CLI exports and `main()` entry.
-- **`analysis/pipeline/runner.py`** — `run_pipeline` and run-scoped helpers.
+- **`src/obsidiandroid/pipeline/runner.py`** — `run_pipeline` and run-scoped helpers (canonical; legacy shim exists).
 
 Goal: avoid growing new logic in root `main.py`; extend `runner` / stages / `obsidiandroid.*` facades instead.
 

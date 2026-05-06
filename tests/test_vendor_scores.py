@@ -1,5 +1,5 @@
 import pandas as pd
-from analysis.feature_engineering.compute_vendor_scores import (
+from obsidiandroid.feature_engineering.compute_vendor_scores import (
     run_score_analysis,
     print_score_distribution,
 )

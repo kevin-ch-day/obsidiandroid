@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from obsidiandroid.features import feature_vector_builder
 from obsidiandroid.pipeline import stage_feature_enrichment as sfe
-from ml_classification.vectorization import feature_vector_builder
 from ml_classification.vectorization.feature_encoder import encode_features
 
 

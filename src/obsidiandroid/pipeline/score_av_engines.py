@@ -10,7 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from obsidiandroid.pipeline import engine_normalization
-from analysis.risk_band import phase_score_engines
+from obsidiandroid.risk_band import phase_score_engines
 from config import app_config
 from obsidiandroid.database import db_engine
 from obsidiandroid.cli.ui import display as du

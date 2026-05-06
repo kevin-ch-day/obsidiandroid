@@ -130,40 +130,114 @@ def test_labeling_taxonomy_is_wrapper_not_legacy_module_alias() -> None:
 
 
 def test_pipeline_manifest_facade_matches_manifest_modules() -> None:
-    """Pipeline manifest facade aliases analysis.pipeline.manifest modules."""
+    """Pipeline manifest: canonical under ``obsidiandroid.pipeline.manifest``; analysis shims match."""
     import importlib
 
     import obsidiandroid.pipeline.manifest as manifest_facade
 
     manifest_pairs = (
-        ("hashing", "analysis.pipeline.manifest.hashing"),
-        ("paper_compliance_checks", "analysis.pipeline.manifest.paper_compliance_checks"),
-        ("paper_figure_renderers", "analysis.pipeline.manifest.paper_figure_renderers"),
-        ("runtime_support", "analysis.pipeline.manifest.runtime_support"),
-        ("writer", "analysis.pipeline.manifest.writer"),
+        ("hashing", "obsidiandroid.pipeline.manifest.hashing"),
+        ("paper_compliance_checks", "obsidiandroid.pipeline.manifest.paper_compliance_checks"),
+        ("paper_figure_renderers", "obsidiandroid.pipeline.manifest.paper_figure_renderers"),
+        ("runtime_support", "obsidiandroid.pipeline.manifest.runtime_support"),
+        ("writer", "obsidiandroid.pipeline.manifest.writer"),
     )
     for attr, canon_name in manifest_pairs:
         canon_mod = importlib.import_module(canon_name)
         assert getattr(manifest_facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.pipeline.manifest.{attr}")
         assert alias_mod is canon_mod
+        legacy_mod = importlib.import_module(f"analysis.pipeline.manifest.{attr}")
+        assert legacy_mod is canon_mod
 
 
 def test_pipeline_artifacts_facade_matches_artifact_modules() -> None:
-    """Pipeline artifacts facade aliases analysis.pipeline.artifacts modules."""
+    """Pipeline artifacts: canonical under ``obsidiandroid.pipeline.artifacts``; analysis shims match."""
     import importlib
 
     import obsidiandroid.pipeline.artifacts as artifacts_facade
 
     artifacts_pairs = (
-        ("paths", "analysis.pipeline.artifacts.paths"),
-        ("registry", "analysis.pipeline.artifacts.registry"),
+        ("paths", "obsidiandroid.pipeline.artifacts.paths"),
+        ("registry", "obsidiandroid.pipeline.artifacts.registry"),
     )
     for attr, canon_name in artifacts_pairs:
         canon_mod = importlib.import_module(canon_name)
         assert getattr(artifacts_facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.pipeline.artifacts.{attr}")
         assert alias_mod is canon_mod
+        legacy_mod = importlib.import_module(f"analysis.pipeline.artifacts.{attr}")
+        assert legacy_mod is canon_mod
+
+
+def test_feature_engineering_facade_matches_analysis_shims() -> None:
+    """Pass 78: vendor/feature helpers under ``obsidiandroid.feature_engineering``; legacy paths match."""
+    import importlib
+
+    fe_pairs = (
+        ("assign_tier_scores", "obsidiandroid.feature_engineering.assign_tier_scores"),
+        ("compute_vendor_scores", "obsidiandroid.feature_engineering.compute_vendor_scores"),
+        ("prepare_engine_metrics", "obsidiandroid.feature_engineering.prepare_engine_metrics"),
+        ("pattern_analysis", "obsidiandroid.feature_engineering.pattern_analysis"),
+    )
+    for attr, canon_name in fe_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        alias_mod = importlib.import_module(f"obsidiandroid.feature_engineering.{attr}")
+        assert alias_mod is canon_mod
+        legacy_mod = importlib.import_module(f"analysis.feature_engineering.{attr}")
+        assert legacy_mod is canon_mod
+
+
+def test_orchestration_submodules_match_analysis_shims() -> None:
+    """Pass 80: orchestration helpers under ``obsidiandroid.orchestration``; legacy paths match."""
+    import importlib
+
+    pairs = (
+        ("metadata_features", "obsidiandroid.orchestration.metadata_features"),
+        ("methodology_artifacts", "obsidiandroid.orchestration.methodology_artifacts"),
+        ("permission_features", "obsidiandroid.orchestration.permission_features"),
+        ("profile_filters", "obsidiandroid.orchestration.profile_filters"),
+        ("runtime_reporting", "obsidiandroid.orchestration.runtime_reporting"),
+    )
+    for attr, canon_name in pairs:
+        canon_mod = importlib.import_module(canon_name)
+        alias_mod = importlib.import_module(f"obsidiandroid.orchestration.{attr}")
+        assert alias_mod is canon_mod
+        legacy_mod = importlib.import_module(f"analysis.orchestration.{attr}")
+        assert legacy_mod is canon_mod
+
+
+def test_matrix_submodules_match_analysis_shims() -> None:
+    """Pass 80: AV matrix helpers under ``obsidiandroid.matrix``; legacy paths match."""
+    import importlib
+
+    pairs = (
+        ("av_binary_matrix_builder", "obsidiandroid.matrix.av_binary_matrix_builder"),
+        ("enrich_malicious_scores", "obsidiandroid.matrix.enrich_malicious_scores"),
+        ("enrich_score_features", "obsidiandroid.matrix.enrich_score_features"),
+    )
+    for attr, canon_name in pairs:
+        canon_mod = importlib.import_module(canon_name)
+        alias_mod = importlib.import_module(f"obsidiandroid.matrix.{attr}")
+        assert alias_mod is canon_mod
+        legacy_mod = importlib.import_module(f"analysis.matrix.{attr}")
+        assert legacy_mod is canon_mod
+
+
+def test_risk_band_submodules_match_analysis_shims() -> None:
+    """Pass 81: risk band helpers under ``obsidiandroid.risk_band``; legacy paths match."""
+    import importlib
+
+    pairs = (
+        ("assign_risk_band", "obsidiandroid.risk_band.assign_risk_band"),
+        ("phase_score_engines", "obsidiandroid.risk_band.phase_score_engines"),
+    )
+    for attr, canon_name in pairs:
+        canon_mod = importlib.import_module(canon_name)
+        alias_mod = importlib.import_module(f"obsidiandroid.risk_band.{attr}")
+        assert alias_mod is canon_mod
+        legacy_mod = importlib.import_module(f"analysis.risk_band.{attr}")
+        assert legacy_mod is canon_mod
 
 
 def test_pipeline_permission_trends_facade_matches_permission_trends_modules() -> None:

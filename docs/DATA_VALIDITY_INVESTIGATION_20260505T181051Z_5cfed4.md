@@ -12,7 +12,7 @@
 
 | Source | Hash | Meaning |
 |--------|------|--------|
-| `run_manifest.json` → `split.split_hash` | `ea84c6cad40abba1e6b0fde263cb3cde23e0e50a4021041d27221827b7c827d2` | **Frozen when the pipeline captured `manifest_context["split"]` immediately after headline training**, from `RUNTIME_SPLIT_METADATA` (`analysis/pipeline/runner.py`). |
+| `run_manifest.json` → `split.split_hash` | `ea84c6cad40abba1e6b0fde263cb3cde23e0e50a4021041d27221827b7c827d2` | **Frozen when the pipeline captured `manifest_context["split"]` immediately after headline training**, from `RUNTIME_SPLIT_METADATA` (canonical `obsidiandroid.pipeline.runner`; legacy `analysis.pipeline.runner` is a shim). |
 | `split_freeze_audit_20260505T181051Z__5cfed4.csv` (embedded + recomputed from rows) | `b208899b828a407a77991001fd884b9a0e5f840ad823fe7dc2de07488576fa14` | **Hash of train/test assignment actually written into the CSV on disk**, using the algorithm in `_export_split_audit` (see below). |
 
 **Mechanism**

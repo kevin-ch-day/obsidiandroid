@@ -30,7 +30,7 @@ from obsidiandroid.diagnostics import feature_column_survival_export
 from obsidiandroid.diagnostics import headline_evaluation_export
 from obsidiandroid.diagnostics import rf_feature_importance_export
 from obsidiandroid.diagnostics import permission_training_survival_audit
-from analysis.orchestration.methodology_artifacts import (
+from obsidiandroid.orchestration.methodology_artifacts import (
     export_feature_contract,
     export_leakage_assessment,
 )

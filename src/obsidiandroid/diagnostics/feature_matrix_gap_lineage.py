@@ -293,9 +293,9 @@ def run_feature_matrix_gap_report(
 
     if not skip_db_recompute:
         try:
-            from analysis.matrix import av_binary_matrix_builder as avb
-            from analysis.orchestration import permission_features as pf
-            from analysis.pipeline import sample_preparation as sp
+            from obsidiandroid.matrix import av_binary_matrix_builder as avb
+            from obsidiandroid.orchestration import permission_features as pf
+            from obsidiandroid.pipeline import sample_preparation as sp
 
             stage_counts.update(
                 compute_stage_row_counts(

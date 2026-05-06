@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 
-from analysis.orchestration.permission_features import _fetch_permission_rows  # pylint: disable=protected-access
+from obsidiandroid.orchestration.permission_features import _fetch_permission_rows  # pylint: disable=protected-access
 from obsidiandroid.pipeline import stage_feature_enrichment
 
 build_permission_enrichment_frame = stage_feature_enrichment.build_permission_enrichment_frame

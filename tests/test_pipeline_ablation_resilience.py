@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from config import app_config
-import analysis.pipeline.runner as pipeline_runner
+import obsidiandroid.pipeline.runner as pipeline_runner
 import main
 from obsidiandroid.reporting import family_distribution_report
 

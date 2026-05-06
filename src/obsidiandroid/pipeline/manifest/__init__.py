@@ -1,27 +1,40 @@
-"""Pipeline manifest canonical aliases.
+"""Pipeline manifest helpers (hashing, writer, paper exports, runtime support).
 
-Implementation remains under ``analysis.pipeline.manifest`` for now. This package
-surfaces stable manifest helper modules without physically moving them.
+Implementation is canonical under ``obsidiandroid.pipeline.manifest`` (**Pass 76**);
+``analysis.pipeline.manifest`` is an identity shim to this package and its submodules.
 """
 
 from __future__ import annotations
 
-import importlib
 import sys
 
-_CANONICAL_SUBMODULE_NAMES = (
+from . import builder, hashing, paper_compliance_checks, paper_figure_renderers, runtime_support, schema, writer
+from .hashing import canonical_csv_bytes, dataset_hash_from_sample_ids, sha256_hex
+
+# When ``analysis.pipeline.manifest`` is an identity shim to this package, submodule imports
+# like ``analysis.pipeline.manifest.hashing`` would otherwise create a second ``ModuleType``
+# for the same file. Register legacy names so checks (and monkeypatch targets) match.
+_LEGACY_MANIFEST_PREFIX = "analysis.pipeline.manifest."
+for _name in (
+    "builder",
     "hashing",
     "paper_compliance_checks",
     "paper_figure_renderers",
     "runtime_support",
+    "schema",
     "writer",
-)
+):
+    sys.modules[_LEGACY_MANIFEST_PREFIX + _name] = sys.modules[__name__ + "." + _name]
 
-for _name in _CANONICAL_SUBMODULE_NAMES:
-    _canon = importlib.import_module(f"analysis.pipeline.manifest.{_name}")
-    globals()[_name] = _canon
-    sys.modules.setdefault(f"obsidiandroid.pipeline.manifest.{_name}", _canon)
-
-__all__ = list(_CANONICAL_SUBMODULE_NAMES)
-
-del _CANONICAL_SUBMODULE_NAMES, _name, _canon
+__all__ = [
+    "builder",
+    "canonical_csv_bytes",
+    "dataset_hash_from_sample_ids",
+    "hashing",
+    "paper_compliance_checks",
+    "paper_figure_renderers",
+    "runtime_support",
+    "schema",
+    "sha256_hex",
+    "writer",
+]

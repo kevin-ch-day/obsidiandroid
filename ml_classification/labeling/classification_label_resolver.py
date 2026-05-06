@@ -663,22 +663,44 @@ def _run_summary_and_export(
             type_map = int(audit_summary.get("type_mismatch_count", 0) or 0) if isinstance(audit_summary, dict) else 0
             fam_label = int(audit_summary.get("family_label_mismatch_count", 0) or 0) if isinstance(audit_summary, dict) else 0
             du.print_warning(
-                "[LABELS] Taxonomy mapping mismatches detected: "
-                f"{mismatch_count} (type_noncanonical={noncanonical}, "
-                f"type_missing={missing_type}, type_mapping={type_map}, "
-                f"label_family={fam_label}). See {mismatch_path}"
+                "[LABELS] Taxonomy rows flagged (cohort vs label-string): "
+                f"{mismatch_count} total in taxonomy_consistency_mismatches. See {mismatch_path}"
             )
+            if type_map:
+                du.print_warning(
+                    "[LABELS] Type mapping (authority / rendering): "
+                    f"{type_map} row(s) — cohort `type_slug` vs type implied by `classification_label` disagree. "
+                    "Not a model family error; treat as taxonomy/rendering policy."
+                )
+            if missing_type:
+                du.print_warning(
+                    "[LABELS] Missing type in label string (data quality): "
+                    f"{missing_type} row(s) — label string lacks extractable type token."
+                )
+            if noncanonical:
+                du.print_warning(
+                    "[LABELS] Noncanonical type token (taxonomy config): "
+                    f"{noncanonical} row(s) — label-derived type not in configured canonical set."
+                )
+            if fam_label:
+                du.print_warning(
+                    "[LABELS] Label family vs predicted token (parser/model token): "
+                    f"{fam_label} row(s) — label family slug vs normalized predicted family disagree."
+                )
         else:
             du.print_info(
                 "[LABELS] Taxonomy mapping audit passed with 0 mismatches."
             )
         prediction_errors = int(audit_summary.get("prediction_error_count", 0) or 0) if isinstance(audit_summary, dict) else 0
         prediction_path = str(audit_summary.get("prediction_errors_csv_path", "")).strip() if isinstance(audit_summary, dict) else ""
-        du.print_info(
-            "[LABELS] Prediction error audit: "
-            f"{prediction_errors} row(s). "
-            f"{('See ' + prediction_path) if prediction_path else ''}".strip()
-        )
+        if prediction_errors:
+            du.print_warning(
+                "[LABELS] Family prediction errors (real model vs cohort family): "
+                f"{prediction_errors} row(s). "
+                f"{('See ' + prediction_path) if prediction_path else ''}".strip()
+            )
+        else:
+            du.print_info("[LABELS] Family prediction errors (model vs cohort): 0 rows.")
         if isinstance(audit_summary, dict):
             taxonomy_mismatches = int(audit_summary.get("taxonomy_mismatch_count", 0) or 0)
             noncanonical_count = int(audit_summary.get("type_noncanonical_count", 0) or 0)

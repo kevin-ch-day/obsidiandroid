@@ -441,9 +441,9 @@ def run_feature_builder_drop_trace(
     coverage_snap = load_feature_build_coverage_summary(diag)
 
     from obsidiandroid.evaluation import vendor_classification_parser as vcp
-    from analysis.matrix import av_binary_matrix_builder as avb
-    from analysis.orchestration import permission_features as pf
-    from analysis.pipeline import sample_preparation as sp
+    from obsidiandroid.matrix import av_binary_matrix_builder as avb
+    from obsidiandroid.orchestration import permission_features as pf
+    from obsidiandroid.pipeline import sample_preparation as sp
 
     trace_sets = compute_trace_sets(
         gap_df,

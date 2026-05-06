@@ -10,8 +10,8 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
-from analysis.orchestration.permission_features import PERMISSION_GROUP_DEFINITIONS
-from analysis.orchestration.permission_features import _fetch_permission_rows  # pylint: disable=protected-access
+from obsidiandroid.orchestration.permission_features import PERMISSION_GROUP_DEFINITIONS
+from obsidiandroid.orchestration.permission_features import _fetch_permission_rows  # pylint: disable=protected-access
 
 
 def _classify_perm_row(source: str, protection: str) -> tuple[str, str]:

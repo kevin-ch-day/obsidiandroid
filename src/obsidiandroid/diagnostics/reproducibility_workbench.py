@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, Callable, Iterable
 
 import pandas as pd
@@ -463,6 +464,10 @@ def write_research_validity_review(
     if not taxonomy:
         taxonomy = _read_json(gdiag / "taxonomy_consistency_summary.latest.json")
 
+    from obsidiandroid.diagnostics.headline_ablation_parity import build_feature_contract_comparison
+
+    feature_contract = build_feature_contract_comparison(rdiag, run_id, manifest_context=None)
+
     macros = _ablation_macro_f1_by_experiment(rdiag, run_id)
     if all(v is None for v in macros.values()):
         macros = _ablation_macro_f1_by_experiment(gdiag, run_id)
@@ -513,8 +518,12 @@ def write_research_validity_review(
         "taxonomy": {
             "taxonomy_mismatch_count": taxonomy.get("taxonomy_mismatch_count"),
             "type_mapping_mismatch_count": taxonomy.get("type_mismatch_count"),
+            "type_missing_label_count": taxonomy.get("type_missing_label_count"),
+            "type_noncanonical_count": taxonomy.get("type_noncanonical_count"),
             "family_label_mismatch_count": taxonomy.get("family_label_mismatch_count"),
+            "prediction_error_count": taxonomy.get("prediction_error_count"),
         },
+        "feature_contract_comparison": feature_contract,
         "artifacts_used": {
             "dataset_foundation_summary": bool(q1),
             "modality_contribution_summary": bool(q2),
@@ -525,8 +534,18 @@ def write_research_validity_review(
             "family_label_taxonomy_audit_csv": fam_avail,
             "support_threshold_preview_md": support_avail,
             "leakage_safe_score_comparison_csv": leak_csv.is_file(),
+            "headline_vs_ablation_contract_comparison": bool(
+                (rdiag / f"headline_vs_ablation_contract_comparison_{run_id}.md").is_file()
+                or (rdiag / "headline_vs_ablation_contract_comparison.latest.md").is_file()
+            ),
+            "taxonomy_type_authority_review": bool(
+                (rdiag / f"taxonomy_type_authority_review_{run_id}.md").is_file()
+                or (rdiag / "taxonomy_type_authority_review.latest.md").is_file()
+            ),
         },
-        "claim_readiness": _build_claim_readiness(q1, q2, q3, taxonomy, scope),
+        "claim_readiness": _build_claim_readiness(
+            q1, q2, q3, taxonomy, scope, feature_contract=feature_contract
+        ),
     }
 
     md_lines = [
@@ -558,9 +577,19 @@ def write_research_validity_review(
         "",
         "## Taxonomy consistency",
         "",
-        f"- Total mismatches: **{payload['taxonomy'].get('total_mismatches', '—')}**",
-        f"- Type mapping mismatches: **{payload['taxonomy'].get('type_mapping_mismatches', '—')}**",
-        f"- Family label mismatches: **{payload['taxonomy'].get('family_label_mismatches', '—')}**",
+        f"- Taxonomy-flag rows (union): **{payload['taxonomy'].get('taxonomy_mismatch_count', '—')}**",
+        f"- Type mapping (cohort vs label-derived): **{payload['taxonomy'].get('type_mapping_mismatch_count', '—')}**",
+        f"- Missing type in label string: **{payload['taxonomy'].get('type_missing_label_count', '—')}**",
+        f"- Noncanonical label-derived type: **{payload['taxonomy'].get('type_noncanonical_count', '—')}**",
+        f"- Label family vs predicted token: **{payload['taxonomy'].get('family_label_mismatch_count', '—')}**",
+        f"- Family prediction errors (model vs cohort): **{payload['taxonomy'].get('prediction_error_count', '—')}**",
+        "",
+        "## Feature contract comparison",
+        "",
+        f"- Headline hash: `{payload.get('feature_contract_comparison', {}).get('headline_feature_column_hash') or '—'}`",
+        f"- Ablation full_fused hash: `{payload.get('feature_contract_comparison', {}).get('ablation_full_fused_feature_column_hash') or '—'}`",
+        f"- Split hash: `{payload.get('feature_contract_comparison', {}).get('split_hash') or '—'}`",
+        f"- Apples-to-apples: **{'yes' if payload.get('feature_contract_comparison', {}).get('apples_to_apples') is True else 'no' if payload.get('feature_contract_comparison', {}).get('apples_to_apples') is False else 'unknown'}**",
         "",
         "## Claim readiness",
         "",
@@ -604,6 +633,8 @@ def _build_claim_readiness(
     q3: dict[str, Any],
     taxonomy: dict[str, Any],
     scope: dict[str, Any],
+    *,
+    feature_contract: Mapping[str, Any] | None = None,
 ) -> dict[str, list[str]]:
     strong: list[str] = []
     caution: list[str] = []
@@ -613,6 +644,19 @@ def _build_claim_readiness(
         strong.append("Dataset foundation summary present — cohort gates and alignment described.")
     if q2:
         strong.append("Modality contribution summary present — permission vs fused signal summarized.")
+        ps = q2.get("permission_signal_pct")
+        if ps is not None:
+            try:
+                strong.append(
+                    f"Permission features carry cohort-scale signal (permission_signal_pct ≈ {float(ps):.1f}%)."
+                )
+            except (TypeError, ValueError):
+                strong.append("Permission features carry cohort-scale signal (see modality contribution).")
+        strong.append(
+            "AV detection / vendor-modality structure carries signal for ablation experiments "
+            "(see modality contribution and ablation summary)."
+        )
+
     gov_f = (scope.get("governed_cohort") or {}).get("families")
     train_f = (scope.get("trainable_family_classification_task") or {}).get("families_after_support_filter")
     if gov_f is not None and train_f is not None:
@@ -623,13 +667,52 @@ def _build_claim_readiness(
                 )
         except (TypeError, ValueError):
             pass
+
+    fc = dict(feature_contract) if isinstance(feature_contract, dict) else {}
+    la_txt = str(fc.get("label_target") or "").strip()
+    if la_txt:
+        strong.append(f"Label authority for headline training (from evaluation contract): {la_txt}.")
+    tt = scope.get("trainable_family_classification_task") or {}
+    if tt.get("families_after_support_filter") is not None:
+        strong.append(
+            f"A broad all_malicious-style headline run retains **{tt.get('families_after_support_filter')}** "
+            "supported families for multiclass training after the support filter (see headline_score_scope)."
+        )
+
+    if isinstance(q1, dict) and q1.get("supervised_family_claims_suitable") is False:
+        caution.append("`supervised_family_claims_suitable=false` — use guarded language for family-level scientific claims.")
+
+    conc = (q1.get("concentration") or {}).get("top5_share_pct") if isinstance(q1, dict) else None
+    if conc is not None:
+        try:
+            if float(conc) > 50.0:
+                caution.append(f"Top-family concentration remains high (top-5 share ≈ {float(conc):.1f}%).")
+        except (TypeError, ValueError):
+            pass
+
     tm = taxonomy.get("taxonomy_mismatch_count")
+    type_map_n = taxonomy.get("type_mismatch_count")
     if tm:
         try:
-            if int(tm) > 0:
-                caution.append("Taxonomy / type-string mismatches reported — paper claims at type level need care.")
+            if int(tm) > 0 and type_map_n is not None and int(type_map_n) > 0:
+                caution.append(
+                    "Most taxonomy flags are often **type_mapping_mismatch** (authority), not family prediction errors — "
+                    "see taxonomy_type_authority_review."
+                )
+            elif int(tm) > 0:
+                caution.append("Taxonomy consistency artifacts reported — review taxonomy_type_authority_review before type-level claims.")
         except (TypeError, ValueError):
             caution.append("Taxonomy consistency artifacts warrant review.")
+    caution.append(
+        "Type-level claims using generated `classification_label` strings are not paper-safe until cohort vs label-derived type is reconciled."
+    )
+
+    if fc.get("apples_to_apples") is False:
+        caution.append(
+            "Headline vs ablation `full_fused` metrics are not directly comparable — feature contracts differ "
+            "(see headline_vs_ablation_contract_comparison)."
+        )
+
     if not q3:
         nxt.append("Re-run modeling stage or export three-question summaries if model_and_family_failure_summary is missing.")
 

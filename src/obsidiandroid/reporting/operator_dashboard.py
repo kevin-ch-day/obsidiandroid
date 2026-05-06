@@ -274,6 +274,7 @@ def write_diagnostics_index_md(
         ("Leakage assessment", ["leakage_assessment", "leakage_pruning_audit"]),
         ("Model comparison", ["model_comparison_summary", "model_config_snapshot"]),
         ("Ablation summary", ["ablation_summary", "ablation_per_family", "ablation_feature_schema_audit"]),
+        ("Contract / taxonomy authority", ["headline_vs_ablation_contract_comparison", "taxonomy_type_authority_review"]),
         ("Permission diagnostics", ["permission_training_survival", "permission_fuse_audit"]),
         ("Vendor/parser diagnostics", ["parser_quality", "vendor_parser"]),
         ("Sample lineage", ["sample_stage_lineage", "feature_matrix_lineage_gate"]),
@@ -323,9 +324,33 @@ def emit_research_operator_report(
 ) -> None:
     """End-of-run operator dashboard: markdown index + TERMINAL blocks."""
     from obsidiandroid.cli.ui import display as du
+    from obsidiandroid.diagnostics.contract_and_taxonomy_reports import (
+        write_headline_vs_ablation_contract_reports,
+        write_taxonomy_type_authority_reports,
+    )
     from obsidiandroid.reporting import research_three_questions as research_rq
 
     pr = print_fn or (lambda s: du.print_info(s))
+
+    try:
+        _cm, _cc, parity = write_headline_vs_ablation_contract_reports(
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            manifest_context=dict(manifest_context),
+            runtime_headline_hash=str(
+                getattr(app_config, "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH", "") or ""
+            ).strip()
+            or None,
+        )
+        for p in (_cm, _cc):
+            if p is not None and str(p) not in artifact_list:
+                artifact_list.append(str(p))
+        _tm, _tc = write_taxonomy_type_authority_reports(diagnostics_dir, run_id)
+        for p in (_tm, _tc):
+            if p is not None and str(p) not in artifact_list:
+                artifact_list.append(str(p))
+    except Exception:
+        parity = {}
 
     bundle = research_rq.write_research_question_artifacts(
         diagnostics_dir=diagnostics_dir,
@@ -346,6 +371,29 @@ def emit_research_operator_report(
     pr(f"Run ID: {run_id}  |  Profile: {profile_id}")
     pr("")
     research_rq.print_research_questions_terminal(bundle, pr=pr, du=du)
+
+    if parity:
+        du.print_section("FEATURE CONTRACT COMPARISON (headline vs ablation full_fused)")
+        pr(f"  headline_feature_column_hash    : {parity.get('headline_feature_column_hash') or '—'}")
+        pr(f"  ablation_full_fused_feature_hash: {parity.get('ablation_full_fused_feature_column_hash') or '—'}")
+        pr(f"  split_hash                       : {parity.get('split_hash') or '—'}")
+        pr(f"  label_target                     : {parity.get('label_target') or '—'}")
+        am = parity.get("apples_to_apples")
+        pr(f"  apples_to_apples                 : {'yes' if am is True else 'no' if am is False else 'unknown'}")
+        if am is False:
+            pr(f"  → {parity.get('incommensurable_message', '')}")
+        pr(
+            f"  Files: `{diagnostics_dir / f'headline_vs_ablation_contract_comparison_{run_id}.md'}`"
+        )
+        pr("")
+
+    du.print_section("TAXONOMY AUTHORITY (type ground truth)")
+    pr("  Cohort type_slug is authoritative for type-level reporting; label-derived type is a parser artifact.")
+    pr(
+        f"  Review: `{diagnostics_dir / f'taxonomy_type_authority_review_{run_id}.md'}` "
+        f"and `taxonomy_type_authority_review_{run_id}.csv`"
+    )
+    pr("")
 
     surv = diagnostics_dir / "feature_column_survival.latest.csv"
     raw_pop = _perm_top_from_survival(surv, prefix="perm__android_", top_n=5)
@@ -381,13 +429,23 @@ def emit_research_operator_report(
             pr("")
     du.print_section("CLAIM READINESS")
 
+    active_cls = ""
+    mc_la = manifest_context.get("label_authority") if isinstance(manifest_context, dict) else None
+    if isinstance(mc_la, dict) and mc_la.get("active_training_classes") is not None:
+        active_cls = str(mc_la.get("active_training_classes"))
+
     lines_strong = [
-        "Cohort alignment and lineage are working (see dataset_foundation_summary).",
-        "Permission Intelligence provides broad cohort signal when PI coverage is high.",
-        "Family classification is viable when Macro-F1 and confusion exports are foregrounded.",
+        (
+            f"A broad all_malicious-style run can retain **{active_cls or '—'}** active family classes "
+            "for headline multiclass training when support filtering is configured accordingly."
+        ),
+        "Permission features and AV detection-structure modalities carry measurable signal (see modality contribution + ablation).",
     ]
     caution = [
-        "Accuracy alone is not sufficient under family concentration.",
+        "`supervised_family_claims_suitable=false` in dataset foundation means guarded language for family-level scientific claims.",
+        "Top-family concentration remains high — Macro-F1 and recall tails must lead interpretation.",
+        "Type-level claims using generated `classification_label` strings are not paper-safe until cohort vs label-derived type authority is reconciled (see taxonomy_type_authority_review).",
+        "Headline leaderboard metrics vs ablation `full_fused` are not comparable unless feature hashes match (see FEATURE CONTRACT COMPARISON).",
         "Parsed vendor metadata is often sparse — do not describe it as cohort-wide dense labels.",
         "Vendor-derived parsed family/type features may couple to labels — separate detection binaries, consensus scores, and parsed strings.",
     ]
@@ -415,6 +473,8 @@ def emit_research_operator_report(
     pr(f"  • `{diagnostics_dir / 'dataset_foundation_summary.md'}`")
     pr(f"  • `{diagnostics_dir / 'modality_contribution_summary.md'}`")
     pr(f"  • `{diagnostics_dir / 'model_and_family_failure_summary.md'}`")
+    pr(f"  • `{diagnostics_dir / f'headline_vs_ablation_contract_comparison_{run_id}.md'}`")
+    pr(f"  • `{diagnostics_dir / f'taxonomy_type_authority_review_{run_id}.md'}`")
     pr("High-score skeptic audits:")
     pr(f"  • `{diagnostics_dir / 'headline_score_scope.md'}` / `high_score_audit.md`")
     pr(f"  • `{diagnostics_dir / 'false_attribution_audit.md'}` / `split_contamination_audit.md`")

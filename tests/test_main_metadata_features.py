@@ -36,8 +36,8 @@ def test_build_metadata_feature_frame_creates_expected_columns() -> None:
 
 
 def test_orchestration_metadata_features_shim_matches_canonical() -> None:
-    """``analysis.orchestration.metadata_features`` delegates to ``sample_preparation``."""
-    import analysis.orchestration.metadata_features as shim
+    """:mod:`obsidiandroid.orchestration.metadata_features` delegates to :mod:`sample_preparation`."""
+    import obsidiandroid.orchestration.metadata_features as shim
     from obsidiandroid.pipeline import sample_preparation as canon
 
     assert shim.build_metadata_feature_frame is canon.build_metadata_feature_frame

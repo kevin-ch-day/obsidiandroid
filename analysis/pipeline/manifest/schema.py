@@ -1,21 +1,9 @@
-"""Typed schema helpers for run manifest payloads."""
+"""Legacy shim: implementation lives under ``obsidiandroid.pipeline.manifest.schema``."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import importlib
+import sys
 
-
-@dataclass(frozen=True)
-class ManifestWriteConfig:
-    """Manifest writing configuration.
-
-    Attributes:
-        float_format: Float formatting for canonical outputs.
-        lineterminator: Newline contract.
-        encoding: Text encoding.
-    """
-
-    float_format: str = "%.6f"
-    lineterminator: str = "\n"
-    encoding: str = "utf-8"
-
+_mod = importlib.import_module("obsidiandroid.pipeline.manifest.schema")
+sys.modules[__name__] = _mod

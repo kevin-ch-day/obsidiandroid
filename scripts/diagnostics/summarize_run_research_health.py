@@ -14,6 +14,12 @@ Scans ``output/runs/<run_id>/diagnostics`` and the run root for:
 - **Output navigator:** bucket counts from ``artifact_inventory.json`` (when manifest finalization wrote it),
   plus a checklist of “open first” / research bundle files. Use ``--tour`` to also list the largest files
   under the run tree (can be slow on huge runs).
+- **Metrics parity:** compares ``headline_feature_column_hash`` from ``evaluation_contract*.json`` (or
+  ``model_comparison_summary*.csv``) to ``full_fused`` / ``family_canonical_default`` rows in
+  ``ablation_summary*.csv`` — headline Macro-F1 and ablation ``full_fused`` Macro-F1 are not comparable
+  when hashes differ.
+- **Taxonomy ROI:** top ``(type_slug_expected → label_type_slug)`` counts for ``type_mapping_mismatch`` rows
+  in ``taxonomy_consistency_mismatches*.csv`` (cohort type vs type implied by ``classification_label``).
 
 Examples (from repo root)::
 
@@ -90,6 +96,135 @@ def _prefer_run_scoped(paths: list[Path], run_id: str) -> Path | None:
 def _split_freeze_path(diag: Path, run_id: str) -> Path | None:
     globs = list(diag.glob("split_freeze_headline*.csv"))
     return _prefer_run_scoped(globs, run_id)
+
+
+def _evaluation_contract_path(diag: Path, run_id: str) -> Path | None:
+    tagged = diag / f"evaluation_contract_{run_id}.json"
+    if tagged.is_file():
+        return tagged
+    latest = diag / "evaluation_contract.latest.json"
+    return latest if latest.is_file() else None
+
+
+def _read_headline_feature_hash(diag: Path, run_id: str) -> tuple[str | None, str | None]:
+    """Return (hash, source_path_or_none) from evaluation contract or model comparison CSV."""
+    ec_path = _evaluation_contract_path(diag, run_id)
+    if ec_path:
+        ec = _read_json(ec_path)
+        if isinstance(ec, dict):
+            fc = ec.get("feature_contract") or {}
+            h = fc.get("headline_feature_column_hash")
+            if isinstance(h, str) and h.strip():
+                return h.strip(), str(ec_path)
+    globs = sorted(
+        diag.glob("model_comparison_summary*.csv"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    path = _prefer_run_scoped(globs, run_id) if globs else None
+    if path is None or not path.is_file():
+        return None, None
+    try:
+        with path.open(encoding="utf-8", newline="") as fh:
+            rows = list(csv.DictReader(fh))
+    except OSError:
+        return None, str(path)
+    if not rows:
+        return None, str(path)
+    h = rows[0].get("headline_feature_column_hash")
+    if isinstance(h, str) and h.strip():
+        return h.strip(), str(path)
+    return None, str(path)
+
+
+def _ablation_summary_path(diag: Path, run_id: str) -> Path | None:
+    globs = sorted(
+        diag.glob("ablation_summary*.csv"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    return _prefer_run_scoped(globs, run_id) if globs else None
+
+
+def _read_ablation_full_fused_feature_hash(path: Path) -> str | None:
+    """Feature column hash for ``full_fused`` × ``family_canonical_default`` (same for all models)."""
+    try:
+        with path.open(encoding="utf-8", newline="") as fh:
+            rows = list(csv.DictReader(fh))
+    except OSError:
+        return None
+    for r in rows:
+        if str(r.get("experiment") or "").strip() != "full_fused":
+            continue
+        if str(r.get("label_target") or "").strip() != "family_canonical_default":
+            continue
+        h = r.get("feature_column_hash")
+        if isinstance(h, str) and h.strip():
+            return h.strip()
+    return None
+
+
+def _gather_metrics_comparison_parity(diag: Path, run_id: str) -> dict[str, Any]:
+    headline_hash, headline_src = _read_headline_feature_hash(diag, run_id)
+    ablation_path = _ablation_summary_path(diag, run_id)
+    ablation_hash = _read_ablation_full_fused_feature_hash(ablation_path) if ablation_path else None
+    matches: bool | None
+    if headline_hash and ablation_hash:
+        matches = headline_hash == ablation_hash
+    else:
+        matches = None
+    return {
+        "headline_feature_column_hash": headline_hash,
+        "headline_hash_source": headline_src,
+        "ablation_full_fused_family_feature_column_hash": ablation_hash,
+        "ablation_summary_csv": str(ablation_path) if ablation_path else None,
+        "headline_vs_ablation_full_fused_hashes_match": matches,
+        "interpretation": (
+            "Headline model_comparison / run_summary metrics use the headline feature matrix; "
+            "ablation CSV 'full_fused' uses the ablation harness matrix. Macro-F1 deltas between "
+            "those two are only apples-to-apples when headline_feature_column_hash equals "
+            "ablation full_fused feature_column_hash."
+        ),
+    }
+
+
+def _taxonomy_mismatch_path(diag: Path, run_id: str) -> Path | None:
+    globs = sorted(
+        diag.glob("taxonomy_consistency_mismatches*.csv"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    return _prefer_run_scoped(globs, run_id) if globs else None
+
+
+def _analyze_type_mapping_breakdown(path: Path, *, top_n: int = 12) -> dict[str, Any] | None:
+    """Aggregate type_mapping_mismatch rows by (cohort type, label-derived type)."""
+    try:
+        with path.open(encoding="utf-8", newline="") as fh:
+            rows = list(csv.DictReader(fh))
+    except OSError:
+        return None
+    if not rows:
+        return {"path": str(path), "rows_in_file": 0, "type_mapping_mismatch_rows": 0, "top_pairs": []}
+    pairs: Counter[tuple[str, str]] = Counter()
+    n_map = 0
+    for r in rows:
+        reason = str(r.get("mismatch_reason") or "").strip()
+        if reason != "type_mapping_mismatch":
+            continue
+        n_map += 1
+        a = str(r.get("type_slug_expected") or "").strip() or "∅"
+        b = str(r.get("label_type_slug") or "").strip() or "∅"
+        pairs[(a, b)] += 1
+    top = []
+    for (a, b), cnt in pairs.most_common(top_n):
+        top.append({"cohort_type_slug": a, "label_type_slug": b, "count": cnt})
+    return {
+        "path": str(path),
+        "rows_in_file": len(rows),
+        "type_mapping_mismatch_rows": n_map,
+        "top_pairs": top,
+    }
 
 
 def _analyze_split_freeze(path: Path) -> dict[str, Any] | None:
@@ -278,6 +413,12 @@ def gather_report(repo: Path, run_root: Path, *, heavy_tour: bool = False) -> di
     report["split_freeze_csv"] = str(sf) if sf else None
     report["split_freeze_stats"] = _analyze_split_freeze(sf) if sf else None
 
+    report["metrics_comparison_parity"] = _gather_metrics_comparison_parity(diag, run_id)
+    mismatch_csv = _taxonomy_mismatch_path(diag, run_id)
+    report["taxonomy_type_mapping_breakdown"] = (
+        _analyze_type_mapping_breakdown(mismatch_csv) if mismatch_csv else None
+    )
+
     # Finalization / observability artifacts
     report["artifacts_present"] = {
         "run_manifest.json": (run_root / "run_manifest.json").is_file(),
@@ -345,6 +486,14 @@ def gather_report(repo: Path, run_root: Path, *, heavy_tour: bool = False) -> di
         si = int(sf_n) if sf_n is not None else None
     except (TypeError, ValueError):
         ci, si = None, None
+    parity = report.get("metrics_comparison_parity") or {}
+    if parity.get("headline_vs_ablation_full_fused_hashes_match") is False:
+        hints.append(
+            "Headline feature_column_hash differs from ablation 'full_fused' family matrix hash — "
+            "do not compare run_summary / model_comparison Macro-F1 directly to ablation full_fused "
+            "rows; align feature contracts or cite both hashes."
+        )
+
     if ci is not None and si is not None and ci != si:
         post_low = "aligned_supervised_to_post_low_support_training"
         if _jsonl_tail_has_message(pe, post_low, max_lines=800):
@@ -418,6 +567,36 @@ def _print_human(report: dict[str, Any]) -> None:
         print(f"  overlap_rows (sum overlap_flag): {sf.get('overlap_rows')}")
         print(f"  duplicate_sha_groups_flagged: {sf.get('duplicate_sha_groups_flagged')}")
         print(f"  label_target / active_class_count: {sf.get('label_target')} / {sf.get('active_class_count_sample')}")
+        print()
+
+    parity = report.get("metrics_comparison_parity") or {}
+    if parity.get("headline_feature_column_hash") or parity.get("ablation_full_fused_family_feature_column_hash"):
+        print("Metrics comparison parity (headline vs ablation full_fused family)")
+        print(f"  headline_feature_column_hash: {parity.get('headline_feature_column_hash')}")
+        print(f"  headline_hash_source: {parity.get('headline_hash_source')}")
+        print(f"  ablation full_fused family feature_column_hash: {parity.get('ablation_full_fused_family_feature_column_hash')}")
+        print(f"  ablation_summary_csv: {parity.get('ablation_summary_csv')}")
+        match = parity.get("headline_vs_ablation_full_fused_hashes_match")
+        if match is True:
+            print("  hashes_match: True (Macro-F1 comparable across headline + ablation full_fused)")
+        elif match is False:
+            print("  hashes_match: False — headline and ablation full_fused use different feature matrices")
+        else:
+            print("  hashes_match: unknown (missing contract or ablation summary)")
+        print()
+
+    tbreak = report.get("taxonomy_type_mapping_breakdown")
+    if isinstance(tbreak, dict) and (
+        tbreak.get("type_mapping_mismatch_rows") or tbreak.get("top_pairs")
+    ):
+        print("Taxonomy: type_mapping_mismatch breakdown (cohort type → label-implied type)")
+        print(f"  source: {tbreak.get('path')}")
+        print(f"  type_mapping_mismatch_rows: {tbreak.get('type_mapping_mismatch_rows')}")
+        for row in tbreak.get("top_pairs") or []:
+            ct = row.get("cohort_type_slug")
+            lt = row.get("label_type_slug")
+            cnt = row.get("count")
+            print(f"    {ct!r} → {lt!r}: {cnt}")
         print()
 
     cl = report.get("cohort_lock_summary") or {}

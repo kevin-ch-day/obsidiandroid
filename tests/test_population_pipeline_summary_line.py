@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from analysis.orchestration.runtime_reporting import format_population_pipeline_summary_line
+from obsidiandroid.orchestration.runtime_reporting import format_population_pipeline_summary_line
 from config import app_config
 
 

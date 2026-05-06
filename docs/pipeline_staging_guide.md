@@ -10,11 +10,11 @@ Originally a single module handled orchestration and many stage internals, which
 - unit test stage behavior in isolation,
 - evolve one stage without risking unrelated sections.
 
-Today **`analysis/pipeline/runner.py`** owns **`run_pipeline`** (stage sequencing); **`main.py`** is the CLI shell and test-stable import surface. Heavy logic stays in **`analysis/pipeline/stage_*.py`** modules.
+Today canonical **`src/obsidiandroid/pipeline/runner.py`** owns **`run_pipeline`** (stage sequencing); legacy **`analysis.pipeline.runner`** is an identity shim to the same module. **`main.py`** is the CLI shell and test-stable import surface. Heavy stage logic stays in legacy **`analysis/pipeline/stage_*.py`** modules (until those files are physically moved in a dedicated pass).
 
 ## Current stage modules
 
-| Stage module | Responsibility | Runner call site (`analysis/pipeline/runner.py`) |
+| Stage module | Responsibility | Runner call site (`obsidiandroid.pipeline.runner`) |
 | --- | --- | --- |
 | `analysis/pipeline/stage_samples.py` | Cohort loading, gate checks, snapshot/lock controls, package integrity checks. | `load_and_prepare_samples(...)` |
 | `analysis/pipeline/stage_av_vendor.py` | AV analysis execution, engine lifecycle integrity, vendor metadata extraction, feature-label alignment checks. | `run_av_analysis_stage(...)`, `extract_vendor_metadata_stage(...)`, `run_feature_alignment_stage(...)` |
@@ -48,7 +48,7 @@ When adding new stage modules:
 3. **Keep integrity checks near stage boundaries** and raise `ValueError` with clear messages.
 4. **Return `None` for recoverable failure modes** only when the caller has explicit handling.
 5. **Add targeted tests** in `tests/test_stage_<name>.py` for both success and failure paths.
-6. **Wire into `analysis/pipeline/runner.py`** (`run_pipeline`) with clear “Step N” comments and `stop_after` support if applicable.
+6. **Wire into `obsidiandroid.pipeline.runner`** (`run_pipeline`) with clear “Step N” comments and `stop_after` support if applicable.
 
 ## Performance checklist for staged code
 

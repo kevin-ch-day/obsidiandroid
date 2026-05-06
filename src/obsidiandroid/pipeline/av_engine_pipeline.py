@@ -4,8 +4,8 @@
 # Canonical (**Pass 71**): ``obsidiandroid.pipeline.av_engine_pipeline``; legacy ``analysis.pipeline`` path is shim.
 
 import pandas as pd
-from analysis.matrix import av_binary_matrix_builder
-from analysis.matrix import enrich_malicious_scores as enrich_scores
+from obsidiandroid.matrix import av_binary_matrix_builder
+from obsidiandroid.matrix import enrich_malicious_scores as enrich_scores
 from obsidiandroid.pipeline.engine_pipeline_utils import validate_sample_input
 from obsidiandroid.pipeline.attach_engine_metadata import attach_engine_metadata
 from obsidiandroid.pipeline.score_av_engines import run_av_engine_scoring

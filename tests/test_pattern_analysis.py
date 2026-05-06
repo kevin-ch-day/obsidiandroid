@@ -1,5 +1,5 @@
 import pandas as pd
-from analysis.feature_engineering.pattern_analysis import (
+from obsidiandroid.feature_engineering.pattern_analysis import (
     feature_correlation_summary,
     detect_outliers,
     compute_pca_features,

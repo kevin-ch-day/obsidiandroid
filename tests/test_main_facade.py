@@ -1,4 +1,4 @@
-"""Tests for ``analysis.pipeline.main_facade`` (CLI monkeypatch bridge)."""
+"""Tests for :mod:`obsidiandroid.pipeline.main_facade` (CLI monkeypatch bridge)."""
 
 from __future__ import annotations
 

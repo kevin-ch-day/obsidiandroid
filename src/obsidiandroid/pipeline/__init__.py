@@ -5,6 +5,7 @@
 **main_facade**, **stage_samples**, **sample_exports**, **stage_av_vendor**, **stage_manifest**,
 the remaining **runner**-wired stages (**Pass 70**), the AV/vendor pipeline chain (**Pass 71**), and
 **permission_trends/** helpers plus **permission_trends_selection** (**Pass 74**) are canonical.
+**manifest/** and **artifacts/** path/registry helpers (**Pass 76**) are canonical; **analysis.pipeline.manifest** and **analysis.pipeline.artifacts** are identity shims.
 
 Policy leaf modules **contract_filters**, **run_bounds**, and **runtime_policy**
 are also implemented under this package (**Pass 66**). Attributes resolve via
@@ -83,12 +84,10 @@ _PIPELINE_PHYSICAL_MODULES = frozenset(
 
 
 def __getattr__(name: str) -> Any:
-    """Forward public names to :mod:`analysis.pipeline` modules."""
+    """Resolve public names from runner globals or canonical ``obsidiandroid.pipeline.*`` modules."""
     if name in _RUNNER_ATTRS:
-        runner_mod = importlib.import_module("analysis.pipeline.runner")
+        runner_mod = importlib.import_module("obsidiandroid.pipeline.runner")
         return getattr(runner_mod, name)
     if name in _PIPELINE_PHYSICAL_MODULES:
         return importlib.import_module(f"obsidiandroid.pipeline.{name}")
-    if name in __all__:
-        return importlib.import_module(f"analysis.pipeline.{name}")
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

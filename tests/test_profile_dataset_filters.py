@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from analysis.orchestration import profile_filters
+from obsidiandroid.orchestration import profile_filters
 
 
 def test_malicious_only_retains_vt_positive_rows_only() -> None:

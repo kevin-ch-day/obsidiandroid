@@ -215,99 +215,83 @@ def main() -> int:
             return 1
         print(f"OK   {name} -> {_module_path(mod)}")
 
-    runner_mod = importlib.import_module("analysis.pipeline.runner")
-    pipeline_mod = importlib.import_module("obsidiandroid.pipeline")
-    if pipeline_mod.run_pipeline is not runner_mod.run_pipeline:
+    canon_runner = importlib.import_module("obsidiandroid.pipeline.runner")
+    legacy_runner = importlib.import_module("analysis.pipeline.runner")
+    if canon_runner is not legacy_runner:
         print(
-            "FAIL: obsidiandroid.pipeline.run_pipeline is not analysis.pipeline.runner.run_pipeline",
+            "FAIL: obsidiandroid.pipeline.runner must be identical ModuleType to analysis.pipeline.runner shim",
             file=sys.stderr,
         )
         return 1
-    print("OK   obsidiandroid.pipeline.run_pipeline is analysis.pipeline.runner.run_pipeline")
-    if pipeline_mod.DIAGNOSTICS_DIR != runner_mod.DIAGNOSTICS_DIR:
+    pipeline_mod = importlib.import_module("obsidiandroid.pipeline")
+    if pipeline_mod.run_pipeline is not canon_runner.run_pipeline:
+        print(
+            "FAIL: obsidiandroid.pipeline.run_pipeline is not obsidiandroid.pipeline.runner.run_pipeline",
+            file=sys.stderr,
+        )
+        return 1
+    print("OK   obsidiandroid.pipeline.run_pipeline is obsidiandroid.pipeline.runner.run_pipeline (legacy shim identical)")
+    if pipeline_mod.DIAGNOSTICS_DIR != canon_runner.DIAGNOSTICS_DIR:
         print("FAIL: pipeline facade DIAGNOSTICS_DIR mismatch", file=sys.stderr)
         return 1
-    if pipeline_mod.PARSER_QUALITY_PATH != runner_mod.PARSER_QUALITY_PATH:
+    if pipeline_mod.PARSER_QUALITY_PATH != canon_runner.PARSER_QUALITY_PATH:
         print("FAIL: pipeline facade PARSER_QUALITY_PATH mismatch", file=sys.stderr)
         return 1
-    if pipeline_mod.PIPELINE_MAIN_LOGGER is not runner_mod.PIPELINE_MAIN_LOGGER:
+    if pipeline_mod.PIPELINE_MAIN_LOGGER is not canon_runner.PIPELINE_MAIN_LOGGER:
         print("FAIL: pipeline facade PIPELINE_MAIN_LOGGER mismatch", file=sys.stderr)
         return 1
     print("OK   obsidiandroid.pipeline public facade matches runner (DIAGNOSTICS_DIR, paths, logger)")
-    _pipeline_module_pairs = (
-        ("attach_engine_metadata", "analysis.pipeline.attach_engine_metadata"),
-        ("av_engine_pipeline", "analysis.pipeline.av_engine_pipeline"),
-        ("contract_filters", "analysis.pipeline.contract_filters"),
-        ("engine_normalization", "analysis.pipeline.engine_normalization"),
-        ("main_facade", "analysis.pipeline.main_facade"),
-        ("runner", "analysis.pipeline.runner"),
-        ("run_bounds", "analysis.pipeline.run_bounds"),
-        ("runtime_policy", "analysis.pipeline.runtime_policy"),
-        ("sample_exports", "analysis.pipeline.sample_exports"),
-        ("sample_preparation", "analysis.pipeline.sample_preparation"),
-        ("score_av_engines", "analysis.pipeline.score_av_engines"),
-        ("stage_ablation", "analysis.pipeline.stage_ablation"),
-        ("stage_av_vendor", "analysis.pipeline.stage_av_vendor"),
-        ("stage_feature_enrichment", "analysis.pipeline.stage_feature_enrichment"),
-        ("stage_manifest", "analysis.pipeline.stage_manifest"),
-        ("stage_modeling", "analysis.pipeline.stage_modeling"),
-        ("stage_permission_trends_report", "analysis.pipeline.stage_permission_trends_report"),
-        ("stage_results_warehouse", "analysis.pipeline.stage_results_warehouse"),
-        ("stage_samples", "analysis.pipeline.stage_samples"),
-        ("vendor_metadata_pipeline", "analysis.pipeline.vendor_metadata_pipeline"),
-    )
-    for attr, canon_name in _pipeline_module_pairs:
-        canon_mod = importlib.import_module(canon_name)
-        facade_mod = getattr(pipeline_mod, attr)
-        if facade_mod is not canon_mod:
-            print(
-                f"FAIL: obsidiandroid.pipeline.{attr} facade mismatch vs {canon_name}",
-                file=sys.stderr,
-            )
-            return 1
-    print("OK   obsidiandroid.pipeline module aliases match analysis.pipeline")
-
-    for _leaf in (
+    _pipeline_physical_attrs = (
+        "attach_engine_metadata",
+        "av_engine_pipeline",
         "contract_filters",
+        "engine_normalization",
+        "main_facade",
+        "runner",
         "run_bounds",
         "runtime_policy",
-        "runner",
-        "main_facade",
-        "stage_samples",
         "sample_exports",
-        "stage_av_vendor",
-        "stage_manifest",
         "sample_preparation",
-        "stage_feature_enrichment",
-        "stage_modeling",
-        "stage_ablation",
-        "stage_results_warehouse",
-        "stage_permission_trends_report",
-        "engine_pipeline_utils",
-        "attach_engine_metadata",
-        "engine_normalization",
         "score_av_engines",
-        "av_engine_pipeline",
+        "stage_ablation",
+        "stage_av_vendor",
+        "stage_feature_enrichment",
+        "stage_manifest",
+        "stage_modeling",
+        "stage_permission_trends_report",
+        "stage_results_warehouse",
+        "stage_samples",
         "vendor_metadata_pipeline",
+        "engine_pipeline_utils",
         "permission_trends_selection",
-    ):
-        _physical = importlib.import_module(f"obsidiandroid.pipeline.{_leaf}")
-        _legacy = importlib.import_module(f"analysis.pipeline.{_leaf}")
-        if _physical is not _legacy:
+    )
+    for attr in _pipeline_physical_attrs:
+        physical_mod = importlib.import_module(f"obsidiandroid.pipeline.{attr}")
+        legacy_mod = importlib.import_module(f"analysis.pipeline.{attr}")
+        if physical_mod is not legacy_mod:
             print(
-                f"FAIL: obsidiandroid.pipeline.{_leaf} identity mismatch vs analysis.pipeline.{_leaf}",
+                f"FAIL: obsidiandroid.pipeline.{attr} physical vs analysis.pipeline.{attr} shim mismatch",
                 file=sys.stderr,
             )
             return 1
-    print("OK   analysis.pipeline leaf shims match obsidiandroid.pipeline (Pass 66–71, 74)")
+        facade_mod = getattr(pipeline_mod, attr)
+        if facade_mod is not physical_mod:
+            print(
+                f"FAIL: obsidiandroid.pipeline.{attr} façade mismatch vs obsidiandroid.pipeline.{attr}",
+                file=sys.stderr,
+            )
+            return 1
+    print(
+        "OK   obsidiandroid.pipeline façade + leaf identity (Pass 66–71, 74); analysis.pipeline shims identical"
+    )
 
     _manifest_facade = importlib.import_module("obsidiandroid.pipeline.manifest")
     _manifest_pairs = (
-        ("hashing", "analysis.pipeline.manifest.hashing"),
-        ("paper_compliance_checks", "analysis.pipeline.manifest.paper_compliance_checks"),
-        ("paper_figure_renderers", "analysis.pipeline.manifest.paper_figure_renderers"),
-        ("runtime_support", "analysis.pipeline.manifest.runtime_support"),
-        ("writer", "analysis.pipeline.manifest.writer"),
+        ("hashing", "obsidiandroid.pipeline.manifest.hashing"),
+        ("paper_compliance_checks", "obsidiandroid.pipeline.manifest.paper_compliance_checks"),
+        ("paper_figure_renderers", "obsidiandroid.pipeline.manifest.paper_figure_renderers"),
+        ("runtime_support", "obsidiandroid.pipeline.manifest.runtime_support"),
+        ("writer", "obsidiandroid.pipeline.manifest.writer"),
     )
     for attr, canon_name in _manifest_pairs:
         canon_mod = importlib.import_module(canon_name)
@@ -325,12 +309,19 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-    print("OK   obsidiandroid.pipeline.manifest submodules match analysis.pipeline.manifest")
+        legacy_mod = importlib.import_module(f"analysis.pipeline.manifest.{attr}")
+        if legacy_mod is not canon_mod:
+            print(
+                f"FAIL: analysis.pipeline.manifest.{attr} shim mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.pipeline.manifest physical; analysis.pipeline.manifest shims (Pass 76)")
 
     _artifacts_facade = importlib.import_module("obsidiandroid.pipeline.artifacts")
     _artifacts_pairs = (
-        ("paths", "analysis.pipeline.artifacts.paths"),
-        ("registry", "analysis.pipeline.artifacts.registry"),
+        ("paths", "obsidiandroid.pipeline.artifacts.paths"),
+        ("registry", "obsidiandroid.pipeline.artifacts.registry"),
     )
     for attr, canon_name in _artifacts_pairs:
         canon_mod = importlib.import_module(canon_name)
@@ -348,7 +339,109 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-    print("OK   obsidiandroid.pipeline.artifacts submodules match analysis.pipeline.artifacts")
+        legacy_mod = importlib.import_module(f"analysis.pipeline.artifacts.{attr}")
+        if legacy_mod is not canon_mod:
+            print(
+                f"FAIL: analysis.pipeline.artifacts.{attr} shim mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.pipeline.artifacts physical; analysis.pipeline.artifacts shims (Pass 76)")
+
+    _fe_pairs = (
+        ("assign_tier_scores", "obsidiandroid.feature_engineering.assign_tier_scores"),
+        ("compute_vendor_scores", "obsidiandroid.feature_engineering.compute_vendor_scores"),
+        ("prepare_engine_metrics", "obsidiandroid.feature_engineering.prepare_engine_metrics"),
+        ("pattern_analysis", "obsidiandroid.feature_engineering.pattern_analysis"),
+    )
+    for attr, canon_name in _fe_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        # Package namespace binds ``assign_tier_scores`` to a function, not the submodule — skip getattr.
+        alias_mod = importlib.import_module(f"obsidiandroid.feature_engineering.{attr}")
+        if alias_mod is not canon_mod:
+            print(
+                f"FAIL: import obsidiandroid.feature_engineering.{attr} did not resolve to {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+        legacy_mod = importlib.import_module(f"analysis.feature_engineering.{attr}")
+        if legacy_mod is not canon_mod:
+            print(
+                f"FAIL: analysis.feature_engineering.{attr} shim mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.feature_engineering physical; analysis.feature_engineering shims (Pass 78)")
+
+    _orch_pairs = (
+        ("metadata_features", "obsidiandroid.orchestration.metadata_features"),
+        ("methodology_artifacts", "obsidiandroid.orchestration.methodology_artifacts"),
+        ("permission_features", "obsidiandroid.orchestration.permission_features"),
+        ("profile_filters", "obsidiandroid.orchestration.profile_filters"),
+        ("runtime_reporting", "obsidiandroid.orchestration.runtime_reporting"),
+    )
+    for attr, canon_name in _orch_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        alias_mod = importlib.import_module(f"obsidiandroid.orchestration.{attr}")
+        if alias_mod is not canon_mod:
+            print(
+                f"FAIL: import obsidiandroid.orchestration.{attr} did not resolve to {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+        legacy_mod = importlib.import_module(f"analysis.orchestration.{attr}")
+        if legacy_mod is not canon_mod:
+            print(
+                f"FAIL: analysis.orchestration.{attr} shim mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.orchestration physical; analysis.orchestration shims (Pass 80)")
+
+    _matrix_pairs = (
+        ("av_binary_matrix_builder", "obsidiandroid.matrix.av_binary_matrix_builder"),
+        ("enrich_malicious_scores", "obsidiandroid.matrix.enrich_malicious_scores"),
+        ("enrich_score_features", "obsidiandroid.matrix.enrich_score_features"),
+    )
+    for attr, canon_name in _matrix_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        alias_mod = importlib.import_module(f"obsidiandroid.matrix.{attr}")
+        if alias_mod is not canon_mod:
+            print(
+                f"FAIL: import obsidiandroid.matrix.{attr} did not resolve to {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+        legacy_mod = importlib.import_module(f"analysis.matrix.{attr}")
+        if legacy_mod is not canon_mod:
+            print(
+                f"FAIL: analysis.matrix.{attr} shim mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.matrix physical; analysis.matrix shims (Pass 80)")
+
+    _risk_band_pairs = (
+        ("assign_risk_band", "obsidiandroid.risk_band.assign_risk_band"),
+        ("phase_score_engines", "obsidiandroid.risk_band.phase_score_engines"),
+    )
+    for attr, canon_name in _risk_band_pairs:
+        canon_mod = importlib.import_module(canon_name)
+        alias_mod = importlib.import_module(f"obsidiandroid.risk_band.{attr}")
+        if alias_mod is not canon_mod:
+            print(
+                f"FAIL: import obsidiandroid.risk_band.{attr} did not resolve to {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+        legacy_mod = importlib.import_module(f"analysis.risk_band.{attr}")
+        if legacy_mod is not canon_mod:
+            print(
+                f"FAIL: analysis.risk_band.{attr} shim mismatch vs {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
+    print("OK   obsidiandroid.risk_band physical; analysis.risk_band shims (Pass 81)")
 
     _permission_trends_facade = importlib.import_module("obsidiandroid.pipeline.permission_trends")
     _permission_trends_pairs = (

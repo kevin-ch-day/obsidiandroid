@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from analysis.feature_engineering import compute_vendor_scores
+from obsidiandroid.feature_engineering import compute_vendor_scores
 
 
 def test_compute_leakage_safe_score_excludes_non_included_vendors() -> None:

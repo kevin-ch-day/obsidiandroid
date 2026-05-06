@@ -1,11 +1,9 @@
-"""Artifact path and registry helpers for pipeline stages."""
+"""Legacy shim: artifact helpers live under ``obsidiandroid.pipeline.artifacts``."""
 
-from .paths import ArtifactPaths
-from .registry import ArtifactRecord, ArtifactRegistry
+from __future__ import annotations
 
-__all__ = [
-    "ArtifactPaths",
-    "ArtifactRecord",
-    "ArtifactRegistry",
-]
+import importlib
+import sys
 
+_mod = importlib.import_module("obsidiandroid.pipeline.artifacts")
+sys.modules[__name__] = _mod

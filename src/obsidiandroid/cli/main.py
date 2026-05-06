@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import sys
 
-from analysis.orchestration.runtime_reporting import (
+from obsidiandroid.orchestration.runtime_reporting import (
     apply_confusion_matrix_policy as _apply_confusion_matrix_policy,
     enforce_duplicate_sha_policy as _enforce_duplicate_sha_policy,
     export_model_config_snapshot as _export_model_config_snapshot,

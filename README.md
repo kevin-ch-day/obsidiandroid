@@ -21,12 +21,12 @@
 
 ## Pipeline Overview
 
-The core workflow (`main.py` → `analysis/pipeline/runner.py`) executes these key steps:
+The core workflow (`main.py` → `obsidiandroid.pipeline.runner`) executes these key steps:
 
 1. **Load Sample Metadata** from a configured MySQL database. Connection defaults and environment overrides are defined in **`obsidiandroid.database.db_config`** (same module as **`database/db_config.py`** — primary Erebus DB plus the Permission Intel DB; see [Configuration](#configuration) below).
 2. **Run AV Engine Analysis** via `analysis/` parsers to collect and normalize vendor labels.
 3. **Extract Vendor Metadata** and generate summary statistics/evaluation metrics.
-4. **Compute Engine Weights** using specificity, noise, and historical performance (see `analysis/feature_engineering/compute_vendor_scores.py`).
+4. **Compute Engine Weights** using specificity, noise, and historical performance (see `obsidiandroid/feature_engineering/compute_vendor_scores.py`).
 5. **Feature Engineering:** Construct feature vectors from permissions, vendor scores, and consensus features.
 6. **Align Features and Labels** for model training; export diagnostics for reproducibility.
 7. **Train and Evaluate Models:** Supports Random Forest, SVM, XGBoost, Logistic Regression, with grid search and custom train/test splits.
@@ -55,7 +55,7 @@ ObsidianDroid/
 ├── ml_classification/      # Model training, validation, and comparison
 ├── utils/                  # Reusable utilities and exporters
 ├── pyproject.toml          # Packaging, dependencies, pytest defaults
-├── main.py                 # CLI entry (orchestration in `analysis/pipeline/runner.py`)
+├── main.py                 # CLI entry (implementation in `obsidiandroid.pipeline.runner`)
 ├── setup.sh                # Wrapper → scripts/dev/bootstrap_venv.sh
 ├── run.sh                  # Wrapper → scripts/dev/launch_startup_menu.sh
 ├── run_tests.sh            # Wrapper → scripts/dev/run_tests.sh (fast pytest)
@@ -123,7 +123,7 @@ Each markdown file can be browsed directly in GitHub’s file viewer for quick n
 - **Manual run (after Fedora venv activation):**
   ```bash
   source .venv/bin/activate
-  python -m utils.startup_menu
+  python -m obsidiandroid.cli.startup_menu
   ```
   The pipeline is profile-driven (`profiles/*.yaml`) and requires explicit profile selection.
   Use `dev_fast` for rapid local iteration (single model, CV/ablation/reporting off).

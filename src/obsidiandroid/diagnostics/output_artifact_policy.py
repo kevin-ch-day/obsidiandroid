@@ -105,7 +105,7 @@ def _init_rules() -> None:
             _rule(
                 "**/split_freeze_audit_*.csv",
                 bucket="evidence_required",
-                producer="ml_classification.training.model_trainer_factory",
+                producer="obsidiandroid.modeling.model_trainer_factory",
                 run_scoped=True,
                 paper_required=True,
                 safe_delete_after_run=False,
@@ -175,7 +175,7 @@ def _init_rules() -> None:
             _rule(
                 "**/vendor_gate_debug*.csv",
                 bucket="diagnostics_required",
-                producer="ml_classification.vectorization.feature_vector_builder",
+                producer="obsidiandroid.features.feature_vector_builder",
                 run_scoped=True,
                 paper_required=True,
                 safe_delete_after_run=False,
@@ -195,7 +195,7 @@ def _init_rules() -> None:
             _rule(
                 "**/aligned_features*.csv.gz",
                 bucket="operator_state",
-                producer="analysis.orchestration.runtime_reporting",
+                producer="obsidiandroid.orchestration.runtime_reporting",
                 run_scoped=True,
                 paper_required=False,
                 safe_delete_after_run=True,
@@ -265,7 +265,7 @@ def _init_rules() -> None:
             _rule(
                 "**/models/**",
                 bucket="diagnostics_optional",
-                producer="ml_classification.training",
+                producer="obsidiandroid.modeling.pipeline_core",
                 run_scoped=True,
                 paper_required=False,
                 safe_delete_after_run=True,
@@ -275,7 +275,7 @@ def _init_rules() -> None:
             _rule(
                 "**/conf_matrices/**",
                 bucket="diagnostics_optional",
-                producer="ml_classification.training",
+                producer="obsidiandroid.modeling.pipeline_core",
                 run_scoped=True,
                 paper_required=False,
                 safe_delete_after_run=False,

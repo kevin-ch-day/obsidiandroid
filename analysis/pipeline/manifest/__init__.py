@@ -1,14 +1,9 @@
-"""Manifest building, hashing, and writing helpers."""
+"""Legacy shim: manifest helpers live under ``obsidiandroid.pipeline.manifest``."""
 
-from .hashing import (
-    canonical_csv_bytes,
-    dataset_hash_from_sample_ids,
-    sha256_hex,
-)
+from __future__ import annotations
 
-__all__ = [
-    "canonical_csv_bytes",
-    "dataset_hash_from_sample_ids",
-    "sha256_hex",
-]
+import importlib
+import sys
 
+_mod = importlib.import_module("obsidiandroid.pipeline.manifest")
+sys.modules[__name__] = _mod

@@ -238,9 +238,9 @@ File-level classification:
 
 | File | Classification |
 |---|---|
-| `analysis/evaluation/model_tuning.py` | already surfaced alias but not migrated yet |
-| `analysis/evaluation/random_forest_diagnostics.py` | already surfaced alias but not migrated yet |
-| `analysis/pipeline/runner.py` | internal_only (`reset_runtime_training_caches`) |
+| `analysis/evaluation/model_tuning.py` | legacy import path; implementation is canonical `obsidiandroid.evaluation.model_tuning` |
+| `analysis/evaluation/random_forest_diagnostics.py` | legacy import path; implementation is canonical `obsidiandroid.evaluation.random_forest_diagnostics` |
+| `analysis/pipeline/runner.py` | legacy import path; canonical implementation is `obsidiandroid.pipeline.runner` (tests may still monkeypatch `analysis.pipeline.runner`) |
 | `analysis/diagnostics/feature_builder_drop_trace.py` | defer (`feature_vendor_extractor`) |
 | `analysis/vendor_processing/generic_label_parser.py` | mixed: needs_wrapper taxonomy functions + deferred `FAMILY_ALIASES` |
 | `tests/test_ablation_split_feature_columns.py` | already surfaced alias but not migrated yet |
@@ -304,8 +304,9 @@ rg -n "^(from ml_classification|import ml_classification)" --glob "*.py" --glob 
 | `tests/test_pipeline_core_low_support_behavior.py` | `from ml_classification.training import pipeline_core` | `from obsidiandroid.modeling import pipeline_core` |
 | `tests/test_pipeline_core_summary_exports.py` | `from ml_classification.training import pipeline_core` | `from obsidiandroid.modeling import pipeline_core` |
 
-`analysis/evaluation/model_tuning.py` also adds repo `src/` to `sys.path` for direct
-script execution because canonical `obsidiandroid.*` imports live under `src/`.
+Legacy `analysis/evaluation/model_tuning.py` historically added repo `src/` to `sys.path` for direct
+script execution. The canonical module (`obsidiandroid.evaluation.model_tuning`) is intended to be
+run as `python -m obsidiandroid.evaluation.model_tuning` (or via editable install / `PYTHONPATH=src`).
 
 ### Remaining surfaced candidates after Pass 50A
 

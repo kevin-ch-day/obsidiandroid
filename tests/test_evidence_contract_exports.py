@@ -11,8 +11,8 @@ import pytest
 from sklearn.datasets import make_classification
 
 from config import app_config
-from ml_classification.training import model_trainer_factory
 from obsidiandroid.diagnostics import headline_evaluation_export
+from obsidiandroid.modeling import model_trainer_factory
 from obsidiandroid.pipeline import stage_manifest
 
 

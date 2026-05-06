@@ -4,7 +4,7 @@ This reference summarizes the machine learning components that ship with Obsidia
 
 ## Feature Families
 
-ObsidianDroid assembles heterogeneous features that capture AV behaviour and Android application traits. Builders live in `analysis/feature_engineering/` and can be toggled in `config/app_config.py`.
+ObsidianDroid assembles heterogeneous features that capture AV behaviour and Android application traits. Canonical builders live in `src/obsidiandroid/feature_engineering/` (legacy `analysis.feature_engineering.*` is an identity shim) and can be toggled in `config/app_config.py`.
 
 | Feature Group | Description | Example Columns |
 | --- | --- | --- |
@@ -33,12 +33,12 @@ To introduce a new model, wire it through **`model_trainer_factory.py`** / **`ge
 ## Hyperparameter Management
 
 - Default parameter grids live under **`config/model_params/`** and are consumed via **`config/`** / **`config/settings/`** and **`config/app_config.py`** (there is no `utils/config_loader.py` in this repository).
-- `analysis/evaluation/model_tuning.py` exposes `tune_models` / `print_summary` for experimental sweeps; production grid search is driven through `ml_classification` trainers and `config/model_params/`.
+- `python -m obsidiandroid.evaluation.model_tuning` exposes `tune_models` / `print_summary` for experimental sweeps; production grid search is driven through `ml_classification` trainers and `config/model_params/`.
 - Persist tuned parameters back into configuration files and document rationale in commit messages or the operations logbook.
 
 ## Evaluation Outputs
 
-Running `main.py` or `analysis/evaluation/model_tuning.py` emits artefacts in `output/` that analysts can review:
+Running `main.py` or `python -m obsidiandroid.evaluation.model_tuning` emits artefacts in `output/` that analysts can review:
 
 - `model_comparison_summary.xlsx` – ranking of estimators by F1, precision, recall, ROC-AUC.
 - `family_metrics/` – per-family confusion matrices and class-specific metrics in CSV format.

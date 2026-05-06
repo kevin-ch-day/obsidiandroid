@@ -19,7 +19,7 @@ from time import perf_counter
 import pandas as pd
 
 from config import app_config
-from ml_classification.training.model_trainer_factory import reset_runtime_training_caches
+from obsidiandroid.modeling.model_trainer_factory import reset_runtime_training_caches
 
 # === Database + Utilities ===
 from obsidiandroid.cli.ui import display as du
@@ -66,12 +66,12 @@ from obsidiandroid.pipeline.runtime_policy import (
     enforce_paper_perturbation_axes as enforce_paper_perturbation_axes_policy,
     reset_runtime_markers,
 )
-from analysis.orchestration.methodology_artifacts import (
+from obsidiandroid.orchestration.methodology_artifacts import (
     export_feature_contract,
     export_leakage_assessment,
     export_modality_method_contract,
 )
-from analysis.orchestration.runtime_reporting import (
+from obsidiandroid.orchestration.runtime_reporting import (
     apply_confusion_matrix_policy as _apply_confusion_matrix_policy,
     build_run_summary_payload as _build_run_summary_payload,
     collect_dependency_versions as _collect_dependency_versions,

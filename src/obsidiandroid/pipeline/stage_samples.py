@@ -19,7 +19,7 @@ from obsidiandroid.cli.ui import display as du
 from obsidiandroid.observability.logging import get_logger, log_event
 from obsidiandroid.common.sample_metadata_preprocessor import prepare_sample_dataframe
 
-from analysis.orchestration.profile_filters import (
+from obsidiandroid.orchestration.profile_filters import (
     apply_dataset_filters,
     export_cohort_filter_summary,
 )

@@ -29,6 +29,7 @@ See **`scripts/research/`** for publication and structural bundles.
 
 | Script | Role |
 |--------|------|
-| [`summarize_run_research_health.py`](summarize_run_research_health.py) | Read-only digest: leakage line, cohort lock, feature authority / vendor merge, split-freeze hygiene, stage summary vs finalization artifacts (`--run-id`, `--latest`, `--json`). Includes an **output navigator**: bucket counts from `artifact_inventory.json`, checklist of routing/research files, optional largest-on-disk paths (`--tour`). |
+| [`summarize_run_research_health.py`](summarize_run_research_health.py) | Read-only digest: leakage line, cohort lock, feature authority / vendor merge, split-freeze hygiene, stage summary vs finalization artifacts (`--run-id`, `--latest`, `--json`). Includes an **output navigator**: bucket counts from `artifact_inventory.json`, checklist of routing/research files, optional largest-on-disk paths (`--tour`). Adds **metrics parity**: headline vs ablation `full_fused` `feature_column_hash`, plus **taxonomy** top `type_mapping_mismatch` (`cohort` → `label-implied`) pairs from mismatch CSV when present. |
+| **(Pipeline / manifest)** | After a full run, diagnostics also include **`headline_vs_ablation_contract_comparison_*.{md,csv}`** and **`taxonomy_type_authority_review_*.{md,csv}`** (operator dashboard + research validity bundle). |
 
 Pipeline staging: [`docs/pipeline_staging_guide.md`](../../docs/pipeline_staging_guide.md).

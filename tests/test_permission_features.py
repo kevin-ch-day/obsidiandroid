@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from analysis.orchestration import permission_features
+from obsidiandroid.orchestration import permission_features
 
 
 def test_permission_fetch_sets_degraded_flag_on_db_error(monkeypatch) -> None:

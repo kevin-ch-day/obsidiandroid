@@ -1,17 +1,25 @@
-"""Pipeline artifact helper canonical aliases."""
+"""Pipeline artifact path/registry helpers.
+
+Implementation is canonical under ``obsidiandroid.pipeline.artifacts`` (**Pass 76**);
+``analysis.pipeline.artifacts`` is an identity shim to this package and its submodules.
+"""
 
 from __future__ import annotations
 
-import importlib
 import sys
 
-_CANONICAL_SUBMODULE_NAMES = ("paths", "registry")
+from . import paths, registry
+from .paths import ArtifactPaths
+from .registry import ArtifactRecord, ArtifactRegistry
 
-for _name in _CANONICAL_SUBMODULE_NAMES:
-    _canon = importlib.import_module(f"analysis.pipeline.artifacts.{_name}")
-    globals()[_name] = _canon
-    sys.modules.setdefault(f"obsidiandroid.pipeline.artifacts.{_name}", _canon)
+_LEGACY_ARTIFACTS_PREFIX = "analysis.pipeline.artifacts."
+for _name in ("paths", "registry"):
+    sys.modules[_LEGACY_ARTIFACTS_PREFIX + _name] = sys.modules[__name__ + "." + _name]
 
-__all__ = list(_CANONICAL_SUBMODULE_NAMES)
-
-del _CANONICAL_SUBMODULE_NAMES, _name, _canon
+__all__ = [
+    "ArtifactPaths",
+    "ArtifactRecord",
+    "ArtifactRegistry",
+    "paths",
+    "registry",
+]
