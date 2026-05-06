@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from config import app_config
-from ml_classification.training import train_model_executor
+from obsidiandroid.modeling import train_model_executor
 
 
 def test_train_and_evaluate_model_uses_configured_output_root_for_exports(

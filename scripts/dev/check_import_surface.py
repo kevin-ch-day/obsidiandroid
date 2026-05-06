@@ -539,6 +539,42 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+    _physical_training_slices = (
+        "pipeline_result_promoter",
+        "train_model_executor",
+        "model_training",
+        "prediction_builder",
+        "model_evaluation",
+        "training_helpers",
+    )
+    for mod in _physical_training_slices:
+        canon_tm = importlib.import_module(f"obsidiandroid.modeling.{mod}")
+        legacy_tm = importlib.import_module(f"ml_classification.training.{mod}")
+        if legacy_tm is not canon_tm:
+            print(
+                f"FAIL: ml_classification.training.{mod} did not resolve to "
+                f"obsidiandroid.modeling.{mod}",
+                file=sys.stderr,
+            )
+            return 1
+    del mod, canon_tm, legacy_tm, _physical_training_slices
+    for mod in (
+        "random_forest_trainer",
+        "balanced_random_forest_trainer",
+        "logistic_regression_trainer",
+        "svm_trainer",
+        "xgboost_trainer",
+    ):
+        canon_tr = importlib.import_module(f"obsidiandroid.modeling.ml_trainers.{mod}")
+        legacy_tr = importlib.import_module(f"ml_classification.training.ml_trainers.{mod}")
+        if legacy_tr is not canon_tr:
+            print(
+                f"FAIL: ml_classification.training.ml_trainers.{mod} did not resolve to "
+                f"obsidiandroid.modeling.ml_trainers.{mod}",
+                file=sys.stderr,
+            )
+            return 1
+    del mod, canon_tr, legacy_tr
     print("OK   obsidiandroid.modeling submodules match ml_classification")
 
     _features_facade = importlib.import_module("obsidiandroid.features")

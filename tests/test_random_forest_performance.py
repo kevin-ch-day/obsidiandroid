@@ -2,7 +2,7 @@ import time
 import pandas as pd
 from sklearn.datasets import make_classification
 
-from ml_classification.training.ml_trainers import random_forest_trainer
+from obsidiandroid.modeling.ml_trainers import random_forest_trainer
 from config import app_config
 
 

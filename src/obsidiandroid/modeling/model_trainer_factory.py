@@ -18,7 +18,7 @@ import numpy as np
 
 from config import app_config
 from obsidiandroid.common import canonicalization, output_hygiene as oh
-from ml_classification.training.training_helpers import (
+from .training_helpers import (
     validate_training_inputs,
     get_model_trainer,
     perform_cross_validation,

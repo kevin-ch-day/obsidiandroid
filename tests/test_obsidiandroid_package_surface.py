@@ -125,6 +125,28 @@ def test_ml_facades_match_ml_classification_modules() -> None:
     feature_alignment_legacy = importlib.import_module("ml_classification.ml_utils.feature_alignment_utils")
     assert feature_alignment_legacy is feature_alignment_canon
 
+    for mod in (
+        "pipeline_result_promoter",
+        "train_model_executor",
+        "model_training",
+        "prediction_builder",
+        "model_evaluation",
+        "training_helpers",
+    ):
+        canon_tm = importlib.import_module(f"obsidiandroid.modeling.{mod}")
+        legacy_tm = importlib.import_module(f"ml_classification.training.{mod}")
+        assert legacy_tm is canon_tm
+    for mod in (
+        "random_forest_trainer",
+        "balanced_random_forest_trainer",
+        "logistic_regression_trainer",
+        "svm_trainer",
+        "xgboost_trainer",
+    ):
+        canon_tr = importlib.import_module(f"obsidiandroid.modeling.ml_trainers.{mod}")
+        legacy_tr = importlib.import_module(f"ml_classification.training.ml_trainers.{mod}")
+        assert legacy_tr is canon_tr
+
     features_pairs = (
         ("feature_encoder", "obsidiandroid.features.vectorization.feature_encoder"),
         ("feature_engine_selection", "obsidiandroid.features.vectorization.feature_engine_selection"),

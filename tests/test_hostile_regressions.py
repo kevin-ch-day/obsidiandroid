@@ -5,7 +5,7 @@ import pandas as pd
 from zipfile import BadZipFile
 
 from config import app_config
-from ml_classification.training import training_helpers
+from obsidiandroid.modeling import training_helpers
 from obsidiandroid.reporting import export_manager
 
 

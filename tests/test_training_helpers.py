@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from config import app_config
-from ml_classification.training import training_helpers
+from obsidiandroid.modeling import training_helpers
 
 
 def test_build_base_estimator_xgboost_binary_objective() -> None:

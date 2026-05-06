@@ -4,14 +4,14 @@ import pytest
 from sklearn.datasets import make_classification
 from sklearn.preprocessing import LabelEncoder
 
-from ml_classification.training.ml_trainers import (
+from obsidiandroid.modeling.ml_trainers import (
     random_forest_trainer,
     balanced_random_forest_trainer,
     xgboost_trainer,
     logistic_regression_trainer,
     svm_trainer,
 )
-from ml_classification.training import model_trainer_factory
+from obsidiandroid.modeling import model_trainer_factory
 from config import app_config
 
 

@@ -36,8 +36,8 @@ from obsidiandroid.orchestration.methodology_artifacts import (
 from obsidiandroid.modeling import data_alignment
 from obsidiandroid.modeling import distribution_reporter
 from obsidiandroid.modeling import ml_result_validator
-from ml_classification.training import pipeline_result_promoter
-from ml_classification.training import train_model_executor
+from . import pipeline_result_promoter
+from . import train_model_executor
 
 # === Constants === #
 ALL_SUPPORTED_MODELS = [

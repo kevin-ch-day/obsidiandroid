@@ -14,12 +14,48 @@ controllers and utility helpers while keeping legacy shims:
 - :mod:`obsidiandroid.modeling.model_prediction` (physical)
 
 See :mod:`obsidiandroid.modeling.model_exporter` for persisted model artifacts.
+
+Physical training-stack helpers (**Pass 93**) load lazily via :func:`__getattr__`:
+``pipeline_result_promoter``, ``train_model_executor``, ``model_training``,
+``prediction_builder``, ``model_evaluation``, ``training_helpers``, and the
+``ml_trainers`` subpackage.
 """
 
 from __future__ import annotations
 
 import importlib
 import sys
+
+_LAZY_PHYSICAL_SUBMODULES = frozenset(
+    {
+        "pipeline_result_promoter",
+        "train_model_executor",
+        "model_training",
+        "prediction_builder",
+        "model_evaluation",
+        "training_helpers",
+    }
+)
+
+
+def __getattr__(name: str):
+    """Resolve optional physical modeling submodules without eager importing."""
+    if name in _LAZY_PHYSICAL_SUBMODULES:
+        module = importlib.import_module(f"obsidiandroid.modeling.{name}")
+        globals()[name] = module
+        return module
+    if name == "ml_trainers":
+        module = importlib.import_module("obsidiandroid.modeling.ml_trainers")
+        globals()[name] = module
+        return module
+    message = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(message)
+
+
+def __dir__():
+    names = sorted(set(globals()) | set(__all__))
+    return names
+
 
 _CANONICAL_SUBMODULE_NAMES = (
     "data_alignment",
@@ -48,6 +84,11 @@ for _name in _CANONICAL_SUBMODULE_NAMES:
     globals()[_name] = _canon
     sys.modules.setdefault(f"obsidiandroid.modeling.{_name}", _canon)
 
-__all__ = ["model_exporter", *_CANONICAL_SUBMODULE_NAMES]
+__all__ = [
+    "model_exporter",
+    *_CANONICAL_SUBMODULE_NAMES,
+    *_LAZY_PHYSICAL_SUBMODULES,
+    "ml_trainers",
+]
 
 del _CANONICAL_SUBMODULE_NAMES, _LEGACY_BY_CANONICAL, _name, _canon
