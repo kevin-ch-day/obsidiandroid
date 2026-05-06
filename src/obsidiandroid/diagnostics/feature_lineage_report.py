@@ -187,7 +187,7 @@ def build_feature_lineage_report(run_diagnostics_dir: Path | str) -> dict[str, A
             "encoded vendor fields with extras."
         ),
         "modules_training_pruning": (
-            "ml_classification/training/pipeline_core.py: _prune_low_information_features (nunique<=1), "
+            "src/obsidiandroid/modeling/pipeline_core.py: _prune_low_information_features (nunique<=1), "
             "then _prune_potential_leakage_features; leakage audit CSV optional."
         ),
     }

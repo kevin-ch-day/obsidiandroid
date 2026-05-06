@@ -92,8 +92,8 @@ def test_ml_facades_match_ml_classification_modules() -> None:
         ("ml_result_analyzer", "obsidiandroid.modeling.ml_result_analyzer"),
         ("ml_result_validator", "obsidiandroid.modeling.ml_result_validator"),
         ("model_prediction", "obsidiandroid.modeling.model_prediction"),
-        ("model_trainer_factory", "ml_classification.training.model_trainer_factory"),
-        ("pipeline_core", "ml_classification.training.pipeline_core"),
+        ("model_trainer_factory", "obsidiandroid.modeling.model_trainer_factory"),
+        ("pipeline_core", "obsidiandroid.modeling.pipeline_core"),
     )
     for attr, canon_name in modeling_pairs:
         canon_mod = importlib.import_module(canon_name)
@@ -107,8 +107,15 @@ def test_ml_facades_match_ml_classification_modules() -> None:
             "ml_result_analyzer",
             "ml_result_validator",
             "model_prediction",
+            "model_trainer_factory",
+            "pipeline_core",
         }:
-            if attr in {"data_alignment", "model_prediction"}:
+            if attr in {
+                "data_alignment",
+                "model_prediction",
+                "model_trainer_factory",
+                "pipeline_core",
+            }:
                 legacy_mod = importlib.import_module(f"ml_classification.training.{attr}")
             else:
                 legacy_mod = importlib.import_module(f"ml_classification.ml_utils.{attr}")

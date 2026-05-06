@@ -1,11 +1,11 @@
 """ML modeling helpers and thin canonical aliases.
 
 Pass 47 exposed a minimal, docs-approved alias set backed by identity-preserving
-module objects. Pass 87 physically moved the small ML utility helpers while keeping
-legacy shims:
+module objects. Subsequent passes physically moved orchestration-heavy training
+controllers and utility helpers while keeping legacy shims:
 
-- :mod:`obsidiandroid.modeling.pipeline_core`
-- :mod:`obsidiandroid.modeling.model_trainer_factory`
+- :mod:`obsidiandroid.modeling.pipeline_core` (physical)
+- :mod:`obsidiandroid.modeling.model_trainer_factory` (physical)
 - :mod:`obsidiandroid.modeling.data_alignment` (physical)
 - :mod:`obsidiandroid.modeling.distribution_reporter` (physical)
 - :mod:`obsidiandroid.modeling.feature_label_alignment_helper` (physical)
@@ -39,8 +39,8 @@ _LEGACY_BY_CANONICAL = {
     "ml_result_analyzer": "obsidiandroid.modeling.ml_result_analyzer",
     "ml_result_validator": "obsidiandroid.modeling.ml_result_validator",
     "model_prediction": "obsidiandroid.modeling.model_prediction",
-    "model_trainer_factory": "ml_classification.training.model_trainer_factory",
-    "pipeline_core": "ml_classification.training.pipeline_core",
+    "model_trainer_factory": "obsidiandroid.modeling.model_trainer_factory",
+    "pipeline_core": "obsidiandroid.modeling.pipeline_core",
 }
 
 for _name in _CANONICAL_SUBMODULE_NAMES:
