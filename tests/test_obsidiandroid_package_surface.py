@@ -261,6 +261,101 @@ def test_ml_classification_common_and_ml_utils_packages_lazy_attributes() -> Non
     assert getattr(mlc, "malware_family_constants") is mlc_mfc
 
 
+def test_ml_classification_subpackages_lazy_attributes_pass100() -> None:
+    """Pass 100: shim subpackages expose known leaf names via ``__getattr__``."""
+    import importlib
+
+    slices: tuple[tuple[str, tuple[str, ...]], ...] = (
+        (
+            "ml_classification.builder",
+            (
+                "classification_constants",
+                "classification_row_builder",
+                "prediction_utils",
+                "record_enrichment",
+                "sample_classification_builder",
+                "vendor_record_selector",
+            ),
+        ),
+        (
+            "ml_classification.inference",
+            (
+                "label_consensus_engine",
+                "malware_type_engine",
+                "signal_health_checker",
+                "threat_class_engine",
+            ),
+        ),
+        (
+            "ml_classification.engine_weights",
+            (
+                "assign_detection_tiers",
+                "build_classification_weights",
+                "classification_weight_inspector",
+                "classification_weight_utils",
+                "compute_reliability_score",
+                "engine_weights_utils",
+            ),
+        ),
+        (
+            "ml_classification.labeling",
+            (
+                "classification_label_resolver",
+                "label_builder_wrapper",
+                "label_field_normalizer",
+                "label_format_generator",
+                "label_input_validator",
+                "label_postprocessor",
+            ),
+        ),
+        (
+            "ml_classification.reporting",
+            ("compile_classification_results", "ml_report_builder"),
+        ),
+        (
+            "ml_classification.vectorization",
+            (
+                "feature_encoder",
+                "feature_engine_selection",
+                "feature_vendor_extractor",
+                "feature_vector_builder",
+            ),
+        ),
+        (
+            "ml_classification.training",
+            (
+                "data_alignment",
+                "feature_schema_audit",
+                "model_evaluation",
+                "model_prediction",
+                "model_training",
+                "model_trainer_factory",
+                "ml_trainers",
+                "pipeline_core",
+                "pipeline_result_promoter",
+                "prediction_builder",
+                "train_model_executor",
+                "training_helpers",
+            ),
+        ),
+        (
+            "ml_classification.training.ml_trainers",
+            (
+                "balanced_random_forest_trainer",
+                "logistic_regression_trainer",
+                "random_forest_trainer",
+                "svm_trainer",
+                "xgboost_trainer",
+            ),
+        ),
+    )
+    for pkg_qual, names in slices:
+        pkg = importlib.import_module(pkg_qual)
+        for name in names:
+            sub = importlib.import_module(f"{pkg_qual}.{name}")
+            assert getattr(pkg, name) is sub
+
+
 def test_pipeline_manifest_facade_matches_manifest_modules() -> None:
     """Pipeline manifest: canonical under ``obsidiandroid.pipeline.manifest``; analysis shims match."""
     import importlib

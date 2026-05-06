@@ -186,6 +186,18 @@ def collect_utf8_bom_python_sources(repo_root: Path) -> list[str]:
     return bad
 
 
+def _legacy_ml_pkg_getattr_errors(pkg_qual: str, submodule_names: tuple[str, ...]) -> list[str]:
+    """Return human-readable failures when ``pkg.<name>`` disagrees with ``import pkg.name``."""
+
+    errors: list[str] = []
+    pkg_mod = importlib.import_module(pkg_qual)
+    for name in submodule_names:
+        sub_mod = importlib.import_module(f"{pkg_qual}.{name}")
+        if getattr(pkg_mod, name) is not sub_mod:
+            errors.append(f"{pkg_qual}.{name} getattr mismatch vs explicit submodule import")
+    return errors
+
+
 def main() -> int:
     """Import key surfaces and verify ``run_pipeline`` identity."""
     try:
@@ -697,6 +709,104 @@ def main() -> int:
     del _mlu, _mlu_ds, _mlc, _mlc_mfc
     print(
         "OK   ml_classification.ml_utils / common package accessors match submodule imports (Pass 99)"
+    )
+
+    _pass100_ml_subpackages: tuple[tuple[str, tuple[str, ...]], ...] = (
+        (
+            "ml_classification.builder",
+            (
+                "classification_constants",
+                "classification_row_builder",
+                "prediction_utils",
+                "record_enrichment",
+                "sample_classification_builder",
+                "vendor_record_selector",
+            ),
+        ),
+        (
+            "ml_classification.inference",
+            (
+                "label_consensus_engine",
+                "malware_type_engine",
+                "signal_health_checker",
+                "threat_class_engine",
+            ),
+        ),
+        (
+            "ml_classification.engine_weights",
+            (
+                "assign_detection_tiers",
+                "build_classification_weights",
+                "classification_weight_inspector",
+                "classification_weight_utils",
+                "compute_reliability_score",
+                "engine_weights_utils",
+            ),
+        ),
+        (
+            "ml_classification.labeling",
+            (
+                "classification_label_resolver",
+                "label_builder_wrapper",
+                "label_field_normalizer",
+                "label_format_generator",
+                "label_input_validator",
+                "label_postprocessor",
+            ),
+        ),
+        (
+            "ml_classification.reporting",
+            (
+                "compile_classification_results",
+                "ml_report_builder",
+            ),
+        ),
+        (
+            "ml_classification.vectorization",
+            (
+                "feature_encoder",
+                "feature_engine_selection",
+                "feature_vendor_extractor",
+                "feature_vector_builder",
+            ),
+        ),
+        (
+            "ml_classification.training",
+            (
+                "data_alignment",
+                "feature_schema_audit",
+                "model_evaluation",
+                "model_prediction",
+                "model_training",
+                "model_trainer_factory",
+                "ml_trainers",
+                "pipeline_core",
+                "pipeline_result_promoter",
+                "prediction_builder",
+                "train_model_executor",
+                "training_helpers",
+            ),
+        ),
+        (
+            "ml_classification.training.ml_trainers",
+            (
+                "balanced_random_forest_trainer",
+                "logistic_regression_trainer",
+                "random_forest_trainer",
+                "svm_trainer",
+                "xgboost_trainer",
+            ),
+        ),
+    )
+    for _pkg_qual, _subnames in _pass100_ml_subpackages:
+        _pass100_errors = _legacy_ml_pkg_getattr_errors(_pkg_qual, _subnames)
+        if _pass100_errors:
+            for _msg in _pass100_errors:
+                print(f"FAIL: {_msg}", file=sys.stderr)
+            return 1
+    del _pkg_qual, _subnames, _pass100_ml_subpackages, _pass100_errors
+    print(
+        "OK   ml_classification subpackage accessors match submodule imports (Pass 100)"
     )
 
     _cb_facade = importlib.import_module("obsidiandroid.classification_builder")
