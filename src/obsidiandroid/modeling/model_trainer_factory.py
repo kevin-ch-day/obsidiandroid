@@ -544,8 +544,9 @@ def train_model_factory(
         else:
             split_algo = "stratified_seeded"
             if getattr(app_config, "AUTO_ADJUST_TRAIN_TEST_SPLIT", False):
-                from ml_classification.ml_utils import dataset_splitter
-                X_train, X_test, y_train, y_test = dataset_splitter.balanced_train_test_split(
+                from .dataset_splitter import balanced_train_test_split
+
+                X_train, X_test, y_train, y_test = balanced_train_test_split(
                     features_df,
                     encoded_labels,
                     test_size=test_size,

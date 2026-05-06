@@ -14,9 +14,7 @@ import pandas as pd
 
 from config import app_config
 from scripts.diagnostics import inspect_classification_results as inspector
-from ml_classification.ml_utils import (
-    ml_comparator_summary as comparator,
-)
+from obsidiandroid.evaluation import ml_comparator_summary as comparator
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.reporting import export_manager as em

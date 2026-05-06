@@ -1,7 +1,7 @@
 """Tests for model comparison ranking metric governance."""
 
 from config import app_config
-from ml_classification.ml_utils import ml_comparator_summary
+from obsidiandroid.evaluation import ml_comparator_summary
 
 
 def test_compare_model_performance_ranks_by_macro_f1(monkeypatch) -> None:

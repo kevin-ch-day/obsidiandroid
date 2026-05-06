@@ -1,6 +1,6 @@
 """Tests for model comparison summary helpers."""
 
-from ml_classification.ml_utils import ml_comparator_summary
+from obsidiandroid.evaluation import ml_comparator_summary
 
 
 def test_model_display_name_aliases() -> None:

@@ -2,7 +2,8 @@
 
 Implementation modules live in this package. Legacy ``analysis.evaluation.<name>``
 paths remain valid via :mod:`analysis.evaluation` registering submodules at
-package import time (Passes 61–63).
+package import time (Passes 61–63; **Pass 94** adds classifier training eval and
+reporting helpers with matching ``ml_classification.*`` identity shims).
 """
 
 from __future__ import annotations
@@ -11,9 +12,13 @@ import importlib
 import sys
 
 _LEGACY_BY_CANONICAL = {
+    "accuracy_band_utils": "obsidiandroid.evaluation.accuracy_band_utils",
     "av_results_fetcher": "obsidiandroid.evaluation.av_results_fetcher",
     "engine_scoring_summary": "obsidiandroid.evaluation.engine_scoring_summary",
     "evaluate_av_classifications": "obsidiandroid.evaluation.evaluate_av_classifications",
+    "ml_comparator_summary": "obsidiandroid.evaluation.ml_comparator_summary",
+    "ml_eval_engine": "obsidiandroid.evaluation.ml_eval_engine",
+    "ml_report_builder": "obsidiandroid.evaluation.ml_report_builder",
     "model_tuning": "obsidiandroid.evaluation.model_tuning",
     "random_forest_diagnostics": "obsidiandroid.evaluation.random_forest_diagnostics",
     "vendor_classification_inspector": "obsidiandroid.evaluation.vendor_classification_inspector",

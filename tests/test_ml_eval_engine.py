@@ -7,7 +7,7 @@ import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
 from config import app_config
-from ml_classification.ml_utils import ml_eval_engine
+from obsidiandroid.evaluation import ml_eval_engine
 
 
 class _DummyModel:

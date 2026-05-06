@@ -411,9 +411,13 @@ def test_evaluation_leaf_shims_match_canonical_modules() -> None:
     import importlib
 
     for name in (
+        "accuracy_band_utils",
         "av_results_fetcher",
         "engine_scoring_summary",
         "evaluate_av_classifications",
+        "ml_comparator_summary",
+        "ml_eval_engine",
+        "ml_report_builder",
         "model_tuning",
         "random_forest_diagnostics",
         "vendor_classification_inspector",
@@ -427,6 +431,20 @@ def test_evaluation_leaf_shims_match_canonical_modules() -> None:
         canon_mod = importlib.import_module(f"obsidiandroid.evaluation.{name}")
         legacy_mod = importlib.import_module(f"analysis.evaluation.{name}")
         assert legacy_mod is canon_mod
+
+    for mod in ("ml_eval_engine", "ml_comparator_summary", "accuracy_band_utils"):
+        canon_ml = importlib.import_module(f"obsidiandroid.evaluation.{mod}")
+        legacy_ml = importlib.import_module(f"ml_classification.ml_utils.{mod}")
+        assert legacy_ml is canon_ml
+
+    canon_rb = importlib.import_module("obsidiandroid.evaluation.ml_report_builder")
+    legacy_rb = importlib.import_module("ml_classification.reporting.ml_report_builder")
+    assert legacy_rb is canon_rb
+
+    assert (
+        importlib.import_module("ml_classification.ml_utils.dataset_splitter")
+        is importlib.import_module("obsidiandroid.modeling.dataset_splitter")
+    )
 
 
 def test_vendor_execution_shims_match_canonical_modules() -> None:

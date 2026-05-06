@@ -757,9 +757,13 @@ def main() -> int:
 
     # Passes 61–63: evaluation physical moves; legacy package registers identity.
     eval_pairs = (
+        "accuracy_band_utils",
         "av_results_fetcher",
         "engine_scoring_summary",
         "evaluate_av_classifications",
+        "ml_comparator_summary",
+        "ml_eval_engine",
+        "ml_report_builder",
         "model_tuning",
         "random_forest_diagnostics",
         "vendor_classification_inspector",
@@ -780,6 +784,37 @@ def main() -> int:
             )
             return 1
     print("OK   analysis.evaluation package shim matches obsidiandroid.evaluation")
+
+    _ml_cls_eval_three = ("ml_eval_engine", "ml_comparator_summary", "accuracy_band_utils")
+    for mod in _ml_cls_eval_three:
+        canon_ml = importlib.import_module(f"obsidiandroid.evaluation.{mod}")
+        legacy_ml = importlib.import_module(f"ml_classification.ml_utils.{mod}")
+        if legacy_ml is not canon_ml:
+            print(
+                f"FAIL: ml_classification.ml_utils.{mod} did not resolve to "
+                f"obsidiandroid.evaluation.{mod}",
+                file=sys.stderr,
+            )
+            return 1
+    canon_rb = importlib.import_module("obsidiandroid.evaluation.ml_report_builder")
+    legacy_rb = importlib.import_module("ml_classification.reporting.ml_report_builder")
+    if legacy_rb is not canon_rb:
+        print(
+            "FAIL: ml_classification.reporting.ml_report_builder did not resolve to "
+            "obsidiandroid.evaluation.ml_report_builder",
+            file=sys.stderr,
+        )
+        return 1
+    splitter_canon = importlib.import_module("obsidiandroid.modeling.dataset_splitter")
+    splitter_legacy = importlib.import_module("ml_classification.ml_utils.dataset_splitter")
+    if splitter_legacy is not splitter_canon:
+        print(
+            "FAIL: ml_classification.ml_utils.dataset_splitter did not resolve to "
+            "obsidiandroid.modeling.dataset_splitter",
+            file=sys.stderr,
+        )
+        return 1
+    del mod, canon_ml, legacy_ml, _ml_cls_eval_three, canon_rb, legacy_rb, splitter_canon, splitter_legacy
 
     # Vendor execution: physical move from analysis.execution to obsidiandroid.vendors.execution.
     exec_pairs = (

@@ -17,8 +17,8 @@ See :mod:`obsidiandroid.modeling.model_exporter` for persisted model artifacts.
 
 Physical training-stack helpers (**Pass 93**) load lazily via :func:`__getattr__`:
 ``pipeline_result_promoter``, ``train_model_executor``, ``model_training``,
-``prediction_builder``, ``model_evaluation``, ``training_helpers``, and the
-``ml_trainers`` subpackage.
+``prediction_builder``, ``model_evaluation``, ``training_helpers``, the
+``ml_trainers`` subpackage, and (**Pass 94**) ``dataset_splitter``.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ _LAZY_PHYSICAL_SUBMODULES = frozenset(
         "prediction_builder",
         "model_evaluation",
         "training_helpers",
+        "dataset_splitter",
     }
 )
 

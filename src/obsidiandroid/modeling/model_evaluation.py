@@ -8,7 +8,7 @@ from obsidiandroid.modeling import ml_result_analyzer
 
 def evaluate_model(model, X_test, y_test, label_encoder, model_name: str | None = None):
     """Run evaluation module and return metrics dictionary."""
-    from ml_classification.ml_utils import ml_eval_engine
+    from obsidiandroid.evaluation import ml_eval_engine
 
     quiet = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
     verbose_eval = ml_console.is_debug() or (not quiet and not ml_console.is_minimal())
