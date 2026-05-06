@@ -63,7 +63,7 @@ Work proceeded in **documented passes** (see **`STRUCTURE_MIGRATION_PLAN.md`**).
 
 | Item | Canonical implementation | Notes |
 |------|-------------------------|--------|
-| **`main.py`** | **`obsidiandroid.cli`** | Setuptools **`py-modules`**; tests monkeypatch **`main`**. |
+| **`main.py`** | **`obsidiandroid.cli`** | Setuptools **`py-modules`**; checkout bootstrap via **`import utils`** (**Pass 103**); tests monkeypatch **`main`**. |
 | **`clean_bytecode_cache`** / **`run_ml_static_scan`** | **`scripts.dev.*`** | **Pass 101:** repo-root shims removed; use **`python scripts/dev/clean_bytecode_cache.py`** / **`python -m scripts.dev.run_ml_static_scan`** or **`make`** targets. **`py-modules`** lists **`main`** only. |
 | **`setup.sh`**, **`run.sh`**, **`scripts/dev/run_tests.sh`**, **`scripts/dev/run_tests_full.sh`** | **`scripts/dev/*.sh`** | Test runners; **`make test`** / **`make test-full`** call **`scripts/dev/`** directly. |
 
