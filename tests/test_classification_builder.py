@@ -3,7 +3,7 @@ import pytest
 from ml_classification.builder.classification_row_builder import build_classification_row
 from ml_classification.builder import sample_classification_builder
 from ml_classification.inference.label_consensus_engine import resolve_consensus_label
-from ml_classification.labeling import label_field_normalizer, label_format_generator
+from obsidiandroid.labeling import label_field_normalizer, label_format_generator
 from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
 
 
@@ -130,7 +130,7 @@ def test_generate_structured_label_defaults_on_numeric_type():
         platform='android',
         variant='v1'
     )
-    from ml_classification.labeling.label_field_normalizer import DEFAULT_TYPE
+    from obsidiandroid.labeling.label_field_normalizer import DEFAULT_TYPE
     label = label_format_generator.generate_label(record.family, record, format='structured')
     assert label == f'{DEFAULT_TYPE}/android.trojan.bar[v1]'
 

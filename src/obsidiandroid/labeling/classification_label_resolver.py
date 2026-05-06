@@ -6,16 +6,16 @@ import json
 import re
 import pandas as pd
 
-from ml_classification.labeling.label_input_validator import validate_label_resolution_inputs
-from ml_classification.labeling.label_builder_wrapper import build_structured_label_output
-from ml_classification.labeling.label_postprocessor import summarize_prediction_results
-
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.reporting import export_manager
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from config import app_config
 
 from obsidiandroid.diagnostics import feature_build_coverage_export
+
+from .label_input_validator import validate_label_resolution_inputs
+from .label_builder_wrapper import build_structured_label_output
+from .label_postprocessor import summarize_prediction_results
 
 
 _TYPE_FROM_LABEL_RE = re.compile(r"/android\.([a-z0-9\-]+)\.", re.IGNORECASE)

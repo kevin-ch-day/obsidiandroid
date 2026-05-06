@@ -167,6 +167,11 @@ def test_ml_facades_match_ml_classification_modules() -> None:
 
     labeling_pairs = (
         ("classification_label_resolver", "obsidiandroid.labeling.classification_label_resolver"),
+        ("label_builder_wrapper", "obsidiandroid.labeling.label_builder_wrapper"),
+        ("label_field_normalizer", "obsidiandroid.labeling.label_field_normalizer"),
+        ("label_format_generator", "obsidiandroid.labeling.label_format_generator"),
+        ("label_input_validator", "obsidiandroid.labeling.label_input_validator"),
+        ("label_postprocessor", "obsidiandroid.labeling.label_postprocessor"),
     )
     for attr, canon_name in labeling_pairs:
         canon_mod = importlib.import_module(canon_name)

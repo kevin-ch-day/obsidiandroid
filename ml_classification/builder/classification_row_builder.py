@@ -3,8 +3,8 @@
 
 from typing import Dict, Any, Optional
 from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
-from ml_classification.labeling.label_format_generator import generate_label
-from ml_classification.labeling import label_field_normalizer
+from obsidiandroid.labeling.label_format_generator import generate_label
+from obsidiandroid.labeling import label_field_normalizer
 from obsidiandroid.cli.ui import display as du
 from . import vendor_record_selector
 from . import record_enrichment
