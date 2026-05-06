@@ -22,7 +22,7 @@ The repo root keeps a short **[`AGENTS.md`](../AGENTS.md)** stub so tools that e
 - **`utils/` shims** (where present) must stay **thin re-exports**; **do not add new duplicated business logic** in shims—implement in `src/obsidiandroid/` and re-export.
 - **`output/`** and **`logs/`** are **runtime-generated** state (gitignored), not source. Do not treat them as part of the package API.
 - **`artifacts/baselines/`** is the **intentional** place for small preserved evidence / regression baselines (not ad-hoc run outputs under `output/`).
-- **Dev / hygiene** tooling lives under **`scripts/dev/`** (import checks, ML scan, bytecode clean, and shell helpers: venv bootstrap, startup menu launcher, fast/full pytest). Repo-root **`setup.sh`**, **`run.sh`**, and **`run_tests*.sh`** are thin wrappers to those files.
+- **Dev / hygiene** tooling lives under **`scripts/dev/`** (import checks, ML scan, bytecode clean, and shell helpers: venv bootstrap, startup menu launcher, fast/full pytest). Repo-root **`setup.sh`** and **`run.sh`** delegate to **`scripts/dev/`**; **`make test`** / **`make test-full`** invoke **`scripts/dev/run_tests.sh`** and **`run_tests_full.sh`** directly.
 - **Diagnostic and operator inspection** scripts: canonical modules live under **`scripts/diagnostics/`** (see **`scripts/diagnostics/README.md`**). Legacy repo-root packages **`data_inspect`** and **`devtools`** were **removed** — import **`scripts.diagnostics.*`** and **`scripts.dev.*`** (Pass 24 in **`STRUCTURE_MIGRATION_PLAN.md`**).
 - **Misc scripts:** some operators still live at **`scripts/*.py`** until a future move pass—new diagnostic scripts should follow the diagnostics index when practical.
 - **Do not move** core domains such as **`analysis/pipeline`**, **`database/`**, **`ml_classification/`**, or **`model/`** as a drive-by—only with a planned pass and tests.
@@ -53,7 +53,7 @@ Runs pytest with **`-m "not slow"`** (configured in **`pyproject.toml`** → `[t
 
 Use **one** of:
 
-- `./run_tests.sh`
+- `./scripts/dev/run_tests.sh`
 - `make test`
 - `pytest -q` (honours `addopts` in `[tool.pytest.ini_options]`)
 
@@ -79,7 +79,7 @@ Whole test **files** listed in `_SLOW_TEST_MODULES` inside `tests/conftest.py` a
 
 Runs **all** tests, including `slow` modules (manifest, startup menu, permission trends, trainers, etc.):
 
-- `./run_tests_full.sh`
+- `./scripts/dev/run_tests_full.sh`
 - `make test-full`
 - `pytest -q -m "slow or not slow"`
 
@@ -94,9 +94,9 @@ Use before releases or when changing behavior covered only by slow modules.
 ## Hygiene before commit
 
 - Keep **`pyproject.toml`** `[tool.setuptools.packages.find] include` aligned with real top-level packages (remove stale entries like a non-existent `testing/` tree) so editable installs do not claim empty namespaces.
-- Run **`python clean_bytecode_cache.py`** (or **`make clean`** / **`make clean-bytecode`**, which call `scripts/dev/clean_bytecode_cache.py`) to drop `__pycache__` and stray log artifacts where relevant. When reviewing repo layout, prefer **`make tree-source`** after cleanup (filters generated dirs; requires the **`tree`** CLI unless you only need **`make help`** guidance).
+- Run **`python scripts/dev/clean_bytecode_cache.py`** (or **`make clean`** / **`make clean-bytecode`**, which invoke the same script) to drop `__pycache__` and stray log artifacts where relevant. When reviewing repo layout, prefer **`make tree-source`** after cleanup (filters generated dirs; requires the **`tree`** CLI unless you only need **`make help`** guidance).
 - When changing anything that hits MySQL, run **`make preflight-db`** (or `python -m database.split_db_health`) with valid `OBSIDIAN_DB_*` / `.env` settings.
-- Optionally run **`make ml-scan`** or **`python run_ml_static_scan.py`** to catch accidental `.predict()` misuse in ML code (add **`--strict`** to fail the command when warnings are found).
+- Optionally run **`make ml-scan`** or **`python -m scripts.dev.run_ml_static_scan`** to catch accidental `.predict()` misuse in ML code (add **`--strict`** to fail the command when warnings are found).
 
 ## User-facing documentation
 

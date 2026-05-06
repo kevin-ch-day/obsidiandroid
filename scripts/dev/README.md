@@ -6,9 +6,9 @@ Scripts here support **package layout, import hygiene, and local repo maintenanc
 |-----------------|---------|
 | [`check_import_surface.py`](check_import_surface.py) | Smoke-test `obsidiandroid` imports and shim parity; exits nonzero on failure. |
 | [`check_doc_hygiene.py`](check_doc_hygiene.py) | Block known-removed phantom script paths in operator docs; **`make doc-check`**. |
-| [`clean_bytecode_cache.py`](clean_bytecode_cache.py) | Remove `__pycache__`, local logs, and common junk under a tree (canonical implementation; [`../../clean_bytecode_cache.py`](../../clean_bytecode_cache.py) is a thin repo-root entry). |
+| [`clean_bytecode_cache.py`](clean_bytecode_cache.py) | Remove `__pycache__`, local logs, and common junk under a tree (**canonical**; use `python scripts/dev/clean_bytecode_cache.py` or `make clean-bytecode`). |
 | [`data_fuzzer.py`](data_fuzzer.py) | Synthetic classification data for stress tests (`sklearn` + pandas). |
-| [`run_ml_static_scan.py`](run_ml_static_scan.py) | Argparse driver for the ML predict misuse scan; repo-root [`run_ml_static_scan.py`](../../run_ml_static_scan.py) delegates here. |
+| [`run_ml_static_scan.py`](run_ml_static_scan.py) | Argparse driver for the ML predict misuse scan (`python -m scripts.dev.run_ml_static_scan` or `make ml-scan`). |
 | [`scan_ml_predict_misuse.py`](scan_ml_predict_misuse.py) | Core walker used by `run_ml_static_scan`. |
 
 ### Shell entrypoints (Fedora venv, pytest)
@@ -17,10 +17,10 @@ Scripts here support **package layout, import hygiene, and local repo maintenanc
 |--------|---------|
 | [`bootstrap_venv.sh`](bootstrap_venv.sh) | Create/refresh `.venv` and install `requirements.txt`; repo-root [`../../setup.sh`](../../setup.sh) delegates here. |
 | [`launch_startup_menu.sh`](launch_startup_menu.sh) | Prepend `src/` to `PYTHONPATH` and run `python -m utils.startup_menu`; repo-root [`../../run.sh`](../../run.sh) delegates here. |
-| [`run_tests.sh`](run_tests.sh) | Fast pytest (`-m "not slow"`); repo-root [`../../run_tests.sh`](../../run_tests.sh) delegates here. |
-| [`run_tests_full.sh`](run_tests_full.sh) | Full pytest including `slow` modules; repo-root [`../../run_tests_full.sh`](../../run_tests_full.sh) delegates here. |
+| [`run_tests.sh`](run_tests.sh) | Fast pytest (`-m "not slow"`); **`make test`** invokes this path. |
+| [`run_tests_full.sh`](run_tests_full.sh) | Full pytest including `slow` modules; **`make test-full`** invokes this path. |
 
-**`make test`** and **`make test-full`** invoke these shell scripts directly. Repo-root **`run_tests.sh`** / **`run_tests_full.sh`** are optional thin wrappers to the same files.
+**`make test`** and **`make test-full`** invoke these scripts directly (no repo-root wrappers).
 
 **Layout review:** **`make tree-obsidiandroid`** (canonical package tree), **`make tree-utils`** (legacy **`utils/`**), **`make tree-exporting-shims`** (thin export shims), **`make tree-source`** (repo root). Requires the **`tree`** utility (`dnf install tree` on Fedora).
 

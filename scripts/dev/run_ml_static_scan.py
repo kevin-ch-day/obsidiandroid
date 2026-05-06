@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Static scan for suspicious ``.predict()`` / ``.predict_proba()`` call sites.
 
-Canonical implementation for :mod:`run_ml_static_scan` (repo-root shim). Writes a
-human-readable log under ``logs/`` at the repository root by default. Intended as an optional
-pre-commit / CI hygiene step (see ``docs/AGENTS.md``).
+Run from the repo root via ``python -m scripts.dev.run_ml_static_scan`` (or ``make ml-scan``).
+Writes a human-readable log under ``logs/`` at the repository root by default. Intended as an
+optional pre-commit / CI hygiene step (see ``docs/AGENTS.md``).
 
 Example::
 
-    python run_ml_static_scan.py
-    python run_ml_static_scan.py --log /tmp/ml_predict_scan.log --strict
+    python -m scripts.dev.run_ml_static_scan
+    python -m scripts.dev.run_ml_static_scan --log /tmp/ml_predict_scan.log --strict
 """
 
 from __future__ import annotations

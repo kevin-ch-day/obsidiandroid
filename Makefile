@@ -57,7 +57,7 @@ menu:
 install-editable:
 	python -m pip install -e .
 
-# Fast default: invoke canonical script (repo-root ./run_tests.sh is a thin wrapper to the same path).
+# Fast default: canonical script under scripts/dev/.
 test:
 	./scripts/dev/run_tests.sh
 
@@ -69,7 +69,7 @@ test-full:
 preflight-db:
 	python -m database.split_db_health
 
-# Optional static scan for ML call-site hygiene (repo-root run_ml_static_scan.py wraps this).
+# Optional static scan for ML call-site hygiene (scripts/dev/run_ml_static_scan.py).
 ml-scan:
 	python -m scripts.dev.run_ml_static_scan
 

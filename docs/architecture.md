@@ -69,7 +69,7 @@ Consult [`modeling_reference.md`](modeling_reference.md) for estimator-specific 
 
 ### 7. Quality Assurance (`tests/`, `scripts/dev/`)
 - `tests/` is the primary pytest tree (`pytest -q`); `tests/conftest.py` routes outputs to tmp and guards filesystem writes during tests.
-- `scripts/dev/data_fuzzer.py` stresses data transforms; `scripts/dev/run_ml_static_scan.py` (repo-root `run_ml_static_scan.py` delegates here) calls `scan_ml_predict_misuse` for leakage-style static checks.
+- `scripts/dev/data_fuzzer.py` stresses data transforms; `scripts/dev/run_ml_static_scan.py` (`python -m scripts.dev.run_ml_static_scan` or `make ml-scan`) calls `scan_ml_predict_misuse` for leakage-style static checks.
 
 ## Data Contracts
 

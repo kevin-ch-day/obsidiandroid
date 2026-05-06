@@ -58,12 +58,8 @@ ObsidianDroid/
 ├── main.py                 # CLI entry (implementation in `obsidiandroid.pipeline.runner`)
 ├── setup.sh                # Wrapper → scripts/dev/bootstrap_venv.sh
 ├── run.sh                  # Wrapper → scripts/dev/launch_startup_menu.sh
-├── run_tests.sh            # Wrapper → scripts/dev/run_tests.sh (fast pytest)
-├── run_tests_full.sh       # Wrapper → scripts/dev/run_tests_full.sh
-├── run_ml_static_scan.py   # Checks for accidental .predict() misuse in code
-├── clean_bytecode_cache.py # Entry → scripts/dev/clean_bytecode_cache.py
 ├── src/obsidiandroid/      # Canonical Python package (CLI, common, pipeline facade, …)
-├── scripts/dev/            # Dev tools, shell + Python (venv, tests, import smoke, ML scan, fuzzer)
+├── scripts/dev/            # Dev tools: run_tests.sh, run_ml_static_scan, clean_bytecode_cache, …
 ├── scripts/diagnostics/   # Data inspection CLIs (see scripts/diagnostics/README.md)
 └── README.md
 ```
@@ -208,8 +204,8 @@ The repo uses a **hybrid layout**: installable code in **`src/obsidiandroid/`** 
 - `make menu` – Same as `./run.sh`: interactive startup menu with `PYTHONPATH=src`.
 - `make install-editable` – `pip install -e .` (run with venv active) so `import obsidiandroid` works outside pytest.
 - `make tree-source` – Filtered source tree (install `tree`; run `make clean-bytecode` first for a clean view).
-- `make ml-scan` or `python run_ml_static_scan.py` – Scan the repo for accidental `.predict()` misuse (`--strict` fails on warnings).
-- `make clean` / `make clean-bytecode` or `python clean_bytecode_cache.py [path] --exclude venv` – Remove bytecode/logs.
+- `make ml-scan` or `python -m scripts.dev.run_ml_static_scan` – Scan the repo for accidental `.predict()` misuse (`--strict` fails on warnings).
+- `make clean` / `make clean-bytecode` or `python scripts/dev/clean_bytecode_cache.py [path] --exclude venv` – Remove bytecode/logs.
 - `python analysis/evaluation/random_forest_diagnostics.py` – Cross-validation, weak class detection, feature importance diagnostics.
 - `python scripts/dev/data_fuzzer.py` – Generate large synthetic datasets for robustness and stress testing.
 
@@ -225,7 +221,7 @@ make ci                       # same as GitHub Actions: doc-check + verify + str
 make verify
 # or run pytest only (after import checks manually if needed):
 pytest -q
-./run_tests.sh
+./scripts/dev/run_tests.sh
 make test
 ```
 
@@ -234,7 +230,7 @@ make test
 For the **complete** suite (CI / pre-merge):
 
 ```bash
-./run_tests_full.sh
+./scripts/dev/run_tests_full.sh
 # or
 make test-full
 ```

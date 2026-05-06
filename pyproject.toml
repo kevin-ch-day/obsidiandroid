@@ -19,7 +19,7 @@ dev = [
 obsidiandroid = "obsidiandroid.cli.startup_menu:main"
 
 [tool.setuptools]
-py-modules = ["main", "clean_bytecode_cache", "run_ml_static_scan"]
+py-modules = ["main"]
 
 [tool.setuptools.packages.find]
 where = ["src", "."]
@@ -42,7 +42,7 @@ dependencies = {file = ["requirements.txt"]}
 profiles = ["*.yaml"]
 
 [tool.pytest.ini_options]
-# Default: fast PR / local loop. Full suite: `make test-full` or `./run_tests_full.sh`.
+# Default: fast PR / local loop. Full suite: `make test-full` or `./scripts/dev/run_tests_full.sh`.
 addopts = ["--basetemp=.pytest_tmp", "-m", "not slow"]
 markers = [
     "slow: Heavy integration or slow-import modules (manifest, menus, permission trends, ML trainers). Not selected by default.",

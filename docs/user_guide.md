@@ -77,7 +77,7 @@ This runs the module’s sample tuning workflow (`tune_models`); wire your own s
 ### Utility Scripts (examples)
 - `python scripts/report_feature_lineage.py --help` – Feature lineage / gap reporting helpers (see script docstrings).
 - `python scripts/report_feature_matrix_gap.py --help` – Compare expected vs built feature columns when debugging matrices.
-- `python run_ml_static_scan.py` or `make ml-scan` – Detect patterns that might cause train/test leakage in ML code.
+- `python -m scripts.dev.run_ml_static_scan` or `make ml-scan` – Detect patterns that might cause train/test leakage in ML code.
 
 ## 6. Inspect Outputs
 
@@ -102,7 +102,7 @@ After a successful run, inspect the `output/` directory:
 
 ## 8. Maintenance Checklist
 
-- Run `python clean_bytecode_cache.py` before packaging artifacts or creating releases.
+- Run `python scripts/dev/clean_bytecode_cache.py` (or `make clean-bytecode`) before packaging artifacts or creating releases.
 - Keep requirements synchronized by updating `requirements.txt` when dependencies change.
 - Document new features or configuration options in this guide and in [`architecture.md`](architecture.md).
 - Schedule periodic **pipeline runs** that refresh vendor evaluation data so weights stay aligned with your replicated VT tables.

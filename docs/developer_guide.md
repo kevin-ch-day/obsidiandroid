@@ -75,8 +75,8 @@ Orchestration lives in **`src/obsidiandroid/pipeline/runner.py`** (`run_pipeline
 - Execute fast feedback commands before pushing:
   ```bash
   pytest -q
-  python run_ml_static_scan.py  # optional static analysis for ML misuse
-  python clean_bytecode_cache.py  # remove stale __pycache__ before committing
+  python -m scripts.dev.run_ml_static_scan  # optional static analysis for ML misuse
+  python scripts/dev/clean_bytecode_cache.py  # remove stale __pycache__ before committing
   ```
 - For changes touching data pipelines, run representative integration tests or dry-run `main.py` with a small batch.
 - Prefer adding stage-level tests before full end-to-end tests so failures are easier to localize.
@@ -114,7 +114,7 @@ Orchestration lives in **`src/obsidiandroid/pipeline/runner.py`** (`run_pipeline
 - **`scripts/backfill_permission_trends_warehouse.py`** – Warehouse backfills when configured.
 - **`scripts/research/`** – Publication tables, evidence bundles, structural diagnostics.
 - **`scripts/dev/`** – Synthetic dataset fuzzer, ML static-scan, venv/test wrappers (not collected by pytest; see `tests/` for automated tests). Legacy **`devtools/`** at repo root was removed.
-- **`run_tests.sh`** / **`Makefile`** – Fast (`make test`) and full (`make test-full`) pytest; **`make preflight-db`** checks MySQL connectivity (`database.split_db_health`).
+- **`scripts/dev/run_tests.sh`** / **`Makefile`** – Fast (`make test`) and full (`make test-full`) pytest; **`make preflight-db`** checks MySQL connectivity (`database.split_db_health`).
 
 ## Release Checklist
 

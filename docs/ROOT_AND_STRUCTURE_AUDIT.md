@@ -64,9 +64,8 @@ Work proceeded in **documented passes** (see **`STRUCTURE_MIGRATION_PLAN.md`**).
 | Item | Canonical implementation | Notes |
 |------|-------------------------|--------|
 | **`main.py`** | **`obsidiandroid.cli`** | Setuptools **`py-modules`**; tests monkeypatch **`main`**. |
-| **`clean_bytecode_cache.py`** | **`scripts.dev.clean_bytecode_cache`** | **`py-modules`**; **`make clean`** calls script path directly. |
-| **`run_ml_static_scan.py`** | **`scripts.dev.run_ml_static_scan`** | **`py-modules`**; **`make ml-scan`** uses **`-m`**. |
-| **`setup.sh`**, **`run.sh`**, **`run_tests.sh`**, **`run_tests_full.sh`** | **`scripts/dev/*.sh`** | Operator UX; Makefile often bypasses wrappers. |
+| **`clean_bytecode_cache`** / **`run_ml_static_scan`** | **`scripts.dev.*`** | **Pass 101:** repo-root shims removed; use **`python scripts/dev/clean_bytecode_cache.py`** / **`python -m scripts.dev.run_ml_static_scan`** or **`make`** targets. **`py-modules`** lists **`main`** only. |
+| **`setup.sh`**, **`run.sh`**, **`scripts/dev/run_tests.sh`**, **`scripts/dev/run_tests_full.sh`** | **`scripts/dev/*.sh`** | Test runners; **`make test`** / **`make test-full`** call **`scripts/dev/`** directly. |
 
 **Assessment:** Removing these without a **packaging + docs + CI** migration increases friction; lowest-risk reduction is **already done** (Makefile **`python -m`** / **`scripts/dev`** paths).
 
