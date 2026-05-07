@@ -1,4 +1,4 @@
-# Filename: ml_classification/build_classification_weights.py
+# Filename: src/obsidiandroid/engine_weights/build_classification_weights.py
 # Purpose : Compute ML-ready AV engine weight scores using detection performance and optional label metadata
 
 import pandas as pd

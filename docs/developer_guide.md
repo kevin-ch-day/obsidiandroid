@@ -56,7 +56,7 @@ Quick sanity check: **`python scripts/dev/check_import_surface.py`** or **`make 
 - Follow repository-wide PEP 8 guidelines and prefer type hints for new Python modules.
 - Add Google-style docstrings to public modules, classes, and functions.
 - Keep configuration defaults in `config/` and avoid hard-coded secrets or paths.
-- Leverage utilities under `utils/` and `scripts/` instead of duplicating logic.
+- Leverage canonical helpers under `obsidiandroid.*` and operational tools under `scripts/` instead of duplicating logic; use `utils/` only for compatibility shim work.
 
 ## Working with the Staged Pipeline
 
@@ -103,7 +103,7 @@ Orchestration lives in **`src/obsidiandroid/pipeline/runner.py`** (`run_pipeline
 | `make clean-bytecode` | Remove `__pycache__` and common junk under the repo root. |
 | `make tree-source` | Print a filtered repo-root tree (requires `tree` on `PATH`). |
 | `make tree-obsidiandroid` | **`src/obsidiandroid/`** only — see canonical package growth vs legacy `utils/`. |
-| `make tree-utils` | **`utils/`** tree (shims + not-yet-migrated helpers). |
+| `make tree-utils` | **`utils/`** tree (compatibility shims and bootstrap wrappers). |
 | `make tree-exporting-shims` | **`utils/exporting/`** thin re-exports only. |
 | `make ml-scan` | Static scan for suspicious `.predict()` / `.predict_proba()` use. |
 | `make preflight-db` | MySQL/MariaDB connectivity check before long DB-backed runs. |

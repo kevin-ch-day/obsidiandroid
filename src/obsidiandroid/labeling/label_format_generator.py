@@ -1,4 +1,4 @@
-# Filename: ml_classification/label_format_generator.py
+# Filename: src/obsidiandroid/labeling/label_format_generator.py
 # Purpose  : Generate structured, canonical, enriched labels for malware classification records
 
 import re

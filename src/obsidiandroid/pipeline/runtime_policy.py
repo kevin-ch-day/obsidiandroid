@@ -2,7 +2,7 @@
 
 Includes :data:`CROSS_RUN_ARTIFACT_POINTERS` / :func:`clear_cross_run_artifact_path_pointers`
 for resetting path-like ``RUNTIME_*`` keys between pipeline runs (pytest isolation and
-strict artifact governance). See ``analysis/pipeline/README.md``.
+strict artifact governance). See ``obsidiandroid.pipeline`` package docs.
 """
 
 from __future__ import annotations

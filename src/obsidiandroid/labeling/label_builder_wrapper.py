@@ -1,4 +1,4 @@
-# Filename: ml_classification/labeling/label_builder_wrapper.py
+# Filename: src/obsidiandroid/labeling/label_builder_wrapper.py
 # Purpose  : Construct structured classification label records using vendor metadata and ML model output
 
 import pandas as pd

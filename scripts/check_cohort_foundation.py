@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """SELECT-only cohort / catalog reconciliation for Erebus rebuild monitoring.
 
-Terminology (see ``analysis/diagnostics/cohort_vocabulary.py``): *raw hash+time* counts
+Terminology (see ``obsidiandroid.diagnostics.cohort_vocabulary``): *raw hash+time* counts
 catalog+registry rows under the time contract; *cohort SQL profile scope* matches
 ``gate_stats.total_candidates``; the governed SQL count matches the profile's conjunctive
 cohort loader.

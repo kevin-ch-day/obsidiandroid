@@ -1,4 +1,4 @@
-# Filename: model/vendor/record_validator.py
+# Filename: src/obsidiandroid/vendors/contracts/record_validator.py
 # Description: Validates vendor classification records and performs batch-level diagnostics
 
 from typing import List, Dict

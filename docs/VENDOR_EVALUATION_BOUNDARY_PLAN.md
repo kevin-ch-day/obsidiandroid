@@ -190,9 +190,10 @@ Modeling remains ML training/model orchestration and model helper surfaces:
 - feature vector construction through the features facade
 - distribution/model evaluation helpers already surfaced in the ML facade
 
-Pass 50B finding: `ml_classification.engine_weights` is closer to AV/evaluation
-policy than model training. Do not add engine weights to `obsidiandroid.modeling`
-unless a future audit proves they are truly model-orchestration APIs.
+Pass 50B finding: `ml_classification.engine_weights` was closer to AV/evaluation
+policy than model training. Later migration kept it out of `obsidiandroid.modeling`
+and moved the implementation to `obsidiandroid.engine_weights` with legacy identity
+shims.
 
 ### What should remain internal?
 
@@ -215,8 +216,8 @@ Keep these on implementation paths for now:
 | AV result evaluation | `analysis.evaluation.av_results_fetcher`, `evaluate_av_classifications` | `obsidiandroid.evaluation` | `needs_wrapper`/`defer` | Candidate evaluation surface, but stabilize input/result contracts first. |
 | Engine scoring | `analysis.evaluation.engine_scoring_summary`, `vendor_score_calculator`, `vendor_summary_builder` | `obsidiandroid.evaluation` | `defer` | Scoring policy is research-sensitive; do not expose casually. |
 | Parser quality checks | `analysis.evaluation.vendor_parser_utils`, `vendor_parser_matching`, parser health scripts | `obsidiandroid.evaluation` plus `obsidiandroid.vendors` entrypoints | `defer` | Split quality/reporting from parser implementation before facade work. |
-| Risk band config | `model.core.risk_band_config.RiskBandConfig`, `analysis/risk_band/assign_risk_band.py` | `obsidiandroid.vendors` or future risk domain | `defer` | Appears in adjacent vendor/evaluation flow but ownership is not settled. Do not attach to modeling. |
-| Engine weights | `ml_classification.engine_weights.*` | `obsidiandroid.evaluation` | `defer` | Treat as evaluation/scoring policy for now, not modeling. Needs contract/spec before exposure. |
+| Risk band config | `model.core.risk_band_config.RiskBandConfig`, `analysis/risk_band/assign_risk_band.py` | `obsidiandroid.risk_band` | `moved_now` | Risk-band config is canonical under `obsidiandroid.risk_band`; legacy `model.core` path is an identity shim. |
+| Engine weights | `ml_classification.engine_weights.*` | `obsidiandroid.engine_weights` | `moved_now` | Treat as scoring/weight policy outside modeling; legacy `ml_classification.engine_weights` paths are identity shims. |
 
 ## Execution roadmap (Pass 58): practical domain assignment
 
@@ -242,7 +243,7 @@ under **`obsidiandroid.labeling.taxonomy`** after Pass 58).
 | 4 | Vendor classification record | `model.vendor.record_core.VendorClassificationRecord` | **`needs_wrapper`** | Expose via wrapper or protocol, not raw internal fields first. |
 | 5 | Vendor feature engine helpers | `model.vendor.feature_engine` | **`needs_wrapper`** | Coupled to records; ship after record wrapper story. |
 | 6 | Vendor-specific parser modules | `obsidiandroid.vendors.parsing/*_parser.py` (legacy shim path still valid) | **partially moved (Pass 59)** | Physical relocation complete; API/wrapper exposure still deferred. |
-| 7 | Risk band config | `model.core.risk_band_config`, `analysis/risk_band/*` | **`defer`** | Ownership split between vendor policy and evaluation not settled. |
+| 7 | Risk band config | `obsidiandroid.risk_band.risk_band_config`, `obsidiandroid.risk_band/*` | **`moved_now`** | Risk-band ownership is canonical under **`obsidiandroid.risk_band`**; legacy **`model.core`** / **`analysis.risk_band`** paths are shims. |
 
 ### B) Canonical target: **`obsidiandroid.evaluation`**
 
@@ -256,7 +257,7 @@ input/output contracts are explicit.
 | 2 | AV result fetch + evaluation helpers | `av_results_fetcher`, `evaluate_av_classifications`, … | **`defer`** | Couples DB, records, and reporting; needs spec. |
 | 3 | Engine / vendor scoring | `engine_scoring_summary`, `vendor_score_calculator`, `vendor_summary_builder` | **`defer`** | Research-sensitive policy; do not façade casually. |
 | 4 | Parser quality / matching | `vendor_parser_utils`, `vendor_parser_matching` | **`defer`** | Split “quality metric” vs “parser implementation” before export. |
-| 5 | Engine weights | `ml_classification.engine_weights.*` | **`defer`** | Belongs with evaluation policy, not **`obsidiandroid.modeling`**. |
+| 5 | Engine weights | `obsidiandroid.engine_weights.*` | **`moved_now`** | Belongs outside **`obsidiandroid.modeling`**; legacy **`ml_classification.engine_weights.*`** paths are shims. |
 | 6 | RF / model diagnostics helpers | `analysis/evaluation/random_forest_diagnostics`, … | **`defer`** | Decide overlap with **`obsidiandroid.reporting`** exports first. |
 
 ### C) **`internal_only`** — stay on implementation paths
@@ -302,7 +303,7 @@ Implemented the first vendor facade slice:
 
 - Generic parser **wrapper** and a frozen **`parse_generic_classification`** contract.
 - **`VendorClassificationRecord`** and **`ParsedLabelMetadata`**: stable **`obsidiandroid.vendors`**-level wrappers (types still authoritative in **`model.*`** until then).
-- **Evaluation façade**: explicit public I/O for **`vendor_classification_parser`**, parser-quality exports, scoring summaries; **`ml_classification.engine_weights`** policy ownership aligned with evaluation (see execution roadmap above).
+- **Evaluation façade**: explicit public I/O for **`vendor_classification_parser`**, parser-quality exports, and scoring summaries; **`obsidiandroid.engine_weights`** remains a separate scoring/weight policy package outside modeling.
 - **Callers**: prefer **`obsidiandroid.evaluation`** and **`obsidiandroid.vendors.execution`** in new code; migrate stragglers opportunistically (**`rg`** is enough; the Pass 50B table is not maintained row-by-row).
 
 ## Import inventory
@@ -378,9 +379,9 @@ Implemented the first vendor facade slice:
 | `src/obsidiandroid/cli/menu/vendor_diagnostics.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
 | `src/obsidiandroid/cli/startup_menu.py` | `analysis.evaluation::engine_scoring_summary` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
 | `tests/test_classification_builder.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `tests/test_engine_weights.py` | `ml_classification.engine_weights::engine_weights_utils` | `ml_classification/engine_weights/` | `obsidiandroid.evaluation` | `defer` |
-| `tests/test_engine_weights.py` | `ml_classification.engine_weights::classification_weight_utils` | `ml_classification/engine_weights/` | `obsidiandroid.evaluation` | `defer` |
-| `tests/test_engine_weights.py` | `ml_classification.engine_weights::compute_reliability_score` | `ml_classification/engine_weights/` | `obsidiandroid.evaluation` | `defer` |
+| `tests/test_engine_weights.py` | `obsidiandroid.engine_weights::engine_weights_utils` | `obsidiandroid/engine_weights/` | `obsidiandroid.engine_weights` | `moved_now` |
+| `tests/test_engine_weights.py` | `obsidiandroid.engine_weights::classification_weight_utils` | `obsidiandroid/engine_weights/` | `obsidiandroid.engine_weights` | `moved_now` |
+| `tests/test_engine_weights.py` | `obsidiandroid.engine_weights::compute_reliability_score` | `obsidiandroid/engine_weights/` | `obsidiandroid.engine_weights` | `moved_now` |
 | `tests/test_export_manager_wiring.py` | `analysis.evaluation::evaluate_av_classifications` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
 | `tests/test_export_manager_wiring.py` | `analysis.evaluation::vendor_feature_extractor` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
 | `tests/test_parser_quality_contract.py` | `analysis.evaluation::vendor_parser_utils` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |

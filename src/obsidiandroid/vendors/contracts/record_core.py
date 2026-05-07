@@ -1,4 +1,4 @@
-# Filename: model/vendor/record_core.py
+# Filename: src/obsidiandroid/vendors/contracts/record_core.py
 # Description: Core dataclass structure for AV vendor classification records
 
 from dataclasses import dataclass, field

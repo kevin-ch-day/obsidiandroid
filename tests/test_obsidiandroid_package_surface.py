@@ -822,6 +822,18 @@ def test_export_naming_shim_matches_canonical() -> None:
     assert shim.alias_for_entry is canon.alias_for_entry
 
 
+def test_exporting_package_aggregate_uses_canonical_helpers() -> None:
+    """``utils.exporting`` aggregate names are bound directly to canonical helpers."""
+    from obsidiandroid.common import export_naming
+    from obsidiandroid.common import export_vendor_raw
+    from obsidiandroid.common import export_workbook
+    import utils.exporting as shim
+
+    assert shim.safe_sheet_name is export_naming.safe_sheet_name
+    assert shim.export_vendor_raw_artifacts is export_vendor_raw.export_vendor_raw_artifacts
+    assert shim.WorkbookLock is export_workbook.WorkbookLock
+
+
 def test_prompt_utils_shim_matches_canonical() -> None:
     """``utils.prompt_utils`` delegates to ``obsidiandroid.cli.prompt_utils``."""
     from obsidiandroid.cli import prompt_utils as canon

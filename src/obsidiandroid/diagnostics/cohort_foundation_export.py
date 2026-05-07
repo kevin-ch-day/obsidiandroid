@@ -2,7 +2,7 @@
 
 Artifacts under ``diagnostics/`` summarize **SQL profile scope** (database head counts from
 ``get_type_cohort_gate_stats``) versus the **prepared cohort** (the returned ``samples_df``).
-See ``analysis/diagnostics/cohort_vocabulary.py`` for canonical manifest key names.
+See ``obsidiandroid.diagnostics.cohort_vocabulary`` for canonical manifest key names.
 """
 
 from __future__ import annotations

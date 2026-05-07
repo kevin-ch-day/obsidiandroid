@@ -1,4 +1,4 @@
-# Filename: ml_classification/threat_class_inference.py
+# Filename: src/obsidiandroid/inference/threat_class_engine.py
 # Description: AI-style threat class inference using trusted vendor labels, traits, and heuristics
 
 import re

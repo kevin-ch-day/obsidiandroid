@@ -1,4 +1,4 @@
-# Filename: ml_classification/inference/label_consensus_engine.py
+# Filename: src/obsidiandroid/inference/label_consensus_engine.py
 # Purpose : Resolve consensus label per sample from multiple vendor records.
 
 from collections import Counter

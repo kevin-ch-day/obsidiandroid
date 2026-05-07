@@ -162,11 +162,11 @@ def build_feature_lineage_report(run_diagnostics_dir: Path | str) -> dict[str, A
         "modules_av_vendor_detection_features": (
             "obsidiandroid/matrix/av_binary_matrix_builder.py (binary pivot), "
             "database/db_av_engine_verdicts.fetch_verdicts_simple_ids; merged into enriched_matrix in "
-            "analysis/pipeline/av_engine_pipeline.py."
+            "obsidiandroid/pipeline/av_engine_pipeline.py."
         ),
         "modules_vendor_consensus_scoring": (
-            "Vendor scores used for **selection/gating only** via analysis/pipeline/score_av_engines.py "
-            "and ml_classification/vectorization/feature_engine_selection.py — scores are not appended "
+            "Vendor scores used for **selection/gating only** via obsidiandroid/pipeline/score_av_engines.py "
+            "and obsidiandroid/features/vectorization/feature_engine_selection.py — scores are not appended "
             "as feature columns unless merged indirectly through enrichment frames."
         ),
         "modules_permission_features": (
@@ -174,16 +174,16 @@ def build_feature_lineage_report(run_diagnostics_dir: Path | str) -> dict[str, A
             "(Permission Intel android_permission_obs_sample via execute_permission_query)."
         ),
         "modules_metadata_features": (
-            "analysis/pipeline/sample_preparation.py build_metadata_feature_frame "
+            "obsidiandroid/pipeline/sample_preparation.py build_metadata_feature_frame "
             "(prefix meta__, sourced from cohort dataframe / primary DB fields)."
         ),
         "modules_vendor_parsed_encoding": (
-            "ml_classification/vectorization/feature_vendor_extractor.py + feature_encoder.encode_features "
-            "inside ml_classification/vectorization/feature_vector_builder.build_feature_vector."
+            "obsidiandroid/features/vectorization/feature_vendor_extractor.py + feature_encoder.encode_features "
+            "inside obsidiandroid/features/vectorization/feature_vector_builder.build_feature_vector."
         ),
         "modules_fusion": (
             "main.py merges enriched_matrix + metadata + permission, then "
-            "analysis/pipeline/stage_modeling.build_feature_matrix_stage → build_feature_vector joins "
+            "obsidiandroid/pipeline/stage_modeling.build_feature_matrix_stage → build_feature_vector joins "
             "encoded vendor fields with extras."
         ),
         "modules_training_pruning": (

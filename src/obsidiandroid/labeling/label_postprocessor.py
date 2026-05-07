@@ -1,4 +1,4 @@
-# Filename: ml_classification/labeling/label_postprocessor.py
+# Filename: src/obsidiandroid/labeling/label_postprocessor.py
 # Purpose  : Summarize structured predictions and run post-classification diagnostics
 
 import pandas as pd

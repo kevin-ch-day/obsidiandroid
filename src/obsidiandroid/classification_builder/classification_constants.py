@@ -1,4 +1,4 @@
-# Filename: ml_classification/builder/classification_constants.py
+# Filename: src/obsidiandroid/classification_builder/classification_constants.py
 # Purpose : Centralized constants for classification enrichment and normalization
 
 # Whitelist of engines considered reliable for variant field enrichment

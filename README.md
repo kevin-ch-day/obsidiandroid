@@ -38,7 +38,7 @@ All artifacts (models, reports, diagnostics) are saved under `output/`.
 
 ## Repository layout (hybrid migration)
 
-The installable package lives under **`src/obsidiandroid/`** (CLI, `common`, **`obsidiandroid.database`**, `pipeline` facade, …). **Legacy implementation packages** (`analysis/`, `database/`, `ml_classification/`, `model/`, …) and **`utils/`** shims remain at the repository root during the migration so existing imports and tests keep working. Prefer **`from obsidiandroid.database import db_engine`** (and related façade submodules) in new code; implementation modules still live under top-level **`database/`**. Details, backlog, and pass history: [`docs/STRUCTURE_MIGRATION_PLAN.md`](docs/STRUCTURE_MIGRATION_PLAN.md).
+The installable package lives under **`src/obsidiandroid/`** (CLI, `common`, **`obsidiandroid.database`**, `pipeline`, `modeling`, `features`, `labeling`, …). Legacy root packages such as **`analysis/`**, **`ml_classification/`**, **`model/`**, and **`utils/`** remain mainly as compatibility shims so existing imports and tests keep working. Top-level **`database/`** remains an intentional implementation tree behind the curated **`obsidiandroid.database`** façade. Prefer **`obsidiandroid.*`** imports in new code. Details, backlog, and pass history: [`docs/STRUCTURE_MIGRATION_PLAN.md`](docs/STRUCTURE_MIGRATION_PLAN.md).
 
 **Generated / runtime artifacts** (`output/`, `logs/`, virtualenvs, caches, build outputs) are listed in **`.gitignore`** and should not be committed. For a **source-only** tree view after local runs, run **`make clean-bytecode`** then **`make tree-source`** (ignores `output/`, `logs/`, `.venv`, pytest/coverage caches, etc.; install the `tree` utility if needed). Developer import modes (`pip install -e .`, `PYTHONPATH`, pytest): see [`docs/AGENTS.md`](docs/AGENTS.md) (repo-root [`AGENTS.md`](AGENTS.md) is a short pointer).
 
@@ -48,12 +48,12 @@ The installable package lives under **`src/obsidiandroid/`** (CLI, `common`, **`
 
 ```
 ObsidianDroid/
-├── analysis/               # AV parsing and feature engineering
+├── analysis/               # Legacy compatibility shims for moved analysis modules
 ├── config/                 # YAML and JSON configs, app and model hyperparameters
 ├── database/               # DB access helpers and queries
 ├── docs/                   # Guides (incl. AGENTS, GOVERNANCE, STRUCTURE plan)
-├── ml_classification/      # Model training, validation, and comparison
-├── utils/                  # Reusable utilities and exporters
+├── ml_classification/      # Legacy compatibility shims for ML modules
+├── utils/                  # Compatibility shims for common/reporting/CLI helpers
 ├── pyproject.toml          # Packaging, dependencies, pytest defaults
 ├── main.py                 # CLI entry (implementation in `obsidiandroid.pipeline.runner`)
 ├── setup.sh                # Wrapper → scripts/dev/bootstrap_venv.sh

@@ -1,4 +1,4 @@
-# Filename: model/vendor/record_builder.py
+# Filename: src/obsidiandroid/vendors/contracts/record_builder.py
 # Description: Record builder and validation logic for AV vendor classification records
 
 from typing import List, Dict

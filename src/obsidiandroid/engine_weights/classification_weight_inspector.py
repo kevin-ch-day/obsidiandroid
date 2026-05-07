@@ -1,4 +1,4 @@
-# Filename: ml_classification/classification_weight_inspector.py
+# Filename: src/obsidiandroid/engine_weights/classification_weight_inspector.py
 # Description: Evaluation and insight generation for ML-scored AV engines
 
 import pandas as pd

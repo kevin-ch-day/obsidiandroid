@@ -1,6 +1,6 @@
 """Readiness summaries and SQL-scope gate diagnostics for training cohorts.
 
-Operator vocabulary (see ``analysis/diagnostics/cohort_vocabulary.py``):
+Operator vocabulary (see ``obsidiandroid.diagnostics.cohort_vocabulary``):
 
 * **SQL profile scope** — database head count before rows are materialized into ``samples_df``.
 * **Prepared cohort** — rows in ``samples_df`` after fetch + Python preparation.

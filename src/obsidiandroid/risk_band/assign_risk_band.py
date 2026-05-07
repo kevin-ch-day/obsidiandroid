@@ -1,4 +1,4 @@
-# Filename: analysis/assign_risk_band.py
+# Filename: src/obsidiandroid/risk_band/assign_risk_band.py
 # Purpose : Assigns a categorical risk band to each sample based on its risk_score using either quantile or range-based methods.
 
 import pandas as pd

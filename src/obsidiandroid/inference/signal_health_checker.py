@@ -1,4 +1,4 @@
-# Filename: ml_classification/inference/signal_health_checker.py
+# Filename: src/obsidiandroid/inference/signal_health_checker.py
 # Purpose  : Analyze classification record signal quality and identify problematic or weak samples
 
 from typing import List, Dict, Union

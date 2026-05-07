@@ -1,6 +1,6 @@
 """Shared helpers for export manager workflows."""
 
-from utils.exporting.naming import (
+from obsidiandroid.common.export_naming import (
     alias_for_entry,
     resolve_unique_alias,
     safe_artifact_name,
@@ -8,8 +8,11 @@ from utils.exporting.naming import (
     sheet_name_with_context,
     timestamped_filename,
 )
-from utils.exporting.vendor_raw import export_vendor_raw_artifacts, is_parquet_supported
-from utils.exporting.workbook import (
+from obsidiandroid.common.export_vendor_raw import (
+    export_vendor_raw_artifacts,
+    is_parquet_supported,
+)
+from obsidiandroid.common.export_workbook import (
     WorkbookLock,
     assert_workbook_integrity,
     build_manifest_rows,

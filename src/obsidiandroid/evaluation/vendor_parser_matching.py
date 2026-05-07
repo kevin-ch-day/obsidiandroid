@@ -1,4 +1,4 @@
-# Filename: analysis/evaluation/vendor_parser_matching.py
+# Filename: src/obsidiandroid/evaluation/vendor_parser_matching.py
 # Purpose : Matches AV vendor parser definitions to available columns in input data
 
 import difflib

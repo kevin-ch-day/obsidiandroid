@@ -4,7 +4,7 @@ Scripts here support **package layout, import hygiene, and local repo maintenanc
 
 | Script / module | Purpose |
 |-----------------|---------|
-| [`check_import_surface.py`](check_import_surface.py) | Smoke-test `obsidiandroid` imports and shim parity; exits nonzero on failure. |
+| [`check_import_surface.py`](check_import_surface.py) | Smoke-test `obsidiandroid` imports and shim parity; static ratchets (no legacy-root imports in `src/`/`scripts/`/tests except allowlist, stale `# Filename:` guard, legacy leaf shim shape); exits nonzero on failure. |
 | [`check_doc_hygiene.py`](check_doc_hygiene.py) | Block known-removed phantom script paths in operator docs; **`make doc-check`**. |
 | [`clean_bytecode_cache.py`](clean_bytecode_cache.py) | Remove `__pycache__`, local logs, and common junk under a tree (**canonical**; use `python scripts/dev/clean_bytecode_cache.py` or `make clean-bytecode`). |
 | [`data_fuzzer.py`](data_fuzzer.py) | Synthetic classification data for stress tests (`sklearn` + pandas). |

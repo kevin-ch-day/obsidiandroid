@@ -16,24 +16,24 @@ ObsidianDroid assembles heterogeneous features that capture AV behaviour and And
 
 ## Supported Estimators
 
-Training entrypoints live in **`ml_classification/training/model_trainer_factory.py`** (factory) and **`ml_classification/training/training_helpers.py`** (`get_model_trainer`). Trainer implementations:
+Training entrypoints live in **`src/obsidiandroid/modeling/model_trainer_factory.py`** (factory) and **`src/obsidiandroid/modeling/training_helpers.py`** (`get_model_trainer`). Trainer implementations:
 
 | Estimator | Trainer module | Strengths | Key settings (see trainer defaults) |
 | --- | --- | --- | --- |
-| Random Forest | `ml_classification/training/ml_trainers/random_forest.py` | High-dimensional sparse features; stable baseline. | `n_estimators`, `max_depth`, `class_weight`. |
-| Balanced Random Forest | `ml_classification/training/ml_trainers/balanced_random_forest.py` | Imbalance-aware RF variant (`imblearn`). | Same family as RF + imbalance defaults. |
-| Support Vector Machine | `ml_classification/training/ml_trainers/svm.py` | Strong margins when classes separate well; scaling used in helpers. | `kernel`, `C`, `gamma`. |
-| Logistic Regression | `ml_classification/training/ml_trainers/logistic_regression.py` | Fast, probabilistic outputs, interpretable weights. | `penalty`, `C`, `solver`. |
-| XGBoost | `ml_classification/training/ml_trainers/xgboost.py` | Non-linear interactions with regularization. | `max_depth`, `learning_rate`, `subsample`. |
+| Random Forest | `obsidiandroid/modeling/ml_trainers/random_forest_trainer.py` | High-dimensional sparse features; stable baseline. | `n_estimators`, `max_depth`, `class_weight`. |
+| Balanced Random Forest | `obsidiandroid/modeling/ml_trainers/balanced_random_forest_trainer.py` | Imbalance-aware RF variant (`imblearn`). | Same family as RF + imbalance defaults. |
+| Support Vector Machine | `obsidiandroid/modeling/ml_trainers/svm_trainer.py` | Strong margins when classes separate well; scaling used in helpers. | `kernel`, `C`, `gamma`. |
+| Logistic Regression | `obsidiandroid/modeling/ml_trainers/logistic_regression_trainer.py` | Fast, probabilistic outputs, interpretable weights. | `penalty`, `C`, `solver`. |
+| XGBoost | `obsidiandroid/modeling/ml_trainers/xgboost_trainer.py` | Non-linear interactions with regularization. | `max_depth`, `learning_rate`, `subsample`. |
 
-There is **no** separate `ml_classification/models/` package or sklearn **GradientBoosting** / **Voting** wrappers in-tree today—extend **`training_helpers.get_model_trainer`** and add a trainer module if you introduce new estimators.
+There is **no** separate `ml_classification/models/` package or sklearn **GradientBoosting** / **Voting** wrappers in-tree today—extend **`obsidiandroid.modeling.training_helpers.get_model_trainer`** and add a trainer module if you introduce new estimators.
 
-To introduce a new model, wire it through **`model_trainer_factory.py`** / **`get_model_trainer`**, define hyperparameters in **`config/model_params/`**, and cover it with tests under **`tests/`**.
+To introduce a new model, wire it through **`obsidiandroid.modeling.model_trainer_factory`** / **`get_model_trainer`**, define hyperparameters in **`config/model_params/`**, and cover it with tests under **`tests/`**.
 
 ## Hyperparameter Management
 
 - Default parameter grids live under **`config/model_params/`** and are consumed via **`config/`** / **`config/settings/`** and **`config/app_config.py`** (there is no `utils/config_loader.py` in this repository).
-- `python -m obsidiandroid.evaluation.model_tuning` exposes `tune_models` / `print_summary` for experimental sweeps; production grid search is driven through `ml_classification` trainers and `config/model_params/`.
+- `python -m obsidiandroid.evaluation.model_tuning` exposes `tune_models` / `print_summary` for experimental sweeps; production grid search is driven through `obsidiandroid.modeling` trainers and `config/model_params/`.
 - Persist tuned parameters back into configuration files and document rationale in commit messages or the operations logbook.
 
 ## Evaluation Outputs
@@ -45,7 +45,7 @@ Running `main.py` or `python -m obsidiandroid.evaluation.model_tuning` emits art
 - `feature_importance/` – SHAP and permutation importance exports for supported models.
 - `final_classification_labels.xlsx` – canonical label recommendations with consensus context.
 
-Use **`ml_classification/reporting/ml_report_builder.py`** (and related reporting under **`ml_classification/reporting/`**) for consolidated evaluation summaries and exporter-driven artefacts under **`output/`**.
+Use **`obsidiandroid.evaluation.ml_report_builder`** for consolidated evaluation summaries and exporter-driven artefacts under **`output/`**.
 
 ## Operational Considerations
 
@@ -59,4 +59,3 @@ Use **`ml_classification/reporting/ml_report_builder.py`** (and related reportin
 - [`architecture.md`](architecture.md) – structural overview of where each modeling component executes.
 - [`developer_guide.md`](developer_guide.md) – coding standards and validation steps when modifying models.
 - [`user_guide.md`](user_guide.md) – instructions for invoking training and interpreting outputs.
-
