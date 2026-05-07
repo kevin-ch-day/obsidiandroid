@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import sys
 
-# Standard bootstrap for source checkouts (idempotent): loads utils.__init__ → repo_import_paths.
+# Standard bootstrap for source checkouts (idempotent): ``import utils`` runs package __init__
+# prepend of ``./src`` + ``ensure_repo_src_on_sys_path`` (Pass 102).
 import utils  # noqa: F401
 
 from obsidiandroid.cli.main import (  # noqa: F401

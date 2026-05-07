@@ -883,7 +883,7 @@ def test_thin_compat_shim_trees_follow_policy() -> None:
     """Legacy shim dirs stay star-import / bootstrap only (see check_import_surface)."""
     from pathlib import Path
 
-    from scripts.dev.check_import_surface import collect_thin_compat_shim_violations
+    from scripts.dev.import_surface_policy import collect_thin_compat_shim_violations
 
     repo_root = Path(__file__).resolve().parents[1]
     errs = collect_thin_compat_shim_violations(repo_root)
@@ -894,7 +894,7 @@ def test_python_sources_have_no_utf8_bom_prefix() -> None:
     """BOM-prefixed ``*.py`` files break ast.parse and CI shim checks (see check_import_surface)."""
     from pathlib import Path
 
-    from scripts.dev.check_import_surface import collect_utf8_bom_python_sources
+    from scripts.dev.import_surface_policy import collect_utf8_bom_python_sources
 
     repo_root = Path(__file__).resolve().parents[1]
     bad = collect_utf8_bom_python_sources(repo_root)

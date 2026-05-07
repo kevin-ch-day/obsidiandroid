@@ -5,7 +5,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from scripts.dev import check_import_surface as surface
+from scripts.dev import import_surface_policy as policy
 
 
 def _write(path: Path, text: str) -> None:
@@ -23,7 +23,7 @@ def test_collect_canonical_code_legacy_imports_flags_src_and_scripts() -> None:
             "import analysis.pipeline.runner\n",
         )
 
-        assert surface.collect_canonical_code_legacy_imports(repo) == [
+        assert policy.collect_canonical_code_legacy_imports(repo) == [
             "src/obsidiandroid/bad.py:1: from utils import ...",
             "scripts/bad_script.py:1: import analysis.pipeline.runner",
         ]
@@ -35,7 +35,7 @@ def test_collect_nonparity_test_legacy_imports_respects_parity_allowlist() -> No
         _write(repo / "tests" / "test_behavior.py", "import ml_classification.training.pipeline_core\n")
         _write(repo / "tests" / "test_obsidiandroid_package_surface.py", "import utils.exporting\n")
 
-        assert surface.collect_nonparity_test_legacy_imports(repo) == [
+        assert policy.collect_nonparity_test_legacy_imports(repo) == [
             "tests/test_behavior.py:1: import ml_classification.training.pipeline_core",
         ]
 
@@ -52,7 +52,7 @@ def test_collect_stale_canonical_filename_headers_flags_legacy_roots() -> None:
             "# Filename: src/obsidiandroid/labeling/good.py\n",
         )
 
-        assert surface.collect_stale_canonical_filename_headers(repo) == [
+        assert policy.collect_stale_canonical_filename_headers(repo) == [
             "src/obsidiandroid/labeling/bad.py: stale filename header "
             "'ml_classification/labeling/bad.py'",
         ]
@@ -79,7 +79,7 @@ def test_collect_legacy_leaf_shim_violations_requires_thin_identity_shims() -> N
             "    return 1\n",
         )
 
-        assert surface.collect_legacy_leaf_shim_violations(repo) == [
+        assert policy.collect_legacy_leaf_shim_violations(repo) == [
             "model/core/bad.py: must import canonical obsidiandroid implementation",
             "model/core/bad.py: must register ModuleType identity via sys.modules",
             "model/core/bad.py: shim must not define 'duplicate_logic' at module level "

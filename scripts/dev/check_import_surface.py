@@ -3,11 +3,14 @@
 
 Also enforces **thin compatibility shims** (no duplicated implementation at legacy paths):
 repo-root ``utils/*.py`` (excluding bootstrap/entry special cases), ``utils/exporting``
-leaf modules, and ``utils/logging``—see :func:`collect_thin_compat_shim_violations`.
+leaf modules, and ``utils/logging``—see :mod:`scripts.dev.import_surface_policy`.
 
 Fails if any tracked-style ``*.py`` tree under the repo starts with a **UTF-8 BOM**
 (``\ufeff``), which breaks :func:`ast.parse` and confuses diffs—see
-:func:`collect_utf8_bom_python_sources`.
+:func:`scripts.dev.import_surface_policy.collect_utf8_bom_python_sources`.
+
+Static AST/file-system ratchets (legacy-root imports in ``src/`` / ``scripts`` / tests,
+filename headers, legacy leaf shim shape) live in :mod:`scripts.dev.import_surface_policy`.
 
 Run from the repository root after ``pip install -e .`` or with ``PYTHONPATH`` including
 ``src/`` (see docs/AGENTS.md and docs/STRUCTURE_MIGRATION_PLAN.md). Exits nonzero on failure.
@@ -15,62 +18,21 @@ Run from the repository root after ``pip install -e .`` or with ``PYTHONPATH`` i
 
 from __future__ import annotations
 
-import ast
 import importlib
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 
-_UTF8_BOM = b"\xef\xbb\xbf"
-_CANONICAL_CODE_LEGACY_IMPORT_ROOTS = frozenset(
-    {
-        "analysis",
-        "ml_classification",
-        "model",
-        "utils",
-    }
+from scripts.dev.import_surface_policy import (
+    THIN_COMPAT_SHIM_POLICIES,
+    collect_canonical_code_legacy_imports,
+    collect_legacy_leaf_shim_violations,
+    collect_nonparity_test_legacy_imports,
+    collect_stale_canonical_filename_headers,
+    collect_thin_compat_shim_violations,
+    collect_utf8_bom_python_sources,
 )
-_CANONICAL_CODE_IMPORT_SCAN_ROOTS = ("src", "scripts")
-_CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST = frozenset(
-    {
-        Path("scripts/dev/check_import_surface.py"),
-    }
-)
-_NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST = frozenset(
-    {
-        Path("tests/conftest.py"),
-        Path("tests/test_labeling_taxonomy_wrapper.py"),
-        Path("tests/test_obsidiandroid_common_shims.py"),
-        Path("tests/test_obsidiandroid_governance_shims.py"),
-        Path("tests/test_obsidiandroid_package_surface.py"),
-        Path("tests/test_pipeline_entry.py"),
-    }
-)
-_LEGACY_LEAF_SHIM_ROOTS = ("analysis", "ml_classification", "model")
-_LEGACY_LEAF_SHIM_MAX_LINES = 16
-# Directory name fragments skipped when scanning for UTF-8 BOM (generated / vendor trees).
-_BOM_SCAN_SKIP_DIR_PARTS = frozenset(
-    {
-        ".git",
-        ".venv",
-        "venv",
-        "__pycache__",
-        "output",
-        "logs",
-        ".pytest_tmp",
-        "build",
-        "dist",
-        "htmlcov",
-        "wandb",
-        "mlruns",
-        ".mypy_cache",
-        ".ruff_cache",
-        ".hypothesis",
-        "node_modules",
-        ".cursor",
-    }
-)
+
 
 # Ensure repo root is importable (``scripts.*``, ``utils``) when this
 # file is run from another working directory.
@@ -82,286 +44,6 @@ if str(_REPO_ROOT) not in sys.path:
 def _module_path(mod: ModuleType) -> str:
     path = getattr(mod, "__file__", None)
     return str(path) if path else "(namespace package)"
-
-
-@dataclass(frozen=True)
-class _ThinCompatShimPolicy:
-    """Declarative checks for star-import / re-export compatibility modules."""
-
-    label: str
-    relative_parts: tuple[str, ...]
-    max_lines: int
-    required_substrings: tuple[str, ...]
-    relocate_hint: str
-    exclude_names: frozenset[str] = frozenset()
-
-
-# Repo-root ``utils/*.py`` only (not subpackages). Excludes bootstrap, module-alias, and
-# ``if __name__ == "__main__"`` entry shims.
-_POLICY_UTILS_ROOT_SHIMS = _ThinCompatShimPolicy(
-    label="utils/*.py root shims",
-    relative_parts=("utils",),
-    max_lines=24,
-    # Bootstrap: ``utils/__init__.py`` imports ``utils.repo_import_paths`` once (Pass 102);
-    # leaf shims only need the canonical re-export substring.
-    required_substrings=("obsidiandroid",),
-    relocate_hint="src/obsidiandroid",
-    exclude_names=frozenset(
-        {
-            "__init__.py",
-            "repo_import_paths.py",
-            "export_manager.py",
-            "startup_menu.py",
-        }
-    ),
-)
-
-
-_THIN_COMPAT_SHIM_POLICIES: tuple[_ThinCompatShimPolicy, ...] = (
-    _POLICY_UTILS_ROOT_SHIMS,
-    _ThinCompatShimPolicy(
-        label="utils/exporting leaf shims",
-        relative_parts=("utils", "exporting"),
-        max_lines=16,
-        required_substrings=("obsidiandroid.common",),
-        relocate_hint="obsidiandroid.common.export_*",
-        exclude_names=frozenset({"__init__.py"}),
-    ),
-    _ThinCompatShimPolicy(
-        label="utils/logging shims",
-        relative_parts=("utils", "logging"),
-        max_lines=24,
-        required_substrings=("obsidiandroid.observability.logging",),
-        relocate_hint="obsidiandroid.observability.logging",
-    ),
-)
-
-
-def _validate_single_thin_compat_policy(repo_root: Path, policy: _ThinCompatShimPolicy) -> list[str]:
-    errors: list[str] = []
-    shim_dir = repo_root.joinpath(*policy.relative_parts)
-    if not shim_dir.is_dir():
-        return [f"missing shim directory: {shim_dir.relative_to(repo_root)}"]
-
-    for path in sorted(shim_dir.glob("*.py")):
-        if path.name in policy.exclude_names:
-            continue
-        rel = path.relative_to(repo_root)
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError as exc:
-            errors.append(f"{rel}: cannot read file ({exc})")
-            continue
-
-        lines = text.splitlines()
-        if len(lines) > policy.max_lines:
-            errors.append(
-                f"{rel}: {len(lines)} lines (max {policy.max_lines}); "
-                f"move logic to {policy.relocate_hint}"
-            )
-            continue
-
-        for sub in policy.required_substrings:
-            if sub not in text:
-                errors.append(f"{rel}: must contain {sub!r} (canonical import / bootstrap)")
-
-        try:
-            tree = ast.parse(text, filename=str(path))
-        except SyntaxError as exc:
-            errors.append(f"{rel}: syntax error: {exc}")
-            continue
-
-        for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                errors.append(
-                    f"{rel}: shim must not define {node.name!r} at module level "
-                    f"(implement under {policy.relocate_hint})"
-                )
-
-    return errors
-
-
-def collect_thin_compat_shim_violations(repo_root: Path) -> list[str]:
-    """Run all thin-compat shim policies; return prefixed error lines (empty if OK)."""
-    out: list[str] = []
-    utils_init = repo_root.joinpath("utils", "__init__.py")
-    try:
-        init_txt = utils_init.read_text(encoding="utf-8")
-    except OSError as exc:
-        out.append(f"[utils package bootstrap] {utils_init.relative_to(repo_root)}: cannot read ({exc})")
-    else:
-        if "utils.repo_import_paths" not in init_txt:
-            out.append(
-                "[utils package bootstrap] utils/__init__.py must import utils.repo_import_paths "
-                "(checkout sys.path bootstrap; Pass 102)"
-            )
-    for policy in _THIN_COMPAT_SHIM_POLICIES:
-        for msg in _validate_single_thin_compat_policy(repo_root, policy):
-            out.append(f"[{policy.label}] {msg}")
-    return out
-
-
-def collect_legacy_leaf_shim_violations(repo_root: Path) -> list[str]:
-    """Return legacy leaf modules that are no longer thin ModuleType identity shims."""
-    errors: list[str] = []
-    for root_name in _LEGACY_LEAF_SHIM_ROOTS:
-        root = repo_root / root_name
-        if not root.exists():
-            continue
-        for path in sorted(root.rglob("*.py")):
-            if path.name == "__init__.py":
-                continue
-            rel = path.relative_to(repo_root)
-            try:
-                text = path.read_text(encoding="utf-8")
-            except OSError as exc:
-                errors.append(f"{rel}: cannot read file ({exc})")
-                continue
-
-            lines = text.splitlines()
-            if len(lines) > _LEGACY_LEAF_SHIM_MAX_LINES:
-                errors.append(
-                    f"{rel}: {len(lines)} lines (max {_LEGACY_LEAF_SHIM_MAX_LINES}); "
-                    "legacy leaf modules must stay thin"
-                )
-            if "obsidiandroid" not in text:
-                errors.append(f"{rel}: must import canonical obsidiandroid implementation")
-            if "sys.modules" not in text:
-                errors.append(f"{rel}: must register ModuleType identity via sys.modules")
-
-            try:
-                tree = ast.parse(text, filename=str(path))
-            except SyntaxError as exc:
-                errors.append(f"{rel}: syntax error: {exc}")
-                continue
-
-            for node in tree.body:
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                    errors.append(
-                        f"{rel}: shim must not define {node.name!r} at module level "
-                        "(implement under src/obsidiandroid)"
-                    )
-    return errors
-
-
-def collect_utf8_bom_python_sources(repo_root: Path) -> list[str]:
-    """Return repo-relative paths of ``*.py`` files that begin with a UTF-8 BOM byte sequence.
-
-    Scan skips typical generated/vendor directories. Unreadable files are reported as
-    errors so permission problems do not pass silently.
-    """
-    bad: list[str] = []
-    for path in repo_root.rglob("*.py"):
-        if any(p in _BOM_SCAN_SKIP_DIR_PARTS for p in path.parts):
-            continue
-        if any(p.endswith(".egg-info") for p in path.parts):
-            continue
-        rel = path.relative_to(repo_root)
-        try:
-            with path.open("rb") as fh:
-                head = fh.read(3)
-        except OSError as exc:
-            bad.append(f"{rel} (unreadable: {exc})")
-            continue
-        if head == _UTF8_BOM:
-            bad.append(str(rel))
-    return bad
-
-
-def collect_canonical_code_legacy_imports(repo_root: Path) -> list[str]:
-    """Return canonical-code imports that point back at legacy compatibility roots."""
-    bad: list[str] = []
-    for root_name in _CANONICAL_CODE_IMPORT_SCAN_ROOTS:
-        scan_root = repo_root / root_name
-        if not scan_root.exists():
-            continue
-        for path in sorted(scan_root.rglob("*.py")):
-            rel = path.relative_to(repo_root)
-            if rel in _CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST:
-                continue
-            if any(p in _BOM_SCAN_SKIP_DIR_PARTS for p in path.parts):
-                continue
-            try:
-                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            except SyntaxError as exc:
-                bad.append(f"{rel}: syntax error while scanning imports: {exc}")
-                continue
-            except OSError as exc:
-                bad.append(f"{rel}: cannot read file while scanning imports ({exc})")
-                continue
-
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        root = alias.name.split(".", 1)[0]
-                        if root in _CANONICAL_CODE_LEGACY_IMPORT_ROOTS:
-                            bad.append(f"{rel}:{node.lineno}: import {alias.name}")
-                elif isinstance(node, ast.ImportFrom) and node.module:
-                    root = node.module.split(".", 1)[0]
-                    if root in _CANONICAL_CODE_LEGACY_IMPORT_ROOTS:
-                        bad.append(f"{rel}:{node.lineno}: from {node.module} import ...")
-    return bad
-
-
-def collect_nonparity_test_legacy_imports(repo_root: Path) -> list[str]:
-    """Return non-parity tests that import legacy compatibility roots directly."""
-    bad: list[str] = []
-    scan_root = repo_root / "tests"
-    if not scan_root.exists():
-        return bad
-    for path in sorted(scan_root.rglob("*.py")):
-        rel = path.relative_to(repo_root)
-        if rel in _NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST:
-            continue
-        if any(p in _BOM_SCAN_SKIP_DIR_PARTS for p in path.parts):
-            continue
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        except SyntaxError as exc:
-            bad.append(f"{rel}: syntax error while scanning imports: {exc}")
-            continue
-        except OSError as exc:
-            bad.append(f"{rel}: cannot read file while scanning imports ({exc})")
-            continue
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    root = alias.name.split(".", 1)[0]
-                    if root in _CANONICAL_CODE_LEGACY_IMPORT_ROOTS:
-                        bad.append(f"{rel}:{node.lineno}: import {alias.name}")
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                root = node.module.split(".", 1)[0]
-                if root in _CANONICAL_CODE_LEGACY_IMPORT_ROOTS:
-                    bad.append(f"{rel}:{node.lineno}: from {node.module} import ...")
-    return bad
-
-
-def collect_stale_canonical_filename_headers(repo_root: Path) -> list[str]:
-    """Return canonical modules whose filename header still names a legacy root."""
-    bad: list[str] = []
-    scan_root = repo_root / "src"
-    if not scan_root.exists():
-        return bad
-    for path in sorted(scan_root.rglob("*.py")):
-        if any(p in _BOM_SCAN_SKIP_DIR_PARTS for p in path.parts):
-            continue
-        rel = path.relative_to(repo_root)
-        try:
-            first_line = path.read_text(encoding="utf-8").splitlines()[0]
-        except IndexError:
-            continue
-        except OSError as exc:
-            bad.append(f"{rel}: cannot read file while scanning filename header ({exc})")
-            continue
-
-        if not first_line.startswith("# Filename: "):
-            continue
-        header_path = first_line.removeprefix("# Filename: ").strip()
-        header_root = header_path.split("/", 1)[0]
-        if header_root in _CANONICAL_CODE_LEGACY_IMPORT_ROOTS:
-            bad.append(f"{rel}: stale filename header {header_path!r}")
-    return bad
 
 
 def _legacy_ml_pkg_getattr_errors(pkg_qual: str, submodule_names: tuple[str, ...]) -> list[str]:
@@ -465,7 +147,7 @@ def _check_static_policy_scans() -> bool:
         for msg in thin_errors:
             print(f"FAIL: thin compat shim policy: {msg}", file=sys.stderr)
         return False
-    for policy in _THIN_COMPAT_SHIM_POLICIES:
+    for policy in THIN_COMPAT_SHIM_POLICIES:
         print(f"OK   {policy.label}")
 
     legacy_leaf_errors = collect_legacy_leaf_shim_violations(_REPO_ROOT)
