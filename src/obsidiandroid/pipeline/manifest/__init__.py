@@ -17,6 +17,7 @@ from . import (
     paper_figure_renderers,
     runtime_support,
     schema,
+    stage_manifest_writers,
     writer,
 )
 from .hashing import canonical_csv_bytes, dataset_hash_from_sample_ids, sha256_hex
@@ -34,6 +35,7 @@ for _name in (
     "paper_figure_renderers",
     "runtime_support",
     "schema",
+    "stage_manifest_writers",
     "writer",
 ):
     sys.modules[_LEGACY_MANIFEST_PREFIX + _name] = sys.modules[__name__ + "." + _name]
@@ -50,5 +52,6 @@ __all__ = [
     "runtime_support",
     "schema",
     "sha256_hex",
+    "stage_manifest_writers",
     "writer",
 ]
