@@ -8,7 +8,17 @@ from __future__ import annotations
 
 import sys
 
-from . import builder, hashing, paper_compliance_checks, paper_figure_renderers, runtime_support, schema, writer
+from . import (
+    builder,
+    confusion_matrix_paths,
+    hashing,
+    paper2_strict_exports,
+    paper_compliance_checks,
+    paper_figure_renderers,
+    runtime_support,
+    schema,
+    writer,
+)
 from .hashing import canonical_csv_bytes, dataset_hash_from_sample_ids, sha256_hex
 
 # When ``analysis.pipeline.manifest`` is an identity shim to this package, submodule imports
@@ -17,7 +27,9 @@ from .hashing import canonical_csv_bytes, dataset_hash_from_sample_ids, sha256_h
 _LEGACY_MANIFEST_PREFIX = "analysis.pipeline.manifest."
 for _name in (
     "builder",
+    "confusion_matrix_paths",
     "hashing",
+    "paper2_strict_exports",
     "paper_compliance_checks",
     "paper_figure_renderers",
     "runtime_support",
@@ -29,8 +41,10 @@ for _name in (
 __all__ = [
     "builder",
     "canonical_csv_bytes",
+    "confusion_matrix_paths",
     "dataset_hash_from_sample_ids",
     "hashing",
+    "paper2_strict_exports",
     "paper_compliance_checks",
     "paper_figure_renderers",
     "runtime_support",
