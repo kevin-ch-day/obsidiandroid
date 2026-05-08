@@ -9,9 +9,9 @@ import json
 import pandas as pd
 
 from obsidiandroid.vendors.parsing import vendor_parser_map
-from obsidiandroid.vendors.parsing.generic_label_parser import parse_generic_classification
+from obsidiandroid.vendors import parse_generic_classification
 from obsidiandroid.database import db_engine
-from obsidiandroid.vendors.contracts.parsed_label_metadata import ParsedLabelMetadata
+from obsidiandroid.vendors import ParsedLabelMetadata
 from .workbook_loader import load_enriched_matrix_for_menu
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from config import app_config

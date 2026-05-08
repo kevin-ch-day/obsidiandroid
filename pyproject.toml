@@ -24,15 +24,13 @@ py-modules = ["main"]
 [tool.setuptools.packages.find]
 where = ["src", "."]
 include = [
-  "obsidiandroid*",
-  "analysis*",
-  "config*",
-  "scripts*",
-  "database*",
-  "ml_classification*",
-  "model*",
-  "profiles*",
-  "utils*",
+    "obsidiandroid*",
+    "analysis*",
+    "config*",
+    "scripts*",
+    "database*",
+    "ml_classification*",
+    "profiles*",
 ]
 
 [tool.setuptools.dynamic]

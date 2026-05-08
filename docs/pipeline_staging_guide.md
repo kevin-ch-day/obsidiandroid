@@ -39,7 +39,7 @@ When adding new stage modules:
 
 1. Add a stage helper under `analysis/pipeline/` and invoke it from **`runner.run_pipeline`** (not from `main.py`).
 2. If tests must patch a callable, expose it on **`main`** for monkeypatch compatibility or patch `analysis.pipeline.stage_*` directly.
-3. Prefer **`from utils.pipeline_entry import run_pipeline`** in new automation scripts (same implementation as `main.run_pipeline`).
+3. Prefer **`from obsidiandroid.cli.pipeline_entry import run_pipeline`** (or **`from obsidiandroid.pipeline import run_pipeline`**) in new automation scripts (same implementation as `main.run_pipeline`).
 
 ## How to add a new stage
 

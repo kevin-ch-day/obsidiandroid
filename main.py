@@ -6,12 +6,20 @@ Compatibility shim; implementation in ``obsidiandroid.cli.main``.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
-# Standard bootstrap for source checkouts (idempotent): ``import utils`` runs package __init__
-# prepend of ``./src`` + ``ensure_repo_src_on_sys_path`` (Pass 102).
-import utils  # noqa: F401
+# Checkout bootstrap (no ``utils`` package): prepend ``./src`` when present, then
+# ``ensure_repo_src_on_sys_path`` — same policy as ``tests/conftest.py``.
+_REPO_ROOT = Path(__file__).resolve().parent
+_SRC_ROOT = _REPO_ROOT / "src"
+if _SRC_ROOT.is_dir() and str(_SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SRC_ROOT))
 
-from obsidiandroid.cli.main import (  # noqa: F401
+from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path  # noqa: E402
+
+ensure_repo_src_on_sys_path()
+
+from obsidiandroid.cli.main import (  # noqa: E401,E402
     DIAGNOSTICS_DIR,
     PIPELINE_MAIN_LOGGER,
     PARSER_QUALITY_PATH,

@@ -1,8 +1,8 @@
 """Vendor record + parsed-metadata contracts.
 
-Pass 60: physically moved legacy implementation modules from ``model.parsing`` and
-``model.vendor`` into this canonical package while preserving legacy import
-compatibility via ``model.parsing`` / ``model.vendor`` shim registration.
+Previously (Pass 60) vendor parsing/record contracts lived under the removed
+``model.parsing`` / ``model.vendor`` shim tree; implementations are here under
+``obsidiandroid.vendors.contracts``.
 
 This package is intentionally *implementation-backed* for now (no behavior changes).
 """

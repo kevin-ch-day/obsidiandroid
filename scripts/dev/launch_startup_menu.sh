@@ -17,4 +17,4 @@ if [[ ! -x "${VENV_DIR}/bin/python" ]]; then
     exit 1
 fi
 
-exec "${VENV_DIR}/bin/python" -m utils.startup_menu "$@"
+exec "${VENV_DIR}/bin/python" -m obsidiandroid.cli.startup_menu "$@"

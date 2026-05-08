@@ -11,6 +11,11 @@ from __future__ import annotations
 import importlib
 import sys
 
+from obsidiandroid.evaluation.vendor_classification_parser import (
+    VendorClassificationParseResult,
+    parse_vendor_classifications,
+)
+
 _LEGACY_BY_CANONICAL = {
     "accuracy_band_utils": "obsidiandroid.evaluation.accuracy_band_utils",
     "av_results_fetcher": "obsidiandroid.evaluation.av_results_fetcher",
@@ -45,3 +50,6 @@ def __dir__() -> list[str]:
 
 
 __all__ = sorted(_LEGACY_BY_CANONICAL.keys())
+
+# Stable function entrypoints (so callers don't need to import deep submodules).
+__all__.extend(["VendorClassificationParseResult", "parse_vendor_classifications"])

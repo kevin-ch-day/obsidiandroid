@@ -17,7 +17,7 @@ This document explains how ObsidianDroid ingests antivirus telemetry, computes r
 ```
 
 1. **Metadata ingestion** loads sample identifiers, vendor detections, and contextual attributes from a MySQL database using helpers in `database/`. See [`data_sources.md`](data_sources.md) for a catalog of required tables and replication guidance.
-2. **Analysis and feature engineering** normalize AV labels, score vendors, and build per-sample feature matrices in **canonical** `src/obsidiandroid/` modules (with legacy `analysis.*` and `utils.*` shims retained for compatibility).
+2. **Analysis and feature engineering** normalize AV labels, score vendors, and build per-sample feature matrices in **canonical** `src/obsidiandroid/` modules (with legacy `analysis.*` shims retained for compatibility).
 3. **Model training and inference** use canonical `obsidiandroid.modeling`, `obsidiandroid.inference`, and `obsidiandroid.engine_weights` modules; repo-root `ml_classification/` is a compatibility shim surface.
 4. **Evaluation and export** routines write canonical family labels, diagnostics, and artifacts under `output/`.
 
@@ -40,10 +40,10 @@ This document explains how ObsidianDroid ingests antivirus telemetry, computes r
 - `feature_engineering/` also builds cohort statistics, pattern metrics, and supporting aggregates used in reporting.
 
 ### 3. Shared Utilities (`obsidiandroid.common`, `obsidiandroid.observability`, `obsidiandroid.reporting`)
-- `obsidiandroid.observability.logging` handles structured logs and runtime tee logging; `utils.logging` remains a compatibility shim.
-- `obsidiandroid.common.export_naming`, `obsidiandroid.common.export_vendor_raw`, `obsidiandroid.common.export_workbook`, and `obsidiandroid.reporting.export_manager` handle workbook/Excel and raw vendor exports; `utils.exporting.*` remains a compatibility shim.
-- `obsidiandroid.common.output_paths` (legacy `utils.output_paths` shim), `obsidiandroid.governance.run_manifest`, and `obsidiandroid.cli.profile_manager` manage run IDs, manifests, and profiles.
-- `utils/display_utils.py` re-exports `obsidiandroid.cli.ui.display` for older import paths; use `obsidiandroid.cli.ui` for new code.
+- `obsidiandroid.observability.logging` handles structured logs and runtime tee logging.
+- `obsidiandroid.common.export_naming`, `obsidiandroid.common.export_vendor_raw`, `obsidiandroid.common.export_workbook`, and `obsidiandroid.reporting.export_manager` handle workbook/Excel and raw vendor exports.
+- `obsidiandroid.common.output_paths`, `obsidiandroid.governance.run_manifest`, and `obsidiandroid.cli.profile_manager` manage run IDs, manifests, and profiles.
+- Use `obsidiandroid.cli.ui.display` / `obsidiandroid.cli.ui` for console UI primitives.
 
 ### 4. Model Selection & Training (`obsidiandroid.modeling`, `obsidiandroid.features`)
 - `obsidiandroid.modeling.model_trainer_factory` coordinates train/test splits, optional SMOTE, and trainer dispatch.

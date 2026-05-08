@@ -243,7 +243,7 @@ def finalize_pipeline_observability(
     feat_post = (
         manifest.get("feature_matrix_cols_post_prune")
         or manifest.get("feature_count_post_prune")
-        or manifest.get("feature_matrix_row_count")
+        or manifest_context.get("feature_matrix_cols_post_prune")
     )
 
     parts: list[str] = []

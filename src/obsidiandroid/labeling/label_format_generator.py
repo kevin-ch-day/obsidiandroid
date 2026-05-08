@@ -2,7 +2,7 @@
 # Purpose  : Generate structured, canonical, enriched labels for malware classification records
 
 import re
-from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
+from obsidiandroid.vendors import VendorClassificationRecord
 from . import label_field_normalizer
 from obsidiandroid.labeling import malware_family_constants
 

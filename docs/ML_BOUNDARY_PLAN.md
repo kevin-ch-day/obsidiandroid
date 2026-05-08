@@ -350,8 +350,8 @@ constants exports.
 
 **Checks**
 
-- **`scripts/dev/check_import_surface.py`**: verifies module path under **`src/obsidiandroid/labeling/taxonomy.py`** and normalization parity smoke vs legacy.
-- **`tests/test_labeling_taxonomy_wrapper.py`**: behavioral parity vs legacy; asserts wrapper functions are **not** identical to legacy objects (explicit non-alias contract).
+- **`scripts/dev/check_import_surface.py`**: verifies module path under **`src/obsidiandroid/labeling/taxonomy.py`** and normalization parity smoke vs **`ml_classification`** shims where still enforced.
+- **`tests/test_labeling_taxonomy_wrapper.py`**: behavioral parity vs **`obsidiandroid.labeling.malware_family_constants`**; asserts wrapper functions are **not** identical to the underlying implementations (explicit non-alias contract).
 
 ### Next ML wrapper candidates (still `needs_wrapper`, not Pass 58)
 

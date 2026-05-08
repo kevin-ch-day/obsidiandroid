@@ -393,7 +393,17 @@ def finalize_run_manifest_stage(
         if _feat_post_prune is None:
             _feat_post_prune = manifest_context.get("feature_matrix_row_count")
         manifest["feature_matrix_cols_post_prune"] = _feat_post_prune
+        fused_rows = manifest_context.get("fused_feature_rows")
+        if fused_rows is not None:
+            try:
+                fused_rows = int(fused_rows)
+            except (TypeError, ValueError):
+                fused_rows = None
+        if fused_rows is not None:
+            manifest["feature_matrix_rows"] = fused_rows
+
         # Legacy key: value is post-prune *column* count (historical misnomer "row_count").
+        # Prefer `feature_matrix_cols_post_prune` and `feature_matrix_rows` in new code.
         manifest["feature_matrix_row_count"] = _feat_post_prune
         split_ctx = manifest_context.get("split") if isinstance(manifest_context.get("split"), dict) else {}
         manifest["train_sample_count"] = split_ctx.get("train_sample_count")
@@ -624,6 +634,15 @@ def _write_run_summary_json(
         if feat_cols_resolved is None:
             feat_cols_resolved = manifest.get("feature_matrix_row_count")
 
+        feat_rows_resolved = manifest.get("feature_matrix_rows")
+        if feat_rows_resolved is None:
+            feat_rows_resolved = manifest_context.get("fused_feature_rows")
+        if feat_rows_resolved is not None:
+            try:
+                feat_rows_resolved = int(feat_rows_resolved)
+            except (TypeError, ValueError):
+                feat_rows_resolved = None
+
         payload = {
             "schema_version": "1.0",
             "run_id": run_id,
@@ -644,6 +663,8 @@ def _write_run_summary_json(
             or len(list(manifest.get("trained_models") or [])),
             "main_training_row_authority": manifest.get("main_training_row_authority"),
             "feature_matrix_cols_post_prune": feat_cols_resolved,
+            "feature_matrix_rows": feat_rows_resolved,
+            # Legacy key retained for older tooling; this is a *column* count (post-prune).
             "feature_matrix_row_count": feat_cols_resolved,
             "train_sample_count": split_blob.get("train_sample_count"),
             "test_sample_count": split_blob.get("test_sample_count"),

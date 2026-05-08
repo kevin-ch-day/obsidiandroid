@@ -6,7 +6,7 @@ This document is a **status report** and **deep audit** of repository layout: wh
 
 ## 1. Executive summary
 
-ObsidianDroid is intentionally a **hybrid layout**: an installable package under **`src/obsidiandroid/`**, plus large **legacy implementation trees** at the repository root (`analysis/`, `database/`, `ml_classification/`, `model/`, `utils/`) preserved for compatibility and test coverage. That hybrid is **professional for a mature research codebase** (explicit migration, shims, CI), but it **does not look like a minimal greenfield app** (single `src/` package only, empty root).
+ObsidianDroid is intentionally a **hybrid layout**: an installable package under **`src/obsidiandroid/`**, plus large **legacy implementation trees** at the repository root (`analysis/`, `database/`, `ml_classification/`) preserved for compatibility and test coverage. That hybrid is **professional for a mature research codebase** (explicit migration, shims, CI), but it **does not look like a minimal greenfield app** (single `src/` package only, empty root).
 
 **Progress so far:** canonical CLI/common/pipeline/governance surfaces, diagnostics and dev tooling under **`scripts/`** (repo-root **`data_inspect/`** and **`devtools/`** shims **removed** — use **`scripts.diagnostics`** / **`scripts.dev`**), Makefile and CI as the operator entrypoints, pytest configuration folded into **`pyproject.toml`**, documentation split so long-form guides live under **`docs/`**, and automated GitHub Actions + Dependabot.
 
@@ -63,7 +63,7 @@ Work proceeded in **documented passes** (see **`STRUCTURE_MIGRATION_PLAN.md`**).
 
 | Item | Canonical implementation | Notes |
 |------|-------------------------|--------|
-| **`main.py`** | **`obsidiandroid.cli`** | Setuptools **`py-modules`**; checkout bootstrap via **`import utils`** (**Pass 103**); tests monkeypatch **`main`**. |
+| **`main.py`** | **`obsidiandroid.cli`** | Setuptools **`py-modules`**; checkout bootstrap prepends `./src` then calls `obsidiandroid.common.repo_paths.ensure_repo_src_on_sys_path`; tests monkeypatch **`main`**. |
 | **`clean_bytecode_cache`** / **`run_ml_static_scan`** | **`scripts.dev.*`** | **Pass 101:** repo-root shims removed; use **`python scripts/dev/clean_bytecode_cache.py`** / **`python -m scripts.dev.run_ml_static_scan`** or **`make`** targets. **`py-modules`** lists **`main`** only. |
 | **`setup.sh`**, **`run.sh`**, **`scripts/dev/run_tests.sh`**, **`scripts/dev/run_tests_full.sh`** | **`scripts/dev/*.sh`** | Test runners; **`make test`** / **`make test-full`** call **`scripts/dev/`** directly. |
 
@@ -80,12 +80,11 @@ Work proceeded in **documented passes** (see **`STRUCTURE_MIGRATION_PLAN.md`**).
 | Directory | Role |
 |-----------|------|
 | **`src/obsidiandroid/`** | **Canonical product package** (CLI, common, pipeline facade, governance, reporting/observability surfaces, diagnostics facade — plus placeholder roots for domains not yet bulk-moved). |
-| **`analysis/`** | Pipeline stages, AV parsers, diagnostics glue — **core legacy implementation**. Pipeline observability APIs live under **`obsidiandroid.observability.pipeline_observability`** (Pass 32); the former **`analysis/observability`** shim path was **removed** (Pass 33). |
+| **`analysis/`** | Pipeline stages and legacy shims. Most moved implementations now live under `src/obsidiandroid/` with identity shims kept for stability. Pipeline observability APIs live under **`obsidiandroid.observability.pipeline_observability`**; the former **`analysis/observability`** shim path was removed. |
 | **`database/`** | DB access, cohort SQL. |
-| **`ml_classification/`** | Training, vectorization, labeling helpers. |
-| **`model/`** | Model artifacts support (as present in repo). |
+| **`ml_classification/`** | Legacy compatibility shims for ML domains (canonical implementation under `src/obsidiandroid/`). |
 | **`config/`**, **`profiles/`** | Configuration and YAML profiles (**`package-data`** for profiles). |
-| **`utils/`** | Legacy + **shims** re-exporting **`obsidiandroid.*`** where applicable; **`export_manager`** is a **module-alias shim** to **`obsidiandroid.reporting.export_manager`**. **`utils/logging/`** is a **thin shim** to **`obsidiandroid.observability.logging`** (implementation under **`src/obsidiandroid/observability/logging/`**). |
+| *(removed)* **`utils/`** | Repo-root `utils/` shims were retired; canonical surfaces are under `src/obsidiandroid/` and `scripts/`. |
 | **`tests/`** | Pytest tree. |
 | **`scripts/`** | **`dev/`**, **`diagnostics/`**, **`research/`**, operator **`scripts/*.py`**. |
 
@@ -118,10 +117,10 @@ Typically gitignored or partially ignored; often **still visible** in **`ls`** a
 
 ## 5. Gap analysis — why the root still feels busy
 
-1. **Hybrid architecture** packs **~7** top-level Python trees (`analysis`, `database`, `config`, `ml_classification`, `model`, `utils`, `scripts`) **besides** **`src/`** — that is **more than most single-app repos** (shim packages removed).
+1. **Hybrid architecture** packs multiple top-level Python trees (`analysis`, `database`, `config`, `ml_classification`, `scripts`) **besides** **`src/`** — that is **more than most single-app repos**.
 2. **Wrappers + pointers** add **~10** small root files; each has a reason (setuptools, habits, Cursor/GitHub expectations).
 3. **Runtime dirs** pollute **`ls`** unless hooks/docs remind contributors to use **`make clean-bytecode`** and **`make tree-source`**.
-4. **README “Project Structure”** diagram is **abbreviated**; it does not list **`model/`**, **`profiles/`**, **`tests/`**, **`LICENSE`**, **`Makefile`**, **`requirements.txt`**, **`artifacts/`**, or pointers — readers should use **`make tree-source`** or this audit for truth.
+4. **README “Project Structure”** diagram is **abbreviated**; it does not list **`profiles/`**, **`tests/`**, **`LICENSE`**, **`Makefile`**, **`requirements.txt`**, **`artifacts/`**, or pointers — readers should use **`make tree-source`** or this audit for truth.
 
 ---
 

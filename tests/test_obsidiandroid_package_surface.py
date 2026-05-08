@@ -120,7 +120,6 @@ def test_ml_facades_match_ml_classification_modules() -> None:
             else:
                 legacy_mod = importlib.import_module(f"ml_classification.ml_utils.{attr}")
             assert legacy_mod is canon_mod
-
     feature_alignment_canon = importlib.import_module("obsidiandroid.modeling.feature_alignment_utils")
     feature_alignment_legacy = importlib.import_module("ml_classification.ml_utils.feature_alignment_utils")
     assert feature_alignment_legacy is feature_alignment_canon
@@ -527,40 +526,6 @@ def test_vendors_parsing_modules_match_legacy_shim_identity() -> None:
         assert legacy_mod is canon_mod
 
 
-def test_model_vendor_and_parsing_shims_match_vendors_contracts() -> None:
-    """Vendor contract legacy shims preserve identity with canonical modules."""
-    import importlib
-
-    canon_parsed = importlib.import_module("obsidiandroid.vendors.contracts.parsed_label_metadata")
-    legacy_parsed = importlib.import_module("model.parsing.parsed_label_metadata")
-    assert legacy_parsed is canon_parsed
-
-    canon_record = importlib.import_module("obsidiandroid.vendors.contracts.record_core")
-    legacy_record = importlib.import_module("model.vendor.record_core")
-    assert legacy_record is canon_record
-
-    canon_engine = importlib.import_module("obsidiandroid.vendors.contracts.feature_engine")
-    legacy_engine = importlib.import_module("model.vendor.feature_engine")
-    assert legacy_engine is canon_engine
-
-    canon_diag = importlib.import_module("obsidiandroid.vendors.contracts.record_diagnostics")
-    legacy_diag = importlib.import_module("model.core.record_diagnostics")
-    assert legacy_diag is canon_diag
-
-    canon_norm = importlib.import_module("obsidiandroid.vendors.contracts.metadata_normalizer")
-    legacy_norm = importlib.import_module("model.utils.metadata_normalizer")
-    assert legacy_norm is canon_norm
-
-
-def test_model_risk_band_config_shim_matches_canonical_module() -> None:
-    """Risk-band config legacy shim preserves identity with canonical module."""
-    import importlib
-
-    canon_mod = importlib.import_module("obsidiandroid.risk_band.risk_band_config")
-    legacy_mod = importlib.import_module("model.core.risk_band_config")
-    assert legacy_mod is canon_mod
-
-
 def test_evaluation_leaf_shims_match_canonical_modules() -> None:
     """Passes 61–63: analysis.evaluation package shim preserves module identity."""
     import importlib
@@ -638,211 +603,6 @@ def test_governance_facade_matches_pipeline_governance_modules() -> None:
         assert legacy_mod is canon_mod
 
 
-def test_output_cleanup_clutter_shim_matches_canonical() -> None:
-    """``utils.output_cleanup_clutter`` delegates to ``obsidiandroid.common``."""
-    from obsidiandroid.common import output_cleanup_clutter as canon
-    from utils import output_cleanup_clutter as shim
-
-    assert shim.WORKBOOK_CORRUPT_GLOB == canon.WORKBOOK_CORRUPT_GLOB
-    assert shim.PAPER_BUNDLE_SMOKE_GLOBS == canon.PAPER_BUNDLE_SMOKE_GLOBS
-
-
-def test_output_paths_shim_matches_canonical() -> None:
-    """``utils.output_paths`` re-exports :mod:`obsidiandroid.common.output_paths`."""
-    from obsidiandroid.common import output_paths as canon
-    from utils import output_paths as shim
-
-    assert shim.output_root is canon.output_root
-    assert shim.ensure_output_layout is canon.ensure_output_layout
-
-
-def test_sample_metadata_preprocessor_shim_matches_canonical() -> None:
-    """``utils.sample_metadata_preprocessor`` delegates to ``obsidiandroid.common``."""
-    import obsidiandroid.common.sample_metadata_preprocessor as canon
-    from utils import sample_metadata_preprocessor as shim
-
-    assert shim.prepare_sample_dataframe is canon.prepare_sample_dataframe
-
-
-def test_compliance_shim_matches_canonical() -> None:
-    """``utils.compliance`` delegates to ``obsidiandroid.governance.compliance``."""
-    import obsidiandroid.governance.compliance as canon
-    from utils import compliance as shim
-
-    assert shim.build_compliance_report is canon.build_compliance_report
-
-
-def test_run_manifest_shim_matches_canonical() -> None:
-    """``utils.run_manifest`` re-exports governance canonical module."""
-    import obsidiandroid.governance.run_manifest as canon
-    from utils import run_manifest as shim
-
-    assert shim.generate_run_id is canon.generate_run_id
-    assert shim.MANIFEST_SCHEMA_VERSION == canon.MANIFEST_SCHEMA_VERSION
-
-
-def test_artifacts_shim_matches_canonical() -> None:
-    """``utils.artifacts`` re-exports governance canonical module."""
-    import obsidiandroid.governance.artifacts as canon
-    from utils import artifacts as shim
-
-    assert shim.ManifestWriter is canon.ManifestWriter
-    assert shim.ArtifactKey.SPLIT_AUDIT_CSV == canon.ArtifactKey.SPLIT_AUDIT_CSV
-
-
-def test_cohort_reproducibility_shim_matches_canonical() -> None:
-    """``utils.cohort_reproducibility`` re-exports governance canonical module."""
-    import obsidiandroid.governance.cohort_reproducibility as canon
-    from utils import cohort_reproducibility as shim
-
-    assert shim.apply_analysis_snapshot_lock is canon.apply_analysis_snapshot_lock
-    assert shim.export_analysis_snapshot is canon.export_analysis_snapshot
-
-
-def test_cohort_readiness_report_shim_matches_canonical() -> None:
-    """``utils.cohort_readiness_report`` re-exports governance canonical module."""
-    import obsidiandroid.governance.cohort_readiness_report as canon
-    from utils import cohort_readiness_report as shim
-
-    assert shim.print_cohort_readiness_report is canon.print_cohort_readiness_report
-    assert shim.print_cohort_sql_scope_gate_summary is canon.print_cohort_sql_scope_gate_summary
-
-
-def test_profile_manager_shim_matches_canonical() -> None:
-    """``utils.profile_manager`` re-exports :mod:`obsidiandroid.cli.profile_manager`."""
-    import obsidiandroid.cli.profile_manager as canon
-    from utils import profile_manager as shim
-
-    assert shim.load_profile is canon.load_profile
-    assert shim.list_profiles is canon.list_profiles
-
-
-def test_display_utils_shim_matches_canonical_display() -> None:
-    """``utils.display_utils`` re-exports :mod:`obsidiandroid.cli.ui.display`."""
-    from obsidiandroid.cli.ui import display as canon
-    from utils import display_utils as shim
-
-    assert shim.print_subheader is canon.print_subheader
-    assert shim.print_table is canon.print_table
-
-
-def test_ml_console_shim_matches_canonical() -> None:
-    """``utils.ml_console`` re-exports :mod:`obsidiandroid.common.ml_console`."""
-    import obsidiandroid.common.ml_console as canon
-    from utils import ml_console as shim
-
-    assert shim.is_minimal is canon.is_minimal
-    assert shim.get_mode is canon.get_mode
-
-
-def test_family_distribution_report_shim_matches_canonical() -> None:
-    """``utils.family_distribution_report`` delegates to ``obsidiandroid.reporting``."""
-    import obsidiandroid.reporting.family_distribution_report as canon
-    from utils import family_distribution_report as shim
-
-    assert shim.print_family_distribution_stats is canon.print_family_distribution_stats
-
-
-def test_latex_tables_shim_matches_canonical() -> None:
-    """``utils.latex_tables`` delegates to ``obsidiandroid.reporting.latex_tables``."""
-    import obsidiandroid.reporting.latex_tables as canon
-    from utils import latex_tables as shim
-
-    assert shim.LatexTableSpec is canon.LatexTableSpec
-    assert shim.render_tabular is canon.render_tabular
-
-
-def test_av_detection_tiers_shim_matches_canonical() -> None:
-    """``utils.av_detection_tiers`` delegates to ``obsidiandroid.common``."""
-    from obsidiandroid.common import av_detection_tiers as canon
-    from utils import av_detection_tiers as shim
-
-    assert shim.get_detection_tier is canon.get_detection_tier
-    assert shim.DETECTION_TIERS == canon.DETECTION_TIERS
-
-
-def test_export_vendor_raw_shim_matches_canonical() -> None:
-    """``utils.exporting.vendor_raw`` delegates to ``obsidiandroid.common.export_vendor_raw``."""
-    from obsidiandroid.common import export_vendor_raw as canon
-    from utils.exporting import vendor_raw as shim
-
-    assert shim.is_parquet_supported is canon.is_parquet_supported
-    assert shim.export_vendor_raw_artifacts is canon.export_vendor_raw_artifacts
-
-
-def test_confusion_matrix_exporter_shim_matches_canonical() -> None:
-    """``utils.confusion_matrix_exporter`` delegates to ``obsidiandroid.reporting``."""
-    import obsidiandroid.reporting.confusion_matrix_exporter as canon
-    from utils import confusion_matrix_exporter as shim
-
-    assert shim.export_confusion_matrix_image is canon.export_confusion_matrix_image
-
-
-def test_export_manager_shim_matches_canonical() -> None:
-    """``utils.export_manager`` aliases the canonical reporting module (same module object)."""
-    import obsidiandroid.reporting.export_manager as canon
-    from utils import export_manager as shim
-
-    assert shim is canon
-    assert shim.export_dataframe_to_excel is canon.export_dataframe_to_excel
-
-
-def test_model_exporter_shim_matches_canonical() -> None:
-    """``utils.model_exporter`` re-exports :mod:`obsidiandroid.modeling.model_exporter`."""
-    import obsidiandroid.modeling.model_exporter as canon
-    from utils import model_exporter as shim
-
-    assert shim.export_model_to_file is canon.export_model_to_file
-
-
-def test_output_hygiene_shim_matches_canonical() -> None:
-    """``utils.output_hygiene`` re-exports :mod:`obsidiandroid.common.output_hygiene`."""
-    import obsidiandroid.common.output_hygiene as canon
-    from utils import output_hygiene as shim
-
-    assert shim.resolve_stable_output_root_for_mirrors is canon.resolve_stable_output_root_for_mirrors
-    assert shim.mirror_csv_text_run_then_global is canon.mirror_csv_text_run_then_global
-
-
-def test_export_workbook_shim_matches_canonical() -> None:
-    """``utils.exporting.workbook`` delegates to ``obsidiandroid.common.export_workbook``."""
-    from obsidiandroid.common import export_workbook as canon
-    from utils.exporting import workbook as shim
-
-    assert shim.WorkbookLock is canon.WorkbookLock
-    assert shim.write_sheet is canon.write_sheet
-
-
-def test_export_naming_shim_matches_canonical() -> None:
-    """``utils.exporting.naming`` delegates to ``obsidiandroid.common.export_naming``."""
-    from obsidiandroid.common import export_naming as canon
-    from utils.exporting import naming as shim
-
-    assert shim.safe_sheet_name is canon.safe_sheet_name
-    assert shim.alias_for_entry is canon.alias_for_entry
-
-
-def test_exporting_package_aggregate_uses_canonical_helpers() -> None:
-    """``utils.exporting`` aggregate names are bound directly to canonical helpers."""
-    from obsidiandroid.common import export_naming
-    from obsidiandroid.common import export_vendor_raw
-    from obsidiandroid.common import export_workbook
-    import utils.exporting as shim
-
-    assert shim.safe_sheet_name is export_naming.safe_sheet_name
-    assert shim.export_vendor_raw_artifacts is export_vendor_raw.export_vendor_raw_artifacts
-    assert shim.WorkbookLock is export_workbook.WorkbookLock
-
-
-def test_prompt_utils_shim_matches_canonical() -> None:
-    """``utils.prompt_utils`` delegates to ``obsidiandroid.cli.prompt_utils``."""
-    from obsidiandroid.cli import prompt_utils as canon
-    from utils import prompt_utils as shim
-
-    assert shim.prompt_yes_no is canon.prompt_yes_no
-    assert shim.print_warning is canon.print_warning
-
-
 def test_observability_package_reexports_logging() -> None:
     """``obsidiandroid.observability`` re-exports ``get_logger`` / ``log_event``."""
     import obsidiandroid.observability as obs
@@ -850,33 +610,6 @@ def test_observability_package_reexports_logging() -> None:
 
     assert obs.get_logger is olog.get_logger
     assert obs.log_event is olog.log_event
-
-
-def test_logging_package_shim_matches_canonical() -> None:
-    """``utils.logging`` re-exports ``get_logger`` / ``log_event`` from observability."""
-    import obsidiandroid.observability.logging as canon
-    from utils import logging as shim
-
-    assert shim.get_logger is canon.get_logger
-    assert shim.log_event is canon.log_event
-
-
-def test_logging_logger_module_shim_matches_canonical() -> None:
-    """``utils.logging.logger`` delegates to ``obsidiandroid.observability.logging.logger``."""
-    import obsidiandroid.observability.logging.logger as canon
-    from utils.logging import logger as shim
-
-    assert shim.get_logger is canon.get_logger
-    assert shim.close_all_loggers is canon.close_all_loggers
-
-
-def test_logging_runtime_module_shim_matches_canonical() -> None:
-    """``utils.logging.runtime`` delegates to ``obsidiandroid.observability.logging.runtime``."""
-    import obsidiandroid.observability.logging.runtime as canon
-    from utils.logging import runtime as shim
-
-    assert shim.start_runtime_logging is canon.start_runtime_logging
-    assert shim.stop_runtime_logging is canon.stop_runtime_logging
 
 
 def test_thin_compat_shim_trees_follow_policy() -> None:
@@ -984,6 +717,22 @@ def test_database_facade_matches_database_modules() -> None:
         assert getattr(facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.database.{attr}")
         assert alias_mod is canon_mod
+
+
+def test_vendors_and_evaluation_public_entrypoints_exist() -> None:
+    import importlib
+
+    import obsidiandroid.evaluation as eval_pkg
+    import obsidiandroid.vendors as vendors_pkg
+
+    vcp = importlib.import_module("obsidiandroid.evaluation.vendor_classification_parser")
+    generic = importlib.import_module("obsidiandroid.vendors.parsing.generic_label_parser")
+
+    assert eval_pkg.parse_vendor_classifications is vcp.parse_vendor_classifications
+    assert vendors_pkg.parse_generic_classification is generic.parse_generic_classification
+
+    # Evaluation return contract: named result object that still supports tuple unpacking.
+    assert eval_pkg.VendorClassificationParseResult is vcp.VendorClassificationParseResult
 
 
 def test_common_repo_paths_ensure_is_idempotent() -> None:

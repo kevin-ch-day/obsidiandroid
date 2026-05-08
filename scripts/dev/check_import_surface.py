@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Smoke-check that ``obsidiandroid`` and CLI/pipeline entry modules import correctly.
 
-Also enforces **thin compatibility shims** (no duplicated implementation at legacy paths):
-repo-root ``utils/*.py`` (excluding bootstrap/entry special cases), ``utils/exporting``
-leaf modules, and ``utils/logging``—see :mod:`scripts.dev.import_surface_policy`.
+Static policy scans (legacy-root imports in ``src/``/``scripts``, tests, BOM, legacy leaf
+shims under ``analysis``/``ml_classification``) live in
+:mod:`scripts.dev.import_surface_policy`.
 
 Fails if any tracked-style ``*.py`` tree under the repo starts with a **UTF-8 BOM**
 (``\ufeff``), which breaks :func:`ast.parse` and confuses diffs—see
@@ -34,7 +34,7 @@ from scripts.dev.import_surface_policy import (
 )
 
 
-# Ensure repo root is importable (``scripts.*``, ``utils``) when this
+# Ensure repo root is importable (``scripts.*`` etc.) when this
 # file is run from another working directory.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
@@ -96,7 +96,7 @@ def _check_static_policy_scans() -> bool:
     if legacy_imports:
         print(
             "FAIL: canonical src/scripts code imports legacy compatibility roots "
-            "(use obsidiandroid.* instead):",
+            "(use obsidiandroid.*; forbidden roots: analysis, ml_classification):",
             file=sys.stderr,
         )
         for item in legacy_imports:
@@ -108,7 +108,7 @@ def _check_static_policy_scans() -> bool:
     if test_legacy_imports:
         print(
             "FAIL: non-parity tests import legacy compatibility roots "
-            "(use obsidiandroid.* unless the file is an explicit shim/parity test):",
+            "(use obsidiandroid.* unless the file is allowlisted for parity on analysis/ml_classification):",
             file=sys.stderr,
         )
         for item in test_legacy_imports:
@@ -147,30 +147,52 @@ def _check_static_policy_scans() -> bool:
         for msg in thin_errors:
             print(f"FAIL: thin compat shim policy: {msg}", file=sys.stderr)
         return False
-    for policy in THIN_COMPAT_SHIM_POLICIES:
-        print(f"OK   {policy.label}")
+    if THIN_COMPAT_SHIM_POLICIES:
+        for policy in THIN_COMPAT_SHIM_POLICIES:
+            print(f"OK   {policy.label}")
+    else:
+        print("OK   no repo-root thin-compat shim policies (utils/ removed)")
 
     legacy_leaf_errors = collect_legacy_leaf_shim_violations(_REPO_ROOT)
     if legacy_leaf_errors:
         print(
-            "FAIL: legacy analysis/ml_classification/model leaf modules must stay thin shims:",
+            "FAIL: legacy analysis/ml_classification leaf modules must stay thin shims:",
             file=sys.stderr,
         )
         for item in legacy_leaf_errors:
             print(f"  {item}", file=sys.stderr)
         return False
-    print("OK   legacy analysis/ml_classification/model leaf shims")
+    print("OK   legacy analysis/ml_classification leaf shims")
 
     return True
 
 
-def _check_common_reporting_utils_shims() -> bool:
-    """Verify repo-root ``utils`` shims that now point at common/reporting/governance code."""
+def _check_common_reporting_surfaces() -> bool:
+    """Smoke-import canonical common / CLI / governance / reporting modules (no legacy ``utils``)."""
     common_checks = (
         "obsidiandroid.common.hash_utils",
         "obsidiandroid.common.ml_console",
         "obsidiandroid.common.display_distribution",
         "obsidiandroid.common.output_paths",
+        "obsidiandroid.common.output_cleanup_clutter",
+        "obsidiandroid.common.av_detection_tiers",
+        "obsidiandroid.common.sample_metadata_preprocessor",
+        "obsidiandroid.governance.compliance",
+        "obsidiandroid.reporting.latex_tables",
+        "obsidiandroid.reporting.family_distribution_report",
+        "obsidiandroid.cli.profile_manager",
+        "obsidiandroid.governance.cohort_readiness_report",
+        "obsidiandroid.governance.cohort_reproducibility",
+        "obsidiandroid.governance.run_manifest",
+        "obsidiandroid.governance.artifacts",
+        "obsidiandroid.common.export_naming",
+        "obsidiandroid.common.export_vendor_raw",
+        "obsidiandroid.common.export_workbook",
+        "obsidiandroid.reporting.confusion_matrix_exporter",
+        "obsidiandroid.reporting.export_manager",
+        "obsidiandroid.modeling.model_exporter",
+        "obsidiandroid.common.output_hygiene",
+        "obsidiandroid.cli.ui.display",
     )
     for name in common_checks:
         try:
@@ -179,193 +201,6 @@ def _check_common_reporting_utils_shims() -> bool:
             print(f"FAIL: import {name}: {exc}", file=sys.stderr)
             return False
         print(f"OK   {name} -> {_module_path(mod)}")
-
-    hash_pkg = importlib.import_module("obsidiandroid.common.hash_utils")
-    shim_hash = importlib.import_module("utils.hash_utils")
-    if shim_hash.sha256_hex is not hash_pkg.sha256_hex:
-        print("FAIL: utils.hash_utils.sha256_hex is not obsidiandroid.common.hash_utils.sha256_hex", file=sys.stderr)
-        return False
-    print("OK   utils.hash_utils re-exports match obsidiandroid.common.hash_utils")
-
-    canon_op = importlib.import_module("obsidiandroid.common.output_paths")
-    shim_op = importlib.import_module("utils.output_paths")
-    if shim_op.output_root is not canon_op.output_root:
-        print("FAIL: utils.output_paths.output_root shim mismatch", file=sys.stderr)
-        return False
-    if shim_op.project_logs_root is not canon_op.project_logs_root:
-        print("FAIL: utils.output_paths.project_logs_root shim mismatch", file=sys.stderr)
-        return False
-    print("OK   utils.output_paths re-exports match obsidiandroid.common.output_paths")
-
-    canon_disp = importlib.import_module("obsidiandroid.cli.ui.display")
-    shim_disp = importlib.import_module("utils.display_utils")
-    if shim_disp.print_table is not canon_disp.print_table:
-        print("FAIL: utils.display_utils.print_table is not obsidiandroid.cli.ui.display.print_table", file=sys.stderr)
-        return False
-    print("OK   utils.display_utils re-exports match obsidiandroid.cli.ui.display")
-
-    canon_mlc = importlib.import_module("obsidiandroid.common.ml_console")
-    shim_mlc = importlib.import_module("utils.ml_console")
-    if shim_mlc.is_minimal is not canon_mlc.is_minimal:
-        print("FAIL: utils.ml_console.is_minimal is not canonical ml_console", file=sys.stderr)
-        return False
-    print("OK   utils.ml_console re-exports match obsidiandroid.common.ml_console")
-
-    canon_occ = importlib.import_module("obsidiandroid.common.output_cleanup_clutter")
-    shim_occ = importlib.import_module("utils.output_cleanup_clutter")
-    if shim_occ.WORKBOOK_CORRUPT_GLOB != canon_occ.WORKBOOK_CORRUPT_GLOB:
-        print("FAIL: output_cleanup_clutter shim mismatch", file=sys.stderr)
-        return False
-    print("OK   utils.output_cleanup_clutter re-exports match obsidiandroid.common.output_cleanup_clutter")
-
-    canon_av = importlib.import_module("obsidiandroid.common.av_detection_tiers")
-    shim_av = importlib.import_module("utils.av_detection_tiers")
-    if shim_av.get_detection_tier is not canon_av.get_detection_tier:
-        print("FAIL: av_detection_tiers shim mismatch", file=sys.stderr)
-        return False
-    print("OK   utils.av_detection_tiers re-exports match obsidiandroid.common.av_detection_tiers")
-
-    canon_smp = importlib.import_module("obsidiandroid.common.sample_metadata_preprocessor")
-    shim_smp = importlib.import_module("utils.sample_metadata_preprocessor")
-    if shim_smp.prepare_sample_dataframe is not canon_smp.prepare_sample_dataframe:
-        print("FAIL: sample_metadata_preprocessor shim mismatch", file=sys.stderr)
-        return False
-    print("OK   utils.sample_metadata_preprocessor re-exports match obsidiandroid.common.sample_metadata_preprocessor")
-
-    canon_cmp = importlib.import_module("obsidiandroid.governance.compliance")
-    shim_cmp = importlib.import_module("utils.compliance")
-    if shim_cmp.build_compliance_report is not canon_cmp.build_compliance_report:
-        print("FAIL: utils.compliance shim mismatch", file=sys.stderr)
-        return False
-    print("OK   utils.compliance re-exports match obsidiandroid.governance.compliance")
-
-    canon_lt = importlib.import_module("obsidiandroid.reporting.latex_tables")
-    shim_lt = importlib.import_module("utils.latex_tables")
-    if shim_lt.LatexTableSpec is not canon_lt.LatexTableSpec:
-        print("FAIL: utils.latex_tables LatexTableSpec shim mismatch", file=sys.stderr)
-        return False
-    print("OK   utils.latex_tables re-exports match obsidiandroid.reporting.latex_tables")
-
-    canon_fdr = importlib.import_module("obsidiandroid.reporting.family_distribution_report")
-    shim_fdr = importlib.import_module("utils.family_distribution_report")
-    if shim_fdr.print_family_distribution_stats is not canon_fdr.print_family_distribution_stats:
-        print("FAIL: family_distribution_report shim mismatch", file=sys.stderr)
-        return False
-    print("OK   utils.family_distribution_report re-exports match obsidiandroid.reporting.family_distribution_report")
-
-    canon_pm = importlib.import_module("obsidiandroid.cli.profile_manager")
-    shim_pm = importlib.import_module("utils.profile_manager")
-    if shim_pm.load_profile is not canon_pm.load_profile:
-        print("FAIL: profile_manager shim mismatch", file=sys.stderr)
-        return False
-    print("OK   utils.profile_manager re-exports match obsidiandroid.cli.profile_manager")
-
-    canon_crr = importlib.import_module("obsidiandroid.governance.cohort_readiness_report")
-    shim_crr = importlib.import_module("utils.cohort_readiness_report")
-    if shim_crr.print_cohort_readiness_report is not canon_crr.print_cohort_readiness_report:
-        print("FAIL: cohort_readiness_report shim mismatch", file=sys.stderr)
-        return False
-    print("OK   utils.cohort_readiness_report re-exports match obsidiandroid.governance.cohort_readiness_report")
-
-    canon_crep = importlib.import_module("obsidiandroid.governance.cohort_reproducibility")
-    shim_crep = importlib.import_module("utils.cohort_reproducibility")
-    if shim_crep.apply_analysis_snapshot_lock is not canon_crep.apply_analysis_snapshot_lock:
-        print("FAIL: cohort_reproducibility shim mismatch", file=sys.stderr)
-        return False
-    print("OK   utils.cohort_reproducibility re-exports match obsidiandroid.governance.cohort_reproducibility")
-
-    canon_rm = importlib.import_module("obsidiandroid.governance.run_manifest")
-    shim_rm = importlib.import_module("utils.run_manifest")
-    if shim_rm.generate_run_id is not canon_rm.generate_run_id:
-        print("FAIL: run_manifest.generate_run_id shim mismatch", file=sys.stderr)
-        return False
-    if shim_rm.write_run_manifest is not canon_rm.write_run_manifest:
-        print("FAIL: run_manifest.write_run_manifest shim mismatch", file=sys.stderr)
-        return False
-    print("OK   utils.run_manifest re-exports match obsidiandroid.governance.run_manifest")
-
-    canon_art = importlib.import_module("obsidiandroid.governance.artifacts")
-    shim_art = importlib.import_module("utils.artifacts")
-    if shim_art.ManifestWriter is not canon_art.ManifestWriter:
-        print("FAIL: artifacts.ManifestWriter shim mismatch", file=sys.stderr)
-        return False
-    if shim_art.ArtifactKey is not canon_art.ArtifactKey:
-        print("FAIL: artifacts.ArtifactKey shim mismatch", file=sys.stderr)
-        return False
-    print("OK   utils.artifacts re-exports match obsidiandroid.governance.artifacts")
-
-    canon_en = importlib.import_module("obsidiandroid.common.export_naming")
-    shim_en = importlib.import_module("utils.exporting.naming")
-    if shim_en.safe_sheet_name is not canon_en.safe_sheet_name:
-        print(
-            "FAIL: utils.exporting.naming.safe_sheet_name is not obsidiandroid.common.export_naming",
-            file=sys.stderr,
-        )
-        return False
-    print("OK   utils.exporting.naming re-exports match obsidiandroid.common.export_naming")
-
-    canon_ev = importlib.import_module("obsidiandroid.common.export_vendor_raw")
-    shim_ev = importlib.import_module("utils.exporting.vendor_raw")
-    if shim_ev.is_parquet_supported is not canon_ev.is_parquet_supported:
-        print("FAIL: export_vendor_raw shim mismatch", file=sys.stderr)
-        return False
-    print("OK   utils.exporting.vendor_raw re-exports match obsidiandroid.common.export_vendor_raw")
-
-    canon_wb = importlib.import_module("obsidiandroid.common.export_workbook")
-    shim_wb = importlib.import_module("utils.exporting.workbook")
-    if shim_wb.WorkbookLock is not canon_wb.WorkbookLock:
-        print("FAIL: export_workbook WorkbookLock shim mismatch", file=sys.stderr)
-        return False
-    print("OK   utils.exporting.workbook re-exports match obsidiandroid.common.export_workbook")
-    shim_exporting = importlib.import_module("utils.exporting")
-    if shim_exporting.safe_sheet_name is not canon_en.safe_sheet_name:
-        print("FAIL: utils.exporting.safe_sheet_name aggregate mismatch", file=sys.stderr)
-        return False
-    if shim_exporting.export_vendor_raw_artifacts is not canon_ev.export_vendor_raw_artifacts:
-        print("FAIL: utils.exporting.export_vendor_raw_artifacts aggregate mismatch", file=sys.stderr)
-        return False
-    if shim_exporting.WorkbookLock is not canon_wb.WorkbookLock:
-        print("FAIL: utils.exporting.WorkbookLock aggregate mismatch", file=sys.stderr)
-        return False
-    print("OK   utils.exporting aggregate re-exports match obsidiandroid.common export helpers")
-
-    canon_cm = importlib.import_module("obsidiandroid.reporting.confusion_matrix_exporter")
-    shim_cm = importlib.import_module("utils.confusion_matrix_exporter")
-    if shim_cm.export_confusion_matrix_image is not canon_cm.export_confusion_matrix_image:
-        print("FAIL: confusion_matrix_exporter export_confusion_matrix_image shim mismatch", file=sys.stderr)
-        return False
-    print("OK   utils.confusion_matrix_exporter re-exports match obsidiandroid.reporting")
-
-    canon_em = importlib.import_module("obsidiandroid.reporting.export_manager")
-    shim_em = importlib.import_module("utils.export_manager")
-    if shim_em is not canon_em:
-        print(
-            "FAIL: utils.export_manager must alias obsidiandroid.reporting.export_manager module object",
-            file=sys.stderr,
-        )
-        return False
-    if shim_em.export_dataframe_to_excel is not canon_em.export_dataframe_to_excel:
-        print("FAIL: export_manager.export_dataframe_to_excel shim mismatch", file=sys.stderr)
-        return False
-    print("OK   utils.export_manager aliases obsidiandroid.reporting.export_manager")
-
-    canon_me = importlib.import_module("obsidiandroid.modeling.model_exporter")
-    shim_me = importlib.import_module("utils.model_exporter")
-    if shim_me.export_model_to_file is not canon_me.export_model_to_file:
-        print("FAIL: utils.model_exporter.export_model_to_file is not canonical", file=sys.stderr)
-        return False
-    print("OK   utils.model_exporter re-exports match obsidiandroid.modeling.model_exporter")
-
-    canon_oh = importlib.import_module("obsidiandroid.common.output_hygiene")
-    shim_oh = importlib.import_module("utils.output_hygiene")
-    if shim_oh.resolve_stable_output_root_for_mirrors is not canon_oh.resolve_stable_output_root_for_mirrors:
-        print("FAIL: utils.output_hygiene.resolve_stable_output_root_for_mirrors is not canonical", file=sys.stderr)
-        return False
-    if shim_oh.mirror_csv_text_run_then_global is not canon_oh.mirror_csv_text_run_then_global:
-        print("FAIL: utils.output_hygiene.mirror_csv_text_run_then_global is not canonical", file=sys.stderr)
-        return False
-    print("OK   utils.output_hygiene re-exports match obsidiandroid.common.output_hygiene")
-
     return True
 
 
@@ -393,28 +228,11 @@ def _check_observability_diagnostics_database_shims() -> bool:
         return False
     print("OK   obsidiandroid.observability re-exports get_logger / log_event from logging subpackage")
 
-    shim_olog = importlib.import_module("utils.logging")
-    if shim_olog.get_logger is not canon_olog.get_logger:
-        print("FAIL: utils.logging.get_logger is not canonical", file=sys.stderr)
-        return False
-    if shim_olog.log_event is not canon_olog.log_event:
-        print("FAIL: utils.logging.log_event is not canonical", file=sys.stderr)
-        return False
-    print("OK   utils.logging re-exports match obsidiandroid.observability.logging")
-
     canon_olog_logger = importlib.import_module("obsidiandroid.observability.logging.logger")
-    shim_olog_logger = importlib.import_module("utils.logging.logger")
-    if shim_olog_logger.close_all_loggers is not canon_olog_logger.close_all_loggers:
-        print("FAIL: utils.logging.logger.close_all_loggers is not canonical", file=sys.stderr)
-        return False
-    print("OK   utils.logging.logger re-exports match obsidiandroid.observability.logging.logger")
+    print(f"OK   obsidiandroid.observability.logging.logger -> {_module_path(canon_olog_logger)}")
 
     canon_olog_rt = importlib.import_module("obsidiandroid.observability.logging.runtime")
-    shim_olog_rt = importlib.import_module("utils.logging.runtime")
-    if shim_olog_rt.start_runtime_logging is not canon_olog_rt.start_runtime_logging:
-        print("FAIL: utils.logging.runtime.start_runtime_logging is not canonical", file=sys.stderr)
-        return False
-    print("OK   utils.logging.runtime re-exports match obsidiandroid.observability.logging.runtime")
+    print(f"OK   obsidiandroid.observability.logging.runtime -> {_module_path(canon_olog_rt)}")
 
     try:
         pop_pkg = importlib.import_module("obsidiandroid.observability.pipeline_observability")
@@ -423,12 +241,12 @@ def _check_observability_diagnostics_database_shims() -> bool:
         return False
     print(f"OK   obsidiandroid.observability.pipeline_observability -> {_module_path(pop_pkg)}")
 
-    canon_pu = importlib.import_module("obsidiandroid.cli.prompt_utils")
-    shim_pu = importlib.import_module("utils.prompt_utils")
-    if shim_pu.prompt_yes_no is not canon_pu.prompt_yes_no:
-        print("FAIL: utils.prompt_utils.prompt_yes_no is not canonical", file=sys.stderr)
+    try:
+        pu_mod = importlib.import_module("obsidiandroid.cli.prompt_utils")
+    except Exception as exc:
+        print(f"FAIL: import obsidiandroid.cli.prompt_utils: {exc}", file=sys.stderr)
         return False
-    print("OK   utils.prompt_utils re-exports match obsidiandroid.cli.prompt_utils")
+    print(f"OK   obsidiandroid.cli.prompt_utils -> {_module_path(pu_mod)}")
 
     try:
         gov_mod = importlib.import_module("obsidiandroid.governance.evidence_mode_resolver")
@@ -436,15 +254,6 @@ def _check_observability_diagnostics_database_shims() -> bool:
         print(f"FAIL: import obsidiandroid.governance.evidence_mode_resolver: {exc}", file=sys.stderr)
         return False
     print(f"OK   obsidiandroid.governance.evidence_mode_resolver -> {_module_path(gov_mod)}")
-
-    shim_em = importlib.import_module("utils.evidence_mode_resolver")
-    if shim_em.resolve_evidence_mode is not gov_mod.resolve_evidence_mode:
-        print(
-            "FAIL: utils.evidence_mode_resolver.resolve_evidence_mode is not canonical",
-            file=sys.stderr,
-        )
-        return False
-    print("OK   utils.evidence_mode_resolver re-exports match governance canonical module")
 
     try:
         diag_facade = importlib.import_module("obsidiandroid.diagnostics")
@@ -1284,6 +1093,35 @@ def main() -> int:
             return 1
     print("OK   obsidiandroid.vendors top-level aliases match obsidiandroid.vendors.parsing + legacy shim")
 
+    # Vendor public-ish entrypoints (new surface): contracts + generic parser.
+    from obsidiandroid.vendors.contracts.parsed_label_metadata import ParsedLabelMetadata as _plm_canon
+    from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord as _vcr_canon
+
+    if getattr(_vendors_facade, "ParsedLabelMetadata") is not _plm_canon:
+        print(
+            "FAIL: obsidiandroid.vendors.ParsedLabelMetadata must re-export vendors.contracts.parsed_label_metadata.ParsedLabelMetadata",
+            file=sys.stderr,
+        )
+        return 1
+    if getattr(_vendors_facade, "VendorClassificationRecord") is not _vcr_canon:
+        print(
+            "FAIL: obsidiandroid.vendors.VendorClassificationRecord must re-export vendors.contracts.record_core.VendorClassificationRecord",
+            file=sys.stderr,
+        )
+        return 1
+
+    _generic_mod = importlib.import_module("obsidiandroid.vendors.parsing.generic_label_parser")
+    if getattr(_vendors_facade, "parse_generic_classification") is not getattr(
+        _generic_mod, "parse_generic_classification"
+    ):
+        print(
+            "FAIL: obsidiandroid.vendors.parse_generic_classification must re-export vendors.parsing.generic_label_parser.parse_generic_classification",
+            file=sys.stderr,
+        )
+        return 1
+    del _plm_canon, _vcr_canon, _generic_mod
+    print("OK   obsidiandroid.vendors public surface exports contracts + generic parser entrypoint")
+
     _vendors_parsing_pairs = (
         "generic_label_parser",
         "vendor_parser_map",
@@ -1307,35 +1145,6 @@ def main() -> int:
             )
             return 1
     print("OK   obsidiandroid.vendors.parsing key modules preserve identity with legacy shim")
-
-    # Pass 60: model.parsing / model.vendor physical move to obsidiandroid.vendors.contracts.
-    contracts_pairs = (
-        ("parsed_label_metadata", "model.parsing.parsed_label_metadata"),
-        ("record_core", "model.vendor.record_core"),
-        ("feature_engine", "model.vendor.feature_engine"),
-        ("record_diagnostics", "model.core.record_diagnostics"),
-        ("metadata_normalizer", "model.utils.metadata_normalizer"),
-    )
-    for canon_name, legacy_name in contracts_pairs:
-        canon_mod = importlib.import_module(f"obsidiandroid.vendors.contracts.{canon_name}")
-        legacy_mod = importlib.import_module(legacy_name)
-        if legacy_mod is not canon_mod:
-            print(
-                f"FAIL: {legacy_name} did not resolve to obsidiandroid.vendors.contracts.{canon_name}",
-                file=sys.stderr,
-            )
-            return 1
-    print("OK   model.parsing/model.vendor/model core helper shims match obsidiandroid.vendors.contracts")
-
-    risk_band_config = importlib.import_module("obsidiandroid.risk_band.risk_band_config")
-    legacy_risk_band_config = importlib.import_module("model.core.risk_band_config")
-    if legacy_risk_band_config is not risk_band_config:
-        print(
-            "FAIL: model.core.risk_band_config did not resolve to obsidiandroid.risk_band.risk_band_config",
-            file=sys.stderr,
-        )
-        return 1
-    print("OK   model.core.risk_band_config shim matches obsidiandroid.risk_band.risk_band_config")
 
     # Passes 61–63: evaluation physical moves; legacy package registers identity.
     eval_pairs = (
@@ -1366,6 +1175,18 @@ def main() -> int:
             )
             return 1
     print("OK   analysis.evaluation package shim matches obsidiandroid.evaluation")
+
+    # Evaluation public-ish entrypoint: parse_vendor_classifications should be importable from package root.
+    _eval_pkg = importlib.import_module("obsidiandroid.evaluation")
+    _eval_vcp = importlib.import_module("obsidiandroid.evaluation.vendor_classification_parser")
+    if getattr(_eval_pkg, "parse_vendor_classifications") is not getattr(_eval_vcp, "parse_vendor_classifications"):
+        print(
+            "FAIL: obsidiandroid.evaluation.parse_vendor_classifications must re-export vendor_classification_parser.parse_vendor_classifications",
+            file=sys.stderr,
+        )
+        return 1
+    del _eval_pkg, _eval_vcp
+    print("OK   obsidiandroid.evaluation exports parse_vendor_classifications entrypoint")
 
     _ml_cls_eval_three = ("ml_eval_engine", "ml_comparator_summary", "accuracy_band_utils")
     for mod in _ml_cls_eval_three:
@@ -1448,7 +1269,7 @@ def main() -> int:
             return 1
     print("OK   obsidiandroid.governance pipeline governance matches legacy shims (Pass 75)")
 
-    if not _check_common_reporting_utils_shims():
+    if not _check_common_reporting_surfaces():
         return 1
 
     if not _check_observability_diagnostics_database_shims():

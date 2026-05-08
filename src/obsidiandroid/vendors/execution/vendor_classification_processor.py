@@ -9,7 +9,7 @@ import pandas as pd
 
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.evaluation import vendor_summary_builder
-from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
+from obsidiandroid.vendors import VendorClassificationRecord
 from obsidiandroid.vendors.execution import vendor_record_factory
 
 

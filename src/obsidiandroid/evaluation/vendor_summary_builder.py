@@ -5,7 +5,7 @@ import math
 from collections import Counter
 from typing import Dict, List, Set, Union
 
-from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
+from obsidiandroid.vendors import VendorClassificationRecord
 
 
 # ---------------------------------------------------------

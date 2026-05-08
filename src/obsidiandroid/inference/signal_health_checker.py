@@ -1,9 +1,10 @@
 # Filename: src/obsidiandroid/inference/signal_health_checker.py
 # Purpose  : Analyze classification record signal quality and identify problematic or weak samples
 
-from typing import List, Dict, Union
-from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
+from typing import Dict, List, Union
+
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.vendors import VendorClassificationRecord
 
 
 def analyze_signal_health(

@@ -24,7 +24,7 @@
 The core workflow (`main.py` → `obsidiandroid.pipeline.runner`) executes these key steps:
 
 1. **Load Sample Metadata** from a configured MySQL database. Connection defaults and environment overrides are defined in **`obsidiandroid.database.db_config`** (same module as **`database/db_config.py`** — primary Erebus DB plus the Permission Intel DB; see [Configuration](#configuration) below).
-2. **Run AV Engine Analysis** via `analysis/` parsers to collect and normalize vendor labels.
+2. **Run AV Engine Analysis** via canonical vendor parsing/execution modules (**`obsidiandroid.vendors`**) with legacy `analysis.*` shims preserved for compatibility.
 3. **Extract Vendor Metadata** and generate summary statistics/evaluation metrics.
 4. **Compute Engine Weights** using specificity, noise, and historical performance (see `obsidiandroid/feature_engineering/compute_vendor_scores.py`).
 5. **Feature Engineering:** Construct feature vectors from permissions, vendor scores, and consensus features.
@@ -38,7 +38,7 @@ All artifacts (models, reports, diagnostics) are saved under `output/`.
 
 ## Repository layout (hybrid migration)
 
-The installable package lives under **`src/obsidiandroid/`** (CLI, `common`, **`obsidiandroid.database`**, `pipeline`, `modeling`, `features`, `labeling`, …). Legacy root packages such as **`analysis/`**, **`ml_classification/`**, **`model/`**, and **`utils/`** remain mainly as compatibility shims so existing imports and tests keep working. Top-level **`database/`** remains an intentional implementation tree behind the curated **`obsidiandroid.database`** façade. Prefer **`obsidiandroid.*`** imports in new code. Details, backlog, and pass history: [`docs/STRUCTURE_MIGRATION_PLAN.md`](docs/STRUCTURE_MIGRATION_PLAN.md).
+The installable package lives under **`src/obsidiandroid/`** (CLI, `common`, **`obsidiandroid.database`**, `pipeline`, `modeling`, `features`, `labeling`, …). Legacy root packages **`analysis/`** and **`ml_classification/`** remain mainly as compatibility shims (repo-root **`model/`** was removed—use **`obsidiandroid.vendors.contracts`** and **`obsidiandroid.risk_band`**). Top-level **`database/`** remains an intentional implementation tree behind the curated **`obsidiandroid.database`** façade. Prefer **`obsidiandroid.*`** imports in new code. Details, backlog, and pass history: [`docs/STRUCTURE_MIGRATION_PLAN.md`](docs/STRUCTURE_MIGRATION_PLAN.md).
 
 **Generated / runtime artifacts** (`output/`, `logs/`, virtualenvs, caches, build outputs) are listed in **`.gitignore`** and should not be committed. For a **source-only** tree view after local runs, run **`make clean-bytecode`** then **`make tree-source`** (ignores `output/`, `logs/`, `.venv`, pytest/coverage caches, etc.; install the `tree` utility if needed). Developer import modes (`pip install -e .`, `PYTHONPATH`, pytest): see [`docs/AGENTS.md`](docs/AGENTS.md) (repo-root [`AGENTS.md`](AGENTS.md) is a short pointer).
 
@@ -53,7 +53,6 @@ ObsidianDroid/
 ├── database/               # DB access helpers and queries
 ├── docs/                   # Guides (incl. AGENTS, GOVERNANCE, STRUCTURE plan)
 ├── ml_classification/      # Legacy compatibility shims for ML modules
-├── utils/                  # Compatibility shims for common/reporting/CLI helpers
 ├── pyproject.toml          # Packaging, dependencies, pytest defaults
 ├── main.py                 # CLI entry (implementation in `obsidiandroid.pipeline.runner`)
 ├── setup.sh                # Wrapper → scripts/dev/bootstrap_venv.sh
@@ -93,9 +92,14 @@ Each markdown file can be browsed directly in GitHub’s file viewer for quick n
    ./setup.sh
    ```
    The setup script creates `.venv`, upgrades `pip`, and installs `requirements.txt`.
-3. **(Optional for full pipeline runs) Configure MariaDB/MySQL** by setting `OBSIDIAN_DB_*` and `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (see [Configuration](#configuration)) or by editing the defaults in `database/db_config.py` for local development only. Do not commit real passwords; prefer environment variables or a secrets manager.
+3. **Install in editable mode (recommended):**
+   ```bash
+   source .venv/bin/activate
+   pip install -e .
+   ```
+4. **(Optional for full pipeline runs) Configure MariaDB/MySQL** by setting `OBSIDIAN_DB_*` and `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (see [Configuration](#configuration)) or by editing the defaults in `database/db_config.py` for local development only. Do not commit real passwords; prefer environment variables or a secrets manager.
    The CLI can launch before database access is fully configured, but database-backed menu actions and pipeline stages still require a working database.
-4. **(Optional) Edit pipeline settings** in `config/app_config.py` (model selection, hyperparameters, etc).
+5. **(Optional) Edit pipeline settings** in `config/app_config.py` (model selection, hyperparameters, etc).
 
 ---
 
@@ -127,6 +131,11 @@ Each markdown file can be browsed directly in GitHub’s file viewer for quick n
   For direct invocation:
   ```bash
   python -c "import main; raise SystemExit(main.run_pipeline(profile_ref='banker'))"
+  ```
+
+- **Quick dev checks (mirrors CI):**
+  ```bash
+  make ci
   ```
 
 - **Outputs:** Results (trained models, evaluation summaries, feature matrices) are saved in `output/`, including:

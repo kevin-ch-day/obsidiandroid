@@ -5,7 +5,7 @@ import pandas as pd
 
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.evaluation import vendor_classification_inspector as inspector
-from obsidiandroid.evaluation.vendor_classification_parser import parse_vendor_classifications
+from obsidiandroid.evaluation import parse_vendor_classifications
 from obsidiandroid.reporting import export_manager as em
 
 

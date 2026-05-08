@@ -91,7 +91,7 @@ def isolate_output_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
             raising=False,
         )
         try:
-            from utils import export_manager
+            from obsidiandroid.reporting import export_manager
 
             monkeypatch.setattr(export_manager, "OUTPUT_ROOT", output_root.resolve(), raising=False)
         except Exception:

@@ -1,15 +1,14 @@
-"""Legacy ``utils.evidence_mode_resolver`` shim matches canonical governance module."""
+"""Smoke tests for ``obsidiandroid.governance.evidence_mode_resolver`` public surface."""
 
 from __future__ import annotations
 
-import obsidiandroid.governance.evidence_mode_resolver as canon
-from utils import evidence_mode_resolver as shim
+import obsidiandroid.governance.evidence_mode_resolver as gov
 
 
-def test_evidence_mode_resolver_shim_matches_canonical() -> None:
-    assert shim.resolve_evidence_mode is canon.resolve_evidence_mode
-    assert shim.enforce_immutable_lock is canon.enforce_immutable_lock
-    assert shim.ENV_EVIDENCE_MODE == canon.ENV_EVIDENCE_MODE
-    assert shim.EvidenceModeConfigError is canon.EvidenceModeConfigError
-    assert shim.EvidenceModeImmutableError is canon.EvidenceModeImmutableError
-    assert shim.EvidenceModeResolution is canon.EvidenceModeResolution
+def test_evidence_mode_resolver_public_symbols() -> None:
+    assert callable(gov.resolve_evidence_mode)
+    assert callable(gov.enforce_immutable_lock)
+    assert isinstance(gov.ENV_EVIDENCE_MODE, str)
+    assert gov.EvidenceModeConfigError is not None
+    assert gov.EvidenceModeImmutableError is not None
+    assert gov.EvidenceModeResolution is not None

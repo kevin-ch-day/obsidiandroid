@@ -2,7 +2,7 @@
 
 This audit identifies oversized scripts/modules and split targets to reduce maintenance risk.
 
-**Note:** Line counts below were refreshed against the tree on the date of the last audit edit; re-run the inspection scripts below before relying on exact numbers. Root `main.py` is a **compatibility shim** (~60 LOC); real CLI imports live under **`src/obsidiandroid/cli/`**. **`utils/startup_menu.py`** is a shim; the interactive menu is **`src/obsidiandroid/cli/startup_menu.py`**.
+**Note:** Line counts below were refreshed against the tree on the date of the last audit edit; re-run the inspection scripts below before relying on exact numbers. Root `main.py` is a **compatibility shim** (~60 LOC); real CLI imports live under **`src/obsidiandroid/cli/`**.
 
 ## Current hotspots (refreshed)
 
@@ -17,11 +17,11 @@ Representative file sizes (production + orchestration paths, approximate):
 | Module | LOC (approx.) | Notes |
 |--------|----------------|-------|
 | `analysis/pipeline/stage_permission_trends_report.py` | ~3170 | Largest stage module |
-| `src/obsidiandroid/cli/startup_menu.py` | ~2000 | Operator menu (canonical); root `utils/startup_menu.py` is a shim |
+| `src/obsidiandroid/cli/startup_menu.py` | ~2000 | Operator menu (canonical) |
 | `analysis/pipeline/stage_manifest.py` | ~2570 | Manifest / exports |
 | `src/obsidiandroid/pipeline/runner.py` | ~1640 | `run_pipeline` orchestration (legacy `analysis.pipeline.runner` is a shim) |
 | `analysis/pipeline/stage_results_warehouse.py` | ~1170 | Results warehouse |
-| `utils/export_manager.py` | ~860 | Exports |
+| `obsidiandroid.reporting.export_manager` | ~860 | Exports |
 | `ml_classification/training/pipeline_core.py` | ~900 | Training orchestration |
 | `ml_classification/labeling/classification_label_resolver.py` | ~750 | Label / taxonomy |
 | `main.py` (repo root) | ~60 | Shim only — not the LOC-heavy CLI |
@@ -50,7 +50,7 @@ Largest function hotspots (see inspect scripts for current line numbers):
 2. `analysis/pipeline/stage_manifest.py`
 3. `src/obsidiandroid/pipeline/runner.py` (or extract stage dispatch helpers without moving files in one shot)
 4. `src/obsidiandroid/cli/startup_menu.py` (behind-menu workflows → services)
-5. `utils/export_manager.py`
+5. `obsidiandroid.reporting.export_manager`
 6. `ml_classification/labeling/classification_label_resolver.py`
 7. `analysis/pipeline/stage_results_warehouse.py`
 
@@ -95,7 +95,7 @@ Move into (conceptually):
 
 Goal: menu rendering + dispatch only; move workflows to service functions.
 
-### 5) `utils/export_manager.py` split
+### 5) `obsidiandroid.reporting.export_manager` split
 
 Move into:
 

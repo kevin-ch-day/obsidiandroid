@@ -9,7 +9,7 @@ Canonical modules include :mod:`obsidiandroid.common.hash_utils`,
 :mod:`obsidiandroid.common.sample_metadata_preprocessor`,
 :mod:`obsidiandroid.common.output_paths`, :mod:`obsidiandroid.common.output_hygiene`,
 and :mod:`obsidiandroid.common.repo_paths`.
-Legacy ``utils/*`` shims re-export the same objects.
+Import these modules directly from ``obsidiandroid.common`` (or reporting/CLI peers).
 """
 
 from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path

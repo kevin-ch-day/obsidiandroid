@@ -3,7 +3,6 @@
 Concrete modules live under :mod:`obsidiandroid.governance`; legacy
 ``analysis.pipeline.governance.*`` paths resolve to the same ``ModuleType`` objects
 (**Pass 75** thin shims for exceptions, integrity, policy, readiness).
-Legacy ``utils.*`` shims are thin re-exports where present.
 """
 
 from __future__ import annotations

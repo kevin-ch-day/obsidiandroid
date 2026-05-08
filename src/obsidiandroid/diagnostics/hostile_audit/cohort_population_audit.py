@@ -59,7 +59,24 @@ def _scan_text_for_suspicious_claims(diagnostics_dir: Path, known_counts: dict[s
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        nums = {int(m.group(1)) for m in re.finditer(r"\b(\d{3,5})\b", text)}
+        # Only consider numeric mentions that look like *population counts*.
+        # The prior heuristic matched any 3–5 digit sequence, which falsely flags:
+        # - years (2020/2026),
+        # - percent-encoded metrics (e.g., Macro-F1 0.9703 → "9703"),
+        # - sample_id mentions.
+        nums: set[int] = set()
+        population_patterns = (
+            # "N=1226", "n: 1226", "rows: 1226", "samples = 1226"
+            r"(?i)\b(?:n|rows?|samples?|cohort)\s*[:=]\s*(\d{3,5})\b",
+            # "1226 rows", "1226 samples"
+            r"(?i)\b(\d{3,5})\s*(?:rows?|samples?)\b",
+        )
+        for pat in population_patterns:
+            for m in re.finditer(pat, text):
+                try:
+                    nums.add(int(m.group(1)))
+                except (TypeError, ValueError):
+                    continue
         max_truth = max(known_counts.values()) if known_counts.values() else 0
         min_truth = min(v for v in known_counts.values() if v > 0) if any(
             v > 0 for v in known_counts.values()

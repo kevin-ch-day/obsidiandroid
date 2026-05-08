@@ -111,6 +111,7 @@ def write_taxonomy_type_authority_reports(
     """Emit ``taxonomy_type_authority_review.{md,csv}`` with policy + counts + examples."""
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     summary = _read_taxonomy_summary(diagnostics_dir, run_id)
+    summary_present = bool(summary)
 
     mismatch_globs = sorted(
         diagnostics_dir.glob("taxonomy_consistency_mismatches*.csv"),
@@ -138,16 +139,23 @@ def write_taxonomy_type_authority_reports(
     if not df.empty and "label_type_slug" in df.columns:
         distinct_label = int(df["label_type_slug"].fillna("").astype(str).str.strip().replace("", pd.NA).nunique())
 
-    rows_eval = int(summary.get("rows_evaluated", 0) or 0)
-    fam_eval = int(summary.get("family_rows_evaluated", 0) or 0)
-    pred_err = int(summary.get("prediction_error_count", 0) or 0)
-    type_map = int(summary.get("type_mismatch_count", 0) or 0)
-    type_miss = int(summary.get("type_missing_label_count", 0) or 0)
-    type_nonc = int(summary.get("type_noncanonical_count", 0) or 0)
-    fam_lab_mm = int(summary.get("family_label_mismatch_count", 0) or 0)
-    tax_total = int(summary.get("taxonomy_mismatch_count", 0) or 0)
+    if summary_present:
+        rows_eval: int | None = int(summary.get("rows_evaluated", 0) or 0)
+        fam_eval: int | None = int(summary.get("family_rows_evaluated", 0) or 0)
+        pred_err: int | None = int(summary.get("prediction_error_count", 0) or 0)
+        type_map: int | None = int(summary.get("type_mismatch_count", 0) or 0)
+        type_miss: int | None = int(summary.get("type_missing_label_count", 0) or 0)
+        type_nonc: int | None = int(summary.get("type_noncanonical_count", 0) or 0)
+        fam_lab_mm: int | None = int(summary.get("family_label_mismatch_count", 0) or 0)
+        tax_total: int | None = int(summary.get("taxonomy_mismatch_count", 0) or 0)
+    else:
+        rows_eval = fam_eval = pred_err = type_map = type_miss = type_nonc = fam_lab_mm = tax_total = None
 
-    fam_correct_est = max(0, fam_eval - pred_err) if fam_eval else None
+    fam_correct_est = (
+        max(0, fam_eval - pred_err)
+        if fam_eval is not None and pred_err is not None and fam_eval
+        else None
+    )
 
     md_lines = [
         "# Taxonomy authority decision",
@@ -164,16 +172,16 @@ def write_taxonomy_type_authority_reports(
         "",
         "| Metric | Value | Notes |",
         "| --- | ---: | --- |",
-        f"| rows_evaluated (taxonomy audit) | {rows_eval} | structured classification rows |",
-        f"| family_rows_evaluated | {fam_eval} | rows with cohort family metadata |",
+        f"| rows_evaluated (taxonomy audit) | {rows_eval if rows_eval is not None else '—'} | structured classification rows |",
+        f"| family_rows_evaluated | {fam_eval if fam_eval is not None else '—'} | rows with cohort family metadata |",
         f"| distinct cohort types (taxonomy-flag CSV) | {distinct_cohort if distinct_cohort is not None else '—'} | unique `type_slug_expected` in mismatch export |",
         f"| distinct label-derived types (taxonomy-flag CSV) | {distinct_label if distinct_label is not None else '—'} | unique `label_type_slug` in mismatch export |",
-        f"| taxonomy_mismatch rows (union) | {tax_total} | cohort vs label-string inconsistency flags |",
-        f"| type_mapping_mismatch | {type_map} | cohort type ≠ canonical label-derived type |",
-        f"| type_label_missing | {type_miss} | label string lacks extractable type |",
-        f"| type_label_noncanonical | {type_nonc} | label-derived type not in configured canonical set |",
-        f"| label_family_mismatch | {fam_lab_mm} | label family token ≠ normalized predicted family |",
-        f"| family_prediction_errors | {pred_err} | **model** predicted family ≠ cohort family |",
+        f"| taxonomy_mismatch rows (union) | {tax_total if tax_total is not None else '—'} | cohort vs label-string inconsistency flags |",
+        f"| type_mapping_mismatch | {type_map if type_map is not None else '—'} | cohort type ≠ canonical label-derived type |",
+        f"| type_label_missing | {type_miss if type_miss is not None else '—'} | label string lacks extractable type |",
+        f"| type_label_noncanonical | {type_nonc if type_nonc is not None else '—'} | label-derived type not in configured canonical set |",
+        f"| label_family_mismatch | {fam_lab_mm if fam_lab_mm is not None else '—'} | label family token ≠ normalized predicted family |",
+        f"| family_prediction_errors | {pred_err if pred_err is not None else '—'} | **model** predicted family ≠ cohort family |",
         f"| family_prediction_match (est.) | {fam_correct_est if fam_correct_est is not None else '—'} | family_rows − prediction_errors |",
         "",
         "## Warning taxonomy (how to read diagnostics)",
@@ -188,6 +196,14 @@ def write_taxonomy_type_authority_reports(
     ]
 
     md_lines.append("## Examples (sample rows)\n")
+    if not summary_present and df.empty:
+        md_lines.extend(
+            [
+                "> NOTE: No taxonomy-consistency summary or mismatch export was found for this run.",
+                "> This report is policy-only (counts are unavailable).",
+                "",
+            ]
+        )
 
     def _sample(reason: str, n: int = 3) -> None:
         if df.empty or "mismatch_reason" not in df.columns:
@@ -219,16 +235,16 @@ def write_taxonomy_type_authority_reports(
 
     csv_payload = {
         "run_id": run_id,
-        "rows_evaluated": rows_eval,
-        "family_rows_evaluated": fam_eval,
+        "rows_evaluated": rows_eval if rows_eval is not None else "",
+        "family_rows_evaluated": fam_eval if fam_eval is not None else "",
         "distinct_cohort_type_slug_taxonomy_csv": distinct_cohort if distinct_cohort is not None else "",
         "distinct_label_derived_type_slug_taxonomy_csv": distinct_label if distinct_label is not None else "",
-        "taxonomy_mismatch_rows": tax_total,
-        "type_mapping_mismatch_rows": type_map,
-        "type_label_missing_rows": type_miss,
-        "type_label_noncanonical_rows": type_nonc,
-        "label_family_mismatch_rows": fam_lab_mm,
-        "family_prediction_errors": pred_err,
+        "taxonomy_mismatch_rows": tax_total if tax_total is not None else "",
+        "type_mapping_mismatch_rows": type_map if type_map is not None else "",
+        "type_label_missing_rows": type_miss if type_miss is not None else "",
+        "type_label_noncanonical_rows": type_nonc if type_nonc is not None else "",
+        "label_family_mismatch_rows": fam_lab_mm if fam_lab_mm is not None else "",
+        "family_prediction_errors": pred_err if pred_err is not None else "",
         "family_prediction_match_est": fam_correct_est if fam_correct_est is not None else "",
         "mismatch_csv_path": str(mismatch_path) if mismatch_path else "",
     }

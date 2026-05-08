@@ -1,7 +1,7 @@
-"""Static import-surface and thin-shim policies for :mod:`scripts.dev.check_import_surface`.
+"""Static import-surface policies for :mod:`scripts.dev.check_import_surface`.
 
-AST/file-system checks only (no ``importlib`` of project packages). Used by the main
-import-smoke script and by :mod:`tests.test_import_surface_guardrails`.
+AST/file-system checks only (no ``importlib`` of project packages). Repo-root ``utils``
+was removed; thin-compat policy tuple is empty but kept for future optional trees.
 """
 
 from __future__ import annotations
@@ -15,8 +15,6 @@ CANONICAL_CODE_LEGACY_IMPORT_ROOTS = frozenset(
     {
         "analysis",
         "ml_classification",
-        "model",
-        "utils",
     }
 )
 _CANONICAL_CODE_IMPORT_SCAN_ROOTS = ("src", "scripts")
@@ -27,15 +25,10 @@ CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST = frozenset(
 )
 NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST = frozenset(
     {
-        Path("tests/conftest.py"),
-        Path("tests/test_labeling_taxonomy_wrapper.py"),
-        Path("tests/test_obsidiandroid_common_shims.py"),
-        Path("tests/test_obsidiandroid_governance_shims.py"),
         Path("tests/test_obsidiandroid_package_surface.py"),
-        Path("tests/test_pipeline_entry.py"),
     }
 )
-LEGACY_LEAF_SHIM_ROOTS = ("analysis", "ml_classification", "model")
+LEGACY_LEAF_SHIM_ROOTS = ("analysis", "ml_classification")
 LEGACY_LEAF_SHIM_MAX_LINES = 16
 # Directory name fragments skipped when scanning for UTF-8 BOM (generated / vendor trees).
 _BOM_SCAN_SKIP_DIR_PARTS = frozenset(
@@ -73,40 +66,7 @@ class ThinCompatShimPolicy:
     exclude_names: frozenset[str] = frozenset()
 
 
-_POLICY_UTILS_ROOT_SHIMS = ThinCompatShimPolicy(
-    label="utils/*.py root shims",
-    relative_parts=("utils",),
-    max_lines=24,
-    required_substrings=("obsidiandroid",),
-    relocate_hint="src/obsidiandroid",
-    exclude_names=frozenset(
-        {
-            "__init__.py",
-            "export_manager.py",
-            "startup_menu.py",
-        }
-    ),
-)
-
-
-THIN_COMPAT_SHIM_POLICIES: tuple[ThinCompatShimPolicy, ...] = (
-    _POLICY_UTILS_ROOT_SHIMS,
-    ThinCompatShimPolicy(
-        label="utils/exporting leaf shims",
-        relative_parts=("utils", "exporting"),
-        max_lines=16,
-        required_substrings=("obsidiandroid.common",),
-        relocate_hint="obsidiandroid.common.export_*",
-        exclude_names=frozenset({"__init__.py"}),
-    ),
-    ThinCompatShimPolicy(
-        label="utils/logging shims",
-        relative_parts=("utils", "logging"),
-        max_lines=24,
-        required_substrings=("obsidiandroid.observability.logging",),
-        relocate_hint="obsidiandroid.observability.logging",
-    ),
-)
+THIN_COMPAT_SHIM_POLICIES: tuple[ThinCompatShimPolicy, ...] = ()
 
 __all__ = (
     "CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST",
@@ -217,23 +177,8 @@ def _validate_single_thin_compat_policy(repo_root: Path, policy: ThinCompatShimP
 
 
 def collect_thin_compat_shim_violations(repo_root: Path) -> list[str]:
-    """Run all thin-compat shim policies; return prefixed error lines (empty if OK)."""
+    """Run thin-compat shim policies (none today — repo-root ``utils/`` removed)."""
     out: list[str] = []
-    utils_init = repo_root.joinpath("utils", "__init__.py")
-    try:
-        init_txt = utils_init.read_text(encoding="utf-8")
-    except OSError as exc:
-        out.append(f"[utils package bootstrap] {utils_init.relative_to(repo_root)}: cannot read ({exc})")
-    else:
-        if not (
-            "ensure_repo_src_on_sys_path" in init_txt
-            and "obsidiandroid.common.repo_paths" in init_txt
-            and "sys.path.insert" in init_txt
-        ):
-            out.append(
-                "[utils package bootstrap] utils/__init__.py must prepend <repo>/src when present "
-                "and call obsidiandroid.common.repo_paths.ensure_repo_src_on_sys_path() (Pass 102)"
-            )
     for policy in THIN_COMPAT_SHIM_POLICIES:
         for msg in _validate_single_thin_compat_policy(repo_root, policy):
             out.append(f"[{policy.label}] {msg}")

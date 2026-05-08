@@ -21,8 +21,8 @@ help:
 	@echo "  make clean-bytecode  - run scripts/dev/clean_bytecode_cache.py on the repo root"
 	@echo "  make tree-source     - repo-root layout (excludes .venv, output, caches; needs \`tree\`)"
 	@echo "  make tree-obsidiandroid  - package tree: src/obsidiandroid only (migration progress)"
-	@echo "  make tree-utils      - legacy utils/ tree (compare with tree-obsidiandroid)"
-	@echo "  make tree-exporting-shims  - utils/exporting/ (shim-only re-exports)"
+	@echo "  make tree-utils      - (removed) legacy utils/ retired; use tree-obsidiandroid"
+	@echo "  make tree-exporting-shims  - (removed) use src/obsidiandroid/common/export_*"
 	@echo "  make dev-import-check  - verify obsidiandroid import paths (scripts/dev/check_import_surface.py)"
 	@echo "  make verify          - import smoke (check_import_surface) + fast pytest; use before PRs"
 	@echo "  make check-run-integrity RUN_ROOT=<path>  - manifest vs observability rollup (Tier A)"
@@ -40,10 +40,10 @@ tree-obsidiandroid:
 	@command -v tree >/dev/null 2>&1 && tree -L 4 -I '$(_TREE_IGNORE)' src/obsidiandroid || (echo "Install \`tree\` (e.g. dnf install tree)." >&2; exit 0)
 
 tree-utils:
-	@command -v tree >/dev/null 2>&1 && tree -L 3 -I '$(_TREE_IGNORE)' utils || (echo "Install \`tree\`." >&2; exit 0)
+	@echo "Legacy utils/ removed; see src/obsidiandroid/ (common/, reporting/, cli/)." && exit 0
 
 tree-exporting-shims:
-	@command -v tree >/dev/null 2>&1 && tree -L 2 utils/exporting || (echo "Install \`tree\`." >&2; exit 0)
+	@echo "Former utils/exporting/ lives under src/obsidiandroid/common/export_* and reporting/." && exit 0
 
 # Same as ./setup.sh -> scripts/dev/bootstrap_venv.sh
 setup:

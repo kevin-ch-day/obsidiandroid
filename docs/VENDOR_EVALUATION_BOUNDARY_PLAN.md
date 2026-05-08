@@ -1,7 +1,7 @@
 # Pass 50B: vendor/evaluation boundary inventory
 
 This document is the Pass 50B docs-only inventory for the vendor, evaluation, and
-model parsing boundary. It intentionally does not add aliases, migrate callers,
+vendor-contract boundary. It intentionally does not add aliases, migrate callers,
 move files, or change parser/model/training/output/DB behavior.
 
 **Pass 63 update (code, not a re-audit):** Evaluation **implementation** modules that previously lived as **`analysis/evaluation/<module>.py`** files are now under **`src/obsidiandroid/evaluation/`**. Legacy imports **`analysis.evaluation.<module>`** remain valid via **`analysis/evaluation/__init__.py`** (**`sys.modules`** identity to the canonical module).
@@ -10,7 +10,7 @@ move files, or change parser/model/training/output/DB behavior.
 
 **Pass 65 update (code, not a re-audit):** Run **diagnostics** (including **`research_validity/`**, **`hostile_audit/`**, and leaf diagnostics modules) that previously lived under **`analysis/diagnostics/`** are now under **`src/obsidiandroid/diagnostics/`**. Legacy **`analysis.diagnostics.*`** remains valid via **`analysis/diagnostics/__init__.py`** (**`sys.modules`** identity).
 
-**Pass 84 update (code, not a re-audit):** Remaining small **`model.*`** helper implementations used by canonical vendor/risk-band code are now canonical: **`model.core.risk_band_config`** → **`obsidiandroid.risk_band.risk_band_config`**; **`model.core.record_diagnostics`** and **`model.utils.metadata_normalizer`** → **`obsidiandroid.vendors.contracts`**. Legacy paths remain valid through thin **`sys.modules`** identity shims.
+**Pass 84 update (code, not a re-audit):** Remaining small legacy helpers used by vendor/risk-band code are now canonical: **`risk_band_config`** lives at **`obsidiandroid.risk_band.risk_band_config`**, and vendor record helpers such as **`record_diagnostics`** / **`metadata_normalizer`** live under **`obsidiandroid.vendors.contracts`**.
 
 **Pass 85 update (code, not a re-audit):** Malware-family constants now live at **`obsidiandroid.labeling.malware_family_constants`** with legacy **`ml_classification.common.malware_family_constants`** preserved as an identity shim. Generic vendor parsing imports **`FAMILY_ALIASES`** from the canonical constants module, while public normalization callers should continue to prefer **`obsidiandroid.labeling.taxonomy`** wrapper functions.
 
@@ -20,15 +20,14 @@ The summary metrics and boundary narrative below were written for the pre-move l
 
 ## Scope
 
-Inventoried implementation areas:
+Inventoried implementation areas (historical Pass 50B scope; current files may now live under `src/obsidiandroid/...`):
 
 - `analysis/vendor_processing/*`
 - `analysis/evaluation/vendor_*`
 - `analysis/evaluation/av_*`
 - `analysis/execution/vendor_*`
-- `model/vendor/*`
-- `model/parsing/*`
-- `model/core/risk_band_config.py` where it appears in vendor/evaluation flows
+- `src/obsidiandroid/vendors/contracts/*` (record + parsed-label types)
+- `obsidiandroid.risk_band.risk_band_config` where it appears in vendor/evaluation flows
 - `ml_classification/engine_weights/*`
 - Imports from those areas used by pipeline, diagnostics, tests, scripts, CLI, and ML internals
 
@@ -47,13 +46,13 @@ Readiness tags:
 Candidate files were listed with:
 
 ```bash
-find analysis/vendor_processing analysis/evaluation analysis/execution model/vendor model/parsing ml_classification/engine_weights -maxdepth 2 -type f | sort
+find analysis/vendor_processing analysis/evaluation analysis/execution src/obsidiandroid/vendors/contracts ml_classification/engine_weights -maxdepth 2 -type f | sort
 ```
 
 Focused text scan:
 
 ```bash
-rg -n "vendor_processing|analysis\.evaluation|analysis\.execution|model\.vendor|model\.parsing|ml_classification\.engine_weights|risk_band_config|VendorClassificationRecord|ParsedLabelMetadata" --glob "*.py" --glob "!output/**" --glob "!logs/**" --glob "!**/__pycache__/**" .
+rg -n "vendor_processing|analysis\.evaluation|analysis\.execution|obsidiandroid\.vendors\.contracts|ml_classification\.engine_weights|risk_band_config|VendorClassificationRecord|ParsedLabelMetadata" --glob "*.py" --glob "!output/**" --glob "!logs/**" --glob "!**/__pycache__/**" .
 ```
 
 Import inventory used an AST scan over repo `*.py`, excluding generated/runtime paths:
@@ -70,9 +69,8 @@ TARGET_PREFIXES = (
     "analysis.vendor_processing",
     "analysis.evaluation",
     "analysis.execution",
-    "model.vendor",
-    "model.parsing",
-    "model.core.risk_band_config",
+    "obsidiandroid.vendors.contracts",
+    "obsidiandroid.risk_band.risk_band_config",
     "ml_classification.engine_weights",
 )
 
@@ -143,8 +141,8 @@ structured parsed-label data. It includes:
 - generic parsing entrypoints such as `parse_generic_classification`
 - vendor-specific parsers such as Avast, Bitdefender, Kaspersky, Microsoft, Tencent,
   ZoneAlarm, Alibaba, AhnLab, and related parser default/confidence helpers
-- parsed label metadata currently represented by `model.parsing.parsed_label_metadata.ParsedLabelMetadata`
-- vendor record domain objects currently represented by `model.vendor.record_core.VendorClassificationRecord`
+- parsed label metadata currently represented by `obsidiandroid.vendors.contracts.parsed_label_metadata.ParsedLabelMetadata`
+- vendor record domain objects currently represented by `obsidiandroid.vendors.contracts.record_core.VendorClassificationRecord`
 
 Candidate canonical home: `obsidiandroid.vendors`.
 
@@ -211,12 +209,12 @@ Keep these on implementation paths for now:
 | Area | Current anchors | Proposed canonical domain | Readiness | Decision |
 |---|---|---|---|---|
 | Vendor parsing | `analysis.vendor_processing.vendor_parser_map`, `generic_label_parser`, vendor-specific parsers | `obsidiandroid.vendors` | `ready_now` for parser map; `needs_wrapper`/`defer` for the rest | Start with parser-map alias only if a tiny facade slice is desired. Wrap generic parser before exposing it. Defer vendor-specific modules. |
-| Vendor record model | `model.vendor.record_core.VendorClassificationRecord`, `model.vendor.feature_engine` | `obsidiandroid.vendors` | `needs_wrapper` | Stable concept, but expose through wrapper/schema contract rather than raw record internals first. |
-| Parsed label metadata | `model.parsing.parsed_label_metadata.ParsedLabelMetadata` | `obsidiandroid.vendors` | `needs_wrapper` | Treat as part of parser API, not labeling API, until normalized taxonomy boundaries are explicit. |
+| Vendor record model | `obsidiandroid.vendors.contracts.record_core.VendorClassificationRecord` | `obsidiandroid.vendors` | `needs_wrapper` | Stable concept, but expose through wrapper/schema contract rather than raw record internals first. |
+| Parsed label metadata | `obsidiandroid.vendors.contracts.parsed_label_metadata.ParsedLabelMetadata` | `obsidiandroid.vendors` | `needs_wrapper` | Treat as part of parser API, not labeling API, until normalized taxonomy boundaries are explicit. |
 | AV result evaluation | `analysis.evaluation.av_results_fetcher`, `evaluate_av_classifications` | `obsidiandroid.evaluation` | `needs_wrapper`/`defer` | Candidate evaluation surface, but stabilize input/result contracts first. |
 | Engine scoring | `analysis.evaluation.engine_scoring_summary`, `vendor_score_calculator`, `vendor_summary_builder` | `obsidiandroid.evaluation` | `defer` | Scoring policy is research-sensitive; do not expose casually. |
 | Parser quality checks | `analysis.evaluation.vendor_parser_utils`, `vendor_parser_matching`, parser health scripts | `obsidiandroid.evaluation` plus `obsidiandroid.vendors` entrypoints | `defer` | Split quality/reporting from parser implementation before facade work. |
-| Risk band config | `model.core.risk_band_config.RiskBandConfig`, `analysis/risk_band/assign_risk_band.py` | `obsidiandroid.risk_band` | `moved_now` | Risk-band config is canonical under `obsidiandroid.risk_band`; legacy `model.core` path is an identity shim. |
+| Risk band config | `obsidiandroid.risk_band.risk_band_config.RiskBandConfig`, `analysis/risk_band/assign_risk_band.py` | `obsidiandroid.risk_band` | `moved_now` | Risk-band config is canonical under `obsidiandroid.risk_band`. |
 | Engine weights | `ml_classification.engine_weights.*` | `obsidiandroid.engine_weights` | `moved_now` | Treat as scoring/weight policy outside modeling; legacy `ml_classification.engine_weights` paths are identity shims. |
 
 ## Execution roadmap (Pass 58): practical domain assignment
@@ -238,10 +236,10 @@ under **`obsidiandroid.labeling.taxonomy`** after Pass 58).
 | Execution order | Item | Current anchor(s) | Tag today | Notes |
 |---:|---|---|---|---|
 | 1 | Parser map entry | `obsidiandroid.vendors.parsing.vendor_parser_map` (legacy shim at `analysis.vendor_processing.vendor_parser_map`) | **moved (Pass 59)** | Physical module moved to canonical package; legacy path preserved with identity shim. |
-| 2 | Generic parser contract | `generic_label_parser.parse_generic_classification`, related | **`needs_wrapper`** | Freeze parsed output shape before canonical export. Pass 58: **taxonomy helpers** consumed from **`obsidiandroid.labeling.taxonomy`**; Pass 85: **`FAMILY_ALIASES`** imported from canonical **`obsidiandroid.labeling.malware_family_constants`**. |
-| 3 | Parsed label metadata | `model.parsing.parsed_label_metadata.ParsedLabelMetadata` | **`needs_wrapper`** | Part of parser/record API, not labeling taxonomy. |
-| 4 | Vendor classification record | `model.vendor.record_core.VendorClassificationRecord` | **`needs_wrapper`** | Expose via wrapper or protocol, not raw internal fields first. |
-| 5 | Vendor feature engine helpers | `model.vendor.feature_engine` | **`needs_wrapper`** | Coupled to records; ship after record wrapper story. |
+| 2 | Generic parser contract | `obsidiandroid.vendors.parse_generic_classification` | **`ready_now`** | Stable entrypoint exists (re-export of parsing implementation). Return value is `ParsedLabelMetadata`. |
+| 3 | Parsed label metadata | `obsidiandroid.vendors.contracts.parsed_label_metadata.ParsedLabelMetadata` | **`needs_wrapper`** | Part of parser/record API, not labeling taxonomy. |
+| 4 | Vendor classification record | `obsidiandroid.vendors.contracts.record_core.VendorClassificationRecord` | **`needs_wrapper`** | Expose via wrapper or protocol, not raw internal fields first. |
+| 5 | Vendor feature engine helpers | `obsidiandroid.vendors.contracts.feature_engine` | **`needs_wrapper`** | Coupled to records; ship after record wrapper story. |
 | 6 | Vendor-specific parser modules | `obsidiandroid.vendors.parsing/*_parser.py` (legacy shim path still valid) | **partially moved (Pass 59)** | Physical relocation complete; API/wrapper exposure still deferred. |
 | 7 | Risk band config | `obsidiandroid.risk_band.risk_band_config`, `obsidiandroid.risk_band/*` | **`moved_now`** | Risk-band ownership is canonical under **`obsidiandroid.risk_band`**; legacy **`model.core`** / **`analysis.risk_band`** paths are shims. |
 
@@ -253,7 +251,7 @@ input/output contracts are explicit.
 
 | Execution order | Item | Current anchor(s) | Tag today | Notes |
 |---:|---|---|---|---|
-| 1 | AV classification parsing entry | `vendor_classification_parser.parse_vendor_classifications` | **`needs_wrapper`** | First good evaluation-facing seam if I/O is frozen. |
+| 1 | AV classification parsing entry | `obsidiandroid.evaluation.parse_vendor_classifications` | **`ready_now`** | Stable entrypoint exists (re-export of evaluation implementation). Next step is freezing the return schema (or adding a typed result wrapper) before widening the surface. |
 | 2 | AV result fetch + evaluation helpers | `av_results_fetcher`, `evaluate_av_classifications`, … | **`defer`** | Couples DB, records, and reporting; needs spec. |
 | 3 | Engine / vendor scoring | `engine_scoring_summary`, `vendor_score_calculator`, `vendor_summary_builder` | **`defer`** | Research-sensitive policy; do not façade casually. |
 | 4 | Parser quality / matching | `vendor_parser_utils`, `vendor_parser_matching` | **`defer`** | Split “quality metric” vs “parser implementation” before export. |
@@ -301,8 +299,9 @@ Implemented the first vendor facade slice:
 
 **Still open (contracts / hygiene, not “move files”):**
 
-- Generic parser **wrapper** and a frozen **`parse_generic_classification`** contract.
-- **`VendorClassificationRecord`** and **`ParsedLabelMetadata`**: stable **`obsidiandroid.vendors`**-level wrappers (types still authoritative in **`model.*`** until then).
+- Generic parser contract: callers should prefer **`obsidiandroid.vendors.parse_generic_classification`** (re-export of the parsing implementation).
+- Evaluation parser contract: callers should prefer **`obsidiandroid.evaluation.parse_vendor_classifications`** (stable entrypoint).
+- **`VendorClassificationRecord`** and **`ParsedLabelMetadata`**: stable **`obsidiandroid.vendors`**-level wrappers (types currently live under **`obsidiandroid.vendors.contracts`**).
 - **Evaluation façade**: explicit public I/O for **`vendor_classification_parser`**, parser-quality exports, and scoring summaries; **`obsidiandroid.engine_weights`** remains a separate scoring/weight policy package outside modeling.
 - **Callers**: prefer **`obsidiandroid.evaluation`** and **`obsidiandroid.vendors.execution`** in new code; migrate stragglers opportunistically (**`rg`** is enough; the Pass 50B table is not maintained row-by-row).
 
@@ -316,48 +315,48 @@ Implemented the first vendor facade slice:
 | `analysis/evaluation/vendor_classification_parser.py` | `analysis.evaluation::vendor_parser_utils` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
 | `analysis/evaluation/vendor_classification_parser.py` | `analysis.execution::av_parser_executor` | `analysis/execution/` | `obsidiandroid.vendors` | `internal_only` |
 | `analysis/evaluation/vendor_classification_parser.py` | `analysis.evaluation::vendor_score_calculator` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
-| `analysis/evaluation/vendor_classification_parser.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `analysis/evaluation/vendor_classification_parser.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/evaluation/vendor_classification_parser.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/evaluation/vendor_classification_parser.py` | `obsidiandroid.vendors.contracts.record_core::VendorClassificationRecord` | `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
 | `analysis/evaluation/vendor_feature_extractor.py` | `analysis.evaluation::evaluate_av_classifications` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
 | `analysis/evaluation/vendor_parser_utils.py` | `analysis.vendor_processing::vendor_parser_map` | `analysis/vendor_processing/` | `obsidiandroid.vendors` | `defer` |
 | `analysis/evaluation/vendor_parser_utils.py` | `analysis.vendor_processing::generic_label_parser` | `analysis/vendor_processing/` | `obsidiandroid.vendors` | `defer` |
 | `analysis/evaluation/vendor_parser_utils.py` | `analysis.evaluation::vendor_parser_matching` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
 | `analysis/evaluation/vendor_parser_utils.py` | `analysis.evaluation::av_results_fetcher` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
-| `analysis/evaluation/vendor_summary_builder.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/evaluation/vendor_summary_builder.py` | `obsidiandroid.vendors.contracts.record_core::VendorClassificationRecord` | `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
 | `analysis/execution/av_parser_executor.py` | `analysis.execution::vendor_parser_runner` | `analysis/execution/` | `obsidiandroid.vendors` | `internal_only` |
-| `analysis/execution/vendor_classification_processor.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/execution/vendor_classification_processor.py` | `obsidiandroid.vendors.contracts.record_core::VendorClassificationRecord` | `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
 | `analysis/execution/vendor_classification_processor.py` | `analysis.execution::vendor_record_factory` | `analysis/execution/` | `obsidiandroid.vendors` | `internal_only` |
 | `analysis/execution/vendor_classification_processor.py` | `analysis.evaluation::vendor_summary_builder` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
 | `analysis/execution/vendor_parser_runner.py` | `analysis.execution::vendor_classification_processor` | `analysis/execution/` | `obsidiandroid.vendors` | `internal_only` |
-| `analysis/execution/vendor_record_factory.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `analysis/execution/vendor_record_factory.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/execution/vendor_record_factory.py` | `obsidiandroid.vendors.contracts.record_core::VendorClassificationRecord` | `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/execution/vendor_record_factory.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
 | `analysis/pipeline/stage_modeling.py` | `analysis.evaluation::engine_scoring_summary` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
 | `analysis/pipeline/vendor_metadata_pipeline.py` | `analysis.evaluation::vendor_feature_extractor` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
-| `analysis/risk_band/assign_risk_band.py` | `model.core.risk_band_config::RiskBandConfig` | `model/core/risk_band_config.py` | `obsidiandroid.vendors` | `defer` |
-| `analysis/vendor_processing/ahnlab_v3_parser.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `analysis/vendor_processing/alibaba_parser.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `analysis/vendor_processing/avast_mobile_parser.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `analysis/vendor_processing/bitdefender_parser.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `analysis/vendor_processing/bitdefenderfalx_parser.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `analysis/vendor_processing/generic_label_parser.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `analysis/vendor_processing/ikarus_parser.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `analysis/vendor_processing/k7gw_parser.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `analysis/vendor_processing/kaspersky_parser.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `analysis/vendor_processing/microsoft_parser.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `analysis/vendor_processing/tencent_parser.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `analysis/vendor_processing/zonealarm_parser.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `ml_classification/builder/classification_row_builder.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `ml_classification/builder/record_enrichment.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `ml_classification/builder/vendor_record_selector.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `ml_classification/inference/label_consensus_engine.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `ml_classification/inference/signal_health_checker.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `ml_classification/labeling/label_field_normalizer.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `ml_classification/labeling/label_format_generator.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `model/vendor/record_builder.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `model/vendor/record_builder.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `model/vendor/record_core.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `model/vendor/record_core.py` | `model.vendor.feature_engine::compute_all_features` | `model/vendor/feature_engine.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `model/vendor/record_validator.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/risk_band/assign_risk_band.py` | `obsidiandroid.risk_band.risk_band_config::RiskBandConfig` | `src/obsidiandroid/risk_band/risk_band_config.py` | `obsidiandroid.risk_band` | `moved_now` |
+| `analysis/vendor_processing/ahnlab_v3_parser.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/vendor_processing/alibaba_parser.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/vendor_processing/avast_mobile_parser.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/vendor_processing/bitdefender_parser.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/vendor_processing/bitdefenderfalx_parser.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/vendor_processing/generic_label_parser.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/vendor_processing/ikarus_parser.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/vendor_processing/k7gw_parser.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/vendor_processing/kaspersky_parser.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/vendor_processing/microsoft_parser.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/vendor_processing/tencent_parser.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `analysis/vendor_processing/zonealarm_parser.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `ml_classification/builder/classification_row_builder.py` | `obsidiandroid.vendors.contracts.record_core::VendorClassificationRecord` | `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `ml_classification/builder/record_enrichment.py` | `obsidiandroid.vendors.contracts.record_core::VendorClassificationRecord` | `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `ml_classification/builder/vendor_record_selector.py` | `obsidiandroid.vendors.contracts.record_core::VendorClassificationRecord` | `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `ml_classification/inference/label_consensus_engine.py` | `obsidiandroid.vendors.contracts.record_core::VendorClassificationRecord` | `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `ml_classification/inference/signal_health_checker.py` | `obsidiandroid.vendors.contracts.record_core::VendorClassificationRecord` | `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `ml_classification/labeling/label_field_normalizer.py` | `obsidiandroid.vendors.contracts.record_core::VendorClassificationRecord` | `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `ml_classification/labeling/label_format_generator.py` | `obsidiandroid.vendors.contracts.record_core::VendorClassificationRecord` | `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `src/obsidiandroid/vendors/contracts/record_builder.py` | `obsidiandroid.vendors.contracts.record_core::VendorClassificationRecord` | `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `src/obsidiandroid/vendors/contracts/record_builder.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors.contracts.feature_engine::compute_all_features` | `src/obsidiandroid/vendors/contracts/feature_engine.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `src/obsidiandroid/vendors/contracts/record_validator.py` | `obsidiandroid.vendors.contracts.record_core::VendorClassificationRecord` | `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
 | `scripts/diagnostics/inspect_vendor_column_opportunities.py` | `analysis.vendor_processing.vendor_parser_map::get_vendor_parser_map` | `analysis/vendor_processing/vendor_parser_map.py` | `obsidiandroid.vendors` | `ready_now` (migrated Pass 51) |
 | `scripts/diagnostics/inspect_vendor_missing_patterns.py` | `analysis.vendor_processing::avast_parser` | `analysis/vendor_processing/` | `obsidiandroid.vendors` | `defer` |
 | `scripts/diagnostics/inspect_vendor_missing_patterns.py` | `analysis.vendor_processing::avast_mobile_parser` | `analysis/vendor_processing/` | `obsidiandroid.vendors` | `defer` |
@@ -376,9 +375,9 @@ Implemented the first vendor facade slice:
 | `scripts/diagnostics/inspect_vendor_parser_health.py` | `analysis.evaluation.vendor_classification_parser::parse_vendor_classifications` | `analysis/evaluation/vendor_classification_parser.py` | `obsidiandroid.evaluation` | `needs_wrapper` |
 | `src/obsidiandroid/cli/menu/vendor_diagnostics.py` | `analysis.vendor_processing::vendor_parser_map` | `analysis/vendor_processing/` | `obsidiandroid.vendors` | `defer` |
 | `src/obsidiandroid/cli/menu/vendor_diagnostics.py` | `analysis.vendor_processing.generic_label_parser::parse_generic_classification` | `analysis/vendor_processing/generic_label_parser.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `src/obsidiandroid/cli/menu/vendor_diagnostics.py` | `model.parsing.parsed_label_metadata::ParsedLabelMetadata` | `model/parsing/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `src/obsidiandroid/cli/menu/vendor_diagnostics.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
 | `src/obsidiandroid/cli/startup_menu.py` | `analysis.evaluation::engine_scoring_summary` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
-| `tests/test_classification_builder.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `tests/test_classification_builder.py` | `obsidiandroid.vendors.contracts.record_core::VendorClassificationRecord` | `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
 | `tests/test_engine_weights.py` | `obsidiandroid.engine_weights::engine_weights_utils` | `obsidiandroid/engine_weights/` | `obsidiandroid.engine_weights` | `moved_now` |
 | `tests/test_engine_weights.py` | `obsidiandroid.engine_weights::classification_weight_utils` | `obsidiandroid/engine_weights/` | `obsidiandroid.engine_weights` | `moved_now` |
 | `tests/test_engine_weights.py` | `obsidiandroid.engine_weights::compute_reliability_score` | `obsidiandroid/engine_weights/` | `obsidiandroid.engine_weights` | `moved_now` |
@@ -386,11 +385,11 @@ Implemented the first vendor facade slice:
 | `tests/test_export_manager_wiring.py` | `analysis.evaluation::vendor_feature_extractor` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
 | `tests/test_parser_quality_contract.py` | `analysis.evaluation::vendor_parser_utils` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
 | `tests/test_random_forest_diagnostics.py` | `analysis.evaluation::random_forest_diagnostics` | `analysis/evaluation/random_forest_diagnostics.py` | `obsidiandroid.evaluation` | `defer` |
-| `tests/test_sample_classification_builder.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `tests/test_sample_classification_builder.py` | `obsidiandroid.vendors.contracts.record_core::VendorClassificationRecord` | `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
 | `tests/test_vendor_data_determinism.py` | `analysis.execution.vendor_record_factory::create_vendor_record` | `analysis/execution/vendor_record_factory.py` | `obsidiandroid.vendors` | `internal_only` |
 | `tests/test_vendor_parser_dynamic.py` | `analysis.evaluation::vendor_parser_utils` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
 | `tests/test_vendor_parser_map.py` | `analysis.vendor_processing::vendor_parser_map` | `analysis/vendor_processing/` | `obsidiandroid.vendors` | `ready_now` (migrated Pass 51) |
-| `tests/test_vendor_record_indexing.py` | `model.vendor.record_core::VendorClassificationRecord` | `model/vendor/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
+| `tests/test_vendor_record_indexing.py` | `obsidiandroid.vendors.contracts.record_core::VendorClassificationRecord` | `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
 
 ## Pass 51 recommendation (superseded for physical layout)
 
@@ -406,6 +405,6 @@ Physical parser move completed:
 
 Still deferred (unchanged from a **types / API** perspective):
 
-- `model.vendor` and `model.parsing` physical moves.
+- Vendor **contract** wrapper story: keep `obsidiandroid.vendors.contracts` as the canonical type home, and decide what gets elevated into a stable `obsidiandroid.vendors` public API.
 - Evaluation **public façade** (stable I/O) for scoring / parser-quality / AV helpers — modules already under **`obsidiandroid.evaluation`**.
 - Wrapper contracts for `VendorClassificationRecord` and `ParsedLabelMetadata`.

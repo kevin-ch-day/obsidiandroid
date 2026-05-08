@@ -2,8 +2,9 @@
 # Purpose : Resolve consensus label per sample from multiple vendor records.
 
 from collections import Counter
-from typing import List, Dict, Any
-from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
+from typing import Any, Dict, List
+
+from obsidiandroid.vendors import VendorClassificationRecord
 from .signal_health_checker import analyze_signal_health
 
 GENERIC_TOKENS = {"generic", "unknown", "none", "agent", "malware"}

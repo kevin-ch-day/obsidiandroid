@@ -1,8 +1,9 @@
 # Filename: classification_row_builder.py
 # Purpose  : Build structured classification output rows from selected vendor records and model predictions
 
-from typing import Dict, Any, Optional
-from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
+from typing import Any, Dict, Optional
+
+from obsidiandroid.vendors import VendorClassificationRecord
 from obsidiandroid.labeling.label_format_generator import generate_label
 from obsidiandroid.labeling import label_field_normalizer
 from obsidiandroid.cli.ui import display as du
@@ -126,6 +127,26 @@ def build_classification_row(
             and type_val.lower() != "unknown"
         ):
             selected_record.malware_type = type_val
+
+    # If upstream metadata provides a canonical `type_slug`, prefer it over an unknown/generic
+    # threat_class token. This stabilizes taxonomy consistency audits and prevents the label
+    # pipeline from emitting `android.generic.*` when the cohort has an authoritative type.
+    try:
+        meta = metadata.get(sample_id)
+        if meta is None:
+            meta = metadata.get(str(sample_id))
+        if meta is None:
+            # Common: sample_id is numeric but keys are strings (or vice versa).
+            meta = metadata.get(_normalize_family_id_token(sample_id))
+        type_slug = ""
+        if isinstance(meta, dict):
+            type_slug = str(meta.get("type_slug", "") or "").strip().lower()
+        if type_slug:
+            current = str(selected_record.threat_class or "").strip().lower()
+            if current in {"", "unknown", "generic", "none", "null", "nan"}:
+                selected_record.threat_class = type_slug
+    except Exception:
+        pass
 
     normalized_fields: Dict[str, Any] = {}
     # Normalize record fields before generating output label to keep
