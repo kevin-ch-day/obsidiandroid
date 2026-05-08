@@ -17,6 +17,8 @@ from . import (
     paper_figure_renderers,
     runtime_support,
     schema,
+    stage_manifest_artifacts,
+    stage_manifest_evidence_pack,
     stage_manifest_writers,
     writer,
 )
@@ -35,6 +37,8 @@ for _name in (
     "paper_figure_renderers",
     "runtime_support",
     "schema",
+    "stage_manifest_artifacts",
+    "stage_manifest_evidence_pack",
     "stage_manifest_writers",
     "writer",
 ):
@@ -52,6 +56,8 @@ __all__ = [
     "runtime_support",
     "schema",
     "sha256_hex",
+    "stage_manifest_artifacts",
+    "stage_manifest_evidence_pack",
     "stage_manifest_writers",
     "writer",
 ]
