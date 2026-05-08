@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -30,6 +29,36 @@ from .menu import diagnostics_banners
 from .menu import startup_menu_actions
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.diagnostics import reproducibility_workbench as repro_workbench
+
+from .startup_menu_health import run_health_check as _run_health_check
+from .startup_menu_run_context import (
+    candidate_sort_key as _candidate_sort_key,
+    discover_latest_run_id_from_runs as _discover_latest_run_id_from_runs,
+    format_run_status_display as _format_run_status_display,
+    format_stage_label as _format_stage_label,
+    has_structural_bundle as _has_structural_bundle,
+    latest_run_context_status as _latest_run_context_status,
+    latest_run_has_provenance as _latest_run_has_provenance,
+    latest_run_paper_mode_enabled as _latest_run_paper_mode_enabled,
+    paper_exports_available as _paper_exports_available,
+    parse_run_timestamp_from_id as _parse_run_timestamp_from_id,
+    parse_run_timestamp_from_manifest as _parse_run_timestamp_from_manifest,
+    print_availability_block as _print_availability_block,
+    print_startup_context as _print_startup_context,
+    read_json_object as _read_json_object,
+    read_latest_run_id as _read_latest_run_id,
+    read_latest_run_manifest as _read_latest_run_manifest,
+    read_locked_paper_run_id as _read_locked_paper_run_id,
+    read_run_progress_summary as _read_run_progress_summary,
+    read_run_summary as _read_run_summary,
+    read_top_model_snapshot as _read_top_model_snapshot,
+    resolve_latest_manifest_payload as _resolve_latest_manifest_payload,
+    resolve_manifest_for_run_id as _resolve_manifest_for_run_id,
+    resolve_pipeline_timings_path as _resolve_pipeline_timings_path,
+    resolve_run_root_for_manifest as _resolve_run_root_for_manifest,
+    status_text as _status_text,
+)
+
 
 
 @dataclass(frozen=True)
@@ -109,295 +138,6 @@ def _build_model_menu() -> Dict[str, str]:
         for model in pipeline_core.ALL_SUPPORTED_MODELS
     }
 
-
-def _read_latest_run_id() -> str | None:
-    """Return latest run_id using manifest timestamps before legacy pointers."""
-    return run_locator.read_latest_run_id()
-
-
-def _discover_latest_run_id_from_runs(output_root: Path) -> tuple[tuple[int, datetime, str] | None, str] | None:
-    """Return newest run candidate discovered from run-scoped manifests."""
-    del output_root
-    run_id = run_locator.discover_latest_run_id_from_runs()
-    if not run_id:
-        return None
-    return (run_locator.candidate_sort_key(run_id=run_id), run_id)
-
-
-def _candidate_sort_key(
-    *,
-    run_id: str,
-    manifest_payload: dict[str, object] | None = None,
-) -> tuple[int, datetime, str] | None:
-    """Build comparable sort key for run candidates, preferring valid timestamps."""
-    return run_locator.candidate_sort_key(run_id=run_id, manifest_payload=manifest_payload)
-
-
-def _parse_run_timestamp_from_manifest(manifest_payload: dict[str, object]) -> datetime | None:
-    """Parse timestamp from manifest payload when available."""
-    return run_locator.parse_run_timestamp_from_manifest(manifest_payload)
-
-
-def _parse_run_timestamp_from_id(run_id: str) -> datetime | None:
-    """Parse timestamp embedded in canonical run IDs."""
-    return run_locator.parse_run_timestamp_from_id(run_id)
-
-
-def _read_locked_paper_run_id() -> str | None:
-    """Return locked evidence run ID pointer when available."""
-    return run_locator.read_locked_paper_run_id()
-
-
-def _paper_exports_available(run_id: str | None) -> bool:
-    """Return whether publication exports exist for a given run ID."""
-    token = str(run_id or "").strip()
-    if not token:
-        return False
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    paper_dir = output_root / "runs" / token / "paper_exports"
-    return paper_dir.exists() and paper_dir.is_dir()
-
-
-def _has_structural_bundle(run_id: str | None) -> bool:
-    """Return whether structural bundle exists for a given run ID."""
-    token = str(run_id or "").strip()
-    if not token:
-        return False
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    bundle_dir = output_root / "runs" / token / "bundles" / "permission_trends"
-    return bundle_dir.exists() and bundle_dir.is_dir()
-
-
-def _latest_run_context_status() -> dict[str, object]:
-    """Build lightweight run-context status for state-aware menus."""
-    latest_run_id = _read_latest_run_id()
-    locked_paper_run_id = _read_locked_paper_run_id()
-    return {
-        "latest_run_id": latest_run_id or "",
-        "locked_paper_run_id": locked_paper_run_id or "",
-        "has_latest_run": bool(latest_run_id),
-        "has_structural_bundle": _has_structural_bundle(latest_run_id),
-        "has_paper_exports": _paper_exports_available(latest_run_id),
-        "has_locked_paper_run": bool(locked_paper_run_id),
-    }
-
-
-def _latest_run_paper_mode_enabled() -> bool:
-    """Return whether latest run manifest indicates evidence mode enabled."""
-    run_id = _read_latest_run_id()
-    if not run_id:
-        return False
-    manifest, _ = _resolve_manifest_for_run_id(run_id)
-    paper_mode = {}
-    if isinstance(manifest, dict):
-        paper_mode = manifest.get("evidence_mode") or manifest.get("paper_mode", {})
-    if isinstance(paper_mode, dict):
-        return bool(paper_mode.get("resolved_value", False))
-    return False
-
-
-def _latest_run_has_provenance() -> bool:
-    """Return whether key run-scoped provenance files exist for latest run."""
-    run_id = _read_latest_run_id()
-    if not run_id:
-        return False
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    diagnostics = output_root / "runs" / run_id / "diagnostics"
-    split_ledger = diagnostics / f"split_freeze_headline_{run_id}.csv"
-    split_legacy = diagnostics / f"split_freeze_audit_{run_id}.csv"
-    required = [
-        split_ledger if split_ledger.exists() else split_legacy,
-        diagnostics / f"run_paths_manifest_{run_id}.json",
-        diagnostics / f"experiment_registry_{run_id}.json",
-    ]
-    return all(path.exists() for path in required)
-
-
-def _print_availability_block(*, rows: list[tuple[str, str]]) -> None:
-    """Print compact availability summary for state-sensitive menus."""
-    du.print_subheader("Current State")
-    for label, value in rows:
-        du.print_stat(label, value)
-    print("")
-
-
-def _status_text(enabled: bool, *, ready: str = "Ready", pending: str = "Pending") -> str:
-    """Return normalized yes/no style status text."""
-    return ready if bool(enabled) else pending
-
-
-def _read_latest_run_manifest() -> dict:
-    """Return latest run manifest payload when available."""
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    manifest_path = output_root / "diagnostics" / "run_manifest.latest.json"
-    if not manifest_path.exists():
-        return {}
-    try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def _read_json_object(path: Path) -> dict:
-    """Read JSON file as dict; return empty dict on failure."""
-    return run_locator.read_json_object(path)
-
-
-def _resolve_manifest_for_run_id(run_id: str) -> tuple[dict, Path]:
-    """Resolve canonical run-scoped manifest for a specific run ID."""
-    return run_locator.resolve_manifest_for_run_id(run_id)
-
-
-def _resolve_latest_manifest_payload() -> tuple[dict, str | None, Path]:
-    """Resolve latest manifest payload, following pointer manifest when needed."""
-    return run_locator.resolve_latest_manifest_payload()
-
-
-def _resolve_run_root_for_manifest(
-    manifest: dict,
-    *,
-    run_id: str | None,
-    manifest_path: Path,
-) -> Path:
-    """Resolve run root for a manifest payload."""
-    return run_locator.resolve_run_root_for_manifest(
-        manifest,
-        run_id=run_id,
-        manifest_path=manifest_path,
-    )
-
-
-def _read_run_summary(run_root: Path) -> dict:
-    """Read canonical run summary for a run root when available."""
-    return _read_json_object(run_root / "run_summary.json")
-
-
-def _format_run_status_display(run_status: str | None) -> str:
-    """Map run summary status tokens to operator-facing labels."""
-    normalized = str(run_status or "").strip().lower()
-    if normalized == "complete":
-        return "Complete"
-    if normalized == "failed":
-        return "Failed"
-    if normalized == "partial":
-        return "Partial run available"
-    return "Run metadata available"
-
-
-def _format_stage_label(stage_name: str | None) -> str:
-    """Return user-facing label for a pipeline stage key."""
-    stage_labels = {
-        "samples": "Samples",
-        "av_pipeline": "AV Pipeline",
-        "vendor_metadata": "Vendor Metadata",
-        "engine_weights": "Engine Weights",
-        "feature_matrix": "Feature Matrix",
-        "alignment": "Alignment",
-        "training": "Training",
-        "ablation": "Ablation",
-        "permission_trends": "Permission Trends",
-        "label_resolution": "Label Resolution",
-        "manifest": "Manifest Finalization",
-    }
-    token = str(stage_name or "").strip()
-    if not token:
-        return "Unknown"
-    return stage_labels.get(token, token.replace("_", " ").title())
-
-
-def _resolve_pipeline_timings_path(run_root: Path) -> Path | None:
-    """Resolve stage timing export (run-scoped name preferred, then legacy .latest)."""
-    run_id = str(run_root.name or "").strip()
-    diag = run_root / "diagnostics"
-    candidates = [
-        diag / f"pipeline_stage_timings_{run_id}.csv",
-        diag / "pipeline_stage_timings.latest.csv",
-    ]
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    return None
-
-
-def _read_run_progress_summary(run_root: Path) -> tuple[str, str, float | None]:
-    """Read run progress summary from stage timing exports when available."""
-    timings_path = _resolve_pipeline_timings_path(run_root)
-    if timings_path is None:
-        return ("Run metadata available", "Manifest recorded", None)
-
-    try:
-        timings_df = pd.read_csv(timings_path)
-    except Exception:
-        return ("Run metadata available", "Manifest recorded", None)
-
-    if timings_df.empty or "stage" not in timings_df.columns:
-        return ("Run metadata available", "Manifest recorded", None)
-
-    stage_series = timings_df["stage"].dropna().astype(str)
-    if stage_series.empty:
-        return ("Run metadata available", "Manifest recorded", None)
-
-    last_stage = stage_series.iloc[-1]
-    completed_stage = _format_stage_label(last_stage)
-    duration_total: float | None = None
-    if "duration_sec" in timings_df.columns:
-        duration_values = pd.to_numeric(timings_df["duration_sec"], errors="coerce").dropna()
-        if not duration_values.empty:
-            duration_total = float(duration_values.sum())
-
-    if str(last_stage).strip() == "manifest":
-        return ("Complete", completed_stage, duration_total)
-    return ("Partial run available", completed_stage, duration_total)
-
-
-def _read_top_model_snapshot(run_root: Path, run_id: str) -> tuple[str, str]:
-    """Resolve top-model summary from run-scoped model comparison export."""
-    summary_path = run_root / "diagnostics" / f"model_comparison_summary_{run_id}.csv"
-    if not summary_path.exists():
-        return ("Not available yet", "Not available yet")
-
-    try:
-        summary_df = pd.read_csv(summary_path)
-    except Exception:
-        return ("Not available yet", "Not available yet")
-
-    if summary_df.empty:
-        return ("Not available yet", "Not available yet")
-
-    top_row = summary_df.iloc[0]
-    if "Top" in summary_df.columns:
-        starred = summary_df[summary_df["Top"].astype(str).str.strip() == "*"]
-        if not starred.empty:
-            top_row = starred.iloc[0]
-    elif "Rank" in summary_df.columns:
-        ranked = summary_df.sort_values(by="Rank", ascending=True)
-        if not ranked.empty:
-            top_row = ranked.iloc[0]
-
-    top_model = str(top_row.get("Model", "") or "").strip() or "Not available yet"
-    raw_macro = top_row.get("Macro F1-Score")
-    try:
-        top_macro = f"{float(raw_macro):.4f}"
-    except (TypeError, ValueError):
-        top_macro = "Not available yet"
-    return (top_model, top_macro)
-
-
-def _print_startup_context() -> None:
-    """Print lightweight session context before showing the main menu."""
-    context = _latest_run_context_status()
-    latest_run_id = str(context.get("latest_run_id", "")).strip() or "None yet"
-    publication_ready = bool(context.get("has_paper_exports", False))
-    provenance_ready = _latest_run_has_provenance()
-
-    du.print_rule(" ObsidianDroid ")
-    du.print_info(
-        f"Latest run {latest_run_id} · "
-        f"Diagnostics {_status_text(provenance_ready, ready='ready', pending='missing')} · "
-        f"Paper exports {_status_text(publication_ready, ready='ready', pending='none')}"
-    )
-    print("")
 
 
 def _show_latest_run_snapshot() -> int:
@@ -610,192 +350,6 @@ def _show_session_and_output_details() -> int:
     return 0
 
 
-def _run_health_check(*, run_id: str | None = None) -> int:
-    """Run health + artifact checks for latest or selected run (writes run-scoped diagnostics)."""
-    du.print_section("Run Health & Artifact Check")
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    diagnostics_dir = output_root / "diagnostics"
-    latest_manifest_path = diagnostics_dir / "run_manifest.latest.json"
-
-    manifest_rows: list[dict[str, str]] = []
-
-    def _add_manifest_check(name: str, status: str, detail: str, *, plain: str = "", bucket: str = "manifest") -> None:
-        manifest_rows.append(
-            {
-                "check": name,
-                "status": status.upper().strip(),
-                "detail": detail,
-                "plain_language": plain,
-                "bucket": bucket,
-            }
-        )
-
-    requested_run_id = (run_id or "").strip() or None
-    latest_payload = _read_json_object(latest_manifest_path)
-    resolved_run_id: str | None = None
-    canonical_manifest: dict = {}
-    canonical_manifest_path: Path | None = None
-
-    if requested_run_id:
-        canonical_manifest, canonical_manifest_path = _resolve_manifest_for_run_id(requested_run_id)
-        if canonical_manifest:
-            resolved_run_id = str(canonical_manifest.get("run_id", "")).strip() or requested_run_id
-            _add_manifest_check("selected_run_manifest_exists", "PASS", str(canonical_manifest_path))
-        else:
-            _add_manifest_check(
-                "selected_run_manifest_exists",
-                "FAIL",
-                f"Missing canonical manifest for run_id={requested_run_id}: {canonical_manifest_path}",
-            )
-    else:
-        if not latest_payload:
-            _add_manifest_check("latest_manifest_exists", "FAIL", f"Missing or unreadable {latest_manifest_path}")
-        else:
-            _add_manifest_check("latest_manifest_exists", "PASS", str(latest_manifest_path))
-            canonical_manifest, resolved_run_id, canonical_manifest_path = _resolve_latest_manifest_payload()
-            if canonical_manifest_path != latest_manifest_path and canonical_manifest:
-                _add_manifest_check("canonical_manifest_exists", "PASS", str(canonical_manifest_path))
-
-    if not canonical_manifest:
-        du.print_table(
-            [{"check": r["check"], "status": r["status"], "detail": r["detail"]} for r in manifest_rows],
-            title="Run health checks",
-            show_index=False,
-        )
-        du.print_error("[MENU] Health check failed (no manifest).")
-        return 1
-
-    effective_run_id = requested_run_id or resolved_run_id or str(canonical_manifest.get("run_id", "")).strip()
-    if effective_run_id:
-        _add_manifest_check("run_id_present", "PASS", effective_run_id)
-    else:
-        _add_manifest_check("run_id_present", "FAIL", "run_id missing in manifest payload.")
-
-    canonical_run_id = str(canonical_manifest.get("run_id", "")).strip()
-    if effective_run_id and canonical_run_id and effective_run_id != canonical_run_id:
-        _add_manifest_check(
-            "manifest_run_id_consistent",
-            "FAIL",
-            f"requested/latest run_id={effective_run_id} differs from canonical run_id={canonical_run_id}.",
-        )
-    else:
-        _add_manifest_check(
-            "manifest_run_id_consistent", "PASS", canonical_run_id or effective_run_id or "n/a"
-        )
-
-    run_root_dir = output_root / "runs" / (effective_run_id or "")
-    run_summary = _read_run_summary(run_root_dir) if run_root_dir.exists() else {}
-
-    timestamp_utc = str(
-        canonical_manifest.get("timestamp_utc", "") or latest_payload.get("created_at_utc", "")
-    ).strip()
-
-    fs_rows, _, _ = repro_workbench.build_filesystem_artifact_checks(
-        output_root=output_root,
-        effective_run_id=effective_run_id or "",
-        canonical_manifest=canonical_manifest,
-        run_root=run_root_dir,
-        run_summary=run_summary,
-        timestamp_source=timestamp_utc,
-    )
-    all_rows = manifest_rows + fs_rows
-
-    def _count(rows: list[dict[str, str]]) -> tuple[int, int, int]:
-        p = sum(1 for r in rows if str(r.get("status")) == "PASS")
-        w = sum(1 for r in rows if str(r.get("status")) == "WARN")
-        f = sum(1 for r in rows if str(r.get("status")) == "FAIL")
-        return p, w, f
-
-    pass_count, warn_count, fail_count = _count(all_rows)
-
-    paper_mode = canonical_manifest.get("evidence_mode") or canonical_manifest.get("paper_mode", {})
-    ev_on = bool(paper_mode.get("resolved_value")) if isinstance(paper_mode, dict) else False
-    profile_id = str(
-        run_summary.get("profile_id") or (canonical_manifest.get("profile_params") or {}).get("profile_id") or ""
-    )
-    run_status = str(run_summary.get("run_status") or canonical_manifest.get("run_status") or "unknown")
-
-    if fail_count:
-        interpretation = "Resolve failing checks before trusting artifacts from this run."
-    elif not ev_on:
-        interpretation = (
-            "This run is development-research healthy. It is not an evidence-locked paper run."
-        )
-    else:
-        interpretation = (
-            "Evidence-oriented manifest flags are set — validate publication bundles and compliance exports separately."
-        )
-
-    report_run_id = effective_run_id or "unknown"
-    diagnostics_out = run_root_dir / "diagnostics" if run_root_dir.exists() else diagnostics_dir
-    payload = {
-        "meta": {
-            "run_id": report_run_id,
-            "profile_id": profile_id,
-            "run_status": run_status,
-            "run_root": str(run_root_dir),
-            "evidence_mode_resolved": ev_on,
-        },
-        "generated_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "summary": {"pass": pass_count, "warn": warn_count, "fail": fail_count},
-        "checks": all_rows,
-        "interpretation": interpretation,
-    }
-    md_path, json_path = repro_workbench.write_run_health_artifact_reports(
-        diagnostics_out_dir=diagnostics_out,
-        payload=payload,
-    )
-
-    legacy_payload = {
-        "run_id": report_run_id,
-        "generated_at_utc": payload["generated_at_utc"],
-        "summary": payload["summary"],
-        "checks": [{"check": r["check"], "status": r["status"], "detail": r["detail"]} for r in all_rows],
-    }
-    report_latest = diagnostics_dir / "quick_health_check.latest.json"
-    report_run = diagnostics_dir / f"quick_health_check_{report_run_id}.json"
-    report_latest.write_text(json.dumps(legacy_payload, indent=2), encoding="utf-8")
-    report_run.write_text(json.dumps(legacy_payload, indent=2), encoding="utf-8")
-
-    print("")
-    print("RUN HEALTH & ARTIFACT CHECK")
-    print("---------------------------")
-    du.print_stat("Run ID", report_run_id)
-    du.print_stat("Status", run_status)
-    du.print_stat("Profile", profile_id or "n/a")
-    du.print_stat("Run root", str(run_root_dir))
-    print("")
-    du.print_stat("Health PASS", str(pass_count))
-    du.print_stat("Health WARN", str(warn_count))
-    du.print_stat("Health FAIL", str(fail_count))
-    print("")
-    du.print_table(
-        [{"check": r["check"], "status": r["status"], "detail": r["detail"]} for r in all_rows],
-        title="Checks",
-        show_index=False,
-    )
-    warn_plain = [r for r in all_rows if str(r.get("status")) == "WARN" and str(r.get("plain_language") or "").strip()]
-    if warn_plain:
-        print("")
-        du.print_subheader("Warnings (plain language)")
-        for r in warn_plain:
-            du.print_warning(f"{r['check']}: {r['plain_language']}")
-    print("")
-    du.print_info(f"Artifacts: {json_path}")
-    du.print_info(f"           {md_path}")
-    du.print_info(f"[MENU] Legacy mirror: {report_run}")
-    print("")
-    du.print_info(f"[MENU] Health summary: PASS={pass_count}, WARN={warn_count}, FAIL={fail_count}")
-    du.print_info(f"Interpretation: {interpretation}")
-
-    if fail_count:
-        du.print_error("[MENU] Health check failed.")
-        return 1
-    if warn_count:
-        du.print_warning("[MENU] Health check passed with warnings.")
-        return 0
-    du.print_success("[MENU] Health check passed.")
-    return 0
 
 
 def _run_quick_health_check() -> int:
