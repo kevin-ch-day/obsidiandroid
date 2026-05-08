@@ -13,13 +13,10 @@ from typing import Any
 import shutil
 
 import pandas as pd
-from pandas.api.types import is_numeric_dtype
 
-from obsidiandroid.matrix.av_binary_matrix_builder import METADATA_COLS as AV_METADATA_COLS
 from config import app_config
 from obsidiandroid.modeling import distribution_reporter
 from obsidiandroid.modeling import pipeline_core
-from obsidiandroid.features import feature_vector_builder
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
@@ -28,6 +25,7 @@ from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.diagnostics import ablation_cohort_diagnostics
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.reporting.operator_dashboard import format_feature_set_label
+from obsidiandroid.pipeline.ablation import registry as ablation_registry
 
 
 class PaperCohortSource(str, Enum):
@@ -50,95 +48,25 @@ def _build_vendor_matrix(
     extra_features_df: pd.DataFrame | None = None,
     cohort_sample_ids: list[int] | None = None,
 ) -> pd.DataFrame:
-    score_field = str(getattr(app_config, "FEATURE_SCORE_FIELD", "Final ML Score"))
-    if bool(getattr(app_config, "ENABLE_LEAKAGE_SAFE_VENDOR_SCORING", True)):
-        leakage_field = str(getattr(app_config, "LEAKAGE_SAFE_SCORE_FIELD", "Leakage Safe Score"))
-        if leakage_field in weights_df.columns:
-            score_field = leakage_field
-
-    return feature_vector_builder.build_feature_vector(
-        weights_df=weights_df,
-        parsed_vendor_data=parsed_data,
-        top_k=int(getattr(app_config, "FEATURE_TOP_K", 8)),
-        score_preference=score_field,
-        exclude_categories=list(getattr(app_config, "FEATURE_EXCLUDE_VENDOR_CATEGORIES", [])),
-        min_score=getattr(app_config, "FEATURE_MIN_VENDOR_SCORE", 0.0),
-        include_fields=include_fields,
-        encoding="category",
-        verbose=False,
+    return ablation_registry.build_vendor_matrix(
+        weights_df,
+        parsed_data,
+        include_fields,
         extra_features_df=extra_features_df,
         cohort_sample_ids=cohort_sample_ids,
     )
 
 
 def _vendor_semantic_subset(encoded_df: pd.DataFrame, variant: str) -> pd.DataFrame:
-    """Drop vendor field groups from an encoded vendor-only matrix (columns are low_snake_case_*)."""
-    if not isinstance(encoded_df, pd.DataFrame) or encoded_df.empty:
-        return encoded_df if isinstance(encoded_df, pd.DataFrame) else pd.DataFrame()
-    if variant == "no_parsed_family":
-        drop_parsed, drop_threat, drop_malware_type = True, False, False
-    elif variant == "no_family_no_type":
-        drop_parsed, drop_threat, drop_malware_type = True, True, True
-    else:
-        return encoded_df.copy()
-    keep: list[str | int] = []
-    for col in encoded_df.columns:
-        low = str(col).lower()
-        if drop_parsed and "parsed_family" in low:
-            continue
-        if drop_threat and "threat_class" in low:
-            continue
-        if drop_malware_type and "malware_type" in low:
-            continue
-        keep.append(col)
-    if not keep:
-        return pd.DataFrame()
-    out = encoded_df[keep].copy()
-    for key, val in getattr(encoded_df, "attrs", {}).items():
-        out.attrs[key] = val
-    return out
+    return ablation_registry.vendor_semantic_subset(encoded_df, variant)
 
 
 def _build_binary_detection_only_matrix(binary_matrix: pd.DataFrame | None) -> pd.DataFrame:
-    if not isinstance(binary_matrix, pd.DataFrame) or binary_matrix.empty:
-        return pd.DataFrame()
-    if "sample_id" not in binary_matrix.columns:
-        return pd.DataFrame()
-    eng_cols = [c for c in binary_matrix.columns if c not in AV_METADATA_COLS and c != "sample_id"]
-    if not eng_cols:
-        return pd.DataFrame()
-    out = binary_matrix[["sample_id"] + eng_cols].copy()
-    for col in eng_cols:
-        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0).astype(int)
-    return out.set_index("sample_id")
+    return ablation_registry.build_binary_detection_only_matrix(binary_matrix)
 
 
 def _build_consensus_scores_only_matrix(enriched_matrix: pd.DataFrame | None) -> pd.DataFrame:
-    """Non-engine numeric aggregates from the enriched AV scan matrix (scores / densities)."""
-    if not isinstance(enriched_matrix, pd.DataFrame) or enriched_matrix.empty:
-        return pd.DataFrame()
-    if "sample_id" not in enriched_matrix.columns:
-        return pd.DataFrame()
-    skip = set(AV_METADATA_COLS) | {"sample_id"}
-    numeric_cols: list[str] = []
-    for col in enriched_matrix.columns:
-        if col in skip:
-            continue
-        series = enriched_matrix[col]
-        if not is_numeric_dtype(series):
-            continue
-        nu = pd.to_numeric(series, errors="coerce").dropna()
-        if nu.empty:
-            continue
-        uniq = sorted({float(x) for x in nu.unique().tolist()})
-        # Drop per-engine binaries (typically {0.0, 1.0}).
-        if len(uniq) <= 3 and uniq and max(uniq) <= 1.0 and min(uniq) >= 0.0:
-            continue
-        numeric_cols.append(col)
-    if not numeric_cols:
-        return pd.DataFrame()
-    work = enriched_matrix[["sample_id"] + numeric_cols].copy()
-    return work.drop_duplicates("sample_id").set_index("sample_id")
+    return ablation_registry.build_consensus_scores_only_matrix(enriched_matrix)
 
 
 def _build_permissions_band_matrix(
@@ -181,80 +109,14 @@ def _build_experiment_matrix_dict(
     pipeline_results: dict[str, Any] | None,
     cohort_sample_ids: list[int] | None,
 ) -> dict[str, Any]:
-    """Return mapping of experiment names to built feature matrices (pre-reindex)."""
-    full_vendor_fields = ["Parsed Family", "Threat Class", "Malware Type"]
-    pipelines = pipeline_results if isinstance(pipeline_results, dict) else {}
-    cids = cohort_sample_ids
-
-    builders: dict[str, Any] = {}
-
-    builders["vendor_full"] = lambda: _build_vendor_matrix(
-        weights_df, parsed_data, full_vendor_fields, extra_features_df=None, cohort_sample_ids=cids
+    return ablation_registry.build_experiment_matrix_dict(
+        weights_df=weights_df,
+        parsed_data=parsed_data,
+        permission_features_df=permission_features_df,
+        pipeline_results=pipeline_results,
+        cohort_sample_ids=cohort_sample_ids,
+        permissions_band_builder=lambda df, subset: _build_permissions_band_matrix(df, subset=subset),
     )
-    builders["vendor_no_parsed_family"] = lambda: _build_vendor_matrix(
-        weights_df,
-        parsed_data,
-        ["Threat Class", "Malware Type"],
-        extra_features_df=None,
-        cohort_sample_ids=cids,
-    )
-
-    def _vendor_no_ft() -> pd.DataFrame:
-        raw_mat = builders["vendor_full"]()
-        if not isinstance(raw_mat, pd.DataFrame) or raw_mat.empty:
-            return pd.DataFrame()
-        trimmed = _vendor_semantic_subset(raw_mat, variant="no_family_no_type")
-        return trimmed
-
-    builders["vendor_no_family_no_type"] = _vendor_no_ft
-
-    builders["vendor_detection_binary_only"] = lambda: _build_binary_detection_only_matrix(
-        pipelines.get("binary_matrix")
-    )
-    builders["vendor_consensus_scores_only"] = lambda: _build_consensus_scores_only_matrix(
-        pipelines.get("enriched_matrix")
-    )
-
-    builders["permissions_raw"] = lambda: _build_permissions_band_matrix(
-        permission_features_df,
-        subset="raw",
-    )
-    builders["permissions_grouped"] = lambda: _build_permissions_band_matrix(
-        permission_features_df,
-        subset="grouped",
-    )
-
-    def _grp_plus_vnf() -> pd.DataFrame:
-        gmat = _build_permissions_band_matrix(permission_features_df, subset="grouped")
-        if not isinstance(gmat, pd.DataFrame) or gmat.empty:
-            return _build_vendor_matrix(
-                weights_df,
-                parsed_data,
-                ["Threat Class", "Malware Type"],
-                cohort_sample_ids=cids,
-            )
-        g_df = gmat.reset_index()
-        if "sample_id" not in g_df.columns and gmat.index.name == "sample_id":
-            g_df = gmat.rename_axis("sample_id").reset_index()
-        return _build_vendor_matrix(
-            weights_df,
-            parsed_data,
-            ["Threat Class", "Malware Type"],
-            extra_features_df=g_df,
-            cohort_sample_ids=cids,
-        )
-
-    builders["permissions_grouped_plus_vendor_no_family"] = _grp_plus_vnf
-
-    builders["full_fused"] = lambda: _build_vendor_matrix(
-        weights_df,
-        parsed_data,
-        full_vendor_fields,
-        extra_features_df=permission_features_df,
-        cohort_sample_ids=cids,
-    )
-
-    return builders
 
 
 ABLATION_EXPERIMENT_ORDER: tuple[str, ...] = (
