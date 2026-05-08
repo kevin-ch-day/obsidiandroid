@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +9,7 @@ from typing import Iterable
 
 from config import app_config
 from obsidiandroid.common import output_paths
+from obsidiandroid.common.json_io import read_json_dict
 
 _RUN_ID_TIMESTAMP_PATTERN = re.compile(r"^(?P<ts>\d{8}T\d{6}Z)__.+$")
 
@@ -23,13 +23,7 @@ def read_json_object(path: Path) -> dict:
     Returns:
         Parsed object when the file exists and contains a JSON object.
     """
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return payload if isinstance(payload, dict) else {}
+    return read_json_dict(path)
 
 
 def parse_run_timestamp_from_manifest(manifest_payload: dict[str, object]) -> datetime | None:

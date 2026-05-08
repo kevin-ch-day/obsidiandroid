@@ -15,16 +15,8 @@ import pandas as pd
 
 from config import app_config
 
+from obsidiandroid.common.json_io import read_json_dict
 from obsidiandroid.reporting import operator_dashboard
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
 
 
 def _safe_pct(num: float, den: float) -> float:
@@ -142,7 +134,7 @@ def write_research_question_artifacts(
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     mr = model_results if isinstance(model_results, dict) else {}
     mk = str(top_model or "random_forest").strip().lower().replace("-", "_")
-    cf = _read_json(diagnostics_dir / "cohort_foundation.json")
+    cf = read_json_dict(diagnostics_dir / "cohort_foundation.json")
     fts = cf.get("family_type_summary") if isinstance(cf.get("family_type_summary"), dict) else {}
     gate = cf.get("gate_stats") if isinstance(cf.get("gate_stats"), dict) else {}
 
@@ -180,16 +172,16 @@ def write_research_question_artifacts(
     unmapped_sql = int(gate.get("excluded_unmapped_family") or 0)
     missing_sha_sql = int(gate.get("excluded_missing_sha256") or 0)
 
-    msum = _read_json(diagnostics_dir / f"feature_modality_coverage_summary_{run_id}.json")
+    msum = read_json_dict(diagnostics_dir / f"feature_modality_coverage_summary_{run_id}.json")
     if not msum:
-        msum = _read_json(diagnostics_dir / "feature_modality_coverage_summary.latest.json")
+        msum = read_json_dict(diagnostics_dir / "feature_modality_coverage_summary.latest.json")
     pi_n = msum.get("permission_pi_signal_positive_n")
     vmerge = msum.get("vendor_merge_n")
     perm_cols_fused = msum.get("permission_feature_columns_in_fused_matrix")
     if perm_cols_fused is None:
-        modality = _read_json(diagnostics_dir / "modality_method_contract.json")
+        modality = read_json_dict(diagnostics_dir / "modality_method_contract.json")
         if not modality:
-            modality = _read_json(diagnostics_dir / "modality_method_contract.latest.json")
+            modality = read_json_dict(diagnostics_dir / "modality_method_contract.latest.json")
         perm_cols_fused = (
             (modality.get("fusion_modality") or {}).get("feature_count_permission")
             if modality
@@ -198,9 +190,9 @@ def write_research_question_artifacts(
         if perm_cols_fused is None and modality:
             perm_cols_fused = (modality.get("permission_modality") or {}).get("feature_count_raw")
 
-    fc_contract = _read_json(diagnostics_dir / "feature_contract.json")
+    fc_contract = read_json_dict(diagnostics_dir / "feature_contract.json")
     if not fc_contract:
-        fc_contract = _read_json(diagnostics_dir / "feature_contract.latest.json")
+        fc_contract = read_json_dict(diagnostics_dir / "feature_contract.latest.json")
     eng_in = int(fc_contract.get("engine_included_count") or 0)
     eng_ex = int(fc_contract.get("engine_excluded_count") or 0)
     eng_obs = eng_in + eng_ex

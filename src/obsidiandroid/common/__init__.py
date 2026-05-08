@@ -8,6 +8,7 @@ Canonical modules include :mod:`obsidiandroid.common.hash_utils`,
 :mod:`obsidiandroid.common.output_cleanup_clutter`, :mod:`obsidiandroid.common.av_detection_tiers`,
 :mod:`obsidiandroid.common.sample_metadata_preprocessor`,
 :mod:`obsidiandroid.common.output_paths`, :mod:`obsidiandroid.common.output_hygiene`,
+:mod:`obsidiandroid.common.json_io`,
 and :mod:`obsidiandroid.common.repo_paths`.
 Import these modules directly from ``obsidiandroid.common`` (or reporting/CLI peers).
 """

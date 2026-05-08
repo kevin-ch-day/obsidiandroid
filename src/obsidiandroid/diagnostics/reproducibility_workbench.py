@@ -18,16 +18,7 @@ import pandas as pd
 from config import app_config
 
 from obsidiandroid.common import output_paths
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        return {}
-    try:
-        blob = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return blob if isinstance(blob, dict) else {}
+from obsidiandroid.common.json_io import read_json_dict
 
 
 def run_scoped_diagnostics(output_root: Path, run_id: str) -> Path:
@@ -449,7 +440,7 @@ def write_research_validity_review(
         for name in names:
             for base in (rdiag, gdiag):
                 p = base / name
-                blob = _read_json(p)
+                blob = read_json_dict(p)
                 if blob:
                     return blob, p
         return {}, None
@@ -460,9 +451,9 @@ def write_research_validity_review(
     scope, _ = load_rel(["headline_score_scope.json"])
     skeptical, _ = load_rel(["high_score_audit.json"])
     taxonomy_path = rdiag / f"taxonomy_consistency_summary_{run_id}.json"
-    taxonomy = _read_json(taxonomy_path) if taxonomy_path.is_file() else {}
+    taxonomy = read_json_dict(taxonomy_path) if taxonomy_path.is_file() else {}
     if not taxonomy:
-        taxonomy = _read_json(gdiag / "taxonomy_consistency_summary.latest.json")
+        taxonomy = read_json_dict(gdiag / "taxonomy_consistency_summary.latest.json")
 
     from obsidiandroid.diagnostics.headline_ablation_parity import build_feature_contract_comparison
 
@@ -730,8 +721,8 @@ def collect_run_comparison_row(output_root: Path, run_id: str) -> dict[str, Any]
     run_root = Path(output_root) / "runs" / run_id
     rdiag = run_scoped_diagnostics(output_root, run_id)
     gdiag = global_diagnostics(output_root)
-    summary = _read_json(run_root / "run_summary.json")
-    manifest = _read_json(run_root / "run_manifest.json")
+    summary = read_json_dict(run_root / "run_summary.json")
+    manifest = read_json_dict(run_root / "run_manifest.json")
 
     profile = str(
         summary.get("profile_id") or (manifest.get("profile_params") or {}).get("profile_id") or ""
@@ -745,19 +736,19 @@ def collect_run_comparison_row(output_root: Path, run_id: str) -> dict[str, Any]
     if isinstance(mp, dict):
         min_support = mp.get("min_family_support", min_support)
 
-    q1 = _read_json(rdiag / "dataset_foundation_summary.json") or _read_json(
+    q1 = read_json_dict(rdiag / "dataset_foundation_summary.json") or read_json_dict(
         gdiag / "dataset_foundation_summary.json"
     )
-    scope = _read_json(rdiag / "headline_score_scope.json") or _read_json(
+    scope = read_json_dict(rdiag / "headline_score_scope.json") or read_json_dict(
         gdiag / "headline_score_scope.json"
     )
-    q3 = _read_json(rdiag / "model_and_family_failure_summary.json") or _read_json(
+    q3 = read_json_dict(rdiag / "model_and_family_failure_summary.json") or read_json_dict(
         gdiag / "model_and_family_failure_summary.json"
     )
-    modality = _read_json(rdiag / "modality_contribution_summary.json") or _read_json(
+    modality = read_json_dict(rdiag / "modality_contribution_summary.json") or read_json_dict(
         gdiag / "modality_contribution_summary.json"
     )
-    taxonomy = _read_json(rdiag / f"taxonomy_consistency_summary_{run_id}.json") or _read_json(
+    taxonomy = read_json_dict(rdiag / f"taxonomy_consistency_summary_{run_id}.json") or read_json_dict(
         gdiag / "taxonomy_consistency_summary.latest.json"
     )
 

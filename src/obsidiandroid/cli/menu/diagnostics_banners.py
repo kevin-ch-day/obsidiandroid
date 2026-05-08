@@ -3,15 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
-from obsidiandroid.cli.menu import run_locator
 from obsidiandroid.cli.menu import vendor_diagnostics
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    blob = run_locator.read_json_object(path)
-    return blob if isinstance(blob, dict) else {}
+from obsidiandroid.common.json_io import read_json_dict
 
 
 def print_data_diagnostics_banner(*, output_root: Path, latest_run_id: str | None) -> None:
@@ -42,11 +36,11 @@ def print_data_diagnostics_banner(*, output_root: Path, latest_run_id: str | Non
         fam_audit = (rdiag / "family_label_taxonomy_audit.csv").is_file()
         sup_prev = (rdiag / "support_threshold_preview.md").is_file()
         latest_tax = output_root / "diagnostics" / "taxonomy_consistency_summary.latest.json"
-        tax = _read_json(rdiag / f"taxonomy_consistency_summary_{latest_run_id}.json") or _read_json(
+        tax = read_json_dict(rdiag / f"taxonomy_consistency_summary_{latest_run_id}.json") or read_json_dict(
             latest_tax
         )
         tax_n = tax.get("taxonomy_mismatch_count", tax.get("total_mismatch_count", "—"))
-        q2 = _read_json(rdiag / "modality_contribution_summary.json")
+        q2 = read_json_dict(rdiag / "modality_contribution_summary.json")
         perm_pct = q2.get("permission_signal_pct", "—")
         vendor_pct = q2.get("vendor_merge_pct", "—")
 
@@ -73,7 +67,7 @@ def print_tools_maintenance_banner(*, output_root: Path, latest_run_id: str | No
     pointer_stale = "Unknown"
     latest_pointer = output_root / "diagnostics" / "run_manifest.latest.json"
     if latest_pointer.is_file() and latest_run_id:
-        ptr = _read_json(latest_pointer)
+        ptr = read_json_dict(latest_pointer)
         ptr_rid = str(ptr.get("run_id", "") or "").strip()
         pointer_stale = "Maybe" if ptr_rid and ptr_rid != latest_run_id else "Aligned"
 

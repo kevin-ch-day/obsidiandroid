@@ -6,7 +6,6 @@ cohort semantics, modality coverage, model leaderboard context, and claim hygien
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -66,15 +65,6 @@ def _safe_pct(num: float, den: float) -> str:
     if den <= 0:
         return "n/a"
     return f"{100.0 * float(num) / float(den):.1f}%"
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
 
 
 def _perm_top_from_survival(surv_path: Path, *, prefix: str, top_n: int = 8) -> list[tuple[str, int]]:

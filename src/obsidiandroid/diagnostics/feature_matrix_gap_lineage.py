@@ -15,6 +15,7 @@ import pandas as pd
 
 from .alignment_gap_diagnostics import collect_alignment_gap_detail_frame
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common.json_io import read_json_dict
 
 # Renamed from alignment ``likely_missing_reason`` to paper-facing categories.
 GAP_CATEGORY_LABELS: dict[str, str] = {
@@ -30,12 +31,6 @@ GAP_CATEGORY_LABELS: dict[str, str] = {
 
 def resolve_run_diagnostics(run_root: Path | str) -> Path:
     return Path(run_root) / "diagnostics"
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def analyze_training_column_mix(feature_contract: dict[str, Any]) -> dict[str, Any]:
@@ -241,9 +236,9 @@ def run_feature_matrix_gap_report(
     unmatched_df = pd.read_csv(unmatched_path)
     unmatched_ids = [int(x) for x in unmatched_df["sample_id"].tolist()]
 
-    coverage = _read_json(coverage_path) if coverage_path.is_file() else {}
-    modality = _read_json(modality_path) if modality_path.is_file() else {}
-    feature_contract = _read_json(contract_path) if contract_path.is_file() else {}
+    coverage = read_json_dict(coverage_path)
+    modality = read_json_dict(modality_path)
+    feature_contract = read_json_dict(contract_path)
 
     missing_csv = diag / "cohort_missing_from_feature_matrix.latest.csv"
     missing_ids: set[int] = set()
@@ -391,7 +386,7 @@ def run_feature_matrix_gap_report(
         if not gap_detail.empty
         else {},
         "stage_row_counts": stage_counts,
-        "alignment_gap_summary_embed": _read_json(diag / "alignment_gap_summary.json")
+        "alignment_gap_summary_embed": read_json_dict(diag / "alignment_gap_summary.json")
         if (diag / "alignment_gap_summary.json").is_file()
         else {},
         "paper_reporting": {
