@@ -36,8 +36,8 @@ def _cohort_loader_sql_parts(
         dict with hash_join_clause, hash_join_clause_inner, scan_one, fam_one,
         where_clauses (list of SQL predicates), params (flat bind list in order).
     """
-    if min_samples_per_family is not None and not type_slug:
-        raise ValueError("min_samples_per_family requires a non-empty type_slug.")
+    # Support minimum-family-support gates for both single-type and all-type cohorts.
+    # When type_slug is None, the threshold applies across the full cohort (all represented types).
 
     where_clauses = ["y.platform = 'android'", "y.file_extension = 'apk'"]
     params: list[Any] = []

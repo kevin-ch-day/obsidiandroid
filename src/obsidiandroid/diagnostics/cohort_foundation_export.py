@@ -210,7 +210,7 @@ def build_cohort_foundation_payload(
             "Prepared cohort: rows in samples_df after cohort SQL fetch plus in-Python dataset/time contract filters.",
             "gate_stats.total_candidates: SQL head count for the same profile scope (joins + time window + exclusions).",
             "Marginal exclusion buckets in gate_stats can overlap; trust governed_cohort_count_sql and loaded_dataframe.rows.",
-            "min_samples_per_family applies in SQL only when type_slug_filter selects a single malware type.",
+            "min_samples_per_family applies in SQL to both single-type and all-type cohorts when configured.",
             "Final research totals may change until upstream Erebus ingestion finishes rebuilding.",
         ],
         "interim_rebuild_warnings": interim_notes,

@@ -77,15 +77,6 @@ def load_and_prepare_samples(
             )
     setattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", configured_min_support)
     min_support = configured_min_support
-    if not type_slug:
-        if isinstance(gates, dict) and "min_samples_per_family" in gates:
-            du.print_warning(
-                "[COHORT] cohort_gates.min_samples_per_family is not applied in the SQL cohort loader "
-                "when type_slug_filter is null (all-type cohort). Per-family minimums are enforced later "
-                "during supervised training / CV. "
-                f"Profile value={configured_min_support} is still stored as RUNTIME_MIN_FAMILY_SUPPORT."
-            )
-        min_support = None
     require_mapped = bool(gates.get("require_mapped_family", True))
     require_sha256 = bool(gates.get("require_sha256", True))
     allow_missing_pkg = bool(gates.get("allow_missing_package_name", True))

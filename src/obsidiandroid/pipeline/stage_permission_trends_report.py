@@ -6,11 +6,7 @@ Canonical implementation (**Pass 70**): ``obsidiandroid.pipeline.stage_permissio
 
 from __future__ import annotations
 
-from collections import Counter
 from datetime import datetime, timezone
-import json
-from math import log
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -36,7 +32,6 @@ from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.pipeline.permission_trends.bundle_manifest import (
     export_permission_trends_bundle_manifest as _export_permission_trends_bundle_manifest,
     export_permission_trends_table_inventory_from_manifest as _export_permission_trends_table_inventory_from_manifest,
-    resolve_bundle_artifact_dir as _resolve_bundle_artifact_dir,
 )
 from obsidiandroid.pipeline.permission_trends.publish_paths import (
     compute_cohort_hash as _compute_cohort_hash,
@@ -45,24 +40,17 @@ from obsidiandroid.pipeline.permission_trends.publish_paths import (
     publish_canonical_type_heatmap as _publish_canonical_type_heatmap,
 )
 from obsidiandroid.pipeline.permission_trends.reporting_support import (
-    compact_permission_label as _compact_permission_label,
-    handle_reporting_exception as _handle_reporting_exception,
     read_dataset_time_contract as _read_dataset_time_contract,
     read_snapshot_meta as _read_snapshot_meta,
     write_run_scoped_permission_artifacts as _write_run_scoped_permission_artifacts,
 )
 from obsidiandroid.pipeline.permission_trends.constants import (
-    ARTIFACT_GROUP_CONTRACTS,
-    ARTIFACT_GROUP_DOCS,
-    ARTIFACT_GROUP_FIGURES,
-    ARTIFACT_GROUP_TABLES,
     BUNDLE_CONTRACT_NAME,
     BUNDLE_CONTRACT_VERSION,
     PERMISSION_ALIAS_MAP,
     PERMISSION_ALIAS_MAP_VERSION,
     PRIMARY_PERMISSION_VIEW,
     ReportArtifacts,
-    RUN_SUFFIX_PNG_PATTERN,
 )
 from obsidiandroid.pipeline.permission_trends.sample_permission_data import (
     attach_temporal_catalog_fields as _attach_temporal_catalog_fields,
@@ -87,11 +75,8 @@ from obsidiandroid.pipeline.permission_trends.stats_core import (
 )
 from obsidiandroid.pipeline.permission_trends.stats import (
     build_dangerous_stats_tests as _build_dangerous_stats_tests_impl,
-    build_pairwise_dunn_or_mannwhitney as _build_pairwise_dunn_or_mannwhitney_impl,
     build_permission_discriminability_rank as _build_permission_discriminability_rank_impl,
-    chi2_presence_vs_multiclass as _chi2_presence_vs_multiclass_impl,
     build_consensus_correlation_report as _build_consensus_correlation_report_impl,
-    mutual_information_scores as _mutual_information_scores_impl,
     build_sample_level_permission_metrics as _build_sample_level_permission_metrics_impl,
 )
 
@@ -106,23 +91,32 @@ from obsidiandroid.pipeline.permission_trends.bundle_io import (
     zip_bundle as _zip_bundle,
 )
 
-
-def _import_pyplot():
-    """Import matplotlib pyplot with a headless-safe backend."""
-    import matplotlib
-
-    matplotlib.use("Agg", force=True)
-    import matplotlib.pyplot as plt
-
-    return plt
-
-
-def _report_figure_dpi() -> int:
-    """Return figure export DPI for the current runtime mode."""
-    if bool(getattr(app_config, "PAPER_MODE_ENABLED", False)):
-        return 300
-    return 180
-
+from obsidiandroid.pipeline.permission_trends.figure_exports import (
+    export_banker_enrichment_bar_chart as _export_banker_enrichment_bar_chart,
+    export_banker_trends_line_plot as _export_banker_trends_line_plot,
+    export_confusion_bar_plot as _export_confusion_bar_plot,
+    export_family_permission_heatmap as _export_family_permission_heatmap,
+    export_generic_scatter as _export_generic_scatter,
+    export_jsd_heatmap as _export_jsd_heatmap,
+    export_prevalence_heatmap as _export_prevalence_heatmap,
+)
+from obsidiandroid.pipeline.permission_trends.bundle_exports import (
+    build_permission_trends_layout_check as _build_permission_trends_layout_check,
+    export_alias_map_csv as _export_alias_map_csv,
+    export_paper_figures_index as _export_paper_figures_index,
+    export_run_summary_onepager as _export_run_summary_onepager,
+    export_safe_claims_report as _export_safe_claims_report,
+)
+from obsidiandroid.pipeline.permission_trends.diagnostic_exports import (
+    export_jsd_pair_verification as _export_jsd_pair_verification,
+    export_jsd_support_shortfall_artifact as _export_jsd_support_shortfall_artifact,
+    export_selected_visual_family_registry as _export_selected_visual_family_registry,
+)
+from obsidiandroid.pipeline.permission_trends.consensus_audit import (
+    build_consensus_distribution as _build_consensus_distribution,
+    build_generic_definition_audit as _build_generic_definition_audit,
+    extract_selected_vendors as _extract_selected_vendors,
+)
 
 def _spearman_with_bootstrap_ci(
     x: pd.Series, y: pd.Series
@@ -799,6 +793,7 @@ def run_permission_trends_report_stage(
         dangerous_df=dangerous_df,
         consensus_df=consensus_df,
         selected_vendor_count=len(selected_vendors),
+        select_banker_summary_rows=_select_banker_summary_rows,
     )
     figures_index_md = _export_paper_figures_index(
         run_id=run_id,
@@ -819,6 +814,7 @@ def run_permission_trends_report_stage(
         consensus_df=consensus_df,
         bundle_metadata=bundle_metadata,
         banker_enrichment_df=banker_enrichment_df,
+        select_banker_summary_rows=_select_banker_summary_rows,
     )
     bundle_readme_path = _export_permission_trends_bundle_readme(run_id=run_id, bundle_dir=bundle_dir)
 
@@ -1264,295 +1260,6 @@ def _build_banker_permission_trends_over_time(
         out[col] = pd.to_numeric(out[col], errors="coerce").round(6)
     return out
 
-
-def _export_banker_trends_line_plot(
-    trends_df: pd.DataFrame,
-    run_id: str,
-    bundle_dir: Path,
-) -> str | None:
-    """Export line plot for banker-sensitive permission prevalence over quarter."""
-    if not isinstance(trends_df, pd.DataFrame) or trends_df.empty:
-        return None
-    plot_df = trends_df.copy()
-    plot_df = plot_df[plot_df["banker_sample_count"] >= 1].copy()
-    if plot_df.empty:
-        return None
-    try:
-        plt = _import_pyplot()
-
-        fig, ax = plt.subplots(figsize=(12, 5))
-        x_vals = np.arange(len(plot_df))
-        series_map = {
-            "banker_bind_accessibility_service_prevalence": "BIND_ACCESSIBILITY_SERVICE",
-            "banker_system_alert_window_prevalence": "SYSTEM_ALERT_WINDOW",
-            "banker_request_install_packages_prevalence": "REQUEST_INSTALL_PACKAGES",
-            "banker_read_sms_prevalence": "READ_SMS",
-            "banker_receive_sms_prevalence": "RECEIVE_SMS",
-            "banker_send_sms_prevalence": "SEND_SMS",
-        }
-        max_lines = max(int(getattr(app_config, "MAX_TIME_SERIES_LINES", 4)), 1)
-        ranked_series = sorted(
-            series_map.items(),
-            key=lambda item: float(pd.to_numeric(plot_df[item[0]], errors="coerce").fillna(0.0).mean()),
-            reverse=True,
-        )
-        for col, label in ranked_series[:max_lines]:
-            y_vals = pd.to_numeric(plot_df[col], errors="coerce")
-            ax.plot(x_vals, y_vals, marker="o", linewidth=1.8, label=label)
-        ax.set_xticks(x_vals)
-        ax.set_xticklabels(plot_df["period_quarter"].astype(str), rotation=45, ha="right")
-        ax.set_ylim(0.0, 1.0)
-        ax.set_ylabel("Prevalence in banker samples")
-        ax.set_xlabel("Quarter")
-        ax.set_title("Banker Sensitive Permission Trends Over Time")
-        ax.grid(axis="y", linestyle="--", alpha=0.4)
-        ax.legend(loc="upper left", ncol=2, fontsize=8, frameon=False)
-        plt.tight_layout()
-        figures_dir = _resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_FIGURES)
-        run_path = figures_dir / f"banker_permission_trends_over_time_{run_id}.png"
-        latest_path = figures_dir / "banker_permission_trends_over_time.latest.png"
-        write_run_scoped = _write_run_scoped_permission_artifacts()
-        fig.savefig(latest_path, dpi=_report_figure_dpi(), bbox_inches="tight")
-        if write_run_scoped:
-            fig.savefig(run_path, dpi=_report_figure_dpi(), bbox_inches="tight")
-        plt.close(fig)
-        return str(run_path if write_run_scoped else latest_path)
-    except Exception as exc:
-        _handle_reporting_exception("banker_trends_line_plot", exc, fail_in_paper=True)
-        return None
-
-
-def _extract_selected_vendors(feature_df: pd.DataFrame | None) -> list[str]:
-    if not isinstance(feature_df, pd.DataFrame):
-        return []
-    selected = feature_df.attrs.get("selected_vendors", [])
-    if not isinstance(selected, list):
-        return []
-    return [str(v).strip().lower() for v in selected if str(v).strip()]
-
-
-def _build_consensus_distribution(
-    sample_core_df: pd.DataFrame,
-    parsed_data: dict[str, pd.DataFrame],
-    selected_vendors: list[str],
-    run_id: str,
-) -> pd.DataFrame:
-    base = sample_core_df[["sample_id", "sha256", "family_id", "family_canonical", "type_slug"]].copy()
-    votes_df = _build_vendor_votes(parsed_data)
-    if votes_df.empty:
-        base["run_id"] = run_id
-        base["vendor_count"] = 0
-        base["top1_vote_share"] = 0.0
-        base["top2_vote_share"] = 0.0
-        base["top1_minus_top2_gap"] = 0.0
-        base["consensus_score_all_vendors"] = 0.0
-        base["consensus_entropy_all_vendors"] = 0.0
-        base["consensus_score_gated_vendors"] = 0.0
-        base["consensus_entropy_gated_vendors"] = 0.0
-        base["low_vendor_count_flag"] = 1
-        return base
-
-    all_consensus = _compute_consensus_metrics(votes_df, prefix="all")
-    if selected_vendors:
-        gated_votes = votes_df[votes_df["vendor"].isin(set(selected_vendors))].copy()
-    else:
-        gated_votes = votes_df.copy()
-    gated_consensus = _compute_consensus_metrics(gated_votes, prefix="gated")
-
-    merged = base.merge(all_consensus, on="sample_id", how="left")
-    merged = merged.merge(gated_consensus, on="sample_id", how="left")
-    numeric_cols = [
-        "vendor_count_all",
-        "top1_vote_share_all",
-        "top2_vote_share_all",
-        "top1_minus_top2_gap_all",
-        "consensus_score_all_vendors",
-        "consensus_entropy_all_vendors",
-        "vendor_count_gated",
-        "consensus_score_gated_vendors",
-        "consensus_entropy_gated_vendors",
-    ]
-    for col in numeric_cols:
-        merged[col] = pd.to_numeric(merged.get(col, 0), errors="coerce").fillna(0.0)
-
-    merged["run_id"] = run_id
-    merged["vendor_count"] = merged["vendor_count_all"].astype(int)
-    merged["top1_vote_share"] = merged["top1_vote_share_all"]
-    merged["top2_vote_share"] = merged["top2_vote_share_all"]
-    merged["top1_minus_top2_gap"] = merged["top1_minus_top2_gap_all"]
-    min_vendor_count = int(getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5))
-    merged["low_vendor_count_flag"] = (merged["vendor_count"] < min_vendor_count).astype(int)
-    keep_cols = [
-        "run_id",
-        "sample_id",
-        "sha256",
-        "family_id",
-        "family_canonical",
-        "type_slug",
-        "vendor_count",
-        "top1_vote_share",
-        "top2_vote_share",
-        "top1_minus_top2_gap",
-        "consensus_score_all_vendors",
-        "consensus_entropy_all_vendors",
-        "consensus_score_gated_vendors",
-        "consensus_entropy_gated_vendors",
-        "low_vendor_count_flag",
-    ]
-    return merged[keep_cols].sort_values("sample_id").reset_index(drop=True)
-
-
-def _build_vendor_votes(parsed_data: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    rows: list[dict[str, Any]] = []
-    for vendor, frame in parsed_data.items():
-        if not isinstance(frame, pd.DataFrame) or frame.empty:
-            continue
-        if "sample_id" not in frame.columns:
-            continue
-        parsed_col = _find_column(frame, "Parsed Family")
-        if not parsed_col:
-            continue
-        subset = frame[["sample_id", parsed_col]].copy()
-        subset["sample_id"] = pd.to_numeric(subset["sample_id"], errors="coerce")
-        subset = subset.dropna(subset=["sample_id"])
-        subset["sample_id"] = subset["sample_id"].astype(int)
-        subset["parsed_family"] = subset[parsed_col].fillna("").astype(str).str.strip().str.lower()
-        subset = subset[subset["parsed_family"] != ""]
-        if subset.empty:
-            continue
-        subset["vendor"] = str(vendor).strip().lower()
-        rows.extend(
-            {
-                "sample_id": int(sample_id),
-                "vendor": str(vname),
-                "parsed_family": str(pfamily),
-            }
-            for sample_id, vname, pfamily in subset[["sample_id", "vendor", "parsed_family"]].itertuples(index=False)
-        )
-    if not rows:
-        return pd.DataFrame(columns=["sample_id", "vendor", "parsed_family"])
-    out = pd.DataFrame(rows)
-    out = out.drop_duplicates(subset=["sample_id", "vendor"])
-    return out
-
-
-def _find_column(frame: pd.DataFrame, expected: str) -> str | None:
-    lowered = {str(col).strip().lower(): str(col) for col in frame.columns}
-    return lowered.get(expected.strip().lower())
-
-
-def _compute_consensus_metrics(votes_df: pd.DataFrame, prefix: str) -> pd.DataFrame:
-    records: list[dict[str, Any]] = []
-    for sample_id, group in votes_df.groupby("sample_id", dropna=False):
-        labels = group["parsed_family"].tolist()
-        total = len(labels)
-        if total <= 0:
-            continue
-        counts = Counter(labels)
-        shares = sorted([count / total for count in counts.values()], reverse=True)
-        top1 = float(shares[0]) if shares else 0.0
-        top2 = float(shares[1]) if len(shares) > 1 else 0.0
-        n_labels = len(counts)
-        entropy = 0.0
-        for share in shares:
-            if share > 0:
-                entropy += -(share * log(share))
-        if n_labels > 1:
-            entropy = float(entropy / log(n_labels))
-        else:
-            entropy = 0.0
-        records.append(
-            {
-                "sample_id": int(sample_id),
-                f"vendor_count_{prefix}": int(total),
-                f"top1_vote_share_{prefix}": round(top1, 6),
-                f"top2_vote_share_{prefix}": round(top2, 6),
-                f"top1_minus_top2_gap_{prefix}": round(top1 - top2, 6),
-                f"consensus_score_{'all_vendors' if prefix == 'all' else 'gated_vendors'}": round(top1, 6),
-                f"consensus_entropy_{'all_vendors' if prefix == 'all' else 'gated_vendors'}": round(entropy, 6),
-            }
-        )
-    return pd.DataFrame(records)
-
-
-def _build_generic_definition_audit(
-    sample_core_df: pd.DataFrame,
-    family_support_df: pd.DataFrame,
-    consensus_df: pd.DataFrame,
-    run_id: str,
-) -> pd.DataFrame:
-    min_support = int(getattr(app_config, "GENERIC_MIN_SUPPORT", 30))
-    support_map = family_support_df.set_index("family_id")["sample_count"].to_dict()
-    merged = sample_core_df[["sample_id", "family_id", "type_slug"]].merge(
-        consensus_df[["sample_id", "consensus_score_all_vendors", "consensus_entropy_all_vendors", "vendor_count"]],
-        on="sample_id",
-        how="left",
-    )
-    merged["family_support"] = merged["family_id"].map(support_map).fillna(0).astype(int)
-    merged["is_low_support_family"] = (merged["family_support"] < min_support).astype(int)
-    merged["is_generic_primary"] = (
-        (merged["type_slug"] == "unknown") | (merged["family_id"] < 0)
-    ).astype(int)
-    min_vendor_count = int(getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5))
-    valid = merged[merged["vendor_count"] >= min_vendor_count]
-    if valid.empty:
-        low_consensus_threshold = 0.0
-    else:
-        low_consensus_threshold = float(valid["consensus_score_all_vendors"].quantile(0.10))
-    merged["is_generic_low_consensus"] = (
-        merged["consensus_score_all_vendors"].fillna(0.0) <= low_consensus_threshold
-    ).astype(int)
-    merged["generic_low_support_overlap"] = (
-        (merged["is_generic_primary"] == 1) & (merged["is_low_support_family"] == 1)
-    ).astype(int)
-
-    n = max(len(merged), 1)
-    summary_rows = [
-        {"run_id": run_id, "metric": "sample_count", "value": int(len(merged))},
-        {
-            "run_id": run_id,
-            "metric": "generic_primary_count",
-            "value": int(merged["is_generic_primary"].sum()),
-        },
-        {
-            "run_id": run_id,
-            "metric": "generic_primary_pct",
-            "value": round(float(merged["is_generic_primary"].sum()) / n, 6),
-        },
-        {
-            "run_id": run_id,
-            "metric": "low_support_family_count",
-            "value": int(merged["is_low_support_family"].sum()),
-        },
-        {
-            "run_id": run_id,
-            "metric": "low_support_family_pct",
-            "value": round(float(merged["is_low_support_family"].sum()) / n, 6),
-        },
-        {
-            "run_id": run_id,
-            "metric": "generic_low_support_overlap_count",
-            "value": int(merged["generic_low_support_overlap"].sum()),
-        },
-        {
-            "run_id": run_id,
-            "metric": "low_consensus_threshold_p10",
-            "value": round(low_consensus_threshold, 6),
-        },
-        {
-            "run_id": run_id,
-            "metric": "generic_low_consensus_count",
-            "value": int(merged["is_generic_low_consensus"].sum()),
-        },
-        {
-            "run_id": run_id,
-            "metric": "generic_low_consensus_pct",
-            "value": round(float(merged["is_generic_low_consensus"].sum()) / n, 6),
-        },
-    ]
-    return pd.DataFrame(summary_rows)
-
-
 def _build_type_confusion_summary(
     sample_core_df: pd.DataFrame,
     model_results: dict[str, Any],
@@ -1629,206 +1336,6 @@ def _build_type_confusion_summary(
     )
     detail_df = pd.DataFrame(detail_rows)
     return summary_df, detail_df
-
-
-def _export_confusion_bar_plot(
-    confusion_summary_df: pd.DataFrame,
-    run_id: str,
-    bundle_dir: Path,
-) -> str | None:
-    try:
-        plt = _import_pyplot()
-    except Exception:
-        return None
-
-    if confusion_summary_df.empty:
-        return None
-    subset = confusion_summary_df[
-        confusion_summary_df["error_type"].isin(["within_type_error", "cross_type_error"])
-    ].copy()
-    if subset.empty:
-        return None
-    labels = subset["error_type"].tolist()
-    values = pd.to_numeric(subset["count"], errors="coerce").fillna(0.0).tolist()
-    fig, ax = plt.subplots(figsize=(6, 4))
-    ax.bar(labels, values, color=["#1f77b4", "#ff7f0e"])
-    ax.set_title("Within-type vs Cross-type Errors")
-    ax.set_ylabel("Count")
-    ax.set_xlabel("Error Type")
-    fig.tight_layout()
-    figures_dir = _resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_FIGURES)
-    latest_path = figures_dir / "confusion_within_vs_cross_type.latest.png"
-    fig.savefig(latest_path, dpi=_report_figure_dpi())
-    run_path: Path | None = None
-    if _write_run_scoped_permission_artifacts():
-        run_path = figures_dir / f"confusion_within_vs_cross_type_{run_id}.png"
-        fig.savefig(run_path, dpi=_report_figure_dpi())
-    plt.close(fig)
-    return str(run_path or latest_path)
-
-
-def _export_prevalence_heatmap(
-    prevalence_df: pd.DataFrame,
-    row_field: str,
-    value_field: str,
-    run_id: str,
-    file_stem: str,
-    bundle_dir: Path,
-    top_k: int = 30,
-    selected_permissions: list[str] | None = None,
-    title: str = "Permission prevalence heatmap",
-) -> str | None:
-    try:
-        plt = _import_pyplot()
-    except Exception:
-        return None
-    if prevalence_df.empty:
-        return None
-    if selected_permissions:
-        allowed = {str(item).strip() for item in selected_permissions if str(item).strip()}
-        support = [perm for perm in prevalence_df["permission"].astype(str).tolist() if perm in allowed]
-    else:
-        support = (
-            prevalence_df.groupby("permission")["prevalence"]
-            .mean()
-            .sort_values(ascending=False)
-            .head(top_k)
-            .index
-            .tolist()
-        )
-    subset = prevalence_df[prevalence_df["permission"].isin(support)].copy()
-    if subset.empty:
-        return None
-    pivot = subset.pivot_table(index=row_field, columns="permission", values=value_field, fill_value=0.0)
-    fig, ax = plt.subplots(figsize=(max(8, len(pivot.columns) * 0.35), max(4, len(pivot.index) * 0.45)))
-    im = ax.imshow(pivot.values, aspect="auto", cmap="viridis", vmin=0, vmax=1)
-    compact_labels = [_compact_permission_label(col) for col in pivot.columns]
-    ax.set_xticks(range(len(pivot.columns)))
-    ax.set_xticklabels(compact_labels, rotation=90, fontsize=7)
-    ax.set_yticks(range(len(pivot.index)))
-    ax.set_yticklabels(pivot.index, fontsize=8)
-    ax.set_title(title)
-    fig.colorbar(im, ax=ax, fraction=0.02, pad=0.02)
-    fig.tight_layout()
-    figures_dir = _resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_FIGURES)
-    latest_path = figures_dir / f"{file_stem}.latest.png"
-    fig.savefig(latest_path, dpi=_report_figure_dpi())
-    run_path: Path | None = None
-    if _write_run_scoped_permission_artifacts():
-        run_path = figures_dir / f"{file_stem}_{run_id}.png"
-        fig.savefig(run_path, dpi=_report_figure_dpi())
-    plt.close(fig)
-    return str(run_path or latest_path)
-
-
-def _export_jsd_heatmap(
-    jsd_df: pd.DataFrame,
-    run_id: str,
-    file_stem: str,
-    bundle_dir: Path,
-) -> str | None:
-    try:
-        plt = _import_pyplot()
-    except Exception:
-        return None
-    if jsd_df.empty:
-        return None
-    pivot = jsd_df.pivot_table(index=jsd_df.columns[1], columns="other", values="js_distance", fill_value=0.0)
-    if pivot.empty:
-        return None
-    fig, ax = plt.subplots(figsize=(max(6, len(pivot.columns) * 0.45), max(5, len(pivot.index) * 0.45)))
-    im = ax.imshow(pivot.values, aspect="auto", cmap="magma", vmin=0, vmax=1)
-    ax.set_xticks(range(len(pivot.columns)))
-    ax.set_xticklabels(pivot.columns, rotation=90, fontsize=8)
-    ax.set_yticks(range(len(pivot.index)))
-    ax.set_yticklabels(pivot.index, fontsize=8)
-    ax.set_title("Jensen-Shannon distance (top families)")
-    fig.colorbar(im, ax=ax, fraction=0.02, pad=0.02)
-    fig.tight_layout()
-    figures_dir = _resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_FIGURES)
-    latest_path = figures_dir / f"{file_stem}.latest.png"
-    fig.savefig(latest_path, dpi=_report_figure_dpi())
-    run_path: Path | None = None
-    if _write_run_scoped_permission_artifacts():
-        run_path = figures_dir / f"{file_stem}_{run_id}.png"
-        fig.savefig(run_path, dpi=_report_figure_dpi())
-    plt.close(fig)
-    return str(run_path or latest_path)
-
-
-def _export_banker_enrichment_bar_chart(
-    banker_df: pd.DataFrame,
-    run_id: str,
-    bundle_dir: Path,
-) -> str | None:
-    try:
-        plt = _import_pyplot()
-    except Exception:
-        return None
-    if banker_df.empty:
-        return None
-    top = banker_df.sort_values("odds_ratio", ascending=False).head(15).copy()
-    top = top.iloc[::-1]
-    fig, ax = plt.subplots(figsize=(8, max(5, len(top) * 0.35)))
-    compact_labels = [_compact_permission_label(value) for value in top["permission"].tolist()]
-    ax.barh(compact_labels, top["odds_ratio"], color="#2a9d8f")
-    ax.set_xlabel("Odds Ratio (banker vs non-banker)")
-    ax.set_ylabel("Permission")
-    ax.set_title("Top 15 enriched permissions for banker")
-    fig.tight_layout()
-    figures_dir = _resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_FIGURES)
-    latest_path = figures_dir / "banker_enrichment_top15.latest.png"
-    fig.savefig(latest_path, dpi=_report_figure_dpi())
-    run_path: Path | None = None
-    if _write_run_scoped_permission_artifacts():
-        run_path = figures_dir / f"banker_enrichment_top15_{run_id}.png"
-        fig.savefig(run_path, dpi=_report_figure_dpi())
-    plt.close(fig)
-    return str(run_path or latest_path)
-
-
-def _export_generic_scatter(
-    sample_core_df: pd.DataFrame,
-    permission_rows_df: pd.DataFrame,
-    consensus_df: pd.DataFrame,
-    run_id: str,
-    bundle_dir: Path,
-) -> str | None:
-    try:
-        plt = _import_pyplot()
-    except Exception:
-        return None
-    metrics = _build_sample_level_permission_metrics(sample_core_df, permission_rows_df)
-    min_vendor_count = int(getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5))
-    consensus_keep = consensus_df[consensus_df["vendor_count"] >= min_vendor_count][
-        ["sample_id", "consensus_score_all_vendors"]
-    ].copy()
-    merged = sample_core_df[["sample_id", "type_slug", "family_id"]].merge(metrics, on="sample_id", how="left")
-    merged = merged.merge(consensus_keep, on="sample_id", how="left")
-    merged = merged.dropna(subset=["consensus_score_all_vendors"])
-    if merged.empty:
-        return None
-    merged["is_generic"] = ((merged["type_slug"] == "unknown") | (merged["family_id"] < 0)).astype(int)
-    fig, ax = plt.subplots(figsize=(7, 5))
-    generic = merged[merged["is_generic"] == 1]
-    non_generic = merged[merged["is_generic"] == 0]
-    ax.scatter(non_generic["consensus_score_all_vendors"], non_generic["permission_entropy"], s=12, alpha=0.5, label="non-generic")
-    ax.scatter(generic["consensus_score_all_vendors"], generic["permission_entropy"], s=12, alpha=0.6, label="generic")
-    ax.set_xlabel("Consensus score (all vendors)")
-    ax.set_ylabel("Permission entropy")
-    ax.set_title("Consensus vs permission entropy")
-    ax.legend(loc="best")
-    fig.tight_layout()
-    figures_dir = _resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_FIGURES)
-    latest_path = figures_dir / "generic_consensus_vs_entropy.latest.png"
-    fig.savefig(latest_path, dpi=_report_figure_dpi())
-    run_path: Path | None = None
-    if _write_run_scoped_permission_artifacts():
-        run_path = figures_dir / f"generic_consensus_vs_entropy_{run_id}.png"
-        fig.savefig(run_path, dpi=_report_figure_dpi())
-    plt.close(fig)
-    return str(run_path or latest_path)
-
 
 def _build_per_family_performance_spread(
     sample_core_df: pd.DataFrame,
@@ -2081,14 +1588,6 @@ def _build_permission_discriminability_rank(
     return _build_permission_discriminability_rank_impl(sample_core_df, permission_matrix_df, run_id)
 
 
-def _chi2_presence_vs_multiclass(label: pd.Series, present: pd.Series) -> tuple[float, float]:
-    return _chi2_presence_vs_multiclass_impl(label, present)
-
-
-def _mutual_information_scores(label: pd.Series, features_df: pd.DataFrame) -> list[float]:
-    return _mutual_information_scores_impl(label, features_df)
-
-
 def _build_generic_vs_non_generic_summary(
     sample_core_df: pd.DataFrame,
     permission_rows_df: pd.DataFrame,
@@ -2191,15 +1690,6 @@ def _build_dangerous_stats_tests(
     run_id: str,
 ) -> pd.DataFrame:
     return _build_dangerous_stats_tests_impl(sample_core_df, permission_rows_df, run_id)
-
-
-def _build_pairwise_dunn_or_mannwhitney(
-    frame: pd.DataFrame,
-    metric: str,
-    run_id: str,
-    groups: dict[str, pd.Series],
-) -> list[dict[str, Any]]:
-    return _build_pairwise_dunn_or_mannwhitney_impl(frame=frame, metric=metric, run_id=run_id, groups=groups)
 
 
 def _build_banker_family_pattern_clusters(
@@ -2396,402 +1886,6 @@ def _build_temporal_summary(sample_core_df: pd.DataFrame) -> dict[str, Any]:
         "min_year": int(valid.dt.year.min()),
         "max_year": int(valid.dt.year.max()),
     }
-
-
-def _export_selected_visual_family_registry(
-    *,
-    sample_core_df: pd.DataFrame,
-    visual_families: list[str],
-    run_id: str,
-) -> str:
-    """Export deterministic visual-family selection registry for paper traceability."""
-    diagnostics_dir = Path(
-        str(
-            getattr(
-                app_config,
-                "RUNTIME_DIAGNOSTICS_DIR",
-                Path(app_config.DEFAULT_OUTPUT_DIR) / "diagnostics",
-            )
-        )
-    )
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    min_support = int(getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 20))
-    max_count = int(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12))
-    selected_set = {str(name) for name in visual_families}
-
-    registry_df = pd.DataFrame(
-        columns=[
-            "rank",
-            "family_canonical",
-            "type_slug",
-            "sample_count",
-            "selected_reason",
-        ]
-    )
-    if isinstance(sample_core_df, pd.DataFrame) and not sample_core_df.empty and selected_set:
-        work = sample_core_df.copy()
-        work["family_canonical"] = work.get("family_canonical", "").astype(str).str.strip()
-        work["type_slug"] = work.get("type_slug", "").astype(str).str.strip().str.lower()
-        work = work[work["family_canonical"].isin(selected_set)].copy()
-        if not work.empty:
-            summary = (
-                work.groupby(["family_canonical", "type_slug"], as_index=False)
-                .size()
-                .rename(columns={"size": "sample_count"})
-                .sort_values(
-                    by=["sample_count", "family_canonical", "type_slug"],
-                    ascending=[False, True, True],
-                    kind="mergesort",
-                )
-            )
-            dedup = summary.drop_duplicates(subset=["family_canonical"], keep="first").copy()
-            dedup = dedup.sort_values(
-                by=["sample_count", "family_canonical"],
-                ascending=[False, True],
-                kind="mergesort",
-            ).reset_index(drop=True)
-            dedup["rank"] = dedup.index + 1
-            dedup["selected_reason"] = (
-                f"support>={max(min_support, 1)};top_{max(max_count, 1)}_by_sample_count"
-            )
-            registry_df = dedup[
-                ["rank", "family_canonical", "type_slug", "sample_count", "selected_reason"]
-            ].copy()
-
-    run_path = diagnostics_dir / f"selected_families_visual_{run_id}.csv"
-    latest_path = diagnostics_dir / "selected_families_visual.latest.csv"
-    registry_df.to_csv(run_path, index=False)
-    registry_df.to_csv(latest_path, index=False)
-    setattr(app_config, "RUNTIME_SELECTED_FAMILIES_VISUAL_PATH", str(run_path))
-    return str(run_path)
-
-
-def _export_jsd_support_shortfall_artifact(
-    *,
-    run_id: str,
-    selected_count: int,
-    required_count: int,
-    min_support: int,
-) -> str:
-    """Export explicit JSD shortfall diagnostics when policy cannot be met."""
-    diagnostics_dir = Path(
-        str(
-            getattr(
-                app_config,
-                "RUNTIME_DIAGNOSTICS_DIR",
-                Path(app_config.DEFAULT_OUTPUT_DIR) / "diagnostics",
-            )
-        )
-    )
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    payload = pd.DataFrame(
-        [
-            {
-                "run_id": str(run_id),
-                "jsd_family_support_shortfall": 1,
-                "selected_family_count": int(selected_count),
-                "required_family_count": int(required_count),
-                "min_support": int(min_support),
-            }
-        ]
-    )
-    run_path = diagnostics_dir / f"jsd_family_support_shortfall_{run_id}.csv"
-    latest_path = diagnostics_dir / "jsd_family_support_shortfall.latest.csv"
-    payload.to_csv(run_path, index=False)
-    payload.to_csv(latest_path, index=False)
-    return str(run_path)
-
-
-def _export_jsd_pair_verification(
-    *,
-    jsd_df: pd.DataFrame,
-    run_id: str,
-    bundle_dir: Path | None = None,
-    file_stem: str = "family_jsd_pairs_top12",
-) -> str | None:
-    """Export compact unordered JSD family-pair table (no diagonal, no mirrored duplicates)."""
-    if not isinstance(jsd_df, pd.DataFrame) or jsd_df.empty:
-        return None
-    family_col = str(jsd_df.columns[1]) if len(jsd_df.columns) > 1 else ""
-    if not family_col or "other" not in jsd_df.columns or "js_distance" not in jsd_df.columns:
-        return None
-    work = jsd_df[[family_col, "other", "js_distance"]].copy()
-    left = work[family_col].astype(str).str.strip()
-    right = work["other"].astype(str).str.strip()
-    work = work[left != right].copy()
-    if work.empty:
-        return None
-    work["family_a"] = np.where(
-        work[family_col].astype(str) <= work["other"].astype(str),
-        work[family_col].astype(str),
-        work["other"].astype(str),
-    )
-    work["family_b"] = np.where(
-        work[family_col].astype(str) <= work["other"].astype(str),
-        work["other"].astype(str),
-        work[family_col].astype(str),
-    )
-    compact = (
-        work.groupby(["family_a", "family_b"], as_index=False)["js_distance"]
-        .mean()
-        .sort_values(by=["family_a", "family_b"], ascending=[True, True], kind="mergesort")
-    )
-    compact.insert(0, "run_id", str(run_id))
-    diagnostics_dir = Path(
-        str(
-            getattr(
-                app_config,
-                "RUNTIME_DIAGNOSTICS_DIR",
-                Path(app_config.DEFAULT_OUTPUT_DIR) / "diagnostics",
-            )
-        )
-    )
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    run_path = diagnostics_dir / f"family_jsd_pairs_verification_{run_id}.csv"
-    latest_path = diagnostics_dir / "family_jsd_pairs_verification.latest.csv"
-    compact.to_csv(run_path, index=False)
-    compact.to_csv(latest_path, index=False)
-    bundle_path: str | None = None
-    if isinstance(bundle_dir, Path):
-        bundle_path = _export_df_with_latest(
-            compact,
-            run_id=run_id,
-            file_stem=file_stem,
-            bundle_dir=bundle_dir,
-        )
-    setattr(app_config, "RUNTIME_FAMILY_JSD_PAIR_VERIFICATION_PATH", str(run_path))
-    return str(bundle_path) if isinstance(bundle_path, str) and bundle_path else str(run_path)
-
-
-def _export_family_permission_heatmap(
-    family_profiles_df: pd.DataFrame,
-    visual_families: list[str],
-    run_id: str,
-    bundle_dir: Path,
-    file_stem: str = "family_permission_heatmap_top12",
-) -> str | None:
-    """Export pruned family-permission prevalence heatmap for paper readability."""
-    if not isinstance(family_profiles_df, pd.DataFrame) or family_profiles_df.empty or not visual_families:
-        return None
-    max_perms = int(getattr(app_config, "MAX_FAMILY_HEATMAP_PERMISSIONS", 25))
-    scope_df = family_profiles_df.copy()
-    if "profile_scope" in scope_df.columns:
-        scope_df = scope_df[scope_df["profile_scope"].astype(str) == "main"].copy()
-    scope_df = scope_df[scope_df["family_canonical"].astype(str).isin(set(visual_families))].copy()
-    if scope_df.empty:
-        return None
-    return _export_prevalence_heatmap(
-        prevalence_df=scope_df,
-        row_field="family_canonical",
-        value_field="prevalence",
-        run_id=run_id,
-        file_stem=file_stem,
-        bundle_dir=bundle_dir,
-        top_k=max(max_perms, 1),
-        title=f"Family permission heatmap (top {max(max_perms, 1)})",
-    )
-
-
-def _build_permission_trends_layout_check(bundle_dir: Path) -> dict[str, Any]:
-    """Validate latest permission bundle taxonomy and retention policy."""
-    group_names = {
-        ARTIFACT_GROUP_FIGURES,
-        ARTIFACT_GROUP_TABLES,
-        ARTIFACT_GROUP_CONTRACTS,
-        ARTIFACT_GROUP_DOCS,
-    }
-    allowed_ext = {
-        ARTIFACT_GROUP_FIGURES: {".png"},
-        ARTIFACT_GROUP_TABLES: {".csv"},
-        ARTIFACT_GROUP_CONTRACTS: {".json", ".csv"},
-        ARTIFACT_GROUP_DOCS: {".md", ".txt"},
-    }
-    checks: dict[str, Any] = {
-        "bundle_dir": str(bundle_dir),
-        "group_counts": {},
-        "unexpected_group_files": [],
-        "disallowed_extensions": [],
-        "timestamped_png_in_latest_count": 0,
-        "status": "PASS",
-    }
-    if not bundle_dir.exists():
-        checks["status"] = "WARN"
-        checks["unexpected_group_files"].append("bundle_dir_missing")
-        return checks
-    for path in bundle_dir.rglob("*"):
-        if not path.is_file():
-            continue
-        rel_parts = path.relative_to(bundle_dir).parts
-        group = rel_parts[0] if rel_parts else ""
-        if group not in group_names:
-            checks["unexpected_group_files"].append(str(path.relative_to(bundle_dir)))
-            continue
-        checks["group_counts"][group] = int(checks["group_counts"].get(group, 0)) + 1
-        suffix = path.suffix.lower()
-        if suffix not in allowed_ext[group]:
-            checks["disallowed_extensions"].append(str(path.relative_to(bundle_dir)))
-        if group == ARTIFACT_GROUP_FIGURES and RUN_SUFFIX_PNG_PATTERN.match(path.name):
-            checks["timestamped_png_in_latest_count"] = int(checks["timestamped_png_in_latest_count"]) + 1
-    if checks["unexpected_group_files"] or checks["disallowed_extensions"] or checks["timestamped_png_in_latest_count"]:
-        checks["status"] = "WARN"
-    return checks
-
-
-def _export_alias_map_csv(run_id: str, bundle_dir: Path) -> str:
-    df = pd.DataFrame(
-        [{"alias_from": key, "alias_to": value} for key, value in sorted(PERMISSION_ALIAS_MAP.items())]
-    )
-    contracts_dir = _resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_CONTRACTS)
-    latest_path = contracts_dir / "permission_alias_map.latest.csv"
-    run_path: Path | None = None
-    if _write_run_scoped_permission_artifacts():
-        run_path = contracts_dir / f"permission_alias_map_{run_id}.csv"
-        df.to_csv(run_path, index=False)
-    df.to_csv(latest_path, index=False)
-    return str(run_path or latest_path)
-
-
-def _export_safe_claims_report(
-    run_id: str,
-    bundle_dir: Path,
-    coverage_df: pd.DataFrame,
-    banker_enrichment_df: pd.DataFrame,
-    dangerous_df: pd.DataFrame,
-    consensus_df: pd.DataFrame,
-    selected_vendor_count: int,
-) -> str:
-    lines = [f"Run ID: {run_id}", "", "Safe claims:"]
-    if not coverage_df.empty:
-        cov = coverage_df.iloc[0].to_dict()
-        lines.append(
-            f"- Permission rows coverage is {float(cov.get('pct_with_permission_rows', 0.0)):.3f} on snapshot."
-        )
-        lines.append(
-            f"- Zero-permission share is {float(cov.get('pct_zero_permissions', 0.0)):.3f}; denominators include these samples."
-        )
-    if not banker_enrichment_df.empty:
-        top = _select_banker_summary_rows(banker_enrichment_df, limit=3)
-        for _, row in top.iterrows():
-            lines.append(
-                f"- Banker enrichment shows {row['permission']} with OR={float(row['odds_ratio']):.3f} (FDR={float(row['p_value_fdr_bh']):.3e})."
-            )
-    if not dangerous_df.empty:
-        max_unknown = float(dangerous_df["unknown_protection_rate"].max())
-        lines.append(f"- Unknown protection-level rate is reported by type (max mean={max_unknown:.3f}).")
-    if isinstance(consensus_df, pd.DataFrame) and not consensus_df.empty:
-        excluded = int(pd.to_numeric(consensus_df["low_vendor_count_flag"], errors="coerce").fillna(0).sum())
-        lines.append(f"- Consensus inferential analyses exclude {excluded} samples with vendor_count < 5.")
-
-    lines.extend(["", "Unsafe claims:"])
-    lines.append("- Do not claim causal links; all consensus/entropy relationships are associations.")
-    lines.append("- Do not claim bankers are globally SMS-heavy; use subtype framing.")
-    if selected_vendor_count < int(getattr(app_config, "FEATURE_MIN_SELECTED_VENDORS", 1)):
-        lines.append("- This run is vendor-constrained; avoid broad ablation generalization.")
-    lines.append("- Do not infer runtime behavior from static manifest permissions.")
-    lines.append("- Do not over-interpret family-level inferential stats below support threshold.")
-
-    docs_dir = _resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_DOCS)
-    latest_path = docs_dir / "safe_claims.latest.txt"
-    text = "\n".join(lines) + "\n"
-    run_path: Path | None = None
-    if _write_run_scoped_permission_artifacts():
-        run_path = docs_dir / f"safe_claims_{run_id}.txt"
-        run_path.write_text(text, encoding="utf-8")
-    latest_path.write_text(text, encoding="utf-8")
-    return str(run_path or latest_path)
-
-
-def _export_paper_figures_index(
-    run_id: str,
-    bundle_dir: Path,
-    type_heatmap_png: str | None,
-    banker_bar_png: str | None,
-    generic_scatter_png: str | None,
-    jsd_png: str | None,
-    temporal_trends_png: str | None,
-    banker_enrichment_csv: str,
-) -> str:
-    lines = [
-        f"# Paper Figures Index ({run_id})",
-        "",
-        "Recommended main figures:",
-        f"1. Type permission heatmap: {type_heatmap_png or 'not generated'}",
-        "2. Dangerous permission distribution by type: type_permission_heatmap_dangerous_only.latest.png",
-        f"4. Family JSD heatmap (top families): {jsd_png or 'not generated'}",
-        "5. Confusion matrix (random_forest): output/runs/<run_id>/conf_matrices/confusion_matrix_random_forest.png",
-        "",
-        "Recommended main tables:",
-        "- cohort summary, temporal family scope, model comparison, ablation, dangerous stats tests",
-    ]
-    docs_dir = _resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_DOCS)
-    latest_path = docs_dir / "paper_figures_index.latest.md"
-    text = "\n".join(lines) + "\n"
-    run_path: Path | None = None
-    if _write_run_scoped_permission_artifacts():
-        run_path = docs_dir / f"paper_figures_index_{run_id}.md"
-        run_path.write_text(text, encoding="utf-8")
-    latest_path.write_text(text, encoding="utf-8")
-    return str(run_path or latest_path)
-
-
-def _export_run_summary_onepager(
-    run_id: str,
-    profile_id: str,
-    bundle_dir: Path,
-    coverage_df: pd.DataFrame,
-    dangerous_df: pd.DataFrame,
-    consensus_df: pd.DataFrame,
-    bundle_metadata: dict[str, Any],
-    banker_enrichment_df: pd.DataFrame,
-) -> str:
-    coverage = coverage_df.iloc[0].to_dict() if not coverage_df.empty else {}
-    unknown_rate = float(dangerous_df["unknown_protection_rate"].mean()) if not dangerous_df.empty else 0.0
-    excluded = int(pd.to_numeric(consensus_df.get("low_vendor_count_flag", 0), errors="coerce").fillna(0).sum()) if isinstance(consensus_df, pd.DataFrame) and not consensus_df.empty else 0
-    top = _select_banker_summary_rows(banker_enrichment_df, limit=5) if not banker_enrichment_df.empty else pd.DataFrame()
-    lines = [
-        f"# Run Summary ({run_id})",
-        "",
-        f"- Profile: {profile_id}",
-        f"- Snapshot size: {int(coverage.get('sample_count', 0))}",
-        f"- Permission coverage: {float(coverage.get('pct_with_permission_rows', 0.0)):.3f}",
-        f"- Unknown protection rate (mean by type): {unknown_rate:.3f}",
-        f"- vendor_constrained_run_flag: {bool(bundle_metadata.get('vendor_constrained_run_flag', False))}",
-        f"- Consensus exclusions (vendor_count<5): {excluded}",
-        "",
-        "Dataset time contract:",
-    ]
-    contract = bundle_metadata.get("dataset_time_contract", {}) if isinstance(bundle_metadata, dict) else {}
-    if isinstance(contract, dict) and contract:
-        lines.extend(
-            [
-                f"- timestamp_field: {contract.get('timestamp_field', 'effective_first_seen_at_utc')}",
-                f"- start_utc: {contract.get('start_utc')}",
-                f"- end_utc: {contract.get('end_utc')}",
-                f"- fallback_order: {contract.get('fallback_order')}",
-            ]
-        )
-    else:
-        lines.append("- dataset_time_contract: not available")
-    lines.extend([
-        "",
-        "Top banker enrichment (AOSP-only primary):",
-    ])
-    if top.empty:
-        lines.append("- No banker enrichment rows available.")
-    else:
-        for _, row in top.iterrows():
-            lines.append(
-                f"- {row['permission']}: OR={float(row['odds_ratio']):.3f}, FDR={float(row['p_value_fdr_bh']):.3e}"
-            )
-    docs_dir = _resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_DOCS)
-    latest_path = docs_dir / "run_summary_onepager.latest.md"
-    text = "\n".join(lines) + "\n"
-    run_path: Path | None = None
-    if _write_run_scoped_permission_artifacts():
-        run_path = docs_dir / f"run_summary_onepager_{run_id}.md"
-        run_path.write_text(text, encoding="utf-8")
-    latest_path.write_text(text, encoding="utf-8")
-    return str(run_path or latest_path)
 
 
 def _select_banker_summary_rows(banker_enrichment_df: pd.DataFrame, limit: int) -> pd.DataFrame:

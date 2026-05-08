@@ -49,8 +49,7 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
     mode = str(dataset_filters.get("mode", "none") or "none").strip().lower()
     type_slug = profile.get("type_slug_filter")
     min_support = int(gates.get("min_samples_per_family", 3))
-    if not type_slug:
-        min_support = None
+    # SQL cohort loader now supports min_samples_per_family even when type_slug_filter is unset.
 
     if mode in {"none", "", "malicious_only"}:
         # Fast/silent preflight for standard malicious-only profiles.
