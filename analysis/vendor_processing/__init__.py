@@ -3,38 +3,19 @@
 Pass 59 physically moved parser implementations to
 ``obsidiandroid.vendors.parsing``. This package keeps legacy import paths alive
 and identity-preserving by registering module aliases in ``sys.modules``.
+
+Registration data lives in :mod:`obsidiandroid.vendors.parsing.analysis_vendor_processing_shim`.
 """
 
 from __future__ import annotations
 
-import importlib
 import sys
 
-_SUBMODULES = (
-    "parser_defaults",
-    "parser_confidence_estimator",
-    "generic_label_parser",
-    "vendor_parser_map",
-    "avast_parser",
-    "avast_mobile_parser",
-    "bitdefender_parser",
-    "bitdefenderfalx_parser",
-    "ikarus_parser",
-    "k7gw_parser",
-    "kaspersky_parser",
-    "lionic_parser",
-    "microsoft_parser",
-    "tencent_parser",
-    "zonealarm_parser",
-    "alibaba_parser",
-    "ahnlab_v3_parser",
+from obsidiandroid.vendors.parsing.analysis_vendor_processing_shim import (
+    VENDOR_PARSER_SUBMODULE_NAMES,
+    register_analysis_vendor_processing_legacy_aliases,
 )
 
-for _name in _SUBMODULES:
-    _mod = importlib.import_module(f"obsidiandroid.vendors.parsing.{_name}")
-    globals()[_name] = _mod
-    sys.modules.setdefault(f"analysis.vendor_processing.{_name}", _mod)
+register_analysis_vendor_processing_legacy_aliases(sys.modules[__name__])
 
-__all__ = list(_SUBMODULES)
-
-del _SUBMODULES, _name, _mod
+__all__ = list(VENDOR_PARSER_SUBMODULE_NAMES)

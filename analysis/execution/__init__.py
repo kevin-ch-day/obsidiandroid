@@ -4,25 +4,17 @@ Implementation for vendor parser execution moved to
 ``obsidiandroid.vendors.execution``. This package preserves legacy
 ``analysis.execution.<name>`` import paths and module identity by registering
 the canonical submodules in ``sys.modules`` at package import time.
+
+Registration data lives in :mod:`obsidiandroid.vendors.execution.analysis_execution_shim`.
 """
 
 from __future__ import annotations
 
-import importlib
-import sys
+from obsidiandroid.vendors.execution.analysis_execution_shim import (
+    LEGACY_EXPORT_NAMES,
+    register_analysis_execution_legacy_aliases,
+)
 
-_MOVED_SUBMODULES: dict[str, str] = {
-    "av_parser_executor": "obsidiandroid.vendors.execution.av_parser_executor",
-    "vendor_parser_runner": "obsidiandroid.vendors.execution.vendor_parser_runner",
-    "vendor_record_factory": "obsidiandroid.vendors.execution.vendor_record_factory",
-    "vendor_classification_processor": "obsidiandroid.vendors.execution.vendor_classification_processor",
-}
+register_analysis_execution_legacy_aliases()
 
-for _name, _target in _MOVED_SUBMODULES.items():
-    _mod = importlib.import_module(_target)
-    sys.modules.setdefault(f"{__name__}.{_name}", _mod)
-
-__all__ = sorted(_MOVED_SUBMODULES.keys())
-
-del _MOVED_SUBMODULES, _name, _target, _mod
-
+__all__ = list(LEGACY_EXPORT_NAMES)
