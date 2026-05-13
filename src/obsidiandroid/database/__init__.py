@@ -1,18 +1,12 @@
 """Canonical database import surface (Passes 38–43).
 
-Most implementation modules remain under repo-root ``database/*.py``; this
-package re-exports the **same** :class:`types.ModuleType` objects as
-``database.<name>`` and registers matching ``sys.modules`` keys so
-``import obsidiandroid.database.<name>`` preserves identity (critical for Primary
-vs Permission Intel semantics).
+All façade-listed modules are implemented under ``src/obsidiandroid/database/``.
+Repo-root ``database/<name>.py`` files are **thin identity shims** (except
+``split_db_health``, which also wires ``python -m database.split_db_health``).
 
-**Physical under ``src/obsidiandroid/database/``** (legacy ``database.<name>`` are
-identity shims, except ``split_db_health`` which registers identity and supports
-``python -m database.split_db_health``): ``cohort_sql_fragments``, ``db_config``,
-``db_errors``, ``schema_map``, ``settings``, ``db_engine``, ``db_utils``, ``split_db_health``.
-
-**Tier D (Pass 43):** narrow AV / scoring query modules used by pipeline and
-evaluation are included on the same thin re-export model as Tiers A–C.
+Each shim registers the same :class:`types.ModuleType` as
+``obsidiandroid.database.<name>`` so ``import database.<name>`` and
+``import obsidiandroid.database.<name>`` resolve to identical objects.
 
 Prefer::
 
@@ -23,7 +17,8 @@ or::
 
     from obsidiandroid.database import db_engine
 
-Legacy ``from database …`` imports remain supported until an explicit sunset.
+Non-façade ``database.*`` helpers (timelines, AV disagreement, …) remain
+implementation-only under repo-root ``database/`` until migrated or widened.
 """
 
 from __future__ import annotations
@@ -38,39 +33,23 @@ _CANONICAL_SUBMODULE_NAMES = (
     "schema_map",
     "settings",
     "db_engine",
+    "db_sample_malicious_scoring",
+    "db_sample_metadata_contracts",
+    "db_sample_metadata_fetchers",
+    "db_sample_metadata_queries",
     "db_av_engine_detection_totals",
     "db_av_engine_verdicts",
     "db_fetch_av_engine_raw_results",
     "db_permission_analysis_queries",
-    "db_sample_metadata_contracts",
-    "db_sample_metadata_fetchers",
-    "db_sample_metadata_queries",
-    "db_sample_malicious_scoring",
     "db_utils",
     "split_db_health",
 )
 
-_DATABASE_PHYSICAL_IN_SRC = frozenset(
-    {
-        "cohort_sql_fragments",
-        "db_config",
-        "db_errors",
-        "schema_map",
-        "settings",
-        "db_engine",
-        "db_utils",
-        "split_db_health",
-    }
-)
-
 for _name in _CANONICAL_SUBMODULE_NAMES:
-    if _name in _DATABASE_PHYSICAL_IN_SRC:
-        _canon = importlib.import_module(f"obsidiandroid.database.{_name}")
-    else:
-        _canon = importlib.import_module(f"database.{_name}")
+    _canon = importlib.import_module(f"obsidiandroid.database.{_name}")
     globals()[_name] = _canon
     sys.modules.setdefault(f"obsidiandroid.database.{_name}", _canon)
 
 __all__ = list(_CANONICAL_SUBMODULE_NAMES)
 
-del _CANONICAL_SUBMODULE_NAMES, _DATABASE_PHYSICAL_IN_SRC, _name, _canon
+del _CANONICAL_SUBMODULE_NAMES, _name, _canon
