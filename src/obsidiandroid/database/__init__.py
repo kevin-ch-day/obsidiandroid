@@ -9,7 +9,7 @@ vs Permission Intel semantics).
 **Physical under ``src/obsidiandroid/database/``** (legacy ``database.<name>`` are
 identity shims, except ``split_db_health`` which registers identity and supports
 ``python -m database.split_db_health``): ``cohort_sql_fragments``, ``db_config``,
-``db_errors``, ``schema_map``, ``settings``, ``db_engine``, ``split_db_health``.
+``db_errors``, ``schema_map``, ``settings``, ``db_engine``, ``db_utils``, ``split_db_health``.
 
 **Tier D (Pass 43):** narrow AV / scoring query modules used by pipeline and
 evaluation are included on the same thin re-export model as Tiers A–C.
@@ -58,6 +58,7 @@ _DATABASE_PHYSICAL_IN_SRC = frozenset(
         "schema_map",
         "settings",
         "db_engine",
+        "db_utils",
         "split_db_health",
     }
 )

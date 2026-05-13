@@ -707,7 +707,7 @@ def test_database_facade_matches_database_modules() -> None:
         ("db_sample_metadata_fetchers", "database.db_sample_metadata_fetchers"),
         ("db_sample_metadata_queries", "database.db_sample_metadata_queries"),
         ("db_sample_malicious_scoring", "database.db_sample_malicious_scoring"),
-        ("db_utils", "database.db_utils"),
+        ("db_utils", "obsidiandroid.database.db_utils"),
         ("split_db_health", "obsidiandroid.database.split_db_health"),
     )
     import obsidiandroid.database as facade
@@ -725,6 +725,7 @@ def test_database_facade_matches_database_modules() -> None:
         ("settings", "database.settings"),
         ("db_engine", "database.db_engine"),
         ("split_db_health", "database.split_db_health"),
+        ("db_utils", "database.db_utils"),
     ):
         assert importlib.import_module(_legacy) is importlib.import_module(
             f"obsidiandroid.database.{_attr}"

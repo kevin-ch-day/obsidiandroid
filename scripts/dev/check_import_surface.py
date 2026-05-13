@@ -355,7 +355,7 @@ def _check_observability_diagnostics_database_shims() -> bool:
         ("db_sample_metadata_fetchers", "database.db_sample_metadata_fetchers"),
         ("db_sample_metadata_queries", "database.db_sample_metadata_queries"),
         ("db_sample_malicious_scoring", "database.db_sample_malicious_scoring"),
-        ("db_utils", "database.db_utils"),
+        ("db_utils", "obsidiandroid.database.db_utils"),
         ("split_db_health", "obsidiandroid.database.split_db_health"),
     )
     for attr, canon_name in _database_pairs:
@@ -382,6 +382,7 @@ def _check_observability_diagnostics_database_shims() -> bool:
         ("settings", "database.settings"),
         ("db_engine", "database.db_engine"),
         ("split_db_health", "database.split_db_health"),
+        ("db_utils", "database.db_utils"),
     ):
         _legacy = importlib.import_module(_legacy_mod)
         _physical = importlib.import_module(f"obsidiandroid.database.{_attr}")
