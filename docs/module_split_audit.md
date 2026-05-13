@@ -86,21 +86,15 @@ Goal: menu rendering + dispatch only; move workflows to service functions.
 
 ### 5) `obsidiandroid.reporting.export_manager` split
 
-Move into:
+Prefer **incremental extractions alongside `export_manager`** (dedicated writer modules under `src/obsidiandroid/reporting/` or a small `reporting/exports/` subtree) rather than a one-shot mega-move. Goal: narrow `try`/`except` branches and isolate CSV/XLSX writers behind small helpers.
 
-- `utils/exporting/excel_writer.py`
-- `utils/exporting/csv_writer.py`
-- `utils/exporting/error_handling.py`
+### 6) `src/obsidiandroid/labeling/classification_label_resolver.py` split
 
-Goal: reduce broad exception-heavy branches in one file.
+Move into (conceptually under **`src/obsidiandroid/labeling/`**):
 
-### 6) `ml_classification/labeling/classification_label_resolver.py` split
-
-Move into:
-
-- `ml_classification/labeling/taxonomy_extractors.py`
-- `ml_classification/labeling/taxonomy_audit.py`
-- `ml_classification/labeling/taxonomy_exports.py`
+- `taxonomy_extractors.py`
+- `taxonomy_audit.py`
+- `taxonomy_exports.py`
 
 Goal: isolate label extraction, mismatch detection, and report export.
 
