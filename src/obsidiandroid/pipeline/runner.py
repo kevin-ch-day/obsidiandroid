@@ -381,6 +381,13 @@ def run_pipeline(
         )
         type_slug = policy["type_slug"]
         profile_id = str(policy["profile_id"])
+        if bool(getattr(app_config, "EVIDENCE_MODE_ENABLED", getattr(app_config, "PAPER_MODE_ENABLED", False))):
+            runtime_overrides = profile.get("runtime_overrides", {}) if isinstance(profile, dict) else {}
+            if (
+                not isinstance(runtime_overrides, dict)
+                or "WRITE_RUN_SCOPED_PERMISSION_TREND_ARTIFACTS" not in runtime_overrides
+            ):
+                setattr(app_config, "WRITE_RUN_SCOPED_PERMISSION_TREND_ARTIFACTS", True)
         if bool(getattr(app_config, "EVIDENCE_MODE_ENABLED", getattr(app_config, "PAPER_MODE_ENABLED", False))) and bool(
             getattr(app_config, "ENABLE_DYNAMIC_GENERIC_VENDOR_PARSERS", True)
         ):

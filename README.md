@@ -187,6 +187,7 @@ Model and pipeline settings can be customized in `config/settings/*.py` (re-expo
   - `ENABLE_MODEL_COMPARISON_CSV_EXPORT = True`
   - `ENABLE_MODEL_COMPARISON_EXCEL_EXPORT = False`
 - Per-profile runtime toggles are supported via `runtime_overrides` in profile YAML (for example in `profiles/dev_fast.yaml`).
+- Permission-trends bundle: `WRITE_RUN_SCOPED_PERMISSION_TREND_ARTIFACTS` (in `config/settings/methodology.py`) emits run-stamped tables/figures next to `*.latest.*` peers. In **effective evidence mode**, the runner turns this on automatically unless the profile sets `runtime_overrides.WRITE_RUN_SCOPED_PERMISSION_TREND_ARTIFACTS`.
 - Vendor parser tuning diagnostics are exported during runs:
   - `output/diagnostics/vendor_parser_stress_test.latest.csv`
   - `output/diagnostics/vendor_parser_strengths_weaknesses.latest.csv`

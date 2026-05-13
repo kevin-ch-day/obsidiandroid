@@ -42,7 +42,8 @@ ENABLE_LEGACY_CANONICAL_HEATMAP_EXPORT = False
 ENABLE_PERMISSION_TRENDS_BUNDLE_ZIP = False
 ENABLE_PERMISSION_TRENDS_LATEST_MIRROR = False
 # When True, permission-trends bundle writers also emit run_id-suffixed CSV/JSON/TXT/PNG
-# alongside ``*.latest.*`` peers (audit-friendly). Default off for smaller bundles.
+# alongside ``*.latest.*`` peers. Default False; the pipeline runner sets True in
+# effective evidence mode unless the profile sets ``runtime_overrides`` for this key.
 WRITE_RUN_SCOPED_PERMISSION_TREND_ARTIFACTS = False
 CANONICAL_TYPE_SLUGS = (
     "banker",
