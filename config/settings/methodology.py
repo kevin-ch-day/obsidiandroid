@@ -41,6 +41,9 @@ ENABLE_BANKER_CASE_STUDY_ARTIFACTS = False
 ENABLE_LEGACY_CANONICAL_HEATMAP_EXPORT = False
 ENABLE_PERMISSION_TRENDS_BUNDLE_ZIP = False
 ENABLE_PERMISSION_TRENDS_LATEST_MIRROR = False
+# When True, permission-trends bundle writers also emit run_id-suffixed CSV/JSON/TXT/PNG
+# alongside ``*.latest.*`` peers (audit-friendly). Default off for smaller bundles.
+WRITE_RUN_SCOPED_PERMISSION_TREND_ARTIFACTS = False
 CANONICAL_TYPE_SLUGS = (
     "banker",
     "adware",

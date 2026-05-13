@@ -17,10 +17,10 @@ from obsidiandroid.pipeline.permission_trends.constants import (
     ARTIFACT_GROUP_FIGURES,
 )
 from obsidiandroid.pipeline.permission_trends.bundle_manifest import resolve_bundle_artifact_dir
+from obsidiandroid.pipeline.permission_trends import reporting_support as _perm_trends_reporting
 from obsidiandroid.pipeline.permission_trends.reporting_support import (
     compact_permission_label,
     handle_reporting_exception,
-    write_run_scoped_permission_artifacts,
 )
 from obsidiandroid.pipeline.permission_trends.stats import build_sample_level_permission_metrics
 
@@ -89,7 +89,7 @@ def export_banker_trends_line_plot(
         figures_dir = resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_FIGURES)
         run_path = figures_dir / f"banker_permission_trends_over_time_{run_id}.png"
         latest_path = figures_dir / "banker_permission_trends_over_time.latest.png"
-        write_run_scoped = write_run_scoped_permission_artifacts()
+        write_run_scoped = _perm_trends_reporting.write_run_scoped_permission_artifacts()
         fig.savefig(latest_path, dpi=_report_figure_dpi(), bbox_inches="tight")
         if write_run_scoped:
             fig.savefig(run_path, dpi=_report_figure_dpi(), bbox_inches="tight")
@@ -130,7 +130,7 @@ def export_confusion_bar_plot(
     latest_path = figures_dir / "confusion_within_vs_cross_type.latest.png"
     fig.savefig(latest_path, dpi=_report_figure_dpi())
     run_path: Path | None = None
-    if write_run_scoped_permission_artifacts():
+    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
         run_path = figures_dir / f"confusion_within_vs_cross_type_{run_id}.png"
         fig.savefig(run_path, dpi=_report_figure_dpi())
     plt.close(fig)
@@ -185,7 +185,7 @@ def export_prevalence_heatmap(
     latest_path = figures_dir / f"{file_stem}.latest.png"
     fig.savefig(latest_path, dpi=_report_figure_dpi())
     run_path: Path | None = None
-    if write_run_scoped_permission_artifacts():
+    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
         run_path = figures_dir / f"{file_stem}_{run_id}.png"
         fig.savefig(run_path, dpi=_report_figure_dpi())
     plt.close(fig)
@@ -221,7 +221,7 @@ def export_jsd_heatmap(
     latest_path = figures_dir / f"{file_stem}.latest.png"
     fig.savefig(latest_path, dpi=_report_figure_dpi())
     run_path: Path | None = None
-    if write_run_scoped_permission_artifacts():
+    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
         run_path = figures_dir / f"{file_stem}_{run_id}.png"
         fig.savefig(run_path, dpi=_report_figure_dpi())
     plt.close(fig)
@@ -253,7 +253,7 @@ def export_banker_enrichment_bar_chart(
     latest_path = figures_dir / "banker_enrichment_top15.latest.png"
     fig.savefig(latest_path, dpi=_report_figure_dpi())
     run_path: Path | None = None
-    if write_run_scoped_permission_artifacts():
+    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
         run_path = figures_dir / f"banker_enrichment_top15_{run_id}.png"
         fig.savefig(run_path, dpi=_report_figure_dpi())
     plt.close(fig)
@@ -309,7 +309,7 @@ def export_generic_scatter(
     latest_path = figures_dir / "generic_consensus_vs_entropy.latest.png"
     fig.savefig(latest_path, dpi=_report_figure_dpi())
     run_path: Path | None = None
-    if write_run_scoped_permission_artifacts():
+    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
         run_path = figures_dir / f"generic_consensus_vs_entropy_{run_id}.png"
         fig.savefig(run_path, dpi=_report_figure_dpi())
     plt.close(fig)

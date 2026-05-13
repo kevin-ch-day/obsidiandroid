@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from obsidiandroid.pipeline import stage_permission_trends_report as report_stage
+from obsidiandroid.pipeline.permission_trends import reporting_support as perm_trends_reporting_support
 
 
 def test_compute_consensus_metrics_produces_expected_columns():
@@ -229,7 +230,7 @@ def test_export_banker_trends_line_plot_latest_only_when_run_scoped_disabled(
             "banker_send_sms_prevalence": [0.30, 0.33],
         }
     )
-    monkeypatch.setattr(report_stage, "_write_run_scoped_permission_artifacts", lambda: False)
+    monkeypatch.setattr(perm_trends_reporting_support, "write_run_scoped_permission_artifacts", lambda: False)
 
     out = report_stage._export_banker_trends_line_plot(
         trends_df=trends_df,
@@ -260,7 +261,7 @@ def test_export_banker_trends_line_plot_writes_run_scoped_when_enabled(
             "banker_send_sms_prevalence": [0.30, 0.33],
         }
     )
-    monkeypatch.setattr(report_stage, "_write_run_scoped_permission_artifacts", lambda: True)
+    monkeypatch.setattr(perm_trends_reporting_support, "write_run_scoped_permission_artifacts", lambda: True)
 
     out = report_stage._export_banker_trends_line_plot(
         trends_df=trends_df,
@@ -356,7 +357,7 @@ def test_publish_canonical_type_heatmap_disabled_by_default(tmp_path: Path, monk
 
 
 def test_export_helpers_write_to_grouped_subfolders(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(report_stage, "_write_run_scoped_permission_artifacts", lambda: False)
+    monkeypatch.setattr(perm_trends_reporting_support, "write_run_scoped_permission_artifacts", lambda: False)
     df = pd.DataFrame({"a": [1]})
     csv_out = report_stage._export_df_with_latest(  # pylint: disable=protected-access
         df=df,
@@ -463,7 +464,7 @@ def test_build_permission_trends_layout_check_warns_on_timestamped_png(tmp_path:
     (bundle_dir / "figures" / "type_permission_heatmap.latest.png").write_bytes(b"ok")
     (bundle_dir / "figures" / "type_permission_heatmap_20260303T153540Z__90e82c.png").write_bytes(b"old")
 
-    out = report_stage._build_permission_trends_layout_check(bundle_dir)  # pylint: disable=protected-access
+    out = report_stage._build_permission_trends_layout_check(bundle_dir=bundle_dir)  # pylint: disable=protected-access
 
     assert out["status"] == "WARN"
     assert out["timestamped_png_in_latest_count"] == 1

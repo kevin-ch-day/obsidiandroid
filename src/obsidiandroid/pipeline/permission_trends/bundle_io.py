@@ -22,9 +22,7 @@ from obsidiandroid.pipeline.permission_trends.constants import (
     BUNDLE_CONTRACT_VERSION,
 )
 from obsidiandroid.pipeline.permission_trends.publish_paths import resolve_run_root_for_run_id
-from obsidiandroid.pipeline.permission_trends.reporting_support import (
-    write_run_scoped_permission_artifacts,
-)
+from obsidiandroid.pipeline.permission_trends import reporting_support as _perm_trends_reporting
 
 
 def export_df_with_latest(
@@ -36,7 +34,7 @@ def export_df_with_latest(
     tables_dir = resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_TABLES)
     latest_path = tables_dir / f"{file_stem}.latest.csv"
     run_path: Path | None = None
-    if write_run_scoped_permission_artifacts():
+    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
         run_path = tables_dir / f"{file_stem}_{run_id}.csv"
         df.to_csv(run_path, index=False)
     df.to_csv(latest_path, index=False)
@@ -76,7 +74,7 @@ def export_json_with_latest(
     contracts_dir = resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_CONTRACTS)
     latest_path = contracts_dir / f"{file_stem}.latest.json"
     run_path: Path | None = None
-    if write_run_scoped_permission_artifacts():
+    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
         run_path = contracts_dir / f"{file_stem}_{run_id}.json"
         run_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     latest_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -92,7 +90,7 @@ def export_text_with_latest(
     docs_dir = resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_DOCS)
     latest_path = docs_dir / f"{file_stem}.latest.txt"
     run_path: Path | None = None
-    if write_run_scoped_permission_artifacts():
+    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
         run_path = docs_dir / f"{file_stem}_{run_id}.txt"
         run_path.write_text(text, encoding="utf-8")
     latest_path.write_text(text, encoding="utf-8")

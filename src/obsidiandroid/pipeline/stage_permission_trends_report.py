@@ -42,7 +42,6 @@ from obsidiandroid.pipeline.permission_trends.publish_paths import (
 from obsidiandroid.pipeline.permission_trends.reporting_support import (
     read_dataset_time_contract as _read_dataset_time_contract,
     read_snapshot_meta as _read_snapshot_meta,
-    write_run_scoped_permission_artifacts as _write_run_scoped_permission_artifacts,
 )
 from obsidiandroid.pipeline.permission_trends.constants import (
     BUNDLE_CONTRACT_NAME,
@@ -115,6 +114,7 @@ from obsidiandroid.pipeline.permission_trends.diagnostic_exports import (
 from obsidiandroid.pipeline.permission_trends.consensus_audit import (
     build_consensus_distribution as _build_consensus_distribution,
     build_generic_definition_audit as _build_generic_definition_audit,
+    compute_consensus_metrics as _compute_consensus_metrics,
     extract_selected_vendors as _extract_selected_vendors,
 )
 

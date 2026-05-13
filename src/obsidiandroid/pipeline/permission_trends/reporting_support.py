@@ -20,8 +20,12 @@ def handle_reporting_exception(context: str, exc: Exception, fail_in_paper: bool
 
 
 def write_run_scoped_permission_artifacts() -> bool:
-    """Legacy compatibility shim for run-suffixed permission-trend artifacts."""
-    return False
+    """Return whether permission-trends exports should write run-stamped peers next to ``*.latest.*``.
+
+    Controlled by ``app_config.WRITE_RUN_SCOPED_PERMISSION_TREND_ARTIFACTS`` (default False).
+    Tests may ``monkeypatch`` this function on ``obsidiandroid.pipeline.permission_trends.reporting_support``.
+    """
+    return bool(getattr(app_config, "WRITE_RUN_SCOPED_PERMISSION_TREND_ARTIFACTS", False))
 
 
 def compact_permission_label(permission_name: str) -> str:

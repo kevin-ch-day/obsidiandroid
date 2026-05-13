@@ -8,7 +8,6 @@ so the CLI entry module stays thin and tests can import ``main.run_pipeline`` un
 """
 
 import os
-import sys
 import traceback
 import json
 from pathlib import Path
@@ -32,8 +31,6 @@ from obsidiandroid.observability.logging import runtime as runtime_logging
 from obsidiandroid.observability.logging import logger as logger_manager
 from obsidiandroid.observability.logging import get_logger, log_event
 from obsidiandroid.common.hash_utils import hash_payload
-from obsidiandroid.common import output_hygiene as oh
-from obsidiandroid.governance.integrity import enforce_run_scoped_artifact_paths
 from obsidiandroid.diagnostics import cohort_foundation_export
 from obsidiandroid.diagnostics import cohort_sample_id_audit
 from obsidiandroid.diagnostics import cohort_vocabulary
@@ -58,7 +55,6 @@ from obsidiandroid.pipeline.stage_modeling import (
     resolve_final_labels_stage,
     run_training_stage,
 )
-from obsidiandroid.pipeline.stage_manifest import finalize_run_manifest_stage
 from obsidiandroid.pipeline.runtime_policy import (
     apply_profile_runtime_policy,
     build_mutable_config_keys,
@@ -87,6 +83,12 @@ from obsidiandroid.orchestration.runtime_reporting import (
 )
 from obsidiandroid.database.db_sample_metadata_contracts import get_query_contract_metadata
 from obsidiandroid.pipeline.main_facade import from_main_or
+from obsidiandroid.pipeline.runner_support import (
+    PipelineStageFailure,
+    ScopedArtifactList,
+    sync_main_module_diagnostics,
+)
+from obsidiandroid.pipeline.runner_stage_control import PipelineRunStageControl
 from obsidiandroid.pipeline.run_bounds import (
     PipelineRunBounds,
     clear_pipeline_run_bounds,
@@ -109,63 +111,11 @@ PIPELINE_MAIN_LOGGER = get_logger(
 _CONFIG_MISSING = object()
 
 
-def _sync_main_module_diagnostics(path: str) -> None:
-    """Mirror diagnostics path onto ``main`` when loaded (tests patch ``main.DIAGNOSTICS_DIR``)."""
-    main_mod = sys.modules.get("main")
-    if main_mod is not None and hasattr(main_mod, "DIAGNOSTICS_DIR"):
-        setattr(main_mod, "DIAGNOSTICS_DIR", path)
-
-
 def _set_diagnostics_dir(path: str) -> None:
     """Update runner global diagnostics dir and keep ``main.DIAGNOSTICS_DIR`` in sync."""
     global DIAGNOSTICS_DIR
     DIAGNOSTICS_DIR = path
-    _sync_main_module_diagnostics(path)
-
-
-class _ScopedArtifactList(list[str]):
-    """Artifact list with immediate run-scope path enforcement on append/extend."""
-
-    def __init__(
-        self,
-        *,
-        strict_run_scoped: bool,
-        run_root_getter,
-        output_root_getter,
-        allow_global_getter,
-    ) -> None:
-        super().__init__()
-        self._strict = bool(strict_run_scoped)
-        self._run_root_getter = run_root_getter
-        self._output_root_getter = output_root_getter
-        self._allow_global_getter = allow_global_getter
-
-    def _validate(self, item: str) -> None:
-        if not self._strict:
-            return
-        if bool(self._allow_global_getter()):
-            return
-        path_text = str(item).strip()
-        if not path_text:
-            return
-        enforce_run_scoped_artifact_paths(
-            artifact_paths=[path_text],
-            run_root=Path(str(self._run_root_getter())),
-            output_root=Path(str(self._output_root_getter())),
-            allow_latest=True,
-        )
-
-    def append(self, item: str) -> None:  # type: ignore[override]
-        self._validate(str(item))
-        super().append(str(item))
-
-    def extend(self, items) -> None:  # type: ignore[override]
-        for item in items:
-            self.append(str(item))
-
-
-class _PipelineStageFailure(RuntimeError):
-    """Expected pipeline-stage failure that should finalize cleanly."""
+    sync_main_module_diagnostics(path)
 
 
 def run_pipeline(
@@ -231,7 +181,7 @@ def run_pipeline(
     output_root_base = runtime_paths["output_root_base"]
     runtime_run_root = runtime_paths["runtime_run_root"]
     _set_diagnostics_dir(str(runtime_paths["runtime_diagnostics_dir"]))
-    artifact_list: _ScopedArtifactList = _ScopedArtifactList(
+    artifact_list: ScopedArtifactList = ScopedArtifactList(
         strict_run_scoped=strict_run_scoped,
         run_root_getter=lambda: getattr(app_config, "RUNTIME_RUN_ROOT", runtime_run_root),
         output_root_getter=lambda: output_root_base,
@@ -247,213 +197,19 @@ def run_pipeline(
     }
     runtime_log_context = None
     pipeline_started_at = perf_counter()
-    stage_timings_sec: dict[str, float] = {}
-    current_stage_name: str | None = None
-    active_perf_stage_start: float | None = None
-    last_completed_stage: str | None = None
-    preflight_path: Path | None = None
-    preflight_payload: dict[str, Any] = {}
     original_diagnostics_dir = DIAGNOSTICS_DIR
     # Reset run-scoped runtime markers up-front to avoid stale cross-run leakage.
     reset_runtime_markers()
     operator_dashboard.clear_operator_state()
-
-    def _record_stage_timing(
-        stage_name: str,
-        started_at: float,
-        *,
-        record_observability: bool = True,
-        **obs_kwargs: Any,
-    ) -> None:
-        nonlocal last_completed_stage
-        duration = max(0.0, perf_counter() - started_at)
-        stage_timings_sec[stage_name] = duration
-        last_completed_stage = stage_name
-        manifest_context["completed_stage"] = stage_name
-        du.print_info(f"[TIME] {stage_name}: {duration:.2f}s")
-        log_event(
-            PIPELINE_MAIN_LOGGER,
-            "stage_timing",
-            run_id=run_id,
-            stage=stage_name,
-            duration_sec=round(duration, 2),
-        )
-        if not record_observability:
-            return
-        obs_sess = manifest_context.get("pipeline_observability")
-        if isinstance(obs_sess, PipelineObservabilitySession):
-            obs_copy = dict(obs_kwargs)
-            wall_start = str(manifest_context.pop("_active_stage_wall_start_iso", "") or "").strip()
-            extras: dict[str, Any] = dict(obs_copy.pop("extras", None) or {})
-            if wall_start:
-                extras.setdefault("start_time_iso", wall_start)
-            stage_status = str(obs_copy.pop("stage_status", "PASS"))
-            emit_keys = (
-                "input_rows",
-                "output_rows",
-                "input_features",
-                "output_features",
-                "rows_removed",
-                "rows_added",
-                "features_removed",
-                "features_added",
-                "major_warnings",
-                "paper_blocker_stage",
-                "artifacts_written_count",
-                "artifacts_skipped",
-                "next_stage_allowed",
-            )
-            emit_kw: dict[str, Any] = {}
-            for key in emit_keys:
-                if key in obs_copy:
-                    emit_kw[key] = obs_copy.pop(key)
-            extras.update(obs_copy)
-            obs_sess.emit_stage_completion(
-                stage_name,
-                status=stage_status,
-                duration_sec=duration,
-                extras=extras,
-                **emit_kw,
-            )
-
-    def _mark_run_state(
-        status: str,
-        *,
-        completed_stage: str | None = None,
-        failure_reason: str = "",
-        failed_stage: str | None = None,
-    ) -> None:
-        """Persist concise run-state metadata for final summary and manifest export."""
-        normalized_status = str(status).strip().lower() or "unknown"
-        manifest_context["run_status"] = normalized_status
-        resolved_completed_stage = completed_stage or last_completed_stage or ""
-        if resolved_completed_stage:
-            manifest_context["completed_stage"] = resolved_completed_stage
-        if failure_reason:
-            manifest_context["failure_reason"] = failure_reason
-            resolved_failed_stage = failed_stage or current_stage_name or resolved_completed_stage
-            if resolved_failed_stage:
-                manifest_context["failed_stage"] = resolved_failed_stage
-        else:
-            manifest_context.pop("failure_reason", None)
-            manifest_context.pop("failed_stage", None)
-
-    def _begin_stage(stage_name: str) -> None:
-        """Track the active stage for failure reporting."""
-        nonlocal current_stage_name, active_perf_stage_start
-        current_stage_name = stage_name
-        active_perf_stage_start = perf_counter()
-        manifest_context["current_stage"] = stage_name
-        manifest_context["_active_stage_wall_start_iso"] = datetime.now(timezone.utc).isoformat()
-        obs_begin = manifest_context.get("pipeline_observability")
-        if isinstance(obs_begin, PipelineObservabilitySession):
-            obs_begin.emit_stage_start(stage_name, stop_after=str(manifest_context.get("stop_after", "")))
-
-    def _attach_runtime_timing_context() -> None:
-        total_runtime = max(0.0, perf_counter() - pipeline_started_at)
-        manifest_context["stage_timings_sec"] = {
-            k: round(v, 3) for k, v in stage_timings_sec.items()
-        }
-        manifest_context["pipeline_runtime_sec"] = round(total_runtime, 3)
-        if last_completed_stage and "completed_stage" not in manifest_context:
-            manifest_context["completed_stage"] = last_completed_stage
-        if stage_timings_sec:
-            timings_df = pd.DataFrame(
-                [
-                    {"stage": stage, "duration_sec": round(duration, 3)}
-                    for stage, duration in stage_timings_sec.items()
-                ]
-            )
-            timings_df["run_id"] = run_id
-            timings_df["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
-            timings_csv = timings_df.to_csv(index=False)
-            t_paths = oh.mirror_csv_text_run_then_global(
-                diagnostics_dir=Path(DIAGNOSTICS_DIR),
-                run_filename=f"pipeline_stage_timings_{run_id}.csv",
-                csv_text=timings_csv,
-                global_latest_name="pipeline_stage_timings.latest.csv",
-            )
-            for p in t_paths:
-                sp = str(p)
-                if sp not in artifact_list:
-                    artifact_list.append(sp)
-
-    def _finalize_with_manifest_timing() -> int:
-        """Finalize run manifest and record manifest stage timing."""
-        stage_started = perf_counter()
-        _attach_runtime_timing_context()
-        result = from_main_or("finalize_run_manifest_stage", finalize_run_manifest_stage)(
-            manifest_context=manifest_context,
-            profile=profile,
-            samples_df=samples_df,
-            pipeline_results=pipeline_results,
-            vendor_eval_df=vendor_eval,
-            artifact_list=artifact_list,
-        )
-        if result != 0:
-            du.print_error("[INTEGRITY] Run manifest write failure.")
-        _record_stage_timing("manifest", stage_started, record_observability=False)
-        _attach_runtime_timing_context()
-        return result
-
-    def _write_preflight(status: str, reason: str = "") -> None:
-        """Write evidence-mode preflight report for auditability."""
-        nonlocal preflight_path, preflight_payload
-        evidence_on = bool(
-            getattr(
-                app_config,
-                "EVIDENCE_MODE_ENABLED",
-                getattr(app_config, "PAPER_MODE_ENABLED", False),
-            )
-        )
-        samples_cohort_audit = str(stop_after).strip().lower() == "samples"
-        if not evidence_on and not samples_cohort_audit:
-            return
-        run_root = Path(str(getattr(app_config, "RUNTIME_RUN_ROOT", app_config.DEFAULT_OUTPUT_DIR)))
-        diagnostics_dir = run_root / "diagnostics"
-        diagnostics_dir.mkdir(parents=True, exist_ok=True)
-        if preflight_path is None:
-            preflight_path = diagnostics_dir / "preflight_report.json"
-        if samples_cohort_audit:
-            preflight_payload[cohort_vocabulary.KEY_SAMPLES_STAGE_COHORT_COUNTS] = {
-                "stop_after": stop_after,
-                "cohort_sql_scope_row_count": manifest_context.get("cohort_sql_scope_row_count"),
-                "cohort_prepared_row_count": manifest_context.get("cohort_prepared_row_count"),
-            }
-        if manifest_context.get("cohort_distinct_sample_id") is not None:
-            preflight_payload["cohort_sample_id_integrity"] = {
-                "cohort_prepared_row_count": manifest_context.get("cohort_prepared_row_count"),
-                "cohort_distinct_sample_id": manifest_context.get("cohort_distinct_sample_id"),
-                "cohort_duplicate_surplus_rows": manifest_context.get("cohort_duplicate_surplus_rows"),
-            }
-        preflight_payload.update(
-            {
-                "run_id": run_id,
-                "status": status,
-                "reason": reason,
-                "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-                "config_hash": manifest_context.get("config_hash", ""),
-                "evidence_mode": manifest_context.get("evidence_mode", {}),
-            }
-        )
-        preflight_path.write_text(
-            json.dumps(preflight_payload, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        if str(preflight_path) not in artifact_list:
-            artifact_list.append(str(preflight_path))
-
-    def _fail_pipeline(reason: str, *, stage_name: str | None = None) -> None:
-        """Route expected stage failures through the shared finalization path."""
-        if stage_name:
-            _begin_stage(stage_name)
-        _mark_run_state(
-            "failed",
-            failure_reason=reason,
-            failed_stage=stage_name or current_stage_name,
-        )
-        _write_preflight(status="failed", reason=reason)
-        raise _PipelineStageFailure(reason)
+    st = PipelineRunStageControl(
+        run_id=run_id,
+        stop_after=stop_after,
+        manifest_context=manifest_context,
+        artifact_list=artifact_list,
+        pipeline_started_at=pipeline_started_at,
+        diagnostics_dir_getter=lambda: DIAGNOSTICS_DIR,
+        pipeline_logger=PIPELINE_MAIN_LOGGER,
+    )
 
     try:
         du.print_banner("Malware Classification Framework")
@@ -612,7 +368,7 @@ def run_pipeline(
         du.print_info("[PIPELINE] Metadata: dependency versions + DB query contract...")
         manifest_context["dependency_versions"] = _collect_dependency_versions()
         manifest_context["db_query_contract"] = get_query_contract_metadata()
-        _write_preflight(status="running")
+        st.write_preflight(status="running")
 
         feature_flags = profile.get("feature_flags", {}) if isinstance(profile, dict) else {}
         du.print_info("[PIPELINE] Applying runtime policy (feature flags, evidence strictness)...")
@@ -628,13 +384,13 @@ def run_pipeline(
         if bool(getattr(app_config, "EVIDENCE_MODE_ENABLED", getattr(app_config, "PAPER_MODE_ENABLED", False))) and bool(
             getattr(app_config, "ENABLE_DYNAMIC_GENERIC_VENDOR_PARSERS", True)
         ):
-            _fail_pipeline(
+            st.fail_pipeline(
                 "[EVIDENCE] Dynamic generic vendor onboarding must be disabled in evidence mode.",
                 stage_name="preflight",
             )
 
         preflight_perf = perf_counter()
-        _begin_stage("preflight")
+        st.begin_stage("preflight")
 
         # Step 1: Load and prepare sample metadata
         wall_pf = manifest_context.pop("_active_stage_wall_start_iso", "")
@@ -654,7 +410,7 @@ def run_pipeline(
             f"[PIPELINE] Stage: samples - fetching cohort (type_slug={type_slug!r})..."
         )
         stage_started_at = perf_counter()
-        _begin_stage("samples")
+        st.begin_stage("samples")
         _print_run_context_line(
             run_id=run_id,
             profile_id=profile_id,
@@ -734,7 +490,7 @@ def run_pipeline(
                 reason="SQL profile cohort scope → samples_df after fetch + Python preparation",
                 artifact_path=str(snapshot_file),
             )
-        _record_stage_timing(
+        st.record_stage_timing(
             "samples",
             stage_started_at,
             input_rows=int(raw_n_for_obs),
@@ -752,19 +508,24 @@ def run_pipeline(
         cohort_sample_id_audit.merge_sample_id_audit_into_manifest(manifest_context, _sid_audit)
 
         if stop_after == "samples":
-            _mark_run_state("partial", completed_stage="samples")
-            _write_preflight(
+            st.mark_run_state("partial", completed_stage="samples")
+            st.write_preflight(
                 status="stopped_after_samples",
                 reason="stop_after=samples (cohort audit; later stages skipped)",
             )
             du.print_success("[PIPELINE] Stopped after sample preparation by request.")
             pipeline_results = None
             vendor_eval = None
-            return _finalize_with_manifest_timing()
+            return st.finalize_with_manifest_timing(
+                profile=profile,
+                samples_df=samples_df,
+                pipeline_results=pipeline_results,
+                vendor_eval=vendor_eval,
+            )
 
         # Step 2: Run AV engine pipeline
         stage_started_at = perf_counter()
-        _begin_stage("av_pipeline")
+        st.begin_stage("av_pipeline")
         _print_run_context_line(
             run_id=run_id,
             profile_id=profile_id,
@@ -780,14 +541,14 @@ def run_pipeline(
             manifest_context=manifest_context,
         )
         if not pipeline_results:
-            _record_stage_timing(
+            st.record_stage_timing(
                 "av_pipeline",
                 stage_started_at,
                 stage_status="FAIL",
                 input_rows=int(len(samples_df)),
                 major_warnings="av_pipeline_returned_empty",
             )
-            _fail_pipeline("[PIPELINE] AV pipeline returned no results.")
+            st.fail_pipeline("[PIPELINE] AV pipeline returned no results.")
         # Summaries measure cohort rows consistently: engine_scores often has one row per engine
         # (no sample_id); avoid reporting that as ``output_rows`` in pipeline_stage_summary.
         eng_preview = pipeline_results.get("engine_scores") if isinstance(pipeline_results, dict) else None
@@ -798,7 +559,7 @@ def run_pipeline(
                 av_summary_extras["engine_scores_distinct_samples"] = int(
                     eng_preview["sample_id"].nunique(dropna=True)
                 )
-        _record_stage_timing(
+        st.record_stage_timing(
             "av_pipeline",
             stage_started_at,
             input_rows=int(len(samples_df)),
@@ -813,14 +574,19 @@ def run_pipeline(
                 artifact_list.append(eng_overlay_csv)
 
         if stop_after == "av_pipeline":
-            _mark_run_state("partial", completed_stage="av_pipeline")
+            st.mark_run_state("partial", completed_stage="av_pipeline")
             du.print_success("[PIPELINE] Stopped after AV pipeline by request.")
             vendor_eval = None
-            return _finalize_with_manifest_timing()
+            return st.finalize_with_manifest_timing(
+                profile=profile,
+                samples_df=samples_df,
+                pipeline_results=pipeline_results,
+                vendor_eval=vendor_eval,
+            )
 
         # Step 3: Extract vendor metadata
         stage_started_at = perf_counter()
-        _begin_stage("vendor_metadata")
+        st.begin_stage("vendor_metadata")
         _print_run_context_line(
             run_id=run_id,
             profile_id=profile_id,
@@ -832,9 +598,9 @@ def run_pipeline(
             pipeline_results=pipeline_results,
             samples_df=samples_df,
         )
-        _record_stage_timing("vendor_metadata", stage_started_at)
+        st.record_stage_timing("vendor_metadata", stage_started_at)
         if vendor_eval is None:
-            _fail_pipeline("[PIPELINE] Vendor metadata extraction returned no evaluation frame.")
+            st.fail_pipeline("[PIPELINE] Vendor metadata extraction returned no evaluation frame.")
 
         pipeline_results["vendor_eval_df"] = vendor_eval
         parser_quality_path = Path(DIAGNOSTICS_DIR) / "parser_quality.latest.csv"
@@ -853,13 +619,18 @@ def run_pipeline(
             )
 
         if stop_after == "vendor_metadata":
-            _mark_run_state("partial", completed_stage="vendor_metadata")
+            st.mark_run_state("partial", completed_stage="vendor_metadata")
             du.print_success("[PIPELINE] Stopped after vendor metadata by request.")
-            return _finalize_with_manifest_timing()
+            return st.finalize_with_manifest_timing(
+                profile=profile,
+                samples_df=samples_df,
+                pipeline_results=pipeline_results,
+                vendor_eval=vendor_eval,
+            )
 
         # Step 4: Compute engine weights
         stage_started_at = perf_counter()
-        _begin_stage("engine_weights")
+        st.begin_stage("engine_weights")
         _print_run_context_line(
             run_id=run_id,
             profile_id=profile_id,
@@ -868,19 +639,24 @@ def run_pipeline(
             selected_models=model_list,
         )
         weights_df = compute_engine_weights_from_pipeline(pipeline_results)
-        _record_stage_timing(
+        st.record_stage_timing(
             "engine_weights",
             stage_started_at,
             output_rows=int(len(weights_df)) if weights_df is not None else "",
         )
         if weights_df is None or weights_df.empty:
-            _fail_pipeline("[PIPELINE] Engine weight computation failed.")
+            st.fail_pipeline("[PIPELINE] Engine weight computation failed.")
         pipeline_results["weights_df"] = weights_df
 
         if stop_after == "engine_weights":
-            _mark_run_state("partial", completed_stage="engine_weights")
+            st.mark_run_state("partial", completed_stage="engine_weights")
             du.print_success("[PIPELINE] Stopped after engine scoring by request.")
-            return _finalize_with_manifest_timing()
+            return st.finalize_with_manifest_timing(
+                profile=profile,
+                samples_df=samples_df,
+                pipeline_results=pipeline_results,
+                vendor_eval=vendor_eval,
+            )
 
         # Step 5: Print family distribution
         if bool(getattr(app_config, "ENABLE_FAMILY_DISTRIBUTION_REPORT", True)):
@@ -890,7 +666,7 @@ def run_pipeline(
 
         # Step 6: Build feature matrix (+ optional metadata features)
         stage_started_at = perf_counter()
-        _begin_stage("feature_matrix")
+        st.begin_stage("feature_matrix")
         _print_run_context_line(
             run_id=run_id,
             profile_id=profile_id,
@@ -954,7 +730,7 @@ def run_pipeline(
             getattr(app_config, "RUNTIME_PERMISSION_ENRICHMENT_DEGRADED", False)
         )
         if feature_df is None:
-            _fail_pipeline("[PIPELINE] Feature matrix generation failed.")
+            st.fail_pipeline("[PIPELINE] Feature matrix generation failed.")
         fused_rows = int(len(feature_df))
         fused_cols = int(feature_df.shape[1])
         obs_sess_fm = manifest_context.get("pipeline_observability")
@@ -968,7 +744,7 @@ def run_pipeline(
                 reason="governed cohort rows (vendor gaps unknown/zero-filled; PI/metadata from enrichment)",
                 artifact_path=str(cov_path_hint),
             )
-        _record_stage_timing(
+        st.record_stage_timing(
             "feature_matrix",
             stage_started_at,
             input_rows=int(manifest_context.get("cohort_prepared_row_count", len(samples_df)) or 0),
@@ -1183,13 +959,18 @@ def run_pipeline(
             du.print_info("[ARTIFACTS] Governance / contracts: " + " | ".join(gov_notes))
 
         if stop_after == "feature_matrix":
-            _mark_run_state("partial", completed_stage="feature_matrix")
+            st.mark_run_state("partial", completed_stage="feature_matrix")
             du.print_success("[PIPELINE] Stopped after feature matrix build by request.")
-            return _finalize_with_manifest_timing()
+            return st.finalize_with_manifest_timing(
+                profile=profile,
+                samples_df=samples_df,
+                pipeline_results=pipeline_results,
+                vendor_eval=vendor_eval,
+            )
 
         # Step 7: Align features and labels
         stage_started_at = perf_counter()
-        _begin_stage("alignment")
+        st.begin_stage("alignment")
         _print_run_context_line(
             run_id=run_id,
             profile_id=profile_id,
@@ -1203,7 +984,7 @@ def run_pipeline(
             diagnostics_dir=DIAGNOSTICS_DIR,
         )
         if aligned_feature_df is None or aligned_labels_df is None:
-            _fail_pipeline("[PIPELINE] Feature-label alignment failed.")
+            st.fail_pipeline("[PIPELINE] Feature-label alignment failed.")
         manifest_context["aligned_supervised_rows"] = int(len(aligned_feature_df))
         manifest_context["_aligned_feature_cols"] = int(aligned_feature_df.shape[1])
         obs_al = manifest_context.get("pipeline_observability")
@@ -1224,7 +1005,7 @@ def run_pipeline(
             reason="explicit feature-matrix→aligned labeling view (matches fusion→alignment drop)",
             artifact_path=str(Path(DIAGNOSTICS_DIR) / f"split_freeze_headline_{run_id}.csv"),
         )
-        _record_stage_timing(
+        st.record_stage_timing(
             "alignment",
             stage_started_at,
             input_rows=int(fused_rows),
@@ -1245,14 +1026,19 @@ def run_pipeline(
         )
 
         if stop_after == "alignment":
-            _mark_run_state("partial", completed_stage="alignment")
+            st.mark_run_state("partial", completed_stage="alignment")
             du.print_success("[PIPELINE] Stopped after feature-label alignment by request.")
-            return _finalize_with_manifest_timing()
+            return st.finalize_with_manifest_timing(
+                profile=profile,
+                samples_df=samples_df,
+                pipeline_results=pipeline_results,
+                vendor_eval=vendor_eval,
+            )
 
         # Step 8: Train classifiers
         stage_started_at = perf_counter()
         model_list = model_list or list(profile.get("model_list", []))
-        _begin_stage("training")
+        st.begin_stage("training")
         _print_run_context_line(
             run_id=run_id,
             profile_id=profile_id,
@@ -1266,7 +1052,7 @@ def run_pipeline(
             model_list=model_list,
         )
         if not model_results:
-            _fail_pipeline("[PIPELINE] Model training returned no results.")
+            st.fail_pipeline("[PIPELINE] Model training returned no results.")
         model_summary = _extract_model_summary(model_results)
         if model_summary:
             manifest_context["model_summary"] = model_summary
@@ -1395,7 +1181,7 @@ def run_pipeline(
         te_c = manifest_context.get("test_sample_count")
         if tr_c not in (None, "") or te_c not in (None, ""):
             mw_train.append(f"split train={tr_c} test={te_c}")
-        _record_stage_timing(
+        st.record_stage_timing(
             "training",
             stage_started_at,
             input_rows=aligned_n_obs,
@@ -1410,10 +1196,15 @@ def run_pipeline(
             du.print_info(f"[POPULATION] {pop_line}")
 
         if stop_after == "training":
-            _mark_run_state("partial", completed_stage="training")
+            st.mark_run_state("partial", completed_stage="training")
             _apply_confusion_matrix_policy(run_id=run_id, top_model=top_model_for_policy)
             du.print_success("[PIPELINE] Stopped after model training by request.")
-            return _finalize_with_manifest_timing()
+            return st.finalize_with_manifest_timing(
+                profile=profile,
+                samples_df=samples_df,
+                pipeline_results=pipeline_results,
+                vendor_eval=vendor_eval,
+            )
 
         run_ablation_flag = bool(getattr(app_config, "ENABLE_ABLATION_EXPERIMENTS", False))
         skip_ablation_for_single_model = bool(
@@ -1424,7 +1215,7 @@ def run_pipeline(
             and not (skip_ablation_for_single_model and model_list and len(model_list) == 1)
         ):
             stage_started_at = perf_counter()
-            _begin_stage("ablation")
+            st.begin_stage("ablation")
             ablation_artifacts = run_ablation_experiments(
                 samples_df=samples_df,
                 weights_df=weights_df,
@@ -1463,7 +1254,7 @@ def run_pipeline(
                     ablation_summary_path=str(summ),
                     ablation_grid_status=str(outcome_status),
                 )
-            _record_stage_timing(
+            st.record_stage_timing(
                 "ablation",
                 stage_started_at,
                 artifacts_written_count=str(len(ablation_artifacts)),
@@ -1498,14 +1289,19 @@ def run_pipeline(
         _apply_confusion_matrix_policy(run_id=run_id, top_model=top_model_for_policy)
 
         if stop_after == "ablation":
-            _mark_run_state("partial", completed_stage="ablation")
+            st.mark_run_state("partial", completed_stage="ablation")
             du.print_success("[PIPELINE] Stopped after ablation stage by request.")
-            return _finalize_with_manifest_timing()
+            return st.finalize_with_manifest_timing(
+                profile=profile,
+                samples_df=samples_df,
+                pipeline_results=pipeline_results,
+                vendor_eval=vendor_eval,
+            )
 
         permission_trends_enabled = bool(getattr(app_config, "ENABLE_PERMISSION_TRENDS_REPORT", True))
         if permission_trends_enabled:
             stage_started_at = perf_counter()
-            _begin_stage("permission_trends")
+            st.begin_stage("permission_trends")
             report_artifacts = run_permission_trends_report_stage(
                 samples_df=samples_df,
                 permission_features_df=permission_features_df,
@@ -1515,7 +1311,7 @@ def run_pipeline(
                 profile_id=profile_id,
                 feature_df=feature_df,
             )
-            _record_stage_timing(
+            st.record_stage_timing(
                 "permission_trends",
                 stage_started_at,
                 artifacts_written_count=str(len(report_artifacts)),
@@ -1524,9 +1320,14 @@ def run_pipeline(
                 if artifact_path not in artifact_list:
                     artifact_list.append(artifact_path)
             if stop_after == "permission_trends":
-                _mark_run_state("partial", completed_stage="permission_trends")
+                st.mark_run_state("partial", completed_stage="permission_trends")
                 du.print_success("[PIPELINE] Stopped after permission trends stage by request.")
-                return _finalize_with_manifest_timing()
+                return st.finalize_with_manifest_timing(
+                    profile=profile,
+                    samples_df=samples_df,
+                    pipeline_results=pipeline_results,
+                    vendor_eval=vendor_eval,
+                )
         else:
             obs_pt = manifest_context.get("pipeline_observability")
             if isinstance(obs_pt, PipelineObservabilitySession):
@@ -1539,18 +1340,23 @@ def run_pipeline(
                     extras={"reason": "permission_trends_disabled"},
                 )
             if stop_after == "permission_trends":
-                _mark_run_state("partial", completed_stage="ablation")
+                st.mark_run_state("partial", completed_stage="ablation")
                 du.print_warning(
                     "[PIPELINE] stop_after='permission_trends' requested but "
                     "permission trends are disabled; stopping after ablation/training."
                 )
-                return _finalize_with_manifest_timing()
+                return st.finalize_with_manifest_timing(
+                    profile=profile,
+                    samples_df=samples_df,
+                    pipeline_results=pipeline_results,
+                    vendor_eval=vendor_eval,
+                )
 
         # Step 9: Final label resolution
         label_resolution_enabled = bool(getattr(app_config, "ENABLE_LABEL_RESOLUTION_STAGE", True))
         if label_resolution_enabled:
             stage_started_at = perf_counter()
-            _begin_stage("label_resolution")
+            st.begin_stage("label_resolution")
             _print_run_context_line(
                 run_id=run_id,
                 profile_id=profile_id,
@@ -1560,7 +1366,7 @@ def run_pipeline(
             )
             df_labels = resolve_final_labels_stage(vendor_records, model_results)
             lbl_n = len(df_labels) if df_labels is not None else 0
-            _record_stage_timing("label_resolution", stage_started_at, output_rows=lbl_n)
+            st.record_stage_timing("label_resolution", stage_started_at, output_rows=lbl_n)
             if df_labels is not None:
                 du.print_info(f"[PIPELINE] Final labels generated: {len(df_labels)} samples")
                 tax_sum = getattr(app_config, "RUNTIME_TAXONOMY_CONSISTENCY_SUMMARY", None)
@@ -1590,7 +1396,7 @@ def run_pipeline(
                 )
 
         if stop_after == "label_resolution":
-            _mark_run_state(
+            st.mark_run_state(
                 "partial",
                 completed_stage="label_resolution" if label_resolution_enabled else "permission_trends",
             )
@@ -1599,7 +1405,12 @@ def run_pipeline(
                     "[PIPELINE] stop_after='label_resolution' requested, but the stage is disabled."
                 )
             du.print_success("[PIPELINE] Stopped after final label resolution by request.")
-            return _finalize_with_manifest_timing()
+            return st.finalize_with_manifest_timing(
+                profile=profile,
+                samples_df=samples_df,
+                pipeline_results=pipeline_results,
+                vendor_eval=vendor_eval,
+            )
 
         total_runtime_sec = max(0.0, perf_counter() - pipeline_started_at)
         du.print_info(f"[TIME] total_pipeline_runtime: {total_runtime_sec:.2f}s")
@@ -1608,9 +1419,9 @@ def run_pipeline(
             "pipeline_timing_complete",
             run_id=run_id,
             total_runtime_sec=round(total_runtime_sec, 2),
-            stages={k: round(v, 2) for k, v in stage_timings_sec.items()},
+            stages={k: round(v, 2) for k, v in st.stage_timings_sec.items()},
         )
-        _attach_runtime_timing_context()
+        st.attach_runtime_timing_context()
         run_summary_payload = _build_run_summary_payload(
             run_id=run_id,
             profile_id=profile_id,
@@ -1636,36 +1447,46 @@ def run_pipeline(
             artifact_list=list(artifact_list),
         )
         du.print_success("Classification pipeline executed successfully.")
-        _mark_run_state("complete", completed_stage="manifest")
-        _write_preflight(status="pass")
-        return _finalize_with_manifest_timing()
+        st.mark_run_state("complete", completed_stage="manifest")
+        st.write_preflight(status="pass")
+        return st.finalize_with_manifest_timing(
+            profile=profile,
+            samples_df=samples_df,
+            pipeline_results=pipeline_results,
+            vendor_eval=vendor_eval,
+        )
 
     except KeyboardInterrupt:
         du.print_warning(
             "[PIPELINE] KeyboardInterrupt — recording interrupted stage, then finalizing run manifest "
             "(partial ablation artifacts may exist under diagnostics/)."
         )
-        if current_stage_name and active_perf_stage_start is not None:
-            _record_stage_timing(
-                str(current_stage_name),
-                active_perf_stage_start,
+        if st.current_stage_name and st.active_perf_stage_start is not None:
+            st.record_stage_timing(
+                str(st.current_stage_name),
+                st.active_perf_stage_start,
                 stage_status="INTERRUPTED",
                 next_stage_allowed=False,
                 major_warnings="KeyboardInterrupt (operator or session)",
             )
-        _mark_run_state(
+        st.mark_run_state(
             "interrupted",
             failure_reason="KeyboardInterrupt",
-            failed_stage=str(current_stage_name or "") or "unknown",
+            failed_stage=str(st.current_stage_name or "") or "unknown",
         )
-        _write_preflight(status="interrupted", reason="KeyboardInterrupt")
+        st.write_preflight(status="interrupted", reason="KeyboardInterrupt")
         try:
-            _attach_runtime_timing_context()
+            st.attach_runtime_timing_context()
         except Exception:
             pass
         if manifest_context.get("run_id"):
             try:
-                _finalize_with_manifest_timing()
+                st.finalize_with_manifest_timing(
+                    profile=profile,
+                    samples_df=samples_df,
+                    pipeline_results=pipeline_results,
+                    vendor_eval=vendor_eval,
+                )
             except Exception as fin_exc:
                 du.print_warning(f"[PIPELINE] Manifest finalization after interrupt failed: {fin_exc}")
         return 130
@@ -1674,22 +1495,22 @@ def run_pipeline(
         error_text = str(e)
         obs_ex = manifest_context.get("pipeline_observability")
         if isinstance(obs_ex, PipelineObservabilitySession):
-            fatalish = isinstance(e, _PipelineStageFailure)
+            fatalish = isinstance(e, PipelineStageFailure)
             obs_ex.record_partial_failure(
-                stage=str(current_stage_name or manifest_context.get("current_stage") or "unknown"),
+                stage=str(st.current_stage_name or manifest_context.get("current_stage") or "unknown"),
                 error=error_text,
                 recoverable=fatalish,
             )
             if not fatalish:
-                obs_ex.add_warning(error_text[:2000], severity=LogSeverity.ERROR, stage_hint=str(current_stage_name))
+                obs_ex.add_warning(error_text[:2000], severity=LogSeverity.ERROR, stage_hint=str(st.current_stage_name))
         if (
-            current_stage_name == "ablation"
-            and active_perf_stage_start is not None
-            and last_completed_stage != "ablation"
+            st.current_stage_name == "ablation"
+            and st.active_perf_stage_start is not None
+            and st.last_completed_stage != "ablation"
         ):
-            _record_stage_timing(
+            st.record_stage_timing(
                 "ablation",
-                active_perf_stage_start,
+                st.active_perf_stage_start,
                 stage_status="FAIL",
                 next_stage_allowed=False,
                 major_warnings=error_text[:900],
@@ -1698,18 +1519,18 @@ def run_pipeline(
             du.print_error("[INTEGRITY STOP]")
         else:
             du.print_error(f"[CRITICAL] Pipeline crashed: {e}")
-        _mark_run_state(
+        st.mark_run_state(
             "failed",
             failure_reason=error_text,
-            failed_stage=current_stage_name or last_completed_stage,
+            failed_stage=st.current_stage_name or st.last_completed_stage,
         )
-        if current_stage_name == "ablation":
+        if st.current_stage_name == "ablation":
             manifest_context["_ablation_run_status_summary"] = f"FAIL: {error_text[:400]}"
-        _write_preflight(status="failed", reason=str(e))
+        st.write_preflight(status="failed", reason=str(e))
         manifest_context["integrity_error"] = error_text
 
         # Avoid full tracebacks for expected profile/data failures
-        if ml_console.is_debug() and not error_text.startswith("[PROFILE]") and not isinstance(e, _PipelineStageFailure):
+        if ml_console.is_debug() and not error_text.startswith("[PROFILE]") and not isinstance(e, PipelineStageFailure):
             traceback.print_exc()
         elif error_text.startswith("[INTEGRITY]"):
             if "Missing package rate" in error_text:
@@ -1721,7 +1542,12 @@ def run_pipeline(
                     )
 
         if manifest_context.get("run_id"):
-            _finalize_with_manifest_timing()
+            st.finalize_with_manifest_timing(
+                profile=profile,
+                samples_df=samples_df,
+                pipeline_results=pipeline_results,
+                vendor_eval=vendor_eval,
+            )
         if bool(getattr(app_config, "EVIDENCE_MODE_ENABLED", getattr(app_config, "PAPER_MODE_ENABLED", False))) and bool(
             getattr(
                 app_config,
@@ -1729,7 +1555,7 @@ def run_pipeline(
                 getattr(app_config, "FAIL_FAST_PIPELINE_EXCEPTIONS_IN_PAPER_MODE", True),
             )
         ) and not error_text.startswith("[INTEGRITY]") and not error_text.startswith("[PROFILE]") and not isinstance(
-            e, _PipelineStageFailure
+            e, PipelineStageFailure
         ):
             raise
         return 1

@@ -22,7 +22,7 @@ from obsidiandroid.pipeline.permission_trends.constants import (
     PERMISSION_ALIAS_MAP,
     RUN_SUFFIX_PNG_PATTERN,
 )
-from obsidiandroid.pipeline.permission_trends.reporting_support import write_run_scoped_permission_artifacts
+from obsidiandroid.pipeline.permission_trends import reporting_support as _perm_trends_reporting
 
 
 def build_permission_trends_layout_check(*, bundle_dir: Path) -> dict[str, Any]:
@@ -77,7 +77,7 @@ def export_alias_map_csv(*, run_id: str, bundle_dir: Path) -> str:
     contracts_dir = resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_CONTRACTS)
     latest_path = contracts_dir / "permission_alias_map.latest.csv"
     run_path: Path | None = None
-    if write_run_scoped_permission_artifacts():
+    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
         run_path = contracts_dir / f"permission_alias_map_{run_id}.csv"
         df.to_csv(run_path, index=False)
     df.to_csv(latest_path, index=False)
@@ -129,7 +129,7 @@ def export_safe_claims_report(
     latest_path = docs_dir / "safe_claims.latest.txt"
     text = "\n".join(lines) + "\n"
     run_path: Path | None = None
-    if write_run_scoped_permission_artifacts():
+    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
         run_path = docs_dir / f"safe_claims_{run_id}.txt"
         run_path.write_text(text, encoding="utf-8")
     latest_path.write_text(text, encoding="utf-8")
@@ -164,7 +164,7 @@ def export_paper_figures_index(
     latest_path = docs_dir / "paper_figures_index.latest.md"
     text = "\n".join(lines) + "\n"
     run_path: Path | None = None
-    if write_run_scoped_permission_artifacts():
+    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
         run_path = docs_dir / f"paper_figures_index_{run_id}.md"
         run_path.write_text(text, encoding="utf-8")
     latest_path.write_text(text, encoding="utf-8")
@@ -236,7 +236,7 @@ def export_run_summary_onepager(
     latest_path = docs_dir / "run_summary_onepager.latest.md"
     text = "\n".join(lines) + "\n"
     run_path: Path | None = None
-    if write_run_scoped_permission_artifacts():
+    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
         run_path = docs_dir / f"run_summary_onepager_{run_id}.md"
         run_path.write_text(text, encoding="utf-8")
     latest_path.write_text(text, encoding="utf-8")
