@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from database import db_config
+from . import db_config
 
 
 @dataclass(frozen=True, slots=True)

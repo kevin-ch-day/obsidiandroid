@@ -12,7 +12,7 @@ from collections import namedtuple
 from time import perf_counter
 import pandas as pd
 
-from database.db_config import (
+from .db_config import (
     DB_HOST,
     DB_PORT,
     DB_USER,
@@ -25,7 +25,7 @@ from database.db_config import (
     DB_POOL_NAME,
     DB_CONNECT_TIMEOUT,
 )
-from database.db_errors import mysql_error_summary, operator_facing_db_message
+from .db_errors import mysql_error_summary, operator_facing_db_message
 from config import app_config
 from obsidiandroid.observability.logging import get_logger, log_event
 

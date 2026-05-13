@@ -3,8 +3,8 @@
 #
 # Canonical implementation; ``database.db_permission_analysis_queries`` is an identity shim.
 
-from database import db_engine
-from database.db_config import DB_NAME, PERMISSION_INTEL_DB_NAME
+from . import db_engine
+from .db_config import DB_NAME, PERMISSION_INTEL_DB_NAME
 
 
 def _primary(table: str) -> str:

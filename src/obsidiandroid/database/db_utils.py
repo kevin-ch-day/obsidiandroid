@@ -4,8 +4,8 @@
 #
 # Canonical implementation; ``database.db_utils`` is an identity shim.
 
-from database import db_engine
-from database import schema_map
+from . import db_engine
+from . import schema_map
 from obsidiandroid.cli.ui import display as du
 
 # Columns to exclude from analysis in the vendor verdict table

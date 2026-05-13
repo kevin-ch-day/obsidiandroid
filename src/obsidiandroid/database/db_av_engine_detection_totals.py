@@ -4,7 +4,7 @@
 # Canonical implementation; ``database.db_av_engine_detection_totals`` is an identity shim.
 
 import pandas as pd
-from database import db_engine, db_sample_malicious_scoring
+from . import db_engine, db_sample_malicious_scoring
 from obsidiandroid.cli.ui import display as du
 
 EXCLUDE_COLUMNS = {

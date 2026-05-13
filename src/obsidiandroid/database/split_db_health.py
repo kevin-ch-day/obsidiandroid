@@ -8,6 +8,6 @@ the CLI when executed as ``__main__``.
 
 from __future__ import annotations
 
-from database.db_engine import split_database_health_cli
+from .db_engine import split_database_health_cli
 
 __all__ = ["split_database_health_cli"]

@@ -3,8 +3,8 @@
 #
 # Canonical implementation; ``database.db_sample_malicious_scoring`` is an identity shim.
 
-from database import db_engine
-from database import schema_map
+from . import db_engine
+from . import schema_map
 from obsidiandroid.cli.ui import display as du
 
 def get_active_trusted_engines():

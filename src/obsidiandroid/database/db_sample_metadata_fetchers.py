@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from database import db_engine
-from database.cohort_sql_fragments import (
+from . import db_engine
+from .cohort_sql_fragments import (
     latest_artifact_hash_registry_subquery,
     latest_family_resolution_subquery,
     latest_vt_scan_summary_subquery,

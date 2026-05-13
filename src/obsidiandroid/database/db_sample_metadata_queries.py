@@ -14,13 +14,13 @@ import pandas as pd
 from config import app_config
 
 from obsidiandroid.cli.ui import display as du
-from database.db_sample_metadata_contracts import (
+from .db_sample_metadata_contracts import (
     SUPPORTED_ANDROID_TYPE_SLUGS,
     convert_to_dataframe,
     get_supported_android_type_slugs,
     log_and_assert_loader_sample_grain,
 )
-from database.db_sample_metadata_fetchers import (
+from .db_sample_metadata_fetchers import (
     fetch_available_android_type_slugs,
     fetch_sample_metadata,
     fetch_samples_by_type as _fetch_samples_by_type,

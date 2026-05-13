@@ -9,7 +9,7 @@ Canonical implementation; ``database.schema_map`` is an identity shim.
 
 from __future__ import annotations
 
-from database.db_config import DB_NAME
+from .db_config import DB_NAME
 
 TABLES = {
     "vendor_engines": "virustotal_vendor_engines",

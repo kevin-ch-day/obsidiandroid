@@ -4,7 +4,7 @@
 # Canonical implementation; ``database.db_fetch_av_engine_raw_results`` is an identity shim.
 
 import pandas as pd
-from database import db_engine
+from . import db_engine
 from obsidiandroid.cli.ui import display as du
 
 # Columns to drop from the raw engine results
