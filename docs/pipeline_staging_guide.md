@@ -10,19 +10,21 @@ Originally a single module handled orchestration and many stage internals, which
 - unit test stage behavior in isolation,
 - evolve one stage without risking unrelated sections.
 
-Today canonical **`src/obsidiandroid/pipeline/runner.py`** owns **`run_pipeline`** (stage sequencing); legacy **`analysis.pipeline.runner`** is an identity shim to the same module. **`main.py`** is the CLI shell and test-stable import surface. Heavy stage logic stays in legacy **`analysis/pipeline/stage_*.py`** modules (until those files are physically moved in a dedicated pass).
+Today canonical **`src/obsidiandroid/pipeline/runner.py`** owns **`run_pipeline`** (stage sequencing); legacy **`analysis.pipeline.runner`** is an identity shim to the same module. **`main.py`** is the CLI shell and test-stable import surface. **Stage implementations** live under **`src/obsidiandroid/pipeline/`** (`obsidiandroid.pipeline.stage_*`, shared helpers like **`obsidiandroid.pipeline.sample_preparation`**). On-disk **`analysis/pipeline/stage_*.py`** (and related leaves) are **identity shims** so `analysis.pipeline.*` imports keep working; prefer **`obsidiandroid.pipeline`** for new code (see [`analysis/pipeline/README.md`](../analysis/pipeline/README.md)).
 
 ## Current stage modules
 
-| Stage module | Responsibility | Runner call site (`obsidiandroid.pipeline.runner`) |
+Canonical modules below; legacy **`analysis.pipeline.stage_*`** resolves to the same objects via shims.
+
+| Canonical module | Responsibility | Runner call site (`obsidiandroid.pipeline.runner`) |
 | --- | --- | --- |
-| `analysis/pipeline/stage_samples.py` | Cohort loading, gate checks, snapshot/lock controls, package integrity checks. | `load_and_prepare_samples(...)` |
-| `analysis/pipeline/stage_av_vendor.py` | AV analysis execution, engine lifecycle integrity, vendor metadata extraction, feature-label alignment checks. | `run_av_analysis_stage(...)`, `extract_vendor_metadata_stage(...)`, `run_feature_alignment_stage(...)` |
-| `analysis/pipeline/stage_feature_enrichment.py` | Optional metadata feature enrichment merge before vectorization. | `merge_sample_metadata_features(...)` |
-| `analysis/pipeline/stage_modeling.py` | Engine weighting, feature vector build, training, and final label resolution helpers. | `compute_engine_weights_from_pipeline(...)`, `build_feature_matrix_stage(...)`, `run_training_stage(...)`, `resolve_final_labels_stage(...)` |
-| `analysis/pipeline/stage_manifest.py` | Run manifest assembly/writing and lifecycle summary extraction. | `finalize_run_manifest_stage(...)` |
-| `analysis/pipeline/stage_ablation.py` | Leakage-oriented ablation matrix builds, cohort gap exports, label-target stats. | `run_ablation_experiments(...)` (from `runner.py` when enabled) |
-| `analysis/pipeline/sample_preparation.py` | Shared dataset filtering and metadata-feature helper functions reused by stages. | Imported by stage modules and compatibility wrappers |
+| `obsidiandroid.pipeline.stage_samples` | Cohort loading, gate checks, snapshot/lock controls, package integrity checks. | `load_and_prepare_samples(...)` |
+| `obsidiandroid.pipeline.stage_av_vendor` | AV analysis execution, engine lifecycle integrity, vendor metadata extraction, feature-label alignment checks. | `run_av_analysis_stage(...)`, `extract_vendor_metadata_stage(...)`, `run_feature_alignment_stage(...)` |
+| `obsidiandroid.pipeline.stage_feature_enrichment` | Optional metadata feature enrichment merge before vectorization. | `merge_sample_metadata_features(...)` |
+| `obsidiandroid.pipeline.stage_modeling` | Engine weighting, feature vector build, training, and final label resolution helpers. | `compute_engine_weights_from_pipeline(...)`, `build_feature_matrix_stage(...)`, `run_training_stage(...)`, `resolve_final_labels_stage(...)` |
+| `obsidiandroid.pipeline.stage_manifest` | Run manifest assembly/writing and lifecycle summary extraction. | `finalize_run_manifest_stage(...)` |
+| `obsidiandroid.pipeline.stage_ablation` | Leakage-oriented ablation matrix builds, cohort gap exports, label-target stats. | `run_ablation_experiments(...)` (from `runner.py` when enabled) |
+| `obsidiandroid.pipeline.sample_preparation` | Shared dataset filtering and metadata-feature helper functions reused by stages. | Imported by stage modules and compatibility wrappers |
 
 ## Observability (single truth layer)
 
@@ -37,13 +39,13 @@ Today canonical **`src/obsidiandroid/pipeline/runner.py`** owns **`run_pipeline`
 
 When adding new stage modules:
 
-1. Add a stage helper under `analysis/pipeline/` and invoke it from **`runner.run_pipeline`** (not from `main.py`).
-2. If tests must patch a callable, expose it on **`main`** for monkeypatch compatibility or patch `analysis.pipeline.stage_*` directly.
+1. Add a stage helper under **`src/obsidiandroid/pipeline/`** (import as **`obsidiandroid.pipeline.stage_*`**) and invoke it from **`runner.run_pipeline`** (not from `main.py`). Add or extend a thin **`analysis/pipeline/stage_*.py`** shim only when callers still need the **`analysis.pipeline.*`** name.
+2. If tests must patch a callable, expose it on **`main`** for monkeypatch compatibility or patch **`obsidiandroid.pipeline.stage_*`** (or the legacy **`analysis.pipeline.stage_*`** alias) directly.
 3. Prefer **`from obsidiandroid.cli.pipeline_entry import run_pipeline`** (or **`from obsidiandroid.pipeline import run_pipeline`**) in new automation scripts (same implementation as `main.run_pipeline`).
 
 ## How to add a new stage
 
-1. **Create a focused module** under `analysis/pipeline/` (for example `stage_export.py`).
+1. **Create a focused module** under **`src/obsidiandroid/pipeline/`** (for example `stage_export.py`, imported as **`obsidiandroid.pipeline.stage_export`**), plus a shim under **`analysis/pipeline/`** if **`analysis.pipeline.stage_export`** must remain stable.
 2. **Use explicit inputs/outputs** (typed args + return values). Avoid hidden global state.
 3. **Keep integrity checks near stage boundaries** and raise `ValueError` with clear messages.
 4. **Return `None` for recoverable failure modes** only when the caller has explicit handling.

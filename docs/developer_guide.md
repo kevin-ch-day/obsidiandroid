@@ -62,7 +62,7 @@ Quick sanity check: **`python scripts/dev/check_import_surface.py`** or **`make 
 
 Orchestration lives in **`src/obsidiandroid/pipeline/runner.py`** (`run_pipeline`). Legacy **`analysis.pipeline.runner`** is an identity shim to the same module. **`main.py`** is a thin CLI shell + compatibility surface; tests may monkeypatch `main` symbols which are bridged into the runner via the legacy `analysis/pipeline/main_facade.py` shim.
 
-- Add heavy logic in `stage_*.py` modules, not in `runner.py`.
+- Add heavy logic in **`obsidiandroid.pipeline`** `stage_*.py` modules (canonical under `src/obsidiandroid/pipeline/`; on-disk `analysis/pipeline/stage_*.py` are identity shims for legacy imports), not in `runner.py`.
 - Document stage entry/exit contracts in docstrings (input columns, required keys, and failure behavior).
 - Scripts that need the full pipeline should use **`from obsidiandroid.pipeline import run_pipeline`**, **`from obsidiandroid.cli.pipeline_entry import run_pipeline`**, or **`from main import run_pipeline`**; avoid importing deep `stage_*` internals unless you are extending a stage.
 - Add focused unit tests per stage module (for example: `tests/test_stage_<name>.py`) for success and integrity-failure paths.
