@@ -58,7 +58,7 @@ ObsidianDroid/
 ├── setup.sh                # Wrapper → scripts/dev/bootstrap_venv.sh
 ├── run.sh                  # Wrapper → scripts/dev/launch_startup_menu.sh
 ├── src/obsidiandroid/      # Canonical Python package (CLI, common, pipeline facade, …)
-├── scripts/dev/            # Dev tools: run_tests.sh, run_ml_static_scan, clean_bytecode_cache, …
+├── scripts/dev/            # Dev tools: run_tests.sh, import_surface check, ML scan, bytecode clean, …
 ├── scripts/diagnostics/   # Data inspection CLIs (see scripts/diagnostics/README.md)
 └── README.md
 ```
@@ -100,6 +100,19 @@ Each markdown file can be browsed directly in GitHub’s file viewer for quick n
 4. **(Optional for full pipeline runs) Configure MariaDB/MySQL** by setting `OBSIDIAN_DB_*` and `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (see [Configuration](#configuration)) or by editing the defaults in `database/db_config.py` for local development only. Do not commit real passwords; prefer environment variables or a secrets manager.
    The CLI can launch before database access is fully configured, but database-backed menu actions and pipeline stages still require a working database.
 5. **(Optional) Edit pipeline settings** in `config/app_config.py` (model selection, hyperparameters, etc).
+
+### Canonical package & imports (restructure)
+
+After **`pip install -e .`**, new code and tooling should import the **`obsidiandroid`** package (implementation under **`src/obsidiandroid/`**):
+
+```python
+from obsidiandroid.pipeline import run_pipeline
+from obsidiandroid.database import db_config  # thin façade; same module objects as database.db_config
+```
+
+- **Console entrypoint:** `python -m obsidiandroid.cli.startup_menu` (same as the `obsidiandroid` setuptools script after install).
+- **Operator / checkout paths:** repo-root **`main.py`** and **`./run.sh`** remain supported; they ensure `src/` is on **`sys.path`** then call into **`obsidiandroid`**. **`import main; main.run_pipeline(...)`** is still valid for quick one-liners.
+- **Legacy import trees:** top-level **`analysis/`**, **`ml_classification/`**, and repo-root **`database/`** files are **compatibility shims** or implementation behind façades—prefer **`obsidiandroid.*`** for anything new. Pass history and remaining moves: [`docs/STRUCTURE_MIGRATION_PLAN.md`](docs/STRUCTURE_MIGRATION_PLAN.md).
 
 ---
 
