@@ -7,7 +7,8 @@ package re-exports the **same** :class:`types.ModuleType` objects as
 vs Permission Intel semantics).
 
 **Physical under ``src/obsidiandroid/database/``** (legacy ``database.<name>`` are
-identity shims): ``cohort_sql_fragments``, ``db_errors``, ``schema_map``.
+identity shims): ``cohort_sql_fragments``, ``db_config``, ``db_errors``, ``schema_map``,
+``settings``.
 
 **Tier D (Pass 43):** narrow AV / scoring query modules used by pipeline and
 evaluation are included on the same thin re-export model as Tiers A–C.
@@ -34,6 +35,7 @@ _CANONICAL_SUBMODULE_NAMES = (
     "db_config",
     "db_errors",
     "schema_map",
+    "settings",
     "db_engine",
     "db_av_engine_detection_totals",
     "db_av_engine_verdicts",
@@ -44,11 +46,12 @@ _CANONICAL_SUBMODULE_NAMES = (
     "db_sample_metadata_queries",
     "db_sample_malicious_scoring",
     "db_utils",
-    "settings",
     "split_db_health",
 )
 
-_DATABASE_PHYSICAL_IN_SRC = frozenset({"cohort_sql_fragments", "db_errors", "schema_map"})
+_DATABASE_PHYSICAL_IN_SRC = frozenset(
+    {"cohort_sql_fragments", "db_config", "db_errors", "schema_map", "settings"}
+)
 
 for _name in _CANONICAL_SUBMODULE_NAMES:
     if _name in _DATABASE_PHYSICAL_IN_SRC:

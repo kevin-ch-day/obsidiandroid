@@ -694,9 +694,10 @@ def test_database_facade_matches_database_modules() -> None:
 
     pairs = (
         ("cohort_sql_fragments", "obsidiandroid.database.cohort_sql_fragments"),
-        ("db_config", "database.db_config"),
+        ("db_config", "obsidiandroid.database.db_config"),
         ("db_errors", "obsidiandroid.database.db_errors"),
         ("schema_map", "obsidiandroid.database.schema_map"),
+        ("settings", "obsidiandroid.database.settings"),
         ("db_engine", "database.db_engine"),
         ("db_av_engine_detection_totals", "database.db_av_engine_detection_totals"),
         ("db_av_engine_verdicts", "database.db_av_engine_verdicts"),
@@ -707,7 +708,6 @@ def test_database_facade_matches_database_modules() -> None:
         ("db_sample_metadata_queries", "database.db_sample_metadata_queries"),
         ("db_sample_malicious_scoring", "database.db_sample_malicious_scoring"),
         ("db_utils", "database.db_utils"),
-        ("settings", "database.settings"),
         ("split_db_health", "database.split_db_health"),
     )
     import obsidiandroid.database as facade
@@ -719,8 +719,10 @@ def test_database_facade_matches_database_modules() -> None:
         assert alias_mod is canon_mod
     for _attr, _legacy in (
         ("cohort_sql_fragments", "database.cohort_sql_fragments"),
+        ("db_config", "database.db_config"),
         ("db_errors", "database.db_errors"),
         ("schema_map", "database.schema_map"),
+        ("settings", "database.settings"),
     ):
         assert importlib.import_module(_legacy) is importlib.import_module(
             f"obsidiandroid.database.{_attr}"
