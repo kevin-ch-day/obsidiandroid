@@ -123,13 +123,13 @@ def _check_static_policy_scans() -> bool:
     stale_headers = collect_stale_canonical_filename_headers(_REPO_ROOT)
     if stale_headers:
         print(
-            "FAIL: canonical src files have stale legacy # Filename headers:",
+            "FAIL: canonical src files have disallowed # Filename: headers:",
             file=sys.stderr,
         )
         for item in stale_headers:
             print(f"  {item}", file=sys.stderr)
         return False
-    print("OK   canonical src filename headers avoid legacy roots")
+    print("OK   canonical src filename headers avoid disallowed roots")
 
     bom_paths = collect_utf8_bom_python_sources(_REPO_ROOT)
     if bom_paths:
