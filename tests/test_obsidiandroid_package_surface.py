@@ -692,53 +692,19 @@ def test_database_facade_matches_database_modules() -> None:
     """``obsidiandroid.database`` exposes the same modules as ``database.*`` (Passes 38 + 43)."""
     import importlib
 
-    pairs = (
-        ("cohort_sql_fragments", "obsidiandroid.database.cohort_sql_fragments"),
-        ("db_config", "obsidiandroid.database.db_config"),
-        ("db_errors", "obsidiandroid.database.db_errors"),
-        ("schema_map", "obsidiandroid.database.schema_map"),
-        ("settings", "obsidiandroid.database.settings"),
-        ("db_engine", "obsidiandroid.database.db_engine"),
-        ("db_sample_malicious_scoring", "obsidiandroid.database.db_sample_malicious_scoring"),
-        ("db_sample_metadata_contracts", "obsidiandroid.database.db_sample_metadata_contracts"),
-        ("db_sample_metadata_fetchers", "obsidiandroid.database.db_sample_metadata_fetchers"),
-        ("db_sample_metadata_queries", "obsidiandroid.database.db_sample_metadata_queries"),
-        ("db_av_engine_detection_totals", "obsidiandroid.database.db_av_engine_detection_totals"),
-        ("db_av_engine_verdicts", "obsidiandroid.database.db_av_engine_verdicts"),
-        ("db_fetch_av_engine_raw_results", "obsidiandroid.database.db_fetch_av_engine_raw_results"),
-        ("db_permission_analysis_queries", "obsidiandroid.database.db_permission_analysis_queries"),
-        ("db_utils", "obsidiandroid.database.db_utils"),
-        ("split_db_health", "obsidiandroid.database.split_db_health"),
+    from scripts.dev.import_surface_policy import (
+        DATABASE_FACADE_MODULE_PAIRS,
+        DATABASE_LEGACY_SHIM_PAIRS,
     )
+
     import obsidiandroid.database as facade
 
-    for attr, canon_name in pairs:
+    for attr, canon_name in DATABASE_FACADE_MODULE_PAIRS:
         canon_mod = importlib.import_module(canon_name)
         assert getattr(facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.database.{attr}")
         assert alias_mod is canon_mod
-    for _attr, _legacy in (
-        ("cohort_sql_fragments", "database.cohort_sql_fragments"),
-        ("db_config", "database.db_config"),
-        ("db_errors", "database.db_errors"),
-        ("schema_map", "database.schema_map"),
-        ("settings", "database.settings"),
-        ("db_engine", "database.db_engine"),
-        ("db_sample_malicious_scoring", "database.db_sample_malicious_scoring"),
-        ("db_sample_metadata_contracts", "database.db_sample_metadata_contracts"),
-        ("db_sample_metadata_fetchers", "database.db_sample_metadata_fetchers"),
-        ("db_sample_metadata_queries", "database.db_sample_metadata_queries"),
-        ("db_av_engine_detection_totals", "database.db_av_engine_detection_totals"),
-        ("db_av_engine_verdicts", "database.db_av_engine_verdicts"),
-        ("db_fetch_av_engine_raw_results", "database.db_fetch_av_engine_raw_results"),
-        ("db_permission_analysis_queries", "database.db_permission_analysis_queries"),
-        ("db_utils", "database.db_utils"),
-        ("split_db_health", "database.split_db_health"),
-        ("db_sample_timelines_queries", "database.db_sample_timelines_queries"),
-        ("db_av_disagreement_analysis", "database.db_av_disagreement_analysis"),
-        ("db_av_engine_stats", "database.db_av_engine_stats"),
-        ("db_extract_av_label_keywords", "database.db_extract_av_label_keywords"),
-    ):
+    for _attr, _legacy in DATABASE_LEGACY_SHIM_PAIRS:
         assert importlib.import_module(_legacy) is importlib.import_module(
             f"obsidiandroid.database.{_attr}"
         )

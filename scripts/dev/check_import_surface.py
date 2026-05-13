@@ -10,7 +10,9 @@ Fails if any tracked-style ``*.py`` tree under the repo starts with a **UTF-8 BO
 :func:`scripts.dev.import_surface_policy.collect_utf8_bom_python_sources`.
 
 Static AST/file-system ratchets (legacy-root imports in ``src/`` / ``scripts`` / tests,
-filename headers, legacy leaf shim shape) live in :mod:`scripts.dev.import_surface_policy`.
+``# Filename:`` headers under ``src/`` (first segment must not be ``analysis``,
+``ml_classification``, or repo-root ``database``), legacy leaf shim shape) live in
+:mod:`scripts.dev.import_surface_policy`.
 
 Run from the repository root after ``pip install -e .`` or with ``PYTHONPATH`` including
 ``src/`` (see docs/AGENTS.md and docs/STRUCTURE_MIGRATION_PLAN.md). Exits nonzero on failure.
@@ -24,6 +26,8 @@ from pathlib import Path
 from types import ModuleType
 
 from scripts.dev.import_surface_policy import (
+    DATABASE_FACADE_MODULE_PAIRS,
+    DATABASE_LEGACY_SHIM_PAIRS,
     THIN_COMPAT_SHIM_POLICIES,
     collect_canonical_code_legacy_imports,
     collect_legacy_leaf_shim_violations,
@@ -340,25 +344,7 @@ def _check_observability_diagnostics_database_shims() -> bool:
         print(f"FAIL: import obsidiandroid.database: {exc}", file=sys.stderr)
         return False
     print(f"OK   obsidiandroid.database -> {_module_path(db_facade)}")
-    _database_pairs = (
-        ("cohort_sql_fragments", "obsidiandroid.database.cohort_sql_fragments"),
-        ("db_config", "obsidiandroid.database.db_config"),
-        ("db_errors", "obsidiandroid.database.db_errors"),
-        ("schema_map", "obsidiandroid.database.schema_map"),
-        ("settings", "obsidiandroid.database.settings"),
-        ("db_engine", "obsidiandroid.database.db_engine"),
-        ("db_sample_malicious_scoring", "obsidiandroid.database.db_sample_malicious_scoring"),
-        ("db_sample_metadata_contracts", "obsidiandroid.database.db_sample_metadata_contracts"),
-        ("db_sample_metadata_fetchers", "obsidiandroid.database.db_sample_metadata_fetchers"),
-        ("db_sample_metadata_queries", "obsidiandroid.database.db_sample_metadata_queries"),
-        ("db_av_engine_detection_totals", "obsidiandroid.database.db_av_engine_detection_totals"),
-        ("db_av_engine_verdicts", "obsidiandroid.database.db_av_engine_verdicts"),
-        ("db_fetch_av_engine_raw_results", "obsidiandroid.database.db_fetch_av_engine_raw_results"),
-        ("db_permission_analysis_queries", "obsidiandroid.database.db_permission_analysis_queries"),
-        ("db_utils", "obsidiandroid.database.db_utils"),
-        ("split_db_health", "obsidiandroid.database.split_db_health"),
-    )
-    for attr, canon_name in _database_pairs:
+    for attr, canon_name in DATABASE_FACADE_MODULE_PAIRS:
         canon_mod = importlib.import_module(canon_name)
         facade_mod = getattr(db_facade, attr)
         if facade_mod is not canon_mod:
@@ -374,29 +360,7 @@ def _check_observability_diagnostics_database_shims() -> bool:
                 file=sys.stderr,
             )
             return False
-    for _attr, _legacy_mod in (
-        ("cohort_sql_fragments", "database.cohort_sql_fragments"),
-        ("db_config", "database.db_config"),
-        ("db_errors", "database.db_errors"),
-        ("schema_map", "database.schema_map"),
-        ("settings", "database.settings"),
-        ("db_engine", "database.db_engine"),
-        ("db_sample_malicious_scoring", "database.db_sample_malicious_scoring"),
-        ("db_sample_metadata_contracts", "database.db_sample_metadata_contracts"),
-        ("db_sample_metadata_fetchers", "database.db_sample_metadata_fetchers"),
-        ("db_sample_metadata_queries", "database.db_sample_metadata_queries"),
-        ("db_av_engine_detection_totals", "database.db_av_engine_detection_totals"),
-        ("db_av_engine_verdicts", "database.db_av_engine_verdicts"),
-        ("db_fetch_av_engine_raw_results", "database.db_fetch_av_engine_raw_results"),
-        ("db_permission_analysis_queries", "database.db_permission_analysis_queries"),
-        ("split_db_health", "database.split_db_health"),
-        ("db_utils", "database.db_utils"),
-        # Optional helpers: canonical under src; not on ``obsidiandroid.database`` ``__all__``.
-        ("db_sample_timelines_queries", "database.db_sample_timelines_queries"),
-        ("db_av_disagreement_analysis", "database.db_av_disagreement_analysis"),
-        ("db_av_engine_stats", "database.db_av_engine_stats"),
-        ("db_extract_av_label_keywords", "database.db_extract_av_label_keywords"),
-    ):
+    for _attr, _legacy_mod in DATABASE_LEGACY_SHIM_PAIRS:
         _legacy = importlib.import_module(_legacy_mod)
         _physical = importlib.import_module(f"obsidiandroid.database.{_attr}")
         if _legacy is not _physical:

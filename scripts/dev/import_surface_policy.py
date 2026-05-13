@@ -17,6 +17,13 @@ CANONICAL_CODE_LEGACY_IMPORT_ROOTS = frozenset(
         "ml_classification",
     }
 )
+# First path segment of ``# Filename:`` headers under ``src/`` must not name a legacy tree.
+CANONICAL_FILENAME_HEADER_BAD_ROOTS = frozenset(
+    {
+        *CANONICAL_CODE_LEGACY_IMPORT_ROOTS,
+        "database",
+    }
+)
 _CANONICAL_CODE_IMPORT_SCAN_ROOTS = ("src", "scripts")
 CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST = frozenset(
     {
@@ -68,9 +75,57 @@ class ThinCompatShimPolicy:
 
 THIN_COMPAT_SHIM_POLICIES: tuple[ThinCompatShimPolicy, ...] = ()
 
+# ``obsidiandroid.database`` façade: (attr, canonical dotted import path).
+DATABASE_FACADE_MODULE_PAIRS: tuple[tuple[str, str], ...] = (
+    ("cohort_sql_fragments", "obsidiandroid.database.cohort_sql_fragments"),
+    ("db_config", "obsidiandroid.database.db_config"),
+    ("db_errors", "obsidiandroid.database.db_errors"),
+    ("schema_map", "obsidiandroid.database.schema_map"),
+    ("settings", "obsidiandroid.database.settings"),
+    ("db_engine", "obsidiandroid.database.db_engine"),
+    ("db_sample_malicious_scoring", "obsidiandroid.database.db_sample_malicious_scoring"),
+    ("db_sample_metadata_contracts", "obsidiandroid.database.db_sample_metadata_contracts"),
+    ("db_sample_metadata_fetchers", "obsidiandroid.database.db_sample_metadata_fetchers"),
+    ("db_sample_metadata_queries", "obsidiandroid.database.db_sample_metadata_queries"),
+    ("db_av_engine_detection_totals", "obsidiandroid.database.db_av_engine_detection_totals"),
+    ("db_av_engine_verdicts", "obsidiandroid.database.db_av_engine_verdicts"),
+    ("db_fetch_av_engine_raw_results", "obsidiandroid.database.db_fetch_av_engine_raw_results"),
+    ("db_permission_analysis_queries", "obsidiandroid.database.db_permission_analysis_queries"),
+    ("db_utils", "obsidiandroid.database.db_utils"),
+    ("split_db_health", "obsidiandroid.database.split_db_health"),
+)
+
+# Repo-root ``database.<name>`` must be the same module object as ``obsidiandroid.database.<name>``.
+# Includes optional helpers not re-exported from the package ``__all__``.
+DATABASE_LEGACY_SHIM_PAIRS: tuple[tuple[str, str], ...] = (
+    ("cohort_sql_fragments", "database.cohort_sql_fragments"),
+    ("db_config", "database.db_config"),
+    ("db_errors", "database.db_errors"),
+    ("schema_map", "database.schema_map"),
+    ("settings", "database.settings"),
+    ("db_engine", "database.db_engine"),
+    ("db_sample_malicious_scoring", "database.db_sample_malicious_scoring"),
+    ("db_sample_metadata_contracts", "database.db_sample_metadata_contracts"),
+    ("db_sample_metadata_fetchers", "database.db_sample_metadata_fetchers"),
+    ("db_sample_metadata_queries", "database.db_sample_metadata_queries"),
+    ("db_av_engine_detection_totals", "database.db_av_engine_detection_totals"),
+    ("db_av_engine_verdicts", "database.db_av_engine_verdicts"),
+    ("db_fetch_av_engine_raw_results", "database.db_fetch_av_engine_raw_results"),
+    ("db_permission_analysis_queries", "database.db_permission_analysis_queries"),
+    ("db_utils", "database.db_utils"),
+    ("split_db_health", "database.split_db_health"),
+    ("db_sample_timelines_queries", "database.db_sample_timelines_queries"),
+    ("db_av_disagreement_analysis", "database.db_av_disagreement_analysis"),
+    ("db_av_engine_stats", "database.db_av_engine_stats"),
+    ("db_extract_av_label_keywords", "database.db_extract_av_label_keywords"),
+)
+
 __all__ = (
     "CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST",
     "CANONICAL_CODE_LEGACY_IMPORT_ROOTS",
+    "CANONICAL_FILENAME_HEADER_BAD_ROOTS",
+    "DATABASE_FACADE_MODULE_PAIRS",
+    "DATABASE_LEGACY_SHIM_PAIRS",
     "LEGACY_LEAF_SHIM_MAX_LINES",
     "LEGACY_LEAF_SHIM_ROOTS",
     "NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST",
@@ -268,7 +323,11 @@ def collect_nonparity_test_legacy_imports(repo_root: Path) -> list[str]:
 
 
 def collect_stale_canonical_filename_headers(repo_root: Path) -> list[str]:
-    """Return canonical modules whose filename header still names a legacy root."""
+    """Return ``src/`` modules whose ``# Filename:`` header starts with a disallowed root.
+
+    Disallowed first segments include legacy compatibility trees and repo-root
+    ``database/`` (canonical DB code lives under ``src/obsidiandroid/database/``).
+    """
     bad: list[str] = []
     scan_root = repo_root / "src"
     if not scan_root.exists():
@@ -289,6 +348,6 @@ def collect_stale_canonical_filename_headers(repo_root: Path) -> list[str]:
             continue
         header_path = first_line.removeprefix("# Filename: ").strip()
         header_root = header_path.split("/", 1)[0]
-        if header_root in CANONICAL_CODE_LEGACY_IMPORT_ROOTS:
+        if header_root in CANONICAL_FILENAME_HEADER_BAD_ROOTS:
             bad.append(f"{rel}: stale filename header {header_path!r}")
     return bad
