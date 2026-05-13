@@ -343,8 +343,9 @@ def _check_observability_diagnostics_database_shims() -> bool:
     _database_pairs = (
         ("cohort_sql_fragments", "obsidiandroid.database.cohort_sql_fragments"),
         ("db_config", "database.db_config"),
+        ("db_errors", "obsidiandroid.database.db_errors"),
+        ("schema_map", "obsidiandroid.database.schema_map"),
         ("db_engine", "database.db_engine"),
-        ("db_errors", "database.db_errors"),
         ("db_av_engine_detection_totals", "database.db_av_engine_detection_totals"),
         ("db_av_engine_verdicts", "database.db_av_engine_verdicts"),
         ("db_fetch_av_engine_raw_results", "database.db_fetch_av_engine_raw_results"),
@@ -354,7 +355,6 @@ def _check_observability_diagnostics_database_shims() -> bool:
         ("db_sample_metadata_queries", "database.db_sample_metadata_queries"),
         ("db_sample_malicious_scoring", "database.db_sample_malicious_scoring"),
         ("db_utils", "database.db_utils"),
-        ("schema_map", "database.schema_map"),
         ("settings", "database.settings"),
         ("split_db_health", "database.split_db_health"),
     )
@@ -374,14 +374,19 @@ def _check_observability_diagnostics_database_shims() -> bool:
                 file=sys.stderr,
             )
             return False
-    _cohort_legacy = importlib.import_module("database.cohort_sql_fragments")
-    _cohort_physical = importlib.import_module("obsidiandroid.database.cohort_sql_fragments")
-    if _cohort_legacy is not _cohort_physical:
-        print(
-            "FAIL: database.cohort_sql_fragments shim must match obsidiandroid.database.cohort_sql_fragments",
-            file=sys.stderr,
-        )
-        return False
+    for _attr, _legacy_mod in (
+        ("cohort_sql_fragments", "database.cohort_sql_fragments"),
+        ("db_errors", "database.db_errors"),
+        ("schema_map", "database.schema_map"),
+    ):
+        _legacy = importlib.import_module(_legacy_mod)
+        _physical = importlib.import_module(f"obsidiandroid.database.{_attr}")
+        if _legacy is not _physical:
+            print(
+                f"FAIL: {_legacy_mod} shim must match obsidiandroid.database.{_attr}",
+                file=sys.stderr,
+            )
+            return False
     print("OK   obsidiandroid.database submodules match database")
 
     return True

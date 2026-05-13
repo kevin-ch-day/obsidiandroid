@@ -6,8 +6,8 @@ package re-exports the **same** :class:`types.ModuleType` objects as
 ``import obsidiandroid.database.<name>`` preserves identity (critical for Primary
 vs Permission Intel semantics).
 
-**``cohort_sql_fragments``** is implemented under ``src/obsidiandroid/database/``;
-``database.cohort_sql_fragments`` is an identity shim (**Pass 101**).
+**Physical under ``src/obsidiandroid/database/``** (legacy ``database.<name>`` are
+identity shims): ``cohort_sql_fragments``, ``db_errors``, ``schema_map``.
 
 **Tier D (Pass 43):** narrow AV / scoring query modules used by pipeline and
 evaluation are included on the same thin re-export model as Tiers A–C.
@@ -32,8 +32,9 @@ import sys
 _CANONICAL_SUBMODULE_NAMES = (
     "cohort_sql_fragments",
     "db_config",
-    "db_engine",
     "db_errors",
+    "schema_map",
+    "db_engine",
     "db_av_engine_detection_totals",
     "db_av_engine_verdicts",
     "db_fetch_av_engine_raw_results",
@@ -43,12 +44,11 @@ _CANONICAL_SUBMODULE_NAMES = (
     "db_sample_metadata_queries",
     "db_sample_malicious_scoring",
     "db_utils",
-    "schema_map",
     "settings",
     "split_db_health",
 )
 
-_DATABASE_PHYSICAL_IN_SRC = frozenset({"cohort_sql_fragments"})
+_DATABASE_PHYSICAL_IN_SRC = frozenset({"cohort_sql_fragments", "db_errors", "schema_map"})
 
 for _name in _CANONICAL_SUBMODULE_NAMES:
     if _name in _DATABASE_PHYSICAL_IN_SRC:
