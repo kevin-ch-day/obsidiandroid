@@ -1,9 +1,13 @@
 """Canonical database import surface (Passes 38–43).
 
-Implementation remains under repo-root ``database/*.py``. This package re-exports
-the **same** :class:`types.ModuleType` objects as ``database.<name>`` and
-registers matching ``sys.modules`` keys so ``import obsidiandroid.database.<name>``
-preserves identity (critical for Primary vs Permission Intel semantics).
+Most implementation modules remain under repo-root ``database/*.py``; this
+package re-exports the **same** :class:`types.ModuleType` objects as
+``database.<name>`` and registers matching ``sys.modules`` keys so
+``import obsidiandroid.database.<name>`` preserves identity (critical for Primary
+vs Permission Intel semantics).
+
+**``cohort_sql_fragments``** is implemented under ``src/obsidiandroid/database/``;
+``database.cohort_sql_fragments`` is an identity shim (**Pass 101**).
 
 **Tier D (Pass 43):** narrow AV / scoring query modules used by pipeline and
 evaluation are included on the same thin re-export model as Tiers A–C.
@@ -44,11 +48,16 @@ _CANONICAL_SUBMODULE_NAMES = (
     "split_db_health",
 )
 
+_DATABASE_PHYSICAL_IN_SRC = frozenset({"cohort_sql_fragments"})
+
 for _name in _CANONICAL_SUBMODULE_NAMES:
-    _canon = importlib.import_module(f"database.{_name}")
+    if _name in _DATABASE_PHYSICAL_IN_SRC:
+        _canon = importlib.import_module(f"obsidiandroid.database.{_name}")
+    else:
+        _canon = importlib.import_module(f"database.{_name}")
     globals()[_name] = _canon
     sys.modules.setdefault(f"obsidiandroid.database.{_name}", _canon)
 
 __all__ = list(_CANONICAL_SUBMODULE_NAMES)
 
-del _CANONICAL_SUBMODULE_NAMES, _name, _canon
+del _CANONICAL_SUBMODULE_NAMES, _DATABASE_PHYSICAL_IN_SRC, _name, _canon

@@ -341,7 +341,7 @@ def _check_observability_diagnostics_database_shims() -> bool:
         return False
     print(f"OK   obsidiandroid.database -> {_module_path(db_facade)}")
     _database_pairs = (
-        ("cohort_sql_fragments", "database.cohort_sql_fragments"),
+        ("cohort_sql_fragments", "obsidiandroid.database.cohort_sql_fragments"),
         ("db_config", "database.db_config"),
         ("db_engine", "database.db_engine"),
         ("db_errors", "database.db_errors"),
@@ -374,6 +374,14 @@ def _check_observability_diagnostics_database_shims() -> bool:
                 file=sys.stderr,
             )
             return False
+    _cohort_legacy = importlib.import_module("database.cohort_sql_fragments")
+    _cohort_physical = importlib.import_module("obsidiandroid.database.cohort_sql_fragments")
+    if _cohort_legacy is not _cohort_physical:
+        print(
+            "FAIL: database.cohort_sql_fragments shim must match obsidiandroid.database.cohort_sql_fragments",
+            file=sys.stderr,
+        )
+        return False
     print("OK   obsidiandroid.database submodules match database")
 
     return True

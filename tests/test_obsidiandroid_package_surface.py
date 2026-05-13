@@ -693,7 +693,7 @@ def test_database_facade_matches_database_modules() -> None:
     import importlib
 
     pairs = (
-        ("cohort_sql_fragments", "database.cohort_sql_fragments"),
+        ("cohort_sql_fragments", "obsidiandroid.database.cohort_sql_fragments"),
         ("db_config", "database.db_config"),
         ("db_engine", "database.db_engine"),
         ("db_errors", "database.db_errors"),
@@ -717,6 +717,9 @@ def test_database_facade_matches_database_modules() -> None:
         assert getattr(facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.database.{attr}")
         assert alias_mod is canon_mod
+    assert importlib.import_module("database.cohort_sql_fragments") is importlib.import_module(
+        "obsidiandroid.database.cohort_sql_fragments"
+    )
 
 
 def test_vendors_and_evaluation_public_entrypoints_exist() -> None:
