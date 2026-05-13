@@ -734,6 +734,10 @@ def test_database_facade_matches_database_modules() -> None:
         ("db_permission_analysis_queries", "database.db_permission_analysis_queries"),
         ("db_utils", "database.db_utils"),
         ("split_db_health", "database.split_db_health"),
+        ("db_sample_timelines_queries", "database.db_sample_timelines_queries"),
+        ("db_av_disagreement_analysis", "database.db_av_disagreement_analysis"),
+        ("db_av_engine_stats", "database.db_av_engine_stats"),
+        ("db_extract_av_label_keywords", "database.db_extract_av_label_keywords"),
     ):
         assert importlib.import_module(_legacy) is importlib.import_module(
             f"obsidiandroid.database.{_attr}"

@@ -17,8 +17,9 @@ or::
 
     from obsidiandroid.database import db_engine
 
-Non-façade ``database.*`` helpers (timelines, AV disagreement, …) remain
-implementation-only under repo-root ``database/`` until migrated or widened.
+Optional ``database.*`` helpers (timelines, AV disagreement, label keywords, …)
+also live under ``src/obsidiandroid/database/`` with repo-root identity shims;
+they are not re-exported from this package's ``__all__`` unless the façade widens.
 """
 
 from __future__ import annotations

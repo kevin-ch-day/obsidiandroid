@@ -391,6 +391,11 @@ def _check_observability_diagnostics_database_shims() -> bool:
         ("db_permission_analysis_queries", "database.db_permission_analysis_queries"),
         ("split_db_health", "database.split_db_health"),
         ("db_utils", "database.db_utils"),
+        # Optional helpers: canonical under src; not on ``obsidiandroid.database`` ``__all__``.
+        ("db_sample_timelines_queries", "database.db_sample_timelines_queries"),
+        ("db_av_disagreement_analysis", "database.db_av_disagreement_analysis"),
+        ("db_av_engine_stats", "database.db_av_engine_stats"),
+        ("db_extract_av_label_keywords", "database.db_extract_av_label_keywords"),
     ):
         _legacy = importlib.import_module(_legacy_mod)
         _physical = importlib.import_module(f"obsidiandroid.database.{_attr}")
