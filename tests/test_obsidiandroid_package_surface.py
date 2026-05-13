@@ -692,19 +692,16 @@ def test_database_facade_matches_database_modules() -> None:
     """``obsidiandroid.database`` exposes the same modules as ``database.*`` (Passes 38 + 43)."""
     import importlib
 
-    from scripts.dev.import_surface_policy import (
-        DATABASE_FACADE_MODULE_PAIRS,
-        DATABASE_LEGACY_SHIM_PAIRS,
-    )
+    from obsidiandroid.database.facade_manifest import FACADE_MODULE_PAIRS, LEGACY_SHIM_PAIRS
 
     import obsidiandroid.database as facade
 
-    for attr, canon_name in DATABASE_FACADE_MODULE_PAIRS:
+    for attr, canon_name in FACADE_MODULE_PAIRS:
         canon_mod = importlib.import_module(canon_name)
         assert getattr(facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.database.{attr}")
         assert alias_mod is canon_mod
-    for _attr, _legacy in DATABASE_LEGACY_SHIM_PAIRS:
+    for _attr, _legacy in LEGACY_SHIM_PAIRS:
         assert importlib.import_module(_legacy) is importlib.import_module(
             f"obsidiandroid.database.{_attr}"
         )

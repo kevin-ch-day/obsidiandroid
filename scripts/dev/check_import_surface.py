@@ -12,7 +12,9 @@ Fails if any tracked-style ``*.py`` tree under the repo starts with a **UTF-8 BO
 Static AST/file-system ratchets (legacy-root imports in ``src/`` / ``scripts`` / tests,
 ``# Filename:`` headers under ``src/`` (first segment must not be ``analysis``,
 ``ml_classification``, or repo-root ``database``), legacy leaf shim shape) live in
-:mod:`scripts.dev.import_surface_policy`.
+:mod:`scripts.dev.import_surface_policy`. Database façade / legacy-shim identity tuples
+live in :mod:`obsidiandroid.database.facade_manifest` (imported by this script after
+``src/`` is prepended to ``sys.path``).
 
 Run from the repository root after ``pip install -e .`` or with ``PYTHONPATH`` including
 ``src/`` (see docs/AGENTS.md and docs/STRUCTURE_MIGRATION_PLAN.md). Exits nonzero on failure.
@@ -25,9 +27,16 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+_SRC = _REPO_ROOT / "src"
+if _SRC.is_dir() and str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from obsidiandroid.database.facade_manifest import FACADE_MODULE_PAIRS, LEGACY_SHIM_PAIRS
+
 from scripts.dev.import_surface_policy import (
-    DATABASE_FACADE_MODULE_PAIRS,
-    DATABASE_LEGACY_SHIM_PAIRS,
     THIN_COMPAT_SHIM_POLICIES,
     collect_canonical_code_legacy_imports,
     collect_legacy_leaf_shim_violations,
@@ -36,13 +45,6 @@ from scripts.dev.import_surface_policy import (
     collect_thin_compat_shim_violations,
     collect_utf8_bom_python_sources,
 )
-
-
-# Ensure repo root is importable (``scripts.*`` etc.) when this
-# file is run from another working directory.
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
 
 
 def _module_path(mod: ModuleType) -> str:
@@ -344,7 +346,7 @@ def _check_observability_diagnostics_database_shims() -> bool:
         print(f"FAIL: import obsidiandroid.database: {exc}", file=sys.stderr)
         return False
     print(f"OK   obsidiandroid.database -> {_module_path(db_facade)}")
-    for attr, canon_name in DATABASE_FACADE_MODULE_PAIRS:
+    for attr, canon_name in FACADE_MODULE_PAIRS:
         canon_mod = importlib.import_module(canon_name)
         facade_mod = getattr(db_facade, attr)
         if facade_mod is not canon_mod:
@@ -360,7 +362,7 @@ def _check_observability_diagnostics_database_shims() -> bool:
                 file=sys.stderr,
             )
             return False
-    for _attr, _legacy_mod in DATABASE_LEGACY_SHIM_PAIRS:
+    for _attr, _legacy_mod in LEGACY_SHIM_PAIRS:
         _legacy = importlib.import_module(_legacy_mod)
         _physical = importlib.import_module(f"obsidiandroid.database.{_attr}")
         if _legacy is not _physical:

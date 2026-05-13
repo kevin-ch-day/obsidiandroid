@@ -20,6 +20,8 @@ or::
 Optional ``database.*`` helpers (timelines, AV disagreement, label keywords, …)
 also live under ``src/obsidiandroid/database/`` with repo-root identity shims;
 they are not re-exported from this package's ``__all__`` unless the façade widens.
+The ordered façade export names (and optional legacy-only shim names for CI) are
+defined in :mod:`obsidiandroid.database.facade_manifest`.
 """
 
 from __future__ import annotations
@@ -27,30 +29,13 @@ from __future__ import annotations
 import importlib
 import sys
 
-_CANONICAL_SUBMODULE_NAMES = (
-    "cohort_sql_fragments",
-    "db_config",
-    "db_errors",
-    "schema_map",
-    "settings",
-    "db_engine",
-    "db_sample_malicious_scoring",
-    "db_sample_metadata_contracts",
-    "db_sample_metadata_fetchers",
-    "db_sample_metadata_queries",
-    "db_av_engine_detection_totals",
-    "db_av_engine_verdicts",
-    "db_fetch_av_engine_raw_results",
-    "db_permission_analysis_queries",
-    "db_utils",
-    "split_db_health",
-)
+from .facade_manifest import FACADE_EXPORT_NAMES as _FACADE_EXPORT_NAMES
 
-for _name in _CANONICAL_SUBMODULE_NAMES:
+for _name in _FACADE_EXPORT_NAMES:
     _canon = importlib.import_module(f"obsidiandroid.database.{_name}")
     globals()[_name] = _canon
     sys.modules.setdefault(f"obsidiandroid.database.{_name}", _canon)
 
-__all__ = list(_CANONICAL_SUBMODULE_NAMES)
+__all__ = list(_FACADE_EXPORT_NAMES)
 
-del _CANONICAL_SUBMODULE_NAMES, _name, _canon
+del _FACADE_EXPORT_NAMES, _name, _canon
