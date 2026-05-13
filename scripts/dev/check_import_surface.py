@@ -346,7 +346,7 @@ def _check_observability_diagnostics_database_shims() -> bool:
         ("db_errors", "obsidiandroid.database.db_errors"),
         ("schema_map", "obsidiandroid.database.schema_map"),
         ("settings", "obsidiandroid.database.settings"),
-        ("db_engine", "database.db_engine"),
+        ("db_engine", "obsidiandroid.database.db_engine"),
         ("db_av_engine_detection_totals", "database.db_av_engine_detection_totals"),
         ("db_av_engine_verdicts", "database.db_av_engine_verdicts"),
         ("db_fetch_av_engine_raw_results", "database.db_fetch_av_engine_raw_results"),
@@ -356,7 +356,7 @@ def _check_observability_diagnostics_database_shims() -> bool:
         ("db_sample_metadata_queries", "database.db_sample_metadata_queries"),
         ("db_sample_malicious_scoring", "database.db_sample_malicious_scoring"),
         ("db_utils", "database.db_utils"),
-        ("split_db_health", "database.split_db_health"),
+        ("split_db_health", "obsidiandroid.database.split_db_health"),
     )
     for attr, canon_name in _database_pairs:
         canon_mod = importlib.import_module(canon_name)
@@ -380,6 +380,8 @@ def _check_observability_diagnostics_database_shims() -> bool:
         ("db_errors", "database.db_errors"),
         ("schema_map", "database.schema_map"),
         ("settings", "database.settings"),
+        ("db_engine", "database.db_engine"),
+        ("split_db_health", "database.split_db_health"),
     ):
         _legacy = importlib.import_module(_legacy_mod)
         _physical = importlib.import_module(f"obsidiandroid.database.{_attr}")

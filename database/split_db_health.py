@@ -1,14 +1,16 @@
-"""CLI entry point for split-database connectivity checks.
+"""Legacy entry for ``python -m database.split_db_health`` (module identity + CLI).
 
-Run:
-
-    python -m database.split_db_health
-
-Exits with status 0 when the primary Erebus DB, Permission Intel DB, and
-``android_permission_obs_sample`` (in PI) are all reachable; otherwise 1.
+``python -m`` sets ``__name__`` to ``__main__``, so this file does not use
+``sys.modules[__name__]`` indirection (unlike leaf shims that only support imports).
 """
 
-from database.db_engine import split_database_health_cli
+from __future__ import annotations
+
+import importlib
+import sys
+
+_canon = importlib.import_module("obsidiandroid.database.split_db_health")
+sys.modules["database.split_db_health"] = _canon
 
 if __name__ == "__main__":
-    raise SystemExit(split_database_health_cli())
+    raise SystemExit(_canon.split_database_health_cli())
