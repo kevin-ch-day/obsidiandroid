@@ -23,7 +23,7 @@ Inventory source:
 
 | Caller group | Files | Import records | Notes |
 |---|---:|---:|---|
-| pipeline | 4 | 8 | `runner`, `stage_modeling`, `stage_ablation`, `stage_av_vendor` consume training/vectorization/labeling helpers. |
+| pipeline | 4 | 8 | `obsidiandroid.pipeline.runner`, `stage_modeling`, `stage_ablation`, `stage_av_vendor` consume training/vectorization/labeling helpers. |
 | evaluation | 2 | 2 | `analysis/evaluation/*` uses trainer factory. |
 | diagnostics | 1 | 2 | Feature-drop diagnostics import vendor feature extraction helpers. |
 | vendor_processing | 1 | 3 | Generic parser imports family canonicalization constants. |
@@ -105,8 +105,8 @@ Inventory source:
 | Feature vector construction | `ml_classification.vectorization.feature_vector_builder` | `obsidiandroid.features` | `ready_now` | Strong first-slice candidate. |
 | Training pipeline core | `ml_classification.training.pipeline_core` | `obsidiandroid.modeling` | `ready_now` | Stable outer usage via CLI/pipeline/tests. |
 | Model trainer factory | `ml_classification.training.model_trainer_factory` | `obsidiandroid.modeling` | `ready_now` | Stable boundary for trainer selection and configuration handoff. |
-| Evidence-strict / paper-mode behavior | Mostly `analysis.pipeline.runtime_policy`, `analysis/pipeline/stage_*`, plus training helpers | primarily pipeline/governance (not ML facade) | `defer` | Behavior owned by pipeline/governance policy; avoid relocating into ML facade. |
-| Dataset perturbation and ablation logic | `analysis/pipeline/stage_ablation.py`, related ML callers | pipeline facade / future modeling hooks | `defer` | Keep in pipeline domain for now; expose only ML primitives needed by stage code. |
+| Evidence-strict / paper-mode behavior | Mostly `obsidiandroid.pipeline.runtime_policy`, **`obsidiandroid.pipeline.stage_*`**, plus training helpers (legacy **`analysis.pipeline.*`** names are shims) | primarily pipeline/governance (not ML facade) | `defer` | Behavior owned by pipeline/governance policy; avoid relocating into ML facade. |
+| Dataset perturbation and ablation logic | `obsidiandroid.pipeline.stage_ablation`, related ML callers | pipeline facade / future modeling hooks | `defer` | Keep in pipeline domain for now; expose only ML primitives needed by stage code. |
 
 ## Pass 47 slice recommendation (derived from readiness table)
 
@@ -145,24 +145,24 @@ Adopted in real outer callers (imports only; no behavior changes):
 
 - `obsidiandroid.modeling.pipeline_core`
   - `src/obsidiandroid/cli/startup_menu.py`
-  - `analysis/pipeline/stage_modeling.py`
-  - `analysis/pipeline/stage_ablation.py`
+  - `src/obsidiandroid/pipeline/stage_modeling.py`
+  - `src/obsidiandroid/pipeline/stage_ablation.py`
 - `obsidiandroid.modeling.model_trainer_factory`
-  - `analysis/pipeline/stage_modeling.py`
+  - `src/obsidiandroid/pipeline/stage_modeling.py`
   - `tests/test_stage_ablation.py`
   - `tests/test_model_trainer_factory.py`
   - `tests/test_runtime_policy_cross_run_cleanup.py`
 - `obsidiandroid.modeling.distribution_reporter`
-  - `analysis/pipeline/stage_ablation.py`
+  - `src/obsidiandroid/pipeline/stage_ablation.py`
   - `tests/test_distribution_reporter.py`
 - `obsidiandroid.modeling.feature_label_alignment_helper`
-  - `analysis/pipeline/stage_av_vendor.py`
+  - `src/obsidiandroid/pipeline/stage_av_vendor.py`
 - `obsidiandroid.features.feature_vector_builder`
-  - `analysis/pipeline/stage_ablation.py`
-  - `analysis/pipeline/stage_modeling.py`
+  - `src/obsidiandroid/pipeline/stage_ablation.py`
+  - `src/obsidiandroid/pipeline/stage_modeling.py`
   - `tests/test_feature_vector_builder.py`
 - `obsidiandroid.labeling.classification_label_resolver`
-  - `analysis/pipeline/stage_modeling.py`
+  - `src/obsidiandroid/pipeline/stage_modeling.py`
   - `tests/test_classification_label_resolver_taxonomy_audit.py`
 
 Deferred in Pass 48:
@@ -240,7 +240,7 @@ File-level classification:
 |---|---|
 | `analysis/evaluation/model_tuning.py` | legacy import path; implementation is canonical `obsidiandroid.evaluation.model_tuning` |
 | `analysis/evaluation/random_forest_diagnostics.py` | legacy import path; implementation is canonical `obsidiandroid.evaluation.random_forest_diagnostics` |
-| `analysis/pipeline/runner.py` | legacy import path; canonical implementation is `obsidiandroid.pipeline.runner` (tests may still monkeypatch `analysis.pipeline.runner`) |
+| `analysis/pipeline/runner.py` | identity shim on disk; canonical implementation is **`src/obsidiandroid/pipeline/runner.py`** (`obsidiandroid.pipeline.runner`; tests may still monkeypatch **`analysis.pipeline.runner`**) |
 | `analysis/diagnostics/feature_builder_drop_trace.py` | defer (`feature_vendor_extractor`) |
 | `analysis/vendor_processing/generic_label_parser.py` | mixed: needs_wrapper taxonomy functions + deferred `FAMILY_ALIASES` |
 | `tests/test_ablation_split_feature_columns.py` | already surfaced alias but not migrated yet |

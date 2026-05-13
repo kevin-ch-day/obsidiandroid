@@ -330,8 +330,8 @@ Implemented the first vendor facade slice:
 | `analysis/execution/vendor_parser_runner.py` | `analysis.execution::vendor_classification_processor` | `analysis/execution/` | `obsidiandroid.vendors` | `internal_only` |
 | `analysis/execution/vendor_record_factory.py` | `obsidiandroid.vendors.contracts.record_core::VendorClassificationRecord` | `src/obsidiandroid/vendors/contracts/record_core.py` | `obsidiandroid.vendors` | `needs_wrapper` |
 | `analysis/execution/vendor_record_factory.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
-| `analysis/pipeline/stage_modeling.py` | `analysis.evaluation::engine_scoring_summary` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
-| `analysis/pipeline/vendor_metadata_pipeline.py` | `analysis.evaluation::vendor_feature_extractor` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
+| `src/obsidiandroid/pipeline/stage_modeling.py` | `analysis.evaluation::engine_scoring_summary` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
+| `src/obsidiandroid/pipeline/vendor_metadata_pipeline.py` | `analysis.evaluation::vendor_feature_extractor` | `analysis/evaluation/` | `obsidiandroid.evaluation` | `defer` |
 | `analysis/risk_band/assign_risk_band.py` | `obsidiandroid.risk_band.risk_band_config::RiskBandConfig` | `src/obsidiandroid/risk_band/risk_band_config.py` | `obsidiandroid.risk_band` | `moved_now` |
 | `analysis/vendor_processing/ahnlab_v3_parser.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |
 | `analysis/vendor_processing/alibaba_parser.py` | `obsidiandroid.vendors.contracts.parsed_label_metadata::ParsedLabelMetadata` | `src/obsidiandroid/vendors/contracts/parsed_label_metadata.py` | `obsidiandroid.vendors` | `needs_wrapper` |

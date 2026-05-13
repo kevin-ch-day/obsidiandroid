@@ -140,7 +140,7 @@ Typically gitignored or partially ignored; often **still visible** in **`ls`** a
 
 ### Long term (large effort)
 
-7. **Incremental migration** of **`analysis/pipeline`** internals behind **`obsidiandroid.pipeline`** (already partially facaded); avoid duplicate stage logic.
+7. **Pipeline compatibility tree:** stage implementations are **canonical** under **`src/obsidiandroid/pipeline/`**; on-disk **`analysis/pipeline/stage_*.py`** (and related) are **identity shims**. Remaining work is opportunistic caller migration + avoiding **duplicate** stage logic—not re-moving files that already landed.
 8. **`database/`** vs **`obsidiandroid.database`** naming clarity before any physical move.
 
 ---
