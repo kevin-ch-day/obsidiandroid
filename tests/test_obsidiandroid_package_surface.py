@@ -446,15 +446,14 @@ def test_governance_facade_matches_pipeline_governance_modules() -> None:
     """Pipeline governance primitives are canonical under obsidiandroid.governance (**Pass 75**)."""
     import importlib
 
+    from obsidiandroid.governance.analysis_pipeline_governance_shim import (
+        ANALYSIS_PIPELINE_GOVERNANCE_SUBMODULES,
+    )
+
     import obsidiandroid.governance as governance_facade
 
-    governance_pairs = (
-        ("exceptions", "obsidiandroid.governance.exceptions"),
-        ("integrity", "obsidiandroid.governance.integrity"),
-        ("policy", "obsidiandroid.governance.policy"),
-        ("readiness", "obsidiandroid.governance.readiness"),
-    )
-    for attr, canon_name in governance_pairs:
+    for attr in sorted(ANALYSIS_PIPELINE_GOVERNANCE_SUBMODULES):
+        canon_name = f"obsidiandroid.governance.{attr}"
         canon_mod = importlib.import_module(canon_name)
         assert getattr(governance_facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.governance.{attr}")
@@ -496,59 +495,31 @@ def test_python_sources_have_no_utf8_bom_prefix() -> None:
 
 def test_diagnostics_facade_modules_match_analysis_diagnostics() -> None:
     """Pass 65: ``obsidiandroid.diagnostics`` is canonical; legacy ``analysis.diagnostics`` matches identity."""
-    import analysis.diagnostics.ablation_cohort_diagnostics as acd_a
-    import analysis.diagnostics.alignment_gap_diagnostics as agd_a
-    import analysis.diagnostics.cohort_foundation_export as cfe_a
-    import analysis.diagnostics.cohort_sample_id_audit as csia_a
-    import analysis.diagnostics.cohort_vocabulary as cv_a
-    import analysis.diagnostics.feature_builder_drop_trace as fbdt_a
-    import analysis.diagnostics.feature_build_coverage_export as fbce_a
-    import analysis.diagnostics.feature_column_survival_export as fcse_a
-    import analysis.diagnostics.feature_lineage_report as flr_a
-    import analysis.diagnostics.feature_matrix_gap_lineage as fmgl_a
-    import analysis.diagnostics.fused_permission_matrix_audit as fpma_a
-    import analysis.diagnostics.output_artifact_policy as oap_a
-    import analysis.diagnostics.output_inventory as oi_a
-    import analysis.diagnostics.permission_training_survival_audit as ptsa_a
+    import importlib
+
+    # Side effect: registers ``analysis.diagnostics.*`` aliases to canonical modules.
+    import analysis.diagnostics  # noqa: F401
+    from obsidiandroid.diagnostics.analysis_diagnostics_shim import (
+        DIAGNOSTICS_NESTED_LEGACY_PACKAGES,
+        DIAGNOSTICS_TOP_LEVEL_MODULE_NAMES,
+    )
 
     import obsidiandroid.diagnostics as facade
 
-    assert facade.ablation_cohort_diagnostics is acd_a
-    assert facade.alignment_gap_diagnostics is agd_a
-    assert facade.cohort_foundation_export is cfe_a
-    assert facade.cohort_sample_id_audit is csia_a
-    assert facade.cohort_vocabulary is cv_a
-    assert facade.feature_builder_drop_trace is fbdt_a
-    assert facade.feature_build_coverage_export is fbce_a
-    assert facade.feature_column_survival_export is fcse_a
-    assert facade.feature_lineage_report is flr_a
-    assert facade.feature_matrix_gap_lineage is fmgl_a
-    assert facade.fused_permission_matrix_audit is fpma_a
-    assert facade.output_artifact_policy is oap_a
-    assert facade.output_inventory is oi_a
-    assert facade.permission_training_survival_audit is ptsa_a
+    for name in DIAGNOSTICS_TOP_LEVEL_MODULE_NAMES:
+        canon = importlib.import_module(f"obsidiandroid.diagnostics.{name}")
+        legacy = importlib.import_module(f"analysis.diagnostics.{name}")
+        assert getattr(facade, name) is canon
+        assert legacy is canon
 
-    import analysis.diagnostics.hostile_audit as hostile_canon_pkg
-    import analysis.diagnostics.research_validity as rv_canon_pkg
-
-    assert facade.hostile_audit is hostile_canon_pkg
-    assert facade.research_validity is rv_canon_pkg
-    import obsidiandroid.diagnostics.hostile_audit as hostile_alias_pkg
-    import obsidiandroid.diagnostics.research_validity as rv_alias_pkg
-
-    assert hostile_alias_pkg is hostile_canon_pkg
-    assert rv_alias_pkg is rv_canon_pkg
-
-    import analysis.diagnostics.hostile_audit.bundle as ha_bundle_a
-    import analysis.diagnostics.research_validity.bundle as rv_bundle_a
-    import obsidiandroid.diagnostics.hostile_audit.bundle as ha_bundle_f
-    import obsidiandroid.diagnostics.research_validity.bundle as rv_bundle_f
-
-    assert ha_bundle_f is ha_bundle_a
-    assert rv_bundle_f is rv_bundle_a
-
-
-def test_database_facade_matches_database_modules() -> None:
+    for pkg in DIAGNOSTICS_NESTED_LEGACY_PACKAGES:
+        canon_pkg = importlib.import_module(f"obsidiandroid.diagnostics.{pkg}")
+        legacy_pkg = importlib.import_module(f"analysis.diagnostics.{pkg}")
+        assert getattr(facade, pkg) is canon_pkg
+        assert legacy_pkg is canon_pkg
+        bundle_legacy = importlib.import_module(f"analysis.diagnostics.{pkg}.bundle")
+        bundle_canon = importlib.import_module(f"obsidiandroid.diagnostics.{pkg}.bundle")
+        assert bundle_canon is bundle_legacy
     """``obsidiandroid.database`` exposes the same modules as ``database.*`` (Passes 38 + 43)."""
     import importlib
 
