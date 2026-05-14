@@ -310,13 +310,19 @@ def apply_confusion_matrix_policy(run_id: str, top_model: str | None) -> None:
     if not run_cm_dir.exists():
         return
 
-    files = sorted(run_cm_dir.glob("confusion_matrix_*.png"))
+    files = sorted(p for p in run_cm_dir.rglob("*.png") if p.is_file())
     if not files:
         return
     if mode == "all":
         du.print_info(
             f"[CONFUSION] Retention policy=all: kept all {len(files)} matrix PNGs under conf_matrices/"
         )
+        try:
+            from obsidiandroid.reporting import confusion_matrix_layout as cm_layout
+
+            cm_layout.write_confusion_matrix_catalog(run_cm_dir, run_id=run_id)
+        except Exception:
+            pass
         return
     if not top_model:
         du.print_warning("[CONFUSION] Top model unknown; skipping confusion-matrix pruning.")
@@ -336,9 +342,15 @@ def apply_confusion_matrix_policy(run_id: str, top_model: str | None) -> None:
 
     for path in files:
         name = path.name
-        if not name.endswith(f"__{top_model}.png") and not name.endswith(f"_{top_model}.png"):
+        stem_ok = (
+            name.endswith(f"__{top_model}.png")
+            or name.endswith(f"_{top_model}.png")
+            or name == f"{top_model}.png"
+        )
+        if not stem_ok:
             continue
-        matched_ablation = next((token for token in ablation_tokens if token in name), None)
+        path_s = str(path).replace("\\", "/").lower()
+        matched_ablation = next((token for token in ablation_tokens if token in path_s), None)
         if matched_ablation is None and primary_candidate is None:
             primary_candidate = path
         if matched_ablation in {"vendor_permissions_fused", "full_fused"} and ablation_candidate is None:
@@ -360,11 +372,20 @@ def apply_confusion_matrix_policy(run_id: str, top_model: str | None) -> None:
 
     if not keep:
         du.print_warning("[CONFUSION] No primary confusion matrix resolved for pruning policy.")
+        try:
+            from obsidiandroid.reporting import confusion_matrix_layout as cm_layout
+
+            cm_layout.write_confusion_matrix_catalog(run_cm_dir, run_id=run_id)
+        except Exception:
+            pass
         return
 
     rf_stable = run_cm_dir / "confusion_matrix_random_forest.png"
     if rf_stable.exists():
         keep.add(rf_stable)
+    headline_rf = run_cm_dir / "headline" / "random_forest.png"
+    if headline_rf.exists():
+        keep.add(headline_rf)
 
     removed = 0
     for path in files:
@@ -383,6 +404,13 @@ def apply_confusion_matrix_policy(run_id: str, top_model: str | None) -> None:
             latest_root = Path(app_config.DEFAULT_OUTPUT_DIR) / "latest"
             latest_root.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(primary_candidate, latest_root / "confusion_matrix_primary.png")
+    except Exception:
+        pass
+
+    try:
+        from obsidiandroid.reporting import confusion_matrix_layout as cm_layout
+
+        cm_layout.write_confusion_matrix_catalog(run_cm_dir, run_id=run_id)
     except Exception:
         pass
 

@@ -65,6 +65,8 @@ CROSS_RUN_ARTIFACT_POINTERS: dict[str, Any] = {
     "RUNTIME_ABLATION_LABEL_TARGET_SLUG": "",
     "RUNTIME_ABLATION_FEATURE_SET_NAME": "",
     "RUNTIME_SPLIT_LEDGER_INDEX": None,
+    "CONFUSION_MATRIX_EXPORT_MODE": "headline_only",
+    "CONFUSION_MATRIX_HEADLINE_EXPERIMENT": "vendor_full",
 }
 
 
@@ -118,6 +120,8 @@ def build_mutable_config_keys() -> set[str]:
         "ALLOW_ADAPTIVE_TOP_K",
         "ENABLE_SAMPLE_METADATA_FEATURES",
         "ENABLE_PERMISSION_FEATURES",
+        "CONFUSION_MATRIX_EXPORT_MODE",
+        "CONFUSION_MATRIX_HEADLINE_EXPERIMENT",
         *PARSER_OVERRIDE_KEYS,
         *RUNTIME_OVERRIDE_KEYS,
     } | set(CROSS_RUN_ARTIFACT_POINTERS)
@@ -281,6 +285,22 @@ def apply_profile_runtime_policy(
                 getattr(app_config, "ENABLE_ABLATION_MULTI_LABEL_TARGETS", True),
             )
         ),
+    )
+
+    cm_mode_raw = feature_flags.get(
+        "confusion_matrix_export_mode",
+        getattr(app_config, "CONFUSION_MATRIX_EXPORT_MODE", None),
+    )
+    if cm_mode_raw is None:
+        cm_mode_raw = "headline_only"
+    cm_mode = str(cm_mode_raw).strip().lower()
+    if cm_mode not in {"full_grid", "selected_ablation", "headline_only"}:
+        cm_mode = "headline_only"
+    setattr(app_config, "CONFUSION_MATRIX_EXPORT_MODE", cm_mode)
+    setattr(
+        app_config,
+        "CONFUSION_MATRIX_HEADLINE_EXPERIMENT",
+        str(feature_flags.get("confusion_matrix_headline_experiment", "vendor_full")).strip() or "vendor_full",
     )
 
     runtime_overrides = profile.get("runtime_overrides", {}) if isinstance(profile, dict) else {}

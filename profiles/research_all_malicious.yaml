@@ -24,6 +24,7 @@ parser_overrides: {}
 feature_flags:
   enable_sample_metadata_features: true
   enable_dynamic_generic_vendor_parsers: false
+  confusion_matrix_export_mode: selected_ablation
 threshold_overrides: {}
 dataset_filters:
   mode: malicious_only

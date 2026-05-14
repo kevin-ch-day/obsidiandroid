@@ -159,7 +159,8 @@ def test_export_confusion_matrix_uses_run_scoped_name(monkeypatch, tmp_path):
     output_path = Path(path)
     assert output_path.name == "confusion_matrix_random_forest.png"
     assert output_path.parent == tmp_path / "runs" / "20260228T184458Z__634d83" / "conf_matrices"
-    assert captured["output_path"] == output_path
+    assert captured["output_path"].name == "random_forest.png"
+    assert captured["output_path"].parent.name == "headline"
 
 
 def test_export_confusion_matrix_includes_experiment_id(monkeypatch, tmp_path):

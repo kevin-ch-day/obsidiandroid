@@ -20,6 +20,7 @@ from obsidiandroid.common import export_vendor_raw as vendor_raw
 from obsidiandroid.common import export_workbook as workbook
 from obsidiandroid.common.hash_utils import hash_payload, short_hash
 from obsidiandroid.reporting.confusion_matrix_exporter import export_confusion_matrix_image
+from obsidiandroid.reporting import confusion_matrix_layout as cm_layout
 from obsidiandroid.observability.logging import get_logger, log_event
 
 # === Output Paths ===
@@ -719,7 +720,7 @@ def export_confusion_matrix(
     model_name: str,
     mode: str = "color",
 ) -> str:
-    """Export confusion matrix using run-scoped artifact naming."""
+    """Export confusion matrix using run-scoped, reviewable folder layout."""
     def _cm_token(value: str) -> str:
         cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", str(value).strip())
         return cleaned.strip("_") or "unknown"
@@ -728,11 +729,17 @@ def export_confusion_matrix(
     experiment_raw = str(getattr(app_config, "RUNTIME_EXPERIMENT_ID", "") or "")
     experiment = _cm_token(experiment_raw) if experiment_raw.strip() else ""
     model_token = _cm_token(model_name)
-    suffix_parts: list[str] = []
-    if experiment:
-        suffix_parts.append(experiment)
-    suffix_parts.append(model_token)
-    output_name = "confusion_matrix_" + "__".join(suffix_parts) + ".png"
+
+    if bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)) and not cm_layout.should_export_confusion_matrix(
+        experiment_id=experiment_raw
+    ):
+        if not bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False)) and ml_console.is_debug():
+            du.print_debug(
+                f"[EXPORT] Skipping confusion matrix (export_mode={cm_layout.export_mode()}): "
+                f"{experiment_raw!r} / {model_token}"
+            )
+        return ""
+
     run_scoped_root = _output_root()
     if run_id and run_id != "unknown":
         if Path(OUTPUT_ROOT).resolve() != Path(_INITIAL_OUTPUT_ROOT).resolve():
@@ -748,7 +755,13 @@ def export_confusion_matrix(
                 run_scoped_root = base_root / "runs" / run_id
         else:
             run_scoped_root = base_root / "runs" / run_id
-    output_path = run_scoped_root / "conf_matrices" / output_name
+
+    cm_dir = run_scoped_root / "conf_matrices"
+    output_path = cm_layout.resolve_confusion_matrix_png_path(
+        conf_matrices_dir=cm_dir,
+        model_name=model_name,
+        experiment_id=experiment_raw,
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     quiet = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
@@ -763,14 +776,24 @@ def export_confusion_matrix(
         verbose=bool(not quiet and not ml_console.is_minimal()),
     )
     headline_ctx = not bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
-    canon_rf = output_path.parent / "confusion_matrix_random_forest.png"
+    flat_cm = cm_dir
+    canon_rf = flat_cm / "confusion_matrix_random_forest.png"
+    headline_rf = cm_dir / "headline" / "random_forest.png"
     if headline_ctx and model_token == "random_forest":
         try:
             src_path = Path(str(exported_path)).resolve()
-            dst_path = canon_rf.resolve()
-            if dst_path != src_path:
-                shutil.copyfile(src_path, dst_path)
-            exported_path = str(dst_path)
+            for dst in (headline_rf, canon_rf):
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                if dst.resolve() != src_path:
+                    shutil.copyfile(src_path, dst)
+            exported_path = str(canon_rf.resolve())
+        except Exception:
+            pass
+    elif not headline_ctx and model_token == "random_forest" and experiment_raw:
+        try:
+            src_path = Path(str(exported_path)).resolve()
+            if canon_rf.resolve() != src_path and src_path.is_file():
+                shutil.copyfile(src_path, canon_rf)
         except Exception:
             pass
     return exported_path
