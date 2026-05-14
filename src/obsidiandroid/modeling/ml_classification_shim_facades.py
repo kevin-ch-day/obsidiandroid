@@ -8,9 +8,6 @@ wrappers without duplicating lists across the legacy tree.
 
 from __future__ import annotations
 
-import importlib
-from typing import Any
-
 ML_CLASSIFICATION_BUILDER_SUBMODULES: frozenset[str] = frozenset(
     {
         "classification_constants",
@@ -113,13 +110,6 @@ ML_CLASSIFICATION_VECTORIZATION_SUBMODULES: frozenset[str] = frozenset(
 )
 
 
-def lazy_legacy_submodule(name: str, legacy_pkg_qual: str, allowed: frozenset[str]) -> Any:
-    """Resolve ``legacy_pkg_qual.<name>`` via importlib (thin leaf shims under ``ml_classification/``)."""
-    if name not in allowed:
-        raise AttributeError(f"module {legacy_pkg_qual!r} has no attribute {name!r}")
-    return importlib.import_module(f"{legacy_pkg_qual}.{name}")
-
-
 __all__ = (
     "ML_CLASSIFICATION_BUILDER_SUBMODULES",
     "ML_CLASSIFICATION_COMMON_SUBMODULES",
@@ -131,5 +121,4 @@ __all__ = (
     "ML_CLASSIFICATION_TRAINING_ML_TRAINERS_SUBMODULES",
     "ML_CLASSIFICATION_TRAINING_SUBMODULES",
     "ML_CLASSIFICATION_VECTORIZATION_SUBMODULES",
-    "lazy_legacy_submodule",
 )

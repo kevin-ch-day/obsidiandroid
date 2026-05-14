@@ -35,6 +35,9 @@ if _SRC.is_dir() and str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from obsidiandroid.database.facade_manifest import FACADE_MODULE_PAIRS, LEGACY_SHIM_PAIRS
+from obsidiandroid.governance.analysis_pipeline_governance_shim import (
+    ANALYSIS_PIPELINE_GOVERNANCE_SUBMODULES,
+)
 
 from scripts.dev.import_surface_policy import (
     THIN_COMPAT_SHIM_POLICIES,
@@ -1235,13 +1238,8 @@ def main() -> int:
     print("OK   analysis.execution package shim matches obsidiandroid.vendors.execution")
 
     _governance_facade = importlib.import_module("obsidiandroid.governance")
-    _governance_pairs = (
-        ("exceptions", "obsidiandroid.governance.exceptions"),
-        ("integrity", "obsidiandroid.governance.integrity"),
-        ("policy", "obsidiandroid.governance.policy"),
-        ("readiness", "obsidiandroid.governance.readiness"),
-    )
-    for attr, canon_name in _governance_pairs:
+    for attr in sorted(ANALYSIS_PIPELINE_GOVERNANCE_SUBMODULES):
+        canon_name = f"obsidiandroid.governance.{attr}"
         canon_mod = importlib.import_module(canon_name)
         facade_mod = getattr(_governance_facade, attr)
         if facade_mod is not canon_mod:

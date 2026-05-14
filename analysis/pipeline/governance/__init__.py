@@ -3,24 +3,27 @@
 Canonical implementations live under ``obsidiandroid.governance``; leaf modules
 ``exceptions``, ``integrity``, ``policy``, and ``readiness`` are thin ``sys.modules``
 identity shims to the same ``ModuleType`` objects as ``obsidiandroid.governance.*``.
+
+Submodule names are defined in
+:mod:`obsidiandroid.governance.analysis_pipeline_governance_shim`.
 """
 
 from __future__ import annotations
 
-import importlib
 from typing import Any
 
-_SUBMODULE_NAMES = frozenset({"exceptions", "integrity", "policy", "readiness"})
+from obsidiandroid.governance.analysis_pipeline_governance_shim import (
+    ANALYSIS_PIPELINE_GOVERNANCE_SUBMODULES,
+)
+from obsidiandroid.legacy_shim_lazy import lazy_legacy_submodule
 
 
 def __getattr__(name: str) -> Any:
-    if name in _SUBMODULE_NAMES:
-        return importlib.import_module(f"{__name__}.{name}")
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return lazy_legacy_submodule(name, __name__, ANALYSIS_PIPELINE_GOVERNANCE_SUBMODULES)
 
 
 def __dir__() -> list[str]:
-    return sorted(_SUBMODULE_NAMES)
+    return sorted(ANALYSIS_PIPELINE_GOVERNANCE_SUBMODULES)
 
 
-__all__ = tuple(sorted(_SUBMODULE_NAMES))
+__all__ = tuple(sorted(ANALYSIS_PIPELINE_GOVERNANCE_SUBMODULES))

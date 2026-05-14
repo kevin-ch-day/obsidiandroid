@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from obsidiandroid.legacy_shim_lazy import lazy_legacy_submodule
 from obsidiandroid.modeling.ml_classification_shim_facades import (
     ML_CLASSIFICATION_LABELING_SUBMODULES,
-    lazy_legacy_submodule,
 )
 
 
