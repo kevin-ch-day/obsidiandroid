@@ -16,6 +16,23 @@ from sklearn.model_selection import StratifiedKFold
 from config import app_config
 
 
+def coerce_stratified_cv_folds_config(raw: object, *, default: int = 5) -> int:
+    """Return a stratified-CV fold count from config, floored at 2.
+
+    ``StratifiedKFold`` requires ``n_splits >= 2``. Invalid or missing values
+    (``None``, non-numeric strings, etc.) fall back to ``default`` before the
+    floor is applied so callers never pass ``int(None)`` or ``n_splits=1``.
+    """
+    if raw is None:
+        n = default
+    else:
+        try:
+            n = int(raw)
+        except (TypeError, ValueError):
+            n = default
+    return max(2, n)
+
+
 def grid_search_job_counts() -> tuple[int, int]:
     """Return ``(inner_estimator_n_jobs, gridsearchcv_n_jobs)``.
 
@@ -45,6 +62,6 @@ def stratified_kfold_for_grid_search(
     """
     if min_class_support < 2:
         return None
-    configured = max(2, int(getattr(app_config, "CV_FOLDS", 5)))
+    configured = coerce_stratified_cv_folds_config(getattr(app_config, "CV_FOLDS", 5))
     n_splits = min(configured, min_class_support)
     return StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)

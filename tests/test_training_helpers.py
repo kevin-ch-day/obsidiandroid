@@ -94,3 +94,32 @@ def test_perform_cross_validation_coerces_cv_folds_one(monkeypatch) -> None:
     )
     assert scores is not None
     assert captured["cv_splits"] == 2
+
+
+def test_perform_cross_validation_cv_folds_none_uses_default(monkeypatch) -> None:
+    """``CV_FOLDS`` set to ``None`` must not raise ``int(None)`` inside CV setup."""
+    monkeypatch.setattr(app_config, "CV_FOLDS", None, raising=False)
+    monkeypatch.setattr(app_config, "CV_REPEATS", 1, raising=False)
+    monkeypatch.setattr(app_config, "CV_N_JOBS", 1, raising=False)
+    monkeypatch.setattr(app_config, "CV_AVOID_NESTED_PARALLELISM", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_CV_REBALANCING", False, raising=False)
+
+    captured: dict[str, object] = {}
+
+    def _fake_cross_val_score(estimator, X, y, cv, scoring, n_jobs):  # noqa: ANN001
+        del X, y, scoring, estimator, n_jobs
+        captured["cv_splits"] = getattr(cv, "n_splits", None)
+        return np.array([0.5, 0.51, 0.52, 0.53, 0.54])
+
+    monkeypatch.setattr(training_helpers, "cross_val_score", _fake_cross_val_score)
+
+    y = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])
+    X = pd.DataFrame({"f1": np.arange(len(y)), "f2": np.arange(len(y))[::-1]})
+    scores = training_helpers.perform_cross_validation(
+        X=X,
+        y=y,
+        model_type="random_forest",
+        random_state=42,
+    )
+    assert scores is not None
+    assert captured["cv_splits"] == 5

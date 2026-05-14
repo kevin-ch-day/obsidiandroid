@@ -64,10 +64,29 @@ def test_stratified_kfold_coerces_cv_folds_below_two(monkeypatch) -> None:
     cv = stratified_kfold_for_grid_search(6, random_state=0)
     assert cv is not None
     assert cv.n_splits == 2
-    from config import app_config
-    from obsidiandroid.modeling.parallel_layout import stratified_kfold_for_grid_search
 
     monkeypatch.setattr(app_config, "CV_FOLDS", 7, raising=False)
     cv = stratified_kfold_for_grid_search(3, random_state=1)
     assert cv is not None
     assert cv.n_splits == 3
+
+
+def test_coerce_stratified_cv_folds_config() -> None:
+    from obsidiandroid.modeling.parallel_layout import coerce_stratified_cv_folds_config
+
+    assert coerce_stratified_cv_folds_config(None) == 5
+    assert coerce_stratified_cv_folds_config("not_a_number") == 5
+    assert coerce_stratified_cv_folds_config(1) == 2
+    assert coerce_stratified_cv_folds_config(0) == 2
+    assert coerce_stratified_cv_folds_config("4") == 4
+    assert coerce_stratified_cv_folds_config(8, default=3) == 8
+
+
+def test_stratified_kfold_treats_cv_folds_none_as_default(monkeypatch) -> None:
+    from config import app_config
+    from obsidiandroid.modeling.parallel_layout import stratified_kfold_for_grid_search
+
+    monkeypatch.setattr(app_config, "CV_FOLDS", None, raising=False)
+    cv = stratified_kfold_for_grid_search(10, random_state=0)
+    assert cv is not None
+    assert cv.n_splits == 5

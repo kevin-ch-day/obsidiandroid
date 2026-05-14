@@ -27,6 +27,7 @@ from imblearn.pipeline import Pipeline as ImbPipeline
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
+from obsidiandroid.modeling.parallel_layout import coerce_stratified_cv_folds_config
 
 from .ml_trainers.balanced_random_forest_trainer import (
     get_default_brf_params,
@@ -153,7 +154,7 @@ def perform_cross_validation(
 
     # ``StratifiedKFold`` / ``RepeatedStratifiedKFold`` require ``n_splits >= 2``; some
     # configs historically set ``CV_FOLDS`` to 1, which would otherwise crash CV.
-    configured = max(2, int(getattr(app_config, "CV_FOLDS", 5)))
+    configured = coerce_stratified_cv_folds_config(getattr(app_config, "CV_FOLDS", 5))
     folds = min(configured, min_count)
     if model_type == "xgboost":
         xgb_cv_max_folds = int(getattr(app_config, "XGB_CV_MAX_FOLDS", 0) or 0)
