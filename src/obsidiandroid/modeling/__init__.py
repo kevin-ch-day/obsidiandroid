@@ -68,7 +68,7 @@ for _name in MODELING_FACADE_EAGER_SUBMODULE_NAMES:
 __all__ = [
     "model_exporter",
     *MODELING_FACADE_EAGER_SUBMODULE_NAMES,
-    *_LAZY_PHYSICAL_SUBMODULES,
+    *sorted(_LAZY_PHYSICAL_SUBMODULES),
     "ml_trainers",
 ]
 

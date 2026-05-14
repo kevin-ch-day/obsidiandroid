@@ -81,79 +81,49 @@ def test_ml_facades_match_ml_classification_modules() -> None:
     """Pass 47: minimal ML facades alias legacy module objects."""
     import importlib
 
+    from obsidiandroid.features.features_facade_manifest import FEATURES_FACADE_ALIAS_TARGETS
+    from obsidiandroid.modeling.modeling_facade_manifest import (
+        MODELING_FACADE_EAGER_SUBMODULE_NAMES,
+        MODELING_FACADE_LEGACY_VIA_ML_CLASSIFICATION_TRAINING,
+    )
+    from obsidiandroid.modeling.ml_classification_shim_facades import (
+        ML_CLASSIFICATION_BUILDER_SUBMODULES,
+        ML_CLASSIFICATION_ENGINE_WEIGHTS_SUBMODULES,
+        ML_CLASSIFICATION_INFERENCE_SUBMODULES,
+        ML_CLASSIFICATION_LABELING_SUBMODULES,
+        ML_CLASSIFICATION_TRAINING_ML_TRAINERS_SUBMODULES,
+        ML_CLASSIFICATION_TRAINING_PHYSICAL_SUBMODULES,
+    )
+
     import obsidiandroid.features as features_facade
     import obsidiandroid.labeling as labeling_facade
     import obsidiandroid.modeling as modeling_facade
 
-    modeling_pairs = (
-        ("data_alignment", "obsidiandroid.modeling.data_alignment"),
-        ("distribution_reporter", "obsidiandroid.modeling.distribution_reporter"),
-        ("feature_label_alignment_helper", "obsidiandroid.modeling.feature_label_alignment_helper"),
-        ("ml_result_analyzer", "obsidiandroid.modeling.ml_result_analyzer"),
-        ("ml_result_validator", "obsidiandroid.modeling.ml_result_validator"),
-        ("model_prediction", "obsidiandroid.modeling.model_prediction"),
-        ("model_trainer_factory", "obsidiandroid.modeling.model_trainer_factory"),
-        ("pipeline_core", "obsidiandroid.modeling.pipeline_core"),
-    )
-    for attr, canon_name in modeling_pairs:
+    for attr in MODELING_FACADE_EAGER_SUBMODULE_NAMES:
+        canon_name = f"obsidiandroid.modeling.{attr}"
         canon_mod = importlib.import_module(canon_name)
         assert getattr(modeling_facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.modeling.{attr}")
         assert alias_mod is canon_mod
-        if attr in {
-            "data_alignment",
-            "distribution_reporter",
-            "feature_label_alignment_helper",
-            "ml_result_analyzer",
-            "ml_result_validator",
-            "model_prediction",
-            "model_trainer_factory",
-            "pipeline_core",
-        }:
-            if attr in {
-                "data_alignment",
-                "model_prediction",
-                "model_trainer_factory",
-                "pipeline_core",
-            }:
-                legacy_mod = importlib.import_module(f"ml_classification.training.{attr}")
-            else:
-                legacy_mod = importlib.import_module(f"ml_classification.ml_utils.{attr}")
-            assert legacy_mod is canon_mod
+        if attr in MODELING_FACADE_LEGACY_VIA_ML_CLASSIFICATION_TRAINING:
+            legacy_mod = importlib.import_module(f"ml_classification.training.{attr}")
+        else:
+            legacy_mod = importlib.import_module(f"ml_classification.ml_utils.{attr}")
+        assert legacy_mod is canon_mod
     feature_alignment_canon = importlib.import_module("obsidiandroid.modeling.feature_alignment_utils")
     feature_alignment_legacy = importlib.import_module("ml_classification.ml_utils.feature_alignment_utils")
     assert feature_alignment_legacy is feature_alignment_canon
 
-    for mod in (
-        "pipeline_result_promoter",
-        "train_model_executor",
-        "model_training",
-        "prediction_builder",
-        "model_evaluation",
-        "training_helpers",
-    ):
+    for mod in sorted(ML_CLASSIFICATION_TRAINING_PHYSICAL_SUBMODULES):
         canon_tm = importlib.import_module(f"obsidiandroid.modeling.{mod}")
         legacy_tm = importlib.import_module(f"ml_classification.training.{mod}")
         assert legacy_tm is canon_tm
-    for mod in (
-        "random_forest_trainer",
-        "balanced_random_forest_trainer",
-        "logistic_regression_trainer",
-        "svm_trainer",
-        "xgboost_trainer",
-    ):
+    for mod in sorted(ML_CLASSIFICATION_TRAINING_ML_TRAINERS_SUBMODULES):
         canon_tr = importlib.import_module(f"obsidiandroid.modeling.ml_trainers.{mod}")
         legacy_tr = importlib.import_module(f"ml_classification.training.ml_trainers.{mod}")
         assert legacy_tr is canon_tr
 
-    features_pairs = (
-        ("feature_encoder", "obsidiandroid.features.vectorization.feature_encoder"),
-        ("feature_engine_selection", "obsidiandroid.features.vectorization.feature_engine_selection"),
-        ("feature_schema_audit", "obsidiandroid.features.feature_schema_audit"),
-        ("feature_vector_builder", "obsidiandroid.features.vectorization.feature_vector_builder"),
-        ("feature_vendor_extractor", "obsidiandroid.features.vectorization.feature_vendor_extractor"),
-    )
-    for attr, canon_name in features_pairs:
+    for attr, canon_name in FEATURES_FACADE_ALIAS_TARGETS:
         canon_mod = importlib.import_module(canon_name)
         assert getattr(features_facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.features.{attr}")
@@ -164,15 +134,8 @@ def test_ml_facades_match_ml_classification_modules() -> None:
             legacy_mod = importlib.import_module(f"ml_classification.vectorization.{attr}")
         assert legacy_mod is canon_mod
 
-    labeling_pairs = (
-        ("classification_label_resolver", "obsidiandroid.labeling.classification_label_resolver"),
-        ("label_builder_wrapper", "obsidiandroid.labeling.label_builder_wrapper"),
-        ("label_field_normalizer", "obsidiandroid.labeling.label_field_normalizer"),
-        ("label_format_generator", "obsidiandroid.labeling.label_format_generator"),
-        ("label_input_validator", "obsidiandroid.labeling.label_input_validator"),
-        ("label_postprocessor", "obsidiandroid.labeling.label_postprocessor"),
-    )
-    for attr, canon_name in labeling_pairs:
+    for attr in sorted(ML_CLASSIFICATION_LABELING_SUBMODULES):
+        canon_name = f"obsidiandroid.labeling.{attr}"
         canon_mod = importlib.import_module(canon_name)
         assert getattr(labeling_facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.labeling.{attr}")
@@ -181,38 +144,19 @@ def test_ml_facades_match_ml_classification_modules() -> None:
         assert legacy_mod is canon_mod
 
     cb_facade = importlib.import_module("obsidiandroid.classification_builder")
-    for name in (
-        "classification_constants",
-        "classification_row_builder",
-        "prediction_utils",
-        "record_enrichment",
-        "sample_classification_builder",
-        "vendor_record_selector",
-    ):
+    for name in sorted(ML_CLASSIFICATION_BUILDER_SUBMODULES):
         canon_cb = importlib.import_module(f"obsidiandroid.classification_builder.{name}")
         assert getattr(cb_facade, name) is canon_cb
         assert importlib.import_module(f"ml_classification.builder.{name}") is canon_cb
 
     inf_facade = importlib.import_module("obsidiandroid.inference")
-    for name in (
-        "label_consensus_engine",
-        "malware_type_engine",
-        "signal_health_checker",
-        "threat_class_engine",
-    ):
+    for name in sorted(ML_CLASSIFICATION_INFERENCE_SUBMODULES):
         canon_inf = importlib.import_module(f"obsidiandroid.inference.{name}")
         assert getattr(inf_facade, name) is canon_inf
         assert importlib.import_module(f"ml_classification.inference.{name}") is canon_inf
 
     ew_facade = importlib.import_module("obsidiandroid.engine_weights")
-    for name in (
-        "assign_detection_tiers",
-        "build_classification_weights",
-        "classification_weight_inspector",
-        "classification_weight_utils",
-        "compute_reliability_score",
-        "engine_weights_utils",
-    ):
+    for name in sorted(ML_CLASSIFICATION_ENGINE_WEIGHTS_SUBMODULES):
         canon_ew = importlib.import_module(f"obsidiandroid.engine_weights.{name}")
         assert getattr(ew_facade, name) is canon_ew
         assert importlib.import_module(f"ml_classification.engine_weights.{name}") is canon_ew
@@ -264,88 +208,34 @@ def test_ml_classification_subpackages_lazy_attributes_pass100() -> None:
     """Pass 100: shim subpackages expose known leaf names via ``__getattr__``."""
     import importlib
 
+    from obsidiandroid.modeling.ml_classification_shim_facades import (
+        ML_CLASSIFICATION_BUILDER_SUBMODULES,
+        ML_CLASSIFICATION_ENGINE_WEIGHTS_SUBMODULES,
+        ML_CLASSIFICATION_INFERENCE_SUBMODULES,
+        ML_CLASSIFICATION_LABELING_SUBMODULES,
+        ML_CLASSIFICATION_REPORTING_SUBMODULES,
+        ML_CLASSIFICATION_TRAINING_ML_TRAINERS_SUBMODULES,
+        ML_CLASSIFICATION_TRAINING_SUBMODULES,
+        ML_CLASSIFICATION_VECTORIZATION_SUBMODULES,
+    )
+
     slices: tuple[tuple[str, tuple[str, ...]], ...] = (
-        (
-            "ml_classification.builder",
-            (
-                "classification_constants",
-                "classification_row_builder",
-                "prediction_utils",
-                "record_enrichment",
-                "sample_classification_builder",
-                "vendor_record_selector",
-            ),
-        ),
-        (
-            "ml_classification.inference",
-            (
-                "label_consensus_engine",
-                "malware_type_engine",
-                "signal_health_checker",
-                "threat_class_engine",
-            ),
-        ),
+        ("ml_classification.builder", tuple(sorted(ML_CLASSIFICATION_BUILDER_SUBMODULES))),
+        ("ml_classification.inference", tuple(sorted(ML_CLASSIFICATION_INFERENCE_SUBMODULES))),
         (
             "ml_classification.engine_weights",
-            (
-                "assign_detection_tiers",
-                "build_classification_weights",
-                "classification_weight_inspector",
-                "classification_weight_utils",
-                "compute_reliability_score",
-                "engine_weights_utils",
-            ),
+            tuple(sorted(ML_CLASSIFICATION_ENGINE_WEIGHTS_SUBMODULES)),
         ),
-        (
-            "ml_classification.labeling",
-            (
-                "classification_label_resolver",
-                "label_builder_wrapper",
-                "label_field_normalizer",
-                "label_format_generator",
-                "label_input_validator",
-                "label_postprocessor",
-            ),
-        ),
-        (
-            "ml_classification.reporting",
-            ("compile_classification_results", "ml_report_builder"),
-        ),
+        ("ml_classification.labeling", tuple(sorted(ML_CLASSIFICATION_LABELING_SUBMODULES))),
+        ("ml_classification.reporting", tuple(sorted(ML_CLASSIFICATION_REPORTING_SUBMODULES))),
         (
             "ml_classification.vectorization",
-            (
-                "feature_encoder",
-                "feature_engine_selection",
-                "feature_vendor_extractor",
-                "feature_vector_builder",
-            ),
+            tuple(sorted(ML_CLASSIFICATION_VECTORIZATION_SUBMODULES)),
         ),
-        (
-            "ml_classification.training",
-            (
-                "data_alignment",
-                "feature_schema_audit",
-                "model_evaluation",
-                "model_prediction",
-                "model_training",
-                "model_trainer_factory",
-                "ml_trainers",
-                "pipeline_core",
-                "pipeline_result_promoter",
-                "prediction_builder",
-                "train_model_executor",
-                "training_helpers",
-            ),
-        ),
+        ("ml_classification.training", tuple(sorted(ML_CLASSIFICATION_TRAINING_SUBMODULES))),
         (
             "ml_classification.training.ml_trainers",
-            (
-                "balanced_random_forest_trainer",
-                "logistic_regression_trainer",
-                "random_forest_trainer",
-                "svm_trainer",
-                "xgboost_trainer",
-            ),
+            tuple(sorted(ML_CLASSIFICATION_TRAINING_ML_TRAINERS_SUBMODULES)),
         ),
     )
     for pkg_qual, names in slices:
@@ -400,13 +290,12 @@ def test_feature_engineering_facade_matches_analysis_shims() -> None:
     """Pass 78: vendor/feature helpers under ``obsidiandroid.feature_engineering``; legacy paths match."""
     import importlib
 
-    fe_pairs = (
-        ("assign_tier_scores", "obsidiandroid.feature_engineering.assign_tier_scores"),
-        ("compute_vendor_scores", "obsidiandroid.feature_engineering.compute_vendor_scores"),
-        ("prepare_engine_metrics", "obsidiandroid.feature_engineering.prepare_engine_metrics"),
-        ("pattern_analysis", "obsidiandroid.feature_engineering.pattern_analysis"),
+    from obsidiandroid.feature_engineering.feature_engineering_import_surface import (
+        FEATURE_ENGINEERING_LEGACY_SHIM_MODULE_STEMS,
     )
-    for attr, canon_name in fe_pairs:
+
+    for attr in FEATURE_ENGINEERING_LEGACY_SHIM_MODULE_STEMS:
+        canon_name = f"obsidiandroid.feature_engineering.{attr}"
         canon_mod = importlib.import_module(canon_name)
         alias_mod = importlib.import_module(f"obsidiandroid.feature_engineering.{attr}")
         assert alias_mod is canon_mod
@@ -418,14 +307,9 @@ def test_orchestration_submodules_match_analysis_shims() -> None:
     """Pass 80: orchestration helpers under ``obsidiandroid.orchestration``; legacy paths match."""
     import importlib
 
-    pairs = (
-        ("metadata_features", "obsidiandroid.orchestration.metadata_features"),
-        ("methodology_artifacts", "obsidiandroid.orchestration.methodology_artifacts"),
-        ("permission_features", "obsidiandroid.orchestration.permission_features"),
-        ("profile_filters", "obsidiandroid.orchestration.profile_filters"),
-        ("runtime_reporting", "obsidiandroid.orchestration.runtime_reporting"),
-    )
-    for attr, canon_name in pairs:
+    orch = importlib.import_module("obsidiandroid.orchestration")
+    for attr in orch.__all__:
+        canon_name = f"obsidiandroid.orchestration.{attr}"
         canon_mod = importlib.import_module(canon_name)
         alias_mod = importlib.import_module(f"obsidiandroid.orchestration.{attr}")
         assert alias_mod is canon_mod
@@ -437,12 +321,9 @@ def test_matrix_submodules_match_analysis_shims() -> None:
     """Pass 80: AV matrix helpers under ``obsidiandroid.matrix``; legacy paths match."""
     import importlib
 
-    pairs = (
-        ("av_binary_matrix_builder", "obsidiandroid.matrix.av_binary_matrix_builder"),
-        ("enrich_malicious_scores", "obsidiandroid.matrix.enrich_malicious_scores"),
-        ("enrich_score_features", "obsidiandroid.matrix.enrich_score_features"),
-    )
-    for attr, canon_name in pairs:
+    matrix_pkg = importlib.import_module("obsidiandroid.matrix")
+    for attr in matrix_pkg.__all__:
+        canon_name = f"obsidiandroid.matrix.{attr}"
         canon_mod = importlib.import_module(canon_name)
         alias_mod = importlib.import_module(f"obsidiandroid.matrix.{attr}")
         assert alias_mod is canon_mod
@@ -454,11 +335,9 @@ def test_risk_band_submodules_match_analysis_shims() -> None:
     """Pass 81: risk band helpers under ``obsidiandroid.risk_band``; legacy paths match."""
     import importlib
 
-    pairs = (
-        ("assign_risk_band", "obsidiandroid.risk_band.assign_risk_band"),
-        ("phase_score_engines", "obsidiandroid.risk_band.phase_score_engines"),
-    )
-    for attr, canon_name in pairs:
+    rb = importlib.import_module("obsidiandroid.risk_band")
+    for attr in rb.__all__:
+        canon_name = f"obsidiandroid.risk_band.{attr}"
         canon_mod = importlib.import_module(canon_name)
         alias_mod = importlib.import_module(f"obsidiandroid.risk_band.{attr}")
         assert alias_mod is canon_mod
@@ -470,17 +349,14 @@ def test_pipeline_permission_trends_facade_matches_permission_trends_modules() -
     """Pipeline permission-trends facade aliases canonical modules (**Pass 74**); legacy paths match."""
     import importlib
 
+    from obsidiandroid.pipeline.permission_trends.permission_trends_submodule_manifest import (
+        PERMISSION_TRENDS_FACADE_SUBMODULE_NAMES,
+    )
+
     import obsidiandroid.pipeline.permission_trends as permission_trends_facade
 
-    permission_trends_pairs = (
-        ("bundle_manifest", "obsidiandroid.pipeline.permission_trends.bundle_manifest"),
-        ("constants", "obsidiandroid.pipeline.permission_trends.constants"),
-        ("publish_paths", "obsidiandroid.pipeline.permission_trends.publish_paths"),
-        ("reporting_support", "obsidiandroid.pipeline.permission_trends.reporting_support"),
-        ("sample_permission_data", "obsidiandroid.pipeline.permission_trends.sample_permission_data"),
-        ("stats_core", "obsidiandroid.pipeline.permission_trends.stats_core"),
-    )
-    for attr, canon_name in permission_trends_pairs:
+    for attr in PERMISSION_TRENDS_FACADE_SUBMODULE_NAMES:
+        canon_name = f"obsidiandroid.pipeline.permission_trends.{attr}"
         canon_mod = importlib.import_module(canon_name)
         assert getattr(permission_trends_facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.pipeline.permission_trends.{attr}")
@@ -511,15 +387,13 @@ def test_vendors_parsing_modules_match_legacy_shim_identity() -> None:
     """Pass 59: key parser modules preserve ModuleType identity via legacy shim."""
     import importlib
 
+    from obsidiandroid.vendors.parsing.vendor_parser_submodule_manifest import (
+        VENDOR_PARSER_SUBMODULE_NAMES,
+    )
+
     import obsidiandroid.vendors.parsing as parsing_pkg
 
-    keys = (
-        "generic_label_parser",
-        "vendor_parser_map",
-        "parser_defaults",
-        "parser_confidence_estimator",
-    )
-    for name in keys:
+    for name in VENDOR_PARSER_SUBMODULE_NAMES:
         canon_mod = importlib.import_module(f"obsidiandroid.vendors.parsing.{name}")
         assert getattr(parsing_pkg, name) is canon_mod
         legacy_mod = importlib.import_module(f"analysis.vendor_processing.{name}")
@@ -530,24 +404,11 @@ def test_evaluation_leaf_shims_match_canonical_modules() -> None:
     """Passes 61–63: analysis.evaluation package shim preserves module identity."""
     import importlib
 
-    for name in (
-        "accuracy_band_utils",
-        "av_results_fetcher",
-        "engine_scoring_summary",
-        "evaluate_av_classifications",
-        "ml_comparator_summary",
-        "ml_eval_engine",
-        "ml_report_builder",
-        "model_tuning",
-        "random_forest_diagnostics",
-        "vendor_classification_inspector",
-        "vendor_classification_parser",
-        "vendor_feature_extractor",
-        "vendor_parser_matching",
-        "vendor_parser_utils",
-        "vendor_score_calculator",
-        "vendor_summary_builder",
-    ):
+    from obsidiandroid.evaluation.analysis_evaluation_shim import (
+        LEGACY_EXPORT_NAMES as ANALYSIS_EVALUATION_LEGACY_EXPORT_NAMES,
+    )
+
+    for name in ANALYSIS_EVALUATION_LEGACY_EXPORT_NAMES:
         canon_mod = importlib.import_module(f"obsidiandroid.evaluation.{name}")
         legacy_mod = importlib.import_module(f"analysis.evaluation.{name}")
         assert legacy_mod is canon_mod
@@ -571,12 +432,11 @@ def test_vendor_execution_shims_match_canonical_modules() -> None:
     """Pass 64: analysis.execution package shim preserves module identity."""
     import importlib
 
-    for name in (
-        "av_parser_executor",
-        "vendor_parser_runner",
-        "vendor_record_factory",
-        "vendor_classification_processor",
-    ):
+    from obsidiandroid.vendors.execution.analysis_execution_shim import (
+        LEGACY_EXPORT_NAMES as ANALYSIS_EXECUTION_LEGACY_EXPORT_NAMES,
+    )
+
+    for name in ANALYSIS_EXECUTION_LEGACY_EXPORT_NAMES:
         canon_mod = importlib.import_module(f"obsidiandroid.vendors.execution.{name}")
         legacy_mod = importlib.import_module(f"analysis.execution.{name}")
         assert legacy_mod is canon_mod
