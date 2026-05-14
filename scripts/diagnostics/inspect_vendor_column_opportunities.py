@@ -29,6 +29,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+import scripts.runtime_bootstrap  # noqa: F401
+
 from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path
 
 ensure_repo_src_on_sys_path()

@@ -582,3 +582,27 @@ def test_repo_operator_script_resolves_under_repo_root() -> None:
     p = repo_paths.repo_operator_script("dev", "check_import_surface.py")
     assert p == root / "scripts" / "dev" / "check_import_surface.py"
     assert p.is_file()
+
+
+def test_scripts_runtime_bootstrap_prepends_src_when_repo_root_on_path() -> None:
+    import importlib
+    import sys
+    from pathlib import Path
+
+    from obsidiandroid.common import repo_paths
+
+    here = Path(repo_paths.__file__).resolve()
+    if len(here.parents) < 4 or here.parents[2].name != "src":
+        pytest.skip("repo_paths not loaded from a checkout tree under src/")
+    root = here.parents[3]
+    rb = root / "scripts" / "runtime_bootstrap.py"
+    if not rb.is_file():
+        pytest.skip("scripts/runtime_bootstrap.py missing")
+    src = str((root / "src").resolve())
+    root_s = str(root.resolve())
+    # Ensure repo root is importable as ``scripts`` package root.
+    if root_s not in sys.path:
+        sys.path.insert(0, root_s)
+    sys.modules.pop("scripts.runtime_bootstrap", None)
+    importlib.import_module("scripts.runtime_bootstrap")
+    assert src in sys.path
