@@ -58,7 +58,7 @@ Quick verification: `python scripts/dev/check_import_surface.py` or `make dev-im
 | P2 | Remaining **`model/*`** helper imports from canonical code | **Done** (**Pass 84**) — risk-band config and vendor contract helpers are canonical; repo-root **`model/`** tree has been removed. |
 | P3 | Retire **`utils/*`** shims after caller + doc sunset | **Done** — repo-root **`utils/`** tree has been removed; remaining docs/tests now use canonical `obsidiandroid.*` / `scripts.*` surfaces. |
 | P3 | Repo-root **`run_tests*.sh`**, bytecode-clean, ML-scan shims | **Done** — **Pass 101** removed thin wrappers; **`make`** / **`scripts/dev/*`** / **`python -m scripts.dev.run_ml_static_scan`** are canonical |
-| P3 | Optional DB helpers (**`db_sample_timelines_queries`**, **`db_extract_av_label_keywords`**, …) — **canonical under `src/`** with repo-root shims; **`facade_manifest.OPTIONAL_LEGACY_SHIM_ONLY_NAMES`**. Widen package **`__all__`** only when callers want **`from obsidiandroid.database import …`** ergonomics | **Optional** |
+| P3 | Optional DB helpers (**`db_sample_timelines_queries`**, **`db_extract_av_label_keywords`**, …) — **canonical under `src/`** with repo-root shims; now on **`facade_manifest.FACADE_EXPORT_NAMES`** / package **`__all__`** for **`from obsidiandroid.database import …`** ergonomics | **Done** |
 - **Passes 41–43 (`obsidiandroid.database`):** Façade-only **`from database`** callers outside **`database/`** are migrated (Pass 41); **Pass 42** recorded the pre–Tier D audit; **Pass 43** expands the façade with four **Tier D** AV/scoring modules and migrates remaining outer callers (**`analysis/`**, tests, **`obsidiandroid.governance.run_manifest`**). Repo-root **`database/*.py`** for façade names are **identity shims**; canonical package code under **`src/obsidiandroid/database/`** uses **relative** sibling imports.
 - **Pass 44 (tests → canonical CLI):** Selected **`tests/`** modules import **`obsidiandroid.cli.menu` / `obsidiandroid.cli.ui.menu`** instead of **`utils.menu` / `utils.ui`** (legacy stub packages **removed** in **Pass 72** once unused).
 - **Pass 45 (`obsidiandroid.pipeline` module aliases):** façade now lazily re-exports common **`analysis.pipeline.*`** modules (stages, scoring helpers, runner/main_facade), and tests moved to **`from obsidiandroid.pipeline import ...`** where safe.
@@ -1893,7 +1893,7 @@ These **same** **`database.<name>`** module objects are re-exported on **`obsidi
 | **`obsidiandroid.database.db_fetch_av_engine_raw_results`** | Raw per-engine vendor matrix inputs |
 | **`obsidiandroid.database.db_sample_malicious_scoring`** | Malicious score enrichment |
 
-Other **`database.db_*`** helpers (e.g. **`db_sample_timelines_queries`**, **`db_extract_av_label_keywords`**, **`db_av_engine_stats`**, **`db_av_disagreement_analysis`**) are **implemented under `src/obsidiandroid/database/`** with repo-root identity shims; they are listed in **`facade_manifest.OPTIONAL_LEGACY_SHIM_ONLY_NAMES`** and are **not** on the package **`__all__`** until a deliberate façade widening.
+Other **`database.db_*`** helpers (e.g. **`db_sample_timelines_queries`**, **`db_extract_av_label_keywords`**, **`db_av_engine_stats`**, **`db_av_disagreement_analysis`**) are **implemented under `src/obsidiandroid/database/`** with repo-root identity shims and are included in **`facade_manifest.FACADE_EXPORT_NAMES`** (package **`__all__`**).
 
 ### Enforcement & gates
 

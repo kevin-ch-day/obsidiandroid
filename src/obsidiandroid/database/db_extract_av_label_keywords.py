@@ -2,7 +2,7 @@
 # Purpose : Extracts and analyzes AV label keywords to generate ML training features.
 #
 # Canonical implementation; ``database.db_extract_av_label_keywords`` is an identity shim.
-# Not exported from ``obsidiandroid.database`` ``__all__`` (optional operator helper).
+# Exported from ``obsidiandroid.database`` (see ``facade_manifest.FACADE_EXPORT_NAMES``).
 
 from __future__ import annotations
 

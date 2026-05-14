@@ -1,7 +1,7 @@
 # Filename: src/obsidiandroid/database/db_av_engine_stats.py
 #
 # Canonical implementation; ``database.db_av_engine_stats`` is an identity shim.
-# Not exported from ``obsidiandroid.database`` ``__all__`` (optional operator helper).
+# Exported from ``obsidiandroid.database`` (see ``facade_manifest.FACADE_EXPORT_NAMES``).
 
 from __future__ import annotations
 

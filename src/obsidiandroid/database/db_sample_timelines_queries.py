@@ -2,7 +2,7 @@
 # Purpose : Time-based queries for Android malware sample tracking and trend analysis
 #
 # Canonical implementation; ``database.db_sample_timelines_queries`` is an identity shim.
-# Not exported from ``obsidiandroid.database`` ``__all__`` (optional operator helper).
+# Exported from ``obsidiandroid.database`` (see ``facade_manifest.FACADE_EXPORT_NAMES``).
 
 from __future__ import annotations
 

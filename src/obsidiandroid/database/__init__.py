@@ -17,11 +17,9 @@ or::
 
     from obsidiandroid.database import db_engine
 
-Optional ``database.*`` helpers (timelines, AV disagreement, label keywords, …)
-also live under ``src/obsidiandroid/database/`` with repo-root identity shims;
-they are not re-exported from this package's ``__all__`` unless the façade widens.
-The ordered façade export names (and optional legacy-only shim names for CI) are
-defined in :mod:`obsidiandroid.database.facade_manifest`.
+Timeline / AV-stats / label-keyword helpers are on the same façade list as the
+core DB modules (see :mod:`obsidiandroid.database.facade_manifest`); repo-root
+``database.*`` shims remain thin identity aliases.
 """
 
 from __future__ import annotations

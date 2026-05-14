@@ -28,10 +28,7 @@ FACADE_EXPORT_NAMES: tuple[str, ...] = (
     "db_permission_analysis_queries",
     "db_utils",
     "split_db_health",
-)
-
-# Repo-root ``database.<name>`` identity shims without a façade ``__all__`` export.
-OPTIONAL_LEGACY_SHIM_ONLY_NAMES: tuple[str, ...] = (
+    # Operator / diagnostics helpers (same identity shims as ``database.<name>``).
     "db_sample_timelines_queries",
     "db_av_disagreement_analysis",
     "db_av_engine_stats",
@@ -43,13 +40,11 @@ FACADE_MODULE_PAIRS: tuple[tuple[str, str], ...] = tuple(
 )
 
 LEGACY_SHIM_PAIRS: tuple[tuple[str, str], ...] = tuple(
-    (name, f"database.{name}")
-    for name in FACADE_EXPORT_NAMES + OPTIONAL_LEGACY_SHIM_ONLY_NAMES
+    (name, f"database.{name}") for name in FACADE_EXPORT_NAMES
 )
 
 __all__ = (
     "FACADE_EXPORT_NAMES",
-    "OPTIONAL_LEGACY_SHIM_ONLY_NAMES",
     "FACADE_MODULE_PAIRS",
     "LEGACY_SHIM_PAIRS",
 )
