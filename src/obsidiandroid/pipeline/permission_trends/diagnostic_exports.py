@@ -9,6 +9,7 @@ import pandas as pd
 
 from config import app_config
 
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.pipeline.permission_trends.bundle_io import export_df_with_latest
 
 
@@ -29,8 +30,11 @@ def export_selected_visual_family_registry(
         )
     )
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    min_support = int(getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 20))
-    max_count = int(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12))
+    min_support = safe_int_config_value(
+        getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 20),
+        default=20,
+    )
+    max_count = safe_int_config_value(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12), default=12)
     selected_set = {str(name) for name in visual_families}
 
     registry_df = pd.DataFrame(

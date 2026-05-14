@@ -13,6 +13,7 @@ import pandas as pd
 
 from config import app_config
 
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.pipeline.permission_trends.constants import (
     ARTIFACT_GROUP_FIGURES,
 )
@@ -68,7 +69,7 @@ def export_banker_trends_line_plot(
             "banker_receive_sms_prevalence": "RECEIVE_SMS",
             "banker_send_sms_prevalence": "SEND_SMS",
         }
-        max_lines = max(int(getattr(app_config, "MAX_TIME_SERIES_LINES", 4)), 1)
+        max_lines = max(safe_int_config_value(getattr(app_config, "MAX_TIME_SERIES_LINES", 4), default=4), 1)
         ranked_series = sorted(
             series_map.items(),
             key=lambda item: float(pd.to_numeric(plot_df[item[0]], errors="coerce").fillna(0.0).mean()),
@@ -273,7 +274,10 @@ def export_generic_scatter(
     except Exception:
         return None
     metrics = build_sample_level_permission_metrics(sample_core_df, permission_rows_df)
-    min_vendor_count = int(getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5))
+    min_vendor_count = safe_int_config_value(
+        getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5),
+        default=5,
+    )
     consensus_keep = consensus_df[consensus_df["vendor_count"] >= min_vendor_count][
         ["sample_id", "consensus_score_all_vendors"]
     ].copy()
@@ -327,7 +331,10 @@ def export_family_permission_heatmap(
     """Export pruned family-permission prevalence heatmap for paper readability."""
     if not isinstance(family_profiles_df, pd.DataFrame) or family_profiles_df.empty or not visual_families:
         return None
-    max_perms = int(getattr(app_config, "MAX_FAMILY_HEATMAP_PERMISSIONS", 25))
+    max_perms = safe_int_config_value(
+        getattr(app_config, "MAX_FAMILY_HEATMAP_PERMISSIONS", 25),
+        default=25,
+    )
     scope_df = family_profiles_df.copy()
     if "profile_scope" in scope_df.columns:
         scope_df = scope_df[scope_df["profile_scope"].astype(str) == "main"].copy()

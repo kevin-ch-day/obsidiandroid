@@ -9,6 +9,7 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 
 
 def extract_selected_vendors(feature_df: pd.DataFrame | None) -> list[str]:
@@ -70,7 +71,10 @@ def build_consensus_distribution(
     merged["top1_vote_share"] = merged["top1_vote_share_all"]
     merged["top2_vote_share"] = merged["top2_vote_share_all"]
     merged["top1_minus_top2_gap"] = merged["top1_minus_top2_gap_all"]
-    min_vendor_count = int(getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5))
+    min_vendor_count = safe_int_config_value(
+        getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5),
+        default=5,
+    )
     merged["low_vendor_count_flag"] = (merged["vendor_count"] < min_vendor_count).astype(int)
     keep_cols = [
         "run_id",
@@ -172,7 +176,7 @@ def build_generic_definition_audit(
     consensus_df: pd.DataFrame,
     run_id: str,
 ) -> pd.DataFrame:
-    min_support = int(getattr(app_config, "GENERIC_MIN_SUPPORT", 30))
+    min_support = safe_int_config_value(getattr(app_config, "GENERIC_MIN_SUPPORT", 30), default=30)
     support_map = family_support_df.set_index("family_id")["sample_count"].to_dict()
     merged = sample_core_df[["sample_id", "family_id", "type_slug"]].merge(
         consensus_df[["sample_id", "consensus_score_all_vendors", "consensus_entropy_all_vendors", "vendor_count"]],
@@ -182,7 +186,10 @@ def build_generic_definition_audit(
     merged["family_support"] = merged["family_id"].map(support_map).fillna(0).astype(int)
     merged["is_low_support_family"] = (merged["family_support"] < min_support).astype(int)
     merged["is_generic_primary"] = ((merged["type_slug"] == "unknown") | (merged["family_id"] < 0)).astype(int)
-    min_vendor_count = int(getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5))
+    min_vendor_count = safe_int_config_value(
+        getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5),
+        default=5,
+    )
     valid = merged[merged["vendor_count"] >= min_vendor_count]
     if valid.empty:
         low_consensus_threshold = 0.0

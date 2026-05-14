@@ -19,6 +19,7 @@ from config import app_config
 
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.pipeline.manifest.confusion_matrix_paths import find_primary_confusion_matrix
 from obsidiandroid.pipeline.manifest.hashing import sha256_hex
 from obsidiandroid.pipeline.manifest.paper_figure_renderers import (
@@ -739,7 +740,7 @@ def build_strict_paper2_exports(
             type_prevalence_path=type_prev_csv,
             discriminability_path=discrim_csv,
             output_path=fig_dir / figure_filename_map["fig2_type_permission_heatmap"],
-            top_permissions=int(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 16)),
+            top_permissions=safe_int_config_value(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 16), default=16),
         )
         render_paper_dangerous_distribution_from_table(
             dangerous_distribution_path=dangerous_csv,
@@ -879,9 +880,9 @@ def build_strict_paper2_exports(
             diagnostics_dir=diagnostics_dir,
             fig_dir=fig_dir,
             tab_dir=tab_dir,
-            top_permissions=int(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 16)),
-            top_families=int(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12)),
-            min_family_support=int(getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 20)),
+            top_permissions=safe_int_config_value(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 16), default=16),
+            top_families=safe_int_config_value(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12), default=12),
+            min_family_support=safe_int_config_value(getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 20), default=20),
             strict_profile=strict_profile,
         )
 
@@ -905,9 +906,9 @@ def build_strict_paper2_exports(
         profile_payload = {
             "strict_profile_enabled": strict_profile,
             "single_run_id": str(run_id),
-            "visual_family_support_threshold": int(getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 20)),
-            "top_families_visual": int(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12)),
-            "top_permissions": int(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 16)),
+            "visual_family_support_threshold": safe_int_config_value(getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 20), default=20),
+            "top_families_visual": safe_int_config_value(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12), default=12),
+            "top_permissions": safe_int_config_value(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 16), default=16),
             "paper_export_contract_version": contract_version,
         }
         profile_path = docs_dir / "paper_export_profile.json"
@@ -971,9 +972,9 @@ def build_strict_paper2_exports(
         "profile": {
             "strict_profile_enabled": strict_profile,
             "single_run_id": str(run_id),
-            "visual_family_support_threshold": int(getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 20)),
-            "top_families_visual": int(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12)),
-            "top_permissions": int(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 16)),
+            "visual_family_support_threshold": safe_int_config_value(getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 20), default=20),
+            "top_families_visual": safe_int_config_value(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12), default=12),
+            "top_permissions": safe_int_config_value(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 16), default=16),
             "paper_export_contract_version": contract_version,
         },
         "artifact_paths": sorted(set([str(Path(path).resolve()) for path in exported_paths])),

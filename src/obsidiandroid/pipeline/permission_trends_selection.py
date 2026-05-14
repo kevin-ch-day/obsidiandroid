@@ -6,6 +6,7 @@ from __future__ import annotations
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 
 
 def normalize_analysis_scope() -> str:
@@ -125,8 +126,11 @@ def select_visual_families(sample_core_df: pd.DataFrame) -> list[str]:
     """Select families for family-level visuals using support threshold and cap."""
     if not isinstance(sample_core_df, pd.DataFrame) or sample_core_df.empty:
         return []
-    min_support = int(getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 20))
-    max_count = int(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12))
+    min_support = safe_int_config_value(
+        getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 20),
+        default=20,
+    )
+    max_count = safe_int_config_value(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12), default=12)
     family_df = sample_core_df.copy()
     family_df["family_canonical"] = family_df.get("family_canonical", "").astype(str).str.strip()
     family_df = family_df[family_df["family_canonical"] != ""]

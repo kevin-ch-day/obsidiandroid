@@ -1101,7 +1101,10 @@ def run_pipeline(
             "active_training_classes": getattr(
                 app_config, "RUNTIME_TRAINING_LABEL_CLASS_COUNT", None
             ),
-            "cohort_family_count": int(getattr(app_config, "RUNTIME_COHORT_FAMILY_COUNT", 0) or 0),
+            "cohort_family_count": safe_int_config_value(
+                getattr(app_config, "RUNTIME_COHORT_FAMILY_COUNT", 0),
+                default=0,
+            )
         }
         manifest_context["post_low_support_training_rows"] = getattr(
             app_config, "RUNTIME_POST_LOW_SUPPORT_TRAINING_ROWS", None

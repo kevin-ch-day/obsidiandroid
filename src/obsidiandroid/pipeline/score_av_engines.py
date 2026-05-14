@@ -12,6 +12,10 @@ import pandas as pd
 from obsidiandroid.pipeline import engine_normalization
 from obsidiandroid.risk_band import phase_score_engines
 from config import app_config
+from obsidiandroid.common.cv_fold_config import (
+    safe_float_config_value,
+    safe_int_config_value,
+)
 from obsidiandroid.database import db_engine
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.reporting import export_manager as em
@@ -153,10 +157,22 @@ def validate_scoring_output(df: pd.DataFrame, verbose: bool = False):
 
 def apply_scoring_defaults(config: dict) -> dict:
     """Apply default scoring parameters."""
-    config.setdefault("min_engine_detections", int(getattr(app_config, "ENGINE_MIN_SAMPLES_SCANNED", 10)))
-    config.setdefault("min_coverage_pct", float(getattr(app_config, "ENGINE_MIN_COVERAGE_PCT", 20.0)))
-    config.setdefault("min_positive_flags", int(getattr(app_config, "ENGINE_MIN_POSITIVE_FLAGS", 5)))
-    config.setdefault("min_detection_pct", float(getattr(app_config, "ENGINE_MIN_DETECTION_PCT", 1.0)))
+    config.setdefault(
+        "min_engine_detections",
+        safe_int_config_value(getattr(app_config, "ENGINE_MIN_SAMPLES_SCANNED", 10), default=10),
+    )
+    config.setdefault(
+        "min_coverage_pct",
+        safe_float_config_value(getattr(app_config, "ENGINE_MIN_COVERAGE_PCT", 20.0), default=20.0),
+    )
+    config.setdefault(
+        "min_positive_flags",
+        safe_int_config_value(getattr(app_config, "ENGINE_MIN_POSITIVE_FLAGS", 5), default=5),
+    )
+    config.setdefault(
+        "min_detection_pct",
+        safe_float_config_value(getattr(app_config, "ENGINE_MIN_DETECTION_PCT", 1.0), default=1.0),
+    )
     config.setdefault("exclude_zero_detection", bool(getattr(app_config, "ENGINE_EXCLUDE_ZERO_DETECTION", True)))
     config.setdefault("trusted_only", False)
     config.setdefault("active_only", True)

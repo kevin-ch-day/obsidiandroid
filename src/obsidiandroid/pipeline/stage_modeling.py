@@ -13,6 +13,7 @@ import pandas as pd
 from obsidiandroid.evaluation import engine_scoring_summary
 from obsidiandroid.feature_engineering import compute_vendor_scores
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.labeling import classification_label_resolver
 from obsidiandroid.modeling import pipeline_core
 from obsidiandroid.features import feature_vector_builder
@@ -165,7 +166,7 @@ def build_feature_matrix_stage(
         Feature dataframe if successful, otherwise ``None``.
     """
     du.print_subheader("Build ML Feature Vectors")
-    top_k = int(getattr(app_config, "FEATURE_TOP_K", 8))
+    top_k = safe_int_config_value(getattr(app_config, "FEATURE_TOP_K", 8), default=8)
     score_field = str(getattr(app_config, "FEATURE_SCORE_FIELD", "Final ML Score"))
     if bool(getattr(app_config, "ENABLE_LEAKAGE_SAFE_VENDOR_SCORING", True)):
         leakage_safe_field = str(
@@ -234,7 +235,10 @@ def build_feature_matrix_stage(
             fallback_added_count=fallback_added,
             selected_vendor_count=selected_vendor_count,
             selection_policy=selection_policy,
-            requested_top_k=int(getattr(app_config, "FEATURE_TOP_K", top_k)),
+            requested_top_k=safe_int_config_value(
+                getattr(app_config, "FEATURE_TOP_K", top_k),
+                default=top_k,
+            ),
             strict_evidence_mode=bool(getattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False)),
         )
         if fallback_used:

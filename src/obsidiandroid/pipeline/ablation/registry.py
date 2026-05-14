@@ -12,6 +12,7 @@ import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.features import feature_vector_builder
 from obsidiandroid.matrix.av_binary_matrix_builder import METADATA_COLS as AV_METADATA_COLS
 
@@ -33,7 +34,7 @@ def build_vendor_matrix(
     return feature_vector_builder.build_feature_vector(
         weights_df=weights_df,
         parsed_vendor_data=parsed_data,
-        top_k=int(getattr(app_config, "FEATURE_TOP_K", 8)),
+        top_k=safe_int_config_value(getattr(app_config, "FEATURE_TOP_K", 8), default=8),
         score_preference=score_field,
         exclude_categories=list(getattr(app_config, "FEATURE_EXCLUDE_VENDOR_CATEGORIES", [])),
         min_score=getattr(app_config, "FEATURE_MIN_VENDOR_SCORE", 0.0),

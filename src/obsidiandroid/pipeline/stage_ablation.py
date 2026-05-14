@@ -15,6 +15,7 @@ import shutil
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_float_config_value
 from obsidiandroid.modeling import distribution_reporter
 from obsidiandroid.modeling import pipeline_core
 from obsidiandroid.cli.ui import display as du
@@ -541,7 +542,10 @@ def run_ablation_experiments(
             mismatch_count = max(0, len(base_ids) - len(common_ids))
             base_count = max(1, len(base_ids))
             mismatch_ratio = mismatch_count / base_count
-            allowed_ratio = float(getattr(app_config, "ABLATION_MAX_MISMATCH_RATIO", 0.01))
+            allowed_ratio = safe_float_config_value(
+                getattr(app_config, "ABLATION_MAX_MISMATCH_RATIO", 0.01),
+                default=0.01,
+            )
             if mismatch_ratio > allowed_ratio:
                 du.print_error(
                     "[ABLATION] Frozen cohort mismatch detected. "

@@ -387,7 +387,7 @@ def write_experiment_contract_snapshot(
                     "RUNTIME_TRAINING_LABEL_CLASS_COUNT",
                     None,
                 ),
-                "cohort_family_count": int(getattr(app_config, "RUNTIME_COHORT_FAMILY_COUNT", 0) or 0),
+                "cohort_family_count": _safe_config_int("RUNTIME_COHORT_FAMILY_COUNT", default=0),
             },
             "split_contract": {
                 "split_hash": split_hash,

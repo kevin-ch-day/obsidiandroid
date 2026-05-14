@@ -14,6 +14,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 import obsidiandroid.governance.run_manifest as run_manifest
 from obsidiandroid.pipeline.stage_results_warehouse import persist_permission_trends_results
 from obsidiandroid.pipeline.permission_trends_selection import (
@@ -124,7 +125,10 @@ def _spearman_with_bootstrap_ci(
     return _spearman_with_bootstrap_ci_impl(
         x,
         y,
-        bootstrap_resamples=int(getattr(app_config, "CONSENSUS_BOOTSTRAP_RESAMPLES", 2000)),
+        bootstrap_resamples=safe_int_config_value(
+            getattr(app_config, "CONSENSUS_BOOTSTRAP_RESAMPLES", 2000),
+            default=2000,
+        ),
     )
 
 
@@ -349,7 +353,7 @@ def run_permission_trends_report_stage(
     type_heatmap_source_df = _filter_type_prevalence_for_visuals(type_prevalence_df)
     type_selected_permissions = _select_permissions_for_type_heatmap(
         method=str(getattr(app_config, "PERMISSION_SELECTION_METHOD", "discriminability")),
-        top_k=int(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 30)),
+        top_k=safe_int_config_value(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 30), default=30),
         type_prevalence_df=type_heatmap_source_df,
         discriminability_df=discriminability_df,
         permission_rows_df=permission_rows_df,
@@ -362,7 +366,7 @@ def run_permission_trends_report_stage(
             run_id=run_id,
             file_stem="type_permission_heatmap",
             bundle_dir=bundle_dir,
-            top_k=int(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 30)),
+            top_k=safe_int_config_value(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 30), default=30),
             selected_permissions=type_selected_permissions,
             title="Type permission heatmap",
         )
@@ -370,8 +374,8 @@ def run_permission_trends_report_stage(
         else None
     )
     paper_variant_paths: list[str] = []
-    top_permissions_visual = int(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 30))
-    top_families_visual = int(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12))
+    top_permissions_visual = safe_int_config_value(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 30), default=30)
+    top_families_visual = safe_int_config_value(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12), default=12)
     canonical_heatmap_paths = _publish_canonical_type_heatmap(
         source_path=type_heatmap_png,
         run_id=run_id,
@@ -421,8 +425,11 @@ def run_permission_trends_report_stage(
         visual_families=visual_families,
         run_id=run_id,
     )
-    required_visual_families = int(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12))
-    min_visual_support = int(getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 20))
+    required_visual_families = safe_int_config_value(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12), default=12)
+    min_visual_support = safe_int_config_value(
+        getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 20),
+        default=20,
+    )
     if len(visual_families) < required_visual_families:
         shortfall_path = _export_jsd_support_shortfall_artifact(
             run_id=run_id,
@@ -545,8 +552,11 @@ def run_permission_trends_report_stage(
         bundle_dir=bundle_dir,
     )
     if bool(getattr(app_config, "PAPER_MODE_ENABLED", False)) and include_type_figures:
-        top_k_paper = int(getattr(app_config, "PAPER_HEATMAP_TOP_K", 35))
-        top_k_dangerous = int(getattr(app_config, "PAPER_DANGEROUS_HEATMAP_TOP_K", 25))
+        top_k_paper = safe_int_config_value(getattr(app_config, "PAPER_HEATMAP_TOP_K", 35), default=35)
+        top_k_dangerous = safe_int_config_value(
+            getattr(app_config, "PAPER_DANGEROUS_HEATMAP_TOP_K", 25),
+            default=25,
+        )
         discrim_permissions = _select_discriminative_permissions(
             discriminability_df=discriminability_df,
             top_k=top_k_paper,
@@ -1596,7 +1606,10 @@ def _build_generic_vs_non_generic_summary(
     run_id: str,
 ) -> pd.DataFrame:
     metrics_df = _build_sample_level_permission_metrics(sample_core_df, permission_rows_df)
-    min_vendor_count = int(getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5))
+    min_vendor_count = safe_int_config_value(
+        getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5),
+        default=5,
+    )
     consensus_keep = consensus_df[consensus_df["vendor_count"] >= min_vendor_count][
         ["sample_id", "consensus_score_all_vendors"]
     ].copy()
@@ -1722,7 +1735,10 @@ def _build_banker_family_pattern_clusters(
         empty = pd.DataFrame(columns=["run_id", "family_id", "family_canonical", "sample_count", "cluster_id"])
         return empty, pd.DataFrame(columns=["run_id", "cluster_id", "permission", "mean_prevalence"])
     n = len(pivot)
-    requested_k = int(getattr(app_config, "BANKER_PATTERN_CLUSTER_K", 3))
+    requested_k = safe_int_config_value(
+        getattr(app_config, "BANKER_PATTERN_CLUSTER_K", 3),
+        default=3,
+    )
     k = max(1, min(requested_k, n))
     if n == 1 or k == 1:
         labels = np.zeros(n, dtype=int)
@@ -1804,13 +1820,16 @@ def _build_bundle_metadata(
     type_heatmap_identity: str,
     dataset_time_contract: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-    min_selected = int(getattr(app_config, "FEATURE_MIN_SELECTED_VENDORS", 1))
+    min_selected = safe_int_config_value(
+        getattr(app_config, "FEATURE_MIN_SELECTED_VENDORS", 1),
+        default=1,
+    )
     vendor_constrained = len(selected_vendors) < min_selected
     snapshot_meta = {
         "selection_rule_version": str(
             getattr(app_config, "ANALYSIS_SELECTION_RULE_VERSION", "snapshot_v1")
         ),
-        "min_support": int(getattr(app_config, "GENERIC_MIN_SUPPORT", 30)),
+        "min_support": safe_int_config_value(getattr(app_config, "GENERIC_MIN_SUPPORT", 30), default=30),
         "permission_global_support_floor_rule": "max(50,1%)",
     }
     snapshot_meta.update(_read_snapshot_meta())
@@ -1830,11 +1849,20 @@ def _build_bundle_metadata(
         "vendor_constrained_run_flag": vendor_constrained,
         "engine_included_count": engine_included_count,
         "engine_excluded_count": engine_excluded_count,
-        "feature_top_k": int(getattr(app_config, "FEATURE_TOP_K", 8)),
+        "feature_top_k": safe_int_config_value(getattr(app_config, "FEATURE_TOP_K", 8), default=8),
         "consensus_formula_version": "v1_top_vote_share_normalized_entropy",
-        "consensus_min_vendor_count": int(getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5)),
-        "consensus_bootstrap_resamples": int(getattr(app_config, "CONSENSUS_BOOTSTRAP_RESAMPLES", 2000)),
-        "banker_pattern_cluster_k": int(getattr(app_config, "BANKER_PATTERN_CLUSTER_K", 3)),
+        "consensus_min_vendor_count": safe_int_config_value(
+            getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5),
+            default=5,
+        ),
+        "consensus_bootstrap_resamples": safe_int_config_value(
+            getattr(app_config, "CONSENSUS_BOOTSTRAP_RESAMPLES", 2000),
+            default=2000,
+        ),
+        "banker_pattern_cluster_k": safe_int_config_value(
+            getattr(app_config, "BANKER_PATTERN_CLUSTER_K", 3),
+            default=3,
+        ),
         "permission_support_floor": int(permission_support_floor),
         "kept_permission_count": int(kept_permission_count),
         "permission_pattern_policy": {

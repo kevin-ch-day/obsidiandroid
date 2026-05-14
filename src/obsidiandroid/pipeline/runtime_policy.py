@@ -12,6 +12,7 @@ from typing import Any
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 
 RUNTIME_OVERRIDE_KEYS = (
     "ENABLE_CROSS_VALIDATION",
@@ -137,7 +138,11 @@ def reset_runtime_markers() -> None:
     setattr(app_config, "RUNTIME_EXCLUDE_UNKNOWN_FROM_MAIN_RESULTS", False)
     setattr(app_config, "RUNTIME_ALLOW_GLOBAL_ARTIFACTS", False)
     setattr(app_config, "RUNTIME_EVIDENCE_MODE", False)
-    setattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", int(getattr(app_config, "MIN_FAMILY_SUPPORT", 3)))
+    setattr(
+        app_config,
+        "RUNTIME_MIN_FAMILY_SUPPORT",
+        safe_int_config_value(getattr(app_config, "MIN_FAMILY_SUPPORT", 3), default=3),
+    )
 
 
 def enforce_paper_perturbation_axes(profile: dict[str, Any], paper_mode: bool) -> None:

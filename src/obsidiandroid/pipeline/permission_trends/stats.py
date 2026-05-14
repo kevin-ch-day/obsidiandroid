@@ -10,6 +10,7 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.pipeline.permission_trends.stats_core import bh_fdr, cliffs_delta
 
 
@@ -58,7 +59,10 @@ def build_consensus_correlation_report(
     spearman_with_bootstrap_ci: Callable[[pd.Series, pd.Series], tuple[float, float, float, float]],
 ) -> tuple[pd.DataFrame, str]:
     metrics_df = build_sample_level_permission_metrics(sample_core_df, permission_rows_df)
-    min_vendor_count = int(getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5))
+    min_vendor_count = safe_int_config_value(
+        getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5),
+        default=5,
+    )
     consensus_keep = consensus_df[consensus_df["vendor_count"] >= min_vendor_count][["sample_id", "consensus_score_all_vendors"]].copy()
     merged = metrics_df.merge(consensus_keep, on="sample_id", how="inner")
     if merged.empty:

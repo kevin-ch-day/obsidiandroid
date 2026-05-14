@@ -14,6 +14,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 
 from obsidiandroid.orchestration.permission_features import build_permission_feature_frame
 from obsidiandroid.pipeline.sample_preparation import build_metadata_feature_frame
@@ -327,9 +328,12 @@ def build_permission_enrichment_frame(
     if not enabled:
         return None
 
-    min_support = int(getattr(app_config, "PERMISSION_MIN_SUPPORT", 2))
-    max_features_cfg = getattr(app_config, "PERMISSION_MAX_FEATURES", 0)
-    max_features = int(max_features_cfg) if int(max_features_cfg) > 0 else None
+    min_support = safe_int_config_value(getattr(app_config, "PERMISSION_MIN_SUPPORT", 2), default=2)
+    max_features_n = safe_int_config_value(
+        getattr(app_config, "PERMISSION_MAX_FEATURES", 0),
+        default=0,
+    )
+    max_features = max_features_n if max_features_n > 0 else None
     permission_df = build_permission_feature_frame(
         samples_df=samples_df,
         min_permission_support=min_support,

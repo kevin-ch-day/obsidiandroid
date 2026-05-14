@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional, Tuple
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_float_config_value
 from obsidiandroid.evaluation import vendor_feature_extractor
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.observability.logging import get_logger, log_event
@@ -262,9 +263,18 @@ def _build_parser_quality_export_df(scorecard_df: pd.DataFrame) -> pd.DataFrame:
     # Build/repair gating columns so diagnostics remain meaningful even when
     # upstream summary frames do not yet include governance fields.
     if "parser_gate_status" not in export_df.columns:
-        unknown_cut = float(getattr(app_config, "PARSER_UNKNOWN_EXCLUDE_THRESHOLD", 0.70))
-        mapped_cut = float(getattr(app_config, "PARSER_MAPPED_MIN_THRESHOLD", 0.30))
-        generic_cut = float(getattr(app_config, "PARSER_GENERIC_DOWNWEIGHT_THRESHOLD", 0.60))
+        unknown_cut = safe_float_config_value(
+            getattr(app_config, "PARSER_UNKNOWN_EXCLUDE_THRESHOLD", 0.70),
+            default=0.70,
+        )
+        mapped_cut = safe_float_config_value(
+            getattr(app_config, "PARSER_MAPPED_MIN_THRESHOLD", 0.30),
+            default=0.30,
+        )
+        generic_cut = safe_float_config_value(
+            getattr(app_config, "PARSER_GENERIC_DOWNWEIGHT_THRESHOLD", 0.60),
+            default=0.60,
+        )
 
         gate_status = pd.Series("included", index=export_df.index, dtype="object")
         gate_status.loc[pd.to_numeric(export_df.get("unknown_ratio"), errors="coerce").fillna(0.0) > unknown_cut] = (
@@ -280,7 +290,10 @@ def _build_parser_quality_export_df(scorecard_df: pd.DataFrame) -> pd.DataFrame:
         export_df["parser_gate_status"] = gate_status
 
     if "downweight_factor" not in export_df.columns:
-        default_downweight = float(getattr(app_config, "PARSER_GENERIC_DOWNWEIGHT_FACTOR", 0.50))
+        default_downweight = safe_float_config_value(
+            getattr(app_config, "PARSER_GENERIC_DOWNWEIGHT_FACTOR", 0.50),
+            default=0.50,
+        )
         export_df["downweight_factor"] = 1.0
         export_df.loc[
             export_df["parser_gate_status"].astype(str).str.contains("downweight", case=False, na=False),
@@ -382,7 +395,10 @@ def _export_parser_stress_test(export_df: pd.DataFrame) -> None:
     unknown_grid = (0.60, 0.70, 0.80)
     mapped_grid = (0.20, 0.30, 0.40)
     generic_grid = (0.50, 0.60, 0.70)
-    downweight_factor = float(getattr(app_config, "PARSER_GENERIC_DOWNWEIGHT_FACTOR", 0.50))
+    downweight_factor = safe_float_config_value(
+        getattr(app_config, "PARSER_GENERIC_DOWNWEIGHT_FACTOR", 0.50),
+        default=0.50,
+    )
     rows: list[dict[str, object]] = []
 
     for unknown_cut in unknown_grid:
