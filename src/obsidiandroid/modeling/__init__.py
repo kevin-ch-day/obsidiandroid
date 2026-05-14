@@ -26,6 +26,8 @@ from __future__ import annotations
 import importlib
 import sys
 
+from .modeling_facade_manifest import MODELING_FACADE_EAGER_SUBMODULE_NAMES
+
 _LAZY_PHYSICAL_SUBMODULES = frozenset(
     {
         "pipeline_result_promoter",
@@ -58,38 +60,16 @@ def __dir__():
     return names
 
 
-_CANONICAL_SUBMODULE_NAMES = (
-    "data_alignment",
-    "distribution_reporter",
-    "feature_label_alignment_helper",
-    "ml_result_analyzer",
-    "ml_result_validator",
-    "model_prediction",
-    "model_trainer_factory",
-    "pipeline_core",
-)
-
-_LEGACY_BY_CANONICAL = {
-    "data_alignment": "obsidiandroid.modeling.data_alignment",
-    "distribution_reporter": "obsidiandroid.modeling.distribution_reporter",
-    "feature_label_alignment_helper": "obsidiandroid.modeling.feature_label_alignment_helper",
-    "ml_result_analyzer": "obsidiandroid.modeling.ml_result_analyzer",
-    "ml_result_validator": "obsidiandroid.modeling.ml_result_validator",
-    "model_prediction": "obsidiandroid.modeling.model_prediction",
-    "model_trainer_factory": "obsidiandroid.modeling.model_trainer_factory",
-    "pipeline_core": "obsidiandroid.modeling.pipeline_core",
-}
-
-for _name in _CANONICAL_SUBMODULE_NAMES:
-    _canon = importlib.import_module(_LEGACY_BY_CANONICAL[_name])
+for _name in MODELING_FACADE_EAGER_SUBMODULE_NAMES:
+    _canon = importlib.import_module(f"{__name__}.{_name}")
     globals()[_name] = _canon
     sys.modules.setdefault(f"obsidiandroid.modeling.{_name}", _canon)
 
 __all__ = [
     "model_exporter",
-    *_CANONICAL_SUBMODULE_NAMES,
+    *MODELING_FACADE_EAGER_SUBMODULE_NAMES,
     *_LAZY_PHYSICAL_SUBMODULES,
     "ml_trainers",
 ]
 
-del _CANONICAL_SUBMODULE_NAMES, _LEGACY_BY_CANONICAL, _name, _canon
+del _name, _canon

@@ -42,8 +42,16 @@ from obsidiandroid.diagnostics.analysis_diagnostics_shim import (
 from obsidiandroid.evaluation.analysis_evaluation_shim import (
     LEGACY_EXPORT_NAMES as ANALYSIS_EVALUATION_LEGACY_EXPORT_NAMES,
 )
+from obsidiandroid.feature_engineering.feature_engineering_import_surface import (
+    FEATURE_ENGINEERING_LEGACY_SHIM_MODULE_STEMS,
+)
+from obsidiandroid.features.features_facade_manifest import FEATURES_FACADE_ALIAS_TARGETS
 from obsidiandroid.governance.analysis_pipeline_governance_shim import (
     ANALYSIS_PIPELINE_GOVERNANCE_SUBMODULES,
+)
+from obsidiandroid.modeling.modeling_facade_manifest import (
+    MODELING_FACADE_EAGER_SUBMODULE_NAMES,
+    MODELING_FACADE_LEGACY_VIA_ML_CLASSIFICATION_TRAINING,
 )
 from obsidiandroid.modeling.ml_classification_shim_facades import (
     ML_CLASSIFICATION_BUILDER_SUBMODULES,
@@ -55,6 +63,9 @@ from obsidiandroid.modeling.ml_classification_shim_facades import (
     ML_CLASSIFICATION_TRAINING_PHYSICAL_SUBMODULES,
     ML_CLASSIFICATION_TRAINING_SUBMODULES,
     ML_CLASSIFICATION_VECTORIZATION_SUBMODULES,
+)
+from obsidiandroid.pipeline.permission_trends.permission_trends_submodule_manifest import (
+    PERMISSION_TRENDS_FACADE_SUBMODULE_NAMES,
 )
 from obsidiandroid.vendors.execution.analysis_execution_shim import (
     LEGACY_EXPORT_NAMES as ANALYSIS_EXECUTION_LEGACY_EXPORT_NAMES,
@@ -522,13 +533,8 @@ def main() -> int:
             return 1
     print("OK   obsidiandroid.pipeline.artifacts physical; analysis.pipeline.artifacts shims (Pass 76)")
 
-    _fe_pairs = (
-        ("assign_tier_scores", "obsidiandroid.feature_engineering.assign_tier_scores"),
-        ("compute_vendor_scores", "obsidiandroid.feature_engineering.compute_vendor_scores"),
-        ("prepare_engine_metrics", "obsidiandroid.feature_engineering.prepare_engine_metrics"),
-        ("pattern_analysis", "obsidiandroid.feature_engineering.pattern_analysis"),
-    )
-    for attr, canon_name in _fe_pairs:
+    for attr in FEATURE_ENGINEERING_LEGACY_SHIM_MODULE_STEMS:
+        canon_name = f"obsidiandroid.feature_engineering.{attr}"
         canon_mod = importlib.import_module(canon_name)
         # Package namespace binds ``assign_tier_scores`` to a function, not the submodule — skip getattr.
         alias_mod = importlib.import_module(f"obsidiandroid.feature_engineering.{attr}")
@@ -547,14 +553,9 @@ def main() -> int:
             return 1
     print("OK   obsidiandroid.feature_engineering physical; analysis.feature_engineering shims (Pass 78)")
 
-    _orch_pairs = (
-        ("metadata_features", "obsidiandroid.orchestration.metadata_features"),
-        ("methodology_artifacts", "obsidiandroid.orchestration.methodology_artifacts"),
-        ("permission_features", "obsidiandroid.orchestration.permission_features"),
-        ("profile_filters", "obsidiandroid.orchestration.profile_filters"),
-        ("runtime_reporting", "obsidiandroid.orchestration.runtime_reporting"),
-    )
-    for attr, canon_name in _orch_pairs:
+    _orch_pkg = importlib.import_module("obsidiandroid.orchestration")
+    for attr in _orch_pkg.__all__:
+        canon_name = f"obsidiandroid.orchestration.{attr}"
         canon_mod = importlib.import_module(canon_name)
         alias_mod = importlib.import_module(f"obsidiandroid.orchestration.{attr}")
         if alias_mod is not canon_mod:
@@ -572,12 +573,9 @@ def main() -> int:
             return 1
     print("OK   obsidiandroid.orchestration physical; analysis.orchestration shims (Pass 80)")
 
-    _matrix_pairs = (
-        ("av_binary_matrix_builder", "obsidiandroid.matrix.av_binary_matrix_builder"),
-        ("enrich_malicious_scores", "obsidiandroid.matrix.enrich_malicious_scores"),
-        ("enrich_score_features", "obsidiandroid.matrix.enrich_score_features"),
-    )
-    for attr, canon_name in _matrix_pairs:
+    _matrix_pkg = importlib.import_module("obsidiandroid.matrix")
+    for attr in _matrix_pkg.__all__:
+        canon_name = f"obsidiandroid.matrix.{attr}"
         canon_mod = importlib.import_module(canon_name)
         alias_mod = importlib.import_module(f"obsidiandroid.matrix.{attr}")
         if alias_mod is not canon_mod:
@@ -595,11 +593,9 @@ def main() -> int:
             return 1
     print("OK   obsidiandroid.matrix physical; analysis.matrix shims (Pass 80)")
 
-    _risk_band_pairs = (
-        ("assign_risk_band", "obsidiandroid.risk_band.assign_risk_band"),
-        ("phase_score_engines", "obsidiandroid.risk_band.phase_score_engines"),
-    )
-    for attr, canon_name in _risk_band_pairs:
+    _risk_pkg = importlib.import_module("obsidiandroid.risk_band")
+    for attr in _risk_pkg.__all__:
+        canon_name = f"obsidiandroid.risk_band.{attr}"
         canon_mod = importlib.import_module(canon_name)
         alias_mod = importlib.import_module(f"obsidiandroid.risk_band.{attr}")
         if alias_mod is not canon_mod:
@@ -618,15 +614,8 @@ def main() -> int:
     print("OK   obsidiandroid.risk_band physical; analysis.risk_band shims (Pass 81)")
 
     _permission_trends_facade = importlib.import_module("obsidiandroid.pipeline.permission_trends")
-    _permission_trends_pairs = (
-        ("bundle_manifest", "obsidiandroid.pipeline.permission_trends.bundle_manifest"),
-        ("constants", "obsidiandroid.pipeline.permission_trends.constants"),
-        ("publish_paths", "obsidiandroid.pipeline.permission_trends.publish_paths"),
-        ("reporting_support", "obsidiandroid.pipeline.permission_trends.reporting_support"),
-        ("sample_permission_data", "obsidiandroid.pipeline.permission_trends.sample_permission_data"),
-        ("stats_core", "obsidiandroid.pipeline.permission_trends.stats_core"),
-    )
-    for attr, canon_name in _permission_trends_pairs:
+    for attr in PERMISSION_TRENDS_FACADE_SUBMODULE_NAMES:
+        canon_name = f"obsidiandroid.pipeline.permission_trends.{attr}"
         canon_mod = importlib.import_module(canon_name)
         facade_mod = getattr(_permission_trends_facade, attr)
         if facade_mod is not canon_mod:
@@ -652,17 +641,8 @@ def main() -> int:
     print("OK   obsidiandroid.pipeline.permission_trends submodules match legacy shims (Pass 74)")
 
     _modeling_facade = importlib.import_module("obsidiandroid.modeling")
-    _modeling_pairs = (
-        ("data_alignment", "obsidiandroid.modeling.data_alignment"),
-        ("distribution_reporter", "obsidiandroid.modeling.distribution_reporter"),
-        ("feature_label_alignment_helper", "obsidiandroid.modeling.feature_label_alignment_helper"),
-        ("ml_result_analyzer", "obsidiandroid.modeling.ml_result_analyzer"),
-        ("ml_result_validator", "obsidiandroid.modeling.ml_result_validator"),
-        ("model_prediction", "obsidiandroid.modeling.model_prediction"),
-        ("model_trainer_factory", "obsidiandroid.modeling.model_trainer_factory"),
-        ("pipeline_core", "obsidiandroid.modeling.pipeline_core"),
-    )
-    for attr, canon_name in _modeling_pairs:
+    for attr in MODELING_FACADE_EAGER_SUBMODULE_NAMES:
+        canon_name = f"obsidiandroid.modeling.{attr}"
         canon_mod = importlib.import_module(canon_name)
         facade_mod = getattr(_modeling_facade, attr)
         if facade_mod is not canon_mod:
@@ -678,32 +658,17 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-        if attr in {
-            "data_alignment",
-            "distribution_reporter",
-            "feature_label_alignment_helper",
-            "ml_result_analyzer",
-            "ml_result_validator",
-            "model_prediction",
-            "model_trainer_factory",
-            "pipeline_core",
-        }:
-            if attr in {
-                "data_alignment",
-                "model_prediction",
-                "model_trainer_factory",
-                "pipeline_core",
-            }:
-                legacy_name = f"ml_classification.training.{attr}"
-            else:
-                legacy_name = f"ml_classification.ml_utils.{attr}"
-            legacy_mod = importlib.import_module(legacy_name)
-            if legacy_mod is not canon_mod:
-                print(
-                    f"FAIL: {legacy_name} did not resolve to {canon_name}",
-                    file=sys.stderr,
-                )
-                return 1
+        if attr in MODELING_FACADE_LEGACY_VIA_ML_CLASSIFICATION_TRAINING:
+            legacy_name = f"ml_classification.training.{attr}"
+        else:
+            legacy_name = f"ml_classification.ml_utils.{attr}"
+        legacy_mod = importlib.import_module(legacy_name)
+        if legacy_mod is not canon_mod:
+            print(
+                f"FAIL: {legacy_name} did not resolve to {canon_name}",
+                file=sys.stderr,
+            )
+            return 1
     feature_alignment_canon = importlib.import_module("obsidiandroid.modeling.feature_alignment_utils")
     feature_alignment_legacy = importlib.import_module("ml_classification.ml_utils.feature_alignment_utils")
     if feature_alignment_legacy is not feature_alignment_canon:
@@ -739,14 +704,7 @@ def main() -> int:
     print("OK   obsidiandroid.modeling submodules match ml_classification")
 
     _features_facade = importlib.import_module("obsidiandroid.features")
-    _features_pairs = (
-        ("feature_encoder", "obsidiandroid.features.vectorization.feature_encoder"),
-        ("feature_engine_selection", "obsidiandroid.features.vectorization.feature_engine_selection"),
-        ("feature_schema_audit", "obsidiandroid.features.feature_schema_audit"),
-        ("feature_vector_builder", "obsidiandroid.features.vectorization.feature_vector_builder"),
-        ("feature_vendor_extractor", "obsidiandroid.features.vectorization.feature_vendor_extractor"),
-    )
-    for attr, canon_name in _features_pairs:
+    for attr, canon_name in FEATURES_FACADE_ALIAS_TARGETS:
         canon_mod = importlib.import_module(canon_name)
         facade_mod = getattr(_features_facade, attr)
         if facade_mod is not canon_mod:
