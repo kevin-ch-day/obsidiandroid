@@ -1,4 +1,10 @@
-"""Grid-search, cross-validation, and calibration configuration."""
+"""Grid-search, cross-validation, and calibration configuration.
+
+``GridSearchCV`` paths in ``obsidiandroid.modeling.ml_trainers`` use
+:data:`CV_N_JOBS` and :data:`CV_AVOID_NESTED_PARALLELISM` via
+:mod:`obsidiandroid.modeling.parallel_layout` so hyperparameter search matches
+the nested-parallelism policy used in :func:`obsidiandroid.modeling.training_helpers.perform_cross_validation`.
+"""
 
 ENABLE_RF_GRID_SEARCH = False
 RF_PARAM_GRID = {

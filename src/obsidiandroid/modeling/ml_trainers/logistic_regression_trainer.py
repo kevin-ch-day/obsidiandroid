@@ -14,6 +14,7 @@ from sklearn.metrics import classification_report
 from sklearn.model_selection import GridSearchCV
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.modeling.parallel_layout import grid_search_job_counts
 
 
 def _validate_inputs(X_train, y_train):
@@ -85,16 +86,18 @@ def train_logistic_regression(
         if verbose:
             _debug_training_info(y_train, cv_folds)
             _analyze_training_setup(X_train, y_train, param_grid, cv_folds)
+        inner_jobs, grid_jobs = grid_search_job_counts()
+        lr_fit_params = {**params, "n_jobs": inner_jobs}
         base_pipeline = make_pipeline(
             StandardScaler(),
-            LogisticRegression(**params)
+            LogisticRegression(**lr_fit_params)
         )
         grid = GridSearchCV(
             estimator=base_pipeline,
             param_grid=param_grid,
             cv=cv_folds,
             scoring="f1_macro",
-            n_jobs=-1,
+            n_jobs=grid_jobs,
         )
         try:
             grid.fit(X_train, y_train)
@@ -120,6 +123,7 @@ def train_logistic_regression(
                     LogisticRegression(
                         max_iter=getattr(app_config, "LR_MAX_ITER", 2000),
                         class_weight="balanced",
+                        n_jobs=inner_jobs,
                     )
                 ),
             )
@@ -129,7 +133,7 @@ def train_logistic_regression(
                 param_grid=ovr_param_grid,
                 cv=cv_folds,
                 scoring="f1_macro",
-                n_jobs=-1,
+                n_jobs=grid_jobs,
             )
             ovr_grid.fit(X_train, y_train)
             model = ovr_grid.best_estimator_

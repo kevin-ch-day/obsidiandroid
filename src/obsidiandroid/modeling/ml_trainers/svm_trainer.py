@@ -10,6 +10,7 @@ from sklearn.model_selection import GridSearchCV
 import numpy as np
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.modeling.parallel_layout import grid_search_job_counts
 
 
 def _validate_inputs(X_train, y_train):
@@ -65,13 +66,14 @@ def train_svm(
         if verbose:
             _debug_training_info(y_train, cv_folds)
             _analyze_training_setup(X_train, y_train, param_grid, cv_folds)
+        _, grid_jobs = grid_search_job_counts()
         base_model = SVC(class_weight="balanced", probability=True)
         grid = GridSearchCV(
             estimator=base_model,
             param_grid=param_grid,
             cv=cv_folds,
             scoring="f1_macro",
-            n_jobs=-1,
+            n_jobs=grid_jobs,
         )
         grid.fit(X_train, y_train)
         model = grid.best_estimator_

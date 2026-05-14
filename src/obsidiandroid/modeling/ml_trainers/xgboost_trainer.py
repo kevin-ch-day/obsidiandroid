@@ -10,6 +10,7 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
 from config import app_config
+from obsidiandroid.modeling.parallel_layout import grid_search_job_counts
 
 
 def _resolve_xgb_runtime_guardrails(num_classes: int) -> dict:
@@ -238,7 +239,9 @@ def train_xgboost(
         folds = min(cv_folds or getattr(app_config, "CV_FOLDS", 3), min_class_size)
         cv = StratifiedKFold(n_splits=folds, shuffle=True, random_state=random_state)
 
+        inner_jobs, grid_jobs = grid_search_job_counts()
         base_params = {k: v for k, v in model_params.items() if k not in param_grid}
+        base_params["n_jobs"] = inner_jobs
         estimator = xgb.XGBClassifier(**base_params)
 
         grid = GridSearchCV(
@@ -246,7 +249,7 @@ def train_xgboost(
             param_grid=param_grid,
             cv=cv,
             scoring="f1_macro",
-            n_jobs=-1,
+            n_jobs=grid_jobs,
         )
         grid.fit(X_fit, y_fit)
         model = grid.best_estimator_
