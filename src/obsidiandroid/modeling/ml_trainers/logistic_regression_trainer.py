@@ -14,7 +14,10 @@ from sklearn.metrics import classification_report
 from sklearn.model_selection import GridSearchCV
 from config import app_config
 from obsidiandroid.cli.ui import display as du
-from obsidiandroid.modeling.parallel_layout import grid_search_job_counts
+from obsidiandroid.modeling.parallel_layout import (
+    grid_search_job_counts,
+    stratified_kfold_for_grid_search,
+)
 
 
 def _validate_inputs(X_train, y_train):
@@ -69,8 +72,13 @@ def train_logistic_regression(
 
     # Build model pipeline
     start_time = time.time()
+    lr_cv_rs = int(kwargs.get("random_state", getattr(app_config, "RANDOM_STATE", 42)))
 
-    if grid_search or getattr(app_config, "ENABLE_LR_GRID_SEARCH", False):
+    want_lr_grid = bool(
+        grid_search or getattr(app_config, "ENABLE_LR_GRID_SEARCH", False)
+    )
+    model = None
+    if want_lr_grid:
         param_grid = getattr(app_config, "LR_PARAM_GRID", {
             "logisticregression__C": [0.1, 1.0, 10.0],
             "logisticregression__solver": ["lbfgs"],
@@ -82,65 +90,76 @@ def train_logistic_regression(
             param_grid.pop("logisticregression__penalty", None)
         label_counts = Counter(y_train)
         min_class_size = min(label_counts.values())
-        cv_folds = min(getattr(app_config, "CV_FOLDS", 3), min_class_size)
-        if verbose:
-            _debug_training_info(y_train, cv_folds)
-            _analyze_training_setup(X_train, y_train, param_grid, cv_folds)
-        inner_jobs, grid_jobs = grid_search_job_counts()
-        lr_fit_params = {**params, "n_jobs": inner_jobs}
-        base_pipeline = make_pipeline(
-            StandardScaler(),
-            LogisticRegression(**lr_fit_params)
+        cv_splitter = stratified_kfold_for_grid_search(
+            min_class_size, random_state=lr_cv_rs
         )
-        grid = GridSearchCV(
-            estimator=base_pipeline,
-            param_grid=param_grid,
-            cv=cv_folds,
-            scoring="f1_macro",
-            n_jobs=grid_jobs,
-        )
-        try:
-            grid.fit(X_train, y_train)
-            model = grid.best_estimator_
-            lr_params = model.named_steps["logisticregression"].get_params()
-            model_params.update(lr_params)
-        except ValueError as exc:
-            error_msg = str(exc).lower()
-            has_liblinear = "liblinear" in error_msg or _grid_contains_solver(param_grid, "liblinear")
-            is_multiclass = len(set(y_train)) > 2
-            if not (has_liblinear and is_multiclass):
-                raise
-
+        if cv_splitter is None:
             if verbose:
-                print(
-                    "[WARNING] liblinear is not multiclass-compatible in this sklearn build; "
-                    "falling back to OneVsRest(LogisticRegression)."
+                du.print_warning(
+                    "[LOGISTIC_REGRESSION] Grid search skipped: need ≥2 samples per class "
+                    f"(minimum count was {min_class_size}). Fitting default pipeline."
                 )
-
-            ovr_pipeline = make_pipeline(
+        else:
+            n_splits = cv_splitter.n_splits
+            if verbose:
+                _debug_training_info(y_train, n_splits)
+                _analyze_training_setup(X_train, y_train, param_grid, n_splits)
+            inner_jobs, grid_jobs = grid_search_job_counts()
+            lr_fit_params = {**params, "n_jobs": inner_jobs}
+            base_pipeline = make_pipeline(
                 StandardScaler(),
-                OneVsRestClassifier(
-                    LogisticRegression(
-                        max_iter=getattr(app_config, "LR_MAX_ITER", 2000),
-                        class_weight="balanced",
-                        n_jobs=inner_jobs,
-                    )
-                ),
+                LogisticRegression(**lr_fit_params)
             )
-            ovr_param_grid = _transform_grid_for_ovr(param_grid)
-            ovr_grid = GridSearchCV(
-                estimator=ovr_pipeline,
-                param_grid=ovr_param_grid,
-                cv=cv_folds,
+            grid = GridSearchCV(
+                estimator=base_pipeline,
+                param_grid=param_grid,
+                cv=cv_splitter,
                 scoring="f1_macro",
                 n_jobs=grid_jobs,
             )
-            ovr_grid.fit(X_train, y_train)
-            model = ovr_grid.best_estimator_
-            ovr_params = model.named_steps["onevsrestclassifier"].estimator.get_params()
-            model_params.update(ovr_params)
-            model_params["solver"] = ovr_params.get("solver", "liblinear")
-    else:
+            try:
+                grid.fit(X_train, y_train)
+                model = grid.best_estimator_
+                lr_params = model.named_steps["logisticregression"].get_params()
+                model_params.update(lr_params)
+            except ValueError as exc:
+                error_msg = str(exc).lower()
+                has_liblinear = "liblinear" in error_msg or _grid_contains_solver(param_grid, "liblinear")
+                is_multiclass = len(set(y_train)) > 2
+                if not (has_liblinear and is_multiclass):
+                    raise
+
+                if verbose:
+                    print(
+                        "[WARNING] liblinear is not multiclass-compatible in this sklearn build; "
+                        "falling back to OneVsRest(LogisticRegression)."
+                    )
+
+                ovr_pipeline = make_pipeline(
+                    StandardScaler(),
+                    OneVsRestClassifier(
+                        LogisticRegression(
+                            max_iter=getattr(app_config, "LR_MAX_ITER", 2000),
+                            class_weight="balanced",
+                            n_jobs=inner_jobs,
+                        )
+                    ),
+                )
+                ovr_param_grid = _transform_grid_for_ovr(param_grid)
+                ovr_grid = GridSearchCV(
+                    estimator=ovr_pipeline,
+                    param_grid=ovr_param_grid,
+                    cv=cv_splitter,
+                    scoring="f1_macro",
+                    n_jobs=grid_jobs,
+                )
+                ovr_grid.fit(X_train, y_train)
+                model = ovr_grid.best_estimator_
+                ovr_params = model.named_steps["onevsrestclassifier"].estimator.get_params()
+                model_params.update(ovr_params)
+                model_params["solver"] = ovr_params.get("solver", "liblinear")
+
+    if model is None:
         model = make_pipeline(
             StandardScaler(),
             LogisticRegression(**model_params)

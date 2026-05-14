@@ -10,7 +10,10 @@ from sklearn.model_selection import GridSearchCV
 import numpy as np
 from config import app_config
 from obsidiandroid.cli.ui import display as du
-from obsidiandroid.modeling.parallel_layout import grid_search_job_counts
+from obsidiandroid.modeling.parallel_layout import (
+    grid_search_job_counts,
+    stratified_kfold_for_grid_search,
+)
 
 # Train a Random Forest model using sample-aligned output
 def train_random_forest(
@@ -39,39 +42,54 @@ def train_random_forest(
 
     start = time.time()
 
-    if grid_search or getattr(app_config, "ENABLE_RF_GRID_SEARCH", False):
-        param_grid = getattr(app_config, "RF_PARAM_GRID", {
-            "n_estimators": [150, 200, 250],
-            "max_depth": [None, 12, 16, 20],
-            "min_samples_split": [2, 4],
-            "min_samples_leaf": [1, 2]
-        })
-        if getattr(app_config, "RF_ENABLE_OOB_SCORE", False):
-            param_grid = dict(param_grid)
-            param_grid["oob_score"] = [True]
+    should_grid = bool(
+        grid_search or getattr(app_config, "ENABLE_RF_GRID_SEARCH", False)
+    )
+    model: RandomForestClassifier | None = None
+    if should_grid:
         label_counts = Counter(y_train)
         min_class_size = min(label_counts.values())
-        cv_folds = min(getattr(app_config, "CV_FOLDS", 3), min_class_size)
-        if verbose:
-            _debug_training_info(y_train, cv_folds)
-            _analyze_training_setup(X_train, y_train, param_grid, cv_folds)
-        inner_jobs, grid_jobs = grid_search_job_counts()
-        base_model = RandomForestClassifier(
-            class_weight=getattr(app_config, "RF_CLASS_WEIGHT", "balanced"),
-            random_state=random_state,
-            n_jobs=inner_jobs,
+        cv_splitter = stratified_kfold_for_grid_search(
+            min_class_size, random_state=random_state
         )
-        grid = GridSearchCV(
-            estimator=base_model,
-            param_grid=param_grid,
-            cv=cv_folds,
-            scoring="f1_macro",
-            n_jobs=grid_jobs,
-        )
-        grid.fit(X_train, y_train)
-        model = grid.best_estimator_
-        model_params.update(grid.best_params_)
-    else:
+        if cv_splitter is None:
+            if verbose:
+                du.print_warning(
+                    "[RANDOM_FOREST] Grid search skipped: need ≥2 samples per class "
+                    f"(minimum count was {min_class_size}). Fitting default parameters."
+                )
+        else:
+            param_grid = getattr(app_config, "RF_PARAM_GRID", {
+                "n_estimators": [150, 200, 250],
+                "max_depth": [None, 12, 16, 20],
+                "min_samples_split": [2, 4],
+                "min_samples_leaf": [1, 2]
+            })
+            if getattr(app_config, "RF_ENABLE_OOB_SCORE", False):
+                param_grid = dict(param_grid)
+                param_grid["oob_score"] = [True]
+            n_splits = cv_splitter.n_splits
+            if verbose:
+                _debug_training_info(y_train, n_splits)
+                _analyze_training_setup(X_train, y_train, param_grid, n_splits)
+            inner_jobs, grid_jobs = grid_search_job_counts()
+            base_model = RandomForestClassifier(
+                class_weight=getattr(app_config, "RF_CLASS_WEIGHT", "balanced"),
+                random_state=random_state,
+                n_jobs=inner_jobs,
+            )
+            grid = GridSearchCV(
+                estimator=base_model,
+                param_grid=param_grid,
+                cv=cv_splitter,
+                scoring="f1_macro",
+                n_jobs=grid_jobs,
+            )
+            grid.fit(X_train, y_train)
+            model = grid.best_estimator_
+            model_params.update(grid.best_params_)
+
+    if model is None:
         model = RandomForestClassifier(**model_params)
         model.fit(X_train, y_train)
         if verbose:

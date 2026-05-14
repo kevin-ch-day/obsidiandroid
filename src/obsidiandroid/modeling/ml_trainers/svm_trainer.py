@@ -10,7 +10,10 @@ from sklearn.model_selection import GridSearchCV
 import numpy as np
 from config import app_config
 from obsidiandroid.cli.ui import display as du
-from obsidiandroid.modeling.parallel_layout import grid_search_job_counts
+from obsidiandroid.modeling.parallel_layout import (
+    grid_search_job_counts,
+    stratified_kfold_for_grid_search,
+)
 
 
 def _validate_inputs(X_train, y_train):
@@ -54,7 +57,11 @@ def train_svm(
 
     start = time.time()
 
-    if grid_search or getattr(app_config, "ENABLE_SVM_GRID_SEARCH", False):
+    should_grid = bool(
+        grid_search or getattr(app_config, "ENABLE_SVM_GRID_SEARCH", False)
+    )
+    model = None
+    if should_grid:
         param_grid = getattr(app_config, "SVM_PARAM_GRID", {
             "kernel": ["linear", "rbf"],
             "C": [0.1, 1.0, 10.0],
@@ -62,23 +69,34 @@ def train_svm(
         })
         label_counts = Counter(y_train)
         min_class_size = min(label_counts.values())
-        cv_folds = min(getattr(app_config, "CV_FOLDS", 3), min_class_size)
-        if verbose:
-            _debug_training_info(y_train, cv_folds)
-            _analyze_training_setup(X_train, y_train, param_grid, cv_folds)
-        _, grid_jobs = grid_search_job_counts()
-        base_model = SVC(class_weight="balanced", probability=True)
-        grid = GridSearchCV(
-            estimator=base_model,
-            param_grid=param_grid,
-            cv=cv_folds,
-            scoring="f1_macro",
-            n_jobs=grid_jobs,
+        cv_splitter = stratified_kfold_for_grid_search(
+            min_class_size, random_state=random_state
         )
-        grid.fit(X_train, y_train)
-        model = grid.best_estimator_
-        model_params.update(grid.best_params_)
-    else:
+        if cv_splitter is None:
+            if verbose:
+                du.print_warning(
+                    "[SVM] Grid search skipped: need ≥2 samples per class "
+                    f"(minimum count was {min_class_size}). Fitting default parameters."
+                )
+        else:
+            n_splits = cv_splitter.n_splits
+            if verbose:
+                _debug_training_info(y_train, n_splits)
+                _analyze_training_setup(X_train, y_train, param_grid, n_splits)
+            _, grid_jobs = grid_search_job_counts()
+            base_model = SVC(class_weight="balanced", probability=True)
+            grid = GridSearchCV(
+                estimator=base_model,
+                param_grid=param_grid,
+                cv=cv_splitter,
+                scoring="f1_macro",
+                n_jobs=grid_jobs,
+            )
+            grid.fit(X_train, y_train)
+            model = grid.best_estimator_
+            model_params.update(grid.best_params_)
+
+    if model is None:
         model = SVC(**model_params)
         model.fit(X_train, y_train)
         if verbose:

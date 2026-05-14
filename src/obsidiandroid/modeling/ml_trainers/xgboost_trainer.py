@@ -10,7 +10,10 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
 from config import app_config
-from obsidiandroid.modeling.parallel_layout import grid_search_job_counts
+from obsidiandroid.modeling.parallel_layout import (
+    grid_search_job_counts,
+    stratified_kfold_for_grid_search,
+)
 
 
 def _resolve_xgb_runtime_guardrails(num_classes: int) -> dict:
@@ -215,8 +218,9 @@ def train_xgboost(
         except Exception:
             calibration_enabled = False
 
+    model = None
     if grid_search or getattr(app_config, "ENABLE_XGB_GRID_SEARCH", False):
-        from sklearn.model_selection import GridSearchCV, StratifiedKFold
+        from sklearn.model_selection import GridSearchCV
 
         param_grid = getattr(
             app_config,
@@ -236,25 +240,33 @@ def train_xgboost(
                 param_grid = {**param_grid, "n_estimators": capped_estimators}
 
         min_class_size = min(class_counts.values())
-        folds = min(cv_folds or getattr(app_config, "CV_FOLDS", 3), min_class_size)
-        cv = StratifiedKFold(n_splits=folds, shuffle=True, random_state=random_state)
-
-        inner_jobs, grid_jobs = grid_search_job_counts()
-        base_params = {k: v for k, v in model_params.items() if k not in param_grid}
-        base_params["n_jobs"] = inner_jobs
-        estimator = xgb.XGBClassifier(**base_params)
-
-        grid = GridSearchCV(
-            estimator=estimator,
-            param_grid=param_grid,
-            cv=cv,
-            scoring="f1_macro",
-            n_jobs=grid_jobs,
+        cv_splitter = stratified_kfold_for_grid_search(
+            min_class_size, random_state=random_state
         )
-        grid.fit(X_fit, y_fit)
-        model = grid.best_estimator_
-        model_params.update(grid.best_params_)
-    else:
+        if cv_splitter is None:
+            if verbose:
+                print(
+                    "[XGBOOST] Grid search skipped: need ≥2 samples per class "
+                    f"(minimum count was {min_class_size}). Fitting default parameters."
+                )
+        else:
+            inner_jobs, grid_jobs = grid_search_job_counts()
+            base_params = {k: v for k, v in model_params.items() if k not in param_grid}
+            base_params["n_jobs"] = inner_jobs
+            estimator = xgb.XGBClassifier(**base_params)
+
+            grid = GridSearchCV(
+                estimator=estimator,
+                param_grid=param_grid,
+                cv=cv_splitter,
+                scoring="f1_macro",
+                n_jobs=grid_jobs,
+            )
+            grid.fit(X_fit, y_fit)
+            model = grid.best_estimator_
+            model_params.update(grid.best_params_)
+
+    if model is None:
         model = xgb.XGBClassifier(**model_params)
 
         eval_x = X_test
