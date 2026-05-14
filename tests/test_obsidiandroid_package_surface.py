@@ -568,3 +568,17 @@ def test_common_repo_paths_ensure_is_idempotent() -> None:
     repo_paths.ensure_repo_src_on_sys_path()
     repo_paths.ensure_repo_src_on_sys_path()
     assert sys.path.count(src) == 1
+
+
+def test_repo_operator_script_resolves_under_repo_root() -> None:
+    from pathlib import Path
+
+    from obsidiandroid.common import repo_paths
+
+    here = Path(repo_paths.__file__).resolve()
+    if len(here.parents) < 4 or here.parents[2].name != "src":
+        pytest.skip("repo_paths not loaded from a checkout tree under src/")
+    root = here.parents[3]
+    p = repo_paths.repo_operator_script("dev", "check_import_surface.py")
+    assert p == root / "scripts" / "dev" / "check_import_surface.py"
+    assert p.is_file()

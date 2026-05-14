@@ -26,6 +26,7 @@ from .menu.vendor_diagnostics import (
 from .menu import diagnostics_banners
 from .menu import startup_menu_actions
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common.repo_paths import repo_operator_script
 from obsidiandroid.diagnostics import reproducibility_workbench as repro_workbench
 
 from .startup_menu_health import run_health_check as _run_health_check
@@ -821,7 +822,7 @@ def _launch_evidence_paper_readiness_hub() -> None:
 
 def _run_family_label_taxonomy_audit_script() -> int:
     """Invoke scripts/family_label_taxonomy_audit.py for cohort taxonomy audit."""
-    script_path = Path("scripts/family_label_taxonomy_audit.py")
+    script_path = repo_operator_script("family_label_taxonomy_audit.py")
     if not script_path.is_file():
         du.print_error(f"[MENU] Missing script: {script_path}")
         return 1

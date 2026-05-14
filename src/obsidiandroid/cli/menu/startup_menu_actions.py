@@ -14,6 +14,7 @@ import sys
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common.repo_paths import repo_operator_script
 from . import run_locator
 from ..ui import display as du
 from ..ui import menu as mu
@@ -48,7 +49,7 @@ def _format_model_label(token: str) -> str:
 def run_output_cleanup() -> int:
     """Run output cleanup in dry-run or apply mode."""
     du.print_section("Cleanup Output Artifacts")
-    script_path = Path("scripts/cleanup_output_artifacts.py")
+    script_path = repo_operator_script("cleanup_output_artifacts.py")
     if not script_path.exists():
         du.print_error(f"[MENU] Missing script: {script_path}")
         return 1

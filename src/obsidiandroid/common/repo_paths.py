@@ -45,3 +45,12 @@ def repo_root() -> Path:
     if here.parents[1].name == "obsidiandroid" and here.parents[2].name == "src":
         return here.parents[3]
     return Path.cwd()
+
+
+def repo_operator_script(*relative_under_scripts: str) -> Path:
+    """Return ``<repo>/scripts/<parts>`` for repo-root operator CLIs.
+
+    Prefer this over ``Path("scripts/...")`` so subprocess launches work when
+    :func:`os.getcwd` is not the repository root (menus, IDEs, wrappers).
+    """
+    return (repo_root() / "scripts").joinpath(*relative_under_scripts)

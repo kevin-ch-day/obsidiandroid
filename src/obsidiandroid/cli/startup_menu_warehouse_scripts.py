@@ -9,6 +9,7 @@ from pathlib import Path
 
 from config import app_config
 
+from obsidiandroid.common.repo_paths import repo_operator_script
 from obsidiandroid.database import db_engine
 
 from .startup_menu_prompts import prompt_run_id
@@ -25,7 +26,7 @@ def run_backfill_results_warehouse() -> int:
         du.print_warning("[MENU] Backfill cancelled (no run_id provided).")
         return 1
 
-    script_path = Path("scripts/backfill_permission_trends_warehouse.py")
+    script_path = repo_operator_script("backfill_permission_trends_warehouse.py")
     if not script_path.exists():
         du.print_error(f"[MENU] Missing script: {script_path}")
         return 1
@@ -100,10 +101,12 @@ def run_results_warehouse_status() -> int:
 
     du.print_success(f"[MENU] Warehouse rows detected for run_id={run_id}: total={total_rows}")
     return 0
+
+
 def run_paper_structural_diagnostics() -> int:
     """Generate consolidated structural diagnostics from latest artifacts."""
     du.print_section("Generate Structural Diagnostics")
-    script_path = Path("scripts/research/generate_structural_diagnostics.py")
+    script_path = repo_operator_script("research", "generate_structural_diagnostics.py")
     if not script_path.exists():
         du.print_error(f"[MENU] Missing script: {script_path}")
         return 1
@@ -150,7 +153,7 @@ def run_paper_structural_diagnostics() -> int:
 def run_claim_artifact_map_scaffold() -> int:
     """Generate claim_artifact_map.csv from run path manifests."""
     du.print_section("Generate Claim Artifact Map Scaffold")
-    script_path = Path("scripts/research/generate_claim_artifact_map.py")
+    script_path = repo_operator_script("research", "generate_claim_artifact_map.py")
     if not script_path.exists():
         du.print_error(f"[MENU] Missing script: {script_path}")
         return 1
@@ -181,7 +184,7 @@ def run_paper2_freeze_checker() -> int:
             "[MENU] Latest run is not in evidence/paper mode. "
             "This script validates strict evidence bundles—pass evidence-mode run IDs if defaults look sparse."
         )
-    script_path = Path("scripts/research/check_evidence_bundle.py")
+    script_path = repo_operator_script("research", "check_evidence_bundle.py")
     if not script_path.exists():
         du.print_error(f"[MENU] Missing script: {script_path}")
         return 1
@@ -210,7 +213,7 @@ def run_paper2_freeze_checker() -> int:
 def run_retrain_from_cached_alignment() -> int:
     """Retrain models quickly from cached aligned feature/label artifacts."""
     du.print_section("Retrain Models from Cached Alignment")
-    script_path = Path("scripts/retrain_models_from_cached_alignment.py")
+    script_path = repo_operator_script("retrain_models_from_cached_alignment.py")
     if not script_path.exists():
         du.print_error(f"[MENU] Missing script: {script_path}")
         return 1
