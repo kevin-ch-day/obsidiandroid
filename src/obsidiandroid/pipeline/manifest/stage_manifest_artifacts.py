@@ -208,7 +208,7 @@ def export_engine_ranking_tiers(
         ascending=[False, False, True],
     ).reset_index(drop=True)
     frame["rank"] = frame.index + 1
-    frame["tier"] = frame["publication_score"].apply(_rank_tier_from_publication_score)
+    frame["tier"] = frame["publication_score"].apply(rank_tier_from_publication_score)
     columns = [
         "rank",
         "engine_id",

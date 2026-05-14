@@ -90,3 +90,31 @@ def test_write_run_manifest_uses_current_default_output_dir(monkeypatch, tmp_pat
     assert expected.exists()
     payload = json.loads(expected.read_text(encoding="utf-8"))
     assert payload["run_id"] == "r1"
+
+
+def test_export_engine_ranking_tiers_writes_tier_column(tmp_path: Path) -> None:
+    """Regression: tier mapping must call the defined rank helper (manifest finalization)."""
+    from obsidiandroid.pipeline.manifest import stage_manifest_artifacts
+
+    weights_df = pd.DataFrame(
+        {
+            "Vendor": ["alpha", "beta"],
+            "Leakage Safe Score Raw": [0.9, 0.1],
+            "Reliability": [0.5, 0.5],
+            "Final ML Score": [0.0, 0.0],
+            "Composite Score": [0.0, 0.0],
+            "Enrichment Score": [0.0, 0.0],
+            "parser_gate_status": ["ok", "ok"],
+            "included_in_model": [1, 1],
+        }
+    )
+    out_path, digest = stage_manifest_artifacts.export_engine_ranking_tiers(
+        run_root=tmp_path,
+        run_id="r_test",
+        evidence_mode=False,
+        weights_df=weights_df,
+    )
+    assert out_path is not None and out_path.exists()
+    assert digest
+    written = pd.read_csv(out_path)
+    assert list(written["tier"]) == ["High", "Low"]
