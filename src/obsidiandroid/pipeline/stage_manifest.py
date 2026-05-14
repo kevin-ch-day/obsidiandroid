@@ -41,6 +41,7 @@ from obsidiandroid.pipeline.manifest.paper2_strict_exports import (
 )
 from obsidiandroid.pipeline.manifest.paper_compliance_checks import build_paper_compliance_checks
 
+from obsidiandroid.modeling.pipeline_core import ALL_SUPPORTED_MODELS
 from obsidiandroid.pipeline.manifest.stage_manifest_writers import (
     compute_experiment_series_id as _compute_experiment_series_id,
     finalize_output_hygiene_bundle as _finalize_output_hygiene_bundle,
@@ -91,6 +92,61 @@ def _validate_run_scoped_artifact_paths(
         run_root=run_root,
         output_root=output_root,
     )
+
+
+def _merge_lifecycle_into_manifest(manifest: dict[str, Any], manifest_context: dict[str, Any]) -> None:
+    """Align ``run_manifest.json`` lifecycle keys with run-summary derivation."""
+    configured_status = str(manifest_context.get("run_status", "") or "").strip().lower()
+    failure_reason = str(
+        manifest_context.get("failure_reason", "") or manifest_context.get("integrity_error", "")
+    ).strip()
+    if configured_status in {"complete", "partial", "failed"}:
+        run_status = configured_status
+    elif failure_reason:
+        run_status = "failed"
+    elif str(manifest_context.get("completed_stage", "") or "").strip().lower() not in {"", "manifest"}:
+        run_status = "partial"
+    else:
+        run_status = "complete"
+    manifest["run_status"] = run_status
+
+    completed_stage = str(manifest_context.get("completed_stage", "") or "").strip()
+    if not completed_stage:
+        completed_stage = "manifest" if run_status == "complete" else str(
+            manifest_context.get("current_stage", "") or "unknown"
+        ).strip()
+    manifest["completed_stage"] = completed_stage
+
+    failed_stage = str(manifest_context.get("failed_stage", "") or "").strip()
+    if failed_stage:
+        manifest["failed_stage"] = failed_stage
+    else:
+        manifest.pop("failed_stage", None)
+
+    if failure_reason:
+        manifest["failure_reason"] = failure_reason
+    else:
+        manifest.pop("failure_reason", None)
+
+
+def _trained_models_for_manifest(
+    pipeline_results: dict | None,
+    manifest_context: dict[str, Any],
+) -> list[str]:
+    """Resolve trained classifier keys for manifest (``pipeline_results`` or ``model_summary`` fallback)."""
+    known = frozenset(ALL_SUPPORTED_MODELS)
+    if isinstance(pipeline_results, dict):
+        from_pipeline = sorted(k for k in pipeline_results.keys() if k in known)
+        if from_pipeline:
+            return from_pipeline
+    ms = manifest_context.get("model_summary")
+    if not isinstance(ms, dict):
+        return []
+    rows = ms.get("model_rows")
+    if not isinstance(rows, list):
+        return []
+    names = {str(row["model"]).strip() for row in rows if isinstance(row, dict) and row.get("model")}
+    return sorted(n for n in names if n in known)
 
 
 def finalize_run_manifest_stage(
@@ -179,6 +235,8 @@ def finalize_run_manifest_stage(
             artifact_list.append(str(parser_final_path))
         manifest["engine_ranking_hash"] = ranking_hash
         manifest["engine_list_hash"] = hash_payload(engine_names)
+        manifest["trained_models"] = _trained_models_for_manifest(pipeline_results, manifest_context)
+        _merge_lifecycle_into_manifest(manifest, manifest_context)
         _write_manifest_with_pointer(
             manifest=manifest,
             run_id=run_id,
@@ -269,16 +327,6 @@ def finalize_run_manifest_stage(
                 "enabled": False,
                 "reason": "not_requested",
             }
-
-        if isinstance(pipeline_results, dict):
-            known_model_keys = {
-                "random_forest",
-                "balanced_random_forest",
-                "xgboost",
-                "logistic_regression",
-            }
-            trained_models = sorted([k for k in pipeline_results.keys() if k in known_model_keys])
-            manifest["trained_models"] = trained_models
 
         manifest_writer = artifacts.ManifestWriter(run_root=run_root, paper_mode=paper_mode)
         if split_meta.get("split_audit_path"):
@@ -434,6 +482,7 @@ def finalize_run_manifest_stage(
         )
 
         manifest["artifact_list"] = sorted(set(artifact_list))
+        _merge_lifecycle_into_manifest(manifest, manifest_context)
         _write_manifest_with_pointer(
             manifest=manifest,
             run_id=run_id,

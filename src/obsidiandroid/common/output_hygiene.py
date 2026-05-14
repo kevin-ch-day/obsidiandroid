@@ -116,6 +116,32 @@ def resolve_analysis_snapshot_csv_path(diagnostics_dir: Path, run_id: str) -> Pa
     return None
 
 
+def mirror_utf8_text_run_then_global(
+    *,
+    diagnostics_dir: Path,
+    run_filename: str,
+    text: str,
+    global_latest_name: str,
+) -> list[Path]:
+    """Write run-scoped UTF-8 text then either global ``output/diagnostics`` latest or legacy local latest.
+
+    Used by :func:`mirror_csv_text_run_then_global`, :func:`mirror_json_text_run_then_global`, and
+    plain-text methodology mirrors (leakage assessment, etc.).
+    """
+    out_dir = Path(diagnostics_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    primary = out_dir / run_filename
+    primary.write_text(text, encoding="utf-8")
+    written: list[Path] = [primary]
+    if run_diagnostics_should_omit_latest_duplicate() and path_is_under_output_runs(out_dir):
+        written.append(write_global_latest_text(filename=global_latest_name, text=text))
+    else:
+        legacy = out_dir / global_latest_name
+        legacy.write_text(text, encoding="utf-8")
+        written.append(legacy)
+    return written
+
+
 def mirror_csv_text_run_then_global(
     *,
     diagnostics_dir: Path,
@@ -127,23 +153,40 @@ def mirror_csv_text_run_then_global(
 
     Returns all paths written (1–2).
     """
-    out_dir = Path(diagnostics_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    primary = out_dir / run_filename
-    primary.write_text(csv_text, encoding="utf-8")
-    written: list[Path] = [primary]
-    if run_diagnostics_should_omit_latest_duplicate() and path_is_under_output_runs(out_dir):
-        written.append(write_global_latest_text(filename=global_latest_name, text=csv_text))
-    else:
-        legacy = out_dir / global_latest_name
-        legacy.write_text(csv_text, encoding="utf-8")
-        written.append(legacy)
-    return written
+    return mirror_utf8_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=run_filename,
+        text=csv_text,
+        global_latest_name=global_latest_name,
+    )
+
+
+def mirror_json_text_run_then_global(
+    *,
+    diagnostics_dir: Path,
+    run_filename: str,
+    payload: dict[str, Any],
+    global_latest_name: str,
+    indent: int = 2,
+) -> list[Path]:
+    """Write run-scoped JSON then either global ``.latest`` mirror or legacy local duplicate.
+
+    Mirrors :func:`mirror_csv_text_run_then_global` for structured JSON artifacts.
+    """
+    text = json.dumps(payload, indent=indent, sort_keys=True) + "\n"
+    return mirror_utf8_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=run_filename,
+        text=text,
+        global_latest_name=global_latest_name,
+    )
 
 
 __all__ = [
     "global_diagnostics_root",
     "mirror_csv_text_run_then_global",
+    "mirror_json_text_run_then_global",
+    "mirror_utf8_text_run_then_global",
     "path_is_under_output_runs",
     "resolve_aligned_features_cache_path",
     "resolve_analysis_snapshot_csv_path",

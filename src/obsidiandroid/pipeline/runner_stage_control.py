@@ -18,10 +18,12 @@ import pandas as pd
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common.run_lifecycle import finalize_run_lifecycle_terminal
 from obsidiandroid.diagnostics import cohort_vocabulary
 from obsidiandroid.observability.logging import log_event
 from obsidiandroid.observability.pipeline_observability import PipelineObservabilitySession
 from obsidiandroid.pipeline.main_facade import from_main_or
+from obsidiandroid.pipeline.manifest.stage_manifest_writers import merge_lifecycle_fields_into_run_summaries
 from obsidiandroid.pipeline.runner_support import PipelineStageFailure, ScopedArtifactList
 from obsidiandroid.pipeline.stage_manifest import finalize_run_manifest_stage
 
@@ -198,6 +200,22 @@ class PipelineRunStageControl:
             du.print_error("[INTEGRITY] Run manifest write failure.")
         self.record_stage_timing("manifest", stage_started, record_observability=False)
         self.attach_runtime_timing_context()
+        try:
+            run_root = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
+            if run_root:
+                finalize_run_lifecycle_terminal(
+                    Path(run_root),
+                    manifest_context=self.manifest_context,
+                    manifest_stage_result_code=int(result),
+                )
+                merge_lifecycle_fields_into_run_summaries(
+                    run_root=Path(run_root),
+                    diagnostics_dir=Path(self._diagnostics_dir_getter()),
+                    run_id=self.run_id,
+                    manifest_context=self.manifest_context,
+                )
+        except Exception:
+            pass
         return result
 
     def write_preflight(self, status: str, reason: str = "") -> None:

@@ -60,6 +60,7 @@ from .startup_menu_run_context import (
 
 from .startup_menu_run_overview import (
     show_latest_run_snapshot as _show_latest_run_snapshot,
+    show_profile_tuning_snapshot as _show_profile_tuning_snapshot,
     show_recent_runs_overview as _show_recent_runs_overview,
     show_session_and_output_details as _show_session_and_output_details,
 )
@@ -88,6 +89,47 @@ class _MenuCommand:
 
     label: str
     action: Callable[[], int | None]
+
+
+def _first_existing_path(candidates: list[Path]) -> Path | None:
+    """Return the first path that exists as a regular file, or ``None``."""
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
+def _governed_cohort_n_for_q2(*, rdiag: Path, gdiag: Path, q2: Dict) -> int | None:
+    """Resolve governed-cohort denominator for Q2 display (payload, Q1 JSON, or infer)."""
+    from obsidiandroid.common.json_io import read_json_dict
+
+    def _as_nonneg_int(val: object) -> int | None:
+        if isinstance(val, bool):
+            return None
+        if isinstance(val, int) and val >= 0:
+            return val
+        if isinstance(val, float) and val >= 0 and val == int(val):
+            return int(val)
+        return None
+
+    n = _as_nonneg_int(q2.get("governed_cohort_n"))
+    if n is not None:
+        return n
+    q1 = read_json_dict(rdiag / "dataset_foundation_summary.json") or read_json_dict(
+        gdiag / "dataset_foundation_summary.json"
+    )
+    gs = q1.get("governed_samples") if isinstance(q1, dict) else None
+    n = _as_nonneg_int(gs)
+    if n is not None:
+        return n
+    try:
+        pn = int(q2.get("permission_signal_n") or 0)
+        pp = float(q2.get("permission_signal_pct") or 0)
+    except (TypeError, ValueError):
+        return None
+    if pn > 0 and pp > 0:
+        return int(round(pn * 100.0 / pp))
+    return None
 
 
 def _run_full_pipeline(profile_id: str) -> int:
@@ -831,6 +873,11 @@ def _run_family_label_taxonomy_audit_script() -> int:
     du.print_info(
         "Loads the labeled cohort from the database using a profile's gates (same path as pipeline samples; no training)."
     )
+    du.print_info(
+        "Writes taxonomy audit CSV/MD under the diagnostics dir below. "
+        "If cohort snapshot export is enabled, analysis_snapshot_*.csv/.meta.txt land in the same directory "
+        "(not global output/diagnostics unless you omit --diagnostics-dir and use the default audit folder)."
+    )
     output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
     rid = _read_latest_run_id()
     diag_args: list[str] = []
@@ -838,7 +885,10 @@ def _run_family_label_taxonomy_audit_script() -> int:
         rdiag = output_root / "runs" / rid / "diagnostics"
         rdiag.mkdir(parents=True, exist_ok=True)
         diag_args = ["--diagnostics-dir", str(rdiag.resolve())]
-        du.print_info(f"Writes CSV/MD into latest run diagnostics: runs/{rid}/diagnostics/")
+        du.print_info(
+            f"Target diagnostics dir: runs/{rid}/diagnostics/ "
+            "(taxonomy audit + cohort snapshot artifacts when snapshot export is on)."
+        )
     else:
         du.print_note(
             "No latest run id — the script will use output/diagnostics/taxonomy_audit_<timestamp>/ instead."
@@ -869,20 +919,63 @@ def _print_cohort_family_artifact_paths() -> None:
     if not rid:
         du.print_warning("[MENU] No latest run — nothing to resolve.")
         return
-    rdiag = output_root / "runs" / rid / "diagnostics"
-    du.print_stat("Run diagnostics dir", str(rdiag.resolve()))
-    candidates = [
-        "family_label_taxonomy_audit.csv",
-        "family_label_taxonomy_audit.md",
-        "support_threshold_preview.md",
-        "support_threshold_preview.csv",
-        "family_distribution.csv",
-        "low_support_families.csv",
-        "dataset_foundation_summary.md",
+    rdiag = (output_root / "runs" / rid / "diagnostics").resolve()
+    gdiag = (output_root / "diagnostics").resolve()
+
+    def stat(label: str, path: Path) -> None:
+        du.print_stat(label, "present" if path.is_file() else "missing")
+
+    du.print_stat("Run diagnostics dir", str(rdiag))
+
+    rows: list[tuple[str, Path]] = [
+        ("family_label_taxonomy_audit.csv", rdiag / "family_label_taxonomy_audit.csv"),
+        ("family_label_taxonomy_audit.md", rdiag / "family_label_taxonomy_audit.md"),
+        ("support_threshold_preview.md", rdiag / "support_threshold_preview.md"),
+        ("support_threshold_preview.csv", rdiag / "support_threshold_preview.csv"),
+        ("family_distribution.csv", rdiag / "family_distribution.csv"),
+        ("low_support_families.csv", rdiag / "low_support_families.csv"),
+        ("dataset_foundation_summary.md", rdiag / "dataset_foundation_summary.md"),
+        ("dataset_foundation_summary.json", rdiag / "dataset_foundation_summary.json"),
+        (f"cohort_filter_contract_{rid}.json", rdiag / f"cohort_filter_contract_{rid}.json"),
+        (f"cohort_gate_counts_{rid}.csv", rdiag / f"cohort_gate_counts_{rid}.csv"),
+        ("cohort_lock_summary.json", rdiag / "cohort_lock_summary.json"),
+        ("cohort_membership.csv", rdiag / "cohort_membership.csv"),
+        (f"analysis_snapshot_filter_summary_{rid}.csv", rdiag / f"analysis_snapshot_filter_summary_{rid}.csv"),
+        (f"analysis_snapshot_{rid}.csv", rdiag / f"analysis_snapshot_{rid}.csv"),
+        (f"analysis_snapshot_{rid}.meta.txt", rdiag / f"analysis_snapshot_{rid}.meta.txt"),
+        (
+            f"analysis_snapshot_label_conflicts_{rid}.csv",
+            rdiag / f"analysis_snapshot_label_conflicts_{rid}.csv",
+        ),
+        ("paper_cohort_sample_ids.csv", rdiag / "paper_cohort_sample_ids.csv"),
+        ("dataset_time_contract (resolved)", oh.resolve_dataset_time_contract_path(rdiag, rid)),
+        ("family_distribution_2020_present.csv", rdiag / "family_distribution_2020_present.csv"),
+        ("family_distribution_by_year.csv", rdiag / "family_distribution_by_year.csv"),
     ]
-    for name in candidates:
-        p = rdiag / name
-        du.print_stat(name, "present" if p.is_file() else "missing")
+    for label, path in rows:
+        stat(label, path)
+
+    primary_snap = rdiag / f"analysis_snapshot_{rid}.csv"
+    primary_filter = rdiag / f"analysis_snapshot_filter_summary_{rid}.csv"
+    extra_snaps = sorted(
+        p
+        for p in rdiag.glob("analysis_snapshot_*.csv")
+        if p.is_file() and p not in {primary_snap, primary_filter}
+    )
+    if extra_snaps:
+        du.print_subheader("Other analysis_snapshot_*.csv (adhoc / taxonomy audit)")
+        for p in extra_snaps[:10]:
+            stat(p.name, p)
+        if len(extra_snaps) > 10:
+            du.print_note(f"… plus {len(extra_snaps) - 10} more under this diagnostics dir")
+
+    latest_snap = gdiag / "analysis_snapshot.latest.csv"
+    latest_meta = gdiag / "analysis_snapshot.latest.meta.txt"
+    if latest_snap.is_file() or latest_meta.is_file():
+        du.print_subheader("Global diagnostics (operator .latest mirrors)")
+        stat(str(gdiag / "analysis_snapshot.latest.csv"), latest_snap)
+        stat(str(gdiag / "analysis_snapshot.latest.meta.txt"), latest_meta)
+
     print("")
 
 
@@ -891,7 +984,7 @@ def _launch_cohort_family_audit_menu() -> None:
     while True:
         opts = [
             "Run taxonomy audit (pick profile → writes to latest run diagnostics)",
-            "Show cohort / family artifact paths",
+            "Show cohort / family artifact paths (run + global mirrors)",
         ]
         choice = mu.display_menu(
             opts,
@@ -947,6 +1040,8 @@ def _launch_parser_vendor_coverage_menu() -> None:
 
 def _launch_permission_intelligence_coverage_menu() -> None:
     """Permission modality coverage pointers (reads latest run diagnostics)."""
+    from obsidiandroid.common.json_io import read_json_dict
+
     du.print_section("Permission intelligence coverage")
     output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
     rid = _read_latest_run_id()
@@ -954,17 +1049,77 @@ def _launch_permission_intelligence_coverage_menu() -> None:
         du.print_warning("[MENU] No latest run.")
         return
     rdiag = output_root / "runs" / rid / "diagnostics"
-    files = [
-        ("permission_coverage_summary.csv", "Permission coverage summary"),
-        ("dataset_foundation_summary.md", "Dataset foundation (gates + cohort)"),
-        ("modality_contribution_summary.md", "Modality contribution (permission vs vendor)"),
-        ("permission_feature_audit.csv", "Permission feature audit (if exported)"),
-        ("vendor_leakage_safety_audit.csv", "Vendor leakage safety audit"),
+    gdiag = output_root / "diagnostics"
+
+    rows: list[tuple[str, list[Path]]] = [
+        ("Permission coverage summary", [rdiag / "permission_coverage_summary.csv", gdiag / "permission_coverage_summary.csv"]),
+        ("Dataset foundation (JSON)", [rdiag / "dataset_foundation_summary.json", gdiag / "dataset_foundation_summary.json"]),
+        ("Dataset foundation (gates + cohort)", [rdiag / "dataset_foundation_summary.md", gdiag / "dataset_foundation_summary.md"]),
+        ("Modality contribution (Markdown)", [rdiag / "modality_contribution_summary.md", gdiag / "modality_contribution_summary.md"]),
+        ("Modality contribution (JSON, Q2 metrics)", [rdiag / "modality_contribution_summary.json", gdiag / "modality_contribution_summary.json"]),
+        ("Feature-set ablation (CSV)", [rdiag / "feature_set_ablation_summary.csv", gdiag / "feature_set_ablation_summary.csv"]),
+        ("Feature-set ablation (Markdown)", [rdiag / "feature_set_ablation_summary.md", gdiag / "feature_set_ablation_summary.md"]),
+        ("Vendor feature coverage summary", [rdiag / "vendor_feature_coverage_summary.csv", gdiag / "vendor_feature_coverage_summary.csv"]),
+        ("Feature group survival (from column survival)", [rdiag / "feature_group_survival.csv", gdiag / "feature_group_survival.csv"]),
+        (
+            "Permission feature audit",
+            [rdiag / "permission_feature_audit.csv", rdiag / f"permission_feature_audit_{rid}.csv"],
+        ),
+        ("Vendor leakage safety audit", [rdiag / "vendor_leakage_safety_audit.csv", gdiag / "vendor_leakage_safety_audit.csv"]),
+        ("Permission signal quality (CSV)", [rdiag / "permission_signal_quality.csv", gdiag / "permission_signal_quality.csv"]),
+        (
+            "Permission signal quality (report)",
+            [rdiag / "permission_signal_quality_report.md", gdiag / "permission_signal_quality_report.md"],
+        ),
     ]
-    for fname, label in files:
-        p = rdiag / fname
-        du.print_stat(label, str(p) if p.is_file() else "missing")
-    du.print_info("[MENU] Open these files under run diagnostics for detailed counts.")
+    for label, candidates in rows:
+        hit = _first_existing_path(candidates)
+        du.print_stat(label, str(hit.resolve()) if hit else "missing")
+
+    q2 = read_json_dict(rdiag / "modality_contribution_summary.json") or read_json_dict(
+        gdiag / "modality_contribution_summary.json"
+    )
+    if isinstance(q2, dict) and q2:
+        du.print_subheader("Q2 snapshot (modality contribution)")
+        gov_n = _governed_cohort_n_for_q2(rdiag=rdiag, gdiag=gdiag, q2=q2)
+        du.print_stat("Governed cohort (denominator)", str(gov_n) if gov_n is not None else "—")
+        du.print_stat(
+            "Permission signal",
+            f"{q2.get('permission_signal_n', '—')} rows ({diagnostics_banners.format_percent_for_menu(q2.get('permission_signal_pct'))})",
+        )
+        du.print_stat(
+            "Vendor merge authority",
+            f"{q2.get('vendor_merge_n', '—')} rows ({diagnostics_banners.format_percent_for_menu(q2.get('vendor_merge_pct'))})",
+        )
+        pcols = q2.get("permission_feature_columns")
+        du.print_stat(
+            "Permission columns (fused / contract)",
+            "—" if pcols is None or pcols == "" else str(pcols),
+        )
+        du.print_stat(
+            "AV engines (observed / included in contract)",
+            f"{q2.get('av_engines_observed', '—')} / {q2.get('av_engines_included', '—')}",
+        )
+        notes = q2.get("interpretation_notes")
+        if isinstance(notes, list) and notes:
+            du.print_subheader("Q2 interpretation (from JSON)")
+            for line in notes[:5]:
+                if isinstance(line, str) and line.strip():
+                    du.print_note(line.strip())
+        du.print_note(
+            "Definitions: `permission_signal_pct` = cohort rows with permission-bag signal ÷ governed cohort; "
+            "`vendor_merge_pct` = rows with parsed vendor merge authority ÷ the same denominator."
+        )
+    else:
+        du.print_note(
+            "No modality_contribution_summary.json found for this run (or global mirror). "
+            "Generate Q1–Q3 diagnostics for the run to populate Q2 permission intelligence."
+        )
+
+    du.print_info(
+        "[MENU] Prefer run paths above; global output/diagnostics/ holds .latest mirrors when hygiene mode omits duplicates inside runs/. "
+        "Per-column survival lives under Data Diagnostics → Feature matrix / modality coverage."
+    )
     print("")
 
 
@@ -977,19 +1132,30 @@ def _launch_feature_matrix_modality_menu() -> None:
         du.print_warning("[MENU] No latest run.")
         return
     rdiag = output_root / "runs" / rid / "diagnostics"
-    names = [
-        ("feature_contract.json", "Feature contract"),
-        ("modality_contribution_summary.json", "Modality contribution (JSON)"),
-        ("feature_set_ablation_summary.csv", "Feature-set ablation summary"),
-        ("feature_column_survival.latest.csv", "Feature column survival"),
-        ("feature_group_survival.csv", "Feature group survival"),
-    ]
     gdiag = output_root / "diagnostics"
-    for fname, label in names:
-        p_run = rdiag / fname
-        p_glob = gdiag / fname
-        chosen = p_run if p_run.is_file() else (p_glob if p_glob.is_file() else None)
-        du.print_stat(label, str(chosen.resolve()) if chosen else "missing")
+    entries: list[tuple[str, list[Path]]] = [
+        ("Feature contract", [rdiag / "feature_contract.json", gdiag / "feature_contract.json"]),
+        (
+            "Modality contribution (JSON)",
+            [rdiag / "modality_contribution_summary.json", gdiag / "modality_contribution_summary.json"],
+        ),
+        (
+            "Feature-set ablation summary",
+            [rdiag / "feature_set_ablation_summary.csv", gdiag / "feature_set_ablation_summary.csv"],
+        ),
+        (
+            "Feature column survival",
+            [
+                rdiag / f"feature_column_survival_{rid}.csv",
+                rdiag / "feature_column_survival.latest.csv",
+                gdiag / "feature_column_survival.latest.csv",
+            ],
+        ),
+        ("Feature group survival", [rdiag / "feature_group_survival.csv", gdiag / "feature_group_survival.csv"]),
+    ]
+    for label, candidates in entries:
+        hit = _first_existing_path(candidates)
+        du.print_stat(label, str(hit.resolve()) if hit else "missing")
     print("")
 
 
@@ -1003,15 +1169,23 @@ def _launch_taxonomy_consistency_review_menu() -> None:
         return
     rdiag = output_root / "runs" / rid / "diagnostics"
     gdiag = output_root / "diagnostics"
-    paths = [
-        rdiag / f"taxonomy_consistency_summary_{rid}.json",
-        gdiag / "taxonomy_consistency_summary.latest.json",
-        rdiag / f"taxonomy_consistency_mismatches_{rid}.csv",
-        gdiag / "taxonomy_consistency_mismatches.latest.csv",
-        rdiag / f"prediction_errors_{rid}.csv",
+    rows: list[tuple[str, list[Path]]] = [
+        (
+            "Taxonomy consistency summary (JSON)",
+            [rdiag / f"taxonomy_consistency_summary_{rid}.json", gdiag / "taxonomy_consistency_summary.latest.json"],
+        ),
+        (
+            "Taxonomy mismatches (CSV)",
+            [rdiag / f"taxonomy_consistency_mismatches_{rid}.csv", gdiag / "taxonomy_consistency_mismatches.latest.csv"],
+        ),
+        ("Prediction errors (CSV)", [rdiag / f"prediction_errors_{rid}.csv"]),
     ]
-    for p in paths:
-        du.print_stat(p.name, str(p.resolve()) if p.is_file() else "missing")
+    for label, candidates in rows:
+        hit = _first_existing_path(candidates)
+        du.print_stat(label, str(hit.resolve()) if hit else "missing")
+    du.print_info(
+        "[MENU] Prefer run-scoped names; global `*.latest.*` under output/diagnostics/ mirrors when hygiene omits duplicates."
+    )
     print("")
 
 
@@ -1029,6 +1203,7 @@ def _launch_data_diagnostics_menu() -> None:
             "Permission Intelligence Coverage",
             "Feature Matrix / Modality Coverage",
             "Taxonomy Consistency Review",
+            "Pipeline profile tuning (latest manifest)",
         ]
         choice = mu.display_menu(
             data_sections,
@@ -1052,6 +1227,9 @@ def _launch_data_diagnostics_menu() -> None:
             continue
         if choice == 5:
             _launch_taxonomy_consistency_review_menu()
+            continue
+        if choice == 6:
+            _show_profile_tuning_snapshot()
             continue
         du.print_warning("[MENU] Invalid choice received.")
 

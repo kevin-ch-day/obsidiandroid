@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +9,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import output_hygiene as oh
 
 
 def nonzero_counts_for_columns(features_df: pd.DataFrame | None) -> dict[str, int]:
@@ -152,23 +152,28 @@ def export_feature_column_survival_matrix(
 
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(rows)
-    out = diagnostics_dir / f"feature_column_survival_{run_id}.csv"
-    latest = diagnostics_dir / "feature_column_survival.latest.csv"
-    df.to_csv(out, index=False)
-    df.to_csv(latest, index=False)
+    csv_text = df.to_csv(index=False)
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=f"feature_column_survival_{run_id}.csv",
+        csv_text=csv_text,
+        global_latest_name="feature_column_survival.latest.csv",
+    )
     meta = {
         "run_id": str(run_id),
         "row_count": int(len(df)),
-        "artifact_csv": str(out),
+        "artifact_csv": str(diagnostics_dir / f"feature_column_survival_{run_id}.csv"),
     }
-    meta_path = diagnostics_dir / f"feature_column_survival_{run_id}.meta.json"
-    meta_latest = diagnostics_dir / "feature_column_survival.latest.meta.json"
-    js = json.dumps(meta, indent=2, sort_keys=True) + "\n"
-    meta_path.write_text(js, encoding="utf-8")
-    meta_latest.write_text(js, encoding="utf-8")
-    setattr(app_config, "RUNTIME_FEATURE_COLUMN_SURVIVAL_CSV", str(out))
-    du.print_info(f"[FEATURE_SURVIVAL] Wrote {len(df)} feature column row(s) → {latest}")
-    return latest
+    oh.mirror_json_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=f"feature_column_survival_{run_id}.meta.json",
+        payload=meta,
+        global_latest_name="feature_column_survival.latest.meta.json",
+    )
+    primary = diagnostics_dir / f"feature_column_survival_{run_id}.csv"
+    setattr(app_config, "RUNTIME_FEATURE_COLUMN_SURVIVAL_CSV", str(primary))
+    du.print_info(f"[FEATURE_SURVIVAL] Wrote {len(df)} feature column row(s) → {primary.name}")
+    return primary
 
 
 __all__ = [

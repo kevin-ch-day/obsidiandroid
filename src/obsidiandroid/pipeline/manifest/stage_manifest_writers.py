@@ -121,6 +121,9 @@ def write_run_summary_json(
             "paper_mode": bool((manifest.get("paper_mode") or {}).get("resolved_value", False)),
             "evidence_mode": bool(manifest.get("evidence_mode", False)),
             "result_code": int(result_code),
+            "lifecycle_started_at_utc": manifest_context.get("lifecycle_started_at_utc"),
+            "lifecycle_state": manifest_context.get("lifecycle_state"),
+            "lifecycle_finished_at_utc": manifest_context.get("lifecycle_finished_at_utc"),
         }
 
         run_summary_path = run_root / "run_summary.json"
@@ -137,6 +140,43 @@ def write_run_summary_json(
     except Exception as exc:
         du.print_warning(f"[SUMMARY] Failed to write canonical run summary: {exc}")
         return None
+
+
+def merge_lifecycle_fields_into_run_summaries(
+    *,
+    run_root: Path,
+    diagnostics_dir: Path,
+    run_id: str,
+    manifest_context: dict[str, Any],
+) -> None:
+    """Patch lifecycle keys into ``run_summary`` JSON sinks after terminal lifecycle write."""
+    keys = ("lifecycle_state", "lifecycle_started_at_utc", "lifecycle_finished_at_utc")
+    updates = {k: manifest_context[k] for k in keys if k in manifest_context}
+    if not updates:
+        return
+    paths: list[Path] = [
+        run_root / "run_summary.json",
+        diagnostics_dir / f"run_summary_{run_id}.json",
+    ]
+    if oh.run_diagnostics_should_omit_latest_duplicate() and oh.path_is_under_output_runs(diagnostics_dir):
+        paths.append(oh.global_diagnostics_root() / "run_summary.latest.json")
+    else:
+        paths.append(diagnostics_dir / "run_summary.latest.json")
+
+    for path in paths:
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        data.update(updates)
+        try:
+            path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        except OSError:
+            continue
 
 
 def finalize_output_hygiene_bundle(

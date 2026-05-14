@@ -53,7 +53,8 @@ def test_finalize_run_manifest_stage_success(monkeypatch) -> None:
                 "included_in_model_flag": [True, False],
                 "engine_name_canonical": ["a", "b"],
             }
-        )
+        ),
+        "xgboost": {"evaluation": {"macro_f1_score": 0.5}},
     }
     vendor_eval_df = pd.DataFrame({"Vendor": ["VendorA", "VendorB"]})
 
@@ -72,6 +73,8 @@ def test_finalize_run_manifest_stage_success(monkeypatch) -> None:
 
     assert result == 0
     assert captured["manifest"]["cohort_size"] == 3
+    assert captured["manifest"]["run_status"] == "complete"
+    assert captured["manifest"]["trained_models"] == ["xgboost"]
     assert captured["manifest"]["included_engine_count"] == 1
     assert captured["manifest"]["excluded_engine_count"] == 1
     assert captured["manifest"]["excluded_non_run_scoped_count"] >= 0

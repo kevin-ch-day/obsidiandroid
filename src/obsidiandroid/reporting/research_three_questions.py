@@ -516,6 +516,7 @@ def write_research_question_artifacts(
 
     q2_payload = {
         "run_id": run_id,
+        "governed_cohort_n": int(gov),
         "permission_signal_n": int(pi_n or 0),
         "permission_signal_pct": pi_pct,
         "permission_feature_columns": perm_cols_fused,

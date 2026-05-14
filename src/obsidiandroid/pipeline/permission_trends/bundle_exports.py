@@ -14,7 +14,11 @@ import pandas as pd
 from config import app_config
 
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
-from obsidiandroid.pipeline.permission_trends.bundle_manifest import resolve_bundle_artifact_dir
+from obsidiandroid.pipeline.permission_trends.bundle_io import (
+    export_df_with_latest,
+    export_markdown_with_latest,
+    export_text_with_latest,
+)
 from obsidiandroid.pipeline.permission_trends.constants import (
     ARTIFACT_GROUP_CONTRACTS,
     ARTIFACT_GROUP_DOCS,
@@ -23,7 +27,6 @@ from obsidiandroid.pipeline.permission_trends.constants import (
     PERMISSION_ALIAS_MAP,
     RUN_SUFFIX_PNG_PATTERN,
 )
-from obsidiandroid.pipeline.permission_trends import reporting_support as _perm_trends_reporting
 
 
 def build_permission_trends_layout_check(*, bundle_dir: Path) -> dict[str, Any]:
@@ -75,14 +78,13 @@ def export_alias_map_csv(*, run_id: str, bundle_dir: Path) -> str:
     df = pd.DataFrame(
         [{"alias_from": key, "alias_to": value} for key, value in sorted(PERMISSION_ALIAS_MAP.items())]
     )
-    contracts_dir = resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_CONTRACTS)
-    latest_path = contracts_dir / "permission_alias_map.latest.csv"
-    run_path: Path | None = None
-    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
-        run_path = contracts_dir / f"permission_alias_map_{run_id}.csv"
-        df.to_csv(run_path, index=False)
-    df.to_csv(latest_path, index=False)
-    return str(run_path or latest_path)
+    return export_df_with_latest(
+        df,
+        run_id,
+        "permission_alias_map",
+        bundle_dir,
+        artifact_group=ARTIFACT_GROUP_CONTRACTS,
+    )
 
 
 def export_safe_claims_report(
@@ -127,17 +129,9 @@ def export_safe_claims_report(
     ):
         lines.append("- This run is vendor-constrained; avoid broad ablation generalization.")
     lines.append("- Do not infer runtime behavior from static manifest permissions.")
-    lines.append("- Do not over-interpret family-level inferential stats below support threshold.")
 
-    docs_dir = resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_DOCS)
-    latest_path = docs_dir / "safe_claims.latest.txt"
     text = "\n".join(lines) + "\n"
-    run_path: Path | None = None
-    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
-        run_path = docs_dir / f"safe_claims_{run_id}.txt"
-        run_path.write_text(text, encoding="utf-8")
-    latest_path.write_text(text, encoding="utf-8")
-    return str(run_path or latest_path)
+    return export_text_with_latest(text, run_id, "safe_claims", bundle_dir)
 
 
 def export_paper_figures_index(
@@ -164,15 +158,8 @@ def export_paper_figures_index(
         "Recommended main tables:",
         "- cohort summary, temporal family scope, model comparison, ablation, dangerous stats tests",
     ]
-    docs_dir = resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_DOCS)
-    latest_path = docs_dir / "paper_figures_index.latest.md"
     text = "\n".join(lines) + "\n"
-    run_path: Path | None = None
-    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
-        run_path = docs_dir / f"paper_figures_index_{run_id}.md"
-        run_path.write_text(text, encoding="utf-8")
-    latest_path.write_text(text, encoding="utf-8")
-    return str(run_path or latest_path)
+    return export_markdown_with_latest(text, run_id, "paper_figures_index", bundle_dir)
 
 
 def export_run_summary_onepager(
@@ -236,15 +223,8 @@ def export_run_summary_onepager(
             lines.append(
                 f"- {row['permission']}: OR={float(row['odds_ratio']):.3f}, FDR={float(row['p_value_fdr_bh']):.3e}"
             )
-    docs_dir = resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_DOCS)
-    latest_path = docs_dir / "run_summary_onepager.latest.md"
     text = "\n".join(lines) + "\n"
-    run_path: Path | None = None
-    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
-        run_path = docs_dir / f"run_summary_onepager_{run_id}.md"
-        run_path.write_text(text, encoding="utf-8")
-    latest_path.write_text(text, encoding="utf-8")
-    return str(run_path or latest_path)
+    return export_markdown_with_latest(text, run_id, "run_summary_onepager", bundle_dir)
 
 
 __all__ = [
@@ -254,4 +234,3 @@ __all__ = [
     "export_run_summary_onepager",
     "export_safe_claims_report",
 ]
-

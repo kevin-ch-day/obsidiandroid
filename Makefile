@@ -3,7 +3,7 @@
 # Shared ignore pattern for `tree` (noise / generated paths).
 _TREE_IGNORE := .git|.venv|__pycache__|*.pyc|output|logs|.pytest_cache|.pytest_tmp|*.egg-info|build|dist|.mypy_cache|.ruff_cache|.hypothesis|htmlcov|coverage.xml|wandb|mlruns
 
-.PHONY: clean clean-bytecode tree-source tree-obsidiandroid tree-utils tree-exporting-shims test test-full setup menu install-editable doc-check verify ci ml-scan ml-scan-strict preflight-db check-run-integrity dev-import-check help
+.PHONY: clean clean-bytecode tree-source tree-obsidiandroid tree-utils tree-exporting-shims test test-full setup menu install-editable doc-check verify ci ml-scan ml-scan-strict preflight-db check-run-integrity dev-import-check output-writer-audit help
 
 help:
 	@echo "Targets:"
@@ -24,6 +24,7 @@ help:
 	@echo "  make tree-utils      - (removed) legacy utils/ retired; use tree-obsidiandroid"
 	@echo "  make tree-exporting-shims  - (removed) use src/obsidiandroid/common/export_*"
 	@echo "  make dev-import-check  - verify obsidiandroid import paths (scripts/dev/check_import_surface.py)"
+	@echo "  make output-writer-audit  - CSV audit of output-related write call-sites (scripts/dev/output_writer_audit.py)"
 	@echo "  make verify          - import smoke (check_import_surface) + fast pytest; use before PRs"
 	@echo "  make check-run-integrity RUN_ROOT=<path>  - manifest vs observability rollup (Tier A)"
 
@@ -89,6 +90,10 @@ verify:
 # Quick smoke: obsidiandroid package and pipeline facade (editable install or PYTHONPATH=src).
 dev-import-check:
 	python scripts/dev/check_import_surface.py
+
+# Read-only AST scan: path-like writes that may target output/ / diagnostics / runs / bundles.
+output-writer-audit:
+	python scripts/dev/output_writer_audit.py --out artifacts/baselines/output_writer_audit.csv
 
 # Tier A QA: cohort/train/test/top-model consistency across canonical JSON sinks.
 check-run-integrity:

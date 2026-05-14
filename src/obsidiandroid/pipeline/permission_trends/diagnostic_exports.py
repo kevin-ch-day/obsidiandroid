@@ -10,7 +10,10 @@ import pandas as pd
 from config import app_config
 
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
-from obsidiandroid.pipeline.permission_trends.bundle_io import export_df_with_latest
+from obsidiandroid.pipeline.permission_trends.bundle_io import (
+    export_df_diagnostics_with_latest,
+    export_df_with_latest,
+)
 
 
 def export_selected_visual_family_registry(
@@ -20,16 +23,6 @@ def export_selected_visual_family_registry(
     run_id: str,
 ) -> str:
     """Export deterministic visual-family selection registry for paper traceability."""
-    diagnostics_dir = Path(
-        str(
-            getattr(
-                app_config,
-                "RUNTIME_DIAGNOSTICS_DIR",
-                Path(app_config.DEFAULT_OUTPUT_DIR) / "diagnostics",
-            )
-        )
-    )
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
     min_support = safe_int_config_value(
         getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 20),
         default=20,
@@ -75,12 +68,13 @@ def export_selected_visual_family_registry(
             dedup["selected_reason"] = f"support>={max(min_support, 1)};top_{max(max_count, 1)}_by_sample_count"
             registry_df = dedup[["rank", "family_canonical", "type_slug", "sample_count", "selected_reason"]].copy()
 
-    run_path = diagnostics_dir / f"selected_families_visual_{run_id}.csv"
-    latest_path = diagnostics_dir / "selected_families_visual.latest.csv"
-    registry_df.to_csv(run_path, index=False)
-    registry_df.to_csv(latest_path, index=False)
-    setattr(app_config, "RUNTIME_SELECTED_FAMILIES_VISUAL_PATH", str(run_path))
-    return str(run_path)
+    out = export_df_diagnostics_with_latest(
+        registry_df,
+        run_id=str(run_id),
+        file_stem="selected_families_visual",
+    )
+    setattr(app_config, "RUNTIME_SELECTED_FAMILIES_VISUAL_PATH", str(out))
+    return str(out)
 
 
 def export_jsd_support_shortfall_artifact(
@@ -91,16 +85,6 @@ def export_jsd_support_shortfall_artifact(
     min_support: int,
 ) -> str:
     """Export explicit JSD shortfall diagnostics when policy cannot be met."""
-    diagnostics_dir = Path(
-        str(
-            getattr(
-                app_config,
-                "RUNTIME_DIAGNOSTICS_DIR",
-                Path(app_config.DEFAULT_OUTPUT_DIR) / "diagnostics",
-            )
-        )
-    )
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
     payload = pd.DataFrame(
         [
             {
@@ -112,11 +96,11 @@ def export_jsd_support_shortfall_artifact(
             }
         ]
     )
-    run_path = diagnostics_dir / f"jsd_family_support_shortfall_{run_id}.csv"
-    latest_path = diagnostics_dir / "jsd_family_support_shortfall.latest.csv"
-    payload.to_csv(run_path, index=False)
-    payload.to_csv(latest_path, index=False)
-    return str(run_path)
+    return export_df_diagnostics_with_latest(
+        payload,
+        run_id=str(run_id),
+        file_stem="jsd_family_support_shortfall",
+    )
 
 
 def export_jsd_pair_verification(
@@ -154,25 +138,16 @@ def export_jsd_pair_verification(
         .sort_values(by=["family_a", "family_b"], ascending=[True, True], kind="mergesort")
     )
     compact.insert(0, "run_id", str(run_id))
-    diagnostics_dir = Path(
-        str(
-            getattr(
-                app_config,
-                "RUNTIME_DIAGNOSTICS_DIR",
-                Path(app_config.DEFAULT_OUTPUT_DIR) / "diagnostics",
-            )
-        )
+    diag_out = export_df_diagnostics_with_latest(
+        compact,
+        run_id=str(run_id),
+        file_stem="family_jsd_pairs_verification",
     )
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    run_path = diagnostics_dir / f"family_jsd_pairs_verification_{run_id}.csv"
-    latest_path = diagnostics_dir / "family_jsd_pairs_verification.latest.csv"
-    compact.to_csv(run_path, index=False)
-    compact.to_csv(latest_path, index=False)
     bundle_path: str | None = None
     if isinstance(bundle_dir, Path):
         bundle_path = export_df_with_latest(compact, run_id=run_id, file_stem=file_stem, bundle_dir=bundle_dir)
-    setattr(app_config, "RUNTIME_FAMILY_JSD_PAIR_VERIFICATION_PATH", str(run_path))
-    return str(bundle_path) if isinstance(bundle_path, str) and bundle_path else str(run_path)
+    setattr(app_config, "RUNTIME_FAMILY_JSD_PAIR_VERIFICATION_PATH", str(diag_out))
+    return str(bundle_path) if isinstance(bundle_path, str) and bundle_path else str(diag_out)
 
 
 __all__ = [

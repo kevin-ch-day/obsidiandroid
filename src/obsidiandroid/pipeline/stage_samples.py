@@ -7,6 +7,7 @@ Canonical implementation (**Pass 68**): ``obsidiandroid.pipeline.stage_samples``
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -16,12 +17,12 @@ from obsidiandroid.database import db_sample_metadata_queries
 import obsidiandroid.governance.cohort_readiness_report as cohort_readiness_report
 import obsidiandroid.governance.cohort_reproducibility as cohort_reproducibility
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import output_hygiene as output_hygiene_mod
 from obsidiandroid.observability.logging import get_logger, log_event
 from obsidiandroid.common.sample_metadata_preprocessor import prepare_sample_dataframe
 
 from obsidiandroid.orchestration.profile_filters import (
     apply_dataset_filters,
-    export_cohort_filter_summary,
 )
 from obsidiandroid.pipeline.contract_filters import apply_contract_filters
 from obsidiandroid.diagnostics import cohort_foundation_export
@@ -40,6 +41,28 @@ PIPELINE_LOGGER = get_logger(
     f"{getattr(app_config, 'APP_LOG_NAMESPACE', 'framework')}.pipeline.samples",
     "pipeline",
 )
+
+
+def export_cohort_filter_summary(
+    summary: dict[str, Any],
+    run_id: str,
+    profile_id: str,
+    output_path: Path,
+) -> str:
+    """Write cohort filter summary CSV with run-scoped naming and global ``.latest`` mirror."""
+    row = dict(summary)
+    row["run_id"] = run_id
+    row["profile_id"] = profile_id
+    csv_text = pd.DataFrame([row]).to_csv(index=False)
+    out_path = Path(output_path)
+    paths = output_hygiene_mod.mirror_csv_text_run_then_global(
+        diagnostics_dir=out_path.parent,
+        run_filename=out_path.name,
+        csv_text=csv_text,
+        global_latest_name="analysis_snapshot_filter_summary.latest.csv",
+    )
+    return str(paths[0])
+
 
 def load_and_prepare_samples(
     profile: dict[str, Any],
@@ -170,12 +193,13 @@ def load_and_prepare_samples(
     )
     samples_df.attrs["cohort_gate_rows"] = gate_rows
     filter_summary = samples_df.attrs.get("cohort_filter_summary", {})
-    snapshot_filter_path = _diagnostics_dir() / "analysis_snapshot_filter_summary.latest.csv"
+    rid = str(run_id or "unknown")
+    primary = _diagnostics_dir() / f"analysis_snapshot_filter_summary_{rid}.csv"
     summary_path = export_cohort_filter_summary(
         summary=filter_summary if isinstance(filter_summary, dict) else {},
-        run_id=str(run_id or "unknown"),
+        run_id=rid,
         profile_id=profile_id,
-        output_path=snapshot_filter_path,
+        output_path=primary,
     )
     if isinstance(artifact_list, list):
         artifact_list.append(summary_path)

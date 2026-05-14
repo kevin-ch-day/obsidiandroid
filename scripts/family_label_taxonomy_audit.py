@@ -7,6 +7,10 @@ Loads the same prepared cohort as the pipeline for a profile, then writes:
   - diagnostics/support_threshold_preview.csv
   - diagnostics/support_threshold_preview.md
 
+Also pins analysis snapshot export (if enabled) to the same diagnostics directory as
+``--diagnostics-dir`` using run-scoped ``analysis_snapshot_<run_id>.*`` filenames, so
+adhoc audits do not overwrite ``output/diagnostics/analysis_snapshot.latest.*``.
+
 Example:
   python scripts/family_label_taxonomy_audit.py --profile research_all_malicious
   python scripts/family_label_taxonomy_audit.py --profile research_all_malicious \\
@@ -76,6 +80,16 @@ def main() -> int:
     setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(out_diag))
     setattr(app_config, "RUNTIME_RUN_ID", run_id)
     setattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", int(gates.get("min_samples_per_family", training_min) or training_min))
+    # Config defaults point at global output/diagnostics/*.latest.* ; pin snapshot export to this audit dir
+    # so menu-driven audits (writes under latest run diagnostics) do not clobber global operator mirrors.
+    snap_csv = str(out_diag / f"analysis_snapshot_{run_id}.csv")
+    snap_meta = str(out_diag / f"analysis_snapshot_{run_id}.meta.txt")
+    snap_conf = str(out_diag / f"analysis_snapshot_label_conflicts_{run_id}.csv")
+    setattr(app_config, "ANALYSIS_SNAPSHOT_FILE", snap_csv)
+    setattr(app_config, "ANALYSIS_SNAPSHOT_META_FILE", snap_meta)
+    setattr(app_config, "ANALYSIS_SNAPSHOT_CONFLICT_FILE", snap_conf)
+    setattr(app_config, "COHORT_SNAPSHOT_FILE", snap_csv)
+    setattr(app_config, "COHORT_SNAPSHOT_META_FILE", snap_meta)
 
     type_slug = profile.get("type_slug_filter")
     if type_slug in ("", "null", "None"):

@@ -24,6 +24,7 @@ from obsidiandroid.modeling.model_trainer_factory import reset_runtime_training_
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
+from obsidiandroid.common.run_lifecycle import mark_run_lifecycle_running
 from obsidiandroid.reporting import family_distribution_report
 import obsidiandroid.cli.profile_manager as profile_manager
 import obsidiandroid.governance.run_manifest as run_manifest
@@ -232,6 +233,10 @@ def run_pipeline(
             diagnostics_dir=Path(DIAGNOSTICS_DIR),
             run_id=run_id,
         )
+        rr = str(runtime_run_root or "").strip()
+        if rr:
+            mark_run_lifecycle_running(Path(rr))
+            manifest_context["lifecycle_started_at_utc"] = datetime.now(timezone.utc).isoformat()
 
         # Load profile
         du.print_info("[PIPELINE] Loading profile YAML...")
@@ -1064,6 +1069,8 @@ def run_pipeline(
         )
         if not model_results:
             st.fail_pipeline("[PIPELINE] Model training returned no results.")
+        if isinstance(model_results, dict) and model_results:
+            pipeline_results.update(model_results)
         model_summary = _extract_model_summary(model_results)
         if model_summary:
             manifest_context["model_summary"] = model_summary

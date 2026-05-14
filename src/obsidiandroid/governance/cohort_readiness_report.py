@@ -29,6 +29,12 @@ def print_cohort_readiness_report(
 
     gates = gates if isinstance(gates, dict) else {}
     total = len(samples_df)
+    gate_stats: dict = {}
+    if hasattr(samples_df, "attrs") and isinstance(getattr(samples_df, "attrs", None), dict):
+        raw_stats = samples_df.attrs.get("cohort_gate_stats")
+        if isinstance(raw_stats, dict):
+            gate_stats = raw_stats
+
     missing_pkg = _missing_ratio(samples_df, "android_package_name", fallback="package_name")
     missing_vt_time = _missing_vt_time_ratio(samples_df)
     unmapped = _unmapped_count(samples_df)
@@ -36,6 +42,15 @@ def print_cohort_readiness_report(
 
     du.print_section("Cohort Readiness Summary")
     du.print_stat("Final Samples", f"{total:,}")
+    governed_ref = int(gate_stats.get("governed_cohort_count") or gate_stats.get("final_count_estimate") or 0)
+    if governed_ref > 0 and governed_ref != total:
+        du.print_stat("SQL governed cohort (reference)", f"{governed_ref:,}")
+        pct = round(100.0 * float(total) / float(governed_ref), 2)
+        du.print_note(
+            f"Prepared cohort is {total:,} rows ({pct}% of the SQL-governed reference). "
+            "The difference is from Python-side preparation after the fetch "
+            "(profile dataset_filters, malware/cohort labeling, contract gates, snapshot locks)."
+        )
     du.print_stat("Unique Families", _unique_count(samples_df, fam_col))
     du.print_stat("Represented Types", _unique_count(samples_df, "type_slug"))
 

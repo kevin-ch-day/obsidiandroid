@@ -38,6 +38,27 @@ def test_cohort_readiness_report_prints_percentages_and_concentration(capsys) ->
     assert "devixor, gigabud" in out
 
 
+def test_cohort_readiness_report_notes_sql_vs_prepared_gap(capsys) -> None:
+    """When cohort_gate_stats is present, explain SQL governed count vs prepared rows."""
+    df = pd.DataFrame(
+        {
+            "sample_id": list(range(1, 51)),
+            "type_slug": ["banker"] * 50,
+            "family_canonical": ["Fam"] * 50,
+            "android_package_name": ["p"] * 50,
+            "vt_first_submission_date": ["2024-01-01"] * 50,
+        }
+    )
+    df.attrs["cohort_gate_stats"] = {"governed_cohort_count": 100}
+
+    cohort_readiness_report.print_cohort_readiness_report(df, gates={"max_missing_package_pct": 10.0})
+    out = capsys.readouterr().out
+    assert "SQL governed cohort (reference)" in out
+    assert "100" in out
+    assert "Final Samples" in out
+    assert "50" in out
+    assert "Prepared cohort is 50 rows" in out
+
 def test_cohort_readiness_report_warns_for_concentration_or_missingness(capsys) -> None:
     """Verdict should warn when cohort is strongly concentrated or too incomplete."""
     df = pd.DataFrame(

@@ -5,7 +5,21 @@ from __future__ import annotations
 from pathlib import Path
 
 from obsidiandroid.cli.menu import vendor_diagnostics
+from obsidiandroid.cli.menu.run_locator import resolve_latest_manifest_payload
 from obsidiandroid.common.json_io import read_json_dict
+
+
+def format_percent_for_menu(value: object, *, decimals: int = 2) -> str:
+    """Format a 0–100 percentage scalar for operator-facing lines (stable width)."""
+    if value in (None, "", "—"):
+        return "—"
+    try:
+        f = float(str(value))
+    except (TypeError, ValueError):
+        return str(value)
+    if f != f:  # NaN
+        return "—"
+    return f"{f:.{decimals}f}%"
 
 
 def print_data_diagnostics_banner(*, output_root: Path, latest_run_id: str | None) -> None:
@@ -31,6 +45,7 @@ def print_data_diagnostics_banner(*, output_root: Path, latest_run_id: str | Non
     tax_n: str | int = "—"
     perm_pct: str | float = "—"
     vendor_pct: str | float = "—"
+    frozen_profile = "—"
     if latest_run_id:
         rdiag = output_root / "runs" / latest_run_id / "diagnostics"
         fam_audit = (rdiag / "family_label_taxonomy_audit.csv").is_file()
@@ -40,15 +55,30 @@ def print_data_diagnostics_banner(*, output_root: Path, latest_run_id: str | Non
             latest_tax
         )
         tax_n = tax.get("taxonomy_mismatch_count", tax.get("total_mismatch_count", "—"))
-        q2 = read_json_dict(rdiag / "modality_contribution_summary.json")
+        q2 = read_json_dict(rdiag / "modality_contribution_summary.json") or read_json_dict(
+            output_root / "diagnostics" / "modality_contribution_summary.json"
+        )
         perm_pct = q2.get("permission_signal_pct", "—")
         vendor_pct = q2.get("vendor_merge_pct", "—")
+        man, _, _ = resolve_latest_manifest_payload(output_base=output_root)
+        pp = man.get("profile_params") if isinstance(man.get("profile_params"), dict) else {}
+        frozen_profile = "Available" if pp else "Missing"
 
     du.print_stat("Family label taxonomy audit", "Available" if fam_audit else "Missing")
     du.print_stat("Support threshold preview", "Available" if sup_prev else "Missing")
     du.print_stat("Taxonomy mismatches (summary)", str(tax_n))
-    du.print_stat("Permission signal % (Q2)", str(perm_pct))
-    du.print_stat("Vendor merge % (Q2)", str(vendor_pct))
+    du.print_stat(
+        "Permission signal % (Q2)",
+        format_percent_for_menu(perm_pct) if latest_run_id else "—",
+    )
+    du.print_stat(
+        "Vendor merge % (Q2)",
+        format_percent_for_menu(vendor_pct) if latest_run_id else "—",
+    )
+    du.print_stat(
+        "Frozen profile_params (manifest)",
+        frozen_profile,
+    )
     du.print_info(
         "[MENU] Structural diagnostics bundle: generate under Research Reports → Structural Analysis (not here)."
     )
@@ -84,4 +114,8 @@ def print_tools_maintenance_banner(*, output_root: Path, latest_run_id: str | No
     print("")
 
 
-__all__ = ["print_data_diagnostics_banner", "print_tools_maintenance_banner"]
+__all__ = [
+    "format_percent_for_menu",
+    "print_data_diagnostics_banner",
+    "print_tools_maintenance_banner",
+]

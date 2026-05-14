@@ -155,9 +155,9 @@ def resolve_manifest_for_run_id(run_id: str) -> tuple[dict, Path]:
     return run_locator.resolve_manifest_for_run_id(run_id)
 
 
-def resolve_latest_manifest_payload() -> tuple[dict, str | None, Path]:
-    """Resolve latest manifest payload, following pointer manifest when needed."""
-    return run_locator.resolve_latest_manifest_payload()
+def resolve_latest_manifest_payload(*, output_base: Path | None = None) -> tuple[dict, str | None, Path]:
+    """Resolve latest manifest payload; see :func:`run_locator.resolve_latest_manifest_payload`."""
+    return run_locator.resolve_latest_manifest_payload(output_base=output_base)
 
 
 def resolve_run_root_for_manifest(

@@ -5,12 +5,48 @@ from __future__ import annotations
 import hashlib
 import os
 from datetime import datetime, timezone
+from io import StringIO
+from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+
+
+def _emit_csv_with_run_hygiene(*, primary: Path, csv_text: str, global_latest_name: str) -> None:
+    """Write run-scoped CSV; under ``runs/`` omit local ``*.latest.*`` and mirror to global diagnostics."""
+    from obsidiandroid.common import output_hygiene as oh
+
+    primary = Path(primary)
+    primary.parent.mkdir(parents=True, exist_ok=True)
+    if oh.path_is_under_output_runs(primary.parent) and oh.run_diagnostics_should_omit_latest_duplicate():
+        oh.mirror_csv_text_run_then_global(
+            diagnostics_dir=primary.parent,
+            run_filename=primary.name,
+            csv_text=csv_text,
+            global_latest_name=global_latest_name,
+        )
+    else:
+        primary.write_text(csv_text, encoding="utf-8")
+
+
+def _emit_utf8_with_run_hygiene(*, primary: Path, body: str, global_latest_name: str) -> None:
+    """Write UTF-8 sidecar (snapshot meta); mirror policy matches :func:`_emit_csv_with_run_hygiene`."""
+    from obsidiandroid.common import output_hygiene as oh
+
+    primary = Path(primary)
+    primary.parent.mkdir(parents=True, exist_ok=True)
+    if oh.path_is_under_output_runs(primary.parent) and oh.run_diagnostics_should_omit_latest_duplicate():
+        oh.mirror_utf8_text_run_then_global(
+            diagnostics_dir=primary.parent,
+            run_filename=primary.name,
+            text=body,
+            global_latest_name=global_latest_name,
+        )
+    else:
+        primary.write_text(body, encoding="utf-8")
 
 
 def apply_analysis_snapshot_lock(
@@ -139,10 +175,13 @@ def export_analysis_snapshot(
     if not conflicts_df.empty:
         conflicted_sha256 = set(conflicts_df["sha256"].tolist())
         if conflict_file:
-            conflict_dir = os.path.dirname(conflict_file)
-            if conflict_dir:
-                os.makedirs(conflict_dir, exist_ok=True)
-            conflicts_df.to_csv(conflict_file, index=False)
+            cbuf = StringIO()
+            conflicts_df.to_csv(cbuf, index=False)
+            _emit_csv_with_run_hygiene(
+                primary=Path(conflict_file),
+                csv_text=cbuf.getvalue(),
+                global_latest_name="analysis_snapshot_label_conflicts.latest.csv",
+            )
         du.print_warning(
             f"[SNAPSHOT] Found {len(conflicts_df)} SHA256 label conflict(s). "
             "Conflicted hashes were quarantined from snapshot export."
@@ -186,10 +225,13 @@ def export_analysis_snapshot(
     snapshot_df["feature_hash"] = snapshot_df.apply(_compute_snapshot_feature_hash, axis=1)
     snapshot_df = _sort_by_sample_id(snapshot_df)
 
-    snapshot_dir = os.path.dirname(snapshot_file)
-    if snapshot_dir:
-        os.makedirs(snapshot_dir, exist_ok=True)
-    snapshot_df.to_csv(snapshot_file, index=False)
+    sbuf = StringIO()
+    snapshot_df.to_csv(sbuf, index=False)
+    _emit_csv_with_run_hygiene(
+        primary=Path(snapshot_file),
+        csv_text=sbuf.getvalue(),
+        global_latest_name="analysis_snapshot.latest.csv",
+    )
 
     sample_id_digest = _hash_ids(snapshot_df["sample_id"].tolist())
     snapshot_sha_digest = _hash_sha256_values(snapshot_df["sha256"].tolist())
@@ -203,21 +245,28 @@ def export_analysis_snapshot(
     earliest = eff_non_null.min().isoformat() if not eff_non_null.empty else ""
     latest = eff_non_null.max().isoformat() if not eff_non_null.empty else ""
     extracted_at_utc = datetime.now(timezone.utc).isoformat()
-    with open(meta_file, "w", encoding="utf-8") as handle:
-        handle.write(f"sample_count={len(snapshot_df)}\n")
-        handle.write(f"sha256={sample_id_digest}\n")
-        handle.write(f"sample_id_sha256={sample_id_digest}\n")
-        handle.write(f"snapshot_sha256_hash={snapshot_sha_digest}\n")
-        handle.write(f"snapshot_sha256_count={_count_non_empty_sha256(snapshot_df['sha256'])}\n")
-        handle.write(f"label_conflict_count={len(conflicts_df)}\n")
-        handle.write(f"selection_rule_version={selection_rule_version or 'snapshot_v1'}\n")
-        handle.write("temporal_anchor_version=v1_itw_preferred_submission_fallback\n")
-        handle.write(f"pct_itw_available={round(itw_count / total_rows, 6)}\n")
-        handle.write(f"pct_submission_fallback={round(fallback_count / total_rows, 6)}\n")
-        handle.write(f"earliest_timestamp={earliest}\n")
-        handle.write(f"latest_timestamp={latest}\n")
-        handle.write(f"run_id={run_id or ''}\n")
-        handle.write(f"extracted_at_utc={extracted_at_utc}\n")
+    meta_lines = [
+        f"sample_count={len(snapshot_df)}\n",
+        f"sha256={sample_id_digest}\n",
+        f"sample_id_sha256={sample_id_digest}\n",
+        f"snapshot_sha256_hash={snapshot_sha_digest}\n",
+        f"snapshot_sha256_count={_count_non_empty_sha256(snapshot_df['sha256'])}\n",
+        f"label_conflict_count={len(conflicts_df)}\n",
+        f"selection_rule_version={selection_rule_version or 'snapshot_v1'}\n",
+        "temporal_anchor_version=v1_itw_preferred_submission_fallback\n",
+        f"pct_itw_available={round(itw_count / total_rows, 6)}\n",
+        f"pct_submission_fallback={round(fallback_count / total_rows, 6)}\n",
+        f"earliest_timestamp={earliest}\n",
+        f"latest_timestamp={latest}\n",
+        f"run_id={run_id or ''}\n",
+        f"extracted_at_utc={extracted_at_utc}\n",
+    ]
+    meta_body = "".join(meta_lines)
+    _emit_utf8_with_run_hygiene(
+        primary=Path(meta_file),
+        body=meta_body,
+        global_latest_name="analysis_snapshot.latest.meta.txt",
+    )
 
     du.print_info(f"[SNAPSHOT] Analysis snapshot exported: {snapshot_file}")
     du.print_info(f"[SNAPSHOT] Analysis snapshot metadata: {meta_file}")

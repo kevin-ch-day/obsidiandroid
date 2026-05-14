@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import shutil
 import zipfile
 from pathlib import Path
@@ -12,6 +11,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common import output_paths
 from obsidiandroid.pipeline.permission_trends.bundle_manifest import resolve_bundle_artifact_dir
 from obsidiandroid.pipeline.permission_trends.constants import (
@@ -22,7 +22,6 @@ from obsidiandroid.pipeline.permission_trends.constants import (
     BUNDLE_CONTRACT_VERSION,
 )
 from obsidiandroid.pipeline.permission_trends.publish_paths import resolve_run_root_for_run_id
-from obsidiandroid.pipeline.permission_trends import reporting_support as _perm_trends_reporting
 
 
 def export_df_with_latest(
@@ -30,15 +29,20 @@ def export_df_with_latest(
     run_id: str,
     file_stem: str,
     bundle_dir: Path,
+    *,
+    artifact_group: str = ARTIFACT_GROUP_TABLES,
 ) -> str:
-    tables_dir = resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_TABLES)
-    latest_path = tables_dir / f"{file_stem}.latest.csv"
-    run_path: Path | None = None
-    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
-        run_path = tables_dir / f"{file_stem}_{run_id}.csv"
-        df.to_csv(run_path, index=False)
-    df.to_csv(latest_path, index=False)
-    return str(run_path or latest_path)
+    """Write bundle CSV with run-scoped name; mirror ``*.latest.csv`` per output hygiene policy."""
+    out_dir = resolve_bundle_artifact_dir(bundle_dir, artifact_group)
+    csv_text = df.to_csv(index=False)
+    rid = str(run_id).strip() or "unknown"
+    paths = oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=out_dir,
+        run_filename=f"{file_stem}_{rid}.csv",
+        csv_text=csv_text,
+        global_latest_name=f"{file_stem}.latest.csv",
+    )
+    return str(paths[0])
 
 
 def export_df_diagnostics_with_latest(
@@ -47,7 +51,7 @@ def export_df_diagnostics_with_latest(
     run_id: str,
     file_stem: str,
 ) -> str:
-    """Export CSV to run diagnostics with run-scoped + latest variants."""
+    """Export CSV to run diagnostics with run-scoped name and hygiene mirror for ``*.latest``."""
     diagnostics_dir = Path(
         str(
             getattr(
@@ -58,11 +62,15 @@ def export_df_diagnostics_with_latest(
         )
     )
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    run_path = diagnostics_dir / f"{file_stem}_{run_id}.csv"
-    latest_path = diagnostics_dir / f"{file_stem}.latest.csv"
-    df.to_csv(run_path, index=False)
-    df.to_csv(latest_path, index=False)
-    return str(run_path)
+    rid = str(run_id).strip() or "unknown"
+    csv_text = df.to_csv(index=False)
+    paths = oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=f"{file_stem}_{rid}.csv",
+        csv_text=csv_text,
+        global_latest_name=f"{file_stem}.latest.csv",
+    )
+    return str(paths[0])
 
 
 def export_json_with_latest(
@@ -71,14 +79,16 @@ def export_json_with_latest(
     file_stem: str,
     bundle_dir: Path,
 ) -> str:
+    """Write bundle JSON with run-scoped name; mirror ``*.latest.json`` per output hygiene policy."""
     contracts_dir = resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_CONTRACTS)
-    latest_path = contracts_dir / f"{file_stem}.latest.json"
-    run_path: Path | None = None
-    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
-        run_path = contracts_dir / f"{file_stem}_{run_id}.json"
-        run_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    latest_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    return str(run_path or latest_path)
+    rid = str(run_id).strip() or "unknown"
+    paths = oh.mirror_json_text_run_then_global(
+        diagnostics_dir=contracts_dir,
+        run_filename=f"{file_stem}_{rid}.json",
+        payload=payload,
+        global_latest_name=f"{file_stem}.latest.json",
+    )
+    return str(paths[0])
 
 
 def export_text_with_latest(
@@ -87,14 +97,34 @@ def export_text_with_latest(
     file_stem: str,
     bundle_dir: Path,
 ) -> str:
+    """Write bundle text doc with run-scoped name; mirror ``*.latest.txt`` per output hygiene policy."""
     docs_dir = resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_DOCS)
-    latest_path = docs_dir / f"{file_stem}.latest.txt"
-    run_path: Path | None = None
-    if _perm_trends_reporting.write_run_scoped_permission_artifacts():
-        run_path = docs_dir / f"{file_stem}_{run_id}.txt"
-        run_path.write_text(text, encoding="utf-8")
-    latest_path.write_text(text, encoding="utf-8")
-    return str(run_path or latest_path)
+    rid = str(run_id).strip() or "unknown"
+    paths = oh.mirror_utf8_text_run_then_global(
+        diagnostics_dir=docs_dir,
+        run_filename=f"{file_stem}_{rid}.txt",
+        text=text,
+        global_latest_name=f"{file_stem}.latest.txt",
+    )
+    return str(paths[0])
+
+
+def export_markdown_with_latest(
+    text: str,
+    run_id: str,
+    file_stem: str,
+    bundle_dir: Path,
+) -> str:
+    """Write bundle Markdown with run-scoped name; mirror ``*.latest.md`` per output hygiene policy."""
+    docs_dir = resolve_bundle_artifact_dir(bundle_dir, ARTIFACT_GROUP_DOCS)
+    rid = str(run_id).strip() or "unknown"
+    paths = oh.mirror_utf8_text_run_then_global(
+        diagnostics_dir=docs_dir,
+        run_filename=f"{file_stem}_{rid}.md",
+        text=text,
+        global_latest_name=f"{file_stem}.latest.md",
+    )
+    return str(paths[0])
 
 
 def export_permission_trends_bundle_readme(run_id: str, bundle_dir: Path) -> str:

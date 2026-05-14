@@ -11,6 +11,7 @@ from pathlib import Path
 import hashlib
 from config import app_config
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
+from obsidiandroid.common import output_hygiene as output_hygiene_mod
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from .feature_engine_selection import get_top_engines_by_score
@@ -130,8 +131,15 @@ def _export_pre_gate_vendor_scores(
     out = top[cols]
     out_dir = _diagnostics_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "vendor_gate_top10_pre_gate.latest.csv"
-    out.to_csv(out_path, index=False)
+    rid = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "").strip() or "unknown"
+    csv_text = out.to_csv(index=False)
+    paths = output_hygiene_mod.mirror_csv_text_run_then_global(
+        diagnostics_dir=out_dir,
+        run_filename=f"vendor_gate_top10_pre_gate_{rid}.csv",
+        csv_text=csv_text,
+        global_latest_name="vendor_gate_top10_pre_gate.latest.csv",
+    )
+    out_path = paths[0]
     if verbose and ml_console.show_debug_tables():
         try:
             du.print_table(out, title="Top 10 vendors by pre-gate score", show_index=False)

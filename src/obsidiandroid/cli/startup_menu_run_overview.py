@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from config import app_config
 
@@ -23,6 +24,127 @@ from .startup_menu_run_context import (
     resolve_run_root_for_manifest,
 )
 from .ui import display as du
+
+
+def _compact_kv_map(d: dict[str, Any], *, max_keys: int = 16) -> str:
+    if not d:
+        return "— (profile defaults)"
+    keys = sorted(d.keys())
+    parts: list[str] = []
+    for key in keys[:max_keys]:
+        parts.append(f"{key}={d[key]!r}")
+    tail = " …" if len(keys) > max_keys else ""
+    return "; ".join(parts) + tail
+
+
+def print_profile_tuning_from_manifest(manifest: dict[str, Any]) -> None:
+    """Print cohort gates, dataset filters, parser/runtime overrides, and feature flags from manifest."""
+    du.print_subheader("Profile tuning (frozen manifest)")
+    pp = manifest.get("profile_params") if isinstance(manifest.get("profile_params"), dict) else {}
+    if not pp:
+        du.print_note(
+            "No profile_params in this manifest. Pointer-only stubs omit it; open "
+            "`output/runs/<run_id>/run_manifest.json` for the full frozen profile."
+        )
+        print("")
+        return
+
+    ch = str(manifest.get("config_hash", "") or "").strip()
+    if ch:
+        du.print_stat("Profile config hash", ch[:16] + ("…" if len(ch) > 16 else ""))
+
+    du.print_stat("Evidence mode (manifest)", "Yes" if bool(manifest.get("evidence_mode")) else "No")
+    pmd = manifest.get("paper_mode") if isinstance(manifest.get("paper_mode"), dict) else {}
+    du.print_stat("Paper mode (manifest)", "Yes" if bool(pmd.get("resolved_value")) else "No")
+    psrc = str(pmd.get("source") or "").strip()
+    if psrc:
+        du.print_stat("Paper mode source", psrc)
+    kreq = manifest.get("k_requested")
+    effk = manifest.get("effective_top_k")
+    if kreq is not None or effk is not None:
+        du.print_stat("Top-k (requested / effective)", f"{kreq if kreq is not None else '—'} / {effk if effk is not None else '—'}")
+    vf = manifest.get("vendor_fallback_used")
+    if vf is not None:
+        du.print_stat("Vendor width fallback used (run)", "Yes" if vf else "No")
+
+    du.print_stat("Profile ID", str(pp.get("profile_id", "—")))
+    du.print_stat("Evidence mode (profile)", "Yes" if bool(pp.get("evidence_mode")) else "No")
+    du.print_stat("Type slug filter", str(pp.get("type_slug_filter") if pp.get("type_slug_filter") is not None else "— (all)"))
+
+    gates = pp.get("cohort_gates") if isinstance(pp.get("cohort_gates"), dict) else {}
+    if gates:
+        du.print_stat("min_samples_per_family", str(gates.get("min_samples_per_family", "—")))
+        du.print_stat("require_mapped_family", "Yes" if gates.get("require_mapped_family", True) else "No")
+        du.print_stat("require_sha256", "Yes" if gates.get("require_sha256", True) else "No")
+        du.print_stat("allow_missing_package_name", "Yes" if gates.get("allow_missing_package_name", True) else "No")
+        du.print_stat("max_missing_package_pct", str(gates.get("max_missing_package_pct", "—")))
+        du.print_stat("exclude_unknown_type_slug", "Yes" if gates.get("exclude_unknown_type_slug") else "No")
+        excl = gates.get("exclude_families")
+        if isinstance(excl, list):
+            du.print_stat("exclude_families", f"{len(excl)} family name(s)")
+        elif excl:
+            du.print_stat("exclude_families", str(excl))
+        tw0 = str(gates.get("time_window_start_utc") or "").strip()
+        tw1 = str(gates.get("time_window_end_utc") or "").strip()
+        if tw0 or tw1:
+            du.print_stat("Cohort time window", f"{tw0 or '—'} → {tw1 or '—'}")
+    else:
+        du.print_stat("cohort_gates", "— (none in profile)")
+
+    df = pp.get("dataset_filters") if isinstance(pp.get("dataset_filters"), dict) else {}
+    if df:
+        du.print_stat("dataset_filters.mode", str(df.get("mode", "—")))
+
+    du.print_stat("top_k_requested", str(pp.get("top_k_requested", "—")))
+    du.print_stat("allow_adaptive_top_k", "Yes" if bool(pp.get("allow_adaptive_top_k")) else "No")
+    du.print_stat("allow_vendor_fallback_for_width", "Yes" if bool(pp.get("allow_vendor_fallback_for_width")) else "No")
+    du.print_stat(
+        "exclude_unknown_from_main_results",
+        "Yes" if bool(pp.get("exclude_unknown_from_main_results")) else "No",
+    )
+
+    flags = pp.get("feature_flags") if isinstance(pp.get("feature_flags"), dict) else {}
+    if flags:
+        du.print_stat(
+            "feature_flags (subset)",
+            _compact_kv_map(
+                {k: flags[k] for k in sorted(flags.keys()) if k.startswith(("enable_", "confusion_matrix"))},
+                max_keys=20,
+            ),
+        )
+    else:
+        du.print_stat("feature_flags", "—")
+
+    po = pp.get("parser_overrides") if isinstance(pp.get("parser_overrides"), dict) else {}
+    du.print_stat("parser_overrides", _compact_kv_map(po))
+
+    ro = pp.get("runtime_overrides") if isinstance(pp.get("runtime_overrides"), dict) else {}
+    du.print_stat("runtime_overrides", _compact_kv_map(ro))
+
+    raw_models = pp.get("model_list")
+    if isinstance(raw_models, list) and raw_models:
+        du.print_stat("model_list", ", ".join(str(m) for m in raw_models[:12]) + (" …" if len(raw_models) > 12 else ""))
+    elif raw_models is not None:
+        du.print_stat("model_list", str(raw_models))
+    du.print_info(
+        "[MENU] Tunables live in profiles/*.yaml (cohort_gates, parser_overrides, runtime_overrides, "
+        "feature_flags); rerun the pipeline after edits."
+    )
+    print("")
+
+
+def show_profile_tuning_snapshot() -> int:
+    """Print only the profile / pipeline tuning block for the latest resolved manifest."""
+    manifest, resolved_run_id, manifest_path = resolve_latest_manifest_payload()
+    if not manifest:
+        du.print_warning("[MENU] Latest run manifest not found at output/diagnostics/run_manifest.latest.json")
+        return 1
+    run_id = str(resolved_run_id or manifest.get("run_id", "unknown"))
+    du.print_section("Pipeline profile tuning")
+    du.print_stat("Resolved run ID", run_id)
+    du.print_stat("Manifest path", str(manifest_path))
+    print_profile_tuning_from_manifest(manifest)
+    return 0
 
 
 def show_latest_run_snapshot() -> int:
@@ -104,6 +226,7 @@ def show_latest_run_snapshot() -> int:
         "Run Manifest",
         str(canonical_manifest_path if canonical_manifest_path.exists() else manifest_path),
     )
+    print_profile_tuning_from_manifest(manifest)
     return 0
 
 

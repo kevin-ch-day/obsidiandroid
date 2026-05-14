@@ -10,6 +10,7 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.common.hash_utils import hash_payload
 
@@ -57,13 +58,16 @@ def export_feature_contract(
         },
     }
 
-    run_path = output_root / "feature_contract.json"
-    latest_path = output_root / "feature_contract.latest.json"
-    with open(run_path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, sort_keys=True)
-    with open(latest_path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, sort_keys=True)
-    return str(run_path)
+    stamped = f"feature_contract_{run_id}.json"
+    oh.mirror_json_text_run_then_global(
+        diagnostics_dir=output_root,
+        run_filename=stamped,
+        payload=payload,
+        global_latest_name="feature_contract.latest.json",
+    )
+    compat = output_root / "feature_contract.json"
+    compat.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return str(compat)
 
 
 def export_leakage_assessment(
@@ -101,13 +105,18 @@ def export_leakage_assessment(
         f"Leakage risk classification: {leakage_class}",
     ]
 
+    body = "\n".join(lines) + "\n"
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
-    run_path = output_root / "leakage_assessment.txt"
-    latest_path = output_root / "leakage_assessment.latest.txt"
-    run_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    latest_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return str(run_path)
+    oh.mirror_utf8_text_run_then_global(
+        diagnostics_dir=output_root,
+        run_filename=f"leakage_assessment_{run_id}.txt",
+        text=body,
+        global_latest_name="leakage_assessment.latest.txt",
+    )
+    compat = output_root / "leakage_assessment.txt"
+    compat.write_text(body, encoding="utf-8")
+    return str(compat)
 
 
 def export_modality_method_contract(
@@ -190,10 +199,12 @@ def export_modality_method_contract(
         },
     }
 
-    run_path = output_root / "modality_method_contract.json"
-    latest_path = output_root / "modality_method_contract.latest.json"
-    with open(run_path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, sort_keys=True)
-    with open(latest_path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, sort_keys=True)
-    return str(run_path)
+    oh.mirror_json_text_run_then_global(
+        diagnostics_dir=output_root,
+        run_filename=f"modality_method_contract_{run_id}.json",
+        payload=payload,
+        global_latest_name="modality_method_contract.latest.json",
+    )
+    compat = output_root / "modality_method_contract.json"
+    compat.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return str(compat)

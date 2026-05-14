@@ -145,9 +145,18 @@ def resolve_manifest_for_run_id(run_id: str) -> tuple[dict, Path]:
     return read_json_object(canonical_path), canonical_path
 
 
-def resolve_latest_manifest_payload() -> tuple[dict, str | None, Path]:
-    """Resolve latest manifest payload, following pointer manifests when needed."""
-    latest_path = output_paths.diagnostics_root() / "run_manifest.latest.json"
+def resolve_latest_manifest_payload(*, output_base: Path | None = None) -> tuple[dict, str | None, Path]:
+    """Resolve latest manifest payload, following pointer manifests when needed.
+
+    Args:
+        output_base: Optional output tree root (defaults to configured ``DEFAULT_OUTPUT_DIR`` layout).
+    """
+    if output_base is None:
+        latest_path = output_paths.diagnostics_root() / "run_manifest.latest.json"
+    else:
+        base = Path(output_base).expanduser().resolve()
+        diag_sub = str(getattr(app_config, "OUTPUT_DIAGNOSTICS_SUBDIR", "diagnostics"))
+        latest_path = base / diag_sub / "run_manifest.latest.json"
     latest_payload = read_json_object(latest_path)
     if not latest_payload:
         return {}, None, latest_path
@@ -161,9 +170,19 @@ def resolve_latest_manifest_payload() -> tuple[dict, str | None, Path]:
     if run_root_raw:
         run_root = Path(run_root_raw)
     elif run_id:
-        run_root = output_paths.runs_root() / run_id
+        if output_base is None:
+            run_root = output_paths.runs_root() / run_id
+        else:
+            base = Path(output_base).expanduser().resolve()
+            runs_sub = str(getattr(app_config, "OUTPUT_RUNS_SUBDIR", "runs"))
+            run_root = base / runs_sub / run_id
     else:
-        run_root = output_paths.runs_root()
+        if output_base is None:
+            run_root = output_paths.runs_root()
+        else:
+            base = Path(output_base).expanduser().resolve()
+            runs_sub = str(getattr(app_config, "OUTPUT_RUNS_SUBDIR", "runs"))
+            run_root = base / runs_sub
 
     canonical_path = run_root / "run_manifest.json"
     canonical_payload = read_json_object(canonical_path)
