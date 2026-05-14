@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 
 
 def split_benign_malicious(samples_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -134,7 +135,7 @@ def apply_dataset_filters(samples_df: pd.DataFrame, profile: dict) -> pd.DataFra
     benign_df, malicious_df = split_benign_malicious(samples_df)
     min_partition_size = int(dataset_filters.get("min_partition_size", 1))
 
-    random_state = int(getattr(app_config, "RANDOM_STATE", 42))
+    random_state = safe_int_config_value(getattr(app_config, "RANDOM_STATE", 42), default=42)
     if mode == "malicious_only":
         out_df = malicious_df.copy()
         out_df.attrs["cohort_filter_summary"] = summarize_dataset_partitions(

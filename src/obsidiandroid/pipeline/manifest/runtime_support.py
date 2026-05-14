@@ -9,6 +9,7 @@ import pandas as pd
 
 from config import app_config
 import obsidiandroid.governance.run_manifest as run_manifest
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.governance.integrity import enforce_run_scoped_artifact_paths
 
@@ -95,7 +96,10 @@ def build_registry_payload(
         },
         "vendor_gate_summary": {
             "n_vendors_selected": int(len(selected_vendors)) if isinstance(selected_vendors, list) else 0,
-            "min_required": int(getattr(app_config, "FEATURE_MIN_SELECTED_VENDORS", 1)),
+            "min_required": safe_int_config_value(
+                getattr(app_config, "FEATURE_MIN_SELECTED_VENDORS", 1),
+                default=1,
+            ),
             "constrained_reason": "below_min_required" if vendor_constrained else "",
             "vendor_gate_debug_path": str(getattr(app_config, "RUNTIME_VENDOR_GATE_DEBUG_PATH", "")),
             "fallback_used": bool(manifest_context.get("vendor_fallback_used", False)),

@@ -108,3 +108,22 @@ def test_stratified_kfold_treats_cv_folds_none_as_default(monkeypatch) -> None:
     cv = stratified_kfold_for_grid_search(10, random_state=0)
     assert cv is not None
     assert cv.n_splits == 5
+
+
+def test_safe_float_config_value() -> None:
+    from obsidiandroid.common.cv_fold_config import safe_float_config_value
+
+    assert safe_float_config_value(None, default=0.25) == 0.25
+    assert safe_float_config_value("bad", default=1.5) == 1.5
+    assert safe_float_config_value("0.1", default=0.0) == 0.1
+
+
+def test_resolve_training_runtime_defaults_tolerates_none_config(monkeypatch) -> None:
+    from config import app_config
+    from obsidiandroid.modeling import model_trainer_factory
+
+    monkeypatch.setattr(app_config, "TRAIN_TEST_SPLIT", None, raising=False)
+    monkeypatch.setattr(app_config, "RANDOM_STATE", None, raising=False)
+    ts, rs = model_trainer_factory._resolve_training_runtime_defaults(None, None)
+    assert ts == 0.25
+    assert rs == 42

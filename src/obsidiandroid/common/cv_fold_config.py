@@ -1,7 +1,17 @@
 # Filename: src/obsidiandroid/common/cv_fold_config.py
-# Purpose : CV fold coercion and safe int parsing for config (no heavy modeling imports).
+# Purpose : CV / split config coercion: safe int and float parsing (no heavy modeling imports).
 
-"""CV fold configuration helpers used by training, grid search, and manifests."""
+"""CV and split-related config coercion (safe int/float parsing for ``app_config``)."""
+
+
+def safe_float_config_value(raw: object, *, default: float) -> float:
+    """Coerce a config value to ``float``; ``None`` and invalid values use ``default``."""
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return default
 
 
 def safe_int_config_value(raw: object, *, default: int) -> int:

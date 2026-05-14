@@ -10,6 +10,7 @@ import pandas as pd
 from config import app_config
 
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 
 from .startup_menu_run_context import read_latest_run_id
 from .ui import display as du
@@ -22,10 +23,16 @@ def print_structural_analysis_banner() -> None:
     )
     figure_mode = str(getattr(app_config, "FIGURE_MODE", "analysis"))
     analysis_scope = str(getattr(app_config, "ANALYSIS_SCOPE", "all"))
-    max_perms = int(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 30))
+    max_perms = safe_int_config_value(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 30), default=30)
     selection_method = str(getattr(app_config, "PERMISSION_SELECTION_METHOD", "discriminability"))
-    min_family_support = int(getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 50))
-    min_family_support_model = int(getattr(app_config, "MIN_FAMILY_SUPPORT", 3))
+    min_family_support = safe_int_config_value(
+        getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 50),
+        default=50,
+    )
+    min_family_support_model = safe_int_config_value(
+        getattr(app_config, "MIN_FAMILY_SUPPORT", 3),
+        default=3,
+    )
     exclude_unknown = bool(getattr(app_config, "EXCLUDE_UNKNOWN_TYPE_IN_VISUALS", True))
     latest_run_id = read_latest_run_id() or "No run selected"
     layer_map = {

@@ -23,6 +23,7 @@ from obsidiandroid.modeling.model_trainer_factory import reset_runtime_training_
 # === Database + Utilities ===
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.reporting import family_distribution_report
 import obsidiandroid.cli.profile_manager as profile_manager
 import obsidiandroid.governance.run_manifest as run_manifest
@@ -829,7 +830,10 @@ def run_pipeline(
                 manifest_context["excluded_engine_count"] = excluded
                 setattr(app_config, "RUNTIME_INCLUDED_ENGINE_COUNT", included)
             selected_vendors = list(feature_df.attrs.get("selected_vendors", []))
-            min_selected = int(getattr(app_config, "FEATURE_MIN_SELECTED_VENDORS", 1))
+            min_selected = safe_int_config_value(
+                getattr(app_config, "FEATURE_MIN_SELECTED_VENDORS", 1),
+                default=1,
+            )
             manifest_context["selected_vendor_count"] = len(selected_vendors)
             manifest_context["selected_vendors"] = selected_vendors
             manifest_context["vendor_constrained_run_flag"] = len(selected_vendors) < min_selected

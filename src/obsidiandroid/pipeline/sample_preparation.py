@@ -20,6 +20,7 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 
 _TAG_SPLIT_PATTERN = re.compile(r"[;,|]")
 
@@ -169,7 +170,7 @@ def apply_dataset_filters(samples_df: pd.DataFrame, profile: dict[str, Any]) -> 
     if benign_df.empty and malicious_df.empty:
         return samples_df
 
-    random_state = int(getattr(app_config, "RANDOM_STATE", 42))
+    random_state = safe_int_config_value(getattr(app_config, "RANDOM_STATE", 42), default=42)
     if mode == "malicious_only":
         return malicious_df if not malicious_df.empty else samples_df
 

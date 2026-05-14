@@ -18,6 +18,10 @@ import numpy as np
 
 from config import app_config
 from obsidiandroid.common import canonicalization, output_hygiene as oh
+from obsidiandroid.common.cv_fold_config import (
+    safe_float_config_value,
+    safe_int_config_value,
+)
 from .training_helpers import (
     validate_training_inputs,
     get_model_trainer,
@@ -94,7 +98,10 @@ def _build_split_cache_key(
         float(test_size),
         int(random_state),
         bool(getattr(app_config, "AUTO_ADJUST_TRAIN_TEST_SPLIT", False)),
-        int(getattr(app_config, "MIN_TEST_SAMPLES_PER_CLASS", 1)),
+        safe_int_config_value(
+            getattr(app_config, "MIN_TEST_SAMPLES_PER_CLASS", 1),
+            default=1,
+        ),
         group_token,
     )
 
@@ -105,12 +112,12 @@ def _resolve_training_runtime_defaults(
 ) -> tuple[float, int]:
     """Resolve training defaults at call time so runtime overrides take effect."""
     resolved_test_size = (
-        float(getattr(app_config, "TRAIN_TEST_SPLIT", 0.25))
+        safe_float_config_value(getattr(app_config, "TRAIN_TEST_SPLIT", 0.25), default=0.25)
         if test_size is None
         else float(test_size)
     )
     resolved_random_state = (
-        int(getattr(app_config, "RANDOM_STATE", 42))
+        safe_int_config_value(getattr(app_config, "RANDOM_STATE", 42), default=42)
         if random_state is None
         else int(random_state)
     )

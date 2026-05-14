@@ -13,6 +13,7 @@ import pandas as pd
 
 from config import app_config
 
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.pipeline.permission_trends.bundle_manifest import resolve_bundle_artifact_dir
 from obsidiandroid.pipeline.permission_trends.constants import (
     ARTIFACT_GROUP_CONTRACTS,
@@ -120,7 +121,10 @@ def export_safe_claims_report(
     lines.extend(["", "Unsafe claims:"])
     lines.append("- Do not claim causal links; all consensus/entropy relationships are associations.")
     lines.append("- Do not claim bankers are globally SMS-heavy; use subtype framing.")
-    if selected_vendor_count < int(getattr(app_config, "FEATURE_MIN_SELECTED_VENDORS", 1)):
+    if selected_vendor_count < safe_int_config_value(
+        getattr(app_config, "FEATURE_MIN_SELECTED_VENDORS", 1),
+        default=1,
+    ):
         lines.append("- This run is vendor-constrained; avoid broad ablation generalization.")
     lines.append("- Do not infer runtime behavior from static manifest permissions.")
     lines.append("- Do not over-interpret family-level inferential stats below support threshold.")
