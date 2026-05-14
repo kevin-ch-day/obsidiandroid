@@ -7,6 +7,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import output_paths
 from obsidiandroid.common.cv_fold_config import safe_float_config_value, safe_int_config_value
 from obsidiandroid.evaluation import av_results_fetcher as results_fetcher
 from obsidiandroid.evaluation import vendor_parser_matching as parser_match
@@ -29,8 +30,22 @@ NON_VENDOR_COLUMNS = {
     "family_label_raw",
     "family_id",
 }
-PARSER_COVERAGE_EXPORT = Path("output/diagnostics/vendor_parser_coverage.latest.csv")
-PARSER_CANDIDATES_EXPORT = Path("output/diagnostics/vendor_parser_coverage_candidates.latest.csv")
+
+
+def _parser_diagnostics_base() -> Path:
+    """Active diagnostics root: run-scoped during pipeline, else configured global diagnostics."""
+    runtime_dir = str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "").strip()
+    if runtime_dir:
+        return Path(runtime_dir)
+    return output_paths.diagnostics_root()
+
+
+def parser_coverage_export_path() -> Path:
+    return _parser_diagnostics_base() / "vendor_parser_coverage.latest.csv"
+
+
+def parser_coverage_candidates_export_path() -> Path:
+    return _parser_diagnostics_base() / "vendor_parser_coverage_candidates.latest.csv"
 
 
 def validate_input_columns(samples_df: pd.DataFrame) -> bool:
@@ -155,13 +170,14 @@ def _export_parser_coverage_snapshot(
             by=["parser_mapped", "coverage_pct", "vendor_column"],
             ascending=[False, False, True],
         )
-        PARSER_COVERAGE_EXPORT.parent.mkdir(parents=True, exist_ok=True)
-        out_df.to_csv(PARSER_COVERAGE_EXPORT, index=False)
+        cov_path = parser_coverage_export_path()
+        cov_path.parent.mkdir(parents=True, exist_ok=True)
+        out_df.to_csv(cov_path, index=False)
         _export_unmapped_coverage_candidates(out_df, verbose=verbose)
         if verbose:
             mapped = int(out_df["parser_mapped"].sum())
             du.print_info(
-                f"[PARSER] Coverage snapshot exported: {PARSER_COVERAGE_EXPORT} "
+                f"[PARSER] Coverage snapshot exported: {cov_path} "
                 f"({mapped}/{len(out_df)} mapped)"
             )
     except Exception as exc:
@@ -197,7 +213,9 @@ def _export_unmapped_coverage_candidates(
             "is_dynamic_generic",
             "onboarding_priority",
         ]
-        pd.DataFrame(columns=empty_cols).to_csv(PARSER_CANDIDATES_EXPORT, index=False)
+        empty_path = parser_coverage_candidates_export_path()
+        empty_path.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(columns=empty_cols).to_csv(empty_path, index=False)
         return
 
     candidates = candidates.sort_values(
@@ -206,12 +224,14 @@ def _export_unmapped_coverage_candidates(
     ).head(max_rows)
     candidates.insert(0, "priority_rank", range(1, len(candidates) + 1))
     candidates["onboarding_priority"] = "high_coverage_unmapped"
-    candidates.to_csv(PARSER_CANDIDATES_EXPORT, index=False)
+    candidates_path = parser_coverage_candidates_export_path()
+    candidates_path.parent.mkdir(parents=True, exist_ok=True)
+    candidates.to_csv(candidates_path, index=False)
 
     if verbose:
         du.print_info(
             "[PARSER] Coverage onboarding candidates exported: "
-            f"{PARSER_CANDIDATES_EXPORT} ({len(candidates)} rows, min_cov={min_cov:.1f}%)"
+            f"{candidates_path} ({len(candidates)} rows, min_cov={min_cov:.1f}%)"
         )
 
 

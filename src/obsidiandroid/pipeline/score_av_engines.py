@@ -16,6 +16,7 @@ from obsidiandroid.common.cv_fold_config import (
     safe_float_config_value,
     safe_int_config_value,
 )
+from obsidiandroid.common import output_paths
 from obsidiandroid.database import db_engine
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.reporting import export_manager as em
@@ -38,7 +39,7 @@ def _lifecycle_path() -> Path:
     runtime_dir = str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "").strip()
     if runtime_dir:
         return Path(runtime_dir) / "engine_lifecycle.latest.csv"
-    return Path("output/diagnostics/engine_lifecycle.latest.csv")
+    return output_paths.diagnostics_root() / "engine_lifecycle.latest.csv"
 
 
 def is_valid_matrix(df: pd.DataFrame) -> bool:

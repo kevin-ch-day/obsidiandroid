@@ -15,13 +15,27 @@ from obsidiandroid.governance.integrity import enforce_run_scoped_artifact_paths
 
 
 def runtime_diagnostics_dir() -> Path:
-    """Resolve diagnostics output directory for the current runtime mode."""
+    """Resolve diagnostics output directory for the current runtime mode.
+
+    Prefer :attr:`RUNTIME_DIAGNOSTICS_DIR` (set by :func:`setup_runtime_context`).
+    When unset, infer ``runs/<run_id>/diagnostics`` from ``RUNTIME_RUN_ROOT`` or
+    ``RUNTIME_RUN_ID`` so manifest artifacts are not dropped under legacy
+    ``output/diagnostics`` alone (which breaks run-scoped provenance checks).
+    """
     runtime_diag = str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "").strip()
     if runtime_diag:
         diagnostics_dir = Path(runtime_diag)
     else:
-        output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-        diagnostics_dir = output_root / "diagnostics"
+        run_root_raw = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
+        if run_root_raw:
+            diagnostics_dir = Path(run_root_raw) / "diagnostics"
+        else:
+            rid = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "").strip()
+            output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+            if rid:
+                diagnostics_dir = output_root / "runs" / rid / "diagnostics"
+            else:
+                diagnostics_dir = output_root / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     return diagnostics_dir
 

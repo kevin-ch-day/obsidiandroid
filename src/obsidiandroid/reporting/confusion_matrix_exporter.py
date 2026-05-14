@@ -16,6 +16,7 @@ import seaborn as sns
 from obsidiandroid.cli.ui import display as du
 
 # === Constants ===
+# Legacy default when callers omit ``output_path`` (prefer run-scoped paths from export_manager).
 DIR_CONFUSION_MATRICES = Path("output/conf_matrices")
 DEFAULT_FIGSIZE = (14, 10)
 DEFAULT_DPI = 300
@@ -37,9 +38,6 @@ def export_confusion_matrix_image(
     dpi: int = DEFAULT_DPI,
     verbose: bool = True,
 ) -> str:
-    # Ensure output directory exists
-    DIR_CONFUSION_MATRICES.mkdir(parents=True, exist_ok=True)
-
     # Sanitize model name to prevent double-prefix and file extension issues
     clean_name = str(model_name).strip().lower()
     if clean_name.startswith("confusion_matrix_"):
@@ -47,8 +45,10 @@ def export_confusion_matrix_image(
     if clean_name.endswith(".png"):
         clean_name = clean_name.replace(".png", "")
 
-    # Final output path
+    # Final output path (mkdir only the directory we actually write to).
     output_path = output_path or DIR_CONFUSION_MATRICES / f"confusion_matrix_{clean_name}.png"
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Choose appropriate colormap
     cmap = COLOR_PALETTE if color_mode == "color" else BWMODE_PALETTE

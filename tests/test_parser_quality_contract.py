@@ -32,7 +32,11 @@ def test_parser_quality_inclusion_status_has_no_unknown() -> None:
 def test_coverage_candidates_export_unmapped_high_coverage(monkeypatch, tmp_path: Path) -> None:
     """Unmapped high-coverage vendor candidates should be exported and prioritized."""
     out_path = tmp_path / "vendor_parser_coverage_candidates.latest.csv"
-    monkeypatch.setattr(vendor_parser_utils, "PARSER_CANDIDATES_EXPORT", out_path)
+    monkeypatch.setattr(
+        vendor_parser_utils,
+        "parser_coverage_candidates_export_path",
+        lambda: out_path,
+    )
 
     coverage_df = pd.DataFrame(
         {
