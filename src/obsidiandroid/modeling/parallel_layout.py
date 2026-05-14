@@ -45,6 +45,6 @@ def stratified_kfold_for_grid_search(
     """
     if min_class_support < 2:
         return None
-    configured = int(getattr(app_config, "CV_FOLDS", 5))
-    n_splits = max(2, min(configured, min_class_support))
+    configured = max(2, int(getattr(app_config, "CV_FOLDS", 5)))
+    n_splits = min(configured, min_class_support)
     return StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)

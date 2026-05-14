@@ -151,7 +151,10 @@ def perform_cross_validation(
         )
         return None
 
-    folds = min(app_config.CV_FOLDS, min_count)
+    # ``StratifiedKFold`` / ``RepeatedStratifiedKFold`` require ``n_splits >= 2``; some
+    # configs historically set ``CV_FOLDS`` to 1, which would otherwise crash CV.
+    configured = max(2, int(getattr(app_config, "CV_FOLDS", 5)))
+    folds = min(configured, min_count)
     if model_type == "xgboost":
         xgb_cv_max_folds = int(getattr(app_config, "XGB_CV_MAX_FOLDS", 0) or 0)
         if xgb_cv_max_folds > 1:

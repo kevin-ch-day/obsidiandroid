@@ -56,7 +56,14 @@ def test_stratified_kfold_for_grid_search_respects_cv_folds_and_support(monkeypa
     assert cv2.n_splits == 2
 
 
-def test_stratified_kfold_for_grid_search_caps_at_class_support(monkeypatch) -> None:
+def test_stratified_kfold_coerces_cv_folds_below_two(monkeypatch) -> None:
+    from config import app_config
+    from obsidiandroid.modeling.parallel_layout import stratified_kfold_for_grid_search
+
+    monkeypatch.setattr(app_config, "CV_FOLDS", 1, raising=False)
+    cv = stratified_kfold_for_grid_search(6, random_state=0)
+    assert cv is not None
+    assert cv.n_splits == 2
     from config import app_config
     from obsidiandroid.modeling.parallel_layout import stratified_kfold_for_grid_search
 
