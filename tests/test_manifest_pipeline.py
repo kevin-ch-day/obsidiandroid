@@ -118,3 +118,41 @@ def test_export_engine_ranking_tiers_writes_tier_column(tmp_path: Path) -> None:
     assert digest
     written = pd.read_csv(out_path)
     assert list(written["tier"]) == ["High", "Low"]
+
+
+def test_write_experiment_contract_snapshot_cv_protocol_hardened(monkeypatch, tmp_path: Path) -> None:
+    """Experiment contract must not crash on None CV settings and must floor CV folds."""
+    from config import app_config
+    from obsidiandroid.pipeline.manifest import stage_manifest_writers
+
+    monkeypatch.setattr(app_config, "CV_FOLDS", None, raising=False)
+    monkeypatch.setattr(app_config, "CV_REPEATS", None, raising=False)
+    monkeypatch.setattr(app_config, "RANDOM_STATE", None, raising=False)
+
+    diag = tmp_path / "diagnostics"
+    diag.mkdir()
+    out = stage_manifest_writers.write_experiment_contract_snapshot(
+        run_id="r_cv_test",
+        diagnostics_dir=diag,
+        profile={"profile_id": "test_profile", "cohort_gates": {}},
+        manifest_context={"paper_mode": {"resolved_value": False, "source": "test"}},
+        manifest={"split": {"split_hash": "deadbeef"}},
+    )
+    assert out is not None and out.exists()
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    cv = payload["split_contract"]["cv_protocol"]
+    assert cv["stratified_kfold_splits"] == 5
+    assert cv["repeats"] == 1
+    assert cv["fixed_seed"] == 42
+
+    monkeypatch.setattr(app_config, "CV_FOLDS", 1, raising=False)
+    out2 = stage_manifest_writers.write_experiment_contract_snapshot(
+        run_id="r_cv_test2",
+        diagnostics_dir=diag,
+        profile={"profile_id": "test_profile", "cohort_gates": {}},
+        manifest_context={"paper_mode": {"resolved_value": False, "source": "test"}},
+        manifest={"split": {"split_hash": "cafebabe"}},
+    )
+    assert out2 is not None
+    payload2 = json.loads(out2.read_text(encoding="utf-8"))
+    assert payload2["split_contract"]["cv_protocol"]["stratified_kfold_splits"] == 2

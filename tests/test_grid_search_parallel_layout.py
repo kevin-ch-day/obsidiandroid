@@ -72,7 +72,7 @@ def test_stratified_kfold_coerces_cv_folds_below_two(monkeypatch) -> None:
 
 
 def test_coerce_stratified_cv_folds_config() -> None:
-    from obsidiandroid.modeling.parallel_layout import coerce_stratified_cv_folds_config
+    from obsidiandroid.common.cv_fold_config import coerce_stratified_cv_folds_config
 
     assert coerce_stratified_cv_folds_config(None) == 5
     assert coerce_stratified_cv_folds_config("not_a_number") == 5

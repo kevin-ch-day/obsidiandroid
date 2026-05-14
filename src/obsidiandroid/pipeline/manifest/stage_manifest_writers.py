@@ -17,6 +17,18 @@ from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.hash_utils import hash_payload
+from obsidiandroid.common.cv_fold_config import coerce_stratified_cv_folds_config
+
+
+def _safe_config_int(attr: str, *, default: int) -> int:
+    """Parse ``app_config`` integer settings without ``int(None)`` crashes."""
+    raw = getattr(app_config, attr, default)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
 
 
 def write_run_summary_json(
@@ -386,9 +398,11 @@ def write_experiment_contract_snapshot(
                 "split_algorithm": split_meta.get("split_algorithm"),
                 "split_algorithm_version": split_meta.get("split_algorithm_version"),
                 "cv_protocol": {
-                    "stratified_kfold_splits": int(getattr(app_config, "CV_FOLDS", 5)),
-                    "repeats": int(getattr(app_config, "CV_REPEATS", 1)),
-                    "fixed_seed": int(getattr(app_config, "RANDOM_STATE", 42)),
+                    "stratified_kfold_splits": coerce_stratified_cv_folds_config(
+                        getattr(app_config, "CV_FOLDS", 5)
+                    ),
+                    "repeats": max(1, _safe_config_int("CV_REPEATS", default=1)),
+                    "fixed_seed": _safe_config_int("RANDOM_STATE", default=42),
                 },
             },
             "perturbation_contract": {

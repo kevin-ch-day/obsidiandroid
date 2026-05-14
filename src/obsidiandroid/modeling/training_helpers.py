@@ -27,7 +27,7 @@ from imblearn.pipeline import Pipeline as ImbPipeline
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
-from obsidiandroid.modeling.parallel_layout import coerce_stratified_cv_folds_config
+from obsidiandroid.common.cv_fold_config import coerce_stratified_cv_folds_config
 
 from .ml_trainers.balanced_random_forest_trainer import (
     get_default_brf_params,
