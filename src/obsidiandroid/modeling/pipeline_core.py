@@ -20,6 +20,7 @@ from obsidiandroid.common import ml_console
 from obsidiandroid.reporting import export_manager as em
 from obsidiandroid.reporting.operator_dashboard import bump_artifact_counter
 from obsidiandroid.observability.logging import get_logger, log_event
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.diagnostics import feature_build_coverage_export
 from obsidiandroid.diagnostics import feature_column_survival_export
@@ -471,7 +472,9 @@ def summarize_models(results: Dict[str, dict]) -> Optional[str]:
                         feature_names=[str(x) for x in col_names],
                         diagnostics_dir=diagnostics_dir,
                         run_id=run_id,
-                        top_k=int(getattr(app_config, "RF_IMPORTANCE_EXPORT_TOP_K", 50)),
+                        top_k=safe_int_config_value(
+                            getattr(app_config, "RF_IMPORTANCE_EXPORT_TOP_K", 50), default=50
+                        ),
                         modality_hints=modality_hints,
                     )
                     if rf_out is not None:

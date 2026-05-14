@@ -544,11 +544,18 @@ def build_run_summary_payload(
             unknown_rate = (unknown_count / len(decoded)) if decoded else 0.0
 
     fallback_used = bool(getattr(app_config, "RUNTIME_VENDOR_FALLBACK_USED", False))
-    fallback_added = int(getattr(app_config, "RUNTIME_VENDOR_FALLBACK_ADDED_COUNT", 0) or 0)
-    k_requested = int(getattr(app_config, "RUNTIME_K_REQUESTED", 0) or 0)
-    effective_top_k = int(getattr(app_config, "RUNTIME_EFFECTIVE_TOP_K", k_requested) or 0)
-    included_engine_count = int(
-        manifest_context.get("included_engine_count", getattr(app_config, "RUNTIME_INCLUDED_ENGINE_COUNT", 0)) or 0
+    fallback_added = safe_int_config_value(
+        getattr(app_config, "RUNTIME_VENDOR_FALLBACK_ADDED_COUNT", 0), default=0
+    )
+    k_requested = safe_int_config_value(getattr(app_config, "RUNTIME_K_REQUESTED", 0), default=0)
+    effective_top_k = safe_int_config_value(
+        getattr(app_config, "RUNTIME_EFFECTIVE_TOP_K", k_requested), default=k_requested
+    )
+    included_engine_count = safe_int_config_value(
+        manifest_context.get(
+            "included_engine_count", getattr(app_config, "RUNTIME_INCLUDED_ENGINE_COUNT", 0)
+        ),
+        default=0,
     )
     engine_count_observed = int(manifest_context.get("engine_count_observed", 0) or 0)
     engine_count_canonical = int(manifest_context.get("engine_count_canonical", 0) or 0)

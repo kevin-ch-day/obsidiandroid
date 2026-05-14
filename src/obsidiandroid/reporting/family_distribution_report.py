@@ -8,6 +8,7 @@ from typing import Tuple
 
 import pandas as pd
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_paths
 
@@ -47,7 +48,12 @@ def print_family_distribution_stats(samples_df: pd.DataFrame) -> None:
 
 def _display_family_distribution_console(fam_counts: Counter) -> None:
     low_support, sufficient_support = _split_families_by_support(fam_counts)
-    max_rows = max(1, int(getattr(app_config, "FAMILY_DISTRIBUTION_MAX_CONSOLE_ROWS", 20)))
+    max_rows = max(
+        1,
+        safe_int_config_value(
+            getattr(app_config, "FAMILY_DISTRIBUTION_MAX_CONSOLE_ROWS", 20), default=20
+        ),
+    )
 
     du.print_info(f"Detected {len(fam_counts)} unique families.")
     if low_support:

@@ -10,6 +10,7 @@ from obsidiandroid.cli.ui import display as du
 from obsidiandroid.reporting import export_manager
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 
 from obsidiandroid.diagnostics import feature_build_coverage_export
 
@@ -307,7 +308,9 @@ def _annotate_taxonomy_mismatches_with_lineage(mismatches: pd.DataFrame) -> pd.D
 
 def _evaluate_taxonomy_mismatch_strict_policy(mismatch_count: int) -> None:
     """Raise when strict evidence/paper policy forbids taxonomy mismatches."""
-    max_allowed = int(getattr(app_config, "TAXONOMY_MISMATCH_STRICT_MAX_ALLOWED", 0) or 0)
+    max_allowed = safe_int_config_value(
+        getattr(app_config, "TAXONOMY_MISMATCH_STRICT_MAX_ALLOWED", 0), default=0
+    )
     if mismatch_count <= max_allowed:
         return
     strict_env = bool(getattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False)) or (
@@ -632,7 +635,9 @@ def _run_summary_and_export(
 
     if getattr(app_config, "ENABLE_EXCEL_EXPORT", False):
         du.print_info("[EXPORT] Saving structured classification results to Excel...")
-        preview_rows = int(getattr(app_config, "CLASSIFICATION_EXPORT_PREVIEW_ROWS", 0))
+        preview_rows = safe_int_config_value(
+            getattr(app_config, "CLASSIFICATION_EXPORT_PREVIEW_ROWS", 0), default=0
+        )
         path = export_manager.save_structured_classification_report(
             df,
             preview_rows=max(0, preview_rows),

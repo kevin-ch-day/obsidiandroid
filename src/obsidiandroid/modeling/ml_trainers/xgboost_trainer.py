@@ -10,6 +10,7 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_float_config_value, safe_int_config_value
 from obsidiandroid.modeling.parallel_layout import (
     grid_search_job_counts,
     stratified_kfold_for_grid_search,
@@ -26,12 +27,18 @@ def _resolve_xgb_runtime_guardrails(num_classes: int) -> dict:
         Dictionary containing capped n_estimators, early stopping rounds,
         and profile metadata for diagnostics.
     """
-    base_estimators = int(getattr(app_config, "XGB_NUM_ESTIMATORS", 200))
-    base_early_stopping = int(getattr(app_config, "XGB_EARLY_STOPPING_ROUNDS", 20))
+    base_estimators = safe_int_config_value(getattr(app_config, "XGB_NUM_ESTIMATORS", 200), default=200)
+    base_early_stopping = safe_int_config_value(
+        getattr(app_config, "XGB_EARLY_STOPPING_ROUNDS", 20), default=20
+    )
     adaptive_enabled = bool(getattr(app_config, "XGB_ADAPTIVE_ESTIMATORS_ENABLED", True))
 
-    medium_threshold = int(getattr(app_config, "XGB_GUARDRAIL_MEDIUM_CLASS_THRESHOLD", 25))
-    large_threshold = int(getattr(app_config, "XGB_GUARDRAIL_LARGE_CLASS_THRESHOLD", 60))
+    medium_threshold = safe_int_config_value(
+        getattr(app_config, "XGB_GUARDRAIL_MEDIUM_CLASS_THRESHOLD", 25), default=25
+    )
+    large_threshold = safe_int_config_value(
+        getattr(app_config, "XGB_GUARDRAIL_LARGE_CLASS_THRESHOLD", 60), default=60
+    )
 
     profile = "default"
     if num_classes >= large_threshold:
@@ -46,12 +53,20 @@ def _resolve_xgb_runtime_guardrails(num_classes: int) -> dict:
             "early_stopping_rounds": base_early_stopping,
         },
         "medium_multiclass": {
-            "estimator_cap": int(getattr(app_config, "XGB_GUARDRAIL_MEDIUM_ESTIMATOR_CAP", 180)),
-            "early_stopping_rounds": int(getattr(app_config, "XGB_GUARDRAIL_MEDIUM_EARLY_STOPPING", 15)),
+            "estimator_cap": safe_int_config_value(
+                getattr(app_config, "XGB_GUARDRAIL_MEDIUM_ESTIMATOR_CAP", 180), default=180
+            ),
+            "early_stopping_rounds": safe_int_config_value(
+                getattr(app_config, "XGB_GUARDRAIL_MEDIUM_EARLY_STOPPING", 15), default=15
+            ),
         },
         "large_multiclass": {
-            "estimator_cap": int(getattr(app_config, "XGB_GUARDRAIL_LARGE_ESTIMATOR_CAP", 120)),
-            "early_stopping_rounds": int(getattr(app_config, "XGB_GUARDRAIL_LARGE_EARLY_STOPPING", 10)),
+            "estimator_cap": safe_int_config_value(
+                getattr(app_config, "XGB_GUARDRAIL_LARGE_ESTIMATOR_CAP", 120), default=120
+            ),
+            "early_stopping_rounds": safe_int_config_value(
+                getattr(app_config, "XGB_GUARDRAIL_LARGE_EARLY_STOPPING", 10), default=10
+            ),
         },
     }
     merged_caps = {
@@ -63,10 +78,15 @@ def _resolve_xgb_runtime_guardrails(num_classes: int) -> dict:
     }
     selected_caps = merged_caps.get(profile, merged_caps["default"])
 
-    cap = int(selected_caps.get("estimator_cap", base_estimators))
+    cap = safe_int_config_value(
+        selected_caps.get("estimator_cap", base_estimators), default=base_estimators
+    )
     early_stopping = min(
         base_early_stopping,
-        int(selected_caps.get("early_stopping_rounds", base_early_stopping)),
+        safe_int_config_value(
+            selected_caps.get("early_stopping_rounds", base_early_stopping),
+            default=base_early_stopping,
+        ),
     )
     resolved_estimators = min(base_estimators, cap) if adaptive_enabled else base_estimators
 
@@ -194,7 +214,9 @@ def train_xgboost(
     fit_kwargs = {}
     calibration_enabled = bool(getattr(app_config, "ENABLE_PROBABILITY_CALIBRATION", False))
     calibration_method = getattr(app_config, "CALIBRATION_METHOD", "sigmoid")
-    calibration_holdout = float(getattr(app_config, "CALIBRATION_HOLDOUT", 0.15))
+    calibration_holdout = safe_float_config_value(
+        getattr(app_config, "CALIBRATION_HOLDOUT", 0.15), default=0.15
+    )
     X_fit, y_fit = X_train, y_supervised
     X_cal, y_cal = None, None
 

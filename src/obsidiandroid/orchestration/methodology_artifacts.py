@@ -10,6 +10,7 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.common.hash_utils import hash_payload
 
 
@@ -155,8 +156,8 @@ def export_modality_method_contract(
         "permission_modality": {
             "representation": "binary_permission_indicators_plus_permission_counts",
             "encoding": "integer (0/1 for indicators; integer counts for aggregates)",
-            "min_support": int(getattr(app_config, "PERMISSION_MIN_SUPPORT", 2)),
-            "max_features": int(getattr(app_config, "PERMISSION_MAX_FEATURES", 0)),
+            "min_support": safe_int_config_value(getattr(app_config, "PERMISSION_MIN_SUPPORT", 2), default=2),
+            "max_features": safe_int_config_value(getattr(app_config, "PERMISSION_MAX_FEATURES", 0), default=0),
             "semantic_weighting_applied": False,
             "grouping_applied": ["dangerous_count", "normal_count", "oem_count", "total_count"],
             "feature_count_raw": int(len(permission_cols)),

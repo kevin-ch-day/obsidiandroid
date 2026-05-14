@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 
 from obsidiandroid.reporting import operator_dashboard
 from obsidiandroid.reporting.high_score_skeptic_helpers import (
@@ -44,7 +45,9 @@ def write_headline_score_scope(
     trainable_n = q1.get("trainable_after_support_filter")
     fam_gov = int(q1.get("families_represented") or 0)
     type_gov = int(q1.get("malware_types_represented") or 0)
-    fam_train = int(getattr(app_config, "RUNTIME_TRAINING_LABEL_CLASS_COUNT", 0) or 0)
+    fam_train = safe_int_config_value(
+        getattr(app_config, "RUNTIME_TRAINING_LABEL_CLASS_COUNT", 0), default=0
+    )
     dropped_fams = _unique_families_from_drop_detail(list(drop_detail) if isinstance(drop_detail, list) else [])
     if dropped_fams == 0 and fam_gov and fam_train:
         dropped_fams = max(0, fam_gov - fam_train)

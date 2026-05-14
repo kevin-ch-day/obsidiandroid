@@ -4,6 +4,7 @@
 import pandas as pd
 from obsidiandroid.cli.ui import display as du
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_float_config_value, safe_int_config_value
 
 REQUIRED_COLUMNS = [
     "Vendor", "Enrichment Score", "Family Match Accuracy (%)",
@@ -163,11 +164,21 @@ def compute_final_score(df: pd.DataFrame) -> pd.DataFrame:
 
 def apply_parser_quality_gates(df: pd.DataFrame) -> pd.DataFrame:
     """Apply governance parser quality gates and effective weights."""
-    unknown_cut = float(getattr(app_config, "PARSER_UNKNOWN_EXCLUDE_THRESHOLD", 0.70))
-    mapped_cut = float(getattr(app_config, "PARSER_MAPPED_MIN_THRESHOLD", 0.30))
-    generic_cut = float(getattr(app_config, "PARSER_GENERIC_DOWNWEIGHT_THRESHOLD", 0.60))
-    downweight = float(getattr(app_config, "PARSER_GENERIC_DOWNWEIGHT_FACTOR", 0.50))
-    min_included = int(getattr(app_config, "PARSER_MIN_INCLUDED_VENDORS", 8) or 0)
+    unknown_cut = safe_float_config_value(
+        getattr(app_config, "PARSER_UNKNOWN_EXCLUDE_THRESHOLD", 0.70), default=0.70
+    )
+    mapped_cut = safe_float_config_value(
+        getattr(app_config, "PARSER_MAPPED_MIN_THRESHOLD", 0.30), default=0.30
+    )
+    generic_cut = safe_float_config_value(
+        getattr(app_config, "PARSER_GENERIC_DOWNWEIGHT_THRESHOLD", 0.60), default=0.60
+    )
+    downweight = safe_float_config_value(
+        getattr(app_config, "PARSER_GENERIC_DOWNWEIGHT_FACTOR", 0.50), default=0.50
+    )
+    min_included = safe_int_config_value(
+        getattr(app_config, "PARSER_MIN_INCLUDED_VENDORS", 8), default=8
+    )
     allow_relax_mapped = bool(getattr(app_config, "PARSER_ALLOW_RELAXED_MAPPED_GATE", True))
     strict_evidence_mode = bool(getattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False))
 

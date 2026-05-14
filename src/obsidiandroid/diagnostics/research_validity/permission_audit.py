@@ -10,6 +10,7 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.orchestration.permission_features import PERMISSION_GROUP_DEFINITIONS
 from obsidiandroid.orchestration.permission_features import _fetch_permission_rows  # pylint: disable=protected-access
 
@@ -139,7 +140,7 @@ def write_permission_feature_audit_csv(
     samples_df: pd.DataFrame | None,
 ) -> Path | None:
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    cfg = int(getattr(app_config, "PERMISSION_MIN_SUPPORT", 2))
+    cfg = safe_int_config_value(getattr(app_config, "PERMISSION_MIN_SUPPORT", 2), default=2)
     target = diagnostics_dir / "permission_feature_audit.csv"
     if samples_df is None or samples_df.empty:
         target.write_text("status,notes\nstub,empty_samples\n", encoding="utf-8")

@@ -9,6 +9,7 @@ from collections import OrderedDict
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from . import db_engine
 from obsidiandroid.cli.ui import display as du
 
@@ -55,7 +56,10 @@ def _cache_get(cache_key: tuple[int, int]) -> pd.DataFrame | None:
 
 def _cache_set(cache_key: tuple[int, int], df: pd.DataFrame) -> None:
     """Store verdict DataFrame in bounded LRU cache."""
-    cache_limit = max(1, int(getattr(app_config, "AV_VERDICT_QUERY_CACHE_SIZE", 2)))
+    cache_limit = max(
+        1,
+        safe_int_config_value(getattr(app_config, "AV_VERDICT_QUERY_CACHE_SIZE", 2), default=2),
+    )
     _VERDICT_QUERY_CACHE[cache_key] = df.copy(deep=True)
     _VERDICT_QUERY_CACHE.move_to_end(cache_key)
     while len(_VERDICT_QUERY_CACHE) > cache_limit:
@@ -80,7 +84,10 @@ def fetch_verdicts_simple_ids(sample_ids, verbose=True):
             du.print_debug("[VERDICT:CACHE] Using cached AV verdict query result.")
             return cached_df
 
-    chunk_size = max(1, int(getattr(app_config, "AV_VERDICT_QUERY_CHUNK_SIZE", 500)))
+    chunk_size = max(
+        1,
+        safe_int_config_value(getattr(app_config, "AV_VERDICT_QUERY_CHUNK_SIZE", 500), default=500),
+    )
 
     cols = None
     rows = []

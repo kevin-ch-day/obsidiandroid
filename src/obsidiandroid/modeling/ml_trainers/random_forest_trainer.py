@@ -9,6 +9,7 @@ from sklearn.metrics import classification_report
 from sklearn.model_selection import GridSearchCV
 import numpy as np
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.modeling.parallel_layout import (
     grid_search_job_counts,
@@ -105,7 +106,7 @@ def train_random_forest(
     feature_ranking = None
     if hasattr(model, "feature_importances_"):
         importances = model.feature_importances_
-        top_k = int(getattr(app_config, "RF_TOP_FEATURE_IMPORTANCES", 20))
+        top_k = safe_int_config_value(getattr(app_config, "RF_TOP_FEATURE_IMPORTANCES", 20), default=20)
         indices = np.argsort(importances)[::-1][:max(1, top_k)]
         feature_ranking = [(int(idx), float(importances[idx])) for idx in indices]
 

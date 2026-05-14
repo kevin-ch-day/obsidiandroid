@@ -5,6 +5,7 @@ import pandas as pd
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.inference import signal_health_checker
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 
 UNKNOWN_THRESHOLD = 0.75
 DIVERSITY_WARNING_THRESHOLD = 2
@@ -18,7 +19,9 @@ def _preview_unknown_predictions(df: pd.DataFrame, count: int):
     )
 
 def _preview_prediction_table(df: pd.DataFrame):
-    preview_rows = max(1, int(getattr(app_config, "CLASSIFICATION_PREVIEW_ROWS", 8)))
+    preview_rows = max(
+        1, safe_int_config_value(getattr(app_config, "CLASSIFICATION_PREVIEW_ROWS", 8), default=8)
+    )
     cols = [
         c for c in ["sample_id", "predicted_family", "classification_label", "confidence"]
         if c in df.columns

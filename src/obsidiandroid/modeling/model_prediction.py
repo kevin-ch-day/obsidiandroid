@@ -6,6 +6,7 @@ import numpy as np
 from typing import Tuple, List
 from obsidiandroid.cli.ui import display as du
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_float_config_value
 
 # Predict labels for all samples using a trained model
 
@@ -90,7 +91,9 @@ def _apply_low_confidence_abstain(y_pred, y_conf, label_encoder):
         else:
             return y_pred
 
-    threshold = float(getattr(app_config, "LOW_CONFIDENCE_THRESHOLD", 0.30))
+    threshold = safe_float_config_value(
+        getattr(app_config, "LOW_CONFIDENCE_THRESHOLD", 0.30), default=0.30
+    )
     abstain_idx = classes.index(target)
     y_pred_np = np.array(y_pred, copy=True)
     mask = np.array(y_conf) < threshold

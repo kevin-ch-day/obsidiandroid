@@ -14,6 +14,7 @@ from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.common import output_paths
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.common import export_naming as naming
 from obsidiandroid.common import export_vendor_raw as vendor_raw
 from obsidiandroid.common import export_workbook as workbook
@@ -60,7 +61,9 @@ CONSOLIDATED_REPLACE_SHEETS = bool(
 CONSOLIDATED_LOCK_TIMEOUT_SEC = float(
     getattr(app_config, "CONSOLIDATED_EXCEL_LOCK_TIMEOUT_SEC", 20.0)
 )
-SHEET_LOG_EVERY_N = max(1, int(getattr(app_config, "EXPORT_SHEET_LOG_EVERY_N", 10)))
+SHEET_LOG_EVERY_N = max(
+    1, safe_int_config_value(getattr(app_config, "EXPORT_SHEET_LOG_EVERY_N", 10), default=10)
+)
 EXPORT_VERBOSE_SHEET_LOGS = bool(getattr(app_config, "EXPORT_VERBOSE_SHEET_LOGS", False))
 EXPORT_VENDOR_RAW_SHEETS_TO_EXCEL = bool(
     getattr(app_config, "EXPORT_VENDOR_RAW_SHEETS_TO_EXCEL", False)

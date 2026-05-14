@@ -5,6 +5,7 @@ import pandas as pd
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from . import accuracy_band_utils
 
 
@@ -77,7 +78,9 @@ def print_evaluation_summary(df, acc, prec, recall, f1, cm_path: str = None):
     show_preview_when_hidden = bool(
         getattr(app_config, "ML_SHOW_PER_FAMILY_PREVIEW_WHEN_HIDDEN", False)
     )
-    max_rows = max(1, int(getattr(app_config, "ML_PER_FAMILY_TOP_ROWS", 12)))
+    max_rows = max(
+        1, safe_int_config_value(getattr(app_config, "ML_PER_FAMILY_TOP_ROWS", 12), default=12)
+    )
 
     if not show_per_family:
         if show_preview_when_hidden:

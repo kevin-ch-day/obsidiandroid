@@ -7,6 +7,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common.cv_fold_config import safe_float_config_value, safe_int_config_value
 from obsidiandroid.evaluation import av_results_fetcher as results_fetcher
 from obsidiandroid.evaluation import vendor_parser_matching as parser_match
 from obsidiandroid.vendors.parsing import generic_label_parser
@@ -176,8 +177,12 @@ def _export_unmapped_coverage_candidates(
     if coverage_df.empty:
         return
 
-    min_cov = float(getattr(app_config, "PARSER_ONBOARDING_CANDIDATE_MIN_COVERAGE_PCT", 80.0))
-    max_rows = int(getattr(app_config, "PARSER_ONBOARDING_CANDIDATE_MAX_ROWS", 16))
+    min_cov = safe_float_config_value(
+        getattr(app_config, "PARSER_ONBOARDING_CANDIDATE_MIN_COVERAGE_PCT", 80.0), default=80.0
+    )
+    max_rows = safe_int_config_value(
+        getattr(app_config, "PARSER_ONBOARDING_CANDIDATE_MAX_ROWS", 16), default=16
+    )
 
     candidates = coverage_df[
         (coverage_df["parser_mapped"] == 0) & (coverage_df["coverage_pct"] >= min_cov)
@@ -231,8 +236,10 @@ def _build_dynamic_generic_parser_map(
     if not isinstance(av_df, pd.DataFrame) or av_df.empty:
         return {}
 
-    min_cov = float(getattr(app_config, "DYNAMIC_GENERIC_MIN_COVERAGE_PCT", 5.0))
-    max_cols = int(getattr(app_config, "DYNAMIC_GENERIC_MAX_COLUMNS", 40))
+    min_cov = safe_float_config_value(
+        getattr(app_config, "DYNAMIC_GENERIC_MIN_COVERAGE_PCT", 5.0), default=5.0
+    )
+    max_cols = safe_int_config_value(getattr(app_config, "DYNAMIC_GENERIC_MAX_COLUMNS", 40), default=40)
 
     mapped_columns = {
         meta.get("column_name", key)

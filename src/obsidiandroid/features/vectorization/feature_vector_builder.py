@@ -10,6 +10,7 @@ from pandas.api.types import is_numeric_dtype
 from pathlib import Path
 import hashlib
 from config import app_config
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from .feature_engine_selection import get_top_engines_by_score
@@ -529,7 +530,9 @@ def build_feature_vector(
 
     fields = include_fields or ["Parsed Family", "Threat Class", "Malware Type"]
     requested_top_k = int(top_k)
-    min_selected_vendors = int(getattr(app_config, "FEATURE_MIN_SELECTED_VENDORS", 1))
+    min_selected_vendors = safe_int_config_value(
+        getattr(app_config, "FEATURE_MIN_SELECTED_VENDORS", 1), default=1
+    )
     fail_on_low_vendor_count = bool(
         getattr(app_config, "FEATURE_FAIL_ON_LOW_VENDOR_COUNT", False)
     )

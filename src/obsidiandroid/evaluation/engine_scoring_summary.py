@@ -11,6 +11,7 @@ from scipy.stats import zscore
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common.cv_fold_config import safe_float_config_value, safe_int_config_value
 from obsidiandroid.database import db_av_engine_detection_totals
 from obsidiandroid.common import output_paths
 from obsidiandroid.observability.logging import get_logger, log_event
@@ -144,7 +145,9 @@ def _compute_engine_scores(df: pd.DataFrame) -> pd.DataFrame:
         q1 = df["ML Readiness Score"].quantile(0.25)
         q3 = df["ML Readiness Score"].quantile(0.75)
         iqr = q3 - q1
-        iqr_k = float(getattr(app_config, "ENGINE_READINESS_IQR_MULTIPLIER", 1.5) or 1.5)
+        iqr_k = safe_float_config_value(
+            getattr(app_config, "ENGINE_READINESS_IQR_MULTIPLIER", 1.5), default=1.5
+        )
         if iqr_k <= 0:
             iqr_k = 1.5
         df["iqr_flag"] = (
@@ -438,7 +441,9 @@ def _print_summary_context(
     """Print compact context for engine-scoring execution."""
     observed = int(len(engine_df))
     canonical = int(summary_df["engine_name"].nunique()) if "engine_name" in summary_df.columns else observed
-    included_after_gating = int(getattr(app_config, "RUNTIME_ENGINE_COUNT_INCLUDED_AFTER_GATING", 0) or 0)
+    included_after_gating = safe_int_config_value(
+        getattr(app_config, "RUNTIME_ENGINE_COUNT_INCLUDED_AFTER_GATING", 0), default=0
+    )
     if included_after_gating <= 0:
         included_after_gating = canonical
     du.print_subheader("Engine Scoring Context")
