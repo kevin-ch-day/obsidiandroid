@@ -30,9 +30,8 @@ from types import ModuleType
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
-_SRC = _REPO_ROOT / "src"
-if _SRC.is_dir() and str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
+
+import scripts.runtime_bootstrap  # noqa: F401
 
 from obsidiandroid.database.facade_manifest import FACADE_MODULE_PAIRS, LEGACY_SHIM_PAIRS
 from obsidiandroid.diagnostics.analysis_diagnostics_shim import (
