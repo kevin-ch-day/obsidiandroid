@@ -83,6 +83,20 @@ ML_CLASSIFICATION_TRAINING_ML_TRAINERS_SUBMODULES: frozenset[str] = frozenset(
     }
 )
 
+# Subset of ``ML_CLASSIFICATION_TRAINING_SUBMODULES`` checked for modeling vs
+# ``ml_classification.training`` identity in import-surface smoke (excludes names
+# covered by other loops, e.g. façade-facing ``pipeline_core``).
+ML_CLASSIFICATION_TRAINING_PHYSICAL_SUBMODULES: frozenset[str] = frozenset(
+    {
+        "model_evaluation",
+        "model_training",
+        "pipeline_result_promoter",
+        "prediction_builder",
+        "train_model_executor",
+        "training_helpers",
+    }
+)
+
 ML_CLASSIFICATION_TRAINING_SUBMODULES: frozenset[str] = frozenset(
     {
         "data_alignment",
@@ -119,6 +133,7 @@ __all__ = (
     "ML_CLASSIFICATION_ML_UTILS_SUBMODULES",
     "ML_CLASSIFICATION_REPORTING_SUBMODULES",
     "ML_CLASSIFICATION_TRAINING_ML_TRAINERS_SUBMODULES",
+    "ML_CLASSIFICATION_TRAINING_PHYSICAL_SUBMODULES",
     "ML_CLASSIFICATION_TRAINING_SUBMODULES",
     "ML_CLASSIFICATION_VECTORIZATION_SUBMODULES",
 )

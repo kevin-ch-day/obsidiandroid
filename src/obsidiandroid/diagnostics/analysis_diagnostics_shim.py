@@ -17,6 +17,9 @@ _CANONICAL_ROOT = "obsidiandroid.diagnostics"
 _LEGACY_ROOT = "analysis.diagnostics"
 _SHIM_STEM = "analysis_diagnostics_shim"
 
+# Nested packages registered for legacy ``analysis.diagnostics.<pkg>.*`` imports.
+DIAGNOSTICS_NESTED_LEGACY_PACKAGES: tuple[str, ...] = ("research_validity", "hostile_audit")
+
 
 def _ensure_same_object(legacy_modname: str, canon_modname: str) -> None:
     canon = importlib.import_module(canon_modname)
@@ -34,12 +37,15 @@ def _public_top_level_module_names() -> tuple[str, ...]:
     return tuple(names)
 
 
+DIAGNOSTICS_TOP_LEVEL_MODULE_NAMES: tuple[str, ...] = _public_top_level_module_names()
+
+
 def register_analysis_diagnostics_legacy_aliases() -> None:
     """Wire ``analysis.diagnostics.<suffix>`` to canonical ``obsidiandroid.diagnostics`` modules."""
-    for name in _public_top_level_module_names():
+    for name in DIAGNOSTICS_TOP_LEVEL_MODULE_NAMES:
         _ensure_same_object(f"{_LEGACY_ROOT}.{name}", f"{_CANONICAL_ROOT}.{name}")
 
-    for pkg in ("research_validity", "hostile_audit"):
+    for pkg in DIAGNOSTICS_NESTED_LEGACY_PACKAGES:
         pkg_canon_name = f"{_CANONICAL_ROOT}.{pkg}"
         canon_pkg = importlib.import_module(pkg_canon_name)
         sys.modules.setdefault(f"{_LEGACY_ROOT}.{pkg}", canon_pkg)
@@ -53,4 +59,8 @@ def register_analysis_diagnostics_legacy_aliases() -> None:
             sys.modules.setdefault(f"{_LEGACY_ROOT}.{suffix}", canon_mod)
 
 
-__all__ = ("register_analysis_diagnostics_legacy_aliases",)
+__all__ = (
+    "DIAGNOSTICS_NESTED_LEGACY_PACKAGES",
+    "DIAGNOSTICS_TOP_LEVEL_MODULE_NAMES",
+    "register_analysis_diagnostics_legacy_aliases",
+)
