@@ -183,6 +183,40 @@ def test_export_confusion_matrix_includes_experiment_id(monkeypatch, tmp_path):
     assert path.name == "confusion_matrix_vendor_only__xgboost.png"
 
 
+def test_ablation_random_forest_never_overwrites_headline_stable_alias(monkeypatch, tmp_path):
+    """``confusion_matrix_random_forest.png`` must remain headline-only; ablation must not clobber it."""
+    rid = "20260228T184458Z__634d83"
+    monkeypatch.setattr(export_manager, "OUTPUT_ROOT", tmp_path)
+    monkeypatch.setattr(export_manager.app_config, "RUNTIME_RUN_ID", rid, raising=False)
+    monkeypatch.setattr(
+        export_manager.app_config,
+        "RUNTIME_EXPERIMENT_ID",
+        "vendor_full__lt_family_canonical_default",
+        raising=False,
+    )
+    monkeypatch.setattr(export_manager.app_config, "RUNTIME_ABLATION_ACTIVE", True, raising=False)
+    monkeypatch.setattr(export_manager.app_config, "CONFUSION_MATRIX_EXPORT_MODE", "full_grid", raising=False)
+
+    cm_dir = tmp_path / "runs" / rid / "conf_matrices"
+    cm_dir.mkdir(parents=True, exist_ok=True)
+    canon = cm_dir / "confusion_matrix_random_forest.png"
+    canon.write_bytes(b"HEADLINE_STABLE")
+
+    def fake_export(**kwargs):
+        p = Path(kwargs["output_path"])
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"ABLATION_CELL")
+        return str(p)
+
+    monkeypatch.setattr(export_manager, "export_confusion_matrix_image", fake_export)
+    export_manager.export_confusion_matrix(
+        cm=np.array([[1, 0], [0, 1]]),
+        class_labels=["A", "B"],
+        model_name="random_forest",
+    )
+    assert canon.read_bytes() == b"HEADLINE_STABLE"
+
+
 def test_export_confusion_matrix_filename_excludes_run_id(monkeypatch, tmp_path):
     monkeypatch.setattr(export_manager, "OUTPUT_ROOT", tmp_path)
     run_id = "20260304T003828Z__bcfc09"

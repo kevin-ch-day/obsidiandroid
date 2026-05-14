@@ -779,6 +779,8 @@ def export_confusion_matrix(
     flat_cm = cm_dir
     canon_rf = flat_cm / "confusion_matrix_random_forest.png"
     headline_rf = cm_dir / "headline" / "random_forest.png"
+    # Paper-facing stable alias: only main (non-ablation) headline training may refresh these paths.
+    # Ablation RF matrices must never overwrite ``confusion_matrix_random_forest.png``.
     if headline_ctx and model_token == "random_forest":
         try:
             src_path = Path(str(exported_path)).resolve()
@@ -787,13 +789,6 @@ def export_confusion_matrix(
                 if dst.resolve() != src_path:
                     shutil.copyfile(src_path, dst)
             exported_path = str(canon_rf.resolve())
-        except Exception:
-            pass
-    elif not headline_ctx and model_token == "random_forest" and experiment_raw:
-        try:
-            src_path = Path(str(exported_path)).resolve()
-            if canon_rf.resolve() != src_path and src_path.is_file():
-                shutil.copyfile(src_path, canon_rf)
         except Exception:
             pass
     return exported_path

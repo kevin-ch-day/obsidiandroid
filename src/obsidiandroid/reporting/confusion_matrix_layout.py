@@ -53,10 +53,13 @@ def headline_experiment_name() -> str:
 SELECTED_ABLATION_EXPERIMENTS: frozenset[str] = frozenset(
     {
         "vendor_full",
-        "vendor_detection_binary_only",
-        "permissions_raw",
         "vendor_no_parsed_family",
+        "vendor_detection_binary_only",
         "vendor_consensus_scores_only",
+        "permissions_raw",
+        "permissions_grouped",
+        "permissions_grouped_plus_vendor_no_family",
+        "full_fused",
     }
 )
 
@@ -188,6 +191,9 @@ def write_confusion_matrix_catalog(conf_matrices_dir: Path, *, run_id: str) -> t
                 "- `headline/` — main training / headline evaluation (one PNG per model).",
                 "- `ablation/<feature_set>/<label_target>/` — ablation grid cells.",
                 "- Flat `confusion_matrix_*.png` files may remain from older runs or retention copies.",
+                "",
+                "- **`confusion_matrix_random_forest.png`** is only updated during main (non-ablation) "
+                "training; it is the paper-facing headline RF alias and must not be overwritten by ablation exports.",
                 "",
                 "See `index.csv` for a machine-readable inventory of every PNG.",
                 "",
