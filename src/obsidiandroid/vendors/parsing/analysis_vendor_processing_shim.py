@@ -10,28 +10,12 @@ from __future__ import annotations
 import importlib
 import sys
 
+from obsidiandroid.vendors.parsing.vendor_parser_submodule_manifest import (
+    VENDOR_PARSER_SUBMODULE_NAMES,
+)
+
 _LEGACY_PKG = "analysis.vendor_processing"
 _CANON_PREFIX = "obsidiandroid.vendors.parsing"
-
-VENDOR_PARSER_SUBMODULE_NAMES: tuple[str, ...] = (
-    "parser_defaults",
-    "parser_confidence_estimator",
-    "generic_label_parser",
-    "vendor_parser_map",
-    "avast_parser",
-    "avast_mobile_parser",
-    "bitdefender_parser",
-    "bitdefenderfalx_parser",
-    "ikarus_parser",
-    "k7gw_parser",
-    "kaspersky_parser",
-    "lionic_parser",
-    "microsoft_parser",
-    "tencent_parser",
-    "zonealarm_parser",
-    "alibaba_parser",
-    "ahnlab_v3_parser",
-)
 
 
 def register_analysis_vendor_processing_legacy_aliases(package: object | None = None) -> None:

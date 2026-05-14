@@ -35,8 +35,17 @@ if _SRC.is_dir() and str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from obsidiandroid.database.facade_manifest import FACADE_MODULE_PAIRS, LEGACY_SHIM_PAIRS
+from obsidiandroid.evaluation.analysis_evaluation_shim import (
+    LEGACY_EXPORT_NAMES as ANALYSIS_EVALUATION_LEGACY_EXPORT_NAMES,
+)
 from obsidiandroid.governance.analysis_pipeline_governance_shim import (
     ANALYSIS_PIPELINE_GOVERNANCE_SUBMODULES,
+)
+from obsidiandroid.vendors.execution.analysis_execution_shim import (
+    LEGACY_EXPORT_NAMES as ANALYSIS_EXECUTION_LEGACY_EXPORT_NAMES,
+)
+from obsidiandroid.vendors.parsing.vendor_parser_submodule_manifest import (
+    VENDOR_PARSER_SUBMODULE_NAMES,
 )
 
 from scripts.dev.import_surface_policy import (
@@ -1122,13 +1131,7 @@ def main() -> int:
     del _plm_canon, _vcr_canon, _generic_mod
     print("OK   obsidiandroid.vendors public surface exports contracts + generic parser entrypoint")
 
-    _vendors_parsing_pairs = (
-        "generic_label_parser",
-        "vendor_parser_map",
-        "parser_defaults",
-        "parser_confidence_estimator",
-    )
-    for name in _vendors_parsing_pairs:
+    for name in VENDOR_PARSER_SUBMODULE_NAMES:
         canon_mod = importlib.import_module(f"obsidiandroid.vendors.parsing.{name}")
         pkg_attr = getattr(_vendors_parsing_pkg, name)
         if pkg_attr is not canon_mod:
@@ -1144,28 +1147,10 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-    print("OK   obsidiandroid.vendors.parsing key modules preserve identity with legacy shim")
+    print("OK   obsidiandroid.vendors.parsing submodules preserve identity with legacy shim")
 
     # Passes 61–63: evaluation physical moves; legacy package registers identity.
-    eval_pairs = (
-        "accuracy_band_utils",
-        "av_results_fetcher",
-        "engine_scoring_summary",
-        "evaluate_av_classifications",
-        "ml_comparator_summary",
-        "ml_eval_engine",
-        "ml_report_builder",
-        "model_tuning",
-        "random_forest_diagnostics",
-        "vendor_classification_inspector",
-        "vendor_classification_parser",
-        "vendor_feature_extractor",
-        "vendor_parser_matching",
-        "vendor_parser_utils",
-        "vendor_score_calculator",
-        "vendor_summary_builder",
-    )
-    for name in eval_pairs:
+    for name in ANALYSIS_EVALUATION_LEGACY_EXPORT_NAMES:
         canon_mod = importlib.import_module(f"obsidiandroid.evaluation.{name}")
         legacy_mod = importlib.import_module(f"analysis.evaluation.{name}")
         if legacy_mod is not canon_mod:
@@ -1220,13 +1205,7 @@ def main() -> int:
     del mod, canon_ml, legacy_ml, _ml_cls_eval_three, canon_rb, legacy_rb, splitter_canon, splitter_legacy
 
     # Vendor execution: physical move from analysis.execution to obsidiandroid.vendors.execution.
-    exec_pairs = (
-        "av_parser_executor",
-        "vendor_parser_runner",
-        "vendor_record_factory",
-        "vendor_classification_processor",
-    )
-    for name in exec_pairs:
+    for name in ANALYSIS_EXECUTION_LEGACY_EXPORT_NAMES:
         canon_mod = importlib.import_module(f"obsidiandroid.vendors.execution.{name}")
         legacy_mod = importlib.import_module(f"analysis.execution.{name}")
         if legacy_mod is not canon_mod:
