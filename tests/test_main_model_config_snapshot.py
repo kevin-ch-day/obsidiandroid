@@ -89,3 +89,45 @@ def test_model_config_hash_is_stable_for_same_config(monkeypatch, tmp_path: Path
     )
 
     assert manifest_a["model_config_hash"] == manifest_b["model_config_hash"]
+
+
+def test_export_model_config_snapshot_tolerates_none_cv_settings(monkeypatch, tmp_path: Path) -> None:
+    """Snapshot export must not use bare ``int(None)`` on optional CV config."""
+    output_root = tmp_path / "output"
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RANDOM_STATE", None, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_CROSS_VALIDATION", True, raising=False)
+    monkeypatch.setattr(app_config, "CV_FOLDS", None, raising=False)
+    monkeypatch.setattr(app_config, "CV_REPEATS", None, raising=False)
+
+    model_results = {
+        "rf": {
+            "metadata": {"params": {"n_estimators": 10}},
+            "evaluation": {"macro_f1_score": 0.5, "accuracy": 0.5, "train_time": 1.0},
+            "cv_score_mean": 0.5,
+        }
+    }
+    artifacts: list[str] = []
+    manifest_context: dict[str, str] = {}
+
+    out_path = main._export_model_config_snapshot(
+        run_id="r_none_cv",
+        model_results=model_results,
+        artifact_list=artifacts,
+        manifest_context=manifest_context,
+    )
+    assert out_path is not None
+    payload = json.loads(Path(out_path).read_text(encoding="utf-8"))
+    assert payload["random_seed"] == 42
+    assert payload["cv"]["folds"] == 5
+    assert payload["cv"]["repeats"] == 1
+
+    monkeypatch.setattr(app_config, "CV_FOLDS", 1, raising=False)
+    out_path2 = main._export_model_config_snapshot(
+        run_id="r_fold_one",
+        model_results=model_results,
+        artifact_list=[],
+        manifest_context={},
+    )
+    payload2 = json.loads(Path(out_path2).read_text(encoding="utf-8"))
+    assert payload2["cv"]["folds"] == 2

@@ -36,6 +36,17 @@ def test_grid_search_job_counts_respects_cv_n_jobs(monkeypatch) -> None:
     assert outer == 2
 
 
+def test_grid_search_job_counts_cv_n_jobs_none_falls_back(monkeypatch) -> None:
+    from config import app_config
+    from obsidiandroid.modeling.parallel_layout import grid_search_job_counts
+
+    monkeypatch.setattr(app_config, "CV_AVOID_NESTED_PARALLELISM", True, raising=False)
+    monkeypatch.setattr(app_config, "CV_N_JOBS", None, raising=False)
+    inner, outer = grid_search_job_counts()
+    assert inner == 1
+    assert outer == -1
+
+
 def test_stratified_kfold_for_grid_search_none_when_rare_class_tiny() -> None:
     from obsidiandroid.modeling.parallel_layout import stratified_kfold_for_grid_search
 
@@ -72,7 +83,10 @@ def test_stratified_kfold_coerces_cv_folds_below_two(monkeypatch) -> None:
 
 
 def test_coerce_stratified_cv_folds_config() -> None:
-    from obsidiandroid.common.cv_fold_config import coerce_stratified_cv_folds_config
+    from obsidiandroid.common.cv_fold_config import (
+        coerce_stratified_cv_folds_config,
+        safe_int_config_value,
+    )
 
     assert coerce_stratified_cv_folds_config(None) == 5
     assert coerce_stratified_cv_folds_config("not_a_number") == 5
@@ -80,6 +94,10 @@ def test_coerce_stratified_cv_folds_config() -> None:
     assert coerce_stratified_cv_folds_config(0) == 2
     assert coerce_stratified_cv_folds_config("4") == 4
     assert coerce_stratified_cv_folds_config(8, default=3) == 8
+
+    assert safe_int_config_value(None, default=7) == 7
+    assert safe_int_config_value("x", default=2) == 2
+    assert safe_int_config_value("9", default=0) == 9
 
 
 def test_stratified_kfold_treats_cv_folds_none_as_default(monkeypatch) -> None:

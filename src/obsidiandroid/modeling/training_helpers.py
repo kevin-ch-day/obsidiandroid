@@ -27,7 +27,10 @@ from imblearn.pipeline import Pipeline as ImbPipeline
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
-from obsidiandroid.common.cv_fold_config import coerce_stratified_cv_folds_config
+from obsidiandroid.common.cv_fold_config import (
+    coerce_stratified_cv_folds_config,
+    safe_int_config_value,
+)
 
 from .ml_trainers.balanced_random_forest_trainer import (
     get_default_brf_params,
@@ -157,10 +160,16 @@ def perform_cross_validation(
     configured = coerce_stratified_cv_folds_config(getattr(app_config, "CV_FOLDS", 5))
     folds = min(configured, min_count)
     if model_type == "xgboost":
-        xgb_cv_max_folds = int(getattr(app_config, "XGB_CV_MAX_FOLDS", 0) or 0)
+        xgb_cv_max_folds = safe_int_config_value(
+            getattr(app_config, "XGB_CV_MAX_FOLDS", 0),
+            default=0,
+        )
         if xgb_cv_max_folds > 1:
             folds = min(folds, xgb_cv_max_folds)
-    repeats = max(1, int(getattr(app_config, "CV_REPEATS", 1)))
+    repeats = max(
+        1,
+        safe_int_config_value(getattr(app_config, "CV_REPEATS", 1), default=1),
+    )
     estimator = build_base_estimator(
         model_type=model_type,
         random_state=random_state,
@@ -209,7 +218,11 @@ def perform_cross_validation(
     else:
         cv = StratifiedKFold(n_splits=folds, shuffle=True, random_state=random_state)
 
-    cv_n_jobs = int(getattr(app_config, "CV_N_JOBS", 1 if os.name == "nt" else -1))
+    _cv_n_jobs_default = 1 if os.name == "nt" else -1
+    cv_n_jobs = safe_int_config_value(
+        getattr(app_config, "CV_N_JOBS", _cv_n_jobs_default),
+        default=_cv_n_jobs_default,
+    )
     if bool(getattr(app_config, "CV_AVOID_NESTED_PARALLELISM", True)) and cv_n_jobs != 1:
         estimator, updated = _force_estimator_single_thread(estimator)
         if updated and not quiet:

@@ -15,7 +15,10 @@ from sklearn.model_selection import StratifiedKFold
 
 from config import app_config
 
-from obsidiandroid.common.cv_fold_config import coerce_stratified_cv_folds_config
+from obsidiandroid.common.cv_fold_config import (
+    coerce_stratified_cv_folds_config,
+    safe_int_config_value,
+)
 
 
 def grid_search_job_counts() -> tuple[int, int]:
@@ -28,7 +31,7 @@ def grid_search_job_counts() -> tuple[int, int]:
 
     When the guard is false, both values default to ``-1`` (legacy aggressive nesting).
     """
-    outer = int(getattr(app_config, "CV_N_JOBS", -1))
+    outer = safe_int_config_value(getattr(app_config, "CV_N_JOBS", -1), default=-1)
     if bool(getattr(app_config, "CV_AVOID_NESTED_PARALLELISM", True)):
         return 1, outer
     return -1, -1

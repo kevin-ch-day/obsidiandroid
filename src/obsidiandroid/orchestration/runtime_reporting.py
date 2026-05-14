@@ -16,6 +16,10 @@ from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common import output_paths
+from obsidiandroid.common.cv_fold_config import (
+    coerce_stratified_cv_folds_config,
+    safe_int_config_value,
+)
 from obsidiandroid.common.hash_utils import hash_payload
 
 
@@ -401,11 +405,14 @@ def export_model_config_snapshot(
     diagnostics_dir = runtime_diagnostics_dir()
     snapshot: dict[str, Any] = {
         "run_id": run_id,
-        "random_seed": int(getattr(app_config, "RANDOM_STATE", 42)),
+        "random_seed": safe_int_config_value(getattr(app_config, "RANDOM_STATE", 42), default=42),
         "cv": {
             "enabled": bool(getattr(app_config, "ENABLE_CROSS_VALIDATION", False)),
-            "folds": int(getattr(app_config, "CV_FOLDS", 5)),
-            "repeats": int(getattr(app_config, "CV_REPEATS", 1)),
+            "folds": coerce_stratified_cv_folds_config(getattr(app_config, "CV_FOLDS", 5)),
+            "repeats": max(
+                1,
+                safe_int_config_value(getattr(app_config, "CV_REPEATS", 1), default=1),
+            ),
             "stratified": True,
         },
         "models": {},

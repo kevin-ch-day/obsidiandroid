@@ -1,7 +1,20 @@
 # Filename: src/obsidiandroid/common/cv_fold_config.py
-# Purpose : Shared stratified CV fold-count coercion (no heavy modeling imports).
+# Purpose : CV fold coercion and safe int parsing for config (no heavy modeling imports).
 
 """CV fold configuration helpers used by training, grid search, and manifests."""
+
+
+def safe_int_config_value(raw: object, *, default: int) -> int:
+    """Coerce a config value to ``int``; ``None`` and invalid values use ``default``.
+
+    Avoids ``int(getattr(...))`` when the attribute exists but is explicitly ``None``.
+    """
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
 
 
 def coerce_stratified_cv_folds_config(raw: object, *, default: int = 5) -> int:
@@ -11,11 +24,4 @@ def coerce_stratified_cv_folds_config(raw: object, *, default: int = 5) -> int:
     (``None``, non-numeric strings, etc.) fall back to ``default`` before the
     floor is applied so callers never pass ``int(None)`` or ``n_splits=1``.
     """
-    if raw is None:
-        n = default
-    else:
-        try:
-            n = int(raw)
-        except (TypeError, ValueError):
-            n = default
-    return max(2, n)
+    return max(2, safe_int_config_value(raw, default=default))

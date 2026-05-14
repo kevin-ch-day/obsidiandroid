@@ -17,18 +17,15 @@ from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.hash_utils import hash_payload
-from obsidiandroid.common.cv_fold_config import coerce_stratified_cv_folds_config
+from obsidiandroid.common.cv_fold_config import (
+    coerce_stratified_cv_folds_config,
+    safe_int_config_value,
+)
 
 
 def _safe_config_int(attr: str, *, default: int) -> int:
     """Parse ``app_config`` integer settings without ``int(None)`` crashes."""
-    raw = getattr(app_config, attr, default)
-    if raw is None:
-        return default
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return default
+    return safe_int_config_value(getattr(app_config, attr, default), default=default)
 
 
 def write_run_summary_json(
