@@ -1,33 +1,25 @@
 """Legacy ``ml_classification.engine_weights`` (shim-only).
 
 Canonical implementations live under ``obsidiandroid.engine_weights``.
+Submodule names are defined in :mod:`obsidiandroid.modeling.ml_classification_shim_facades`.
 """
 
 from __future__ import annotations
 
-import importlib
 from typing import Any
 
-_SUBMODULE_NAMES = frozenset(
-    {
-        "assign_detection_tiers",
-        "build_classification_weights",
-        "classification_weight_inspector",
-        "classification_weight_utils",
-        "compute_reliability_score",
-        "engine_weights_utils",
-    }
+from obsidiandroid.modeling.ml_classification_shim_facades import (
+    ML_CLASSIFICATION_ENGINE_WEIGHTS_SUBMODULES,
+    lazy_legacy_submodule,
 )
 
 
 def __getattr__(name: str) -> Any:
-    if name in _SUBMODULE_NAMES:
-        return importlib.import_module(f"{__name__}.{name}")
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return lazy_legacy_submodule(name, __name__, ML_CLASSIFICATION_ENGINE_WEIGHTS_SUBMODULES)
 
 
 def __dir__() -> list[str]:
-    return sorted(_SUBMODULE_NAMES)
+    return sorted(ML_CLASSIFICATION_ENGINE_WEIGHTS_SUBMODULES)
 
 
-__all__ = tuple(sorted(_SUBMODULE_NAMES))
+__all__ = tuple(sorted(ML_CLASSIFICATION_ENGINE_WEIGHTS_SUBMODULES))

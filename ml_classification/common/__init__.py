@@ -3,22 +3,26 @@
 Canonical malware-family tables and helpers live at
 ``obsidiandroid.labeling.malware_family_constants``; public taxonomy functions use
 ``obsidiandroid.labeling.taxonomy``.
+
+Submodule names are defined in :mod:`obsidiandroid.modeling.ml_classification_shim_facades`.
 """
 
 from __future__ import annotations
 
-import importlib
 from typing import Any
+
+from obsidiandroid.modeling.ml_classification_shim_facades import (
+    ML_CLASSIFICATION_COMMON_SUBMODULES,
+    lazy_legacy_submodule,
+)
 
 
 def __getattr__(name: str) -> Any:
-    if name == "malware_family_constants":
-        return importlib.import_module(f"{__name__}.malware_family_constants")
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return lazy_legacy_submodule(name, __name__, ML_CLASSIFICATION_COMMON_SUBMODULES)
 
 
 def __dir__() -> list[str]:
-    return ["malware_family_constants"]
+    return sorted(ML_CLASSIFICATION_COMMON_SUBMODULES)
 
 
-__all__ = ("malware_family_constants",)
+__all__ = tuple(sorted(ML_CLASSIFICATION_COMMON_SUBMODULES))

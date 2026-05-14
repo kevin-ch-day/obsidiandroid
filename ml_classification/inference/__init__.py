@@ -1,31 +1,25 @@
 """Legacy ``ml_classification.inference`` (shim-only).
 
 Canonical implementations live under ``obsidiandroid.inference``.
+Submodule names are defined in :mod:`obsidiandroid.modeling.ml_classification_shim_facades`.
 """
 
 from __future__ import annotations
 
-import importlib
 from typing import Any
 
-_SUBMODULE_NAMES = frozenset(
-    {
-        "label_consensus_engine",
-        "malware_type_engine",
-        "signal_health_checker",
-        "threat_class_engine",
-    }
+from obsidiandroid.modeling.ml_classification_shim_facades import (
+    ML_CLASSIFICATION_INFERENCE_SUBMODULES,
+    lazy_legacy_submodule,
 )
 
 
 def __getattr__(name: str) -> Any:
-    if name in _SUBMODULE_NAMES:
-        return importlib.import_module(f"{__name__}.{name}")
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return lazy_legacy_submodule(name, __name__, ML_CLASSIFICATION_INFERENCE_SUBMODULES)
 
 
 def __dir__() -> list[str]:
-    return sorted(_SUBMODULE_NAMES)
+    return sorted(ML_CLASSIFICATION_INFERENCE_SUBMODULES)
 
 
-__all__ = tuple(sorted(_SUBMODULE_NAMES))
+__all__ = tuple(sorted(ML_CLASSIFICATION_INFERENCE_SUBMODULES))
