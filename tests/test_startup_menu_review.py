@@ -69,6 +69,8 @@ def test_compact_review_summary_includes_identity_health_and_tuning(monkeypatch,
     assert any("Next:" in warning for warning in summary["warnings"])
     assert str(summary["open_first"][0]["label"]) == "Run science index"
     assert any("Review taxonomy type authority report" in action for action in summary["tuning_actions"])
+    assert "taxonomy_support_summary" in summary
+    assert "permission_tuning_summary" in summary
 
 
 def test_compact_review_screen_avoids_debug_path_dump(monkeypatch, tmp_path: Path, capsys) -> None:
@@ -92,6 +94,8 @@ def test_compact_review_screen_avoids_debug_path_dump(monkeypatch, tmp_path: Pat
     assert "unknown" not in out.lower()
     assert "Detailed paths" not in out
     assert "diagnostics_dir" not in out
+    assert "Taxonomy & Support Tuning" in out
+    assert "Permission Coverage Tuning" in out
 
 
 def test_detailed_review_screen_can_show_deeper_paths(monkeypatch, tmp_path: Path, capsys) -> None:
@@ -238,5 +242,8 @@ def test_tune_next_changes_with_status_flags(monkeypatch, tmp_path: Path) -> Non
     _write(rdiag / f"taxonomy_consistency_summary_{run_id}.json", json.dumps({"taxonomy_mismatch_count": 5, "type_mismatch_count": 5, "type_noncanonical_count": 0, "type_missing_label_count": 0, "family_label_mismatch_count": 0}))
     _write(rdiag / "modality_contribution_summary.json", json.dumps({"permission_signal_pct": 45.0}))
     summary = startup_menu_review.build_review_latest_run_summary(output_root=out_root, latest_run_id=run_id)
+    assert str(summary["tuning_actions"][0]).startswith("Prioritize screens in this order:")
+    assert "Permission and feature health" in str(summary["tuning_actions"][0])
+    assert "Taxonomy consistency summary" in str(summary["tuning_actions"][0])
     assert any("taxonomy type authority report" in action.lower() for action in summary["tuning_actions"])
     assert any("permission signal" in action.lower() for action in summary["tuning_actions"])

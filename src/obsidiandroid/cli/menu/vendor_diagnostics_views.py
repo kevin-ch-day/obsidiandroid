@@ -44,6 +44,9 @@ def print_parser_diagnostics_state(*, mode: str | None = None) -> None:
             "Onboarding queue",
             state["onboarding_candidate_count"] if state["onboarding_candidate_count"] is not None else "n/a",
         )
+        queue_df = build_parser_onboarding_queue(limit=None)
+        trusted_unmapped_count = int(queue_df["trusted_active"].fillna(False).astype(bool).sum()) if not queue_df.empty else 0
+        du.print_stat("Trusted-active unmapped vendors", trusted_unmapped_count)
         du.print_stat(
             "Selected vendors for latest run",
             state["selected_vendors"] if state["selected_vendors"] is not None else "n/a",
@@ -54,6 +57,16 @@ def print_parser_diagnostics_state(*, mode: str | None = None) -> None:
         )
         du.print_info(
             "Coverage reflects all observed engines; selected vendors are the narrower leakage-safe subset used by the latest run."
+        )
+        if state.get("source_run_id"):
+            du.print_stat("Source run id", str(state.get("source_run_id")))
+        du.print_stat(
+            "Coverage snapshot origin",
+            "latest run" if bool(state.get("coverage_from_latest_run", False)) else "global/latest mirror or fallback",
+        )
+        du.print_stat(
+            "Selected-vendor snapshot",
+            "Present" if bool(state.get("selected_vendor_data_present", False)) else "Missing",
         )
     if state.get("explanation"):
         du.print_info(str(state["explanation"]))
@@ -173,6 +186,10 @@ def print_parser_onboarding_candidates(*, limit: int | None = None, mode: str | 
         title=f"Top {row_limit} parser onboarding candidates",
         show_index=False,
     )
+    if row_limit < len(candidates_df):
+        du.print_info(
+            "Show all path: switch to detailed/debug mode for a larger default view, or use Top unmapped vendors for broader backlog context."
+        )
     return 0
 
 
@@ -189,18 +206,25 @@ def print_selected_vendors_for_latest_run(*, limit: int | None = None, mode: str
     if "Vendor" in scores_df.columns:
         preview = ", ".join(str(v) for v in scores_df.head(3)["Vendor"].tolist())
         if preview:
-            du.print_info(f"Open first: {preview}")
+            du.print_info(f"Start with these selected vendors: {preview}")
     if "Vendor Category" in scores_df.columns:
         categories = scores_df["Vendor Category"].astype(str).value_counts().to_dict()
         preview = ", ".join(f"{k}={v}" for k, v in list(categories.items())[:4])
         if preview:
-            du.print_info(f"Selected-vendor mix: {preview}")
+            du.print_info(f"Selected-vendor signal mix: {preview}")
     if "Family Match Accuracy (%)" in scores_df.columns:
         try:
             fam_match = pd.to_numeric(scores_df["Family Match Accuracy (%)"], errors="coerce")
-            du.print_stat("Mean family match accuracy", f"{float(fam_match.mean()):.2f}%")
+            mean_score = float(fam_match.mean())
+            quality_band = "strong" if mean_score >= 20.0 else "weak"
+            du.print_stat("Mean family match accuracy", f"{mean_score:.2f}% ({quality_band} signal)")
+            if quality_band == "weak":
+                du.print_note("Action: treat selected-vendor family-level claims as provisional; prioritize parser onboarding and label-pattern validation first.")
         except Exception:
             pass
+    du.print_info(
+        "Why selected differs from parser-mapped: selected vendors are leakage-safe run inputs; parser-mapped is broader parser availability over observed vendors."
+    )
     row_limit = limit or mode_max_rows(compact=5, detailed=10, debug=20, mode=mode)
     du.print_table(
         scores_df.head(row_limit),

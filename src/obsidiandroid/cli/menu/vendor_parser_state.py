@@ -288,7 +288,10 @@ def build_parser_onboarding_queue(*, limit: int | None = None) -> pd.DataFrame:
     queue = queue[queue["parser_mapped"] == 0].copy()
     queue["selected_sort"] = queue["selected_in_latest_run"].astype(int)
     queue["trusted_sort"] = queue["trusted_active"].astype(int)
-    queue["priority_sort"] = pd.to_numeric(queue.get("priority_rank"), errors="coerce").fillna(9999)
+    if "priority_rank" in queue.columns:
+        queue["priority_sort"] = pd.to_numeric(queue["priority_rank"], errors="coerce").fillna(9999)
+    else:
+        queue["priority_sort"] = 9999
     queue["coverage_sort"] = pd.to_numeric(queue.get("coverage_pct"), errors="coerce").fillna(0.0)
     queue = queue.sort_values(
         by=["selected_sort", "trusted_sort", "priority_sort", "coverage_sort", "vendor_column"],
@@ -327,12 +330,16 @@ def build_parser_diagnostics_state(
         workbook_df = workbook_loader()
     workbook_ready = isinstance(workbook_df, pd.DataFrame)
     csv_ready = coverage_csv is not None
+    rid = run_locator.read_latest_run_id()
+    source_run_id = rid or ""
     observed_engines = 0
     parser_mapped_vendors = 0
     unmapped_vendors = 0
     mapped_pct = 0.0
     top_unmapped_preview: list[str] = []
+    coverage_from_latest_run = False
     if coverage_csv is not None:
+        coverage_from_latest_run = bool(rid and str(run_diagnostics(rid)) in str(coverage_csv))
         coverage_df = read_csv(coverage_csv)
         if not coverage_df.empty:
             observed_engines = int(len(coverage_df))
@@ -373,7 +380,6 @@ def build_parser_diagnostics_state(
     except (TypeError, ValueError):
         selected_vendors = None
     engine_scoring_universe = None
-    rid = run_locator.read_latest_run_id()
     engine_csv = Path()
     if rid:
         rd = run_diagnostics(rid)
@@ -386,27 +392,35 @@ def build_parser_diagnostics_state(
         if not engine_df.empty:
             engine_scoring_universe = int(len(engine_df))
     top_selected_vendor_preview: list[str] = []
+    selected_vendor_data_present = False
     if scores_csv is not None:
         scores_df = read_csv(scores_csv)
         if not scores_df.empty:
+            selected_vendor_data_present = True
             top_selected_vendor_preview = [
                 str(v).strip()
                 for v in scores_df.head(3).get("Vendor", pd.Series(dtype="object")).tolist()
                 if str(v).strip()
             ]
     needs_attention = ""
-    recommended_open_first = "Parser summary"
+    recommended_open_first = "Parser onboarding queue"
     status = "GREEN"
     if csv_ready and not workbook_ready:
-        needs_attention = "Workbook drill-down unavailable"
-        recommended_open_first = "Workbook requirements"
+        needs_attention = "Workbook drill-down unavailable (optional unless doing single-vendor deep debugging)"
+        recommended_open_first = "Parser onboarding queue"
         status = "YELLOW"
     elif not csv_ready:
         needs_attention = "CSV snapshots unavailable"
         recommended_open_first = "Export paths"
         status = "RED"
+    elif onboarding_candidate_count > 0:
+        needs_attention = (
+            f"{onboarding_candidate_count} prioritized onboarding candidates "
+            f"out of {unmapped_vendors} unmapped vendors"
+        )
+        status = "YELLOW"
     elif unmapped_vendors > 0:
-        needs_attention = f"{unmapped_vendors} unmapped vendors remain"
+        needs_attention = f"{unmapped_vendors} unmapped vendors remain (coverage-only backlog)"
         status = "YELLOW"
     next_tuning_action = "Review parser onboarding candidates."
     if not csv_ready:
@@ -414,7 +428,9 @@ def build_parser_diagnostics_state(
     elif not workbook_ready:
         next_tuning_action = "Review onboarding candidates; workbook drill-down is optional."
     elif onboarding_candidate_count > 0:
-        next_tuning_action = "Prioritize high-coverage unmapped vendors for parser onboarding."
+        next_tuning_action = (
+            "Open Parser onboarding queue; start with selected/trusted high-coverage unmapped vendors before coverage-only backlog."
+        )
     else:
         next_tuning_action = "Review selected vendors and parser quality drift."
     explanation = (
@@ -424,6 +440,9 @@ def build_parser_diagnostics_state(
     )
     return {
         "display_mode": resolve_display_mode(mode),
+        "source_run_id": source_run_id,
+        "coverage_from_latest_run": coverage_from_latest_run,
+        "selected_vendor_data_present": selected_vendor_data_present,
         "status": status,
         "workbook_ready": workbook_ready,
         "csv_ready": csv_ready,
