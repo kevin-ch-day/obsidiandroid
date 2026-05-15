@@ -1,8 +1,9 @@
-"""Feature-engineering canonical aliases (Pass 47 minimal slice).
+"""Canonical feature-engineering namespace.
 
-**Pass 83:** Vectorization implementations live under ``obsidiandroid.features.vectorization``
-(physical). ``ml_classification.vectorization.*`` are identity shims (**Pass 82** façade
-entries still re-export the same module objects via ``sys.modules``).
+Vectorization implementations live under
+``obsidiandroid.features.vectorization`` and
+``obsidiandroid.features.feature_schema_audit`` is also canonical here.
+Legacy ``ml_classification.vectorization.*`` paths remain thin identity shims.
 
 See ``docs/ML_BOUNDARY_PLAN.md``.
 """

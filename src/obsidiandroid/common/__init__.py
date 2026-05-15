@@ -1,6 +1,6 @@
-"""Shared primitives (paths, hashing, canonicalization; incremental migration).
+"""Canonical shared primitives for paths, hashing, canonicalization, and output hygiene.
 
-Canonical modules include :mod:`obsidiandroid.common.hash_utils`,
+Key modules include :mod:`obsidiandroid.common.hash_utils`,
 :mod:`obsidiandroid.common.canonicalization`, :mod:`obsidiandroid.common.path_safety`,
 :mod:`obsidiandroid.common.runtime_paths`, :mod:`obsidiandroid.common.ml_console`,
 :mod:`obsidiandroid.common.display_distribution`, :mod:`obsidiandroid.common.export_naming`,
@@ -10,7 +10,8 @@ Canonical modules include :mod:`obsidiandroid.common.hash_utils`,
 :mod:`obsidiandroid.common.output_paths`, :mod:`obsidiandroid.common.output_hygiene`,
 :mod:`obsidiandroid.common.json_io`,
 and :mod:`obsidiandroid.common.repo_paths`.
-Import these modules directly from ``obsidiandroid.common`` (or reporting/CLI peers).
+
+Import these modules directly from ``obsidiandroid.common`` in new code.
 """
 
 from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path

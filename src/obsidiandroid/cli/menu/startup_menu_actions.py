@@ -13,26 +13,15 @@ import sys
 
 import pandas as pd
 
-from config import app_config
+from obsidiandroid.common.output_paths import output_root as canonical_output_root
 from obsidiandroid.common.repo_paths import repo_operator_script
 from . import run_locator
+from .run_artifact_state import (
+    resolve_model_comparison_summary_csv,
+    resolve_within_cross_type_confusion_csv,
+)
 from ..ui import display as du
 from ..ui import menu as mu
-
-
-def _read_json_object(path: Path) -> dict:
-    """Read JSON file as dict; return empty dict on failure."""
-    return run_locator.read_json_object(path)
-
-
-def _read_latest_run_id() -> str | None:
-    """Return latest run_id from diagnostics manifest when available."""
-    return run_locator.read_latest_run_id()
-
-
-def _resolve_latest_manifest_payload() -> tuple[dict, str | None, Path]:
-    """Resolve latest manifest payload, following pointer manifest when needed."""
-    return run_locator.resolve_latest_manifest_payload()
 
 
 def _format_model_label(token: str) -> str:
@@ -68,22 +57,12 @@ def run_output_cleanup() -> int:
 
 def show_within_cross_type_error_snapshot() -> int:
     """Show latest within-type vs cross-type error summary when available."""
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    run_id = _read_latest_run_id() or ""
-    candidate_paths: list[Path] = []
-    if run_id:
-        candidate_paths.extend(
-            [
-                output_root / "runs" / run_id / "diagnostics" / "confusion_within_vs_cross_type.latest.csv",
-                output_root / "runs" / run_id / "bundles" / "permission_trends" / "tables" / "confusion_within_vs_cross_type.latest.csv",
-            ]
-        )
-    candidate_paths.extend(
-        [
-            output_root / "bundles" / "latest" / "permission_trends" / "tables" / "confusion_within_vs_cross_type.latest.csv",
-        ]
+    output_root = canonical_output_root()
+    run_id = run_locator.read_latest_run_id() or ""
+    chosen_path = resolve_within_cross_type_confusion_csv(
+        output_root=output_root,
+        run_id=run_id,
     )
-    chosen_path = next((path for path in candidate_paths if path.exists()), None)
     if chosen_path is None:
         du.print_warning("[MENU] Missing within-vs-cross-type confusion artifact.")
         return 1
@@ -152,17 +131,9 @@ def show_within_cross_type_error_snapshot() -> int:
 
 def show_model_comparison_snapshot() -> int:
     """Show latest model-comparison snapshot from diagnostics when available."""
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    diagnostics_dir = output_root / "diagnostics"
-    latest_run_id = _read_latest_run_id() or ""
-    run_scoped_dir = output_root / "runs" / latest_run_id / "diagnostics" if latest_run_id else output_root / "runs"
-    candidate_paths: list[Path] = []
-    if latest_run_id:
-        candidate_paths.append(run_scoped_dir / f"model_comparison_summary_{latest_run_id}.csv")
-        candidate_paths.append(diagnostics_dir / f"model_comparison_summary_{latest_run_id}.csv")
-    candidate_paths.extend(sorted(run_scoped_dir.glob("model_comparison_summary_*.csv"), reverse=True))
-    candidate_paths.extend(sorted(diagnostics_dir.glob("model_comparison_summary_*.csv"), reverse=True))
-    chosen = next((path for path in candidate_paths if path and path.exists()), None)
+    output_root = canonical_output_root()
+    latest_run_id = run_locator.read_latest_run_id() or ""
+    chosen = resolve_model_comparison_summary_csv(output_root=output_root, run_id=latest_run_id)
     if not chosen:
         du.print_warning("[MENU] No model comparison summary found in diagnostics.")
         return 1
@@ -180,9 +151,9 @@ def show_model_comparison_snapshot() -> int:
 
 
 def handle_confusion_matrix_export() -> int:
-    """Export primary confusion matrix to run paper2 pack for the latest run."""
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    _, run_id, _ = _resolve_latest_manifest_payload()
+    """Export primary confusion matrix to the run evidence bundle for the latest run."""
+    output_root = canonical_output_root()
+    _, run_id, _ = run_locator.resolve_latest_manifest_payload()
     if not run_id:
         du.print_warning("[MENU] No latest run found. Run pipeline first.")
         return 1
@@ -199,10 +170,12 @@ def handle_confusion_matrix_export() -> int:
             if path.name not in {"confusion_matrix_primary.png"}
         ]
     )
-    pack_dir = run_root / "paper2_pack"
-    pack_dir.mkdir(parents=True, exist_ok=True)
+    bundle_dir = run_root / "evidence_bundle"
+    legacy_pack_dir = run_root / "paper2_pack"
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    legacy_pack_dir.mkdir(parents=True, exist_ok=True)
 
-    canonical_manifest = _read_json_object(run_root / "run_manifest.json")
+    canonical_manifest = run_locator.read_json_object(run_root / "run_manifest.json")
     top_model = str(
         (
             canonical_manifest.get("model_summary", {})
@@ -240,9 +213,10 @@ def handle_confusion_matrix_export() -> int:
         preferred = conf_dir / f"confusion_matrix_{normalized_top}.png"
         if preferred.exists():
             source_path = preferred
-    target_path = pack_dir / "confusion_matrix_primary.png"
+    target_path = bundle_dir / "confusion_matrix_primary.png"
     try:
         shutil.copy2(source_path, target_path)
+        shutil.copy2(source_path, legacy_pack_dir / "confusion_matrix_primary.png")
     except Exception as exc:
         du.print_error(f"[MENU] Failed to export confusion matrix: {exc}")
         return 1
@@ -254,7 +228,7 @@ def handle_confusion_matrix_export() -> int:
 
 def show_disk_usage_summary() -> int:
     """Show compact disk-usage summary for output workspace directories."""
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+    output_root = canonical_output_root()
     targets = [
         output_root / "runs",
         output_root / "diagnostics",

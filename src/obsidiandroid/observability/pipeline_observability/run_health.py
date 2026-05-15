@@ -17,7 +17,7 @@ def print_unified_run_health(
     evidence_index_path: Path | None,
     run_root: Path,
 ) -> None:
-    """Single terminal block: pipeline verdict, paper posture, cohort funnel string, top warnings, open-first list."""
+    """Single terminal block: pipeline verdict, publication posture, cohort funnel string, top warnings, open-first list."""
     if ml_console.is_minimal():
         return
 
@@ -48,11 +48,13 @@ def print_unified_run_health(
     du.print_stat("Profile", payload.get("profile_id", "unknown"))
     du.print_stat("Pipeline (aggregate)", payload.get("pipeline_status", "UNKNOWN"))
     du.print_stat("Research validity bundle", payload.get("research_validity_status", "UNKNOWN"))
-    du.print_stat("Paper mode", "ON" if payload.get("paper_mode") else "OFF")
+    du.print_stat("Publication-ready mode", "ON" if payload.get("paper_mode") else "OFF")
     du.print_stat("Evidence mode", "ON" if payload.get("evidence_mode") else "OFF")
-    du.print_stat("paper_safe_status", payload.get("paper_safe_status", "UNKNOWN"))
-    if payload.get("paper_safe_reasons"):
-        du.print_stat("paper_safe_reasons", ", ".join(str(x) for x in payload["paper_safe_reasons"]))
+    publication_ready_status = payload.get("publication_ready_status", payload.get("paper_safe_status", "UNKNOWN"))
+    du.print_stat("publication_ready_status", publication_ready_status)
+    publication_ready_reasons = payload.get("publication_ready_reasons", payload.get("paper_safe_reasons", []))
+    if publication_ready_reasons:
+        du.print_stat("publication_ready_reasons", ", ".join(str(x) for x in publication_ready_reasons))
 
     row_auth = payload.get("main_training_row_authority") or payload.get("row_authority")
     du.print_stat("Row authority", row_auth or "n/a")
@@ -108,7 +110,7 @@ def print_unified_run_health(
 
     blockers = payload.get("paper_blockers") or []
     if isinstance(blockers, list) and blockers:
-        du.print_stat("Paper blockers", "; ".join(str(x) for x in blockers[:8]))
+        du.print_stat("Publication blockers", "; ".join(str(x) for x in blockers[:8]))
 
     rw = payload.get("research_warnings_top") or payload.get("research_warnings") or []
     if isinstance(rw, list) and rw:

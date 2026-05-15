@@ -9,9 +9,12 @@ def test_profile_list_contains_default_profiles() -> None:
     """Profiles directory should contain baseline profiles."""
     names = [p.stem for p in profile_manager.list_profiles()]
     assert "banker" in names
+    assert "banker_locked" in names
     assert "mixed" in names
     assert "benign_heavy" in names
     assert "dev_smoke" in names
+    assert "paper2_primary_locked" not in names
+    assert "paper1_banker_locked" not in names
 
 
 def test_load_profile_required_keys() -> None:
@@ -31,13 +34,13 @@ def test_load_profile_resolves_bundled_profiles_outside_repo_cwd(
     assert profile["__profile_path"].endswith("profiles/banker.yaml")
 
 
-def test_paper2_evidence_profiles_exclude_dominant_families() -> None:
-    """Paper #2 evidence profiles should exclude dominant families for balanced cross-type analysis."""
+def test_temporal_evidence_profiles_exclude_dominant_families() -> None:
+    """Temporal evidence profiles should exclude dominant families for balanced cross-type analysis."""
     expected = {"devixor", "gigabud"}
     for profile_id in (
-        "paper2_primary",
-        "paper2_sensitivity_consensus10",
-        "paper2_sensitivity_family300",
+        "malicious_temporal_stability",
+        "malicious_temporal_consensus10",
+        "malicious_temporal_family300",
     ):
         profile = profile_manager.load_profile(profile_id)
         excluded = {
@@ -48,22 +51,26 @@ def test_paper2_evidence_profiles_exclude_dominant_families() -> None:
         assert expected.issubset(excluded)
 
 
-def test_profile_sorting_prefers_paper2_and_core_profiles() -> None:
-    """Sort key should rank paper2 evidence/core profiles before misc entries."""
+def test_profile_sorting_prefers_locked_and_core_profiles() -> None:
+    """Sort key should rank locked publication-ready profiles before misc entries."""
     ordered = sorted(
         [
             "spyware",
-            "paper2_sensitivity_family300",
+            "malicious_temporal_stability_locked",
+            "banker_locked",
+            "malicious_temporal_family300",
             "dev_smoke",
             "dev_fast",
-            "paper2_primary",
+            "malicious_temporal_stability",
             "banker",
         ],
         key=profile_manager._profile_sort_key,  # pylint: disable=protected-access
     )
-    assert ordered[0] == "paper2_primary"
-    assert ordered[1] == "paper2_sensitivity_family300"
-    assert ordered[2] == "banker"
+    assert ordered[0] == "malicious_temporal_stability_locked"
+    assert ordered[1] == "banker_locked"
+    assert ordered[2] == "malicious_temporal_stability"
+    assert ordered[3] == "malicious_temporal_family300"
+    assert ordered[4] == "banker"
     assert ordered[-2] == "dev_fast"
     assert ordered[-1] == "dev_smoke"
 
@@ -92,6 +99,59 @@ def test_profile_summary_includes_key_gates(tmp_path: Path) -> None:
     assert "min_detect=10" in summary
     assert "family_cap=300" in summary
     assert "exclude_unknown=True" in summary
+
+
+def test_profile_summary_exposes_locked_status(tmp_path: Path) -> None:
+    """Profile summary should label locked vs legacy publication profiles explicitly."""
+    locked = tmp_path / "locked.yaml"
+    locked.write_text(
+        "\n".join(
+            [
+                "profile_id: malicious_temporal_stability_locked",
+                "description: Locked profile",
+                "paper_locked: true",
+                "type_slug_filter: all",
+                "cohort_gates: {}",
+                "model_list:",
+                "  - random_forest",
+                "paper_lock:",
+                "  contract_id: malicious_temporal_stability_locked_contract",
+                "  expected_sample_count: 1226",
+                "  expected_family_count: 39",
+                "  expected_type_count: 6",
+                "  sample_id_lock_file: artifacts/baselines/20260504T044304Z__8c64e6/malicious_temporal_stability_locked_sample_ids.csv",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    legacy = tmp_path / "legacy.yaml"
+    legacy.write_text(
+        "\n".join(
+            [
+                "profile_id: malicious_temporal_stability",
+                "description: Legacy profile",
+                "evidence_mode: true",
+                "type_slug_filter: all",
+                "cohort_gates:",
+                "  time_window_start_utc: '2020-01-01T00:00:00Z'",
+                "  time_window_end_utc: '2026-01-01T00:00:00Z'",
+                "model_list:",
+                "  - random_forest",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    locked_summary = profile_manager._summarize_profile(locked)  # pylint: disable=protected-access
+    legacy_summary = profile_manager._summarize_profile(legacy)  # pylint: disable=protected-access
+    assert "lock=membership-locked" in locked_summary
+    assert "publication=legacy-unlocked" in legacy_summary
+
+
+def test_legacy_profile_aliases_resolve_to_generic_names() -> None:
+    """Deprecated paper-number profile ids should resolve to generic canonical profiles."""
+    assert profile_manager.load_profile("paper2_primary")["profile_id"] == "malicious_temporal_stability"
+    assert profile_manager.load_profile("paper2_primary_locked")["profile_id"] == "malicious_temporal_stability_locked"
+    assert profile_manager.load_profile("paper1_banker_locked")["profile_id"] == "banker_locked"
 
 
 def test_load_profile_rejects_unknown_model_key(tmp_path: Path, monkeypatch) -> None:

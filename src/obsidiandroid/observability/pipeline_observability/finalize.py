@@ -305,6 +305,8 @@ def finalize_pipeline_observability(
         "evidence_mode": bool(evidence_mode),
         "paper_safe_status": paper_safe_terminal,
         "paper_safe_reasons": reasons,
+        "publication_ready_status": paper_safe_terminal,
+        "publication_ready_reasons": reasons,
         "research_validity_status": rv_status,
         "hostile_audit_status": hostile_status,
         "hostile_audit_degraded": bool(hostile_failed),

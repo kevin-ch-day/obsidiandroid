@@ -8,6 +8,7 @@ import pytest
 
 from obsidiandroid.pipeline import stage_manifest
 from obsidiandroid.pipeline.manifest import paper_compliance_checks
+from obsidiandroid.pipeline.manifest import stage_manifest_evidence_pack as evidence_pack
 
 build_paper_compliance_checks = paper_compliance_checks.build_paper_compliance_checks
 
@@ -24,6 +25,31 @@ def test_extract_parser_list_returns_sorted_unique_names() -> None:
     parser_list = stage_manifest._extract_parser_list(vendor_eval_df)  # pylint: disable=protected-access
 
     assert parser_list == ["Alpha", "Zeta"]
+
+
+def test_write_evidence_readiness_includes_generic_alias_keys(tmp_path: Path) -> None:
+    """Evidence readiness payload should expose generic status aliases."""
+    out_path = evidence_pack.write_evidence_readiness(
+        run_root=tmp_path / "run1",
+        status="ready",
+        failed_checks=[],
+        manifest={
+            "run_id": "run1",
+            "evidence_mode": True,
+            "cohort_contract": {"cohort_lock_status": "membership_locked"},
+            "split": {"split_hash": "abc"},
+            "dataset_hash": "def",
+            "engine_list_hash": "ghi",
+            "engine_ranking_hash": "jkl",
+        },
+        integrity_reason="",
+    )
+
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    assert payload["evidence_readiness"] == "ready"
+    assert payload["publication_ready_status"] == "ready"
+    assert payload["cohort_lock_status"] == "membership_locked"
+    assert (tmp_path / "run1" / "paper2_pack" / "evidence_readiness.json").exists()
 
 
 def test_finalize_run_manifest_stage_success(monkeypatch) -> None:
@@ -119,7 +145,7 @@ def test_write_run_summary_json_creates_canonical_and_latest(
         manifest={
             "run_id": "r1",
             "timestamp_utc": "2026-03-21T00:00:00Z",
-            "profile_params": {"profile_id": "paper2_primary"},
+            "profile_params": {"profile_id": "malicious_temporal_stability"},
             "cohort_size": 1226,
             "selected_vendor_count": 8,
             "vendor_constrained_run_flag": False,
@@ -263,8 +289,24 @@ def test_write_experiment_contract_snapshot_creates_files(tmp_path: Path, monkey
     out_path = stage_manifest._write_experiment_contract_snapshot(  # pylint: disable=protected-access
         run_id="r2",
         diagnostics_dir=diagnostics_dir,
-        profile={"profile_id": "paper2_primary", "cohort_gates": {"min_malicious_detections": 5, "family_cap": 300}},
-        manifest_context={"paper_mode": {"resolved_value": True, "source": "cli"}, "model_config_hash": "mhash"},
+        profile={"profile_id": "malicious_temporal_stability", "cohort_gates": {"min_malicious_detections": 5, "family_cap": 300}},
+        manifest_context={
+            "paper_mode": {"resolved_value": True, "source": "cli"},
+            "model_config_hash": "mhash",
+            "paper_cohort_contract": {
+                "contract_name": "malicious_temporal_stability_locked",
+                "contract_id": "malicious_temporal_stability_locked_contract",
+                "paper_locked": True,
+                "contract_status": "membership_locked",
+                "canonical_historical_run_id": "20260504T044304Z__8c64e6",
+                "expected": {"sample_count": 1226, "family_count": 39, "type_count": 6},
+                "sample_id_lock": {
+                    "path": "/tmp/lock.csv",
+                    "lock_sample_count": 1226,
+                    "lock_sample_id_hash": "abc123",
+                },
+            },
+        },
         manifest={"split": {"split_hash": "shash", "split_seed": 42, "split_algorithm": "stratified_seeded", "split_algorithm_version": "1.0"}},
     )
 
@@ -279,6 +321,11 @@ def test_write_experiment_contract_snapshot_creates_files(tmp_path: Path, monkey
     assert payload["experiment_series"]["series_id"]
     assert payload["target_task"]["training_label_field"] == "family_id"
     assert payload["label_authority_reporting"]["training_label_field"] == "family_id"
+    assert payload["paper_cohort_contract"]["contract_name"] == "malicious_temporal_stability_locked"
+    assert payload["paper_cohort_contract"]["paper_locked"] is True
+    assert payload["paper_cohort_contract"]["expected"]["sample_count"] == 1226
+    assert payload["paper_cohort_contract"]["sample_id_lock"]["lock_sample_count"] == 1226
+    assert payload["cohort_contract"]["contract_id"] == "malicious_temporal_stability_locked_contract"
 
 
 def test_contract_snapshot_detects_model_config_drift_within_series(tmp_path: Path, monkeypatch) -> None:
@@ -291,9 +338,9 @@ def test_contract_snapshot_detects_model_config_drift_within_series(tmp_path: Pa
 
     previous = {
         "run_id": "r_prev",
-        "profile_id": "paper2_primary",
+        "profile_id": "malicious_temporal_stability",
         "experiment_series": {"series_id": stage_manifest._compute_experiment_series_id(  # pylint: disable=protected-access
-            profile_id="paper2_primary",
+            profile_id="malicious_temporal_stability",
             split_hash="shash",
         )},
         "model_contract": {"model_config_hash": "oldhash", "no_model_retuning_across_perturbations": True},
@@ -307,7 +354,7 @@ def test_contract_snapshot_detects_model_config_drift_within_series(tmp_path: Pa
     out_path = stage_manifest._write_experiment_contract_snapshot(  # pylint: disable=protected-access
         run_id="r_new",
         diagnostics_dir=diagnostics_dir,
-        profile={"profile_id": "paper2_primary", "cohort_gates": {}},
+        profile={"profile_id": "malicious_temporal_stability", "cohort_gates": {}},
         manifest_context={"paper_mode": {"resolved_value": True, "source": "cli"}, "model_config_hash": "newhash"},
         manifest={"split": {"split_hash": "shash", "split_seed": 42, "split_algorithm": "stratified_seeded", "split_algorithm_version": "1.0"}},
     )
@@ -346,6 +393,8 @@ def test_write_run_artifact_index_creates_markdown(tmp_path: Path) -> None:
     run_root = tmp_path / "output" / "runs" / "r_idx"
     diagnostics_dir = run_root / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / "taxonomy_consistency_summary.latest.json").write_text("{}", encoding="utf-8")
 
     out_path = stage_manifest._write_run_artifact_index(  # pylint: disable=protected-access
         run_id="r_idx",
@@ -358,6 +407,8 @@ def test_write_run_artifact_index_creates_markdown(tmp_path: Path) -> None:
     text = out_path.read_text(encoding="utf-8")
     assert "Authoritative source" in text
     assert "paper_exports" in text
+    assert "Lifecycle classes:" in text
+    assert "legacy_compatibility" in text
 
 
 def test_export_parser_quality_final_writes_final_gate_snapshot(tmp_path: Path) -> None:

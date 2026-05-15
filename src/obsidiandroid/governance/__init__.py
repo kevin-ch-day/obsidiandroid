@@ -1,8 +1,9 @@
-"""Governance helpers (evidence mode, compliance contracts; incremental migration).
+"""Canonical governance namespace.
 
-Concrete modules live under :mod:`obsidiandroid.governance`; legacy
-``analysis.pipeline.governance.*`` paths resolve to the same ``ModuleType`` objects
-(**Pass 75** thin shims for exceptions, integrity, policy, readiness).
+Evidence mode, compliance, cohort reproducibility, manifest, and governance
+policy helpers live under :mod:`obsidiandroid.governance`. Legacy
+``analysis.pipeline.governance.*`` paths remain thin identity shims for
+compatibility.
 """
 
 from __future__ import annotations

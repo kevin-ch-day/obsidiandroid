@@ -26,9 +26,23 @@ def build_inventory_rows(run_root: Path) -> list[dict[str, Any]]:
     """Return flat inventory rows for every file under ``run_root``."""
     rows: list[dict[str, Any]] = []
     rr = run_root.resolve()
+    provenance_path = rr / "diagnostics" / "diagnostic_provenance.json"
+    post_run_paths: set[str] = set()
+    if provenance_path.is_file():
+        blob = _load_json(provenance_path)
+        for entry in blob.get("entries", []) if isinstance(blob.get("entries"), list) else []:
+            if bool(entry.get("generated_during_pipeline", False)):
+                continue
+            for artifact in entry.get("artifacts", []) if isinstance(entry.get("artifacts"), list) else []:
+                rel = str(artifact.get("path", "") or "").strip()
+                if rel and not rel.startswith("/"):
+                    post_run_paths.add(rel)
     for path in _iter_files(rr):
         meta = output_artifact_policy.classify_file(path, base=rr)
         rel = meta.pop("relative_path", path.relative_to(rr).as_posix())
+        lifecycle_class = meta.get("lifecycle_class")
+        if rel in post_run_paths:
+            lifecycle_class = "post_run_enrichment"
         try:
             sz = path.stat().st_size
         except OSError:
@@ -37,6 +51,7 @@ def build_inventory_rows(run_root: Path) -> list[dict[str, Any]]:
             {
                 "path": rel,
                 "artifact_type": meta.get("artifact_bucket"),
+                "lifecycle_class": lifecycle_class,
                 "producer_module": meta.get("producer_module"),
                 "run_scoped": "yes" if meta.get("run_scoped") else "no",
                 "required_for_paper_mode": "yes" if meta.get("required_for_paper_mode") else "no",
@@ -65,6 +80,7 @@ def write_virtual_layout(run_root: Path) -> Path | None:
         "diagnostics/required": [],
         "diagnostics/optional": [],
         "diagnostics/debug": [],
+        "diagnostics/post_run_enrichment": [],
         "models": [],
         "logs": [],
         "operator_misc": [],
@@ -72,7 +88,10 @@ def write_virtual_layout(run_root: Path) -> Path | None:
     for row in rows:
         rel = row["path"]
         typ = str(row.get("artifact_type", ""))
-        if typ == "evidence_required":
+        lifecycle = str(row.get("lifecycle_class", ""))
+        if lifecycle == "post_run_enrichment":
+            buckets["diagnostics/post_run_enrichment"].append(rel)
+        elif typ == "evidence_required":
             buckets["evidence"].append(rel)
         elif typ in {"diagnostics_required"}:
             buckets["diagnostics/required"].append(rel)
@@ -134,6 +153,7 @@ def write_artifact_inventory_bundle(
     fieldnames = [
         "path",
         "artifact_type",
+        "lifecycle_class",
         "producer_module",
         "run_scoped",
         "required_for_paper_mode",
@@ -258,7 +278,7 @@ def write_run_evidence_index_md(
     lines = [
         "# Run evidence index",
         "",
-        "**Open this file first.** It routes you to cohort definitions, audits, and paper-safe artifacts.",
+        "**Open this file first.** It routes you to cohort definitions, audits, and publication-ready artifacts.",
         "",
         "**Canonical rollup:** `run_observability_summary.json` in diagnostics (mirror of observability verdicts; aligns with terminal **Run Health**).",
         "",
@@ -266,7 +286,7 @@ def write_run_evidence_index_md(
         "",
         f"- **run_id:** `{run_id}`",
         f"- **profile:** `{profile_id}`",
-        f"- **paper / evidence mode:** `{'on' if paper_mode else 'off'}`",
+        f"- **evidence / publication-ready mode:** `{'on' if paper_mode else 'off'}`",
         "",
         "## Observability mirror (from run_observability_summary.json when present)",
         "",
@@ -275,13 +295,13 @@ def write_run_evidence_index_md(
         pipe_st = summary_obs.get("pipeline_status")
         rv_st = summary_obs.get("research_validity_status")
         ha_st = summary_obs.get("hostile_audit_status")
-        ps_safe = summary_obs.get("paper_safe_status")
+        ps_safe = summary_obs.get("publication_ready_status") or summary_obs.get("paper_safe_status")
         lines.extend(
             [
                 f"- **pipeline_status:** `{pipe_st}`",
                 f"- **research_validity_status:** `{rv_st}`",
                 f"- **hostile_audit_status:** `{ha_st}`",
-                f"- **paper_safe_status:** `{ps_safe}`",
+                f"- **publication_ready_status:** `{ps_safe}`",
                 f"- **cohort funnel (rollup):** {summary_obs.get('cohort_funnel_plain','')}".rstrip(),
                 "",
             ]
@@ -317,9 +337,9 @@ def write_run_evidence_index_md(
             "",
             f"- **Status:** {'PASS' if ablation_ok else 'REVIEW'} — {ablation_note}",
             "",
-            "## Paper-safe gate",
+            "## Publication-ready gate",
             "",
-            f"- **paper_safe_status:** `{paper_safe_status}`",
+            f"- **publication_ready_status:** `{paper_safe_status}`",
         ]
     )
     if paper_safe_reasons and paper_safe_status == "FAIL":
@@ -346,6 +366,109 @@ def write_run_evidence_index_md(
         return None
 
 
+def write_run_science_index_md(
+    *,
+    run_root: Path,
+    diagnostics_dir: Path,
+    run_id: str,
+    profile_id: str,
+    evidence_mode: bool,
+    cohort_locked: bool,
+    publication_ready_status: str,
+) -> Path | None:
+    """Write a compact operator-first run science index with lifecycle guidance."""
+    rows = build_inventory_rows(run_root)
+    by_lifecycle: dict[str, list[str]] = {}
+    for row in rows:
+        key = str(row.get("lifecycle_class", "diagnostics_optional"))
+        by_lifecycle.setdefault(key, []).append(str(row.get("path", "")))
+
+    provenance_path = diagnostics_dir / "diagnostic_provenance.json"
+    provenance = _load_json(provenance_path)
+    post_entries = [
+        row
+        for row in (provenance.get("entries") if isinstance(provenance.get("entries"), list) else [])
+        if not bool(row.get("generated_during_pipeline", False))
+    ]
+
+    mode_tags: list[str] = ["evidence" if evidence_mode else "exploratory"]
+    if cohort_locked:
+        mode_tags.append("cohort-locked")
+    if str(publication_ready_status).strip():
+        mode_tags.append(f"publication-ready={publication_ready_status}")
+
+    lines = [
+        f"# Run Science Index ({run_id})",
+        "",
+        "**Open this file first for run-science review.**",
+        "",
+        "## Run",
+        "",
+        f"- run_id: `{run_id}`",
+        f"- profile_id: `{profile_id}`",
+        f"- mode: `{', '.join(mode_tags)}`",
+        "",
+        "## Authoritative files",
+        "",
+        f"- `{run_root / 'run_manifest.json'}`",
+        f"- `{run_root / 'run_summary.json'}`",
+        f"- `{diagnostics_dir / 'run_observability_summary.json'}`",
+        f"- `{diagnostics_dir / 'cohort_foundation.json'}`",
+        f"- `{diagnostics_dir / 'cohort_funnel.md'}`",
+        f"- `{run_root / 'run_evidence_index.md'}`",
+        f"- `{diagnostics_dir / 'artifact_inventory.json'}`",
+        "",
+        "Post-run audits do not change the authoritative record of the original pipeline run.",
+        "",
+        "## Mirrors And Compatibility",
+        "",
+        f"- operator_convenience_mirror: **{len(by_lifecycle.get('operator_convenience_mirror', []))}**",
+        f"- legacy_compatibility: **{len(by_lifecycle.get('legacy_compatibility', []))}**",
+        "- Warnings: prefer run-scoped artifacts over any `.latest` file.",
+        f"- Provenance ledger: `{provenance_path}`",
+        "",
+        "## Post-Run Enrichments",
+        "",
+    ]
+    if not post_entries:
+        lines.append("- none recorded")
+    else:
+        lines.append(
+            f"- Stored under: `{diagnostics_dir / 'post_run_enrichments'}`"
+        )
+        for entry in post_entries:
+            lines.append(
+                f"- `{entry.get('entry_id', '')}` via `{entry.get('source_command', '')}` "
+                f"at `{entry.get('generated_at_utc', '')}`"
+            )
+            for artifact in (entry.get("artifacts") if isinstance(entry.get("artifacts"), list) else [])[:8]:
+                lines.append(f"  path: `{artifact.get('path', '')}`")
+    lines.extend(
+        [
+            "",
+            "## Lifecycle Counts",
+            "",
+        ]
+    )
+    for key in (
+        "canonical_run_evidence",
+        "diagnostics_required",
+        "diagnostics_optional",
+        "operator_convenience_mirror",
+        "legacy_compatibility",
+        "post_run_enrichment",
+        "debug_only",
+    ):
+        lines.append(f"- {key}: **{len(by_lifecycle.get(key, []))}**")
+
+    out_path = diagnostics_dir / "run_science_index.md"
+    try:
+        out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return out_path
+    except OSError:
+        return None
+
+
 def print_output_hygiene_terminal_summary(
     *,
     run_root: Path,
@@ -367,7 +490,7 @@ def print_output_hygiene_terminal_summary(
         "Duplicate .latest inside run (policy)",
         summary.get("duplicate_latest_inside_run"),
     )
-    du.print_stat("Paper-safe status", paper_safe_status)
+    du.print_stat("Publication-ready status", paper_safe_status)
     du.print_stat("Open first", str(evidence_index_path or run_root / "run_evidence_index.md"))
 
 
@@ -397,5 +520,6 @@ __all__ = [
     "print_output_hygiene_terminal_summary",
     "write_artifact_inventory_bundle",
     "write_run_evidence_index_md",
+    "write_run_science_index_md",
     "write_virtual_layout",
 ]

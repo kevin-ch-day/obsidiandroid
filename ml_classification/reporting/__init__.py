@@ -1,27 +1,28 @@
-"""Legacy ``ml_classification.reporting`` (shim-only).
+"""Legacy ``ml_classification.reporting`` package shim.
 
 ``compile_classification_results`` is canonical at ``obsidiandroid.reporting``.
 ``ml_report_builder`` is canonical at ``obsidiandroid.evaluation``.
-
-Submodule names are defined in :mod:`obsidiandroid.modeling.ml_classification_shim_facades`.
 """
 
 from __future__ import annotations
 
-from typing import Any
+import sys
 
-from obsidiandroid.legacy_shim_lazy import lazy_legacy_submodule
-from obsidiandroid.modeling.ml_classification_shim_facades import (
-    ML_CLASSIFICATION_REPORTING_SUBMODULES,
-)
+from obsidiandroid.legacy_shim_lazy import import_legacy_shim
 
+_SUBMODULES = {
+    "compile_classification_results": "obsidiandroid.reporting.compile_classification_results",
+    "ml_report_builder": "obsidiandroid.evaluation.ml_report_builder",
+}
 
-def __getattr__(name: str) -> Any:
-    return lazy_legacy_submodule(name, __name__, ML_CLASSIFICATION_REPORTING_SUBMODULES)
+for _name, _canonical in _SUBMODULES.items():
+    _mod = import_legacy_shim(_canonical, f"{__name__}.{_name}", warn=True)
+    globals()[_name] = _mod
+    sys.modules[f"{__name__}.{_name}"] = _mod
 
 
 def __dir__() -> list[str]:
-    return sorted(ML_CLASSIFICATION_REPORTING_SUBMODULES)
+    return sorted(_SUBMODULES)
 
 
-__all__ = tuple(sorted(ML_CLASSIFICATION_REPORTING_SUBMODULES))
+__all__ = tuple(sorted(_SUBMODULES))

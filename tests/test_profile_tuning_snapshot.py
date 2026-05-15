@@ -45,7 +45,7 @@ def test_print_profile_tuning_from_manifest_shows_cohort_and_flags(capsys) -> No
     assert "ENABLE_ABLATION_EXPERIMENTS" in out
     assert "random_forest" in out
     assert "Evidence mode (manifest)" in out
-    assert "Paper mode (manifest)" in out
+    assert "Publication-ready mode (manifest)" in out
     assert "profile_default" in out
     assert "Top-k (requested / effective)" in out
 

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import importlib
 import sys
 
-_mod = importlib.import_module(
-    "obsidiandroid.modeling.ml_trainers.logistic_regression_trainer"
-)
+from obsidiandroid.legacy_shim_lazy import import_legacy_shim
+
+_mod = import_legacy_shim("obsidiandroid.modeling.ml_trainers.logistic_regression_trainer", __name__)
 sys.modules[__name__] = _mod

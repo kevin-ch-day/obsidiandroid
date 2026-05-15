@@ -53,7 +53,7 @@ def test_runtime_overrides_are_restored_after_run(monkeypatch, tmp_path: Path) -
     monkeypatch.setattr(
         main,
         "load_and_prepare_samples",
-        lambda **_kwargs: pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"]}),
+        lambda **_kwargs: pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
     )
 
     result = main.run_pipeline(stop_after="samples", profile_ref="unit_restore_profile")
@@ -168,10 +168,19 @@ def test_stage_failure_finalizes_failed_run(monkeypatch, tmp_path: Path) -> None
         main.profile_manager,
         "load_profile",
         lambda _ref: {
-            "profile_id": "paper2_primary",
+            "profile_id": "unit_paper_locked",
             "type_slug_filter": None,
             "cohort_gates": {},
             "model_list": ["logistic_regression"],
+            "paper_locked": True,
+            "paper_lock": {
+                "contract_id": "unit_locked_contract",
+                "expected_sample_count": 1,
+                "expected_family_count": 1,
+                "expected_type_count": 1,
+                "sample_id_lock_status": "unavailable",
+                "sample_id_lock_todo": "unit test count-only contract",
+            },
             "evidence_mode": True,
             "evidence_perturbation_axes": ["min_malicious_detections"],
             "feature_flags": {
@@ -184,11 +193,11 @@ def test_stage_failure_finalizes_failed_run(monkeypatch, tmp_path: Path) -> None
     monkeypatch.setattr(
         main,
         "load_and_prepare_samples",
-        lambda **_kwargs: pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"]}),
+        lambda **_kwargs: pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
     )
     monkeypatch.setattr(main, "run_av_analysis_stage", lambda **_kwargs: {})
 
-    result = main.run_pipeline(profile_ref="paper2_primary")
+    result = main.run_pipeline(profile_ref="malicious_temporal_stability")
 
     manifest_context = captured["manifest_context"]
     assert result == 1
@@ -197,3 +206,101 @@ def test_stage_failure_finalizes_failed_run(monkeypatch, tmp_path: Path) -> None
     preflight_path = output_root / "runs" / str(manifest_context["run_id"]) / "diagnostics" / "preflight_report.json"
     payload = json.loads(preflight_path.read_text(encoding="utf-8"))
     assert payload["status"] == "failed"
+
+
+def test_unlocked_paper_profile_fails_early_with_locked_guidance(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Publication-intended unlocked profiles should fail before the samples stage."""
+    output_root = tmp_path / "output"
+    captured: dict[str, object] = {}
+    calls = {"samples_called": 0}
+
+    monkeypatch.setattr(app_config, "ENABLE_DB_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ML_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_LOCKED_VALUE", None, raising=False)
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(main, "DIAGNOSTICS_DIR", str(output_root / "diagnostics"))
+    monkeypatch.setattr(main.runtime_logging, "start_runtime_logging", lambda _run_id: None)
+    monkeypatch.setattr(main.runtime_logging, "stop_runtime_logging", lambda _ctx: None)
+
+    def _capture_finalize(**kwargs):
+        captured["manifest_context"] = dict(kwargs["manifest_context"])
+        return 0
+
+    def _samples_should_not_run(**_kwargs):
+        calls["samples_called"] += 1
+        return pd.DataFrame()
+
+    monkeypatch.setattr(main, "finalize_run_manifest_stage", _capture_finalize)
+    monkeypatch.setattr(main, "load_and_prepare_samples", _samples_should_not_run)
+    monkeypatch.setattr(
+        main.profile_manager,
+        "load_profile",
+        lambda _ref: {
+            "profile_id": "malicious_temporal_stability",
+            "type_slug_filter": None,
+            "cohort_gates": {
+                "time_window_start_utc": "2020-01-01T00:00:00Z",
+                "time_window_end_utc": "2026-01-01T00:00:00Z",
+            },
+            "model_list": ["logistic_regression"],
+            "evidence_mode": True,
+            "evidence_perturbation_axes": ["min_malicious_detections"],
+            "feature_flags": {
+                "enable_dynamic_generic_vendor_parsers": False,
+                "enable_sample_metadata_features": False,
+                "enable_permission_features": False,
+            },
+        },
+    )
+
+    result = main.run_pipeline(profile_ref="malicious_temporal_stability")
+
+    assert result == 1
+    assert calls["samples_called"] == 0
+    manifest_context = captured["manifest_context"]
+    assert "Use 'malicious_temporal_stability_locked' instead." in str(manifest_context["failure_reason"])
+    assert manifest_context["run_status"] == "failed"
+
+
+def test_exploratory_profile_is_not_blocked_by_publication_lock(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Exploratory profiles should continue to run without paper_locked contracts."""
+    output_root = tmp_path / "output"
+
+    monkeypatch.setattr(app_config, "ENABLE_DB_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ML_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_LOCKED_VALUE", None, raising=False)
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(main, "DIAGNOSTICS_DIR", str(output_root / "diagnostics"))
+    monkeypatch.setattr(main.runtime_logging, "start_runtime_logging", lambda _run_id: None)
+    monkeypatch.setattr(main.runtime_logging, "stop_runtime_logging", lambda _ctx: None)
+    monkeypatch.setattr(main, "finalize_run_manifest_stage", lambda **_kwargs: 0)
+    monkeypatch.setattr(
+        main.profile_manager,
+        "load_profile",
+        lambda _ref: {
+            "profile_id": "research_all_malicious",
+            "type_slug_filter": None,
+            "cohort_gates": {},
+            "model_list": ["logistic_regression"],
+            "evidence_mode": False,
+            "feature_flags": {
+                "enable_dynamic_generic_vendor_parsers": False,
+                "enable_sample_metadata_features": False,
+                "enable_permission_features": False,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "load_and_prepare_samples",
+        lambda **_kwargs: pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
+    )
+
+    result = main.run_pipeline(stop_after="samples", profile_ref="research_all_malicious")
+    assert result == 0

@@ -8,6 +8,7 @@ import json
 from config import app_config
 
 import obsidiandroid.cli.startup_menu as startup_menu
+from obsidiandroid.cli.menu import vendor_diagnostics as vendor_diagnostics_menu
 
 
 def test_main_menu_clear_screen_option(monkeypatch) -> None:
@@ -103,6 +104,35 @@ def test_tools_menu_lists_operational_actions_only(monkeypatch) -> None:
     ]
 
 
+def test_data_diagnostics_menu_uses_compact_view_first_order(monkeypatch) -> None:
+    """Data diagnostics should surface view actions before generate actions."""
+    captured: dict[str, object] = {}
+
+    def _fake_display_menu(options, *_, **kwargs):
+        captured["title"] = str(kwargs.get("title", ""))
+        captured["subtitle"] = str(kwargs.get("subtitle", ""))
+        captured["labels"] = list(options)
+        return 0
+
+    monkeypatch.setattr(startup_menu.diagnostics_banners, "print_compact_diagnostics_overview", lambda **_: None)
+    monkeypatch.setattr(startup_menu, "_read_latest_run_id", lambda: "r1")
+    monkeypatch.setattr(startup_menu.mu, "display_menu", _fake_display_menu)
+
+    startup_menu._launch_data_diagnostics_menu()  # pylint: disable=protected-access
+
+    assert captured["title"] == "Data diagnostics"
+    assert "View summaries first" in captured["subtitle"]
+    assert captured["labels"] == [
+        "Open run science index",
+        "Pipeline profile tuning (latest manifest)",
+        "Taxonomy Consistency Review",
+        "Parser & Vendor Coverage",
+        "Permission Intelligence Coverage",
+        "Feature Matrix / Modality Coverage",
+        "Cohort / Family Label Audit",
+    ]
+
+
 def test_main_menu_submenu_back_does_not_warn_invalid(monkeypatch) -> None:
     """Returning from a submenu should not emit a false invalid-choice warning."""
     choices = iter([4, 0, 0])
@@ -116,6 +146,142 @@ def test_main_menu_submenu_back_does_not_warn_invalid(monkeypatch) -> None:
 
     assert result == 0
     assert "[MENU] Invalid choice received." not in warnings
+
+
+def test_taxonomy_audit_defaults_to_latest_run_profile(monkeypatch, tmp_path: Path) -> None:
+    """Taxonomy audit should default to the latest run profile."""
+    output_root = tmp_path / "output"
+    script_path = tmp_path / "family_label_taxonomy_audit.py"
+    script_path.write_text("print('ok')\n", encoding="utf-8")
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(startup_menu, "_read_latest_run_id", lambda: "20260515T141956Z__58d84f")
+    monkeypatch.setattr(
+        startup_menu,
+        "_resolve_latest_manifest_payload",
+        lambda **_kwargs: ({"profile_params": {"profile_id": "research_all_malicious"}}, "r1", Path("x")),
+    )
+    monkeypatch.setattr(startup_menu, "repo_operator_script", lambda _name: script_path)
+    monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: 1)
+    monkeypatch.setattr(
+        startup_menu,
+        "subprocess",
+        type("SubprocessStub", (), {"run": staticmethod(lambda cmd, check=False: commands.append(list(cmd)) or type("P", (), {"returncode": 0})())}),
+    )
+
+    result = startup_menu._run_family_label_taxonomy_audit_script()  # pylint: disable=protected-access
+
+    assert result == 0
+    assert commands
+    assert "--profile" in commands[0]
+    assert "research_all_malicious" in commands[0]
+
+
+def test_taxonomy_audit_warns_on_different_profile(monkeypatch, tmp_path: Path) -> None:
+    """Different-profile audits should warn before continuing."""
+    output_root = tmp_path / "output"
+    script_path = tmp_path / "family_label_taxonomy_audit.py"
+    script_path.write_text("print('ok')\n", encoding="utf-8")
+    warnings: list[str] = []
+    choices = iter([2])
+
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(startup_menu, "_read_latest_run_id", lambda: "20260515T141956Z__58d84f")
+    monkeypatch.setattr(
+        startup_menu,
+        "_resolve_latest_manifest_payload",
+        lambda **_kwargs: ({"profile_params": {"profile_id": "research_all_malicious"}}, "r1", Path("x")),
+    )
+    monkeypatch.setattr(startup_menu, "repo_operator_script", lambda _name: script_path)
+    monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: next(choices))
+    monkeypatch.setattr(startup_menu, "resolve_and_validate_profile", lambda **_kwargs: "banker")
+    monkeypatch.setattr(startup_menu.mu, "confirm_prompt", lambda _message="": False)
+    monkeypatch.setattr(startup_menu.du, "print_warning", lambda message: warnings.append(str(message)))
+
+    result = startup_menu._run_family_label_taxonomy_audit_script()  # pylint: disable=protected-access
+
+    assert result == 1
+    assert any("Different profile than latest run" in message for message in warnings)
+
+
+def test_parser_menu_does_not_repeat_state_block_when_state_is_unchanged(monkeypatch) -> None:
+    """Parser submenu should not reprint the summary block when state did not change."""
+    choices = iter([1, 0])
+    calls = {"state": 0}
+
+    monkeypatch.setattr(
+        startup_menu,
+        "get_parser_summary_state",
+        lambda: {
+            "csv_ready": True,
+            "workbook_ready": False,
+            "observed_engines": 95,
+            "parser_mapped_vendors": 25,
+            "unmapped_vendors": 70,
+            "selected_vendors": 8,
+            "engine_scoring_universe": 95,
+        },
+    )
+    monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: next(choices))
+    monkeypatch.setattr(startup_menu, "print_compact_vendor_coverage_snapshot", lambda: 0)
+    monkeypatch.setattr(
+        vendor_diagnostics_menu,
+        "print_parser_diagnostics_state",
+        lambda: calls.__setitem__("state", calls["state"] + 1),
+    )
+
+    startup_menu._launch_parser_vendor_coverage_menu()  # pylint: disable=protected-access
+
+    assert calls["state"] == 1
+
+
+def test_open_run_science_index_falls_back_to_best_available_index(monkeypatch, tmp_path: Path) -> None:
+    """Run science index action should fall back to another authoritative index when canonical is missing."""
+    output_root = tmp_path / "output"
+    run_id = "20260515T141956Z__58d84f"
+    run_root = output_root / "runs" / run_id
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_evidence_index.md").write_text("# evidence\n", encoding="utf-8")
+    notes: list[str] = []
+
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(startup_menu, "_read_latest_run_id", lambda: run_id)
+    monkeypatch.setattr(startup_menu.du, "print_note", lambda message: notes.append(str(message)))
+
+    result = startup_menu._open_run_science_index()  # pylint: disable=protected-access
+
+    assert result == 1
+    assert any("Canonical run_science_index.md is missing" in message for message in notes)
+
+
+def test_data_diagnostics_overview_is_not_reprinted_when_unchanged(monkeypatch) -> None:
+    """Data diagnostics should not reprint the overview when returning to the menu without state changes."""
+    choices = iter([1, 0])
+    calls = {"overview": 0}
+
+    monkeypatch.setattr(startup_menu, "_read_latest_run_id", lambda: "r1")
+    monkeypatch.setattr(
+        startup_menu.diagnostics_banners,
+        "build_diagnostics_overview",
+        lambda **_: {
+            "latest_run_id": "r1",
+            "run_science_index_path": "/tmp/r1.md",
+            "run_science_index_canonical": True,
+            "rows": [{"label": "Cohort / labels", "status": "GREEN"}],
+        },
+    )
+    monkeypatch.setattr(
+        startup_menu.diagnostics_banners,
+        "print_compact_diagnostics_overview",
+        lambda **_: calls.__setitem__("overview", calls["overview"] + 1),
+    )
+    monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: next(choices))
+    monkeypatch.setattr(startup_menu, "_open_run_science_index", lambda: 0)
+
+    startup_menu._launch_data_diagnostics_menu()  # pylint: disable=protected-access
+
+    assert calls["overview"] == 1
 
 
 def test_reproducibility_menu_uses_back_label(monkeypatch) -> None:
@@ -742,6 +908,7 @@ def test_handle_confusion_matrix_export_blocks_multi_model_run(
     result = startup_menu._handle_confusion_matrix_export()  # pylint: disable=protected-access
 
     assert result == 0
+    assert not (run_root / "evidence_bundle" / "confusion_matrix_primary.png").exists()
     assert not (run_root / "paper2_pack" / "confusion_matrix_primary.png").exists()
 
 
@@ -749,7 +916,7 @@ def test_handle_confusion_matrix_export_copies_single_model_matrix(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    """Confusion export should copy the only model matrix into paper2 pack."""
+    """Confusion export should copy the only model matrix into the evidence bundle and legacy mirror."""
     out_root = tmp_path / "output"
     run_id = "20260305T111111Z__def456"
     diagnostics_dir = out_root / "diagnostics"
@@ -771,7 +938,30 @@ def test_handle_confusion_matrix_export_copies_single_model_matrix(
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
     result = startup_menu._handle_confusion_matrix_export()  # pylint: disable=protected-access
 
-    target = run_root / "paper2_pack" / "confusion_matrix_primary.png"
+    target = run_root / "evidence_bundle" / "confusion_matrix_primary.png"
+    legacy_target = run_root / "paper2_pack" / "confusion_matrix_primary.png"
     assert result == 0
     assert target.exists()
     assert target.read_text(encoding="utf-8") == "matrix"
+    assert legacy_target.exists()
+    assert legacy_target.read_text(encoding="utf-8") == "matrix"
+
+
+def test_evidence_readiness_hub_uses_generic_labels(monkeypatch) -> None:
+    """Evidence readiness hub should expose generic operator-facing labels."""
+    captured: dict[str, object] = {}
+
+    def _fake_display_menu(options, **kwargs):
+        captured["options"] = list(options)
+        captured["title"] = kwargs.get("title")
+        return 0
+
+    monkeypatch.setattr(startup_menu.mu, "display_menu", _fake_display_menu)
+
+    startup_menu._launch_evidence_readiness_hub()  # pylint: disable=protected-access
+
+    options = captured["options"]
+    assert "Evidence Readiness Summary (export JSON/MD)" in options
+    assert "Cohort Lock Checker" in options
+    assert "Evidence Bundle Series Aggregator" in options
+    assert captured["title"] == "Evidence readiness"

@@ -33,6 +33,11 @@ class ArtifactPaths:
         """Return run-scoped Paper #2 pack directory."""
         return self.run_root / "paper2_pack"
 
+    @property
+    def evidence_bundle_dir(self) -> Path:
+        """Return canonical run-scoped evidence-bundle directory."""
+        return self.run_root / "evidence_bundle"
+
     def resolve(self, *, kind: str, filename: str) -> Path:
         """Resolve a run-scoped artifact path.
 
@@ -48,4 +53,3 @@ class ArtifactPaths:
         target_dir = self.run_root / safe_kind if safe_kind else self.run_root
         target_dir.mkdir(parents=True, exist_ok=True)
         return target_dir / safe_name
-

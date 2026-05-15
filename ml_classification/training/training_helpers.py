@@ -5,8 +5,9 @@ Canonical implementation lives at ``obsidiandroid.modeling.training_helpers``.
 
 from __future__ import annotations
 
-import importlib
 import sys
 
-_mod = importlib.import_module("obsidiandroid.modeling.training_helpers")
+from obsidiandroid.legacy_shim_lazy import import_legacy_shim
+
+_mod = import_legacy_shim("obsidiandroid.modeling.training_helpers", __name__)
 sys.modules[__name__] = _mod

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import sys
-from importlib import import_module
 
-_canonical = import_module("obsidiandroid.modeling.model_prediction")
+from obsidiandroid.legacy_shim_lazy import import_legacy_shim
+
+_canonical = import_legacy_shim("obsidiandroid.modeling.model_prediction", __name__)
 sys.modules[__name__] = _canonical

@@ -93,10 +93,12 @@ def load_and_prepare_samples(
     cohort_label = f"Android Malware Samples ({profile_id})"
 
     configured_min_support = int(gates.get("min_samples_per_family", 3))
-    if bool(getattr(app_config, "PAPER_MODE_ENABLED", False)) and str(profile_id).startswith("paper2_"):
+    evidence_locked_profile = str(profile_id).startswith("malicious_temporal_") or str(profile_id).startswith("paper2_")
+    if bool(getattr(app_config, "PAPER_MODE_ENABLED", False)) and evidence_locked_profile:
         if configured_min_support < 20:
             raise ValueError(
-                "[PROFILE] paper2_* profiles require cohort_gates.min_samples_per_family >= 20 in paper mode."
+                "[PROFILE] Evidence/publication-ready temporal malicious profiles require "
+                "cohort_gates.min_samples_per_family >= 20."
             )
     setattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", configured_min_support)
     min_support = configured_min_support

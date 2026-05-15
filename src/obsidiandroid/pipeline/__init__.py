@@ -1,18 +1,15 @@
-"""Pipeline orchestration namespace (facade over ``analysis.pipeline``).
+"""Canonical pipeline orchestration namespace.
 
-:mod:`obsidiandroid.pipeline.runner` holds ``run_pipeline`` (**Pass 67**);
-:mod:`analysis.pipeline.runner` is an identity shim to the same module object.
-**main_facade**, **stage_samples**, **sample_exports**, **stage_av_vendor**, **stage_manifest**,
-the remaining **runner**-wired stages (**Pass 70**), the AV/vendor pipeline chain (**Pass 71**), and
-**permission_trends/** helpers plus **permission_trends_selection** (**Pass 74**) are canonical.
-**manifest/** and **artifacts/** path/registry helpers (**Pass 76**) are canonical; **analysis.pipeline.manifest** and **analysis.pipeline.artifacts** are identity shims.
+:mod:`obsidiandroid.pipeline.runner` holds ``run_pipeline`` (**Pass 67**), and
+the stage/orchestration modules wired through the runner are implemented under
+``obsidiandroid.pipeline.*``. Legacy ``analysis.pipeline.*`` imports remain
+available as thin identity shims for compatibility, but this package is the
+canonical surface for new code.
 
 Policy leaf modules **contract_filters**, **run_bounds**, and **runtime_policy**
-are also implemented under this package (**Pass 66**). Attributes resolve via
-:func:`__getattr__` so runner bindings stay aligned when tests monkeypatch
-:mod:`analysis.pipeline.runner` (e.g. ``DIAGNOSTICS_DIR``).
-
-Prefer ``from obsidiandroid.pipeline import ...`` in new code.
+also live here (**Pass 66**). Attributes resolve via :func:`__getattr__` so
+runner bindings stay aligned when tests monkeypatch the runner module or its
+exported globals (for example ``DIAGNOSTICS_DIR``).
 """
 
 from __future__ import annotations
@@ -84,7 +81,7 @@ _PIPELINE_PHYSICAL_MODULES = frozenset(
 
 
 def __getattr__(name: str) -> Any:
-    """Resolve public names from runner globals or canonical ``obsidiandroid.pipeline.*`` modules."""
+    """Resolve public names from runner globals or canonical pipeline modules."""
     if name in _RUNNER_ATTRS:
         runner_mod = importlib.import_module("obsidiandroid.pipeline.runner")
         return getattr(runner_mod, name)

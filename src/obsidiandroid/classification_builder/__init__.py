@@ -1,7 +1,8 @@
-"""Structured malware classification record builders (vendor + model output).
+"""Canonical structured malware classification builder namespace.
 
-Pass 96 physically relocated implementation from ``ml_classification.builder``;
-legacy imports remain thin identity shims.
+Structured malware classification record builders now live under
+``obsidiandroid.classification_builder``. Legacy
+``ml_classification.builder.*`` imports remain thin identity shims.
 """
 
 from __future__ import annotations

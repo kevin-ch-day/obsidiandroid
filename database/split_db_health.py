@@ -6,10 +6,11 @@
 
 from __future__ import annotations
 
-import importlib
 import sys
 
-_canon = importlib.import_module("obsidiandroid.database.split_db_health")
+from obsidiandroid.legacy_shim_lazy import import_legacy_shim
+
+_canon = import_legacy_shim("obsidiandroid.database.split_db_health", "database.split_db_health")
 sys.modules["database.split_db_health"] = _canon
 
 if __name__ == "__main__":

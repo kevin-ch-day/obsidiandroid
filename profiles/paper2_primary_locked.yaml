@@ -1,0 +1,57 @@
+profile_id: paper2_primary_locked
+description: "Locked 2026 paper cohort contract anchored to historical baseline run 20260504T044304Z__8c64e6."
+paper_locked: true
+evidence_mode: true
+allow_vendor_fallback_for_width: false
+allow_adaptive_top_k: false
+top_k_requested: 8
+exclude_unknown_from_main_results: true
+type_slug_filter: null
+cohort_gates:
+  min_samples_per_family: 20
+  require_mapped_family: true
+  require_sha256: true
+  allow_missing_package_name: true
+  max_missing_package_pct: 5.0
+  exclude_unknown_type_slug: true
+  min_malicious_detections: 1
+  exclude_families:
+    - Devixor
+    - Gigabud
+  family_cap: null
+  family_cap_seed: null
+  time_window_start_utc: "2020-01-01T00:00:00Z"
+  time_window_end_utc: "2026-01-01T00:00:00Z"
+model_list:
+  - random_forest
+  - xgboost
+  - logistic_regression
+parser_overrides:
+  PARSER_MAPPED_MIN_THRESHOLD: 0.0
+  PARSER_UNKNOWN_EXCLUDE_THRESHOLD: 1.0
+feature_flags:
+  enable_sample_metadata_features: true
+  enable_dynamic_generic_vendor_parsers: false
+threshold_overrides: {}
+dataset_filters:
+  mode: malicious_only
+paper_perturbation_axes:
+  - min_malicious_detections
+  - family_cap
+  - exclude_unknown_type_slug
+  - exclude_families
+paper_lock:
+  paper_id: paper2_2026
+  canonical_historical_run_id: 20260504T044304Z__8c64e6
+  baseline_artifact_root: artifacts/baselines/20260504T044304Z__8c64e6
+  expected_sample_count: 1226
+  expected_family_count: 39
+  expected_type_count: 6
+  expected_type_scope: all_malicious
+  time_window_start_utc: "2020-01-01T00:00:00Z"
+  time_window_end_utc: "2026-01-01T00:00:00Z"
+  material_change_abs_delta_macro_f1_gt: 0.02
+  sample_id_lock_file: artifacts/baselines/20260504T044304Z__8c64e6/paper2_primary_locked_sample_ids.csv
+  sample_id_lock_status: recovered_from_historical_artifact
+  sample_id_lock_source: artifacts/baselines/20260504T044304Z__8c64e6/sample_stage_lineage_20260504T044304Z__8c64e6.csv
+  notes: "Locked to the preserved 2026 baseline artifact bundle; model behavior follows paper2_primary gates."

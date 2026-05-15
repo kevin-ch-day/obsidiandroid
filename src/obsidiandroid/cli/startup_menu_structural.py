@@ -128,7 +128,7 @@ def warn_if_no_latest_run_context(*, area: str) -> None:
 
 def prompt_structural_analysis_action(options: List[str]) -> str:
     """Prompt for structural-analysis action with context refresh control."""
-    du.print_subheader("Structural Analysis and Publication Figures")
+    du.print_subheader("Structural Analysis and Publication-Ready Exports")
     for idx, opt in enumerate(options, 1):
         print(f"  [{idx}] {opt}")
     print("  [I] View Context Card")

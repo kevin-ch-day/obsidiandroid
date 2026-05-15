@@ -6,8 +6,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from config import app_config
+from obsidiandroid.common.output_paths import output_root as canonical_output_root
 
+from .menu.operator_state import build_operator_state
 from .startup_menu_run_context import (
     candidate_sort_key,
     format_run_status_display,
@@ -55,10 +56,10 @@ def print_profile_tuning_from_manifest(manifest: dict[str, Any]) -> None:
 
     du.print_stat("Evidence mode (manifest)", "Yes" if bool(manifest.get("evidence_mode")) else "No")
     pmd = manifest.get("paper_mode") if isinstance(manifest.get("paper_mode"), dict) else {}
-    du.print_stat("Paper mode (manifest)", "Yes" if bool(pmd.get("resolved_value")) else "No")
+    du.print_stat("Publication-ready mode (manifest)", "Yes" if bool(pmd.get("resolved_value")) else "No")
     psrc = str(pmd.get("source") or "").strip()
     if psrc:
-        du.print_stat("Paper mode source", psrc)
+        du.print_stat("Publication-ready mode source", psrc)
     kreq = manifest.get("k_requested")
     effk = manifest.get("effective_top_k")
     if kreq is not None or effk is not None:
@@ -135,7 +136,10 @@ def print_profile_tuning_from_manifest(manifest: dict[str, Any]) -> None:
 
 def show_profile_tuning_snapshot() -> int:
     """Print only the profile / pipeline tuning block for the latest resolved manifest."""
-    manifest, resolved_run_id, manifest_path = resolve_latest_manifest_payload()
+    shared = build_operator_state()
+    manifest = shared.get("manifest_payload") if isinstance(shared.get("manifest_payload"), dict) else {}
+    resolved_run_id = str(shared.get("resolved_run_id", "") or "")
+    manifest_path = shared.get("manifest_path")
     if not manifest:
         du.print_warning("[MENU] Latest run manifest not found at output/diagnostics/run_manifest.latest.json")
         return 1
@@ -150,18 +154,25 @@ def show_profile_tuning_snapshot() -> int:
 def show_latest_run_snapshot() -> int:
     """Print a concise snapshot of the latest run manifest."""
     du.print_section("Current Run Summary")
-    manifest, resolved_run_id, manifest_path = resolve_latest_manifest_payload()
+    shared = build_operator_state()
+    manifest = shared.get("manifest_payload") if isinstance(shared.get("manifest_payload"), dict) else {}
+    resolved_run_id = str(shared.get("resolved_run_id", "") or "")
+    manifest_path = shared.get("manifest_path")
     if not manifest:
         du.print_warning("[MENU] Latest run manifest not found at output/diagnostics/run_manifest.latest.json")
         return 1
 
     run_id = str(resolved_run_id or manifest.get("run_id", "unknown"))
-    run_root = resolve_run_root_for_manifest(
+    run_root = shared.get("run_root") if isinstance(shared.get("run_root"), Path) else resolve_run_root_for_manifest(
         manifest,
         run_id=run_id,
         manifest_path=manifest_path,
     )
-    canonical_manifest_path = run_root / "run_manifest.json"
+    canonical_manifest_path = (
+        shared.get("canonical_manifest_path")
+        if isinstance(shared.get("canonical_manifest_path"), Path)
+        else run_root / "run_manifest.json"
+    )
     run_summary = read_run_summary(run_root)
     profile = str(
         run_summary.get("profile_id")
@@ -236,7 +247,7 @@ def show_recent_runs_overview(limit: int = 10, *, include_noncanonical: bool = F
     if include_noncanonical:
         title = "Full Run Folder History"
     du.print_section(title)
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+    output_root = canonical_output_root()
     runs_root = output_root / "runs"
     if not runs_root.exists():
         du.print_warning(f"[MENU] Runs directory not found: {runs_root}")
@@ -332,24 +343,35 @@ def show_recent_runs_overview(limit: int = 10, *, include_noncanonical: bool = F
 def show_session_and_output_details() -> int:
     """Print active session and output-routing details."""
     du.print_section("Session and Output Details")
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    latest_run_id = read_latest_run_id() or "None yet"
-    locked_run_id = read_locked_paper_run_id() or "(none)"
-    manifest, resolved_run_id, manifest_path = resolve_latest_manifest_payload()
-    run_root = resolve_run_root_for_manifest(
-        manifest,
-        run_id=str(resolved_run_id or latest_run_id),
-        manifest_path=manifest_path,
+    shared = build_operator_state()
+    output_root = (
+        shared.get("output_root")
+        if isinstance(shared.get("output_root"), Path)
+        else canonical_output_root()
     )
-    canonical_manifest_path = run_root / "run_manifest.json"
+    latest_run_id = str(shared.get("latest_run_id", "") or "None yet")
+    locked_run_id = str(shared.get("locked_run_id", "") or "(none)")
+    latest_profile_id = str(shared.get("profile_id", "") or "Unknown")
+    manifest = shared.get("manifest_payload") if isinstance(shared.get("manifest_payload"), dict) else {}
+    manifest_path = shared.get("manifest_path")
+    run_root = shared.get("run_root") if isinstance(shared.get("run_root"), Path) else Path()
+    canonical_manifest_path = (
+        shared.get("canonical_manifest_path")
+        if isinstance(shared.get("canonical_manifest_path"), Path)
+        else run_root / "run_manifest.json"
+    )
 
     du.print_stat("Environment", "Fedora Local Research")
     du.print_stat("Output Root", str(output_root))
     du.print_stat("Artifact Mode", "Run-scoped")
     du.print_stat("Latest Run", latest_run_id)
+    du.print_stat("Latest Profile", latest_profile_id)
     du.print_stat("Locked Evidence Run", locked_run_id)
-    du.print_stat("Publication Exports", "Yes" if paper_exports_available(resolved_run_id or latest_run_id) else "No")
-    du.print_stat("Run Diagnostics Available", "Yes" if latest_run_has_provenance() else "No")
+    du.print_stat("Publication Exports", "Yes" if bool(shared.get("has_paper_exports", False)) else "No")
+    du.print_stat("Run Diagnostics Available", "Yes" if bool(shared.get("latest_run_has_provenance", False)) else "No")
+    best_index_path = shared.get("best_run_index_path")
+    if isinstance(best_index_path, Path) and best_index_path:
+        du.print_stat("Best Run Index", str(best_index_path))
     if manifest:
         du.print_stat(
             "Resolved Manifest",

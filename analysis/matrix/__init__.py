@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import importlib
 import sys
 
-_mod = importlib.import_module("obsidiandroid.matrix")
+from obsidiandroid.legacy_shim_lazy import import_legacy_shim
+
+_mod = import_legacy_shim("obsidiandroid.matrix", __name__, warn=True)
 sys.modules[__name__] = _mod

@@ -1,0 +1,254 @@
+"""Interactive profile selection helpers."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Callable
+
+import yaml
+
+from obsidiandroid.cli.ui import display as du
+from obsidiandroid.cli.ui import menu as mu
+
+
+def build_profile_catalog(profiles: list[Path]) -> list[tuple[str, str]]:
+    """Build ordered profile summaries for interactive menu presentation."""
+    entries: list[tuple[str, str]] = []
+    for profile_path in profiles:
+        profile_id = profile_path.stem
+        summary = summarize_profile(profile_path)
+        entries.append((profile_id, summary))
+
+    entries.sort(key=lambda item: profile_sort_key(item[0]))
+    return entries
+
+
+def profile_sort_key(profile_id: str) -> tuple[int, int, str]:
+    """Return deterministic profile ordering for a cleaner selection menu."""
+    pid = str(profile_id).strip().lower()
+    if pid == "malicious_temporal_stability_locked":
+        return (0, 0, pid)
+    if pid == "banker_locked":
+        return (0, 1, pid)
+    if pid == "malicious_temporal_stability":
+        return (1, 0, pid)
+    if pid in {"malicious_temporal_consensus10", "malicious_temporal_family300"}:
+        return (1, 1, pid)
+
+    core_order = {
+        "research_all_malicious": 0,
+        "all_malicious": 1,
+        "banker": 2,
+        "mixed": 3,
+        "benign_heavy": 4,
+    }
+    if pid in core_order:
+        return (2, core_order[pid], pid)
+
+    if pid == "dev_fast":
+        return (4, 0, pid)
+    if pid == "dev_smoke":
+        return (4, 1, pid)
+
+    return (3, 0, pid)
+
+
+def summarize_profile(profile_path: Path) -> str:
+    """Generate concise profile summary for menu display."""
+    try:
+        with open(profile_path, "r", encoding="utf-8") as handle:
+            raw = yaml.safe_load(handle) or {}
+    except Exception:
+        return "summary unavailable"
+
+    profile_id = str(raw.get("profile_id", profile_path.stem) or profile_path.stem)
+    desc = str(raw.get("description", "")).strip()
+    type_slug = raw.get("type_slug_filter")
+    gates = raw.get("cohort_gates", {}) if isinstance(raw.get("cohort_gates"), dict) else {}
+    models = raw.get("model_list", []) if isinstance(raw.get("model_list"), list) else []
+    paper_lock = raw.get("paper_lock", {}) if isinstance(raw.get("paper_lock"), dict) else {}
+    paper_locked = bool(raw.get("paper_locked", False))
+    parts: list[str] = []
+
+    if type_slug:
+        parts.append(f"type={type_slug}")
+    else:
+        parts.append("type=all")
+
+    if paper_locked:
+        lock_mode = "membership-locked" if str(paper_lock.get("sample_id_lock_file", "")).strip() else "count-only"
+        parts.append(f"lock={lock_mode}")
+    elif profile_id.startswith("paper") or bool(raw.get("evidence_mode", False)):
+        parts.append("publication=legacy-unlocked")
+
+    min_detect = gates.get("min_malicious_detections", None)
+    if min_detect is not None:
+        parts.append(f"min_detect={min_detect}")
+
+    family_cap = gates.get("family_cap", None)
+    if family_cap:
+        parts.append(f"family_cap={family_cap}")
+
+    exclude_unknown = gates.get("exclude_unknown_type_slug", None)
+    if exclude_unknown is not None:
+        parts.append(f"exclude_unknown={bool(exclude_unknown)}")
+
+    if models:
+        parts.append(f"models={len(models)}")
+
+    summary = ", ".join(parts)
+    if desc:
+        desc_short = desc if len(desc) <= 72 else f"{desc[:69]}..."
+        return f"{desc_short} | {summary}"
+    return summary
+
+
+def select_profile_interactive(
+    *,
+    list_profiles_fn: Callable[[], list[Path]],
+    load_profile_fn: Callable[[str], dict],
+    breadcrumb: str | None = None,
+    subtitle: str | None = None,
+    title: str = "Execution profile",
+    exit_label: str = "Back",
+) -> str | None:
+    """Prompt user to select a profile id with richer context."""
+    profiles = list_profiles_fn()
+    if not profiles:
+        du.print_error("[PROFILE] No profiles found in ./profiles.")
+        return None
+    catalog = build_profile_catalog(profiles)
+    if not catalog:
+        du.print_error("[PROFILE] No valid profiles found in ./profiles.")
+        return None
+
+    labels = [
+        f"{profile_id} | {summary}" if summary else profile_id
+        for profile_id, summary in catalog
+    ]
+    labels.append("Enter profile id manually")
+
+    choice = mu.display_menu(
+        labels,
+        title=title,
+        breadcrumb=breadcrumb,
+        subtitle=subtitle,
+        exit_label=exit_label,
+    )
+    if choice == 0:
+        return None
+
+    selected_label = labels[choice - 1]
+    if selected_label == "Enter profile id manually":
+        try:
+            entered = input("Enter profile id (e.g., malicious_temporal_stability_locked): ").strip()
+        except KeyboardInterrupt:
+            du.print_warning("[PROFILE] Selection cancelled by user (Ctrl+C).")
+            return None
+        if not entered:
+            return None
+        try:
+            load_profile_fn(entered)
+            return entered
+        except Exception as exc:
+            du.print_error(f"[PROFILE] Invalid profile reference: {exc}")
+            return None
+
+    selected_index = choice - 1
+    if selected_index < len(catalog):
+        return catalog[selected_index][0]
+    return selected_label
+
+
+def select_profile_interactive_quick(
+    *,
+    list_profiles_fn: Callable[[], list[Path]],
+    load_profile_fn: Callable[[str], dict],
+    select_profile_interactive_fn: Callable[..., str | None],
+    breadcrumb: str | None = None,
+    subtitle: str | None = None,
+    title: str = "Execution profile",
+    exit_label: str = "Back",
+) -> str | None:
+    """Prompt a concise profile menu for common run paths."""
+    quick_order = [
+        "malicious_temporal_stability_locked",
+        "banker_locked",
+        "research_all_malicious",
+        "all_malicious",
+        "banker",
+        "mixed",
+        "benign_heavy",
+        "dev_fast",
+        "dev_smoke",
+    ]
+    profiles = list_profiles_fn()
+    available = {p.stem: p for p in profiles}
+    quick_entries: list[str] = []
+    for profile_id in quick_order:
+        profile_path = available.get(profile_id)
+        if profile_path is None:
+            continue
+        quick_entries.append(profile_id)
+
+    if not quick_entries:
+        return select_profile_interactive_fn(
+            breadcrumb=breadcrumb,
+            subtitle=subtitle,
+            title=title,
+            exit_label=exit_label,
+        )
+
+    more_label = "More profiles (full catalog)"
+    quick_labels: list[tuple[str, str]] = []
+    for profile_id in quick_entries:
+        if profile_id.endswith("_locked"):
+            quick_labels.append((f"Publication-ready: {profile_id}", profile_id))
+        elif profile_id in {"mixed", "benign_heavy"}:
+            quick_labels.append((f"Diagnostic: {profile_id}", profile_id))
+        elif profile_id.startswith("dev_"):
+            bucket = "Smoke" if profile_id == "dev_smoke" else "Development"
+            quick_labels.append((f"{bucket}: {profile_id}", profile_id))
+        else:
+            quick_labels.append((f"Exploratory: {profile_id}", profile_id))
+    menu_labels = [label for label, _ in quick_labels] + [more_label]
+
+    while True:
+        choice = mu.display_menu(
+            menu_labels,
+            title=title,
+            breadcrumb=breadcrumb,
+            subtitle=subtitle,
+            exit_label=exit_label,
+            default_choice=1,
+        )
+        if choice == 0:
+            return None
+
+        selected_key = menu_labels[choice - 1]
+        if selected_key == more_label:
+            return select_profile_interactive_fn(
+                breadcrumb=breadcrumb,
+                subtitle=subtitle,
+                title=title,
+                exit_label=exit_label,
+            )
+        selected_profile_id = dict(quick_labels).get(selected_key, selected_key)
+
+        try:
+            load_profile_fn(selected_profile_id)
+        except Exception as exc:
+            du.print_error(f"[PROFILE] Selected profile is invalid: {exc}")
+            continue
+
+        du.print_info(f"[PROFILE] Selected: {selected_profile_id}")
+        return selected_profile_id
+
+
+__all__ = [
+    "build_profile_catalog",
+    "profile_sort_key",
+    "select_profile_interactive",
+    "select_profile_interactive_quick",
+    "summarize_profile",
+]

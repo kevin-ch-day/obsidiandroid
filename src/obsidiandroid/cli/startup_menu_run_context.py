@@ -13,6 +13,14 @@ import pandas as pd
 
 from config import app_config
 
+from .menu.operator_state import (
+    build_operator_state,
+    has_structural_bundle as _shared_has_structural_bundle,
+    latest_run_has_provenance as _shared_latest_run_has_provenance,
+    output_root as _shared_output_root,
+    paper_exports_available as _shared_paper_exports_available,
+)
+from .menu.run_artifact_state import resolve_model_comparison_summary_csv
 from .menu import run_locator
 from .ui import display as du
 
@@ -56,67 +64,42 @@ def read_locked_paper_run_id() -> str | None:
 
 def paper_exports_available(run_id: str | None) -> bool:
     """Return whether publication exports exist for a given run ID."""
-    token = str(run_id or "").strip()
-    if not token:
-        return False
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    paper_dir = output_root / "runs" / token / "paper_exports"
-    return paper_dir.exists() and paper_dir.is_dir()
+    return _shared_paper_exports_available(run_id, base=_shared_output_root().resolve())
 
 
 def has_structural_bundle(run_id: str | None) -> bool:
     """Return whether structural bundle exists for a given run ID."""
-    token = str(run_id or "").strip()
-    if not token:
-        return False
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    bundle_dir = output_root / "runs" / token / "bundles" / "permission_trends"
-    return bundle_dir.exists() and bundle_dir.is_dir()
+    return _shared_has_structural_bundle(run_id, base=_shared_output_root().resolve())
 
 
 def latest_run_context_status() -> dict[str, object]:
     """Build lightweight run-context status for state-aware menus."""
-    latest_run_id = read_latest_run_id()
-    locked_paper_run_id = read_locked_paper_run_id()
+    shared = build_operator_state()
+    latest_run_id = str(shared.get("latest_run_id", "") or "")
+    locked_paper_run_id = str(shared.get("locked_run_id", "") or "")
     return {
         "latest_run_id": latest_run_id or "",
         "locked_paper_run_id": locked_paper_run_id or "",
         "has_latest_run": bool(latest_run_id),
-        "has_structural_bundle": has_structural_bundle(latest_run_id),
-        "has_paper_exports": paper_exports_available(latest_run_id),
+        "has_structural_bundle": bool(shared.get("has_structural_bundle", False)),
+        "has_paper_exports": bool(shared.get("has_paper_exports", False)),
         "has_locked_paper_run": bool(locked_paper_run_id),
+        "latest_profile_id": str(shared.get("profile_id", "") or ""),
+        "best_run_index_path": str(shared.get("best_run_index_path", "") or ""),
     }
 
 
 def latest_run_paper_mode_enabled() -> bool:
     """Return whether latest run manifest indicates evidence mode enabled."""
-    run_id = read_latest_run_id()
-    if not run_id:
-        return False
-    manifest, _ = resolve_manifest_for_run_id(run_id)
-    paper_mode = {}
-    if isinstance(manifest, dict):
-        paper_mode = manifest.get("evidence_mode") or manifest.get("paper_mode", {})
-    if isinstance(paper_mode, dict):
-        return bool(paper_mode.get("resolved_value", False))
-    return False
+    shared = build_operator_state()
+    return bool(shared.get("publication_ready_mode", False))
 
 
 def latest_run_has_provenance() -> bool:
     """Return whether key run-scoped provenance files exist for latest run."""
-    run_id = read_latest_run_id()
-    if not run_id:
-        return False
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    diagnostics = output_root / "runs" / run_id / "diagnostics"
-    split_ledger = diagnostics / f"split_freeze_headline_{run_id}.csv"
-    split_legacy = diagnostics / f"split_freeze_audit_{run_id}.csv"
-    required = [
-        split_ledger if split_ledger.exists() else split_legacy,
-        diagnostics / f"run_paths_manifest_{run_id}.json",
-        diagnostics / f"experiment_registry_{run_id}.json",
-    ]
-    return all(path.exists() for path in required)
+    shared = build_operator_state()
+    token = str(shared.get("latest_run_id", "") or "").strip()
+    return _shared_latest_run_has_provenance(token, base=_shared_output_root().resolve())
 
 
 def print_availability_block(*, rows: list[tuple[str, str]]) -> None:
@@ -134,8 +117,7 @@ def status_text(enabled: bool, *, ready: str = "Ready", pending: str = "Pending"
 
 def read_latest_run_manifest() -> dict:
     """Return latest run manifest payload when available."""
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    manifest_path = output_root / "diagnostics" / "run_manifest.latest.json"
+    manifest_path = _shared_output_root().resolve() / "diagnostics" / "run_manifest.latest.json"
     if not manifest_path.exists():
         return {}
     try:
@@ -259,8 +241,8 @@ def read_run_progress_summary(run_root: Path) -> tuple[str, str, float | None]:
 
 def read_top_model_snapshot(run_root: Path, run_id: str) -> tuple[str, str]:
     """Resolve top-model summary from run-scoped model comparison export."""
-    summary_path = run_root / "diagnostics" / f"model_comparison_summary_{run_id}.csv"
-    if not summary_path.exists():
+    summary_path = resolve_model_comparison_summary_csv(output_root=run_root.parent.parent, run_id=run_id)
+    if summary_path is None:
         return ("Not available yet", "Not available yet")
 
     try:
@@ -304,4 +286,3 @@ def print_startup_context() -> None:
         f"Paper exports {status_text(publication_ready, ready='ready', pending='none')}"
     )
     print("")
-

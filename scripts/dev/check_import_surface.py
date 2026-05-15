@@ -75,9 +75,13 @@ from obsidiandroid.vendors.parsing.vendor_parser_submodule_manifest import (
 
 from scripts.dev.import_surface_policy import (
     THIN_COMPAT_SHIM_POLICIES,
+    collect_analysis_pipeline_plain_shim_violations,
     collect_canonical_code_legacy_imports,
+    collect_database_shim_helper_violations,
     collect_legacy_leaf_shim_violations,
+    collect_ml_training_plain_shim_violations,
     collect_nonparity_test_legacy_imports,
+    collect_ready_now_shim_helper_violations,
     collect_stale_canonical_filename_headers,
     collect_thin_compat_shim_violations,
     collect_utf8_bom_python_sources,
@@ -206,6 +210,50 @@ def _check_static_policy_scans() -> bool:
             print(f"  {item}", file=sys.stderr)
         return False
     print("OK   legacy analysis/ml_classification leaf shims")
+
+    ready_now_helper_errors = collect_ready_now_shim_helper_violations(_REPO_ROOT)
+    if ready_now_helper_errors:
+        print(
+            "FAIL: ready-now legacy shim batches must use shared helper + opt-in warning path:",
+            file=sys.stderr,
+        )
+        for item in ready_now_helper_errors:
+            print(f"  {item}", file=sys.stderr)
+        return False
+    print("OK   ready-now legacy shim batches use shared helper/warning pattern")
+
+    database_shim_errors = collect_database_shim_helper_violations(_REPO_ROOT)
+    if database_shim_errors:
+        print(
+            "FAIL: repo-root database shims must use shared helper pattern:",
+            file=sys.stderr,
+        )
+        for item in database_shim_errors:
+            print(f"  {item}", file=sys.stderr)
+        return False
+    print("OK   repo-root database shims use shared helper pattern")
+
+    pipeline_plain_errors = collect_analysis_pipeline_plain_shim_violations(_REPO_ROOT)
+    if pipeline_plain_errors:
+        print(
+            "FAIL: ordinary analysis/pipeline shims must use shared helper pattern:",
+            file=sys.stderr,
+        )
+        for item in pipeline_plain_errors:
+            print(f"  {item}", file=sys.stderr)
+        return False
+    print("OK   ordinary analysis/pipeline shims use shared helper pattern")
+
+    ml_training_plain_errors = collect_ml_training_plain_shim_violations(_REPO_ROOT)
+    if ml_training_plain_errors:
+        print(
+            "FAIL: ordinary ml_classification/training shims must use shared helper pattern:",
+            file=sys.stderr,
+        )
+        for item in ml_training_plain_errors:
+            print(f"  {item}", file=sys.stderr)
+        return False
+    print("OK   ordinary ml_classification/training shims use shared helper pattern")
 
     return True
 

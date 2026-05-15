@@ -1,9 +1,8 @@
-"""Evaluation canonical surface.
+"""Canonical evaluation namespace.
 
 Implementation modules live in this package. Legacy ``analysis.evaluation.<name>``
-paths remain valid via :mod:`analysis.evaluation` registering submodules at
-package import time (Passes 61–63; **Pass 94** adds classifier training eval and
-reporting helpers with matching ``ml_classification.*`` identity shims).
+paths and a few compatibility ``ml_classification.*`` shims remain available
+for parity and transition support.
 """
 
 from __future__ import annotations

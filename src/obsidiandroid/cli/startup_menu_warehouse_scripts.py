@@ -9,6 +9,7 @@ from pathlib import Path
 
 from config import app_config
 
+from obsidiandroid.common.output_paths import output_root as canonical_output_root
 from obsidiandroid.common.repo_paths import repo_operator_script
 from obsidiandroid.database import db_engine
 
@@ -121,7 +122,7 @@ def run_paper_structural_diagnostics() -> int:
     latest_run_id = read_latest_run_id() or ""
     if latest_run_id:
         env["SCYTALEDROID_RUN_ID"] = latest_run_id
-    env["SCYTALEDROID_OUTPUT_ROOT"] = str(Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output"))).resolve())
+    env["SCYTALEDROID_OUTPUT_ROOT"] = str(canonical_output_root())
     du.print_info(f"[MENU] Running: {' '.join(cmd)}")
     du.print_info(
         "[MENU] Structural export context: "
@@ -178,11 +179,11 @@ def run_claim_artifact_map_scaffold() -> int:
 
 def run_paper2_freeze_checker() -> int:
     """Run strict reproducibility checks for supplied evidence run IDs."""
-    du.print_section("Run Evidence Bundle Checker")
+    du.print_section("Run Cohort Lock Checker")
     if not latest_run_paper_mode_enabled():
         du.print_info(
-            "[MENU] Latest run is not in evidence/paper mode. "
-            "This script validates strict evidence bundles—pass evidence-mode run IDs if defaults look sparse."
+            "[MENU] Latest run is not in evidence/publication-ready mode. "
+            "This script validates strict evidence bundles; pass evidence-mode run IDs if defaults look sparse."
         )
     script_path = repo_operator_script("research", "check_evidence_bundle.py")
     if not script_path.exists():

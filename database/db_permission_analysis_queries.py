@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import importlib
 import sys
 
-_mod = importlib.import_module("obsidiandroid.database.db_permission_analysis_queries")
+from obsidiandroid.legacy_shim_lazy import import_legacy_shim
+
+_mod = import_legacy_shim("obsidiandroid.database.db_permission_analysis_queries", __name__)
 sys.modules[__name__] = _mod
 

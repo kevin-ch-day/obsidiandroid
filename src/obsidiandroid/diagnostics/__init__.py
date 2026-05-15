@@ -1,9 +1,9 @@
-"""Diagnostics canonical package (Pass 65).
+"""Canonical diagnostics namespace.
 
-Diagnostics implementation previously under ``analysis/diagnostics`` now lives
-here. Prefer ``obsidiandroid.diagnostics.<module>`` for new code. Legacy
-``analysis.diagnostics.<module>`` paths remain valid via
-:mod:`analysis.diagnostics` identity registration (:func:`sys.modules`).
+Diagnostics implementation lives under ``obsidiandroid.diagnostics``. Prefer
+``obsidiandroid.diagnostics.<module>`` for new code. Legacy
+``analysis.diagnostics.<module>`` imports remain thin identity shims for
+compatibility.
 """
 
 from __future__ import annotations

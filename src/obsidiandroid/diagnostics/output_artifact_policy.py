@@ -73,6 +73,16 @@ def _init_rules() -> None:
                 description="Operator-friendly run summary JSON at run root.",
             ),
             _rule(
+                "**/evidence_bundle/**",
+                bucket="evidence_required",
+                producer="obsidiandroid.pipeline.stage_manifest",
+                run_scoped=True,
+                paper_required=True,
+                safe_delete_after_run=False,
+                duplicate_latest=False,
+                description="Canonical evidence bundle (evidence mode).",
+            ),
+            _rule(
                 "**/paper2_pack/**",
                 bucket="evidence_required",
                 producer="obsidiandroid.pipeline.stage_manifest",
@@ -80,7 +90,7 @@ def _init_rules() -> None:
                 paper_required=True,
                 safe_delete_after_run=False,
                 duplicate_latest=False,
-                description="Strict paper evidence pack (evidence mode).",
+                description="Legacy compatibility mirror of the evidence bundle (evidence mode).",
             ),
             _rule(
                 "**/cohort_filter_contract_*.json",
@@ -193,6 +203,16 @@ def _init_rules() -> None:
                 description="Parser threshold sweep stress grid (debug / deep audit).",
             ),
             _rule(
+                "**/diagnostics/post_run_enrichments/**",
+                bucket="diagnostics_optional",
+                producer="obsidiandroid.cli.startup_menu",
+                run_scoped=True,
+                paper_required=False,
+                safe_delete_after_run=False,
+                duplicate_latest=False,
+                description="Post-run enrichment artifacts appended after the primary pipeline finished.",
+            ),
+            _rule(
                 "**/aligned_features*.csv.gz",
                 bucket="operator_state",
                 producer="obsidiandroid.orchestration.runtime_reporting",
@@ -293,6 +313,26 @@ def _init_rules() -> None:
                 description="Per-run artifact classification inventory.",
             ),
             _rule(
+                "**/diagnostic_provenance.json",
+                bucket="diagnostics_required",
+                producer="obsidiandroid.diagnostics.diagnostic_provenance",
+                run_scoped=True,
+                paper_required=False,
+                safe_delete_after_run=False,
+                duplicate_latest=False,
+                description="Run-scoped provenance ledger for pipeline and post-run diagnostics.",
+            ),
+            _rule(
+                "**/run_science_index.md",
+                bucket="diagnostics_required",
+                producer="obsidiandroid.diagnostics.output_inventory",
+                run_scoped=True,
+                paper_required=False,
+                safe_delete_after_run=False,
+                duplicate_latest=False,
+                description="Compact operator-first run science guide with lifecycle warnings.",
+            ),
+            _rule(
                 "**/run_evidence_index.md",
                 bucket="evidence_required",
                 producer="obsidiandroid.diagnostics.output_inventory",
@@ -346,7 +386,46 @@ def classify_file(path: Path, *, base: Path) -> dict[str, Any]:
         rel = Path(path.name)
     meta = classify_relative_path(rel.as_posix())
     meta["relative_path"] = rel.as_posix()
+    meta["lifecycle_class"] = lifecycle_class_for_artifact(
+        rel.as_posix(),
+        artifact_bucket=str(meta.get("artifact_bucket", "") or ""),
+    )
     return meta
 
 
-__all__ = ["classify_file", "classify_relative_path"]
+def lifecycle_class_for_artifact(rel_posix: str, *, artifact_bucket: str) -> str:
+    """Map artifact policy buckets and special paths onto operator-facing lifecycle classes."""
+    rel = str(rel_posix or "").replace("\\", "/").lstrip("/")
+    bucket = str(artifact_bucket or "").strip()
+    if "/post_run_enrichments/" in f"/{rel}":
+        return "post_run_enrichment"
+    if rel.startswith("diagnostics/run_manifest.latest.json"):
+        return "operator_convenience_mirror"
+    if rel.startswith("diagnostics/run_summary.latest.json"):
+        return "operator_convenience_mirror"
+    if rel.startswith("diagnostics/run_health_summary.latest.json"):
+        return "operator_convenience_mirror"
+    if rel.startswith("diagnostics/latest_run_pointer.json"):
+        return "operator_convenience_mirror"
+    if "/paper2_pack/" in f"/{rel}" or rel.startswith("paper2_pack/"):
+        return "legacy_compatibility"
+    if ".latest." in Path(rel).name and rel.startswith("diagnostics/"):
+        return "legacy_compatibility" if bucket == "deprecated_or_duplicate" else "operator_convenience_mirror"
+    if rel.startswith("promoted/") or rel.startswith("latest/"):
+        return "operator_convenience_mirror"
+    if bucket == "evidence_required":
+        return "canonical_run_evidence"
+    if bucket == "diagnostics_required":
+        return "diagnostics_required"
+    if bucket == "diagnostics_optional":
+        return "diagnostics_optional"
+    if bucket in {"operator_state", "promoted_latest"}:
+        return "operator_convenience_mirror"
+    if bucket == "deprecated_or_duplicate":
+        return "legacy_compatibility"
+    if bucket == "debug_only":
+        return "debug_only"
+    return "diagnostics_optional"
+
+
+__all__ = ["classify_file", "classify_relative_path", "lifecycle_class_for_artifact"]

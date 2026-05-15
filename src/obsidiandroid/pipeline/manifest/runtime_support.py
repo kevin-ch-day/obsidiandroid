@@ -84,6 +84,8 @@ def build_registry_payload(
     model_config_hash = str(manifest_context.get("model_config_hash", "") or "")
     effective_top_k = int(manifest_context.get("effective_top_k", 0) or 0)
 
+    cohort_contract = manifest_context.get("paper_cohort_contract", {})
+
     return {
         "schema_version": "1.0",
         "run_id": run_id,
@@ -163,6 +165,7 @@ def build_manifest_payload(
         )
     )
     effective_top_k = int(manifest_context.get("effective_top_k", 0) or 0)
+    cohort_contract = manifest_context.get("paper_cohort_contract", {})
 
     return {
         "run_id": run_id,
@@ -203,6 +206,8 @@ def build_manifest_payload(
         "vendor_fallback_used": bool(manifest_context.get("vendor_fallback_used", False)),
         "vendor_fallback_added_count": int(manifest_context.get("vendor_fallback_added_count", 0) or 0),
         "dataset_hash": dataset_hash,
+        "paper_cohort_contract": cohort_contract,
+        "cohort_contract": cohort_contract,
         "artifact_list": [],
         "manifest_schema_version": run_manifest.MANIFEST_SCHEMA_VERSION,
         "db_query_contract": manifest_context.get("db_query_contract", {}),

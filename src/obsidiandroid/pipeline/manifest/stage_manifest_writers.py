@@ -116,6 +116,7 @@ def write_run_summary_json(
             "test_sample_count": split_blob.get("test_sample_count"),
             "ablation_multi_label_targets": manifest.get("ablation_multi_label_targets"),
             "paper_safe_status": paper_status,
+            "publication_ready_status": paper_status,
             "manifest_path": str(run_root / "run_manifest.json"),
             "run_root": str(run_root),
             "paper_mode": bool((manifest.get("paper_mode") or {}).get("resolved_value", False)),
@@ -196,8 +197,10 @@ def finalize_output_hygiene_bundle(
     """Artifact inventory, virtual layout, run evidence index, and terminal summary."""
     try:
         from obsidiandroid.diagnostics import output_inventory
+        from obsidiandroid.diagnostics.diagnostic_provenance import record_diagnostic_provenance
         from obsidiandroid.observability.pipeline_observability.finalize import finalize_pipeline_observability
         from obsidiandroid.observability.pipeline_observability.run_health import print_unified_run_health
+        from obsidiandroid.pipeline.manifest.stage_manifest_artifacts import write_run_artifact_index
 
         layout_path = output_inventory.write_virtual_layout(run_root)
         inv_paths, summary = output_inventory.write_artifact_inventory_bundle(
@@ -254,6 +257,37 @@ def finalize_output_hygiene_bundle(
             paper_safe_status=paper_safe_status,
             paper_safe_reasons=reasons,
         )
+        pipeline_artifact_paths = list(artifact_list)
+        pipeline_artifact_paths.extend(str(p) for p in inv_paths if p)
+        if layout_path:
+            pipeline_artifact_paths.append(str(layout_path))
+        if evidence_path:
+            pipeline_artifact_paths.append(str(evidence_path))
+        provenance_path = record_diagnostic_provenance(
+            diagnostics_dir=diagnostics_dir,
+            run_root=run_root,
+            run_id=run_id,
+            entry_id=f"pipeline::{run_id}",
+            generated_during_pipeline=True,
+            source_command="run_pipeline",
+            source_run_id=run_id,
+            artifact_paths=pipeline_artifact_paths,
+        )
+        cohort_contract = (
+            manifest.get("cohort_contract")
+            if isinstance(manifest.get("cohort_contract"), dict)
+            else manifest_context.get("paper_cohort_contract")
+        )
+        cohort_locked = bool((cohort_contract or {}).get("paper_locked", False))
+        science_index_path = output_inventory.write_run_science_index_md(
+            run_root=run_root,
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            profile_id=str(profile.get("profile_id", "unknown")),
+            evidence_mode=bool(evidence_mode),
+            cohort_locked=cohort_locked,
+            publication_ready_status=paper_safe_status,
+        )
         for p in inv_paths:
             if p and p not in artifact_list:
                 artifact_list.append(p)
@@ -261,6 +295,31 @@ def finalize_output_hygiene_bundle(
             artifact_list.append(str(layout_path))
         if evidence_path and str(evidence_path) not in artifact_list:
             artifact_list.append(str(evidence_path))
+        if provenance_path and str(provenance_path) not in artifact_list:
+            artifact_list.append(str(provenance_path))
+        if science_index_path and str(science_index_path) not in artifact_list:
+            artifact_list.append(str(science_index_path))
+        refreshed_index_path = write_run_artifact_index(
+            run_id=run_id,
+            run_root=run_root,
+            diagnostics_dir=diagnostics_dir,
+        )
+        if refreshed_index_path and str(refreshed_index_path) not in artifact_list:
+            artifact_list.append(str(refreshed_index_path))
+        inv_paths, summary = output_inventory.write_artifact_inventory_bundle(
+            run_root=run_root,
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            manifest_paths=list(artifact_list),
+            extra_summary={
+                "profile_id": str(profile.get("profile_id", "")),
+                "evidence_mode": evidence_mode,
+                "paper_mode": paper_mode,
+            },
+        )
+        for p in inv_paths:
+            if p and p not in artifact_list:
+                artifact_list.append(p)
 
         observability_json_path = (
             obs_path
@@ -306,7 +365,7 @@ def write_run_summary_onepager(
             "## Context",
             f"- run_id: `{run_id}`",
             f"- profile_id: `{profile.get('profile_id', 'unknown')}`",
-            f"- paper_mode: `{bool(paper_mode_data.get('resolved_value', False))}` (source=`{paper_mode_data.get('source', 'unknown')}`)",
+            f"- publication_ready_mode: `{bool(paper_mode_data.get('resolved_value', False))}` (source=`{paper_mode_data.get('source', 'unknown')}`)",
             f"- cohort_size: `{manifest.get('cohort_size', 0)}`",
             f"- selected_vendor_count: `{manifest.get('selected_vendor_count', 0)}`",
             "",
@@ -390,6 +449,8 @@ def write_experiment_contract_snapshot(
             or previous_model_config_hash == model_config_hash
         )
 
+        cohort_contract = dict(manifest_context.get("paper_cohort_contract", {}) or {})
+
         contract = {
             "schema_version": "1.0",
             "run_id": run_id,
@@ -464,6 +525,8 @@ def write_experiment_contract_snapshot(
                 "no_model_retuning_across_perturbations": bool(no_retuning_consistent),
                 "model_config_hash": model_config_hash,
             },
+            "paper_cohort_contract": cohort_contract,
+            "cohort_contract": cohort_contract,
             "material_change_rule": {
                 "primary_abs_delta_macro_f1_gt": float(
                     getattr(app_config, "PAPER_MATERIAL_CHANGE_ABS_DELTA_MACRO_F1", 0.02)
@@ -631,4 +694,3 @@ def load_previous_series_contract(
     if payload_series != series_id:
         return {}
     return payload
-

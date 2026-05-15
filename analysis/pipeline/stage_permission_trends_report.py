@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import importlib
 import sys
 
-_mod = importlib.import_module("obsidiandroid.pipeline.stage_permission_trends_report")
+from obsidiandroid.legacy_shim_lazy import import_legacy_shim
+
+_mod = import_legacy_shim("obsidiandroid.pipeline.stage_permission_trends_report", __name__)
 sys.modules[__name__] = _mod

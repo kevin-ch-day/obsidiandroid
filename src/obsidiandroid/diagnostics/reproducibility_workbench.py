@@ -19,6 +19,7 @@ from config import app_config
 
 from obsidiandroid.common import output_paths
 from obsidiandroid.common.json_io import read_json_dict
+from obsidiandroid.diagnostics.diagnostic_provenance import latest_post_run_enrichment_dir
 
 
 def run_scoped_diagnostics(output_root: Path, run_id: str) -> Path:
@@ -471,6 +472,12 @@ def write_research_validity_review(
     fam_avail = fam_csv.is_file()
     support_md = rdiag / "support_threshold_preview.md"
     support_avail = support_md.is_file()
+    latest_enrichment = latest_post_run_enrichment_dir(rdiag)
+    fam_post_avail = False
+    support_post_avail = False
+    if latest_enrichment is not None:
+        fam_post_avail = (latest_enrichment / "family_label_taxonomy_audit.csv").is_file()
+        support_post_avail = (latest_enrichment / "support_threshold_preview.md").is_file()
 
     headline_task = scope.get("trainable_family_classification_task") or {}
     aligned_sup = q1.get("aligned_supervised_samples")
@@ -524,6 +531,8 @@ def write_research_validity_review(
             "taxonomy_consistency_summary": bool(taxonomy),
             "family_label_taxonomy_audit_csv": fam_avail,
             "support_threshold_preview_md": support_avail,
+            "family_label_taxonomy_audit_csv_post_run": fam_post_avail,
+            "support_threshold_preview_md_post_run": support_post_avail,
             "leakage_safe_score_comparison_csv": leak_csv.is_file(),
             "headline_vs_ablation_contract_comparison": bool(
                 (rdiag / f"headline_vs_ablation_contract_comparison_{run_id}.md").is_file()
@@ -598,8 +607,10 @@ def write_research_validity_review(
         [
             "## Optional audits",
             "",
-            f"- Family label taxonomy audit CSV present: **{fam_avail}** (`family_label_taxonomy_audit.csv`)",
-            f"- Support threshold preview present: **{support_avail}**",
+            f"- Family label taxonomy audit CSV present (pipeline-native): **{fam_avail}** (`family_label_taxonomy_audit.csv`)",
+            f"- Support threshold preview present (pipeline-native): **{support_avail}**",
+            f"- Family label taxonomy audit CSV present (post-run enrichment): **{fam_post_avail}**",
+            f"- Support threshold preview present (post-run enrichment): **{support_post_avail}**",
             "",
         ]
     )
@@ -826,17 +837,27 @@ def write_evidence_paper_readiness(
     latest_paper_exports: bool,
     print_fn: Callable[[str], None] | None = None,
 ) -> tuple[Path, Path]:
-    """Summarize evidence/paper gates for operator review."""
+    """Summarize evidence/publication gates for operator review."""
     pr = print_fn or (lambda _s: None)
     gdiag = global_diagnostics(output_root)
     gdiag.mkdir(parents=True, exist_ok=True)
 
+    publication_ready_status = (
+        "ready" if bool(latest_evidence_mode and latest_paper_exports and locked_run_id) else "not_ready"
+    )
+    cohort_lock_status = "locked" if bool(locked_run_id) else "unlocked"
     payload = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "latest_run_id": latest_run_id or "",
         "locked_evidence_run_id": locked_run_id or "",
         "latest_run_evidence_mode": latest_evidence_mode,
         "latest_publication_exports": latest_paper_exports,
+        "evidence_readiness": {
+            "latest_run_evidence_mode": bool(latest_evidence_mode),
+            "latest_publication_exports": bool(latest_paper_exports),
+        },
+        "publication_ready_status": publication_ready_status,
+        "cohort_lock_status": cohort_lock_status,
         "available": [
             "Development health checks",
             "Research validity review",
@@ -844,19 +865,20 @@ def write_evidence_paper_readiness(
         ],
         "unavailable_without_evidence": [
             "Evidence bundle checker (strict paths)",
-            "Strict reproducibility paper2_pack aggregation",
+            "Strict reproducibility evidence_bundle aggregation",
             "Publication export compliance bundles",
         ],
         "to_enable": [
-            "Run pipeline with evidence/paper mode enabled in profile.",
+            "Run pipeline with evidence mode enabled in profile.",
             "Lock evidence run pointer when preparing publication freeze.",
         ],
     }
+    payload["evidence_paper_readiness"] = dict(payload)
     json_path = gdiag / "evidence_paper_readiness.json"
     md_path = gdiag / "evidence_paper_readiness.md"
     json_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     lines = [
-        "# Evidence / paper readiness",
+        "# Evidence readiness",
         "",
         f"- Latest run: `{payload['latest_run_id'] or '—'}`",
         f"- Evidence mode (latest): **{latest_evidence_mode}**",
@@ -875,7 +897,7 @@ def write_evidence_paper_readiness(
     md_path.write_text("\n".join(lines), encoding="utf-8")
 
     pr("")
-    pr("EVIDENCE / PAPER READINESS")
+    pr("EVIDENCE READINESS")
     pr("---------------------------")
     pr(f"Wrote: {md_path}")
     pr("")

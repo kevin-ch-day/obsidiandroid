@@ -29,6 +29,7 @@ from obsidiandroid.reporting import family_distribution_report
 import obsidiandroid.cli.profile_manager as profile_manager
 import obsidiandroid.governance.run_manifest as run_manifest
 from obsidiandroid.governance import evidence_mode_resolver
+from obsidiandroid.governance import paper_cohort_contract
 from obsidiandroid.observability.logging import runtime as runtime_logging
 from obsidiandroid.observability.logging import logger as logger_manager
 from obsidiandroid.observability.logging import get_logger, log_event
@@ -308,6 +309,10 @@ def run_pipeline(
             f"resolution_source={evidence_mode_source} "
             f"profile_evidence_mode={profile.get('evidence_mode')!r}"
         )
+        paper_cohort_contract.enforce_publication_profile_lock(
+            profile=profile,
+            effective_evidence_mode=effective_evidence_mode,
+        )
         if effective_evidence_mode:
             run_root = output_root_base / "runs" / run_id
             run_root.mkdir(parents=True, exist_ok=True)
@@ -374,6 +379,7 @@ def run_pipeline(
         du.print_info("[PIPELINE] Metadata: dependency versions + DB query contract...")
         manifest_context["dependency_versions"] = _collect_dependency_versions()
         manifest_context["db_query_contract"] = get_query_contract_metadata()
+        manifest_context["paper_cohort_contract"] = paper_cohort_contract.configure_runtime_snapshot_lock(profile)
         st.write_preflight(status="running")
 
         feature_flags = profile.get("feature_flags", {}) if isinstance(profile, dict) else {}
@@ -519,6 +525,11 @@ def run_pipeline(
             artifact_list=artifact_list,
         )
         cohort_sample_id_audit.merge_sample_id_audit_into_manifest(manifest_context, _sid_audit)
+        manifest_context["paper_cohort_contract"] = paper_cohort_contract.build_runtime_contract(
+            profile=profile,
+            manifest_context=manifest_context,
+            samples_df=samples_df,
+        )
 
         if stop_after == "samples":
             st.mark_run_state("partial", completed_stage="samples")

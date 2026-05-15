@@ -1,28 +1,28 @@
-"""Legacy ``ml_classification.common`` (shim-only).
+"""Legacy ``ml_classification.common`` package shim.
 
 Canonical malware-family tables and helpers live at
 ``obsidiandroid.labeling.malware_family_constants``; public taxonomy functions use
 ``obsidiandroid.labeling.taxonomy``.
-
-Submodule names are defined in :mod:`obsidiandroid.modeling.ml_classification_shim_facades`.
 """
 
 from __future__ import annotations
 
-from typing import Any
+import sys
 
-from obsidiandroid.legacy_shim_lazy import lazy_legacy_submodule
-from obsidiandroid.modeling.ml_classification_shim_facades import (
-    ML_CLASSIFICATION_COMMON_SUBMODULES,
-)
+from obsidiandroid.legacy_shim_lazy import import_legacy_shim
 
+_SUBMODULES = {
+    "malware_family_constants": "obsidiandroid.labeling.malware_family_constants",
+}
 
-def __getattr__(name: str) -> Any:
-    return lazy_legacy_submodule(name, __name__, ML_CLASSIFICATION_COMMON_SUBMODULES)
+for _name, _canonical in _SUBMODULES.items():
+    _mod = import_legacy_shim(_canonical, f"{__name__}.{_name}", warn=True)
+    globals()[_name] = _mod
+    sys.modules[f"{__name__}.{_name}"] = _mod
 
 
 def __dir__() -> list[str]:
-    return sorted(ML_CLASSIFICATION_COMMON_SUBMODULES)
+    return sorted(_SUBMODULES)
 
 
-__all__ = tuple(sorted(ML_CLASSIFICATION_COMMON_SUBMODULES))
+__all__ = tuple(sorted(_SUBMODULES))

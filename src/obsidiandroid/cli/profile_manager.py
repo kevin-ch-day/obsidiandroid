@@ -7,10 +7,18 @@ from typing import Any, Dict, List
 
 import yaml
 from obsidiandroid.common.repo_paths import repo_root
-from obsidiandroid.cli.ui import display as du
-from obsidiandroid.cli.ui import menu as mu
+from obsidiandroid.governance.paper_cohort_contract import validate_profile_paper_lock
+from . import profile_selection
 
 PROFILES_DIR = repo_root() / "profiles"
+PROFILE_ALIASES = {
+    "paper1_banker_locked": "banker_locked",
+    "paper2_primary": "malicious_temporal_stability",
+    "paper2_primary_locked": "malicious_temporal_stability_locked",
+    "paper2_sensitivity_consensus10": "malicious_temporal_consensus10",
+    "paper2_sensitivity_family300": "malicious_temporal_family300",
+}
+HIDDEN_PROFILE_IDS = set(PROFILE_ALIASES.keys())
 REQUIRED_PROFILE_KEYS = {
     "profile_id",
     "type_slug_filter",
@@ -46,7 +54,9 @@ def list_profiles() -> List[Path]:
     """List available YAML profile files."""
     if not PROFILES_DIR.exists():
         return []
-    return sorted(PROFILES_DIR.glob("*.yaml"))
+    return sorted(
+        path for path in PROFILES_DIR.glob("*.yaml") if path.stem not in HIDDEN_PROFILE_IDS
+    )
 
 
 def load_profile(profile_ref: str) -> Dict[str, Any]:
@@ -72,6 +82,7 @@ def _resolve_profile_path(profile_ref: str) -> Path:
     candidate = Path(normalized_ref)
     if candidate.exists():
         return candidate
+    normalized_ref = PROFILE_ALIASES.get(normalized_ref, normalized_ref)
     suffix = ".yaml" if not str(normalized_ref).endswith(".yaml") else ""
     return PROFILES_DIR / f"{normalized_ref}{suffix}"
 
@@ -155,6 +166,7 @@ def _validate_profile(profile: Dict[str, Any], profile_path: Path) -> None:
             raise ValueError(
                 "Evidence-mode profile requires explicit time_window_start_utc and time_window_end_utc."
             )
+    validate_profile_paper_lock(profile, profile_path)
 
 
 def _apply_policy_defaults(profile: Dict[str, Any]) -> Dict[str, Any]:
@@ -165,6 +177,7 @@ def _apply_policy_defaults(profile: Dict[str, Any]) -> Dict[str, Any]:
     out.setdefault("allow_adaptive_top_k", True)
     out.setdefault("top_k_requested", 8)
     out.setdefault("exclude_unknown_from_main_results", False)
+    out.setdefault("paper_locked", False)
     return out
 
 
@@ -176,46 +189,14 @@ def select_profile_interactive(
     exit_label: str = "Back",
 ) -> str | None:
     """Prompt user to select a profile id with richer context."""
-    profiles = list_profiles()
-    if not profiles:
-        du.print_error("[PROFILE] No profiles found in ./profiles.")
-        return None
-    catalog = _build_profile_catalog(profiles)
-    if not catalog:
-        du.print_error("[PROFILE] No valid profiles found in ./profiles.")
-        return None
-
-    labels = [profile_id for profile_id, _ in catalog]
-    labels.append("Enter profile id manually")
-
-    choice = mu.display_menu(
-        labels,
-        title=title,
+    return profile_selection.select_profile_interactive(
+        list_profiles_fn=list_profiles,
+        load_profile_fn=load_profile,
         breadcrumb=breadcrumb,
         subtitle=subtitle,
+        title=title,
         exit_label=exit_label,
     )
-    if choice == 0:
-        return None
-
-    selected_label = labels[choice - 1]
-    if selected_label == "Enter profile id manually":
-        try:
-            entered = input("Enter profile id (e.g., paper2_primary): ").strip()
-        except KeyboardInterrupt:
-            du.print_warning("[PROFILE] Selection cancelled by user (Ctrl+C).")
-            return None
-        if not entered:
-            return None
-        try:
-            # Validate manual entry early for better UX.
-            load_profile(entered)
-            return entered
-        except Exception as exc:
-            du.print_error(f"[PROFILE] Invalid profile reference: {exc}")
-            return None
-
-    return selected_label
 
 
 def select_profile_interactive_quick(
@@ -230,151 +211,27 @@ def select_profile_interactive_quick(
     This keeps the primary UX focused on day-to-day profiles and allows
     explicit opt-in to the full advanced profile catalog when needed.
     """
-    quick_order = [
-        "research_all_malicious",
-        "all_malicious",
-        "banker",
-        "mixed",
-        "benign_heavy",
-        "dev_fast",
-        "dev_smoke",
-    ]
-    profiles = list_profiles()
-    available = {p.stem: p for p in profiles}
-    quick_entries: list[str] = []
-    for profile_id in quick_order:
-        profile_path = available.get(profile_id)
-        if profile_path is None:
-            continue
-        quick_entries.append(profile_id)
-
-    if not quick_entries:
-        return select_profile_interactive(
-            breadcrumb=breadcrumb,
-            subtitle=subtitle,
-            title=title,
-            exit_label=exit_label,
-        )
-
-    indexed_profiles: list[str] = []
-    for profile_id in quick_entries:
-        if profile_id.startswith("dev_"):
-            continue
-        indexed_profiles.append(profile_id)
-
-    for profile_id in quick_entries:
-        if not profile_id.startswith("dev_"):
-            continue
-        indexed_profiles.append(profile_id)
-
-    more_label = "More profiles (full catalog)"
-    menu_labels = list(indexed_profiles) + [more_label]
-
-    while True:
-        choice = mu.display_menu(
-            menu_labels,
-            title=title,
-            breadcrumb=breadcrumb,
-            subtitle=subtitle,
-            exit_label=exit_label,
-            default_choice=1,
-        )
-        if choice == 0:
-            return None
-
-        selected_key = menu_labels[choice - 1]
-        if selected_key == more_label:
-            return select_profile_interactive(
-                breadcrumb=breadcrumb,
-                subtitle=subtitle,
-                title=title,
-                exit_label=exit_label,
-            )
-
-        try:
-            load_profile(selected_key)
-        except Exception as exc:
-            du.print_error(f"[PROFILE] Selected profile is invalid: {exc}")
-            continue
-
-        du.print_info(f"[PROFILE] Selected: {selected_key}")
-        return selected_key
+    return profile_selection.select_profile_interactive_quick(
+        list_profiles_fn=list_profiles,
+        load_profile_fn=load_profile,
+        select_profile_interactive_fn=select_profile_interactive,
+        breadcrumb=breadcrumb,
+        subtitle=subtitle,
+        title=title,
+        exit_label=exit_label,
+    )
 
 
 def _build_profile_catalog(profiles: List[Path]) -> List[tuple[str, str]]:
     """Build ordered profile summaries for interactive menu presentation."""
-    entries: List[tuple[str, str]] = []
-    for profile_path in profiles:
-        profile_id = profile_path.stem
-        summary = _summarize_profile(profile_path)
-        entries.append((profile_id, summary))
-
-    entries.sort(key=lambda item: _profile_sort_key(item[0]))
-    return entries
+    return profile_selection.build_profile_catalog(profiles)
 
 
 def _profile_sort_key(profile_id: str) -> tuple[int, int, str]:
     """Return deterministic profile ordering for a cleaner selection menu."""
-    pid = str(profile_id).strip().lower()
-    if pid == "paper2_primary":
-        return (0, 0, pid)
-    if pid.startswith("paper2_sensitivity_"):
-        return (1, 0, pid)
-
-    core_order = {
-        "research_all_malicious": 0,
-        "all_malicious": 1,
-        "banker": 2,
-        "mixed": 3,
-        "benign_heavy": 4,
-    }
-    if pid in core_order:
-        return (2, core_order[pid], pid)
-
-    if pid == "dev_fast":
-        return (4, 0, pid)
-    if pid == "dev_smoke":
-        return (4, 1, pid)
-
-    return (3, 0, pid)
+    return profile_selection.profile_sort_key(profile_id)
 
 
 def _summarize_profile(profile_path: Path) -> str:
     """Generate concise profile summary for menu display."""
-    try:
-        with open(profile_path, "r", encoding="utf-8") as handle:
-            raw = yaml.safe_load(handle) or {}
-    except Exception:
-        return "summary unavailable"
-
-    desc = str(raw.get("description", "")).strip()
-    type_slug = raw.get("type_slug_filter")
-    gates = raw.get("cohort_gates", {}) if isinstance(raw.get("cohort_gates"), dict) else {}
-    models = raw.get("model_list", []) if isinstance(raw.get("model_list"), list) else []
-    parts: List[str] = []
-
-    if type_slug:
-        parts.append(f"type={type_slug}")
-    else:
-        parts.append("type=all")
-
-    min_detect = gates.get("min_malicious_detections", None)
-    if min_detect is not None:
-        parts.append(f"min_detect={min_detect}")
-
-    family_cap = gates.get("family_cap", None)
-    if family_cap:
-        parts.append(f"family_cap={family_cap}")
-
-    exclude_unknown = gates.get("exclude_unknown_type_slug", None)
-    if exclude_unknown is not None:
-        parts.append(f"exclude_unknown={bool(exclude_unknown)}")
-
-    if models:
-        parts.append(f"models={len(models)}")
-
-    summary = ", ".join(parts)
-    if desc:
-        desc_short = desc if len(desc) <= 72 else f"{desc[:69]}..."
-        return f"{desc_short} | {summary}"
-    return summary
+    return profile_selection.summarize_profile(profile_path)

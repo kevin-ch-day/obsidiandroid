@@ -511,7 +511,9 @@ def finalize_run_manifest_stage(
                 "manifest.json",
                 "evidence_compliance_summary.json",
             ]
-            pack_dir = run_root / "paper2_pack"
+            pack_dir = run_root / "evidence_bundle"
+            if not pack_dir.exists():
+                pack_dir = run_root / "paper2_pack"
             missing = [name for name in mandatory if not (pack_dir / name).exists()]
             if missing:
                 failed_checks.append("mandatory_artifacts_present")
@@ -650,6 +652,5 @@ def finalize_run_manifest_stage(
             pass
         du.print_error(f"[INTEGRITY] Run manifest finalization failed: {exc}")
         return 1
-
 
 

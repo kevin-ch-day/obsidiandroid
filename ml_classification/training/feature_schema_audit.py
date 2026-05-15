@@ -5,8 +5,9 @@ Canonical implementation lives at ``obsidiandroid.features.feature_schema_audit`
 
 from __future__ import annotations
 
-import importlib
 import sys
 
-_mod = importlib.import_module("obsidiandroid.features.feature_schema_audit")
+from obsidiandroid.legacy_shim_lazy import import_legacy_shim
+
+_mod = import_legacy_shim("obsidiandroid.features.feature_schema_audit", __name__)
 sys.modules[__name__] = _mod

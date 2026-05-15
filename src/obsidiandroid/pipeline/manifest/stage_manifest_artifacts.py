@@ -94,6 +94,13 @@ def write_run_artifact_index(
 ) -> Path | None:
     """Write a concise run-scoped index for tester/QA artifact discovery."""
     try:
+        from obsidiandroid.diagnostics import output_inventory
+
+        lifecycle_rows = output_inventory.build_inventory_rows(run_root)
+        lifecycle_counts: dict[str, int] = {}
+        for row in lifecycle_rows:
+            key = str(row.get("lifecycle_class", "diagnostics_optional"))
+            lifecycle_counts[key] = lifecycle_counts.get(key, 0) + 1
         lines = [
             f"# Run Artifact Index ({run_id})",
             "",
@@ -112,6 +119,15 @@ def write_run_artifact_index(
             "Notes:",
             "- Root-level latest/promoted paths are convenience mirrors only.",
             "- Use run-scoped artifacts for paper evidence and QA checks.",
+            "",
+            "Lifecycle classes:",
+            f"- canonical_run_evidence: {lifecycle_counts.get('canonical_run_evidence', 0)}",
+            f"- diagnostics_required: {lifecycle_counts.get('diagnostics_required', 0)}",
+            f"- diagnostics_optional: {lifecycle_counts.get('diagnostics_optional', 0)}",
+            f"- operator_convenience_mirror: {lifecycle_counts.get('operator_convenience_mirror', 0)}",
+            f"- legacy_compatibility: {lifecycle_counts.get('legacy_compatibility', 0)}",
+            f"- post_run_enrichment: {lifecycle_counts.get('post_run_enrichment', 0)}",
+            f"- debug_only: {lifecycle_counts.get('debug_only', 0)}",
         ]
         out_path = diagnostics_dir / "run_artifact_index.md"
         out_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
@@ -175,14 +191,18 @@ def export_engine_ranking_tiers(
     evidence_mode: bool,
     weights_df: pd.DataFrame | None,
 ) -> tuple[Path | None, str]:
-    """Export deterministic Paper #2 engine ranking table and hash."""
+    """Export deterministic evidence-bundle engine ranking table and hash."""
     if not isinstance(weights_df, pd.DataFrame) or weights_df.empty:
         return None, ""
     if evidence_mode:
-        out_dir = run_root / "paper2_pack"
+        out_dir = run_root / "evidence_bundle"
+        legacy_out_dir = run_root / "paper2_pack"
     else:
         out_dir = run_root / "paper_exports" / "tables"
+        legacy_out_dir = None
     out_dir.mkdir(parents=True, exist_ok=True)
+    if legacy_out_dir is not None:
+        legacy_out_dir.mkdir(parents=True, exist_ok=True)
 
     frame = weights_df.copy()
     vendor_col = "Vendor" if "Vendor" in frame.columns else None
@@ -224,6 +244,8 @@ def export_engine_ranking_tiers(
     export_df = frame[columns].copy()
     out_path = out_dir / "engine_ranking_tiers.csv"
     export_df.to_csv(out_path, index=False, lineterminator="\n", float_format="%.6f")
+    if legacy_out_dir is not None:
+        (legacy_out_dir / out_path.name).write_bytes(out_path.read_bytes())
     ranking_hash = sha256_hex(
         canonical_csv_bytes(
             export_df,
@@ -299,4 +321,3 @@ def export_parser_quality_final(
     export_df.to_csv(run_path, index=False)
     export_df.to_csv(latest_path, index=False)
     return run_path
-

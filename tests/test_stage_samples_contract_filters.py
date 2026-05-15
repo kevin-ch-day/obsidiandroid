@@ -131,7 +131,7 @@ def test_export_cohort_lock_artifacts_writes_summary_and_membership(
     summary_path, membership_path = stage_samples._export_cohort_lock_artifacts(  # pylint: disable=protected-access
         samples_df=samples_df,
         run_id="r_lock",
-        profile_id="paper2_primary",
+        profile_id="malicious_temporal_stability",
         enable_snapshot_lock=True,
         evidence_strict_snapshot_lock=True,
         snapshot_lock_file="lock.csv",

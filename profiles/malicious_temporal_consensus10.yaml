@@ -1,0 +1,41 @@
+profile_id: malicious_temporal_consensus10
+description: "Temporal-stability malicious corpus with a stricter malicious-detection threshold."
+evidence_mode: true
+allow_vendor_fallback_for_width: false
+allow_adaptive_top_k: false
+top_k_requested: 8
+exclude_unknown_from_main_results: true
+type_slug_filter: null
+cohort_gates:
+  min_samples_per_family: 20
+  require_mapped_family: true
+  require_sha256: true
+  allow_missing_package_name: true
+  max_missing_package_pct: 5.0
+  exclude_unknown_type_slug: true
+  min_malicious_detections: 10
+  exclude_families:
+    - Devixor
+    - Gigabud
+  family_cap: null
+  family_cap_seed: null
+  time_window_start_utc: "2020-01-01T00:00:00Z"
+  time_window_end_utc: "2026-01-01T00:00:00Z"
+model_list:
+  - random_forest
+  - xgboost
+  - logistic_regression
+parser_overrides:
+  PARSER_MAPPED_MIN_THRESHOLD: 0.0
+  PARSER_UNKNOWN_EXCLUDE_THRESHOLD: 1.0
+feature_flags:
+  enable_sample_metadata_features: true
+  enable_dynamic_generic_vendor_parsers: false
+threshold_overrides: {}
+dataset_filters:
+  mode: malicious_only
+paper_perturbation_axes:
+  - min_malicious_detections
+  - family_cap
+  - exclude_unknown_type_slug
+  - exclude_families

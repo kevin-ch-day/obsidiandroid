@@ -15,7 +15,12 @@ from obsidiandroid.modeling.ml_classification_shim_facades import (
 
 
 def __getattr__(name: str) -> Any:
-    return lazy_legacy_submodule(name, __name__, ML_CLASSIFICATION_TRAINING_ML_TRAINERS_SUBMODULES)
+    return lazy_legacy_submodule(
+        name,
+        __name__,
+        ML_CLASSIFICATION_TRAINING_ML_TRAINERS_SUBMODULES,
+        canonical_pkg_qual="obsidiandroid.modeling.ml_trainers",
+    )
 
 
 def __dir__() -> list[str]:

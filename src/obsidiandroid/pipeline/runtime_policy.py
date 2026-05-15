@@ -116,6 +116,8 @@ def build_mutable_config_keys() -> set[str]:
         "DATASET_TIME_CONTRACT_FILE",
         "ALIGNED_FEATURE_CACHE_FILE",
         "ALIGNED_LABEL_CACHE_FILE",
+        "ENABLE_SNAPSHOT_LOCK",
+        "SNAPSHOT_LOCK_FILE",
         "ENABLE_DYNAMIC_GENERIC_VENDOR_PARSERS",
         "ALLOW_ADAPTIVE_TOP_K",
         "ENABLE_SAMPLE_METADATA_FEATURES",
@@ -142,6 +144,12 @@ def reset_runtime_markers() -> None:
     setattr(app_config, "RUNTIME_EXCLUDE_UNKNOWN_FROM_MAIN_RESULTS", False)
     setattr(app_config, "RUNTIME_ALLOW_GLOBAL_ARTIFACTS", False)
     setattr(app_config, "RUNTIME_EVIDENCE_MODE", False)
+    setattr(app_config, "ENABLE_SNAPSHOT_LOCK", bool(getattr(app_config, "ENABLE_COHORT_LOCK", False)))
+    setattr(
+        app_config,
+        "SNAPSHOT_LOCK_FILE",
+        str(getattr(app_config, "COHORT_LOCK_FILE", getattr(app_config, "SNAPSHOT_LOCK_FILE", ""))),
+    )
     setattr(
         app_config,
         "RUNTIME_MIN_FAMILY_SUPPORT",

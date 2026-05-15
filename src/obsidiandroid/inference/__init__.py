@@ -1,7 +1,8 @@
-"""Heuristic label consensus and signal-quality helpers (vendor / AV metadata).
+"""Canonical inference namespace for heuristic consensus and signal-quality helpers.
 
-Pass 97 moved implementation from ``ml_classification.inference``; legacy import
-paths remain thin identity shims.
+Heuristic label consensus and signal-quality helpers live under
+``obsidiandroid.inference``. Legacy ``ml_classification.inference.*`` paths
+remain thin identity shims.
 """
 
 from __future__ import annotations

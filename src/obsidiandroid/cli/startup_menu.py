@@ -6,8 +6,6 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-import subprocess
-import sys
 from typing import Callable, Dict, List
 
 import pandas as pd
@@ -17,17 +15,23 @@ from obsidiandroid.evaluation import engine_scoring_summary
 from obsidiandroid.modeling import pipeline_core
 from .ui import display as du
 from .ui import menu as mu
+import obsidiandroid.cli.profile_manager as profile_manager
 from .menu.profile_preflight import resolve_and_validate_profile
 from .menu.vendor_diagnostics import (
+    get_parser_summary_state,
+    print_parser_export_paths,
+    print_parser_onboarding_candidates,
     print_compact_vendor_coverage_snapshot,
+    print_selected_vendors_for_latest_run,
+    print_top_unmapped_vendors,
+    print_workbook_requirements,
     run_single_vendor_parser_check,
-    validate_parser_columns_from_latest_export,
 )
 from .menu import diagnostics_banners
+from .menu import vendor_diagnostics
 from .menu import startup_menu_actions
-from obsidiandroid.common import output_hygiene as oh
-from obsidiandroid.common.repo_paths import repo_operator_script
 from obsidiandroid.diagnostics import reproducibility_workbench as repro_workbench
+from . import startup_menu_diagnostics as _diagnostics_menu
 
 from .startup_menu_health import run_health_check as _run_health_check
 from .startup_menu_run_context import (
@@ -92,44 +96,13 @@ class _MenuCommand:
 
 
 def _first_existing_path(candidates: list[Path]) -> Path | None:
-    """Return the first path that exists as a regular file, or ``None``."""
-    for path in candidates:
-        if path.is_file():
-            return path
-    return None
+    """Compatibility wrapper for the extracted diagnostics path helper."""
+    return _diagnostics_menu.first_existing_path(candidates)
 
 
 def _governed_cohort_n_for_q2(*, rdiag: Path, gdiag: Path, q2: Dict) -> int | None:
-    """Resolve governed-cohort denominator for Q2 display (payload, Q1 JSON, or infer)."""
-    from obsidiandroid.common.json_io import read_json_dict
-
-    def _as_nonneg_int(val: object) -> int | None:
-        if isinstance(val, bool):
-            return None
-        if isinstance(val, int) and val >= 0:
-            return val
-        if isinstance(val, float) and val >= 0 and val == int(val):
-            return int(val)
-        return None
-
-    n = _as_nonneg_int(q2.get("governed_cohort_n"))
-    if n is not None:
-        return n
-    q1 = read_json_dict(rdiag / "dataset_foundation_summary.json") or read_json_dict(
-        gdiag / "dataset_foundation_summary.json"
-    )
-    gs = q1.get("governed_samples") if isinstance(q1, dict) else None
-    n = _as_nonneg_int(gs)
-    if n is not None:
-        return n
-    try:
-        pn = int(q2.get("permission_signal_n") or 0)
-        pp = float(q2.get("permission_signal_pct") or 0)
-    except (TypeError, ValueError):
-        return None
-    if pn > 0 and pp > 0:
-        return int(round(pn * 100.0 / pp))
-    return None
+    """Compatibility wrapper for the extracted Q2 cohort denominator helper."""
+    return _diagnostics_menu.governed_cohort_n_for_q2(rdiag=rdiag, gdiag=gdiag, q2=q2)
 
 
 def _run_full_pipeline(profile_id: str) -> int:
@@ -300,8 +273,8 @@ def _show_experiment_series_comparison() -> int:
     return 0
 
 
-def _run_paper2_series_aggregator() -> int:
-    """Aggregate strict reproducibility runs into a macro-F1 comparison table."""
+def _run_evidence_bundle_series_aggregator() -> int:
+    """Aggregate strict reproducibility evidence bundles into a macro-F1 comparison table."""
     output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
     runs_root = output_root / "runs"
     if not runs_root.exists():
@@ -310,7 +283,9 @@ def _run_paper2_series_aggregator() -> int:
 
     rows: list[dict[str, object]] = []
     for run_dir in sorted([p for p in runs_root.iterdir() if p.is_dir()]):
-        pack_dir = run_dir / "paper2_pack"
+        pack_dir = run_dir / "evidence_bundle"
+        if not pack_dir.exists():
+            pack_dir = run_dir / "paper2_pack"
         readiness_path = pack_dir / "evidence_readiness.json"
         manifest_path = pack_dir / "manifest.json"
         metrics_path = pack_dir / "model_metrics.json"
@@ -495,7 +470,7 @@ def _launch_structural_analysis_menu() -> None:
             "Type-Level Analysis -> type heatmap + summary report",
             "Family-Level Analysis -> family visuals + diagnostics",
             "Banker-Specific Analysis -> banker trend artifacts",
-            "Export Publication Figures -> presentation-ready figure set",
+            "Publication-Ready Exports -> presentation-ready figure set",
             "Export Structural Report -> full artifact pack",
         ]
         options: List[str] = []
@@ -561,7 +536,7 @@ def _launch_structural_analysis_menu() -> None:
             setattr(app_config, "FIGURE_MODE", "paper")
             result = _run_paper_structural_diagnostics()
             _print_structural_result_card(
-                action="Export Publication Figures",
+                action="Publication-Ready Exports",
                 status="success" if result == 0 else "failed",
                 output_path=str(getattr(app_config, "RUNTIME_LAST_STRUCTURAL_OUTPUT", "")),
             )
@@ -758,9 +733,9 @@ def _launch_compare_runs_menu() -> None:
         du.print_warning("[MENU] Invalid choice received.")
 
 
-def _run_evidence_paper_readiness_menu_action() -> int:
+def _run_evidence_readiness_menu_action() -> int:
     """Explain evidence gates and write readiness summary under global diagnostics."""
-    du.print_section("Evidence / Paper Readiness")
+    du.print_section("Evidence Readiness")
     output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
     latest_run_id = _read_latest_run_id()
     locked = _read_locked_paper_run_id()
@@ -783,7 +758,7 @@ def _run_evidence_paper_readiness_menu_action() -> int:
     du.print_stat("Publication exports (latest)", "Yes" if exports else "No")
     du.print_stat("Locked evidence run", locked or "(none)")
     print("")
-    du.print_info("[MENU] Strict bundle checks: Reproducibility › Evidence / Paper Readiness › Evidence Bundle Checker.")
+    du.print_info("[MENU] Strict bundle checks: Reproducibility › Evidence Readiness › Cohort Lock Checker.")
     return 0
 
 
@@ -801,7 +776,7 @@ def _launch_reproducibility_menu() -> None:
             "Run Health & Artifact Check",
             "Research Validity Review",
             "Compare Runs / Experiment Series",
-            "Evidence / Paper Readiness",
+            "Evidence Readiness",
         ]
         _print_availability_block(
             rows=[
@@ -829,409 +804,112 @@ def _launch_reproducibility_menu() -> None:
             _launch_compare_runs_menu()
             continue
         if choice == 4:
-            _launch_evidence_paper_readiness_hub()
+            _launch_evidence_readiness_hub()
             continue
         du.print_warning("[MENU] Invalid choice received.")
 
 
-def _launch_evidence_paper_readiness_hub() -> None:
-    """Evidence readiness exports, bundle checker, and strict reproducibility aggregation."""
+def _launch_evidence_readiness_hub() -> None:
+    """Evidence readiness exports, cohort lock checks, and bundle aggregation."""
     while True:
         opts = [
-            "Evidence / paper readiness summary (export JSON/MD)",
-            "Evidence Bundle Checker",
-            "Strict reproducibility series aggregator",
+            "Evidence Readiness Summary (export JSON/MD)",
+            "Cohort Lock Checker",
+            "Evidence Bundle Series Aggregator",
         ]
         choice = mu.display_menu(
             opts,
-            title="Evidence / paper readiness",
+            title="Evidence readiness",
             exit_label="Back",
             breadcrumb="Main menu › Reproducibility & research validity › Evidence",
         )
         if choice == 0:
             return
         if choice == 1:
-            _run_evidence_paper_readiness_menu_action()
+            _run_evidence_readiness_menu_action()
             continue
         if choice == 2:
             _run_paper2_freeze_checker()
             continue
         if choice == 3:
-            _run_paper2_series_aggregator()
+            _run_evidence_bundle_series_aggregator()
             continue
         du.print_warning("[MENU] Invalid choice received.")
 
 
 def _run_family_label_taxonomy_audit_script() -> int:
     """Invoke scripts/family_label_taxonomy_audit.py for cohort taxonomy audit."""
-    script_path = repo_operator_script("family_label_taxonomy_audit.py")
-    if not script_path.is_file():
-        du.print_error(f"[MENU] Missing script: {script_path}")
-        return 1
+    return _diagnostics_menu.run_family_label_taxonomy_audit_script(
+        read_latest_run_id=_read_latest_run_id,
+        resolve_latest_manifest_payload=_resolve_latest_manifest_payload,
+        resolve_and_validate_profile=resolve_and_validate_profile,
+        load_profile=profile_manager.load_profile,
+    )
 
-    du.print_section("Family label taxonomy audit")
-    du.print_info(
-        "Loads the labeled cohort from the database using a profile's gates (same path as pipeline samples; no training)."
-    )
-    du.print_info(
-        "Writes taxonomy audit CSV/MD under the diagnostics dir below. "
-        "If cohort snapshot export is enabled, analysis_snapshot_*.csv/.meta.txt land in the same directory "
-        "(not global output/diagnostics unless you omit --diagnostics-dir and use the default audit folder)."
-    )
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    rid = _read_latest_run_id()
-    diag_args: list[str] = []
-    if rid:
-        rdiag = output_root / "runs" / rid / "diagnostics"
-        rdiag.mkdir(parents=True, exist_ok=True)
-        diag_args = ["--diagnostics-dir", str(rdiag.resolve())]
-        du.print_info(
-            f"Target diagnostics dir: runs/{rid}/diagnostics/ "
-            "(taxonomy audit + cohort snapshot artifacts when snapshot export is on)."
-        )
-    else:
-        du.print_note(
-            "No latest run id — the script will use output/diagnostics/taxonomy_audit_<timestamp>/ instead."
-        )
 
-    profile_id = resolve_and_validate_profile(
-        prefer_quick=True,
-        menu_breadcrumb="Main menu › Data Diagnostics › Cohort › Taxonomy audit",
-        menu_title="Profile for cohort audit",
-        menu_subtitle=(
-            "Choose which cohort definition to audit. Blank Enter selects the default highlighted row; 0 = Back."
-        ),
-    )
-    if not profile_id:
-        du.print_warning("[MENU] Taxonomy audit cancelled (no profile).")
-        return 1
-    cmd = [sys.executable, str(script_path), "--profile", profile_id, *diag_args]
-    du.print_info(f"[MENU] Running: {' '.join(cmd)}")
-    proc = subprocess.run(cmd, check=False)
-    return int(proc.returncode)
+def _open_run_science_index() -> int:
+    """Print the authoritative run science index path for the latest run."""
+    return _diagnostics_menu.open_run_science_index(read_latest_run_id=_read_latest_run_id)
 
 
 def _print_cohort_family_artifact_paths() -> None:
     """List key cohort / family diagnostic paths for the latest run."""
-    du.print_section("Cohort / family artifact paths")
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    rid = _read_latest_run_id()
-    if not rid:
-        du.print_warning("[MENU] No latest run — nothing to resolve.")
-        return
-    rdiag = (output_root / "runs" / rid / "diagnostics").resolve()
-    gdiag = (output_root / "diagnostics").resolve()
-
-    def stat(label: str, path: Path) -> None:
-        du.print_stat(label, "present" if path.is_file() else "missing")
-
-    du.print_stat("Run diagnostics dir", str(rdiag))
-
-    rows: list[tuple[str, Path]] = [
-        ("family_label_taxonomy_audit.csv", rdiag / "family_label_taxonomy_audit.csv"),
-        ("family_label_taxonomy_audit.md", rdiag / "family_label_taxonomy_audit.md"),
-        ("support_threshold_preview.md", rdiag / "support_threshold_preview.md"),
-        ("support_threshold_preview.csv", rdiag / "support_threshold_preview.csv"),
-        ("family_distribution.csv", rdiag / "family_distribution.csv"),
-        ("low_support_families.csv", rdiag / "low_support_families.csv"),
-        ("dataset_foundation_summary.md", rdiag / "dataset_foundation_summary.md"),
-        ("dataset_foundation_summary.json", rdiag / "dataset_foundation_summary.json"),
-        (f"cohort_filter_contract_{rid}.json", rdiag / f"cohort_filter_contract_{rid}.json"),
-        (f"cohort_gate_counts_{rid}.csv", rdiag / f"cohort_gate_counts_{rid}.csv"),
-        ("cohort_lock_summary.json", rdiag / "cohort_lock_summary.json"),
-        ("cohort_membership.csv", rdiag / "cohort_membership.csv"),
-        (f"analysis_snapshot_filter_summary_{rid}.csv", rdiag / f"analysis_snapshot_filter_summary_{rid}.csv"),
-        (f"analysis_snapshot_{rid}.csv", rdiag / f"analysis_snapshot_{rid}.csv"),
-        (f"analysis_snapshot_{rid}.meta.txt", rdiag / f"analysis_snapshot_{rid}.meta.txt"),
-        (
-            f"analysis_snapshot_label_conflicts_{rid}.csv",
-            rdiag / f"analysis_snapshot_label_conflicts_{rid}.csv",
-        ),
-        ("paper_cohort_sample_ids.csv", rdiag / "paper_cohort_sample_ids.csv"),
-        ("dataset_time_contract (resolved)", oh.resolve_dataset_time_contract_path(rdiag, rid)),
-        ("family_distribution_2020_present.csv", rdiag / "family_distribution_2020_present.csv"),
-        ("family_distribution_by_year.csv", rdiag / "family_distribution_by_year.csv"),
-    ]
-    for label, path in rows:
-        stat(label, path)
-
-    primary_snap = rdiag / f"analysis_snapshot_{rid}.csv"
-    primary_filter = rdiag / f"analysis_snapshot_filter_summary_{rid}.csv"
-    extra_snaps = sorted(
-        p
-        for p in rdiag.glob("analysis_snapshot_*.csv")
-        if p.is_file() and p not in {primary_snap, primary_filter}
-    )
-    if extra_snaps:
-        du.print_subheader("Other analysis_snapshot_*.csv (adhoc / taxonomy audit)")
-        for p in extra_snaps[:10]:
-            stat(p.name, p)
-        if len(extra_snaps) > 10:
-            du.print_note(f"… plus {len(extra_snaps) - 10} more under this diagnostics dir")
-
-    latest_snap = gdiag / "analysis_snapshot.latest.csv"
-    latest_meta = gdiag / "analysis_snapshot.latest.meta.txt"
-    if latest_snap.is_file() or latest_meta.is_file():
-        du.print_subheader("Global diagnostics (operator .latest mirrors)")
-        stat(str(gdiag / "analysis_snapshot.latest.csv"), latest_snap)
-        stat(str(gdiag / "analysis_snapshot.latest.meta.txt"), latest_meta)
-
-    print("")
+    _diagnostics_menu.print_cohort_family_artifact_paths(read_latest_run_id=_read_latest_run_id)
 
 
 def _launch_cohort_family_audit_menu() -> None:
     """Family taxonomy, support thresholds, cohort distributions."""
-    while True:
-        opts = [
-            "Run taxonomy audit (pick profile → writes to latest run diagnostics)",
-            "Show cohort / family artifact paths (run + global mirrors)",
-        ]
-        choice = mu.display_menu(
-            opts,
-            title="Cohort / family label audit",
-            exit_label="Back",
-            breadcrumb="Main menu › Data Diagnostics › Cohort",
-        )
-        if choice == 0:
-            return
-        if choice == 1:
-            _run_family_label_taxonomy_audit_script()
-            continue
-        if choice == 2:
-            _print_cohort_family_artifact_paths()
-            continue
-        du.print_warning("[MENU] Invalid choice received.")
+    _diagnostics_menu.launch_cohort_family_audit_menu(
+        read_latest_run_id=_read_latest_run_id,
+        open_run_science_index_action=_open_run_science_index,
+        run_family_label_taxonomy_audit_action=_run_family_label_taxonomy_audit_script,
+    )
 
 
 def _launch_parser_vendor_coverage_menu() -> None:
     """Parser coverage, vendor diagnostics, AV engine scoring from DB."""
-    while True:
-        from .menu import vendor_diagnostics
-
-        vendor_diagnostics.print_parser_diagnostics_state()
-        opts = [
-            "Validate Parser Coverage",
-            "Single Vendor Parser Diagnostic",
-            "Vendor coverage CSV snapshot (latest run)",
-            "Engine Scoring Summary (database)",
-        ]
-        choice = mu.display_menu(
-            opts,
-            title="Parser & vendor coverage",
-            exit_label="Back",
-            breadcrumb="Main menu › Data Diagnostics › Parser vendor",
-        )
-        if choice == 0:
-            return
-        if choice == 1:
-            validate_parser_columns_from_latest_export()
-            continue
-        if choice == 2:
-            run_single_vendor_parser_check()
-            continue
-        if choice == 3:
-            print_compact_vendor_coverage_snapshot()
-            continue
-        if choice == 4:
-            _run_engine_summary_only()
-            continue
-        du.print_warning("[MENU] Invalid choice received.")
+    _diagnostics_menu.launch_parser_vendor_coverage_menu(
+        get_parser_summary_state=get_parser_summary_state,
+        print_parser_diagnostics_state=vendor_diagnostics.print_parser_diagnostics_state,
+        print_compact_vendor_coverage_snapshot=print_compact_vendor_coverage_snapshot,
+        print_top_unmapped_vendors=print_top_unmapped_vendors,
+        print_parser_onboarding_candidates=print_parser_onboarding_candidates,
+        print_selected_vendors_for_latest_run=print_selected_vendors_for_latest_run,
+        print_workbook_requirements=print_workbook_requirements,
+        print_parser_export_paths=print_parser_export_paths,
+        run_single_vendor_parser_check=run_single_vendor_parser_check,
+    )
 
 
 def _launch_permission_intelligence_coverage_menu() -> None:
     """Permission modality coverage pointers (reads latest run diagnostics)."""
-    from obsidiandroid.common.json_io import read_json_dict
-
-    du.print_section("Permission intelligence coverage")
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    rid = _read_latest_run_id()
-    if not rid:
-        du.print_warning("[MENU] No latest run.")
-        return
-    rdiag = output_root / "runs" / rid / "diagnostics"
-    gdiag = output_root / "diagnostics"
-
-    rows: list[tuple[str, list[Path]]] = [
-        ("Permission coverage summary", [rdiag / "permission_coverage_summary.csv", gdiag / "permission_coverage_summary.csv"]),
-        ("Dataset foundation (JSON)", [rdiag / "dataset_foundation_summary.json", gdiag / "dataset_foundation_summary.json"]),
-        ("Dataset foundation (gates + cohort)", [rdiag / "dataset_foundation_summary.md", gdiag / "dataset_foundation_summary.md"]),
-        ("Modality contribution (Markdown)", [rdiag / "modality_contribution_summary.md", gdiag / "modality_contribution_summary.md"]),
-        ("Modality contribution (JSON, Q2 metrics)", [rdiag / "modality_contribution_summary.json", gdiag / "modality_contribution_summary.json"]),
-        ("Feature-set ablation (CSV)", [rdiag / "feature_set_ablation_summary.csv", gdiag / "feature_set_ablation_summary.csv"]),
-        ("Feature-set ablation (Markdown)", [rdiag / "feature_set_ablation_summary.md", gdiag / "feature_set_ablation_summary.md"]),
-        ("Vendor feature coverage summary", [rdiag / "vendor_feature_coverage_summary.csv", gdiag / "vendor_feature_coverage_summary.csv"]),
-        ("Feature group survival (from column survival)", [rdiag / "feature_group_survival.csv", gdiag / "feature_group_survival.csv"]),
-        (
-            "Permission feature audit",
-            [rdiag / "permission_feature_audit.csv", rdiag / f"permission_feature_audit_{rid}.csv"],
-        ),
-        ("Vendor leakage safety audit", [rdiag / "vendor_leakage_safety_audit.csv", gdiag / "vendor_leakage_safety_audit.csv"]),
-        ("Permission signal quality (CSV)", [rdiag / "permission_signal_quality.csv", gdiag / "permission_signal_quality.csv"]),
-        (
-            "Permission signal quality (report)",
-            [rdiag / "permission_signal_quality_report.md", gdiag / "permission_signal_quality_report.md"],
-        ),
-    ]
-    for label, candidates in rows:
-        hit = _first_existing_path(candidates)
-        du.print_stat(label, str(hit.resolve()) if hit else "missing")
-
-    q2 = read_json_dict(rdiag / "modality_contribution_summary.json") or read_json_dict(
-        gdiag / "modality_contribution_summary.json"
+    _diagnostics_menu.launch_permission_intelligence_coverage_menu(
+        read_latest_run_id=_read_latest_run_id
     )
-    if isinstance(q2, dict) and q2:
-        du.print_subheader("Q2 snapshot (modality contribution)")
-        gov_n = _governed_cohort_n_for_q2(rdiag=rdiag, gdiag=gdiag, q2=q2)
-        du.print_stat("Governed cohort (denominator)", str(gov_n) if gov_n is not None else "—")
-        du.print_stat(
-            "Permission signal",
-            f"{q2.get('permission_signal_n', '—')} rows ({diagnostics_banners.format_percent_for_menu(q2.get('permission_signal_pct'))})",
-        )
-        du.print_stat(
-            "Vendor merge authority",
-            f"{q2.get('vendor_merge_n', '—')} rows ({diagnostics_banners.format_percent_for_menu(q2.get('vendor_merge_pct'))})",
-        )
-        pcols = q2.get("permission_feature_columns")
-        du.print_stat(
-            "Permission columns (fused / contract)",
-            "—" if pcols is None or pcols == "" else str(pcols),
-        )
-        du.print_stat(
-            "AV engines (observed / included in contract)",
-            f"{q2.get('av_engines_observed', '—')} / {q2.get('av_engines_included', '—')}",
-        )
-        notes = q2.get("interpretation_notes")
-        if isinstance(notes, list) and notes:
-            du.print_subheader("Q2 interpretation (from JSON)")
-            for line in notes[:5]:
-                if isinstance(line, str) and line.strip():
-                    du.print_note(line.strip())
-        du.print_note(
-            "Definitions: `permission_signal_pct` = cohort rows with permission-bag signal ÷ governed cohort; "
-            "`vendor_merge_pct` = rows with parsed vendor merge authority ÷ the same denominator."
-        )
-    else:
-        du.print_note(
-            "No modality_contribution_summary.json found for this run (or global mirror). "
-            "Generate Q1–Q3 diagnostics for the run to populate Q2 permission intelligence."
-        )
-
-    du.print_info(
-        "[MENU] Prefer run paths above; global output/diagnostics/ holds .latest mirrors when hygiene mode omits duplicates inside runs/. "
-        "Per-column survival lives under Data Diagnostics → Feature matrix / modality coverage."
-    )
-    print("")
 
 
 def _launch_feature_matrix_modality_menu() -> None:
     """Feature contract / modality / ablation pointers."""
-    du.print_section("Feature matrix / modality coverage")
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    rid = _read_latest_run_id()
-    if not rid:
-        du.print_warning("[MENU] No latest run.")
-        return
-    rdiag = output_root / "runs" / rid / "diagnostics"
-    gdiag = output_root / "diagnostics"
-    entries: list[tuple[str, list[Path]]] = [
-        ("Feature contract", [rdiag / "feature_contract.json", gdiag / "feature_contract.json"]),
-        (
-            "Modality contribution (JSON)",
-            [rdiag / "modality_contribution_summary.json", gdiag / "modality_contribution_summary.json"],
-        ),
-        (
-            "Feature-set ablation summary",
-            [rdiag / "feature_set_ablation_summary.csv", gdiag / "feature_set_ablation_summary.csv"],
-        ),
-        (
-            "Feature column survival",
-            [
-                rdiag / f"feature_column_survival_{rid}.csv",
-                rdiag / "feature_column_survival.latest.csv",
-                gdiag / "feature_column_survival.latest.csv",
-            ],
-        ),
-        ("Feature group survival", [rdiag / "feature_group_survival.csv", gdiag / "feature_group_survival.csv"]),
-    ]
-    for label, candidates in entries:
-        hit = _first_existing_path(candidates)
-        du.print_stat(label, str(hit.resolve()) if hit else "missing")
-    print("")
+    _diagnostics_menu.launch_feature_matrix_modality_menu(read_latest_run_id=_read_latest_run_id)
 
 
 def _launch_taxonomy_consistency_review_menu() -> None:
     """Taxonomy consistency summary and mismatch exports."""
-    du.print_section("Taxonomy consistency review")
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    rid = _read_latest_run_id()
-    if not rid:
-        du.print_warning("[MENU] No latest run.")
-        return
-    rdiag = output_root / "runs" / rid / "diagnostics"
-    gdiag = output_root / "diagnostics"
-    rows: list[tuple[str, list[Path]]] = [
-        (
-            "Taxonomy consistency summary (JSON)",
-            [rdiag / f"taxonomy_consistency_summary_{rid}.json", gdiag / "taxonomy_consistency_summary.latest.json"],
-        ),
-        (
-            "Taxonomy mismatches (CSV)",
-            [rdiag / f"taxonomy_consistency_mismatches_{rid}.csv", gdiag / "taxonomy_consistency_mismatches.latest.csv"],
-        ),
-        ("Prediction errors (CSV)", [rdiag / f"prediction_errors_{rid}.csv"]),
-    ]
-    for label, candidates in rows:
-        hit = _first_existing_path(candidates)
-        du.print_stat(label, str(hit.resolve()) if hit else "missing")
-    du.print_info(
-        "[MENU] Prefer run-scoped names; global `*.latest.*` under output/diagnostics/ mirrors when hygiene omits duplicates."
-    )
-    print("")
+    _diagnostics_menu.launch_taxonomy_consistency_review_menu(read_latest_run_id=_read_latest_run_id)
 
 
 def _launch_data_diagnostics_menu() -> None:
     """Data quality: cohort, parsers, permissions, features, taxonomy, structural exports."""
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    while True:
-        diagnostics_banners.print_data_diagnostics_banner(
-            output_root=output_root,
-            latest_run_id=_read_latest_run_id(),
-        )
-        data_sections = [
-            "Cohort / Family Label Audit",
-            "Parser & Vendor Coverage",
-            "Permission Intelligence Coverage",
-            "Feature Matrix / Modality Coverage",
-            "Taxonomy Consistency Review",
-            "Pipeline profile tuning (latest manifest)",
-        ]
-        choice = mu.display_menu(
-            data_sections,
-            title="Data diagnostics",
-            exit_label="Back",
-            breadcrumb="Main menu › Data Diagnostics",
-        )
-        if choice == 0:
-            return
-        if choice == 1:
-            _launch_cohort_family_audit_menu()
-            continue
-        if choice == 2:
-            _launch_parser_vendor_coverage_menu()
-            continue
-        if choice == 3:
-            _launch_permission_intelligence_coverage_menu()
-            continue
-        if choice == 4:
-            _launch_feature_matrix_modality_menu()
-            continue
-        if choice == 5:
-            _launch_taxonomy_consistency_review_menu()
-            continue
-        if choice == 6:
-            _show_profile_tuning_snapshot()
-            continue
-        du.print_warning("[MENU] Invalid choice received.")
+    _diagnostics_menu.launch_data_diagnostics_menu(
+        read_latest_run_id=_read_latest_run_id,
+        show_profile_tuning_snapshot=_show_profile_tuning_snapshot,
+        open_run_science_index_action=_open_run_science_index,
+        launch_taxonomy_consistency_review_action=_launch_taxonomy_consistency_review_menu,
+        launch_parser_vendor_coverage_action=_launch_parser_vendor_coverage_menu,
+        launch_permission_intelligence_coverage_action=_launch_permission_intelligence_coverage_menu,
+        launch_feature_matrix_modality_action=_launch_feature_matrix_modality_menu,
+        launch_cohort_family_audit_action=_launch_cohort_family_audit_menu,
+    )
 
 
 def _show_research_report_key_artifact_paths() -> None:
@@ -1434,10 +1112,12 @@ def _print_operator_console_summary() -> None:
     """Print a compact operator summary block ahead of the main menu."""
     context = _latest_run_context_status()
     latest_run_id = str(context.get("latest_run_id", "")).strip() or "None yet"
+    latest_profile_id = str(context.get("latest_profile_id", "")).strip() or "Unknown"
     du.print_section("Workspace Status")
     _print_availability_block(
         rows=[
             ("Latest Run", latest_run_id),
+            ("Latest Profile", latest_profile_id),
             ("Run Diagnostics", _status_text(_latest_run_has_provenance(), ready="Available", pending="Missing")),
             ("Publication Exports", _status_text(bool(context.get("has_paper_exports", False)), ready="Available", pending="Not built")),
         ]

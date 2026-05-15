@@ -1,0 +1,164 @@
+"""Tests for run-scoped diagnostic provenance and lifecycle classification."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from obsidiandroid.diagnostics.diagnostic_provenance import (
+    record_diagnostic_provenance,
+    resolve_post_run_enrichment_target,
+)
+from obsidiandroid.diagnostics.output_artifact_policy import classify_file
+from obsidiandroid.diagnostics.output_inventory import write_run_science_index_md
+
+
+def test_record_pipeline_provenance_tracks_run_and_global_artifacts(tmp_path: Path) -> None:
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "r1"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_manifest = run_root / "run_manifest.json"
+    run_manifest.write_text("{}", encoding="utf-8")
+    global_latest = output_root / "diagnostics" / "run_manifest.latest.json"
+    global_latest.parent.mkdir(parents=True, exist_ok=True)
+    global_latest.write_text("{}", encoding="utf-8")
+
+    out_path = record_diagnostic_provenance(
+        diagnostics_dir=diagnostics_dir,
+        run_root=run_root,
+        run_id="r1",
+        entry_id="pipeline::r1",
+        generated_during_pipeline=True,
+        source_command="run_pipeline",
+        source_run_id="r1",
+        artifact_paths=[str(run_manifest), str(global_latest)],
+    )
+
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    entry = payload["entries"][0]
+    assert entry["generated_during_pipeline"] is True
+    assert entry["source_command"] == "run_pipeline"
+    by_path = {row["path"]: row for row in entry["artifacts"]}
+    assert by_path["run_manifest.json"]["lifecycle_class"] == "canonical_run_evidence"
+    outside_rows = [row for row in entry["artifacts"] if not row["within_run_root"]]
+    assert len(outside_rows) == 1
+    assert outside_rows[0]["lifecycle_class"] == "operator_convenience_mirror"
+
+
+def test_record_post_run_provenance_marks_enrichment(tmp_path: Path) -> None:
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "r1"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    audit_csv = diagnostics_dir / "post_run_enrichments" / "audit1" / "family_label_taxonomy_audit.csv"
+    audit_csv.parent.mkdir(parents=True, exist_ok=True)
+    audit_csv.write_text("x\n1\n", encoding="utf-8")
+
+    out_path = record_diagnostic_provenance(
+        diagnostics_dir=diagnostics_dir,
+        run_root=run_root,
+        run_id="r1",
+        entry_id="post_run::audit1",
+        generated_during_pipeline=False,
+        source_command="scripts/family_label_taxonomy_audit.py --profile research_all_malicious",
+        source_run_id="r1",
+        artifact_paths=[str(audit_csv)],
+        lifecycle_class="post_run_enrichment",
+        extra={"audit_id": "audit1"},
+    )
+
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    entry = payload["entries"][0]
+    assert entry["generated_during_pipeline"] is False
+    assert entry["lifecycle_class"] == "post_run_enrichment"
+    assert entry["audit_id"] == "audit1"
+    assert entry["artifacts"][0]["lifecycle_class"] == "post_run_enrichment"
+    assert entry["artifacts"][0]["path"] == "diagnostics/post_run_enrichments/audit1/family_label_taxonomy_audit.csv"
+
+
+def test_resolve_post_run_enrichment_target_routes_run_diagnostics_to_subdir(tmp_path: Path) -> None:
+    requested = tmp_path / "output" / "runs" / "r1" / "diagnostics"
+    target = resolve_post_run_enrichment_target(diagnostics_dir=requested, audit_id="audit1")
+
+    assert target["artifact_dir"] == requested.resolve() / "post_run_enrichments" / "audit1"
+    assert target["provenance_dir"] == requested.resolve()
+    assert target["run_root"] == (tmp_path / "output" / "runs" / "r1").resolve()
+    assert target["source_run_id"] == "r1"
+    assert target["is_run_scoped_enrichment"] is True
+
+
+def test_write_run_science_index_mentions_post_run_enrichment(tmp_path: Path) -> None:
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "r1"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
+    (run_root / "run_summary.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / "run_observability_summary.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / "cohort_foundation.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / "cohort_funnel.md").write_text("# funnel\n", encoding="utf-8")
+    (run_root / "run_evidence_index.md").write_text("# evidence\n", encoding="utf-8")
+    latest_local = diagnostics_dir / "trained_family_registry.latest.csv"
+    latest_local.write_text("x\n1\n", encoding="utf-8")
+    audit_md = diagnostics_dir / "post_run_enrichments" / "audit1" / "family_label_taxonomy_audit.md"
+    audit_md.parent.mkdir(parents=True, exist_ok=True)
+    audit_md.write_text("# audit\n", encoding="utf-8")
+    record_diagnostic_provenance(
+        diagnostics_dir=diagnostics_dir,
+        run_root=run_root,
+        run_id="r1",
+        entry_id="post_run::audit1",
+        generated_during_pipeline=False,
+        source_command="scripts/family_label_taxonomy_audit.py --profile research_all_malicious",
+        source_run_id="r1",
+        artifact_paths=[str(audit_md)],
+        lifecycle_class="post_run_enrichment",
+        extra={"audit_id": "audit1"},
+    )
+
+    out_path = write_run_science_index_md(
+        run_root=run_root,
+        diagnostics_dir=diagnostics_dir,
+        run_id="r1",
+        profile_id="research_all_malicious",
+        evidence_mode=False,
+        cohort_locked=False,
+        publication_ready_status="NOT_APPLICABLE",
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "Run Science Index (r1)" in text
+    assert "post_run_enrichment" in text
+    assert "post_run_enrichments" in text
+    assert "prefer run-scoped artifacts over any `.latest` file" in text
+
+
+def test_classify_file_marks_run_local_latest_as_legacy_and_global_latest_as_operator(tmp_path: Path) -> None:
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "r1"
+    run_diag = run_root / "diagnostics"
+    run_diag.mkdir(parents=True, exist_ok=True)
+    run_latest = run_diag / "taxonomy_consistency_summary.latest.json"
+    run_latest.write_text("{}", encoding="utf-8")
+    global_latest = output_root / "diagnostics" / "run_manifest.latest.json"
+    global_latest.parent.mkdir(parents=True, exist_ok=True)
+    global_latest.write_text("{}", encoding="utf-8")
+
+    run_meta = classify_file(run_latest, base=run_root)
+    global_meta = classify_file(global_latest, base=output_root)
+
+    assert run_meta["lifecycle_class"] == "legacy_compatibility"
+    assert global_meta["lifecycle_class"] == "operator_convenience_mirror"
+
+
+def test_classify_file_marks_post_run_enrichment_subtree(tmp_path: Path) -> None:
+    run_root = tmp_path / "output" / "runs" / "r1"
+    audit_csv = run_root / "diagnostics" / "post_run_enrichments" / "audit1" / "family_label_taxonomy_audit.csv"
+    audit_csv.parent.mkdir(parents=True, exist_ok=True)
+    audit_csv.write_text("x\n1\n", encoding="utf-8")
+
+    meta = classify_file(audit_csv, base=run_root)
+
+    assert meta["artifact_bucket"] == "diagnostics_optional"
+    assert meta["lifecycle_class"] == "post_run_enrichment"

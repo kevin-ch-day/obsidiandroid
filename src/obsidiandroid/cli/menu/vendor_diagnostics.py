@@ -4,161 +4,38 @@ from __future__ import annotations
 
 from typing import Any
 from pathlib import Path
-import json
 
 import pandas as pd
 
+from config import app_config
 from obsidiandroid.vendors.parsing import vendor_parser_map
 from obsidiandroid.vendors import parse_generic_classification
 from obsidiandroid.database import db_engine
 from obsidiandroid.vendors import ParsedLabelMetadata
 from .workbook_loader import load_enriched_matrix_for_menu
-from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
-from config import app_config
 from . import run_locator
+from .vendor_parser_state import (
+    build_parser_diagnostics_state,
+    read_csv as _read_csv,
+    read_latest_manifest as _read_latest_manifest,
+    resolve_vendor_gate_pre_gate_csv,
+    resolve_vendor_parser_coverage_candidates_csv,
+    resolve_vendor_parser_coverage_csv,
+    resolve_vendor_strengths_weaknesses_csv,
+    resolve_vendor_stress_test_csv,
+)
 from ..ui import display as du
 from ..ui import menu as mu
 
 
-def _output_root() -> Path:
-    return Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-
-
-def _global_diagnostics() -> Path:
-    return _output_root() / "diagnostics"
-
-
-def _run_diagnostics(run_id: str) -> Path:
-    return _output_root() / "runs" / run_id.strip() / "diagnostics"
-
-
-def _first_existing(paths: list[Path]) -> Path | None:
-    for p in paths:
-        if p.is_file():
-            return p
-    return None
-
-
-def resolve_vendor_parser_coverage_csv() -> Path | None:
-    """Prefer run-scoped vendor_parser_coverage, then global ``.latest``."""
-    rid = run_locator.read_latest_run_id()
-    candidates: list[Path] = []
-    if rid:
-        rd = _run_diagnostics(rid)
-        candidates.extend(
-            [
-                rd / f"vendor_parser_coverage_{rid}.csv",
-                rd / "vendor_parser_coverage.latest.csv",
-            ]
-        )
-    candidates.append(_global_diagnostics() / "vendor_parser_coverage.latest.csv")
-    return _first_existing(candidates)
-
-
-def resolve_vendor_parser_coverage_candidates_csv() -> Path | None:
-    rid = run_locator.read_latest_run_id()
-    candidates: list[Path] = []
-    if rid:
-        rd = _run_diagnostics(rid)
-        candidates.extend(
-            [
-                rd / f"vendor_parser_coverage_candidates_{rid}.csv",
-                rd / "vendor_parser_coverage_candidates.latest.csv",
-            ]
-        )
-    candidates.append(_global_diagnostics() / "vendor_parser_coverage_candidates.latest.csv")
-    return _first_existing(candidates)
-
-
-def resolve_vendor_gate_pre_gate_csv() -> Path | None:
-    rid = run_locator.read_latest_run_id()
-    candidates: list[Path] = []
-    if rid:
-        rd = _run_diagnostics(rid)
-        candidates.extend(
-            [
-                rd / f"vendor_gate_top10_pre_gate_{rid}.csv",
-                rd / "vendor_gate_top10_pre_gate.latest.csv",
-            ]
-        )
-    candidates.append(_global_diagnostics() / "vendor_gate_top10_pre_gate.latest.csv")
-    return _first_existing(candidates)
-
-
-def resolve_vendor_stress_test_csv() -> Path | None:
-    rid = run_locator.read_latest_run_id()
-    candidates: list[Path] = []
-    if rid:
-        rd = _run_diagnostics(rid)
-        candidates.extend(
-            [
-                rd / f"vendor_parser_stress_test_{rid}.csv",
-                rd / "vendor_parser_stress_test.latest.csv",
-            ]
-        )
-    candidates.append(_global_diagnostics() / "vendor_parser_stress_test.latest.csv")
-    return _first_existing(candidates)
-
-
-def resolve_vendor_strengths_weaknesses_csv() -> Path | None:
-    rid = run_locator.read_latest_run_id()
-    candidates: list[Path] = []
-    if rid:
-        rd = _run_diagnostics(rid)
-        candidates.extend(
-            [
-                rd / f"vendor_parser_strengths_weaknesses_{rid}.csv",
-                rd / "vendor_parser_strengths_weaknesses.latest.csv",
-            ]
-        )
-    candidates.append(_global_diagnostics() / "vendor_parser_strengths_weaknesses.latest.csv")
-    return _first_existing(candidates)
-
-
-def _diagnostics_dir() -> Path:
-    """Resolve diagnostics directory under configured output root."""
-    return resolve_diagnostics_dir()
-
-
-def _read_csv(path: Path) -> pd.DataFrame:
-    """Read CSV if it exists, otherwise return empty DataFrame."""
-    if not path.exists():
-        return pd.DataFrame()
-    try:
-        return pd.read_csv(path)
-    except Exception:
-        return pd.DataFrame()
-
-
-def _read_latest_manifest() -> dict[str, Any]:
-    """Load latest run manifest payload when present."""
-    path = _diagnostics_dir() / "run_manifest.latest.json"
-    if not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
 def _parser_diagnostics_state() -> dict[str, object]:
     """Return current parser-diagnostics capability state."""
-    coverage_csv = resolve_vendor_parser_coverage_csv()
-    candidates_csv = resolve_vendor_parser_coverage_candidates_csv()
-    scores_csv = resolve_vendor_gate_pre_gate_csv()
-    try:
-        workbook_df = load_enriched_matrix_for_menu(emit_warnings=False)
-    except TypeError:
-        workbook_df = load_enriched_matrix_for_menu()
-    workbook_ready = isinstance(workbook_df, pd.DataFrame)
-    csv_ready = coverage_csv is not None
-    return {
-        "workbook_ready": workbook_ready,
-        "csv_ready": csv_ready,
-        "coverage_csv_path": coverage_csv or Path(),
-        "candidates_csv_path": candidates_csv or Path(),
-        "scores_csv_path": scores_csv or Path(),
-    }
+    return build_parser_diagnostics_state(workbook_loader=load_enriched_matrix_for_menu)
+
+
+def get_parser_summary_state() -> dict[str, object]:
+    """Return compact parser diagnostics state for other menu surfaces."""
+    return _parser_diagnostics_state()
 
 
 def print_parser_diagnostics_state() -> None:
@@ -166,22 +43,53 @@ def print_parser_diagnostics_state() -> None:
     state = _parser_diagnostics_state()
     du.print_subheader("Parser Diagnostics State")
     du.print_stat(
-        "Workbook-backed coverage",
-        "Available" if state["workbook_ready"] else "Unavailable",
+        "CSV coverage",
+        "Available" if state["csv_ready"] else "Unavailable",
     )
     du.print_stat(
-        "Vendor coverage CSV",
-        "Available" if state["csv_ready"] else "Unavailable",
+        "Workbook-backed enriched matrix",
+        "Available" if state["workbook_ready"] else "Unavailable",
     )
     du.print_stat(
         "Single-vendor drill-down",
         "Available" if state["workbook_ready"] else "Blocked",
     )
     if not state["workbook_ready"]:
-        du.print_note("Single-vendor diagnostics need a run completed through Vendor metadata.")
+        du.print_note("Single-vendor drill-down requires the workbook-backed enriched matrix.")
     if state["csv_ready"] and not state["workbook_ready"]:
-        du.print_info("Coverage and CSV views can still run from the latest run or global diagnostics exports.")
+        du.print_info("CSV coverage is available, but the workbook-backed enriched matrix is unavailable.")
+    if int(state.get("observed_engines", 0) or 0) > 0:
+        du.print_subheader("Vendor / engine context")
+        du.print_stat("Observed engines", state["observed_engines"])
+        du.print_stat("Parser mapped vendors", state["parser_mapped_vendors"])
+        du.print_stat("Unmapped vendors", state["unmapped_vendors"])
+        du.print_stat("Selected vendors for latest run", state["selected_vendors"] if state["selected_vendors"] is not None else "n/a")
+        du.print_stat("DB engine scoring universe", state["engine_scoring_universe"] if state["engine_scoring_universe"] is not None else "n/a")
+        du.print_info(
+            "Coverage reflects all observed engines, while selected vendors are the narrower leakage-safe subset used by the latest run."
+        )
     print("")
+
+
+def print_top_unmapped_vendors(*, limit: int = 5) -> int:
+    """Show a compact top-unmapped-vendors table from CSV snapshots."""
+    cov_path = resolve_vendor_parser_coverage_csv()
+    coverage_df = _read_csv(cov_path) if cov_path is not None else pd.DataFrame()
+    du.print_section("Top unmapped vendors")
+    if coverage_df.empty:
+        du.print_warning("[MENU] CSV snapshots unavailable for top unmapped vendors.")
+        return 1
+    top_unmapped = coverage_df[coverage_df["parser_mapped"] == 0].copy()
+    if top_unmapped.empty:
+        du.print_info("[MENU] No unmapped vendors found in the latest CSV snapshot.")
+        return 0
+    top_unmapped["coverage_pct"] = pd.to_numeric(top_unmapped.get("coverage_pct"), errors="coerce").fillna(0.0)
+    du.print_table(
+        top_unmapped.sort_values("coverage_pct", ascending=False).head(limit),
+        title=f"Top {limit} unmapped vendors by coverage",
+        show_index=False,
+    )
+    return 0
 
 
 def print_compact_vendor_coverage_snapshot() -> int:
@@ -245,12 +153,69 @@ def print_compact_vendor_coverage_snapshot() -> int:
     return 0
 
 
-def _print_workbook_missing_guidance() -> None:
+def print_parser_onboarding_candidates(*, limit: int = 5) -> int:
+    """Print parser onboarding candidates in a compact operator view."""
+    resolved = resolve_vendor_parser_coverage_candidates_csv()
+    candidates_path = resolved if resolved is not None else Path()
+    candidates_df = _read_csv(candidates_path)
+    du.print_section("Parser onboarding candidates")
+    if candidates_df.empty:
+        du.print_info("[MENU] No high-priority parser onboarding candidates in latest CSV snapshots.")
+        return 0
+    du.print_table(
+        candidates_df.head(limit),
+        title=f"Top {limit} parser onboarding candidates",
+        show_index=False,
+    )
+    return 0
+
+
+def print_selected_vendors_for_latest_run(*, limit: int = 5) -> int:
+    """Print selected-vendor context for the latest run in a compact form."""
+    du.print_section("Selected vendors for latest run")
+    _print_manifest_vendor_context()
+    resolved = resolve_vendor_gate_pre_gate_csv()
+    scores_path = resolved if resolved is not None else Path()
+    scores_df = _read_csv(scores_path)
+    if scores_df.empty:
+        du.print_info("[MENU] No selected-vendor CSV snapshot is available for the latest run.")
+        return 0
+    du.print_table(
+        scores_df.head(limit),
+        title=f"Top {limit} vendors by leakage-safe score",
+        show_index=False,
+    )
+    return 0
+
+
+def print_workbook_requirements() -> int:
+    """Explain workbook requirements without implying CSV snapshots are missing."""
+    state = _parser_diagnostics_state()
+    du.print_section("Workbook requirements")
+    _print_workbook_missing_guidance(csv_ready=bool(state.get("csv_ready")))
+    if bool(state.get("csv_ready")):
+        du.print_info("[MENU] CSV snapshots available.")
+    du.print_info("[MENU] Single-vendor drill-down requires the workbook-backed enriched matrix.")
+    return 0
+
+
+def print_parser_export_paths() -> int:
+    """Show operator-facing export paths for parser diagnostics artifacts."""
+    state = _parser_diagnostics_state()
+    du.print_section("Parser export paths")
+    du.print_stat("CSV coverage snapshot", str(state.get("coverage_csv_path") or "missing"))
+    du.print_stat("Parser onboarding snapshot", str(state.get("candidates_csv_path") or "missing"))
+    du.print_stat("Selected-vendor snapshot", str(state.get("scores_csv_path") or "missing"))
+    return 0
+
+
+def _print_workbook_missing_guidance(*, csv_ready: bool = False) -> None:
     """Print concise workbook-missing guidance with next step."""
     du.print_subheader("Workbook Required")
-    du.print_stat("Current capability", "Coverage and snapshots only")
+    du.print_stat("CSV coverage", "Available" if csv_ready else "Unavailable")
+    du.print_stat("Workbook-backed enriched matrix", "Unavailable")
     du.print_stat("Blocked action", "Single-vendor parser drill-down")
-    du.print_stat("Next step", "Run pipeline through Vendor metadata")
+    du.print_stat("Next step", "Generate workbook-backed enriched matrix export")
     print("")
 
 
@@ -392,7 +357,7 @@ def validate_parser_columns_from_latest_export() -> int:
         cov_path = resolve_vendor_parser_coverage_csv()
         coverage_df = _read_csv(cov_path) if cov_path is not None else pd.DataFrame()
         if coverage_df.empty:
-            _print_workbook_missing_guidance()
+            _print_workbook_missing_guidance(csv_ready=False)
             du.print_warning("[MENU] No parser coverage snapshot is available yet.")
             return 1
         du.print_note("[MENU] Workbook unavailable. Falling back to latest diagnostics snapshots.")
@@ -422,13 +387,17 @@ def run_single_vendor_parser_check() -> int:
     enriched_df = load_enriched_matrix_for_menu(emit_warnings=False)
     if enriched_df is None:
         du.print_section("Vendor Parser Diagnostic")
-        print_parser_diagnostics_state()
-        _print_workbook_missing_guidance()
+        state = _parser_diagnostics_state()
+        du.print_stat("Workbook drill-down", "Unavailable")
+        if bool(state.get("csv_ready")):
+            du.print_stat("CSV snapshots", "Available")
+        else:
+            du.print_stat("CSV snapshots", "Unavailable")
         du.print_warning(
-            "[MENU] Single-vendor parser diagnostics require the enriched AV matrix workbook."
+            "Workbook drill-down unavailable. Single-vendor parser diagnostics require the workbook-backed enriched matrix."
         )
         du.print_info(
-            "[MENU] Coverage and snapshot views remain available from latest diagnostics CSV exports."
+            "Coverage and snapshot views remain available from latest diagnostics CSV exports."
         )
         return 1
 

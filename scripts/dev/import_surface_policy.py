@@ -10,33 +10,33 @@ import ast
 from dataclasses import dataclass
 from pathlib import Path
 
+from scripts.dev.compatibility_retirement_manifest import (
+    ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS as _ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS,
+    CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST as _CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST,
+    CANONICAL_FILENAME_HEADER_BAD_ROOTS as _CANONICAL_FILENAME_HEADER_BAD_ROOTS,
+    EARLY_DEPRECATION_READY_TREES as _EARLY_DEPRECATION_READY_TREES,
+    LEGACY_COMPATIBILITY_IMPORT_ROOTS as _LEGACY_COMPATIBILITY_IMPORT_ROOTS,
+    LEGACY_LEAF_SHIM_ROOTS as _LEGACY_LEAF_SHIM_ROOTS,
+    ML_CLASSIFICATION_TRAINING_PLAIN_IDENTITY_SHIMS as _ML_CLASSIFICATION_TRAINING_PLAIN_IDENTITY_SHIMS,
+    NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST as _NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST,
+)
+
 _UTF8_BOM = b"\xef\xbb\xbf"
-CANONICAL_CODE_LEGACY_IMPORT_ROOTS = frozenset(
-    {
-        "analysis",
-        "ml_classification",
-    }
-)
+CANONICAL_CODE_LEGACY_IMPORT_ROOTS = frozenset(_LEGACY_COMPATIBILITY_IMPORT_ROOTS)
 # First path segment of ``# Filename:`` headers under ``src/`` must not name a legacy tree.
-CANONICAL_FILENAME_HEADER_BAD_ROOTS = frozenset(
-    {
-        *CANONICAL_CODE_LEGACY_IMPORT_ROOTS,
-        "database",
-    }
-)
+CANONICAL_FILENAME_HEADER_BAD_ROOTS = frozenset(_CANONICAL_FILENAME_HEADER_BAD_ROOTS)
 _CANONICAL_CODE_IMPORT_SCAN_ROOTS = ("src", "scripts")
-CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST = frozenset(
-    {
-        Path("scripts/dev/check_import_surface.py"),
-    }
-)
-NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST = frozenset(
-    {
-        Path("tests/test_obsidiandroid_package_surface.py"),
-    }
-)
-LEGACY_LEAF_SHIM_ROOTS = ("analysis", "ml_classification")
+CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST = frozenset(_CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST)
+NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST = frozenset(_NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST)
+LEGACY_LEAF_SHIM_ROOTS = _LEGACY_LEAF_SHIM_ROOTS
 LEGACY_LEAF_SHIM_MAX_LINES = 16
+READY_NOW_LEGACY_SHIM_BATCHES = frozenset(_EARLY_DEPRECATION_READY_TREES)
+ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS = frozenset(
+    Path(p) for p in _ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS
+)
+ML_CLASSIFICATION_TRAINING_PLAIN_IDENTITY_SHIMS = frozenset(
+    Path(p) for p in _ML_CLASSIFICATION_TRAINING_PLAIN_IDENTITY_SHIMS
+)
 # Directory name fragments skipped when scanning for UTF-8 BOM (generated / vendor trees).
 _BOM_SCAN_SKIP_DIR_PARTS = frozenset(
     {
@@ -79,14 +79,21 @@ __all__ = (
     "CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST",
     "CANONICAL_CODE_LEGACY_IMPORT_ROOTS",
     "CANONICAL_FILENAME_HEADER_BAD_ROOTS",
+    "ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS",
     "LEGACY_LEAF_SHIM_MAX_LINES",
     "LEGACY_LEAF_SHIM_ROOTS",
+    "ML_CLASSIFICATION_TRAINING_PLAIN_IDENTITY_SHIMS",
     "NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST",
+    "READY_NOW_LEGACY_SHIM_BATCHES",
     "THIN_COMPAT_SHIM_POLICIES",
     "ThinCompatShimPolicy",
     "collect_canonical_code_legacy_imports",
+    "collect_analysis_pipeline_plain_shim_violations",
     "collect_legacy_leaf_shim_violations",
+    "collect_database_shim_helper_violations",
+    "collect_ml_training_plain_shim_violations",
     "collect_nonparity_test_legacy_imports",
+    "collect_ready_now_shim_helper_violations",
     "collect_stale_canonical_filename_headers",
     "collect_thin_compat_shim_violations",
     "collect_utf8_bom_python_sources",
@@ -233,6 +240,118 @@ def collect_legacy_leaf_shim_violations(repo_root: Path) -> list[str]:
                         f"{rel}: shim must not define {node.name!r} at module level "
                         "(implement under src/obsidiandroid)"
                     )
+    return errors
+
+
+def _ready_now_batch_python_files(repo_root: Path, subtree: str) -> list[Path]:
+    if "/*.py" in subtree:
+        base = repo_root / subtree.split("/*.py", 1)[0]
+        files = sorted(path for path in base.glob("*.py") if path.is_file())
+        if subtree.startswith("database/*.py"):
+            return [path for path in files if path.name not in {"__init__.py", "split_db_health.py"}]
+        return files
+    subtree_path = repo_root / subtree
+    if subtree_path.is_file():
+        return [subtree_path]
+    if subtree_path.is_dir():
+        return sorted(path for path in subtree_path.rglob("*.py") if path.is_file())
+    return []
+
+
+def collect_ready_now_shim_helper_violations(repo_root: Path) -> list[str]:
+    """Return ready-now shim batches that drift from the shared helper/warning pattern."""
+    errors: list[str] = []
+    for subtree in READY_NOW_LEGACY_SHIM_BATCHES:
+        for path in _ready_now_batch_python_files(repo_root, subtree):
+            rel = path.relative_to(repo_root)
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError as exc:
+                errors.append(f"{rel}: cannot read file ({exc})")
+                continue
+            if rel.name == "__init__.py" and rel.parts[0] == "ml_classification":
+                if "lazy_legacy_submodule(" not in text and "import_legacy_shim(" not in text:
+                    errors.append(
+                        f"{rel}: ready-now ml_classification package shim must use "
+                        "lazy_legacy_submodule(...) or import_legacy_shim(...)"
+                    )
+                if "warn=True" not in text:
+                    errors.append(f"{rel}: ready-now ml_classification package shim must opt in to warn=True")
+                continue
+            if "import_legacy_shim(" not in text:
+                errors.append(f"{rel}: ready-now legacy shim must use import_legacy_shim(...)")
+            if "warn=True" not in text:
+                errors.append(f"{rel}: ready-now legacy shim must opt in to warn=True")
+            if "importlib.import_module(" in text:
+                errors.append(f"{rel}: ready-now legacy shim should not call importlib.import_module directly")
+    return errors
+
+
+def collect_database_shim_helper_violations(repo_root: Path) -> list[str]:
+    """Return repo-root database shims that drift from the shared helper pattern."""
+    errors: list[str] = []
+    base = repo_root / "database"
+    if not base.exists():
+        return errors
+    for path in sorted(base.glob("*.py")):
+        if path.name == "__init__.py":
+            continue
+        rel = path.relative_to(repo_root)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            errors.append(f"{rel}: cannot read file ({exc})")
+            continue
+        if "import_legacy_shim(" not in text:
+            errors.append(f"{rel}: database shim must use import_legacy_shim(...)")
+        if path.name != "split_db_health.py" and "sys.modules[__name__] = _mod" not in text:
+            errors.append(f"{rel}: database leaf shim must register sys.modules[__name__] = _mod")
+        if path.name == "split_db_health.py" and 'sys.modules["database.split_db_health"] = _canon' not in text:
+            errors.append(f"{rel}: split_db_health shim must register database.split_db_health alias")
+        if "importlib.import_module(" in text:
+            errors.append(f"{rel}: database shim should not call importlib.import_module directly")
+    return errors
+
+
+def collect_analysis_pipeline_plain_shim_violations(repo_root: Path) -> list[str]:
+    """Return ordinary analysis/pipeline shims that drift from the shared helper pattern."""
+    errors: list[str] = []
+    for rel in sorted(ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS):
+        path = repo_root / rel
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            errors.append(f"{rel}: cannot read file ({exc})")
+            continue
+        if "import_legacy_shim(" not in text:
+            errors.append(f"{rel}: plain analysis.pipeline shim must use import_legacy_shim(...)")
+        if "sys.modules[__name__] = _mod" not in text:
+            errors.append(f"{rel}: plain analysis.pipeline shim must register sys.modules[__name__] = _mod")
+        if "importlib.import_module(" in text:
+            errors.append(f"{rel}: plain analysis.pipeline shim should not call importlib.import_module directly")
+    return errors
+
+
+def collect_ml_training_plain_shim_violations(repo_root: Path) -> list[str]:
+    """Return ordinary ml_classification/training shims that drift from the shared helper pattern."""
+    errors: list[str] = []
+    for rel in sorted(ML_CLASSIFICATION_TRAINING_PLAIN_IDENTITY_SHIMS):
+        path = repo_root / rel
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            errors.append(f"{rel}: cannot read file ({exc})")
+            continue
+        if "import_legacy_shim(" not in text:
+            errors.append(f"{rel}: plain ml_classification.training shim must use import_legacy_shim(...)")
+        if "sys.modules[__name__] = _mod" not in text and "sys.modules[__name__] = _canonical" not in text:
+            errors.append(
+                f"{rel}: plain ml_classification.training shim must register sys.modules[__name__] alias"
+            )
+        if "importlib.import_module(" in text or "from importlib import import_module" in text:
+            errors.append(
+                f"{rel}: plain ml_classification.training shim should not use direct importlib import patterns"
+            )
     return errors
 
 

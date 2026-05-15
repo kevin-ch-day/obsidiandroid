@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import importlib
 import sys
 
-_mod = importlib.import_module("obsidiandroid.pipeline.runtime_policy")
+from obsidiandroid.legacy_shim_lazy import import_legacy_shim
+
+_mod = import_legacy_shim("obsidiandroid.pipeline.runtime_policy", __name__)
 sys.modules[__name__] = _mod

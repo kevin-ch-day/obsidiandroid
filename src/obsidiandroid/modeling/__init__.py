@@ -1,8 +1,8 @@
-"""ML modeling helpers and thin canonical aliases.
+"""Canonical ML modeling namespace.
 
-Pass 47 exposed a minimal, docs-approved alias set backed by identity-preserving
-module objects. Subsequent passes physically moved orchestration-heavy training
-controllers and utility helpers while keeping legacy shims:
+Training controllers, execution helpers, evaluation helpers, and utility
+modules now live under ``obsidiandroid.modeling`` while legacy
+``ml_classification.*`` paths remain thin compatibility shims:
 
 - :mod:`obsidiandroid.modeling.pipeline_core` (physical)
 - :mod:`obsidiandroid.modeling.model_trainer_factory` (physical)

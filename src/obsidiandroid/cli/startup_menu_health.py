@@ -6,9 +6,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from config import app_config
-
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common.output_paths import output_root as canonical_output_root
 
 from .startup_menu_run_context import (
     read_json_object,
@@ -21,7 +20,7 @@ from obsidiandroid.diagnostics import reproducibility_workbench as repro_workben
 def run_health_check(*, run_id: str | None = None) -> int:
     """Run health + artifact checks for latest or selected run (writes run-scoped diagnostics)."""
     du.print_section("Run Health & Artifact Check")
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+    output_root = canonical_output_root()
     diagnostics_dir = output_root / "diagnostics"
     latest_manifest_path = diagnostics_dir / "run_manifest.latest.json"
 
