@@ -100,9 +100,10 @@ def test_print_parser_diagnostics_state_reports_csv_vs_workbook_context(
     out = capsys.readouterr().out
     assert "CSV snapshots" in out
     assert "Workbook drill-down" in out
-    assert "Single-vendor drill-down requires the workbook-backed enriched matrix." in out
+    assert "Workbook drill-down is optional unless you need single-vendor parser debugging." in out
     assert "Observed engines" in out
     assert "Parser mapped vendors" in out
+    assert "Onboarding queue" in out
     assert "Selected vendors for latest run" in out
     assert "DB engine scoring universe" in out
 
@@ -124,5 +125,98 @@ def test_single_vendor_parser_check_compact_blocked_message_without_reprinting_f
     assert result == 1
     assert "Workbook drill-down" in out
     assert "CSV snapshots" in out
+    assert "Onboarding queue" in out
     assert "PARSER DIAGNOSTICS STATE" not in out
     assert "WORKBOOK REQUIRED" not in out
+
+
+def test_parser_summary_compact_focuses_on_status_and_next_actions(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    out_root = tmp_path / "output"
+    run_id = "20260515T141956Z__58d84f"
+    run_diag = out_root / "runs" / run_id / "diagnostics"
+    run_diag.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {"vendor_column": "crowdstrike", "coverage_pct": 100.0, "parser_mapped": 0, "is_dynamic_generic": 0},
+            {"vendor_column": "kaspersky", "coverage_pct": 99.0, "parser_mapped": 1, "is_dynamic_generic": 0},
+            {"vendor_column": "gdata", "coverage_pct": 98.0, "parser_mapped": 0, "is_dynamic_generic": 0},
+        ]
+    ).to_csv(run_diag / "vendor_parser_coverage.latest.csv", index=False)
+    pd.DataFrame(
+        [
+            {"priority_rank": 1, "vendor_column": "crowdstrike", "coverage_pct": 100.0, "parser_mapped": 0, "is_dynamic_generic": 0, "onboarding_priority": "high_coverage_unmapped"},
+            {"priority_rank": 2, "vendor_column": "gdata", "coverage_pct": 98.0, "parser_mapped": 0, "is_dynamic_generic": 0, "onboarding_priority": "high_coverage_unmapped"},
+        ]
+    ).to_csv(run_diag / "vendor_parser_coverage_candidates.latest.csv", index=False)
+    pd.DataFrame(
+        [{"Vendor": "tencent"}, {"Vendor": "lionic"}, {"Vendor": "alibaba"}]
+    ).to_csv(run_diag / f"vendor_gate_top10_pre_gate_{run_id}.csv", index=False)
+    (out_root / "diagnostics").mkdir(parents=True, exist_ok=True)
+    (out_root / "diagnostics" / "run_manifest.latest.json").write_text(
+        json.dumps({"run_id": run_id, "selected_vendor_count": 8}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(vendor_parser_state.run_locator, "read_latest_run_id", lambda: run_id)
+    monkeypatch.setattr(vendor_parser_state.app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    monkeypatch.setattr(vendor_diagnostics_actions, "load_enriched_matrix_for_menu", lambda **_kwargs: None)
+
+    vendor_diagnostics.print_compact_vendor_coverage_snapshot()
+    out = capsys.readouterr().out
+    assert "PARSER SUMMARY" in out
+    assert "Parser health" in out
+    assert "Onboarding queue" in out
+    assert "Observed engines are all active vendor columns in the latest run." in out
+    assert "Top onboarding candidates: crowdstrike, gdata" in out
+    assert "Top selected vendors: tencent, lionic, alibaba" in out
+    assert "Source file" not in out
+
+
+def test_parser_onboarding_queue_shows_top_10_and_tuning_columns(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    out_root = tmp_path / "output"
+    run_id = "20260515T141956Z__58d84f"
+    run_diag = out_root / "runs" / run_id / "diagnostics"
+    run_diag.mkdir(parents=True, exist_ok=True)
+    coverage_rows = []
+    candidate_rows = []
+    names = ["crowdstrike", "gdata", "k7antivirus", "microworld_escan", "paloalto", "superantispyware", "symantecmobileinsight", "tachyon", "trustlook", "virobot", "acronis"]
+    for idx, name in enumerate(names, start=1):
+        coverage_rows.append({"vendor_column": name, "coverage_pct": 100.0 - idx, "parser_mapped": 0, "is_dynamic_generic": 0})
+        candidate_rows.append({"priority_rank": idx, "vendor_column": name, "coverage_pct": 100.0 - idx, "parser_mapped": 0, "is_dynamic_generic": 0, "onboarding_priority": "high_coverage_unmapped"})
+    pd.DataFrame(coverage_rows).to_csv(run_diag / "vendor_parser_coverage.latest.csv", index=False)
+    pd.DataFrame(candidate_rows).to_csv(run_diag / "vendor_parser_coverage_candidates.latest.csv", index=False)
+    pd.DataFrame(
+        [
+            {"vendor": "crowdstrike", "inclusion_status": "exclude", "mapped_ratio": 0.0, "unknown_ratio": 0.8, "generic_ratio": 0.8, "trusted_vendor_flag": 0, "active_vendor_flag": 1, "strength_tags": "", "weakness_tags": "high_unknown"},
+            {"vendor": "trustlook", "inclusion_status": "exclude", "mapped_ratio": 0.0, "unknown_ratio": 0.2, "generic_ratio": 0.2, "trusted_vendor_flag": 0, "active_vendor_flag": 1, "strength_tags": "", "weakness_tags": "coverage_only"},
+        ]
+    ).to_csv(run_diag / "vendor_parser_strengths_weaknesses.latest.csv", index=False)
+    pd.DataFrame([{"Vendor": "trustlook", "Family Match Accuracy (%)": 15.0, "Vendor Category": "High Diversity", "rank": 1}]).to_csv(
+        run_diag / f"vendor_gate_top10_pre_gate_{run_id}.csv",
+        index=False,
+    )
+    (out_root / "diagnostics").mkdir(parents=True, exist_ok=True)
+    (out_root / "diagnostics" / "run_manifest.latest.json").write_text(
+        json.dumps({"run_id": run_id, "selected_vendor_count": 1}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(vendor_parser_state.run_locator, "read_latest_run_id", lambda: run_id)
+    monkeypatch.setattr(vendor_parser_state.app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+
+    vendor_diagnostics.print_parser_onboarding_candidates()
+    out = capsys.readouterr().out
+    assert "Top 10 parser onboarding candidates" in out
+    assert "selected_in_latest_run" in out
+    assert "trusted_active" in out
+    assert "priority_reason" in out
+    assert "recommended_action" in out
+    assert "acronis" not in out

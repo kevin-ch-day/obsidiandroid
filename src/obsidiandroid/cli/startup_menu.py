@@ -19,6 +19,7 @@ from .menu import diagnostics_banners
 from .menu import startup_menu_actions
 from . import startup_menu_diagnostics as _diagnostics_menu
 from . import startup_menu_research as _research_menu
+from . import startup_menu_review as _review_menu
 
 from .startup_menu_health import run_health_check as _run_health_check
 from .startup_menu_run_context import (
@@ -591,6 +592,23 @@ def _launch_data_diagnostics_menu() -> None:
     )
 
 
+def _launch_review_latest_run_menu() -> None:
+    """Primary operator decision flow for the latest run."""
+    _review_menu.launch_review_latest_run_menu(
+        read_latest_run_id=_read_latest_run_id,
+        open_run_science_index_action=_open_run_science_index,
+        launch_cohort_family_audit_action=_launch_cohort_family_audit_menu,
+        launch_parser_vendor_coverage_action=_launch_parser_vendor_coverage_menu,
+        launch_permission_intelligence_coverage_action=_launch_permission_intelligence_coverage_menu,
+        launch_feature_matrix_modality_action=_launch_feature_matrix_modality_menu,
+        launch_taxonomy_consistency_review_action=_launch_taxonomy_consistency_review_menu,
+        launch_run_overview_action=_launch_run_overview_menu,
+        launch_compare_runs_action=_launch_compare_runs_menu,
+        launch_data_diagnostics_action=_launch_data_diagnostics_menu,
+        launch_reproducibility_action=_launch_reproducibility_menu,
+    )
+
+
 def _show_research_report_key_artifact_paths() -> None:
     """Consolidated paths: index/Q1–Q3/validity audits for the latest run."""
     _research_menu.show_research_report_key_artifact_paths(read_latest_run_id=_read_latest_run_id)
@@ -747,6 +765,7 @@ def _build_main_menu_commands() -> list[_MenuCommand]:
     """Return the redesigned top-level operator menu."""
     return [
         _MenuCommand(label="Run Analysis", action=_launch_pipeline_actions_menu),
+        _MenuCommand(label="Review Latest Run", action=_launch_review_latest_run_menu),
         _MenuCommand(label="Run Status and History", action=_launch_run_overview_menu),
         _MenuCommand(label="Research Reports", action=_launch_research_reports_menu),
         _MenuCommand(label="Reproducibility & research validity", action=_launch_reproducibility_menu),

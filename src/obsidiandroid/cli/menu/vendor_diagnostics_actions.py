@@ -126,11 +126,21 @@ def run_single_vendor_parser_check() -> int:
     """Run one parser against latest enriched matrix column and print quality stats."""
     enriched_df = load_enriched_matrix_for_menu(emit_warnings=False)
     if enriched_df is None:
-        du.print_section("Vendor Parser Diagnostic")
+        du.print_section("Vendor parser drill-down")
         state = get_parser_summary_state()
+        du.print_stat("Parser health", str(state.get("status", "unknown")))
         du.print_stat("Workbook drill-down", "Unavailable")
         du.print_stat("CSV snapshots", "Available" if bool(state.get("csv_ready")) else "Unavailable")
-        du.print_warning("Workbook drill-down unavailable. Single-vendor parser diagnostics require the workbook-backed enriched matrix.")
+        du.print_stat(
+            "Onboarding queue",
+            state.get("onboarding_candidate_count") if state.get("onboarding_candidate_count") is not None else "n/a",
+        )
+        if state.get("top_candidates_preview"):
+            du.print_info(
+                "Open first: parser onboarding candidates for "
+                + ", ".join(str(v) for v in state["top_candidates_preview"])
+            )
+        du.print_warning("Workbook drill-down unavailable. Single-vendor parser debugging requires the workbook-backed enriched matrix.")
         du.print_info("Coverage and snapshot views remain available from latest diagnostics CSV exports.")
         return 1
 

@@ -43,6 +43,7 @@ def test_main_menu_uses_concise_title_and_primary_workflow_order(monkeypatch) ->
     assert captured["title"] == "Main menu"
     assert captured["labels"] == [
         "Run Analysis",
+        "Review Latest Run",
         "Run Status and History",
         "Research Reports",
         "Reproducibility & research validity",
@@ -233,6 +234,44 @@ def test_parser_menu_does_not_repeat_state_block_when_state_is_unchanged(monkeyp
     startup_menu._launch_parser_vendor_coverage_menu()  # pylint: disable=protected-access
 
     assert calls["state"] == 1
+
+
+def test_parser_menu_uses_tuning_labels_in_compact_mode(monkeypatch) -> None:
+    """Parser submenu should default to tuning workflow labels in compact mode."""
+    captured: dict[str, object] = {}
+
+    def _fake_display_menu(options, *_, **kwargs):
+        captured["title"] = str(kwargs.get("title", ""))
+        captured["labels"] = list(options)
+        return 0
+
+    monkeypatch.setattr(
+        startup_menu.vendor_diagnostics,
+        "get_parser_summary_state",
+        lambda: {
+            "display_mode": "compact",
+            "csv_ready": True,
+            "workbook_ready": False,
+            "observed_engines": 95,
+            "parser_mapped_vendors": 25,
+            "unmapped_vendors": 70,
+            "selected_vendors": 8,
+            "engine_scoring_universe": 95,
+        },
+    )
+    monkeypatch.setattr(startup_menu.vendor_diagnostics, "print_parser_diagnostics_state", lambda: None)
+    monkeypatch.setattr(startup_menu.mu, "display_menu", _fake_display_menu)
+
+    startup_menu._launch_parser_vendor_coverage_menu()  # pylint: disable=protected-access
+
+    assert captured["title"] == "Parser & vendor tuning"
+    assert captured["labels"] == [
+        "Parser summary",
+        "Parser onboarding workflow",
+        "Selected vendor signal quality",
+        "Workbook drill-down requirements",
+        "Single-vendor parser drill-down",
+    ]
 
 
 def test_open_run_science_index_falls_back_to_best_available_index(monkeypatch, tmp_path: Path) -> None:

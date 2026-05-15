@@ -341,18 +341,24 @@ def launch_parser_vendor_coverage_menu() -> None:
         if last_state_sig != state_sig:
             vendor_diagnostics.print_parser_diagnostics_state()
             last_state_sig = state_sig
+        display_mode = str(state.get("display_mode", "compact"))
         opts = [
             "Parser summary",
-            "Top unmapped vendors",
-            "Parser onboarding candidates",
-            "Selected vendors for latest run",
-            "Workbook requirements",
-            "Export paths",
-            "Single Vendor Parser Diagnostic",
+            "Parser onboarding workflow",
+            "Selected vendor signal quality",
+            "Workbook drill-down requirements",
+            "Single-vendor parser drill-down",
         ]
+        if display_mode != "compact":
+            opts.extend(
+                [
+                    "Top unmapped vendors",
+                    "Export paths",
+                ]
+            )
         choice = mu.display_menu(
             opts,
-            title="Parser & vendor coverage",
+            title="Parser & vendor tuning",
             exit_label="Back",
             breadcrumb="Main menu › Data Diagnostics › Parser vendor",
         )
@@ -362,23 +368,24 @@ def launch_parser_vendor_coverage_menu() -> None:
             vendor_diagnostics.print_compact_vendor_coverage_snapshot()
             continue
         if choice == 2:
-            vendor_diagnostics.print_top_unmapped_vendors()
-            continue
-        if choice == 3:
             vendor_diagnostics.print_parser_onboarding_candidates()
             continue
-        if choice == 4:
+        if choice == 3:
             vendor_diagnostics.print_selected_vendors_for_latest_run()
             continue
-        if choice == 5:
+        if choice == 4:
             vendor_diagnostics.print_workbook_requirements()
             continue
-        if choice == 6:
-            vendor_diagnostics.print_parser_export_paths()
-            continue
-        if choice == 7:
+        if choice == 5:
             vendor_diagnostics.run_single_vendor_parser_check()
             continue
+        if display_mode != "compact":
+            if choice == 6:
+                vendor_diagnostics.print_top_unmapped_vendors()
+                continue
+            if choice == 7:
+                vendor_diagnostics.print_parser_export_paths()
+                continue
         du.print_warning("[MENU] Invalid choice received.")
 
 
