@@ -13,6 +13,7 @@ from .menu.display_mode import is_compact_mode, is_debug_mode, is_detailed_mode,
 from .menu.operator_state import build_operator_state
 from .ui import display as du
 from .ui import menu as mu
+from . import startup_menu_diagnostics as diagnostics_menu
 
 
 def _read_first_json(candidates: list[Path]) -> dict:
@@ -103,6 +104,18 @@ def _health_status_map(rows: list[dict[str, object]]) -> dict[str, str]:
     }
 
 
+def _status_rank(status: str) -> int:
+    """Rank status severity for stable operator prioritization."""
+    token = str(status or "").strip().upper()
+    if token == "RED":
+        return 0
+    if token == "YELLOW":
+        return 1
+    if token == "GREEN":
+        return 2
+    return 3
+
+
 def _append_warning(
     warnings: list[str],
     *,
@@ -112,6 +125,13 @@ def _append_warning(
     open_label: str,
 ) -> None:
     warnings.append(f"{problem} Why it matters: {why} Next: {next_action} Open: {open_label}.")
+
+
+def _safe_int(value: object, default: int = 0) -> int:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
 
 
 def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | None) -> dict[str, object]:
@@ -159,6 +179,8 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
             gdiag / "modality_contribution_summary.json",
         ]
     )
+    taxonomy_support = diagnostics_menu.build_taxonomy_support_tuning_snapshot(run_id=rid, output_root=output_root) if rid else {}
+    permission_tuning = diagnostics_menu.build_permission_coverage_tuning_snapshot(run_id=rid, output_root=output_root) if rid else {}
 
     health_rows = [
         {"label": "Cohort / labels", "status": status_map.get("Cohort / labels", "RED")},
@@ -259,6 +281,26 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
         {"label": "Feature-set ablation summary", "path": ablation_md if ablation_md.is_file() else ablation_csv},
         {"label": "Figure validity audit", "path": figure_md},
     ]
+    row_to_open_label = {
+        "Cohort / labels": "Run science index",
+        "Taxonomy consistency": "Taxonomy consistency summary",
+        "Permission signal": "Permission and feature health",
+        "Vendor/parser": "Parser & Vendor Coverage",
+        "Feature matrix": "Feature matrix / modality coverage",
+        "Ablation / signal contribution": "Feature-set ablation summary",
+        "Figure validity": "Figure validity audit",
+        "Evidence/provenance": "Run science index",
+    }
+    ranked_issues = sorted(
+        [row for row in health_rows if isinstance(row, dict)],
+        key=lambda row: _status_rank(str(row.get("status", ""))),
+    )
+    tune_next_priority: list[str] = []
+    for row in ranked_issues:
+        label = str(row.get("label", "") or "")
+        token = row_to_open_label.get(label)
+        if token and token not in tune_next_priority:
+            tune_next_priority.append(token)
 
     tuning_actions: list[str] = []
     if health_map.get("Taxonomy consistency") in {"YELLOW", "RED"} and tax_mismatch > 0:
@@ -277,6 +319,13 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
         tuning_actions.append("Review figure validity before using plots as research claims.")
     if not tuning_actions:
         tuning_actions.append("Open run science index and inspect cohort funnel first.")
+    tax_recommended_action = (
+        "Review taxonomy mismatches first, then near-threshold families before adjusting support settings."
+        if _safe_int(taxonomy_support.get("taxonomy_mismatch_total", 0), 0) > 0
+        else "Cross-check retained/dropped families with support threshold preview before profile changes."
+    )
+    if tune_next_priority:
+        tuning_actions.insert(0, "Prioritize screens in this order: " + " -> ".join(tune_next_priority[:3]) + ".")
 
     return {
         "display_mode": mode,
@@ -290,6 +339,9 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
         "warnings": warnings[:5],
         "open_first": open_first,
         "tuning_actions": tuning_actions[:5],
+        "taxonomy_support_summary": taxonomy_support,
+        "permission_tuning_summary": permission_tuning,
+        "taxonomy_support_recommended_action": tax_recommended_action,
         "run_science_index_path": shared.get("best_run_index_path"),
         "run_science_index_canonical": bool(shared.get("has_canonical_run_science", False)),
         "cohort_funnel_path": cohort_funnel_md,
@@ -313,6 +365,49 @@ def print_compact_review_latest_run(*, output_root: Path, latest_run_id: str | N
     du.print_stat("Cohort lock", str(summary.get("cohort_lock_status") or "unknown"))
     du.print_stat("Evidence mode", "Yes" if bool(summary.get("evidence_mode", False)) else "No")
     du.print_stat("Publication-ready", str(summary.get("publication_ready_status") or "Not applicable"))
+    print("")
+    print("Taxonomy & Support Tuning")
+    tax = summary.get("taxonomy_support_summary", {})
+    if isinstance(tax, dict) and tax:
+        du.print_stat("  Taxonomy health", str(tax.get("taxonomy_health", "—")))
+        du.print_stat("  Taxonomy mismatches", str(tax.get("taxonomy_mismatch_total", "—")))
+        du.print_stat(
+            "  Family mismatches vs type/rendering",
+            f"{tax.get('family_mismatch_count', '—')} vs {tax.get('type_rendering_issue_count', '—')}",
+        )
+        du.print_stat("  min_samples_per_family", str(tax.get("min_samples_per_family", "—")))
+        du.print_stat(
+            "  Families retained/dropped",
+            f"{tax.get('families_retained', '—')} / {tax.get('families_dropped', '—')}",
+        )
+        du.print_stat("  Samples dropped (estimate)", str(tax.get("samples_dropped_estimate", "—")))
+        du.print_stat("  Families just below threshold", str(tax.get("families_just_below_threshold", "—")))
+        sens = tax.get("threshold_sensitivity", [])
+        if isinstance(sens, list) and sens:
+            preview = []
+            for row in sens[:5]:
+                if not isinstance(row, dict):
+                    continue
+                preview.append(
+                    f"t{row.get('threshold')}: fam {row.get('retained_families')}/{row.get('dropped_families')} kept/dropped; "
+                    f"samples {row.get('retained_samples')}/{row.get('dropped_samples')}"
+                )
+            if preview:
+                du.print_info("  Threshold sensitivity (5/10/15/20/25): " + " | ".join(preview))
+        du.print_info(f"  Recommended next action: {summary.get('taxonomy_support_recommended_action', 'Review taxonomy/support artifacts.')}")
+    print("")
+    print("Permission Coverage Tuning")
+    perm = summary.get("permission_tuning_summary", {})
+    if isinstance(perm, dict) and perm:
+        du.print_stat(
+            "  Global permission signal",
+            f"{perm.get('global_permission_signal_n', '—')} rows ({diagnostics_banners.format_percent_for_menu(perm.get('global_permission_signal_pct'))})",
+        )
+        du.print_stat("  Weak/zero coverage types", str(perm.get("weak_or_zero_coverage_types", "—")))
+        du.print_stat("  Weak/zero coverage families", str(perm.get("weak_or_zero_coverage_families", "—")))
+        du.print_stat("  Permission feature survival", str(perm.get("permission_feature_survival", "—")))
+        du.print_stat("  Permission-only ablation signal", str(perm.get("permission_only_ablation_signal", "—")))
+        du.print_info("  Tune next: inspect weak/zero coverage groups before changing permission feature settings.")
     print("")
     print("Status")
     for row in summary.get("health_rows", []):

@@ -125,6 +125,7 @@ def test_data_diagnostics_menu_uses_compact_view_first_order(monkeypatch) -> Non
     assert captured["labels"] == [
         "Open run science index",
         "Pipeline profile tuning (latest manifest)",
+        "Taxonomy & Support Tuning",
         "Taxonomy Consistency Review",
         "Parser & Vendor Coverage",
         "Permission Intelligence Coverage",

@@ -72,3 +72,6 @@ def test_build_parser_diagnostics_state_returns_compact_counts(
     assert state["unmapped_vendors"] == 1
     assert state["selected_vendors"] == 8
     assert state["engine_scoring_universe"] == 2
+    assert state["source_run_id"] == run_id
+    assert state["coverage_from_latest_run"] is True
+    assert state["selected_vendor_data_present"] is False

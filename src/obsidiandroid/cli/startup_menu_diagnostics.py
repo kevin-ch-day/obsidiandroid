@@ -7,6 +7,8 @@ import subprocess
 import sys
 from typing import Callable
 
+import pandas as pd
+
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.json_io import read_json_dict
 from obsidiandroid.common.output_paths import output_root as canonical_output_root
@@ -19,6 +21,7 @@ from obsidiandroid.governance import paper_cohort_contract
 
 from .menu import diagnostics_banners
 from .menu import vendor_diagnostics
+from .menu.display_mode import resolve_display_mode
 from .menu.operator_state import build_operator_state
 from .ui import display as du
 from .ui import menu as mu
@@ -550,6 +553,208 @@ def launch_taxonomy_consistency_review_menu(*, read_latest_run_id: Callable[[], 
     print("")
 
 
+def launch_taxonomy_support_tuning_compact_menu(*, read_latest_run_id: Callable[[], str | None]) -> None:
+    """Compact taxonomy/support tuning screen for next-run decisions."""
+    du.print_section("Taxonomy & support tuning")
+    output_root = canonical_output_root()
+    rid = read_latest_run_id()
+    if not rid:
+        du.print_warning("[MENU] No latest run.")
+        return
+    rdiag = output_root / "runs" / rid / "diagnostics"
+    gdiag = output_root / "diagnostics"
+    taxonomy_path = first_existing_path([rdiag / f"taxonomy_consistency_summary_{rid}.json", gdiag / "taxonomy_consistency_summary.latest.json"])
+    taxonomy = read_json_dict(taxonomy_path) if taxonomy_path else {}
+    fam_audit_path = first_existing_path([rdiag / "family_label_taxonomy_audit.csv"])
+    support_preview_path = first_existing_path([rdiag / "support_threshold_preview.csv"])
+    low_support_path = first_existing_path([rdiag / "low_support_families.csv"])
+    trained_registry_path = first_existing_path([rdiag / f"trained_family_registry_{rid}.csv"])
+    family_distribution_path = first_existing_path([rdiag / "family_distribution.csv"])
+    authority_review_path = first_existing_path([rdiag / f"taxonomy_type_authority_review_{rid}.md", rdiag / "taxonomy_type_authority_review.latest.md"])
+
+    tax_total = int(taxonomy.get("taxonomy_mismatch_count", 0) or 0) if taxonomy else 0
+    type_issues = (
+        int(taxonomy.get("type_mismatch_count", 0) or 0)
+        + int(taxonomy.get("type_noncanonical_count", 0) or 0)
+        + int(taxonomy.get("type_missing_label_count", 0) or 0)
+    ) if taxonomy else 0
+    family_mismatch = int(taxonomy.get("family_label_mismatch_count", 0) or 0) if taxonomy else 0
+    du.print_stat("Taxonomy health", "YELLOW" if tax_total > 0 else ("GREEN" if taxonomy else "RED"))
+    du.print_stat("Taxonomy mismatch total", tax_total if taxonomy else "—")
+    du.print_stat("Type/rendering issue count", type_issues if taxonomy else "—")
+    du.print_stat("Family mismatch count", family_mismatch if taxonomy else "—")
+
+    min_support = "—"
+    families_before = retained = dropped = dropped_samples = near_threshold = "—"
+    if fam_audit_path is not None:
+        fam_df = pd.read_csv(fam_audit_path)
+        if not fam_df.empty:
+            if "configured_min_samples_per_family" in fam_df.columns:
+                min_support = int(pd.to_numeric(fam_df["configured_min_samples_per_family"], errors="coerce").dropna().iloc[0])
+            families_before = int(len(fam_df))
+            if "support_status" in fam_df.columns:
+                retained = int((fam_df["support_status"].astype(str) == "retained").sum())
+                dropped = int((fam_df["support_status"].astype(str).str.contains("dropped", na=False)).sum())
+            if "aligned_rows" in fam_df.columns and "support_status" in fam_df.columns:
+                dropped_samples = int(pd.to_numeric(fam_df.loc[fam_df["support_status"].astype(str).str.contains("dropped", na=False), "aligned_rows"], errors="coerce").fillna(0).sum())
+            if isinstance(min_support, int) and "aligned_rows" in fam_df.columns:
+                counts = pd.to_numeric(fam_df["aligned_rows"], errors="coerce").fillna(0)
+                near_threshold = int(((counts >= max(0, min_support - 2)) & (counts < min_support)).sum())
+    du.print_stat("min_samples_per_family", min_support)
+    du.print_stat("Families before threshold", families_before)
+    du.print_stat("Families retained", retained)
+    du.print_stat("Families dropped", dropped)
+    du.print_stat("Samples dropped (estimate)", dropped_samples)
+    du.print_stat("Families just below threshold", near_threshold)
+
+    du.print_subheader("Tune next")
+    if tax_total > 0:
+        du.print_info("1) Review taxonomy mismatches first; separate family mismatches from type/rendering issues.")
+    if isinstance(near_threshold, int) and near_threshold > 0:
+        du.print_info("2) Review families just below threshold before changing cohort/profile support settings.")
+    du.print_info("3) Cross-check retained/dropped families with trained_family_registry and support_threshold_preview.")
+    du.print_stat("taxonomy_consistency_summary", str(taxonomy_path.resolve()) if taxonomy_path else "missing")
+    du.print_stat("taxonomy_type_authority_review", str(authority_review_path.resolve()) if authority_review_path else "missing")
+    du.print_stat("family_label_taxonomy_audit", str(fam_audit_path.resolve()) if fam_audit_path else "missing")
+    du.print_stat("support_threshold_preview", str(support_preview_path.resolve()) if support_preview_path else "missing")
+    if resolve_display_mode() != "compact":
+        du.print_stat("low_support_families", str(low_support_path.resolve()) if low_support_path else "missing")
+        du.print_stat("trained_family_registry", str(trained_registry_path.resolve()) if trained_registry_path else "missing")
+        du.print_stat("family_distribution", str(family_distribution_path.resolve()) if family_distribution_path else "missing")
+    print("")
+
+
+def build_taxonomy_support_tuning_snapshot(*, run_id: str, output_root: Path) -> dict[str, object]:
+    """Build compact taxonomy/support tuning snapshot from existing diagnostics artifacts."""
+    rdiag = output_root / "runs" / run_id / "diagnostics"
+    gdiag = output_root / "diagnostics"
+    taxonomy_path = first_existing_path([rdiag / f"taxonomy_consistency_summary_{run_id}.json", gdiag / "taxonomy_consistency_summary.latest.json"])
+    taxonomy = read_json_dict(taxonomy_path) if taxonomy_path else {}
+    fam_audit_path = first_existing_path([rdiag / "family_label_taxonomy_audit.csv"])
+    support_preview_path = first_existing_path([rdiag / "support_threshold_preview.csv"])
+
+    tax_total = int(taxonomy.get("taxonomy_mismatch_count", 0) or 0) if taxonomy else 0
+    type_issues = (
+        int(taxonomy.get("type_mismatch_count", 0) or 0)
+        + int(taxonomy.get("type_noncanonical_count", 0) or 0)
+        + int(taxonomy.get("type_missing_label_count", 0) or 0)
+    ) if taxonomy else 0
+    family_mismatch = int(taxonomy.get("family_label_mismatch_count", 0) or 0) if taxonomy else 0
+
+    min_support: int | str = "—"
+    families_before: int | str = "—"
+    retained: int | str = "—"
+    dropped: int | str = "—"
+    dropped_samples: int | str = "—"
+    near_threshold: int | str = "—"
+    if fam_audit_path is not None:
+        fam_df = pd.read_csv(fam_audit_path)
+        if not fam_df.empty:
+            if "configured_min_samples_per_family" in fam_df.columns:
+                vals = pd.to_numeric(fam_df["configured_min_samples_per_family"], errors="coerce").dropna()
+                if not vals.empty:
+                    min_support = int(vals.iloc[0])
+            families_before = int(len(fam_df))
+            if "support_status" in fam_df.columns:
+                retained = int((fam_df["support_status"].astype(str) == "retained").sum())
+                dropped = int((fam_df["support_status"].astype(str).str.contains("dropped", na=False)).sum())
+            if "aligned_rows" in fam_df.columns and "support_status" in fam_df.columns:
+                dropped_samples = int(
+                    pd.to_numeric(
+                        fam_df.loc[fam_df["support_status"].astype(str).str.contains("dropped", na=False), "aligned_rows"],
+                        errors="coerce",
+                    ).fillna(0).sum()
+                )
+            if isinstance(min_support, int) and "aligned_rows" in fam_df.columns:
+                counts = pd.to_numeric(fam_df["aligned_rows"], errors="coerce").fillna(0)
+                near_threshold = int(((counts >= max(0, min_support - 2)) & (counts < min_support)).sum())
+
+    threshold_sensitivity: list[dict[str, int]] = []
+    if fam_audit_path is not None:
+        fam_df = pd.read_csv(fam_audit_path)
+        if not fam_df.empty and "aligned_rows" in fam_df.columns:
+            counts = pd.to_numeric(fam_df["aligned_rows"], errors="coerce").fillna(0).astype(int)
+            for t in (5, 10, 15, 20, 25):
+                retained_mask = counts >= t
+                retained_families = int(retained_mask.sum())
+                dropped_families = int((~retained_mask).sum())
+                retained_samples = int(counts[retained_mask].sum())
+                dropped_samples_t = int(counts[~retained_mask].sum())
+                threshold_sensitivity.append(
+                    {
+                        "threshold": int(t),
+                        "retained_families": retained_families,
+                        "dropped_families": dropped_families,
+                        "retained_samples": retained_samples,
+                        "dropped_samples": dropped_samples_t,
+                    }
+                )
+
+    return {
+        "taxonomy_health": "YELLOW" if tax_total > 0 else ("GREEN" if taxonomy else "RED"),
+        "taxonomy_mismatch_total": tax_total if taxonomy else "—",
+        "type_rendering_issue_count": type_issues if taxonomy else "—",
+        "family_mismatch_count": family_mismatch if taxonomy else "—",
+        "min_samples_per_family": min_support,
+        "families_before_threshold": families_before,
+        "families_retained": retained,
+        "families_dropped": dropped,
+        "samples_dropped_estimate": dropped_samples,
+        "families_just_below_threshold": near_threshold,
+        "taxonomy_consistency_summary_path": str(taxonomy_path.resolve()) if taxonomy_path else "missing",
+        "family_label_taxonomy_audit_path": str(fam_audit_path.resolve()) if fam_audit_path else "missing",
+        "support_threshold_preview_path": str(support_preview_path.resolve()) if support_preview_path else "missing",
+        "threshold_sensitivity": threshold_sensitivity,
+    }
+
+
+def build_permission_coverage_tuning_snapshot(*, run_id: str, output_root: Path) -> dict[str, object]:
+    """Build compact permission-coverage tuning snapshot from existing artifacts."""
+    rdiag = output_root / "runs" / run_id / "diagnostics"
+    gdiag = output_root / "diagnostics"
+    q2_path = first_existing_path([rdiag / "modality_contribution_summary.json", gdiag / "modality_contribution_summary.json"])
+    q2 = read_json_dict(q2_path) if q2_path else {}
+    perm_cov_path = first_existing_path([rdiag / "permission_coverage_summary.csv", gdiag / "permission_coverage_summary.csv"])
+    feature_group_path = first_existing_path([rdiag / "feature_group_survival.csv", gdiag / "feature_group_survival.csv"])
+    ablation_path = first_existing_path([rdiag / "feature_set_ablation_summary.csv", gdiag / "feature_set_ablation_summary.csv"])
+
+    weak_types = weak_families = 0
+    if perm_cov_path is not None:
+        df = pd.read_csv(perm_cov_path)
+        if not df.empty:
+            cols = {str(c).lower(): c for c in df.columns}
+            bucket_col = cols.get("group_kind") or cols.get("scope") or cols.get("bucket_type")
+            cov_col = cols.get("coverage_pct") or cols.get("coverage")
+            if bucket_col and cov_col:
+                work = df.copy()
+                work[cov_col] = pd.to_numeric(work[cov_col], errors="coerce").fillna(0.0)
+                b = work[bucket_col].astype(str).str.lower()
+                weak_types = int(((b.str.contains("type")) & (work[cov_col] <= 1.0)).sum())
+                weak_families = int(((b.str.contains("famil")) & (work[cov_col] <= 1.0)).sum())
+
+    permission_feature_survival = "n/a"
+    if feature_group_path is not None:
+        fg = pd.read_csv(feature_group_path)
+        if not fg.empty:
+            text = fg.to_string(index=False).lower()
+            permission_feature_survival = "present" if "permission" in text else "not_explicit"
+
+    permission_only_ablation = "n/a"
+    if ablation_path is not None:
+        ab = pd.read_csv(ablation_path)
+        if not ab.empty:
+            txt = ab.to_string(index=False).lower()
+            permission_only_ablation = "present" if "permission" in txt else "not_found"
+
+    return {
+        "global_permission_signal_pct": q2.get("permission_signal_pct", "—") if q2 else "—",
+        "global_permission_signal_n": q2.get("permission_signal_n", "—") if q2 else "—",
+        "weak_or_zero_coverage_types": weak_types,
+        "weak_or_zero_coverage_families": weak_families,
+        "permission_feature_survival": permission_feature_survival,
+        "permission_only_ablation_signal": permission_only_ablation,
+    }
+
 def launch_data_diagnostics_menu(
     *,
     read_latest_run_id: Callable[[], str | None],
@@ -589,6 +794,7 @@ def launch_data_diagnostics_menu(
         data_sections = [
             "Open run science index",
             "Pipeline profile tuning (latest manifest)",
+            "Taxonomy & Support Tuning",
             "Taxonomy Consistency Review",
             "Parser & Vendor Coverage",
             "Permission Intelligence Coverage",
@@ -611,24 +817,29 @@ def launch_data_diagnostics_menu(
             show_profile_tuning_snapshot()
             continue
         if choice == 3:
-            launch_taxonomy_consistency_review_action()
+            launch_taxonomy_support_tuning_compact_menu(read_latest_run_id=read_latest_run_id)
             continue
         if choice == 4:
-            launch_parser_vendor_coverage_action()
+            launch_taxonomy_consistency_review_action()
             continue
         if choice == 5:
-            launch_permission_intelligence_coverage_action()
+            launch_parser_vendor_coverage_action()
             continue
         if choice == 6:
-            launch_feature_matrix_modality_action()
+            launch_permission_intelligence_coverage_action()
             continue
         if choice == 7:
+            launch_feature_matrix_modality_action()
+            continue
+        if choice == 8:
             launch_cohort_family_audit_action()
             continue
         du.print_warning("[MENU] Invalid choice received.")
 
 
 __all__ = [
+    "build_taxonomy_support_tuning_snapshot",
+    "build_permission_coverage_tuning_snapshot",
     "first_existing_path",
     "governed_cohort_n_for_q2",
     "launch_cohort_family_audit_menu",
@@ -637,6 +848,7 @@ __all__ = [
     "launch_parser_vendor_coverage_menu",
     "launch_permission_intelligence_coverage_menu",
     "launch_taxonomy_consistency_review_menu",
+    "launch_taxonomy_support_tuning_compact_menu",
     "open_run_science_index",
     "print_cohort_family_artifact_paths",
     "run_family_label_taxonomy_audit_script",
