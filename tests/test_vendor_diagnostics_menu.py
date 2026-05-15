@@ -8,6 +8,8 @@ import json
 import pandas as pd
 
 from obsidiandroid.cli.menu import vendor_diagnostics
+from obsidiandroid.cli.menu import vendor_diagnostics_actions
+from obsidiandroid.cli.menu import vendor_parser_state
 
 
 def test_validate_parser_coverage_uses_csv_fallback_when_workbook_missing(
@@ -25,7 +27,7 @@ def test_validate_parser_coverage_uses_csv_fallback_when_workbook_missing(
     ).to_csv(out_dir / "vendor_parser_coverage.latest.csv", index=False)
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(vendor_diagnostics, "load_enriched_matrix_for_menu", lambda: None)
+    monkeypatch.setattr(vendor_diagnostics_actions, "load_enriched_matrix_for_menu", lambda: None)
 
     result = vendor_diagnostics.validate_parser_columns_from_latest_export()
     assert result == 0
@@ -37,7 +39,7 @@ def test_validate_parser_coverage_fails_when_no_workbook_and_no_csv(
 ) -> None:
     """Coverage menu should fail cleanly when neither workbook nor CSV snapshots exist."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(vendor_diagnostics, "load_enriched_matrix_for_menu", lambda: None)
+    monkeypatch.setattr(vendor_diagnostics_actions, "load_enriched_matrix_for_menu", lambda: None)
 
     result = vendor_diagnostics.validate_parser_columns_from_latest_export()
     assert result == 1
@@ -51,12 +53,12 @@ def test_single_vendor_parser_check_reports_missing_enriched_matrix_requirement(
     infos: list[str] = []
 
     monkeypatch.setattr(
-        vendor_diagnostics,
+        vendor_diagnostics_actions,
         "load_enriched_matrix_for_menu",
         lambda **_kwargs: None,
     )
-    monkeypatch.setattr(vendor_diagnostics.du, "print_warning", lambda message: warnings.append(str(message)))
-    monkeypatch.setattr(vendor_diagnostics.du, "print_info", lambda message: infos.append(str(message)))
+    monkeypatch.setattr(vendor_diagnostics_actions.du, "print_warning", lambda message: warnings.append(str(message)))
+    monkeypatch.setattr(vendor_diagnostics_actions.du, "print_info", lambda message: infos.append(str(message)))
 
     result = vendor_diagnostics.run_single_vendor_parser_check()
 
@@ -90,14 +92,14 @@ def test_print_parser_diagnostics_state_reports_csv_vs_workbook_context(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(vendor_diagnostics.run_locator, "read_latest_run_id", lambda: run_id)
-    monkeypatch.setattr(vendor_diagnostics.app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
-    monkeypatch.setattr(vendor_diagnostics, "load_enriched_matrix_for_menu", lambda **_kwargs: None)
+    monkeypatch.setattr(vendor_parser_state.run_locator, "read_latest_run_id", lambda: run_id)
+    monkeypatch.setattr(vendor_parser_state.app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    monkeypatch.setattr(vendor_diagnostics_actions, "load_enriched_matrix_for_menu", lambda **_kwargs: None)
 
     vendor_diagnostics.print_parser_diagnostics_state()
     out = capsys.readouterr().out
-    assert "CSV coverage" in out
-    assert "Workbook-backed enriched matrix" in out
+    assert "CSV snapshots" in out
+    assert "Workbook drill-down" in out
     assert "Single-vendor drill-down requires the workbook-backed enriched matrix." in out
     assert "Observed engines" in out
     assert "Parser mapped vendors" in out
@@ -111,7 +113,7 @@ def test_single_vendor_parser_check_compact_blocked_message_without_reprinting_f
 ) -> None:
     """Blocked single-vendor drill-down should show compact workbook guidance only."""
     monkeypatch.setattr(
-        vendor_diagnostics,
+        vendor_diagnostics_actions,
         "load_enriched_matrix_for_menu",
         lambda **_kwargs: None,
     )

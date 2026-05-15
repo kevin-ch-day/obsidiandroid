@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from obsidiandroid.cli.menu import vendor_diagnostics
 from obsidiandroid.cli.menu.operator_state import build_operator_state
+from obsidiandroid.cli.menu.vendor_parser_state import resolve_vendor_parser_coverage_csv
 from obsidiandroid.cli.menu.run_locator import resolve_latest_manifest_payload
 from obsidiandroid.common.json_io import read_json_dict
 from obsidiandroid.diagnostics.diagnostic_provenance import latest_post_run_enrichment_dir
@@ -149,7 +149,7 @@ def print_data_diagnostics_banner(*, output_root: Path, latest_run_id: str | Non
         ).exists()
     du.print_stat("Diagnostics ready", "Yes" if provenance else "No")
 
-    cov_path = vendor_diagnostics.resolve_vendor_parser_coverage_csv()
+    cov_path = resolve_vendor_parser_coverage_csv()
     du.print_stat("Vendor coverage CSV", "Available" if cov_path is not None else "Missing")
 
     fam_audit = False

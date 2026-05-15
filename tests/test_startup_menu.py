@@ -8,7 +8,6 @@ import json
 from config import app_config
 
 import obsidiandroid.cli.startup_menu as startup_menu
-from obsidiandroid.cli.menu import vendor_diagnostics as vendor_diagnostics_menu
 
 
 def test_main_menu_clear_screen_option(monkeypatch) -> None:
@@ -211,7 +210,7 @@ def test_parser_menu_does_not_repeat_state_block_when_state_is_unchanged(monkeyp
     calls = {"state": 0}
 
     monkeypatch.setattr(
-        startup_menu,
+        startup_menu.vendor_diagnostics,
         "get_parser_summary_state",
         lambda: {
             "csv_ready": True,
@@ -224,9 +223,9 @@ def test_parser_menu_does_not_repeat_state_block_when_state_is_unchanged(monkeyp
         },
     )
     monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: next(choices))
-    monkeypatch.setattr(startup_menu, "print_compact_vendor_coverage_snapshot", lambda: 0)
+    monkeypatch.setattr(startup_menu.vendor_diagnostics, "print_compact_vendor_coverage_snapshot", lambda: 0)
     monkeypatch.setattr(
-        vendor_diagnostics_menu,
+        startup_menu.vendor_diagnostics,
         "print_parser_diagnostics_state",
         lambda: calls.__setitem__("state", calls["state"] + 1),
     )

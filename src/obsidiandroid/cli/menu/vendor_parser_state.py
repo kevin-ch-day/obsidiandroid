@@ -13,6 +13,7 @@ from obsidiandroid.common.output_paths import output_root as canonical_output_ro
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 
 from . import run_locator
+from .display_mode import resolve_display_mode
 
 
 def output_root() -> Path:
@@ -147,6 +148,7 @@ def read_latest_manifest() -> dict[str, Any]:
 def build_parser_diagnostics_state(
     *,
     workbook_loader: Callable[..., object],
+    mode: str | None = None,
 ) -> dict[str, object]:
     """Return current parser-diagnostics capability state."""
     coverage_csv = resolve_vendor_parser_coverage_csv()
@@ -188,7 +190,16 @@ def build_parser_diagnostics_state(
         engine_df = read_csv(engine_csv)
         if not engine_df.empty:
             engine_scoring_universe = int(len(engine_df))
+    needs_attention = ""
+    recommended_open_first = "Parser summary"
+    if csv_ready and not workbook_ready:
+        needs_attention = "Workbook drill-down unavailable"
+        recommended_open_first = "Workbook requirements"
+    elif not csv_ready:
+        needs_attention = "CSV snapshots unavailable"
+        recommended_open_first = "Export paths"
     return {
+        "display_mode": resolve_display_mode(mode),
         "workbook_ready": workbook_ready,
         "csv_ready": csv_ready,
         "coverage_csv_path": coverage_csv or Path(),
@@ -199,7 +210,16 @@ def build_parser_diagnostics_state(
         "unmapped_vendors": unmapped_vendors,
         "selected_vendors": selected_vendors,
         "engine_scoring_universe": engine_scoring_universe,
+        "needs_attention": needs_attention,
+        "recommended_open_first": recommended_open_first,
     }
+
+
+def get_parser_summary_state(*, mode: str | None = None) -> dict[str, object]:
+    """Return current parser summary state using the default workbook loader."""
+    from .workbook_loader import load_enriched_matrix_for_menu
+
+    return build_parser_diagnostics_state(workbook_loader=load_enriched_matrix_for_menu, mode=mode)
 
 
 __all__ = [
@@ -207,6 +227,7 @@ __all__ = [
     "diagnostics_dir",
     "first_existing",
     "global_diagnostics",
+    "get_parser_summary_state",
     "output_root",
     "read_csv",
     "read_latest_manifest",

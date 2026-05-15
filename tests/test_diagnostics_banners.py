@@ -141,9 +141,15 @@ def test_build_diagnostics_overview_includes_traffic_lights_and_run_science_path
     )
 
     monkeypatch.setattr(
-        diagnostics_banners.vendor_diagnostics,
-        "get_parser_summary_state",
-        lambda: {"csv_ready": True, "workbook_ready": False},
+        diagnostics_banners,
+        "build_operator_state",
+        lambda **_kwargs: {
+            "latest_run_id": run_id,
+            "best_run_index_path": rdiag / "run_science_index.md",
+            "has_canonical_run_science": True,
+            "publication_ready_status": "ready",
+            "parser_summary": {"csv_ready": True, "workbook_ready": False},
+        },
     )
 
     overview = diagnostics_banners.build_diagnostics_overview(output_root=out_root, latest_run_id=run_id)

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from config import app_config
+
 from obsidiandroid.cli.menu import operator_state
 
 
@@ -50,3 +52,15 @@ def test_build_operator_state_reports_canonical_run_science_when_present(tmp_pat
 
     assert shared["best_run_index_path"] == diagnostics_dir / "run_science_index.md"
     assert shared["has_canonical_run_science"] is True
+
+
+def test_build_operator_state_exposes_display_mode_from_debug_flag(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Operator state should expose the shared display mode."""
+    monkeypatch.setattr(app_config, "DEBUG_MODE", True, raising=False)
+
+    shared = operator_state.build_operator_state(output_base=tmp_path / "output")
+
+    assert shared["display_mode"] == "debug"

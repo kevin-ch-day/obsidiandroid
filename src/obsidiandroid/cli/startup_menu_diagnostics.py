@@ -18,6 +18,7 @@ from obsidiandroid.diagnostics.diagnostic_provenance import (
 from obsidiandroid.governance import paper_cohort_contract
 
 from .menu import diagnostics_banners
+from .menu import vendor_diagnostics
 from .menu.operator_state import build_operator_state
 from .ui import display as du
 from .ui import menu as mu
@@ -323,22 +324,11 @@ def launch_cohort_family_audit_menu(
         du.print_warning("[MENU] Invalid choice received.")
 
 
-def launch_parser_vendor_coverage_menu(
-    *,
-    get_parser_summary_state: Callable[[], dict[str, object]],
-    print_parser_diagnostics_state: Callable[[], None],
-    print_compact_vendor_coverage_snapshot: Callable[[], int],
-    print_top_unmapped_vendors: Callable[[], int],
-    print_parser_onboarding_candidates: Callable[[], int],
-    print_selected_vendors_for_latest_run: Callable[[], int],
-    print_workbook_requirements: Callable[[], int],
-    print_parser_export_paths: Callable[[], int],
-    run_single_vendor_parser_check: Callable[[], int],
-) -> None:
+def launch_parser_vendor_coverage_menu() -> None:
     """Launch the parser/vendor coverage submenu."""
     last_state_sig: tuple[object, ...] | None = None
     while True:
-        state = get_parser_summary_state()
+        state = vendor_diagnostics.get_parser_summary_state()
         state_sig = (
             state.get("csv_ready"),
             state.get("workbook_ready"),
@@ -349,7 +339,7 @@ def launch_parser_vendor_coverage_menu(
             state.get("engine_scoring_universe"),
         )
         if last_state_sig != state_sig:
-            print_parser_diagnostics_state()
+            vendor_diagnostics.print_parser_diagnostics_state()
             last_state_sig = state_sig
         opts = [
             "Parser summary",
@@ -369,25 +359,25 @@ def launch_parser_vendor_coverage_menu(
         if choice == 0:
             return
         if choice == 1:
-            print_compact_vendor_coverage_snapshot()
+            vendor_diagnostics.print_compact_vendor_coverage_snapshot()
             continue
         if choice == 2:
-            print_top_unmapped_vendors()
+            vendor_diagnostics.print_top_unmapped_vendors()
             continue
         if choice == 3:
-            print_parser_onboarding_candidates()
+            vendor_diagnostics.print_parser_onboarding_candidates()
             continue
         if choice == 4:
-            print_selected_vendors_for_latest_run()
+            vendor_diagnostics.print_selected_vendors_for_latest_run()
             continue
         if choice == 5:
-            print_workbook_requirements()
+            vendor_diagnostics.print_workbook_requirements()
             continue
         if choice == 6:
-            print_parser_export_paths()
+            vendor_diagnostics.print_parser_export_paths()
             continue
         if choice == 7:
-            run_single_vendor_parser_check()
+            vendor_diagnostics.run_single_vendor_parser_check()
             continue
         du.print_warning("[MENU] Invalid choice received.")
 

@@ -7,7 +7,9 @@ from typing import Any
 
 from obsidiandroid.common.output_paths import output_root as canonical_output_root
 
-from obsidiandroid.cli.menu import run_locator, vendor_diagnostics
+from obsidiandroid.cli.menu import run_locator
+from obsidiandroid.cli.menu.display_mode import resolve_display_mode
+from obsidiandroid.cli.menu.vendor_parser_state import get_parser_summary_state
 
 
 def output_root() -> Path:
@@ -65,6 +67,7 @@ def latest_run_has_provenance(run_id: str | None, *, base: Path) -> bool:
 
 def build_operator_state(*, output_base: Path | None = None, run_id: str | None = None) -> dict[str, Any]:
     """Build shared operator-facing state for the latest run and workspace."""
+    display_mode = resolve_display_mode()
     base = Path(output_base).resolve() if output_base is not None else output_root().resolve()
     latest_run_id = run_locator.read_latest_run_id()
     locked_run_id = run_locator.read_locked_paper_run_id()
@@ -92,6 +95,7 @@ def build_operator_state(*, output_base: Path | None = None, run_id: str | None 
     publication_ready_mode = bool(paper_mode.get("resolved_value", False)) if paper_mode else False
 
     return {
+        "display_mode": display_mode,
         "output_root": base,
         "latest_run_id": effective_run_id,
         "locked_run_id": str(locked_run_id or "").strip(),
@@ -110,7 +114,7 @@ def build_operator_state(*, output_base: Path | None = None, run_id: str | None 
         "publication_ready_mode": publication_ready_mode,
         "best_run_index_path": best_index_path,
         "has_canonical_run_science": has_canonical_run_science,
-        "parser_summary": vendor_diagnostics.get_parser_summary_state(),
+        "parser_summary": get_parser_summary_state(mode=display_mode),
     }
 
 
