@@ -247,3 +247,156 @@ def test_tune_next_changes_with_status_flags(monkeypatch, tmp_path: Path) -> Non
     assert "Taxonomy consistency summary" in str(summary["tuning_actions"][0])
     assert any("taxonomy type authority report" in action.lower() for action in summary["tuning_actions"])
     assert any("permission signal" in action.lower() for action in summary["tuning_actions"])
+
+
+def test_review_summary_warns_for_count_only_lock(monkeypatch, tmp_path: Path) -> None:
+    out_root = tmp_path / "output"
+    run_id = "20260515T141956Z__58d84f"
+    rdiag = out_root / "runs" / run_id / "diagnostics"
+    _write(rdiag / "run_science_index.md", "# run science\n")
+    _write(rdiag / "cohort_foundation.json", "{}")
+    _write(rdiag / "diagnostic_provenance.json", '{"entries":[]}')
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    monkeypatch.setattr(
+        startup_menu_review,
+        "build_operator_state",
+        lambda **_kwargs: {
+            "latest_run_id": run_id,
+            "display_mode": "compact",
+            "manifest_payload": {
+                "publication_ready_status": "NOT_READY",
+                "evidence_mode": True,
+                "paper_cohort_contract": {
+                    "cohort_lock_status": "count_only_incomplete_sample_lock",
+                    "paper_locked": True,
+                },
+            },
+            "profile_id": "malicious_temporal_stability_locked",
+            "evidence_mode": True,
+            "best_run_index_path": rdiag / "run_science_index.md",
+            "has_canonical_run_science": True,
+            "parser_summary": {"csv_ready": True, "workbook_ready": True, "unmapped_vendors": 0},
+        },
+    )
+    monkeypatch.setattr(
+        startup_menu_review.diagnostics_banners,
+        "build_diagnostics_overview",
+        lambda **_kwargs: {
+            "rows": [
+                {"label": "Cohort / labels", "status": "GREEN"},
+                {"label": "Taxonomy consistency", "status": "GREEN"},
+                {"label": "Permission signal", "status": "GREEN"},
+                {"label": "Vendor/parser coverage", "status": "GREEN"},
+                {"label": "Feature matrix", "status": "GREEN"},
+                {"label": "Evidence/provenance", "status": "GREEN"},
+            ]
+        },
+    )
+
+    summary = startup_menu_review.build_review_latest_run_summary(output_root=out_root, latest_run_id=run_id)
+
+    assert summary["cohort_lock_status"] == "count-only"
+    assert any("count-only lock" in str(w).lower() for w in summary["warnings"])
+    assert any("count-only cohort lock" in str(action).lower() for action in summary["tuning_actions"])
+
+
+def test_review_summary_warns_for_missing_lock(monkeypatch, tmp_path: Path) -> None:
+    out_root = tmp_path / "output"
+    run_id = "20260515T141956Z__58d84f"
+    rdiag = out_root / "runs" / run_id / "diagnostics"
+    _write(rdiag / "run_science_index.md", "# run science\n")
+    _write(rdiag / "cohort_foundation.json", "{}")
+    _write(rdiag / "diagnostic_provenance.json", '{"entries":[]}')
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    monkeypatch.setattr(
+        startup_menu_review,
+        "build_operator_state",
+        lambda **_kwargs: {
+            "latest_run_id": run_id,
+            "display_mode": "compact",
+            "manifest_payload": {
+                "publication_ready_status": "READY",
+                "evidence_mode": True,
+                "paper_cohort_contract": {
+                    "cohort_lock_status": "missing_lock",
+                    "paper_locked": True,
+                },
+            },
+            "profile_id": "paper2_locked_banker",
+            "evidence_mode": True,
+            "best_run_index_path": rdiag / "run_science_index.md",
+            "has_canonical_run_science": True,
+            "parser_summary": {"csv_ready": True, "workbook_ready": True, "unmapped_vendors": 0},
+        },
+    )
+    monkeypatch.setattr(
+        startup_menu_review.diagnostics_banners,
+        "build_diagnostics_overview",
+        lambda **_kwargs: {
+            "rows": [
+                {"label": "Cohort / labels", "status": "GREEN"},
+                {"label": "Taxonomy consistency", "status": "GREEN"},
+                {"label": "Permission signal", "status": "GREEN"},
+                {"label": "Vendor/parser coverage", "status": "GREEN"},
+                {"label": "Feature matrix", "status": "GREEN"},
+                {"label": "Evidence/provenance", "status": "GREEN"},
+            ]
+        },
+    )
+
+    summary = startup_menu_review.build_review_latest_run_summary(output_root=out_root, latest_run_id=run_id)
+
+    assert summary["cohort_lock_status"] == "missing-lock"
+    assert any("missing or mismatched lock" in str(w).lower() for w in summary["warnings"])
+    assert any("publication-grade" in str(action).lower() for action in summary["tuning_actions"])
+
+
+def test_review_summary_surfaces_locked_membership_and_malware_rescue(monkeypatch, tmp_path: Path) -> None:
+    out_root = tmp_path / "output"
+    run_id = "20260515T141956Z__58d84f"
+    rdiag = out_root / "runs" / run_id / "diagnostics"
+    _write(rdiag / "run_science_index.md", "# run science\n")
+    _write(rdiag / "cohort_foundation.json", "{}")
+    _write(rdiag / "diagnostic_provenance.json", '{"entries":[]}')
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    monkeypatch.setattr(
+        startup_menu_review,
+        "build_operator_state",
+        lambda **_kwargs: {
+            "latest_run_id": run_id,
+            "display_mode": "compact",
+            "manifest_payload": {"publication_ready_status": "NOT_APPLICABLE"},
+            "profile_id": "paper2_demo",
+            "evidence_mode": False,
+            "best_run_index_path": rdiag / "run_science_index.md",
+            "has_canonical_run_science": True,
+            "parser_summary": {"csv_ready": True, "workbook_ready": True, "unmapped_vendors": 0},
+            "cohort_membership_mode": "paper_locked_snapshot_membership",
+            "cohort_membership_authority_note": "sample_id lock applied before dataset/contract gates",
+            "min_malicious_detections_threshold": 5,
+            "min_malicious_detections_rescued_unknown_consensus": 3,
+        },
+    )
+    monkeypatch.setattr(
+        startup_menu_review.diagnostics_banners,
+        "build_diagnostics_overview",
+        lambda **_kwargs: {
+            "rows": [
+                {"label": "Cohort / labels", "status": "GREEN"},
+                {"label": "Taxonomy consistency", "status": "GREEN"},
+                {"label": "Permission signal", "status": "GREEN"},
+                {"label": "Vendor/parser coverage", "status": "GREEN"},
+                {"label": "Feature matrix", "status": "GREEN"},
+                {"label": "Evidence/provenance", "status": "GREEN"},
+            ]
+        },
+    )
+
+    summary = startup_menu_review.build_review_latest_run_summary(output_root=out_root, latest_run_id=run_id)
+
+    assert summary["cohort_membership_mode"] == "paper_locked_snapshot_membership"
+    assert summary["rescued_unknown_consensus"] == 3
+    assert any("locked sample-id snapshot is authoritative" in str(w) for w in summary["warnings"])
+    assert any("rows were retained with missing VT consensus" in str(w) for w in summary["warnings"])
+    assert any("locked sample-id membership is the intended authority" in str(action) for action in summary["tuning_actions"])
+    assert any("rescued missing-consensus malware rows" in str(action) for action in summary["tuning_actions"])

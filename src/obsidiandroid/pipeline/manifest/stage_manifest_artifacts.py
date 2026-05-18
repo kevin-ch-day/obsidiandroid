@@ -12,6 +12,7 @@ import pandas as pd
 from config import app_config
 
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common.output_hygiene import global_diagnostics_root
 from obsidiandroid.common import output_paths
 import obsidiandroid.governance.artifacts as artifacts
 import obsidiandroid.governance.run_manifest as run_manifest
@@ -63,7 +64,7 @@ def write_manifest_with_pointer(
     )
     # `run_manifest.latest.json` is always the full manifest schema.
     run_manifest.write_run_manifest(manifest_payload)
-    pointer_path = Path(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")) / "diagnostics" / "latest_run_pointer.json"
+    pointer_path = global_diagnostics_root() / "latest_run_pointer.json"
     pointer_path.parent.mkdir(parents=True, exist_ok=True)
     pointer_path.write_text(
         json.dumps(pointer_payload, indent=2, sort_keys=True),

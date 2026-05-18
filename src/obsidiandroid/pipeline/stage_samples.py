@@ -43,6 +43,18 @@ PIPELINE_LOGGER = get_logger(
 )
 
 
+def _locked_snapshot_membership_is_authoritative(profile: dict[str, Any], snapshot_lock_file: str) -> bool:
+    """Return whether a paper-locked sample-id snapshot should own cohort membership.
+
+    Locked publication profiles preserve a historical governed cohort by exact ``sample_id``.
+    Applying membership-shrinking gates before that lock can erase valid locked rows, so the
+    lock must be materialized first whenever an enforceable lock file is configured.
+    """
+    if not bool(profile.get("paper_locked", False)):
+        return False
+    return bool(str(snapshot_lock_file or "").strip())
+
+
 def export_cohort_filter_summary(
     summary: dict[str, Any],
     run_id: str,
@@ -126,10 +138,31 @@ def load_and_prepare_samples(
         for family in exclude_families
         if str(family).strip()
     )
+    evidence_strict_snapshot_lock = bool(
+        getattr(app_config, "REQUIRE_SNAPSHOT_LOCK_IN_EVIDENCE_MODE", True)
+        and getattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False)
+    )
+    enable_snapshot_lock = bool(
+        getattr(
+            app_config,
+            "ENABLE_SNAPSHOT_LOCK",
+            getattr(app_config, "ENABLE_COHORT_LOCK", False),
+        )
+    ) or evidence_strict_snapshot_lock
+    snapshot_lock_file = str(
+        getattr(
+            app_config,
+            "SNAPSHOT_LOCK_FILE",
+            getattr(app_config, "COHORT_LOCK_FILE", ""),
+        )
+    )
+    lock_membership_authoritative = _locked_snapshot_membership_is_authoritative(profile, snapshot_lock_file)
+    sql_min_support = None if lock_membership_authoritative else min_support
+    sql_exclude_families = tuple() if lock_membership_authoritative else exclude_families
 
     gate_stats = db_sample_metadata_queries.get_type_cohort_gate_stats(
         type_slug=type_slug,
-        min_samples_per_family=min_support,
+        min_samples_per_family=sql_min_support,
         require_mapped_family=require_mapped,
         require_sha256=require_sha256,
         allow_missing_package_name=allow_missing_pkg,
@@ -137,7 +170,7 @@ def load_and_prepare_samples(
         effective_time_start_utc=time_start_utc,
         effective_time_end_utc=time_end_utc,
         require_effective_first_seen=require_effective_first_seen,
-        exclude_family_canonical=exclude_families,
+        exclude_family_canonical=sql_exclude_families,
     )
     gate_stats_snapshot: dict[str, Any] = dict(gate_stats)
     cohort_readiness_report.print_cohort_sql_scope_gate_summary(gate_stats)
@@ -152,7 +185,7 @@ def load_and_prepare_samples(
 
     samples_df = db_sample_metadata_queries.load_samples_by_type(
         type_slug=type_slug,
-        min_samples_per_family=min_support,
+        min_samples_per_family=sql_min_support,
         require_mapped_family=require_mapped,
         require_sha256=require_sha256,
         allow_missing_package_name=allow_missing_pkg,
@@ -161,7 +194,7 @@ def load_and_prepare_samples(
         effective_time_start_utc=time_start_utc,
         effective_time_end_utc=time_end_utc,
         require_effective_first_seen=require_effective_first_seen,
-        exclude_family_canonical=exclude_families,
+        exclude_family_canonical=sql_exclude_families,
     )
     if exclude_unknown_type_slug:
         before_unknown = int(len(samples_df))
@@ -186,15 +219,51 @@ def load_and_prepare_samples(
                 before_rows=before_unknown,
                 after_rows=int(len(samples_df)),
             )
-    samples_df.attrs["sql_exclude_families_applied"] = tuple(exclude_families)
-    samples_df = apply_dataset_filters(samples_df, profile)
-    samples_df, gate_rows = apply_contract_filters(
-        samples_df=samples_df,
-        gates=gates,
-        run_id=str(run_id or "unknown"),
-    )
+    samples_df.attrs["sql_exclude_families_applied"] = tuple(sql_exclude_families)
+    if lock_membership_authoritative:
+        samples_df = cohort_reproducibility.apply_analysis_snapshot_lock(
+            samples_df=samples_df,
+            lock_file=snapshot_lock_file,
+            fail_closed=evidence_strict_snapshot_lock,
+        )
+        filter_summary = {
+            "mode": "paper_locked_snapshot_membership",
+            "source_total": int(gate_stats_snapshot.get("governed_cohort_count", len(samples_df)) or len(samples_df)),
+            "post_filter_total": int(len(samples_df)),
+            "benign_candidates": 0,
+            "malicious_candidates": int(len(samples_df)),
+            "unresolved_candidates": 0,
+            "benign_candidate_ratio": 0.0,
+            "malicious_candidate_ratio": 1.0,
+            "benign_ratio_target": None,
+        }
+        gate_rows = [
+            {
+                "run_id": str(run_id or "unknown"),
+                "step": 1,
+                "gate_name": "paper_locked_snapshot_membership",
+                "count_before": int(gate_stats_snapshot.get("governed_cohort_count", len(samples_df)) or len(samples_df)),
+                "count_after": int(len(samples_df)),
+                "dropped": int(
+                    max(
+                        int(gate_stats_snapshot.get("governed_cohort_count", len(samples_df)) or len(samples_df))
+                        - int(len(samples_df)),
+                        0,
+                    )
+                ),
+                "details": "sample_id lock applied before dataset/contract gates; min_samples_per_family and exclude_families deferred from sample-stage membership",
+            }
+        ]
+        samples_df.attrs["cohort_filter_summary"] = filter_summary
+    else:
+        samples_df = apply_dataset_filters(samples_df, profile)
+        samples_df, gate_rows = apply_contract_filters(
+            samples_df=samples_df,
+            gates=gates,
+            run_id=str(run_id or "unknown"),
+        )
+        filter_summary = samples_df.attrs.get("cohort_filter_summary", {})
     samples_df.attrs["cohort_gate_rows"] = gate_rows
-    filter_summary = samples_df.attrs.get("cohort_filter_summary", {})
     rid = str(run_id or "unknown")
     primary = _diagnostics_dir() / f"analysis_snapshot_filter_summary_{rid}.csv"
     summary_path = export_cohort_filter_summary(
@@ -231,24 +300,6 @@ def load_and_prepare_samples(
         drop_duplicate_rows=False,
     )
 
-    evidence_strict_snapshot_lock = bool(
-        getattr(app_config, "REQUIRE_SNAPSHOT_LOCK_IN_EVIDENCE_MODE", True)
-        and getattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False)
-    )
-    enable_snapshot_lock = bool(
-        getattr(
-            app_config,
-            "ENABLE_SNAPSHOT_LOCK",
-            getattr(app_config, "ENABLE_COHORT_LOCK", False),
-        )
-    ) or evidence_strict_snapshot_lock
-    snapshot_lock_file = str(
-        getattr(
-            app_config,
-            "SNAPSHOT_LOCK_FILE",
-            getattr(app_config, "COHORT_LOCK_FILE", ""),
-        )
-    )
     export_snapshot = bool(
         getattr(
             app_config,
@@ -281,7 +332,7 @@ def load_and_prepare_samples(
         getattr(app_config, "ANALYSIS_SELECTION_RULE_VERSION", "snapshot_v1")
     )
 
-    if enable_snapshot_lock:
+    if enable_snapshot_lock and not lock_membership_authoritative:
         samples_df = cohort_reproducibility.apply_analysis_snapshot_lock(
             samples_df=samples_df,
             lock_file=snapshot_lock_file,

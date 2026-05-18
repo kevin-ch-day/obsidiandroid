@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from obsidiandroid.common.cohort_presentation import cohort_methodology_notes
+from obsidiandroid.common.publication_readiness import publication_ready_status_light
 from obsidiandroid.cli.menu.operator_state import build_operator_state
 from obsidiandroid.cli.menu.vendor_parser_state import resolve_vendor_parser_coverage_csv
 from obsidiandroid.cli.menu.run_locator import resolve_latest_manifest_payload
@@ -96,20 +98,20 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
         },
         {
             "label": "Publication readiness",
-            "status": (
-                "GREEN"
-                if publication_ready in {"PASS", "ready"}
-                else "RED"
-                if publication_ready in {"FAIL", "not_ready"}
-                else "YELLOW"
-            ),
+            "status": publication_ready_status_light(publication_ready),
             "action": "Open evidence readiness summary",
         },
     ]
+    cohort_membership_mode = str(shared.get("cohort_membership_mode", "") or "").strip()
+    rescued_unknown_consensus = int(
+        shared.get("min_malicious_detections_rescued_unknown_consensus", 0) or 0
+    )
     return {
         "latest_run_id": rid,
         "run_science_index_path": str(shared.get("best_run_index_path", "") or ""),
         "run_science_index_canonical": bool(shared.get("has_canonical_run_science", False)),
+        "cohort_membership_mode": cohort_membership_mode or "standard_contract_filters",
+        "rescued_unknown_consensus": rescued_unknown_consensus,
         "rows": overview_rows,
     }
 
@@ -127,6 +129,13 @@ def print_compact_diagnostics_overview(*, output_root: Path, latest_run_id: str 
             continue
         du.print_stat(str(row.get("label", "")), str(row.get("status", "")))
         du.print_info(f"  Recommended next action: {row.get('action', '')}")
+    for note in cohort_methodology_notes(
+        {
+            "cohort_membership_mode": overview.get("cohort_membership_mode", ""),
+            "min_malicious_detections_rescued_unknown_consensus": overview.get("rescued_unknown_consensus", 0),
+        }
+    ):
+        du.print_note(note)
     path = str(overview.get("run_science_index_path", "") or "")
     du.print_stat("Run science index", path or "missing")
     if path and not bool(overview.get("run_science_index_canonical", False)):

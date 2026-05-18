@@ -8,7 +8,7 @@ from __future__ import annotations
 import sys
 
 from obsidiandroid.legacy_shim_lazy import import_legacy_shim
-from obsidiandroid.modeling.ml_classification_shim_facades import (
+from obsidiandroid.modeling.legacy_ml_classification_manifest import (
     ML_CLASSIFICATION_VECTORIZATION_SUBMODULES,
 )
 

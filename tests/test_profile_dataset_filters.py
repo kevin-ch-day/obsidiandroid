@@ -26,3 +26,28 @@ def test_malicious_only_retains_vt_positive_rows_only() -> None:
     summary = out.attrs.get("cohort_filter_summary", {})
     assert summary.get("post_filter_total") == 1
     assert summary.get("malicious_candidates") == 1
+
+
+def test_malicious_only_retains_taxonomy_backed_rows_when_vt_consensus_missing() -> None:
+    """Missing VT counts should not eject rows that are still classified as malware by taxonomy."""
+    samples_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "vt_malicious_count": [pd.NA, 0],
+            "vt_suspicious_count": [pd.NA, 0],
+            "vt_undetected_count": [pd.NA, 5],
+            "vt_reputation": [pd.NA, 1.0],
+            "family_canonical": ["Alien", ""],
+            "type_slug": ["banker", ""],
+            "vt_suggested_label": ["trojan.bankbot/alien", ""],
+        }
+    )
+    profile = {
+        "dataset_filters": {"mode": "malicious_only"},
+    }
+
+    out = profile_filters.apply_dataset_filters(samples_df, profile)
+
+    assert list(out["sample_id"]) == [1]
+    summary = out.attrs.get("cohort_filter_summary", {})
+    assert summary.get("malicious_candidates") == 1

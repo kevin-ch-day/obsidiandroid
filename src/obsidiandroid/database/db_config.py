@@ -47,29 +47,71 @@ def _load_env_files() -> None:
 
 _load_env_files()
 
+
+def _env_first(names: tuple[str, ...], default: str) -> str:
+    """Return the first non-empty environment value across compatible variable names."""
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and str(value).strip() != "":
+            return str(value)
+    return default
+
+
+def _env_first_int(names: tuple[str, ...], default: int) -> int:
+    """Return the first valid integer env value across compatible variable names."""
+    for name in names:
+        value = os.getenv(name)
+        if value is None or str(value).strip() == "":
+            continue
+        try:
+            return int(str(value).strip())
+        except ValueError:
+            continue
+    return int(default)
+
 # === MySQL Database Connection Configuration === #
 
-DB_HOST = os.getenv("OBSIDIAN_DB_HOST", "localhost")
-DB_PORT = int(os.getenv("OBSIDIAN_DB_PORT", "3306"))
-DB_USER = os.getenv("OBSIDIAN_DB_USER", "root")
-DB_PASSWORD = os.getenv("OBSIDIAN_DB_PASSWORD", "Password123!")
-DB_NAME = os.getenv("OBSIDIAN_DB_NAME", "erebus_threat_intel_prod")
+DB_HOST = _env_first(("OBSIDIAN_DB_HOST", "EREBUS_DB_HOST"), "localhost")
+DB_PORT = _env_first_int(("OBSIDIAN_DB_PORT", "EREBUS_DB_PORT"), 3306)
+DB_USER = _env_first(("OBSIDIAN_DB_USER", "EREBUS_DB_USER"), "root")
+DB_PASSWORD = _env_first(("OBSIDIAN_DB_PASSWORD", "EREBUS_DB_PASSWORD"), "Password123!")
+DB_NAME = _env_first(("OBSIDIAN_DB_NAME", "EREBUS_DB_NAME"), "erebus_threat_intel_prod")
 
-PERMISSION_INTEL_DB_NAME = os.getenv(
-    "OBSIDIAN_PERMISSION_INTEL_DB_NAME",
+PERMISSION_INTEL_DB_NAME = _env_first(
+    (
+        "OBSIDIAN_PERMISSION_INTEL_DB_NAME",
+        "EREBUS_PERMISSION_INTEL_DB_NAME",
+        "ANDROID_PERMISSION_INTEL_DB_NAME",
+    ),
     "android_permission_intel",
+)
+PERMISSION_INTEL_DB_HOST = _env_first(
+    ("OBSIDIAN_PERMISSION_INTEL_DB_HOST", "EREBUS_PERMISSION_INTEL_DB_HOST"),
+    DB_HOST,
+)
+PERMISSION_INTEL_DB_PORT = _env_first_int(
+    ("OBSIDIAN_PERMISSION_INTEL_DB_PORT", "EREBUS_PERMISSION_INTEL_DB_PORT"),
+    DB_PORT,
+)
+PERMISSION_INTEL_DB_USER = _env_first(
+    ("OBSIDIAN_PERMISSION_INTEL_DB_USER", "EREBUS_PERMISSION_INTEL_DB_USER"),
+    DB_USER,
+)
+PERMISSION_INTEL_DB_PASSWORD = _env_first(
+    ("OBSIDIAN_PERMISSION_INTEL_DB_PASSWORD", "EREBUS_PERMISSION_INTEL_DB_PASSWORD"),
+    DB_PASSWORD,
 )
 
 # === Optional Advanced Settings === #
 
-DB_CHARSET = os.getenv("OBSIDIAN_DB_CHARSET", "utf8mb4")
-DB_ENABLE_POOLING = os.getenv("OBSIDIAN_DB_ENABLE_POOLING", "false").lower() in (
+DB_CHARSET = _env_first(("OBSIDIAN_DB_CHARSET",), "utf8mb4")
+DB_ENABLE_POOLING = _env_first(("OBSIDIAN_DB_ENABLE_POOLING",), "false").lower() in (
     "1",
     "true",
     "yes",
 )
-DB_POOL_SIZE = int(os.getenv("OBSIDIAN_DB_POOL_SIZE", "8"))
-DB_POOL_NAME = os.getenv("OBSIDIAN_DB_POOL_NAME", "obsidiandroid_pool")
+DB_POOL_SIZE = _env_first_int(("OBSIDIAN_DB_POOL_SIZE",), 8)
+DB_POOL_NAME = _env_first(("OBSIDIAN_DB_POOL_NAME",), "obsidiandroid_pool")
 
 # TCP/connect timeout in seconds (passed to mysql-connector ``connection_timeout``).
-DB_CONNECT_TIMEOUT = int(os.getenv("OBSIDIAN_DB_CONNECT_TIMEOUT", "30"))
+DB_CONNECT_TIMEOUT = _env_first_int(("OBSIDIAN_DB_CONNECT_TIMEOUT",), 30)

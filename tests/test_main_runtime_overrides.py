@@ -208,6 +208,74 @@ def test_stage_failure_finalizes_failed_run(monkeypatch, tmp_path: Path) -> None
     assert payload["status"] == "failed"
 
 
+def test_locked_cohort_mismatch_finalizes_without_reraising(monkeypatch, tmp_path: Path) -> None:
+    """Locked cohort mismatches should finalize as controlled failures in evidence mode."""
+    output_root = tmp_path / "output"
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(app_config, "ENABLE_DB_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ML_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_LOCKED_VALUE", None, raising=False)
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(main, "DIAGNOSTICS_DIR", str(output_root / "diagnostics"))
+    monkeypatch.setattr(main.runtime_logging, "start_runtime_logging", lambda _run_id: None)
+    monkeypatch.setattr(main.runtime_logging, "stop_runtime_logging", lambda _ctx: None)
+
+    def _capture_finalize(**kwargs):
+        captured["manifest_context"] = dict(kwargs["manifest_context"])
+        return 0
+
+    monkeypatch.setattr(main, "finalize_run_manifest_stage", _capture_finalize)
+    monkeypatch.setattr(
+        main.profile_manager,
+        "load_profile",
+        lambda _ref: {
+            "profile_id": "malicious_temporal_stability_locked",
+            "type_slug_filter": None,
+            "cohort_gates": {},
+            "model_list": ["logistic_regression"],
+            "paper_locked": True,
+            "paper_lock": {
+                "contract_id": "unit_locked_contract",
+                "expected_sample_count": 3,
+                "expected_family_count": 2,
+                "expected_type_count": 2,
+                "sample_id_lock_status": "unavailable",
+                "sample_id_lock_todo": "unit test count-only contract",
+            },
+            "evidence_mode": True,
+            "evidence_perturbation_axes": ["min_malicious_detections"],
+            "feature_flags": {
+                "enable_dynamic_generic_vendor_parsers": False,
+                "enable_sample_metadata_features": False,
+                "enable_permission_features": False,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "load_and_prepare_samples",
+        lambda **_kwargs: pd.DataFrame(
+            {
+                "sample_id": [1, 2],
+                "family_canonical": ["fam_a", "fam_b"],
+                "type_slug": ["banker", "banker"],
+            }
+        ),
+    )
+
+    result = main.run_pipeline(profile_ref="malicious_temporal_stability_locked")
+
+    assert result == 1
+    manifest_context = captured["manifest_context"]
+    assert manifest_context["run_status"] == "failed"
+    assert manifest_context["failed_stage"] == "samples"
+    assert "[COHORT_LOCK]" in str(manifest_context["failure_reason"])
+    contract = manifest_context["paper_cohort_contract"]
+    assert contract["validation"]["status"] == "mismatch"
+    assert "sample_count observed=2 expected=3" in contract["validation"]["mismatches"]
+
+
 def test_unlocked_paper_profile_fails_early_with_locked_guidance(
     monkeypatch,
     tmp_path: Path,

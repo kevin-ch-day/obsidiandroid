@@ -134,6 +134,114 @@ def test_write_run_science_index_mentions_post_run_enrichment(tmp_path: Path) ->
     assert "prefer run-scoped artifacts over any `.latest` file" in text
 
 
+def test_write_run_science_index_omits_missing_audit_files(tmp_path: Path) -> None:
+    """Run science index should not advertise skipped audit artifacts as authoritative."""
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "r2"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
+    (run_root / "run_summary.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / "run_observability_summary.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / "cohort_foundation.json").write_text("{}", encoding="utf-8")
+
+    out_path = write_run_science_index_md(
+        run_root=run_root,
+        diagnostics_dir=diagnostics_dir,
+        run_id="r2",
+        profile_id="dev_smoke",
+        evidence_mode=False,
+        cohort_locked=False,
+        publication_ready_status="NOT_APPLICABLE",
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "cohort_funnel.md" not in text
+
+
+def test_write_run_science_index_includes_skip_reasons_from_observability(tmp_path: Path) -> None:
+    """Evidence index should mirror why research/hostile audits were skipped."""
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "r_skip"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
+    (run_root / "run_summary.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / "run_observability_summary.json").write_text(
+        json.dumps(
+            {
+                "pipeline_status": "PASS_WITH_WARNINGS",
+                "research_validity_status": "SKIPPED",
+                "research_validity_skip_reason": "stop_after_samples",
+                "hostile_audit_status": "SKIPPED",
+                "hostile_audit_skip_reason": "stop_after_samples",
+                "publication_ready_status": "NOT_APPLICABLE",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / "cohort_foundation.json").write_text("{}", encoding="utf-8")
+
+    out_path = write_run_science_index_md(
+        run_root=run_root,
+        diagnostics_dir=diagnostics_dir,
+        run_id="r_skip",
+        profile_id="dev_smoke",
+        evidence_mode=False,
+        cohort_locked=False,
+        publication_ready_status="NOT_APPLICABLE",
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "research_validity_status:** `SKIPPED` (stop_after_samples)" in text
+    assert "hostile_audit_status:** `SKIPPED` (stop_after_samples)" in text
+
+
+def test_write_run_science_index_includes_cohort_filter_highlights(tmp_path: Path) -> None:
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "r_filter"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
+    (run_root / "run_summary.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / "run_observability_summary.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / "cohort_foundation.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / "cohort_funnel.md").write_text("# funnel\n", encoding="utf-8")
+    (diagnostics_dir / "cohort_filter_contract_r_filter.json").write_text(
+        json.dumps({"cohort_gates": {"min_malicious_detections": 5}}),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / "analysis_snapshot_filter_summary_r_filter.csv").write_text(
+        "mode,source_total,post_filter_total\npaper_locked_snapshot_membership,100,98\n",
+        encoding="utf-8",
+    )
+    (diagnostics_dir / "cohort_gate_counts_r_filter.csv").write_text(
+        (
+            "run_id,step,gate_name,count_before,count_after,dropped,details\n"
+            "r_filter,1,paper_locked_snapshot_membership,100,98,2,"
+            "\"sample_id lock applied before dataset/contract gates\"\n"
+            "r_filter,2,min_malicious_detections,98,97,1,"
+            "\">=5; rescued_unknown_consensus=3\"\n"
+        ),
+        encoding="utf-8",
+    )
+
+    out_path = write_run_science_index_md(
+        run_root=run_root,
+        diagnostics_dir=diagnostics_dir,
+        run_id="r_filter",
+        profile_id="paper2_demo",
+        evidence_mode=False,
+        cohort_locked=True,
+        publication_ready_status="READY",
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "membership_mode:** `paper_locked_snapshot_membership`" in text
+    assert "locked_membership_note" in text
+    assert "rescued_unknown_consensus=`3`" in text
+
+
 def test_classify_file_marks_run_local_latest_as_legacy_and_global_latest_as_operator(tmp_path: Path) -> None:
     output_root = tmp_path / "output"
     run_root = output_root / "runs" / "r1"

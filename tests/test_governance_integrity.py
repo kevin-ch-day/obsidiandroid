@@ -50,6 +50,24 @@ def test_validate_run_scoped_artifact_paths_passes_for_repo_runtime_logs(tmp_pat
     assert report.invalid_paths == tuple()
 
 
+def test_validate_run_scoped_artifact_paths_allows_pipeline_stage_timings_latest(tmp_path: Path) -> None:
+    """Global latest pointer for pipeline stage timings is an allowed operator mirror."""
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "r1"
+    run_root.mkdir(parents=True, exist_ok=True)
+    pointer = output_root / "diagnostics" / "pipeline_stage_timings.latest.csv"
+    pointer.parent.mkdir(parents=True, exist_ok=True)
+    pointer.write_text("stage,duration_sec\nsamples,1.0\n", encoding="utf-8")
+    report = validate_run_scoped_artifact_paths(
+        artifact_paths=[str(pointer)],
+        run_root=run_root,
+        output_root=output_root,
+        allow_latest=True,
+    )
+    assert report.passed is True
+    assert report.invalid_paths == tuple()
+
+
 def test_validate_run_scoped_artifact_paths_fails_for_global_path(tmp_path: Path) -> None:
     """Validation should flag non-run-scoped artifacts."""
     output_root = tmp_path / "output"

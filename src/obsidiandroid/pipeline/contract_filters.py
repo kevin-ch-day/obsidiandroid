@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.orchestration.profile_filters import malicious_signal_or_taxonomy_mask
 
 
 def apply_contract_filters(
@@ -65,10 +66,18 @@ def apply_contract_filters(
     min_mal = int(gates.get("min_malicious_detections", 0) or 0)
     if min_mal > 0:
         before = len(out)
-        mal = pd.to_numeric(out.get("vt_malicious_count", 0), errors="coerce").fillna(0)
-        susp = pd.to_numeric(out.get("vt_suspicious_count", 0), errors="coerce").fillna(0)
-        out = out[(mal + susp) >= min_mal].copy()
-        _record("min_malicious_detections", before, len(out), f">={min_mal}")
+        mal = pd.to_numeric(out.get("vt_malicious_count", pd.Series(pd.NA, index=out.index)), errors="coerce")
+        susp = pd.to_numeric(out.get("vt_suspicious_count", pd.Series(pd.NA, index=out.index)), errors="coerce")
+        consensus_total = mal.fillna(0) + susp.fillna(0)
+        unknown_consensus = mal.isna() & susp.isna()
+        rescued_unknown = unknown_consensus & malicious_signal_or_taxonomy_mask(out)
+        out = out[(consensus_total >= min_mal) | rescued_unknown].copy()
+        _record(
+            "min_malicious_detections",
+            before,
+            len(out),
+            f">={min_mal}; rescued_unknown_consensus={int(rescued_unknown.sum())}",
+        )
 
     include_families = gates.get("include_families", []) or []
     include_families = [str(f).strip().lower() for f in include_families if str(f).strip()]

@@ -12,6 +12,7 @@ import pandas as pd
 from obsidiandroid.cli.ui import display as du
 
 from . import db_engine
+from .verdict_semantics import sql_non_detection_predicate
 
 MALICIOUS_REGEX = "trojan|backdoor|spy|rat|banker|keylogger|stealer|dropper|ransom|clipbank|loader|exploit"
 SUSPICIOUS_REGEX = "risktool|adware|grayware|heur|not[-]?a[-]?virus|monitor|obfus|pua|testkey|dualuse|demo"
@@ -43,13 +44,13 @@ def _get_engine_names(trusted_only: bool = False, active_only: bool = True) -> l
 def _build_result_category_case(column_ref: str) -> str:
     return f"""
         CASE
-            WHEN {column_ref} IS NULL OR TRIM(LOWER({column_ref})) IN ('', 'none', 'null', 'n/a', 'undetected')
+            WHEN {sql_non_detection_predicate(column_ref)}
                 THEN 'undetected'
             WHEN LOWER(TRIM({column_ref})) REGEXP '{MALICIOUS_REGEX}'
                 THEN 'malicious'
             WHEN LOWER(TRIM({column_ref})) REGEXP '{SUSPICIOUS_REGEX}'
                 THEN 'suspicious'
-            ELSE 'unknown'
+            ELSE 'malicious'
         END
     """
 

@@ -70,3 +70,37 @@ def test_finalize_pipeline_observability_minimal(tmp_path: Path) -> None:
     assert blob.get("publication_ready_status") == blob.get("paper_safe_status")
     assert blob.get("publication_ready_reasons") == blob.get("paper_safe_reasons")
     assert ctx["_observability_finalized_once"] is True
+
+
+def test_finalize_pipeline_observability_records_skip_reasons(tmp_path: Path) -> None:
+    """Skipped audit bundles should carry explicit skip reasons into the summary JSON."""
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    ctx = {
+        "run_id": "r_skip",
+        "_observability_finalized_once": False,
+        "_research_bundle_skipped_reason": "stop_after_samples",
+        "_hostile_bundle_skipped_reason": "stop_after_samples",
+    }
+    manifest = {"run_id": "r_skip", "cohort_size": 5}
+    artifact_list: list[str] = []
+
+    out_path = finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=artifact_list,
+        compliance_report={"overall_status": "pass"},
+        paper_mode=False,
+        evidence_mode=False,
+        result_code=0,
+        profile_id="p_skip",
+    )
+
+    assert isinstance(out_path, Path)
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    assert blob.get("research_validity_status") == "SKIPPED"
+    assert blob.get("research_validity_skip_reason") == "stop_after_samples"
+    assert blob.get("hostile_audit_status") == "SKIPPED"
+    assert blob.get("hostile_audit_skip_reason") == "stop_after_samples"

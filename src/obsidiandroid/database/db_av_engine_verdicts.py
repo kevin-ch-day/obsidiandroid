@@ -12,22 +12,12 @@ from config import app_config
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from . import db_engine
 from obsidiandroid.cli.ui import display as du
+from .verdict_semantics import VERDICT_METADATA_COLUMNS
 
-METADATA_COLS = {
-    "updated_at",
-    "record_id",
-    "sample_id",
-    "malicious",
-    "suspicious",
-    "undetected",
-    "harmless",
-    "timeout",
-    "confirmed_timeout",
-    "failure",
-    "type_unsupported",
-    "total_engines",
-    "record_created_at",
-}
+# Current live schema keeps ``sample_id`` + ``updated_at`` + vendor columns.
+# Legacy/pre-migration catalogs may still expose some aggregate or event-style
+# metadata fields, so keep them in the tolerated exclude set for compatibility.
+METADATA_COLS = VERDICT_METADATA_COLUMNS
 
 _VERDICT_QUERY_CACHE: OrderedDict[tuple[int, int], pd.DataFrame] = OrderedDict()
 

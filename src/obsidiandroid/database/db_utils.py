@@ -4,15 +4,13 @@
 #
 # Canonical implementation; ``database.db_utils`` is an identity shim.
 
+from obsidiandroid.cli.ui import display as du
 from . import db_engine
 from . import schema_map
-from obsidiandroid.cli.ui import display as du
+from .verdict_semantics import VERDICT_METADATA_COLUMNS
 
 # Columns to exclude from analysis in the vendor verdict table
-AV_ENGINES_RESULTS_IGNORED_COLS = {
-    "sample_id", "record_id", "updated_at", "timeout", "confirmed_timeout", "record_created_at",
-    "type_unsupported", "malicious", "suspicious", "undetected", "total_engines"
-}
+AV_ENGINES_RESULTS_IGNORED_COLS = VERDICT_METADATA_COLUMNS
 
 # Get a list of usable AV engine detection columns from the wide verdict table
 def get_valid_detection_columns(check_empty: bool = False, preview: int = 10) -> list:

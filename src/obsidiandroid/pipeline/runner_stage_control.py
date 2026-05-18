@@ -22,7 +22,7 @@ from obsidiandroid.common.run_lifecycle import finalize_run_lifecycle_terminal
 from obsidiandroid.diagnostics import cohort_vocabulary
 from obsidiandroid.observability.logging import log_event
 from obsidiandroid.observability.pipeline_observability import PipelineObservabilitySession
-from obsidiandroid.pipeline.main_facade import from_main_or
+from obsidiandroid.cli.main_override_bridge import resolve_main_override
 from obsidiandroid.pipeline.manifest.stage_manifest_writers import merge_lifecycle_fields_into_run_summaries
 from obsidiandroid.pipeline.runner_support import PipelineStageFailure, ScopedArtifactList
 from obsidiandroid.pipeline.stage_manifest import finalize_run_manifest_stage
@@ -188,7 +188,7 @@ class PipelineRunStageControl:
         """Finalize run manifest and record manifest stage timing."""
         stage_started = perf_counter()
         self.attach_runtime_timing_context()
-        result = from_main_or("finalize_run_manifest_stage", finalize_run_manifest_stage)(
+        result = resolve_main_override("finalize_run_manifest_stage", finalize_run_manifest_stage)(
             manifest_context=self.manifest_context,
             profile=profile,
             samples_df=samples_df,
@@ -197,7 +197,13 @@ class PipelineRunStageControl:
             artifact_list=self.artifact_list,
         )
         if result != 0:
-            du.print_error("[INTEGRITY] Run manifest write failure.")
+            run_status = str(self.manifest_context.get("run_status", "") or "").strip().lower()
+            if run_status in {"failed", "interrupted"}:
+                du.print_warning(
+                    f"[PIPELINE] Run manifest finalized with terminal run_status={run_status}."
+                )
+            else:
+                du.print_error("[INTEGRITY] Run manifest write failure.")
         self.record_stage_timing("manifest", stage_started, record_observability=False)
         self.attach_runtime_timing_context()
         try:

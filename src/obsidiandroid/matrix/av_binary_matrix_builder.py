@@ -2,31 +2,17 @@
 # Purpose : Standalone phase script to generate AV binary detection matrix for ML processing
 
 import pandas as pd
-import re
 
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.database import db_av_engine_verdicts
+from obsidiandroid.database.verdict_semantics import (
+    VERDICT_METADATA_COLUMNS,
+    is_positive_detection_label,
+)
 
-METADATA_COLS = {
-    "record_id", "sample_id", "timeout", "confirmed_timeout", "failure",
-    "type_unsupported", "total_engines", "record_created_at",
-    "malicious_pct", "suspicious_pct", "undetected_pct", "harmless_pct", "av_hits",
-    "updated_at"
-}
+METADATA_COLS = VERDICT_METADATA_COLUMNS
 REQUIRED_LONG_COLS = {"sample_id", "engine_name", "result"}
 MISSING_TOKENS = {"", "none", "null", "n/a"}
-EMPTY_TOKENS = {"", "none", "null", "n/a", "undetected", "clean"}
-
-# Labels counted as positive detections in the binary matrix.
-MALICIOUS_REGEX = re.compile(
-    r"(trojan|backdoor|spy|rat|banker|keylogger|stealer|dropper|"
-    r"ransom|clipbank|loader|exploit|malware|virus|phish)",
-    flags=re.IGNORECASE,
-)
-SUSPICIOUS_REGEX = re.compile(
-    r"(risktool|adware|grayware|heur|not[- ]?a[- ]?virus|monitor|obfus|pua)",
-    flags=re.IGNORECASE,
-)
 
 def is_valid_verdict_df(df: pd.DataFrame) -> bool:
     if df.empty:
@@ -89,18 +75,14 @@ def _is_scanned_result(value: object) -> bool:
 
 def _is_positive_detection(value: object) -> int:
     """
-    Return 1 when a verdict string indicates malicious/suspicious behavior.
+    Return 1 when a vendor emitted any positive detection label.
 
-    This prevents false positives from merely non-null labels.
+    The wide verdict table is not a boolean matrix; engines emit strings such
+    as ``Detected``, ``unsafe``, family names, or generic threat labels. The
+    binary matrix should treat any non-benign, non-undetected token as a
+    positive detection.
     """
-    token = _normalize_result_token(value)
-    if token in EMPTY_TOKENS:
-        return 0
-    if MALICIOUS_REGEX.search(token):
-        return 1
-    if SUSPICIOUS_REGEX.search(token):
-        return 1
-    return 0
+    return is_positive_detection_label(value)
 
 def _generate_av_binary_matrix(samples_df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     if samples_df is None or samples_df.empty:

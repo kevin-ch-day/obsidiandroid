@@ -82,7 +82,7 @@ def test_ml_facades_match_ml_classification_modules() -> None:
     import importlib
 
     from obsidiandroid.features.features_facade_manifest import FEATURES_FACADE_ALIAS_TARGETS
-    from obsidiandroid.modeling.ml_classification_shim_facades import (
+    from obsidiandroid.modeling.legacy_ml_classification_manifest import (
         ML_CLASSIFICATION_BUILDER_SUBMODULES,
         ML_CLASSIFICATION_ENGINE_WEIGHTS_SUBMODULES,
         ML_CLASSIFICATION_INFERENCE_SUBMODULES,
@@ -209,7 +209,7 @@ def test_ml_classification_subpackages_lazy_attributes_pass100() -> None:
     """Pass 100: shim subpackages expose known leaf names via ``__getattr__``."""
     import importlib
 
-    from obsidiandroid.modeling.ml_classification_shim_facades import (
+    from obsidiandroid.modeling.legacy_ml_classification_manifest import (
         ML_CLASSIFICATION_BUILDER_SUBMODULES,
         ML_CLASSIFICATION_ENGINE_WEIGHTS_SUBMODULES,
         ML_CLASSIFICATION_INFERENCE_SUBMODULES,
@@ -291,7 +291,7 @@ def test_feature_engineering_facade_matches_analysis_shims() -> None:
     """Pass 78: vendor/feature helpers under ``obsidiandroid.feature_engineering``; legacy paths match."""
     import importlib
 
-    from obsidiandroid.feature_engineering.feature_engineering_import_surface import (
+    from obsidiandroid.legacy.analysis_feature_engineering_registry import (
         FEATURE_ENGINEERING_LEGACY_SHIM_MODULE_STEMS,
     )
 
@@ -435,7 +435,7 @@ def test_evaluation_leaf_shims_match_canonical_modules() -> None:
     """Passes 61–63 and 94: evaluation shims preserve module identity."""
     import importlib
 
-    from obsidiandroid.evaluation.analysis_evaluation_shim import (
+    from obsidiandroid.legacy.analysis_evaluation_registry import (
         LEGACY_EXPORT_NAMES as ANALYSIS_EVALUATION_LEGACY_EXPORT_NAMES,
     )
 
@@ -463,7 +463,7 @@ def test_vendor_execution_shims_match_canonical_modules() -> None:
     """Pass 64: analysis.execution package shim preserves module identity."""
     import importlib
 
-    from obsidiandroid.vendors.execution.analysis_execution_shim import (
+    from obsidiandroid.legacy.analysis_execution_registry import (
         LEGACY_EXPORT_NAMES as ANALYSIS_EXECUTION_LEGACY_EXPORT_NAMES,
     )
 
@@ -477,7 +477,7 @@ def test_governance_facade_matches_pipeline_governance_modules() -> None:
     """Pipeline governance primitives are canonical under obsidiandroid.governance."""
     import importlib
 
-    from obsidiandroid.governance.analysis_pipeline_governance_shim import (
+    from obsidiandroid.legacy.analysis_pipeline_governance_manifest import (
         ANALYSIS_PIPELINE_GOVERNANCE_SUBMODULES,
     )
 
@@ -498,7 +498,7 @@ def test_diagnostics_facade_modules_match_analysis_diagnostics() -> None:
     import importlib
 
     import analysis.diagnostics  # noqa: F401
-    from obsidiandroid.diagnostics.analysis_diagnostics_shim import (
+    from obsidiandroid.legacy.analysis_diagnostics_registry import (
         DIAGNOSTICS_NESTED_LEGACY_PACKAGES,
         DIAGNOSTICS_TOP_LEVEL_MODULE_NAMES,
     )

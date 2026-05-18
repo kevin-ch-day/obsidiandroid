@@ -84,8 +84,8 @@ from obsidiandroid.orchestration.runtime_reporting import (
     print_run_context_line as _print_run_context_line,
     setup_runtime_context,
 )
+from obsidiandroid.cli.main_override_bridge import resolve_main_override
 from obsidiandroid.database.db_sample_metadata_contracts import get_query_contract_metadata
-from obsidiandroid.pipeline.main_facade import from_main_or
 from obsidiandroid.pipeline.runner_support import (
     PipelineStageFailure,
     ScopedArtifactList,
@@ -241,7 +241,7 @@ def run_pipeline(
 
         # Load profile
         du.print_info("[PIPELINE] Loading profile YAML...")
-        profile = from_main_or("profile_manager", profile_manager).load_profile(profile_ref)
+        profile = resolve_main_override("profile_manager", profile_manager).load_profile(profile_ref)
         du.print_info(
             f"[PIPELINE] Profile: id={profile.get('profile_id')} | file={profile.get('__profile_path', '')}"
         )
@@ -369,7 +369,7 @@ def run_pipeline(
             )
         )
         enforce_paper_perturbation_axes_policy(profile=profile, paper_mode=effective_evidence_mode)
-        runtime_log_context = from_main_or("runtime_logging", runtime_logging).start_runtime_logging(
+        runtime_log_context = resolve_main_override("runtime_logging", runtime_logging).start_runtime_logging(
             run_id
         )
         if runtime_log_context is not None:
@@ -437,7 +437,7 @@ def run_pipeline(
             stop_after=stop_after,
             selected_models=model_list,
         )
-        samples_df = from_main_or("load_and_prepare_samples", load_and_prepare_samples)(
+        samples_df = resolve_main_override("load_and_prepare_samples", load_and_prepare_samples)(
             profile=profile,
             profile_id=profile_id,
             type_slug=type_slug,
@@ -529,7 +529,18 @@ def run_pipeline(
             profile=profile,
             manifest_context=manifest_context,
             samples_df=samples_df,
+            raise_on_mismatch=False,
         )
+        contract_validation = manifest_context["paper_cohort_contract"].get("validation", {})
+        if str(contract_validation.get("status", "") or "").strip().lower() == "mismatch":
+            mismatches = contract_validation.get("mismatches", [])
+            mismatch_rows = [str(row).strip() for row in mismatches if str(row).strip()]
+            st.fail_pipeline(
+                (
+                    f"[COHORT_LOCK] Locked cohort contract mismatch for profile {profile_id}: "
+                    + "; ".join(mismatch_rows)
+                ),
+            )
 
         if stop_after == "samples":
             st.mark_run_state("partial", completed_stage="samples")
@@ -557,7 +568,7 @@ def run_pipeline(
             stop_after=stop_after,
             selected_models=model_list,
         )
-        pipeline_results = from_main_or("run_av_analysis_stage", run_av_analysis_stage)(
+        pipeline_results = resolve_main_override("run_av_analysis_stage", run_av_analysis_stage)(
             samples_df=samples_df,
             run_id=run_id,
             profile_id=profile_id,
@@ -1592,7 +1603,7 @@ def run_pipeline(
             raise
         return 1
     finally:
-        from_main_or("runtime_logging", runtime_logging).stop_runtime_logging(runtime_log_context)
+        resolve_main_override("runtime_logging", runtime_logging).stop_runtime_logging(runtime_log_context)
         logger_manager.close_all_loggers()
         for key, original_value in mutable_config_snapshot.items():
             if original_value is _CONFIG_MISSING:

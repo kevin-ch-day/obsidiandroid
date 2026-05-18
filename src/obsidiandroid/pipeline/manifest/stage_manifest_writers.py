@@ -17,10 +17,15 @@ from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.hash_utils import hash_payload
+from obsidiandroid.common.publication_readiness import (
+    evaluate_publication_ready_status,
+    publication_ready_alias_payload,
+)
 from obsidiandroid.common.cv_fold_config import (
     coerce_stratified_cv_folds_config,
     safe_int_config_value,
 )
+from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
 
 
 def _safe_config_int(attr: str, *, default: int) -> int:
@@ -38,8 +43,6 @@ def write_run_summary_json(
 ) -> Path | None:
     """Write canonical run-summary JSON for operator history and health views."""
     try:
-        from obsidiandroid.diagnostics import output_inventory
-
         run_id = str(manifest.get("run_id", manifest_context.get("run_id", "unknown")))
         profile = manifest.get("profile_params", {}) if isinstance(manifest.get("profile_params"), dict) else {}
         model_summary = manifest.get("model_summary", {}) if isinstance(manifest.get("model_summary"), dict) else {}
@@ -70,7 +73,7 @@ def write_run_summary_json(
                 comp_rep = json.loads(Path(comp_path_str).read_text(encoding="utf-8"))
             except Exception:
                 comp_rep = {}
-        paper_status, _psr = output_inventory.evaluate_paper_safe_status(
+        publication_ready_status, _publication_ready_reasons = evaluate_publication_ready_status(
             paper_mode=bool((manifest.get("paper_mode") or {}).get("resolved_value", False)),
             manifest=manifest,
             compliance_report=comp_rep if comp_rep else None,
@@ -115,17 +118,16 @@ def write_run_summary_json(
             "train_sample_count": split_blob.get("train_sample_count"),
             "test_sample_count": split_blob.get("test_sample_count"),
             "ablation_multi_label_targets": manifest.get("ablation_multi_label_targets"),
-            "paper_safe_status": paper_status,
-            "publication_ready_status": paper_status,
             "manifest_path": str(run_root / "run_manifest.json"),
             "run_root": str(run_root),
             "paper_mode": bool((manifest.get("paper_mode") or {}).get("resolved_value", False)),
-            "evidence_mode": bool(manifest.get("evidence_mode", False)),
+            "evidence_mode": coalesce_manifest_publication_mode(manifest),
             "result_code": int(result_code),
             "lifecycle_started_at_utc": manifest_context.get("lifecycle_started_at_utc"),
             "lifecycle_state": manifest_context.get("lifecycle_state"),
             "lifecycle_finished_at_utc": manifest_context.get("lifecycle_finished_at_utc"),
         }
+        payload.update(publication_ready_alias_payload(publication_ready_status))
 
         run_summary_path = run_root / "run_summary.json"
         run_summary_run_path = diagnostics_dir / f"run_summary_{run_id}.json"
@@ -237,7 +239,7 @@ def finalize_output_hygiene_bundle(
             profile_id=str(profile.get("profile_id", "unknown")),
         )
 
-        paper_safe_status, reasons = output_inventory.evaluate_paper_safe_status(
+        paper_safe_status, reasons = evaluate_publication_ready_status(
             paper_mode=paper_mode,
             manifest=manifest,
             compliance_report=compliance_report,

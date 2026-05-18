@@ -6,14 +6,10 @@
 import pandas as pd
 from . import db_engine
 from obsidiandroid.cli.ui import display as du
+from .verdict_semantics import VERDICT_METADATA_COLUMNS
 
 # Columns to drop from the raw engine results
-COLUMNS_TO_EXCLUDE = {
-    "updated_at",
-    "record_id", "malicious", "suspicious", "undetected", "harmless",
-    "timeout", "confirmed_timeout", "failure", "type_unsupported",
-    "total_engines", "record_created_at"
-}
+COLUMNS_TO_EXCLUDE = VERDICT_METADATA_COLUMNS - {"sample_id"}
 
 # Core fetch function
 def fetch_av_engine_results_for_samples(samples_df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:

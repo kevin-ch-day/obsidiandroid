@@ -11,6 +11,36 @@ from config import app_config
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
 
 
+def _num_nullable(samples_df: pd.DataFrame, name: str) -> pd.Series:
+    """Return a numeric series preserving missingness for consensus-aware filtering."""
+    if name not in samples_df.columns:
+        return pd.Series(pd.NA, index=samples_df.index, dtype="Float64")
+    return pd.to_numeric(samples_df[name], errors="coerce").astype("Float64")
+
+
+def malicious_signal_or_taxonomy_mask(samples_df: pd.DataFrame) -> pd.Series:
+    """Return rows with malware evidence from labels, VT suggested label, or taxonomy."""
+    out = pd.Series(False, index=samples_df.index, dtype="bool")
+
+    for column in ("category_primary", "category_subtype", "vt_suggested_label"):
+        if column not in samples_df.columns:
+            continue
+        series = samples_df[column].fillna("").astype(str).str.strip().str.lower()
+        out = out | series.str.contains(
+            "malicious|trojan|threat|risk|suspicious|adware|ransomware|spyware|bankbot|stealer|rat|sms",
+            regex=True,
+        )
+
+    if "family_canonical" in samples_df.columns:
+        family = samples_df["family_canonical"].fillna("").astype(str).str.strip().str.lower()
+        out = out | ~family.isin({"", "unknown", "other", "unmapped", "none", "null"})
+    if "type_slug" in samples_df.columns:
+        type_slug = samples_df["type_slug"].fillna("").astype(str).str.strip().str.lower()
+        out = out | ~type_slug.isin({"", "unknown", "other", "unmapped", "none", "null"})
+
+    return out
+
+
 def split_benign_malicious(samples_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Split samples using VT-consensus signal with category fallback.
 
@@ -30,34 +60,27 @@ def split_benign_malicious(samples_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.D
     if not isinstance(samples_df, pd.DataFrame) or samples_df.empty:
         return pd.DataFrame(), pd.DataFrame()
 
-    def _num(name: str) -> pd.Series:
-        if name not in samples_df.columns:
-            return pd.Series(0, index=samples_df.index, dtype="float64")
-        return pd.to_numeric(samples_df[name], errors="coerce").fillna(0.0)
+    vt_malicious = _num_nullable(samples_df, "vt_malicious_count")
+    vt_suspicious = _num_nullable(samples_df, "vt_suspicious_count")
+    vt_undetected = _num_nullable(samples_df, "vt_undetected_count")
+    vt_reputation = _num_nullable(samples_df, "vt_reputation")
+    vt_positive = vt_malicious.fillna(0.0) + vt_suspicious.fillna(0.0)
+    vt_consensus_known = vt_malicious.notna() | vt_suspicious.notna()
 
-    vt_malicious = _num("vt_malicious_count")
-    vt_suspicious = _num("vt_suspicious_count")
-    vt_undetected = _num("vt_undetected_count")
-    vt_reputation = _num("vt_reputation")
-    vt_positive = vt_malicious + vt_suspicious
-
-    benign_mask = (vt_positive == 0) & ((vt_undetected > 0) | (vt_reputation >= 0))
+    benign_mask = vt_consensus_known & (vt_positive == 0) & (
+        (vt_undetected.fillna(0.0) > 0) | (vt_reputation.notna() & (vt_reputation >= 0))
+    )
     malicious_mask = vt_positive > 0
 
     unresolved = ~(benign_mask | malicious_mask)
-    if unresolved.any() and "category_primary" in samples_df.columns:
+    if unresolved.any():
         primary = (
-            samples_df["category_primary"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            .str.lower()
+            samples_df["category_primary"].fillna("").astype(str).str.strip().str.lower()
+            if "category_primary" in samples_df.columns
+            else pd.Series("", index=samples_df.index, dtype="object")
         )
         fallback_benign = primary.str.contains("benign|clean|harmless|safe", regex=True)
-        fallback_malicious = primary.str.contains(
-            "malicious|trojan|threat|risk|suspicious|adware|ransomware|spyware",
-            regex=True,
-        )
+        fallback_malicious = malicious_signal_or_taxonomy_mask(samples_df)
         benign_mask = benign_mask | (unresolved & fallback_benign)
         malicious_mask = malicious_mask | (unresolved & fallback_malicious)
 
@@ -216,4 +239,3 @@ def apply_dataset_filters(samples_df: pd.DataFrame, profile: dict) -> pd.DataFra
         mode=mode,
     )
     return samples_df
-

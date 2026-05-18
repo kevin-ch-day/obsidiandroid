@@ -25,6 +25,67 @@ def _safe_pct(num: float, den: float) -> float:
     return round(100.0 * float(num) / float(den), 4)
 
 
+def _permission_signal_quality_metric(diagnostics_dir: Path, metric: str) -> int | None:
+    """Read one integer metric from permission-signal-quality CSV when present."""
+    path = diagnostics_dir / "permission_signal_quality.csv"
+    if not path.is_file():
+        return None
+    try:
+        df = pd.read_csv(path)
+    except Exception:
+        return None
+    if "metric" not in df.columns or "value" not in df.columns:
+        return None
+    match = df[df["metric"].astype(str) == str(metric)]
+    if match.empty:
+        return None
+    try:
+        return int(float(match.iloc[0]["value"]))
+    except (TypeError, ValueError):
+        return None
+
+
+def _raw_permission_observation_count(samples_df: pd.DataFrame | None) -> int | None:
+    """Count cohort samples with at least one raw permission observation from the DB."""
+    if samples_df is None or samples_df.empty or "sample_id" not in samples_df.columns:
+        return None
+    try:
+        from obsidiandroid.orchestration.permission_features import (  # pylint: disable=protected-access
+            _fetch_permission_rows,
+        )
+    except Exception:
+        return None
+
+    sample_ids: list[int] = []
+    for value in samples_df["sample_id"].tolist():
+        if pd.isna(value):
+            continue
+        try:
+            sample_ids.append(int(float(value)))
+        except (TypeError, ValueError):
+            continue
+    if not sample_ids:
+        return None
+
+    try:
+        perm_long = _fetch_permission_rows(sorted(set(sample_ids)))
+    except Exception:
+        return None
+    if perm_long is None or perm_long.empty or "sample_id" not in perm_long.columns:
+        return 0
+
+    pl = perm_long.copy()
+    if "permission_string" in pl.columns:
+        pl["permission_string"] = pl["permission_string"].fillna("").astype(str).str.strip()
+        pl = pl[pl["permission_string"] != ""]
+    if pl.empty:
+        return 0
+    try:
+        return int(pl["sample_id"].nunique(dropna=True))
+    except Exception:
+        return None
+
+
 def _load_ablation_df(diagnostics_dir: Path, run_id: str) -> pd.DataFrame:
     for name in (
         f"ablation_summary_{run_id}.csv",
@@ -193,11 +254,23 @@ def write_research_question_artifacts(
     fc_contract = read_json_dict(diagnostics_dir / "feature_contract.json")
     if not fc_contract:
         fc_contract = read_json_dict(diagnostics_dir / "feature_contract.latest.json")
-    eng_in = int(fc_contract.get("engine_included_count") or 0)
-    eng_ex = int(fc_contract.get("engine_excluded_count") or 0)
+    eng_in = int(
+        fc_contract.get("engine_included_count")
+        or getattr(app_config, "RUNTIME_ENGINE_COUNT_INCLUDED_AFTER_GATING", 0)
+        or 0
+    )
+    eng_ex = int(
+        fc_contract.get("engine_excluded_count")
+        or getattr(app_config, "RUNTIME_ENGINE_COUNT_EXCLUDED_AFTER_GATING", 0)
+        or 0
+    )
     eng_obs = eng_in + eng_ex
 
+    raw_perm_n = _permission_signal_quality_metric(diagnostics_dir, "samples_with_any_permission_observation")
+    if raw_perm_n is None:
+        raw_perm_n = _raw_permission_observation_count(samples_df)
     denom_pi = float(gov) or 1.0
+    raw_perm_pct = _safe_pct(float(raw_perm_n or 0), denom_pi) if gov else 0.0
     pi_pct = _safe_pct(float(pi_n or 0), denom_pi)
     vm_pct = _safe_pct(float(vmerge or 0), denom_pi)
 
@@ -451,6 +524,15 @@ def write_research_question_artifacts(
         interpret_q2.append("Parsed vendor metadata merge coverage is sparse — treat as partial enrichment.")
     if broad_perm:
         interpret_q2.append("Permission signal covers most of the governed cohort — primary broad modality.")
+    if (
+        int(pi_n or 0) == 0
+        and int(perm_cols_fused or 0) == 0
+        and isinstance(raw_perm_n, int)
+        and raw_perm_n > 0
+    ):
+        interpret_q2.append(
+            "Raw permission observations exist in the DB, but permission features were disabled for the fused matrix in this run."
+        )
 
     pd.DataFrame(
         [
@@ -519,6 +601,8 @@ def write_research_question_artifacts(
         "governed_cohort_n": int(gov),
         "permission_signal_n": int(pi_n or 0),
         "permission_signal_pct": pi_pct,
+        "permission_raw_observation_n": int(raw_perm_n or 0),
+        "permission_raw_observation_pct": raw_perm_pct,
         "permission_feature_columns": perm_cols_fused,
         "vendor_merge_n": int(vmerge or 0),
         "vendor_merge_pct": vm_pct,
@@ -919,10 +1003,21 @@ def print_research_questions_terminal(
         f"top-5 share ≈ {t5:.2f}% — Macro-F1 is primary."
     )
     pr("2. Feature signal:")
-    pr(
-        f"   Permissions broad ({float(q2.get('permission_signal_pct') or 0):.1f}% rows with PI signal); "
-        f"parsed vendor merge sparse ({float(q2.get('vendor_merge_pct') or 0):.1f}%)."
-    )
+    raw_perm_n = int(q2.get("permission_raw_observation_n") or 0)
+    raw_perm_pct = float(q2.get("permission_raw_observation_pct") or 0)
+    fused_perm_n = int(q2.get("permission_signal_n") or 0)
+    fused_perm_pct = float(q2.get("permission_signal_pct") or 0)
+    if fused_perm_n == 0 and raw_perm_n > 0:
+        pr(
+            f"   Raw permission observations cover {raw_perm_pct:.1f}% of the cohort, "
+            f"but fused permission features are disabled/absent for this run; "
+            f"parsed vendor merge sparse ({float(q2.get('vendor_merge_pct') or 0):.1f}%)."
+        )
+    else:
+        pr(
+            f"   Permissions broad ({fused_perm_pct:.1f}% rows with PI signal); "
+            f"parsed vendor merge sparse ({float(q2.get('vendor_merge_pct') or 0):.1f}%)."
+        )
     pr("3. Model behavior:")
     pr(
         f"   {mk}: Macro-F1={float(bundle.get('macro_f1') or 0):.4f}, "

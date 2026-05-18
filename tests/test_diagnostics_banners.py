@@ -159,3 +159,31 @@ def test_build_diagnostics_overview_includes_traffic_lights_and_run_science_path
     assert rows["Vendor/parser coverage"] == "YELLOW"
     assert rows["Publication readiness"] == "GREEN"
     assert str(overview["run_science_index_path"]).endswith("run_science_index.md")
+
+
+def test_build_diagnostics_overview_surfaces_cohort_contract_context(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    out_root = tmp_path / "output"
+    run_id = "20260515T141956Z__58d84f"
+    rdiag = out_root / "runs" / run_id / "diagnostics"
+    rdiag.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(
+        diagnostics_banners,
+        "build_operator_state",
+        lambda **_kwargs: {
+            "latest_run_id": run_id,
+            "best_run_index_path": rdiag / "run_science_index.md",
+            "has_canonical_run_science": True,
+            "publication_ready_status": "ready",
+            "parser_summary": {"csv_ready": True, "workbook_ready": True},
+            "cohort_membership_mode": "paper_locked_snapshot_membership",
+            "min_malicious_detections_rescued_unknown_consensus": 4,
+        },
+    )
+
+    overview = diagnostics_banners.build_diagnostics_overview(output_root=out_root, latest_run_id=run_id)
+
+    assert overview["cohort_membership_mode"] == "paper_locked_snapshot_membership"
+    assert overview["rescued_unknown_consensus"] == 4

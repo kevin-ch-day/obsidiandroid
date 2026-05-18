@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 
 from obsidiandroid.legacy_shim_lazy import import_legacy_shim
-from obsidiandroid.modeling.ml_classification_shim_facades import (
+from obsidiandroid.modeling.legacy_ml_classification_manifest import (
     ML_CLASSIFICATION_ML_UTILS_SUBMODULES,
 )
 
@@ -22,7 +22,7 @@ _SUBMODULES = {
 }
 
 for _name, _canonical in _SUBMODULES.items():
-    _mod = import_legacy_shim(_canonical, f"{__name__}.{_name}")
+    _mod = import_legacy_shim(_canonical, f"{__name__}.{_name}", warn=True)
     globals()[_name] = _mod
     sys.modules[f"{__name__}.{_name}"] = _mod
 

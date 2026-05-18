@@ -8,6 +8,10 @@ from typing import Any
 
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
+from obsidiandroid.common.publication_readiness import (
+    coalesce_publication_ready_reasons,
+    coalesce_publication_ready_status,
+)
 
 
 def print_unified_run_health(
@@ -47,12 +51,17 @@ def print_unified_run_health(
     du.print_stat("Run ID", payload.get("run_id", "unknown"))
     du.print_stat("Profile", payload.get("profile_id", "unknown"))
     du.print_stat("Pipeline (aggregate)", payload.get("pipeline_status", "UNKNOWN"))
-    du.print_stat("Research validity bundle", payload.get("research_validity_status", "UNKNOWN"))
+    research_validity_status = str(payload.get("research_validity_status", "UNKNOWN") or "UNKNOWN")
+    research_validity_skip_reason = str(payload.get("research_validity_skip_reason", "") or "").strip()
+    if research_validity_skip_reason:
+        du.print_stat("Research validity bundle", f"{research_validity_status} ({research_validity_skip_reason})")
+    else:
+        du.print_stat("Research validity bundle", research_validity_status)
     du.print_stat("Publication-ready mode", "ON" if payload.get("paper_mode") else "OFF")
     du.print_stat("Evidence mode", "ON" if payload.get("evidence_mode") else "OFF")
-    publication_ready_status = payload.get("publication_ready_status", payload.get("paper_safe_status", "UNKNOWN"))
+    publication_ready_status = coalesce_publication_ready_status(payload)
     du.print_stat("publication_ready_status", publication_ready_status)
-    publication_ready_reasons = payload.get("publication_ready_reasons", payload.get("paper_safe_reasons", []))
+    publication_ready_reasons = coalesce_publication_ready_reasons(payload)
     if publication_ready_reasons:
         du.print_stat("publication_ready_reasons", ", ".join(str(x) for x in publication_ready_reasons))
 
@@ -105,8 +114,12 @@ def print_unified_run_health(
         )
 
     hostile_st = payload.get("hostile_audit_status")
+    hostile_skip_reason = str(payload.get("hostile_audit_skip_reason", "") or "").strip()
     if hostile_st:
-        du.print_stat("Hostile audit", str(hostile_st))
+        hostile_line = str(hostile_st)
+        if hostile_skip_reason:
+            hostile_line = f"{hostile_line} ({hostile_skip_reason})"
+        du.print_stat("Hostile audit", hostile_line)
 
     blockers = payload.get("paper_blockers") or []
     if isinstance(blockers, list) and blockers:

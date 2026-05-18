@@ -24,6 +24,10 @@ from .db_config import (
     DB_POOL_SIZE,
     DB_POOL_NAME,
     DB_CONNECT_TIMEOUT,
+    PERMISSION_INTEL_DB_HOST,
+    PERMISSION_INTEL_DB_PORT,
+    PERMISSION_INTEL_DB_USER,
+    PERMISSION_INTEL_DB_PASSWORD,
 )
 from .db_errors import mysql_error_summary, operator_facing_db_message
 from config import app_config
@@ -70,10 +74,10 @@ def _build_connect_kwargs() -> dict:
 def _build_permission_intel_connect_kwargs() -> dict:
     """Connector kwargs for the Permission Intel database (android_permission_* tables)."""
     return {
-        "host": DB_HOST,
-        "port": DB_PORT,
-        "user": DB_USER,
-        "password": DB_PASSWORD,
+        "host": PERMISSION_INTEL_DB_HOST,
+        "port": PERMISSION_INTEL_DB_PORT,
+        "user": PERMISSION_INTEL_DB_USER,
+        "password": PERMISSION_INTEL_DB_PASSWORD,
         "database": PERMISSION_INTEL_DB_NAME,
         "charset": DB_CHARSET,
         "autocommit": False,

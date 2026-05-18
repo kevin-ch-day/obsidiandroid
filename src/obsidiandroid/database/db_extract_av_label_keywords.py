@@ -16,6 +16,7 @@ import pandas as pd
 from obsidiandroid.cli.ui import display as du
 
 from . import db_engine, db_utils
+from .verdict_semantics import sql_non_detection_predicate
 
 STOPWORDS = {
     "android", "os", "variant", "ver", "gen", "generic", "win32", "linux", "sample", "detected", "unknown"
@@ -120,7 +121,7 @@ def collect_raw_engine_labels(engine: str, sample_limit: int = 2000) -> list:
     query = f"""
         SELECT DISTINCT `{safe_col}` AS result
         FROM virustotal_sample_vendor_engine_verdicts
-        WHERE `{safe_col}` IS NOT NULL AND TRIM(`{safe_col}`) NOT IN ('', 'None')
+        WHERE NOT ({sql_non_detection_predicate(f'`{safe_col}`')})
         LIMIT {sample_limit}
     """
 

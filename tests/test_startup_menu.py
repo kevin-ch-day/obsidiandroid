@@ -584,6 +584,8 @@ def test_recent_runs_overview_reads_run_scoped_manifests(
                 "run_id": "20260303T030000Z__bbb222",
                 "timestamp_utc": "2026-03-03T03:00:00Z",
                 "cohort_size": 1300,
+                "publication_ready_status": "READY",
+                "paper_cohort_contract": {"cohort_lock_status": "count_only_incomplete_sample_lock"},
                 "profile_params": {"profile_id": "dev_fast"},
                 "model_summary": {"top_model": "logistic_regression", "top_macro_f1": 0.80},
             }
@@ -784,6 +786,58 @@ def test_recent_runs_overview_prefers_canonical_run_summary(monkeypatch, tmp_pat
     assert captured["rows"][0]["runtime_sec"] == 42.5
 
 
+def test_recent_runs_overview_includes_methodology_columns(monkeypatch, tmp_path: Path) -> None:
+    out_root = tmp_path / "output"
+    run_id = "20260321T161433Z__fdaeb0"
+    run_root = out_root / "runs" / run_id
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
+                "publication_ready_status": "READY",
+                "paper_cohort_contract": {"cohort_lock_status": "count_only_incomplete_sample_lock"},
+                "profile_params": {"profile_id": "paper2_demo"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"cohort_filter_contract_{run_id}.json").write_text(
+        '{"cohort_gates":{"min_malicious_detections":5}}',
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"analysis_snapshot_filter_summary_{run_id}.csv").write_text(
+        "mode,source_total,post_filter_total\npaper_locked_snapshot_membership,100,98\n",
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"cohort_gate_counts_{run_id}.csv").write_text(
+        (
+            "run_id,step,gate_name,count_before,count_after,dropped,details\n"
+            f"{run_id},1,min_malicious_detections,98,97,1,"
+            "\">=5; rescued_unknown_consensus=3\"\n"
+        ),
+        encoding="utf-8",
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_print_table(rows, *_, **__):
+        captured["rows"] = rows
+
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    monkeypatch.setattr(startup_menu.du, "print_table", _fake_print_table)
+
+    result = startup_menu._show_recent_runs_overview(limit=5)  # pylint: disable=protected-access
+
+    assert result == 0
+    assert captured["rows"][0]["publication_ready_status"] == "READY"
+    assert captured["rows"][0]["cohort_lock_status"] == "count-only"
+    assert "membership=locked_sample_ids" in str(captured["rows"][0]["cohort_methodology"])
+    assert "rescued_unknown=3" in str(captured["rows"][0]["cohort_methodology"])
+
+
 def test_run_status_history_menu_includes_advanced_history_option(monkeypatch) -> None:
     """Run status menu should expose an explicit advanced history option."""
     captured: list[str] = []
@@ -857,6 +911,61 @@ def test_current_run_summary_uses_status_aware_fallbacks(monkeypatch, tmp_path: 
     assert values["Completed Through Stage"] == "Manifest Finalization"
     assert values["Top Model"] == "random_forest"
     assert values["Top Macro F1"] == "0.9530"
+
+
+def test_current_run_summary_includes_methodology_fields(monkeypatch, tmp_path: Path) -> None:
+    out_root = tmp_path / "output"
+    run_id = "20260321T161433Z__fdaeb0"
+    run_root = out_root / "runs" / run_id
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (out_root / "diagnostics").mkdir(parents=True, exist_ok=True)
+    (out_root / "diagnostics" / "run_manifest.latest.json").write_text(
+        json.dumps({"run_id": run_id}),
+        encoding="utf-8",
+    )
+    (run_root / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
+                "publication_ready_status": "READY",
+                "paper_cohort_contract": {"cohort_lock_status": "count_only_incomplete_sample_lock"},
+                "profile_params": {"profile_id": "paper2_demo"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"cohort_filter_contract_{run_id}.json").write_text(
+        '{"cohort_gates":{"min_malicious_detections":5}}',
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"analysis_snapshot_filter_summary_{run_id}.csv").write_text(
+        "mode,source_total,post_filter_total\npaper_locked_snapshot_membership,100,98\n",
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"cohort_gate_counts_{run_id}.csv").write_text(
+        (
+            "run_id,step,gate_name,count_before,count_after,dropped,details\n"
+            f"{run_id},1,min_malicious_detections,98,97,1,"
+            "\">=5; rescued_unknown_consensus=3\"\n"
+        ),
+        encoding="utf-8",
+    )
+
+    captured: list[tuple[str, object]] = []
+
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    monkeypatch.setattr(startup_menu.du, "print_stat", lambda label, value, *args, **kwargs: captured.append((str(label), value)))
+
+    result = startup_menu._show_latest_run_snapshot()  # pylint: disable=protected-access
+
+    values = {label: value for label, value in captured}
+    assert result == 0
+    assert values["Publication-ready Status"] == "READY"
+    assert values["Cohort Lock Status"] == "count-only"
+    assert "membership=locked_sample_ids" in str(values["Cohort Methodology"])
+    assert "rescued_unknown=3" in str(values["Cohort Methodology"])
 
 
 def test_within_cross_type_error_snapshot_reads_bundle_artifact(

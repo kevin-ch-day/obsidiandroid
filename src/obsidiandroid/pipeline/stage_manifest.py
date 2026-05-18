@@ -22,6 +22,7 @@ import obsidiandroid.governance.compliance as compliance
 import obsidiandroid.governance.artifacts as artifacts
 import obsidiandroid.governance.run_manifest as run_manifest
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.pipeline.manifest.runtime_support import (
     build_manifest_payload,
@@ -149,6 +150,49 @@ def _trained_models_for_manifest(
     return sorted(n for n in names if n in known)
 
 
+def _run_allows_strict_paper_exports(manifest_context: dict[str, Any]) -> tuple[bool, str]:
+    """Return whether strict paper exports should run for this manifest finalization.
+
+    Strict publication exports depend on downstream training/reporting artifacts.
+    When the pipeline has already failed or stopped early, attempting to build them
+    only produces a secondary error that obscures the true upstream failure.
+    """
+    run_status = str(manifest_context.get("run_status", "") or "").strip().lower()
+    if run_status == "failed":
+        return False, "run_failed"
+    if run_status == "partial":
+        return False, "run_partial"
+
+    failed_stage = str(manifest_context.get("failed_stage", "") or "").strip().lower()
+    if failed_stage:
+        return False, f"failed_stage:{failed_stage}"
+
+    completed_stage = str(manifest_context.get("completed_stage", "") or "").strip().lower()
+    if completed_stage and completed_stage not in {"manifest", "label_resolution", "full"}:
+        return False, f"completed_stage:{completed_stage}"
+
+    integrity_error = str(manifest_context.get("integrity_error", "") or "").strip()
+    if integrity_error:
+        return False, "integrity_error_present"
+
+    return True, "eligible"
+
+
+def _run_allows_research_validity_bundle(manifest_context: dict[str, Any]) -> tuple[bool, str]:
+    """Return whether manifest-phase research/hostile audit bundles should run."""
+    run_status = str(manifest_context.get("run_status", "") or "").strip().lower()
+    completed_stage = str(manifest_context.get("completed_stage", "") or "").strip().lower()
+    stop_after = str(manifest_context.get("stop_after", "") or "").strip().lower()
+
+    if run_status == "failed":
+        return False, "run_failed"
+    if stop_after == "samples":
+        return False, "stop_after_samples"
+    if run_status == "partial" and completed_stage in {"", "samples", "av_pipeline", "vendor_metadata"}:
+        return False, f"run_partial:{completed_stage or 'unknown'}"
+    return True, "eligible"
+
+
 def finalize_run_manifest_stage(
     manifest_context: dict,
     profile: dict,
@@ -176,7 +220,7 @@ def finalize_run_manifest_stage(
         run_id = str(manifest_context.get("run_id", "unknown"))
         paper_mode = bool(manifest_context.get("paper_mode", {}).get("resolved_value", False))
         evidence_mode = bool(profile.get("evidence_mode", False))
-        output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+        output_root = oh.resolve_stable_output_root_for_mirrors()
         diagnostics_dir = _runtime_diagnostics_dir()
         run_root = resolve_run_root(run_id=run_id, output_root=output_root)
 
@@ -303,30 +347,46 @@ def finalize_run_manifest_stage(
         if confusion_provenance_path and str(confusion_provenance_path) not in artifact_list:
             artifact_list.append(str(confusion_provenance_path))
         manifest["cohort_limitation_summary"] = _build_cohort_limitation_summary(samples_df=samples_df)
-        paper_exports = _build_strict_paper2_exports(
-            run_root=run_root,
-            diagnostics_dir=diagnostics_dir,
-            run_id=run_id,
-            samples_df=samples_df,
-            manifest_context=manifest_context,
-            evidence_mode=evidence_mode,
-            paper_mode=paper_mode,
-        )
-        if isinstance(paper_exports, dict):
-            manifest["paper2_export_profile"] = paper_exports.get("profile", {})
-            paper_profile = paper_exports.get("profile", {}) if isinstance(paper_exports.get("profile", {}), dict) else {}
-            manifest["paper_export_status"] = {
-                "enabled": bool(paper_profile.get("strict_profile_enabled", False)),
-                "reason": str(paper_profile.get("reason", "produced" if bool(paper_mode) else "paper_mode_disabled")),
+        allow_strict_paper_exports, skip_reason = _run_allows_strict_paper_exports(manifest_context)
+        if paper_mode and not allow_strict_paper_exports:
+            manifest["paper2_export_profile"] = {
+                "enabled": False,
+                "reason": skip_reason,
+                "single_run_id": run_id,
             }
-            for path in paper_exports.get("artifact_paths", []):
-                if path not in artifact_list:
-                    artifact_list.append(path)
-        else:
             manifest["paper_export_status"] = {
                 "enabled": False,
-                "reason": "not_requested",
+                "reason": skip_reason,
             }
+            du.print_warning(
+                "[PAPER2] Strict paper export skipped because the run did not reach "
+                f"a complete publication-ready state ({skip_reason})."
+            )
+        else:
+            paper_exports = _build_strict_paper2_exports(
+                run_root=run_root,
+                diagnostics_dir=diagnostics_dir,
+                run_id=run_id,
+                samples_df=samples_df,
+                manifest_context=manifest_context,
+                evidence_mode=evidence_mode,
+                paper_mode=paper_mode,
+            )
+            if isinstance(paper_exports, dict):
+                manifest["paper2_export_profile"] = paper_exports.get("profile", {})
+                paper_profile = paper_exports.get("profile", {}) if isinstance(paper_exports.get("profile", {}), dict) else {}
+                manifest["paper_export_status"] = {
+                    "enabled": bool(paper_profile.get("strict_profile_enabled", False)),
+                    "reason": str(paper_profile.get("reason", "produced" if bool(paper_mode) else "paper_mode_disabled")),
+                }
+                for path in paper_exports.get("artifact_paths", []):
+                    if path not in artifact_list:
+                        artifact_list.append(path)
+            else:
+                manifest["paper_export_status"] = {
+                    "enabled": False,
+                    "reason": "not_requested",
+                }
 
         manifest_writer = artifacts.ManifestWriter(run_root=run_root, paper_mode=paper_mode)
         if split_meta.get("split_audit_path"):
@@ -434,27 +494,40 @@ def finalize_run_manifest_stage(
             output_root=output_root,
         )
         manifest_context["research_validity_bundle_error"] = ""
-        _rv_wall = datetime.now(timezone.utc).isoformat()
-        manifest_context["_research_bundle_wall_start_iso"] = _rv_wall
-        _rv_t0 = time.perf_counter()
-        try:
-            from obsidiandroid.diagnostics import research_validity
+        allow_research_bundle, research_skip_reason = _run_allows_research_validity_bundle(manifest_context)
+        if allow_research_bundle:
+            manifest_context.pop("_research_bundle_skipped_reason", None)
+            manifest_context.pop("_hostile_bundle_skipped_reason", None)
+            _rv_wall = datetime.now(timezone.utc).isoformat()
+            manifest_context["_research_bundle_wall_start_iso"] = _rv_wall
+            _rv_t0 = time.perf_counter()
+            try:
+                from obsidiandroid.diagnostics import research_validity
 
-            research_validity.write_research_validity_bundle(
-                run_root=run_root,
-                diagnostics_dir=diagnostics_dir,
-                run_id=run_id,
-                manifest_context=manifest_context,
-                manifest=manifest,
-                samples_df=samples_df,
-                artifact_list=artifact_list,
-                paper_mode=paper_mode,
+                research_validity.write_research_validity_bundle(
+                    run_root=run_root,
+                    diagnostics_dir=diagnostics_dir,
+                    run_id=run_id,
+                    manifest_context=manifest_context,
+                    manifest=manifest,
+                    samples_df=samples_df,
+                    artifact_list=artifact_list,
+                    paper_mode=paper_mode,
+                )
+            except Exception as exc:
+                manifest_context["research_validity_bundle_error"] = str(exc)
+                du.print_warning(f"[AUDIT] Research validity bundle degraded: {exc}")
+            finally:
+                manifest_context["_research_bundle_duration_sec"] = max(0.0, time.perf_counter() - _rv_t0)
+        else:
+            manifest_context["_research_bundle_skipped_reason"] = research_skip_reason
+            manifest_context["_hostile_bundle_skipped_reason"] = research_skip_reason
+            manifest_context["_research_bundle_duration_sec"] = 0.0
+            manifest_context["_hostile_bundle_duration_sec"] = 0.0
+            du.print_info(
+                "[AUDIT] Research validity and hostile audit bundles skipped "
+                f"({research_skip_reason})."
             )
-        except Exception as exc:
-            manifest_context["research_validity_bundle_error"] = str(exc)
-            du.print_warning(f"[AUDIT] Research validity bundle degraded: {exc}")
-        finally:
-            manifest_context["_research_bundle_duration_sec"] = max(0.0, time.perf_counter() - _rv_t0)
         manifest["model_summary"] = manifest_context.get("model_summary") or {}
         manifest["main_training_row_authority"] = manifest_context.get("main_training_row_authority")
         manifest["trained_model_count"] = manifest_context.get("trained_model_count")
@@ -618,7 +691,7 @@ def finalize_run_manifest_stage(
     except Exception as exc:
         try:
             run_id = str(manifest_context.get("run_id", "unknown"))
-            output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+            output_root = oh.resolve_stable_output_root_for_mirrors()
             runtime_root_raw = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
             run_root = Path(runtime_root_raw) if runtime_root_raw else (output_root / "runs" / run_id)
             evidence_mode = bool(profile.get("evidence_mode", False))
@@ -652,5 +725,3 @@ def finalize_run_manifest_stage(
             pass
         du.print_error(f"[INTEGRITY] Run manifest finalization failed: {exc}")
         return 1
-
-

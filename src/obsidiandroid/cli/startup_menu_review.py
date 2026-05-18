@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
+from obsidiandroid.common.cohort_methodology import resolve_cohort_lock_status, safe_int
+from obsidiandroid.common.publication_readiness import publication_ready_display
 from obsidiandroid.common.json_io import read_json_dict
 from obsidiandroid.common.output_paths import output_root as canonical_output_root
 
@@ -34,43 +36,6 @@ def _status_row_map(rows: list[dict[str, object]]) -> dict[str, str]:
     return out
 
 
-def _cohort_lock_status(manifest: dict) -> str:
-    direct = str(manifest.get("cohort_lock_status", "") or "").strip().lower()
-    evidence_mode = bool(manifest.get("evidence_mode", False))
-    publication_raw = str(
-        manifest.get("publication_ready_status", "") or manifest.get("paper_safe_status", "") or ""
-    ).strip().lower()
-    if direct:
-        if direct in {"membership_locked", "locked"}:
-            return "locked"
-        if direct in {"count_only_incomplete_sample_lock", "count_only", "count-only"}:
-            return "count-only"
-        if direct in {"not_paper_locked", "not_locked", "unlocked"}:
-            return "unlocked"
-        if direct in {"locked_mismatch", "missing_lock", "missing-lock"}:
-            return "missing-lock"
-        if direct in {"unknown"}:
-            return "missing-lock" if evidence_mode or publication_raw in {"ready", "pass", "fail", "not_ready"} else "not applicable"
-    for key in ("cohort_contract", "paper_cohort_contract"):
-        payload = manifest.get(key)
-        if isinstance(payload, dict):
-            status = str(payload.get("cohort_lock_status", "") or payload.get("contract_status", "") or "").strip().lower()
-            if status:
-                if status in {"membership_locked", "locked"}:
-                    return "locked"
-                if status in {"count_only_incomplete_sample_lock", "count_only", "count-only"}:
-                    return "count-only"
-                if status in {"not_paper_locked", "not_locked", "unlocked"}:
-                    return "unlocked"
-                if status in {"locked_mismatch", "missing_lock", "missing-lock", "unknown"}:
-                    return "missing-lock"
-            if bool(payload.get("paper_locked", False)):
-                return "locked"
-    if evidence_mode or publication_raw in {"ready", "pass", "fail", "not_ready"}:
-        return "missing-lock"
-    return "unlocked"
-
-
 def _run_class(*, evidence_mode: bool, locked_status: str, publication_ready_status: str) -> str:
     pub = str(publication_ready_status or "").strip().lower()
     locked = locked_status in {"locked", "count-only", "missing-lock"}
@@ -81,19 +46,6 @@ def _run_class(*, evidence_mode: bool, locked_status: str, publication_ready_sta
     if evidence_mode:
         return "Evidence"
     return "Exploratory"
-
-
-def _publication_ready_display(raw_status: str, *, run_class: str, evidence_mode: bool) -> str:
-    token = str(raw_status or "").strip().lower()
-    if token in {"ready", "pass", "yes"}:
-        return "Yes"
-    if token in {"fail", "not_ready", "blocked"}:
-        return "Blocked"
-    if run_class == "Exploratory":
-        return "Not applicable — exploratory run"
-    if evidence_mode:
-        return "No"
-    return "No — exploratory run"
 
 
 def _health_status_map(rows: list[dict[str, object]]) -> dict[str, str]:
@@ -127,13 +79,6 @@ def _append_warning(
     warnings.append(f"{problem} Why it matters: {why} Next: {next_action} Open: {open_label}.")
 
 
-def _safe_int(value: object, default: int = 0) -> int:
-    try:
-        return int(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return default
-
-
 def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | None) -> dict[str, object]:
     """Build operator-first summary for the latest run."""
     shared = build_operator_state(output_base=output_root, run_id=latest_run_id)
@@ -144,14 +89,14 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
     gdiag = output_root / "diagnostics"
     manifest = shared.get("manifest_payload") if isinstance(shared.get("manifest_payload"), dict) else {}
     profile_id = str(shared.get("profile_id", "") or "unknown")
-    lock_status = _cohort_lock_status(manifest)
+    lock_status = str(shared.get("cohort_lock_status", "") or "").strip() or resolve_cohort_lock_status(manifest)
     publication_ready_status = str(shared.get("publication_ready_status", "") or "unknown")
     run_class = _run_class(
         evidence_mode=bool(shared.get("evidence_mode", False)),
         locked_status=lock_status,
         publication_ready_status=publication_ready_status,
     )
-    publication_ready_display = _publication_ready_display(
+    publication_ready_display_value = publication_ready_display(
         publication_ready_status,
         run_class=run_class,
         evidence_mode=bool(shared.get("evidence_mode", False)),
@@ -201,6 +146,22 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
     health_map = _health_status_map(health_rows)
 
     warnings: list[str] = []
+    if lock_status == "count-only":
+        _append_warning(
+            warnings,
+            problem="Cohort lock: count-only lock.",
+            why="row counts are governed, but exact sample-id membership is not fully reproducible from a locked snapshot",
+            next_action="open the run science index and cohort funnel, then confirm whether this run is acceptable for exploratory review only",
+            open_label="Run science index",
+        )
+    elif lock_status == "missing-lock":
+        _append_warning(
+            warnings,
+            problem="Cohort lock: missing or mismatched lock for an evidence/publication-intended run.",
+            why="membership cannot be trusted as a publication-grade locked cohort until the sample-id lock is present and aligned",
+            next_action="open the run science index, inspect the cohort contract details, and treat the run as blocked for publication claims",
+            open_label="Run science index",
+        )
     tax_mismatch = int(taxonomy.get("taxonomy_mismatch_count", 0) or 0) if taxonomy else 0
     family_label_mismatch = int(taxonomy.get("family_label_mismatch_count", 0) or 0) if taxonomy else 0
     type_issue_count = (
@@ -209,12 +170,42 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
         + int(taxonomy.get("type_missing_label_count", 0) or 0)
     ) if taxonomy else 0
     parser_summary = shared.get("parser_summary") if isinstance(shared.get("parser_summary"), dict) else {}
+    cohort_membership_mode = str(shared.get("cohort_membership_mode", "") or "").strip()
+    cohort_membership_note = str(shared.get("cohort_membership_authority_note", "") or "").strip()
+    rescued_unknown_consensus = safe_int(
+        shared.get("min_malicious_detections_rescued_unknown_consensus", 0),
+        0,
+    )
+    rescued_unknown_threshold = safe_int(
+        shared.get("min_malicious_detections_threshold", 0),
+        0,
+    )
     if health_map.get("Cohort / labels") == "RED":
         _append_warning(
             warnings,
             problem="Cohort / labels: run-scoped cohort foundation is missing.",
             why="cohort identity and label lineage are not auditable from the review surface",
             next_action="open the best available run science index and verify cohort foundation exports",
+            open_label="Run science index",
+        )
+    if cohort_membership_mode == "paper_locked_snapshot_membership":
+        _append_warning(
+            warnings,
+            problem="Cohort membership: locked sample-id snapshot is authoritative for this run.",
+            why=cohort_membership_note
+            or "sample-stage membership came from a governed locked cohort before normal shrinking gates",
+            next_action="open the run science index and confirm that lock-authoritative membership is the intended methodology for this run",
+            open_label="Run science index",
+        )
+    if rescued_unknown_consensus > 0:
+        _append_warning(
+            warnings,
+            problem=f"Malware rescue: {rescued_unknown_consensus} rows were retained with missing VT consensus.",
+            why=(
+                f"the min_malicious_detections gate (threshold={rescued_unknown_threshold}) "
+                "rescued rows using malware taxonomy or other malicious evidence"
+            ),
+            next_action="open the run science index and review cohort gate counts before treating consensus-based malware support as complete",
             open_label="Run science index",
         )
     if health_map.get("Taxonomy consistency") in {"YELLOW", "RED"} and tax_mismatch > 0:
@@ -315,13 +306,21 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
         tuning_actions.append("Review ablation summary to identify which signal family is carrying the result.")
     if health_map.get("Cohort / labels") in {"YELLOW", "RED"} or low_support_csv.is_file() or trained_family_registry.is_file():
         tuning_actions.append("Review support-threshold effects and trained-family coverage.")
+    if cohort_membership_mode == "paper_locked_snapshot_membership":
+        tuning_actions.append("Confirm that locked sample-id membership is the intended authority before comparing this run against contract-shrunk cohorts.")
+    if rescued_unknown_consensus > 0:
+        tuning_actions.append("Review rescued missing-consensus malware rows before raising or lowering the malicious-detection threshold.")
+    if lock_status == "count-only":
+        tuning_actions.append("Confirm that count-only cohort lock is acceptable for this review before using the run as a reproducible evidence baseline.")
+    elif lock_status == "missing-lock":
+        tuning_actions.append("Do not treat this run as publication-grade until the sample-id cohort lock is restored and revalidated.")
     if health_map.get("Figure validity") in {"YELLOW", "RED"}:
         tuning_actions.append("Review figure validity before using plots as research claims.")
     if not tuning_actions:
         tuning_actions.append("Open run science index and inspect cohort funnel first.")
     tax_recommended_action = (
         "Review taxonomy mismatches first, then near-threshold families before adjusting support settings."
-        if _safe_int(taxonomy_support.get("taxonomy_mismatch_total", 0), 0) > 0
+        if safe_int(taxonomy_support.get("taxonomy_mismatch_total", 0), 0) > 0
         else "Cross-check retained/dropped families with support threshold preview before profile changes."
     )
     if tune_next_priority:
@@ -333,8 +332,10 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
         "profile_id": profile_id,
         "run_class": run_class,
         "cohort_lock_status": lock_status,
+        "cohort_membership_mode": cohort_membership_mode or "standard_contract_filters",
         "evidence_mode": bool(shared.get("evidence_mode", False)),
-        "publication_ready_status": publication_ready_display,
+        "publication_ready_status": publication_ready_display_value,
+        "rescued_unknown_consensus": rescued_unknown_consensus,
         "health_rows": health_rows,
         "warnings": warnings[:5],
         "open_first": open_first,

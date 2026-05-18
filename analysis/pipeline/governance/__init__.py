@@ -5,14 +5,14 @@ Canonical implementations live under ``obsidiandroid.governance``; leaf modules
 identity shims to the same ``ModuleType`` objects as ``obsidiandroid.governance.*``.
 
 Submodule names are defined in
-:mod:`obsidiandroid.governance.analysis_pipeline_governance_shim`.
+:mod:`obsidiandroid.legacy.analysis_pipeline_governance_manifest`.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from obsidiandroid.governance.analysis_pipeline_governance_shim import (
+from obsidiandroid.legacy.analysis_pipeline_governance_manifest import (
     ANALYSIS_PIPELINE_GOVERNANCE_SUBMODULES,
 )
 from obsidiandroid.legacy_shim_lazy import lazy_legacy_submodule

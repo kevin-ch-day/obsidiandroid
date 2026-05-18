@@ -190,6 +190,10 @@ def launch_compare_runs_menu(
             run_ids=run_ids,
             print_fn=lambda line: print(line) if line else None,
         )
+        du.print_info(
+            "[MENU] Compare methodology too: cohort lock status, cohort membership mode, and rescued "
+            "missing-consensus malware rows can make runs non-equivalent even when headline metrics look similar."
+        )
         return 0
 
     while True:

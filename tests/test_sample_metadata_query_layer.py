@@ -266,6 +266,36 @@ def test_validate_type_slug_hybrid_falls_back_to_static_on_db_failure(monkeypatc
     db_sample_metadata_queries._validate_type_slug("banker")  # pylint: disable=protected-access
 
 
+def test_validate_type_slug_hybrid_static_fallback_accepts_live_taxonomy_slug(monkeypatch) -> None:
+    """Fallback validation should still allow slugs present in the current live taxonomy."""
+    monkeypatch.setattr(
+        db_sample_metadata_queries.app_config,
+        "TYPE_SLUG_VALIDATION_MODE",
+        "hybrid",
+        raising=False,
+    )
+
+    def _boom():
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr(db_sample_metadata_queries, "fetch_available_android_type_slugs", _boom)
+    db_sample_metadata_queries._DB_TYPE_SLUG_CACHE = None  # pylint: disable=protected-access
+
+    db_sample_metadata_queries._validate_type_slug("ransomware")  # pylint: disable=protected-access
+
+
+def test_validate_type_slug_static_accepts_current_taxonomy_slug(monkeypatch) -> None:
+    """Static validation should include the expanded supported Android malware taxonomy."""
+    monkeypatch.setattr(
+        db_sample_metadata_queries.app_config,
+        "TYPE_SLUG_VALIDATION_MODE",
+        "static",
+        raising=False,
+    )
+
+    db_sample_metadata_queries._validate_type_slug("ransomware")  # pylint: disable=protected-access
+
+
 def test_stage_samples_sets_runtime_min_family_support_from_profile_gates(monkeypatch, tmp_path) -> None:
     """Sample stage should expose profile min-family-support for downstream training."""
     profile = {
@@ -324,3 +354,98 @@ def test_stage_samples_sets_runtime_min_family_support_from_profile_gates(monkey
 
     assert int(getattr(stage_samples.app_config, "RUNTIME_MIN_FAMILY_SUPPORT", 0)) == 20
 
+
+def test_stage_samples_locked_snapshot_defers_membership_shrinking_sql_gates(monkeypatch, tmp_path) -> None:
+    """Paper-locked sample-id snapshots should own membership before support/exclusion gates."""
+    profile = {
+        "paper_locked": True,
+        "paper_lock": {
+            "sample_id_lock_file": str(tmp_path / "lock.csv"),
+        },
+        "cohort_gates": {
+            "min_samples_per_family": 20,
+            "exclude_families": ["Devixor", "Gigabud"],
+        },
+    }
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(stage_samples.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "EXPORT_ANALYSIS_SNAPSHOT", False, raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "ENABLE_SNAPSHOT_LOCK", True, raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "SNAPSHOT_LOCK_FILE", str(tmp_path / "lock.csv"), raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "RUNTIME_EVIDENCE_STRICT_MODE", True, raising=False)
+
+    monkeypatch.setattr(stage_samples, "_resolve_dataset_time_contract", lambda **_kwargs: {})
+    monkeypatch.setattr(stage_samples, "_augment_dataset_time_contract", lambda **kwargs: kwargs["time_contract"])
+    monkeypatch.setattr(stage_samples, "_export_dataset_time_contract", lambda **_kwargs: "time.json")
+    monkeypatch.setattr(stage_samples, "_export_time_window_family_distributions", lambda **_kwargs: [])
+    monkeypatch.setattr(stage_samples, "_export_paper_cohort_sample_ids", lambda **_kwargs: "ids.csv")
+    monkeypatch.setattr(stage_samples, "_export_cohort_filter_contract", lambda **_kwargs: ("a.json", "b.csv"))
+    monkeypatch.setattr(stage_samples, "export_cohort_filter_summary", lambda **_kwargs: "summary.csv")
+    monkeypatch.setattr(
+        stage_samples.cohort_readiness_report, "print_cohort_sql_scope_gate_summary", lambda _stats: None
+    )
+    monkeypatch.setattr(stage_samples.cohort_readiness_report, "print_cohort_readiness_report", lambda _df, gates=None: None)
+    monkeypatch.setattr(stage_samples, "prepare_sample_dataframe", lambda **kwargs: kwargs["df"])
+    monkeypatch.setattr(stage_samples, "_assert_package_name_integrity", lambda **_kwargs: None)
+    def _fake_gate_stats(**kwargs):
+        captured["gate_stats_kwargs"] = kwargs
+        return {"total_candidates": 10, "governed_cohort_count": 10}
+
+    def _fake_load(**kwargs):
+        captured["load_kwargs"] = kwargs
+        return pd.DataFrame(
+            [
+                {
+                    "sample_id": 1,
+                    "sha256": "a" * 64,
+                    "family_canonical": "x",
+                    "type_slug": "banker",
+                    "permissions": 1,
+                    "android_package_name": "pkg",
+                    "vt_malicious_count": 1,
+                }
+            ]
+        )
+
+    monkeypatch.setattr(stage_samples.db_sample_metadata_queries, "get_type_cohort_gate_stats", _fake_gate_stats)
+    monkeypatch.setattr(stage_samples.db_sample_metadata_queries, "load_samples_by_type", _fake_load)
+
+    def _snapshot_lock(**kwargs):
+        captured["snapshot_lock_kwargs"] = kwargs
+        df = kwargs["samples_df"].copy()
+        df.attrs["snapshot_lock"] = {
+            "status": "matched",
+            "applied": True,
+            "matched_sample_count": len(df),
+            "lock_sample_count": len(df),
+            "missing_from_db_count": 0,
+            "fail_closed": kwargs["fail_closed"],
+        }
+        return df
+
+    monkeypatch.setattr(stage_samples.cohort_reproducibility, "apply_analysis_snapshot_lock", _snapshot_lock)
+    monkeypatch.setattr(
+        stage_samples,
+        "apply_dataset_filters",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("dataset filters should be skipped")),
+    )
+    monkeypatch.setattr(
+        stage_samples,
+        "apply_contract_filters",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("contract filters should be skipped")),
+    )
+
+    stage_samples.load_and_prepare_samples(
+        profile=profile,
+        profile_id="malicious_temporal_stability_locked",
+        type_slug=None,
+        run_id="run_locked",
+        artifact_list=[],
+    )
+
+    assert captured["gate_stats_kwargs"]["min_samples_per_family"] is None
+    assert captured["load_kwargs"]["min_samples_per_family"] is None
+    assert captured["gate_stats_kwargs"]["exclude_family_canonical"] == tuple()
+    assert captured["load_kwargs"]["exclude_family_canonical"] == tuple()
+    assert captured["snapshot_lock_kwargs"]["lock_file"] == str(tmp_path / "lock.csv")

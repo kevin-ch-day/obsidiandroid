@@ -11,6 +11,7 @@ import pandas as pd
 from obsidiandroid.cli.ui import display as du
 
 from . import db_engine, db_utils
+from .verdict_semantics import sql_non_detection_predicate
 
 # --------------------------------------------------------
 # Step 1: Build UNION SQL to melt wide columns
@@ -22,9 +23,14 @@ def build_melt_union_sql(engine_names: list) -> str:
     for eng in engine_names:
         safe = eng.replace("`", "").replace('"', "")
         queries.append(
-            f"""SELECT sample_id, '{safe}' AS engine, `{safe}` AS result
-                FROM virustotal_sample_vendor_engine_verdicts
-                WHERE `{safe}` IS NOT NULL AND `{safe}` NOT IN ('', 'None', 'undetected')"""
+            f"""SELECT
+                    sample_id,
+                    '{safe}' AS engine,
+                    CASE
+                        WHEN {sql_non_detection_predicate(f'`{safe}`')} THEN 'undetected'
+                        ELSE 'malicious'
+                    END AS result
+                FROM virustotal_sample_vendor_engine_verdicts"""
         )
     return "\nUNION ALL\n".join(queries)
 

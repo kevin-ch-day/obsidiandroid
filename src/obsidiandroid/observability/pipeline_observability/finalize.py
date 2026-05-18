@@ -13,6 +13,10 @@ from pathlib import Path
 from typing import Any
 
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common.publication_readiness import (
+    evaluate_publication_ready_status,
+    publication_ready_alias_payload,
+)
 
 from obsidiandroid.diagnostics.cohort_vocabulary import (
     KEY_COHORT_PREPARED_ROW_COUNT,
@@ -20,7 +24,6 @@ from obsidiandroid.diagnostics.cohort_vocabulary import (
     read_prepared_cohort_row_count,
     read_sql_scope_row_count,
 )
-from obsidiandroid.diagnostics.output_inventory import evaluate_paper_safe_status
 from obsidiandroid.observability.pipeline_observability.logging_audit import write_logging_audit_artifacts
 from obsidiandroid.observability.pipeline_observability.session import PipelineObservabilitySession
 
@@ -53,7 +56,7 @@ def _coerce_int(v: Any) -> int | None:
 
 
 def _top_artifacts_to_open(run_root: Path | None, diagnostics_dir: Path, run_id: str) -> list[str]:
-    """Ordered open-first list (paths may be written in the same hygiene pass)."""
+    """Ordered open-first list constrained to artifacts that actually exist."""
     rr = run_root if run_root is not None else diagnostics_dir
     ordered: list[Path] = [
         rr / "run_evidence_index.md",
@@ -68,7 +71,7 @@ def _top_artifacts_to_open(run_root: Path | None, diagnostics_dir: Path, run_id:
         diagnostics_dir / "figure_validity_audit.md",
         diagnostics_dir / "hostile_audit_partial_errors.txt",
     ]
-    return [str(p) for p in ordered][:16]
+    return [str(p) for p in ordered if p.exists()][:16]
 
 
 _STOP_IX = {
@@ -142,17 +145,23 @@ def finalize_pipeline_observability(
 
     # --- Research validity / hostile (manifest-phase) ---
     rv_err = str(manifest_context.get("research_validity_bundle_error", "") or "").strip()
+    rv_skip_reason = str(manifest_context.get("_research_bundle_skipped_reason", "") or "").strip()
+    hostile_skip_reason = str(manifest_context.get("_hostile_bundle_skipped_reason", "") or "").strip()
     hostile_err_path = diagnostics_dir / "hostile_audit_partial_errors.txt"
     hostile_failed = hostile_err_path.exists() and hostile_err_path.stat().st_size > 0
 
     rv_status = "PASS"
-    if rv_err:
+    if rv_skip_reason:
+        rv_status = "SKIPPED"
+    elif rv_err:
         rv_status = "FAIL"
         if obs_session:
             obs_session.record_partial_failure(stage="research_validity", error=rv_err, recoverable=True)
 
     hostile_status = "PASS"
-    if hostile_failed:
+    if hostile_skip_reason:
+        hostile_status = "SKIPPED"
+    elif hostile_failed:
         hostile_status = "PASS_WITH_WARNINGS"
         summary_txt = hostile_err_path.read_text(encoding="utf-8")[:1200]
         manifest_context["_hostile_audit_warning_blob"] = summary_txt
@@ -168,24 +177,29 @@ def finalize_pipeline_observability(
         extras_rv = {}
         if isinstance(wt, str) and wt.strip():
             extras_rv["start_time_iso"] = wt.strip()
+        if rv_skip_reason:
+            extras_rv["skip_reason"] = rv_skip_reason
         obs_session.emit_stage_completion(
             "research_validity",
             status=rv_status,
             duration_sec=float(manifest_context.get("_research_bundle_duration_sec", 0.0) or 0.0),
-            major_warnings=rv_err or "",
+            major_warnings=rv_err or rv_skip_reason,
             paper_blocker_stage=False,
-            next_stage_allowed=int(result_code) == 0 or not rv_err,
+            next_stage_allowed=True if rv_skip_reason else int(result_code) == 0 or not rv_err,
             extras=extras_rv,
         )
         wf = manifest_context.get("_hostile_bundle_wall_start_iso", "")
         exh = {}
         if isinstance(wf, str) and wf.strip():
             exh["start_time_iso"] = wf.strip()
+        if hostile_skip_reason:
+            exh["skip_reason"] = hostile_skip_reason
         obs_session.emit_stage_completion(
             "hostile_audit",
             status=hostile_status,
             duration_sec=float(manifest_context.get("_hostile_bundle_duration_sec", 0.0) or 0.0),
-            major_warnings=("hostile_audit_partial_errors.txt non-empty") if hostile_failed else "",
+            major_warnings=hostile_skip_reason
+            or (("hostile_audit_partial_errors.txt non-empty") if hostile_failed else ""),
             next_stage_allowed=True,
             extras=exh,
         )
@@ -216,7 +230,7 @@ def finalize_pipeline_observability(
         readiness_issues=list(evidence_readiness_issues),
     )
 
-    paper_safe_terminal, reasons = evaluate_paper_safe_status(
+    paper_safe_terminal, reasons = evaluate_publication_ready_status(
         paper_mode=bool(paper_mode),
         manifest=manifest,
         compliance_report=compliance_report,
@@ -303,12 +317,10 @@ def finalize_pipeline_observability(
         "pipeline_status": verdict,
         "paper_mode": bool(paper_mode),
         "evidence_mode": bool(evidence_mode),
-        "paper_safe_status": paper_safe_terminal,
-        "paper_safe_reasons": reasons,
-        "publication_ready_status": paper_safe_terminal,
-        "publication_ready_reasons": reasons,
         "research_validity_status": rv_status,
+        "research_validity_skip_reason": rv_skip_reason or None,
         "hostile_audit_status": hostile_status,
+        "hostile_audit_skip_reason": hostile_skip_reason or None,
         "hostile_audit_degraded": bool(hostile_failed),
         "main_training_row_authority": manifest.get("main_training_row_authority")
         or manifest_context.get("main_training_row_authority"),
@@ -379,6 +391,7 @@ def finalize_pipeline_observability(
             "run_evidence_index_md": str(resolved_run_root / "run_evidence_index.md") if resolved_run_root else "",
         },
     }
+    status_blob.update(publication_ready_alias_payload(paper_safe_terminal, reasons))
 
     summary_text = json.dumps(status_blob, indent=2, sort_keys=True)
     summary_path = diagnostics_dir / AUTHORITATIVE_SUMMARY_FILENAME

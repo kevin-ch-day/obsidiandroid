@@ -14,6 +14,11 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common.cohort_contracts import (
+    declared_cohort_contract_status,
+    declared_cohort_enforcement_level,
+    unresolved_cohort_contract_payload,
+)
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.common.repo_paths import repo_root
 from obsidiandroid.database import db_config
@@ -155,6 +160,7 @@ def build_runtime_contract(
     profile: dict[str, Any],
     manifest_context: dict[str, Any],
     samples_df: pd.DataFrame,
+    raise_on_mismatch: bool = True,
 ) -> dict[str, Any]:
     """Build and validate the runtime locked cohort contract for the observed cohort."""
     declared = build_declared_contract(profile)
@@ -215,13 +221,23 @@ def build_runtime_contract(
             "mismatches": mismatches,
         },
     }
-    if mismatches:
-        raise ValueError(
-            f"[COHORT_LOCK] Locked cohort contract mismatch for profile "
-            f"{declared.get('profile_id', profile.get('profile_id', 'unknown'))}: "
-            + "; ".join(mismatches)
-        )
+    if mismatches and raise_on_mismatch:
+        raise ValueError(_format_contract_mismatch_error(profile=profile, declared=declared, mismatches=mismatches))
     return payload
+
+
+def _format_contract_mismatch_error(
+    *,
+    profile: dict[str, Any],
+    declared: dict[str, Any],
+    mismatches: list[str],
+) -> str:
+    """Build the canonical locked-cohort mismatch error message."""
+    return (
+        f"[COHORT_LOCK] Locked cohort contract mismatch for profile "
+        f"{declared.get('profile_id', profile.get('profile_id', 'unknown'))}: "
+        + "; ".join(mismatches)
+    )
 
 
 def build_declared_contract(profile: dict[str, Any]) -> dict[str, Any]:
@@ -230,21 +246,12 @@ def build_declared_contract(profile: dict[str, Any]) -> dict[str, Any]:
     paper_locked = bool(profile.get("paper_locked", False))
     raw_lock = profile.get("paper_lock", {}) if isinstance(profile.get("paper_lock"), dict) else {}
     if not paper_locked:
-        return {
-            "paper_locked": False,
-            "profile_id": profile_id,
-            "contract_name": profile_id,
-            "contract_id": profile_id,
-            "contract_status": "not_paper_locked",
-            "cohort_lock_status": "not_paper_locked",
-            "enforcement_level": "none",
-            "validation": {"checked": False, "status": "not_paper_locked", "mismatches": []},
-        }
+        return unresolved_cohort_contract_payload(profile_id=profile_id)
 
     sample_id_lock_path = _resolve_repo_relative_path(raw_lock.get("sample_id_lock_file"))
     has_sample_lock = bool(sample_id_lock_path)
-    contract_status = "membership_locked" if has_sample_lock else "count_only_incomplete_sample_lock"
-    enforcement_level = "full" if has_sample_lock else "partial"
+    contract_status = declared_cohort_contract_status(has_sample_lock=has_sample_lock)
+    enforcement_level = declared_cohort_enforcement_level(has_sample_lock=has_sample_lock)
     contract_id = str(raw_lock.get("contract_id", "") or raw_lock.get("paper_id", "") or profile_id)
     return {
         "paper_locked": True,

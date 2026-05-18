@@ -131,6 +131,8 @@ def _is_operator_mirror_path(
         return False
     if "latest" in name_lower or "pointer" in name_lower:
         return True
+    if name_lower.startswith("pipeline_stage_timings.latest"):
+        return True
     if name_lower.startswith("artifact_inventory."):
         return True
     if name_lower.startswith("cohort_filter_contract.latest"):
@@ -144,4 +146,3 @@ def _is_operator_mirror_path(
     if name_lower.startswith("ablation_summary.latest"):
         return True
     return False
-

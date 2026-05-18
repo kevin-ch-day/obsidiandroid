@@ -62,6 +62,30 @@ def test_apply_contract_filters_family_cap_and_min_malicious(monkeypatch) -> Non
     assert set(out_df["family_canonical"].tolist()) == {"A", "B"}
 
 
+def test_apply_contract_filters_min_malicious_rescues_unknown_consensus_malware() -> None:
+    """Rows with missing VT counts should survive when malware taxonomy still marks them malicious."""
+    samples_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "type_slug": ["banker", "", "banker"],
+            "family_canonical": ["Alien", "", "Cerberus"],
+            "vt_malicious_count": [pd.NA, 0, 5],
+            "vt_suspicious_count": [pd.NA, 0, 0],
+            "vt_suggested_label": ["trojan.bankbot/alien", "", ""],
+        }
+    )
+
+    out_df, gate_rows = apply_contract_filters(
+        samples_df=samples_df,
+        gates={"min_malicious_detections": 1},
+        run_id="r_rescue",
+    )
+
+    assert out_df["sample_id"].tolist() == [1, 3]
+    min_gate = next(row for row in gate_rows if row["gate_name"] == "min_malicious_detections")
+    assert "rescued_unknown_consensus=1" in min_gate["details"]
+
+
 def test_export_cohort_filter_contract_writes_files(monkeypatch, tmp_path: Path) -> None:
     """Contract and gate-count files should be exported under diagnostics."""
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)

@@ -6,7 +6,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from obsidiandroid.common.cohort_presentation import cohort_methodology_summary
 from obsidiandroid.common.output_paths import output_root as canonical_output_root
+from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
 
 from .menu.operator_state import build_operator_state
 from .startup_menu_run_context import (
@@ -54,7 +56,7 @@ def print_profile_tuning_from_manifest(manifest: dict[str, Any]) -> None:
     if ch:
         du.print_stat("Profile config hash", ch[:16] + ("…" if len(ch) > 16 else ""))
 
-    du.print_stat("Evidence mode (manifest)", "Yes" if bool(manifest.get("evidence_mode")) else "No")
+    du.print_stat("Evidence mode (manifest)", "Yes" if coalesce_manifest_publication_mode(manifest) else "No")
     pmd = manifest.get("paper_mode") if isinstance(manifest.get("paper_mode"), dict) else {}
     du.print_stat("Publication-ready mode (manifest)", "Yes" if bool(pmd.get("resolved_value")) else "No")
     psrc = str(pmd.get("source") or "").strip()
@@ -230,6 +232,9 @@ def show_latest_run_snapshot() -> int:
     du.print_stat("Cohort Size", cohort_size)
     du.print_stat("Selected Vendors", selected_vendor_count)
     du.print_stat("Vendor Constrained", constrained)
+    du.print_stat("Publication-ready Status", str(shared.get("publication_ready_status", "") or "unknown"))
+    du.print_stat("Cohort Lock Status", str(shared.get("cohort_lock_status", "") or "unknown"))
+    du.print_stat("Cohort Methodology", cohort_methodology_summary(shared))
     du.print_stat("Pipeline Runtime (sec)", runtime_display)
     du.print_stat("Top Model", top_model)
     du.print_stat("Top Macro F1", top_macro)
@@ -261,6 +266,7 @@ def show_recent_runs_overview(limit: int = 10, *, include_noncanonical: bool = F
         manifest = read_json_object(manifest_path)
         if not manifest:
             continue
+        shared = build_operator_state(output_base=output_root, run_id=run_dir.name)
         model_summary = manifest.get("model_summary") if isinstance(manifest.get("model_summary"), dict) else {}
         profile = manifest.get("profile_params") if isinstance(manifest.get("profile_params"), dict) else {}
         run_id = str(manifest.get("run_id", run_dir.name)).strip()
@@ -299,6 +305,9 @@ def show_recent_runs_overview(limit: int = 10, *, include_noncanonical: bool = F
                 "top_model": top_model or "Not available yet",
                 "top_macro_f1": top_macro or "Not available yet",
                 "runtime_sec": runtime_display,
+                "publication_ready_status": str(shared.get("publication_ready_status", "") or "unknown"),
+                "cohort_lock_status": str(shared.get("cohort_lock_status", "") or "unknown"),
+                "cohort_methodology": cohort_methodology_summary(shared),
                 "timestamp_utc": str(
                     run_summary.get("timestamp_utc", manifest.get("timestamp_utc", ""))
                 ),
@@ -368,6 +377,9 @@ def show_session_and_output_details() -> int:
     du.print_stat("Latest Profile", latest_profile_id)
     du.print_stat("Locked Evidence Run", locked_run_id)
     du.print_stat("Publication Exports", "Yes" if bool(shared.get("has_paper_exports", False)) else "No")
+    du.print_stat("Publication-ready Status", str(shared.get("publication_ready_status", "") or "unknown"))
+    du.print_stat("Cohort Lock Status", str(shared.get("cohort_lock_status", "") or "unknown"))
+    du.print_stat("Cohort Methodology", cohort_methodology_summary(shared))
     du.print_stat("Run Diagnostics Available", "Yes" if bool(shared.get("latest_run_has_provenance", False)) else "No")
     best_index_path = shared.get("best_run_index_path")
     if isinstance(best_index_path, Path) and best_index_path:

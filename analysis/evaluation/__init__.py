@@ -5,12 +5,12 @@ package preserves legacy ``analysis.evaluation.<name>`` import paths and module
 identity by registering the canonical submodules in ``sys.modules`` at package
 import time (Passes 61–63).
 
-Registration data lives in :mod:`obsidiandroid.evaluation.analysis_evaluation_shim`.
+Registration data lives in :mod:`obsidiandroid.legacy.analysis_evaluation_registry`.
 """
 
 from __future__ import annotations
 
-from obsidiandroid.evaluation.analysis_evaluation_shim import (
+from obsidiandroid.legacy.analysis_evaluation_registry import (
     LEGACY_EXPORT_NAMES,
     register_analysis_evaluation_legacy_aliases,
 )

@@ -41,6 +41,29 @@ def _parse_bool_like(value: Any, source: str, strict: bool) -> bool | None:
     return None
 
 
+def coalesce_manifest_evidence_mode(payload: Any) -> bool:
+    """Resolve evidence mode from manifest payloads that may store bool or metadata dicts."""
+    if isinstance(payload, dict):
+        parsed = _parse_bool_like(payload.get("resolved_value"), "manifest.evidence_mode.resolved_value", strict=False)
+        if parsed is not None:
+            return parsed
+    parsed = _parse_bool_like(payload, "manifest.evidence_mode", strict=False)
+    return bool(parsed) if parsed is not None else False
+
+
+def coalesce_manifest_publication_mode(manifest: dict[str, Any] | None) -> bool:
+    """Resolve publication-ready mode from manifest evidence/paper aliases."""
+    if not isinstance(manifest, dict):
+        return False
+    evidence_payload = manifest.get("evidence_mode")
+    if evidence_payload is not None:
+        return coalesce_manifest_evidence_mode(evidence_payload)
+    paper_payload = manifest.get("paper_mode")
+    if paper_payload is not None:
+        return coalesce_manifest_evidence_mode(paper_payload)
+    return False
+
+
 def resolve_evidence_mode(
     *,
     cli_value: bool | None,

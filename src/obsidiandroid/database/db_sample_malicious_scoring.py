@@ -5,6 +5,7 @@
 
 from . import db_engine
 from . import schema_map
+from .verdict_semantics import sql_non_detection_predicate
 from obsidiandroid.cli.ui import display as du
 
 def get_active_trusted_engines():
@@ -54,8 +55,11 @@ def get_active_trusted_engines():
 def build_union_sql(valid_engines: list[str]) -> str:
     """
     Builds UNION ALL SQL to extract engine verdicts:
-    - 'malicious' if engine field is NOT NULL
-    - 'undetected' if engine field IS NULL
+    - 'malicious' for any positive detection label
+    - 'undetected' for NULL / empty / benign / timeout / unsupported labels
+
+    The wide verdict table stores vendor-specific strings rather than boolean
+    detection flags, so explicit non-detection tokens must be excluded first.
     """
     union_parts = []
 
@@ -64,7 +68,8 @@ def build_union_sql(valid_engines: list[str]) -> str:
         sql = f"""
             SELECT sample_id, '{engine}' AS engine,
                 CASE
-                    WHEN `{engine}` IS NULL THEN 'undetected'
+                    WHEN {sql_non_detection_predicate(f'`{engine}`')}
+                        THEN 'undetected'
                     ELSE 'malicious'
                 END AS verdict
             FROM {verdicts_table}

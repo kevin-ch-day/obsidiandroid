@@ -10,14 +10,25 @@ import pandas as pd
 from obsidiandroid.cli.ui import display as du
 
 SUPPORTED_ANDROID_TYPE_SLUGS = (
-    "banker",
-    "dropper",
     "adware",
-    "stealer",
-    "sms-trojan",
+    "backdoor",
+    "banker",
+    "botnet",
+    "cryptojacking",
+    "dropper",
+    "miner",
+    "pua",
+    "ransomware",
     "rat",
+    "riskware",
+    "sms-trojan",
     "spyware",
+    "stalkerware",
+    "stealer",
+    "trojan",
     "unknown",
+    "wiper",
+    "worm",
 )
 
 QUERY_CONTRACT_VERSION = "android_samples_v1_ordered_2026-03-04"

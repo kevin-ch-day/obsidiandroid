@@ -11,12 +11,11 @@ from uuid import uuid4
 
 from config import app_config
 from obsidiandroid.common.hash_utils import hash_payload, short_hash
+from obsidiandroid.common.output_hygiene import global_diagnostics_root
 from obsidiandroid.database import db_engine
 
 MANIFEST_SCHEMA_VERSION = "1.0.0"
-_INITIAL_MANIFEST_PATH = (
-    Path(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")) / "diagnostics" / "run_manifest.latest.json"
-)
+_INITIAL_MANIFEST_PATH = global_diagnostics_root() / "run_manifest.latest.json"
 MANIFEST_PATH = _INITIAL_MANIFEST_PATH
 
 
@@ -63,7 +62,7 @@ def resolve_manifest_path() -> Path:
     configured_path = Path(MANIFEST_PATH)
     if configured_path != _INITIAL_MANIFEST_PATH:
         return configured_path
-    return Path(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")) / "diagnostics" / "run_manifest.latest.json"
+    return global_diagnostics_root() / "run_manifest.latest.json"
 
 
 def write_run_manifest(manifest: Dict[str, Any]) -> Path:

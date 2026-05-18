@@ -13,7 +13,15 @@ from mysql.connector import Error as MySQLError
 from obsidiandroid.database import db_engine, schema_map
 from obsidiandroid.database.db_config import DB_NAME, PERMISSION_INTEL_DB_NAME
 from obsidiandroid.database.db_permission_analysis_queries import (
+    fetch_android_banking_trojans_with_permissions_count,
     fetch_android_banking_trojans_with_permissions,
+    fetch_av_report_by_sample_id,
+)
+from obsidiandroid.database.db_sample_timelines_queries import (
+    fetch_family_sample_timeline,
+    fetch_global_sample_timeline,
+    fetch_samples_by_year,
+    summarize_family_timelines,
 )
 
 
@@ -71,6 +79,106 @@ def test_fetch_banking_trojans_sql_qualifies_primary_and_pi(monkeypatch) -> None
     assert f"`{DB_NAME}`.`malware_sample_catalog`" in sql
     assert f"`{PERMISSION_INTEL_DB_NAME}`.`android_permission_obs_sample`" in sql
     assert f"`{PERMISSION_INTEL_DB_NAME}`.`android_permission_dict_aosp`" in sql
+    assert "ORDER BY ms.sample_id ASC, ops.observed_at_utc ASC, ops.permission_string ASC" in sql
+    assert "'golddigger'" in sql
+    assert "'crocodilus'" in sql
+
+
+def test_fetch_banking_trojans_count_sql_uses_same_family_universe(monkeypatch) -> None:
+    """Count helper should stay aligned with the detail helper's banking-family filter."""
+    queries: list[str] = []
+
+    def capture(query, *_args, **_kwargs):
+        queries.append(query)
+        return (["c"], [])
+
+    monkeypatch.setattr(db_engine, "execute_query", capture)
+    fetch_android_banking_trojans_with_permissions_count()
+    sql = queries[0]
+    assert "'golddigger'" in sql
+    assert "'crocodilus'" in sql
+    assert "ORDER BY ms.sample_id ASC" in sql
+
+
+def test_fetch_av_report_by_sample_id_qualifies_primary_verdict_table(monkeypatch) -> None:
+    """Single-sample AV report helper should use the canonical primary-schema table name."""
+    queries: list[str] = []
+
+    def capture(query, *_args, **_kwargs):
+        queries.append(query)
+        return (["sample_id"], [])
+
+    monkeypatch.setattr(db_engine, "execute_query", capture)
+    fetch_av_report_by_sample_id(123)
+    sql = queries[0]
+    assert f"`{DB_NAME}`.`virustotal_sample_vendor_engine_verdicts`" in sql
+
+
+def test_global_sample_timeline_sql_is_primary_qualified_and_deterministic(monkeypatch) -> None:
+    """Global timeline query should normalize family aliases and use stable ordering."""
+    queries: list[str] = []
+
+    def capture(query, *_args, **_kwargs):
+        queries.append(query)
+        return (["sample_id"], [])
+
+    monkeypatch.setattr(db_engine, "execute_query", capture)
+    fetch_global_sample_timeline()
+    sql = queries[0]
+    assert f"`{DB_NAME}`.`malware_sample_catalog`" in sql
+    assert "THEN 'FluBot'" in sql
+    assert "ELSE TRIM(family_label)" in sql
+    assert "ORDER BY vt_first_submission_at_utc ASC, sample_id ASC" in sql
+
+
+def test_family_sample_timeline_sql_uses_canonical_family_filter(monkeypatch) -> None:
+    """Family timeline query should normalize FluBot aliases before filtering."""
+    queries: list[str] = []
+
+    def capture(query, *_args, **_kwargs):
+        queries.append(query)
+        return (["sample_id"], [])
+
+    monkeypatch.setattr(db_engine, "execute_query", capture)
+    fetch_family_sample_timeline("flubot")
+    sql = queries[0]
+    assert f"`{DB_NAME}`.`malware_sample_catalog`" in sql
+    assert "REPLACE(" in sql
+    assert "'FluBot', 'flubot'" in sql
+    assert "ORDER BY vt_first_submission_at_utc ASC, sample_id ASC" in sql
+
+
+def test_summarize_family_timelines_sql_groups_on_trimmed_canonical_name(monkeypatch) -> None:
+    """Family timeline summary should group on the same normalized family expression it selects."""
+    queries: list[str] = []
+
+    def capture(query, *_args, **_kwargs):
+        queries.append(query)
+        return (["family_name"], [])
+
+    monkeypatch.setattr(db_engine, "execute_query", capture)
+    summarize_family_timelines()
+    sql = queries[0]
+    assert f"`{DB_NAME}`.`malware_sample_catalog`" in sql
+    assert "GROUP BY CASE WHEN LOWER(TRIM(family_label)) IN ('cabassous', 'flubot') THEN 'FluBot' ELSE TRIM(family_label) END" in sql
+    assert "ORDER BY first_submission ASC, family_name ASC" in sql
+
+
+def test_fetch_samples_by_year_sql_normalizes_family_aliases(monkeypatch) -> None:
+    """Year-based timeline query should not regress to raw family_label values."""
+    queries: list[str] = []
+
+    def capture(query, *_args, **_kwargs):
+        queries.append(query)
+        return (["sample_id"], [])
+
+    monkeypatch.setattr(db_engine, "execute_query", capture)
+    fetch_samples_by_year(2025)
+    sql = queries[0]
+    assert f"`{DB_NAME}`.`malware_sample_catalog`" in sql
+    assert "AS family_name" in sql
+    assert "ELSE TRIM(family_label)" in sql
+    assert "ORDER BY vt_first_submission_at_utc ASC, sample_id ASC" in sql
 
 
 def test_get_table_columns_routes_android_permission_tables_to_pi(monkeypatch) -> None:
@@ -151,6 +259,50 @@ def test_db_config_obsidian_env_overrides_in_fresh_interpreter() -> None:
         import obsidiandroid.database.db_config as cfg
         assert cfg.DB_NAME == "primary_from_env"
         assert cfg.PERMISSION_INTEL_DB_NAME == "pi_from_env"
+        """
+        % (str(repo_root), str(src_root))
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_db_config_erebus_env_fallbacks_in_fresh_interpreter() -> None:
+    """Erebus-style env vars should be accepted for shared platform deployments."""
+    repo_root = Path(__file__).resolve().parents[1]
+    src_root = repo_root / "src"
+    script = textwrap.dedent(
+        """
+        import os
+        import sys
+        sys.path.insert(0, %r)
+        sys.path.insert(0, %r)
+        os.environ["EREBUS_DB_HOST"] = "erebus-db-host"
+        os.environ["EREBUS_DB_PORT"] = "4406"
+        os.environ["EREBUS_DB_USER"] = "erebus_user"
+        os.environ["EREBUS_DB_PASSWORD"] = "erebus_pw"
+        os.environ["EREBUS_DB_NAME"] = "erebus_primary"
+        os.environ["EREBUS_PERMISSION_INTEL_DB_NAME"] = "erebus_pi"
+        os.environ["EREBUS_PERMISSION_INTEL_DB_HOST"] = "erebus-pi-host"
+        os.environ["EREBUS_PERMISSION_INTEL_DB_PORT"] = "5506"
+        os.environ["EREBUS_PERMISSION_INTEL_DB_USER"] = "erebus_pi_user"
+        os.environ["EREBUS_PERMISSION_INTEL_DB_PASSWORD"] = "erebus_pi_pw"
+        import obsidiandroid.database.db_config as cfg
+        assert cfg.DB_HOST == "erebus-db-host"
+        assert cfg.DB_PORT == 4406
+        assert cfg.DB_USER == "erebus_user"
+        assert cfg.DB_PASSWORD == "erebus_pw"
+        assert cfg.DB_NAME == "erebus_primary"
+        assert cfg.PERMISSION_INTEL_DB_NAME == "erebus_pi"
+        assert cfg.PERMISSION_INTEL_DB_HOST == "erebus-pi-host"
+        assert cfg.PERMISSION_INTEL_DB_PORT == 5506
+        assert cfg.PERMISSION_INTEL_DB_USER == "erebus_pi_user"
+        assert cfg.PERMISSION_INTEL_DB_PASSWORD == "erebus_pi_pw"
         """
         % (str(repo_root), str(src_root))
     )

@@ -5,7 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from obsidiandroid.common.cohort_artifacts import load_cohort_contract_state
+from obsidiandroid.common.cohort_methodology import resolve_cohort_lock_status
 from obsidiandroid.common.output_paths import output_root as canonical_output_root
+from obsidiandroid.common.publication_readiness import coalesce_publication_ready_status
+from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_evidence_mode
 
 from obsidiandroid.cli.menu import run_locator
 from obsidiandroid.cli.menu.display_mode import resolve_display_mode
@@ -65,6 +69,11 @@ def latest_run_has_provenance(run_id: str | None, *, base: Path) -> bool:
     return all(path.exists() for path in required)
 
 
+def _resolve_cohort_contract_state(run_root: Path, run_id: str) -> dict[str, Any]:
+    """Resolve run-scoped cohort filter contract artifacts for operator surfaces."""
+    return load_cohort_contract_state(diagnostics_dir=run_root / "diagnostics", run_id=run_id)
+
+
 def build_operator_state(*, output_base: Path | None = None, run_id: str | None = None) -> dict[str, Any]:
     """Build shared operator-facing state for the latest run and workspace."""
     display_mode = resolve_display_mode()
@@ -82,17 +91,32 @@ def build_operator_state(*, output_base: Path | None = None, run_id: str | None 
     best_index_path, has_canonical_run_science = (
         resolve_best_run_index_path(run_root) if effective_run_id else (Path(), False)
     )
+    cohort_contract_state = (
+        _resolve_cohort_contract_state(run_root, effective_run_id)
+        if effective_run_id
+        else {
+            "cohort_filter_summary_path": Path(),
+            "cohort_filter_summary": {},
+            "cohort_filter_contract_path": Path(),
+            "cohort_filter_contract": {},
+            "cohort_gate_counts_path": Path(),
+            "cohort_gate_rows": [],
+            "cohort_membership_mode": "standard_contract_filters",
+            "cohort_membership_authority_note": "",
+            "min_malicious_detections_threshold": 0,
+            "min_malicious_detections_rescued_unknown_consensus": 0,
+        }
+    )
 
     profile_params = manifest.get("profile_params") if isinstance(manifest.get("profile_params"), dict) else {}
     profile_id = str(profile_params.get("profile_id", "") or "").strip()
-    publication_ready_status = (
-        str(manifest.get("publication_ready_status", "") or "")
-        or str(manifest.get("paper_safe_status", "") or "")
-        or "unknown"
+    publication_ready_status = coalesce_publication_ready_status(
+        manifest if isinstance(manifest, dict) else {}
     )
-    evidence_mode = bool(manifest.get("evidence_mode")) if isinstance(manifest, dict) else False
+    evidence_mode = coalesce_manifest_evidence_mode(manifest.get("evidence_mode")) if isinstance(manifest, dict) else False
     paper_mode = manifest.get("paper_mode") if isinstance(manifest.get("paper_mode"), dict) else {}
     publication_ready_mode = bool(paper_mode.get("resolved_value", False)) if paper_mode else False
+    cohort_lock_status = resolve_cohort_lock_status(manifest if isinstance(manifest, dict) else {})
 
     return {
         "display_mode": display_mode,
@@ -110,11 +134,13 @@ def build_operator_state(*, output_base: Path | None = None, run_id: str | None 
         "has_paper_exports": paper_exports_available(effective_run_id, base=base),
         "has_structural_bundle": has_structural_bundle(effective_run_id, base=base),
         "publication_ready_status": publication_ready_status,
+        "cohort_lock_status": cohort_lock_status,
         "evidence_mode": evidence_mode,
         "publication_ready_mode": publication_ready_mode,
         "best_run_index_path": best_index_path,
         "has_canonical_run_science": has_canonical_run_science,
         "parser_summary": get_parser_summary_state(mode=display_mode),
+        **cohort_contract_state,
     }
 
 

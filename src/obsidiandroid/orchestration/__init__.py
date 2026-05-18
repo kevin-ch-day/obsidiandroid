@@ -6,8 +6,6 @@ package and its submodules (same :class:`types.ModuleType` objects).
 
 from __future__ import annotations
 
-import sys
-
 from . import (
     metadata_features,
     methodology_artifacts,
@@ -23,7 +21,3 @@ __all__ = [
     "profile_filters",
     "runtime_reporting",
 ]
-
-_LEGACY_ORCH_PREFIX = "analysis.orchestration."
-for _name in __all__:
-    sys.modules[_LEGACY_ORCH_PREFIX + _name] = sys.modules[__name__ + "." + _name]

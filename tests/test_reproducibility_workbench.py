@@ -52,3 +52,88 @@ def test_ablation_macro_f1_reads_feature_set_ablation_summary(tmp_path: Path) ->
     got = rw._ablation_macro_f1_by_experiment(tmp_path, rid)
     assert abs((got.get("permissions_raw") or 0) - 0.91) < 1e-6
     assert abs((got.get("full_fused") or 0) - 0.92) < 1e-6
+
+
+def test_collect_run_comparison_row_includes_cohort_methodology(tmp_path: Path) -> None:
+    out = tmp_path / "output"
+    run_id = "20260303T000000Z__abc123"
+    run_root = out / "runs" / run_id
+    rdiag = run_root / "diagnostics"
+    gdiag = out / "diagnostics"
+    rdiag.mkdir(parents=True, exist_ok=True)
+    gdiag.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text(
+        (
+            '{"run_id":"%s","publication_ready_status":"READY","paper_cohort_contract":'
+            '{"cohort_lock_status":"count_only_incomplete_sample_lock"},'
+            '"profile_params":{"profile_id":"paper2_demo"}}'
+        )
+        % run_id,
+        encoding="utf-8",
+    )
+    (run_root / "run_summary.json").write_text('{"profile_id":"paper2_demo"}', encoding="utf-8")
+    (rdiag / f"cohort_filter_contract_{run_id}.json").write_text(
+        '{"cohort_gates":{"min_malicious_detections":5}}',
+        encoding="utf-8",
+    )
+    (rdiag / f"analysis_snapshot_filter_summary_{run_id}.csv").write_text(
+        "mode,source_total,post_filter_total\npaper_locked_snapshot_membership,100,98\n",
+        encoding="utf-8",
+    )
+    (rdiag / f"cohort_gate_counts_{run_id}.csv").write_text(
+        (
+            "run_id,step,gate_name,count_before,count_after,dropped,details\n"
+            f"{run_id},1,min_malicious_detections,98,97,1,"
+            "\">=5; rescued_unknown_consensus=3\"\n"
+        ),
+        encoding="utf-8",
+    )
+
+    row = rw.collect_run_comparison_row(out, run_id)
+
+    assert row["publication_ready_status"] == "READY"
+    assert row["cohort_lock_status"] == "count-only"
+    assert row["cohort_membership_mode"] == "paper_locked_snapshot_membership"
+    assert row["min_malicious_detections_threshold"] == 5
+    assert row["rescued_unknown_consensus"] == 3
+
+
+def test_write_run_comparison_summary_preserves_methodology_columns(tmp_path: Path) -> None:
+    out = tmp_path / "output"
+    gdiag = out / "diagnostics"
+    gdiag.mkdir(parents=True, exist_ok=True)
+    for run_id in ("r1", "r2"):
+        run_root = out / "runs" / run_id
+        rdiag = run_root / "diagnostics"
+        rdiag.mkdir(parents=True, exist_ok=True)
+        (run_root / "run_manifest.json").write_text(
+            (
+                '{"run_id":"%s","publication_ready_status":"NOT_APPLICABLE",'
+                '"profile_params":{"profile_id":"dev_smoke"}}'
+            )
+            % run_id,
+            encoding="utf-8",
+        )
+        (run_root / "run_summary.json").write_text('{"profile_id":"dev_smoke"}', encoding="utf-8")
+        (rdiag / f"cohort_filter_contract_{run_id}.json").write_text(
+            '{"cohort_gates":{"min_malicious_detections":2}}',
+            encoding="utf-8",
+        )
+        (rdiag / f"cohort_gate_counts_{run_id}.csv").write_text(
+            (
+                "run_id,step,gate_name,count_before,count_after,dropped,details\n"
+                f"{run_id},1,min_malicious_detections,10,10,0,"
+                "\">=2; rescued_unknown_consensus=1\"\n"
+            ),
+            encoding="utf-8",
+        )
+
+    csv_path, md_path = rw.write_run_comparison_summary(output_root=out, run_ids=["r1", "r2"])
+
+    csv_text = csv_path.read_text(encoding="utf-8")
+    md_text = md_path.read_text(encoding="utf-8")
+    assert "cohort_lock_status" in csv_text
+    assert "cohort_membership_mode" in csv_text
+    assert "rescued_unknown_consensus" in csv_text
+    assert "cohort_lock_status" in md_text
+    assert "rescued_unknown_consensus" in md_text

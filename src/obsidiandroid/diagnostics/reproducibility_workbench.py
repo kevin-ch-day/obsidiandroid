@@ -17,8 +17,13 @@ import pandas as pd
 
 from config import app_config
 
+from obsidiandroid.common.cohort_artifacts import load_cohort_contract_state
+from obsidiandroid.common.cohort_presentation import cohort_methodology_summary
+from obsidiandroid.common.cohort_methodology import resolve_cohort_lock_status
 from obsidiandroid.common import output_paths
 from obsidiandroid.common.json_io import read_json_dict
+from obsidiandroid.common.publication_readiness import coalesce_publication_ready_status
+from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
 from obsidiandroid.diagnostics.diagnostic_provenance import latest_post_run_enrichment_dir
 
 
@@ -84,6 +89,18 @@ def _ablation_macro_f1_by_experiment(diagnostics_dir: Path, run_id: str) -> dict
         except (TypeError, ValueError):
             out[exp] = None
     return out
+
+def _collect_cohort_methodology(output_root: Path, run_id: str) -> dict[str, Any]:
+    """Read run-scoped cohort methodology artifacts for cross-run comparisons."""
+    state = load_cohort_contract_state(
+        diagnostics_dir=run_scoped_diagnostics(output_root, run_id),
+        run_id=run_id,
+    )
+    return {
+        "cohort_membership_mode": state.get("cohort_membership_mode", "standard_contract_filters"),
+        "min_malicious_detections_threshold": state.get("min_malicious_detections_threshold", 0),
+        "rescued_unknown_consensus": state.get("min_malicious_detections_rescued_unknown_consensus", 0),
+    }
 
 
 def list_run_ids_newest_first(*, limit: int | None = None) -> list[str]:
@@ -739,8 +756,10 @@ def collect_run_comparison_row(output_root: Path, run_id: str) -> dict[str, Any]
         summary.get("profile_id") or (manifest.get("profile_params") or {}).get("profile_id") or ""
     )
 
-    evidence_mode = manifest.get("evidence_mode") or manifest.get("paper_mode") or {}
-    ev_on = bool(evidence_mode.get("resolved_value")) if isinstance(evidence_mode, dict) else False
+    ev_on = coalesce_manifest_publication_mode(manifest)
+    cohort_methodology = _collect_cohort_methodology(output_root, run_id)
+    cohort_lock_status = resolve_cohort_lock_status(manifest)
+    publication_ready_status = coalesce_publication_ready_status(manifest)
 
     min_support = getattr(app_config, "MIN_FAMILY_SUPPORT", "")
     mp = manifest.get("profile_params") if isinstance(manifest.get("profile_params"), dict) else {}
@@ -800,6 +819,19 @@ def collect_run_comparison_row(output_root: Path, run_id: str) -> dict[str, Any]
         "support_threshold": min_support,
         "smote_enabled": smote_on,
         "evidence_mode": ev_on,
+        "publication_ready_status": publication_ready_status or "unknown",
+        "cohort_lock_status": cohort_lock_status,
+        "cohort_membership_mode": cohort_methodology.get("cohort_membership_mode", "standard_contract_filters"),
+        "min_malicious_detections_threshold": cohort_methodology.get("min_malicious_detections_threshold", 0),
+        "rescued_unknown_consensus": cohort_methodology.get("rescued_unknown_consensus", 0),
+        "cohort_methodology_summary": cohort_methodology_summary(
+            {
+                "cohort_lock_status": cohort_lock_status,
+                "cohort_membership_mode": cohort_methodology.get("cohort_membership_mode", "standard_contract_filters"),
+                "min_malicious_detections_threshold": cohort_methodology.get("min_malicious_detections_threshold", 0),
+                "min_malicious_detections_rescued_unknown_consensus": cohort_methodology.get("rescued_unknown_consensus", 0),
+            }
+        ),
     }
 
 
@@ -842,8 +874,12 @@ def write_evidence_paper_readiness(
     gdiag = global_diagnostics(output_root)
     gdiag.mkdir(parents=True, exist_ok=True)
 
-    publication_ready_status = (
-        "ready" if bool(latest_evidence_mode and latest_paper_exports and locked_run_id) else "not_ready"
+    publication_ready_status = coalesce_publication_ready_status(
+        {
+            "publication_ready_status": (
+                "ready" if bool(latest_evidence_mode and latest_paper_exports and locked_run_id) else "not_ready"
+            )
+        }
     )
     cohort_lock_status = "locked" if bool(locked_run_id) else "unlocked"
     payload = {

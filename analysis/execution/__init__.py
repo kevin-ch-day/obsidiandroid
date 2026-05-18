@@ -5,12 +5,12 @@ Implementation for vendor parser execution moved to
 ``analysis.execution.<name>`` import paths and module identity by registering
 the canonical submodules in ``sys.modules`` at package import time.
 
-Registration data lives in :mod:`obsidiandroid.vendors.execution.analysis_execution_shim`.
+Registration data lives in :mod:`obsidiandroid.legacy.analysis_execution_registry`.
 """
 
 from __future__ import annotations
 
-from obsidiandroid.vendors.execution.analysis_execution_shim import (
+from obsidiandroid.legacy.analysis_execution_registry import (
     LEGACY_EXPORT_NAMES,
     register_analysis_execution_legacy_aliases,
 )

@@ -116,6 +116,215 @@ def test_finalize_run_manifest_stage_success(monkeypatch) -> None:
     assert run_summary["completed_stage"] == "manifest"
 
 
+def test_finalize_run_manifest_stage_uses_stable_output_root_for_global_latest_artifacts(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Manifest integrity should accept global latest mirrors when DEFAULT_OUTPUT_DIR points at run_root."""
+    captured: dict[str, object] = {}
+
+    def _fake_write_run_manifest(manifest: dict) -> None:
+        captured["manifest"] = manifest
+
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "r_latest"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    global_diag = output_root / "diagnostics"
+    global_diag.mkdir(parents=True, exist_ok=True)
+    latest_timings = global_diag / "pipeline_stage_timings.latest.csv"
+    latest_timings.write_text("stage,duration_sec\nsamples,1.0\n", encoding="utf-8")
+
+    monkeypatch.setattr(stage_manifest.run_manifest, "write_run_manifest", _fake_write_run_manifest)
+    monkeypatch.setattr(stage_manifest.run_manifest, "get_git_commit", lambda: "abc123")
+    monkeypatch.setattr(stage_manifest.run_manifest, "compute_taxonomy_version_hash", lambda: "taxhash")
+    monkeypatch.setattr(stage_manifest.app_config, "DEFAULT_OUTPUT_DIR", str(run_root), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_RUN_ROOT", str(run_root), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_VENDOR_GATE_DEBUG_PATH", "", raising=False)
+
+    result = stage_manifest.finalize_run_manifest_stage(
+        manifest_context={"run_id": "r_latest", "timestamp_utc": "t1", "config_hash": "cfg"},
+        profile={"profile_id": "test"},
+        samples_df=pd.DataFrame({"sample_id": [1, 2, 3]}),
+        pipeline_results={},
+        vendor_eval_df=pd.DataFrame(),
+        artifact_list=[str(latest_timings), str(diagnostics_dir / "local.csv")],
+    )
+
+    assert result == 0
+    assert captured["manifest"]["run_status"] == "complete"
+
+
+def test_finalize_run_manifest_stage_skips_strict_paper_exports_for_failed_run(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Failed paper-mode runs should not trigger a second strict-export failure."""
+    captured: dict[str, object] = {}
+
+    def _fake_write_run_manifest(manifest: dict) -> None:
+        captured["manifest"] = manifest
+
+    def _strict_exports_should_not_run(**_kwargs):
+        raise AssertionError("strict paper exports should be skipped for failed runs")
+
+    run_root = tmp_path / "output" / "runs" / "r_fail"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "output" / "diagnostics").mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(stage_manifest.run_manifest, "write_run_manifest", _fake_write_run_manifest)
+    monkeypatch.setattr(stage_manifest.run_manifest, "get_git_commit", lambda: "abc123")
+    monkeypatch.setattr(
+        stage_manifest.run_manifest,
+        "compute_taxonomy_version_hash",
+        lambda: "taxhash",
+    )
+    monkeypatch.setattr(stage_manifest.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_RUN_ROOT", str(run_root), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_VENDOR_GATE_DEBUG_PATH", "", raising=False)
+    monkeypatch.setattr(stage_manifest, "_build_strict_paper2_exports", _strict_exports_should_not_run)
+    monkeypatch.setattr(stage_manifest, "_build_paper2_pack", lambda **_kwargs: None)
+
+    result = stage_manifest.finalize_run_manifest_stage(
+        manifest_context={
+            "run_id": "r_fail",
+            "timestamp_utc": "t1",
+            "config_hash": "cfg",
+            "run_status": "failed",
+            "failed_stage": "samples",
+            "failure_reason": "[COHORT_LOCK] mismatch",
+            "paper_mode": {"resolved_value": True, "source": "profile"},
+        },
+        profile={"profile_id": "paper_locked", "evidence_mode": True},
+        samples_df=pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
+        pipeline_results={},
+        vendor_eval_df=pd.DataFrame(),
+        artifact_list=[],
+    )
+
+    assert result == 1
+    manifest = captured["manifest"]
+    assert manifest["run_status"] == "failed"
+    assert manifest["paper_export_status"]["enabled"] is False
+    assert manifest["paper_export_status"]["reason"] == "run_failed"
+
+
+def test_finalize_run_manifest_stage_skips_research_validity_bundle_for_samples_stop(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Samples-only partial runs should not spend manifest time on deep audit bundles."""
+    def _research_bundle_should_not_run(**_kwargs):
+        raise AssertionError("research validity bundle should be skipped for stop_after=samples")
+
+    run_root = tmp_path / "output" / "runs" / "r_samples"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "output" / "diagnostics").mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(stage_manifest.run_manifest, "get_git_commit", lambda: "abc123")
+    monkeypatch.setattr(stage_manifest.run_manifest, "compute_taxonomy_version_hash", lambda: "taxhash")
+    monkeypatch.setattr(stage_manifest.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_RUN_ROOT", str(run_root), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_VENDOR_GATE_DEBUG_PATH", "", raising=False)
+    monkeypatch.setattr(stage_manifest, "_build_strict_paper2_exports", lambda **_kwargs: {})
+    monkeypatch.setattr(stage_manifest, "_build_paper2_pack", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_run_summary_json",
+        lambda **_kwargs: Path(str(run_root / "run_summary.json")),
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_finalize_output_hygiene_bundle",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_run_summary_onepager",
+        lambda **_kwargs: diagnostics_dir / "run_summary_onepager.md",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_experiment_contract_snapshot",
+        lambda **_kwargs: diagnostics_dir / "experiment_contract_snapshot_r_samples.json",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_evaluation_contract_json",
+        lambda **_kwargs: diagnostics_dir / "evaluation_contract_r_samples.json",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_taxonomy_authority_recommendation_md",
+        lambda **_kwargs: diagnostics_dir / "taxonomy_authority.md",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_run_artifact_index",
+        lambda **_kwargs: diagnostics_dir / "run_artifact_index.md",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_export_trained_family_registry",
+        lambda **_kwargs: (diagnostics_dir / "trained_family_registry.csv", 0),
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_export_confusion_matrix_provenance",
+        lambda **_kwargs: diagnostics_dir / "confusion_matrix_provenance.json",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_manifest_with_pointer",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        stage_manifest.compliance,
+        "build_compliance_report",
+        lambda **_kwargs: {"overall_status": "pass"},
+    )
+    monkeypatch.setattr(stage_manifest.compliance, "write_compliance_report", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_render_consensus_distribution_png", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_write_evidence_compliance_stub", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_build_family_temporal_scope_table", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_build_paper_ablation_table", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_build_paper_cohort_summary_table", lambda **_kwargs: None)
+
+    monkeypatch.setattr(
+        __import__("obsidiandroid.diagnostics.research_validity", fromlist=["write_research_validity_bundle"]),
+        "write_research_validity_bundle",
+        _research_bundle_should_not_run,
+    )
+
+    manifest_context = {
+            "run_id": "r_samples",
+            "timestamp_utc": "t1",
+            "config_hash": "cfg",
+            "run_status": "partial",
+            "completed_stage": "samples",
+            "stop_after": "samples",
+        }
+
+    result = stage_manifest.finalize_run_manifest_stage(
+        manifest_context=manifest_context,
+        profile={"profile_id": "unit_samples_audit", "evidence_mode": False},
+        samples_df=pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
+        pipeline_results={},
+        vendor_eval_df=pd.DataFrame(),
+        artifact_list=[],
+    )
+
+    assert result == 0
+    assert manifest_context["_research_bundle_skipped_reason"] == "stop_after_samples"
+    assert manifest_context["_hostile_bundle_skipped_reason"] == "stop_after_samples"
+
+
 def test_write_run_summary_json_creates_canonical_and_latest(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -229,6 +438,34 @@ def test_write_manifest_with_pointer_non_paper_updates_promoted_pointer(
     payload = json.loads(promoted_manifest.read_text(encoding="utf-8"))
     assert payload["run_id"] == "r_np"
     assert (run_root / "run_manifest.json").exists()
+
+
+def test_write_manifest_with_pointer_uses_global_diagnostics_when_default_output_dir_is_run_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Evidence-style run roots should still update global latest manifest and pointer files."""
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "r_ev"
+    run_root.mkdir(parents=True, exist_ok=True)
+    global_diag = output_root / "diagnostics"
+    global_diag.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(stage_manifest.app_config, "DEFAULT_OUTPUT_DIR", str(run_root), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+    monkeypatch.setattr(stage_manifest.run_manifest, "MANIFEST_PATH", stage_manifest.run_manifest._INITIAL_MANIFEST_PATH)
+
+    stage_manifest._write_manifest_with_pointer(  # pylint: disable=protected-access
+        manifest={"run_id": "r_ev", "timestamp_utc": "2026-01-03T00:00:00Z"},
+        run_id="r_ev",
+        paper_mode=True,
+        run_root=run_root,
+    )
+
+    assert (run_root / "run_manifest.json").exists()
+    assert (global_diag / "run_manifest.latest.json").exists()
+    assert (global_diag / "latest_run_pointer.json").exists()
+    assert not (run_root / "diagnostics" / "run_manifest.latest.json").exists()
+    assert not (run_root / "diagnostics" / "latest_run_pointer.json").exists()
 
 
 def test_write_run_summary_onepager_creates_run_and_latest(tmp_path: Path) -> None:

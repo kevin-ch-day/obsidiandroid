@@ -6,8 +6,6 @@ identity shim to this package and its submodules (same :class:`types.ModuleType`
 
 from __future__ import annotations
 
-import sys
-
 from .assign_tier_scores import assign_tier_scores
 from .compute_vendor_scores import run_score_analysis
 from .feature_engineering_import_surface import FEATURE_ENGINEERING_LEGACY_SHIM_MODULE_STEMS
@@ -26,7 +24,3 @@ __all__ = [
     "detect_outliers",
     "compute_pca_features",
 ]
-
-_LEGACY_FE_PREFIX = "analysis.feature_engineering."
-for _name in FEATURE_ENGINEERING_LEGACY_SHIM_MODULE_STEMS:
-    sys.modules[_LEGACY_FE_PREFIX + _name] = sys.modules[__name__ + "." + _name]

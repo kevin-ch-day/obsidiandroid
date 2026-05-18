@@ -8,6 +8,7 @@ from pathlib import Path
 
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common.output_paths import output_root as canonical_output_root
+from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
 
 from .startup_menu_run_context import (
     read_json_object,
@@ -115,8 +116,7 @@ def run_health_check(*, run_id: str | None = None) -> int:
 
     pass_count, warn_count, fail_count = _count(all_rows)
 
-    paper_mode = canonical_manifest.get("evidence_mode") or canonical_manifest.get("paper_mode", {})
-    ev_on = bool(paper_mode.get("resolved_value")) if isinstance(paper_mode, dict) else False
+    ev_on = coalesce_manifest_publication_mode(canonical_manifest)
     profile_id = str(
         run_summary.get("profile_id") or (canonical_manifest.get("profile_params") or {}).get("profile_id") or ""
     )

@@ -10,6 +10,8 @@ import pandas as pd
 
 from config import app_config
 
+from obsidiandroid.common.cohort_contracts import resolve_contract_cohort_lock_status
+from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
 import obsidiandroid.governance.run_manifest as run_manifest
 from obsidiandroid.pipeline.manifest.confusion_matrix_paths import find_primary_confusion_matrix
 
@@ -102,7 +104,7 @@ def build_paper2_pack(
     conf_src = find_primary_confusion_matrix(
         run_root=run_root,
         top_model=str((manifest_context.get("model_summary") or {}).get("top_model", "")),
-        evidence_mode=bool(manifest.get("evidence_mode", False)),
+        evidence_mode=coalesce_manifest_publication_mode(manifest),
     )
     if conf_src is not None and conf_src.exists():
         conf_dst = pack_dir / "confusion_matrix_primary.png"
@@ -122,7 +124,7 @@ def build_paper2_pack(
     compliance_path = pack_dir / "evidence_compliance_summary.json"
     compliance_payload = {
         "run_id": run_id,
-        "evidence_mode": bool(manifest.get("evidence_mode", False)),
+        "evidence_mode": coalesce_manifest_publication_mode(manifest),
         "non_standard_features": bool(manifest.get("non_standard_features", False)),
         "fallback_used": bool(manifest.get("vendor_fallback_used", False)),
         "requested_top_k": int(manifest.get("k_requested", 0) or 0),
@@ -352,12 +354,9 @@ def write_evidence_readiness(
     """Write machine-readable evidence readiness verdict."""
     pack_dir, legacy_pack_dir = _bundle_dirs(run_root)
     cohort_contract = manifest.get("cohort_contract") or manifest.get("paper_cohort_contract") or {}
-    cohort_lock_status = (
-        str(cohort_contract.get("cohort_lock_status") or cohort_contract.get("contract_status") or "").strip()
-        or ("locked" if bool(cohort_contract.get("paper_locked")) else "not_locked")
-    )
+    cohort_lock_status = resolve_contract_cohort_lock_status(cohort_contract)
     checks = {
-        "strict_profile": bool(manifest.get("evidence_mode", False)),
+        "strict_profile": coalesce_manifest_publication_mode(manifest),
         "integrity_pass": not bool(integrity_reason),
         "fallback_used": bool(manifest.get("vendor_fallback_used", False)),
         "non_standard_features": bool(manifest.get("non_standard_features", False)),

@@ -34,25 +34,25 @@ if str(_REPO_ROOT) not in sys.path:
 import scripts.runtime_bootstrap  # noqa: F401
 
 from obsidiandroid.database.facade_manifest import FACADE_MODULE_PAIRS, LEGACY_SHIM_PAIRS
-from obsidiandroid.diagnostics.analysis_diagnostics_shim import (
+from obsidiandroid.legacy.analysis_diagnostics_registry import (
     DIAGNOSTICS_NESTED_LEGACY_PACKAGES,
     DIAGNOSTICS_TOP_LEVEL_MODULE_NAMES,
 )
-from obsidiandroid.evaluation.analysis_evaluation_shim import (
+from obsidiandroid.legacy.analysis_evaluation_registry import (
     LEGACY_EXPORT_NAMES as ANALYSIS_EVALUATION_LEGACY_EXPORT_NAMES,
 )
-from obsidiandroid.feature_engineering.feature_engineering_import_surface import (
+from obsidiandroid.legacy.analysis_feature_engineering_registry import (
     FEATURE_ENGINEERING_LEGACY_SHIM_MODULE_STEMS,
 )
 from obsidiandroid.features.features_facade_manifest import FEATURES_FACADE_ALIAS_TARGETS
-from obsidiandroid.governance.analysis_pipeline_governance_shim import (
+from obsidiandroid.legacy.analysis_pipeline_governance_manifest import (
     ANALYSIS_PIPELINE_GOVERNANCE_SUBMODULES,
 )
 from obsidiandroid.modeling.modeling_facade_manifest import (
     MODELING_FACADE_EAGER_SUBMODULE_NAMES,
     MODELING_FACADE_LEGACY_VIA_ML_CLASSIFICATION_TRAINING,
 )
-from obsidiandroid.modeling.ml_classification_shim_facades import (
+from obsidiandroid.modeling.legacy_ml_classification_manifest import (
     ML_CLASSIFICATION_BUILDER_SUBMODULES,
     ML_CLASSIFICATION_ENGINE_WEIGHTS_SUBMODULES,
     ML_CLASSIFICATION_INFERENCE_SUBMODULES,
@@ -66,7 +66,7 @@ from obsidiandroid.modeling.ml_classification_shim_facades import (
 from obsidiandroid.pipeline.permission_trends.permission_trends_submodule_manifest import (
     PERMISSION_TRENDS_FACADE_SUBMODULE_NAMES,
 )
-from obsidiandroid.vendors.execution.analysis_execution_shim import (
+from obsidiandroid.legacy.analysis_execution_registry import (
     LEGACY_EXPORT_NAMES as ANALYSIS_EXECUTION_LEGACY_EXPORT_NAMES,
 )
 from obsidiandroid.vendors.parsing.vendor_parser_submodule_manifest import (

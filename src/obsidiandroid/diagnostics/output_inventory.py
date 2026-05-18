@@ -7,8 +7,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from obsidiandroid.common.cohort_artifacts import load_cohort_contract_state
+from obsidiandroid.common.cohort_presentation import cohort_filter_highlight_lines
 from . import output_artifact_policy
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common.publication_readiness import evaluate_publication_ready_status
 from obsidiandroid.common import ml_console
 
 
@@ -294,13 +297,21 @@ def write_run_evidence_index_md(
     if summary_obs:
         pipe_st = summary_obs.get("pipeline_status")
         rv_st = summary_obs.get("research_validity_status")
+        rv_skip = summary_obs.get("research_validity_skip_reason")
         ha_st = summary_obs.get("hostile_audit_status")
+        ha_skip = summary_obs.get("hostile_audit_skip_reason")
         ps_safe = summary_obs.get("publication_ready_status") or summary_obs.get("paper_safe_status")
+        rv_line = f"`{rv_st}`"
+        if str(rv_skip or "").strip():
+            rv_line = f"`{rv_st}` ({rv_skip})"
+        ha_line = f"`{ha_st}`"
+        if str(ha_skip or "").strip():
+            ha_line = f"`{ha_st}` ({ha_skip})"
         lines.extend(
             [
                 f"- **pipeline_status:** `{pipe_st}`",
-                f"- **research_validity_status:** `{rv_st}`",
-                f"- **hostile_audit_status:** `{ha_st}`",
+                f"- **research_validity_status:** {rv_line}",
+                f"- **hostile_audit_status:** {ha_line}",
                 f"- **publication_ready_status:** `{ps_safe}`",
                 f"- **cohort funnel (rollup):** {summary_obs.get('cohort_funnel_plain','')}".rstrip(),
                 "",
@@ -385,6 +396,8 @@ def write_run_science_index_md(
 
     provenance_path = diagnostics_dir / "diagnostic_provenance.json"
     provenance = _load_json(provenance_path)
+    summary_obs = _load_json(diagnostics_dir / "run_observability_summary.json")
+    cohort_state = load_cohort_contract_state(diagnostics_dir=diagnostics_dir, run_id=run_id)
     post_entries = [
         row
         for row in (provenance.get("entries") if isinstance(provenance.get("entries"), list) else [])
@@ -396,6 +409,16 @@ def write_run_science_index_md(
         mode_tags.append("cohort-locked")
     if str(publication_ready_status).strip():
         mode_tags.append(f"publication-ready={publication_ready_status}")
+
+    authoritative_paths = [
+        run_root / "run_manifest.json",
+        run_root / "run_summary.json",
+        diagnostics_dir / "run_observability_summary.json",
+        diagnostics_dir / "cohort_foundation.json",
+        diagnostics_dir / "cohort_funnel.md",
+        run_root / "run_evidence_index.md",
+        diagnostics_dir / "artifact_inventory.json",
+    ]
 
     lines = [
         f"# Run Science Index ({run_id})",
@@ -410,14 +433,44 @@ def write_run_science_index_md(
         "",
         "## Authoritative files",
         "",
-        f"- `{run_root / 'run_manifest.json'}`",
-        f"- `{run_root / 'run_summary.json'}`",
-        f"- `{diagnostics_dir / 'run_observability_summary.json'}`",
-        f"- `{diagnostics_dir / 'cohort_foundation.json'}`",
-        f"- `{diagnostics_dir / 'cohort_funnel.md'}`",
-        f"- `{run_root / 'run_evidence_index.md'}`",
-        f"- `{diagnostics_dir / 'artifact_inventory.json'}`",
+    ]
+    lines.extend([f"- `{path}`" for path in authoritative_paths if path.exists()])
+    lines.extend([
         "",
+        "## Observability mirror",
+        "",
+    ])
+    if summary_obs:
+        rv_st = summary_obs.get("research_validity_status")
+        rv_skip = summary_obs.get("research_validity_skip_reason")
+        ha_st = summary_obs.get("hostile_audit_status")
+        ha_skip = summary_obs.get("hostile_audit_skip_reason")
+        pipe_st = summary_obs.get("pipeline_status")
+        ps_safe = summary_obs.get("publication_ready_status") or summary_obs.get("paper_safe_status")
+        rv_line = f"`{rv_st}`"
+        if str(rv_skip or "").strip():
+            rv_line = f"`{rv_st}` ({rv_skip})"
+        ha_line = f"`{ha_st}`"
+        if str(ha_skip or "").strip():
+            ha_line = f"`{ha_st}` ({ha_skip})"
+        lines.extend([
+            f"- **pipeline_status:** `{pipe_st}`",
+            f"- **research_validity_status:** {rv_line}",
+            f"- **hostile_audit_status:** {ha_line}",
+            f"- **publication_ready_status:** `{ps_safe}`",
+            "",
+        ])
+    else:
+        lines.extend([
+            "- observability summary unavailable",
+            "",
+        ])
+    lines.extend([
+        "## Cohort Filter Highlights",
+        "",
+    ])
+    lines.extend(cohort_filter_highlight_lines(cohort_state))
+    lines.extend([
         "Post-run audits do not change the authoritative record of the original pipeline run.",
         "",
         "## Mirrors And Compatibility",
@@ -429,7 +482,7 @@ def write_run_science_index_md(
         "",
         "## Post-Run Enrichments",
         "",
-    ]
+    ])
     if not post_entries:
         lines.append("- none recorded")
     else:
@@ -501,17 +554,11 @@ def evaluate_paper_safe_status(
     compliance_report: dict[str, Any] | None,
 ) -> tuple[str, list[str]]:
     """Return paper_safe_status string for operator summary (strict checks remain in compliance JSON)."""
-    reasons: list[str] = []
-    if not paper_mode:
-        return ("NOT_APPLICABLE", reasons)
-    if isinstance(compliance_report, dict) and str(compliance_report.get("overall_status", "")).lower() != "pass":
-        reasons.append("paper_compliance_not_pass")
-    if isinstance(manifest, dict):
-        if manifest.get("vendor_fallback_used"):
-            reasons.append("vendor_fallback_used")
-        if manifest.get("non_standard_features"):
-            reasons.append("non_standard_features")
-    return ("PASS" if len(reasons) == 0 else "FAIL", reasons)
+    return evaluate_publication_ready_status(
+        paper_mode=paper_mode,
+        manifest=manifest,
+        compliance_report=compliance_report,
+    )
 
 
 __all__ = [
