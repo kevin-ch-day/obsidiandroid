@@ -2,7 +2,7 @@
 # db_utils.py
 # Utility functions for AV engine column filtering and metadata lookups
 #
-# Canonical implementation; ``database.db_utils`` is an identity shim.
+# Canonical implementation; the repo-root ``database.db_utils`` shim has been retired.
 
 from obsidiandroid.cli.ui import display as du
 from . import db_engine

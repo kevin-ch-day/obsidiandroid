@@ -1,8 +1,9 @@
 # Filename: src/obsidiandroid/database/db_sample_timelines_queries.py
 # Purpose : Time-based queries for Android malware sample tracking and trend analysis
 #
-# Canonical implementation; ``database.db_sample_timelines_queries`` is an identity shim.
-# Exported from ``obsidiandroid.database`` (see ``facade_manifest.FACADE_EXPORT_NAMES``).
+# Canonical implementation; the repo-root ``database.db_sample_timelines_queries``
+# shim has been retired. Exported from ``obsidiandroid.database`` (see
+# ``facade_manifest.FACADE_EXPORT_NAMES``).
 
 from __future__ import annotations
 

@@ -1,7 +1,8 @@
 # Filename: src/obsidiandroid/database/db_fetch_av_engine_raw_results.py
 # Purpose  : Retrieve raw AV engine scan results for specified sample_id list from database
 #
-# Canonical implementation; ``database.db_fetch_av_engine_raw_results`` is an identity shim.
+# Canonical implementation; the repo-root
+# ``database.db_fetch_av_engine_raw_results`` shim has been retired.
 
 import pandas as pd
 from . import db_engine

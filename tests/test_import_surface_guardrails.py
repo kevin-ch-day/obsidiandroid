@@ -46,7 +46,9 @@ def test_collect_canonical_code_legacy_imports_flags_src_and_scripts() -> None:
 
 def test_guardrail_constants_are_sourced_from_retirement_manifest() -> None:
     assert policy.CANONICAL_CODE_LEGACY_IMPORT_ROOTS == frozenset(LEGACY_COMPATIBILITY_IMPORT_ROOTS)
-    assert policy.ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS
+    assert policy.ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS == frozenset()
+    assert policy.ANALYSIS_PIPELINE_RETIRED_PACKAGE_BRIDGES
+    assert policy.ANALYSIS_PIPELINE_RETIRED_PLAIN_IDENTITY_SHIMS
     assert tuple(policy.LEGACY_LEAF_SHIM_ROOTS) == LEGACY_LEAF_SHIM_ROOTS
     assert policy.NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST == frozenset(NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST)
     assert policy.CANONICAL_FILENAME_HEADER_BAD_ROOTS == frozenset(CANONICAL_FILENAME_HEADER_BAD_ROOTS)
@@ -112,6 +114,16 @@ def test_database_shims_use_shared_helper_pattern() -> None:
 def test_analysis_pipeline_plain_shims_use_shared_helper_pattern() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     assert policy.collect_analysis_pipeline_plain_shim_violations(repo_root) == []
+
+
+def test_retired_analysis_pipeline_plain_shims_stay_deleted() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    assert policy.collect_analysis_pipeline_retired_shim_violations(repo_root) == []
+
+
+def test_retired_analysis_pipeline_package_bridges_stay_deleted() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    assert policy.collect_analysis_pipeline_retired_package_bridge_violations(repo_root) == []
 
 
 def test_ml_training_plain_shims_use_shared_helper_pattern() -> None:
@@ -202,7 +214,7 @@ def test_collect_database_shim_helper_violations_flags_bespoke_patterns() -> Non
         )
 
 
-def test_collect_analysis_pipeline_plain_shim_violations_flags_bespoke_patterns() -> None:
+def test_collect_analysis_pipeline_retired_shim_violations_flags_reintroduced_files() -> None:
     with tempfile.TemporaryDirectory() as raw:
         repo = Path(raw)
         _write(
@@ -217,11 +229,32 @@ def test_collect_analysis_pipeline_plain_shim_violations_flags_bespoke_patterns(
             '_mod = import_legacy_shim("obsidiandroid.pipeline.manifest.builder", __name__)\n',
         )
 
-        violations = policy.collect_analysis_pipeline_plain_shim_violations(repo)
-        assert "analysis/pipeline/artifacts/paths.py: plain analysis.pipeline shim must use import_legacy_shim(...)" in violations
-        assert "analysis/pipeline/artifacts/paths.py: plain analysis.pipeline shim must register sys.modules[__name__] = _mod" in violations
-        assert "analysis/pipeline/artifacts/paths.py: plain analysis.pipeline shim should not call importlib.import_module directly" in violations
-        assert "analysis/pipeline/manifest/builder.py: plain analysis.pipeline shim must register sys.modules[__name__] = _mod" in violations
+        violations = policy.collect_analysis_pipeline_retired_shim_violations(repo)
+        assert (
+            "analysis/pipeline/artifacts/paths.py: retired plain analysis.pipeline shim should not exist on disk"
+            in violations
+        )
+        assert (
+            "analysis/pipeline/manifest/builder.py: retired plain analysis.pipeline shim should not exist on disk"
+            in violations
+        )
+
+
+def test_collect_analysis_pipeline_retired_package_bridge_violations_flags_reintroduced_bridges() -> None:
+    with tempfile.TemporaryDirectory() as raw:
+        repo = Path(raw)
+        _write(repo / "analysis" / "pipeline" / "artifacts" / "__init__.py", 'X = 1\n')
+        _write(repo / "analysis" / "pipeline" / "manifest" / "__init__.py", 'Y = 2\n')
+
+        violations = policy.collect_analysis_pipeline_retired_package_bridge_violations(repo)
+        assert (
+            "analysis/pipeline/artifacts/__init__.py: retired analysis.pipeline package bridge should not exist on disk"
+            in violations
+        )
+        assert (
+            "analysis/pipeline/manifest/__init__.py: retired analysis.pipeline package bridge should not exist on disk"
+            in violations
+        )
 
 
 def test_collect_ml_training_plain_shim_violations_flags_bespoke_patterns() -> None:

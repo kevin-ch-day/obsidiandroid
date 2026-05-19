@@ -1,7 +1,8 @@
 # Filename: src/obsidiandroid/database/db_av_engine_detection_totals.py
 # Purpose : Aggregates AV engine detection statistics using regex pattern analysis and engine metadata.
 #
-# Canonical implementation; ``database.db_av_engine_detection_totals`` is an identity shim.
+# Canonical implementation; the repo-root
+# ``database.db_av_engine_detection_totals`` shim has been retired.
 
 import pandas as pd
 from . import db_engine, db_sample_malicious_scoring

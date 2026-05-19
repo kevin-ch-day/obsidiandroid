@@ -2,7 +2,7 @@
 
 End-to-end staged workflow for cohort loading, AV/vendor processing, features, training, ablation, reporting, and manifest finalization.
 
-**Migration note:** Runner-linked pipeline code is **canonical** under **`obsidiandroid.pipeline`** (`src/obsidiandroid/pipeline/`). On-disk `analysis/pipeline/*.py` for those modules are **`sys.modules` identity shims** so legacy `import analysis.pipeline.*` continues to resolve to the same `ModuleType` objects as `obsidiandroid.pipeline.*`. Prefer **`from obsidiandroid.pipeline import …`** in new code; see [`docs/STRUCTURE_MIGRATION_PLAN.md`](../../docs/STRUCTURE_MIGRATION_PLAN.md).
+**Migration note:** Runner-linked pipeline code is **canonical** under **`obsidiandroid.pipeline`** (`src/obsidiandroid/pipeline/`), and governance helpers are canonical under **`obsidiandroid.governance`**. The remaining `analysis/pipeline` tree is the final protected compatibility shell: `runner.py`, `main_facade.py`, and the package root register legacy nested aliases in `sys.modules` so `import analysis.pipeline.*` continues to resolve to the same `ModuleType` objects as the canonical `obsidiandroid.*` modules. Prefer **`from obsidiandroid.pipeline import …`** and **`from obsidiandroid.governance import …`** in new code; see [`docs/STRUCTURE_MIGRATION_PLAN.md`](../../docs/STRUCTURE_MIGRATION_PLAN.md).
 
 | Module | Role |
 | --- | --- |
@@ -10,8 +10,7 @@ End-to-end staged workflow for cohort loading, AV/vendor processing, features, t
 | **`main_facade.py`** | Resolves monkeypatched symbols on **`main`** so tests can stub stages while orchestration lives in **`runner`**. |
 | **`run_bounds.py`** | **`PipelineRunBounds`**: frozen snapshot of `run_id`, `diagnostics_dir`, run/output roots. Set from **`runner`** after profile load and evidence/paper path remapping; cleared in **`finally`**. |
 | **`stage_*.py`** | Stage implementations (`stage_samples`, `stage_av_vendor`, …) — **canonical:** `obsidiandroid.pipeline.stage_*`; **this tree:** identity shims. |
-| **`manifest/`** | Manifest hashing, atomic writer, paper figures, **`paper_compliance_checks`**, runtime support helpers. |
-| **`governance/`** | Integrity / path policy helpers. |
+| **Nested `analysis.pipeline.*` imports** | Compatibility aliases registered by `analysis.pipeline.__init__` for `artifacts`, `manifest`, `permission_trends`, and `governance` package/submodule paths. |
 | **`runtime_policy.py`** | Profile-driven feature flags and config mutations for a run. |
 
 ## Cross-run `app_config` hygiene

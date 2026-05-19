@@ -15,7 +15,7 @@ Override via ``OBSIDIAN_*`` environment variables. Do not commit real passwords.
 Optional: place a repo-root ``.env`` or ``.env.local`` file; variables are loaded
 with ``override=False`` so existing shell exports still win.
 
-Canonical implementation; ``database.db_config`` is an identity shim.
+Canonical implementation; the repo-root ``database.db_config`` shim has been retired.
 """
 
 from __future__ import annotations

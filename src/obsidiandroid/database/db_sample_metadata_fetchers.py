@@ -1,5 +1,6 @@
 # Filename: src/obsidiandroid/database/db_sample_metadata_fetchers.py
-# Canonical implementation; ``database.db_sample_metadata_fetchers`` is an identity shim.
+# Canonical implementation; the repo-root
+# ``database.db_sample_metadata_fetchers`` shim has been retired.
 
 """Database fetchers for Android malware sample metadata cohorts.
 

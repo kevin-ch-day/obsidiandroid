@@ -1,5 +1,6 @@
 # Filename: src/obsidiandroid/database/db_sample_metadata_queries.py
-# Canonical implementation; ``database.db_sample_metadata_queries`` is an identity shim.
+# Canonical implementation; the repo-root
+# ``database.db_sample_metadata_queries`` shim has been retired.
 
 """Public query facade for Android malware sample metadata loaders.
 

@@ -4,7 +4,7 @@
 Centralizes logical-to-physical table/column mappings so schema migrations
 can be handled in one place.
 
-Canonical implementation; ``database.schema_map`` is an identity shim.
+Canonical implementation; the repo-root ``database.schema_map`` shim has been retired.
 """
 
 from __future__ import annotations

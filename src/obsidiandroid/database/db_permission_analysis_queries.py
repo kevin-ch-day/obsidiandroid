@@ -1,7 +1,8 @@
 # Filename: src/obsidiandroid/database/db_permission_analysis_queries.py
 # Purpose: Query Android permission data and AV reports
 #
-# Canonical implementation; ``database.db_permission_analysis_queries`` is an identity shim.
+# Canonical implementation; the repo-root
+# ``database.db_permission_analysis_queries`` shim has been retired.
 
 from . import db_engine
 from .db_config import DB_NAME, PERMISSION_INTEL_DB_NAME

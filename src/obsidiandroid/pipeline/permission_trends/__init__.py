@@ -1,7 +1,8 @@
 """Permission-trends pipeline helpers (canonical **Pass 74**).
 
-Legacy ``analysis.pipeline.permission_trends.*`` resolves to the same module objects
-via thin per-leaf shims.
+Legacy ``analysis.pipeline.permission_trends.*`` resolves to the same module
+objects via compatibility aliases brokered by the protected
+``analysis.pipeline`` shell.
 """
 
 from __future__ import annotations

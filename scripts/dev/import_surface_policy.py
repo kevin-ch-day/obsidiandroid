@@ -13,6 +13,8 @@ from pathlib import Path
 
 from scripts.dev.compatibility_retirement_manifest import (
     ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS as _ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS,
+    ANALYSIS_PIPELINE_RETIRED_PACKAGE_BRIDGES as _ANALYSIS_PIPELINE_RETIRED_PACKAGE_BRIDGES,
+    ANALYSIS_PIPELINE_RETIRED_PLAIN_IDENTITY_SHIMS as _ANALYSIS_PIPELINE_RETIRED_PLAIN_IDENTITY_SHIMS,
     CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST as _CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST,
     CANONICAL_FILENAME_HEADER_BAD_ROOTS as _CANONICAL_FILENAME_HEADER_BAD_ROOTS,
     EARLY_DEPRECATION_READY_TREES as _EARLY_DEPRECATION_READY_TREES,
@@ -33,6 +35,12 @@ LEGACY_LEAF_SHIM_MAX_LINES = 16
 READY_NOW_LEGACY_SHIM_BATCHES = frozenset(_EARLY_DEPRECATION_READY_TREES)
 ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS = frozenset(
     Path(p) for p in _ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS
+)
+ANALYSIS_PIPELINE_RETIRED_PLAIN_IDENTITY_SHIMS = frozenset(
+    Path(p) for p in _ANALYSIS_PIPELINE_RETIRED_PLAIN_IDENTITY_SHIMS
+)
+ANALYSIS_PIPELINE_RETIRED_PACKAGE_BRIDGES = frozenset(
+    Path(p) for p in _ANALYSIS_PIPELINE_RETIRED_PACKAGE_BRIDGES
 )
 # Directory name fragments skipped when scanning for UTF-8 BOM (generated / vendor trees).
 _BOM_SCAN_SKIP_DIR_PARTS = frozenset(
@@ -77,6 +85,8 @@ __all__ = (
     "CANONICAL_CODE_LEGACY_IMPORT_ROOTS",
     "CANONICAL_FILENAME_HEADER_BAD_ROOTS",
     "ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS",
+    "ANALYSIS_PIPELINE_RETIRED_PLAIN_IDENTITY_SHIMS",
+    "ANALYSIS_PIPELINE_RETIRED_PACKAGE_BRIDGES",
     "LEGACY_LEAF_SHIM_MAX_LINES",
     "LEGACY_LEAF_SHIM_ROOTS",
     "NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST",
@@ -85,6 +95,8 @@ __all__ = (
     "ThinCompatShimPolicy",
     "collect_canonical_code_legacy_imports",
     "collect_analysis_pipeline_plain_shim_violations",
+    "collect_analysis_pipeline_retired_shim_violations",
+    "collect_analysis_pipeline_retired_package_bridge_violations",
     "collect_legacy_leaf_shim_violations",
     "collect_database_shim_helper_violations",
     "collect_ml_training_plain_shim_violations",
@@ -327,6 +339,26 @@ def collect_analysis_pipeline_plain_shim_violations(repo_root: Path) -> list[str
             errors.append(f"{rel}: plain analysis.pipeline shim must register sys.modules[__name__] = _mod")
         if "importlib.import_module(" in text:
             errors.append(f"{rel}: plain analysis.pipeline shim should not call importlib.import_module directly")
+    return errors
+
+
+def collect_analysis_pipeline_retired_shim_violations(repo_root: Path) -> list[str]:
+    """Return retired analysis/pipeline shim files that unexpectedly still exist."""
+    errors: list[str] = []
+    for rel in sorted(ANALYSIS_PIPELINE_RETIRED_PLAIN_IDENTITY_SHIMS):
+        path = repo_root / rel
+        if path.exists():
+            errors.append(f"{rel}: retired plain analysis.pipeline shim should not exist on disk")
+    return errors
+
+
+def collect_analysis_pipeline_retired_package_bridge_violations(repo_root: Path) -> list[str]:
+    """Return retired analysis/pipeline package bridges that unexpectedly still exist."""
+    errors: list[str] = []
+    for rel in sorted(ANALYSIS_PIPELINE_RETIRED_PACKAGE_BRIDGES):
+        path = repo_root / rel
+        if path.exists():
+            errors.append(f"{rel}: retired analysis.pipeline package bridge should not exist on disk")
     return errors
 
 

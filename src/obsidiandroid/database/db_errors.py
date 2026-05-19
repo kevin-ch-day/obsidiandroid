@@ -1,7 +1,7 @@
 # Filename: src/obsidiandroid/database/db_errors.py
 # Purpose  : Normalize MySQL connector errors for logging, health checks, and retries.
 #
-# Canonical implementation; ``database.db_errors`` is an identity shim.
+# Canonical implementation; the repo-root ``database.db_errors`` shim has been retired.
 
 from __future__ import annotations
 

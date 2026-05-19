@@ -58,6 +58,8 @@ from obsidiandroid.vendors.parsing.vendor_parser_submodule_manifest import (
 from scripts.dev.import_surface_policy import (
     THIN_COMPAT_SHIM_POLICIES,
     collect_analysis_pipeline_plain_shim_violations,
+    collect_analysis_pipeline_retired_package_bridge_violations,
+    collect_analysis_pipeline_retired_shim_violations,
     collect_canonical_code_legacy_imports,
     collect_database_shim_helper_violations,
     collect_legacy_leaf_shim_violations,
@@ -248,6 +250,28 @@ def _check_static_policy_scans() -> bool:
             print(f"  {item}", file=sys.stderr)
         return False
     print("OK   ordinary analysis/pipeline shims use shared helper pattern")
+
+    retired_pipeline_bridge_errors = collect_analysis_pipeline_retired_package_bridge_violations(_REPO_ROOT)
+    if retired_pipeline_bridge_errors:
+        print(
+            "FAIL: retired analysis/pipeline package bridges reappeared on disk:",
+            file=sys.stderr,
+        )
+        for item in retired_pipeline_bridge_errors:
+            print(f"  {item}", file=sys.stderr)
+        return False
+    print("OK   retired analysis/pipeline package bridges stay retired")
+
+    retired_pipeline_plain_errors = collect_analysis_pipeline_retired_shim_violations(_REPO_ROOT)
+    if retired_pipeline_plain_errors:
+        print(
+            "FAIL: retired ordinary analysis/pipeline shim files reappeared on disk:",
+            file=sys.stderr,
+        )
+        for item in retired_pipeline_plain_errors:
+            print(f"  {item}", file=sys.stderr)
+        return False
+    print("OK   retired ordinary analysis/pipeline shim files stay retired")
 
     ml_training_plain_errors = collect_ml_training_plain_shim_violations(_REPO_ROOT)
     if ml_training_plain_errors:
@@ -522,7 +546,10 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-    print("OK   obsidiandroid.pipeline.manifest physical; analysis.pipeline.manifest shims (Pass 76)")
+    print(
+        "OK   obsidiandroid.pipeline.manifest canonical package; "
+        "analysis.pipeline.manifest aliases brokered by analysis.pipeline shell"
+    )
 
     _artifacts_facade = importlib.import_module("obsidiandroid.pipeline.artifacts")
     _artifacts_pairs = (
@@ -552,7 +579,10 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-    print("OK   obsidiandroid.pipeline.artifacts physical; analysis.pipeline.artifacts shims (Pass 76)")
+    print(
+        "OK   obsidiandroid.pipeline.artifacts canonical package; "
+        "analysis.pipeline.artifacts aliases brokered by analysis.pipeline shell"
+    )
 
     _permission_trends_facade = importlib.import_module("obsidiandroid.pipeline.permission_trends")
     for attr in PERMISSION_TRENDS_FACADE_SUBMODULE_NAMES:

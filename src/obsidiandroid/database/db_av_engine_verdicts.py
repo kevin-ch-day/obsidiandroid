@@ -1,7 +1,8 @@
 # Filename: src/obsidiandroid/database/db_av_engine_verdicts.py
 # Simplified AV verdict processor for data engineering and analysis
 #
-# Canonical implementation; ``database.db_av_engine_verdicts`` is an identity shim.
+# Canonical implementation; the repo-root ``database.db_av_engine_verdicts`` shim
+# has been retired.
 
 from __future__ import annotations
 

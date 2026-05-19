@@ -1,5 +1,6 @@
 # Filename: src/obsidiandroid/database/db_sample_metadata_contracts.py
-# Canonical implementation; ``database.db_sample_metadata_contracts`` is an identity shim.
+# Canonical implementation; the repo-root
+# ``database.db_sample_metadata_contracts`` shim has been retired.
 
 """Shared contracts and helpers for Android sample metadata query modules."""
 

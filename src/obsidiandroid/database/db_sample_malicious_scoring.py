@@ -1,7 +1,8 @@
 # Filename: src/obsidiandroid/database/db_sample_malicious_scoring.py
 # Purpose: Compute per-sample malicious detection scores based on trusted AV engines
 #
-# Canonical implementation; ``database.db_sample_malicious_scoring`` is an identity shim.
+# Canonical implementation; the repo-root
+# ``database.db_sample_malicious_scoring`` shim has been retired.
 
 from . import db_engine
 from . import schema_map

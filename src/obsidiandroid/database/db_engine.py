@@ -1,7 +1,7 @@
 # Filename: src/obsidiandroid/database/db_engine.py
 # Purpose  : Centralized MySQL engine for ObsidianDroid platform queries
 #
-# Canonical implementation; ``database.db_engine`` is an identity shim.
+# Canonical implementation; the repo-root ``database.db_engine`` shim has been retired.
 
 import json
 import mysql.connector

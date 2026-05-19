@@ -74,6 +74,77 @@ def test_pipeline_physical_leaf_modules_share_identity_with_legacy_shims() -> No
         assert physical is legacy
 
 
+def test_analysis_pipeline_nested_package_submodules_resolve_to_canonical_modules() -> None:
+    """Nested legacy package imports keep working after ordinary leaf shim retirement."""
+    import importlib
+
+    pairs = (
+        ("analysis.pipeline.artifacts.paths", "obsidiandroid.pipeline.artifacts.paths"),
+        ("analysis.pipeline.artifacts.registry", "obsidiandroid.pipeline.artifacts.registry"),
+        ("analysis.pipeline.governance.exceptions", "obsidiandroid.governance.exceptions"),
+        ("analysis.pipeline.governance.integrity", "obsidiandroid.governance.integrity"),
+        ("analysis.pipeline.governance.policy", "obsidiandroid.governance.policy"),
+        ("analysis.pipeline.governance.readiness", "obsidiandroid.governance.readiness"),
+        ("analysis.pipeline.manifest.builder", "obsidiandroid.pipeline.manifest.builder"),
+        ("analysis.pipeline.manifest.hashing", "obsidiandroid.pipeline.manifest.hashing"),
+        (
+            "analysis.pipeline.manifest.paper_compliance_checks",
+            "obsidiandroid.pipeline.manifest.paper_compliance_checks",
+        ),
+        (
+            "analysis.pipeline.manifest.paper_figure_renderers",
+            "obsidiandroid.pipeline.manifest.paper_figure_renderers",
+        ),
+        ("analysis.pipeline.manifest.runtime_support", "obsidiandroid.pipeline.manifest.runtime_support"),
+        ("analysis.pipeline.manifest.schema", "obsidiandroid.pipeline.manifest.schema"),
+        ("analysis.pipeline.manifest.writer", "obsidiandroid.pipeline.manifest.writer"),
+        (
+            "analysis.pipeline.permission_trends.bundle_manifest",
+            "obsidiandroid.pipeline.permission_trends.bundle_manifest",
+        ),
+        (
+            "analysis.pipeline.permission_trends.constants",
+            "obsidiandroid.pipeline.permission_trends.constants",
+        ),
+        (
+            "analysis.pipeline.permission_trends.publish_paths",
+            "obsidiandroid.pipeline.permission_trends.publish_paths",
+        ),
+        (
+            "analysis.pipeline.permission_trends.reporting_support",
+            "obsidiandroid.pipeline.permission_trends.reporting_support",
+        ),
+        (
+            "analysis.pipeline.permission_trends.sample_permission_data",
+            "obsidiandroid.pipeline.permission_trends.sample_permission_data",
+        ),
+        (
+            "analysis.pipeline.permission_trends.stats_core",
+            "obsidiandroid.pipeline.permission_trends.stats_core",
+        ),
+    )
+    for legacy_name, canon_name in pairs:
+        legacy_mod = importlib.import_module(legacy_name)
+        canon_mod = importlib.import_module(canon_name)
+        assert legacy_mod is canon_mod
+
+
+def test_analysis_pipeline_nested_package_imports_resolve_to_canonical_packages() -> None:
+    """Nested legacy package imports resolve through root alias registration."""
+    import importlib
+
+    pairs = (
+        ("analysis.pipeline.artifacts", "obsidiandroid.pipeline.artifacts"),
+        ("analysis.pipeline.governance", "obsidiandroid.governance"),
+        ("analysis.pipeline.manifest", "obsidiandroid.pipeline.manifest"),
+        ("analysis.pipeline.permission_trends", "obsidiandroid.pipeline.permission_trends"),
+    )
+    for legacy_name, canon_name in pairs:
+        legacy_mod = importlib.import_module(legacy_name)
+        canon_mod = importlib.import_module(canon_name)
+        assert legacy_mod is canon_mod
+
+
 def test_ml_facades_match_ml_classification_modules() -> None:
     """Pass 47+ canonical ML facades preserve identity with legacy shim modules."""
     import importlib
@@ -205,68 +276,6 @@ def test_labeling_classification_builder_inference_and_engine_weights_packages_e
             sub = importlib.import_module(f"{pkg_name}.{name}")
             assert getattr(pkg, name) is sub
 
-
-def test_pipeline_manifest_facade_matches_manifest_modules() -> None:
-    """Pipeline manifest: canonical under ``obsidiandroid.pipeline.manifest``; analysis shims match."""
-    import importlib
-
-    import obsidiandroid.pipeline.manifest as manifest_facade
-
-    manifest_pairs = (
-        ("hashing", "obsidiandroid.pipeline.manifest.hashing"),
-        ("paper_compliance_checks", "obsidiandroid.pipeline.manifest.paper_compliance_checks"),
-        ("paper_figure_renderers", "obsidiandroid.pipeline.manifest.paper_figure_renderers"),
-        ("runtime_support", "obsidiandroid.pipeline.manifest.runtime_support"),
-        ("writer", "obsidiandroid.pipeline.manifest.writer"),
-    )
-    for attr, canon_name in manifest_pairs:
-        canon_mod = importlib.import_module(canon_name)
-        assert getattr(manifest_facade, attr) is canon_mod
-        alias_mod = importlib.import_module(f"obsidiandroid.pipeline.manifest.{attr}")
-        assert alias_mod is canon_mod
-        legacy_mod = importlib.import_module(f"analysis.pipeline.manifest.{attr}")
-        assert legacy_mod is canon_mod
-
-
-def test_pipeline_artifacts_facade_matches_artifact_modules() -> None:
-    """Pipeline artifacts: canonical under ``obsidiandroid.pipeline.artifacts``; analysis shims match."""
-    import importlib
-
-    import obsidiandroid.pipeline.artifacts as artifacts_facade
-
-    artifacts_pairs = (
-        ("paths", "obsidiandroid.pipeline.artifacts.paths"),
-        ("registry", "obsidiandroid.pipeline.artifacts.registry"),
-    )
-    for attr, canon_name in artifacts_pairs:
-        canon_mod = importlib.import_module(canon_name)
-        assert getattr(artifacts_facade, attr) is canon_mod
-        alias_mod = importlib.import_module(f"obsidiandroid.pipeline.artifacts.{attr}")
-        assert alias_mod is canon_mod
-        legacy_mod = importlib.import_module(f"analysis.pipeline.artifacts.{attr}")
-        assert legacy_mod is canon_mod
-
-
-def test_pipeline_permission_trends_facade_matches_permission_trends_modules() -> None:
-    """Permission-trends canonical modules preserve legacy parity under analysis shims."""
-    import importlib
-
-    from obsidiandroid.pipeline.permission_trends.permission_trends_submodule_manifest import (
-        PERMISSION_TRENDS_FACADE_SUBMODULE_NAMES,
-    )
-
-    import obsidiandroid.pipeline.permission_trends as permission_trends_facade
-
-    for attr in PERMISSION_TRENDS_FACADE_SUBMODULE_NAMES:
-        canon_name = f"obsidiandroid.pipeline.permission_trends.{attr}"
-        canon_mod = importlib.import_module(canon_name)
-        assert getattr(permission_trends_facade, attr) is canon_mod
-        alias_mod = importlib.import_module(f"obsidiandroid.pipeline.permission_trends.{attr}")
-        assert alias_mod is canon_mod
-        legacy_mod = importlib.import_module(f"analysis.pipeline.permission_trends.{attr}")
-        assert legacy_mod is canon_mod
-
-
 def test_vendors_facade_matches_vendor_processing_modules() -> None:
     """Pass 59+: vendors facade points at canonical parsing package."""
     import importlib
@@ -319,27 +328,6 @@ def test_vendor_execution_package_exports_match_canonical_modules() -> None:
     for name in execution_pkg.__all__:
         canon_mod = importlib.import_module(f"obsidiandroid.vendors.execution.{name}")
         assert canon_mod.__name__ == f"obsidiandroid.vendors.execution.{name}"
-
-
-def test_governance_facade_matches_pipeline_governance_modules() -> None:
-    """Pipeline governance primitives are canonical under obsidiandroid.governance."""
-    import importlib
-
-    from obsidiandroid.legacy.analysis_pipeline_governance_manifest import (
-        ANALYSIS_PIPELINE_GOVERNANCE_SUBMODULES,
-    )
-
-    import obsidiandroid.governance as governance_facade
-
-    for attr in sorted(ANALYSIS_PIPELINE_GOVERNANCE_SUBMODULES):
-        canon_name = f"obsidiandroid.governance.{attr}"
-        canon_mod = importlib.import_module(canon_name)
-        assert getattr(governance_facade, attr) is canon_mod
-        alias_mod = importlib.import_module(f"obsidiandroid.governance.{attr}")
-        assert alias_mod is canon_mod
-        legacy_mod = importlib.import_module(f"analysis.pipeline.governance.{attr}")
-        assert legacy_mod is canon_mod
-
 
 def test_diagnostics_facade_modules_match_canonical_submodules() -> None:
     """Diagnostics package attributes resolve to canonical submodules."""

@@ -6,7 +6,8 @@ hash registry must be collapsed to one row per natural key *before* joining to
 ``malware_sample_catalog``, otherwise the cohort query multiplies rows. Uses
 MySQL 8+ ``ROW_NUMBER()`` window functions.
 
-Canonical implementation; ``database.cohort_sql_fragments`` is an identity shim.
+Canonical implementation; the repo-root
+``database.cohort_sql_fragments`` shim has been retired.
 """
 
 from __future__ import annotations

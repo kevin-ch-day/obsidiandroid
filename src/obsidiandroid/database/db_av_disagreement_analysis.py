@@ -1,8 +1,9 @@
 # Filename: src/obsidiandroid/database/db_av_disagreement_analysis.py
 # Purpose: Identify Android malware samples with low consensus among trusted AV engines
 #
-# Canonical implementation; ``database.db_av_disagreement_analysis`` is an identity shim.
-# Exported from ``obsidiandroid.database`` (see ``facade_manifest.FACADE_EXPORT_NAMES``).
+# Canonical implementation; the repo-root ``database.db_av_disagreement_analysis``
+# shim has been retired. Exported from ``obsidiandroid.database`` (see
+# ``facade_manifest.FACADE_EXPORT_NAMES``).
 
 from __future__ import annotations
 

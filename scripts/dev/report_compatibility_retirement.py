@@ -12,8 +12,17 @@ from scripts.dev.compatibility_retirement_audit import (
     collect_ready_now_bucket_callers,
 )
 from scripts.dev.compatibility_retirement_manifest import (
+    DATABASE_COMPAT_CANDIDATE_DELETE_TREES,
+    DATABASE_COMPAT_DEFER_TREES,
+    DATABASE_COMPAT_KEEP_TREES,
     LEGACY_SUBTREE_RETIREMENT_BUCKETS,
     LEGACY_TREE_RETIREMENT_MATRIX,
+)
+from obsidiandroid.database.facade_manifest import (
+    REPO_ROOT_DATABASE_CANDIDATE_DELETE_FILES,
+    REPO_ROOT_DATABASE_DEFER_FILES,
+    REPO_ROOT_DATABASE_KEEP_FILES,
+    REPO_ROOT_DATABASE_RETIRED_FILES,
 )
 
 
@@ -46,6 +55,48 @@ def main() -> int:
         print(f"  Next step: {bucket.next_step}")
         print(f"  Target exists: {'yes' if canonical_target_exists(repo_root, bucket.canonical_target) else 'no'}")
         print()
+    print("Repo-Root Database Shim Split")
+    print("-----------------------------")
+    print("Keep trees:")
+    for item in DATABASE_COMPAT_KEEP_TREES:
+        print(f"  - {item}")
+    print("Candidate-delete trees:")
+    if DATABASE_COMPAT_CANDIDATE_DELETE_TREES:
+        for item in DATABASE_COMPAT_CANDIDATE_DELETE_TREES:
+            print(f"  - {item}")
+    else:
+        print("  - none")
+    if DATABASE_COMPAT_DEFER_TREES:
+        print("Defer trees:")
+        for item in DATABASE_COMPAT_DEFER_TREES:
+            print(f"  - {item}")
+    else:
+        print("Defer trees:")
+        print("  - none")
+    print("Keep files:")
+    for item in REPO_ROOT_DATABASE_KEEP_FILES:
+        print(f"  - database/{item}")
+    print("Candidate-delete files:")
+    if REPO_ROOT_DATABASE_CANDIDATE_DELETE_FILES:
+        for item in REPO_ROOT_DATABASE_CANDIDATE_DELETE_FILES:
+            print(f"  - database/{item}")
+    else:
+        print("  - none")
+    if REPO_ROOT_DATABASE_DEFER_FILES:
+        print("Deferred files:")
+        for item in REPO_ROOT_DATABASE_DEFER_FILES:
+            print(f"  - database/{item}")
+    else:
+        print("Deferred files:")
+        print("  - none")
+    if REPO_ROOT_DATABASE_RETIRED_FILES:
+        print("Retired files:")
+        for item in REPO_ROOT_DATABASE_RETIRED_FILES:
+            print(f"  - database/{item}")
+    else:
+        print("Retired files:")
+        print("  - none")
+    print()
     print("Ready-Now Caller Audit")
     print("----------------------")
     for tree, hits in collect_ready_now_bucket_callers(repo_root).items():

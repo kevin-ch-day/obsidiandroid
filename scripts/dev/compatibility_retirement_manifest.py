@@ -73,19 +73,18 @@ ANALYSIS_PIPELINE_PATCH_SENSITIVE_SHIMS = (
 
 ANALYSIS_PIPELINE_PACKAGE_SPECIAL_CASES = (
     "analysis/pipeline/__init__.py",
-    "analysis/pipeline/governance/__init__.py",
-    "analysis/pipeline/permission_trends/__init__.py",
 )
 
 ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS = (
-    "analysis/pipeline/artifacts/__init__.py",
+)
+
+ANALYSIS_PIPELINE_RETIRED_PLAIN_IDENTITY_SHIMS = (
     "analysis/pipeline/artifacts/paths.py",
     "analysis/pipeline/artifacts/registry.py",
     "analysis/pipeline/governance/exceptions.py",
     "analysis/pipeline/governance/integrity.py",
     "analysis/pipeline/governance/policy.py",
     "analysis/pipeline/governance/readiness.py",
-    "analysis/pipeline/manifest/__init__.py",
     "analysis/pipeline/manifest/builder.py",
     "analysis/pipeline/manifest/hashing.py",
     "analysis/pipeline/manifest/paper_compliance_checks.py",
@@ -99,6 +98,13 @@ ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS = (
     "analysis/pipeline/permission_trends/reporting_support.py",
     "analysis/pipeline/permission_trends/sample_permission_data.py",
     "analysis/pipeline/permission_trends/stats_core.py",
+)
+
+ANALYSIS_PIPELINE_RETIRED_PACKAGE_BRIDGES = (
+    "analysis/pipeline/artifacts/__init__.py",
+    "analysis/pipeline/governance/__init__.py",
+    "analysis/pipeline/manifest/__init__.py",
+    "analysis/pipeline/permission_trends/__init__.py",
 )
 
 CANONICAL_FILENAME_HEADER_BAD_ROOTS = (
@@ -136,27 +142,27 @@ class LegacySubtreeRetirementBucket:
 LEGACY_TREE_RETIREMENT_MATRIX = (
     LegacyTreeRetirementEntry(
         root="analysis",
-        file_count=27,
-        implementation_status="canonical relocation complete; remaining root tree is pipeline-focused shim surface",
-        compatibility_role="legacy pipeline import identity and monkeypatch-sensitive runner/test seams",
+        file_count=5,
+        implementation_status="canonical relocation complete; remaining root tree is the final protected pipeline compatibility shell",
+        compatibility_role="legacy pipeline root/runner import identity plus monkeypatch-sensitive runner/test seams",
         blockers=(
             "pipeline monkeypatch surfaces still target analysis.pipeline in some parity flows",
-            "package-level shim identity is still exercised by explicit parity tests",
-            "retirement needs staged caller/test deprecation, not drive-by deletion",
+            "analysis.pipeline package root still needs to broker all remaining nested legacy aliases",
+            "retirement now depends on runner/main_facade deprecation, not nested package cleanup",
         ),
-        next_step="narrow parity-test coverage and define per-subtree deletion criteria",
+        next_step="treat nested package retirement as complete and audit whether the protected shell can ever shrink below pipeline __init__ plus runner/main_facade",
     ),
     LegacyTreeRetirementEntry(
         root="database",
-        file_count=24,
+        file_count=2,
         implementation_status="canonical relocation complete under src/obsidiandroid/database",
-        compatibility_role="repo-root import compatibility and python -m database.split_db_health entrypoint",
+        compatibility_role="repo-root package compatibility plus python -m database.split_db_health entrypoint",
         blockers=(
-            "repo-root database.* remains an intentional compatibility namespace",
+            "repo-root database package must remain importable for compatibility",
             "facade/implementation distinction must stay clear to avoid circular import regressions",
             "split_db_health still needs the repo-root execution surface",
         ),
-        next_step="separate module-retirement candidates from entrypoint-compatibility shims",
+        next_step="treat repo-root database closure as complete except for package root and split_db_health entrypoint",
     ),
 )
 
@@ -165,10 +171,10 @@ LEGACY_SUBTREE_RETIREMENT_BUCKETS = (
         tree="analysis/pipeline",
         canonical_target="obsidiandroid.pipeline",
         bucket="monkeypatch-sensitive shim tree",
-        file_count=26,
+        file_count=3,
         readiness="deprecate later",
-        rationale="runner/main_facade remain stable monkeypatch and compatibility surfaces; ordinary top-level leaves now resolve through package-level alias registration",
-        next_step="keep shrinking toward runner/main_facade plus nested package shims, then define final retirement order for the remaining nested surfaces",
+        rationale="runner/main_facade remain stable monkeypatch and compatibility surfaces; ordinary nested shim files and nested package bridges are retired and analysis.pipeline now brokers the remaining nested compatibility aliases",
+        next_step="hold at the protected shell unless a dedicated audit proves runner/main_facade compatibility can be retired",
         import_prefixes=("analysis.pipeline",),
     ),
     LegacySubtreeRetirementBucket(
@@ -191,17 +197,16 @@ LEGACY_SUBTREE_RETIREMENT_BUCKETS = (
         next_step="preserve until CLI/ops entrypoint migration is explicitly approved",
         import_prefixes=("database.split_db_health",),
     ),
-    LegacySubtreeRetirementBucket(
-        tree="database/*.py (other leaf shims)",
-        canonical_target="obsidiandroid.database",
-        bucket="leaf identity shims",
-        file_count=19,
-        readiness="deprecate later",
-        rationale="canonical implementation is complete but repo-root database namespace still intentionally exists",
-        next_step="separate pure import-compat leaves from any remaining ops-facing surfaces",
-        import_prefixes=("database",),
-    ),
 )
+
+DATABASE_COMPAT_KEEP_TREES = (
+    "database/__init__.py",
+    "database/split_db_health.py",
+)
+
+DATABASE_COMPAT_CANDIDATE_DELETE_TREES: tuple[str, ...] = ()
+
+DATABASE_COMPAT_DEFER_TREES: tuple[str, ...] = ()
 
 EARLY_DEPRECATION_READY_TREES = tuple(
     entry.tree for entry in LEGACY_SUBTREE_RETIREMENT_BUCKETS if entry.readiness == "ready to deprecate now"
@@ -214,7 +219,12 @@ __all__ = (
     "ANALYSIS_PIPELINE_PACKAGE_SPECIAL_CASES",
     "ANALYSIS_PIPELINE_PATCH_SENSITIVE_SHIMS",
     "ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS",
+    "ANALYSIS_PIPELINE_RETIRED_PACKAGE_BRIDGES",
+    "ANALYSIS_PIPELINE_RETIRED_PLAIN_IDENTITY_SHIMS",
     "EARLY_DEPRECATION_READY_TREES",
+    "DATABASE_COMPAT_CANDIDATE_DELETE_TREES",
+    "DATABASE_COMPAT_DEFER_TREES",
+    "DATABASE_COMPAT_KEEP_TREES",
     "LEGACY_SUBTREE_RETIREMENT_BUCKETS",
     "LEGACY_TREE_RETIREMENT_MATRIX",
     "LegacyTreeRetirementEntry",

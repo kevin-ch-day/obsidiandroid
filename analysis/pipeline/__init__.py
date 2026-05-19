@@ -1,13 +1,15 @@
-"""Legacy ``analysis.pipeline`` package (shim-only).
+"""Legacy ``analysis.pipeline`` protected compatibility shell.
 
-Canonical implementations live under ``obsidiandroid.pipeline``. This wrapper
-keeps the legacy package importable while:
+Canonical implementations live under ``obsidiandroid.pipeline`` and
+``obsidiandroid.governance``. This wrapper keeps the legacy package importable
+while:
 
 - pre-registering ordinary top-level pipeline leaves that no longer exist on
   disk under ``analysis/pipeline/*.py``
 - leaving patch-sensitive leaves (``runner`` and ``main_facade``) on disk
-- preserving nested compatibility packages such as
-  ``analysis.pipeline.manifest`` and ``analysis.pipeline.governance``
+- brokering nested compatibility aliases such as ``analysis.pipeline.manifest``
+  and ``analysis.pipeline.governance`` without keeping physical nested shim
+  files on disk
 """
 
 from __future__ import annotations
@@ -16,6 +18,9 @@ import importlib
 import sys
 from typing import Any
 
+from obsidiandroid.legacy.analysis_pipeline_nested_aliases import (
+    register_analysis_pipeline_nested_aliases,
+)
 from obsidiandroid.legacy_shim_lazy import import_legacy_shim
 
 __all__ = [
@@ -100,6 +105,8 @@ def _load_legacy_leaf(name: str) -> Any:
 for _name in sorted(_TOP_LEVEL_ALIAS_NAMES):
     _load_legacy_leaf(_name)
 
+register_analysis_pipeline_nested_aliases(sys.modules[__name__])
+
 
 def __getattr__(name: str) -> Any:
     if name in _RUNNER_ATTRS:
@@ -107,7 +114,7 @@ def __getattr__(name: str) -> Any:
     if name in _TOP_LEVEL_ALIAS_NAMES or name in _PHYSICAL_LEAVES:
         return _load_legacy_leaf(name)
     if name in _PACKAGE_LEAVES:
-        pkg = importlib.import_module(f"{__name__}.{name}")
+        pkg = sys.modules[f"{__name__}.{name}"]
         globals()[name] = pkg
         return pkg
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

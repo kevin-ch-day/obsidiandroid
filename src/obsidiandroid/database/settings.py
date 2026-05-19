@@ -1,10 +1,10 @@
 # Filename: src/obsidiandroid/database/settings.py
 """Structured database configuration (single place for scripts and health checks).
 
-Values mirror ``database.db_config`` after optional ``.env`` loading; use this module
+Values mirror canonical ``obsidiandroid.database.db_config`` after optional ``.env`` loading; use this module
 when you want explicit fields instead of importing raw module constants.
 
-Canonical implementation; ``database.settings`` is an identity shim.
+Canonical implementation; the repo-root ``database.settings`` shim has been retired.
 """
 
 from __future__ import annotations

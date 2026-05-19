@@ -1,7 +1,8 @@
 """Pipeline artifact path/registry helpers.
 
 Implementation is canonical under ``obsidiandroid.pipeline.artifacts`` (**Pass 76**);
-``analysis.pipeline.artifacts`` is an identity shim to this package and its submodules.
+legacy ``analysis.pipeline.artifacts`` imports are compatibility aliases
+brokered by the protected ``analysis.pipeline`` shell.
 """
 
 from __future__ import annotations
