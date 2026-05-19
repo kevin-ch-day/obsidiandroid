@@ -8,6 +8,7 @@ import pandas as pd
 
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.reporting import export_manager
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from config import app_config
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
@@ -306,12 +307,19 @@ def _annotate_taxonomy_mismatches_with_lineage(mismatches: pd.DataFrame) -> pd.D
     return out
 
 
-def _evaluate_taxonomy_mismatch_strict_policy(mismatch_count: int) -> None:
-    """Raise when strict evidence/paper policy forbids taxonomy mismatches."""
+def _evaluate_taxonomy_mismatch_strict_policy(
+    mismatch_count: int,
+    *,
+    paper_facing_mismatch_count: int | None = None,
+) -> None:
+    """Raise when strict evidence/paper policy forbids paper-facing taxonomy mismatches."""
     max_allowed = safe_int_config_value(
         getattr(app_config, "TAXONOMY_MISMATCH_STRICT_MAX_ALLOWED", 0), default=0
     )
-    if mismatch_count <= max_allowed:
+    strict_count = int(
+        mismatch_count if paper_facing_mismatch_count is None else paper_facing_mismatch_count
+    )
+    if strict_count <= max_allowed:
         return
     strict_env = bool(getattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False)) or (
         bool(getattr(app_config, "PAPER_MODE_ENABLED", False))
@@ -321,7 +329,7 @@ def _evaluate_taxonomy_mismatch_strict_policy(mismatch_count: int) -> None:
         return
     raise RuntimeError(
         "[TAXONOMY] Strict policy blocking: "
-        f"{mismatch_count} taxonomy mismatch(es) exceed allowed max={max_allowed}. "
+        f"{strict_count} paper-facing taxonomy mismatch(es) exceed allowed max={max_allowed}. "
         "Review taxonomy_consistency_mismatches CSV and paper_taxonomy_excluded_sample_ids JSON."
     )
 
@@ -471,6 +479,11 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
     ] = "label_family_mismatch"
     taxonomy_mismatches = _annotate_taxonomy_mismatches_with_lineage(taxonomy_mismatches)
     taxonomy_mismatch_count = int(len(taxonomy_mismatches))
+    paper_facing_taxonomy_mismatch_count = 0
+    if "appears_in_paper_facing_summaries" in taxonomy_mismatches.columns:
+        paper_facing_taxonomy_mismatch_count = int(
+            taxonomy_mismatches["appears_in_paper_facing_summaries"].fillna(False).astype(bool).sum()
+        )
 
     diagnostics_dir = _resolve_diagnostics_dir()
     run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
@@ -519,19 +532,37 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
         out = frame.reindex(columns=taxonomy_export_cols)
         return out
 
+    taxonomy_csv_text = (
+        _taxonomy_export_frame(taxonomy_mismatches).to_csv(index=False)
+        if not taxonomy_mismatches.empty
+        else pd.DataFrame(columns=taxonomy_export_cols).to_csv(index=False)
+    )
     if not taxonomy_mismatches.empty:
         _taxonomy_export_frame(taxonomy_mismatches).to_csv(mismatch_path, index=False)
-        _taxonomy_export_frame(taxonomy_mismatches).to_csv(latest_path, index=False)
     else:
         pd.DataFrame(columns=taxonomy_export_cols).to_csv(mismatch_path, index=False)
-        pd.DataFrame(columns=taxonomy_export_cols).to_csv(latest_path, index=False)
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=mismatch_path.name,
+        csv_text=taxonomy_csv_text,
+        global_latest_name=latest_path.name,
+    )
 
+    prediction_csv_text = (
+        prediction_mismatches[prediction_export_cols].to_csv(index=False)
+        if not prediction_mismatches.empty
+        else pd.DataFrame(columns=prediction_export_cols).to_csv(index=False)
+    )
     if not prediction_mismatches.empty:
         prediction_mismatches[prediction_export_cols].to_csv(prediction_path, index=False)
-        prediction_mismatches[prediction_export_cols].to_csv(prediction_latest, index=False)
     else:
         pd.DataFrame(columns=prediction_export_cols).to_csv(prediction_path, index=False)
-        pd.DataFrame(columns=prediction_export_cols).to_csv(prediction_latest, index=False)
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=prediction_path.name,
+        csv_text=prediction_csv_text,
+        global_latest_name=prediction_latest.name,
+    )
 
     noncanonical_counts = (
         audit.loc[type_noncanonical_mask, "label_type_slug"]
@@ -550,7 +581,12 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
     noncanonical_counts["run_id"] = run_id
     noncanonical_counts = noncanonical_counts[["run_id", "label_type_slug", "count"]]
     noncanonical_counts.to_csv(noncanonical_path, index=False)
-    noncanonical_counts.to_csv(noncanonical_latest, index=False)
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=noncanonical_path.name,
+        csv_text=noncanonical_counts.to_csv(index=False),
+        global_latest_name=noncanonical_latest.name,
+    )
 
     type_eval_count = int(type_expected_mask.sum())
     family_eval_count = int(family_expected_mask.sum())
@@ -595,6 +631,64 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
         )
         paper_excl_path = str(pex)
 
+    mismatch_reason_counts: list[dict[str, Any]] = []
+    mismatch_examples: list[dict[str, Any]] = []
+    if not taxonomy_mismatches.empty:
+        reason_counts = (
+            taxonomy_mismatches["mismatch_reason"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .replace("", pd.NA)
+            .dropna()
+            .value_counts()
+        )
+        mismatch_reason_counts = [
+            {"mismatch_reason": str(reason), "count": int(count)}
+            for reason, count in reason_counts.items()
+        ]
+
+        example_cols = [
+            "sample_id",
+            "mismatch_reason",
+            "type_slug_expected",
+            "label_type_slug",
+            "label_family_slug",
+            "family_canonical_expected",
+            "classification_label",
+            "appears_in_paper_facing_summaries",
+        ]
+        example_frame = (
+            taxonomy_mismatches.reindex(columns=example_cols)
+            .sort_values(
+                by=[
+                    "appears_in_paper_facing_summaries",
+                    "mismatch_reason",
+                    "type_slug_expected",
+                    "label_type_slug",
+                    "label_family_slug",
+                    "sample_id",
+                ],
+                ascending=[False, True, True, True, True, True],
+            )
+            .head(12)
+        )
+        mismatch_examples = [
+            {
+                "sample_id": "" if pd.isna(row.get("sample_id")) else str(row.get("sample_id", "")).strip(),
+                "mismatch_reason": "" if pd.isna(row.get("mismatch_reason")) else str(row.get("mismatch_reason", "")).strip(),
+                "type_slug_expected": "" if pd.isna(row.get("type_slug_expected")) else str(row.get("type_slug_expected", "")).strip(),
+                "label_type_slug": "" if pd.isna(row.get("label_type_slug")) else str(row.get("label_type_slug", "")).strip(),
+                "label_family_slug": "" if pd.isna(row.get("label_family_slug")) else str(row.get("label_family_slug", "")).strip(),
+                "family_canonical_expected": "" if pd.isna(row.get("family_canonical_expected")) else str(row.get("family_canonical_expected", "")).strip(),
+                "classification_label": "" if pd.isna(row.get("classification_label")) else str(row.get("classification_label", "")).strip(),
+                "appears_in_paper_facing_summaries": bool(
+                    row.get("appears_in_paper_facing_summaries", False)
+                ),
+            }
+            for row in example_frame.to_dict(orient="records")
+        ]
+
     summary = {
         "run_id": run_id,
         "rows_evaluated": int(len(audit)),
@@ -605,6 +699,7 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
         "type_missing_label_count": int(type_missing_label_mask.sum()),
         "family_label_mismatch_count": int(family_label_mismatch_mask.sum()),
         "taxonomy_mismatch_count": taxonomy_mismatch_count,
+        "paper_facing_taxonomy_mismatch_count": paper_facing_taxonomy_mismatch_count,
         "prediction_error_count": int(prediction_mismatch_mask.sum()),
         "prediction_missing_count": int(family_prediction_missing_mask.sum()),
         "family_mismatch_count": int(prediction_mismatch_mask.sum()),
@@ -615,10 +710,17 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
         "noncanonical_type_tokens_csv_path": str(noncanonical_path),
         "type_expected_source": type_source_mode,
         "paper_taxonomy_excluded_sample_ids_path": paper_excl_path,
+        "mismatch_reason_counts": mismatch_reason_counts,
+        "mismatch_examples": mismatch_examples,
     }
     payload = json.dumps(summary, indent=2, sort_keys=True)
     summary_path.write_text(payload, encoding="utf-8")
-    summary_latest.write_text(payload, encoding="utf-8")
+    oh.mirror_json_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=summary_path.name,
+        payload=summary,
+        global_latest_name=summary_latest.name,
+    )
 
     return str(mismatch_path), taxonomy_mismatch_count, summary
 
@@ -650,7 +752,12 @@ def _run_summary_and_export(
     mismatch_path, mismatch_count, audit_summary = _export_taxonomy_consistency_audit(df)
     if isinstance(audit_summary, dict) and audit_summary:
         setattr(app_config, "RUNTIME_TAXONOMY_CONSISTENCY_SUMMARY", dict(audit_summary))
-    _evaluate_taxonomy_mismatch_strict_policy(mismatch_count)
+    _evaluate_taxonomy_mismatch_strict_policy(
+        mismatch_count,
+        paper_facing_mismatch_count=int(
+            audit_summary.get("paper_facing_taxonomy_mismatch_count", mismatch_count) or 0
+        ) if isinstance(audit_summary, dict) else mismatch_count,
+    )
     if (
         bool(getattr(app_config, "PAPER_MODE_ENABLED", False))
         and isinstance(audit_summary, dict)

@@ -151,7 +151,7 @@ def show_model_comparison_snapshot() -> int:
 
 
 def handle_confusion_matrix_export() -> int:
-    """Export primary confusion matrix to the run evidence bundle for the latest run."""
+    """Export primary confusion matrix to the canonical run evidence bundle."""
     output_root = canonical_output_root()
     _, run_id, _ = run_locator.resolve_latest_manifest_payload()
     if not run_id:
@@ -171,9 +171,7 @@ def handle_confusion_matrix_export() -> int:
         ]
     )
     bundle_dir = run_root / "evidence_bundle"
-    legacy_pack_dir = run_root / "paper2_pack"
     bundle_dir.mkdir(parents=True, exist_ok=True)
-    legacy_pack_dir.mkdir(parents=True, exist_ok=True)
 
     canonical_manifest = run_locator.read_json_object(run_root / "run_manifest.json")
     top_model = str(
@@ -216,7 +214,6 @@ def handle_confusion_matrix_export() -> int:
     target_path = bundle_dir / "confusion_matrix_primary.png"
     try:
         shutil.copy2(source_path, target_path)
-        shutil.copy2(source_path, legacy_pack_dir / "confusion_matrix_primary.png")
     except Exception as exc:
         du.print_error(f"[MENU] Failed to export confusion matrix: {exc}")
         return 1

@@ -153,6 +153,9 @@ def test_smote_warns_in_evidence_when_not_disabled(monkeypatch):
     )
 
     assert any("[SMOTE]" in w for w in warnings)
+    assert "[SMOTE] Synthetic oversampling is enabled in evidence/paper mode;" in str(
+        getattr(app_config, "RUNTIME_SMOTE_WARNING_LAST", "")
+    )
 
 
 def test_smote_respects_runtime_flag_when_use_smote_not_explicit(monkeypatch):

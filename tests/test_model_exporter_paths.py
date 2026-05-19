@@ -30,3 +30,28 @@ def test_model_exporter_writes_run_scoped_only(monkeypatch, tmp_path: Path) -> N
 
     legacy_dir = tmp_path / "models" / "random_forest"
     assert not legacy_dir.exists()
+
+
+def test_model_exporter_does_not_nest_runs_when_given_run_root(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Passing an existing run root should write directly into its models subtree."""
+    run_id = "20260301T011643Z__d485b6"
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", run_id, raising=False)
+
+    model = DummyClassifier(strategy="most_frequent")
+    model.fit([[0], [1]], [0, 1])
+
+    run_root = tmp_path / "runs" / run_id
+    path = model_exporter.export_model_to_file(
+        model=model,
+        output_dir=run_root,
+        model_type="random_forest",
+        metadata_dict={"ok": True},
+    )
+
+    assert path is not None
+    expected_dir = run_root / "models" / "random_forest"
+    assert path.parent == expected_dir
+    assert not (run_root / "runs" / run_id).exists()

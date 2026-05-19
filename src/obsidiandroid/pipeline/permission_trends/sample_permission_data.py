@@ -9,6 +9,33 @@ from obsidiandroid.database import db_engine
 from .constants import COMMON_PERMISSIONS, PERMISSION_ALIAS_MAP
 
 
+_PERMISSION_OBS_NORM_AVAILABLE: bool | None = None
+
+
+def _permission_obs_key_expr() -> str:
+    """Return the canonical SQL expression for permission grouping keys."""
+    global _PERMISSION_OBS_NORM_AVAILABLE  # pylint: disable=global-statement
+    if _PERMISSION_OBS_NORM_AVAILABLE is None:
+        columns = {
+            str(col).strip().lower()
+            for col in db_engine.get_table_columns("android_permission_obs_sample")
+        }
+        _PERMISSION_OBS_NORM_AVAILABLE = "permission_string_norm" in columns
+    if _PERMISSION_OBS_NORM_AVAILABLE:
+        return "COALESCE(NULLIF(TRIM(permission_string_norm), ''), LOWER(TRIM(permission_string)))"
+    return "LOWER(TRIM(permission_string))"
+
+
+def _permission_obs_key_expr_ops() -> str:
+    """Return the canonical SQL expression for ``ops``-aliased permission rows."""
+    global _PERMISSION_OBS_NORM_AVAILABLE  # pylint: disable=global-statement
+    if _PERMISSION_OBS_NORM_AVAILABLE is None:
+        _permission_obs_key_expr()
+    if _PERMISSION_OBS_NORM_AVAILABLE:
+        return "COALESCE(NULLIF(TRIM(ops.permission_string_norm), ''), LOWER(TRIM(ops.permission_string)))"
+    return "LOWER(TRIM(ops.permission_string))"
+
+
 def build_sample_core(samples_df: pd.DataFrame) -> pd.DataFrame:
     working = samples_df.copy()
     working["sample_id"] = pd.to_numeric(working["sample_id"], errors="coerce")
@@ -127,13 +154,14 @@ def fetch_temporal_fields_for_samples(sample_ids: list[int]) -> pd.DataFrame:
 
 def fetch_permission_aggregates() -> pd.DataFrame:
     common_a, common_b = COMMON_PERMISSIONS
+    permission_key_expr = _permission_obs_key_expr()
     query = f"""
         SELECT
             sample_id,
             COUNT(*) AS permission_obs_rows,
-            COUNT(DISTINCT LOWER(TRIM(permission_string))) AS permission_unique_count,
+            COUNT(DISTINCT {permission_key_expr}) AS permission_unique_count,
             SUM(
-                CASE WHEN LOWER(TRIM(permission_string)) IN ('{common_a}', '{common_b}')
+                CASE WHEN {permission_key_expr} IN ('{common_a}', '{common_b}')
                 THEN 1 ELSE 0 END
             ) AS permission_common_rows
         FROM android_permission_obs_sample
@@ -177,10 +205,12 @@ def fetch_permission_rows_for_samples(sample_ids: list[int]) -> pd.DataFrame:
     for idx in range(0, len(sample_ids), chunk_size):
         chunk = sample_ids[idx : idx + chunk_size]
         placeholders = ", ".join(["%s"] * len(chunk))
+        permission_key_expr = _permission_obs_key_expr_ops()
         query = f"""
             SELECT
                 ops.sample_id,
-                LOWER(TRIM(ops.permission_string)) AS permission_string,
+                ops.permission_string AS permission_string_raw,
+                {permission_key_expr} AS permission_string,
                 UPPER(COALESCE(a.protection_level, o.protection_level, 'UNKNOWN')) AS protection_level,
                 UPPER(COALESCE(ops.classification, 'UNKNOWN')) AS permission_source,
                 CASE WHEN a.constant_value IS NOT NULL THEN 1 ELSE 0 END AS is_aosp_dict_match,

@@ -4,7 +4,7 @@ This reference summarizes the machine learning components that ship with Obsidia
 
 ## Feature Families
 
-ObsidianDroid assembles heterogeneous features that capture AV behaviour and Android application traits. Canonical builders live in `src/obsidiandroid/feature_engineering/` (legacy `analysis.feature_engineering.*` is an identity shim) and can be toggled in `config/app_config.py`.
+ObsidianDroid assembles heterogeneous features that capture AV behaviour and Android application traits. Canonical builders live in `src/obsidiandroid/feature_engineering/` and can be toggled in `config/app_config.py`.
 
 | Feature Group | Description | Example Columns |
 | --- | --- | --- |

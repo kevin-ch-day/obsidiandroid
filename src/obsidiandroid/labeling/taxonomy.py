@@ -18,8 +18,8 @@ and ``CANONICAL_FAMILY_DISPLAY`` remain legacy implementation details.
 Alias dictionaries that overlap vendor parsing belong under a future
 ``obsidiandroid.vendors`` contract (Pass 46 ``defer`` rows), not this labeling surface.
 
-Outside ``ml_classification/``, prefer this module over importing
-``ml_classification.common.malware_family_constants`` directly.
+Prefer this module over importing the underlying constants implementation
+directly.
 """
 
 from __future__ import annotations

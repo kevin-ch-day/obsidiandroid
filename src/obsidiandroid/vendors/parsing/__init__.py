@@ -1,9 +1,4 @@
-"""Canonical vendor parser package.
-
-Pass 59 physically moved parser implementations from ``analysis.vendor_processing``
-into this package. Legacy import compatibility is maintained by
-``analysis.vendor_processing`` shim registration.
-"""
+"""Canonical vendor parser package."""
 
 from __future__ import annotations
 

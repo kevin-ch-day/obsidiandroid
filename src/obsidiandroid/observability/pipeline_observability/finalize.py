@@ -63,6 +63,7 @@ def _top_artifacts_to_open(run_root: Path | None, diagnostics_dir: Path, run_id:
         diagnostics_dir / AUTHORITATIVE_SUMMARY_FILENAME,
         diagnostics_dir / "pipeline_stage_summary.md",
         diagnostics_dir / "partial_failures.md",
+        diagnostics_dir / "publication_claim_audit.md",
         diagnostics_dir / "paper_claim_audit.md",
         diagnostics_dir / "cohort_funnel.md",
         diagnostics_dir / "recommended_findings.md",
@@ -123,6 +124,11 @@ def finalize_pipeline_observability(
     run_status_raw = str(manifest_context.get("run_status", "")).strip().lower()
     if not run_status_raw:
         run_status_raw = "complete" if int(result_code) == 0 else "failed"
+    completed_stage = str(
+        manifest_context.get("completed_stage", "") or manifest.get("completed_stage", "")
+    ).strip()
+    if not completed_stage:
+        completed_stage = "manifest" if run_status_raw == "complete" else "unknown"
 
     # --- Synthetic SKIPPED runner stages ---
     completed = obs_session.completed_stages() if obs_session else set()
@@ -314,6 +320,8 @@ def finalize_pipeline_observability(
         "schema_version": "2.0",
         "run_id": run_id,
         "profile_id": profile_id,
+        "run_status": run_status_raw,
+        "completed_stage": completed_stage,
         "pipeline_status": verdict,
         "paper_mode": bool(paper_mode),
         "evidence_mode": bool(evidence_mode),
@@ -420,7 +428,7 @@ def finalize_pipeline_observability(
         du.print_section("Observability snapshot")
         du.print_stat("Aggregate pipeline verdict", verdict)
         du.print_stat("Research validity bundle", rv_status + (f" ({rv_err})" if rv_err else ""))
-        du.print_stat("paper_safe_status (strict)", paper_safe_terminal)
+        du.print_stat("strict_publication_status", paper_safe_terminal)
         du.print_stat(AUTHORITATIVE_SUMMARY_FILENAME, str(summary_path))
 
     manifest_context["_observability_finalized_once"] = True

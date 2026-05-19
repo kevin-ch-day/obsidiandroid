@@ -9,6 +9,7 @@ from typing import Any
 
 import pandas as pd
 
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.json_io import read_json_dict
 
 
@@ -57,6 +58,8 @@ def build_label_map(model_results: dict[str, Any], model_key: str, diagnostics_d
         p = diagnostics_dir / f"label_name_map_{run_id}.json"
         if not p.is_file():
             p = diagnostics_dir / "label_name_map.latest.json"
+        if not p.is_file():
+            p = oh.global_diagnostics_root() / "label_name_map.latest.json"
         blob = read_json_dict(p)
         m2 = blob.get("label_name_map")
         if isinstance(m2, dict):

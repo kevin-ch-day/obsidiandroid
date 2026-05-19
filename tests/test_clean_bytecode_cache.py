@@ -50,12 +50,40 @@ def test_clean_bytecode_cache_removes_build_and_pytest_artifacts(tmp_path):
     pytest_tmp_dir.mkdir()
     (pytest_tmp_dir / "state.txt").write_text("x")
 
+    pytest_tmp_generic = target / ".pytest_tmp"
+    pytest_tmp_generic.mkdir()
+    (pytest_tmp_generic / "state.txt").write_text("x")
+
+    pytest_cache_dir = target / ".pytest_cache"
+    pytest_cache_dir.mkdir()
+    (pytest_cache_dir / "README").write_text("x")
+
+    ruff_cache_dir = target / ".ruff_cache"
+    ruff_cache_dir.mkdir()
+    (ruff_cache_dir / "state").write_text("x")
+
+    mypy_cache_dir = target / ".mypy_cache"
+    mypy_cache_dir.mkdir()
+    (mypy_cache_dir / "state").write_text("x")
+
+    htmlcov_dir = target / "htmlcov"
+    htmlcov_dir.mkdir()
+    (htmlcov_dir / "index.html").write_text("x")
+
     coverage_file = target / ".coverage"
     coverage_file.write_text("x")
+    coverage_extra = target / ".coverage.unit"
+    coverage_extra.write_text("x")
 
     cbc.clean_bytecode_cache(target)
 
     assert not build_dir.exists()
     assert not egg_info_dir.exists()
     assert not pytest_tmp_dir.exists()
+    assert not pytest_tmp_generic.exists()
+    assert not pytest_cache_dir.exists()
+    assert not ruff_cache_dir.exists()
+    assert not mypy_cache_dir.exists()
+    assert not htmlcov_dir.exists()
     assert not coverage_file.exists()
+    assert not coverage_extra.exists()

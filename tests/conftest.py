@@ -139,3 +139,32 @@ def isolate_output_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
             logging.getLogger().removeHandler(handler)
         except (OSError, RuntimeError, TypeError, ValueError):
             pass
+
+
+@pytest.fixture
+def make_run_diagnostics_layout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    """Create canonical tmp output layout and pin ``RUNTIME_OUTPUT_ROOT_BASE`` to it."""
+
+    def _make(run_id: str = "rid") -> tuple[Path, Path, Path]:
+        output_root = tmp_path / "output"
+        diagnostics_dir = output_root / "runs" / run_id / "diagnostics"
+        global_diag = output_root / "diagnostics"
+        diagnostics_dir.mkdir(parents=True, exist_ok=True)
+        global_diag.mkdir(parents=True, exist_ok=True)
+        try:
+            from config import app_config
+
+            monkeypatch.setattr(
+                app_config,
+                "RUNTIME_OUTPUT_ROOT_BASE",
+                str(output_root),
+                raising=False,
+            )
+        except Exception:
+            pass
+        return output_root, diagnostics_dir, global_diag
+
+    return _make

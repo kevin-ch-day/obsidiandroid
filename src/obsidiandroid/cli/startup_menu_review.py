@@ -5,10 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.cohort_methodology import resolve_cohort_lock_status, safe_int
 from obsidiandroid.common.publication_readiness import publication_ready_display
 from obsidiandroid.common.json_io import read_json_dict
 from obsidiandroid.common.output_paths import output_root as canonical_output_root
+from obsidiandroid.database.db_cohort_readiness import get_cohort_readiness_snapshot
 
 from .menu import diagnostics_banners
 from .menu.display_mode import is_compact_mode, is_debug_mode, is_detailed_mode, resolve_display_mode
@@ -16,6 +18,7 @@ from .menu.operator_state import build_operator_state
 from .ui import display as du
 from .ui import menu as mu
 from . import startup_menu_diagnostics as diagnostics_menu
+from .profile_manager import infer_cohort_readiness_signal
 
 
 def _read_first_json(candidates: list[Path]) -> dict:
@@ -112,12 +115,7 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
     cohort_funnel_md = rdiag / "cohort_funnel.md"
     trained_family_registry = rdiag / f"trained_family_registry_{rid}.csv" if rid else Path()
     low_support_csv = rdiag / "low_support_families.csv"
-    taxonomy = _read_first_json(
-        [
-            rdiag / f"taxonomy_consistency_summary_{rid}.json",
-            gdiag / "taxonomy_consistency_summary.latest.json",
-        ]
-    )
+    taxonomy = read_json_dict(oh.resolve_taxonomy_consistency_summary_path(rdiag, rid)) if rid else {}
     q2 = _read_first_json(
         [
             rdiag / "modality_contribution_summary.json",
@@ -126,6 +124,15 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
     )
     taxonomy_support = diagnostics_menu.build_taxonomy_support_tuning_snapshot(run_id=rid, output_root=output_root) if rid else {}
     permission_tuning = diagnostics_menu.build_permission_coverage_tuning_snapshot(run_id=rid, output_root=output_root) if rid else {}
+    try:
+        cohort_readiness = get_cohort_readiness_snapshot()
+    except Exception as exc:
+        cohort_readiness = {
+            "status": "degraded",
+            "warnings": [f"Cohort readiness unavailable: {exc}"],
+            "buckets": {},
+        }
+    readiness_signal = infer_cohort_readiness_signal(profile_id)
 
     health_rows = [
         {"label": "Cohort / labels", "status": status_map.get("Cohort / labels", "RED")},
@@ -163,6 +170,9 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
             open_label="Run science index",
         )
     tax_mismatch = int(taxonomy.get("taxonomy_mismatch_count", 0) or 0) if taxonomy else 0
+    claim_facing_tax_mismatch = int(
+        taxonomy.get("paper_facing_taxonomy_mismatch_count", tax_mismatch) or 0
+    ) if taxonomy else 0
     family_label_mismatch = int(taxonomy.get("family_label_mismatch_count", 0) or 0) if taxonomy else 0
     type_issue_count = (
         int(taxonomy.get("type_mismatch_count", 0) or 0)
@@ -211,8 +221,14 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
     if health_map.get("Taxonomy consistency") in {"YELLOW", "RED"} and tax_mismatch > 0:
         _append_warning(
             warnings,
-            problem=f"Taxonomy consistency: {tax_mismatch} mismatches detected.",
-            why=f"type authority/rendering issues={type_issue_count}; family label mismatches={family_label_mismatch}",
+            problem=(
+                f"Taxonomy consistency: {tax_mismatch} total mismatches detected "
+                f"({claim_facing_tax_mismatch} claim-facing)."
+            ),
+            why=(
+                f"type authority/rendering issues={type_issue_count}; "
+                f"family label mismatches={family_label_mismatch}"
+            ),
             next_action="review taxonomy type authority report and mismatch summary",
             open_label="Taxonomy consistency summary",
         )
@@ -342,6 +358,8 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
         "tuning_actions": tuning_actions[:5],
         "taxonomy_support_summary": taxonomy_support,
         "permission_tuning_summary": permission_tuning,
+        "cohort_readiness_summary": cohort_readiness,
+        "cohort_readiness_signal": readiness_signal,
         "taxonomy_support_recommended_action": tax_recommended_action,
         "run_science_index_path": shared.get("best_run_index_path"),
         "run_science_index_canonical": bool(shared.get("has_canonical_run_science", False)),
@@ -366,6 +384,39 @@ def print_compact_review_latest_run(*, output_root: Path, latest_run_id: str | N
     du.print_stat("Cohort lock", str(summary.get("cohort_lock_status") or "unknown"))
     du.print_stat("Evidence mode", "Yes" if bool(summary.get("evidence_mode", False)) else "No")
     du.print_stat("Publication-ready", str(summary.get("publication_ready_status") or "Not applicable"))
+    print("")
+    print("Cohort Readiness")
+    readiness = summary.get("cohort_readiness_summary", {})
+    if isinstance(readiness, dict):
+        buckets = readiness.get("buckets", {})
+        if isinstance(buckets, dict) and buckets:
+            for name in (
+                "all_catalog",
+                "android_platform",
+                "android_with_permission_obs",
+                "android_high_or_strong_vt_with_permission_obs",
+                "android_labeled_primary_with_permission_obs",
+                "android_banker_with_permission_obs",
+                "android_family_ready_min3_permission_obs",
+            ):
+                bucket = buckets.get(name, {})
+                if not isinstance(bucket, dict):
+                    continue
+                sample_count = bucket.get("sample_count")
+                family_count = bucket.get("family_count")
+                if sample_count is None or family_count is None:
+                    value = "unavailable"
+                else:
+                    value = f"{sample_count} samples / {family_count} families"
+                du.print_stat(f"  {name}", value)
+        signal = summary.get("cohort_readiness_signal", {})
+        if isinstance(signal, dict):
+            du.print_info(f"  {str(signal.get('summary', '') or '').strip()}")
+            detail = str(signal.get("detail", "") or "").strip()
+            if detail:
+                du.print_note(f"  {detail}")
+        for note in readiness.get("warnings", [])[:3]:
+            du.print_note(f"  {note}")
     print("")
     print("Taxonomy & Support Tuning")
     tax = summary.get("taxonomy_support_summary", {})

@@ -532,6 +532,7 @@ def write_research_validity_review(
         },
         "taxonomy": {
             "taxonomy_mismatch_count": taxonomy.get("taxonomy_mismatch_count"),
+            "paper_facing_taxonomy_mismatch_count": taxonomy.get("paper_facing_taxonomy_mismatch_count"),
             "type_mapping_mismatch_count": taxonomy.get("type_mismatch_count"),
             "type_missing_label_count": taxonomy.get("type_missing_label_count"),
             "type_noncanonical_count": taxonomy.get("type_noncanonical_count"),
@@ -554,10 +555,12 @@ def write_research_validity_review(
             "headline_vs_ablation_contract_comparison": bool(
                 (rdiag / f"headline_vs_ablation_contract_comparison_{run_id}.md").is_file()
                 or (rdiag / "headline_vs_ablation_contract_comparison.latest.md").is_file()
+                or (gdiag / "headline_vs_ablation_contract_comparison.latest.md").is_file()
             ),
             "taxonomy_type_authority_review": bool(
                 (rdiag / f"taxonomy_type_authority_review_{run_id}.md").is_file()
                 or (rdiag / "taxonomy_type_authority_review.latest.md").is_file()
+                or (gdiag / "taxonomy_type_authority_review.latest.md").is_file()
             ),
         },
         "claim_readiness": _build_claim_readiness(
@@ -595,6 +598,7 @@ def write_research_validity_review(
         "## Taxonomy consistency",
         "",
         f"- Taxonomy-flag rows (union): **{payload['taxonomy'].get('taxonomy_mismatch_count', '—')}**",
+        f"- Claim-facing taxonomy rows: **{payload['taxonomy'].get('paper_facing_taxonomy_mismatch_count', '—')}**",
         f"- Type mapping (cohort vs label-derived): **{payload['taxonomy'].get('type_mapping_mismatch_count', '—')}**",
         f"- Missing type in label string: **{payload['taxonomy'].get('type_missing_label_count', '—')}**",
         f"- Noncanonical label-derived type: **{payload['taxonomy'].get('type_noncanonical_count', '—')}**",
@@ -710,10 +714,15 @@ def _build_claim_readiness(
             pass
 
     tm = taxonomy.get("taxonomy_mismatch_count")
+    paper_tm = taxonomy.get("paper_facing_taxonomy_mismatch_count")
     type_map_n = taxonomy.get("type_mismatch_count")
     if tm:
         try:
-            if int(tm) > 0 and type_map_n is not None and int(type_map_n) > 0:
+            if int(paper_tm if paper_tm is not None else tm) == 0 and int(tm) > 0:
+                caution.append(
+                    "Current taxonomy flags are diagnostic-only for this run; none are marked claim-facing under the active strict policy."
+                )
+            elif int(tm) > 0 and type_map_n is not None and int(type_map_n) > 0:
                 caution.append(
                     "Most taxonomy flags are often **type_mapping_mismatch** (authority), not family prediction errors — "
                     "see taxonomy_type_authority_review."
@@ -723,7 +732,7 @@ def _build_claim_readiness(
         except (TypeError, ValueError):
             caution.append("Taxonomy consistency artifacts warrant review.")
     caution.append(
-        "Type-level claims using generated `classification_label` strings are not paper-safe until cohort vs label-derived type is reconciled."
+        "Type-level claims using generated `classification_label` strings are not publication-safe until cohort vs label-derived type is reconciled."
     )
 
     if fc.get("apples_to_apples") is False:

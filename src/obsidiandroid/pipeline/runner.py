@@ -501,6 +501,11 @@ def run_pipeline(
         )
         obs_sess = manifest_context.get("pipeline_observability")
         raw_n_for_obs = sql_scope_rows if sql_scope_rows > 0 else prepared_rows
+        sample_stage_warnings = [
+            str(msg).strip()
+            for msg in (samples_df.attrs.get("cohort_operational_warnings", []) or [])
+            if str(msg).strip()
+        ]
         if isinstance(obs_sess, PipelineObservabilitySession):
             obs_sess.log_population_transition(
                 transition="cohort_sql_scope_to_prepared_rows",
@@ -509,11 +514,17 @@ def run_pipeline(
                 reason="SQL profile cohort scope → samples_df after fetch + Python preparation",
                 artifact_path=str(snapshot_file),
             )
+            for warning_text in sample_stage_warnings:
+                obs_sess.add_warning(
+                    f"[COHORT] {warning_text}",
+                    stage_hint="samples",
+                )
         st.record_stage_timing(
             "samples",
             stage_started_at,
             input_rows=int(raw_n_for_obs),
             output_rows=int(len(samples_df)),
+            major_warnings="; ".join(sample_stage_warnings) if sample_stage_warnings else "",
         )
         if samples_df is None or samples_df.empty:
             raise ValueError("No samples found after preparation.")
@@ -532,7 +543,8 @@ def run_pipeline(
             raise_on_mismatch=False,
         )
         contract_validation = manifest_context["paper_cohort_contract"].get("validation", {})
-        if str(contract_validation.get("status", "") or "").strip().lower() == "mismatch":
+        contract_validation_status = str(contract_validation.get("status", "") or "").strip().lower()
+        if contract_validation_status == "mismatch":
             mismatches = contract_validation.get("mismatches", [])
             mismatch_rows = [str(row).strip() for row in mismatches if str(row).strip()]
             st.fail_pipeline(
@@ -541,6 +553,25 @@ def run_pipeline(
                     + "; ".join(mismatch_rows)
                 ),
             )
+        elif contract_validation_status == "degraded_live_db_drift":
+            warning_text = str(contract_validation.get("warning", "") or "").strip()
+            if warning_text:
+                du.print_warning(warning_text)
+            else:
+                du.print_warning(
+                    f"[COHORT_LOCK] Locked cohort for profile {profile_id} degraded to count-only semantics because "
+                    "the preserved lock no longer fully overlaps the live DB."
+                )
+                warning_text = (
+                    f"[COHORT_LOCK] Locked cohort for profile {profile_id} degraded to count-only semantics because "
+                    "the preserved lock no longer fully overlaps the live DB."
+                )
+            obs_warn = manifest_context.get("pipeline_observability")
+            if isinstance(obs_warn, PipelineObservabilitySession) and warning_text:
+                obs_warn.add_warning(
+                    warning_text,
+                    stage_hint="samples",
+                )
 
         if stop_after == "samples":
             st.mark_run_state("partial", completed_stage="samples")
@@ -1220,6 +1251,14 @@ def run_pipeline(
         mw_train: list[str] = []
         if bool(manifest_context.get("permission_enrichment_degraded")):
             mw_train.append("permission enrichment degraded flag set")
+        smote_warning_text = str(getattr(app_config, "RUNTIME_SMOTE_WARNING_LAST", "") or "").strip()
+        if smote_warning_text:
+            mw_train.append(smote_warning_text)
+            if isinstance(obs_tr, PipelineObservabilitySession):
+                obs_tr.add_warning(
+                    smote_warning_text,
+                    stage_hint="training",
+                )
         tr_c = manifest_context.get("train_sample_count")
         te_c = manifest_context.get("test_sample_count")
         if tr_c not in (None, "") or te_c not in (None, ""):

@@ -1,2 +1,0 @@
-column_name,reason_code,details
-__summary__,scan_completed,columns_flagged_for_drop=0; aggressive_heuristic=off; hint_final_feature_cols=1

@@ -169,6 +169,7 @@ def build_manifest_payload(
 
     return {
         "run_id": run_id,
+        "profile_id": str(profile.get("profile_id", "unknown")),
         "timestamp_utc": manifest_context.get("timestamp_utc"),
         "git_commit": run_manifest.get_git_commit(),
         "config_hash": manifest_context.get("config_hash"),

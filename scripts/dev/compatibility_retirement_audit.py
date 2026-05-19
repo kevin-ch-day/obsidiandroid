@@ -88,6 +88,16 @@ def collect_ready_now_bucket_callers(repo_root: Path) -> dict[str, list[str]]:
     return out
 
 
+def collect_bucket_callers(repo_root: Path) -> dict[str, list[str]]:
+    """Return external legacy-import callers for all retirement buckets with import prefixes."""
+    out: dict[str, list[str]] = {}
+    for entry in LEGACY_SUBTREE_RETIREMENT_BUCKETS:
+        if not entry.import_prefixes:
+            continue
+        out[entry.tree] = collect_external_legacy_import_callers(repo_root, entry.import_prefixes)
+    return out
+
+
 def collect_legacy_subtree_python_files(repo_root: Path, subtree: str) -> list[Path]:
     """Return Python files that belong to one legacy subtree bucket."""
     subtree_path = repo_root / subtree
@@ -111,6 +121,7 @@ def canonical_target_exists(repo_root: Path, canonical_target: str) -> bool:
 
 
 __all__ = (
+    "collect_bucket_callers",
     "canonical_target_exists",
     "collect_external_legacy_import_callers",
     "collect_legacy_subtree_python_files",

@@ -7,7 +7,7 @@ Scripts here support **package layout, import hygiene, and local repo maintenanc
 | [`check_import_surface.py`](check_import_surface.py) | Smoke-test `obsidiandroid` imports and shim parity; orchestrates static ratchets; exits nonzero on failure. |
 | [`import_surface_policy.py`](import_surface_policy.py) | AST/file-system only: legacy-root import scans, `# Filename:` header ratchet, legacy-leaf shim rules under `analysis`/`ml_classification`/`model`, UTF-8 BOM scan (shared with tests). |
 | [`check_doc_hygiene.py`](check_doc_hygiene.py) | Block known-removed phantom script paths in operator docs; **`make doc-check`**. |
-| [`clean_bytecode_cache.py`](clean_bytecode_cache.py) | Remove `__pycache__`, local logs, and common junk under a tree (**canonical**; use `python scripts/dev/clean_bytecode_cache.py` or `make clean-bytecode`). |
+| [`clean_bytecode_cache.py`](clean_bytecode_cache.py) | Remove `__pycache__`, local logs, and common junk under a tree including `.pytest_cache`, `.pytest_tmp*`, `.mypy_cache`, `.ruff_cache`, `htmlcov`, and coverage files (**canonical**; use `python scripts/dev/clean_bytecode_cache.py` or `make clean-bytecode`). |
 | [`data_fuzzer.py`](data_fuzzer.py) | Synthetic classification data for stress tests (`sklearn` + pandas). |
 | [`run_ml_static_scan.py`](run_ml_static_scan.py) | Argparse driver for the ML predict misuse scan (`python -m scripts.dev.run_ml_static_scan` or `make ml-scan`). |
 | [`scan_ml_predict_misuse.py`](scan_ml_predict_misuse.py) | Core walker used by `run_ml_static_scan`. |

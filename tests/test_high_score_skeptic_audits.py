@@ -1,10 +1,12 @@
 """Smoke tests for headline score scope and split contamination helpers."""
 
+import json
 from pathlib import Path
 
 import pandas as pd
 
 from obsidiandroid.reporting import high_score_skeptic_audits as hssa
+from obsidiandroid.reporting import high_score_skeptic_helpers as helpers
 
 
 def test_write_headline_score_scope(tmp_path: Path) -> None:
@@ -51,3 +53,19 @@ def test_split_contamination_package_overlap(tmp_path: Path) -> None:
 def test_package_prefix_two_segments() -> None:
     assert hssa._package_prefix_two_segments("com.bad.app") == "com.bad"
     assert hssa._package_prefix_two_segments("single") == "single"
+
+
+def test_build_label_map_falls_back_to_global_latest(tmp_path: Path, monkeypatch) -> None:
+    output_root = tmp_path / "output"
+    diagnostics_dir = output_root / "runs" / "rid" / "diagnostics"
+    global_diag = output_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True)
+    global_diag.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(helpers.oh.app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+    (global_diag / "label_name_map.latest.json").write_text(
+        json.dumps({"label_name_map": {"1": "Irata"}}),
+        encoding="utf-8",
+    )
+
+    out = helpers.build_label_map({}, "random_forest", diagnostics_dir, "rid")
+    assert out == {"1": "Irata"}

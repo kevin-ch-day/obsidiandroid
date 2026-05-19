@@ -69,6 +69,8 @@ def test_finalize_pipeline_observability_minimal(tmp_path: Path) -> None:
     assert "pipeline_observability_status_json" not in paths
     assert blob.get("publication_ready_status") == blob.get("paper_safe_status")
     assert blob.get("publication_ready_reasons") == blob.get("paper_safe_reasons")
+    assert blob.get("run_status") == "complete"
+    assert blob.get("completed_stage") == "manifest"
     assert ctx["_observability_finalized_once"] is True
 
 

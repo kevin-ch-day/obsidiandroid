@@ -8,6 +8,8 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
+
+from obsidiandroid.common import output_hygiene as oh
 from typing import Any
 
 # Columns produced by ``enrich_score_features.add_derived_score_features`` (primary AV DB path).
@@ -117,6 +119,8 @@ def build_feature_lineage_report(run_diagnostics_dir: Path | str) -> dict[str, A
     contract_path = diag / "feature_contract.json"
     leakage_txt = diag / "leakage_assessment.txt"
     leakage_audit_latest = diag / "leakage_pruning_audit.latest.csv"
+    if not leakage_audit_latest.is_file():
+        leakage_audit_latest = oh.global_diagnostics_root() / "leakage_pruning_audit.latest.csv"
 
     modality = load_json_if_present(modality_path) or {}
     contract = load_json_if_present(contract_path) or {}

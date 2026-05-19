@@ -27,6 +27,7 @@ BANKING_TROJAN_FAMILIES = (
     "trickmo",
     "vultur",
 )
+_PERMISSION_OBS_NORM_AVAILABLE: bool | None = None
 
 
 def _primary(table: str) -> str:
@@ -44,8 +45,23 @@ def _sql_string_list(values: tuple[str, ...]) -> str:
     return ", ".join(f"'{value}'" for value in values)
 
 
+def _permission_obs_key_expr() -> str:
+    """Return the canonical join key expression for permission observations."""
+    global _PERMISSION_OBS_NORM_AVAILABLE  # pylint: disable=global-statement
+    if _PERMISSION_OBS_NORM_AVAILABLE is None:
+        columns = {
+            str(col).strip().lower()
+            for col in db_engine.get_table_columns("android_permission_obs_sample")
+        }
+        _PERMISSION_OBS_NORM_AVAILABLE = "permission_string_norm" in columns
+    if _PERMISSION_OBS_NORM_AVAILABLE:
+        return "COALESCE(NULLIF(TRIM(ops.permission_string_norm), ''), LOWER(TRIM(ops.permission_string)))"
+    return "LOWER(TRIM(ops.permission_string))"
+
+
 def fetch_android_banking_trojans_with_permissions():
     family_filter_sql = _sql_string_list(BANKING_TROJAN_FAMILIES)
+    permission_key_expr = _permission_obs_key_expr()
     query = f"""
         SELECT
             ms.sample_id,
@@ -161,19 +177,19 @@ def fetch_android_banking_trojans_with_permissions():
         FROM {_primary("malware_sample_catalog")} ms
         JOIN {_permission_intel("android_permission_obs_sample")} ops ON ms.sample_id = ops.sample_id
         LEFT JOIN {_permission_intel("android_permission_dict_aosp")} kp
-            ON LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(kp.constant_value))
+            ON {permission_key_expr} = LOWER(TRIM(kp.constant_value))
         LEFT JOIN {_permission_intel("android_permission_dict_oem")} mp
-            ON LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(mp.permission_string))
+            ON {permission_key_expr} = LOWER(TRIM(mp.permission_string))
             AND (
                 ops.vendor_id = mp.vendor_id
                 OR ops.vendor_id IS NULL
             )
         LEFT JOIN {_permission_intel("android_permission_dict_unknown")} up
-            ON LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(up.permission_string))
+            ON {permission_key_expr} = LOWER(TRIM(up.permission_string))
         LEFT JOIN {_permission_intel("android_permission_meta_oem_vendor")} ov
             ON ops.vendor_id = ov.vendor_id
         LEFT JOIN {_permission_intel("android_permission_enrich_vt_current")} vtc
-            ON LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(vtc.permission_string))
+            ON {permission_key_expr} = LOWER(TRIM(vtc.permission_string))
         WHERE LOWER(ms.family_label) IN ({family_filter_sql})
         ORDER BY ms.sample_id ASC, ops.observed_at_utc ASC, ops.permission_string ASC
     """

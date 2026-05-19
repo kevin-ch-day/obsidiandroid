@@ -191,6 +191,7 @@ def _open_first_hints(evidence_index_path: Path | None, logging_audit: Path) -> 
             diag_parent = cand
     for name in (
         "cohort_funnel.md",
+        "publication_claim_audit.md",
         "paper_claim_audit.md",
         "recommended_findings.md",
         "figure_validity_audit.md",

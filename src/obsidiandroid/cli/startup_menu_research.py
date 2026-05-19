@@ -281,18 +281,18 @@ def launch_compare_runs_menu(
 def run_evidence_readiness_menu_action(
     *,
     read_latest_run_id: Callable[[], str | None],
-    read_locked_paper_run_id: Callable[[], str | None],
-    paper2_freeze_checker: Callable[[], int],
+    read_locked_publication_run_id: Callable[[], str | None],
+    run_evidence_lock_checker: Callable[[], int],
 ) -> int:
     """Explain evidence gates and write readiness summary under global diagnostics."""
-    del paper2_freeze_checker  # kept for future parity-friendly expansion
+    del run_evidence_lock_checker  # kept for future parity-friendly expansion
     du.print_section("Evidence Readiness")
     output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
     shared = build_operator_state(output_base=output_root, run_id=read_latest_run_id())
     latest_run_id = str(shared.get("latest_run_id", "") or "")
-    locked = read_locked_paper_run_id()
+    locked = read_locked_publication_run_id()
     evidence_mode = bool(shared.get("evidence_mode", False))
-    exports = bool(shared.get("has_paper_exports", False))
+    exports = bool(shared.get("has_publication_exports", shared.get("has_paper_exports", False)))
     try:
         repro_workbench.write_evidence_paper_readiness(
             output_root=output_root,
@@ -317,7 +317,7 @@ def run_evidence_readiness_menu_action(
 def launch_evidence_readiness_hub(
     *,
     run_evidence_readiness_action: Callable[[], int],
-    run_paper2_freeze_checker: Callable[[], int],
+    run_evidence_lock_checker: Callable[[], int],
     run_evidence_bundle_series_aggregator_action: Callable[[], int],
 ) -> None:
     """Evidence readiness exports, cohort lock checks, and bundle aggregation."""
@@ -339,7 +339,7 @@ def launch_evidence_readiness_hub(
             run_evidence_readiness_action()
             continue
         if choice == 2:
-            run_paper2_freeze_checker()
+            run_evidence_lock_checker()
             continue
         if choice == 3:
             run_evidence_bundle_series_aggregator_action()
@@ -350,7 +350,7 @@ def launch_evidence_readiness_hub(
 def launch_reproducibility_menu(
     *,
     read_latest_run_id: Callable[[], str | None],
-    read_locked_paper_run_id: Callable[[], str | None],
+    read_locked_publication_run_id: Callable[[], str | None],
     read_run_summary: Callable[[Path], dict],
     read_json_object: Callable[[Path], dict],
     run_health_check_for_selected_run: Callable[[], int],
@@ -360,13 +360,21 @@ def launch_reproducibility_menu(
     """Reproducibility, research validity, run comparison, and evidence readiness."""
     while True:
         shared = build_operator_state(run_id=read_latest_run_id())
-        locked_run_id = str(read_locked_paper_run_id() or shared.get("locked_run_id", "") or "").strip()
+        locked_run_id = str(
+            read_locked_publication_run_id()
+            or shared.get("locked_publication_run_id", "")
+            or shared.get("locked_run_id", "")
+            or ""
+        ).strip()
         du.print_info(f"[MENU] Locked evidence run: {locked_run_id if locked_run_id else '(none)'}")
         _print_availability_block(
             rows=[
                 ("Locked Evidence Run", locked_run_id if locked_run_id else "No"),
                 ("Latest Run Uses Evidence Mode", "Yes" if bool(shared.get("evidence_mode", False)) else "No"),
-                ("Latest Run Publication Exports", "Yes" if bool(shared.get("has_paper_exports", False)) else "No"),
+                (
+                    "Latest Run Publication Exports",
+                    "Yes" if bool(shared.get("has_publication_exports", shared.get("has_paper_exports", False))) else "No",
+                ),
                 ("Latest Run Provenance", "Yes" if bool(shared.get("latest_run_has_provenance", False)) else "No"),
             ]
         )

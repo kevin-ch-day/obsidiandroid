@@ -181,6 +181,139 @@ def _apply_policy_defaults(profile: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def infer_cohort_readiness_signal(profile_ref: str | Dict[str, Any] | None) -> Dict[str, str | None]:
+    """Return advisory cohort-readiness mapping for operator review surfaces.
+
+    This is intentionally non-enforcing. It helps operators interpret which
+    live split-catalog readiness bucket best matches the selected profile.
+    """
+    profile: Dict[str, Any] = {}
+    if isinstance(profile_ref, dict):
+        profile = dict(profile_ref)
+    else:
+        token = str(profile_ref or "").strip()
+        if token:
+            try:
+                profile = load_profile(token)
+            except Exception:
+                profile = {"profile_id": PROFILE_ALIASES.get(token, token)}
+
+    profile_id = str(profile.get("profile_id", "") or "").strip()
+    profile_id_lc = profile_id.lower()
+    type_slug_filter = str(profile.get("type_slug_filter", "") or "").strip().lower()
+    evidence_mode = bool(profile.get("evidence_mode", False))
+    cohort_gates = profile.get("cohort_gates") if isinstance(profile.get("cohort_gates"), dict) else {}
+    dataset_filters = profile.get("dataset_filters") if isinstance(profile.get("dataset_filters"), dict) else {}
+    paper_lock = profile.get("paper_lock") if isinstance(profile.get("paper_lock"), dict) else {}
+    expected_type_scope = str(paper_lock.get("expected_type_scope", "") or "").strip().lower()
+    min_samples_per_family = cohort_gates.get("min_samples_per_family")
+    dataset_mode = str(dataset_filters.get("mode", "") or "").strip().lower()
+
+    def _mapped(bucket: str, reason: str) -> Dict[str, str | None]:
+        return {
+            "status": "mapped",
+            "bucket": bucket,
+            "summary": f"Best matching readiness bucket: {bucket}",
+            "detail": f"{reason} Advisory only; this does not enforce sample selection.",
+            "ambiguity_reason": None,
+        }
+
+    if (
+        type_slug_filter == "banker"
+        or expected_type_scope == "banker"
+        or "banker" in profile_id_lc
+    ):
+        return _mapped(
+            "android_banker_with_permission_obs",
+            "Banker-focused profile intent is best compared against the Android banker cohort with permission observations.",
+        )
+
+    if profile_id_lc in {
+        "research_all_malicious",
+        "all_malicious",
+        "malicious_temporal_stability",
+        "malicious_temporal_stability_locked",
+        "malicious_temporal_consensus10",
+        "malicious_temporal_family300",
+    } or expected_type_scope == "all_malicious" or (
+        evidence_mode and dataset_mode == "malicious_only" and type_slug_filter in {"", "all"}
+    ):
+        bucket = (
+            "android_high_or_strong_vt_with_permission_obs"
+            if evidence_mode
+            else "android_with_permission_obs"
+        )
+        reason = (
+            "Android malicious evidence-style profile intent is best compared against the Android cohort with permission observations and high/strong VT confidence."
+            if evidence_mode
+            else "Android malicious permission-feature profile intent is best compared against the Android cohort with permission observations."
+        )
+        return _mapped(
+            bucket,
+            reason,
+        )
+
+    if type_slug_filter in {"dropper", "rat", "sms-trojan", "spyware", "stealer", "adware"} or (
+        dataset_mode == "malicious_only"
+        and type_slug_filter not in {"", "all"}
+        and min_samples_per_family not in (None, "")
+    ):
+        return _mapped(
+            "android_family_ready_min3_permission_obs",
+            "Family classification and min-support profile intent is best compared against the Android family-ready cohort with permission observations.",
+        )
+
+    if profile_id_lc.startswith("dev_") or profile_id_lc in {"mixed", "benign_heavy"} or dataset_mode in {
+        "mixed_balanced",
+        "benign_heavy",
+    }:
+        return _mapped(
+            "android_platform",
+            "Broad Android or mixed-scope exploratory profile intent is best compared against the Android platform readiness signal.",
+        )
+
+    if dataset_mode and dataset_mode != "malicious_only":
+        return _mapped(
+            "all_catalog",
+            "Broad catalog profile intent is best compared against the full catalog readiness signal.",
+        )
+
+    return {
+        "status": "ambiguous",
+        "bucket": None,
+        "summary": "No readiness bucket mapped for this profile; review cohort filters manually.",
+        "detail": "This guidance is advisory only and does not enforce sample selection.",
+        "ambiguity_reason": "Ambiguous profile intent; no readiness bucket selected.",
+    }
+
+
+def inventory_cohort_readiness_mappings(*, include_hidden: bool = True) -> List[Dict[str, Any]]:
+    """Return advisory cohort-readiness mapping inventory for bundled profiles."""
+    paths = sorted(PROFILES_DIR.glob("*.yaml"))
+    if not include_hidden:
+        paths = [path for path in paths if path.stem not in HIDDEN_PROFILE_IDS]
+
+    inventory: list[dict[str, Any]] = []
+    for profile_path in paths:
+        profile = load_profile(str(profile_path))
+        signal = infer_cohort_readiness_signal(profile)
+        inventory.append(
+            {
+                "profile_id": str(profile.get("profile_id", profile_path.stem) or profile_path.stem),
+                "profile_path": str(profile_path.as_posix()),
+                "description": str(profile.get("description", "") or "").strip(),
+                "bucket": signal.get("bucket"),
+                "summary": str(signal.get("summary", "") or "").strip(),
+                "detail": str(signal.get("detail", "") or "").strip(),
+                "status": str(signal.get("status", "ambiguous") or "ambiguous"),
+                "ambiguity_reason": (
+                    str(signal.get("ambiguity_reason", "") or "").strip() or None
+                ),
+            }
+        )
+    return inventory
+
+
 def select_profile_interactive(
     *,
     breadcrumb: str | None = None,

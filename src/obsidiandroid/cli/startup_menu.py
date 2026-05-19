@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import subprocess
 from typing import Callable, Dict, List
 
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common.repo_paths import repo_operator_script
 from obsidiandroid.evaluation import engine_scoring_summary
 from obsidiandroid.modeling import pipeline_core
 from .ui import display as du
@@ -17,6 +19,7 @@ import obsidiandroid.cli.profile_manager as profile_manager
 from .menu.profile_preflight import resolve_and_validate_profile
 from .menu import diagnostics_banners
 from .menu import startup_menu_actions
+from .menu import vendor_diagnostics
 from . import startup_menu_diagnostics as _diagnostics_menu
 from . import startup_menu_research as _research_menu
 from . import startup_menu_review as _review_menu
@@ -30,8 +33,6 @@ from .startup_menu_run_context import (
     has_structural_bundle as _has_structural_bundle,
     latest_run_context_status as _latest_run_context_status,
     latest_run_has_provenance as _latest_run_has_provenance,
-    latest_run_paper_mode_enabled as _latest_run_paper_mode_enabled,
-    paper_exports_available as _paper_exports_available,
     parse_run_timestamp_from_id as _parse_run_timestamp_from_id,
     parse_run_timestamp_from_manifest as _parse_run_timestamp_from_manifest,
     print_availability_block as _print_availability_block,
@@ -39,7 +40,7 @@ from .startup_menu_run_context import (
     read_json_object as _read_json_object,
     read_latest_run_id as _read_latest_run_id,
     read_latest_run_manifest as _read_latest_run_manifest,
-    read_locked_paper_run_id as _read_locked_paper_run_id,
+    read_locked_publication_run_id as _read_locked_publication_run_id,
     read_run_progress_summary as _read_run_progress_summary,
     read_run_summary as _read_run_summary,
     read_top_model_snapshot as _read_top_model_snapshot,
@@ -67,8 +68,8 @@ from .startup_menu_prompts import prompt_run_id as _prompt_run_id
 from .startup_menu_warehouse_scripts import (
     run_backfill_results_warehouse as _run_backfill_results_warehouse,
     run_claim_artifact_map_scaffold as _run_claim_artifact_map_scaffold,
-    run_paper2_freeze_checker as _run_paper2_freeze_checker,
-    run_paper_structural_diagnostics as _run_paper_structural_diagnostics,
+    run_evidence_lock_checker as _run_evidence_lock_checker,
+    run_publication_structural_diagnostics as _run_publication_structural_diagnostics,
     run_results_warehouse_status as _run_results_warehouse_status,
     run_retrain_from_cached_alignment as _run_retrain_from_cached_alignment,
 )
@@ -320,7 +321,9 @@ def _launch_structural_analysis_menu() -> None:
         context = _latest_run_context_status()
         has_latest_run = bool(context.get("has_latest_run", False))
         has_struct_bundle = bool(context.get("has_structural_bundle", False))
-        has_paper_exports = bool(context.get("has_paper_exports", False))
+        has_publication_exports = bool(
+            context.get("has_publication_exports", context.get("has_paper_exports", False))
+        )
 
         unavailable_reasons: dict[int, str] = {}
         if not has_latest_run:
@@ -357,8 +360,14 @@ def _launch_structural_analysis_menu() -> None:
             _print_availability_block(
                 rows=[
                     ("Structural Bundle", "Yes" if has_struct_bundle else "No"),
-                    ("Publication Exports", "Yes" if has_paper_exports else "No"),
-                    ("Locked Evidence Run", "Yes" if bool(context.get("has_locked_paper_run", False)) else "No"),
+                    ("Publication Exports", "Yes" if has_publication_exports else "No"),
+                    (
+                        "Locked Evidence Run",
+                        "Yes" if bool(
+                            context.get("has_locked_publication_run", context.get("has_locked_paper_run", False))
+                        )
+                        else "No",
+                    ),
                 ]
             )
             show_context = False
@@ -375,7 +384,7 @@ def _launch_structural_analysis_menu() -> None:
             continue
         if choice == "1":
             setattr(app_config, "ANALYSIS_SCOPE", "type")
-            result = _run_paper_structural_diagnostics()
+            result = _run_publication_structural_diagnostics()
             _print_structural_result_card(
                 action="Type-Level Structural Analysis",
                 status="success" if result == 0 else "failed",
@@ -384,7 +393,7 @@ def _launch_structural_analysis_menu() -> None:
             continue
         if choice == "2":
             setattr(app_config, "ANALYSIS_SCOPE", "family")
-            result = _run_paper_structural_diagnostics()
+            result = _run_publication_structural_diagnostics()
             _print_structural_result_card(
                 action="Family-Level Structural Analysis",
                 status="success" if result == 0 else "failed",
@@ -393,7 +402,7 @@ def _launch_structural_analysis_menu() -> None:
             continue
         if choice == "3":
             setattr(app_config, "ANALYSIS_SCOPE", "banker")
-            result = _run_paper_structural_diagnostics()
+            result = _run_publication_structural_diagnostics()
             _print_structural_result_card(
                 action="Banker-Specific Structural Analysis",
                 status="success" if result == 0 else "failed",
@@ -406,7 +415,7 @@ def _launch_structural_analysis_menu() -> None:
             setattr(app_config, "PAPER_MODE_ENABLED", True)
             setattr(app_config, "PAPER_MODE_LOCKED_VALUE", True)
             setattr(app_config, "FIGURE_MODE", "paper")
-            result = _run_paper_structural_diagnostics()
+            result = _run_publication_structural_diagnostics()
             _print_structural_result_card(
                 action="Publication-Ready Exports",
                 status="success" if result == 0 else "failed",
@@ -419,7 +428,7 @@ def _launch_structural_analysis_menu() -> None:
                 setattr(app_config, "FIGURE_MODE", "paper")
             else:
                 setattr(app_config, "FIGURE_MODE", "analysis")
-            result = _run_paper_structural_diagnostics()
+            result = _run_publication_structural_diagnostics()
             _print_structural_result_card(
                 action="Export Structural Report",
                 status="success" if result == 0 else "failed",
@@ -500,8 +509,8 @@ def _run_evidence_readiness_menu_action() -> int:
     """Explain evidence gates and write readiness summary under global diagnostics."""
     return _research_menu.run_evidence_readiness_menu_action(
         read_latest_run_id=_read_latest_run_id,
-        read_locked_paper_run_id=_read_locked_paper_run_id,
-        paper2_freeze_checker=_run_paper2_freeze_checker,
+        read_locked_publication_run_id=_read_locked_publication_run_id,
+        run_evidence_lock_checker=_run_evidence_lock_checker,
     )
 
 
@@ -509,7 +518,7 @@ def _launch_reproducibility_menu() -> None:
     """Reproducibility, research validity, run comparison, and evidence readiness."""
     _research_menu.launch_reproducibility_menu(
         read_latest_run_id=_read_latest_run_id,
-        read_locked_paper_run_id=_read_locked_paper_run_id,
+        read_locked_publication_run_id=_read_locked_publication_run_id,
         read_run_summary=_read_run_summary,
         read_json_object=_read_json_object,
         run_health_check_for_selected_run=_run_health_check_for_selected_run,
@@ -522,7 +531,7 @@ def _launch_evidence_readiness_hub() -> None:
     """Evidence readiness exports, cohort lock checks, and bundle aggregation."""
     _research_menu.launch_evidence_readiness_hub(
         run_evidence_readiness_action=_run_evidence_readiness_menu_action,
-        run_paper2_freeze_checker=_run_paper2_freeze_checker,
+        run_evidence_lock_checker=_run_evidence_lock_checker,
         run_evidence_bundle_series_aggregator_action=_run_evidence_bundle_series_aggregator,
     )
 
@@ -534,6 +543,8 @@ def _run_family_label_taxonomy_audit_script() -> int:
         resolve_latest_manifest_payload=_resolve_latest_manifest_payload,
         resolve_and_validate_profile=resolve_and_validate_profile,
         load_profile=profile_manager.load_profile,
+        operator_script_resolver=repo_operator_script,
+        subprocess_run=subprocess.run,
     )
 
 
@@ -701,7 +712,7 @@ def _launch_research_reports_menu() -> None:
 def _launch_operations_menu() -> None:
     """Operational maintenance: outputs, reuse, cleanup, pointers — not research diagnostics."""
     output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    locked = _read_locked_paper_run_id()
+    locked = _read_locked_publication_run_id()
     while True:
         diagnostics_banners.print_tools_maintenance_banner(
             output_root=output_root,
@@ -756,7 +767,14 @@ def _print_operator_console_summary() -> None:
             ("Latest Run", latest_run_id),
             ("Latest Profile", latest_profile_id),
             ("Run Diagnostics", _status_text(_latest_run_has_provenance(), ready="Available", pending="Missing")),
-            ("Publication Exports", _status_text(bool(context.get("has_paper_exports", False)), ready="Available", pending="Not built")),
+            (
+                "Publication Exports",
+                _status_text(
+                    bool(context.get("has_publication_exports", context.get("has_paper_exports", False))),
+                    ready="Available",
+                    pending="Not built",
+                ),
+            ),
         ]
     )
 

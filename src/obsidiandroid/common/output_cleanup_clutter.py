@@ -41,6 +41,19 @@ DIAGNOSTICS_TIMESTAMP_GLOBS: tuple[str, ...] = (
     "classifier_summary_eval_20*.txt",
 )
 
+# Under ``output/runs/<run_id>/`` — legacy convenience mirrors or historical bad layout.
+# These are safe to prune from older runs because canonical artifacts already live at the
+# run root and global operator mirrors live under ``output/diagnostics`` / ``output/promoted``.
+LEGACY_RUN_SUBDIR_NAMES: tuple[str, ...] = (
+    "latest",
+    "promoted",
+    "runs",
+)
+
+# Under ``output/runs/<run_id>/diagnostics/`` — redundant mirrors / bulky historical exports.
+RUN_DIAGNOSTICS_LOCAL_LATEST_GLOB = "*.latest.*"
+RUN_DIAGNOSTICS_SPLIT_FREEZE_GLOB = "split_freeze_ablation__*.csv"
+
 # Whole directories to remove on a full output wipe (pre–repo-root ``logs/`` layout).
 LEGACY_OUTPUT_LOG_DIR_SEGMENTS: tuple[tuple[str, ...], ...] = (
     ("diagnostics", "runtime_logs"),
@@ -52,7 +65,10 @@ __all__ = [
     "DIAGNOSTICS_TIMESTAMP_GLOBS",
     "LEGACY_OUTPUT_LOG_DIR_SEGMENTS",
     "LEGACY_OUTPUT_ROOT_FILES",
+    "LEGACY_RUN_SUBDIR_NAMES",
     "PAPER_BUNDLE_ARCHIVE_GLOBS",
     "PAPER_BUNDLE_SMOKE_GLOBS",
+    "RUN_DIAGNOSTICS_LOCAL_LATEST_GLOB",
+    "RUN_DIAGNOSTICS_SPLIT_FREEZE_GLOB",
     "WORKBOOK_CORRUPT_GLOB",
 ]

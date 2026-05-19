@@ -194,3 +194,58 @@ def test_run_classifier_pipeline_exports_leakage_pruning_audit(
     names = audit_df["column_name"].tolist()
     assert "sample_id" in names
     assert "__summary__" in names
+
+
+def test_export_leakage_pruning_audit_normalizes_missing_run_id(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(app_config, "RUNTIME_LEAKAGE_PRUNING_AUDIT", [], raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", None, raising=False)
+    out = pipeline_core._export_leakage_pruning_audit(tmp_path, final_column_count=3)
+    assert out == str(tmp_path / "leakage_pruning_audit_unknown.csv")
+    assert not (tmp_path / "leakage_pruning_audit_None.csv").exists()
+
+
+def test_export_label_name_map_run_scoped_uses_global_latest(
+    monkeypatch,
+    make_run_diagnostics_layout,
+) -> None:
+    output_root, diagnostics_dir, _global_diag = make_run_diagnostics_layout("rid")
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "rid", raising=False)
+    labels = pd.Series(["1", "2"])
+    labels.attrs["label_name_map"] = {"1": "Irata", "2": "Applite"}
+
+    out = pipeline_core._export_label_name_map(labels, diagnostics_dir)  # pylint: disable=protected-access
+
+    assert out == str(diagnostics_dir / "label_name_map_rid.json")
+    assert not (diagnostics_dir / "label_name_map.latest.json").exists()
+    assert (output_root / "diagnostics" / "label_name_map.latest.json").exists()
+
+
+def test_export_leakage_pruning_audit_run_scoped_uses_global_latest(
+    monkeypatch,
+    make_run_diagnostics_layout,
+) -> None:
+    output_root, diagnostics_dir, _global_diag = make_run_diagnostics_layout("rid")
+    monkeypatch.setattr(app_config, "RUNTIME_LEAKAGE_PRUNING_AUDIT", [], raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "rid", raising=False)
+
+    out = pipeline_core._export_leakage_pruning_audit(diagnostics_dir, final_column_count=3)  # pylint: disable=protected-access
+
+    assert out == str(diagnostics_dir / "leakage_pruning_audit_rid.csv")
+    assert not (diagnostics_dir / "leakage_pruning_audit.latest.csv").exists()
+    assert (output_root / "diagnostics" / "leakage_pruning_audit.latest.csv").exists()
+
+
+def test_export_leakage_pruning_audit_rejects_literal_none_directory(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(app_config, "RUNTIME_LEAKAGE_PRUNING_AUDIT", [], raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "rid", raising=False)
+    try:
+        pipeline_core._export_leakage_pruning_audit(Path("None"), final_column_count=1)
+    except ValueError as exc:
+        assert "literal 'None' path" in str(exc)
+    else:
+        raise AssertionError("expected literal None diagnostics path to be rejected")

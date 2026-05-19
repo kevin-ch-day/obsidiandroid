@@ -143,11 +143,15 @@ def test_export_confusion_matrix_uses_run_scoped_name(monkeypatch, tmp_path):
     monkeypatch.setattr(export_manager, "OUTPUT_ROOT", tmp_path)
     monkeypatch.setattr(export_manager.app_config, "RUNTIME_RUN_ID", "20260228T184458Z__634d83", raising=False)
     monkeypatch.setattr(export_manager.app_config, "RUNTIME_EXPERIMENT_ID", "", raising=False)
+    monkeypatch.setattr(export_manager.app_config, "RUNTIME_RUN_ROOT", "", raising=False)
+    monkeypatch.setattr(export_manager.app_config, "RUNTIME_ABLATION_ACTIVE", False, raising=False)
 
     captured = {}
 
     def fake_export(**kwargs):
         captured["output_path"] = kwargs["output_path"]
+        kwargs["output_path"].parent.mkdir(parents=True, exist_ok=True)
+        kwargs["output_path"].write_bytes(b"PNG")
         return str(kwargs["output_path"])
 
     monkeypatch.setattr(export_manager, "export_confusion_matrix_image", fake_export)
@@ -241,10 +245,16 @@ def test_export_confusion_matrix_uses_dynamic_default_output_dir(monkeypatch, tm
     monkeypatch.setattr(export_manager.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
     monkeypatch.setattr(export_manager.app_config, "RUNTIME_RUN_ID", "20260304T003828Z__bcfc09", raising=False)
     monkeypatch.setattr(export_manager.app_config, "RUNTIME_EXPERIMENT_ID", "", raising=False)
+    monkeypatch.setattr(export_manager.app_config, "RUNTIME_RUN_ROOT", "", raising=False)
+    monkeypatch.setattr(export_manager.app_config, "RUNTIME_ABLATION_ACTIVE", False, raising=False)
     monkeypatch.setattr(
         export_manager,
         "export_confusion_matrix_image",
-        lambda **kwargs: str(kwargs["output_path"]),
+        lambda **kwargs: (
+            kwargs["output_path"].parent.mkdir(parents=True, exist_ok=True),
+            kwargs["output_path"].write_bytes(b"PNG"),
+            str(kwargs["output_path"]),
+        )[-1],
     )
 
     path = Path(
@@ -254,4 +264,4 @@ def test_export_confusion_matrix_uses_dynamic_default_output_dir(monkeypatch, tm
             model_name="xgboost",
         )
     )
-    assert path.parent == tmp_path / "output" / "runs" / "20260304T003828Z__bcfc09" / "conf_matrices"
+    assert path.parent == tmp_path / "output" / "runs" / "20260304T003828Z__bcfc09" / "conf_matrices" / "headline"

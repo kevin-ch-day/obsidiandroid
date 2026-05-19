@@ -18,7 +18,7 @@ from .menu.operator_state import (
     has_structural_bundle as _shared_has_structural_bundle,
     latest_run_has_provenance as _shared_latest_run_has_provenance,
     output_root as _shared_output_root,
-    paper_exports_available as _shared_paper_exports_available,
+    publication_exports_available as _shared_publication_exports_available,
 )
 from .menu.run_artifact_state import resolve_model_comparison_summary_csv
 from .menu import run_locator
@@ -57,14 +57,24 @@ def parse_run_timestamp_from_id(run_id: str) -> datetime | None:
     return run_locator.parse_run_timestamp_from_id(run_id)
 
 
-def read_locked_paper_run_id() -> str | None:
+def read_locked_publication_run_id() -> str | None:
     """Return locked evidence run ID pointer when available."""
-    return run_locator.read_locked_paper_run_id()
+    return run_locator.read_locked_publication_run_id()
+
+
+def read_locked_paper_run_id() -> str | None:
+    """Compatibility alias for legacy helper naming."""
+    return read_locked_publication_run_id()
+
+
+def publication_exports_available(run_id: str | None) -> bool:
+    """Return whether publication exports exist for a given run ID."""
+    return _shared_publication_exports_available(run_id, base=_shared_output_root().resolve())
 
 
 def paper_exports_available(run_id: str | None) -> bool:
-    """Return whether publication exports exist for a given run ID."""
-    return _shared_paper_exports_available(run_id, base=_shared_output_root().resolve())
+    """Compatibility alias for legacy helper naming."""
+    return publication_exports_available(run_id)
 
 
 def has_structural_bundle(run_id: str | None) -> bool:
@@ -76,23 +86,37 @@ def latest_run_context_status() -> dict[str, object]:
     """Build lightweight run-context status for state-aware menus."""
     shared = build_operator_state()
     latest_run_id = str(shared.get("latest_run_id", "") or "")
-    locked_paper_run_id = str(shared.get("locked_run_id", "") or "")
+    locked_publication_run_id = str(
+        shared.get("locked_publication_run_id", "") or shared.get("locked_run_id", "") or ""
+    )
     return {
         "latest_run_id": latest_run_id or "",
-        "locked_paper_run_id": locked_paper_run_id or "",
+        "locked_publication_run_id": locked_publication_run_id or "",
+        "locked_paper_run_id": locked_publication_run_id or "",
         "has_latest_run": bool(latest_run_id),
         "has_structural_bundle": bool(shared.get("has_structural_bundle", False)),
-        "has_paper_exports": bool(shared.get("has_paper_exports", False)),
-        "has_locked_paper_run": bool(locked_paper_run_id),
+        "has_publication_exports": bool(
+            shared.get("has_publication_exports", shared.get("has_paper_exports", False))
+        ),
+        "has_paper_exports": bool(
+            shared.get("has_publication_exports", shared.get("has_paper_exports", False))
+        ),
+        "has_locked_publication_run": bool(locked_publication_run_id),
+        "has_locked_paper_run": bool(locked_publication_run_id),
         "latest_profile_id": str(shared.get("profile_id", "") or ""),
         "best_run_index_path": str(shared.get("best_run_index_path", "") or ""),
     }
 
 
-def latest_run_paper_mode_enabled() -> bool:
+def latest_run_publication_mode_enabled() -> bool:
     """Return whether latest run manifest indicates evidence mode enabled."""
     shared = build_operator_state()
     return bool(shared.get("publication_ready_mode", False))
+
+
+def latest_run_paper_mode_enabled() -> bool:
+    """Compatibility alias for legacy helper naming."""
+    return latest_run_publication_mode_enabled()
 
 
 def latest_run_has_provenance() -> bool:
@@ -276,13 +300,13 @@ def print_startup_context() -> None:
     """Print lightweight session context before showing the main menu."""
     context = latest_run_context_status()
     latest_run_id = str(context.get("latest_run_id", "")).strip() or "None yet"
-    publication_ready = bool(context.get("has_paper_exports", False))
+    publication_ready = bool(context.get("has_publication_exports", context.get("has_paper_exports", False)))
     provenance_ready = latest_run_has_provenance()
 
     du.print_rule(" ObsidianDroid ")
     du.print_info(
         f"Latest run {latest_run_id} · "
         f"Diagnostics {status_text(provenance_ready, ready='ready', pending='missing')} · "
-        f"Paper exports {status_text(publication_ready, ready='ready', pending='none')}"
+        f"Publication exports {status_text(publication_ready, ready='ready', pending='none')}"
     )
     print("")

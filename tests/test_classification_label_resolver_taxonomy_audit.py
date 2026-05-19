@@ -94,6 +94,60 @@ def test_export_taxonomy_consistency_audit_writes_mismatch_report(monkeypatch, t
     assert summary_path.exists()
     payload = json.loads(summary_path.read_text(encoding="utf-8"))
     assert int(payload["total_mismatch_count"]) == 1
+    assert int(payload["paper_facing_taxonomy_mismatch_count"]) == 0
+    assert payload["mismatch_reason_counts"] == [{"mismatch_reason": str(payload["mismatch_examples"][0]["mismatch_reason"]), "count": 1}]
+    assert len(payload["mismatch_examples"]) == 1
+    assert payload["mismatch_examples"][0]["type_slug_expected"] == "adware"
+    assert payload["mismatch_examples"][0]["label_type_slug"] == "dropper"
+
+
+def test_export_taxonomy_consistency_audit_omits_run_local_latest_duplicates(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Run-scoped diagnostics should mirror taxonomy latest files globally, not locally."""
+    run_id = "run_taxonomy_latest"
+    output_root = tmp_path / "output"
+    diagnostics_dir = output_root / "runs" / run_id / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+
+    runtime_meta = pd.DataFrame(
+        [
+            {
+                "sample_id": 1001,
+                "type_slug": "adware",
+                "family_canonical": "Applite",
+            }
+        ]
+    )
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", runtime_meta, raising=False)
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_RUN_ID", run_id, raising=False)
+    monkeypatch.setattr(resolver.app_config, "TYPE_LABEL_ALIAS_MAP", {}, raising=False)
+    monkeypatch.setattr(resolver.app_config, "ENABLE_TYPE_AUDIT_FROM_COHORT_TYPE_SLUG", True, raising=False)
+
+    labels_df = pd.DataFrame(
+        [
+            {
+                "sample_id": 1001,
+                "predicted_family": "Applite",
+                "classification_label": "trojan/android.dropper.applite[de]",
+            }
+        ]
+    )
+
+    resolver._export_taxonomy_consistency_audit(labels_df)  # pylint: disable=protected-access
+
+    assert not (diagnostics_dir / "taxonomy_consistency_summary.latest.json").exists()
+    assert not (diagnostics_dir / "taxonomy_consistency_mismatches.latest.csv").exists()
+    assert not (diagnostics_dir / "prediction_errors.latest.csv").exists()
+    assert not (diagnostics_dir / "taxonomy_noncanonical_type_tokens.latest.csv").exists()
+
+    global_diag = output_root / "diagnostics"
+    assert (global_diag / "taxonomy_consistency_summary.latest.json").exists()
+    assert (global_diag / "taxonomy_consistency_mismatches.latest.csv").exists()
+    assert (global_diag / "prediction_errors.latest.csv").exists()
+    assert (global_diag / "taxonomy_noncanonical_type_tokens.latest.csv").exists()
 
 
 def test_taxonomy_lineage_unknown_when_runtime_sets_not_attached(monkeypatch, tmp_path: Path) -> None:
@@ -301,6 +355,39 @@ def test_run_summary_and_export_warns_when_noncanonical_dominates(monkeypatch) -
 
     resolver._run_summary_and_export(labels_df, model_output=None)  # pylint: disable=protected-access
     assert warned["hit"] is True
+
+
+def test_run_summary_and_export_does_not_strict_fail_for_non_paper_facing_taxonomy_noise(
+    monkeypatch,
+) -> None:
+    """Strict paper/evidence policy should not fail on mismatches already excluded from paper-facing summaries."""
+    labels_df = pd.DataFrame([{"sample_id": 1, "classification_label": "trojan/android.banker.x"}])
+    monkeypatch.setattr(
+        resolver,
+        "_export_taxonomy_consistency_audit",
+        lambda _df: (
+            "dummy.csv",
+            377,
+            {
+                "taxonomy_mismatch_count": 377,
+                "paper_facing_taxonomy_mismatch_count": 0,
+                "type_noncanonical_count": 3,
+                "prediction_error_count": 2,
+                "prediction_errors_csv_path": "prediction.csv",
+                "type_rows_evaluated": 964,
+            },
+        ),
+    )
+    monkeypatch.setattr(resolver.app_config, "PAPER_MODE_ENABLED", True, raising=False)
+    monkeypatch.setattr(resolver.app_config, "STRICT_TAXONOMY_MISMATCH_BLOCKING", True, raising=False)
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_EVIDENCE_STRICT_MODE", True, raising=False)
+    monkeypatch.setattr(resolver.app_config, "TAXONOMY_MISMATCH_STRICT_MAX_ALLOWED", 0, raising=False)
+    monkeypatch.setattr(resolver.app_config, "ENABLE_EXCEL_EXPORT", False, raising=False)
+    monkeypatch.setattr(resolver, "summarize_prediction_results", lambda _df: None)
+    monkeypatch.setattr(resolver.du, "print_warning", lambda _msg: None)
+    monkeypatch.setattr(resolver.du, "print_info", lambda _msg: None)
+
+    resolver._run_summary_and_export(labels_df, model_output=None)  # pylint: disable=protected-access
 
 
 def test_taxonomy_audit_treats_configured_canonical_types_as_canonical(

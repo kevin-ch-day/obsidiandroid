@@ -38,12 +38,17 @@ def resolve_best_run_index_path(run_root: Path) -> tuple[Path, bool]:
     return canonical, False
 
 
-def paper_exports_available(run_id: str | None, *, base: Path) -> bool:
+def publication_exports_available(run_id: str | None, *, base: Path) -> bool:
     token = str(run_id or "").strip()
     if not token:
         return False
     paper_dir = base / "runs" / token / "paper_exports"
     return paper_dir.exists() and paper_dir.is_dir()
+
+
+def paper_exports_available(run_id: str | None, *, base: Path) -> bool:
+    """Compatibility alias for legacy helper naming."""
+    return publication_exports_available(run_id, base=base)
 
 
 def has_structural_bundle(run_id: str | None, *, base: Path) -> bool:
@@ -79,7 +84,7 @@ def build_operator_state(*, output_base: Path | None = None, run_id: str | None 
     display_mode = resolve_display_mode()
     base = Path(output_base).resolve() if output_base is not None else output_root().resolve()
     latest_run_id = run_locator.read_latest_run_id()
-    locked_run_id = run_locator.read_locked_paper_run_id()
+    locked_run_id = run_locator.read_locked_publication_run_id()
     manifest, resolved_run_id, manifest_path = run_locator.resolve_latest_manifest_payload(output_base=base)
     effective_run_id = str(run_id or resolved_run_id or latest_run_id or "").strip()
     if effective_run_id and effective_run_id != str(resolved_run_id or "").strip():
@@ -123,6 +128,7 @@ def build_operator_state(*, output_base: Path | None = None, run_id: str | None 
         "output_root": base,
         "latest_run_id": effective_run_id,
         "locked_run_id": str(locked_run_id or "").strip(),
+        "locked_publication_run_id": str(locked_run_id or "").strip(),
         "manifest_path": manifest_path,
         "manifest_payload": manifest if isinstance(manifest, dict) else {},
         "resolved_run_id": str(resolved_run_id or "").strip(),
@@ -131,12 +137,15 @@ def build_operator_state(*, output_base: Path | None = None, run_id: str | None 
         "canonical_manifest_path": canonical_manifest_path,
         "profile_id": profile_id,
         "latest_run_has_provenance": latest_run_has_provenance(effective_run_id, base=base),
-        "has_paper_exports": paper_exports_available(effective_run_id, base=base),
+        "has_publication_exports": publication_exports_available(effective_run_id, base=base),
+        "has_paper_exports": publication_exports_available(effective_run_id, base=base),
         "has_structural_bundle": has_structural_bundle(effective_run_id, base=base),
         "publication_ready_status": publication_ready_status,
         "cohort_lock_status": cohort_lock_status,
         "evidence_mode": evidence_mode,
         "publication_ready_mode": publication_ready_mode,
+        "has_locked_publication_run": bool(str(locked_run_id or "").strip()),
+        "has_locked_paper_run": bool(str(locked_run_id or "").strip()),
         "best_run_index_path": best_index_path,
         "has_canonical_run_science": has_canonical_run_science,
         "parser_summary": get_parser_summary_state(mode=display_mode),
@@ -149,6 +158,7 @@ __all__ = [
     "has_structural_bundle",
     "latest_run_has_provenance",
     "output_root",
+    "publication_exports_available",
     "paper_exports_available",
     "resolve_best_run_index_path",
 ]

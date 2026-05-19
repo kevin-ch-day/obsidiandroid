@@ -13,6 +13,8 @@ import numpy as np
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common.json_io import read_json_dict
+from obsidiandroid.common import output_hygiene as oh
 
 # Internal experiment keys → human-readable modality descriptions (CSV keeps internal keys).
 ABLATION_FEATURE_SET_LABELS: dict[str, str] = {
@@ -36,6 +38,9 @@ def clear_operator_state() -> None:
     """Reset per-run operator narrative buffers (call at pipeline start)."""
     setattr(app_config, "RUNTIME_OPERATOR_ISSUES", [])
     setattr(app_config, "RUNTIME_OPERATOR_ARTIFACT_COUNTS", {})
+    setattr(app_config, "RUNTIME_SMOTE_WARNING_LAST", "")
+    setattr(app_config, "RUNTIME_SMOTE_AUDIT_LAST", None)
+    setattr(app_config, "RUNTIME_SMOTE_AUDIT_BY_MODEL", {})
 
 
 def record_operator_issue(
@@ -61,10 +66,80 @@ def bump_artifact_counter(group: str, n: int = 1) -> None:
     setattr(app_config, "RUNTIME_OPERATOR_ARTIFACT_COUNTS", counts)
 
 
+def _queue_runtime_operator_issues(
+    *,
+    diagnostics_dir: Path,
+    manifest_context: Mapping[str, Any],
+) -> None:
+    """Promote major runtime caveats into the end-of-run operator issue queue."""
+
+    contract = (
+        manifest_context.get("paper_cohort_contract")
+        if isinstance(manifest_context.get("paper_cohort_contract"), dict)
+        else {}
+    )
+    validation = contract.get("validation") if isinstance(contract.get("validation"), dict) else {}
+    runtime_drift = contract.get("sample_id_lock", {}).get("runtime_db_drift") if isinstance(contract.get("sample_id_lock"), dict) else {}
+    if str(validation.get("status", "")).strip().lower() == "degraded_live_db_drift":
+        matched = int(runtime_drift.get("matched_sample_count", 0) or 0)
+        missing = int(runtime_drift.get("missing_from_db_count", 0) or 0)
+        expected = int(runtime_drift.get("lock_sample_count", 0) or 0)
+        record_operator_issue(
+            tag="COHORT_LOCK",
+            title="Locked cohort drift downgraded to count-only semantics",
+            lines=[
+                f"Preserved lock expected {expected} sample_ids; {matched} matched the live DB and {missing} are now absent.",
+                "Publication-ready status passed, but exact historical sample membership is no longer fully recoverable.",
+            ],
+        )
+
+    smote_warning = str(getattr(app_config, "RUNTIME_SMOTE_WARNING_LAST", "") or "").strip()
+    if smote_warning:
+        record_operator_issue(
+            tag="REPRO",
+            title="SMOTE remained enabled in evidence/publication mode",
+            lines=[
+                smote_warning,
+                "Review `smote_effect_check.md` and consider `OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE=1` for stricter reproducibility.",
+            ],
+        )
+
+    run_id = str(manifest_context.get("run_id", "") or "").strip()
+    taxonomy = read_json_dict(oh.resolve_taxonomy_consistency_summary_path(diagnostics_dir, run_id))
+    if taxonomy:
+        total = int(taxonomy.get("taxonomy_mismatch_count", 0) or 0)
+        paper_facing = int(taxonomy.get("paper_facing_taxonomy_mismatch_count", total) or 0)
+        if total > 0:
+            counts = taxonomy.get("mismatch_reason_counts")
+            top_bits: list[str] = []
+            if isinstance(counts, list):
+                for row in counts[:3]:
+                    if not isinstance(row, dict):
+                        continue
+                    reason = str(row.get("mismatch_reason", "") or "").strip()
+                    count = int(row.get("count", 0) or 0)
+                    if reason and count > 0:
+                        top_bits.append(f"{reason}={count}")
+            detail = ", ".join(top_bits) if top_bits else "see taxonomy_consistency_mismatches CSV"
+            record_operator_issue(
+                tag="TAXONOMY",
+                title="Taxonomy mismatch backlog present",
+                lines=[
+                    f"Taxonomy mismatches: total={total}; claim-facing={paper_facing}.",
+                    f"Top mismatch buckets: {detail}.",
+                ],
+            )
+
+
 def _safe_pct(num: float, den: float) -> str:
     if den <= 0:
         return "n/a"
     return f"{100.0 * float(num) / float(den):.1f}%"
+
+
+def resolve_feature_column_survival_path(*, diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve feature-column survival CSV after run-local `.latest` suppression cleanup."""
+    return oh.resolve_feature_column_survival_path(diagnostics_dir, run_id)
 
 
 def _perm_top_from_survival(surv_path: Path, *, prefix: str, top_n: int = 8) -> list[tuple[str, int]]:
@@ -351,6 +426,13 @@ def emit_research_operator_report(
         model_results=model_results or {},
         top_model=top_model,
     )
+    _queue_runtime_operator_issues(
+        diagnostics_dir=diagnostics_dir,
+        manifest_context={
+            **dict(manifest_context),
+            "run_id": run_id,
+        },
+    )
     extra_paths = bundle.get("_written_paths") or []
     combined_artifacts = list(artifact_list) + [p for p in extra_paths if p not in set(artifact_list)]
 
@@ -385,7 +467,7 @@ def emit_research_operator_report(
     )
     pr("")
 
-    surv = diagnostics_dir / "feature_column_survival.latest.csv"
+    surv = resolve_feature_column_survival_path(diagnostics_dir=diagnostics_dir, run_id=run_id)
     raw_pop = _perm_top_from_survival(surv, prefix="perm__android_", top_n=5)
     rf_perm = _rf_perm_importance_top(model_results or {}, top_n=5)
     if raw_pop or rf_perm:
@@ -434,7 +516,7 @@ def emit_research_operator_report(
     caution = [
         "`supervised_family_claims_suitable=false` in dataset foundation means guarded language for family-level scientific claims.",
         "Top-family concentration remains high — Macro-F1 and recall tails must lead interpretation.",
-        "Type-level claims using generated `classification_label` strings are not paper-safe until cohort vs label-derived type authority is reconciled (see taxonomy_type_authority_review).",
+        "Type-level claims using generated `classification_label` strings are not publication-safe until cohort vs label-derived type authority is reconciled (see taxonomy_type_authority_review).",
         "Headline leaderboard metrics vs ablation `full_fused` are not comparable unless feature hashes match (see FEATURE CONTRACT COMPARISON).",
         "Parsed vendor metadata is often sparse — do not describe it as cohort-wide dense labels.",
         "Vendor-derived parsed family/type features may couple to labels — separate detection binaries, consensus scores, and parsed strings.",

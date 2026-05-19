@@ -44,6 +44,26 @@ from obsidiandroid.cli.ui import display as du
 
 
 _TOKEN_PATTERN = re.compile(r"[^a-z0-9]+")
+_PERMISSION_OBS_NORM_AVAILABLE: bool | None = None
+
+
+def _permission_obs_key_expr() -> str:
+    """Return the SQL expression for the canonical permission grouping key.
+
+    ``permission_string_norm`` is the governed normalized key when present in the
+    live Permission Intel schema. Older fixtures or deployments may not expose it,
+    so we fall back to the legacy lowercase/trim expression.
+    """
+    global _PERMISSION_OBS_NORM_AVAILABLE  # pylint: disable=global-statement
+    if _PERMISSION_OBS_NORM_AVAILABLE is None:
+        columns = {
+            str(col).strip().lower()
+            for col in db_engine.get_table_columns("android_permission_obs_sample")
+        }
+        _PERMISSION_OBS_NORM_AVAILABLE = "permission_string_norm" in columns
+    if _PERMISSION_OBS_NORM_AVAILABLE:
+        return "COALESCE(NULLIF(TRIM(ops.permission_string_norm), ''), LOWER(TRIM(ops.permission_string)))"
+    return "LOWER(TRIM(ops.permission_string))"
 
 
 def augment_grouped_permission_counts(permission_df: pd.DataFrame, feature_df: pd.DataFrame) -> pd.DataFrame:
@@ -103,17 +123,19 @@ def _fetch_permission_rows(sample_ids: list[int]) -> pd.DataFrame:
     frames = []
     for chunk in _iter_chunks(sample_ids):
         placeholders = ", ".join(["%s"] * len(chunk))
+        permission_key_expr = _permission_obs_key_expr()
         query = f"""
             SELECT
                 ops.sample_id,
-                ops.permission_string,
+                ops.permission_string AS permission_string_raw,
+                {permission_key_expr} AS permission_string,
                 UPPER(COALESCE(ops.classification, 'UNKNOWN')) AS permission_source,
                 UPPER(COALESCE(a.protection_level, o.protection_level, 'UNKNOWN')) AS protection_level
             FROM android_permission_obs_sample ops
             LEFT JOIN android_permission_dict_aosp a
-                ON ops.permission_string = a.constant_value
+                ON LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(a.constant_value))
             LEFT JOIN android_permission_dict_oem o
-                ON ops.permission_string = o.permission_string
+                ON LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(o.permission_string))
                 AND (ops.vendor_id = o.vendor_id OR o.vendor_id IS NULL)
             WHERE ops.sample_id IN ({placeholders})
               AND ops.permission_string IS NOT NULL

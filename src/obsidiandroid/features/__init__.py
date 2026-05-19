@@ -3,7 +3,6 @@
 Vectorization implementations live under
 ``obsidiandroid.features.vectorization`` and
 ``obsidiandroid.features.feature_schema_audit`` is also canonical here.
-Legacy ``ml_classification.vectorization.*`` paths remain thin identity shims.
 
 See ``docs/ML_BOUNDARY_PLAN.md``.
 """

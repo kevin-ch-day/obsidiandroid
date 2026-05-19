@@ -1,6 +1,7 @@
 """Tests for run manifest stage helper module."""
 
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -25,6 +26,60 @@ def test_extract_parser_list_returns_sorted_unique_names() -> None:
     parser_list = stage_manifest._extract_parser_list(vendor_eval_df)  # pylint: disable=protected-access
 
     assert parser_list == ["Alpha", "Zeta"]
+
+
+def test_build_paper_compliance_checks_fails_when_taxonomy_mismatch_budget_exceeded(
+    tmp_path: Path,
+) -> None:
+    taxonomy_summary = tmp_path / "taxonomy_consistency_summary.json"
+    taxonomy_summary.write_text("{}", encoding="utf-8")
+
+    checks = build_paper_compliance_checks(
+        paper_mode=True,
+        split_hash="abc",
+        split_audit_path=str(tmp_path / "split.csv"),
+        duplicate_report_path=str(tmp_path / "dup.csv"),
+        duplicate_count=0,
+        invalid_sha_count=0,
+        vendor_gate_debug_path=str(tmp_path / "vendor.csv"),
+        run_paths_manifest_path=str(tmp_path / "run_paths.json"),
+        experiment_registry_path=str(tmp_path / "registry.json"),
+        taxonomy_summary_path=str(taxonomy_summary),
+        taxonomy_type_rows_evaluated=10,
+        taxonomy_mismatch_count=5,
+        taxonomy_mismatch_max_allowed=0,
+    )
+
+    target = next(row for row in checks if row["check_id"] == "taxonomy_mismatch_budget_respected")
+    assert target["status"] == "fail"
+    assert "budget exceeded" in str(target["reason"])
+
+
+def test_build_paper_compliance_checks_can_pass_when_only_non_paper_facing_taxonomy_noise_exists(
+    tmp_path: Path,
+) -> None:
+    """Manifest compliance should consume the paper-facing mismatch count, not the total diagnostic count."""
+    taxonomy_summary = tmp_path / "taxonomy_consistency_summary.json"
+    taxonomy_summary.write_text("{}", encoding="utf-8")
+
+    checks = build_paper_compliance_checks(
+        paper_mode=True,
+        split_hash="abc",
+        split_audit_path=str(tmp_path / "split.csv"),
+        duplicate_report_path=str(tmp_path / "dup.csv"),
+        duplicate_count=0,
+        invalid_sha_count=0,
+        vendor_gate_debug_path=str(tmp_path / "vendor.csv"),
+        run_paths_manifest_path=str(tmp_path / "run_paths.json"),
+        experiment_registry_path=str(tmp_path / "registry.json"),
+        taxonomy_summary_path=str(taxonomy_summary),
+        taxonomy_type_rows_evaluated=10,
+        taxonomy_mismatch_count=0,
+        taxonomy_mismatch_max_allowed=0,
+    )
+
+    target = next(row for row in checks if row["check_id"] == "taxonomy_mismatch_budget_respected")
+    assert target["status"] == "pass"
 
 
 def test_write_evidence_readiness_includes_generic_alias_keys(tmp_path: Path) -> None:
@@ -52,6 +107,25 @@ def test_write_evidence_readiness_includes_generic_alias_keys(tmp_path: Path) ->
     assert (tmp_path / "run1" / "paper2_pack" / "evidence_readiness.json").exists()
 
 
+def test_legacy_evidence_bundle_mirror_prefers_hardlink_when_possible(tmp_path: Path) -> None:
+    """Legacy paper2_pack mirroring should avoid duplicate bytes when the FS supports hard links."""
+    source_dir = tmp_path / "run1" / "evidence_bundle"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    source_path = source_dir / "manifest.json"
+    source_path.write_text('{"ok": true}\n', encoding="utf-8")
+
+    legacy_dir = tmp_path / "run1" / "paper2_pack"
+    evidence_pack._mirror_legacy_bundle_file(  # pylint: disable=protected-access
+        source_path=source_path,
+        legacy_dir=legacy_dir,
+    )
+
+    legacy_path = legacy_dir / "manifest.json"
+    assert legacy_path.exists()
+    assert legacy_path.read_text(encoding="utf-8") == source_path.read_text(encoding="utf-8")
+    assert os.path.samefile(source_path, legacy_path)
+
+
 def test_finalize_run_manifest_stage_success(monkeypatch) -> None:
     """Finalize stage should return success when manifest writer succeeds."""
     captured = {}
@@ -72,6 +146,10 @@ def test_finalize_run_manifest_stage_success(monkeypatch) -> None:
     monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_RUN_ROOT", str(run_root), raising=False)
     monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
     monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_VENDOR_GATE_DEBUG_PATH", "", raising=False)
+    (diagnostics_dir / "taxonomy_consistency_summary_r1.json").write_text(
+        json.dumps({"type_rows_evaluated": 1, "taxonomy_mismatch_count": 0}),
+        encoding="utf-8",
+    )
 
     pipeline_results = {
         "engine_lifecycle": pd.DataFrame(
@@ -99,7 +177,11 @@ def test_finalize_run_manifest_stage_success(monkeypatch) -> None:
 
     assert result == 0
     assert captured["manifest"]["cohort_size"] == 3
+    assert captured["manifest"]["profile_id"] == "test"
     assert captured["manifest"]["run_status"] == "complete"
+    assert captured["manifest"]["publication_ready_status"] == "NOT_APPLICABLE"
+    assert captured["manifest"]["paper_safe_status"] == "NOT_APPLICABLE"
+    assert captured["manifest"]["integrity_status"] == "pass"
     assert captured["manifest"]["trained_models"] == ["xgboost"]
     assert captured["manifest"]["included_engine_count"] == 1
     assert captured["manifest"]["excluded_engine_count"] == 1
@@ -211,6 +293,105 @@ def test_finalize_run_manifest_stage_skips_strict_paper_exports_for_failed_run(
     assert manifest["run_status"] == "failed"
     assert manifest["paper_export_status"]["enabled"] is False
     assert manifest["paper_export_status"]["reason"] == "run_failed"
+
+
+def test_finalize_run_manifest_stage_rewrites_terminal_manifest_with_compliance_failure(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Final manifest should carry terminal publication/evidence fields, not only the early pre-compliance payload."""
+    captured: dict[str, object] = {}
+    run_root = tmp_path / "output" / "runs" / "r_term"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "output" / "diagnostics").mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(stage_manifest.run_manifest, "get_git_commit", lambda: "abc123")
+    monkeypatch.setattr(stage_manifest.run_manifest, "compute_taxonomy_version_hash", lambda: "taxhash")
+    monkeypatch.setattr(stage_manifest.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_RUN_ROOT", str(run_root), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_VENDOR_GATE_DEBUG_PATH", "", raising=False)
+    monkeypatch.setattr(stage_manifest, "_build_strict_paper2_exports", lambda **_kwargs: {})
+    monkeypatch.setattr(stage_manifest, "_build_paper2_pack", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_manifest_with_pointer",
+        lambda **kwargs: captured.__setitem__("manifest", kwargs["manifest"]),
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_run_summary_json",
+        lambda **_kwargs: run_root / "run_summary.json",
+    )
+    monkeypatch.setattr(stage_manifest, "_finalize_output_hygiene_bundle", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_run_summary_onepager",
+        lambda **_kwargs: diagnostics_dir / "run_summary_onepager.md",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_experiment_contract_snapshot",
+        lambda **_kwargs: diagnostics_dir / "experiment_contract_snapshot_r_term.json",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_evaluation_contract_json",
+        lambda **_kwargs: diagnostics_dir / "evaluation_contract_r_term.json",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_taxonomy_authority_recommendation_md",
+        lambda **_kwargs: diagnostics_dir / "taxonomy_authority.md",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_run_artifact_index",
+        lambda **_kwargs: diagnostics_dir / "run_artifact_index.md",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_export_trained_family_registry",
+        lambda **_kwargs: (diagnostics_dir / "trained_family_registry.csv", 0),
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_export_confusion_matrix_provenance",
+        lambda **_kwargs: diagnostics_dir / "confusion_matrix_provenance.json",
+    )
+    monkeypatch.setattr(
+        stage_manifest.compliance,
+        "build_compliance_report",
+        lambda **_kwargs: {"overall_status": "fail"},
+    )
+    monkeypatch.setattr(stage_manifest.compliance, "write_compliance_report", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_render_consensus_distribution_png", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_write_evidence_compliance_stub", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_build_family_temporal_scope_table", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_build_paper_ablation_table", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_build_paper_cohort_summary_table", lambda **_kwargs: None)
+
+    result = stage_manifest.finalize_run_manifest_stage(
+        manifest_context={
+            "run_id": "r_term",
+            "timestamp_utc": "t1",
+            "config_hash": "cfg",
+            "paper_mode": {"resolved_value": True, "source": "profile"},
+        },
+        profile={"profile_id": "paper_profile", "evidence_mode": False},
+        samples_df=pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
+        pipeline_results={},
+        vendor_eval_df=pd.DataFrame(),
+        artifact_list=[],
+    )
+
+    assert result == 1
+    manifest = captured["manifest"]
+    assert manifest["profile_id"] == "paper_profile"
+    assert manifest["publication_ready_status"] == "FAIL"
+    assert manifest["paper_safe_status"] == "FAIL"
+    assert "paper_compliance_not_pass" in manifest["publication_ready_reasons"]
 
 
 def test_finalize_run_manifest_stage_skips_research_validity_bundle_for_samples_stop(
@@ -325,6 +506,117 @@ def test_finalize_run_manifest_stage_skips_research_validity_bundle_for_samples_
     assert manifest_context["_hostile_bundle_skipped_reason"] == "stop_after_samples"
 
 
+def test_finalize_run_manifest_stage_keeps_evidence_samples_stop_nonfatal(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Evidence/publication runs stopped at samples should remain partial instead of failing on missing downstream artifacts."""
+    captured: dict[str, object] = {}
+    run_root = tmp_path / "output" / "runs" / "r_partial"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "output" / "diagnostics").mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(stage_manifest.run_manifest, "get_git_commit", lambda: "abc123")
+    monkeypatch.setattr(stage_manifest.run_manifest, "compute_taxonomy_version_hash", lambda: "taxhash")
+    monkeypatch.setattr(stage_manifest.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_RUN_ROOT", str(run_root), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_VENDOR_GATE_DEBUG_PATH", "", raising=False)
+    monkeypatch.setattr(stage_manifest, "_build_strict_paper2_exports", lambda **_kwargs: {})
+    monkeypatch.setattr(stage_manifest, "_build_paper2_pack", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_run_summary_json",
+        lambda **kwargs: captured.setdefault("result_code", kwargs["result_code"]) or Path(str(run_root / "run_summary.json")),
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_finalize_output_hygiene_bundle",
+        lambda **kwargs: captured.setdefault("bundle_result_code", kwargs["result_code"]),
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_run_summary_onepager",
+        lambda **_kwargs: diagnostics_dir / "run_summary_onepager.md",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_experiment_contract_snapshot",
+        lambda **_kwargs: diagnostics_dir / "experiment_contract_snapshot_r_partial.json",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_evaluation_contract_json",
+        lambda **_kwargs: diagnostics_dir / "evaluation_contract_r_partial.json",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_taxonomy_authority_recommendation_md",
+        lambda **_kwargs: diagnostics_dir / "taxonomy_authority.md",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_run_artifact_index",
+        lambda **_kwargs: diagnostics_dir / "run_artifact_index.md",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_export_trained_family_registry",
+        lambda **_kwargs: (diagnostics_dir / "trained_family_registry.csv", 0),
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_export_confusion_matrix_provenance",
+        lambda **_kwargs: diagnostics_dir / "confusion_matrix_provenance.json",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_manifest_with_pointer",
+        lambda **kwargs: captured.setdefault("manifest", kwargs["manifest"]),
+    )
+    monkeypatch.setattr(
+        stage_manifest.compliance,
+        "build_compliance_report",
+        lambda **_kwargs: {"overall_status": "fail"},
+    )
+    monkeypatch.setattr(stage_manifest.compliance, "write_compliance_report", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_render_consensus_distribution_png", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_write_evidence_compliance_stub", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_build_family_temporal_scope_table", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_build_paper_ablation_table", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_build_paper_cohort_summary_table", lambda **_kwargs: None)
+
+    manifest_context = {
+        "run_id": "r_partial",
+        "timestamp_utc": "t1",
+        "config_hash": "cfg",
+        "run_status": "partial",
+        "completed_stage": "samples",
+        "stop_after": "samples",
+        "paper_mode": {"resolved_value": True, "source": "profile"},
+        "paper_cohort_contract": {
+            "paper_locked": True,
+            "cohort_lock_status": "count_only_incomplete_sample_lock",
+            "validation": {"status": "degraded_live_db_drift", "mismatches": []},
+        },
+    }
+
+    result = stage_manifest.finalize_run_manifest_stage(
+        manifest_context=manifest_context,
+        profile={"profile_id": "malicious_temporal_stability_locked", "evidence_mode": True},
+        samples_df=pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
+        pipeline_results={},
+        vendor_eval_df=pd.DataFrame(),
+        artifact_list=[],
+    )
+
+    assert result == 0
+    assert captured["result_code"] == 0
+    assert captured["bundle_result_code"] == 0
+    assert captured["manifest"]["run_status"] == "partial"
+
+
 def test_write_run_summary_json_creates_canonical_and_latest(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -374,6 +666,8 @@ def test_write_run_summary_json_creates_canonical_and_latest(
     payload = json.loads(out_path.read_text(encoding="utf-8"))
     assert payload["run_status"] == "failed"
     assert payload["failure_reason"] == "training crashed"
+    assert payload["publication_ready_status"] == "FAIL"
+    assert "paper_compliance_not_pass" in payload["publication_ready_reasons"]
 
 
 def test_write_manifest_with_pointer_paper_mode(tmp_path: Path, monkeypatch) -> None:
@@ -507,6 +801,27 @@ def test_write_run_summary_onepager_creates_run_and_latest(tmp_path: Path) -> No
     assert "top_model: `logistic_regression`" in text
 
 
+def test_write_run_summary_onepager_run_scoped_uses_global_latest(
+    monkeypatch: pytest.MonkeyPatch,
+    make_run_diagnostics_layout,
+) -> None:
+    """Run-scoped one-pager should avoid local latest duplication."""
+    output_root, diagnostics_dir, _global_diag = make_run_diagnostics_layout("r1")
+
+    out_path = stage_manifest._write_run_summary_onepager(  # pylint: disable=protected-access
+        run_id="r1",
+        diagnostics_dir=diagnostics_dir,
+        profile={"profile_id": "all_malicious"},
+        manifest_context={"paper_mode": {"resolved_value": True, "source": "cli"}},
+        manifest={"cohort_size": 10},
+        compliance_path=None,
+    )
+
+    assert out_path is not None and out_path.exists()
+    assert not (diagnostics_dir / "run_summary_onepager.latest.md").exists()
+    assert (output_root / "diagnostics" / "run_summary_onepager.latest.md").exists()
+
+
 def test_write_experiment_contract_snapshot_creates_files(tmp_path: Path, monkeypatch) -> None:
     """Experiment contract snapshot writer should emit run-scoped and latest files."""
     diagnostics_dir = tmp_path / "output" / "diagnostics"
@@ -563,6 +878,29 @@ def test_write_experiment_contract_snapshot_creates_files(tmp_path: Path, monkey
     assert payload["paper_cohort_contract"]["expected"]["sample_count"] == 1226
     assert payload["paper_cohort_contract"]["sample_id_lock"]["lock_sample_count"] == 1226
     assert payload["cohort_contract"]["contract_id"] == "malicious_temporal_stability_locked_contract"
+
+
+def test_write_experiment_contract_snapshot_run_scoped_uses_global_latest(
+    monkeypatch: pytest.MonkeyPatch,
+    make_run_diagnostics_layout,
+) -> None:
+    """Run-scoped experiment contract snapshots should mirror latest globally."""
+    output_root, diagnostics_dir, _global_diag = make_run_diagnostics_layout("r2")
+    monkeypatch.setattr(stage_manifest.app_config, "CV_FOLDS", 5, raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "CV_REPEATS", 1, raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RANDOM_STATE", 42, raising=False)
+
+    out_path = stage_manifest._write_experiment_contract_snapshot(  # pylint: disable=protected-access
+        run_id="r2",
+        diagnostics_dir=diagnostics_dir,
+        profile={"profile_id": "malicious_temporal_stability", "cohort_gates": {}},
+        manifest_context={"paper_mode": {"resolved_value": True, "source": "cli"}, "model_config_hash": "mhash"},
+        manifest={"split": {"split_hash": "shash", "split_seed": 42, "split_algorithm": "x", "split_algorithm_version": "1.0"}},
+    )
+
+    assert out_path is not None and out_path.exists()
+    assert not (diagnostics_dir / "experiment_contract_snapshot.latest.json").exists()
+    assert (output_root / "diagnostics" / "experiment_contract_snapshot.latest.json").exists()
 
 
 def test_contract_snapshot_detects_model_config_drift_within_series(tmp_path: Path, monkeypatch) -> None:
@@ -680,6 +1018,31 @@ def test_export_parser_quality_final_writes_final_gate_snapshot(tmp_path: Path) 
     assert set(exported["diagnostic_stage"].unique()) == {"engine_weights_final"}
 
 
+def test_export_parser_quality_final_run_scoped_uses_global_latest(
+    monkeypatch: pytest.MonkeyPatch,
+    make_run_diagnostics_layout,
+) -> None:
+    """Run-scoped parser quality final export should not emit local latest duplicates."""
+    output_root, diagnostics_dir, _global_diag = make_run_diagnostics_layout("rfinal")
+    weights_df = pd.DataFrame(
+        {
+            "Vendor": ["Lionic"],
+            "parser_gate_status": ["included_relaxed_mapped"],
+            "included_in_model": [1],
+        }
+    )
+
+    out_path = stage_manifest._export_parser_quality_final(  # pylint: disable=protected-access
+        diagnostics_dir=diagnostics_dir,
+        run_id="rfinal",
+        weights_df=weights_df,
+    )
+
+    assert out_path is not None and out_path.exists()
+    assert not (diagnostics_dir / "parser_quality_final.latest.csv").exists()
+    assert (output_root / "diagnostics" / "parser_quality_final.latest.csv").exists()
+
+
 def test_build_paper_compliance_checks_includes_taxonomy_type_guard(tmp_path: Path) -> None:
     split_audit = tmp_path / "split.csv"
     split_audit.write_text("x\n", encoding="utf-8")
@@ -743,6 +1106,26 @@ def test_export_trained_family_registry_writes_expected_columns(tmp_path: Path, 
     assert included_count == 1
 
 
+def test_export_trained_family_registry_run_scoped_uses_global_latest(
+    monkeypatch: pytest.MonkeyPatch,
+    make_run_diagnostics_layout,
+) -> None:
+    """Run-scoped trained family registry should mirror latest globally."""
+    output_root, diagnostics_dir, _global_diag = make_run_diagnostics_layout("r1")
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_MIN_FAMILY_SUPPORT", 3, raising=False)
+    samples_df = pd.DataFrame({"family_canonical": ["a", "a", "a"], "type_slug": ["banker", "banker", "banker"]})
+
+    out_path, _ = stage_manifest._export_trained_family_registry(  # pylint: disable=protected-access
+        samples_df=samples_df,
+        run_id="r1",
+        diagnostics_dir=diagnostics_dir,
+    )
+
+    assert out_path is not None and out_path.exists()
+    assert not (diagnostics_dir / "trained_family_registry.latest.csv").exists()
+    assert (output_root / "diagnostics" / "trained_family_registry.latest.csv").exists()
+
+
 def test_export_confusion_matrix_provenance_uses_test_set_metadata(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -787,6 +1170,39 @@ def test_export_confusion_matrix_provenance_uses_test_set_metadata(
     assert str(row["split_hash"]) == "aa" * 32
     assert str(row["feature_column_hash"]) == "feat_h"
     assert row["confusion_matrix_path"].endswith("confusion_matrix_primary.png")
+
+
+def test_export_confusion_matrix_provenance_run_scoped_uses_global_latest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Run-scoped confusion provenance should mirror latest globally."""
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "r1"
+    diagnostics_dir = run_root / "diagnostics"
+    cm_dir = run_root / "conf_matrices"
+    model_dir = run_root / "models" / "random_forest"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    cm_dir.mkdir(parents=True, exist_ok=True)
+    model_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+    (cm_dir / "confusion_matrix_primary.png").write_bytes(b"png")
+    (model_dir / "random_forest_classifier_model_metadata.json").write_text(
+        json.dumps({"evaluation": {"samples_tested": 7}}),
+        encoding="utf-8",
+    )
+
+    out_path = stage_manifest._export_confusion_matrix_provenance(  # pylint: disable=protected-access
+        run_root=run_root,
+        run_id="r1",
+        diagnostics_dir=diagnostics_dir,
+        manifest_context={},
+        trained_family_count=3,
+        evidence_mode=False,
+    )
+
+    assert out_path is not None and out_path.exists()
+    assert not (diagnostics_dir / "confusion_matrix_provenance.latest.csv").exists()
+    assert (output_root / "diagnostics" / "confusion_matrix_provenance.latest.csv").exists()
 
 
 def test_build_cohort_limitation_summary_computes_key_shares(monkeypatch) -> None:
@@ -909,6 +1325,82 @@ def test_build_strict_paper2_exports_creates_registries(tmp_path: Path, monkeypa
     }
 
 
+def test_build_strict_paper2_exports_accepts_run_scoped_bundle_sources(tmp_path: Path, monkeypatch) -> None:
+    """Strict paper export should resolve run-scoped permission-trends and ablation inputs."""
+    run_id = "rscoped"
+    run_root = tmp_path / "output" / "runs" / run_id
+    diagnostics_dir = run_root / "diagnostics"
+    bundle_dir = run_root / "bundles" / "permission_trends"
+    (bundle_dir / "figures").mkdir(parents=True, exist_ok=True)
+    (bundle_dir / "tables").mkdir(parents=True, exist_ok=True)
+    (run_root / "conf_matrices").mkdir(parents=True, exist_ok=True)
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (run_root / "conf_matrices" / "confusion_matrix_random_forest.png").write_bytes(b"d")
+    (bundle_dir / "tables" / f"dangerous_stats_tests_{run_id}.csv").write_text(
+        "metric,test,p_value\nsms,kruskal,0.01\n",
+        encoding="utf-8",
+    )
+    (bundle_dir / "tables" / f"type_permission_prevalence_{run_id}.csv").write_text(
+        "type_slug,permission,prevalence\nbanker,android.permission.READ_SMS,0.8\n",
+        encoding="utf-8",
+    )
+    (bundle_dir / "tables" / f"permission_discriminability_rank_{run_id}.csv").write_text(
+        "permission,score\nandroid.permission.READ_SMS,1.0\n",
+        encoding="utf-8",
+    )
+    (bundle_dir / "tables" / f"dangerous_distribution_by_type_{run_id}.csv").write_text(
+        "type_slug,dangerous_count_strict_mean,dangerous_count_unknown_component_mean,dangerous_count_inclusive_mean,sample_count\nbanker,2.0,0.3,2.3,10\n",
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"family_jsd_pairs_verification_{run_id}.csv").write_text(
+        "family_a,family_b,js_distance\nf1,f2,0.1\n",
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"selected_families_visual_{run_id}.csv").write_text(
+        "family_canonical,sample_count,included_in_visual\nf1,20,1\nf2,20,1\n",
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"trained_family_registry_{run_id}.csv").write_text(
+        "family_canonical,type_slug,sample_count,included_in_training\nf1,banker,20,1\nf2,adware,20,1\n",
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"confusion_matrix_provenance_{run_id}.csv").write_text(
+        "run_id,model_name,eval_source,test_sample_count,trained_family_count,"
+        "confusion_matrix_path,split_hash,feature_column_hash\n"
+        f"{run_id},random_forest,test_set,100,2,{(run_root / 'conf_matrices' / 'confusion_matrix_random_forest.png').as_posix()},,\n",
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"model_comparison_summary_{run_id}.csv").write_text(
+        "Model,MacroF1,Acc\nrf,0.88,0.89\nxgb,0.87,0.88\nlog_reg,0.86,0.87\n",
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"ablation_summary_{run_id}.csv").write_text(
+        "Feature Set,Model,MacroF1\npermissions_only,rf,0.80\nvendor_only,rf,0.60\nvendor_permissions_fused,rf,0.90\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(stage_manifest.app_config, "PAPER2_STRICT_EXPORT_PROFILE", True, raising=False)
+
+    out = stage_manifest._build_strict_paper2_exports(  # pylint: disable=protected-access
+        run_root=run_root,
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        samples_df=pd.DataFrame(
+            {
+                "family_canonical": ["f1", "f1", "f2"],
+                "type_slug": ["banker", "banker", "adware"],
+                "effective_first_seen_at_utc": ["2020-01-01", "2021-01-01", "2022-01-01"],
+            }
+        ),
+        manifest_context={},
+        evidence_mode=True,
+        paper_mode=True,
+    )
+
+    assert out["profile"]["single_run_id"] == run_id
+    assert (run_root / "paper_exports" / "tables" / "feature_ablation.csv").exists()
+    assert (run_root / "paper_exports" / "tables" / "dangerous_permission_stats_tests.csv").exists()
+
+
 def test_build_paper_ablation_table_supports_experiment_schema(tmp_path: Path) -> None:
     source = tmp_path / "ablation_summary.csv"
     source.write_text(
@@ -935,6 +1427,35 @@ def test_build_paper_ablation_table_supports_experiment_schema(tmp_path: Path) -
         "vendor_permissions_fused",
     }
     assert "vendor_no_parsed_family" not in set(out_df["feature_set"].tolist())
+
+
+def test_build_paper_ablation_table_normalizes_current_runtime_feature_sets(tmp_path: Path) -> None:
+    source = tmp_path / "ablation_summary_current.csv"
+    source.write_text(
+        (
+            "experiment,label_target,model,accuracy,macro_f1_score,delta_vs_full_fused\n"
+            "permissions_grouped,family_id,random_forest,0.95,0.93,-0.03\n"
+            "permissions_raw,family_within_type,random_forest,0.96,0.94,-0.02\n"
+            "vendor_full,family_id,xgboost,0.96,0.92,-0.05\n"
+            "permissions_grouped_plus_vendor_no_family,family_id,xgboost,0.98,0.97,-0.01\n"
+            "full_fused,family_id,xgboost,0.99,0.98,0.00\n"
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "feature_ablation.csv"
+
+    stage_manifest._build_paper_ablation_table(  # pylint: disable=protected-access
+        source_path=source,
+        output_path=output,
+    )
+
+    out_df = pd.read_csv(output)
+    assert set(out_df["feature_set"].tolist()) == {
+        "permissions_only",
+        "vendor_only",
+        "vendor_permissions_fused",
+    }
+    assert "full_fused" not in set(out_df["feature_set"].tolist())
 
 
 def test_build_strict_paper2_exports_skips_when_paper_mode_disabled(tmp_path: Path) -> None:

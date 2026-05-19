@@ -10,6 +10,25 @@ from config import app_config
 from obsidiandroid.common import output_paths
 
 
+def normalize_artifact_run_id(run_id: object, *, default: str = "unknown") -> str:
+    """Return a safe run-id token for artifact filenames and mirrors."""
+    rid = str(run_id or "").strip()
+    if not rid or rid.lower() == "none":
+        return default
+    return rid
+
+
+def validate_diagnostics_output_dir(diagnostics_dir: Path) -> Path:
+    """Reject placeholder diagnostics roots such as the literal top-level ``None/`` directory."""
+    out_dir = Path(diagnostics_dir)
+    if str(out_dir).strip().lower() == "none":
+        raise ValueError(
+            "diagnostics_dir resolved to the literal 'None' path; "
+            "set a real diagnostics directory before writing artifacts"
+        )
+    return out_dir
+
+
 def resolve_stable_output_root_for_mirrors() -> Path:
     """Resolve the repo ``output/`` root even when ``DEFAULT_OUTPUT_DIR`` points at a run folder."""
     explicit = str(getattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", "") or "").strip()
@@ -116,6 +135,49 @@ def resolve_analysis_snapshot_csv_path(diagnostics_dir: Path, run_id: str) -> Pa
     return None
 
 
+def resolve_run_or_global_artifact_path(
+    diagnostics_dir: Path,
+    *,
+    run_filename: str,
+    global_latest_name: str,
+    local_latest_name: str | None = None,
+) -> Path:
+    """Resolve a canonical run-scoped artifact first, then local/global latest mirrors.
+
+    Returns the first existing path, or the canonical run-scoped candidate when none exist.
+    """
+    diag = Path(diagnostics_dir)
+    candidates = [diag / str(run_filename)]
+    latest_name = str(local_latest_name or global_latest_name)
+    if latest_name:
+        candidates.append(diag / latest_name)
+    candidates.append(global_diagnostics_root() / str(global_latest_name))
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return candidates[0]
+
+
+def resolve_taxonomy_consistency_summary_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve taxonomy consistency summary across run-scoped and global-latest locations."""
+    rid = normalize_artifact_run_id(run_id)
+    return resolve_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_filename=f"taxonomy_consistency_summary_{rid}.json",
+        global_latest_name="taxonomy_consistency_summary.latest.json",
+    )
+
+
+def resolve_feature_column_survival_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve feature-column survival CSV across run-scoped and global-latest locations."""
+    rid = normalize_artifact_run_id(run_id)
+    return resolve_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_filename=f"feature_column_survival_{rid}.csv",
+        global_latest_name="feature_column_survival.latest.csv",
+    )
+
+
 def mirror_utf8_text_run_then_global(
     *,
     diagnostics_dir: Path,
@@ -128,7 +190,7 @@ def mirror_utf8_text_run_then_global(
     Used by :func:`mirror_csv_text_run_then_global`, :func:`mirror_json_text_run_then_global`, and
     plain-text methodology mirrors (leakage assessment, etc.).
     """
-    out_dir = Path(diagnostics_dir)
+    out_dir = validate_diagnostics_output_dir(diagnostics_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     primary = out_dir / run_filename
     primary.write_text(text, encoding="utf-8")
@@ -184,16 +246,21 @@ def mirror_json_text_run_then_global(
 
 __all__ = [
     "global_diagnostics_root",
+    "normalize_artifact_run_id",
     "mirror_csv_text_run_then_global",
     "mirror_json_text_run_then_global",
     "mirror_utf8_text_run_then_global",
     "path_is_under_output_runs",
+    "resolve_feature_column_survival_path",
     "resolve_aligned_features_cache_path",
     "resolve_analysis_snapshot_csv_path",
     "resolve_dataset_time_contract_path",
+    "resolve_run_or_global_artifact_path",
     "resolve_stable_output_root_for_mirrors",
+    "resolve_taxonomy_consistency_summary_path",
     "run_diagnostics_should_omit_latest_duplicate",
     "should_emit_parser_stress_and_strengths_grid",
+    "validate_diagnostics_output_dir",
     "write_global_latest_pointer",
     "write_global_latest_text",
 ]

@@ -96,13 +96,15 @@ def print_cohort_readiness_report(
             du.print_info(f"  - {key}: {int(value):,}")
 
     _print_cohort_policy(samples_df=samples_df, gates=gates)
-    _print_cohort_verdict(
+    warning_messages = _print_cohort_verdict(
         total=total,
         missing_pkg=missing_pkg,
         max_missing_pkg_pct=max_missing_pkg_pct,
         fam_col=fam_col,
         samples_df=samples_df,
     )
+    if hasattr(samples_df, "attrs") and isinstance(samples_df.attrs, dict):
+        samples_df.attrs["cohort_operational_warnings"] = list(warning_messages)
 
 
 def print_cohort_sql_scope_gate_summary(stats: dict) -> None:
@@ -203,7 +205,7 @@ def _print_cohort_verdict(
     max_missing_pkg_pct: float,
     fam_col: str | None,
     samples_df: pd.DataFrame,
-) -> None:
+) -> list[str]:
     """Emit one-line readiness verdict for testers and paper drafting."""
     top_family_share = 0.0
     if fam_col and fam_col in samples_df.columns and total > 0:
@@ -215,14 +217,24 @@ def _print_cohort_verdict(
         type_counts = samples_df["type_slug"].fillna("unknown").astype(str).str.lower().value_counts()
         banker_share = float(type_counts.get("banker", 0)) / float(total)
 
-    warn = (
-        missing_pkg > max_missing_pkg_pct
-        or top_family_share >= 0.30
-        or banker_share >= 0.60
-    )
+    warning_messages: list[str] = []
+    if missing_pkg > max_missing_pkg_pct:
+        warning_messages.append(
+            f"missing package name {missing_pkg:.2f}% exceeds threshold {max_missing_pkg_pct:.2f}%"
+        )
+    if top_family_share >= 0.30:
+        warning_messages.append(
+            f"top family concentration {top_family_share * 100.0:.2f}% exceeds 30.00%"
+        )
+    if banker_share >= 0.60:
+        warning_messages.append(
+            f"banker share {banker_share * 100.0:.2f}% exceeds 60.00%"
+        )
+    warn = bool(warning_messages)
     if warn:
         du.print_warning(
             "[COHORT] Cohort is usable but remains concentration-heavy and/or has notable missingness."
         )
     else:
         du.print_info("[COHORT] Filtered multi-type malware cohort ready for downstream analysis.")
+    return warning_messages

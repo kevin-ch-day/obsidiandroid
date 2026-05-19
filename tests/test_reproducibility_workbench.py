@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from obsidiandroid.diagnostics import reproducibility_workbench as rw
@@ -137,3 +138,37 @@ def test_write_run_comparison_summary_preserves_methodology_columns(tmp_path: Pa
     assert "rescued_unknown_consensus" in csv_text
     assert "cohort_lock_status" in md_text
     assert "rescued_unknown_consensus" in md_text
+
+
+def test_write_research_validity_review_uses_global_taxonomy_and_latest_mirrors(tmp_path: Path) -> None:
+    """Review payload should preserve paper-facing taxonomy counts and global latest mirror availability."""
+    out = tmp_path / "output"
+    run_id = "r_valid"
+    rdiag = out / "runs" / run_id / "diagnostics"
+    gdiag = out / "diagnostics"
+    rdiag.mkdir(parents=True, exist_ok=True)
+    gdiag.mkdir(parents=True, exist_ok=True)
+
+    (gdiag / "taxonomy_consistency_summary.latest.json").write_text(
+        json.dumps(
+            {
+                "taxonomy_mismatch_count": 12,
+                "paper_facing_taxonomy_mismatch_count": 2,
+                "type_mismatch_count": 9,
+                "type_missing_label_count": 2,
+                "type_noncanonical_count": 1,
+                "family_label_mismatch_count": 0,
+                "prediction_error_count": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (gdiag / "headline_vs_ablation_contract_comparison.latest.md").write_text("ok", encoding="utf-8")
+    (gdiag / "taxonomy_type_authority_review.latest.md").write_text("ok", encoding="utf-8")
+
+    review_json, _review_md = rw.write_research_validity_review(output_root=out, run_id=run_id)
+
+    payload = json.loads(review_json.read_text(encoding="utf-8"))
+    assert payload["taxonomy"]["paper_facing_taxonomy_mismatch_count"] == 2
+    assert payload["artifacts_used"]["headline_vs_ablation_contract_comparison"] is True
+    assert payload["artifacts_used"]["taxonomy_type_authority_review"] is True

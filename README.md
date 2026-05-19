@@ -38,7 +38,7 @@ All artifacts (models, reports, diagnostics) are saved under `output/`.
 
 ## Repository layout (hybrid migration)
 
-The installable package lives under **`src/obsidiandroid/`** (CLI, `common`, **`obsidiandroid.database`**, `pipeline`, `modeling`, `features`, `labeling`, …). Legacy root packages **`analysis/`** and **`ml_classification/`** remain mainly as compatibility shims (repo-root **`model/`** was removed—use **`obsidiandroid.vendors.contracts`** and **`obsidiandroid.risk_band`**). Top-level **`database/`** remains an intentional implementation tree behind the curated **`obsidiandroid.database`** façade. Prefer **`obsidiandroid.*`** imports in new code. Details, backlog, and pass history: [`docs/STRUCTURE_MIGRATION_PLAN.md`](docs/STRUCTURE_MIGRATION_PLAN.md).
+The installable package lives under **`src/obsidiandroid/`** (CLI, `common`, **`obsidiandroid.database`**, `pipeline`, `modeling`, `features`, `labeling`, …). The remaining legacy root is mainly **`analysis/pipeline/`** for compatibility/monkeypatch seams; the old repo-root **`ml_classification/`**, **`model/`**, and **`utils/`** trees have been retired. Top-level **`database/`** remains an intentional compatibility namespace in front of the curated **`obsidiandroid.database`** façade. Prefer **`obsidiandroid.*`** imports in new code. Details, backlog, and pass history: [`docs/STRUCTURE_MIGRATION_PLAN.md`](docs/STRUCTURE_MIGRATION_PLAN.md).
 
 **Generated / runtime artifacts** (`output/`, `logs/`, virtualenvs, caches, build outputs) are listed in **`.gitignore`** and should not be committed. For a **source-only** tree view after local runs, run **`make clean-bytecode`** then **`make tree-source`** (ignores `output/`, `logs/`, `.venv`, pytest/coverage caches, etc.; install the `tree` utility if needed). Developer import modes (`pip install -e .`, `PYTHONPATH`, pytest): see [`docs/AGENTS.md`](docs/AGENTS.md) (repo-root [`AGENTS.md`](AGENTS.md) is a short pointer).
 
@@ -52,7 +52,6 @@ ObsidianDroid/
 ├── config/                 # YAML and JSON configs, app and model hyperparameters
 ├── database/               # DB access helpers and queries
 ├── docs/                   # Guides (incl. AGENTS, GOVERNANCE, STRUCTURE plan)
-├── ml_classification/      # Legacy compatibility shims for ML modules
 ├── pyproject.toml          # Packaging, dependencies, pytest defaults
 ├── main.py                 # CLI entry (implementation in `obsidiandroid.pipeline.runner`)
 ├── setup.sh                # Wrapper → scripts/dev/bootstrap_venv.sh
@@ -112,7 +111,7 @@ from obsidiandroid.database import db_config  # thin façade; same module object
 
 - **Console entrypoint:** `python -m obsidiandroid.cli.startup_menu` (same as the `obsidiandroid` setuptools script after install).
 - **Operator / checkout paths:** repo-root **`main.py`** and **`./run.sh`** remain supported; they ensure `src/` is on **`sys.path`** then call into **`obsidiandroid`**. **`import main; main.run_pipeline(...)`** is still valid for quick one-liners.
-- **Legacy import trees:** top-level **`analysis/`**, **`ml_classification/`**, and repo-root **`database/`** files are **compatibility shims** or implementation behind façades—prefer **`obsidiandroid.*`** for anything new. Pass history and remaining moves: [`docs/STRUCTURE_MIGRATION_PLAN.md`](docs/STRUCTURE_MIGRATION_PLAN.md).
+- **Legacy import trees:** top-level **`analysis/`** and repo-root **`database/`** files remain the main compatibility surfaces—prefer **`obsidiandroid.*`** for anything new. The old **`ml_classification/`** tree has been retired. Pass history and remaining moves: [`docs/STRUCTURE_MIGRATION_PLAN.md`](docs/STRUCTURE_MIGRATION_PLAN.md).
 
 ---
 
@@ -216,7 +215,7 @@ See comments in `config/settings/*.py` (or `config/app_config.py`) for full deta
 
 ## Repository layout & migration status
 
-The repo uses a **hybrid layout**: installable code in **`src/obsidiandroid/`** plus legacy top-level packages (`analysis/`, `database/`, `ml_classification/`, …). For a **full audit** of the root, CI/tooling maturity, and planned next steps (not everything fits in the tree diagram above), see **[`docs/ROOT_AND_STRUCTURE_AUDIT.md`](docs/ROOT_AND_STRUCTURE_AUDIT.md)**.
+The repo uses a **hybrid layout**: installable code in **`src/obsidiandroid/`** plus legacy compatibility surfaces at the top level (primarily `analysis/` and `database/`). For a **full audit** of the root, CI/tooling maturity, and planned next steps (not everything fits in the tree diagram above), see **[`docs/ROOT_AND_STRUCTURE_AUDIT.md`](docs/ROOT_AND_STRUCTURE_AUDIT.md)**.
 
 ---
 
@@ -229,7 +228,6 @@ The repo uses a **hybrid layout**: installable code in **`src/obsidiandroid/`** 
 - `make tree-source` – Filtered source tree (install `tree`; run `make clean-bytecode` first for a clean view).
 - `make ml-scan` or `python -m scripts.dev.run_ml_static_scan` – Scan the repo for accidental `.predict()` misuse (`--strict` fails on warnings).
 - `make clean` / `make clean-bytecode` or `python scripts/dev/clean_bytecode_cache.py [path] --exclude venv` – Remove bytecode/logs.
-- `python analysis/evaluation/random_forest_diagnostics.py` – Cross-validation, weak class detection, feature importance diagnostics.
 - `python scripts/dev/data_fuzzer.py` – Generate large synthetic datasets for robustness and stress testing.
 
 ---

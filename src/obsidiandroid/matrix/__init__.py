@@ -1,8 +1,4 @@
-"""Binary AV matrix construction and malicious-score enrichment.
-
-Implementation is canonical here (**Pass 80**); ``analysis.matrix`` is an identity shim to this
-package and its submodules (same :class:`types.ModuleType` objects).
-"""
+"""Binary AV matrix construction and malicious-score enrichment."""
 
 from __future__ import annotations
 

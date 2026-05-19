@@ -77,3 +77,7 @@ def test_cohort_readiness_report_warns_for_concentration_or_missingness(capsys) 
     )
     out = capsys.readouterr().out
     assert "Cohort is usable but remains concentration-heavy" in out
+    warnings = df.attrs.get("cohort_operational_warnings")
+    assert isinstance(warnings, list)
+    assert any("top family concentration" in msg for msg in warnings)
+    assert any("banker share" in msg for msg in warnings)

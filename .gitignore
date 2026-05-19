@@ -70,6 +70,7 @@ mlruns/
 output/
 logs/
 *.log
+None/
 
 # Patch / merge artifacts
 *.orig

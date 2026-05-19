@@ -84,6 +84,12 @@ EXPORT_LOGGER = get_logger(
 )
 _CONSOLIDATED_RUNTIME_TARGET: Path | None = None
 
+
+def reset_runtime_export_state() -> None:
+    """Clear module-level run-scoped export caches between runs."""
+    global _CONSOLIDATED_RUNTIME_TARGET
+    _CONSOLIDATED_RUNTIME_TARGET = None
+
 # === Utility: Clean and shorten Excel sheet names ===
 def safe_sheet_name(name: str) -> str:
     return naming.safe_sheet_name(name)

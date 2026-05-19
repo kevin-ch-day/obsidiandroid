@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from config import app_config
 
 from obsidiandroid.cli import startup_menu_review
@@ -13,6 +15,24 @@ from obsidiandroid.cli import startup_menu_review
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+@pytest.fixture(autouse=True)
+def _stub_cohort_readiness_snapshot(monkeypatch) -> None:
+    monkeypatch.setattr(
+        startup_menu_review,
+        "get_cohort_readiness_snapshot",
+        lambda: {"status": "ok", "warnings": [], "buckets": {}},
+    )
+    monkeypatch.setattr(
+        startup_menu_review,
+        "infer_cohort_readiness_signal",
+        lambda _profile_id: {
+            "bucket": None,
+            "summary": "No readiness bucket mapped for this profile; review cohort filters manually.",
+            "detail": "This guidance is advisory only and does not enforce sample selection.",
+        },
+    )
 
 
 def test_compact_review_summary_includes_identity_health_and_tuning(monkeypatch, tmp_path: Path) -> None:
@@ -30,6 +50,7 @@ def test_compact_review_summary_includes_identity_health_and_tuning(monkeypatch,
         json.dumps(
             {
                 "taxonomy_mismatch_count": 278,
+                "paper_facing_taxonomy_mismatch_count": 0,
                 "type_mismatch_count": 100,
                 "type_noncanonical_count": 150,
                 "type_missing_label_count": 28,
@@ -52,6 +73,27 @@ def test_compact_review_summary_includes_identity_health_and_tuning(monkeypatch,
         ),
     )
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    monkeypatch.setattr(
+        startup_menu_review,
+        "get_cohort_readiness_snapshot",
+        lambda: {
+            "status": "ok",
+            "warnings": [],
+            "buckets": {
+                "all_catalog": {"sample_count": 10, "family_count": 3},
+                "android_platform": {"sample_count": 9, "family_count": 2},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        startup_menu_review,
+        "infer_cohort_readiness_signal",
+        lambda _profile_id: {
+            "bucket": "android_with_permission_obs",
+            "summary": "Best matching readiness bucket: android_with_permission_obs",
+            "detail": "Android malicious permission-feature profile intent is best compared against the Android cohort with permission observations. Advisory only; this does not enforce sample selection.",
+        },
+    )
 
     summary = startup_menu_review.build_review_latest_run_summary(output_root=out_root, latest_run_id=run_id)
 
@@ -65,12 +107,14 @@ def test_compact_review_summary_includes_identity_health_and_tuning(monkeypatch,
     assert labels["Taxonomy consistency"] == "YELLOW"
     assert labels["Ablation / signal contribution"] == "GREEN"
     assert labels["Figure validity"] == "GREEN"
-    assert any("278 mismatches" in warning for warning in summary["warnings"])
+    assert any("278 total mismatches" in warning for warning in summary["warnings"])
+    assert any("(0 claim-facing)" in warning for warning in summary["warnings"])
     assert any("Next:" in warning for warning in summary["warnings"])
     assert str(summary["open_first"][0]["label"]) == "Run science index"
     assert any("Review taxonomy type authority report" in action for action in summary["tuning_actions"])
     assert "taxonomy_support_summary" in summary
     assert "permission_tuning_summary" in summary
+    assert "cohort_readiness_summary" in summary
 
 
 def test_compact_review_screen_avoids_debug_path_dump(monkeypatch, tmp_path: Path, capsys) -> None:
@@ -84,6 +128,28 @@ def test_compact_review_screen_avoids_debug_path_dump(monkeypatch, tmp_path: Pat
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
     monkeypatch.delenv("OBSIDIANDROID_DISPLAY_MODE", raising=False)
     monkeypatch.setattr(app_config, "DEBUG_MODE", False, raising=False)
+    monkeypatch.setattr(
+        startup_menu_review,
+        "get_cohort_readiness_snapshot",
+        lambda: {
+            "status": "degraded",
+            "warnings": ["Permission Intel unavailable for readiness counts."],
+            "buckets": {
+                "all_catalog": {"sample_count": 10, "family_count": 3},
+                "android_platform": {"sample_count": 9, "family_count": 2},
+                "android_with_permission_obs": {"sample_count": None, "family_count": None},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        startup_menu_review,
+        "infer_cohort_readiness_signal",
+        lambda _profile_id: {
+            "bucket": "android_banker_with_permission_obs",
+            "summary": "Best matching readiness bucket: android_banker_with_permission_obs",
+            "detail": "Banker-focused profile intent is best compared against the Android banker cohort with permission observations. Advisory only; this does not enforce sample selection.",
+        },
+    )
 
     startup_menu_review.print_compact_review_latest_run(output_root=out_root, latest_run_id=run_id)
     out = capsys.readouterr().out
@@ -94,6 +160,11 @@ def test_compact_review_screen_avoids_debug_path_dump(monkeypatch, tmp_path: Pat
     assert "unknown" not in out.lower()
     assert "Detailed paths" not in out
     assert "diagnostics_dir" not in out
+    assert "Cohort Readiness" in out
+    assert "android_with_permission_obs" in out
+    assert "Best matching readiness bucket: android_banker_with_permission_obs" in out
+    assert "does not enforce sample selection" in out
+    assert "Permission Intel unavailable for readiness counts." in out
     assert "Taxonomy & Support Tuning" in out
     assert "Permission Coverage Tuning" in out
 
@@ -108,6 +179,11 @@ def test_detailed_review_screen_can_show_deeper_paths(monkeypatch, tmp_path: Pat
     _write(out_root / "diagnostics" / "run_manifest.latest.json", json.dumps({"run_id": run_id, "profile_params": {"profile_id": "research_all_malicious"}}))
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
     monkeypatch.setenv("OBSIDIANDROID_DISPLAY_MODE", "detailed")
+    monkeypatch.setattr(
+        startup_menu_review,
+        "get_cohort_readiness_snapshot",
+        lambda: {"status": "ok", "warnings": [], "buckets": {}},
+    )
 
     startup_menu_review.print_compact_review_latest_run(output_root=out_root, latest_run_id=run_id)
     out = capsys.readouterr().out
@@ -239,7 +315,7 @@ def test_tune_next_changes_with_status_flags(monkeypatch, tmp_path: Path) -> Non
             ]
         },
     )
-    _write(rdiag / f"taxonomy_consistency_summary_{run_id}.json", json.dumps({"taxonomy_mismatch_count": 5, "type_mismatch_count": 5, "type_noncanonical_count": 0, "type_missing_label_count": 0, "family_label_mismatch_count": 0}))
+    _write(rdiag / f"taxonomy_consistency_summary_{run_id}.json", json.dumps({"taxonomy_mismatch_count": 5, "paper_facing_taxonomy_mismatch_count": 0, "type_mismatch_count": 5, "type_noncanonical_count": 0, "type_missing_label_count": 0, "family_label_mismatch_count": 0}))
     _write(rdiag / "modality_contribution_summary.json", json.dumps({"permission_signal_pct": 45.0}))
     summary = startup_menu_review.build_review_latest_run_summary(output_root=out_root, latest_run_id=run_id)
     assert str(summary["tuning_actions"][0]).startswith("Prioritize screens in this order:")

@@ -25,6 +25,23 @@ def _safe_pct(num: float, den: float) -> float:
     return round(100.0 * float(num) / float(den), 4)
 
 
+def _vendor_merge_coverage_label(pct: float) -> str:
+    """Human-readable vendor-merge coverage label for operator summaries."""
+    try:
+        value = float(pct)
+    except (TypeError, ValueError):
+        return "unknown"
+    if value >= 99.5:
+        return "full"
+    if value >= 90.0:
+        return "broad"
+    if value >= 40.0:
+        return "partial"
+    if value > 0.0:
+        return "sparse"
+    return "absent"
+
+
 def _permission_signal_quality_metric(diagnostics_dir: Path, metric: str) -> int | None:
     """Read one integer metric from permission-signal-quality CSV when present."""
     path = diagnostics_dir / "permission_signal_quality.csv"
@@ -580,7 +597,10 @@ def write_research_question_artifacts(
         leak_rows[0]["notes"] = leak_txt.read_text(encoding="utf-8", errors="replace")[:1200]
     pd.DataFrame(leak_rows).to_csv(diagnostics_dir / "vendor_leakage_safety_audit.csv", index=False)
 
-    surv_path = diagnostics_dir / "feature_column_survival.latest.csv"
+    surv_path = operator_dashboard.resolve_feature_column_survival_path(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+    )
     if surv_path.is_file():
         try:
             sdf = pd.read_csv(surv_path)
@@ -1007,16 +1027,18 @@ def print_research_questions_terminal(
     raw_perm_pct = float(q2.get("permission_raw_observation_pct") or 0)
     fused_perm_n = int(q2.get("permission_signal_n") or 0)
     fused_perm_pct = float(q2.get("permission_signal_pct") or 0)
+    vendor_merge_pct = float(q2.get("vendor_merge_pct") or 0)
+    vendor_merge_label = _vendor_merge_coverage_label(vendor_merge_pct)
     if fused_perm_n == 0 and raw_perm_n > 0:
         pr(
             f"   Raw permission observations cover {raw_perm_pct:.1f}% of the cohort, "
             f"but fused permission features are disabled/absent for this run; "
-            f"parsed vendor merge sparse ({float(q2.get('vendor_merge_pct') or 0):.1f}%)."
+            f"parsed vendor merge {vendor_merge_label} ({vendor_merge_pct:.1f}%)."
         )
     else:
         pr(
             f"   Permissions broad ({fused_perm_pct:.1f}% rows with PI signal); "
-            f"parsed vendor merge sparse ({float(q2.get('vendor_merge_pct') or 0):.1f}%)."
+            f"parsed vendor merge {vendor_merge_label} ({vendor_merge_pct:.1f}%)."
         )
     pr("3. Model behavior:")
     pr(

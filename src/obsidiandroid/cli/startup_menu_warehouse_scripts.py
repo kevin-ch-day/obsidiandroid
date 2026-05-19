@@ -14,7 +14,7 @@ from obsidiandroid.common.repo_paths import repo_operator_script
 from obsidiandroid.database import db_engine
 
 from .startup_menu_prompts import prompt_run_id
-from .startup_menu_run_context import latest_run_paper_mode_enabled, read_latest_run_id
+from .startup_menu_run_context import latest_run_publication_mode_enabled, read_latest_run_id
 from .ui import display as du
 
 
@@ -104,7 +104,7 @@ def run_results_warehouse_status() -> int:
     return 0
 
 
-def run_paper_structural_diagnostics() -> int:
+def run_publication_structural_diagnostics() -> int:
     """Generate consolidated structural diagnostics from latest artifacts."""
     du.print_section("Generate Structural Diagnostics")
     script_path = repo_operator_script("research", "generate_structural_diagnostics.py")
@@ -177,10 +177,10 @@ def run_claim_artifact_map_scaffold() -> int:
     return 0
 
 
-def run_paper2_freeze_checker() -> int:
+def run_evidence_lock_checker() -> int:
     """Run strict reproducibility checks for supplied evidence run IDs."""
     du.print_section("Run Cohort Lock Checker")
-    if not latest_run_paper_mode_enabled():
+    if not latest_run_publication_mode_enabled():
         du.print_info(
             "[MENU] Latest run is not in evidence/publication-ready mode. "
             "This script validates strict evidence bundles; pass evidence-mode run IDs if defaults look sparse."
@@ -209,6 +209,16 @@ def run_paper2_freeze_checker() -> int:
         return int(proc.returncode)
     du.print_success("[MENU] Evidence bundle checker passed for supplied run IDs.")
     return 0
+
+
+def run_paper_structural_diagnostics() -> int:
+    """Compatibility alias for legacy helper naming."""
+    return run_publication_structural_diagnostics()
+
+
+def run_paper2_freeze_checker() -> int:
+    """Compatibility alias for legacy helper naming."""
+    return run_evidence_lock_checker()
 
 
 def run_retrain_from_cached_alignment() -> int:

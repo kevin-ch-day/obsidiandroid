@@ -18,7 +18,7 @@ This document explains how ObsidianDroid ingests antivirus telemetry, computes r
 
 1. **Metadata ingestion** loads sample identifiers, vendor detections, and contextual attributes from a MySQL database using helpers in `database/`. See [`data_sources.md`](data_sources.md) for a catalog of required tables and replication guidance.
 2. **Analysis and feature engineering** normalize AV labels, score vendors, and build per-sample feature matrices in **canonical** `src/obsidiandroid/` modules (with legacy `analysis.*` shims retained for compatibility).
-3. **Model training and inference** use canonical `obsidiandroid.modeling`, `obsidiandroid.inference`, and `obsidiandroid.engine_weights` modules; repo-root `ml_classification/` is a compatibility shim surface.
+3. **Model training and inference** use canonical `obsidiandroid.modeling`, `obsidiandroid.inference`, and `obsidiandroid.engine_weights` modules; the legacy repo-root `ml_classification/` surface has been retired.
 4. **Evaluation and export** routines write canonical family labels, diagnostics, and artifacts under `output/`.
 
 **Run-scoped path snapshot:** `obsidiandroid.pipeline.run_bounds` exposes `PipelineRunBounds` (set at the end of profile + evidence-mode path setup in `runner.py`, cleared when the run finishes). New diagnostics helpers can use `get_pipeline_run_bounds()` instead of re-deriving paths from scattered `app_config` keys. **DB settings surface:** `database/settings.py` provides `load_connection_settings()` as a typed view of `database/db_config` for scripts and tooling.
@@ -35,8 +35,8 @@ This document explains how ObsidianDroid ingests antivirus telemetry, computes r
 - Typical physical names include `virustotal_vendor_engines`, `virustotal_sample_vendor_engine_verdicts`, `malware_sample_catalog`, and related summaries—see [`data_sources.md`](data_sources.md) for the authoritative list.
 
 ### 2. Label Harmonization & Vendor Scoring (`obsidiandroid.vendors`, `obsidiandroid.feature_engineering`)
-- `obsidiandroid.vendors.parsing` parses vendor-specific strings into normalized tokens and families; legacy `analysis.vendor_processing` remains an identity shim.
-- `obsidiandroid/feature_engineering/compute_vendor_scores.py` (legacy `analysis.feature_engineering.*` shims) derives ML-oriented vendor scores and parser gates.
+- `obsidiandroid.vendors.parsing` parses vendor-specific strings into normalized tokens and families.
+- `obsidiandroid/feature_engineering/compute_vendor_scores.py` derives ML-oriented vendor scores and parser gates.
 - `feature_engineering/` also builds cohort statistics, pattern metrics, and supporting aggregates used in reporting.
 
 ### 3. Shared Utilities (`obsidiandroid.common`, `obsidiandroid.observability`, `obsidiandroid.reporting`)
@@ -83,7 +83,7 @@ Consult [`modeling_reference.md`](modeling_reference.md) for estimator-specific 
 
 ## Extending the System
 
-1. Add new feature builders under `src/obsidiandroid/feature_engineering/` (legacy `analysis.feature_engineering.*` shim) or via pipeline stages, and gate them in `config/app_config.py` / profile YAML.
+1. Add new feature builders under `src/obsidiandroid/feature_engineering/` or via pipeline stages, and gate them in `config/app_config.py` / profile YAML.
 2. Add or wire estimators through `obsidiandroid.modeling.model_trainer_factory` and `config/settings/model_hyperparams.py`.
 3. Extend `tests/` and run `pytest -q` before submitting changes.
 4. Document operator-visible behaviour in [`user_guide.md`](user_guide.md) or [`data_sources.md`](data_sources.md) when changing DB contracts or outputs.

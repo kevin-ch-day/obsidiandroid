@@ -1,8 +1,7 @@
 """Canonical AV engine weight scoring namespace.
 
 Normalization, tiering, and reliability helpers live under
-``obsidiandroid.engine_weights``. Legacy
-``ml_classification.engine_weights.*`` paths remain thin identity shims.
+``obsidiandroid.engine_weights``.
 """
 
 from __future__ import annotations

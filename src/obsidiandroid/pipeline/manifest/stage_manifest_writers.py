@@ -73,11 +73,18 @@ def write_run_summary_json(
                 comp_rep = json.loads(Path(comp_path_str).read_text(encoding="utf-8"))
             except Exception:
                 comp_rep = {}
-        publication_ready_status, _publication_ready_reasons = evaluate_publication_ready_status(
+        publication_ready_status, publication_ready_reasons = evaluate_publication_ready_status(
             paper_mode=bool((manifest.get("paper_mode") or {}).get("resolved_value", False)),
             manifest=manifest,
             compliance_report=comp_rep if comp_rep else None,
         )
+        if run_status != "complete":
+            terminal_reason = "run_failed" if run_status == "failed" else "run_not_complete"
+            if "paper_compliance_not_pass" not in publication_ready_reasons:
+                publication_ready_reasons.append("paper_compliance_not_pass")
+            if terminal_reason not in publication_ready_reasons:
+                publication_ready_reasons.append(terminal_reason)
+            publication_ready_status = "FAIL"
 
         feat_cols_resolved = manifest.get("feature_matrix_cols_post_prune")
         if feat_cols_resolved is None:
@@ -127,7 +134,12 @@ def write_run_summary_json(
             "lifecycle_state": manifest_context.get("lifecycle_state"),
             "lifecycle_finished_at_utc": manifest_context.get("lifecycle_finished_at_utc"),
         }
-        payload.update(publication_ready_alias_payload(publication_ready_status))
+        payload.update(
+            publication_ready_alias_payload(
+                publication_ready_status,
+                publication_ready_reasons,
+            )
+        )
 
         run_summary_path = run_root / "run_summary.json"
         run_summary_run_path = diagnostics_dir / f"run_summary_{run_id}.json"
@@ -407,10 +419,14 @@ def write_run_summary_onepager(
                 lines.append(f"- {stage_name}: `{sec}`")
 
         onepager_path = diagnostics_dir / f"run_summary_onepager_{run_id}.md"
-        latest_path = diagnostics_dir / "run_summary_onepager.latest.md"
         payload = "\n".join(lines).strip() + "\n"
         onepager_path.write_text(payload, encoding="utf-8")
-        latest_path.write_text(payload, encoding="utf-8")
+        oh.mirror_utf8_text_run_then_global(
+            diagnostics_dir=diagnostics_dir,
+            run_filename=onepager_path.name,
+            text=payload,
+            global_latest_name="run_summary_onepager.latest.md",
+        )
         return onepager_path
     except Exception as exc:
         du.print_warning(f"[SUMMARY] Failed to write run one-pager: {exc}")
@@ -540,10 +556,14 @@ def write_experiment_contract_snapshot(
             },
         }
         out_path = diagnostics_dir / f"experiment_contract_snapshot_{run_id}.json"
-        latest_path = diagnostics_dir / "experiment_contract_snapshot.latest.json"
         payload = json.dumps(contract, indent=2, sort_keys=True)
         out_path.write_text(payload, encoding="utf-8")
-        latest_path.write_text(payload, encoding="utf-8")
+        oh.mirror_json_text_run_then_global(
+            diagnostics_dir=diagnostics_dir,
+            run_filename=out_path.name,
+            payload=contract,
+            global_latest_name="experiment_contract_snapshot.latest.json",
+        )
         return out_path
     except Exception as exc:
         du.print_warning(f"[SUMMARY] Failed to write experiment contract snapshot: {exc}")
@@ -594,10 +614,14 @@ def write_evaluation_contract_json(
             },
         }
         out_path = diagnostics_dir / f"evaluation_contract_{run_id}.json"
-        latest_path = diagnostics_dir / "evaluation_contract.latest.json"
         text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
         out_path.write_text(text, encoding="utf-8")
-        latest_path.write_text(text, encoding="utf-8")
+        oh.mirror_json_text_run_then_global(
+            diagnostics_dir=diagnostics_dir,
+            run_filename=out_path.name,
+            payload=payload,
+            global_latest_name="evaluation_contract.latest.json",
+        )
         return out_path
     except Exception as exc:
         du.print_warning(f"[SUMMARY] evaluation_contract export skipped: {exc}")
@@ -658,9 +682,13 @@ def write_taxonomy_authority_recommendation_md(
                 lines.append("- **Suggested authority:** designate one authoritative type source for reporting; reconcile `type_mapping_mismatch` rows explicitly.\n")
         body = "\n".join(lines).strip() + "\n"
         out_path = diagnostics_dir / f"taxonomy_authority_recommendation_{run_id}.md"
-        latest_path = diagnostics_dir / "taxonomy_authority_recommendation.latest.md"
         out_path.write_text(body, encoding="utf-8")
-        latest_path.write_text(body, encoding="utf-8")
+        oh.mirror_utf8_text_run_then_global(
+            diagnostics_dir=diagnostics_dir,
+            run_filename=out_path.name,
+            text=body,
+            global_latest_name="taxonomy_authority_recommendation.latest.md",
+        )
         return out_path
     except Exception as exc:
         du.print_warning(f"[SUMMARY] taxonomy_authority_recommendation skipped: {exc}")
@@ -681,6 +709,8 @@ def load_previous_series_contract(
 ) -> dict[str, Any]:
     """Load latest contract snapshot when it belongs to the same series."""
     latest_path = diagnostics_dir / "experiment_contract_snapshot.latest.json"
+    if not latest_path.exists():
+        latest_path = oh.global_diagnostics_root() / "experiment_contract_snapshot.latest.json"
     if not latest_path.exists():
         return {}
     try:

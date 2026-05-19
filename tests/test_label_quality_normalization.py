@@ -19,6 +19,25 @@ def test_family_alias_normalization():
 def test_known_family_with_alias():
     assert is_known_family_name("hqwar")
     assert is_known_family_name("TrickMo")
+    assert is_known_family_name("ToxicPanda")
+    assert is_known_family_name("MaliBot")
+    assert is_known_family_name("GravityRAT")
+
+
+def test_live_family_normalization_and_display_for_recent_android_families():
+    assert normalize_family_name("Toxic Panda") == "toxicpanda"
+    assert normalize_family_name("MaliBot") == "malibot"
+    assert normalize_family_name("GravityRAT") == "gravityrat"
+    assert normalize_family_name("Pix BankBot") == "pixbankbot"
+    assert normalize_family_name("PixPirate") == "pixpirate"
+    assert canonicalize_family_label("Toxic Panda") == "ToxicPanda"
+    assert canonicalize_family_label("MaliBot") == "MaliBot"
+    assert canonicalize_family_label("GravityRAT") == "GravityRAT"
+    assert canonicalize_family_label("Pix BankBot") == "PixBankBot"
+    assert canonicalize_family_label("PixPirate") == "PixPirate"
+    assert canonicalize_family_label("BlankBot") == "BlankBot"
+    assert canonicalize_family_label("BingoMod") == "BingoMod"
+    assert canonicalize_family_label("Rafel") == "Rafel"
 
 
 def test_cabassous_canonicalizes_to_flubot_token_and_flubot_display():

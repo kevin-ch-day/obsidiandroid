@@ -12,6 +12,7 @@ import pandas as pd
 from config import app_config
 
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.output_hygiene import global_diagnostics_root
 from obsidiandroid.common import output_paths
 import obsidiandroid.governance.artifacts as artifacts
@@ -319,6 +320,12 @@ def export_parser_quality_final(
             pass
     run_path = diagnostics_dir / f"parser_quality_final_{run_id}.csv"
     latest_path = diagnostics_dir / "parser_quality_final.latest.csv"
-    export_df.to_csv(run_path, index=False)
-    export_df.to_csv(latest_path, index=False)
+    csv_text = export_df.to_csv(index=False)
+    run_path.write_text(csv_text, encoding="utf-8")
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=run_path.name,
+        csv_text=csv_text,
+        global_latest_name=latest_path.name,
+    )
     return run_path

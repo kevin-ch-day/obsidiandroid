@@ -55,7 +55,7 @@ def clean_bytecode_cache(
         except OSError:
             pass
 
-    for name in ("build",):
+    for name in ("build", "htmlcov", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".hypothesis"):
         candidate = root / name
         if candidate.is_dir():
             try:
@@ -70,12 +70,12 @@ def clean_bytecode_cache(
             except OSError:
                 pass
 
-    pytest_tmp = root / ".pytest_tmp_quickmenu"
-    if pytest_tmp.is_dir():
-        try:
-            shutil.rmtree(pytest_tmp)
-        except OSError:
-            pass
+    for pytest_tmp in root.glob(".pytest_tmp*"):
+        if pytest_tmp.is_dir():
+            try:
+                shutil.rmtree(pytest_tmp)
+            except OSError:
+                pass
 
     coverage_file = root / ".coverage"
     if coverage_file.is_file():
@@ -83,6 +83,14 @@ def clean_bytecode_cache(
             coverage_file.unlink()
         except OSError:
             pass
+
+    for pattern in (".coverage.*",):
+        for candidate in root.glob(pattern):
+            if candidate.is_file():
+                try:
+                    candidate.unlink()
+                except OSError:
+                    pass
 
 
 def main(argv: list[str] | None = None) -> int:

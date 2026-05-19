@@ -1,6 +1,9 @@
 """Tests for feature enrichment stage helpers."""
 
+import json
+
 import pandas as pd
+from config import app_config
 
 from obsidiandroid.pipeline import stage_feature_enrichment
 
@@ -86,3 +89,35 @@ def test_merge_sample_metadata_features_dedupes_before_permission_fuse() -> None
     assert result is not None
     assert len(result) == 2
     assert result["perm__x"].tolist() == [1, 1]
+
+
+def test_permission_fuse_audit_run_scoped_uses_global_latest(monkeypatch, tmp_path) -> None:
+    output_root = tmp_path / "output"
+    diagnostics_dir = output_root / "runs" / "rid" / "diagnostics"
+    monkeypatch.setattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "rid", raising=False)
+
+    stage_feature_enrichment._write_permission_fuse_audit({"run_id": "rid", "rows": 2})  # pylint: disable=protected-access
+
+    assert (diagnostics_dir / "permission_fuse_audit_rid.json").exists()
+    assert not (diagnostics_dir / "permission_fuse_audit.latest.json").exists()
+    payload = json.loads((output_root / "diagnostics" / "permission_fuse_audit.latest.json").read_text(encoding="utf-8"))
+    assert payload["rows"] == 2
+
+
+def test_duplicate_pre_fuse_report_run_scoped_uses_global_latest(monkeypatch, tmp_path) -> None:
+    output_root = tmp_path / "output"
+    diagnostics_dir = output_root / "runs" / "rid" / "diagnostics"
+    monkeypatch.setattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "rid", raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_MODE", False, raising=False)
+
+    merged = pd.DataFrame({"sample_id": [1, 1], "meta__permissions": [1, 2]})
+    stage_feature_enrichment._maybe_export_duplicate_sample_id_pre_fuse(merged, 1)  # pylint: disable=protected-access
+
+    assert (diagnostics_dir / "duplicate_sample_id_pre_fuse_rid.csv").exists()
+    assert not (diagnostics_dir / "duplicate_sample_id_pre_fuse.latest.csv").exists()
+    assert (output_root / "diagnostics" / "duplicate_sample_id_pre_fuse.latest.csv").exists()

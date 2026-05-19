@@ -1,14 +1,9 @@
-"""Vendor scoring, tiering, and exploratory feature helpers.
-
-Implementation is canonical here (**Pass 78**); ``analysis.feature_engineering`` is an
-identity shim to this package and its submodules (same :class:`types.ModuleType` objects).
-"""
+"""Vendor scoring, tiering, and exploratory feature helpers."""
 
 from __future__ import annotations
 
 from .assign_tier_scores import assign_tier_scores
 from .compute_vendor_scores import run_score_analysis
-from .feature_engineering_import_surface import FEATURE_ENGINEERING_LEGACY_SHIM_MODULE_STEMS
 from .pattern_analysis import (
     compute_pca_features,
     detect_outliers,

@@ -87,6 +87,64 @@ def test_locked_cohort_mismatch_raises_failure() -> None:
         )
 
 
+def test_recovered_historical_lock_degrades_when_live_db_is_missing_locked_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Recovered sample-id locks should degrade to count-only when live DB drift drops locked members."""
+    profile = {
+        "profile_id": "paper_lock_demo_locked",
+        "paper_locked": True,
+        "paper_lock": {
+            "contract_id": "demo_contract",
+            "expected_sample_count": 3,
+            "expected_family_count": 2,
+            "expected_type_count": 1,
+            "sample_id_lock_status": "recovered_from_historical_artifact",
+            "sample_id_lock_file": "artifacts/baselines/20260504T044304Z__8c64e6/paper2_primary_locked_sample_ids.csv",
+        },
+    }
+    samples_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "family_canonical": ["f1", "f1"],
+            "type_slug": ["banker", "banker"],
+        }
+    )
+    samples_df.attrs["snapshot_lock"] = {
+        "status": "matched",
+        "applied": True,
+        "matched_sample_count": 2,
+        "lock_sample_count": 3,
+        "missing_from_db_count": 1,
+    }
+
+    monkey_contract = paper_cohort_contract.build_declared_contract(profile)
+    lock_path = Path(monkey_contract["sample_id_lock"]["path"])
+    def _fake_reader(path: Path) -> dict[str, object]:
+        if path == lock_path:
+            return {"lock_sample_count": 3, "lock_sample_id_hash": "abc"}
+        raise AssertionError(f"unexpected lock path: {path}")
+
+    monkeypatch.setattr(
+        paper_cohort_contract,
+        "_read_lock_file_metadata",
+        _fake_reader,
+    )
+    contract = paper_cohort_contract.build_runtime_contract(
+        profile=profile,
+        manifest_context={"db_query_contract": {"version": "v1"}},
+        samples_df=samples_df,
+        raise_on_mismatch=False,
+    )
+
+    assert contract["validation"]["status"] == "degraded_live_db_drift"
+    assert contract["validation"]["severity"] == "warning"
+    assert contract["cohort_lock_status"] == "count_only_incomplete_sample_lock"
+    assert contract["enforcement_level"] == "partial"
+    assert contract["sample_id_lock"]["runtime_db_drift"]["missing_from_db_count"] == 1
+    assert "Downgrading to count-only lock semantics" in contract["validation"]["warning"]
+
+
 def test_manifest_payload_records_expected_cohort_contract_metadata() -> None:
     """Run manifests should carry the declared locked cohort contract metadata."""
     manifest = runtime_support.build_manifest_payload(

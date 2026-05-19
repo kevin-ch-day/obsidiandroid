@@ -1,8 +1,7 @@
 """Canonical evaluation namespace.
 
-Implementation modules live in this package. Legacy ``analysis.evaluation.<name>``
-paths and a few compatibility ``ml_classification.*`` shims remain available
-for parity and transition support.
+Implementation modules live in this package. Compatibility support remains for
+selected ``ml_classification.*`` imports during the modeling migration.
 """
 
 from __future__ import annotations

@@ -84,3 +84,25 @@ def test_write_artifacts(tmp_path: Path) -> None:
     payload = json.loads(jp.read_text(encoding="utf-8"))
     assert "column_lineage" in payload
     assert len(payload["column_lineage"]) == 2
+
+
+def test_build_report_falls_back_to_global_leakage_audit_latest(make_run_diagnostics_layout) -> None:
+    output_root, diag, global_diag = make_run_diagnostics_layout("rid")
+    (diag / "modality_method_contract.json").write_text(
+        json.dumps({"fusion_modality": {"feature_count_total": 1}}),
+        encoding="utf-8",
+    )
+    (diag / "feature_contract.json").write_text(
+        json.dumps({"feature_columns": ["perm__a"], "selected_vendors": []}),
+        encoding="utf-8",
+    )
+    (global_diag / "leakage_pruning_audit.latest.csv").write_text(
+        "column_name,reason_code,details\nx,scan_completed,ok\n",
+        encoding="utf-8",
+    )
+
+    built = flr.build_feature_lineage_report(diag)
+    assert built["summary"]["training_stage_counts"]["leakage_pruning_audit_rows"] == 1
+    assert built["summary"]["artifact_sources"]["leakage_pruning_audit"].endswith(
+        "output/diagnostics/leakage_pruning_audit.latest.csv"
+    )

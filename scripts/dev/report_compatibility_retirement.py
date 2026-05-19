@@ -7,6 +7,7 @@ from pathlib import Path
 
 from scripts.dev.compatibility_retirement_audit import (
     canonical_target_exists,
+    collect_bucket_callers,
     collect_legacy_subtree_python_files,
     collect_ready_now_bucket_callers,
 )
@@ -63,6 +64,22 @@ def main() -> int:
         files = collect_legacy_subtree_python_files(repo_root, bucket.tree)
         for path in files:
             print(f"  - {path.relative_to(repo_root)}")
+        print()
+    print("Remaining Bucket Caller Audit")
+    print("-----------------------------")
+    all_hits = collect_bucket_callers(repo_root)
+    for bucket in LEGACY_SUBTREE_RETIREMENT_BUCKETS:
+        if not bucket.import_prefixes:
+            continue
+        hits = all_hits.get(bucket.tree, [])
+        print(f"{bucket.tree}: {len(hits)} external legacy import caller(s)")
+        if hits:
+            for hit in hits[:5]:
+                print(f"  - {hit}")
+            if len(hits) > 5:
+                print(f"  - ... {len(hits) - 5} more")
+        else:
+            print("  - none outside parity/tooling allowlists")
         print()
     return 0
 

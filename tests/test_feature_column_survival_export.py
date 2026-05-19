@@ -78,3 +78,25 @@ def test_nonzero_counts_for_columns_skips_sample_id_column() -> None:
     got = feature_column_survival_export.nonzero_counts_for_columns(df)
     assert "sample_id" not in got
     assert got.get("perm__x") == 1
+
+
+def test_export_feature_column_survival_matrix_normalizes_missing_run_id(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(app_config, "RUNTIME_FEATURE_NONZERO_COHORT_FUSED", {"a": 1}, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_FEATURE_NONZERO_AFTER_ALIGN", {"a": 1}, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_FEATURE_NONZERO_AFTER_FAMILY_SUPPORT", {"a": 1}, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_FEATURE_NONZERO_AFTER_LOW_INFORMATION", {"a": 1}, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_FEATURE_NONZERO_FINAL_TRAINING", {"a": 1}, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_LOW_INFORMATION_PRUNED_COLUMNS", [], raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_LEAKAGE_PRUNING_AUDIT", [], raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_FEATURE_COLUMN_SURVIVAL_EXPORT", True, raising=False)
+    out = feature_column_survival_export.export_feature_column_survival_matrix(
+        diagnostics_dir=tmp_path,
+        run_id=None,
+        feature_attrs={},
+        enabled=True,
+    )
+    assert out == tmp_path / "feature_column_survival_unknown.csv"
+    assert not (tmp_path / "feature_column_survival_None.csv").exists()

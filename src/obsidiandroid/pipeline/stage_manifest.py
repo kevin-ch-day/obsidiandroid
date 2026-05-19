@@ -23,7 +23,12 @@ import obsidiandroid.governance.artifacts as artifacts
 import obsidiandroid.governance.run_manifest as run_manifest
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.common.hash_utils import hash_payload
+from obsidiandroid.common.publication_readiness import (
+    evaluate_publication_ready_status,
+    publication_ready_alias_payload,
+)
 from obsidiandroid.pipeline.manifest.runtime_support import (
     build_manifest_payload,
     build_registry_payload,
@@ -150,6 +155,46 @@ def _trained_models_for_manifest(
     return sorted(n for n in names if n in known)
 
 
+def _apply_terminal_manifest_status(
+    *,
+    manifest: dict[str, Any],
+    manifest_context: dict[str, Any],
+    profile: dict[str, Any],
+    paper_mode: bool,
+    compliance_report: dict[str, Any] | None,
+) -> None:
+    """Attach terminal publication/evidence/lifecycle fields to the canonical manifest."""
+    manifest["profile_id"] = str(profile.get("profile_id", "unknown"))
+    publication_ready_status, publication_ready_reasons = evaluate_publication_ready_status(
+        paper_mode=paper_mode,
+        manifest=manifest,
+        compliance_report=compliance_report,
+    )
+    manifest.update(
+        publication_ready_alias_payload(
+            publication_ready_status,
+            publication_ready_reasons,
+        )
+    )
+    failed_checks = manifest_context.get("_evidence_readiness_failed_checks", [])
+    if isinstance(failed_checks, list):
+        manifest["evidence_readiness_failed_checks"] = sorted(
+            {str(item) for item in failed_checks if str(item).strip()}
+        )
+    else:
+        manifest["evidence_readiness_failed_checks"] = []
+    manifest["evidence_readiness"] = (
+        "ready" if not manifest["evidence_readiness_failed_checks"] else "not_ready"
+    )
+    integrity_reason = str(manifest_context.get("integrity_error", "") or "").strip()
+    manifest["integrity_status"] = "pass" if not integrity_reason else "fail"
+    if integrity_reason:
+        manifest["integrity_reason"] = integrity_reason
+    else:
+        manifest.pop("integrity_reason", None)
+    _merge_lifecycle_into_manifest(manifest, manifest_context)
+
+
 def _run_allows_strict_paper_exports(manifest_context: dict[str, Any]) -> tuple[bool, str]:
     """Return whether strict paper exports should run for this manifest finalization.
 
@@ -191,6 +236,20 @@ def _run_allows_research_validity_bundle(manifest_context: dict[str, Any]) -> tu
     if run_status == "partial" and completed_stage in {"", "samples", "av_pipeline", "vendor_metadata"}:
         return False, f"run_partial:{completed_stage or 'unknown'}"
     return True, "eligible"
+
+
+def _run_is_intentional_partial(manifest_context: dict[str, Any]) -> bool:
+    """Return whether the current run stopped early by operator request rather than integrity failure."""
+    run_status = str(manifest_context.get("run_status", "") or "").strip().lower()
+    if run_status != "partial":
+        return False
+    stop_after = str(manifest_context.get("stop_after", "") or "").strip().lower()
+    if not stop_after or stop_after == "full":
+        return False
+    integrity_error = str(manifest_context.get("integrity_error", "") or "").strip()
+    failed_stage = str(manifest_context.get("failed_stage", "") or "").strip()
+    failure_reason = str(manifest_context.get("failure_reason", "") or "").strip()
+    return not any((integrity_error, failed_stage, failure_reason))
 
 
 def finalize_run_manifest_stage(
@@ -464,12 +523,28 @@ def finalize_run_manifest_stage(
         )
         taxonomy_summary_path = diagnostics_dir / f"taxonomy_consistency_summary_{run_id}.json"
         taxonomy_type_rows_evaluated = 0
+        taxonomy_mismatch_count = 0
+        paper_facing_taxonomy_mismatch_count = 0
         if taxonomy_summary_path.exists():
             try:
                 taxonomy_payload = json.loads(taxonomy_summary_path.read_text(encoding="utf-8"))
                 taxonomy_type_rows_evaluated = int(taxonomy_payload.get("type_rows_evaluated", 0) or 0)
+                taxonomy_mismatch_count = int(taxonomy_payload.get("taxonomy_mismatch_count", 0) or 0)
+                paper_facing_taxonomy_mismatch_count = int(
+                    taxonomy_payload.get(
+                        "paper_facing_taxonomy_mismatch_count",
+                        taxonomy_mismatch_count,
+                    )
+                    or 0
+                )
             except Exception:
                 taxonomy_type_rows_evaluated = 0
+                taxonomy_mismatch_count = 0
+                paper_facing_taxonomy_mismatch_count = 0
+        taxonomy_mismatch_max_allowed = safe_int_config_value(
+            getattr(app_config, "TAXONOMY_MISMATCH_STRICT_MAX_ALLOWED", 0),
+            default=0,
+        )
 
         compliance_checks = build_paper_compliance_checks(
             paper_mode=paper_mode,
@@ -483,6 +558,8 @@ def finalize_run_manifest_stage(
             experiment_registry_path=str(registry_path),
             taxonomy_summary_path=str(taxonomy_summary_path),
             taxonomy_type_rows_evaluated=taxonomy_type_rows_evaluated,
+            taxonomy_mismatch_count=paper_facing_taxonomy_mismatch_count,
+            taxonomy_mismatch_max_allowed=taxonomy_mismatch_max_allowed,
         )
         compliance_report = compliance.build_compliance_report(run_id=run_id, checks=compliance_checks)
         compliance_path = diagnostics_dir / f"paper_mode_compliance_report_{run_id}.json"
@@ -556,6 +633,7 @@ def finalize_run_manifest_stage(
 
         manifest["artifact_list"] = sorted(set(artifact_list))
         _merge_lifecycle_into_manifest(manifest, manifest_context)
+        intentional_partial = _run_is_intentional_partial(manifest_context)
         _write_manifest_with_pointer(
             manifest=manifest,
             run_id=run_id,
@@ -620,12 +698,26 @@ def finalize_run_manifest_stage(
                     "[EVIDENCE] Run marked not_ready. "
                     f"Failed checks: {', '.join(sorted(set(failed_checks)))}"
                 )
+                result_code = 0 if intentional_partial else 1
+                _apply_terminal_manifest_status(
+                    manifest=manifest,
+                    manifest_context=manifest_context,
+                    profile=profile,
+                    paper_mode=paper_mode,
+                    compliance_report=compliance_report,
+                )
+                _write_manifest_with_pointer(
+                    manifest=manifest,
+                    run_id=run_id,
+                    paper_mode=paper_mode,
+                    run_root=run_root,
+                )
                 _write_run_summary_json(
                     run_root=run_root,
                     diagnostics_dir=diagnostics_dir,
                     manifest_context=manifest_context,
                     manifest=manifest,
-                    result_code=1,
+                    result_code=result_code,
                 )
                 _finalize_output_hygiene_bundle(
                     run_root=run_root,
@@ -638,20 +730,34 @@ def finalize_run_manifest_stage(
                     compliance_report=compliance_report,
                     paper_mode=paper_mode,
                     evidence_mode=evidence_mode,
-                    result_code=1,
+                    result_code=result_code,
                 )
-                return 1
+                return result_code
         if paper_mode and str(compliance_report.get("overall_status")) != "pass":
             du.print_error(f"[PAPER] Compliance failed. Report: {compliance_path}")
             fc = manifest_context.setdefault("_evidence_readiness_failed_checks", [])
             if isinstance(fc, list):
                 fc.append("paper_mode_compliance_overall_fail")
+            result_code = 0 if intentional_partial else 1
+            _apply_terminal_manifest_status(
+                manifest=manifest,
+                manifest_context=manifest_context,
+                profile=profile,
+                paper_mode=paper_mode,
+                compliance_report=compliance_report,
+            )
+            _write_manifest_with_pointer(
+                manifest=manifest,
+                run_id=run_id,
+                paper_mode=paper_mode,
+                run_root=run_root,
+            )
             _write_run_summary_json(
                 run_root=run_root,
                 diagnostics_dir=diagnostics_dir,
                 manifest_context=manifest_context,
                 manifest=manifest,
-                result_code=1,
+                result_code=result_code,
             )
             _finalize_output_hygiene_bundle(
                 run_root=run_root,
@@ -664,9 +770,22 @@ def finalize_run_manifest_stage(
                 compliance_report=compliance_report,
                 paper_mode=paper_mode,
                 evidence_mode=evidence_mode,
-                result_code=1,
+                result_code=result_code,
             )
-            return 1
+            return result_code
+        _apply_terminal_manifest_status(
+            manifest=manifest,
+            manifest_context=manifest_context,
+            profile=profile,
+            paper_mode=paper_mode,
+            compliance_report=compliance_report,
+        )
+        _write_manifest_with_pointer(
+            manifest=manifest,
+            run_id=run_id,
+            paper_mode=paper_mode,
+            run_root=run_root,
+        )
         _write_run_summary_json(
             run_root=run_root,
             diagnostics_dir=diagnostics_dir,

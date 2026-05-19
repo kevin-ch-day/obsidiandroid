@@ -190,6 +190,7 @@ def build_runtime_contract(
 
     sample_id_lock = dict(declared.get("sample_id_lock", {}))
     lock_path = str(sample_id_lock.get("path", "") or "").strip()
+    runtime_snapshot_lock = dict(samples_df.attrs.get("snapshot_lock", {}) or {})
     if lock_path:
         lock_meta = _read_lock_file_metadata(Path(lock_path))
         sample_id_lock.update(lock_meta)
@@ -210,6 +211,20 @@ def build_runtime_contract(
         "canonical_historical_run_id": str(declared.get("canonical_historical_run_id", "")),
     }
 
+    validation_status = "match" if not mismatches else "mismatch"
+    validation_severity = "error" if mismatches else "none"
+    runtime_drift = _runtime_db_drift_summary(
+        declared=declared,
+        observed=observed,
+        sample_id_lock=sample_id_lock,
+        runtime_snapshot_lock=runtime_snapshot_lock,
+        mismatches=mismatches,
+    )
+    if runtime_drift is not None:
+        validation_status = "degraded_live_db_drift"
+        validation_severity = "warning"
+        sample_id_lock["runtime_db_drift"] = runtime_drift
+
     payload = {
         **declared,
         "observed": observed,
@@ -217,10 +232,19 @@ def build_runtime_contract(
         "db_snapshot": db_snapshot,
         "validation": {
             "checked": True,
-            "status": "match" if not mismatches else "mismatch",
+            "status": validation_status,
+            "severity": validation_severity,
             "mismatches": mismatches,
         },
     }
+    if runtime_drift is not None:
+        payload["contract_status"] = "count_only_incomplete_sample_lock"
+        payload["cohort_lock_status"] = "count_only_incomplete_sample_lock"
+        payload["enforcement_level"] = "partial"
+        payload["validation"]["warning"] = _format_runtime_db_drift_warning(
+            profile=profile,
+            runtime_drift=runtime_drift,
+        )
     if mismatches and raise_on_mismatch:
         raise ValueError(_format_contract_mismatch_error(profile=profile, declared=declared, mismatches=mismatches))
     return payload
@@ -237,6 +261,20 @@ def _format_contract_mismatch_error(
         f"[COHORT_LOCK] Locked cohort contract mismatch for profile "
         f"{declared.get('profile_id', profile.get('profile_id', 'unknown'))}: "
         + "; ".join(mismatches)
+    )
+
+
+def _format_runtime_db_drift_warning(
+    *,
+    profile: dict[str, Any],
+    runtime_drift: dict[str, Any],
+) -> str:
+    """Explain degraded lock enforcement when a preserved sample lock outlives the live DB."""
+    profile_id = str(profile.get("profile_id", "unknown") or "unknown")
+    return (
+        f"[COHORT_LOCK] Locked cohort drift for profile {profile_id}: preserved sample-id lock still exists, "
+        f"but {int(runtime_drift.get('missing_from_db_count', 0) or 0)} locked sample(s) are absent from the "
+        "current live DB cohort. Downgrading to count-only lock semantics for this run."
     )
 
 
@@ -325,6 +363,56 @@ def _read_lock_file_metadata(lock_path: Path) -> dict[str, Any]:
     return {
         "lock_sample_count": int(len(sample_ids)),
         "lock_sample_id_hash": hash_payload(sample_ids),
+    }
+
+
+def _runtime_db_drift_summary(
+    *,
+    declared: dict[str, Any],
+    observed: dict[str, Any],
+    sample_id_lock: dict[str, Any],
+    runtime_snapshot_lock: dict[str, Any],
+    mismatches: list[str],
+) -> dict[str, Any] | None:
+    """Return degraded lock metadata when live DB drift explains a preserved lock mismatch."""
+    if not mismatches:
+        return None
+    lock_status = str(sample_id_lock.get("status", "") or "").strip().lower()
+    if lock_status != "recovered_from_historical_artifact":
+        return None
+    if not bool(runtime_snapshot_lock.get("applied", False)):
+        return None
+    missing_from_db_count = int(runtime_snapshot_lock.get("missing_from_db_count", 0) or 0)
+    if missing_from_db_count <= 0:
+        return None
+    lock_sample_count = int(sample_id_lock.get("lock_sample_count", 0) or 0)
+    expected = dict(declared.get("expected", {}) or {})
+    expected_sample_count = int(expected.get("sample_count", 0) or 0)
+    expected_family_count = int(expected.get("family_count", 0) or 0)
+    expected_type_count = int(expected.get("type_count", 0) or 0)
+    matched_sample_count = int(runtime_snapshot_lock.get("matched_sample_count", observed["sample_count"]) or observed["sample_count"])
+    if lock_sample_count <= 0 or matched_sample_count != observed["sample_count"]:
+        return None
+    if expected_sample_count and lock_sample_count != expected_sample_count:
+        return None
+    if observed["sample_count"] >= lock_sample_count:
+        return None
+    if expected_type_count and observed["type_count"] != expected_type_count:
+        return None
+    allowed_prefixes = (
+        "sample_count observed=",
+        "family_count observed=",
+        "lock_sample_count observed=",
+    )
+    if any(not any(item.startswith(prefix) for prefix in allowed_prefixes) for item in mismatches):
+        return None
+    return {
+        "reason": "live_db_missing_locked_members",
+        "missing_from_db_count": missing_from_db_count,
+        "lock_sample_count": lock_sample_count,
+        "matched_sample_count": matched_sample_count,
+        "expected_family_count": expected_family_count,
+        "observed_family_count": observed["family_count"],
     }
 
 

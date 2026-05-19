@@ -14,6 +14,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
 
 from obsidiandroid.orchestration.permission_features import build_permission_feature_frame
@@ -161,10 +162,15 @@ def _write_permission_fuse_audit(flat: dict[str, Any]) -> None:
     out_dir = Path(diag)
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(flat, indent=2, sort_keys=True) + "\n"
-    named = out_dir / f"permission_fuse_audit_{getattr(app_config, 'RUNTIME_RUN_ID', 'unknown')}.json"
+    run_id = oh.normalize_artifact_run_id(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
+    named = out_dir / f"permission_fuse_audit_{run_id}.json"
     named.write_text(payload, encoding="utf-8")
-    latest = out_dir / "permission_fuse_audit.latest.json"
-    latest.write_text(payload, encoding="utf-8")
+    oh.mirror_json_text_run_then_global(
+        diagnostics_dir=out_dir,
+        run_filename=named.name,
+        payload=flat,
+        global_latest_name="permission_fuse_audit.latest.json",
+    )
 
 
 def _duplicate_sample_id_report_rows(df: pd.DataFrame) -> pd.DataFrame:
@@ -232,11 +238,18 @@ def _maybe_export_duplicate_sample_id_pre_fuse(merged: pd.DataFrame, dup_count: 
         setattr(app_config, "RUNTIME_DUPLICATE_SAMPLE_ID_PRE_FUSE_CSV", "")
         _strict_enrichment_duplicate_sample_id_gate(dup_count)
         return
-    rid = str(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
-    path = Path(diag) / f"duplicate_sample_id_pre_fuse_{rid}.csv"
-    rep.to_csv(path, index=False)
-    latest = Path(diag) / "duplicate_sample_id_pre_fuse.latest.csv"
-    rep.to_csv(latest, index=False)
+    rid = oh.normalize_artifact_run_id(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
+    diag_path = Path(diag)
+    diag_path.mkdir(parents=True, exist_ok=True)
+    path = diag_path / f"duplicate_sample_id_pre_fuse_{rid}.csv"
+    csv_text = rep.to_csv(index=False)
+    path.write_text(csv_text, encoding="utf-8")
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diag_path,
+        run_filename=path.name,
+        csv_text=csv_text,
+        global_latest_name="duplicate_sample_id_pre_fuse.latest.csv",
+    )
     setattr(app_config, "RUNTIME_DUPLICATE_SAMPLE_ID_PRE_FUSE_CSV", str(path))
     du.print_info(f"[FEATURES] Duplicate sample_id drill-down: {path}")
     _strict_enrichment_duplicate_sample_id_gate(dup_count)

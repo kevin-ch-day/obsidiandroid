@@ -16,7 +16,7 @@ from config import app_config
 from scripts.diagnostics import inspect_classification_results as inspector
 from obsidiandroid.evaluation import ml_comparator_summary as comparator
 from obsidiandroid.cli.ui import display as du
-from obsidiandroid.common import ml_console
+from obsidiandroid.common import ml_console, output_hygiene as oh
 from obsidiandroid.reporting import export_manager as em
 from obsidiandroid.reporting.operator_dashboard import bump_artifact_counter
 from obsidiandroid.observability.logging import get_logger, log_event
@@ -222,14 +222,18 @@ def _export_label_name_map(labels_df: pd.Series, diagnostics_dir: Path) -> str |
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
     out_path = diagnostics_dir / f"label_name_map_{run_id}.json"
-    latest_path = diagnostics_dir / "label_name_map.latest.json"
     payload = {
         "run_id": run_id,
         "label_name_map": normalized,
     }
     encoded = json.dumps(payload, indent=2, sort_keys=True)
     out_path.write_text(encoded, encoding="utf-8")
-    latest_path.write_text(encoded, encoding="utf-8")
+    oh.mirror_json_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=out_path.name,
+        payload=payload,
+        global_latest_name="label_name_map.latest.json",
+    )
     return str(out_path)
 
 
@@ -239,8 +243,9 @@ def _export_leakage_pruning_audit(diagnostics_dir: Path, *, final_column_count: 
     if not isinstance(audit_rows, list):
         return None
 
+    diagnostics_dir = oh.validate_diagnostics_output_dir(diagnostics_dir)
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
+    run_id = oh.normalize_artifact_run_id(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
     audit_df = pd.DataFrame(audit_rows)
     if audit_df.empty:
         audit_df = pd.DataFrame(columns=["column_name", "reason_code", "details"])
@@ -261,9 +266,14 @@ def _export_leakage_pruning_audit(diagnostics_dir: Path, *, final_column_count: 
     )
     audit_df = pd.concat([audit_df, summary], ignore_index=True)
     out_path = diagnostics_dir / f"leakage_pruning_audit_{run_id}.csv"
-    latest_path = diagnostics_dir / "leakage_pruning_audit.latest.csv"
-    audit_df.to_csv(out_path, index=False)
-    audit_df.to_csv(latest_path, index=False)
+    csv_text = audit_df.to_csv(index=False)
+    out_path.write_text(csv_text, encoding="utf-8")
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=out_path.name,
+        csv_text=csv_text,
+        global_latest_name="leakage_pruning_audit.latest.csv",
+    )
     setattr(app_config, "RUNTIME_LEAKAGE_PRUNING_AUDIT_PATH", str(out_path))
     return str(out_path)
 
@@ -852,12 +862,16 @@ def run_classifier_pipeline(
             bump_artifact_counter("diagnostics", 1)
     except Exception as exc:
         du.print_warning(f"[FEATURE_SURVIVAL] Export skipped: {exc}")
-    leakage_audit_path = _export_leakage_pruning_audit(
-        diagnostics_dir,
-        final_column_count=(
-            int(features_df.shape[1]) if isinstance(features_df, pd.DataFrame) else 0
-        ),
-    )
+    try:
+        leakage_audit_path = _export_leakage_pruning_audit(
+            diagnostics_dir,
+            final_column_count=(
+                int(features_df.shape[1]) if isinstance(features_df, pd.DataFrame) else 0
+            ),
+        )
+    except Exception as exc:
+        du.print_warning(f"[LEAKAGE_AUDIT] Export skipped: {exc}")
+        leakage_audit_path = None
     if leakage_audit_path:
         governance_writes.append(Path(leakage_audit_path).name)
         bump_artifact_counter("diagnostics", 1)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from config import app_config
 from obsidiandroid.common.cohort_contracts import resolve_contract_cohort_lock_status
 from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
 import obsidiandroid.governance.run_manifest as run_manifest
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.pipeline.manifest.confusion_matrix_paths import find_primary_confusion_matrix
 
 EVIDENCE_BUNDLE_DIRNAME = "evidence_bundle"
@@ -23,7 +25,6 @@ def _bundle_dirs(run_root: Path) -> tuple[Path, Path]:
     bundle_dir = run_root / EVIDENCE_BUNDLE_DIRNAME
     legacy_dir = run_root / LEGACY_EVIDENCE_BUNDLE_DIRNAME
     bundle_dir.mkdir(parents=True, exist_ok=True)
-    legacy_dir.mkdir(parents=True, exist_ok=True)
     return bundle_dir, legacy_dir
 
 
@@ -31,7 +32,13 @@ def _mirror_legacy_bundle_file(*, source_path: Path, legacy_dir: Path) -> None:
     legacy_path = legacy_dir / source_path.name
     if source_path.resolve() == legacy_path.resolve():
         return
-    legacy_path.write_bytes(source_path.read_bytes())
+    legacy_dir.mkdir(parents=True, exist_ok=True)
+    if legacy_path.exists():
+        legacy_path.unlink()
+    try:
+        os.link(source_path, legacy_path)
+    except OSError:
+        legacy_path.write_bytes(source_path.read_bytes())
 
 
 def build_paper2_pack(
@@ -245,8 +252,14 @@ def export_trained_family_registry(
     out_df.insert(0, "run_id", str(run_id))
     run_path = diagnostics_dir / f"trained_family_registry_{run_id}.csv"
     latest_path = diagnostics_dir / "trained_family_registry.latest.csv"
-    out_df.to_csv(run_path, index=False)
-    out_df.to_csv(latest_path, index=False)
+    csv_text = out_df.to_csv(index=False)
+    run_path.write_text(csv_text, encoding="utf-8")
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=run_path.name,
+        csv_text=csv_text,
+        global_latest_name=latest_path.name,
+    )
     included = int(out_df["included_in_training"].sum())
     return run_path, included
 
@@ -301,8 +314,14 @@ def export_confusion_matrix_provenance(
     )
     run_path = diagnostics_dir / f"confusion_matrix_provenance_{run_id}.csv"
     latest_path = diagnostics_dir / "confusion_matrix_provenance.latest.csv"
-    provenance_df.to_csv(run_path, index=False)
-    provenance_df.to_csv(latest_path, index=False)
+    csv_text = provenance_df.to_csv(index=False)
+    run_path.write_text(csv_text, encoding="utf-8")
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=run_path.name,
+        csv_text=csv_text,
+        global_latest_name=latest_path.name,
+    )
     return run_path
 
 

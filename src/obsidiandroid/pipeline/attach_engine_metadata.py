@@ -9,6 +9,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.database import db_av_engine_detection_totals
 
 METADATA_FIELDS = [
@@ -72,11 +73,16 @@ def _write_engine_metadata_overlay_csv(meta_df: pd.DataFrame, *, verbose: bool) 
         return None
     out_dir = _overlay_diagnostics_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
-    run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
+    run_id = oh.normalize_artifact_run_id(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
     path = out_dir / f"engine_metadata_overlay_{run_id}.csv"
-    latest = out_dir / "engine_metadata_overlay.latest.csv"
-    meta_df.to_csv(path, index=True)
-    meta_df.to_csv(latest, index=True)
+    csv_text = meta_df.to_csv(index=True)
+    path.write_text(csv_text, encoding="utf-8")
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=out_dir,
+        run_filename=path.name,
+        csv_text=csv_text,
+        global_latest_name="engine_metadata_overlay.latest.csv",
+    )
     setattr(app_config, "RUNTIME_ENGINE_METADATA_OVERLAY_CSV", str(path))
     if verbose:
         du.print_info(

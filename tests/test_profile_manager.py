@@ -144,7 +144,20 @@ def test_profile_summary_exposes_locked_status(tmp_path: Path) -> None:
     locked_summary = profile_manager._summarize_profile(locked)  # pylint: disable=protected-access
     legacy_summary = profile_manager._summarize_profile(legacy)  # pylint: disable=protected-access
     assert "lock=membership-locked" in locked_summary
-    assert "publication=legacy-unlocked" in legacy_summary
+    assert "publication=unlocked" in legacy_summary
+
+
+def test_quick_profile_label_prefers_operator_facing_descriptions() -> None:
+    """Quick profile menu should lead with human labels instead of raw profile ids."""
+    assert profile_manager.profile_selection.quick_profile_label(
+        "malicious_temporal_stability_locked"
+    ) == "Publication-ready: locked all-malicious baseline"
+    assert profile_manager.profile_selection.quick_profile_label(
+        "research_all_malicious"
+    ) == "Exploratory: all-malicious research cohort"
+    assert profile_manager.profile_selection.quick_profile_label(
+        "dev_smoke"
+    ) == "Smoke: ultra-fast sanity check"
 
 
 def test_legacy_profile_aliases_resolve_to_generic_names() -> None:
@@ -152,6 +165,56 @@ def test_legacy_profile_aliases_resolve_to_generic_names() -> None:
     assert profile_manager.load_profile("paper2_primary")["profile_id"] == "malicious_temporal_stability"
     assert profile_manager.load_profile("paper2_primary_locked")["profile_id"] == "malicious_temporal_stability_locked"
     assert profile_manager.load_profile("paper1_banker_locked")["profile_id"] == "banker_locked"
+
+
+def test_infer_cohort_readiness_signal_maps_banker_profiles() -> None:
+    signal = profile_manager.infer_cohort_readiness_signal("banker_locked")
+    assert signal["bucket"] == "android_banker_with_permission_obs"
+    assert "Best matching readiness bucket" in str(signal["summary"])
+
+
+def test_infer_cohort_readiness_signal_maps_temporal_and_all_malicious_profiles() -> None:
+    temporal = profile_manager.infer_cohort_readiness_signal("malicious_temporal_stability_locked")
+    exploratory = profile_manager.infer_cohort_readiness_signal("all_malicious")
+    assert temporal["bucket"] == "android_high_or_strong_vt_with_permission_obs"
+    assert "high/strong VT confidence" in str(temporal["detail"])
+    assert exploratory["bucket"] == "android_with_permission_obs"
+    assert "permission observations." in str(exploratory["detail"])
+
+
+def test_infer_cohort_readiness_signal_maps_hidden_paper2_profiles_by_intent() -> None:
+    primary = profile_manager.infer_cohort_readiness_signal("paper2_primary")
+    sensitivity = profile_manager.infer_cohort_readiness_signal("paper2_sensitivity_consensus10")
+    assert primary["bucket"] == "android_high_or_strong_vt_with_permission_obs"
+    assert sensitivity["bucket"] == "android_high_or_strong_vt_with_permission_obs"
+
+
+def test_infer_cohort_readiness_signal_returns_unmapped_advisory_for_unknown_profile() -> None:
+    signal = profile_manager.infer_cohort_readiness_signal("definitely_unknown_profile")
+    assert signal["bucket"] is None
+    assert str(signal["summary"]) == "No readiness bucket mapped for this profile; review cohort filters manually."
+
+
+def test_infer_cohort_readiness_signal_maps_broad_android_profiles_to_android_platform() -> None:
+    mixed = profile_manager.infer_cohort_readiness_signal("mixed")
+    benign_heavy = profile_manager.infer_cohort_readiness_signal("benign_heavy")
+    assert mixed["bucket"] == "android_platform"
+    assert benign_heavy["bucket"] == "android_platform"
+
+
+def test_inventory_cohort_readiness_mappings_covers_all_profile_files() -> None:
+    inventory = profile_manager.inventory_cohort_readiness_mappings()
+    profile_paths = sorted(p for p in profile_manager.PROFILES_DIR.glob("*.yaml"))
+    assert len(inventory) == len(profile_paths)
+    assert all(row["status"] in {"mapped", "ambiguous"} for row in inventory)
+    assert all("summary" in row for row in inventory)
+    assert all("detail" in row for row in inventory)
+
+
+def test_inventory_cohort_readiness_mappings_current_catalog_has_no_ambiguous_entries() -> None:
+    inventory = profile_manager.inventory_cohort_readiness_mappings()
+    ambiguous = [row["profile_id"] for row in inventory if row["status"] != "mapped"]
+    assert ambiguous == []
 
 
 def test_load_profile_rejects_unknown_model_key(tmp_path: Path, monkeypatch) -> None:

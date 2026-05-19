@@ -52,6 +52,11 @@ CROSS_RUN_ARTIFACT_POINTERS: dict[str, Any] = {
     "RUNTIME_ENGINE_METADATA_OVERLAY_CSV": "",
     "RUNTIME_PERMISSION_TRAINING_SURVIVAL_CSV": "",
     "RUNTIME_FEATURE_COLUMN_SURVIVAL_CSV": "",
+    "RUNTIME_PERMISSION_BUNDLE_DIR": "",
+    "RUNTIME_PERMISSION_BUNDLE_ZIP": "",
+    "RUNTIME_PERMISSION_BUNDLE_LATEST_DIR": "",
+    "RUNTIME_PERMISSION_FUSE_AUDIT": {},
+    "RUNTIME_DUPLICATE_SAMPLE_ID_PRE_FUSE_CSV": "",
     "RUNTIME_SPLIT_METADATA": None,
     "RUNTIME_SPLIT_HASH": "",
     "RUNTIME_SPLIT_AUDIT_PATH": "",
@@ -74,6 +79,12 @@ def clear_cross_run_artifact_path_pointers() -> None:
     """Clear artifact path pointers from prior runs (see ``CROSS_RUN_ARTIFACT_POINTERS``)."""
     for key, value in CROSS_RUN_ARTIFACT_POINTERS.items():
         setattr(app_config, key, value)
+    try:
+        from obsidiandroid.reporting import export_manager
+
+        export_manager.reset_runtime_export_state()
+    except Exception:
+        pass
 
 
 def build_mutable_config_keys() -> set[str]:

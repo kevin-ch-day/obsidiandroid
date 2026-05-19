@@ -661,6 +661,7 @@ def train_model_factory(
         or getattr(app_config, "PAPER_MODE_ENABLED", False)
     )
     disable_smote_evidence = bool(getattr(app_config, "DISABLE_SMOTE_IN_EVIDENCE_MODE", False))
+    setattr(app_config, "RUNTIME_SMOTE_WARNING_LAST", "")
     if use_smote_effective and evidence_or_paper and disable_smote_evidence:
         if not quiet_train:
             du.print_info(
@@ -674,10 +675,14 @@ def train_model_factory(
         and model_type != "balanced_random_forest"
         and not quiet_train
     ):
-        du.print_warning(
+        warning_text = (
             "[SMOTE] Synthetic oversampling is enabled in evidence/paper mode; "
             "set OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE=1 to disable for stricter reproducibility."
         )
+        du.print_warning(
+            warning_text
+        )
+        setattr(app_config, "RUNTIME_SMOTE_WARNING_LAST", warning_text)
 
     if use_smote_effective and model_type != "balanced_random_forest":
         X_train, y_train = apply_smote(X_train, y_train, random_state)
@@ -761,5 +766,4 @@ def train_model_factory(
         "cv_score_mean": float(np.mean(cv_scores)) if cv_scores is not None else None,
         **result,
     }
-
 

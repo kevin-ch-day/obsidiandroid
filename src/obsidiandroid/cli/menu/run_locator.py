@@ -209,7 +209,7 @@ def resolve_run_root_for_manifest(
     return output_paths.runs_root()
 
 
-def read_locked_paper_run_id() -> str | None:
+def read_locked_publication_run_id() -> str | None:
     """Return locked publication/evidence run pointer when available."""
     diagnostics_root = output_paths.diagnostics_root()
     candidates = [
@@ -224,6 +224,11 @@ def read_locked_paper_run_id() -> str | None:
     except Exception:
         return None
     return run_id or None
+
+
+def read_locked_paper_run_id() -> str | None:
+    """Compatibility alias for the legacy helper name."""
+    return read_locked_publication_run_id()
 
 
 def candidate_workbook_paths() -> list[Path]:

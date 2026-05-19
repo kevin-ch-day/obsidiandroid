@@ -51,7 +51,7 @@ This review focused on:
 
 ---
 
-### 3) `ml_classification/training/pipeline_core.py` (360 LOC) combines alignment, filtering, training loop, summarization, promotion
+### 3) `obsidiandroid/modeling/pipeline_core.py` (historically large) combines alignment, filtering, training loop, summarization, promotion
 
 **Symptoms**
 - One module responsible for too many ML lifecycle phases.
@@ -67,7 +67,7 @@ This review focused on:
 
 ### A) Row-wise parsing with `iterrows()` in parser execution path
 
-- `analysis/execution/vendor_classification_processor.py` loops through every row with `iterrows()` and performs per-row object construction/parsing.
+- Historical parser/runtime hot-path work lived under `analysis/execution/*`; the canonical runtime path is now `obsidiandroid.vendors.execution.*`. The same caution still applies where row-wise parser execution remains.
 
 **Why this hurts**
 - `iterrows()` is one of the slowest pandas iteration patterns.

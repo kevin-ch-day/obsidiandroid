@@ -5,17 +5,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from obsidiandroid.common import output_hygiene as oh
+
 
 def write_taxonomy_label_quality_audit(*, diagnostics_dir: Path, run_id: str) -> Path:
     """Write ``taxonomy_label_quality_audit.md`` from ``taxonomy_consistency_summary`` JSON."""
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     out_path = diagnostics_dir / "taxonomy_label_quality_audit.md"
 
-    candidates = [
-        diagnostics_dir / f"taxonomy_consistency_summary_{run_id}.json",
-        diagnostics_dir / "taxonomy_consistency_summary.latest.json",
-    ]
-    summary_path = next((p for p in candidates if p.exists()), None)
+    summary_path = oh.resolve_taxonomy_consistency_summary_path(diagnostics_dir, run_id)
+    if not summary_path.exists():
+        summary_path = None
 
     lines: list[str] = [
         "# Taxonomy & structured label quality audit",

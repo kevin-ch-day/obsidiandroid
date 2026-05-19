@@ -1,8 +1,7 @@
 """Canonical inference namespace for heuristic consensus and signal-quality helpers.
 
 Heuristic label consensus and signal-quality helpers live under
-``obsidiandroid.inference``. Legacy ``ml_classification.inference.*`` paths
-remain thin identity shims.
+``obsidiandroid.inference``.
 """
 
 from __future__ import annotations

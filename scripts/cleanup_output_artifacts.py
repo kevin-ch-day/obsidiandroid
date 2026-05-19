@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -20,8 +21,11 @@ ensure_repo_src_on_sys_path()
 from obsidiandroid.common.output_cleanup_clutter import (
     DIAGNOSTICS_TIMESTAMP_GLOBS,
     LEGACY_OUTPUT_ROOT_FILES,
+    LEGACY_RUN_SUBDIR_NAMES,
     PAPER_BUNDLE_ARCHIVE_GLOBS,
     PAPER_BUNDLE_SMOKE_GLOBS,
+    RUN_DIAGNOSTICS_LOCAL_LATEST_GLOB,
+    RUN_DIAGNOSTICS_SPLIT_FREEZE_GLOB,
     WORKBOOK_CORRUPT_GLOB,
 )
 from obsidiandroid.common.output_paths import project_logs_root
@@ -36,33 +40,102 @@ def _extract_run_id(path: Path) -> str | None:
     return match.group(1) if match else None
 
 
+def _discover_pointed_latest_run_id(output_dir: Path) -> str | None:
+    """Prefer canonical latest-run pointer files over mtime heuristics."""
+    diagnostics_pointer = output_dir / "diagnostics" / "latest_run_pointer.json"
+    if diagnostics_pointer.is_file():
+        try:
+            payload = json.loads(diagnostics_pointer.read_text(encoding="utf-8"))
+            run_id = str(payload.get("run_id", "")).strip()
+            if run_id:
+                return run_id
+        except Exception:
+            pass
+
+    promoted_manifest = output_dir / "promoted" / "latest_run_manifest.json"
+    if promoted_manifest.is_file():
+        try:
+            payload = json.loads(promoted_manifest.read_text(encoding="utf-8"))
+            run_id = str(payload.get("run_id", "")).strip()
+            if run_id:
+                return run_id
+        except Exception:
+            pass
+
+    promoted_txt = output_dir / "promoted" / "latest_run.txt"
+    if promoted_txt.is_file():
+        run_id = promoted_txt.read_text(encoding="utf-8").strip()
+        if run_id:
+            return run_id
+    return None
+
+
 def _discover_recent_run_ids(output_dir: Path, keep_latest_runs: int) -> set[str]:
     """Return the newest run IDs discovered under output/runs."""
     if keep_latest_runs <= 0:
         return set()
     runs_dir = output_dir / "runs"
-    run_ids: set[str] = set()
+    run_ids_in_order: list[str] = []
+    pointed_run_id = _discover_pointed_latest_run_id(output_dir)
+    if pointed_run_id:
+        run_ids_in_order.append(pointed_run_id)
     if runs_dir.exists():
         run_dirs = [path for path in runs_dir.iterdir() if path.is_dir()]
         run_dirs.sort(key=lambda item: item.stat().st_mtime, reverse=True)
         for run_dir in run_dirs:
             run_id = _extract_run_id(run_dir) or run_dir.name
-            if run_id:
-                run_ids.add(run_id)
-            if len(run_ids) >= keep_latest_runs:
+            if run_id and run_id not in run_ids_in_order:
+                run_ids_in_order.append(run_id)
+            if len(run_ids_in_order) >= keep_latest_runs:
                 break
-    sorted_ids = sorted(run_ids, reverse=True)
-    return set(sorted_ids[:keep_latest_runs])
+    return set(run_ids_in_order[:keep_latest_runs])
+
+
+def _sync_promoted_latest_run_pointers(output_dir: Path) -> bool:
+    """Rewrite legacy promoted latest-run pointers from the canonical diagnostics pointer."""
+    diagnostics_pointer = output_dir / "diagnostics" / "latest_run_pointer.json"
+    if not diagnostics_pointer.is_file():
+        return False
+    try:
+        payload = json.loads(diagnostics_pointer.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+
+    run_id = str(payload.get("run_id", "")).strip()
+    run_root = str(payload.get("run_root", "")).strip()
+    created_at_utc = str(payload.get("created_at_utc", "")).strip()
+    if not run_id:
+        return False
+
+    promoted_dir = output_dir / "promoted"
+    promoted_dir.mkdir(parents=True, exist_ok=True)
+    (promoted_dir / "latest_run.txt").write_text(f"{run_id}\n", encoding="utf-8")
+    (promoted_dir / "latest_run_manifest.json").write_text(
+        json.dumps(
+            {
+                "created_at_utc": created_at_utc,
+                "run_id": run_id,
+                "run_root": run_root,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return True
 
 
 def _collect_targets(
     output_dir: Path,
     keep_run_ids: set[str],
     keep_runtime_logs: int,
+    prune_preserved_legacy: bool = False,
 ) -> list[Path]:
     """Build list of cleanup targets while preserving selected recent runs."""
     targets: list[Path] = []
     pipeline_runtime_candidates: list[Path] = []
+    runs_dir = output_dir / "runs"
 
     # Run-scoped bundles/archives (keep latest selected run IDs).
     for pattern in PAPER_BUNDLE_ARCHIVE_GLOBS:
@@ -71,6 +144,29 @@ def _collect_targets(
             if run_id and run_id in keep_run_ids:
                 continue
             targets.append(path)
+
+    # Historical run-local layout clutter. Canonical artifacts already live at run_root.
+    if runs_dir.exists():
+        for run_dir in runs_dir.iterdir():
+            if not run_dir.is_dir():
+                continue
+            run_id = _extract_run_id(run_dir) or run_dir.name
+            preserve_run = run_id in keep_run_ids
+            if preserve_run and not prune_preserved_legacy:
+                continue
+            for dirname in LEGACY_RUN_SUBDIR_NAMES:
+                legacy_dir = run_dir / dirname
+                if legacy_dir.exists():
+                    targets.append(legacy_dir)
+            legacy_pack_dir = run_dir / "paper2_pack"
+            if legacy_pack_dir.exists() and (run_dir / "evidence_bundle").exists():
+                targets.append(legacy_pack_dir)
+            if preserve_run:
+                continue
+            diagnostics_dir = run_dir / "diagnostics"
+            if diagnostics_dir.exists():
+                targets.extend(p for p in diagnostics_dir.glob(RUN_DIAGNOSTICS_LOCAL_LATEST_GLOB) if p.is_file())
+                targets.extend(p for p in diagnostics_dir.glob(RUN_DIAGNOSTICS_SPLIT_FREEZE_GLOB) if p.is_file())
 
     # Legacy global mirrors and exports now superseded by run-scoped outputs.
     for legacy_name in LEGACY_OUTPUT_ROOT_FILES:
@@ -164,6 +260,11 @@ def main() -> None:
         default=5,
         help="Number of newest runtime log files to preserve.",
     )
+    parser.add_argument(
+        "--prune-preserved-legacy",
+        action="store_true",
+        help="Also prune redundant legacy layout dirs from the preserved latest run(s).",
+    )
     parser.add_argument("--apply", action="store_true", help="Apply deletions (default is dry-run).")
     args = parser.parse_args()
 
@@ -177,9 +278,16 @@ def main() -> None:
         output_dir,
         keep_run_ids=keep_run_ids,
         keep_runtime_logs=max(0, args.keep_runtime_logs),
+        prune_preserved_legacy=bool(args.prune_preserved_legacy),
     )
+    pointers_synced = False
     if not targets:
-        print("No cleanup targets found.")
+        if args.apply:
+            pointers_synced = _sync_promoted_latest_run_pointers(output_dir)
+        if pointers_synced:
+            print("No cleanup targets found. Synced promoted latest-run pointers.")
+        else:
+            print("No cleanup targets found.")
         return
 
     if keep_run_ids:
@@ -194,7 +302,10 @@ def main() -> None:
 
     for target in targets:
         _remove_path(target)
+    pointers_synced = _sync_promoted_latest_run_pointers(output_dir)
     print(f"Deleted {len(targets)} targets.")
+    if pointers_synced:
+        print("Synced promoted latest-run pointers from canonical diagnostics pointer.")
 
 
 if __name__ == "__main__":

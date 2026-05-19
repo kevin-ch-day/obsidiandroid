@@ -32,6 +32,16 @@ from obsidiandroid.pipeline.manifest.paper_figure_renderers import (
 )
 from obsidiandroid.reporting.latex_tables import LatexTableSpec, render_tabular
 
+
+def _resolve_existing_path(*candidates: Path | None) -> Path:
+    """Return the first existing path from a candidate list, or the first non-null candidate."""
+    normalized = [Path(candidate) for candidate in candidates if candidate is not None]
+    for candidate in normalized:
+        if candidate.exists():
+            return candidate
+    return normalized[0] if normalized else Path()
+
+
 def build_paper_model_comparison_table(*, source_path: Path, output_path: Path) -> None:
     """Build compact paper model-comparison table for RF/XGB/LR only."""
     src_df = pd.read_csv(source_path)
@@ -395,6 +405,16 @@ def build_paper_ablation_table(*, source_path: Path, output_path: Path) -> None:
         src_df.to_csv(output_path, index=False)
         return
     keep_features = {"permissions_only", "vendor_only", "vendor_permissions_fused"}
+    feature_aliases = {
+        "permissions_only": "permissions_only",
+        "permissions_grouped": "permissions_only",
+        "permissions_raw": "permissions_only",
+        "vendor_only": "vendor_only",
+        "vendor_full": "vendor_only",
+        "vendor_permissions_fused": "vendor_permissions_fused",
+        "permissions_grouped_plus_vendor_no_family": "vendor_permissions_fused",
+        "permissions_grouped_plus_vendor_safe": "vendor_permissions_fused",
+    }
     model_map = {
         "rf": "random_forest",
         "random_forest": "random_forest",
@@ -404,7 +424,13 @@ def build_paper_ablation_table(*, source_path: Path, output_path: Path) -> None:
         "logistic_regression": "logistic_regression",
     }
     work = src_df[[feature_col, model_col, macro_col]].copy()
-    work["feature_set"] = work[feature_col].astype(str).str.strip().str.lower()
+    if "label_target" in src_df.columns:
+        work["label_target"] = src_df["label_target"].astype(str).str.strip().str.lower()
+    else:
+        work["label_target"] = ""
+    work["feature_set"] = (
+        work[feature_col].astype(str).str.strip().str.lower().map(feature_aliases).fillna("")
+    )
     work["model"] = work[model_col].astype(str).str.strip().str.lower().map(model_map)
     work["accuracy"] = pd.to_numeric(src_df[acc_col], errors="coerce") if acc_col else np.nan
     work["delta_vs_vendoronly"] = pd.to_numeric(src_df[delta_col], errors="coerce") if delta_col else np.nan
@@ -413,11 +439,26 @@ def build_paper_ablation_table(*, source_path: Path, output_path: Path) -> None:
         & work["model"].isin({"random_forest", "xgboost", "logistic_regression"})
     ].copy()
     work["macro_f1"] = pd.to_numeric(work[macro_col], errors="coerce")
+    label_target_order = {
+        "family_id": 0,
+        "family_canonical_default": 1,
+        "family_within_type": 2,
+        "type_slug": 3,
+        "": 4,
+    }
     feature_order = {"permissions_only": 0, "vendor_only": 1, "vendor_permissions_fused": 2}
     model_order = {"random_forest": 0, "xgboost": 1, "logistic_regression": 2}
+    work["label_order"] = work["label_target"].map(label_target_order).fillna(99).astype(int)
     work["f_order"] = work["feature_set"].map(feature_order).fillna(99).astype(int)
     work["m_order"] = work["model"].map(model_order).fillna(99).astype(int)
-    out = work.sort_values(by=["f_order", "m_order"], ascending=[True, True], kind="mergesort")[
+    out = (
+        work.sort_values(
+            by=["label_order", "f_order", "m_order"],
+            ascending=[True, True, True],
+            kind="mergesort",
+        )
+        .drop_duplicates(subset=["feature_set", "model"], keep="first")
+    )[
         ["feature_set", "model", "macro_f1", "accuracy", "delta_vs_vendoronly"]
     ]
     out.to_csv(output_path, index=False, float_format="%.6f")
@@ -620,8 +661,15 @@ def build_strict_paper2_exports(
 
     table_sources = {
         "table3_model_comparison_rf_xgb_lr_fused": diagnostics_dir / f"model_comparison_summary_{run_id}.csv",
-        "table4_feature_ablation": diagnostics_dir / "ablation_summary.csv",
-        "table5_dangerous_permission_stats_tests": bundle_dir / "tables" / "dangerous_stats_tests.latest.csv",
+        "table4_feature_ablation": _resolve_existing_path(
+            diagnostics_dir / f"ablation_summary_{run_id}.csv",
+            diagnostics_dir / "ablation_summary.latest.csv",
+            diagnostics_dir / "ablation_summary.csv",
+        ),
+        "table5_dangerous_permission_stats_tests": _resolve_existing_path(
+            bundle_dir / "tables" / f"dangerous_stats_tests_{run_id}.csv",
+            bundle_dir / "tables" / "dangerous_stats_tests.latest.csv",
+        ),
     }
     figure_stage_map = {
         "fig1_pipeline_architecture": "manifest_export",
@@ -638,9 +686,18 @@ def build_strict_paper2_exports(
         "table5_dangerous_permission_stats_tests": "permission_trends_bundle.tables",
     }
 
-    type_prev_csv = bundle_dir / "tables" / "type_permission_prevalence.latest.csv"
-    discrim_csv = bundle_dir / "tables" / "permission_discriminability_rank.latest.csv"
-    dangerous_csv = bundle_dir / "tables" / "dangerous_distribution_by_type.latest.csv"
+    type_prev_csv = _resolve_existing_path(
+        bundle_dir / "tables" / f"type_permission_prevalence_{run_id}.csv",
+        bundle_dir / "tables" / "type_permission_prevalence.latest.csv",
+    )
+    discrim_csv = _resolve_existing_path(
+        bundle_dir / "tables" / f"permission_discriminability_rank_{run_id}.csv",
+        bundle_dir / "tables" / "permission_discriminability_rank.latest.csv",
+    )
+    dangerous_csv = _resolve_existing_path(
+        bundle_dir / "tables" / f"dangerous_distribution_by_type_{run_id}.csv",
+        bundle_dir / "tables" / "dangerous_distribution_by_type.latest.csv",
+    )
     jsd_pairs_csv = diagnostics_dir / f"family_jsd_pairs_verification_{run_id}.csv"
 
     required_sources: dict[str, Path] = {
@@ -979,5 +1036,3 @@ def build_strict_paper2_exports(
         },
         "artifact_paths": sorted(set([str(Path(path).resolve()) for path in exported_paths])),
     }
-
-

@@ -79,7 +79,7 @@ def summarize_profile(profile_path: Path) -> str:
         lock_mode = "membership-locked" if str(paper_lock.get("sample_id_lock_file", "")).strip() else "count-only"
         parts.append(f"lock={lock_mode}")
     elif profile_id.startswith("paper") or bool(raw.get("evidence_mode", False)):
-        parts.append("publication=legacy-unlocked")
+        parts.append("publication=unlocked")
 
     min_detect = gates.get("min_malicious_detections", None)
     if min_detect is not None:
@@ -101,6 +101,23 @@ def summarize_profile(profile_path: Path) -> str:
         desc_short = desc if len(desc) <= 72 else f"{desc[:69]}..."
         return f"{desc_short} | {summary}"
     return summary
+
+
+def quick_profile_label(profile_id: str) -> str:
+    """Return operator-facing quick-menu labels without exposing raw profile IDs as the main cue."""
+    pid = str(profile_id).strip()
+    labels = {
+        "malicious_temporal_stability_locked": "Publication-ready: locked all-malicious baseline",
+        "banker_locked": "Publication-ready: locked banker baseline",
+        "research_all_malicious": "Exploratory: all-malicious research cohort",
+        "all_malicious": "Exploratory: all-malicious standard cohort",
+        "banker": "Exploratory: banker standard cohort",
+        "mixed": "Diagnostic: balanced benign-malicious cohort",
+        "benign_heavy": "Diagnostic: benign-heavy robustness cohort",
+        "dev_fast": "Development: fast local iteration",
+        "dev_smoke": "Smoke: ultra-fast sanity check",
+    }
+    return labels.get(pid, pid)
 
 
 def select_profile_interactive(
@@ -202,15 +219,7 @@ def select_profile_interactive_quick(
     more_label = "More profiles (full catalog)"
     quick_labels: list[tuple[str, str]] = []
     for profile_id in quick_entries:
-        if profile_id.endswith("_locked"):
-            quick_labels.append((f"Publication-ready: {profile_id}", profile_id))
-        elif profile_id in {"mixed", "benign_heavy"}:
-            quick_labels.append((f"Diagnostic: {profile_id}", profile_id))
-        elif profile_id.startswith("dev_"):
-            bucket = "Smoke" if profile_id == "dev_smoke" else "Development"
-            quick_labels.append((f"{bucket}: {profile_id}", profile_id))
-        else:
-            quick_labels.append((f"Exploratory: {profile_id}", profile_id))
+        quick_labels.append((quick_profile_label(profile_id), profile_id))
     menu_labels = [label for label, _ in quick_labels] + [more_label]
 
     while True:

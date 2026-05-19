@@ -1,7 +1,8 @@
 """Static import-surface policies for :mod:`scripts.dev.check_import_surface`.
 
-AST/file-system checks only (no ``importlib`` of project packages). Repo-root ``utils``
-was removed; thin-compat policy tuple is empty but kept for future optional trees.
+AST/file-system checks only (no ``importlib`` of project packages). Repo-root ``utils`` and
+``ml_classification`` were retired; the remaining live legacy leaf shim tree is ``analysis``.
+Thin-compat policy tuple is empty but kept for future optional trees.
 """
 
 from __future__ import annotations
@@ -17,7 +18,6 @@ from scripts.dev.compatibility_retirement_manifest import (
     EARLY_DEPRECATION_READY_TREES as _EARLY_DEPRECATION_READY_TREES,
     LEGACY_COMPATIBILITY_IMPORT_ROOTS as _LEGACY_COMPATIBILITY_IMPORT_ROOTS,
     LEGACY_LEAF_SHIM_ROOTS as _LEGACY_LEAF_SHIM_ROOTS,
-    ML_CLASSIFICATION_TRAINING_PLAIN_IDENTITY_SHIMS as _ML_CLASSIFICATION_TRAINING_PLAIN_IDENTITY_SHIMS,
     NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST as _NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST,
 )
 
@@ -33,9 +33,6 @@ LEGACY_LEAF_SHIM_MAX_LINES = 16
 READY_NOW_LEGACY_SHIM_BATCHES = frozenset(_EARLY_DEPRECATION_READY_TREES)
 ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS = frozenset(
     Path(p) for p in _ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS
-)
-ML_CLASSIFICATION_TRAINING_PLAIN_IDENTITY_SHIMS = frozenset(
-    Path(p) for p in _ML_CLASSIFICATION_TRAINING_PLAIN_IDENTITY_SHIMS
 )
 # Directory name fragments skipped when scanning for UTF-8 BOM (generated / vendor trees).
 _BOM_SCAN_SKIP_DIR_PARTS = frozenset(
@@ -82,7 +79,6 @@ __all__ = (
     "ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS",
     "LEGACY_LEAF_SHIM_MAX_LINES",
     "LEGACY_LEAF_SHIM_ROOTS",
-    "ML_CLASSIFICATION_TRAINING_PLAIN_IDENTITY_SHIMS",
     "NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST",
     "READY_NOW_LEGACY_SHIM_BATCHES",
     "THIN_COMPAT_SHIM_POLICIES",
@@ -201,7 +197,7 @@ def collect_thin_compat_shim_violations(repo_root: Path) -> list[str]:
 
 
 def collect_legacy_leaf_shim_violations(repo_root: Path) -> list[str]:
-    """Return legacy leaf modules that are no longer thin ModuleType identity shims."""
+    """Return legacy analysis leaf modules that are no longer thin ModuleType identity shims."""
     errors: list[str] = []
     for root_name in LEGACY_LEAF_SHIM_ROOTS:
         root = repo_root / root_name
@@ -318,6 +314,8 @@ def collect_analysis_pipeline_plain_shim_violations(repo_root: Path) -> list[str
     errors: list[str] = []
     for rel in sorted(ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS):
         path = repo_root / rel
+        if not path.exists():
+            continue
         try:
             text = path.read_text(encoding="utf-8")
         except OSError as exc:
@@ -333,9 +331,16 @@ def collect_analysis_pipeline_plain_shim_violations(repo_root: Path) -> list[str
 
 
 def collect_ml_training_plain_shim_violations(repo_root: Path) -> list[str]:
-    """Return ordinary ml_classification/training shims that drift from the shared helper pattern."""
+    """Return retired ML-training shim violations in synthetic fixtures, if any."""
     errors: list[str] = []
-    for rel in sorted(ML_CLASSIFICATION_TRAINING_PLAIN_IDENTITY_SHIMS):
+    training_root = repo_root / "ml_classification" / "training"
+    if not training_root.exists():
+        return errors
+    for rel in sorted(
+        path.relative_to(repo_root)
+        for path in training_root.rglob("*.py")
+        if path.is_file() and path.name != "__init__.py"
+    ):
         path = repo_root / rel
         try:
             text = path.read_text(encoding="utf-8")

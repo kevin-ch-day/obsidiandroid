@@ -24,6 +24,7 @@ def test_taxonomy_support_tuning_compact_shows_status_and_tune_next(monkeypatch,
         json.dumps(
             {
                 "taxonomy_mismatch_count": 5,
+                "paper_facing_taxonomy_mismatch_count": 0,
                 "type_mismatch_count": 2,
                 "type_noncanonical_count": 1,
                 "type_missing_label_count": 1,
@@ -48,6 +49,7 @@ def test_taxonomy_support_tuning_compact_shows_status_and_tune_next(monkeypatch,
 
     assert "Taxonomy & support tuning" in out
     assert "Taxonomy health" in out
+    assert "Claim-facing mismatch total" in out
     assert "Families just below threshold" in out
     assert "tune next" in out.lower()
     assert "taxonomy_type_authority_review" in out
@@ -66,6 +68,7 @@ def test_taxonomy_support_snapshot_includes_threshold_sensitivity(monkeypatch, t
     )
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
     snap = startup_menu_diagnostics.build_taxonomy_support_tuning_snapshot(run_id=run_id, output_root=out_root)
+    assert snap["paper_facing_taxonomy_mismatch_total"] == "—"
     sensitivity = snap.get("threshold_sensitivity")
     assert isinstance(sensitivity, list)
     assert len(sensitivity) == 5

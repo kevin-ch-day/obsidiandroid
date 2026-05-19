@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +62,49 @@ def _model_top_macro_f1(diagnostics_dir: Path, run_id: str) -> tuple[str, float 
     return "", None
 
 
+def _markdown_cell(value: Any, *, max_len: int | None = None) -> str:
+    """Render a stable one-line Markdown table cell.
+
+    Reviewer-facing audit tables should not contain embedded newlines or large raw
+    JSON blobs because they corrupt the table structure and make the artifact hard
+    to trust. Collapse whitespace, escape pipes, and optionally truncate.
+    """
+
+    text = str(value if value is not None else "")
+    text = text.replace("|", "\\|")
+    text = re.sub(r"\s+", " ", text).strip()
+    if max_len is not None and len(text) > max_len:
+        return text[: max(0, max_len - 1)].rstrip() + "…"
+    return text
+
+
+def _paper_compliance_metric_summary(payload: dict[str, Any]) -> str:
+    """Compact compliance report for Markdown tables."""
+
+    overall = str(payload.get("overall_status", "") or "").strip() or "unknown"
+    checks = payload.get("checks")
+    if not isinstance(checks, list):
+        return f"overall_status={overall}"
+    total = len(checks)
+    pass_count = 0
+    fail_ids: list[str] = []
+    for check in checks:
+        if not isinstance(check, dict):
+            continue
+        status = str(check.get("status", "") or "").strip().lower()
+        if status == "pass":
+            pass_count += 1
+        elif status:
+            fail_ids.append(str(check.get("check_id", "unknown")))
+    fail_count = max(0, total - pass_count)
+    if fail_ids:
+        preview = ", ".join(fail_ids[:4])
+        if len(fail_ids) > 4:
+            preview += ", …"
+        return f"overall_status={overall}; checks_pass={pass_count}/{total}; failing={preview}"
+    return f"overall_status={overall}; checks_pass={pass_count}/{total}"
+
+
 def _cohort_snapshot(manifest: dict[str, Any], mctx: dict[str, Any]) -> str:
     gov = (
         mctx.get("cohort_prepared_row_count")
@@ -96,6 +140,7 @@ def write_paper_claim_audit_md(
     """Write ``paper_claim_audit.md`` with explicit evidence artifacts and wording guidance."""
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     path = diagnostics_dir / "paper_claim_audit.md"
+    alias_path = diagnostics_dir / "publication_claim_audit.md"
     mctx = manifest_context if isinstance(manifest_context, dict) else {}
     man = manifest if isinstance(manifest, dict) else {}
     model_summary = mctx.get("model_summary") or man.get("model_summary") or {}
@@ -292,12 +337,12 @@ def write_paper_claim_audit_md(
             cpath = Path(str(compliance_path))
             if cpath.exists():
                 payload = json.loads(cpath.read_text(encoding="utf-8"))
-                comp_metric = json.dumps(payload.get("status_counts", payload.get("checks", {})), indent=2)[:1500]
+                comp_metric = _paper_compliance_metric_summary(payload)
         except Exception:
             comp_metric = "unreadable compliance json"
 
     add(
-        claim="Evidence pack / paper_safe status is materially valid without further operator review",
+        claim="Evidence pack / publication-safe status is materially valid without further operator review",
         status=comp_status,
         evidence_artifact=str(compliance_path),
         metric_value=comp_metric or ("resolved_paper_mode=" + str(paper_mode)),
@@ -307,7 +352,7 @@ def write_paper_claim_audit_md(
     )
 
     lines = [
-        "# Paper claim audit (machine-assisted, strict)",
+        "# Publication claim audit (machine-assisted, strict)",
         "",
         "Each row binds a conversational claim to an **evidence artifact**, **metric/value**, ",
         "**population string**, adjudication status, and **replacement wording**. ",
@@ -319,13 +364,13 @@ def write_paper_claim_audit_md(
     ]
     for row in claim_rows:
         cells = [
-            row["claim"].replace("|", "\\|"),
-            row["status"],
-            row["evidence_artifact"].replace("|", "\\|"),
-            row["metric_value"].replace("|", "\\|"),
-            row["population"].replace("|", "\\|"),
-            row["rationale"].replace("|", "\\|"),
-            row["safer_wording"].replace("|", "\\|"),
+            _markdown_cell(row["claim"], max_len=160),
+            _markdown_cell(row["status"], max_len=32),
+            _markdown_cell(row["evidence_artifact"], max_len=220),
+            _markdown_cell(row["metric_value"], max_len=220),
+            _markdown_cell(row["population"], max_len=220),
+            _markdown_cell(row["rationale"], max_len=220),
+            _markdown_cell(row["safer_wording"], max_len=220),
         ]
         lines.append("| " + " | ".join(cells) + " |")
 
@@ -340,5 +385,7 @@ def write_paper_claim_audit_md(
         ]
     )
 
-    path.write_text("\n".join(lines), encoding="utf-8")
+    body = "\n".join(lines)
+    path.write_text(body, encoding="utf-8")
+    alias_path.write_text(body, encoding="utf-8")
     return path

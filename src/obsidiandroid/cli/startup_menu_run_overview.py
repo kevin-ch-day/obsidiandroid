@@ -16,10 +16,10 @@ from .startup_menu_run_context import (
     format_run_status_display,
     format_stage_label,
     latest_run_has_provenance,
-    paper_exports_available,
+    publication_exports_available,
     read_json_object,
     read_latest_run_id,
-    read_locked_paper_run_id,
+    read_locked_publication_run_id,
     read_run_progress_summary,
     read_run_summary,
     read_top_model_snapshot,
@@ -376,7 +376,10 @@ def show_session_and_output_details() -> int:
     du.print_stat("Latest Run", latest_run_id)
     du.print_stat("Latest Profile", latest_profile_id)
     du.print_stat("Locked Evidence Run", locked_run_id)
-    du.print_stat("Publication Exports", "Yes" if bool(shared.get("has_paper_exports", False)) else "No")
+    du.print_stat(
+        "Publication Exports",
+        "Yes" if bool(shared.get("has_publication_exports", shared.get("has_paper_exports", False))) else "No",
+    )
     du.print_stat("Publication-ready Status", str(shared.get("publication_ready_status", "") or "unknown"))
     du.print_stat("Cohort Lock Status", str(shared.get("cohort_lock_status", "") or "unknown"))
     du.print_stat("Cohort Methodology", cohort_methodology_summary(shared))

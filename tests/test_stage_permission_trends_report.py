@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from obsidiandroid.pipeline import stage_permission_trends_report as report_stage
+from obsidiandroid.pipeline.permission_trends import sample_permission_data as sample_perm_data
 from obsidiandroid.pipeline.permission_trends import reporting_support as perm_trends_reporting_support
 
 
@@ -78,6 +79,121 @@ def test_filter_permission_rows_by_view_uses_dictionary_matches():
         "android.permission.get_installed_apps",
         "com.vendor.app.permission.foo",
     }
+
+
+def test_fetch_permission_rows_for_samples_prefers_permission_string_norm(monkeypatch) -> None:
+    monkeypatch.setattr(sample_perm_data, "_PERMISSION_OBS_NORM_AVAILABLE", None)
+    monkeypatch.setattr(
+        sample_perm_data.db_engine,
+        "get_table_columns",
+        lambda _table: ["sample_id", "permission_string", "permission_string_norm"],
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_execute_permission_query(query, **kwargs):
+        captured["query"] = query
+        return pd.DataFrame(
+            {
+                "sample_id": [1, 1],
+                "permission_string_raw": [
+                    "android.permission.READ_SMS",
+                    "ANDROID.PERMISSION.read_sms",
+                ],
+                "permission_string": [
+                    "android.permission.read_sms",
+                    "android.permission.read_sms",
+                ],
+                "protection_level": ["DANGEROUS", "DANGEROUS"],
+                "permission_source": ["AOSP", "AOSP"],
+                "is_aosp_dict_match": [1, 1],
+                "is_oem_dict_match": [0, 0],
+            }
+        )
+
+    monkeypatch.setattr(
+        sample_perm_data.db_engine,
+        "execute_permission_query",
+        _fake_execute_permission_query,
+    )
+
+    out = sample_perm_data.fetch_permission_rows_for_samples([1])
+
+    assert "permission_string_norm" in str(captured.get("query", ""))
+    assert out["permission_string"].tolist() == ["android.permission.read_sms"]
+
+
+def test_fetch_permission_rows_for_samples_falls_back_without_norm(monkeypatch) -> None:
+    monkeypatch.setattr(sample_perm_data, "_PERMISSION_OBS_NORM_AVAILABLE", None)
+    monkeypatch.setattr(
+        sample_perm_data.db_engine,
+        "get_table_columns",
+        lambda _table: ["sample_id", "permission_string"],
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_execute_permission_query(query, **kwargs):
+        captured["query"] = query
+        return pd.DataFrame(
+            {
+                "sample_id": [1, 1],
+                "permission_string_raw": [
+                    "android.permission.READ_SMS",
+                    "ANDROID.PERMISSION.read_sms",
+                ],
+                "permission_string": [
+                    "android.permission.read_sms",
+                    "android.permission.read_sms",
+                ],
+                "protection_level": ["DANGEROUS", "DANGEROUS"],
+                "permission_source": ["AOSP", "AOSP"],
+                "is_aosp_dict_match": [1, 1],
+                "is_oem_dict_match": [0, 0],
+            }
+        )
+
+    monkeypatch.setattr(
+        sample_perm_data.db_engine,
+        "execute_permission_query",
+        _fake_execute_permission_query,
+    )
+
+    out = sample_perm_data.fetch_permission_rows_for_samples([1])
+
+    assert "permission_string_norm" not in str(captured.get("query", ""))
+    assert "LOWER(TRIM(ops.permission_string)) AS permission_string" in str(captured.get("query", ""))
+    assert out["permission_string"].tolist() == ["android.permission.read_sms"]
+
+
+def test_fetch_permission_aggregates_prefers_permission_string_norm(monkeypatch) -> None:
+    monkeypatch.setattr(sample_perm_data, "_PERMISSION_OBS_NORM_AVAILABLE", None)
+    monkeypatch.setattr(
+        sample_perm_data.db_engine,
+        "get_table_columns",
+        lambda _table: ["sample_id", "permission_string", "permission_string_norm"],
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_execute_permission_query(query, **kwargs):
+        captured["query"] = query
+        return pd.DataFrame(
+            {
+                "sample_id": [1],
+                "permission_obs_rows": [2],
+                "permission_unique_count": [1],
+                "permission_common_rows": [0],
+            }
+        )
+
+    monkeypatch.setattr(
+        sample_perm_data.db_engine,
+        "execute_permission_query",
+        _fake_execute_permission_query,
+    )
+
+    out = sample_perm_data.fetch_permission_aggregates()
+
+    assert "permission_string_norm" in str(captured.get("query", ""))
+    assert int(out.loc[0, "permission_unique_count"]) == 1
 
 
 def test_build_permission_anomalies_excludes_stale_zero_count_rule():

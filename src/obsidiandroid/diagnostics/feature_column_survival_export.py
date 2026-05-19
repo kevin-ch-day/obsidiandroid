@@ -87,6 +87,7 @@ def export_feature_column_survival_matrix(
     nz_final = getattr(app_config, "RUNTIME_FEATURE_NONZERO_FINAL_TRAINING", None)
     if not isinstance(nz_cohort, dict) or not nz_cohort:
         return None
+    safe_run_id = oh.normalize_artifact_run_id(run_id)
 
     low_drop = set(
         str(x)
@@ -150,27 +151,28 @@ def export_feature_column_survival_matrix(
             }
         )
 
+    diagnostics_dir = oh.validate_diagnostics_output_dir(diagnostics_dir)
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(rows)
     csv_text = df.to_csv(index=False)
     oh.mirror_csv_text_run_then_global(
         diagnostics_dir=diagnostics_dir,
-        run_filename=f"feature_column_survival_{run_id}.csv",
+        run_filename=f"feature_column_survival_{safe_run_id}.csv",
         csv_text=csv_text,
         global_latest_name="feature_column_survival.latest.csv",
     )
     meta = {
-        "run_id": str(run_id),
+        "run_id": safe_run_id,
         "row_count": int(len(df)),
-        "artifact_csv": str(diagnostics_dir / f"feature_column_survival_{run_id}.csv"),
+        "artifact_csv": str(diagnostics_dir / f"feature_column_survival_{safe_run_id}.csv"),
     }
     oh.mirror_json_text_run_then_global(
         diagnostics_dir=diagnostics_dir,
-        run_filename=f"feature_column_survival_{run_id}.meta.json",
+        run_filename=f"feature_column_survival_{safe_run_id}.meta.json",
         payload=meta,
         global_latest_name="feature_column_survival.latest.meta.json",
     )
-    primary = diagnostics_dir / f"feature_column_survival_{run_id}.csv"
+    primary = diagnostics_dir / f"feature_column_survival_{safe_run_id}.csv"
     setattr(app_config, "RUNTIME_FEATURE_COLUMN_SURVIVAL_CSV", str(primary))
     du.print_info(f"[FEATURE_SURVIVAL] Wrote {len(df)} feature column row(s) → {primary.name}")
     return primary

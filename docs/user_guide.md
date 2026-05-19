@@ -47,7 +47,7 @@ This guide walks operators through setting up their environment, executing the m
 ### VirusTotal integration checklist
 
 - **Data sync:** Replicate VirusTotal exports into your MySQL instance (see [`data_sources.md`](data_sources.md) for physical table names such as `virustotal_sample_vendor_engine_verdicts`). ObsidianDroid does not call the live VirusTotal API; it reads preloaded tables, so schedule ETL jobs to keep them fresh.
-- **Column hygiene:** After large VirusTotal updates, rerun a **pipeline pass that includes vendor scoring** (startup menu or `main.py`) so engine weights reflect fresh detections; scoring logic lives under `obsidiandroid/feature_engineering/compute_vendor_scores.py` (legacy `analysis.feature_engineering.*` remains as an identity shim) and is invoked from pipeline stages.
+- **Column hygiene:** After large VirusTotal updates, rerun a **pipeline pass that includes vendor scoring** (startup menu or `main.py`) so engine weights reflect fresh detections; scoring logic lives under `obsidiandroid/feature_engineering/compute_vendor_scores.py` and is invoked from pipeline stages.
 - **Access scope:** Provide read access only—write operations are limited to ObsidianDroid's `output/` directory on disk.
 - **Backfill strategy:** When onboarding new samples, ensure the corresponding VirusTotal reports have been ingested; otherwise, vendor consensus features will be sparse and confidence scores will degrade.
 
@@ -72,7 +72,7 @@ Choose a profile-driven pipeline action from the startup menu. Use `dev_smoke` f
 ```bash
 python -m obsidiandroid.evaluation.model_tuning
 ```
-This runs the module’s sample tuning workflow (`tune_models`); wire your own search grids via `config/model_params/` and `ml_classification` trainers for production sweeps.
+This runs the module’s sample tuning workflow (`tune_models`); wire your own search grids via `config/model_params/` and canonical `obsidiandroid.modeling` trainers for production sweeps.
 
 ### Utility Scripts (examples)
 - `python scripts/report_feature_lineage.py --help` – Feature lineage / gap reporting helpers (see script docstrings).
@@ -109,7 +109,7 @@ After a successful run, inspect the `output/` directory:
 
 ## 9. Getting Help
 
-- Review inline docstrings and comments within `analysis/` and `ml_classification/` modules.
+- Review inline docstrings and comments within `analysis/` and `src/obsidiandroid/` modules.
 - Search the `tests/` directory for usage examples of specific utilities.
 - Open an issue or start a discussion thread in the repository with details about your environment and logs when requesting support.
 

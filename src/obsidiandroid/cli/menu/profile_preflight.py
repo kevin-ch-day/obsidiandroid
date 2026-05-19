@@ -137,6 +137,24 @@ def resolve_and_validate_profile(
         if not profile_id:
             return None
 
+        readiness_signal = profile_manager.infer_cohort_readiness_signal(profile_id)
+        du.print_info(f"[PROFILE] {str(readiness_signal.get('summary', '') or '').strip()}")
+        detail = str(readiness_signal.get("detail", "") or "").strip()
+        if detail:
+            du.print_note(f"[PROFILE] {detail}")
+        try:
+            inventory = profile_manager.inventory_cohort_readiness_mappings()
+        except Exception:
+            inventory = []
+        if inventory:
+            mapped = sum(1 for row in inventory if str(row.get("status", "")).strip() == "mapped")
+            unresolved = len(inventory) - mapped
+            if unresolved > 0:
+                du.print_note(
+                    f"[PROFILE] Readiness mapping inventory: {mapped} mapped, {unresolved} ambiguous. "
+                    "Readiness mapping is advisory only; it does not enforce sample selection."
+                )
+
         du.print_info("[PROFILE] Preflight: verifying cohort against the database (quick check)...")
         ok, reason = validate_profile_runnable(profile_id)
         if ok:

@@ -35,7 +35,11 @@ def export_model_to_file(
         run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "").strip()
         primary_root = output_dir
         if run_id and run_id.lower() != "unknown":
-            primary_root = output_dir / "runs" / run_id
+            output_dir_resolved = output_dir.resolve()
+            if output_dir_resolved.name == run_id and output_dir_resolved.parent.name == "runs":
+                primary_root = output_dir_resolved
+            else:
+                primary_root = output_dir_resolved / "runs" / run_id
         model_dir = primary_root / "models" / model_type_clean
         model_dir.mkdir(parents=True, exist_ok=True)
 

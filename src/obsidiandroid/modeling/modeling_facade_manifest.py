@@ -19,10 +19,7 @@ MODELING_FACADE_EAGER_SUBMODULE_NAMES: tuple[str, ...] = (
     "pipeline_core",
 )
 
-# Import-surface parity: these eager façade names resolve through ``ml_classification.training``.
-MODELING_FACADE_LEGACY_VIA_ML_CLASSIFICATION_TRAINING: frozenset[str] = frozenset(
-    {"data_alignment", "model_prediction", "model_trainer_factory", "pipeline_core"}
-)
+MODELING_FACADE_LEGACY_VIA_ML_CLASSIFICATION_TRAINING: frozenset[str] = frozenset()
 
 __all__ = (
     "MODELING_FACADE_EAGER_SUBMODULE_NAMES",

@@ -6,7 +6,7 @@ This document is a **status report** and **deep audit** of repository layout: wh
 
 ## 1. Executive summary
 
-ObsidianDroid is intentionally a **hybrid layout**: an installable package under **`src/obsidiandroid/`**, plus large **legacy implementation trees** at the repository root (`analysis/`, `database/`, `ml_classification/`) preserved for compatibility and test coverage. That hybrid is **professional for a mature research codebase** (explicit migration, shims, CI), but it **does not look like a minimal greenfield app** (single `src/` package only, empty root).
+ObsidianDroid is intentionally a **hybrid layout**: an installable package under **`src/obsidiandroid/`**, plus a small set of legacy compatibility surfaces at the repository root (primarily `analysis/pipeline/` and `database/`). The earlier `ml_classification/` compatibility tree has been retired. The hybrid is **professional for a mature research codebase** (explicit migration, shims, CI), but it **does not look like a minimal greenfield app** (single `src/` package only, empty root).
 
 **Progress so far:** canonical CLI/common/pipeline/governance surfaces, diagnostics and dev tooling under **`scripts/`** (repo-root **`data_inspect/`** and **`devtools/`** shims **removed** — use **`scripts.diagnostics`** / **`scripts.dev`**), Makefile and CI as the operator entrypoints, pytest configuration folded into **`pyproject.toml`**, documentation split so long-form guides live under **`docs/`**, and automated GitHub Actions + Dependabot.
 
@@ -39,7 +39,7 @@ Work proceeded in **documented passes** (see **`STRUCTURE_MIGRATION_PLAN.md`**).
 |-----------|--------|
 | **Installable package** | **`pyproject.toml`**, **`pip install -e .`**, console script **`obsidiandroid`**. |
 | **Clear public API direction** | **`obsidiandroid.*`** for new code; facades for pipeline/governance/common. |
-| **Testing** | **`pytest`** defaults in **`pyproject.toml`**; fast/slow split; **~390+** fast tests (default **`not slow`** selection; run **`make test-full`** for slow modules). |
+| **Testing** | **`pytest`** defaults in **`pyproject.toml`**; fast/slow split; use **`make test`** for the default fast selection and **`make test-full`** for slow modules. |
 | **CI/CD** | **`.github/workflows/ci.yml`**: **`make verify`**, **`make ml-scan-strict`**, **`pip check`**, Python matrix. |
 | **Dependency hygiene** | Dependabot for **GitHub Actions** and **pip**; **`requirements.txt`** wired via dynamic metadata. |
 | **Contributor docs** | **`docs/AGENTS.md`**, **`docs/developer_guide.md`**, **`Makefile`** help, optional **`.pre-commit-config.yaml`**. |
@@ -80,9 +80,8 @@ Work proceeded in **documented passes** (see **`STRUCTURE_MIGRATION_PLAN.md`**).
 | Directory | Role |
 |-----------|------|
 | **`src/obsidiandroid/`** | **Canonical product package** (CLI, common, pipeline facade, governance, reporting/observability surfaces, diagnostics facade — plus placeholder roots for domains not yet bulk-moved). |
-| **`analysis/`** | Pipeline stages and legacy shims. Most moved implementations now live under `src/obsidiandroid/` with identity shims kept for stability. Pipeline observability APIs live under **`obsidiandroid.observability.pipeline_observability`**; the former **`analysis/observability`** shim path was removed. |
-| **`database/`** | DB access, cohort SQL. |
-| **`ml_classification/`** | Legacy compatibility shims for ML domains (canonical implementation under `src/obsidiandroid/`). |
+| **`analysis/`** | Now effectively the **`analysis/pipeline/`** compatibility tree. Most moved implementations live under `src/obsidiandroid/` with a reduced set of identity/patch-sensitive shims kept for stability. Pipeline observability APIs live under **`obsidiandroid.observability.pipeline_observability`**; the former **`analysis/observability`** shim path was removed. |
+| **`database/`** | Repo-root compatibility shims for the canonical **`obsidiandroid.database`** surface, plus the retained **`python -m database.split_db_health`** entrypoint. |
 | **`config/`**, **`profiles/`** | Configuration and YAML profiles (**`package-data`** for profiles). |
 | *(removed)* **`utils/`** | Repo-root `utils/` shims were retired; canonical surfaces are under `src/obsidiandroid/` and `scripts/`. |
 | **`tests/`** | Pytest tree. |
@@ -117,7 +116,7 @@ Typically gitignored or partially ignored; often **still visible** in **`ls`** a
 
 ## 5. Gap analysis — why the root still feels busy
 
-1. **Hybrid architecture** packs multiple top-level Python trees (`analysis`, `database`, `config`, `ml_classification`, `scripts`) **besides** **`src/`** — that is **more than most single-app repos**.
+1. **Hybrid architecture** still packs multiple top-level Python trees (`analysis`, `database`, `config`, `scripts`) **besides** **`src/`** — that is **more than most single-app repos**, even after the `ml_classification/` retirement and the shrink of `analysis/` down to pipeline-only compatibility.
 2. **Wrappers + pointers** add **~10** small root files; each has a reason (setuptools, habits, Cursor/GitHub expectations).
 3. **Runtime dirs** pollute **`ls`** unless hooks/docs remind contributors to use **`make clean-bytecode`** and **`make tree-source`**.
 4. **README “Project Structure”** diagram is **abbreviated**; it does not list **`profiles/`**, **`tests/`**, **`LICENSE`**, **`Makefile`**, **`requirements.txt`**, **`artifacts/`**, or pointers — readers should use **`make tree-source`** or this audit for truth.
@@ -140,7 +139,7 @@ Typically gitignored or partially ignored; often **still visible** in **`ls`** a
 
 ### Long term (large effort)
 
-7. **Pipeline compatibility tree:** stage implementations are **canonical** under **`src/obsidiandroid/pipeline/`**; on-disk **`analysis/pipeline/stage_*.py`** (and related) are **identity shims**. Remaining work is opportunistic caller migration + avoiding **duplicate** stage logic—not re-moving files that already landed.
+7. **Pipeline compatibility tree:** stage implementations are **canonical** under **`src/obsidiandroid/pipeline/`**; the repo-root `analysis/` tree is now almost entirely this pipeline compatibility surface. Remaining work is opportunistic caller migration + final shim retirement, not re-moving files that already landed.
 8. **`database/`** vs **`obsidiandroid.database`** naming clarity before any physical move.
 
 ---
@@ -165,6 +164,6 @@ Typically gitignored or partially ignored; often **still visible** in **`ls`** a
 
 ### Documentation hygiene (ongoing)
 
-Operators often copy-paste paths from docs; **phantom references** (missing scripts, old package layouts) waste time. Pass **21** tightened **`user_guide`** and **`modeling_reference`** against the actual tree (`scripts/`, `ml_classification/training/ml_trainers/`, `config/`). When adding new utilities, link to **real** paths or **`make help`** targets.
+Operators often copy-paste paths from docs; **phantom references** (missing scripts, retired package roots, old layouts) waste time. Pass **21** tightened **`user_guide`** and **`modeling_reference`** against the actual tree, and later migration passes retired `ml_classification/` entirely. When adding new utilities, link to **real** paths or **`make help`** targets.
 
-*Last updated through **Pass 22** (operations/architecture/code_review doc alignment; no code moves).*
+*Last updated for the 2026-05 compatibility-retirement / output-hygiene phase.*

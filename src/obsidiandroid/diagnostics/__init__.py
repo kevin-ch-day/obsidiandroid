@@ -1,9 +1,7 @@
 """Canonical diagnostics namespace.
 
 Diagnostics implementation lives under ``obsidiandroid.diagnostics``. Prefer
-``obsidiandroid.diagnostics.<module>`` for new code. Legacy
-``analysis.diagnostics.<module>`` imports remain thin identity shims for
-compatibility.
+``obsidiandroid.diagnostics.<module>`` for imports and operator tooling.
 """
 
 from __future__ import annotations

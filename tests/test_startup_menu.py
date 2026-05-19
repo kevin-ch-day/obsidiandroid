@@ -12,7 +12,7 @@ import obsidiandroid.cli.startup_menu as startup_menu
 
 def test_main_menu_clear_screen_option(monkeypatch) -> None:
     """Main menu clear option should call clear_screen and continue loop."""
-    choices = iter([7, 0])
+    choices = iter([8, 0])
     clear_calls = {"count": 0}
 
     monkeypatch.setattr(startup_menu, "_print_startup_context", lambda: None)
@@ -125,6 +125,7 @@ def test_data_diagnostics_menu_uses_compact_view_first_order(monkeypatch) -> Non
     assert captured["labels"] == [
         "Open run science index",
         "Pipeline profile tuning (latest manifest)",
+        "Profile readiness mapping inventory",
         "Taxonomy & Support Tuning",
         "Taxonomy Consistency Review",
         "Parser & Vendor Coverage",
@@ -132,6 +133,352 @@ def test_data_diagnostics_menu_uses_compact_view_first_order(monkeypatch) -> Non
         "Feature Matrix / Modality Coverage",
         "Cohort / Family Label Audit",
     ]
+
+
+def test_profile_readiness_mapping_inventory_report_uses_inventory_helper(monkeypatch) -> None:
+    tables: list[dict[str, object]] = []
+    stats: list[tuple[str, object]] = []
+    notes: list[str] = []
+    subheaders: list[str] = []
+
+    monkeypatch.setattr(
+        startup_menu._diagnostics_menu.profile_manager,
+        "inventory_cohort_readiness_mappings",
+        lambda: [
+            {
+                "profile_id": "banker",
+                "bucket": "android_banker_with_permission_obs",
+                "status": "mapped",
+                "summary": "Best matching readiness bucket: android_banker_with_permission_obs",
+            },
+            {
+                "profile_id": "all_malicious",
+                "bucket": "android_with_permission_obs",
+                "status": "mapped",
+                "summary": "Best matching readiness bucket: android_with_permission_obs",
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        startup_menu._diagnostics_menu,
+        "get_cohort_readiness_snapshot",
+        lambda: {
+            "status": "ok",
+            "warnings": [],
+            "buckets": {
+                "android_banker_with_permission_obs": {"sample_count": 790, "family_count": 12},
+                "android_with_permission_obs": {"sample_count": 3318, "family_count": 209},
+            },
+            "taxonomy_signals": {
+                "banker_label_bucket_samples": 790,
+                "banker_type_bucket_samples": 1295,
+                "banker_type_minus_label_samples": 505,
+                "missing_primary_label_samples": 2248,
+                "unresolved_family_samples": 289,
+                "unresolved_family_count": 25,
+                "known_unresolved_family_samples": 17,
+                "known_unresolved_family_count": 4,
+                "family_type_conflict_count": 3,
+                "family_type_conflict_issue_counts": {
+                    "type_mismatch": 1,
+                    "db_family_missing": 1,
+                    "label_sparse": 1,
+                },
+                "repair_candidate_count": 2,
+                "top_unresolved_families": [
+                    {"family": "unknown", "sample_count": 289, "high_strong_sample_count": 279, "known_locally": False},
+                    {"family": "blankbot", "sample_count": 9, "high_strong_sample_count": 9, "known_locally": True},
+                ],
+                "top_family_type_conflicts": [
+                    {
+                        "family": "devixor",
+                        "priority": "high",
+                        "suggested_action": "review_db_type_mapping",
+                        "db_type_slug": "dropper",
+                        "issue": "type_mismatch",
+                        "operator_model_candidate": "rat",
+                        "fraud_posture_candidate": "banking_targeted+odf_capable",
+                        "permission_signal_summary": "sms+telephony+overlay",
+                        "sample_count": 725,
+                        "high_strong_sample_count": 725,
+                        "dominant_label_semantic": "banker",
+                        "dominant_label_samples": 725,
+                        "unlabeled_samples": 0,
+                        "known_locally": True,
+                    },
+                    {
+                        "family": "blankbot",
+                        "priority": "high",
+                        "suggested_action": "add_db_family_mapping",
+                        "db_type_slug": "<unmapped>",
+                        "issue": "db_family_missing",
+                        "operator_model_candidate": "unclear",
+                        "fraud_posture_candidate": "unclear",
+                        "permission_signal_summary": "overlay",
+                        "sample_count": 9,
+                        "high_strong_sample_count": 9,
+                        "dominant_label_semantic": "trojan_untyped",
+                        "dominant_label_samples": 9,
+                        "unlabeled_samples": 0,
+                        "known_locally": True,
+                    },
+                ],
+                "top_repair_candidates": [
+                    {
+                        "family": "devixor",
+                        "priority": "high",
+                        "suggested_action": "review_db_type_mapping",
+                        "db_type_slug": "dropper",
+                        "issue": "type_mismatch",
+                        "operator_model_candidate": "rat",
+                        "fraud_posture_candidate": "banking_targeted+odf_capable",
+                        "permission_signal_summary": "sms+telephony+overlay",
+                        "sample_count": 725,
+                        "high_strong_sample_count": 725,
+                    },
+                    {
+                        "family": "blankbot",
+                        "priority": "high",
+                        "suggested_action": "add_db_family_mapping",
+                        "db_type_slug": "<unmapped>",
+                        "issue": "db_family_missing",
+                        "operator_model_candidate": "unclear",
+                        "fraud_posture_candidate": "unclear",
+                        "permission_signal_summary": "overlay",
+                        "sample_count": 9,
+                        "high_strong_sample_count": 9,
+                    },
+                ],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        startup_menu._diagnostics_menu.du,
+        "print_table",
+        lambda rows, **kwargs: tables.append({"rows": list(rows), "kwargs": dict(kwargs)}),
+    )
+    monkeypatch.setattr(startup_menu._diagnostics_menu.du, "print_stat", lambda label, value: stats.append((str(label), value)))
+    monkeypatch.setattr(startup_menu._diagnostics_menu.du, "print_subheader", lambda message: subheaders.append(str(message)))
+    monkeypatch.setattr(startup_menu._diagnostics_menu.du, "print_note", lambda message: notes.append(str(message)))
+
+    result = startup_menu._diagnostics_menu.show_profile_readiness_mapping_inventory()
+
+    assert result == 0
+    assert len(tables) == 6
+    bucket_table, profile_table, taxonomy_table, unresolved_table, conflict_table, repair_table = tables
+    assert bucket_table["kwargs"]["title"] == "Readiness bucket summary"
+    assert bucket_table["kwargs"]["columns"] == ["bucket", "samples", "families", "meaning"]
+    assert {
+        str(row["bucket"])
+        for row in bucket_table["rows"]
+    } == {
+        "all_catalog",
+        "android_platform",
+        "android_with_permission_obs",
+        "android_high_or_strong_vt_with_permission_obs",
+        "android_labeled_primary_with_permission_obs",
+        "android_banker_with_permission_obs",
+        "android_family_ready_min3_permission_obs",
+    }
+    banker_bucket = next(row for row in bucket_table["rows"] if str(row["bucket"]) == "android_banker_with_permission_obs")
+    all_mal_bucket = next(row for row in bucket_table["rows"] if str(row["bucket"]) == "android_with_permission_obs")
+    assert banker_bucket["samples"] == 790
+    assert banker_bucket["families"] == 12
+    assert str(banker_bucket["meaning"]) == "Android banker-labeled samples with PI observations"
+    assert all_mal_bucket["samples"] == 3318
+    assert all_mal_bucket["families"] == 209
+    assert [str(row["profile_id"]) for row in profile_table["rows"]] == ["banker", "all_malicious"]
+    assert profile_table["kwargs"]["title"] == "Profile readiness mapping inventory"
+    assert profile_table["kwargs"]["columns"] == ["profile_id", "bucket", "samples", "families", "status", "reason"]
+    assert profile_table["rows"][0]["samples"] == 790
+    assert profile_table["rows"][0]["families"] == 12
+    assert profile_table["rows"][1]["samples"] == 3318
+    assert profile_table["rows"][1]["families"] == 209
+    assert taxonomy_table["kwargs"]["title"] == "Taxonomy drift summary"
+    assert taxonomy_table["kwargs"]["columns"] == ["signal", "samples", "meaning"]
+    assert {str(row["signal"]) for row in taxonomy_table["rows"]} == {
+        "banker_label_bucket",
+        "banker_type_bucket",
+        "missing_primary_labels",
+        "unresolved_family_samples",
+        "known_unresolved_family_samples",
+    }
+    assert unresolved_table["kwargs"]["title"] == "Top unresolved family backlog"
+    assert unresolved_table["kwargs"]["columns"] == ["family", "samples", "high_strong", "known_locally"]
+    assert unresolved_table["rows"] == [
+        {"family": "unknown", "samples": 289, "high_strong": 279, "known_locally": "no"},
+        {"family": "blankbot", "samples": 9, "high_strong": 9, "known_locally": "yes"},
+    ]
+    assert conflict_table["kwargs"]["title"] == "Family/type conflict backlog"
+    assert conflict_table["kwargs"]["columns"] == ["family", "priority", "action", "db_type", "issue", "operator_model", "fraud_posture", "perm_signal", "samples", "high_strong", "label_signal"]
+    assert conflict_table["rows"] == [
+        {
+            "family": "devixor",
+            "priority": "high",
+            "action": "review_db_type_mapping",
+            "db_type": "dropper",
+            "issue": "type_mismatch",
+            "operator_model": "rat",
+            "fraud_posture": "banking_targeted+odf_capable",
+            "perm_signal": "sms+telephony+overlay",
+            "samples": 725,
+            "high_strong": 725,
+            "label_signal": "banker (725)",
+        },
+        {
+            "family": "blankbot",
+            "priority": "high",
+            "action": "add_db_family_mapping",
+            "db_type": "<unmapped>",
+            "issue": "db_family_missing",
+            "operator_model": "unclear",
+            "fraud_posture": "unclear",
+            "perm_signal": "overlay",
+            "samples": 9,
+            "high_strong": 9,
+            "label_signal": "trojan_untyped (9)",
+        },
+    ]
+    assert repair_table["kwargs"]["title"] == "Taxonomy repair candidates"
+    assert repair_table["kwargs"]["columns"] == ["family", "priority", "action", "issue", "db_type", "samples", "high_strong", "perm_signal"]
+    assert repair_table["rows"] == [
+        {
+            "family": "devixor",
+            "priority": "high",
+            "action": "review_db_type_mapping",
+            "issue": "type_mismatch",
+            "db_type": "dropper",
+            "samples": 725,
+            "high_strong": 725,
+            "perm_signal": "sms+telephony+overlay",
+        },
+        {
+            "family": "blankbot",
+            "priority": "high",
+            "action": "add_db_family_mapping",
+            "issue": "db_family_missing",
+            "db_type": "<unmapped>",
+            "samples": 9,
+            "high_strong": 9,
+            "perm_signal": "overlay",
+        },
+    ]
+    assert ("Bundled profiles", 2) in stats
+    assert ("Ambiguous / unmapped", 0) in stats
+    assert ("Unresolved family slugs", 25) in stats
+    assert ("Known unresolved families", 4) in stats
+    assert ("Family/type conflict candidates", 3) in stats
+    assert ("Taxonomy repair candidates", 2) in stats
+    assert "Profile intent guide" in subheaders
+    assert any("Banker-oriented profiles -> android_banker_with_permission_obs" in note for note in notes)
+    assert any("Android permission-feature runs -> android_with_permission_obs or android_high_or_strong_vt_with_permission_obs" in note for note in notes)
+    assert any("Family/min-support runs -> android_family_ready_min3_permission_obs" in note for note in notes)
+    assert any("Broad Android exploratory runs -> android_platform" in note for note in notes)
+    assert any("Banker type scope currently exceeds the banker label bucket by 505 sample(s)." in note for note in notes)
+    assert any("Top unresolved resolved-family slugs: unknown (289), blankbot (9)" in note for note in notes)
+    assert any("Some unresolved family samples already map to known local taxonomy names" in note for note in notes)
+    assert any("Top family/type conflict candidates: devixor [type_mismatch], blankbot [db_family_missing]" in note for note in notes)
+    assert any("Operator-model hypotheses: devixor → rat, blankbot → unclear" in note for note in notes)
+    assert any("Suggested next actions: devixor → review_db_type_mapping, blankbot → add_db_family_mapping" in note for note in notes)
+    assert any("Top taxonomy repair queue: devixor (725), blankbot (9)" in note for note in notes)
+    assert any("Advisory only; does not enforce sample selection." in note for note in notes)
+    assert not any(
+        any(token in note.lower() for token in ("pass", "fail", "invalid", "blocked", "required"))
+        for note in notes
+    )
+
+
+def test_profile_readiness_mapping_inventory_report_can_surface_ambiguous_count(monkeypatch) -> None:
+    notes: list[str] = []
+
+    monkeypatch.setattr(
+        startup_menu._diagnostics_menu.profile_manager,
+        "inventory_cohort_readiness_mappings",
+        lambda: [
+            {
+                "profile_id": "future_profile",
+                "bucket": None,
+                "status": "ambiguous",
+                "summary": "No readiness bucket mapped for this profile; review cohort filters manually.",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        startup_menu._diagnostics_menu,
+        "get_cohort_readiness_snapshot",
+        lambda: {
+            "status": "degraded",
+            "warnings": ["Permission Intel unavailable: android_permission_obs_sample not reachable on the Permission Intel connection."],
+            "buckets": {},
+        },
+    )
+    monkeypatch.setattr(startup_menu._diagnostics_menu.du, "print_table", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(startup_menu._diagnostics_menu.du, "print_stat", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(startup_menu._diagnostics_menu.du, "print_note", lambda message: notes.append(str(message)))
+
+    result = startup_menu._diagnostics_menu.show_profile_readiness_mapping_inventory()
+
+    assert result == 0
+    assert any("Permission Intel unavailable" in note for note in notes)
+    assert any("Unmapped profile; review cohort filters manually." in note for note in notes)
+    assert any("Ambiguous profile intent; no readiness bucket selected." in note for note in notes)
+
+
+def test_profile_readiness_mapping_inventory_report_handles_unavailable_bucket_counts(monkeypatch) -> None:
+    tables: list[dict[str, object]] = []
+    notes: list[str] = []
+
+    monkeypatch.setattr(
+        startup_menu._diagnostics_menu.profile_manager,
+        "inventory_cohort_readiness_mappings",
+        lambda: [
+            {
+                "profile_id": "malicious_temporal_stability_locked",
+                "bucket": "android_high_or_strong_vt_with_permission_obs",
+                "status": "mapped",
+                "summary": "Best matching readiness bucket: android_high_or_strong_vt_with_permission_obs",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        startup_menu._diagnostics_menu,
+        "get_cohort_readiness_snapshot",
+        lambda: {
+            "status": "degraded",
+            "warnings": ["VT confidence surface unavailable: vt_sample_verdict_confidence_current missing on the primary Erebus connection."],
+            "buckets": {
+                "android_high_or_strong_vt_with_permission_obs": {
+                    "sample_count": None,
+                    "family_count": None,
+                }
+            },
+            "taxonomy_signals": {},
+        },
+    )
+    monkeypatch.setattr(
+        startup_menu._diagnostics_menu.du,
+        "print_table",
+        lambda rows, **kwargs: tables.append({"rows": list(rows), "kwargs": dict(kwargs)}),
+    )
+    monkeypatch.setattr(startup_menu._diagnostics_menu.du, "print_stat", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(startup_menu._diagnostics_menu.du, "print_note", lambda message: notes.append(str(message)))
+
+    result = startup_menu._diagnostics_menu.show_profile_readiness_mapping_inventory()
+
+    assert result == 0
+    assert len(tables) == 3
+    bucket_table, profile_table, taxonomy_table = tables
+    bucket_row = next(
+        row
+        for row in bucket_table["rows"]
+        if str(row["bucket"]) == "android_high_or_strong_vt_with_permission_obs"
+    )
+    assert bucket_row["samples"] == "unavailable"
+    assert bucket_row["families"] == "unavailable"
+    assert profile_table["rows"][0]["samples"] == "unavailable"
+    assert profile_table["rows"][0]["families"] == "unavailable"
+    assert all(row["samples"] == "unavailable" for row in taxonomy_table["rows"])
+    assert any("VT confidence surface unavailable" in note for note in notes)
 
 
 def test_main_menu_submenu_back_does_not_warn_invalid(monkeypatch) -> None:
@@ -1064,7 +1411,7 @@ def test_handle_confusion_matrix_export_copies_single_model_matrix(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    """Confusion export should copy the only model matrix into the evidence bundle and legacy mirror."""
+    """Confusion export should copy the only model matrix into the canonical evidence bundle only."""
     out_root = tmp_path / "output"
     run_id = "20260305T111111Z__def456"
     diagnostics_dir = out_root / "diagnostics"
@@ -1087,12 +1434,10 @@ def test_handle_confusion_matrix_export_copies_single_model_matrix(
     result = startup_menu._handle_confusion_matrix_export()  # pylint: disable=protected-access
 
     target = run_root / "evidence_bundle" / "confusion_matrix_primary.png"
-    legacy_target = run_root / "paper2_pack" / "confusion_matrix_primary.png"
     assert result == 0
     assert target.exists()
     assert target.read_text(encoding="utf-8") == "matrix"
-    assert legacy_target.exists()
-    assert legacy_target.read_text(encoding="utf-8") == "matrix"
+    assert not (run_root / "paper2_pack" / "confusion_matrix_primary.png").exists()
 
 
 def test_evidence_readiness_hub_uses_generic_labels(monkeypatch) -> None:

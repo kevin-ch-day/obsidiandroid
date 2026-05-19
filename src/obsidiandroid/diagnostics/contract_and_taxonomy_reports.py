@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import csv
 import json
-import shutil
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.diagnostics.headline_ablation_parity import build_feature_contract_comparison
 
 
@@ -65,9 +65,6 @@ def write_headline_vs_ablation_contract_reports(
 
     csv_path = diagnostics_dir / f"headline_vs_ablation_contract_comparison_{run_id}.csv"
     md_path = diagnostics_dir / f"headline_vs_ablation_contract_comparison_{run_id}.md"
-    latest_csv = diagnostics_dir / "headline_vs_ablation_contract_comparison.latest.csv"
-    latest_md = diagnostics_dir / "headline_vs_ablation_contract_comparison.latest.md"
-
     row = {
         **{k: v for k, v in payload.items() if k != "incommensurable_message"},
         "apples_to_apples_yes_no": apples_txt,
@@ -81,26 +78,32 @@ def write_headline_vs_ablation_contract_reports(
         w.writeheader()
         w.writerow(row)
 
-    md_path.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
-    try:
-        shutil.copy2(csv_path, latest_csv)
-        shutil.copy2(md_path, latest_md)
-    except OSError:
-        pass
+    md_text = "\n".join(md_lines) + "\n"
+    md_path.write_text(md_text, encoding="utf-8")
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=csv_path.name,
+        csv_text=csv_path.read_text(encoding="utf-8"),
+        global_latest_name="headline_vs_ablation_contract_comparison.latest.csv",
+    )
+    oh.mirror_utf8_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=md_path.name,
+        text=md_text,
+        global_latest_name="headline_vs_ablation_contract_comparison.latest.md",
+    )
 
     return md_path, csv_path, payload
 
 
 def _read_taxonomy_summary(diagnostics_dir: Path, run_id: str) -> dict[str, Any]:
-    for name in (f"taxonomy_consistency_summary_{run_id}.json", "taxonomy_consistency_summary.latest.json"):
-        p = diagnostics_dir / name
-        if not p.is_file():
-            continue
+    p = oh.resolve_taxonomy_consistency_summary_path(diagnostics_dir, run_id)
+    if p.is_file():
         try:
             blob = json.loads(p.read_text(encoding="utf-8"))
             return blob if isinstance(blob, dict) else {}
         except (OSError, json.JSONDecodeError):
-            continue
+            pass
     return {}
 
 
@@ -255,16 +258,20 @@ def write_taxonomy_type_authority_reports(
         w = csv.DictWriter(fh, fieldnames=list(csv_payload.keys()))
         w.writeheader()
         w.writerow(csv_payload)
-    md_path.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
-    try:
-        (diagnostics_dir / "taxonomy_type_authority_review.latest.csv").write_text(
-            csv_path.read_text(encoding="utf-8"), encoding="utf-8"
-        )
-        (diagnostics_dir / "taxonomy_type_authority_review.latest.md").write_text(
-            md_path.read_text(encoding="utf-8"), encoding="utf-8"
-        )
-    except OSError:
-        pass
+    md_text = "\n".join(md_lines) + "\n"
+    md_path.write_text(md_text, encoding="utf-8")
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=csv_path.name,
+        csv_text=csv_path.read_text(encoding="utf-8"),
+        global_latest_name="taxonomy_type_authority_review.latest.csv",
+    )
+    oh.mirror_utf8_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=md_path.name,
+        text=md_text,
+        global_latest_name="taxonomy_type_authority_review.latest.md",
+    )
 
     return md_path, csv_path
 

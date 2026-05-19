@@ -13,11 +13,13 @@ from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.json_io import read_json_dict
 from obsidiandroid.common.output_paths import output_root as canonical_output_root
 from obsidiandroid.common.repo_paths import repo_operator_script
+from obsidiandroid.database.db_cohort_readiness import get_cohort_readiness_snapshot
 from obsidiandroid.diagnostics.diagnostic_provenance import (
     latest_post_run_entry,
     latest_post_run_enrichment_dir,
 )
 from obsidiandroid.governance import paper_cohort_contract
+import obsidiandroid.cli.profile_manager as profile_manager
 
 from .menu import diagnostics_banners
 from .menu import vendor_diagnostics
@@ -25,6 +27,301 @@ from .menu.display_mode import resolve_display_mode
 from .menu.operator_state import build_operator_state
 from .ui import display as du
 from .ui import menu as mu
+
+_READINESS_BUCKET_MEANINGS: tuple[tuple[str, str], ...] = (
+    ("all_catalog", "All catalog samples"),
+    ("android_platform", "Android platform samples"),
+    ("android_with_permission_obs", "Android samples with PI observations"),
+    (
+        "android_high_or_strong_vt_with_permission_obs",
+        "Android + PI observations + high/strong VT confidence",
+    ),
+    (
+        "android_labeled_primary_with_permission_obs",
+        "Android + PI observations + primary class label",
+    ),
+    (
+        "android_banker_with_permission_obs",
+        "Android banker-labeled samples with PI observations",
+    ),
+    (
+        "android_family_ready_min3_permission_obs",
+        "Android + PI observations, family support >= 3",
+    ),
+)
+
+_PROFILE_INTENT_GUIDE: tuple[str, ...] = (
+    "Banker-oriented profiles -> android_banker_with_permission_obs",
+    "Android permission-feature runs -> android_with_permission_obs or android_high_or_strong_vt_with_permission_obs",
+    "Family/min-support runs -> android_family_ready_min3_permission_obs",
+    "Broad Android exploratory runs -> android_platform",
+)
+
+
+def show_profile_readiness_mapping_inventory() -> int:
+    """Print bundled profile-to-readiness mapping inventory (advisory only)."""
+    inventory = profile_manager.inventory_cohort_readiness_mappings()
+    if not inventory:
+        du.print_warning("[MENU] No bundled profiles found for readiness mapping inventory.")
+        return 1
+    try:
+        readiness = get_cohort_readiness_snapshot()
+    except Exception as exc:
+        readiness = {
+            "status": "degraded",
+            "warnings": [f"Cohort readiness counts unavailable: {exc}"],
+            "buckets": {},
+        }
+
+    bucket_rows: list[dict[str, object]] = []
+    bucket_counts = readiness.get("buckets", {}) if isinstance(readiness, dict) else {}
+    for bucket, meaning in _READINESS_BUCKET_MEANINGS:
+        bucket_payload = bucket_counts.get(bucket, {}) if isinstance(bucket_counts, dict) else {}
+        sample_count = bucket_payload.get("sample_count") if isinstance(bucket_payload, dict) else None
+        family_count = bucket_payload.get("family_count") if isinstance(bucket_payload, dict) else None
+        bucket_rows.append(
+            {
+                "bucket": bucket,
+                "samples": sample_count if sample_count is not None else "unavailable",
+                "families": family_count if family_count is not None else "unavailable",
+                "meaning": meaning,
+            }
+        )
+
+    du.print_table(
+        bucket_rows,
+        title="Readiness bucket summary",
+        columns=["bucket", "samples", "families", "meaning"],
+        show_index=False,
+    )
+
+    rows: list[dict[str, object]] = []
+    ambiguous_count = 0
+    for entry in inventory:
+        status = str(entry.get("status", "") or "ambiguous")
+        if status != "mapped":
+            ambiguous_count += 1
+        bucket = str(entry.get("bucket", "") or "")
+        bucket_payload = bucket_counts.get(bucket, {}) if isinstance(bucket_counts, dict) else {}
+        sample_count = bucket_payload.get("sample_count") if isinstance(bucket_payload, dict) else None
+        family_count = bucket_payload.get("family_count") if isinstance(bucket_payload, dict) else None
+        rows.append(
+            {
+                "profile_id": str(entry.get("profile_id", "") or ""),
+                "bucket": bucket or "—",
+                "samples": sample_count if sample_count is not None else "unavailable",
+                "families": family_count if family_count is not None else "unavailable",
+                "status": status,
+                "reason": str(entry.get("summary", "") or "").strip(),
+            }
+        )
+
+    du.print_table(
+        rows,
+        title="Profile readiness mapping inventory",
+        columns=["profile_id", "bucket", "samples", "families", "status", "reason"],
+        show_index=False,
+    )
+    taxonomy_signals = readiness.get("taxonomy_signals", {}) if isinstance(readiness, dict) else {}
+    if isinstance(taxonomy_signals, dict):
+        taxonomy_rows = [
+            {
+                "signal": "banker_label_bucket",
+                "samples": taxonomy_signals.get("banker_label_bucket_samples", "unavailable")
+                if taxonomy_signals.get("banker_label_bucket_samples") is not None
+                else "unavailable",
+                "meaning": "Legacy label bucket (Trojan / Banker)",
+            },
+            {
+                "signal": "banker_type_bucket",
+                "samples": taxonomy_signals.get("banker_type_bucket_samples", "unavailable")
+                if taxonomy_signals.get("banker_type_bucket_samples") is not None
+                else "unavailable",
+                "meaning": "Resolved family mapped to type_slug=banker",
+            },
+            {
+                "signal": "missing_primary_labels",
+                "samples": taxonomy_signals.get("missing_primary_label_samples", "unavailable")
+                if taxonomy_signals.get("missing_primary_label_samples") is not None
+                else "unavailable",
+                "meaning": "Android + PI samples missing classification_primary",
+            },
+            {
+                "signal": "unresolved_family_samples",
+                "samples": taxonomy_signals.get("unresolved_family_samples", "unavailable")
+                if taxonomy_signals.get("unresolved_family_samples") is not None
+                else "unavailable",
+                "meaning": "Android + PI samples whose resolved family is not in android_malware_family",
+            },
+            {
+                "signal": "known_unresolved_family_samples",
+                "samples": taxonomy_signals.get("known_unresolved_family_samples", "unavailable")
+                if taxonomy_signals.get("known_unresolved_family_samples") is not None
+                else "unavailable",
+                "meaning": "Unresolved samples whose family is already known locally",
+            },
+        ]
+        du.print_table(
+            taxonomy_rows,
+            title="Taxonomy drift summary",
+            columns=["signal", "samples", "meaning"],
+            show_index=False,
+        )
+        top_unresolved = taxonomy_signals.get("top_unresolved_families", [])
+        unresolved_rows: list[dict[str, object]] = []
+        if isinstance(top_unresolved, list):
+            for entry in top_unresolved[:5]:
+                if not isinstance(entry, dict):
+                    continue
+                unresolved_rows.append(
+                    {
+                        "family": str(entry.get("family", "") or ""),
+                        "samples": entry.get("sample_count", "unavailable"),
+                        "high_strong": entry.get("high_strong_sample_count", "unavailable"),
+                        "known_locally": "yes" if entry.get("known_locally") else "no",
+                    }
+                )
+        if unresolved_rows:
+            du.print_table(
+                unresolved_rows,
+                title="Top unresolved family backlog",
+                columns=["family", "samples", "high_strong", "known_locally"],
+                show_index=False,
+            )
+        top_conflicts = taxonomy_signals.get("top_family_type_conflicts", [])
+        conflict_rows: list[dict[str, object]] = []
+        if isinstance(top_conflicts, list):
+            for entry in top_conflicts[:8]:
+                if not isinstance(entry, dict):
+                    continue
+                conflict_rows.append(
+                    {
+                        "family": str(entry.get("family", "") or ""),
+                        "priority": str(entry.get("priority", "") or "low"),
+                        "action": str(entry.get("suggested_action", "") or "review_manually"),
+                        "db_type": str(entry.get("db_type_slug", "") or "unavailable"),
+                        "issue": str(entry.get("issue", "") or "unknown"),
+                        "operator_model": str(entry.get("operator_model_candidate", "") or "unclear"),
+                        "fraud_posture": str(entry.get("fraud_posture_candidate", "") or "unclear"),
+                        "perm_signal": str(entry.get("permission_signal_summary", "") or "none"),
+                        "samples": entry.get("sample_count", "unavailable"),
+                        "high_strong": entry.get("high_strong_sample_count", "unavailable"),
+                        "label_signal": (
+                            f"{entry.get('dominant_label_semantic', '<none>')} "
+                            f"({entry.get('dominant_label_samples', 0)})"
+                        ).strip(),
+                    }
+                )
+        if conflict_rows:
+            du.print_table(
+                conflict_rows,
+                title="Family/type conflict backlog",
+                columns=["family", "priority", "action", "db_type", "issue", "operator_model", "fraud_posture", "perm_signal", "samples", "high_strong", "label_signal"],
+                show_index=False,
+            )
+        repair_candidates = taxonomy_signals.get("top_repair_candidates", [])
+        repair_rows: list[dict[str, object]] = []
+        if isinstance(repair_candidates, list):
+            for entry in repair_candidates[:6]:
+                if not isinstance(entry, dict):
+                    continue
+                repair_rows.append(
+                    {
+                        "family": str(entry.get("family", "") or ""),
+                        "priority": str(entry.get("priority", "") or "low"),
+                        "action": str(entry.get("suggested_action", "") or "review_manually"),
+                        "issue": str(entry.get("issue", "") or "unknown"),
+                        "db_type": str(entry.get("db_type_slug", "") or "unavailable"),
+                        "samples": entry.get("sample_count", "unavailable"),
+                        "high_strong": entry.get("high_strong_sample_count", "unavailable"),
+                        "perm_signal": str(entry.get("permission_signal_summary", "") or "none"),
+                    }
+                )
+        if repair_rows:
+            du.print_table(
+                repair_rows,
+                title="Taxonomy repair candidates",
+                columns=["family", "priority", "action", "issue", "db_type", "samples", "high_strong", "perm_signal"],
+                show_index=False,
+            )
+    du.print_stat("Bundled profiles", len(rows))
+    du.print_stat("Ambiguous / unmapped", ambiguous_count)
+    unresolved_family_count = taxonomy_signals.get("unresolved_family_count") if isinstance(taxonomy_signals, dict) else None
+    if unresolved_family_count is not None:
+        du.print_stat("Unresolved family slugs", unresolved_family_count)
+    known_unresolved_family_count = taxonomy_signals.get("known_unresolved_family_count") if isinstance(taxonomy_signals, dict) else None
+    if known_unresolved_family_count is not None:
+        du.print_stat("Known unresolved families", known_unresolved_family_count)
+    family_type_conflict_count = taxonomy_signals.get("family_type_conflict_count") if isinstance(taxonomy_signals, dict) else None
+    if family_type_conflict_count is not None:
+        du.print_stat("Family/type conflict candidates", family_type_conflict_count)
+    repair_candidate_count = taxonomy_signals.get("repair_candidate_count") if isinstance(taxonomy_signals, dict) else None
+    if repair_candidate_count is not None:
+        du.print_stat("Taxonomy repair candidates", repair_candidate_count)
+    du.print_subheader("Profile intent guide")
+    for line in _PROFILE_INTENT_GUIDE:
+        du.print_note(line)
+    if isinstance(taxonomy_signals, dict):
+        banker_gap = taxonomy_signals.get("banker_type_minus_label_samples")
+        if banker_gap:
+            du.print_note(
+                "Banker type scope currently exceeds the banker label bucket by "
+                f"{banker_gap} sample(s)."
+            )
+        top_unresolved = taxonomy_signals.get("top_unresolved_families", [])
+        if isinstance(top_unresolved, list) and top_unresolved:
+            families = ", ".join(
+                f"{entry.get('family')} ({entry.get('sample_count')})"
+                for entry in top_unresolved[:5]
+                if isinstance(entry, dict) and entry.get("family")
+            )
+            if families:
+                du.print_note(f"Top unresolved resolved-family slugs: {families}")
+        known_unresolved_samples = taxonomy_signals.get("known_unresolved_family_samples")
+        if known_unresolved_samples:
+            du.print_note(
+                "Some unresolved family samples already map to known local taxonomy names; "
+                "prioritize DB catalog alignment before adding more advisory layers."
+            )
+        top_conflicts = taxonomy_signals.get("top_family_type_conflicts", [])
+        if isinstance(top_conflicts, list) and top_conflicts:
+            families = ", ".join(
+                f"{entry.get('family')} [{entry.get('issue')}]"
+                for entry in top_conflicts[:4]
+                if isinstance(entry, dict) and entry.get("family")
+            )
+            if families:
+                du.print_note(f"Top family/type conflict candidates: {families}")
+            posture_pairs = ", ".join(
+                f"{entry.get('family')} → {entry.get('operator_model_candidate')}"
+                for entry in top_conflicts[:3]
+                if isinstance(entry, dict) and entry.get("family")
+            )
+            if posture_pairs:
+                du.print_note(f"Operator-model hypotheses: {posture_pairs}")
+            actions = ", ".join(
+                f"{entry.get('family')} → {entry.get('suggested_action')}"
+                for entry in top_conflicts[:3]
+                if isinstance(entry, dict) and entry.get("family")
+            )
+            if actions:
+                du.print_note(f"Suggested next actions: {actions}")
+        repair_candidates = taxonomy_signals.get("top_repair_candidates", [])
+        if isinstance(repair_candidates, list) and repair_candidates:
+            families = ", ".join(
+                f"{entry.get('family')} ({entry.get('high_strong_sample_count')})"
+                for entry in repair_candidates[:5]
+                if isinstance(entry, dict) and entry.get("family")
+            )
+            if families:
+                du.print_note(f"Top taxonomy repair queue: {families}")
+    du.print_note("Advisory only; does not enforce sample selection.")
+    for warning in (readiness.get("warnings", []) if isinstance(readiness, dict) else [])[:3]:
+        du.print_note(str(warning))
+    if ambiguous_count > 0:
+        du.print_note("Unmapped profile; review cohort filters manually.")
+        du.print_note("Ambiguous profile intent; no readiness bucket selected.")
+    return 0
 
 
 def first_existing_path(candidates: list[Path]) -> Path | None:
@@ -74,6 +371,7 @@ def run_family_label_taxonomy_audit_script(
     resolve_and_validate_profile: Callable[..., str | None],
     load_profile: Callable[[str], object],
     operator_script_resolver: Callable[[str], Path] = repo_operator_script,
+    subprocess_run: Callable[..., object] = subprocess.run,
 ) -> int:
     """Invoke the post-run family taxonomy audit script."""
     script_path = operator_script_resolver("family_label_taxonomy_audit.py")
@@ -172,7 +470,7 @@ def run_family_label_taxonomy_audit_script(
         du.print_stat("Cohort lock enforcement", "not locked")
     cmd = [sys.executable, str(script_path), "--profile", profile_id, *diag_args]
     du.print_info(f"[MENU] Running: {' '.join(cmd)}")
-    proc = subprocess.run(cmd, check=False)
+    proc = subprocess_run(cmd, check=False)
     return int(proc.returncode)
 
 
@@ -529,6 +827,7 @@ def launch_taxonomy_consistency_review_menu(*, read_latest_run_id: Callable[[], 
         du.print_subheader("Compact summary")
         du.print_stat("Rows evaluated", str(summary.get("rows_evaluated", "—")))
         du.print_stat("Taxonomy mismatches", str(summary.get("taxonomy_mismatch_count", "—")))
+        du.print_stat("Claim-facing mismatches", str(summary.get("paper_facing_taxonomy_mismatch_count", "—")))
         du.print_stat("Type mismatches", str(summary.get("type_mismatch_count", "—")))
         du.print_stat("Missing type labels", str(summary.get("type_missing_label_count", "—")))
         du.print_stat("Family label mismatches", str(summary.get("family_label_mismatch_count", "—")))
@@ -573,6 +872,9 @@ def launch_taxonomy_support_tuning_compact_menu(*, read_latest_run_id: Callable[
     authority_review_path = first_existing_path([rdiag / f"taxonomy_type_authority_review_{rid}.md", rdiag / "taxonomy_type_authority_review.latest.md"])
 
     tax_total = int(taxonomy.get("taxonomy_mismatch_count", 0) or 0) if taxonomy else 0
+    claim_facing_tax_total = int(
+        taxonomy.get("paper_facing_taxonomy_mismatch_count", tax_total) or 0
+    ) if taxonomy else 0
     type_issues = (
         int(taxonomy.get("type_mismatch_count", 0) or 0)
         + int(taxonomy.get("type_noncanonical_count", 0) or 0)
@@ -581,6 +883,7 @@ def launch_taxonomy_support_tuning_compact_menu(*, read_latest_run_id: Callable[
     family_mismatch = int(taxonomy.get("family_label_mismatch_count", 0) or 0) if taxonomy else 0
     du.print_stat("Taxonomy health", "YELLOW" if tax_total > 0 else ("GREEN" if taxonomy else "RED"))
     du.print_stat("Taxonomy mismatch total", tax_total if taxonomy else "—")
+    du.print_stat("Claim-facing mismatch total", claim_facing_tax_total if taxonomy else "—")
     du.print_stat("Type/rendering issue count", type_issues if taxonomy else "—")
     du.print_stat("Family mismatch count", family_mismatch if taxonomy else "—")
 
@@ -634,6 +937,9 @@ def build_taxonomy_support_tuning_snapshot(*, run_id: str, output_root: Path) ->
     support_preview_path = first_existing_path([rdiag / "support_threshold_preview.csv"])
 
     tax_total = int(taxonomy.get("taxonomy_mismatch_count", 0) or 0) if taxonomy else 0
+    claim_facing_tax_total = int(
+        taxonomy.get("paper_facing_taxonomy_mismatch_count", tax_total) or 0
+    ) if taxonomy else 0
     type_issues = (
         int(taxonomy.get("type_mismatch_count", 0) or 0)
         + int(taxonomy.get("type_noncanonical_count", 0) or 0)
@@ -693,6 +999,8 @@ def build_taxonomy_support_tuning_snapshot(*, run_id: str, output_root: Path) ->
     return {
         "taxonomy_health": "YELLOW" if tax_total > 0 else ("GREEN" if taxonomy else "RED"),
         "taxonomy_mismatch_total": tax_total if taxonomy else "—",
+        "claim_facing_taxonomy_mismatch_total": claim_facing_tax_total if taxonomy else "—",
+        "paper_facing_taxonomy_mismatch_total": claim_facing_tax_total if taxonomy else "—",
         "type_rendering_issue_count": type_issues if taxonomy else "—",
         "family_mismatch_count": family_mismatch if taxonomy else "—",
         "min_samples_per_family": min_support,
@@ -794,6 +1102,7 @@ def launch_data_diagnostics_menu(
         data_sections = [
             "Open run science index",
             "Pipeline profile tuning (latest manifest)",
+            "Profile readiness mapping inventory",
             "Taxonomy & Support Tuning",
             "Taxonomy Consistency Review",
             "Parser & Vendor Coverage",
@@ -817,21 +1126,24 @@ def launch_data_diagnostics_menu(
             show_profile_tuning_snapshot()
             continue
         if choice == 3:
-            launch_taxonomy_support_tuning_compact_menu(read_latest_run_id=read_latest_run_id)
+            show_profile_readiness_mapping_inventory()
             continue
         if choice == 4:
-            launch_taxonomy_consistency_review_action()
+            launch_taxonomy_support_tuning_compact_menu(read_latest_run_id=read_latest_run_id)
             continue
         if choice == 5:
-            launch_parser_vendor_coverage_action()
+            launch_taxonomy_consistency_review_action()
             continue
         if choice == 6:
-            launch_permission_intelligence_coverage_action()
+            launch_parser_vendor_coverage_action()
             continue
         if choice == 7:
-            launch_feature_matrix_modality_action()
+            launch_permission_intelligence_coverage_action()
             continue
         if choice == 8:
+            launch_feature_matrix_modality_action()
+            continue
+        if choice == 9:
             launch_cohort_family_audit_action()
             continue
         du.print_warning("[MENU] Invalid choice received.")
@@ -852,4 +1164,5 @@ __all__ = [
     "open_run_science_index",
     "print_cohort_family_artifact_paths",
     "run_family_label_taxonomy_audit_script",
+    "show_profile_readiness_mapping_inventory",
 ]

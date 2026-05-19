@@ -84,6 +84,52 @@ def test_fetch_banking_trojans_sql_qualifies_primary_and_pi(monkeypatch) -> None
     assert "'crocodilus'" in sql
 
 
+def test_fetch_banking_trojans_sql_prefers_permission_string_norm_when_available(monkeypatch) -> None:
+    queries: list[str] = []
+
+    def capture(query, *_args, **_kwargs):
+        queries.append(query)
+        return (["c"], [])
+
+    monkeypatch.setattr(
+        db_engine,
+        "get_table_columns",
+        lambda _table: ["sample_id", "permission_string", "permission_string_norm"],
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.database.db_permission_analysis_queries._PERMISSION_OBS_NORM_AVAILABLE",
+        None,
+    )
+    monkeypatch.setattr(db_engine, "execute_query", capture)
+    fetch_android_banking_trojans_with_permissions()
+    sql = queries[0]
+    assert "permission_string_norm" in sql
+    assert "COALESCE(NULLIF(TRIM(ops.permission_string_norm), ''), LOWER(TRIM(ops.permission_string)))" in sql
+
+
+def test_fetch_banking_trojans_sql_falls_back_without_permission_string_norm(monkeypatch) -> None:
+    queries: list[str] = []
+
+    def capture(query, *_args, **_kwargs):
+        queries.append(query)
+        return (["c"], [])
+
+    monkeypatch.setattr(
+        db_engine,
+        "get_table_columns",
+        lambda _table: ["sample_id", "permission_string"],
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.database.db_permission_analysis_queries._PERMISSION_OBS_NORM_AVAILABLE",
+        None,
+    )
+    monkeypatch.setattr(db_engine, "execute_query", capture)
+    fetch_android_banking_trojans_with_permissions()
+    sql = queries[0]
+    assert "permission_string_norm" not in sql
+    assert "LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(kp.constant_value))" in sql
+
+
 def test_fetch_banking_trojans_count_sql_uses_same_family_universe(monkeypatch) -> None:
     """Count helper should stay aligned with the detail helper's banking-family filter."""
     queries: list[str] = []
