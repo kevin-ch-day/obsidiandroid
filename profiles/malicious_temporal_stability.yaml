@@ -1,5 +1,11 @@
 profile_id: malicious_temporal_stability
 description: "Current all-malicious temporal-stability research profile with temporal windowing and family-governance controls."
+profile_status:
+  lifecycle: final_canonical
+  operator_surface: supported
+  support_tier: final
+  status_label: Final canonical
+  canonical_profile_id: malicious_temporal_stability
 evidence_mode: true
 allow_vendor_fallback_for_width: false
 allow_adaptive_top_k: false

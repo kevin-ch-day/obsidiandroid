@@ -1,5 +1,11 @@
 profile_id: malicious_temporal_stability_locked
 description: "Locked all-malicious temporal-stability baseline anchored to a preserved baseline run."
+profile_status:
+  lifecycle: final_canonical
+  operator_surface: supported
+  support_tier: final
+  status_label: Final canonical
+  canonical_profile_id: malicious_temporal_stability_locked
 paper_locked: true
 evidence_mode: true
 allow_vendor_fallback_for_width: false

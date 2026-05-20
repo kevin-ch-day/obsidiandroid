@@ -30,6 +30,10 @@ FINAL_OPERATOR_PROFILE_IDS = (
     "dev_fast",
     "dev_smoke",
 )
+DEPRECATED_EXPLORATORY_PROFILE_IDS = (
+    "research_all_malicious",
+    "all_malicious",
+)
 REQUIRED_PROFILE_KEYS = {
     "profile_id",
     "type_slug_filter",
@@ -203,7 +207,67 @@ def _apply_policy_defaults(profile: Dict[str, Any]) -> Dict[str, Any]:
     out.setdefault("top_k_requested", 8)
     out.setdefault("exclude_unknown_from_main_results", False)
     out.setdefault("paper_locked", False)
+    out["profile_status"] = _normalize_profile_status(out)
     return out
+
+
+def _normalize_profile_status(profile: Dict[str, Any]) -> Dict[str, str]:
+    """Return normalized profile lifecycle metadata for display/inventory surfaces."""
+    profile_id = str(profile.get("profile_id", "") or "").strip()
+    declared = profile.get("profile_status") if isinstance(profile.get("profile_status"), dict) else {}
+
+    if profile_id in PROFILE_ALIASES:
+        defaults = {
+            "lifecycle": "compatibility_alias",
+            "operator_surface": "hidden_compatibility",
+            "support_tier": "compatibility",
+            "status_label": "Compatibility alias",
+            "canonical_profile_id": PROFILE_ALIASES[profile_id],
+            "replacement_profile_id": PROFILE_ALIASES[profile_id],
+        }
+    elif profile_id in DEPRECATED_EXPLORATORY_PROFILE_IDS:
+        defaults = {
+            "lifecycle": "deprecated_exploratory",
+            "operator_surface": "loadable_non_primary",
+            "support_tier": "deprecated",
+            "status_label": "Deprecated exploratory",
+            "canonical_profile_id": profile_id,
+            "replacement_profile_id": "malicious_temporal_stability",
+        }
+    elif profile_id in FINAL_OPERATOR_PROFILE_IDS and profile_id.startswith("dev_"):
+        defaults = {
+            "lifecycle": "dev_only",
+            "operator_surface": "supported_dev",
+            "support_tier": "development",
+            "status_label": "Dev-only supported",
+            "canonical_profile_id": profile_id,
+            "replacement_profile_id": profile_id,
+        }
+    elif profile_id in FINAL_OPERATOR_PROFILE_IDS:
+        defaults = {
+            "lifecycle": "final_canonical",
+            "operator_surface": "supported",
+            "support_tier": "final",
+            "status_label": "Final canonical",
+            "canonical_profile_id": profile_id,
+            "replacement_profile_id": profile_id,
+        }
+    else:
+        defaults = {
+            "lifecycle": "catalog_non_primary",
+            "operator_surface": "debug_or_catalog",
+            "support_tier": "non_primary",
+            "status_label": "Non-primary catalog",
+            "canonical_profile_id": profile_id,
+            "replacement_profile_id": profile_id,
+        }
+
+    normalized = dict(defaults)
+    for key, value in declared.items():
+        token = str(key).strip()
+        if token:
+            normalized[token] = str(value).strip()
+    return normalized
 
 
 def infer_cohort_readiness_signal(profile_ref: str | Dict[str, Any] | None) -> Dict[str, str | None]:
@@ -334,6 +398,33 @@ def inventory_cohort_readiness_mappings(
                 "profile_id": str(profile.get("profile_id", profile_path.stem) or profile_path.stem),
                 "profile_path": str(profile_path.as_posix()),
                 "description": str(profile.get("description", "") or "").strip(),
+                "profile_status": dict(profile.get("profile_status", {}))
+                if isinstance(profile.get("profile_status"), dict)
+                else {},
+                "lifecycle": str(
+                    (
+                        profile.get("profile_status", {})
+                        if isinstance(profile.get("profile_status"), dict)
+                        else {}
+                    ).get("lifecycle", "")
+                    or ""
+                ).strip(),
+                "operator_surface": str(
+                    (
+                        profile.get("profile_status", {})
+                        if isinstance(profile.get("profile_status"), dict)
+                        else {}
+                    ).get("operator_surface", "")
+                    or ""
+                ).strip(),
+                "support_tier": str(
+                    (
+                        profile.get("profile_status", {})
+                        if isinstance(profile.get("profile_status"), dict)
+                        else {}
+                    ).get("support_tier", "")
+                    or ""
+                ).strip(),
                 "bucket": signal.get("bucket"),
                 "summary": str(signal.get("summary", "") or "").strip(),
                 "detail": str(signal.get("detail", "") or "").strip(),

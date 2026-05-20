@@ -1,5 +1,12 @@
 profile_id: paper2_primary
 description: "Deprecated compatibility alias for the current all-malicious temporal-stability research profile."
+profile_status:
+  lifecycle: compatibility_alias
+  operator_surface: hidden_compatibility
+  support_tier: compatibility
+  status_label: Compatibility alias
+  canonical_profile_id: malicious_temporal_stability
+  replacement_profile_id: malicious_temporal_stability
 evidence_mode: true
 allow_vendor_fallback_for_width: false
 allow_adaptive_top_k: false

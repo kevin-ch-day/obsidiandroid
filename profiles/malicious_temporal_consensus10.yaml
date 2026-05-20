@@ -1,5 +1,11 @@
 profile_id: malicious_temporal_consensus10
 description: "Sensitivity profile for the all-malicious temporal-stability cohort with a stricter consensus threshold."
+profile_status:
+  lifecycle: final_canonical
+  operator_surface: supported
+  support_tier: final
+  status_label: Final canonical
+  canonical_profile_id: malicious_temporal_consensus10
 evidence_mode: true
 allow_vendor_fallback_for_width: false
 allow_adaptive_top_k: false

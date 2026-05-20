@@ -1,5 +1,12 @@
 profile_id: paper2_primary_locked
 description: "Deprecated compatibility alias for the locked all-malicious temporal-stability baseline anchored to historical run 20260504T044304Z__8c64e6."
+profile_status:
+  lifecycle: compatibility_alias
+  operator_surface: hidden_compatibility
+  support_tier: compatibility
+  status_label: Compatibility alias
+  canonical_profile_id: malicious_temporal_stability_locked
+  replacement_profile_id: malicious_temporal_stability_locked
 paper_locked: true
 evidence_mode: true
 allow_vendor_fallback_for_width: false

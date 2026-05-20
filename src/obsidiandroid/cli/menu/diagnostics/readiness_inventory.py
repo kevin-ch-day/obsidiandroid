@@ -29,10 +29,10 @@ _READINESS_BUCKET_MEANINGS: tuple[tuple[str, str], ...] = (
 )
 
 _PROFILE_INTENT_GUIDE: tuple[str, ...] = (
-    "Banker-oriented profiles -> android_banker_with_permission_obs",
-    "Android permission-feature runs -> android_with_permission_obs or android_high_or_strong_vt_with_permission_obs",
-    "Family/min-support runs -> android_family_ready_min3_permission_obs",
-    "Broad Android exploratory runs -> android_platform",
+    "Supported banker profiles -> android_banker_with_permission_obs",
+    "Supported all-malicious and sensitivity profiles -> android_high_or_strong_vt_with_permission_obs",
+    "Supported dev profiles are included for local/operator checks, not scientific benchmark interpretation.",
+    "Deprecated exploratory and compatibility-alias profiles are intentionally excluded from this supported inventory view.",
 )
 
 
@@ -107,7 +107,7 @@ def show_profile_readiness_mapping_inventory(
 
     display_module.print_table(
         rows,
-        title="Profile readiness mapping inventory",
+        title="Supported profile readiness inventory",
         columns=["profile_id", "bucket", "samples", "families", "status", "reason"],
         show_index=False,
     )
@@ -233,7 +233,7 @@ def show_profile_readiness_mapping_inventory(
                 columns=["family", "priority", "action", "issue", "db_type", "samples", "high_strong", "perm_signal"],
                 show_index=False,
             )
-    display_module.print_stat("Bundled profiles", len(rows))
+    display_module.print_stat("Supported operator profiles", len(rows))
     display_module.print_stat("Ambiguous / unmapped", ambiguous_count)
     unresolved_family_count = taxonomy_signals.get("unresolved_family_count") if isinstance(taxonomy_signals, dict) else None
     if unresolved_family_count is not None:
@@ -247,9 +247,13 @@ def show_profile_readiness_mapping_inventory(
     repair_candidate_count = taxonomy_signals.get("repair_candidate_count") if isinstance(taxonomy_signals, dict) else None
     if repair_candidate_count is not None:
         display_module.print_stat("Taxonomy repair candidates", repair_candidate_count)
-    display_module.print_subheader("Profile intent guide")
+    display_module.print_subheader("Supported profile intent guide")
     for line in _PROFILE_INTENT_GUIDE:
         display_module.print_note(line)
+    display_module.print_note(
+        "Use the full catalog or direct profile loading only for debug/audit work; "
+        "the supported operator architecture is the canonical final profile set."
+    )
     if isinstance(taxonomy_signals, dict):
         banker_gap = taxonomy_signals.get("banker_type_minus_label_samples")
         if banker_gap:

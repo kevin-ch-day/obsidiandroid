@@ -387,7 +387,7 @@ def test_profile_readiness_mapping_inventory_report_uses_inventory_helper(monkey
     assert all_mal_bucket["samples"] == 3280
     assert all_mal_bucket["families"] == 208
     assert [str(row["profile_id"]) for row in profile_table["rows"]] == ["banker", "malicious_temporal_stability"]
-    assert profile_table["kwargs"]["title"] == "Profile readiness mapping inventory"
+    assert profile_table["kwargs"]["title"] == "Supported profile readiness inventory"
     assert profile_table["kwargs"]["columns"] == ["profile_id", "bucket", "samples", "families", "status", "reason"]
     assert profile_table["rows"][0]["samples"] == 790
     assert profile_table["rows"][0]["families"] == 12
@@ -462,17 +462,18 @@ def test_profile_readiness_mapping_inventory_report_uses_inventory_helper(monkey
             "perm_signal": "overlay",
         },
     ]
-    assert ("Bundled profiles", 2) in stats
+    assert ("Supported operator profiles", 2) in stats
     assert ("Ambiguous / unmapped", 0) in stats
     assert ("Unresolved family slugs", 25) in stats
     assert ("Known unresolved families", 4) in stats
     assert ("Family/type conflict candidates", 3) in stats
     assert ("Taxonomy repair candidates", 2) in stats
-    assert "Profile intent guide" in subheaders
-    assert any("Banker-oriented profiles -> android_banker_with_permission_obs" in note for note in notes)
-    assert any("Android permission-feature runs -> android_with_permission_obs or android_high_or_strong_vt_with_permission_obs" in note for note in notes)
-    assert any("Family/min-support runs -> android_family_ready_min3_permission_obs" in note for note in notes)
-    assert any("Broad Android exploratory runs -> android_platform" in note for note in notes)
+    assert "Supported profile intent guide" in subheaders
+    assert any("Supported banker profiles -> android_banker_with_permission_obs" in note for note in notes)
+    assert any("Supported all-malicious and sensitivity profiles -> android_high_or_strong_vt_with_permission_obs" in note for note in notes)
+    assert any("Supported dev profiles are included for local/operator checks" in note for note in notes)
+    assert any("Deprecated exploratory and compatibility-alias profiles are intentionally excluded" in note for note in notes)
+    assert any("the supported operator architecture is the canonical final profile set" in note for note in notes)
     assert any("Banker type scope currently exceeds the banker label bucket by 505 sample(s)." in note for note in notes)
     assert any("Top unresolved resolved-family slugs: unknown (289), blankbot (9)" in note for note in notes)
     assert any("Some unresolved family samples already map to known local taxonomy names" in note for note in notes)

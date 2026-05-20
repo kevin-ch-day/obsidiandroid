@@ -1,5 +1,12 @@
 profile_id: all_malicious
 description: Broad exploratory all-malicious profile without a type_slug restriction.
+profile_status:
+  lifecycle: deprecated_exploratory
+  operator_surface: loadable_non_primary
+  support_tier: deprecated
+  status_label: Deprecated exploratory
+  canonical_profile_id: all_malicious
+  replacement_profile_id: malicious_temporal_stability
 evidence_mode: false
 allow_vendor_fallback_for_width: true
 allow_adaptive_top_k: true

@@ -1,5 +1,12 @@
 profile_id: paper1_banker_locked
 description: "Deprecated compatibility alias for the banker legacy/count-locked baseline. Counts are fixed; sample-id lock recovery remains pending."
+profile_status:
+  lifecycle: compatibility_alias
+  operator_surface: hidden_compatibility
+  support_tier: compatibility
+  status_label: Compatibility alias
+  canonical_profile_id: banker_locked
+  replacement_profile_id: banker_locked
 paper_locked: true
 evidence_mode: false
 allow_vendor_fallback_for_width: true

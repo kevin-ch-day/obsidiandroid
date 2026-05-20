@@ -10,6 +10,28 @@ import yaml
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.cli.ui import menu as mu
 
+_FINAL_PROFILE_IDS = {
+    "malicious_temporal_stability_locked",
+    "banker_locked",
+    "malicious_temporal_stability",
+    "banker",
+    "malicious_temporal_consensus10",
+    "malicious_temporal_family300",
+    "dev_fast",
+    "dev_smoke",
+}
+_DEPRECATED_EXPLORATORY_PROFILE_IDS = {
+    "research_all_malicious",
+    "all_malicious",
+}
+_COMPATIBILITY_ALIAS_IDS = {
+    "paper1_banker_locked",
+    "paper2_primary",
+    "paper2_primary_locked",
+    "paper2_sensitivity_consensus10",
+    "paper2_sensitivity_family300",
+}
+
 
 def build_profile_catalog(profiles: list[Path]) -> list[tuple[str, str]]:
     """Build ordered profile summaries for interactive menu presentation."""
@@ -34,23 +56,20 @@ def profile_sort_key(profile_id: str) -> tuple[int, int, str]:
         return (1, 0, pid)
     if pid in {"malicious_temporal_consensus10", "malicious_temporal_family300"}:
         return (1, 1, pid)
-
-    core_order = {
-        "research_all_malicious": 0,
-        "all_malicious": 1,
-        "banker": 2,
-        "mixed": 3,
-        "benign_heavy": 4,
-    }
-    if pid in core_order:
-        return (2, core_order[pid], pid)
-
+    if pid == "banker":
+        return (2, 0, pid)
+    if pid in {"mixed", "benign_heavy"}:
+        diagnostic_order = {"mixed": 0, "benign_heavy": 1}
+        return (3, diagnostic_order[pid], pid)
+    if pid in {"research_all_malicious", "all_malicious"}:
+        deprecated_order = {"research_all_malicious": 0, "all_malicious": 1}
+        return (4, deprecated_order[pid], pid)
     if pid == "dev_fast":
-        return (4, 0, pid)
+        return (6, 0, pid)
     if pid == "dev_smoke":
-        return (4, 1, pid)
+        return (6, 1, pid)
 
-    return (3, 0, pid)
+    return (5, 0, pid)
 
 
 def summarize_profile(profile_path: Path) -> str:
@@ -68,6 +87,7 @@ def summarize_profile(profile_path: Path) -> str:
     models = raw.get("model_list", []) if isinstance(raw.get("model_list"), list) else []
     paper_lock = raw.get("paper_lock", {}) if isinstance(raw.get("paper_lock"), dict) else {}
     paper_locked = bool(raw.get("paper_locked", False))
+    status_label = _profile_status_label(raw, profile_id)
     parts: list[str] = []
 
     if type_slug:
@@ -97,9 +117,15 @@ def summarize_profile(profile_path: Path) -> str:
         parts.append(f"models={len(models)}")
 
     summary = ", ".join(parts)
+    headline = ""
     if desc:
         desc_short = desc if len(desc) <= 72 else f"{desc[:69]}..."
-        return f"{desc_short} | {summary}"
+        headline = f"{status_label}: {desc_short}" if status_label else desc_short
+    elif status_label:
+        headline = status_label
+
+    if headline:
+        return f"{headline} | {summary}"
     return summary
 
 
@@ -113,14 +139,33 @@ def quick_profile_label(profile_id: str) -> str:
         "malicious_temporal_family300": "Sensitivity: family dominance cap",
         "banker_locked": "Baseline: banker legacy/count-locked",
         "banker": "Research: current banker",
-        "research_all_malicious": "Exploratory: discovery all-malicious",
-        "all_malicious": "Exploratory: broad all-malicious",
+        "research_all_malicious": "Deprecated exploratory: discovery all-malicious",
+        "all_malicious": "Deprecated exploratory: broad all-malicious",
         "mixed": "Diagnostic: balanced benign-malicious",
         "benign_heavy": "Diagnostic: benign-heavy robustness",
         "dev_fast": "Development: fast iteration",
         "dev_smoke": "Smoke: sanity check",
     }
     return labels.get(pid, pid)
+
+
+def _profile_status_label(raw: dict[str, object], profile_id: str) -> str:
+    """Return a short lifecycle label for full-catalog displays."""
+    status = raw.get("profile_status") if isinstance(raw.get("profile_status"), dict) else {}
+    status_label = str(status.get("status_label", "") or "").strip()
+    if status_label:
+        return status_label
+
+    pid = str(profile_id).strip().lower()
+    if pid in _COMPATIBILITY_ALIAS_IDS:
+        return "Compatibility alias"
+    if pid in _DEPRECATED_EXPLORATORY_PROFILE_IDS:
+        return "Deprecated exploratory"
+    if pid in _FINAL_PROFILE_IDS and pid.startswith("dev_"):
+        return "Dev-only supported"
+    if pid in _FINAL_PROFILE_IDS:
+        return "Final canonical"
+    return ""
 
 
 def _quick_intent_options() -> list[tuple[str, str]]:

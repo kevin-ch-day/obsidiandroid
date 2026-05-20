@@ -25,6 +25,8 @@ def test_load_profile_required_keys() -> None:
     profile = profile_manager.load_profile("banker")
     for key in ("profile_id", "type_slug_filter", "cohort_gates", "model_list"):
         assert key in profile
+    assert profile["profile_status"]["lifecycle"] == "final_canonical"
+    assert profile["profile_status"]["operator_surface"] == "supported"
 
 
 def test_load_profile_resolves_bundled_profiles_outside_repo_cwd(
@@ -86,6 +88,8 @@ def test_profile_summary_includes_key_gates(tmp_path: Path) -> None:
             [
                 "profile_id: sample",
                 "description: Example profile",
+                "profile_status:",
+                "  status_label: Final canonical",
                 "type_slug_filter: banker",
                 "cohort_gates:",
                 "  min_malicious_detections: 10",
@@ -98,6 +102,7 @@ def test_profile_summary_includes_key_gates(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     summary = profile_selection.summarize_profile(profile_path)
+    assert "Final canonical:" in summary
     assert "type=banker" in summary
     assert "min_detect=10" in summary
     assert "family_cap=300" in summary
@@ -167,6 +172,9 @@ def test_quick_profile_label_prefers_operator_facing_descriptions() -> None:
     assert profile_manager.profile_selection.quick_profile_label(
         "dev_smoke"
     ) == "Smoke: sanity check"
+    assert profile_manager.profile_selection.quick_profile_label(
+        "research_all_malicious"
+    ) == "Deprecated exploratory: discovery all-malicious"
 
 
 def test_legacy_profile_aliases_resolve_to_generic_names_with_deprecation_warning() -> None:
@@ -296,12 +304,36 @@ def test_inventory_cohort_readiness_mappings_covers_all_profile_files() -> None:
     assert all(row["status"] in {"mapped", "ambiguous"} for row in inventory)
     assert all("summary" in row for row in inventory)
     assert all("detail" in row for row in inventory)
+    assert all("lifecycle" in row for row in inventory)
+    assert all("operator_surface" in row for row in inventory)
+    assert all("support_tier" in row for row in inventory)
 
 
 def test_inventory_cohort_readiness_mappings_current_catalog_has_no_ambiguous_entries() -> None:
     inventory = profile_manager.inventory_cohort_readiness_mappings()
     ambiguous = [row["profile_id"] for row in inventory if row["status"] != "mapped"]
     assert ambiguous == []
+
+
+def test_profile_status_metadata_classifies_supported_deprecated_and_compatibility_profiles() -> None:
+    final_profile = profile_manager.load_profile("malicious_temporal_stability_locked")
+    deprecated_profile = profile_manager.load_profile("research_all_malicious")
+    compatibility_profile = profile_manager.load_profile(
+        str(profile_manager.PROFILES_DIR / "paper2_primary.yaml")
+    )
+    dev_profile = profile_manager.load_profile("dev_fast")
+
+    assert final_profile["profile_status"]["lifecycle"] == "final_canonical"
+    assert final_profile["profile_status"]["operator_surface"] == "supported"
+
+    assert deprecated_profile["profile_status"]["lifecycle"] == "deprecated_exploratory"
+    assert deprecated_profile["profile_status"]["replacement_profile_id"] == "malicious_temporal_stability"
+
+    assert compatibility_profile["profile_status"]["lifecycle"] == "compatibility_alias"
+    assert compatibility_profile["profile_status"]["canonical_profile_id"] == "malicious_temporal_stability"
+
+    assert dev_profile["profile_status"]["lifecycle"] == "dev_only"
+    assert dev_profile["profile_status"]["operator_surface"] == "supported_dev"
 
 
 def test_load_profile_rejects_unknown_model_key(tmp_path: Path, monkeypatch) -> None:

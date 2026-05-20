@@ -1,5 +1,11 @@
 profile_id: dev_smoke
 description: "Ultra-fast smoke profile for rapid CLI and pipeline sanity checks."
+profile_status:
+  lifecycle: dev_only
+  operator_surface: supported_dev
+  support_tier: development
+  status_label: Dev-only supported
+  canonical_profile_id: dev_smoke
 evidence_mode: false
 allow_vendor_fallback_for_width: true
 allow_adaptive_top_k: true
