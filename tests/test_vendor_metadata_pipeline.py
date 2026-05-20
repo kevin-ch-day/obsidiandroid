@@ -2,6 +2,7 @@
 
 import pandas as pd
 
+from config import app_config
 from obsidiandroid.pipeline import vendor_metadata_pipeline
 
 
@@ -66,6 +67,43 @@ def test_parser_quality_auxiliary_diagnostics_export(monkeypatch, tmp_path) -> N
     strength_path = tmp_path / "output" / "diagnostics" / "vendor_parser_strengths_weaknesses.latest.csv"
     assert stress_path.exists()
     assert strength_path.exists()
+
+
+def test_parser_quality_exports_run_scoped_named_files_without_local_latest_duplicates(
+    monkeypatch,
+    make_run_diagnostics_layout,
+) -> None:
+    output_root, diagnostics_dir, _global_diag = make_run_diagnostics_layout("rid")
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "rid", raising=False)
+    monkeypatch.setattr(app_config, "OUTPUT_FORCE_PARSER_DEEP_DIAGNOSTICS", True, raising=False)
+    monkeypatch.setattr(app_config, "OUTPUT_HYGIENE_MODE", "standard", raising=False)
+
+    scorecard_df = pd.DataFrame(
+        {
+            "Vendor": ["vendor_a", "vendor_b"],
+            "Samples Evaluated": [100, 100],
+            "Unknown Parsed (%)": [10.0, 75.0],
+            "Generic Family Ratio": [0.10, 0.20],
+            "Family Match Accuracy (%)": [70.0, 20.0],
+            "Trusted": [1, 0],
+            "Active": [1, 1],
+        }
+    )
+
+    vendor_metadata_pipeline._export_parser_quality(scorecard_df)  # pylint: disable=protected-access
+
+    assert (diagnostics_dir / "parser_quality_rid.csv").is_file()
+    assert (diagnostics_dir / "vendor_parser_stress_test_rid.csv").is_file()
+    assert (diagnostics_dir / "vendor_parser_strengths_weaknesses_rid.csv").is_file()
+    assert not (diagnostics_dir / "parser_quality.latest.csv").exists()
+    assert not (diagnostics_dir / "vendor_parser_stress_test.latest.csv").exists()
+    assert not (diagnostics_dir / "vendor_parser_strengths_weaknesses.latest.csv").exists()
+    assert (output_root / "diagnostics" / "parser_quality.latest.csv").is_file()
+    assert (output_root / "diagnostics" / "vendor_parser_stress_test.latest.csv").is_file()
+    assert (output_root / "diagnostics" / "vendor_parser_strengths_weaknesses.latest.csv").is_file()
 
 
 def test_build_parser_quality_export_df_uses_include_flag_for_status() -> None:

@@ -7,14 +7,31 @@ from pathlib import Path
 
 import pytest
 
-from config import app_config
-
 from obsidiandroid.cli import startup_menu_review
 
 
-def _write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+def _seed_review_run_artifacts(
+    write_text_file,
+    out_root: Path,
+    run_id: str,
+    rdiag: Path,
+    *,
+    include_manifest: bool = True,
+    manifest_payload: dict[str, object] | None = None,
+    extra_run_files: dict[str, str] | None = None,
+) -> None:
+    write_text_file(rdiag / "run_science_index.md", "# run science\n")
+    write_text_file(rdiag / "cohort_foundation.json", "{}")
+    write_text_file(rdiag / "diagnostic_provenance.json", '{"entries":[]}')
+    for rel_path, content in (extra_run_files or {}).items():
+        write_text_file(rdiag / rel_path, content)
+    if include_manifest:
+        payload = {"run_id": run_id, "profile_params": {"profile_id": "research_all_malicious"}}
+        payload.update(manifest_payload or {})
+        write_text_file(
+            out_root / "diagnostics" / "run_manifest.latest.json",
+            json.dumps(payload),
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -35,17 +52,26 @@ def _stub_cohort_readiness_snapshot(monkeypatch) -> None:
     )
 
 
-def test_compact_review_summary_includes_identity_health_and_tuning(monkeypatch, tmp_path: Path) -> None:
-    out_root = tmp_path / "output"
+def test_compact_review_summary_includes_identity_health_and_tuning(
+    monkeypatch,
+    make_run_diagnostics_layout,
+    write_text_file,
+) -> None:
     run_id = "20260515T141956Z__58d84f"
-    rdiag = out_root / "runs" / run_id / "diagnostics"
-    _write(rdiag / "run_science_index.md", "# run science\n")
-    _write(rdiag / "cohort_foundation.json", "{}")
-    _write(rdiag / "diagnostic_provenance.json", '{"entries":[]}')
-    _write(rdiag / "cohort_funnel.md", "# funnel\n")
-    _write(rdiag / "feature_set_ablation_summary.md", "# ablation\n")
-    _write(rdiag / "figure_validity_audit.md", "# figure audit\n")
-    _write(
+    out_root, rdiag, _ = make_run_diagnostics_layout(run_id)
+    _seed_review_run_artifacts(
+        write_text_file,
+        out_root,
+        run_id,
+        rdiag,
+        manifest_payload={"publication_ready_status": "NOT_APPLICABLE"},
+        extra_run_files={
+            "cohort_funnel.md": "# funnel\n",
+            "feature_set_ablation_summary.md": "# ablation\n",
+            "figure_validity_audit.md": "# figure audit\n",
+        },
+    )
+    write_text_file(
         rdiag / f"taxonomy_consistency_summary_{run_id}.json",
         json.dumps(
             {
@@ -58,21 +84,33 @@ def test_compact_review_summary_includes_identity_health_and_tuning(monkeypatch,
             }
         ),
     )
-    _write(
-        rdiag / "modality_contribution_summary.json",
-        json.dumps({"permission_signal_pct": 97.31}),
-    )
-    _write(
-        out_root / "diagnostics" / "run_manifest.latest.json",
+    write_text_file(
+        rdiag / f"taxonomy_authority_split_{run_id}.json",
         json.dumps(
             {
-                "run_id": run_id,
-                "profile_params": {"profile_id": "research_all_malicious"},
-                "publication_ready_status": "NOT_APPLICABLE",
+                "authority_scopes": {
+                    "global_authority_catalog": {"bucket_counts": {"resolved_but_no_authority_family": 12}},
+                    "run_cohort_authority": {"available": True, "bucket_counts": {"resolved_but_no_authority_family": 4}},
+                },
+                "taxonomy_split": {
+                    "type_authority_vs_rendering_mismatch": {
+                        "counts": {
+                            "type_mapping_mismatch": 100,
+                            "type_label_missing": 28,
+                            "type_label_noncanonical": 150,
+                            "label_family_mismatch": 0,
+                        }
+                    },
+                    "model_prediction_error": {"count": 3},
+                },
             }
         ),
     )
-    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    write_text_file(rdiag / f"taxonomy_authority_split_{run_id}.md", "# Taxonomy Authority Split\n")
+    write_text_file(
+        rdiag / "modality_contribution_summary.json",
+        json.dumps({"permission_signal_pct": 97.31}),
+    )
     monkeypatch.setattr(
         startup_menu_review,
         "get_cohort_readiness_snapshot",
@@ -111,23 +149,22 @@ def test_compact_review_summary_includes_identity_health_and_tuning(monkeypatch,
     assert any("(0 claim-facing)" in warning for warning in summary["warnings"])
     assert any("Next:" in warning for warning in summary["warnings"])
     assert str(summary["open_first"][0]["label"]) == "Run science index"
-    assert any("Review taxonomy type authority report" in action for action in summary["tuning_actions"])
+    assert any("Review taxonomy authority split" in action for action in summary["tuning_actions"])
     assert "taxonomy_support_summary" in summary
     assert "permission_tuning_summary" in summary
     assert "cohort_readiness_summary" in summary
 
 
-def test_compact_review_screen_avoids_debug_path_dump(monkeypatch, tmp_path: Path, capsys) -> None:
-    out_root = tmp_path / "output"
+def test_compact_review_screen_avoids_debug_path_dump(
+    monkeypatch,
+    make_run_diagnostics_layout,
+    write_text_file,
+    capsys,
+) -> None:
     run_id = "20260515T141956Z__58d84f"
-    rdiag = out_root / "runs" / run_id / "diagnostics"
-    _write(rdiag / "run_science_index.md", "# run science\n")
-    _write(rdiag / "cohort_foundation.json", "{}")
-    _write(rdiag / "diagnostic_provenance.json", '{"entries":[]}')
-    _write(out_root / "diagnostics" / "run_manifest.latest.json", json.dumps({"run_id": run_id, "profile_params": {"profile_id": "research_all_malicious"}}))
-    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    out_root, rdiag, _ = make_run_diagnostics_layout(run_id)
+    _seed_review_run_artifacts(write_text_file, out_root, run_id, rdiag)
     monkeypatch.delenv("OBSIDIANDROID_DISPLAY_MODE", raising=False)
-    monkeypatch.setattr(app_config, "DEBUG_MODE", False, raising=False)
     monkeypatch.setattr(
         startup_menu_review,
         "get_cohort_readiness_snapshot",
@@ -166,18 +203,19 @@ def test_compact_review_screen_avoids_debug_path_dump(monkeypatch, tmp_path: Pat
     assert "does not enforce sample selection" in out
     assert "Permission Intel unavailable for readiness counts." in out
     assert "Taxonomy & Support Tuning" in out
+    assert "Model prediction errors vs type/rendering" in out
     assert "Permission Coverage Tuning" in out
 
 
-def test_detailed_review_screen_can_show_deeper_paths(monkeypatch, tmp_path: Path, capsys) -> None:
-    out_root = tmp_path / "output"
+def test_detailed_review_screen_can_show_deeper_paths(
+    monkeypatch,
+    make_run_diagnostics_layout,
+    write_text_file,
+    capsys,
+) -> None:
     run_id = "20260515T141956Z__58d84f"
-    rdiag = out_root / "runs" / run_id / "diagnostics"
-    _write(rdiag / "run_science_index.md", "# run science\n")
-    _write(rdiag / "cohort_foundation.json", "{}")
-    _write(rdiag / "diagnostic_provenance.json", '{"entries":[]}')
-    _write(out_root / "diagnostics" / "run_manifest.latest.json", json.dumps({"run_id": run_id, "profile_params": {"profile_id": "research_all_malicious"}}))
-    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    out_root, rdiag, _ = make_run_diagnostics_layout(run_id)
+    _seed_review_run_artifacts(write_text_file, out_root, run_id, rdiag)
     monkeypatch.setenv("OBSIDIANDROID_DISPLAY_MODE", "detailed")
     monkeypatch.setattr(
         startup_menu_review,
@@ -231,15 +269,20 @@ def test_run_history_remains_reachable_from_review_menu(monkeypatch) -> None:
     assert calls["compare"] == 0
 
 
-def test_vendor_parser_workbook_gap_is_warning_not_red(monkeypatch, tmp_path: Path) -> None:
-    out_root = tmp_path / "output"
+def test_vendor_parser_workbook_gap_is_warning_not_red(
+    monkeypatch,
+    make_run_diagnostics_layout,
+    write_text_file,
+) -> None:
     run_id = "20260515T141956Z__58d84f"
-    rdiag = out_root / "runs" / run_id / "diagnostics"
-    _write(rdiag / "run_science_index.md", "# run science\n")
-    _write(rdiag / "cohort_foundation.json", "{}")
-    _write(rdiag / "diagnostic_provenance.json", '{"entries":[]}')
-    _write(out_root / "diagnostics" / "run_manifest.latest.json", json.dumps({"run_id": run_id, "profile_params": {"profile_id": "research_all_malicious"}, "publication_ready_status": "NOT_APPLICABLE"}))
-    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    out_root, rdiag, _ = make_run_diagnostics_layout(run_id)
+    _seed_review_run_artifacts(
+        write_text_file,
+        out_root,
+        run_id,
+        rdiag,
+        manifest_payload={"publication_ready_status": "NOT_APPLICABLE"},
+    )
     monkeypatch.setattr(
         startup_menu_review,
         "build_operator_state",
@@ -278,15 +321,20 @@ def test_vendor_parser_workbook_gap_is_warning_not_red(monkeypatch, tmp_path: Pa
     assert labels["Vendor/parser"] == "YELLOW"
 
 
-def test_tune_next_changes_with_status_flags(monkeypatch, tmp_path: Path) -> None:
-    out_root = tmp_path / "output"
+def test_tune_next_changes_with_status_flags(
+    monkeypatch,
+    make_run_diagnostics_layout,
+    write_text_file,
+) -> None:
     run_id = "20260515T141956Z__58d84f"
-    rdiag = out_root / "runs" / run_id / "diagnostics"
-    _write(rdiag / "run_science_index.md", "# run science\n")
-    _write(rdiag / "cohort_foundation.json", "{}")
-    _write(rdiag / "diagnostic_provenance.json", '{"entries":[]}')
-    _write(out_root / "diagnostics" / "run_manifest.latest.json", json.dumps({"run_id": run_id, "profile_params": {"profile_id": "research_all_malicious"}, "publication_ready_status": "NOT_APPLICABLE"}))
-    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    out_root, rdiag, _ = make_run_diagnostics_layout(run_id)
+    _seed_review_run_artifacts(
+        write_text_file,
+        out_root,
+        run_id,
+        rdiag,
+        manifest_payload={"publication_ready_status": "NOT_APPLICABLE"},
+    )
     monkeypatch.setattr(
         startup_menu_review,
         "build_operator_state",
@@ -315,24 +363,24 @@ def test_tune_next_changes_with_status_flags(monkeypatch, tmp_path: Path) -> Non
             ]
         },
     )
-    _write(rdiag / f"taxonomy_consistency_summary_{run_id}.json", json.dumps({"taxonomy_mismatch_count": 5, "paper_facing_taxonomy_mismatch_count": 0, "type_mismatch_count": 5, "type_noncanonical_count": 0, "type_missing_label_count": 0, "family_label_mismatch_count": 0}))
-    _write(rdiag / "modality_contribution_summary.json", json.dumps({"permission_signal_pct": 45.0}))
+    write_text_file(rdiag / f"taxonomy_consistency_summary_{run_id}.json", json.dumps({"taxonomy_mismatch_count": 5, "paper_facing_taxonomy_mismatch_count": 0, "type_mismatch_count": 5, "type_noncanonical_count": 0, "type_missing_label_count": 0, "family_label_mismatch_count": 0}))
+    write_text_file(rdiag / "modality_contribution_summary.json", json.dumps({"permission_signal_pct": 45.0}))
     summary = startup_menu_review.build_review_latest_run_summary(output_root=out_root, latest_run_id=run_id)
     assert str(summary["tuning_actions"][0]).startswith("Prioritize screens in this order:")
     assert "Permission and feature health" in str(summary["tuning_actions"][0])
-    assert "Taxonomy consistency summary" in str(summary["tuning_actions"][0])
-    assert any("taxonomy type authority report" in action.lower() for action in summary["tuning_actions"])
+    assert "Taxonomy authority split" in str(summary["tuning_actions"][0])
+    assert any("taxonomy authority split" in action.lower() for action in summary["tuning_actions"])
     assert any("permission signal" in action.lower() for action in summary["tuning_actions"])
 
 
-def test_review_summary_warns_for_count_only_lock(monkeypatch, tmp_path: Path) -> None:
-    out_root = tmp_path / "output"
+def test_review_summary_warns_for_count_only_lock(
+    monkeypatch,
+    make_run_diagnostics_layout,
+    write_text_file,
+) -> None:
     run_id = "20260515T141956Z__58d84f"
-    rdiag = out_root / "runs" / run_id / "diagnostics"
-    _write(rdiag / "run_science_index.md", "# run science\n")
-    _write(rdiag / "cohort_foundation.json", "{}")
-    _write(rdiag / "diagnostic_provenance.json", '{"entries":[]}')
-    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    out_root, rdiag, _ = make_run_diagnostics_layout(run_id)
+    _seed_review_run_artifacts(write_text_file, out_root, run_id, rdiag, include_manifest=False)
     monkeypatch.setattr(
         startup_menu_review,
         "build_operator_state",
@@ -376,14 +424,14 @@ def test_review_summary_warns_for_count_only_lock(monkeypatch, tmp_path: Path) -
     assert any("count-only cohort lock" in str(action).lower() for action in summary["tuning_actions"])
 
 
-def test_review_summary_warns_for_missing_lock(monkeypatch, tmp_path: Path) -> None:
-    out_root = tmp_path / "output"
+def test_review_summary_warns_for_missing_lock(
+    monkeypatch,
+    make_run_diagnostics_layout,
+    write_text_file,
+) -> None:
     run_id = "20260515T141956Z__58d84f"
-    rdiag = out_root / "runs" / run_id / "diagnostics"
-    _write(rdiag / "run_science_index.md", "# run science\n")
-    _write(rdiag / "cohort_foundation.json", "{}")
-    _write(rdiag / "diagnostic_provenance.json", '{"entries":[]}')
-    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    out_root, rdiag, _ = make_run_diagnostics_layout(run_id)
+    _seed_review_run_artifacts(write_text_file, out_root, run_id, rdiag, include_manifest=False)
     monkeypatch.setattr(
         startup_menu_review,
         "build_operator_state",
@@ -427,14 +475,14 @@ def test_review_summary_warns_for_missing_lock(monkeypatch, tmp_path: Path) -> N
     assert any("publication-grade" in str(action).lower() for action in summary["tuning_actions"])
 
 
-def test_review_summary_surfaces_locked_membership_and_malware_rescue(monkeypatch, tmp_path: Path) -> None:
-    out_root = tmp_path / "output"
+def test_review_summary_surfaces_locked_membership_and_malware_rescue(
+    monkeypatch,
+    make_run_diagnostics_layout,
+    write_text_file,
+) -> None:
     run_id = "20260515T141956Z__58d84f"
-    rdiag = out_root / "runs" / run_id / "diagnostics"
-    _write(rdiag / "run_science_index.md", "# run science\n")
-    _write(rdiag / "cohort_foundation.json", "{}")
-    _write(rdiag / "diagnostic_provenance.json", '{"entries":[]}')
-    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    out_root, rdiag, _ = make_run_diagnostics_layout(run_id)
+    _seed_review_run_artifacts(write_text_file, out_root, run_id, rdiag, include_manifest=False)
     monkeypatch.setattr(
         startup_menu_review,
         "build_operator_state",

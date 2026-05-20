@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -10,6 +9,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import output_hygiene as oh
 
 
 def _perm_bag_positive_mask(
@@ -59,7 +59,7 @@ def export_feature_modality_coverage_audit(
     (missing label, low-support family) when ``samples_df`` is provided.
 
     Returns:
-        Tuple of (csv_path, json_path) or (None, None).
+        Tuple of canonical run-scoped (csv_path, json_path), or (None, None).
     """
     if enabled is None:
         enabled = bool(getattr(app_config, "ENABLE_FEATURE_BUILD_COVERAGE_EXPORT", True))
@@ -189,9 +189,13 @@ def export_feature_modality_coverage_audit(
     out_dir.mkdir(parents=True, exist_ok=True)
     rid = str(run_id)
     csv_named = out_dir / f"feature_modality_coverage_audit_{rid}.csv"
-    csv_latest = out_dir / "feature_modality_coverage_audit.latest.csv"
-    audit_df.to_csv(csv_named, index=False)
-    audit_df.to_csv(csv_latest, index=False)
+    csv_text = audit_df.to_csv(index=False)
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=out_dir,
+        run_filename=csv_named.name,
+        csv_text=csv_text,
+        global_latest_name="feature_modality_coverage_audit.latest.csv",
+    )
 
     summary = {
         "run_id": rid,
@@ -206,16 +210,19 @@ def export_feature_modality_coverage_audit(
         "matrix_authority": feature_df.attrs.get("feature_matrix_row_authority", ""),
     }
     json_named = out_dir / f"feature_modality_coverage_summary_{rid}.json"
-    json_latest = out_dir / "feature_modality_coverage_summary.latest.json"
-    for target in (json_named, json_latest):
-        target.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    oh.mirror_json_text_run_then_global(
+        diagnostics_dir=out_dir,
+        run_filename=json_named.name,
+        payload=summary,
+        global_latest_name="feature_modality_coverage_summary.latest.json",
+    )
 
     du.print_debug(
         "[COVERAGE] Modality audit (detail): "
         f"governed_n={summary['governed_cohort_n']} fused_n={summary['fused_matrix_row_n']} "
         f"vendor_merge_n={summary['vendor_merge_n']} pi_signal_n={summary['permission_pi_signal_positive_n']}"
     )
-    return csv_latest, json_latest
+    return csv_named, json_named
 
 
 def _column_unknown_code(col: str, encoder_mappings: dict[str, Any]) -> float:
@@ -324,7 +331,7 @@ def export_feature_build_coverage(
     (PI permission bag nonzero mass on vendor-gap rows).
 
     Returns:
-        Tuple of (json_path, csv_path) or (None, None) when disabled or invalid inputs.
+        Tuple of canonical run-scoped (json_path, csv_path), or (None, None) when skipped.
     """
     if enabled is None:
         enabled = bool(getattr(app_config, "ENABLE_FEATURE_BUILD_COVERAGE_EXPORT", True))
@@ -377,15 +384,21 @@ def export_feature_build_coverage(
     rid = str(run_id)
 
     json_named = out_dir / f"feature_build_coverage_{rid}.json"
-    json_latest = out_dir / "feature_build_coverage.latest.json"
-    for target in (json_named, json_latest):
-        target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    oh.mirror_json_text_run_then_global(
+        diagnostics_dir=out_dir,
+        run_filename=json_named.name,
+        payload=payload,
+        global_latest_name="feature_build_coverage.latest.json",
+    )
 
     csv_named = out_dir / f"cohort_missing_from_feature_matrix_{rid}.csv"
-    csv_latest = out_dir / "cohort_missing_from_feature_matrix.latest.csv"
     missing_df = pd.DataFrame({"sample_id": missing_from_feature})
-    for target in (csv_named, csv_latest):
-        missing_df.to_csv(target, index=False)
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=out_dir,
+        run_filename=csv_named.name,
+        csv_text=missing_df.to_csv(index=False),
+        global_latest_name="cohort_missing_from_feature_matrix.latest.csv",
+    )
 
     gpp = payload.get("gap_missing_with_any_perm_bag_positive")
     gap_extra = ""
@@ -404,7 +417,7 @@ def export_feature_build_coverage(
         f"missing_from_matrix={len(missing_from_feature)} "
         f"(cohort={len(cohort_set)}, matrix_rows={len(final_set)}){gap_extra}"
     )
-    return json_latest, csv_latest
+    return json_named, csv_named
 
 
 def export_feature_matrix_lineage_gate(
@@ -428,7 +441,7 @@ def export_feature_matrix_lineage_gate(
         enabled: When False, skip export.
 
     Returns:
-        Path to ``feature_matrix_lineage_gate.latest.json``, or None when skipped.
+        Path to canonical run-scoped ``feature_matrix_lineage_gate_<run_id>.json``, or None when skipped.
     """
     if enabled is None:
         enabled = bool(getattr(app_config, "ENABLE_FEATURE_BUILD_COVERAGE_EXPORT", True))
@@ -473,16 +486,18 @@ def export_feature_matrix_lineage_gate(
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     named = out_dir / f"feature_matrix_lineage_gate_{run_id}.json"
-    latest = out_dir / "feature_matrix_lineage_gate.latest.json"
-    text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
-    named.write_text(text, encoding="utf-8")
-    latest.write_text(text, encoding="utf-8")
+    oh.mirror_json_text_run_then_global(
+        diagnostics_dir=out_dir,
+        run_filename=named.name,
+        payload=payload,
+        global_latest_name="feature_matrix_lineage_gate.latest.json",
+    )
     du.print_info(
         "[LINEAGE_GATE] "
         f"governed_distinct={distinct} fused_unique={len(fused_set)} "
         f"authority={auth or 'n/a'} pass={passes}"
     )
-    return latest
+    return named
 
 
 def export_sample_stage_lineage_audit(
@@ -504,7 +519,7 @@ def export_sample_stage_lineage_audit(
         enabled: When False, skip export.
 
     Returns:
-        Path to ``sample_stage_lineage.latest.csv``, or None when skipped or empty cohort.
+        Path to canonical run-scoped ``sample_stage_lineage_<run_id>.csv``, or None when skipped or empty cohort.
     """
     if enabled is None:
         enabled = bool(getattr(app_config, "ENABLE_FEATURE_BUILD_COVERAGE_EXPORT", True))
@@ -557,11 +572,14 @@ def export_sample_stage_lineage_audit(
     out_dir.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(rows)
     named = out_dir / f"sample_stage_lineage_{run_id}.csv"
-    latest = out_dir / "sample_stage_lineage.latest.csv"
-    df.to_csv(named, index=False)
-    df.to_csv(latest, index=False)
-    du.print_debug(f"[LINEAGE] sample_stage_lineage rows={len(df)} → {latest.name}")
-    return latest
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=out_dir,
+        run_filename=named.name,
+        csv_text=df.to_csv(index=False),
+        global_latest_name="sample_stage_lineage.latest.csv",
+    )
+    du.print_debug(f"[LINEAGE] sample_stage_lineage rows={len(df)} → {named.name}")
+    return named
 
 
 __all__ = [

@@ -39,6 +39,7 @@ def clear_operator_state() -> None:
     setattr(app_config, "RUNTIME_OPERATOR_ISSUES", [])
     setattr(app_config, "RUNTIME_OPERATOR_ARTIFACT_COUNTS", {})
     setattr(app_config, "RUNTIME_SMOTE_WARNING_LAST", "")
+    setattr(app_config, "RUNTIME_SMOTE_WARNING_EMITTED", False)
     setattr(app_config, "RUNTIME_SMOTE_AUDIT_LAST", None)
     setattr(app_config, "RUNTIME_SMOTE_AUDIT_BY_MODEL", {})
 
@@ -103,6 +104,20 @@ def _queue_runtime_operator_issues(
                 "Review `smote_effect_check.md` and consider `OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE=1` for stricter reproducibility.",
             ],
         )
+
+    profile_id = str(getattr(app_config, "RUNTIME_PROFILE_ID", "") or "").strip()
+    split_algorithm = str(getattr(app_config, "RUNTIME_LAST_SPLIT_ALGORITHM", "") or "").strip()
+    if profile_id.startswith("malicious_temporal_") and split_algorithm:
+        split_algo_norm = split_algorithm.lower()
+        if "temporal" not in split_algo_norm and "year_holdout" not in split_algo_norm:
+            record_operator_issue(
+                tag="TEMPORAL",
+                title="Temporal profile used a non-temporal holdout policy",
+                lines=[
+                    f"Profile `{profile_id}` executed with split algorithm `{split_algorithm}`.",
+                    "Interpret results as random/group holdout evidence, not forward-in-time generalization.",
+                ],
+            )
 
     run_id = str(manifest_context.get("run_id", "") or "").strip()
     taxonomy = read_json_dict(oh.resolve_taxonomy_consistency_summary_path(diagnostics_dir, run_id))
@@ -391,6 +406,7 @@ def emit_research_operator_report(
     from obsidiandroid.cli.ui import display as du
     from obsidiandroid.diagnostics.contract_and_taxonomy_reports import (
         write_headline_vs_ablation_contract_reports,
+        write_taxonomy_authority_split_reports,
         write_taxonomy_type_authority_reports,
     )
     from obsidiandroid.reporting import research_three_questions as research_rq
@@ -411,7 +427,8 @@ def emit_research_operator_report(
             if p is not None and str(p) not in artifact_list:
                 artifact_list.append(str(p))
         _tm, _tc = write_taxonomy_type_authority_reports(diagnostics_dir, run_id)
-        for p in (_tm, _tc):
+        _tsm, _tsj, _tsr, _tsp, _tsg = write_taxonomy_authority_split_reports(diagnostics_dir, run_id)
+        for p in (_tm, _tc, _tsm, _tsj, _tsr, _tsp, _tsg):
             if p is not None and str(p) not in artifact_list:
                 artifact_list.append(str(p))
     except Exception:
@@ -465,6 +482,9 @@ def emit_research_operator_report(
         f"  Review: `{diagnostics_dir / f'taxonomy_type_authority_review_{run_id}.md'}` "
         f"and `taxonomy_type_authority_review_{run_id}.csv`"
     )
+    pr(
+        f"  Taxonomy authority split: `{diagnostics_dir / f'taxonomy_authority_split_{run_id}.md'}`"
+    )
     pr("")
 
     surv = resolve_feature_column_survival_path(diagnostics_dir=diagnostics_dir, run_id=run_id)
@@ -517,6 +537,7 @@ def emit_research_operator_report(
         "`supervised_family_claims_suitable=false` in dataset foundation means guarded language for family-level scientific claims.",
         "Top-family concentration remains high — Macro-F1 and recall tails must lead interpretation.",
         "Type-level claims using generated `classification_label` strings are not publication-safe until cohort vs label-derived type authority is reconciled (see taxonomy_type_authority_review).",
+        "Use `taxonomy_authority_split` to distinguish authority gaps, generic/coarse tokens, unknown-type families, rendering mismatches, and real model prediction errors.",
         "Headline leaderboard metrics vs ablation `full_fused` are not comparable unless feature hashes match (see FEATURE CONTRACT COMPARISON).",
         "Parsed vendor metadata is often sparse — do not describe it as cohort-wide dense labels.",
         "Vendor-derived parsed family/type features may couple to labels — separate detection binaries, consensus scores, and parsed strings.",
@@ -541,26 +562,14 @@ def emit_research_operator_report(
     pr(f"Diagnostics index : {md_path}")
     rr = getattr(app_config, "RUNTIME_RUN_ROOT", "") or ""
     pr(f"Run root            : {rr}")
-    pr("Three-question summaries (start here):")
+    pr("Start here:")
     pr(f"  • `{diagnostics_dir / 'dataset_foundation_summary.md'}`")
     pr(f"  • `{diagnostics_dir / 'modality_contribution_summary.md'}`")
     pr(f"  • `{diagnostics_dir / 'model_and_family_failure_summary.md'}`")
-    pr(f"  • `{diagnostics_dir / f'headline_vs_ablation_contract_comparison_{run_id}.md'}`")
+    pr(f"  • `{diagnostics_dir / f'taxonomy_authority_split_{run_id}.md'}`")
     pr(f"  • `{diagnostics_dir / f'taxonomy_type_authority_review_{run_id}.md'}`")
-    pr("High-score skeptic audits:")
-    pr(f"  • `{diagnostics_dir / 'headline_score_scope.md'}` / `high_score_audit.md`")
-    pr(f"  • `{diagnostics_dir / 'false_attribution_audit.md'}` / `split_contamination_audit.md`")
-    pr(f"  • `{diagnostics_dir / 'smote_effect_check.md'}` / `leakage_safe_score_comparison.md`")
-    pr(f"  • `{diagnostics_dir / 'top_feature_modality_audit.md'}` / `recommended_validation_plan.md`")
-    mc = diagnostics_dir / f"model_comparison_summary_{run_id}.csv"
-    pr(f"Model comparison    : `{mc}`")
-    abl = diagnostics_dir / f"ablation_summary_{run_id}.csv"
-    if abl.is_file():
-        pr(f"Ablation summary    : `{abl}`")
-
-    cnts = getattr(app_config, "RUNTIME_OPERATOR_ARTIFACT_COUNTS", {}) or {}
-    if isinstance(cnts, dict) and cnts:
-        pr("")
-        pr("Grouped artifact writes (estimated)")
-        for k, v in sorted(cnts.items(), key=lambda kv: kv[0]):
-            pr(f"  • {k}: {v}")
+    pr("Skeptic audits:")
+    pr(f"  • `{diagnostics_dir / 'headline_score_scope.md'}`")
+    pr(f"  • `{diagnostics_dir / 'split_contamination_audit.md'}`")
+    pr(f"  • `{diagnostics_dir / 'smote_effect_check.md'}`")
+    pr(f"  • `{diagnostics_dir / 'recommended_validation_plan.md'}`")

@@ -134,6 +134,62 @@ def test_write_run_science_index_mentions_post_run_enrichment(tmp_path: Path) ->
     assert "prefer run-scoped artifacts over any `.latest` file" in text
 
 
+def test_write_run_science_index_mentions_authority_coverage_diagnostic(tmp_path: Path) -> None:
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "r_auth"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
+    (run_root / "run_summary.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / "run_observability_summary.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / "cohort_foundation.json").write_text("{}", encoding="utf-8")
+    (run_root / "run_evidence_index.md").write_text("# evidence\n", encoding="utf-8")
+    authority_md = diagnostics_dir / "family_type_authority_coverage_r_auth.md"
+    authority_md.write_text("# Family/Type Authority Coverage Report\n", encoding="utf-8")
+
+    out_path = write_run_science_index_md(
+        run_root=run_root,
+        diagnostics_dir=diagnostics_dir,
+        run_id="r_auth",
+        profile_id="paper_locked",
+        evidence_mode=True,
+        cohort_locked=True,
+        publication_ready_status="PASS",
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "Advisory Authority Diagnostic" in text
+    assert str(authority_md) in text
+
+
+def test_write_run_science_index_mentions_taxonomy_authority_split(tmp_path: Path) -> None:
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "r_tax"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
+    (run_root / "run_summary.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / "run_observability_summary.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / "cohort_foundation.json").write_text("{}", encoding="utf-8")
+    (run_root / "run_evidence_index.md").write_text("# evidence\n", encoding="utf-8")
+    taxonomy_md = diagnostics_dir / "taxonomy_authority_split_r_tax.md"
+    taxonomy_md.write_text("# Taxonomy Authority Split\n", encoding="utf-8")
+
+    out_path = write_run_science_index_md(
+        run_root=run_root,
+        diagnostics_dir=diagnostics_dir,
+        run_id="r_tax",
+        profile_id="paper_locked",
+        evidence_mode=True,
+        cohort_locked=True,
+        publication_ready_status="PASS",
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "Taxonomy Authority Split" in text
+    assert str(taxonomy_md) in text
+
+
 def test_write_run_science_index_omits_missing_audit_files(tmp_path: Path) -> None:
     """Run science index should not advertise skipped audit artifacts as authoritative."""
     output_root = tmp_path / "output"

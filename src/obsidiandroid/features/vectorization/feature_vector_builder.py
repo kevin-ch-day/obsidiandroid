@@ -502,9 +502,12 @@ def _export_vendor_gate_debug(
     if not debug_df.empty:
         debug_df = debug_df.sort_values(["selected_flag", "pre_gate_score_raw"], ascending=[False, False])
     path = out_dir / f"vendor_gate_debug_{run_id}.csv"
-    latest = out_dir / "vendor_gate_debug.latest.csv"
-    debug_df.to_csv(path, index=False)
-    debug_df.to_csv(latest, index=False)
+    output_hygiene_mod.mirror_csv_text_run_then_global(
+        diagnostics_dir=out_dir,
+        run_filename=path.name,
+        csv_text=debug_df.to_csv(index=False),
+        global_latest_name="vendor_gate_debug.latest.csv",
+    )
 
     vendor_canonical = "\n".join(sorted(set(map(str, selected_vendors))))
     vendor_set_hash = hashlib.sha256(vendor_canonical.encode("utf-8")).hexdigest()

@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, Dict
 from uuid import uuid4
 
-from config import app_config
 from obsidiandroid.common.hash_utils import hash_payload, short_hash
 from obsidiandroid.common.output_hygiene import global_diagnostics_root
 from obsidiandroid.database import db_engine

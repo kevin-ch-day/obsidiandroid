@@ -74,6 +74,7 @@ def build_av_engine_scoring_summary_from_db() -> pd.DataFrame:
         log_event(
             SUMMARY_LOGGER,
             "engine_summary_failed",
+            level="ERROR",
             event_id="SUMMARY_500",
             reason="query_failed",
             error=str(exc),
@@ -85,6 +86,7 @@ def build_av_engine_scoring_summary_from_db() -> pd.DataFrame:
         log_event(
             SUMMARY_LOGGER,
             "engine_summary_failed",
+            level="ERROR",
             event_id="SUMMARY_404",
             reason="empty_input",
         )
@@ -101,6 +103,7 @@ def build_av_engine_scoring_summary_from_db() -> pd.DataFrame:
         log_event(
             SUMMARY_LOGGER,
             "engine_summary_failed",
+            level="ERROR",
             event_id="SUMMARY_402",
             reason="empty_summary",
         )
@@ -195,6 +198,7 @@ def _compute_engine_scores(df: pd.DataFrame) -> pd.DataFrame:
         log_event(
             SUMMARY_LOGGER,
             "engine_score_compute_failed",
+            level="ERROR",
             event_id="SUMMARY_501",
             error=str(exc),
         )
@@ -209,6 +213,7 @@ def _normalize_numeric_fields(df: pd.DataFrame, fields: list) -> bool:
         log_event(
             SUMMARY_LOGGER,
             "engine_score_missing_fields",
+            level="WARNING",
             event_id="SUMMARY_410",
             missing_fields=missing,
         )

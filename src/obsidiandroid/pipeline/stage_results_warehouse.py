@@ -17,6 +17,7 @@ import pandas as pd
 
 from obsidiandroid.database import db_engine
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 
 
@@ -510,7 +511,7 @@ def _persist_snapshot_conflicts(run_id: str, bundle_metadata: dict[str, Any]) ->
     conflict_count = _as_int(snapshot.get("label_conflict_count", 0))
     if conflict_count <= 0:
         return
-    conflict_file = _diagnostics_dir() / "analysis_snapshot_label_conflicts.latest.csv"
+    conflict_file = oh.resolve_analysis_snapshot_label_conflicts_path(_diagnostics_dir(), run_id)
     if not conflict_file.exists():
         return
     try:

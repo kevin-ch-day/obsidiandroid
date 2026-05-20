@@ -109,3 +109,42 @@ def test_split_cache_key_varies_with_feature_count_when_not_ablation(monkeypatch
     k1 = model_trainer_factory._build_split_cache_key(small, y, 0.25, 42, group_aware_requested=False)
     k2 = model_trainer_factory._build_split_cache_key(large, y, 0.25, 42, group_aware_requested=False)
     assert k1 != k2
+
+
+def test_print_ablation_terminal_summary_compact_mode_reduces_grid(monkeypatch) -> None:
+    captured_tables: list[pd.DataFrame] = []
+    captured_info: list[str] = []
+
+    monkeypatch.setattr(app_config, "ML_TERMINAL_COMPACT", True, raising=False)
+    monkeypatch.setattr(stage_ablation.ml_console, "is_minimal", lambda: False)
+    monkeypatch.setattr(stage_ablation.du, "print_section", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        stage_ablation.du,
+        "print_table",
+        lambda df, **_kwargs: captured_tables.append(df.copy()),
+    )
+    monkeypatch.setattr(stage_ablation.du, "print_info", lambda msg, *_args, **_kwargs: captured_info.append(str(msg)))
+
+    summary_df = pd.DataFrame(
+        [
+            {"label_target": "family_id", "experiment": "full_fused", "model": "xgboost", "macro_f1_score": 0.98, "delta_vs_full_fused": 0.0},
+            {"label_target": "family_id", "experiment": "permissions_grouped", "model": "random_forest", "macro_f1_score": 0.93, "delta_vs_full_fused": -0.05},
+            {"label_target": "type_slug", "experiment": "full_fused", "model": "xgboost", "macro_f1_score": 0.99, "delta_vs_full_fused": 0.0},
+            {"label_target": "type_slug", "experiment": "vendor_parsed_full", "model": "random_forest", "macro_f1_score": 0.97, "delta_vs_full_fused": -0.02},
+        ]
+    )
+
+    stage_ablation._print_ablation_terminal_summary(summary_df)  # pylint: disable=protected-access
+
+    assert len(captured_tables) == 1
+    compact_df = captured_tables[0]
+    assert list(compact_df.columns) == [
+        "label_target",
+        "best_feature_set",
+        "best_model",
+        "macro_f1",
+        "delta_vs_full_fused",
+    ]
+    assert len(compact_df) == 2
+    assert compact_df["best_feature_set"].tolist() == ["full_fused", "full_fused"]
+    assert any("Compact terminal mode" in msg for msg in captured_info)

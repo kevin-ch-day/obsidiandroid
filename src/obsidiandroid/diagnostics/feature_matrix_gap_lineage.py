@@ -15,6 +15,7 @@ import pandas as pd
 
 from .alignment_gap_diagnostics import collect_alignment_gap_detail_frame
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.json_io import read_json_dict
 
 # Renamed from alignment ``likely_missing_reason`` to paper-facing categories.
@@ -228,7 +229,7 @@ def run_feature_matrix_gap_report(
 
     cohort_path = diag / "cohort_membership.csv"
     unmatched_path = diag / "unmatched_label_ids.csv"
-    coverage_path = diag / "feature_build_coverage.latest.json"
+    coverage_path = oh.resolve_feature_build_coverage_path(diag, run_id)
     modality_path = diag / "modality_method_contract.json"
     contract_path = diag / "feature_contract.json"
 
@@ -240,7 +241,7 @@ def run_feature_matrix_gap_report(
     modality = read_json_dict(modality_path)
     feature_contract = read_json_dict(contract_path)
 
-    missing_csv = diag / "cohort_missing_from_feature_matrix.latest.csv"
+    missing_csv = oh.resolve_cohort_missing_from_feature_matrix_path(diag, run_id)
     missing_ids: set[int] = set()
     if missing_csv.is_file():
         mdf = pd.read_csv(missing_csv)
@@ -521,4 +522,3 @@ __all__ = [
     "resolve_run_diagnostics",
     "run_feature_matrix_gap_report",
 ]
-

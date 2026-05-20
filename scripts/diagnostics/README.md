@@ -18,10 +18,34 @@ The canonical implementations are **here**. Import them as **`scripts.diagnostic
 | [`inspect_vendor_feature_results.py`](inspect_vendor_feature_results.py) | Vendor features |
 | [`inspect_vendor_missing_patterns.py`](inspect_vendor_missing_patterns.py) | Missing patterns |
 | [`inspect_vendor_parser_health.py`](inspect_vendor_parser_health.py) | Parser health |
+| [`export_label_authority_vendor_evidence.py`](export_label_authority_vendor_evidence.py) | Parser-enriched long-form vendor-label evidence export for label-authority rollout |
+| [`label_authority_schema_readiness.py`](label_authority_schema_readiness.py) | Read-only Erebus readiness audit for the label-authority schema pack |
+| [`report_family_type_authority_coverage.py`](report_family_type_authority_coverage.py) | Authority bucket / gap / conflict / temporal-coverage report from the proposed family-type authority view |
+| **(Alert logs emitted by authority coverage)** | Running the authority coverage diagnostic also emits targeted structured logs: `label_authority_alerts.log` and `temporal_readiness_alerts.log` |
+| [`report_logging_engine_usage.py`](report_logging_engine_usage.py) | Static audit of structured logger categories, event coverage, missing event IDs, and failure events without explicit severity |
+| [`report_log_surface.py`](report_log_surface.py) | Inventory repo/runtime log files and recommend what to keep, prune, or cover with diagnostics instead of new log categories |
+| [`report_run_log_issues.py`](report_run_log_issues.py) | Summarize latest-run warning hotspots, stage timing hotspots, authority/temporal alert counts, and missing error-log coverage |
+| [`report_label_noise_candidates.py`](report_label_noise_candidates.py) | Read-only label-risk scoring from vendor evidence and current governed family truth |
+| [`summarize_label_authority_vendor_evidence.py`](summarize_label_authority_vendor_evidence.py) | Summarize parser-enriched evidence and emit family-alias review candidates |
 
-## Other operator scripts (still under `scripts/`)
+## Canonical diagnostics migrated from top-level `scripts/`
 
-Alignment, lineage, inventory, and cohort tooling remain at [`scripts/`](../README.md) paths (e.g. `diagnose_alignment_gap.py`, `report_output_inventory.py`).
+These scripts now live here canonically. Repo-root wrappers are kept so older menu paths,
+operator habits, and docs links do not break immediately.
+
+| Canonical script | Compatibility wrapper |
+|--------|------|
+| [`diagnose_alignment_gap.py`](diagnose_alignment_gap.py) | `scripts/diagnose_alignment_gap.py` |
+| [`report_feature_lineage.py`](report_feature_lineage.py) | `scripts/report_feature_lineage.py` |
+| [`report_feature_matrix_gap.py`](report_feature_matrix_gap.py) | `scripts/report_feature_matrix_gap.py` |
+| [`report_output_inventory.py`](report_output_inventory.py) | `scripts/report_output_inventory.py` |
+| [`trace_feature_builder_drops.py`](trace_feature_builder_drops.py) | `scripts/trace_feature_builder_drops.py` |
+| [`check_run_integrity.py`](check_run_integrity.py) | `scripts/check_run_integrity.py` |
+
+## Other operator scripts still intentionally top-level
+
+Warehouse backfills, output cleanup, cohort gate checks, and retrain helpers remain at
+[`scripts/`](../README.md) paths until a separate operations/maintenance pass.
 
 ## Research diagnostics
 

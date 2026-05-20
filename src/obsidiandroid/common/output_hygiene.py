@@ -9,6 +9,13 @@ from typing import Any
 from config import app_config
 from obsidiandroid.common import output_paths
 
+RUN_SCOPED_ONLY = "run_scoped_only"
+RUN_SCOPED_PLUS_POINTER = "run_scoped_plus_pointer"
+RUN_SCOPED_PLUS_GLOBAL_LATEST_MIRROR = "run_scoped_plus_global_latest_mirror"
+RUN_SCOPED_PLUS_LOCAL_LATEST_DUPLICATE = "run_scoped_plus_local_latest_duplicate"
+DEBUG_ONLY = "debug_only"
+LEGACY_COMPATIBILITY_ONLY = "legacy_compatibility_only"
+
 
 def normalize_artifact_run_id(run_id: object, *, default: str = "unknown") -> str:
     """Return a safe run-id token for artifact filenames and mirrors."""
@@ -65,6 +72,13 @@ def path_is_under_output_runs(path: Path) -> bool:
 def run_diagnostics_should_omit_latest_duplicate() -> bool:
     """When True, writers should not emit ``*.latest.*`` inside ``runs/<id>/diagnostics``."""
     return bool(getattr(app_config, "SUPPRESS_LATEST_DUPLICATES_IN_RUN_DIRS", True))
+
+
+def diagnostics_mirror_write_policy(diagnostics_dir: Path) -> str:
+    """Return the effective latest-mirror policy for a diagnostics directory."""
+    if path_is_under_output_runs(Path(diagnostics_dir)) and run_diagnostics_should_omit_latest_duplicate():
+        return RUN_SCOPED_PLUS_GLOBAL_LATEST_MIRROR
+    return RUN_SCOPED_PLUS_LOCAL_LATEST_DUPLICATE
 
 
 def write_global_latest_text(*, filename: str, text: str) -> Path:
@@ -158,23 +172,389 @@ def resolve_run_or_global_artifact_path(
     return candidates[0]
 
 
-def resolve_taxonomy_consistency_summary_path(diagnostics_dir: Path, run_id: str) -> Path:
-    """Resolve taxonomy consistency summary across run-scoped and global-latest locations."""
+def _resolve_stamped_run_or_global_artifact_path(
+    diagnostics_dir: Path,
+    run_id: str,
+    *,
+    run_filename_template: str,
+    global_latest_name: str,
+    local_latest_name: str | None = None,
+) -> Path:
+    """Resolve one stamped run artifact first, then local/global latest mirrors."""
     rid = normalize_artifact_run_id(run_id)
     return resolve_run_or_global_artifact_path(
         diagnostics_dir,
-        run_filename=f"taxonomy_consistency_summary_{rid}.json",
+        run_filename=run_filename_template.format(run_id=rid),
+        global_latest_name=global_latest_name,
+        local_latest_name=local_latest_name,
+    )
+
+
+def _resolve_stamped_then_compat_then_global_path(
+    diagnostics_dir: Path,
+    run_id: str,
+    *,
+    run_filename_template: str,
+    compatibility_filenames: tuple[str, ...] = (),
+    global_latest_name: str,
+) -> Path:
+    """Resolve one stamped run artifact, then run-scoped compat names, then global latest."""
+    rid = normalize_artifact_run_id(run_id)
+    diag = Path(diagnostics_dir)
+    candidates = [diag / run_filename_template.format(run_id=rid)]
+    candidates.extend(diag / name for name in compatibility_filenames)
+    candidates.append(global_diagnostics_root() / global_latest_name)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return candidates[0]
+
+
+def resolve_taxonomy_consistency_summary_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve taxonomy consistency summary across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="taxonomy_consistency_summary_{run_id}.json",
         global_latest_name="taxonomy_consistency_summary.latest.json",
+    )
+
+
+def resolve_taxonomy_consistency_mismatches_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve taxonomy mismatch CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="taxonomy_consistency_mismatches_{run_id}.csv",
+        global_latest_name="taxonomy_consistency_mismatches.latest.csv",
+    )
+
+
+def resolve_prediction_errors_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve prediction-errors CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="prediction_errors_{run_id}.csv",
+        global_latest_name="prediction_errors.latest.csv",
+    )
+
+
+def resolve_headline_vs_ablation_contract_comparison_path(
+    diagnostics_dir: Path,
+    run_id: str,
+    *,
+    suffix: str = "md",
+) -> Path:
+    """Resolve headline-vs-ablation contract comparison across run-scoped and global-latest locations."""
+    ext = str(suffix).strip().lstrip(".") or "md"
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template=f"headline_vs_ablation_contract_comparison_{{run_id}}.{ext}",
+        global_latest_name=f"headline_vs_ablation_contract_comparison.latest.{ext}",
+    )
+
+
+def resolve_taxonomy_type_authority_review_path(
+    diagnostics_dir: Path,
+    run_id: str,
+    *,
+    suffix: str = "md",
+) -> Path:
+    """Resolve taxonomy-type authority review across run-scoped and global-latest locations."""
+    ext = str(suffix).strip().lstrip(".") or "md"
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template=f"taxonomy_type_authority_review_{{run_id}}.{ext}",
+        global_latest_name=f"taxonomy_type_authority_review.latest.{ext}",
+    )
+
+
+def resolve_feature_build_coverage_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve feature-build coverage JSON across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="feature_build_coverage_{run_id}.json",
+        global_latest_name="feature_build_coverage.latest.json",
+    )
+
+
+def resolve_cohort_missing_from_feature_matrix_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve missing-cohort CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="cohort_missing_from_feature_matrix_{run_id}.csv",
+        global_latest_name="cohort_missing_from_feature_matrix.latest.csv",
+    )
+
+
+def resolve_analysis_snapshot_filter_summary_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve cohort filter-summary CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="analysis_snapshot_filter_summary_{run_id}.csv",
+        global_latest_name="analysis_snapshot_filter_summary.latest.csv",
+    )
+
+
+def resolve_cohort_filter_contract_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve cohort filter-contract JSON across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="cohort_filter_contract_{run_id}.json",
+        global_latest_name="cohort_filter_contract.latest.json",
+    )
+
+
+def resolve_cohort_gate_counts_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve cohort gate-counts CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="cohort_gate_counts_{run_id}.csv",
+        global_latest_name="cohort_gate_counts.latest.csv",
+    )
+
+
+def resolve_feature_matrix_lineage_gate_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve lineage-gate JSON across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="feature_matrix_lineage_gate_{run_id}.json",
+        global_latest_name="feature_matrix_lineage_gate.latest.json",
+    )
+
+
+def resolve_feature_modality_coverage_audit_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve modality-audit CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="feature_modality_coverage_audit_{run_id}.csv",
+        global_latest_name="feature_modality_coverage_audit.latest.csv",
+    )
+
+
+def resolve_feature_modality_coverage_summary_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve modality-summary JSON across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="feature_modality_coverage_summary_{run_id}.json",
+        global_latest_name="feature_modality_coverage_summary.latest.json",
+    )
+
+
+def resolve_feature_contract_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve feature-contract JSON across canonical compat and global-latest locations."""
+    return _resolve_stamped_then_compat_then_global_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="feature_contract_{run_id}.json",
+        compatibility_filenames=("feature_contract.json",),
+        global_latest_name="feature_contract.latest.json",
+    )
+
+
+def resolve_ablation_summary_path(
+    diagnostics_dir: Path,
+    run_id: str,
+    *,
+    allow_partial: bool = False,
+) -> Path:
+    """Resolve ablation-summary CSV across run-scoped and global-latest locations."""
+    rid = normalize_artifact_run_id(run_id)
+    diag = Path(diagnostics_dir)
+    candidates = [
+        diag / f"ablation_summary_{rid}.csv",
+        diag / "ablation_summary.latest.csv",
+        global_diagnostics_root() / "ablation_summary.latest.csv",
+    ]
+    if allow_partial:
+        candidates.append(diag / f"ablation_summary_partial_{rid}.csv")
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return candidates[0]
+
+
+def resolve_model_comparison_summary_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve model-comparison summary CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="model_comparison_summary_{run_id}.csv",
+        global_latest_name="model_comparison_summary.latest.csv",
+    )
+
+
+def resolve_modality_method_contract_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve modality-method contract JSON across canonical compat and global-latest locations."""
+    return _resolve_stamped_then_compat_then_global_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="modality_method_contract_{run_id}.json",
+        compatibility_filenames=("modality_method_contract.json",),
+        global_latest_name="modality_method_contract.latest.json",
+    )
+
+
+def resolve_leakage_assessment_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve leakage-assessment text across canonical compat and global-latest locations."""
+    return _resolve_stamped_then_compat_then_global_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="leakage_assessment_{run_id}.txt",
+        compatibility_filenames=("leakage_assessment.txt",),
+        global_latest_name="leakage_assessment.latest.txt",
+    )
+
+
+def resolve_label_name_map_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve label-name map JSON across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="label_name_map_{run_id}.json",
+        global_latest_name="label_name_map.latest.json",
+    )
+
+
+def resolve_sample_stage_lineage_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve sample-stage lineage CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="sample_stage_lineage_{run_id}.csv",
+        global_latest_name="sample_stage_lineage.latest.csv",
+    )
+
+
+def resolve_parser_quality_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve parser-quality CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="parser_quality_{run_id}.csv",
+        global_latest_name="parser_quality.latest.csv",
+    )
+
+
+def resolve_parser_quality_final_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve final parser-quality CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="parser_quality_final_{run_id}.csv",
+        global_latest_name="parser_quality_final.latest.csv",
+    )
+
+
+def resolve_engine_lifecycle_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve engine-lifecycle CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="engine_lifecycle_{run_id}.csv",
+        global_latest_name="engine_lifecycle.latest.csv",
+    )
+
+
+def resolve_analysis_snapshot_label_conflicts_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve snapshot label-conflicts CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="analysis_snapshot_label_conflicts_{run_id}.csv",
+        global_latest_name="analysis_snapshot_label_conflicts.latest.csv",
+    )
+
+
+def resolve_vendor_gate_debug_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve vendor-gate debug CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="vendor_gate_debug_{run_id}.csv",
+        global_latest_name="vendor_gate_debug.latest.csv",
+    )
+
+
+def resolve_vendor_gate_top10_pre_gate_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve pre-gate top-vendor CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="vendor_gate_top10_pre_gate_{run_id}.csv",
+        global_latest_name="vendor_gate_top10_pre_gate.latest.csv",
+    )
+
+
+def resolve_vendor_parser_coverage_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve parser coverage CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="vendor_parser_coverage_{run_id}.csv",
+        global_latest_name="vendor_parser_coverage.latest.csv",
+    )
+
+
+def resolve_vendor_parser_coverage_candidates_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve parser onboarding-candidates CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="vendor_parser_coverage_candidates_{run_id}.csv",
+        global_latest_name="vendor_parser_coverage_candidates.latest.csv",
+    )
+
+
+def resolve_vendor_parser_stress_test_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve parser stress-test CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="vendor_parser_stress_test_{run_id}.csv",
+        global_latest_name="vendor_parser_stress_test.latest.csv",
+    )
+
+
+def resolve_vendor_parser_strengths_weaknesses_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve parser strengths/weaknesses CSV across run-scoped and global-latest locations."""
+    return _resolve_stamped_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="vendor_parser_strengths_weaknesses_{run_id}.csv",
+        global_latest_name="vendor_parser_strengths_weaknesses.latest.csv",
     )
 
 
 def resolve_feature_column_survival_path(diagnostics_dir: Path, run_id: str) -> Path:
     """Resolve feature-column survival CSV across run-scoped and global-latest locations."""
-    rid = normalize_artifact_run_id(run_id)
-    return resolve_run_or_global_artifact_path(
+    return _resolve_stamped_run_or_global_artifact_path(
         diagnostics_dir,
-        run_filename=f"feature_column_survival_{rid}.csv",
+        run_id,
+        run_filename_template="feature_column_survival_{run_id}.csv",
         global_latest_name="feature_column_survival.latest.csv",
+    )
+
+
+def resolve_feature_set_ablation_summary_path(diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve feature-set ablation summary CSV across compat and global-latest locations."""
+    return _resolve_stamped_then_compat_then_global_path(
+        diagnostics_dir,
+        run_id,
+        run_filename_template="feature_set_ablation_summary_{run_id}.csv",
+        compatibility_filenames=("feature_set_ablation_summary.csv",),
+        global_latest_name="feature_set_ablation_summary.latest.csv",
     )
 
 
@@ -195,7 +575,7 @@ def mirror_utf8_text_run_then_global(
     primary = out_dir / run_filename
     primary.write_text(text, encoding="utf-8")
     written: list[Path] = [primary]
-    if run_diagnostics_should_omit_latest_duplicate() and path_is_under_output_runs(out_dir):
+    if diagnostics_mirror_write_policy(out_dir) == RUN_SCOPED_PLUS_GLOBAL_LATEST_MIRROR:
         written.append(write_global_latest_text(filename=global_latest_name, text=text))
     else:
         legacy = out_dir / global_latest_name
@@ -245,19 +625,49 @@ def mirror_json_text_run_then_global(
 
 
 __all__ = [
+    "DEBUG_ONLY",
+    "LEGACY_COMPATIBILITY_ONLY",
+    "RUN_SCOPED_ONLY",
+    "RUN_SCOPED_PLUS_GLOBAL_LATEST_MIRROR",
+    "RUN_SCOPED_PLUS_LOCAL_LATEST_DUPLICATE",
+    "RUN_SCOPED_PLUS_POINTER",
+    "diagnostics_mirror_write_policy",
     "global_diagnostics_root",
     "normalize_artifact_run_id",
     "mirror_csv_text_run_then_global",
     "mirror_json_text_run_then_global",
     "mirror_utf8_text_run_then_global",
     "path_is_under_output_runs",
+    "resolve_analysis_snapshot_filter_summary_path",
+    "resolve_cohort_missing_from_feature_matrix_path",
+    "resolve_cohort_filter_contract_path",
+    "resolve_cohort_gate_counts_path",
+    "resolve_engine_lifecycle_path",
     "resolve_feature_column_survival_path",
+    "resolve_feature_build_coverage_path",
+    "resolve_feature_contract_path",
+    "resolve_feature_matrix_lineage_gate_path",
+    "resolve_feature_modality_coverage_audit_path",
+    "resolve_feature_modality_coverage_summary_path",
+    "resolve_label_name_map_path",
+    "resolve_leakage_assessment_path",
+    "resolve_modality_method_contract_path",
+    "resolve_parser_quality_path",
+    "resolve_parser_quality_final_path",
     "resolve_aligned_features_cache_path",
+    "resolve_analysis_snapshot_label_conflicts_path",
     "resolve_analysis_snapshot_csv_path",
     "resolve_dataset_time_contract_path",
     "resolve_run_or_global_artifact_path",
+    "resolve_sample_stage_lineage_path",
     "resolve_stable_output_root_for_mirrors",
     "resolve_taxonomy_consistency_summary_path",
+    "resolve_vendor_gate_debug_path",
+    "resolve_vendor_gate_top10_pre_gate_path",
+    "resolve_vendor_parser_coverage_candidates_path",
+    "resolve_vendor_parser_coverage_path",
+    "resolve_vendor_parser_strengths_weaknesses_path",
+    "resolve_vendor_parser_stress_test_path",
     "run_diagnostics_should_omit_latest_duplicate",
     "should_emit_parser_stress_and_strengths_grid",
     "validate_diagnostics_output_dir",

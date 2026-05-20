@@ -15,6 +15,7 @@ from obsidiandroid.pipeline import av_engine_pipeline, vendor_metadata_pipeline
 from obsidiandroid.modeling import feature_label_alignment_helper
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from obsidiandroid.observability.pipeline_observability.session import PipelineObservabilitySession
 from obsidiandroid.observability.pipeline_observability.taxonomy import LogCategory, LogSeverity
@@ -26,6 +27,11 @@ _REQUIRED_LABEL_COLUMNS = {"family_id", "family_canonical", "type_slug"}
 def _diagnostics_dir_str() -> str:
     """Resolve diagnostics directory path for runtime context."""
     return str(resolve_diagnostics_dir())
+
+
+def _engine_lifecycle_path(run_id: str) -> Path:
+    """Resolve canonical engine-lifecycle artifact path for the active run."""
+    return oh.resolve_engine_lifecycle_path(Path(_diagnostics_dir_str()), run_id)
 
 
 def run_av_analysis_stage(
@@ -103,7 +109,7 @@ def run_av_analysis_stage(
             previous_count=cohort_unique,
             new_count=bm_rows,
             reason="av_binary_matrix_builder (DB verdicts → melted rows → pivot)",
-            artifact_path=str(Path(_diagnostics_dir_str()) / "engine_lifecycle.latest.csv"),
+            artifact_path=str(_engine_lifecycle_path(run_id)),
         )
 
     engine_scores_df = pipeline_results.get("engine_scores")
@@ -111,11 +117,11 @@ def run_av_analysis_stage(
         raise ValueError("[INTEGRITY] Engine scoring produced no rows.")
 
     lifecycle_df = pipeline_results.get("engine_lifecycle")
-    lifecycle_mirror = Path(_diagnostics_dir_str()) / "engine_lifecycle.latest.csv"
+    lifecycle_path = _engine_lifecycle_path(run_id)
     if isinstance(lifecycle_df, pd.DataFrame):
-        artifact_list.append(str(lifecycle_mirror))
+        artifact_list.append(str(lifecycle_path))
         if obs is not None:
-            obs.emit_artifact_written(str(lifecycle_mirror), detail="engine lifecycle mirror CSV")
+            obs.emit_artifact_written(str(lifecycle_path), detail="engine lifecycle CSV")
         _assert_engine_lifecycle_integrity(lifecycle_df)
         _assert_engine_count_consistency(
             lifecycle_df=lifecycle_df,
@@ -134,7 +140,7 @@ def run_av_analysis_stage(
     elif obs is not None:
         obs.emit_artifact_skipped(
             reason="engine_lifecycle_not_attached_as_dataframe",
-            path_hint=str(lifecycle_mirror),
+            path_hint=str(lifecycle_path),
             detail="check score_av_engines lifecycle export",
         )
 

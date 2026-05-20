@@ -55,6 +55,21 @@ def test_ablation_macro_f1_reads_feature_set_ablation_summary(tmp_path: Path) ->
     assert abs((got.get("full_fused") or 0) - 0.92) < 1e-6
 
 
+def test_ablation_macro_f1_can_fall_back_to_global_latest_feature_set_summary(
+    make_run_diagnostics_layout,
+) -> None:
+    _output_root, rdiag, gdiag = make_run_diagnostics_layout("rid")
+    (gdiag / "feature_set_ablation_summary.latest.csv").write_text(
+        "model,experiment,label_target,macro_f1_score\n"
+        "rf,permissions_raw,family_id,0.81\n"
+        "rf,full_fused,family_id,0.82\n",
+        encoding="utf-8",
+    )
+    got = rw._ablation_macro_f1_by_experiment(rdiag, "rid")
+    assert abs((got.get("permissions_raw") or 0) - 0.81) < 1e-6
+    assert abs((got.get("full_fused") or 0) - 0.82) < 1e-6
+
+
 def test_collect_run_comparison_row_includes_cohort_methodology(tmp_path: Path) -> None:
     out = tmp_path / "output"
     run_id = "20260303T000000Z__abc123"
@@ -172,3 +187,24 @@ def test_write_research_validity_review_uses_global_taxonomy_and_latest_mirrors(
     assert payload["taxonomy"]["paper_facing_taxonomy_mismatch_count"] == 2
     assert payload["artifacts_used"]["headline_vs_ablation_contract_comparison"] is True
     assert payload["artifacts_used"]["taxonomy_type_authority_review"] is True
+
+
+def test_build_filesystem_artifact_checks_can_find_global_latest_split_ledger(
+    make_run_diagnostics_layout,
+) -> None:
+    output_root, rdiag, gdiag = make_run_diagnostics_layout("rid")
+    run_root = output_root / "runs" / "rid"
+    (gdiag / "split_freeze_headline.latest.csv").write_text("sample_id\n1\n", encoding="utf-8")
+    rows, fail_count, warn_count = rw.build_filesystem_artifact_checks(
+        output_root=output_root,
+        effective_run_id="rid",
+        canonical_manifest={},
+        run_root=run_root,
+        run_summary={},
+        timestamp_source="",
+    )
+    split_row = next(row for row in rows if row["check"] == "split_audit_exists")
+    assert split_row["status"] == "PASS"
+    assert split_row["detail"].endswith("split_freeze_headline.latest.csv")
+    assert fail_count == 1  # model_config_snapshot still missing in this minimal fixture
+    assert warn_count >= 1

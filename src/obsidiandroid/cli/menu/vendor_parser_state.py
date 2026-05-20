@@ -8,7 +8,7 @@ import json
 
 import pandas as pd
 
-from config import app_config
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.output_paths import output_root as canonical_output_root
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from obsidiandroid.database import db_engine
@@ -40,84 +40,56 @@ def first_existing(paths: list[Path]) -> Path | None:
     return None
 
 
+def _resolve_latest_run_diagnostics_artifact(
+    resolver: Callable[[Path, str], Path],
+    *,
+    global_latest_name: str,
+) -> Path | None:
+    """Resolve one latest-run diagnostics artifact with global-latest fallback."""
+    rid = run_locator.read_latest_run_id()
+    if rid:
+        return first_existing([resolver(run_diagnostics(rid), rid)])
+    return first_existing([global_diagnostics() / global_latest_name])
+
+
 def resolve_vendor_parser_coverage_csv() -> Path | None:
     """Prefer run-scoped vendor_parser_coverage, then global ``.latest``."""
-    rid = run_locator.read_latest_run_id()
-    candidates: list[Path] = []
-    if rid:
-        rd = run_diagnostics(rid)
-        candidates.extend(
-            [
-                rd / f"vendor_parser_coverage_{rid}.csv",
-                rd / "vendor_parser_coverage.latest.csv",
-            ]
-        )
-    candidates.append(global_diagnostics() / "vendor_parser_coverage.latest.csv")
-    return first_existing(candidates)
+    return _resolve_latest_run_diagnostics_artifact(
+        oh.resolve_vendor_parser_coverage_path,
+        global_latest_name="vendor_parser_coverage.latest.csv",
+    )
 
 
 def resolve_vendor_parser_coverage_candidates_csv() -> Path | None:
     """Resolve parser onboarding candidate CSV for the latest run."""
-    rid = run_locator.read_latest_run_id()
-    candidates: list[Path] = []
-    if rid:
-        rd = run_diagnostics(rid)
-        candidates.extend(
-            [
-                rd / f"vendor_parser_coverage_candidates_{rid}.csv",
-                rd / "vendor_parser_coverage_candidates.latest.csv",
-            ]
-        )
-    candidates.append(global_diagnostics() / "vendor_parser_coverage_candidates.latest.csv")
-    return first_existing(candidates)
+    return _resolve_latest_run_diagnostics_artifact(
+        oh.resolve_vendor_parser_coverage_candidates_path,
+        global_latest_name="vendor_parser_coverage_candidates.latest.csv",
+    )
 
 
 def resolve_vendor_gate_pre_gate_csv() -> Path | None:
     """Resolve pre-gate vendor score CSV for the latest run."""
-    rid = run_locator.read_latest_run_id()
-    candidates: list[Path] = []
-    if rid:
-        rd = run_diagnostics(rid)
-        candidates.extend(
-            [
-                rd / f"vendor_gate_top10_pre_gate_{rid}.csv",
-                rd / "vendor_gate_top10_pre_gate.latest.csv",
-            ]
-        )
-    candidates.append(global_diagnostics() / "vendor_gate_top10_pre_gate.latest.csv")
-    return first_existing(candidates)
+    return _resolve_latest_run_diagnostics_artifact(
+        oh.resolve_vendor_gate_top10_pre_gate_path,
+        global_latest_name="vendor_gate_top10_pre_gate.latest.csv",
+    )
 
 
 def resolve_vendor_stress_test_csv() -> Path | None:
     """Resolve vendor parser stress-test CSV for the latest run."""
-    rid = run_locator.read_latest_run_id()
-    candidates: list[Path] = []
-    if rid:
-        rd = run_diagnostics(rid)
-        candidates.extend(
-            [
-                rd / f"vendor_parser_stress_test_{rid}.csv",
-                rd / "vendor_parser_stress_test.latest.csv",
-            ]
-        )
-    candidates.append(global_diagnostics() / "vendor_parser_stress_test.latest.csv")
-    return first_existing(candidates)
+    return _resolve_latest_run_diagnostics_artifact(
+        oh.resolve_vendor_parser_stress_test_path,
+        global_latest_name="vendor_parser_stress_test.latest.csv",
+    )
 
 
 def resolve_vendor_strengths_weaknesses_csv() -> Path | None:
     """Resolve vendor parser strengths/weaknesses CSV for the latest run."""
-    rid = run_locator.read_latest_run_id()
-    candidates: list[Path] = []
-    if rid:
-        rd = run_diagnostics(rid)
-        candidates.extend(
-            [
-                rd / f"vendor_parser_strengths_weaknesses_{rid}.csv",
-                rd / "vendor_parser_strengths_weaknesses.latest.csv",
-            ]
-        )
-    candidates.append(global_diagnostics() / "vendor_parser_strengths_weaknesses.latest.csv")
-    return first_existing(candidates)
+    return _resolve_latest_run_diagnostics_artifact(
+        oh.resolve_vendor_parser_strengths_weaknesses_path,
+        global_latest_name="vendor_parser_strengths_weaknesses.latest.csv",
+    )
 
 
 def diagnostics_dir() -> Path:

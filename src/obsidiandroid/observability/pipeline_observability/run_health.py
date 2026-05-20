@@ -83,10 +83,6 @@ def print_unified_run_health(
     if model_line:
         du.print_stat("Main model", model_line)
 
-    bc = inventory_summary.get("bucket_counts") if isinstance(inventory_summary, dict) else {}
-    if isinstance(bc, dict):
-        du.print_stat("Artifact inventory (evidence/diag/debug)", f"ev={bc.get('evidence_required',0)} req={bc.get('diagnostics_required',0)}")
-
     counts = payload.get("counts") if isinstance(payload.get("counts"), dict) else {}
     if counts:
         du.print_stat(
@@ -128,8 +124,11 @@ def print_unified_run_health(
     rw = payload.get("research_warnings_top") or payload.get("research_warnings") or []
     if isinstance(rw, list) and rw:
         du.print_info("[WARN] Top research/ops warnings:")
-        for line in rw[:5]:
+        shown = rw[:3]
+        for line in shown:
             du.print_info(f"  - {line}")
+        if len(rw) > len(shown):
+            du.print_info("  - (additional warnings are captured in diagnostics artifacts)")
 
     du.print_info("[OPEN] Suggested first artifacts:")
     primed = payload.get("top_artifacts_to_open_first")

@@ -480,11 +480,14 @@ def export_model_config_snapshot(
     snapshot["model_contract_hash_basis"] = "config_only_no_run_id_no_metrics"
 
     out_path = diagnostics_dir / f"model_config_snapshot_{run_id}.json"
-    latest_path = diagnostics_dir / "model_config_snapshot.latest.json"
     payload = json.dumps(snapshot, indent=2, sort_keys=True)
-    out_path.write_text(payload, encoding="utf-8")
-    latest_path.write_text(payload, encoding="utf-8")
-    artifact_list.extend([str(out_path), str(latest_path)])
+    written_paths = oh.mirror_json_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=out_path.name,
+        payload=snapshot,
+        global_latest_name="model_config_snapshot.latest.json",
+    )
+    artifact_list.extend(str(path) for path in written_paths)
     manifest_context["model_config_snapshot_path"] = str(out_path)
     manifest_context["model_config_hash"] = model_contract_hash
     manifest_context["model_config_hash_basis"] = "config_only_no_run_id_no_metrics"

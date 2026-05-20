@@ -158,7 +158,12 @@ def resolve_and_validate_profile(
         du.print_info("[PROFILE] Preflight: verifying cohort against the database (quick check)...")
         ok, reason = validate_profile_runnable(profile_id)
         if ok:
-            log_event(MENU_LOGGER, "profile_preflight_passed", profile_id=profile_id)
+            log_event(
+                MENU_LOGGER,
+                "profile_preflight_passed",
+                event_id="MENU_PREFLIGHT_200",
+                profile_id=profile_id,
+            )
             return profile_id
 
         du.print_warning(reason)
@@ -166,6 +171,8 @@ def resolve_and_validate_profile(
         log_event(
             MENU_LOGGER,
             "profile_preflight_failed",
+            event_id="MENU_PREFLIGHT_422",
+            level="WARNING",
             profile_id=profile_id,
             reason=reason,
         )

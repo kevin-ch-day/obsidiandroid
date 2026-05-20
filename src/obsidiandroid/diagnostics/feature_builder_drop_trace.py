@@ -397,8 +397,9 @@ def write_feature_builder_drop_artifacts(
 
 
 def load_feature_build_coverage_summary(diagnostics_dir: Path) -> dict[str, Any] | None:
-    """Load ``feature_build_coverage.latest.json`` from a run diagnostics directory."""
-    path = Path(diagnostics_dir) / "feature_build_coverage.latest.json"
+    """Load feature-build coverage from the canonical run-scoped path or global mirror."""
+    rid = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "").strip()
+    path = oh.resolve_feature_build_coverage_path(Path(diagnostics_dir), rid)
     if not path.is_file():
         return None
     try:
@@ -429,13 +430,13 @@ def run_feature_builder_drop_trace(
     diag = resolve_diagnostics_dir(run_root, diagnostics_dir)
     gap_path = alignment_gap_csv or (diag / "alignment_gap_diagnostics.csv")
     cohort_path = cohort_csv or (diag / "cohort_membership.csv")
-    gate_path = vendor_gate_csv or (diag / "vendor_gate_debug.latest.csv")
+    rid = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "")
+    gate_path = vendor_gate_csv or oh.resolve_vendor_gate_debug_path(diag, rid)
 
     gap_df = load_gap_unknown_builder_rows(gap_path)
     cohort_df = load_cohort_membership(cohort_path)
     vendors = load_selected_vendors_from_gate_csv(gate_path)
 
-    rid = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "")
     aligned_path = oh.resolve_aligned_features_cache_path(diag, rid)
     aligned_count = _aligned_export_sample_count(aligned_path) if aligned_path.is_file() else None
     coverage_snap = load_feature_build_coverage_summary(diag)

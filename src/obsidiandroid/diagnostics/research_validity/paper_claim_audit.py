@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from obsidiandroid.common import output_hygiene as oh
+
 
 def _read_csv_exists(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
@@ -17,10 +19,7 @@ def _read_csv_exists(path: Path) -> list[dict[str, Any]]:
 
 
 def _ablation_rows(diagnostics_dir: Path, run_id: str) -> list[dict[str, Any]]:
-    rows = _read_csv_exists(diagnostics_dir / f"ablation_summary_{run_id}.csv")
-    if not rows:
-        rows = _read_csv_exists(diagnostics_dir / "ablation_summary.latest.csv")
-    return rows
+    return _read_csv_exists(oh.resolve_ablation_summary_path(diagnostics_dir, run_id))
 
 
 def _max_f1_by_experiment(
@@ -39,26 +38,21 @@ def _max_f1_by_experiment(
 
 
 def _model_top_macro_f1(diagnostics_dir: Path, run_id: str) -> tuple[str, float | None]:
-    for name in (f"model_comparison_summary_{run_id}.csv", "model_comparison_summary.latest.csv"):
-        path = diagnostics_dir / name
-        if not path.exists():
-            continue
+    path = oh.resolve_model_comparison_summary_path(diagnostics_dir, run_id)
+    if path.exists():
         import pandas as pd
 
         try:
             mcdf = pd.read_csv(path)
-            if mcdf.empty or "Model" not in mcdf.columns:
-                continue
-            col = "Macro-F1 Score" if "Macro-F1 Score" in mcdf.columns else None
-            if col is None:
-                continue
-            mcdf = mcdf.dropna(subset=[col])
-            if mcdf.empty:
-                continue
-            top = mcdf.loc[mcdf[col].astype(float).idxmax()]
-            return str(top["Model"]), float(top[col])
+            if not mcdf.empty and "Model" in mcdf.columns:
+                col = "Macro-F1 Score" if "Macro-F1 Score" in mcdf.columns else None
+                if col is not None:
+                    mcdf = mcdf.dropna(subset=[col])
+                    if not mcdf.empty:
+                        top = mcdf.loc[mcdf[col].astype(float).idxmax()]
+                        return str(top["Model"]), float(top[col])
         except Exception:
-            continue
+            pass
     return "", None
 
 
@@ -96,7 +90,6 @@ def _paper_compliance_metric_summary(payload: dict[str, Any]) -> str:
             pass_count += 1
         elif status:
             fail_ids.append(str(check.get("check_id", "unknown")))
-    fail_count = max(0, total - pass_count)
     if fail_ids:
         preview = ", ".join(fail_ids[:4])
         if len(fail_ids) > 4:

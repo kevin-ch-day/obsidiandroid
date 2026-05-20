@@ -75,8 +75,8 @@ python -m obsidiandroid.evaluation.model_tuning
 This runs the module’s sample tuning workflow (`tune_models`); wire your own search grids via `config/model_params/` and canonical `obsidiandroid.modeling` trainers for production sweeps.
 
 ### Utility Scripts (examples)
-- `python scripts/report_feature_lineage.py --help` – Feature lineage / gap reporting helpers (see script docstrings).
-- `python scripts/report_feature_matrix_gap.py --help` – Compare expected vs built feature columns when debugging matrices.
+- `python scripts/diagnostics/report_feature_lineage.py --help` – Feature lineage / gap reporting helpers (legacy top-level wrapper kept for compatibility).
+- `python scripts/diagnostics/report_feature_matrix_gap.py --help` – Compare expected vs built feature columns when debugging matrices (legacy top-level wrapper kept for compatibility).
 - `python -m scripts.dev.run_ml_static_scan` or `make ml-scan` – Detect patterns that might cause train/test leakage in ML code.
 
 ## 6. Inspect Outputs

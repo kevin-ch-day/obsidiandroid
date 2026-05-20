@@ -20,7 +20,6 @@ import pandas as pd
 from config import app_config
 import obsidiandroid.governance.compliance as compliance
 import obsidiandroid.governance.artifacts as artifacts
-import obsidiandroid.governance.run_manifest as run_manifest
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
@@ -36,22 +35,14 @@ from obsidiandroid.pipeline.manifest.runtime_support import (
     runtime_diagnostics_dir as _manifest_runtime_diagnostics_dir,
     validate_run_scoped_artifact_paths as _manifest_validate_run_scoped_artifact_paths,
 )
-from obsidiandroid.pipeline.manifest.confusion_matrix_paths import (
-    find_primary_confusion_matrix as _find_primary_confusion_matrix,
-)
 from obsidiandroid.pipeline.manifest.paper2_strict_exports import (
-    build_family_temporal_scope_table as _build_family_temporal_scope_table,
-    build_paper_ablation_table as _build_paper_ablation_table,
-    build_paper_cohort_summary_table as _build_paper_cohort_summary_table,
     build_strict_paper2_exports as _build_strict_paper2_exports,
 )
 from obsidiandroid.pipeline.manifest.paper_compliance_checks import build_paper_compliance_checks
 
 from obsidiandroid.modeling.pipeline_core import ALL_SUPPORTED_MODELS
 from obsidiandroid.pipeline.manifest.stage_manifest_writers import (
-    compute_experiment_series_id as _compute_experiment_series_id,
     finalize_output_hygiene_bundle as _finalize_output_hygiene_bundle,
-    load_previous_series_contract as _load_previous_series_contract,
     write_evaluation_contract_json as _write_evaluation_contract_json,
     write_experiment_contract_snapshot as _write_experiment_contract_snapshot,
     write_run_summary_json as _write_run_summary_json,
@@ -74,7 +65,6 @@ from obsidiandroid.pipeline.manifest.stage_manifest_evidence_pack import (
     build_paper2_pack as _build_paper2_pack,
     export_confusion_matrix_provenance as _export_confusion_matrix_provenance,
     export_trained_family_registry as _export_trained_family_registry,
-    render_consensus_distribution_png as _render_consensus_distribution_png,
     write_evidence_compliance_stub as _write_evidence_compliance_stub,
     write_evidence_readiness as _write_evidence_readiness,
 )

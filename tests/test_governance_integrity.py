@@ -37,7 +37,7 @@ def test_validate_run_scoped_artifact_paths_passes_for_repo_runtime_logs(tmp_pat
     output_root = tmp_path / "output"
     run_root = output_root / "runs" / "r1"
     run_root.mkdir(parents=True, exist_ok=True)
-    tee = tmp_path / "logs" / "runtime" / "r1" / "pipeline_runtime_r1.log"
+    tee = tmp_path / "logs" / "runtime" / "r1" / "pipeline_runtime_console_r1.log"
     tee.parent.mkdir(parents=True, exist_ok=True)
     tee.write_text("log\n", encoding="utf-8")
     report = validate_run_scoped_artifact_paths(

@@ -14,6 +14,128 @@ from obsidiandroid.pipeline.manifest import stage_manifest_evidence_pack as evid
 build_paper_compliance_checks = paper_compliance_checks.build_paper_compliance_checks
 
 
+def _write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _write_json(path: Path, payload: object) -> None:
+    _write_text(path, json.dumps(payload))
+
+
+def _seed_confusion_provenance_artifacts(
+    run_root: Path,
+    run_id: str,
+    *,
+    samples_tested: int,
+) -> tuple[Path, Path, Path]:
+    diagnostics_dir = run_root / "diagnostics"
+    cm_dir = run_root / "conf_matrices"
+    model_dir = run_root / "models" / "random_forest"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    cm_dir.mkdir(parents=True, exist_ok=True)
+    model_dir.mkdir(parents=True, exist_ok=True)
+    (cm_dir / "confusion_matrix_primary.png").write_bytes(b"png")
+    _write_json(
+        model_dir / "random_forest_classifier_model_metadata.json",
+        {"evaluation": {"samples_tested": samples_tested}},
+    )
+    return diagnostics_dir, cm_dir, model_dir
+
+
+def _seed_strict_paper2_inputs(
+    run_root: Path,
+    run_id: str,
+    *,
+    family_count: int = 12,
+    run_scoped_names: bool = False,
+    include_type_heatmap: bool = True,
+    include_jsd_pairs: bool = True,
+    use_single_family_pair: bool = False,
+) -> Path:
+    diagnostics_dir = run_root / "diagnostics"
+    bundle_dir = run_root / "bundles" / "permission_trends"
+    (bundle_dir / "figures").mkdir(parents=True, exist_ok=True)
+    (bundle_dir / "tables").mkdir(parents=True, exist_ok=True)
+    (run_root / "conf_matrices").mkdir(parents=True, exist_ok=True)
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+
+    if include_type_heatmap:
+        (bundle_dir / "figures" / "type_permission_heatmap.latest.png").write_bytes(b"a")
+    (bundle_dir / "figures" / "family_jsd_heatmap_topN.latest.png").write_bytes(b"b")
+    (bundle_dir / "figures" / "type_permission_heatmap_dangerous_only.latest.png").write_bytes(b"c")
+
+    table_suffix = f"_{run_id}" if run_scoped_names else ".latest"
+    _write_text(
+        bundle_dir / "tables" / f"dangerous_stats_tests{table_suffix}.csv",
+        "metric,test,p_value\nsms,kruskal,0.01\n",
+    )
+    prevalence_rows = (
+        "type_slug,permission,prevalence\n"
+        "banker,android.permission.READ_SMS,0.8\n"
+        "adware,android.permission.READ_SMS,0.2\n"
+    )
+    _write_text(
+        bundle_dir / "tables" / f"type_permission_prevalence{table_suffix}.csv",
+        prevalence_rows,
+    )
+    _write_text(
+        bundle_dir / "tables" / f"permission_discriminability_rank{table_suffix}.csv",
+        "permission,score\nandroid.permission.READ_SMS,1.0\n",
+    )
+    dangerous_rows = (
+        "type_slug,dangerous_count_strict_mean,dangerous_count_unknown_component_mean,"
+        "dangerous_count_inclusive_mean,sample_count\n"
+        "banker,2.0,0.3,2.3,10\n"
+        "adware,1.0,0.2,1.2,5\n"
+    )
+    _write_text(
+        bundle_dir / "tables" / f"dangerous_distribution_by_type{table_suffix}.csv",
+        dangerous_rows,
+    )
+
+    if include_jsd_pairs:
+        if use_single_family_pair:
+            pairs = "family_a,family_b,js_distance\nf0,f1,0.1\n"
+        else:
+            pairs = "family_a,family_b,js_distance\n" + "\n".join(
+                [f"f{i},f{j},0.1" for i in range(family_count) for j in range(i + 1, family_count)]
+            ) + "\n"
+        _write_text(diagnostics_dir / f"family_jsd_pairs_verification_{run_id}.csv", pairs)
+
+    if family_count > 0:
+        _write_text(
+            diagnostics_dir / f"selected_families_visual_{run_id}.csv",
+            "family_canonical,sample_count,included_in_visual\n"
+            + "\n".join([f"f{i},20,1" for i in range(family_count)])
+            + "\n",
+        )
+        _write_text(
+            diagnostics_dir / f"trained_family_registry_{run_id}.csv",
+            "family_canonical,type_slug,sample_count,included_in_training\n"
+            + "\n".join([f"f{i},banker,20,1" for i in range(family_count)])
+            + "\n",
+        )
+
+    confusion_png = run_root / "conf_matrices" / "confusion_matrix_random_forest.png"
+    confusion_png.write_bytes(b"d")
+    _write_text(
+        diagnostics_dir / f"confusion_matrix_provenance_{run_id}.csv",
+        "run_id,model_name,eval_source,test_sample_count,trained_family_count,"
+        "confusion_matrix_path,split_hash,feature_column_hash\n"
+        f"{run_id},random_forest,test_set,100,{family_count},{confusion_png.as_posix()},,\n",
+    )
+    _write_text(
+        diagnostics_dir / f"model_comparison_summary_{run_id}.csv",
+        "Model,MacroF1,Acc\nrf,0.88,0.89\nxgb,0.87,0.88\nlog_reg,0.86,0.87\n",
+    )
+    _write_text(
+        diagnostics_dir / ("ablation_summary.csv" if not run_scoped_names else f"ablation_summary_{run_id}.csv"),
+        "Feature Set,Model,MacroF1\npermissions_only,rf,0.80\nvendor_only,rf,0.60\nvendor_permissions_fused,rf,0.90\n",
+    )
+    return diagnostics_dir
+
+
 def test_extract_parser_list_returns_sorted_unique_names() -> None:
     """Parser extractor should return sorted unique non-null vendor names."""
     vendor_eval_df = pd.DataFrame(
@@ -1130,16 +1252,10 @@ def test_export_confusion_matrix_provenance_uses_test_set_metadata(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run_root = tmp_path / "output" / "runs" / "r1"
-    diagnostics_dir = run_root / "diagnostics"
-    cm_dir = run_root / "conf_matrices"
-    model_dir = run_root / "models" / "random_forest"
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    cm_dir.mkdir(parents=True, exist_ok=True)
-    model_dir.mkdir(parents=True, exist_ok=True)
-    (cm_dir / "confusion_matrix_primary.png").write_bytes(b"png")
-    (model_dir / "random_forest_classifier_model_metadata.json").write_text(
-        json.dumps({"evaluation": {"samples_tested": 123}}),
-        encoding="utf-8",
+    diagnostics_dir, cm_dir, _model_dir = _seed_confusion_provenance_artifacts(
+        run_root,
+        "r1",
+        samples_tested=123,
     )
     monkeypatch.setattr(
         stage_manifest.app_config,
@@ -1178,18 +1294,12 @@ def test_export_confusion_matrix_provenance_run_scoped_uses_global_latest(
     """Run-scoped confusion provenance should mirror latest globally."""
     output_root = tmp_path / "output"
     run_root = output_root / "runs" / "r1"
-    diagnostics_dir = run_root / "diagnostics"
-    cm_dir = run_root / "conf_matrices"
-    model_dir = run_root / "models" / "random_forest"
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    cm_dir.mkdir(parents=True, exist_ok=True)
-    model_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
-    (cm_dir / "confusion_matrix_primary.png").write_bytes(b"png")
-    (model_dir / "random_forest_classifier_model_metadata.json").write_text(
-        json.dumps({"evaluation": {"samples_tested": 7}}),
-        encoding="utf-8",
+    diagnostics_dir, cm_dir, _model_dir = _seed_confusion_provenance_artifacts(
+        run_root,
+        "r1",
+        samples_tested=7,
     )
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
 
     out_path = stage_manifest._export_confusion_matrix_provenance(  # pylint: disable=protected-access
         run_root=run_root,
@@ -1226,61 +1336,14 @@ def test_build_strict_paper2_exports_creates_registries(tmp_path: Path, monkeypa
     output_root = tmp_path / "output"
     run_id = "r1"
     run_root = output_root / "runs" / run_id
-    diagnostics_dir = run_root / "diagnostics"
-    bundle_dir = run_root / "bundles" / "permission_trends"
-    (bundle_dir / "figures").mkdir(parents=True, exist_ok=True)
-    (bundle_dir / "tables").mkdir(parents=True, exist_ok=True)
-    (run_root / "conf_matrices").mkdir(parents=True, exist_ok=True)
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    (bundle_dir / "figures" / "type_permission_heatmap.latest.png").write_bytes(b"a")
-    (bundle_dir / "figures" / "family_jsd_heatmap_topN.latest.png").write_bytes(b"b")
-    (bundle_dir / "figures" / "type_permission_heatmap_dangerous_only.latest.png").write_bytes(b"c")
-    (bundle_dir / "tables" / "dangerous_stats_tests.latest.csv").write_text(
-        "metric,test,p_value\nsms,kruskal,0.01\n",
-        encoding="utf-8",
-    )
-    (bundle_dir / "tables" / "type_permission_prevalence.latest.csv").write_text(
-        "type_slug,permission,prevalence\nbanker,android.permission.READ_SMS,0.8\nadware,android.permission.READ_SMS,0.2\n",
-        encoding="utf-8",
-    )
-    (bundle_dir / "tables" / "permission_discriminability_rank.latest.csv").write_text(
-        "permission,score\nandroid.permission.READ_SMS,1.0\n",
-        encoding="utf-8",
-    )
-    (bundle_dir / "tables" / "dangerous_distribution_by_type.latest.csv").write_text(
-        "type_slug,dangerous_count_strict_mean,dangerous_count_unknown_component_mean,dangerous_count_inclusive_mean,sample_count\nbanker,2.0,0.3,2.3,10\nadware,1.0,0.2,1.2,5\n",
-        encoding="utf-8",
-    )
-    pairs = "family_a,family_b,js_distance\n" + "\n".join(
-        [f"f{i},f{j},0.1" for i in range(12) for j in range(i + 1, 12)]
-    ) + "\n"
-    (diagnostics_dir / f"family_jsd_pairs_verification_{run_id}.csv").write_text(pairs, encoding="utf-8")
-    (diagnostics_dir / f"selected_families_visual_{run_id}.csv").write_text(
-        "family_canonical,sample_count,included_in_visual\n"
-        + "\n".join([f"f{i},20,1" for i in range(12)])
-        + "\n",
-        encoding="utf-8",
-    )
-    (diagnostics_dir / f"trained_family_registry_{run_id}.csv").write_text(
-        "family_canonical,type_slug,sample_count,included_in_training\n"
-        + "\n".join([f"f{i},banker,20,1" for i in range(12)])
-        + "\n",
-        encoding="utf-8",
-    )
-    (diagnostics_dir / f"confusion_matrix_provenance_{run_id}.csv").write_text(
-        "run_id,model_name,eval_source,test_sample_count,trained_family_count,"
-        "confusion_matrix_path,split_hash,feature_column_hash\n"
-        f"{run_id},random_forest,test_set,100,12,{(run_root / 'conf_matrices' / 'confusion_matrix_random_forest.png').as_posix()},,\n",
-        encoding="utf-8",
-    )
-    (run_root / "conf_matrices" / "confusion_matrix_random_forest.png").write_bytes(b"d")
-    (diagnostics_dir / f"model_comparison_summary_{run_id}.csv").write_text(
+    diagnostics_dir = _seed_strict_paper2_inputs(run_root, run_id, family_count=12)
+    _write_text(
+        diagnostics_dir / f"model_comparison_summary_{run_id}.csv",
         "Model,MacroF1,Acc\nxgb,0.90,0.91\nbal_rf,0.99,0.99\nrf,0.88,0.89\nlog_reg,0.87,0.88\n",
-        encoding="utf-8",
     )
-    (diagnostics_dir / "ablation_summary.csv").write_text(
+    _write_text(
+        diagnostics_dir / "ablation_summary.csv",
         "Feature Set,Model,MacroF1\npermissions_only,rf,0.80\nvendor_only,rf,0.60\nvendor_permissions_fused,rf,0.90\nvendor_no_parsed_family,rf,0.55\npermissions_only,bal_rf,0.70\n",
-        encoding="utf-8",
     )
     stale = run_root / "paper_exports" / "figures" / "stale.png"
     stale.parent.mkdir(parents=True, exist_ok=True)
@@ -1329,54 +1392,11 @@ def test_build_strict_paper2_exports_accepts_run_scoped_bundle_sources(tmp_path:
     """Strict paper export should resolve run-scoped permission-trends and ablation inputs."""
     run_id = "rscoped"
     run_root = tmp_path / "output" / "runs" / run_id
-    diagnostics_dir = run_root / "diagnostics"
-    bundle_dir = run_root / "bundles" / "permission_trends"
-    (bundle_dir / "figures").mkdir(parents=True, exist_ok=True)
-    (bundle_dir / "tables").mkdir(parents=True, exist_ok=True)
-    (run_root / "conf_matrices").mkdir(parents=True, exist_ok=True)
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    (run_root / "conf_matrices" / "confusion_matrix_random_forest.png").write_bytes(b"d")
-    (bundle_dir / "tables" / f"dangerous_stats_tests_{run_id}.csv").write_text(
-        "metric,test,p_value\nsms,kruskal,0.01\n",
-        encoding="utf-8",
-    )
-    (bundle_dir / "tables" / f"type_permission_prevalence_{run_id}.csv").write_text(
-        "type_slug,permission,prevalence\nbanker,android.permission.READ_SMS,0.8\n",
-        encoding="utf-8",
-    )
-    (bundle_dir / "tables" / f"permission_discriminability_rank_{run_id}.csv").write_text(
-        "permission,score\nandroid.permission.READ_SMS,1.0\n",
-        encoding="utf-8",
-    )
-    (bundle_dir / "tables" / f"dangerous_distribution_by_type_{run_id}.csv").write_text(
-        "type_slug,dangerous_count_strict_mean,dangerous_count_unknown_component_mean,dangerous_count_inclusive_mean,sample_count\nbanker,2.0,0.3,2.3,10\n",
-        encoding="utf-8",
-    )
-    (diagnostics_dir / f"family_jsd_pairs_verification_{run_id}.csv").write_text(
-        "family_a,family_b,js_distance\nf1,f2,0.1\n",
-        encoding="utf-8",
-    )
-    (diagnostics_dir / f"selected_families_visual_{run_id}.csv").write_text(
-        "family_canonical,sample_count,included_in_visual\nf1,20,1\nf2,20,1\n",
-        encoding="utf-8",
-    )
-    (diagnostics_dir / f"trained_family_registry_{run_id}.csv").write_text(
-        "family_canonical,type_slug,sample_count,included_in_training\nf1,banker,20,1\nf2,adware,20,1\n",
-        encoding="utf-8",
-    )
-    (diagnostics_dir / f"confusion_matrix_provenance_{run_id}.csv").write_text(
-        "run_id,model_name,eval_source,test_sample_count,trained_family_count,"
-        "confusion_matrix_path,split_hash,feature_column_hash\n"
-        f"{run_id},random_forest,test_set,100,2,{(run_root / 'conf_matrices' / 'confusion_matrix_random_forest.png').as_posix()},,\n",
-        encoding="utf-8",
-    )
-    (diagnostics_dir / f"model_comparison_summary_{run_id}.csv").write_text(
-        "Model,MacroF1,Acc\nrf,0.88,0.89\nxgb,0.87,0.88\nlog_reg,0.86,0.87\n",
-        encoding="utf-8",
-    )
-    (diagnostics_dir / f"ablation_summary_{run_id}.csv").write_text(
-        "Feature Set,Model,MacroF1\npermissions_only,rf,0.80\nvendor_only,rf,0.60\nvendor_permissions_fused,rf,0.90\n",
-        encoding="utf-8",
+    diagnostics_dir = _seed_strict_paper2_inputs(
+        run_root,
+        run_id,
+        family_count=12,
+        run_scoped_names=True,
     )
     monkeypatch.setattr(stage_manifest.app_config, "PAPER2_STRICT_EXPORT_PROFILE", True, raising=False)
 
@@ -1487,62 +1507,7 @@ def test_build_strict_paper2_exports_writes_machine_manifest(tmp_path: Path, mon
     output_root = tmp_path / "output"
     run_id = "rmf"
     run_root = output_root / "runs" / run_id
-    diagnostics_dir = run_root / "diagnostics"
-    bundle_dir = run_root / "bundles" / "permission_trends"
-    (bundle_dir / "figures").mkdir(parents=True, exist_ok=True)
-    (bundle_dir / "tables").mkdir(parents=True, exist_ok=True)
-    (run_root / "conf_matrices").mkdir(parents=True, exist_ok=True)
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    (bundle_dir / "figures" / "type_permission_heatmap.latest.png").write_bytes(b"a")
-    (bundle_dir / "figures" / "family_jsd_heatmap_topN.latest.png").write_bytes(b"b")
-    (bundle_dir / "figures" / "type_permission_heatmap_dangerous_only.latest.png").write_bytes(b"c")
-    (bundle_dir / "tables" / "dangerous_stats_tests.latest.csv").write_text(
-        "metric,test,p_value\nsms,kruskal,0.01\n",
-        encoding="utf-8",
-    )
-    (bundle_dir / "tables" / "type_permission_prevalence.latest.csv").write_text(
-        "type_slug,permission,prevalence\nbanker,android.permission.READ_SMS,0.8\nadware,android.permission.READ_SMS,0.2\n",
-        encoding="utf-8",
-    )
-    (bundle_dir / "tables" / "permission_discriminability_rank.latest.csv").write_text(
-        "permission,score\nandroid.permission.READ_SMS,1.0\n",
-        encoding="utf-8",
-    )
-    (bundle_dir / "tables" / "dangerous_distribution_by_type.latest.csv").write_text(
-        "type_slug,dangerous_count_strict_mean,dangerous_count_unknown_component_mean,dangerous_count_inclusive_mean,sample_count\nbanker,2.0,0.3,2.3,10\nadware,1.0,0.2,1.2,5\n",
-        encoding="utf-8",
-    )
-    pairs = "family_a,family_b,js_distance\n" + "\n".join(
-        [f"f{i},f{j},0.1" for i in range(12) for j in range(i + 1, 12)]
-    ) + "\n"
-    (diagnostics_dir / f"family_jsd_pairs_verification_{run_id}.csv").write_text(pairs, encoding="utf-8")
-    (diagnostics_dir / f"selected_families_visual_{run_id}.csv").write_text(
-        "family_canonical,sample_count,included_in_visual\n"
-        + "\n".join([f"f{i},20,1" for i in range(12)])
-        + "\n",
-        encoding="utf-8",
-    )
-    (diagnostics_dir / f"trained_family_registry_{run_id}.csv").write_text(
-        "family_canonical,type_slug,sample_count,included_in_training\n"
-        + "\n".join([f"f{i},banker,20,1" for i in range(12)])
-        + "\n",
-        encoding="utf-8",
-    )
-    (diagnostics_dir / f"confusion_matrix_provenance_{run_id}.csv").write_text(
-        "run_id,model_name,eval_source,test_sample_count,trained_family_count,"
-        "confusion_matrix_path,split_hash,feature_column_hash\n"
-        f"{run_id},random_forest,test_set,100,12,{(run_root / 'conf_matrices' / 'confusion_matrix_random_forest.png').as_posix()},,\n",
-        encoding="utf-8",
-    )
-    (run_root / "conf_matrices" / "confusion_matrix_random_forest.png").write_bytes(b"d")
-    (diagnostics_dir / f"model_comparison_summary_{run_id}.csv").write_text(
-        "Model,MacroF1,Acc\nrf,0.88,0.89\nxgb,0.87,0.88\nlog_reg,0.86,0.87\n",
-        encoding="utf-8",
-    )
-    (diagnostics_dir / "ablation_summary.csv").write_text(
-        "Feature Set,Model,MacroF1\npermissions_only,rf,0.80\nvendor_only,rf,0.60\nvendor_permissions_fused,rf,0.90\n",
-        encoding="utf-8",
-    )
+    diagnostics_dir = _seed_strict_paper2_inputs(run_root, run_id, family_count=12)
     monkeypatch.setattr(stage_manifest.app_config, "PAPER2_STRICT_EXPORT_PROFILE", True, raising=False)
 
     out = stage_manifest._build_strict_paper2_exports(  # pylint: disable=protected-access
@@ -1582,27 +1547,12 @@ def test_build_strict_paper2_exports_fails_closed_when_required_artifact_missing
     output_root = tmp_path / "output"
     run_id = "rmiss"
     run_root = output_root / "runs" / run_id
-    diagnostics_dir = run_root / "diagnostics"
-    bundle_dir = run_root / "bundles" / "permission_trends"
-    (bundle_dir / "figures").mkdir(parents=True, exist_ok=True)
-    (bundle_dir / "tables").mkdir(parents=True, exist_ok=True)
-    (run_root / "conf_matrices").mkdir(parents=True, exist_ok=True)
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    # Intentionally omit type_permission_heatmap.latest.png to trigger strict failure.
-    (bundle_dir / "figures" / "family_jsd_heatmap_topN.latest.png").write_bytes(b"b")
-    (bundle_dir / "figures" / "type_permission_heatmap_dangerous_only.latest.png").write_bytes(b"c")
-    (bundle_dir / "tables" / "dangerous_stats_tests.latest.csv").write_text(
-        "metric,test,p_value\nsms,kruskal,0.01\n",
-        encoding="utf-8",
-    )
-    (run_root / "conf_matrices" / "confusion_matrix_random_forest.png").write_bytes(b"d")
-    (diagnostics_dir / f"model_comparison_summary_{run_id}.csv").write_text(
-        "Model,MacroF1,Acc\nrf,0.88,0.89\nxgb,0.87,0.88\nlog_reg,0.86,0.87\n",
-        encoding="utf-8",
-    )
-    (diagnostics_dir / "ablation_summary.csv").write_text(
-        "Feature Set,Model,MacroF1\npermissions_only,rf,0.80\nvendor_only,rf,0.60\nvendor_permissions_fused,rf,0.90\n",
-        encoding="utf-8",
+    diagnostics_dir = _seed_strict_paper2_inputs(
+        run_root,
+        run_id,
+        family_count=0,
+        include_type_heatmap=False,
+        include_jsd_pairs=False,
     )
     monkeypatch.setattr(stage_manifest.app_config, "PAPER2_STRICT_EXPORT_PROFILE", True, raising=False)
 
@@ -1628,58 +1578,11 @@ def test_build_strict_paper2_exports_cleans_temp_on_late_validation_failure(
     output_root = tmp_path / "output"
     run_id = "rlate"
     run_root = output_root / "runs" / run_id
-    diagnostics_dir = run_root / "diagnostics"
-    bundle_dir = run_root / "bundles" / "permission_trends"
-    (bundle_dir / "figures").mkdir(parents=True, exist_ok=True)
-    (bundle_dir / "tables").mkdir(parents=True, exist_ok=True)
-    (run_root / "conf_matrices").mkdir(parents=True, exist_ok=True)
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    (bundle_dir / "figures" / "type_permission_heatmap.latest.png").write_bytes(b"a")
-    (bundle_dir / "figures" / "family_jsd_heatmap_topN.latest.png").write_bytes(b"b")
-    (bundle_dir / "figures" / "type_permission_heatmap_dangerous_only.latest.png").write_bytes(b"c")
-    (bundle_dir / "tables" / "dangerous_stats_tests.latest.csv").write_text(
-        "metric,test,p_value\nsms,kruskal,0.01\n",
-        encoding="utf-8",
-    )
-    (bundle_dir / "tables" / "type_permission_prevalence.latest.csv").write_text(
-        "type_slug,permission,prevalence\nbanker,android.permission.READ_SMS,0.8\nadware,android.permission.READ_SMS,0.2\n",
-        encoding="utf-8",
-    )
-    (bundle_dir / "tables" / "permission_discriminability_rank.latest.csv").write_text(
-        "permission,score\nandroid.permission.READ_SMS,1.0\n",
-        encoding="utf-8",
-    )
-    (bundle_dir / "tables" / "dangerous_distribution_by_type.latest.csv").write_text(
-        "type_slug,dangerous_count_strict_mean,dangerous_count_unknown_component_mean,dangerous_count_inclusive_mean,sample_count\nbanker,2.0,0.3,2.3,10\nadware,1.0,0.2,1.2,5\n",
-        encoding="utf-8",
-    )
-    # Intentionally wrong JSD pair count (not 66) to trigger late strict validation failure.
-    (diagnostics_dir / f"family_jsd_pairs_verification_{run_id}.csv").write_text(
-        "family_a,family_b,js_distance\nf0,f1,0.1\n",
-        encoding="utf-8",
-    )
-    (diagnostics_dir / f"selected_families_visual_{run_id}.csv").write_text(
-        "family_canonical,sample_count,included_in_visual\nf0,20,1\n",
-        encoding="utf-8",
-    )
-    (diagnostics_dir / f"trained_family_registry_{run_id}.csv").write_text(
-        "family_canonical,type_slug,sample_count,included_in_training\nf0,banker,20,1\n",
-        encoding="utf-8",
-    )
-    (diagnostics_dir / f"confusion_matrix_provenance_{run_id}.csv").write_text(
-        "run_id,model_name,eval_source,test_sample_count,trained_family_count,"
-        "confusion_matrix_path,split_hash,feature_column_hash\n"
-        f"{run_id},random_forest,test_set,100,1,{(run_root / 'conf_matrices' / 'confusion_matrix_random_forest.png').as_posix()},,\n",
-        encoding="utf-8",
-    )
-    (run_root / "conf_matrices" / "confusion_matrix_random_forest.png").write_bytes(b"d")
-    (diagnostics_dir / f"model_comparison_summary_{run_id}.csv").write_text(
-        "Model,MacroF1,Acc\nrf,0.88,0.89\nxgb,0.87,0.88\nlog_reg,0.86,0.87\n",
-        encoding="utf-8",
-    )
-    (diagnostics_dir / "ablation_summary.csv").write_text(
-        "Feature Set,Model,MacroF1\npermissions_only,rf,0.80\nvendor_only,rf,0.60\nvendor_permissions_fused,rf,0.90\n",
-        encoding="utf-8",
+    diagnostics_dir = _seed_strict_paper2_inputs(
+        run_root,
+        run_id,
+        family_count=1,
+        use_single_family_pair=True,
     )
     monkeypatch.setattr(stage_manifest.app_config, "PAPER2_STRICT_EXPORT_PROFILE", True, raising=False)
 

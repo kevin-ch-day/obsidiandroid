@@ -54,6 +54,17 @@ LEGACY_RUN_SUBDIR_NAMES: tuple[str, ...] = (
 RUN_DIAGNOSTICS_LOCAL_LATEST_GLOB = "*.latest.*"
 RUN_DIAGNOSTICS_SPLIT_FREEZE_GLOB = "split_freeze_ablation__*.csv"
 
+# Legacy short-name structured log files (repo-root ``logs/`` and historical
+# ``logs/runtime/<run_id>/`` category logs) superseded by canonical clearer names.
+LEGACY_SHORT_NAME_LOG_FILES: tuple[str, ...] = (
+    "analysis.log",
+    "database.log",
+    "export.log",
+    "menu.log",
+    "ml.log",
+    "pipeline.log",
+)
+
 # Whole directories to remove on a full output wipe (pre–repo-root ``logs/`` layout).
 LEGACY_OUTPUT_LOG_DIR_SEGMENTS: tuple[tuple[str, ...], ...] = (
     ("diagnostics", "runtime_logs"),
@@ -66,6 +77,7 @@ __all__ = [
     "LEGACY_OUTPUT_LOG_DIR_SEGMENTS",
     "LEGACY_OUTPUT_ROOT_FILES",
     "LEGACY_RUN_SUBDIR_NAMES",
+    "LEGACY_SHORT_NAME_LOG_FILES",
     "PAPER_BUNDLE_ARCHIVE_GLOBS",
     "PAPER_BUNDLE_SMOKE_GLOBS",
     "RUN_DIAGNOSTICS_LOCAL_LATEST_GLOB",

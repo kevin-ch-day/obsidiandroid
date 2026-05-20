@@ -9,6 +9,7 @@ from typing import Any
 
 from obsidiandroid.common.cohort_artifacts import load_cohort_contract_state
 from obsidiandroid.common.cohort_presentation import cohort_filter_highlight_lines
+from obsidiandroid.common import output_hygiene as oh
 from . import output_artifact_policy
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common.publication_readiness import evaluate_publication_ready_status
@@ -134,12 +135,24 @@ def write_artifact_inventory_bundle(
         if str(r.get("duplicate_latest_copy")) == "yes"
         and ".latest." in str(r.get("path", ""))
     )
+    dup_latest_legacy_compat = sum(
+        1
+        for r in rows
+        if str(r.get("duplicate_latest_copy")) == "yes"
+        and ".latest." in str(r.get("path", ""))
+        and str(r.get("lifecycle_class", "")) == "legacy_compatibility"
+    )
 
     summary = {
         "run_id": run_id,
         "total_artifacts": len(rows),
         "bucket_counts": counts,
         "duplicate_latest_inside_run": dup_latest_run,
+        "duplicate_latest_inside_run_legacy_compatibility": dup_latest_legacy_compat,
+        "duplicate_latest_inside_run_policy_drift": max(
+            dup_latest_run - dup_latest_legacy_compat,
+            0,
+        ),
         "manifest_path_count": len(manifest_paths or []),
     }
     if extra_summary:
@@ -199,6 +212,16 @@ def _load_json(path: Path) -> dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
+
+
+def _authority_coverage_report_path(*, diagnostics_dir: Path, run_id: str) -> Path | None:
+    path = diagnostics_dir / f"family_type_authority_coverage_{run_id}.md"
+    return path if path.exists() else None
+
+
+def _taxonomy_authority_split_report_path(*, diagnostics_dir: Path, run_id: str) -> Path | None:
+    path = diagnostics_dir / f"taxonomy_authority_split_{run_id}.md"
+    return path if path.exists() else None
 
 
 def write_run_evidence_index_md(
@@ -270,13 +293,13 @@ def write_run_evidence_index_md(
     if isinstance(feat_before, int) and isinstance(feat_after, int):
         dropped = max(feat_before - feat_after, 0)
 
-    cov_path = diagnostics_dir / "feature_build_coverage.latest.json"
-    if not cov_path.exists():
-        cov_path = diagnostics_dir / f"feature_build_coverage_{run_id}.json"
+    cov_path = oh.resolve_feature_build_coverage_path(diagnostics_dir, run_id)
     missing_n = None
     if cov_path.exists():
         cov = _load_json(cov_path)
         missing_n = cov.get("missing_from_feature_matrix_count") or cov.get("missing_count")
+    authority_md = _authority_coverage_report_path(diagnostics_dir=diagnostics_dir, run_id=run_id)
+    taxonomy_split_md = _taxonomy_authority_split_report_path(diagnostics_dir=diagnostics_dir, run_id=run_id)
 
     lines = [
         "# Run evidence index",
@@ -369,6 +392,10 @@ def write_run_evidence_index_md(
             "",
         ]
     )
+    if authority_md is not None:
+        lines.insert(-1, f"- Authority coverage diagnostic: `{authority_md}`")
+    if taxonomy_split_md is not None:
+        lines.insert(-1, f"- Taxonomy authority split: `{taxonomy_split_md}`")
     out = run_root / "run_evidence_index.md"
     try:
         out.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -419,6 +446,8 @@ def write_run_science_index_md(
         run_root / "run_evidence_index.md",
         diagnostics_dir / "artifact_inventory.json",
     ]
+    authority_md = _authority_coverage_report_path(diagnostics_dir=diagnostics_dir, run_id=run_id)
+    taxonomy_split_md = _taxonomy_authority_split_report_path(diagnostics_dir=diagnostics_dir, run_id=run_id)
 
     lines = [
         f"# Run Science Index ({run_id})",
@@ -435,6 +464,24 @@ def write_run_science_index_md(
         "",
     ]
     lines.extend([f"- `{path}`" for path in authoritative_paths if path.exists()])
+    if authority_md is not None:
+        lines.extend(
+            [
+                "",
+                "## Advisory Authority Diagnostic",
+                "",
+                f"- `{authority_md}`",
+            ]
+        )
+    if taxonomy_split_md is not None:
+        lines.extend(
+            [
+                "",
+                "## Taxonomy Authority Split",
+                "",
+                f"- `{taxonomy_split_md}`",
+            ]
+        )
     lines.extend([
         "",
         "## Observability mirror",
@@ -540,11 +587,16 @@ def print_output_hygiene_terminal_summary(
     du.print_stat("Optional diagnostics rows", bc.get("diagnostics_optional", 0))
     du.print_stat("Debug rows", bc.get("debug_only", 0))
     du.print_stat(
-        "Duplicate .latest inside run (policy)",
-        summary.get("duplicate_latest_inside_run"),
+        "Run-local .latest policy drift",
+        summary.get("duplicate_latest_inside_run_policy_drift", summary.get("duplicate_latest_inside_run", 0)),
     )
+    legacy_latest = summary.get("duplicate_latest_inside_run_legacy_compatibility", 0)
+    if int(legacy_latest or 0) > 0:
+        du.print_stat(
+            "Legacy .latest compatibility copies",
+            legacy_latest,
+        )
     du.print_stat("Publication-ready status", paper_safe_status)
-    du.print_stat("Open first", str(evidence_index_path or run_root / "run_evidence_index.md"))
 
 
 def evaluate_paper_safe_status(

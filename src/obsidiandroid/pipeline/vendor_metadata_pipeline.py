@@ -40,20 +40,35 @@ def extract_vendor_metadata(
     log_event(
         PIPELINE_LOGGER,
         "vendor_metadata_start",
+        event_id="VENDOR_META_001",
         run_id=run_id,
         samples=int(len(samples_df)) if isinstance(samples_df, pd.DataFrame) else 0,
     )
 
     if not _validate_inputs(pipeline_results, samples_df):
         du.print_error("[ABORT] Input validation failed. Exiting vendor metadata phase.")
-        log_event(PIPELINE_LOGGER, "vendor_metadata_failed", run_id=run_id, reason="input_validation")
+        log_event(
+            PIPELINE_LOGGER,
+            "vendor_metadata_failed",
+            event_id="VENDOR_META_400",
+            level="ERROR",
+            run_id=run_id,
+            reason="input_validation",
+        )
         return None, None, None, None
 
     du.print_info("[PHASE] Starting metadata extraction...")
     results = _perform_vendor_extraction(pipeline_results, samples_df, verbose)
     if results is None:
         du.print_error("[ABORT] Vendor extraction returned None. Cannot continue.")
-        log_event(PIPELINE_LOGGER, "vendor_metadata_failed", run_id=run_id, reason="extractor_none")
+        log_event(
+            PIPELINE_LOGGER,
+            "vendor_metadata_failed",
+            event_id="VENDOR_META_500",
+            level="ERROR",
+            run_id=run_id,
+            reason="extractor_none",
+        )
         return None, None, None, None
 
     vendor_eval_df, records_by_vendor, parsed_data, scorecard_df = results
@@ -69,13 +84,21 @@ def extract_vendor_metadata(
         _export_parser_quality(scorecard_df)
     else:
         du.print_error("[FAIL] Scorecard is missing or invalid; ML scoring will fail.")
-        log_event(PIPELINE_LOGGER, "vendor_metadata_failed", run_id=run_id, reason="invalid_scorecard")
+        log_event(
+            PIPELINE_LOGGER,
+            "vendor_metadata_failed",
+            event_id="VENDOR_META_422",
+            level="ERROR",
+            run_id=run_id,
+            reason="invalid_scorecard",
+        )
         return None, None, None, None
 
     du.print_success("[DONE] Vendor metadata extraction complete.")
     log_event(
         PIPELINE_LOGGER,
         "vendor_metadata_complete",
+        event_id="VENDOR_META_200",
         run_id=run_id,
         vendor_eval_rows=int(vendor_eval_df.shape[0]) if isinstance(vendor_eval_df, pd.DataFrame) else 0,
         scorecard_rows=int(scorecard_df.shape[0]) if isinstance(scorecard_df, pd.DataFrame) else 0,
@@ -187,9 +210,16 @@ def _export_parser_quality(scorecard_df: pd.DataFrame) -> None:
     if export_df.empty:
         return
 
-    path = _diagnostics_dir() / "parser_quality.latest.csv"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    export_df.to_csv(path, index=False)
+    diagnostics_dir = _diagnostics_dir()
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    rid = oh.normalize_artifact_run_id(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
+    path = diagnostics_dir / f"parser_quality_{rid}.csv"
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=path.name,
+        csv_text=export_df.to_csv(index=False),
+        global_latest_name="parser_quality.latest.csv",
+    )
     du.print_debug(f"[DIAG] Parser quality report exported: {path.name}")
     if oh.should_emit_parser_stress_and_strengths_grid():
         _export_parser_stress_test(export_df)
@@ -197,6 +227,7 @@ def _export_parser_quality(scorecard_df: pd.DataFrame) -> None:
     log_event(
         PIPELINE_LOGGER,
         "parser_quality_exported",
+        event_id="VENDOR_META_230",
         run_id=str(getattr(app_config, "RUNTIME_RUN_ID", "unknown")),
         path=str(path),
         rows=int(export_df.shape[0]),
@@ -379,8 +410,10 @@ def _export_parser_stress_test(export_df: pd.DataFrame) -> None:
     """Export threshold-sweep stress test over parser gating controls."""
     if export_df.empty:
         return
-    out_path = _diagnostics_dir() / "vendor_parser_stress_test.latest.csv"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    diagnostics_dir = _diagnostics_dir()
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    rid = oh.normalize_artifact_run_id(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
+    out_path = diagnostics_dir / f"vendor_parser_stress_test_{rid}.csv"
 
     base = export_df.copy()
     for col in ("mapped_ratio", "unknown_ratio", "generic_ratio"):
@@ -432,10 +465,16 @@ def _export_parser_stress_test(export_df: pd.DataFrame) -> None:
                     }
                 )
 
-    pd.DataFrame(rows).sort_values(
+    export_df_rows = pd.DataFrame(rows).sort_values(
         by=["effective_inclusion_share", "include_count", "trusted_included_count"],
         ascending=[False, False, False],
-    ).to_csv(out_path, index=False)
+    )
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=out_path.name,
+        csv_text=export_df_rows.to_csv(index=False),
+        global_latest_name="vendor_parser_stress_test.latest.csv",
+    )
     du.print_debug(f"[DIAG] Parser stress test exported: {out_path.name}")
 
 
@@ -443,8 +482,10 @@ def _export_parser_strengths_weaknesses(export_df: pd.DataFrame) -> None:
     """Export per-vendor parser strength/weakness diagnostics."""
     if export_df.empty:
         return
-    out_path = _diagnostics_dir() / "vendor_parser_strengths_weaknesses.latest.csv"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    diagnostics_dir = _diagnostics_dir()
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    rid = oh.normalize_artifact_run_id(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
+    out_path = diagnostics_dir / f"vendor_parser_strengths_weaknesses_{rid}.csv"
 
     frame = export_df.copy()
     vendor_source = "vendor_id" if "vendor_id" in frame.columns else "vendor"
@@ -498,7 +539,13 @@ def _export_parser_strengths_weaknesses(export_df: pd.DataFrame) -> None:
             }
         )
 
-    pd.DataFrame(rows).sort_values(
+    export_df_rows = pd.DataFrame(rows).sort_values(
         by=["inclusion_status", "vendor"], ascending=[True, True]
-    ).to_csv(out_path, index=False)
+    )
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=out_path.name,
+        csv_text=export_df_rows.to_csv(index=False),
+        global_latest_name="vendor_parser_strengths_weaknesses.latest.csv",
+    )
     du.print_debug(f"[DIAG] Parser strengths/weaknesses exported: {out_path.name}")

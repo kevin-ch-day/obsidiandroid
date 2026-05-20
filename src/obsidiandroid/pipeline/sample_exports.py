@@ -61,13 +61,14 @@ def export_cohort_filter_contract(
         "paper_mode": bool(getattr(app_config, "PAPER_MODE_ENABLED", False)),
     }
     contract_path = out_dir / f"cohort_filter_contract_{run_id}.json"
-    payload = json.dumps(contract, indent=2, sort_keys=True)
-    contract_path.write_text(payload, encoding="utf-8")
-    if oh.run_diagnostics_should_omit_latest_duplicate() and oh.path_is_under_output_runs(out_dir):
-        oh.write_global_latest_text(filename="cohort_filter_contract.latest.json", text=payload)
-    else:
-        contract_latest = out_dir / "cohort_filter_contract.latest.json"
-        contract_latest.write_text(payload, encoding="utf-8")
+    payload = contract
+    written_contract = oh.mirror_json_text_run_then_global(
+        diagnostics_dir=out_dir,
+        run_filename=contract_path.name,
+        payload=payload,
+        global_latest_name="cohort_filter_contract.latest.json",
+    )
+    contract_path = written_contract[0]
 
     gate_df = pd.DataFrame(gate_rows)
     gate_csv_text = gate_df.to_csv(index=False)
@@ -259,4 +260,3 @@ def export_paper_cohort_sample_ids(samples_df: pd.DataFrame) -> str:
     )
     ids.to_csv(out_path, index=False)
     return str(out_path)
-

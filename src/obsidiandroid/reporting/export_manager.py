@@ -733,7 +733,6 @@ def export_confusion_matrix(
 
     run_id = _cm_token(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
     experiment_raw = str(getattr(app_config, "RUNTIME_EXPERIMENT_ID", "") or "")
-    experiment = _cm_token(experiment_raw) if experiment_raw.strip() else ""
     model_token = _cm_token(model_name)
 
     if bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)) and not cm_layout.should_export_confusion_matrix(

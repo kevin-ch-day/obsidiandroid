@@ -115,7 +115,6 @@ from obsidiandroid.pipeline.permission_trends.diagnostic_exports import (
 from obsidiandroid.pipeline.permission_trends.consensus_audit import (
     build_consensus_distribution as _build_consensus_distribution,
     build_generic_definition_audit as _build_generic_definition_audit,
-    compute_consensus_metrics as _compute_consensus_metrics,
     extract_selected_vendors as _extract_selected_vendors,
 )
 

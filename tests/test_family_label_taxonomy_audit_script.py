@@ -26,18 +26,30 @@ def _locked_profile(lock_path: Path) -> dict:
     }
 
 
-def test_locked_audit_records_target_run_context(monkeypatch, tmp_path: Path) -> None:
-    output_root = tmp_path / "output"
-    run_id = "20260515T141956Z__58d84f"
+def _seed_audit_run(
+    write_text_file,
+    make_run_diagnostics_layout,
+    run_id: str,
+) -> tuple[Path, Path]:
+    output_root, diagnostics_dir, _ = make_run_diagnostics_layout(run_id)
     run_root = output_root / "runs" / run_id
-    diagnostics_dir = run_root / "diagnostics"
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    (run_root / "run_manifest.json").write_text(
+    write_text_file(
+        run_root / "run_manifest.json",
         json.dumps({"run_id": run_id, "profile_params": {"profile_id": "research_all_malicious"}}),
-        encoding="utf-8",
     )
+    return output_root, diagnostics_dir
+
+
+def test_locked_audit_records_target_run_context(
+    monkeypatch,
+    tmp_path: Path,
+    make_run_diagnostics_layout,
+    write_text_file,
+) -> None:
+    run_id = "20260515T141956Z__58d84f"
+    output_root, diagnostics_dir = _seed_audit_run(write_text_file, make_run_diagnostics_layout, run_id)
     lock_path = tmp_path / "lock.csv"
-    lock_path.write_text("sample_id\n1\n2\n", encoding="utf-8")
+    write_text_file(lock_path, "sample_id\n1\n2\n")
 
     monkeypatch.setattr(
         audit_script.profile_manager,
@@ -116,18 +128,16 @@ def test_locked_audit_records_target_run_context(monkeypatch, tmp_path: Path) ->
     assert entry["artifacts"][0]["path"].startswith("diagnostics/post_run_enrichments/")
 
 
-def test_locked_audit_mismatch_records_failed_provenance(monkeypatch, tmp_path: Path) -> None:
-    output_root = tmp_path / "output"
+def test_locked_audit_mismatch_records_failed_provenance(
+    monkeypatch,
+    tmp_path: Path,
+    make_run_diagnostics_layout,
+    write_text_file,
+) -> None:
     run_id = "20260515T141956Z__58d84f"
-    run_root = output_root / "runs" / run_id
-    diagnostics_dir = run_root / "diagnostics"
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    (run_root / "run_manifest.json").write_text(
-        json.dumps({"run_id": run_id, "profile_params": {"profile_id": "research_all_malicious"}}),
-        encoding="utf-8",
-    )
+    output_root, diagnostics_dir = _seed_audit_run(write_text_file, make_run_diagnostics_layout, run_id)
     lock_path = tmp_path / "lock.csv"
-    lock_path.write_text("sample_id\n1\n2\n3\n", encoding="utf-8")
+    write_text_file(lock_path, "sample_id\n1\n2\n3\n")
 
     monkeypatch.setattr(
         audit_script.profile_manager,

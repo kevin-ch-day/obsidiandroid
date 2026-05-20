@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from obsidiandroid.common.cohort_presentation import cohort_methodology_notes
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.publication_readiness import publication_ready_status_light
 from obsidiandroid.cli.menu.operator_state import build_operator_state
 from obsidiandroid.cli.menu.vendor_parser_state import resolve_vendor_parser_coverage_csv
@@ -34,6 +35,30 @@ def _status_light(ok: bool | None, *, warn: bool = False) -> str:
     return "YELLOW"
 
 
+def _taxonomy_split_warn_count(payload: dict[str, object]) -> int:
+    """Return the combined warning count from the taxonomy split payload."""
+    if not isinstance(payload, dict) or not payload:
+        return 0
+    split = payload.get("taxonomy_split")
+    if not isinstance(split, dict):
+        return 0
+    rendering = split.get("type_authority_vs_rendering_mismatch")
+    counts = rendering.get("counts") if isinstance(rendering, dict) else {}
+    if not isinstance(counts, dict):
+        counts = {}
+    model_prediction = split.get("model_prediction_error")
+    model_count = int(model_prediction.get("count", 0) or 0) if isinstance(model_prediction, dict) else 0
+    return model_count + sum(
+        int(counts.get(key, 0) or 0)
+        for key in (
+            "type_mapping_mismatch",
+            "type_label_missing",
+            "type_label_noncanonical",
+            "label_family_mismatch",
+        )
+    )
+
+
 def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) -> dict[str, object]:
     """Build compact traffic-light overview for the latest run diagnostics."""
     shared = build_operator_state(output_base=output_root, run_id=latest_run_id)
@@ -42,6 +67,9 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
     rdiag = run_root / "diagnostics" if rid else Path()
     gdiag = output_root / "diagnostics"
     publication_ready = str(shared.get("publication_ready_status", "") or "unknown")
+    taxonomy_split = read_json_dict(rdiag / f"taxonomy_authority_split_{rid}.json") if rid else {}
+    if not taxonomy_split:
+        taxonomy_split = read_json_dict(gdiag / "taxonomy_authority_split.latest.json")
     taxonomy = read_json_dict(rdiag / f"taxonomy_consistency_summary_{rid}.json") if rid else {}
     if not taxonomy:
         taxonomy = read_json_dict(gdiag / "taxonomy_consistency_summary.latest.json")
@@ -59,10 +87,12 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
         {
             "label": "Taxonomy consistency",
             "status": _status_light(
-                bool(taxonomy),
-                warn=bool(taxonomy) and int(taxonomy.get("taxonomy_mismatch_count", 0) or 0) > 0,
+                bool(taxonomy_split or taxonomy),
+                warn=(bool(taxonomy_split) and _taxonomy_split_warn_count(taxonomy_split) > 0) or (
+                    bool(taxonomy) and int(taxonomy.get("taxonomy_mismatch_count", 0) or 0) > 0
+                ),
             ),
-            "action": "Review taxonomy summary or generate post-run audit",
+            "action": "Review taxonomy authority split or post-run audit",
         },
         {
             "label": "Permission signal",
@@ -80,8 +110,7 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
         {
             "label": "Feature matrix",
             "status": _status_light(
-                (rdiag / "feature_build_coverage.latest.json").is_file()
-                or (rdiag / f"feature_build_coverage_{rid}.json").is_file()
+                oh.resolve_feature_build_coverage_path(rdiag, rid).is_file()
                 or (rdiag / "feature_contract.json").is_file()
                 if rid
                 else False

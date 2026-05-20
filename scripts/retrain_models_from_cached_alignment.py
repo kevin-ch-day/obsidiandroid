@@ -4,6 +4,8 @@ Use this to iterate quickly on model/CV settings without rerunning expensive
 sample loading, AV matrix generation, and vendor parsing stages.
 """
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import argparse
@@ -16,11 +18,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import scripts.runtime_bootstrap  # noqa: F401
+from scripts._bootstrap import prepare_script_runtime  # noqa: E402
 
-from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path
-
-ensure_repo_src_on_sys_path()
+prepare_script_runtime(__file__)
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du

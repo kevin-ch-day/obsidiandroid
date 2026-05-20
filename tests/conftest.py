@@ -168,3 +168,14 @@ def make_run_diagnostics_layout(
         return output_root, diagnostics_dir, global_diag
 
     return _make
+
+
+@pytest.fixture
+def write_text_file():
+    """Write UTF-8 text to a path, creating parents automatically."""
+
+    def _write(path: Path, content: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    return _write

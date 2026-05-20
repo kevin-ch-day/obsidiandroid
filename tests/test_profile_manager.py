@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import obsidiandroid.cli.profile_manager as profile_manager
+from obsidiandroid.cli import profile_selection
 
 
 def test_profile_list_contains_default_profiles() -> None:
@@ -64,7 +65,7 @@ def test_profile_sorting_prefers_locked_and_core_profiles() -> None:
             "malicious_temporal_stability",
             "banker",
         ],
-        key=profile_manager._profile_sort_key,  # pylint: disable=protected-access
+        key=profile_selection.profile_sort_key,
     )
     assert ordered[0] == "malicious_temporal_stability_locked"
     assert ordered[1] == "banker_locked"
@@ -94,7 +95,7 @@ def test_profile_summary_includes_key_gates(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    summary = profile_manager._summarize_profile(profile_path)  # pylint: disable=protected-access
+    summary = profile_selection.summarize_profile(profile_path)
     assert "type=banker" in summary
     assert "min_detect=10" in summary
     assert "family_cap=300" in summary
@@ -141,8 +142,8 @@ def test_profile_summary_exposes_locked_status(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    locked_summary = profile_manager._summarize_profile(locked)  # pylint: disable=protected-access
-    legacy_summary = profile_manager._summarize_profile(legacy)  # pylint: disable=protected-access
+    locked_summary = profile_selection.summarize_profile(locked)
+    legacy_summary = profile_selection.summarize_profile(legacy)
     assert "lock=membership-locked" in locked_summary
     assert "publication=unlocked" in legacy_summary
 

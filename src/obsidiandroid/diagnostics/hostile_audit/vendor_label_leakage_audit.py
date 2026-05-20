@@ -9,6 +9,8 @@ from typing import Any
 
 import pandas as pd
 
+from obsidiandroid.common import output_hygiene as oh
+
 
 def write_vendor_label_leakage_audit(
     *,
@@ -19,16 +21,12 @@ def write_vendor_label_leakage_audit(
     csv_out = diagnostics_dir / "vendor_label_leakage_audit.csv"
     md_out = diagnostics_dir / "vendor_label_leakage_audit.md"
 
-    abl = diagnostics_dir / f"ablation_summary_{run_id}.csv"
-    if not abl.exists():
-        abl = diagnostics_dir / "ablation_summary.latest.csv"
+    abl = oh.resolve_ablation_summary_path(diagnostics_dir, run_id)
 
     rows: list[dict[str, Any]] = []
 
     contract_cols: dict[str, int] = {}
-    contract_path = diagnostics_dir / f"feature_contract_{run_id}.json"
-    if not contract_path.exists():
-        contract_path = diagnostics_dir / "feature_contract.latest.json"
+    contract_path = oh.resolve_feature_contract_path(diagnostics_dir, run_id)
     if contract_path.exists():
         try:
             payload = json.loads(contract_path.read_text(encoding="utf-8"))

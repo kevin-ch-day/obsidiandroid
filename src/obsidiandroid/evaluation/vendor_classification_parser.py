@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator, Tuple
+from typing import Any, Dict, Iterator
 
 import pandas as pd
 

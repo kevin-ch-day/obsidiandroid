@@ -1,6 +1,5 @@
 """Tests for parser-quality diagnostics contract and coverage candidates export."""
 
-from pathlib import Path
 
 import pandas as pd
 
@@ -29,14 +28,15 @@ def test_parser_quality_inclusion_status_has_no_unknown() -> None:
     assert "unknown" not in set(out_df["inclusion_status"].unique())
 
 
-def test_coverage_candidates_export_unmapped_high_coverage(monkeypatch, tmp_path: Path) -> None:
+def test_coverage_candidates_export_unmapped_high_coverage(
+    monkeypatch,
+    make_run_diagnostics_layout,
+) -> None:
     """Unmapped high-coverage vendor candidates should be exported and prioritized."""
-    out_path = tmp_path / "vendor_parser_coverage_candidates.latest.csv"
-    monkeypatch.setattr(
-        vendor_parser_utils,
-        "parser_coverage_candidates_export_path",
-        lambda: out_path,
-    )
+    output_root, diagnostics_dir, global_diag = make_run_diagnostics_layout("rid")
+    monkeypatch.setattr(vendor_parser_utils.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(vendor_parser_utils.app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+    monkeypatch.setattr(vendor_parser_utils.app_config, "RUNTIME_RUN_ID", "rid", raising=False)
 
     coverage_df = pd.DataFrame(
         {
@@ -48,8 +48,39 @@ def test_coverage_candidates_export_unmapped_high_coverage(monkeypatch, tmp_path
     )
 
     vendor_parser_utils._export_unmapped_coverage_candidates(coverage_df, verbose=False)
+    out_path = diagnostics_dir / "vendor_parser_coverage_candidates_rid.csv"
     assert out_path.exists()
+    assert not (diagnostics_dir / "vendor_parser_coverage_candidates.latest.csv").exists()
+    assert (global_diag / "vendor_parser_coverage_candidates.latest.csv").is_file()
     out_df = pd.read_csv(out_path)
     assert list(out_df["vendor_column"]) == ["v1", "v2"]
     assert list(out_df["priority_rank"]) == [1, 2]
     assert (out_df["onboarding_priority"] == "high_coverage_unmapped").all()
+
+
+def test_parser_coverage_exports_run_scoped_named_files_without_local_latest_duplicates(
+    monkeypatch,
+    make_run_diagnostics_layout,
+) -> None:
+    _output_root, diagnostics_dir, global_diag = make_run_diagnostics_layout("rid")
+    monkeypatch.setattr(vendor_parser_utils.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(vendor_parser_utils.app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(global_diag.parent), raising=False)
+    monkeypatch.setattr(vendor_parser_utils.app_config, "RUNTIME_RUN_ID", "rid", raising=False)
+
+    coverage_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "vendor_a": ["fam.a", "fam.b"],
+            "vendor_b": ["", ""],
+        }
+    )
+    matched = {"vendor_a_parser": {"column_name": "vendor_a"}}
+
+    vendor_parser_utils._export_parser_coverage_snapshot(coverage_df, matched, verbose=False)
+
+    assert (diagnostics_dir / "vendor_parser_coverage_rid.csv").is_file()
+    assert (diagnostics_dir / "vendor_parser_coverage_candidates_rid.csv").is_file()
+    assert not (diagnostics_dir / "vendor_parser_coverage.latest.csv").exists()
+    assert not (diagnostics_dir / "vendor_parser_coverage_candidates.latest.csv").exists()
+    assert (global_diag / "vendor_parser_coverage.latest.csv").is_file()
+    assert (global_diag / "vendor_parser_coverage_candidates.latest.csv").is_file()

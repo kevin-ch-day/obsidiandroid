@@ -9,7 +9,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from config import app_config
 
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
@@ -115,6 +114,8 @@ def write_run_artifact_index(
             f"- paper_exports: `{run_root / 'paper_exports'}`",
             f"- bundles/permission_trends: `{run_root / 'bundles' / 'permission_trends'}`",
             f"- diagnostics: `{diagnostics_dir}`",
+            f"- authority_coverage_diagnostic: `{diagnostics_dir / f'family_type_authority_coverage_{run_id}.md'}`",
+            f"- taxonomy_authority_split: `{diagnostics_dir / f'taxonomy_authority_split_{run_id}.md'}`",
             f"- models: `{run_root / 'models'}`",
             f"- conf_matrices: `{run_root / 'conf_matrices'}`",
             "",
@@ -286,9 +287,7 @@ def export_parser_quality_final(
     export_df["selected_for_feature_matrix"] = np.nan
     export_df["selection_status"] = "unknown"
     export_df["selection_stage"] = "feature_matrix_topk"
-    debug_path = diagnostics_dir / f"vendor_gate_debug_{run_id}.csv"
-    if not debug_path.exists():
-        debug_path = diagnostics_dir / "vendor_gate_debug.latest.csv"
+    debug_path = oh.resolve_vendor_gate_debug_path(diagnostics_dir, run_id)
     if debug_path.exists():
         try:
             debug_df = pd.read_csv(debug_path)
@@ -318,14 +317,11 @@ def export_parser_quality_final(
                 ).fillna("unknown")
         except Exception:
             pass
-    run_path = diagnostics_dir / f"parser_quality_final_{run_id}.csv"
-    latest_path = diagnostics_dir / "parser_quality_final.latest.csv"
     csv_text = export_df.to_csv(index=False)
-    run_path.write_text(csv_text, encoding="utf-8")
-    oh.mirror_csv_text_run_then_global(
+    written_paths = oh.mirror_csv_text_run_then_global(
         diagnostics_dir=diagnostics_dir,
-        run_filename=run_path.name,
+        run_filename=f"parser_quality_final_{run_id}.csv",
         csv_text=csv_text,
-        global_latest_name=latest_path.name,
+        global_latest_name="parser_quality_final.latest.csv",
     )
-    return run_path
+    return written_paths[0]

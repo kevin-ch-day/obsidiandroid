@@ -10,4 +10,4 @@ structure migration.
 from __future__ import annotations
 
 from obsidiandroid.modeling.legacy_ml_classification_manifest import *  # noqa: F403
-from obsidiandroid.modeling.legacy_ml_classification_manifest import __all__
+from obsidiandroid.modeling.legacy_ml_classification_manifest import __all__  # noqa: F401

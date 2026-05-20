@@ -12,6 +12,7 @@ from obsidiandroid.labeling.taxonomy import is_known_family_name
 _PRIMARY_CATALOG_TABLE = "malware_sample_catalog"
 _VT_CONFIDENCE_TABLE = "vt_sample_verdict_confidence_current"
 _PERMISSION_OBS_TABLE = "android_permission_obs_sample"
+_ANDROID_AUTHORITY_VIEW = "v_android_sample_family_type_authority"
 _ANDROID_FAMILY_RESOLVED_VIEW = "v_android_apk_family_resolved"
 _ANDROID_FAMILY_TABLE = "android_malware_family"
 _ANDROID_TYPE_TABLE = "android_malware_type"
@@ -141,20 +142,18 @@ def _fetch_high_confidence_sample_ids() -> set[int]:
     return {int(row[0]) for row in rows if row and row[0] is not None}
 
 
-def _fetch_android_type_rows() -> list[dict[str, Any]]:
+def _fetch_android_authority_rows() -> list[dict[str, Any]]:
     query = f"""
         SELECT
-            msc.sample_id,
-            v.resolved_family_lc,
-            t.type_slug
-        FROM `{DB_NAME}`.`{_PRIMARY_CATALOG_TABLE}` AS msc
-        JOIN `{DB_NAME}`.`{_ANDROID_FAMILY_RESOLVED_VIEW}` AS v
-          ON v.sample_id = msc.sample_id
-        JOIN `{DB_NAME}`.`{_ANDROID_FAMILY_TABLE}` AS f
-          ON LOWER(f.family_slug) = v.resolved_family_lc
-        JOIN `{DB_NAME}`.`{_ANDROID_TYPE_TABLE}` AS t
-          ON t.type_id = f.primary_type_id
-        WHERE LOWER(TRIM(COALESCE(msc.platform, ''))) = 'android'
+            sample_id,
+            resolved_family_lc,
+            family_slug,
+            type_slug,
+            raw_classification_primary,
+            raw_classification_subtype,
+            authority_bucket,
+            raw_vs_authority_status
+        FROM `{DB_NAME}`.`{_ANDROID_AUTHORITY_VIEW}`
     """
     columns, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
     out: list[dict[str, Any]] = []
@@ -465,12 +464,12 @@ def _build_family_type_conflict_signals(
     *,
     catalog_rows: list[dict[str, Any]],
     permission_sample_ids: set[int],
-    family_resolution_rows: list[dict[str, Any]],
+    authority_rows: list[dict[str, Any]],
     high_confidence_ids: set[int],
     family_permission_signal_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     resolution_by_sample: dict[int, dict[str, Any]] = {}
-    for row in family_resolution_rows:
+    for row in authority_rows:
         sample_id = row.get("sample_id")
         if sample_id is None:
             continue
@@ -638,6 +637,7 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
     payload: dict[str, Any] = {
         "status": "ok",
         "warnings": [],
+        "authority_source_mode": "unavailable",
         "primary_available": False,
         "permission_intel_available": False,
         "permission_obs_available": False,
@@ -761,112 +761,116 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
     payload["buckets"]["android_banker_with_permission_obs"] = _bucket(*_sample_and_family_counts(banker_rows))
     payload["taxonomy_signals"]["banker_label_bucket_samples"] = len(banker_rows)
 
-    banker_type_tables = (
-        _table_exists_primary(_ANDROID_FAMILY_RESOLVED_VIEW)
-        and _table_exists_primary(_ANDROID_FAMILY_TABLE)
-        and _table_exists_primary(_ANDROID_TYPE_TABLE)
-    )
-    if banker_type_tables:
-        try:
-            android_type_rows = _fetch_android_type_rows()
-        except Exception as exc:
-            payload["status"] = "degraded"
-            payload["warnings"].append(f"Android type cohort query failed: {exc}")
-        else:
-            banker_type_rows = [
-                row
-                for row in android_type_rows
-                if row.get("sample_id") is not None
-                and int(row["sample_id"]) in permission_sample_ids
-                and _norm_text(row.get("type_slug")).lower() == "banker"
-            ]
-            payload["taxonomy_signals"]["banker_type_bucket_samples"] = len(banker_type_rows)
-            banker_gap = max(len(banker_type_rows) - len(banker_rows), 0)
-            payload["taxonomy_signals"]["banker_type_minus_label_samples"] = banker_gap
-            if banker_gap > 0:
-                payload["warnings"].append(
-                    "Banker type-slug coverage exceeds the current banker label bucket by "
-                    f"{banker_gap} sample(s); "
-                    "the banker readiness bucket is label-derived."
-                )
-    elif missing_primary_count > 0:
-        payload["taxonomy_signals"]["banker_label_bucket_samples"] = len(banker_rows)
-
     family_resolution_tables = (
         _table_exists_primary(_ANDROID_FAMILY_RESOLVED_VIEW)
         and _table_exists_primary(_ANDROID_FAMILY_TABLE)
         and _table_exists_primary(_ANDROID_TYPE_TABLE)
     )
+    authority_rows: list[dict[str, Any]] = []
+    authority_source_mode = "unavailable"
     if family_resolution_tables:
         try:
-            family_resolution_rows = _fetch_android_family_resolution_rows()
+            authority_rows = _fetch_android_authority_rows()
+            authority_source_mode = "live_view"
         except Exception as exc:
-            payload["status"] = "degraded"
-            payload["warnings"].append(f"Android family-resolution query failed: {exc}")
-        else:
-            unresolved_counts: dict[str, int] = {}
-            unresolved_high_strong_counts: dict[str, int] = {}
-            unresolved_samples = 0
-            known_unresolved_samples = 0
-            for row in family_resolution_rows:
-                sample_id = row.get("sample_id")
-                if sample_id is None or int(sample_id) not in permission_sample_ids:
-                    continue
-                resolved_family = _family_key(row.get("resolved_family_lc"))
-                type_slug = _norm_text(row.get("type_slug")).lower()
-                if resolved_family is None or type_slug:
-                    continue
-                unresolved_samples += 1
-                unresolved_counts[resolved_family] = unresolved_counts.get(resolved_family, 0) + 1
-                if is_known_family_name(resolved_family):
-                    known_unresolved_samples += 1
-                if payload["vt_confidence_available"] and int(sample_id) in high_confidence_ids:
-                    unresolved_high_strong_counts[resolved_family] = (
-                        unresolved_high_strong_counts.get(resolved_family, 0) + 1
-                    )
-            payload["taxonomy_signals"]["unresolved_family_samples"] = unresolved_samples
-            payload["taxonomy_signals"]["unresolved_family_count"] = len(unresolved_counts)
-            payload["taxonomy_signals"]["known_unresolved_family_samples"] = known_unresolved_samples
-            payload["taxonomy_signals"]["known_unresolved_family_count"] = sum(
-                1 for family in unresolved_counts if is_known_family_name(family)
+            payload["warnings"].append(
+                f"Authority view unavailable, falling back to legacy family/type joins: {exc}"
             )
-            payload["taxonomy_signals"]["top_unresolved_families"] = [
-                {
-                    "family": family,
-                    "sample_count": count,
-                    "high_strong_sample_count": unresolved_high_strong_counts.get(family, 0),
-                    "known_locally": is_known_family_name(family),
-                }
-                for family, count in sorted(
-                    unresolved_counts.items(),
-                    key=lambda item: (-item[1], item[0]),
-                )[:5]
-            ]
-            if unresolved_counts:
-                payload["warnings"].append(
-                    "Resolved-family coverage includes "
-                    f"{len(unresolved_counts)} unmapped family slug(s); "
-                    "type-ready cohorts may undercount live Android malware families."
-                )
-            if payload["taxonomy_signals"]["known_unresolved_family_count"]:
-                payload["warnings"].append(
-                    "Some unresolved family slugs are already recognized by the local canonical taxonomy; "
-                    "this suggests DB family catalog lag rather than purely unknown families."
-                )
-            conflict_signals = _build_family_type_conflict_signals(
-                catalog_rows=catalog_rows,
-                permission_sample_ids=permission_sample_ids,
-                family_resolution_rows=family_resolution_rows,
-                high_confidence_ids=high_confidence_ids if payload["vt_confidence_available"] else set(),
-                family_permission_signal_rows=family_permission_signal_rows,
+            try:
+                authority_rows = _fetch_android_family_resolution_rows()
+                authority_source_mode = "legacy_resolution_fallback"
+            except Exception as inner_exc:
+                payload["status"] = "degraded"
+                payload["warnings"].append(f"Android family-resolution query failed: {inner_exc}")
+    payload["authority_source_mode"] = authority_source_mode
+    if authority_rows:
+        banker_type_rows = [
+            row
+            for row in authority_rows
+            if row.get("sample_id") is not None
+            and int(row["sample_id"]) in permission_sample_ids
+            and _norm_text(row.get("type_slug")).lower() == "banker"
+            and (
+                authority_source_mode != "live_view"
+                or _norm_text(row.get("authority_bucket")).lower() == "authority_family_typed"
             )
-            payload["taxonomy_signals"].update(conflict_signals)
-            if conflict_signals.get("family_type_conflict_count"):
-                payload["warnings"].append(
-                    "Family/type backlog contains "
-                    f"{conflict_signals['family_type_conflict_count']} family-level conflict candidate(s) "
-                    "across type mismatch, sparse labels, or missing DB family rows."
+        ]
+        payload["taxonomy_signals"]["banker_type_bucket_samples"] = len(banker_type_rows)
+        banker_gap = max(len(banker_type_rows) - len(banker_rows), 0)
+        payload["taxonomy_signals"]["banker_type_minus_label_samples"] = banker_gap
+        if banker_gap > 0:
+            payload["warnings"].append(
+                "Banker type-slug coverage exceeds the current banker label bucket by "
+                f"{banker_gap} sample(s); "
+                "the banker readiness bucket is label-derived."
+            )
+
+        unresolved_counts: dict[str, int] = {}
+        unresolved_high_strong_counts: dict[str, int] = {}
+        unresolved_samples = 0
+        known_unresolved_samples = 0
+        unresolved_buckets = {"resolved_but_no_authority_family", "generic_label_candidate"}
+        for row in authority_rows:
+            sample_id = row.get("sample_id")
+            if sample_id is None or int(sample_id) not in permission_sample_ids:
+                continue
+            resolved_family = _family_key(row.get("resolved_family_lc"))
+            authority_bucket = _norm_text(row.get("authority_bucket")).lower()
+            unresolved_fallback = authority_source_mode != "live_view" and not _norm_text(row.get("type_slug"))
+            unresolved_live = authority_source_mode == "live_view" and authority_bucket in unresolved_buckets
+            if resolved_family is None or not (unresolved_live or unresolved_fallback):
+                continue
+            unresolved_samples += 1
+            unresolved_counts[resolved_family] = unresolved_counts.get(resolved_family, 0) + 1
+            if is_known_family_name(resolved_family):
+                known_unresolved_samples += 1
+            if payload["vt_confidence_available"] and int(sample_id) in high_confidence_ids:
+                unresolved_high_strong_counts[resolved_family] = (
+                    unresolved_high_strong_counts.get(resolved_family, 0) + 1
                 )
+        payload["taxonomy_signals"]["unresolved_family_samples"] = unresolved_samples
+        payload["taxonomy_signals"]["unresolved_family_count"] = len(unresolved_counts)
+        payload["taxonomy_signals"]["known_unresolved_family_samples"] = known_unresolved_samples
+        payload["taxonomy_signals"]["known_unresolved_family_count"] = sum(
+            1 for family in unresolved_counts if is_known_family_name(family)
+        )
+        payload["taxonomy_signals"]["top_unresolved_families"] = [
+            {
+                "family": family,
+                "sample_count": count,
+                "high_strong_sample_count": unresolved_high_strong_counts.get(family, 0),
+                "known_locally": is_known_family_name(family),
+            }
+            for family, count in sorted(
+                unresolved_counts.items(),
+                key=lambda item: (-item[1], item[0]),
+            )[:5]
+        ]
+        if unresolved_counts:
+            payload["warnings"].append(
+                "Resolved-family coverage includes "
+                f"{len(unresolved_counts)} unmapped family slug(s); "
+                "type-ready cohorts may undercount live Android malware families."
+            )
+        if payload["taxonomy_signals"]["known_unresolved_family_count"]:
+            payload["warnings"].append(
+                "Some unresolved family slugs are already recognized by the local canonical taxonomy; "
+                "this suggests DB family catalog lag rather than purely unknown families."
+            )
+        conflict_signals = _build_family_type_conflict_signals(
+            catalog_rows=catalog_rows,
+            permission_sample_ids=permission_sample_ids,
+            authority_rows=authority_rows,
+            high_confidence_ids=high_confidence_ids if payload["vt_confidence_available"] else set(),
+            family_permission_signal_rows=family_permission_signal_rows,
+        )
+        payload["taxonomy_signals"].update(conflict_signals)
+        if conflict_signals.get("family_type_conflict_count"):
+            payload["warnings"].append(
+                "Family/type backlog contains "
+                f"{conflict_signals['family_type_conflict_count']} family-level conflict candidate(s) "
+                "across type mismatch, sparse labels, or missing DB family rows."
+            )
 
     family_counts: dict[str, int] = {}
     for row in android_with_pi_rows:

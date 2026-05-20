@@ -18,6 +18,7 @@ import numpy as np
 
 from config import app_config
 from obsidiandroid.common import canonicalization, output_hygiene as oh
+from obsidiandroid.observability.logging import get_logger, log_event
 from obsidiandroid.common.cv_fold_config import (
     safe_float_config_value,
     safe_int_config_value,
@@ -27,6 +28,12 @@ from .training_helpers import (
     get_model_trainer,
     perform_cross_validation,
     apply_smote,
+)
+
+
+ML_LOGGER = get_logger(
+    f"{getattr(app_config, 'APP_LOG_NAMESPACE', 'framework')}.modeling.trainer",
+    "ml",
 )
 
 
@@ -592,9 +599,20 @@ def train_model_factory(
                     min_support = min(label_counts.values()) if label_counts else 0
                     stratify_y = encoded_labels if min_support >= 2 else None
                     if stratify_y is None and len(label_counts) > 1:
-                        du.print_warning(
+                        split_warning = (
                             "[SPLIT] Stratification disabled: at least one class has fewer than 2 "
                             "samples (sklearn stratified split requirement). Using a random split."
+                        )
+                        du.print_warning(split_warning)
+                        log_event(
+                            ML_LOGGER,
+                            "split_stratification_disabled",
+                            level="WARNING",
+                            reason="min_class_support_lt_2",
+                            split_algorithm="random_unstratified_seeded",
+                            active_class_count=int(len(label_counts)),
+                            min_class_support=int(min_support),
+                            group_aware_requested=bool(group_aware_requested),
                         )
                     X_train, X_test, y_train, y_test = train_test_split(
                         features_df,
@@ -608,9 +626,20 @@ def train_model_factory(
                 min_support = min(label_counts.values()) if label_counts else 0
                 stratify_y = encoded_labels if min_support >= 2 else None
                 if stratify_y is None and len(label_counts) > 1:
-                    du.print_warning(
+                    split_warning = (
                         "[SPLIT] Stratification disabled: at least one class has fewer than 2 "
                         "samples (sklearn stratified split requirement). Using a random split."
+                    )
+                    du.print_warning(split_warning)
+                    log_event(
+                        ML_LOGGER,
+                        "split_stratification_disabled",
+                        level="WARNING",
+                        reason="min_class_support_lt_2",
+                        split_algorithm="random_unstratified_seeded",
+                        active_class_count=int(len(label_counts)),
+                        min_class_support=int(min_support),
+                        group_aware_requested=bool(group_aware_requested),
                     )
                 X_train, X_test, y_train, y_test = train_test_split(
                     features_df,
@@ -620,6 +649,19 @@ def train_model_factory(
                     random_state=random_state,
                 )
             setattr(app_config, "RUNTIME_LAST_SPLIT_ALGORITHM", split_algo)
+            profile_id_runtime = str(getattr(app_config, "RUNTIME_PROFILE_ID", "") or "").strip()
+            if profile_id_runtime.startswith("malicious_temporal_") and split_algo != "group_shuffle_seeded_v1":
+                log_event(
+                    ML_LOGGER,
+                    "temporal_profile_non_temporal_split",
+                    level="WARNING",
+                    profile_id=profile_id_runtime,
+                    split_algorithm=split_algo,
+                    note=(
+                        "Temporal-stability profile is using a non-temporal holdout policy; "
+                        "interpret results as random/group split, not forward-in-time generalization."
+                    ),
+                )
             if len(split_cache) >= 8:
                 split_cache.clear()
             split_cache[split_cache_key] = (X_train, X_test, y_train, y_test)
@@ -661,13 +703,19 @@ def train_model_factory(
         or getattr(app_config, "PAPER_MODE_ENABLED", False)
     )
     disable_smote_evidence = bool(getattr(app_config, "DISABLE_SMOTE_IN_EVIDENCE_MODE", False))
-    setattr(app_config, "RUNTIME_SMOTE_WARNING_LAST", "")
     if use_smote_effective and evidence_or_paper and disable_smote_evidence:
         if not quiet_train:
             du.print_info(
                 "[SMOTE] Skipped for evidence/paper run (DISABLE_SMOTE_IN_EVIDENCE_MODE / "
                 "OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE)."
             )
+        log_event(
+            ML_LOGGER,
+            "smote_skipped_evidence_mode",
+            model_type=str(model_type),
+            split_algorithm=str(getattr(app_config, "RUNTIME_LAST_SPLIT_ALGORITHM", "") or ""),
+            evidence_or_paper=bool(evidence_or_paper),
+        )
         use_smote_effective = False
     elif (
         use_smote_effective
@@ -679,10 +727,19 @@ def train_model_factory(
             "[SMOTE] Synthetic oversampling is enabled in evidence/paper mode; "
             "set OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE=1 to disable for stricter reproducibility."
         )
-        du.print_warning(
-            warning_text
-        )
+        already_emitted = bool(getattr(app_config, "RUNTIME_SMOTE_WARNING_EMITTED", False))
+        if not already_emitted:
+            du.print_warning(warning_text)
+            setattr(app_config, "RUNTIME_SMOTE_WARNING_EMITTED", True)
         setattr(app_config, "RUNTIME_SMOTE_WARNING_LAST", warning_text)
+        log_event(
+            ML_LOGGER,
+            "smote_enabled_evidence_mode",
+            level="WARNING",
+            model_type=str(model_type),
+            split_algorithm=str(getattr(app_config, "RUNTIME_LAST_SPLIT_ALGORITHM", "") or ""),
+            warning_text=warning_text,
+        )
 
     if use_smote_effective and model_type != "balanced_random_forest":
         X_train, y_train = apply_smote(X_train, y_train, random_state)
@@ -766,4 +823,3 @@ def train_model_factory(
         "cv_score_mean": float(np.mean(cv_scores)) if cv_scores is not None else None,
         **result,
     }
-

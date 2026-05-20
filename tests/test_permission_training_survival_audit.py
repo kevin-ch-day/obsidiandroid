@@ -57,3 +57,36 @@ def test_export_skips_when_no_perm_columns(tmp_path, monkeypatch) -> None:
     )
     assert out is None
     assert getattr(app_config, "RUNTIME_PERMISSION_TRAINING_SURVIVAL_CSV", "") == ""
+
+
+def test_export_permission_training_survival_audit_uses_global_latest_for_run_scoped_dirs(
+    make_run_diagnostics_layout,
+    monkeypatch,
+) -> None:
+    output_root, diagnostics_dir, _global_diag = make_run_diagnostics_layout("rid")
+    monkeypatch.setattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_PERMISSION_TRAINING_SURVIVAL_CSV", "", raising=False)
+    align = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "perm__internet": [1, 0],
+            "perm_grp__x": [0, 1],
+        }
+    )
+    fam = align.iloc[[0]].copy()
+    low = fam.drop(columns=["perm_grp__x"])
+    leak = low.copy()
+
+    path = pts.export_permission_training_survival_audit(
+        after_align=(pts.perm_prefix_nonzero_stats(align), len(align)),
+        after_family_support=(pts.perm_prefix_nonzero_stats(fam), len(fam)),
+        after_low_information_prune=(pts.perm_prefix_nonzero_stats(low), len(low)),
+        after_leakage_prune=(pts.perm_prefix_nonzero_stats(leak), len(leak)),
+        diagnostics_dir=diagnostics_dir,
+        run_id="rid",
+    )
+
+    assert path == str(diagnostics_dir / "permission_training_survival_rid.csv")
+    assert (diagnostics_dir / "permission_training_survival_rid.csv").is_file()
+    assert not (diagnostics_dir / "permission_training_survival.latest.csv").exists()
+    assert (output_root / "diagnostics" / "permission_training_survival.latest.csv").is_file()

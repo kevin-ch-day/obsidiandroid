@@ -3,23 +3,45 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-from config import app_config
 from obsidiandroid.cli import startup_menu_diagnostics
+from obsidiandroid.cli.menu.diagnostics import artifact_views
 
 
-def _write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-
-
-def test_taxonomy_support_tuning_compact_shows_status_and_tune_next(monkeypatch, tmp_path: Path, capsys) -> None:
-    out_root = tmp_path / "output"
+def test_taxonomy_support_tuning_compact_shows_status_and_tune_next(
+    monkeypatch,
+    make_run_diagnostics_layout,
+    write_text_file,
+    capsys,
+) -> None:
     run_id = "20260515T141956Z__58d84f"
-    rdiag = out_root / "runs" / run_id / "diagnostics"
+    out_root, rdiag, _ = make_run_diagnostics_layout(run_id)
 
-    _write(
+    write_text_file(
+        rdiag / f"taxonomy_authority_split_{run_id}.json",
+        json.dumps(
+            {
+                "source_mode": "live_view",
+                "authority_scopes": {
+                    "global_authority_catalog": {"bucket_counts": {"resolved_but_no_authority_family": 12}},
+                    "run_cohort_authority": {"available": True, "bucket_counts": {"resolved_but_no_authority_family": 4}},
+                },
+                "taxonomy_split": {
+                    "type_authority_vs_rendering_mismatch": {
+                        "counts": {
+                            "type_mapping_mismatch": 2,
+                            "type_label_missing": 1,
+                            "type_label_noncanonical": 1,
+                            "label_family_mismatch": 1,
+                        }
+                    },
+                    "model_prediction_error": {"count": 2},
+                },
+            }
+        ),
+    )
+    write_text_file(rdiag / f"taxonomy_authority_split_{run_id}.md", "# Taxonomy Authority Split\n")
+    write_text_file(
         rdiag / f"taxonomy_consistency_summary_{run_id}.json",
         json.dumps(
             {
@@ -32,16 +54,15 @@ def test_taxonomy_support_tuning_compact_shows_status_and_tune_next(monkeypatch,
             }
         ),
     )
-    _write(
+    write_text_file(
         rdiag / "family_label_taxonomy_audit.csv",
         "family_canonical,aligned_rows,support_status,configured_min_samples_per_family\n"
         "famA,25,retained,20\n"
         "famB,19,dropped_low_support,20\n"
         "famC,18,dropped_low_support,20\n",
     )
-    _write(rdiag / "support_threshold_preview.csv", "threshold,retained_families\n20,1\n")
+    write_text_file(rdiag / "support_threshold_preview.csv", "threshold,retained_families\n20,1\n")
 
-    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
     monkeypatch.setattr(startup_menu_diagnostics, "resolve_display_mode", lambda: "compact")
 
     startup_menu_diagnostics.launch_taxonomy_support_tuning_compact_menu(read_latest_run_id=lambda: run_id)
@@ -49,27 +70,113 @@ def test_taxonomy_support_tuning_compact_shows_status_and_tune_next(monkeypatch,
 
     assert "Taxonomy & support tuning" in out
     assert "Taxonomy health" in out
+    assert "Model prediction error count" in out
+    assert "Authority gap rows (run/global)" in out
     assert "Claim-facing mismatch total" in out
     assert "Families just below threshold" in out
     assert "tune next" in out.lower()
-    assert "taxonomy_type_authority_review" in out
+    assert "taxonomy_authority_split" in out
+    assert "taxonomy_model_prediction_errors" in out
 
 
-def test_taxonomy_support_snapshot_includes_threshold_sensitivity(monkeypatch, tmp_path: Path) -> None:
-    out_root = tmp_path / "output"
+def test_taxonomy_support_snapshot_includes_threshold_sensitivity(
+    make_run_diagnostics_layout,
+    write_text_file,
+) -> None:
     run_id = "20260515T141956Z__58d84f"
-    rdiag = out_root / "runs" / run_id / "diagnostics"
-    _write(
+    out_root, rdiag, _ = make_run_diagnostics_layout(run_id)
+    write_text_file(
         rdiag / "family_label_taxonomy_audit.csv",
         "family_canonical,aligned_rows,support_status,configured_min_samples_per_family\n"
         "famA,25,retained,20\n"
         "famB,12,dropped_low_support,20\n"
         "famC,4,dropped_low_support,20\n",
     )
-    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    write_text_file(
+        rdiag / f"taxonomy_authority_split_{run_id}.json",
+        json.dumps(
+            {
+                "authority_scopes": {
+                    "global_authority_catalog": {"bucket_counts": {"resolved_but_no_authority_family": 10}},
+                    "run_cohort_authority": {"available": True, "bucket_counts": {"resolved_but_no_authority_family": 3}},
+                },
+                "taxonomy_split": {
+                    "type_authority_vs_rendering_mismatch": {
+                        "counts": {
+                            "type_mapping_mismatch": 2,
+                            "type_label_missing": 1,
+                            "type_label_noncanonical": 0,
+                            "label_family_mismatch": 1,
+                        }
+                    },
+                    "model_prediction_error": {"count": 2},
+                },
+            }
+        ),
+    )
+    write_text_file(rdiag / f"taxonomy_authority_split_{run_id}.md", "# Taxonomy Authority Split\n")
     snap = startup_menu_diagnostics.build_taxonomy_support_tuning_snapshot(run_id=run_id, output_root=out_root)
     assert snap["paper_facing_taxonomy_mismatch_total"] == "—"
+    assert snap["model_prediction_error_count"] == 2
+    assert snap["family_mismatch_count"] == 2
+    assert snap["authority_gap_run_count"] == 3
+    assert snap["taxonomy_authority_split_path"].endswith(".md")
     sensitivity = snap.get("threshold_sensitivity")
     assert isinstance(sensitivity, list)
     assert len(sensitivity) == 5
     assert sensitivity[0]["threshold"] == 5
+
+
+def test_taxonomy_consistency_review_prefers_taxonomy_authority_split(
+    make_run_diagnostics_layout,
+    write_text_file,
+    capsys,
+) -> None:
+    run_id = "20260515T141956Z__58d84f"
+    out_root, rdiag, _ = make_run_diagnostics_layout(run_id)
+    write_text_file(
+        rdiag / f"taxonomy_authority_split_{run_id}.json",
+        json.dumps(
+            {
+                "source_mode": "live_view",
+                "authority_scopes": {
+                    "global_authority_catalog": {"available": True},
+                    "run_cohort_authority": {
+                        "available": True,
+                        "bucket_counts": {
+                            "resolved_but_no_authority_family": 4,
+                            "generic_label_candidate": 1,
+                            "authority_family_unknown_type": 2,
+                        },
+                    },
+                },
+                "taxonomy_split": {
+                    "type_authority_vs_rendering_mismatch": {
+                        "counts": {
+                            "type_mapping_mismatch": 3,
+                            "type_label_missing": 1,
+                            "type_label_noncanonical": 1,
+                            "label_family_mismatch": 0,
+                        }
+                    },
+                    "model_prediction_error": {"count": 2},
+                    "generic_or_coarse_label_issue": {"global_row_count": 9},
+                    "unknown_type_family_issue": {"global_row_count": 6},
+                },
+            }
+        ),
+    )
+    write_text_file(rdiag / f"taxonomy_authority_split_{run_id}.md", "# Taxonomy Authority Split\n")
+
+    artifact_views.launch_taxonomy_consistency_review_menu(
+        read_latest_run_id=lambda: run_id,
+        output_root=out_root,
+        first_existing_path_fn=startup_menu_diagnostics.first_existing_path,
+    )
+    out = capsys.readouterr().out
+
+    assert "Taxonomy consistency review" in out
+    assert "Authority split source mode" in out
+    assert "Model prediction errors" in out
+    assert "Taxonomy authority split (Markdown)" in out
+    assert "Taxonomy authority gap summary (CSV)" in out

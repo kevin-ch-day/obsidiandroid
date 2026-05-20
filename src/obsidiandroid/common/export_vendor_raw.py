@@ -73,6 +73,8 @@ def export_vendor_raw_artifacts(
                 log_event(
                     logger,
                     "export_vendor_raw_failed",
+                    event_id="EXPORT_VENDOR_RAW_500",
+                    level="WARNING",
                     vendor=vendor,
                     format=fmt,
                     error=str(exc),

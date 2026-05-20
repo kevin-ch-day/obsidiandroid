@@ -42,34 +42,6 @@ def _diagnostics_dir() -> Path:
     return resolve_diagnostics_dir()
 
 
-def _build_vendor_matrix(
-    weights_df: pd.DataFrame,
-    parsed_data: dict[str, pd.DataFrame],
-    include_fields: list[str],
-    extra_features_df: pd.DataFrame | None = None,
-    cohort_sample_ids: list[int] | None = None,
-) -> pd.DataFrame:
-    return ablation_registry.build_vendor_matrix(
-        weights_df,
-        parsed_data,
-        include_fields,
-        extra_features_df=extra_features_df,
-        cohort_sample_ids=cohort_sample_ids,
-    )
-
-
-def _vendor_semantic_subset(encoded_df: pd.DataFrame, variant: str) -> pd.DataFrame:
-    return ablation_registry.vendor_semantic_subset(encoded_df, variant)
-
-
-def _build_binary_detection_only_matrix(binary_matrix: pd.DataFrame | None) -> pd.DataFrame:
-    return ablation_registry.build_binary_detection_only_matrix(binary_matrix)
-
-
-def _build_consensus_scores_only_matrix(enriched_matrix: pd.DataFrame | None) -> pd.DataFrame:
-    return ablation_registry.build_consensus_scores_only_matrix(enriched_matrix)
-
-
 def _build_permissions_band_matrix(
     permission_features_df: pd.DataFrame | None, *, subset: str
 ) -> pd.DataFrame:
@@ -973,6 +945,7 @@ def _print_ablation_terminal_summary(summary_df: pd.DataFrame) -> None:
     """Best Macro-F1 per (label target × feature set) with fused delta and plain-language notes."""
     if summary_df.empty or ml_console.is_minimal():
         return
+    compact = bool(getattr(app_config, "ML_TERMINAL_COMPACT", True))
     work = summary_df.copy()
     for col in ("macro_f1_score", "accuracy", "weighted_f1_score", "delta_vs_full_fused"):
         if col in work.columns:
@@ -1035,5 +1008,19 @@ def _print_ablation_terminal_summary(summary_df: pd.DataFrame) -> None:
         [c for c in ("label_target", "feature_set") if c in disp.columns],
         kind="stable",
     )
+    if compact:
+        compact_idx = disp.groupby("label_target", sort=False)["macro_f1"].idxmax()
+        compact_disp = (
+            disp.loc[compact_idx, ["label_target", "feature_set", "best_model", "macro_f1", "delta_vs_full_fused"]]
+            .rename(columns={"feature_set": "best_feature_set"})
+            .sort_values(["label_target"], kind="stable")
+        )
+        du.print_section("ABLATION SUMMARY (compact)")
+        du.print_table(compact_disp, show_index=False)
+        du.print_info(
+            "[ABLATION] Compact terminal mode: full experiment grid remains in diagnostics CSV/Markdown summaries."
+        )
+        return
+
     du.print_section("ABLATION SUMMARY (best Macro-F1 per feature set × label target)")
     du.print_table(disp, show_index=False)

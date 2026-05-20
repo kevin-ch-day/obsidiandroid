@@ -4,6 +4,8 @@ This utility scans ``output/runs/*`` and marks runs whose ``paper_exports``
 folder exists but fails the strict evidence-bundle checks.
 """
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import argparse
@@ -14,11 +16,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-import scripts.runtime_bootstrap  # noqa: F401
+from scripts._bootstrap import prepare_script_runtime  # noqa: E402
 
-from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path
-
-ensure_repo_src_on_sys_path()
+prepare_script_runtime(__file__)
 
 from scripts.research import check_evidence_bundle
 

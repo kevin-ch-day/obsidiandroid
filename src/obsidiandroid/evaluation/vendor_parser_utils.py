@@ -7,6 +7,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common import output_paths
 from obsidiandroid.common.cv_fold_config import safe_float_config_value, safe_int_config_value
 from obsidiandroid.evaluation import av_results_fetcher as results_fetcher
@@ -40,12 +41,25 @@ def _parser_diagnostics_base() -> Path:
     return output_paths.diagnostics_root()
 
 
+def _parser_run_id() -> str:
+    """Best-effort active run id used for canonical run-scoped artifact names."""
+    return oh.normalize_artifact_run_id(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
+
+
 def parser_coverage_export_path() -> Path:
-    return _parser_diagnostics_base() / "vendor_parser_coverage.latest.csv"
+    diagnostics_dir = _parser_diagnostics_base()
+    rid = _parser_run_id()
+    if oh.diagnostics_mirror_write_policy(diagnostics_dir) == oh.RUN_SCOPED_PLUS_GLOBAL_LATEST_MIRROR:
+        return diagnostics_dir / f"vendor_parser_coverage_{rid}.csv"
+    return diagnostics_dir / "vendor_parser_coverage.latest.csv"
 
 
 def parser_coverage_candidates_export_path() -> Path:
-    return _parser_diagnostics_base() / "vendor_parser_coverage_candidates.latest.csv"
+    diagnostics_dir = _parser_diagnostics_base()
+    rid = _parser_run_id()
+    if oh.diagnostics_mirror_write_policy(diagnostics_dir) == oh.RUN_SCOPED_PLUS_GLOBAL_LATEST_MIRROR:
+        return diagnostics_dir / f"vendor_parser_coverage_candidates_{rid}.csv"
+    return diagnostics_dir / "vendor_parser_coverage_candidates.latest.csv"
 
 
 def validate_input_columns(samples_df: pd.DataFrame) -> bool:
@@ -170,9 +184,16 @@ def _export_parser_coverage_snapshot(
             by=["parser_mapped", "coverage_pct", "vendor_column"],
             ascending=[False, False, True],
         )
+        diagnostics_dir = _parser_diagnostics_base()
+        rid = _parser_run_id()
+        csv_text = out_df.to_csv(index=False)
+        oh.mirror_csv_text_run_then_global(
+            diagnostics_dir=diagnostics_dir,
+            run_filename=f"vendor_parser_coverage_{rid}.csv",
+            csv_text=csv_text,
+            global_latest_name="vendor_parser_coverage.latest.csv",
+        )
         cov_path = parser_coverage_export_path()
-        cov_path.parent.mkdir(parents=True, exist_ok=True)
-        out_df.to_csv(cov_path, index=False)
         _export_unmapped_coverage_candidates(out_df, verbose=verbose)
         if verbose:
             mapped = int(out_df["parser_mapped"].sum())
@@ -213,9 +234,15 @@ def _export_unmapped_coverage_candidates(
             "is_dynamic_generic",
             "onboarding_priority",
         ]
-        empty_path = parser_coverage_candidates_export_path()
-        empty_path.parent.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(columns=empty_cols).to_csv(empty_path, index=False)
+        diagnostics_dir = _parser_diagnostics_base()
+        rid = _parser_run_id()
+        empty_df = pd.DataFrame(columns=empty_cols)
+        oh.mirror_csv_text_run_then_global(
+            diagnostics_dir=diagnostics_dir,
+            run_filename=f"vendor_parser_coverage_candidates_{rid}.csv",
+            csv_text=empty_df.to_csv(index=False),
+            global_latest_name="vendor_parser_coverage_candidates.latest.csv",
+        )
         return
 
     candidates = candidates.sort_values(
@@ -224,9 +251,15 @@ def _export_unmapped_coverage_candidates(
     ).head(max_rows)
     candidates.insert(0, "priority_rank", range(1, len(candidates) + 1))
     candidates["onboarding_priority"] = "high_coverage_unmapped"
+    diagnostics_dir = _parser_diagnostics_base()
+    rid = _parser_run_id()
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=f"vendor_parser_coverage_candidates_{rid}.csv",
+        csv_text=candidates.to_csv(index=False),
+        global_latest_name="vendor_parser_coverage_candidates.latest.csv",
+    )
     candidates_path = parser_coverage_candidates_export_path()
-    candidates_path.parent.mkdir(parents=True, exist_ok=True)
-    candidates.to_csv(candidates_path, index=False)
 
     if verbose:
         du.print_info(

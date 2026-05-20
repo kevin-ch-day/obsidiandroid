@@ -353,18 +353,3 @@ def select_profile_interactive_quick(
         title=title,
         exit_label=exit_label,
     )
-
-
-def _build_profile_catalog(profiles: List[Path]) -> List[tuple[str, str]]:
-    """Build ordered profile summaries for interactive menu presentation."""
-    return profile_selection.build_profile_catalog(profiles)
-
-
-def _profile_sort_key(profile_id: str) -> tuple[int, int, str]:
-    """Return deterministic profile ordering for a cleaner selection menu."""
-    return profile_selection.profile_sort_key(profile_id)
-
-
-def _summarize_profile(profile_path: Path) -> str:
-    """Generate concise profile summary for menu display."""
-    return profile_selection.summarize_profile(profile_path)

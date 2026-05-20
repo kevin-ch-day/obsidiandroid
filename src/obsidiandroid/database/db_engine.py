@@ -173,6 +173,7 @@ def _run_query(
                 log_event(
                     DB_LOGGER,
                     "sql_debug",
+                    level="DEBUG",
                     query=query,
                     params=params,
                 )

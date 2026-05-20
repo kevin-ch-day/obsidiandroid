@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 import subprocess
 from typing import Callable, Dict, List
 
-import pandas as pd
 
 from config import app_config
 from obsidiandroid.common.repo_paths import repo_operator_script
-from obsidiandroid.evaluation import engine_scoring_summary
 from obsidiandroid.modeling import pipeline_core
 from .ui import display as du
 from .ui import menu as mu
@@ -19,36 +16,21 @@ import obsidiandroid.cli.profile_manager as profile_manager
 from .menu.profile_preflight import resolve_and_validate_profile
 from .menu import diagnostics_banners
 from .menu import startup_menu_actions
-from .menu import vendor_diagnostics
 from . import startup_menu_diagnostics as _diagnostics_menu
 from . import startup_menu_research as _research_menu
 from . import startup_menu_review as _review_menu
 
 from .startup_menu_health import run_health_check as _run_health_check
 from .startup_menu_run_context import (
-    candidate_sort_key as _candidate_sort_key,
-    discover_latest_run_id_from_runs as _discover_latest_run_id_from_runs,
-    format_run_status_display as _format_run_status_display,
-    format_stage_label as _format_stage_label,
-    has_structural_bundle as _has_structural_bundle,
     latest_run_context_status as _latest_run_context_status,
     latest_run_has_provenance as _latest_run_has_provenance,
-    parse_run_timestamp_from_id as _parse_run_timestamp_from_id,
-    parse_run_timestamp_from_manifest as _parse_run_timestamp_from_manifest,
     print_availability_block as _print_availability_block,
     print_startup_context as _print_startup_context,
     read_json_object as _read_json_object,
     read_latest_run_id as _read_latest_run_id,
-    read_latest_run_manifest as _read_latest_run_manifest,
     read_locked_publication_run_id as _read_locked_publication_run_id,
-    read_run_progress_summary as _read_run_progress_summary,
     read_run_summary as _read_run_summary,
-    read_top_model_snapshot as _read_top_model_snapshot,
     resolve_latest_manifest_payload as _resolve_latest_manifest_payload,
-    resolve_manifest_for_run_id as _resolve_manifest_for_run_id,
-    resolve_pipeline_timings_path as _resolve_pipeline_timings_path,
-    resolve_run_root_for_manifest as _resolve_run_root_for_manifest,
-    status_text as _status_text,
 )
 
 from .startup_menu_run_overview import (
@@ -83,17 +65,6 @@ class _MenuCommand:
     label: str
     action: Callable[[], int | None]
 
-
-def _first_existing_path(candidates: list[Path]) -> Path | None:
-    """Compatibility wrapper for the extracted diagnostics path helper."""
-    return _diagnostics_menu.first_existing_path(candidates)
-
-
-def _governed_cohort_n_for_q2(*, rdiag: Path, gdiag: Path, q2: Dict) -> int | None:
-    """Compatibility wrapper for the extracted Q2 cohort denominator helper."""
-    return _diagnostics_menu.governed_cohort_n_for_q2(rdiag=rdiag, gdiag=gdiag, q2=q2)
-
-
 def _run_full_pipeline(profile_id: str) -> int:
     """Run the complete pipeline with configured model set."""
     from main import run_pipeline
@@ -113,18 +84,6 @@ def _run_vendor_only(profile_id: str) -> int:
     from main import run_pipeline
 
     return run_pipeline(stop_after="vendor_metadata", profile_ref=profile_id)
-
-
-def _run_engine_summary_only() -> int:
-    """Generate engine scoring summary directly from DB and print top rows."""
-    du.print_section("Engine Scoring Summary (DB Only)")
-    summary_df = engine_scoring_summary.build_av_engine_scoring_summary_from_db()
-    if summary_df is None or summary_df.empty:
-        du.print_error("[MENU] Engine scoring summary returned no rows.")
-        return 1
-
-    du.print_success(f"[MENU] Engine summary rows: {len(summary_df)}")
-    return 0
 
 
 def _run_to_stage(profile_id: str) -> int:
@@ -206,16 +165,6 @@ def _handle_confusion_matrix_export() -> int:
 def _show_disk_usage_summary() -> int:
     """Show compact disk-usage summary for output workspace directories."""
     return startup_menu_actions.show_disk_usage_summary()
-
-
-def _show_contract_snapshot_viewer() -> int:
-    """Show latest experiment contract highlights for quick reproducibility review."""
-    return _research_menu.show_contract_snapshot_viewer(read_json_object=_read_json_object)
-
-
-def _show_experiment_series_comparison() -> int:
-    """Show latest and previous series hashes to explain run-to-run drift quickly."""
-    return _research_menu.show_experiment_series_comparison(read_json_object=_read_json_object)
 
 
 def _run_evidence_bundle_series_aggregator() -> int:
@@ -321,9 +270,7 @@ def _launch_structural_analysis_menu() -> None:
         context = _latest_run_context_status()
         has_latest_run = bool(context.get("has_latest_run", False))
         has_struct_bundle = bool(context.get("has_structural_bundle", False))
-        has_publication_exports = bool(
-            context.get("has_publication_exports", context.get("has_paper_exports", False))
-        )
+        has_publication_exports = bool(context.get("has_publication_exports", False))
 
         unavailable_reasons: dict[int, str] = {}
         if not has_latest_run:
@@ -363,10 +310,7 @@ def _launch_structural_analysis_menu() -> None:
                     ("Publication Exports", "Yes" if has_publication_exports else "No"),
                     (
                         "Locked Evidence Run",
-                        "Yes" if bool(
-                            context.get("has_locked_publication_run", context.get("has_locked_paper_run", False))
-                        )
-                        else "No",
+                        "Yes" if bool(context.get("has_locked_publication_run", False)) else "No",
                     ),
                 ]
             )
@@ -553,11 +497,6 @@ def _open_run_science_index() -> int:
     return _diagnostics_menu.open_run_science_index(read_latest_run_id=_read_latest_run_id)
 
 
-def _print_cohort_family_artifact_paths() -> None:
-    """List key cohort / family diagnostic paths for the latest run."""
-    _diagnostics_menu.print_cohort_family_artifact_paths(read_latest_run_id=_read_latest_run_id)
-
-
 def _launch_cohort_family_audit_menu() -> None:
     """Family taxonomy, support thresholds, cohort distributions."""
     _diagnostics_menu.launch_cohort_family_audit_menu(
@@ -589,12 +528,18 @@ def _launch_taxonomy_consistency_review_menu() -> None:
     _diagnostics_menu.launch_taxonomy_consistency_review_menu(read_latest_run_id=_read_latest_run_id)
 
 
+def _launch_family_type_authority_coverage_menu() -> int:
+    """Family/type authority coverage from the live Erebus authority view."""
+    return _diagnostics_menu.launch_family_type_authority_coverage_menu()
+
+
 def _launch_data_diagnostics_menu() -> None:
     """Data quality: cohort, parsers, permissions, features, taxonomy, structural exports."""
     _diagnostics_menu.launch_data_diagnostics_menu(
         read_latest_run_id=_read_latest_run_id,
         show_profile_tuning_snapshot=_show_profile_tuning_snapshot,
         open_run_science_index_action=_open_run_science_index,
+        launch_family_type_authority_coverage_action=_launch_family_type_authority_coverage_menu,
         launch_taxonomy_consistency_review_action=_launch_taxonomy_consistency_review_menu,
         launch_parser_vendor_coverage_action=_launch_parser_vendor_coverage_menu,
         launch_permission_intelligence_coverage_action=_launch_permission_intelligence_coverage_menu,
@@ -754,29 +699,6 @@ def _launch_operations_menu() -> None:
             _launch_developer_utilities_menu()
             continue
         du.print_warning("[MENU] Invalid choice received.")
-
-
-def _print_operator_console_summary() -> None:
-    """Print a compact operator summary block ahead of the main menu."""
-    context = _latest_run_context_status()
-    latest_run_id = str(context.get("latest_run_id", "")).strip() or "None yet"
-    latest_profile_id = str(context.get("latest_profile_id", "")).strip() or "Unknown"
-    du.print_section("Workspace Status")
-    _print_availability_block(
-        rows=[
-            ("Latest Run", latest_run_id),
-            ("Latest Profile", latest_profile_id),
-            ("Run Diagnostics", _status_text(_latest_run_has_provenance(), ready="Available", pending="Missing")),
-            (
-                "Publication Exports",
-                _status_text(
-                    bool(context.get("has_publication_exports", context.get("has_paper_exports", False))),
-                    ready="Available",
-                    pending="Not built",
-                ),
-            ),
-        ]
-    )
 
 
 def _build_main_menu_commands() -> list[_MenuCommand]:

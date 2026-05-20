@@ -158,6 +158,44 @@ def test_smote_warns_in_evidence_when_not_disabled(monkeypatch):
     )
 
 
+def test_smote_warning_is_emitted_once_per_run(monkeypatch):
+    X, y = _imbalanced_data()
+    warnings: list[str] = []
+
+    def capture_warning(msg: str, *args, **kwargs) -> None:
+        warnings.append(str(msg))
+
+    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_MODE", True, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_SMOTE_OVERSAMPLING", True, raising=False)
+    monkeypatch.setattr(app_config, "DISABLE_SMOTE_IN_EVIDENCE_MODE", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_SMOTE_WARNING_LAST", "", raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_SMOTE_WARNING_EMITTED", False, raising=False)
+    monkeypatch.setattr(model_trainer_factory.du, "print_warning", capture_warning)
+
+    model_trainer_factory.train_model_factory(
+        X,
+        y,
+        model_type="random_forest",
+        use_smote=True,
+        enable_grid_search=False,
+        random_state=0,
+    )
+    model_trainer_factory.train_model_factory(
+        X,
+        y,
+        model_type="xgboost",
+        use_smote=True,
+        enable_grid_search=False,
+        random_state=0,
+    )
+
+    assert sum("[SMOTE]" in w for w in warnings) == 1
+    assert "[SMOTE] Synthetic oversampling is enabled in evidence/paper mode;" in str(
+        getattr(app_config, "RUNTIME_SMOTE_WARNING_LAST", "")
+    )
+
+
 def test_smote_respects_runtime_flag_when_use_smote_not_explicit(monkeypatch):
     X, y = _imbalanced_data()
     call_tracker = {"called": False}

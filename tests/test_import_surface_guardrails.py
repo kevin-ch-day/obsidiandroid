@@ -23,17 +23,12 @@ from scripts.dev.compatibility_retirement_audit import (
 )
 
 
-def _write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-
-
-def test_collect_canonical_code_legacy_imports_flags_src_and_scripts() -> None:
+def test_collect_canonical_code_legacy_imports_flags_src_and_scripts(write_text_file) -> None:
     with tempfile.TemporaryDirectory() as raw:
         repo = Path(raw)
-        _write(repo / "src" / "obsidiandroid" / "bad.py", "import analysis.pipeline.runner\n")
-        _write(repo / "scripts" / "bad_script.py", "import analysis.pipeline.runner\n")
-        _write(
+        write_text_file(repo / "src" / "obsidiandroid" / "bad.py", "import analysis.pipeline.runner\n")
+        write_text_file(repo / "scripts" / "bad_script.py", "import analysis.pipeline.runner\n")
+        write_text_file(
             repo / "scripts" / "dev" / "check_import_surface.py",
             "import analysis.pipeline.runner\n",
         )
@@ -131,25 +126,25 @@ def test_ml_training_plain_shims_use_shared_helper_pattern() -> None:
     assert policy.collect_ml_training_plain_shim_violations(repo_root) == []
 
 
-def test_collect_nonparity_test_legacy_imports_respects_parity_allowlist() -> None:
+def test_collect_nonparity_test_legacy_imports_respects_parity_allowlist(write_text_file) -> None:
     with tempfile.TemporaryDirectory() as raw:
         repo = Path(raw)
-        _write(repo / "tests" / "test_behavior.py", "import analysis.pipeline.runner\n")
-        _write(repo / "tests" / "test_legacy_shim_parity.py", "import analysis.pipeline.runner\n")
+        write_text_file(repo / "tests" / "test_behavior.py", "import analysis.pipeline.runner\n")
+        write_text_file(repo / "tests" / "test_legacy_shim_parity.py", "import analysis.pipeline.runner\n")
 
         assert policy.collect_nonparity_test_legacy_imports(repo) == [
             "tests/test_behavior.py:1: import analysis.pipeline.runner",
         ]
 
 
-def test_collect_stale_canonical_filename_headers_flags_legacy_roots() -> None:
+def test_collect_stale_canonical_filename_headers_flags_legacy_roots(write_text_file) -> None:
     with tempfile.TemporaryDirectory() as raw:
         repo = Path(raw)
-        _write(
+        write_text_file(
             repo / "src" / "obsidiandroid" / "labeling" / "bad.py",
             "# Filename: ml_classification/labeling/bad.py\n",
         )
-        _write(
+        write_text_file(
             repo / "src" / "obsidiandroid" / "labeling" / "good.py",
             "# Filename: src/obsidiandroid/labeling/good.py\n",
         )
@@ -160,10 +155,10 @@ def test_collect_stale_canonical_filename_headers_flags_legacy_roots() -> None:
         ]
 
 
-def test_collect_legacy_leaf_shim_violations_requires_thin_identity_shims() -> None:
+def test_collect_legacy_leaf_shim_violations_requires_thin_identity_shims(write_text_file) -> None:
     with tempfile.TemporaryDirectory() as raw:
         repo = Path(raw)
-        _write(
+        write_text_file(
             repo / "analysis" / "pipeline" / "good.py",
             '"""Legacy shim: implementation lives under ``obsidiandroid.pipeline.good``."""\n'
             "\n"
@@ -175,7 +170,7 @@ def test_collect_legacy_leaf_shim_violations_requires_thin_identity_shims() -> N
             '_mod = importlib.import_module("obsidiandroid.pipeline.good")\n'
             "sys.modules[__name__] = _mod\n",
         )
-        _write(
+        write_text_file(
             repo / "analysis" / "pipeline" / "bad_leaf.py",
             "def duplicate_logic():\n"
             "    return 1\n",
@@ -189,16 +184,16 @@ def test_collect_legacy_leaf_shim_violations_requires_thin_identity_shims() -> N
         ]
 
 
-def test_collect_database_shim_helper_violations_flags_bespoke_patterns() -> None:
+def test_collect_database_shim_helper_violations_flags_bespoke_patterns(write_text_file) -> None:
     with tempfile.TemporaryDirectory() as raw:
         repo = Path(raw)
-        _write(
+        write_text_file(
             repo / "database" / "db_utils.py",
             '"""Legacy shim."""\n'
             "import importlib\n"
             '_mod = importlib.import_module("obsidiandroid.database.db_utils")\n',
         )
-        _write(
+        write_text_file(
             repo / "database" / "split_db_health.py",
             "from obsidiandroid.legacy_shim_lazy import import_legacy_shim\n"
             '_canon = import_legacy_shim("obsidiandroid.database.split_db_health", "database.split_db_health")\n',
@@ -214,16 +209,16 @@ def test_collect_database_shim_helper_violations_flags_bespoke_patterns() -> Non
         )
 
 
-def test_collect_analysis_pipeline_retired_shim_violations_flags_reintroduced_files() -> None:
+def test_collect_analysis_pipeline_retired_shim_violations_flags_reintroduced_files(write_text_file) -> None:
     with tempfile.TemporaryDirectory() as raw:
         repo = Path(raw)
-        _write(
+        write_text_file(
             repo / "analysis" / "pipeline" / "artifacts" / "paths.py",
             '"""Legacy shim."""\n'
             "import importlib\n"
             '_mod = importlib.import_module("obsidiandroid.pipeline.artifacts.paths")\n',
         )
-        _write(
+        write_text_file(
             repo / "analysis" / "pipeline" / "manifest" / "builder.py",
             "from obsidiandroid.legacy_shim_lazy import import_legacy_shim\n"
             '_mod = import_legacy_shim("obsidiandroid.pipeline.manifest.builder", __name__)\n',
@@ -240,11 +235,13 @@ def test_collect_analysis_pipeline_retired_shim_violations_flags_reintroduced_fi
         )
 
 
-def test_collect_analysis_pipeline_retired_package_bridge_violations_flags_reintroduced_bridges() -> None:
+def test_collect_analysis_pipeline_retired_package_bridge_violations_flags_reintroduced_bridges(
+    write_text_file,
+) -> None:
     with tempfile.TemporaryDirectory() as raw:
         repo = Path(raw)
-        _write(repo / "analysis" / "pipeline" / "artifacts" / "__init__.py", 'X = 1\n')
-        _write(repo / "analysis" / "pipeline" / "manifest" / "__init__.py", 'Y = 2\n')
+        write_text_file(repo / "analysis" / "pipeline" / "artifacts" / "__init__.py", 'X = 1\n')
+        write_text_file(repo / "analysis" / "pipeline" / "manifest" / "__init__.py", 'Y = 2\n')
 
         violations = policy.collect_analysis_pipeline_retired_package_bridge_violations(repo)
         assert (
@@ -257,16 +254,16 @@ def test_collect_analysis_pipeline_retired_package_bridge_violations_flags_reint
         )
 
 
-def test_collect_ml_training_plain_shim_violations_flags_bespoke_patterns() -> None:
+def test_collect_ml_training_plain_shim_violations_flags_bespoke_patterns(write_text_file) -> None:
     with tempfile.TemporaryDirectory() as raw:
         repo = Path(raw)
-        _write(
+        write_text_file(
             repo / "ml_classification" / "training" / "pipeline_core.py",
             '"""Legacy shim."""\n'
             "import importlib\n"
             '_mod = importlib.import_module("obsidiandroid.modeling.pipeline_core")\n',
         )
-        _write(
+        write_text_file(
             repo / "ml_classification" / "training" / "model_prediction.py",
             "from obsidiandroid.legacy_shim_lazy import import_legacy_shim\n"
             '_canonical = import_legacy_shim("obsidiandroid.modeling.model_prediction", __name__)\n',

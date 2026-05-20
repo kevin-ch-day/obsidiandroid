@@ -10,6 +10,46 @@ from config import app_config
 import obsidiandroid.cli.startup_menu as startup_menu
 
 
+def _write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _write_json(path: Path, payload: object) -> None:
+    _write_text(path, json.dumps(payload))
+
+
+def _make_run_dirs(out_root: Path, run_id: str) -> tuple[Path, Path]:
+    run_root = out_root / "runs" / run_id
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    return run_root, diagnostics_dir
+
+
+def _capture_table_rows(monkeypatch) -> dict[str, object]:
+    captured: dict[str, object] = {}
+
+    def _fake_print_table(rows, *_, **__):
+        captured["rows"] = rows
+
+    monkeypatch.setattr(startup_menu.du, "print_table", _fake_print_table)
+    return captured
+
+
+def _capture_stat_rows(monkeypatch) -> list[tuple[str, object]]:
+    captured: list[tuple[str, object]] = []
+    monkeypatch.setattr(
+        startup_menu.du,
+        "print_stat",
+        lambda label, value, *args, **kwargs: captured.append((str(label), value)),
+    )
+    return captured
+
+
+def _write_latest_run_manifest(out_root: Path, payload: object) -> None:
+    _write_json(out_root / "diagnostics" / "run_manifest.latest.json", payload)
+
+
 def test_main_menu_clear_screen_option(monkeypatch) -> None:
     """Main menu clear option should call clear_screen and continue loop."""
     choices = iter([8, 0])
@@ -128,6 +168,7 @@ def test_data_diagnostics_menu_uses_compact_view_first_order(monkeypatch) -> Non
         "Profile readiness mapping inventory",
         "Taxonomy & Support Tuning",
         "Taxonomy Consistency Review",
+        "Family/Type Authority Coverage",
         "Parser & Vendor Coverage",
         "Permission Intelligence Coverage",
         "Feature Matrix / Modality Coverage",
@@ -626,9 +667,8 @@ def test_open_run_science_index_falls_back_to_best_available_index(monkeypatch, 
     """Run science index action should fall back to another authoritative index when canonical is missing."""
     output_root = tmp_path / "output"
     run_id = "20260515T141956Z__58d84f"
-    run_root = output_root / "runs" / run_id
-    run_root.mkdir(parents=True, exist_ok=True)
-    (run_root / "run_evidence_index.md").write_text("# evidence\n", encoding="utf-8")
+    run_root, _ = _make_run_dirs(output_root, run_id)
+    _write_text(run_root / "run_evidence_index.md", "# evidence\n")
     notes: list[str] = []
 
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
@@ -693,19 +733,16 @@ def test_read_latest_run_id_prefers_newest_run_scoped_manifest(monkeypatch, tmp_
     new_run = runs_dir / "20260321T134027Z__f39e96"
     old_run.mkdir(parents=True, exist_ok=True)
     new_run.mkdir(parents=True, exist_ok=True)
-    (old_run / "run_manifest.json").write_text("{}", encoding="utf-8")
-    (new_run / "run_manifest.json").write_text("{}", encoding="utf-8")
+    _write_text(old_run / "run_manifest.json", "{}")
+    _write_text(new_run / "run_manifest.json", "{}")
 
     promoted_dir = out_root / "promoted"
     promoted_dir.mkdir(parents=True, exist_ok=True)
-    (promoted_dir / "latest_run.txt").write_text("20260307T213823Z__b74bdb", encoding="utf-8")
+    _write_text(promoted_dir / "latest_run.txt", "20260307T213823Z__b74bdb")
 
     diagnostics_dir = out_root / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    (diagnostics_dir / "run_manifest.latest.json").write_text(
-        json.dumps({"run_id": "20260307T213823Z__b74bdb"}),
-        encoding="utf-8",
-    )
+    _write_json(diagnostics_dir / "run_manifest.latest.json", {"run_id": "20260307T213823Z__b74bdb"})
 
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
 
@@ -720,26 +757,18 @@ def test_read_latest_run_id_ignores_invalid_test_run_ids(monkeypatch, tmp_path: 
     junk_run = runs_dir / "r1"
     valid_run.mkdir(parents=True, exist_ok=True)
     junk_run.mkdir(parents=True, exist_ok=True)
-    (valid_run / "run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": "20260321T134027Z__f39e96",
-                "timestamp_utc": "2026-03-21T13:40:27.139708+00:00",
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        valid_run / "run_manifest.json",
+        {
+            "run_id": "20260321T134027Z__f39e96",
+            "timestamp_utc": "2026-03-21T13:40:27.139708+00:00",
+        },
     )
-    (junk_run / "run_manifest.json").write_text(
-        json.dumps({"run_id": "r1", "timestamp_utc": "t1"}),
-        encoding="utf-8",
-    )
+    _write_json(junk_run / "run_manifest.json", {"run_id": "r1", "timestamp_utc": "t1"})
 
     diagnostics_dir = out_root / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    (diagnostics_dir / "run_manifest.latest.json").write_text(
-        json.dumps({"run_id": "r1"}),
-        encoding="utf-8",
-    )
+    _write_json(diagnostics_dir / "run_manifest.latest.json", {"run_id": "r1"})
 
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
 
@@ -754,23 +783,19 @@ def test_quick_health_check_passes_with_complete_artifacts(
     out_root = tmp_path / "output"
     diagnostics_dir = out_root / "diagnostics"
     run_id = "20260303T000000Z__abc123"
-    run_root = out_root / "runs" / run_id
+    run_root, _ = _make_run_dirs(out_root, run_id)
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    run_root.mkdir(parents=True, exist_ok=True)
 
     split_path = diagnostics_dir / f"split_freeze_audit_{run_id}.csv"
     model_config_path = diagnostics_dir / f"model_config_snapshot_{run_id}.json"
     vendor_gate_path = diagnostics_dir / f"vendor_gate_debug_{run_id}.csv"
     run_paths_manifest_path = diagnostics_dir / f"run_paths_manifest_{run_id}.json"
-    split_path.write_text("sample_id,fold\n1,0\n", encoding="utf-8")
-    model_config_path.write_text("{}", encoding="utf-8")
-    vendor_gate_path.write_text("vendor,ok\nv,1\n", encoding="utf-8")
-    run_paths_manifest_path.write_text("{}", encoding="utf-8")
-    (diagnostics_dir / "parser_quality.latest.csv").write_text("vendor,parser_mapped\nv,1\n", encoding="utf-8")
-    (diagnostics_dir / "vendor_parser_coverage.latest.csv").write_text(
-        "vendor,parser_mapped\nv,1\n",
-        encoding="utf-8",
-    )
+    _write_text(split_path, "sample_id,fold\n1,0\n")
+    _write_text(model_config_path, "{}")
+    _write_text(vendor_gate_path, "vendor,ok\nv,1\n")
+    _write_text(run_paths_manifest_path, "{}")
+    _write_text(diagnostics_dir / "parser_quality.latest.csv", "vendor,parser_mapped\nv,1\n")
+    _write_text(diagnostics_dir / "vendor_parser_coverage.latest.csv", "vendor,parser_mapped\nv,1\n")
 
     manifest_payload = {
         "run_id": run_id,
@@ -781,10 +806,7 @@ def test_quick_health_check_passes_with_complete_artifacts(
         "profile_params": {"profile_id": "dev_fast"},
         "artifact_list": [],
     }
-    (diagnostics_dir / "run_manifest.latest.json").write_text(
-        json.dumps(manifest_payload),
-        encoding="utf-8",
-    )
+    _write_json(diagnostics_dir / "run_manifest.latest.json", manifest_payload)
 
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
     result = startup_menu._run_quick_health_check()  # pylint: disable=protected-access
@@ -805,10 +827,7 @@ def test_quick_health_check_fails_when_pointer_manifest_has_no_canonical(
         "created_at_utc": "2026-03-03T00:00:00Z",
         "run_root": str(out_root / "runs" / "20260303T000000Z__abc123"),
     }
-    (diagnostics_dir / "run_manifest.latest.json").write_text(
-        json.dumps(pointer_payload),
-        encoding="utf-8",
-    )
+    _write_json(diagnostics_dir / "run_manifest.latest.json", pointer_payload)
 
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
     result = startup_menu._run_quick_health_check()  # pylint: disable=protected-access
@@ -823,26 +842,23 @@ def test_quick_health_check_warns_but_passes_without_optional_diagnostics(
     out_root = tmp_path / "output"
     diagnostics_dir = out_root / "diagnostics"
     run_id = "20260303T000000Z__abc123"
-    run_root = out_root / "runs" / run_id
+    run_root, _ = _make_run_dirs(out_root, run_id)
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    run_root.mkdir(parents=True, exist_ok=True)
 
     split_path = diagnostics_dir / f"split_freeze_audit_{run_id}.csv"
     model_config_path = diagnostics_dir / f"model_config_snapshot_{run_id}.json"
-    split_path.write_text("sample_id,fold\n1,0\n", encoding="utf-8")
-    model_config_path.write_text("{}", encoding="utf-8")
-    (diagnostics_dir / "run_manifest.latest.json").write_text(
-        json.dumps(
-            {
-                "run_id": run_id,
-                "timestamp_utc": "2026-03-03T00:00:00Z",
-                "split": {"split_audit_path": str(split_path)},
-                "model_config_snapshot_path": str(model_config_path),
-                "profile_params": {"profile_id": "dev_fast"},
-                "artifact_list": [],
-            }
-        ),
-        encoding="utf-8",
+    _write_text(split_path, "sample_id,fold\n1,0\n")
+    _write_text(model_config_path, "{}")
+    _write_json(
+        diagnostics_dir / "run_manifest.latest.json",
+        {
+            "run_id": run_id,
+            "timestamp_utc": "2026-03-03T00:00:00Z",
+            "split": {"split_audit_path": str(split_path)},
+            "model_config_snapshot_path": str(model_config_path),
+            "profile_params": {"profile_id": "dev_fast"},
+            "artifact_list": [],
+        },
     )
 
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
@@ -858,26 +874,23 @@ def test_run_specific_health_check_writes_json_report(
     out_root = tmp_path / "output"
     diagnostics_dir = out_root / "diagnostics"
     run_id = "20260303T010000Z__def456"
-    run_root = out_root / "runs" / run_id
+    run_root, _ = _make_run_dirs(out_root, run_id)
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    run_root.mkdir(parents=True, exist_ok=True)
 
     split_path = diagnostics_dir / f"split_freeze_audit_{run_id}.csv"
     model_config_path = diagnostics_dir / f"model_config_snapshot_{run_id}.json"
-    split_path.write_text("sample_id,fold\n1,0\n", encoding="utf-8")
-    model_config_path.write_text("{}", encoding="utf-8")
-    (run_root / "run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": run_id,
-                "timestamp_utc": "2026-03-03T01:00:00Z",
-                "split": {"split_audit_path": str(split_path)},
-                "model_config_snapshot_path": str(model_config_path),
-                "profile_params": {"profile_id": "paper2_primary"},
-                "artifact_list": [],
-            }
-        ),
-        encoding="utf-8",
+    _write_text(split_path, "sample_id,fold\n1,0\n")
+    _write_text(model_config_path, "{}")
+    _write_json(
+        run_root / "run_manifest.json",
+        {
+            "run_id": run_id,
+            "timestamp_utc": "2026-03-03T01:00:00Z",
+            "split": {"split_audit_path": str(split_path)},
+            "model_config_snapshot_path": str(model_config_path),
+            "profile_params": {"profile_id": "paper2_primary"},
+            "artifact_list": [],
+        },
     )
 
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
@@ -913,31 +926,27 @@ def test_recent_runs_overview_reads_run_scoped_manifests(
     run_a.mkdir(parents=True, exist_ok=True)
     run_b.mkdir(parents=True, exist_ok=True)
 
-    (run_a / "run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": "20260303T020000Z__aaa111",
-                "timestamp_utc": "2026-03-03T02:00:00Z",
-                "cohort_size": 1200,
-                "profile_params": {"profile_id": "all_malicious"},
-                "model_summary": {"top_model": "random_forest", "top_macro_f1": 0.71},
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        run_a / "run_manifest.json",
+        {
+            "run_id": "20260303T020000Z__aaa111",
+            "timestamp_utc": "2026-03-03T02:00:00Z",
+            "cohort_size": 1200,
+            "profile_params": {"profile_id": "all_malicious"},
+            "model_summary": {"top_model": "random_forest", "top_macro_f1": 0.71},
+        },
     )
-    (run_b / "run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": "20260303T030000Z__bbb222",
-                "timestamp_utc": "2026-03-03T03:00:00Z",
-                "cohort_size": 1300,
-                "publication_ready_status": "READY",
-                "paper_cohort_contract": {"cohort_lock_status": "count_only_incomplete_sample_lock"},
-                "profile_params": {"profile_id": "dev_fast"},
-                "model_summary": {"top_model": "logistic_regression", "top_macro_f1": 0.80},
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        run_b / "run_manifest.json",
+        {
+            "run_id": "20260303T030000Z__bbb222",
+            "timestamp_utc": "2026-03-03T03:00:00Z",
+            "cohort_size": 1300,
+            "publication_ready_status": "READY",
+            "paper_cohort_contract": {"cohort_lock_status": "count_only_incomplete_sample_lock"},
+            "profile_params": {"profile_id": "dev_fast"},
+            "model_summary": {"top_model": "logistic_regression", "top_macro_f1": 0.80},
+        },
     )
 
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
@@ -954,34 +963,25 @@ def test_recent_runs_overview_demotes_invalid_run_ids(monkeypatch, tmp_path: Pat
     valid_run.mkdir(parents=True, exist_ok=True)
     junk_run.mkdir(parents=True, exist_ok=True)
 
-    (valid_run / "run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": "20260321T161433Z__fdaeb0",
-                "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
-                "profile_params": {"profile_id": "research_all_malicious"},
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        valid_run / "run_manifest.json",
+        {
+            "run_id": "20260321T161433Z__fdaeb0",
+            "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
+            "profile_params": {"profile_id": "research_all_malicious"},
+        },
     )
-    (junk_run / "run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": "r1",
-                "timestamp_utc": "t1",
-                "profile_params": {"profile_id": "test"},
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        junk_run / "run_manifest.json",
+        {
+            "run_id": "r1",
+            "timestamp_utc": "t1",
+            "profile_params": {"profile_id": "test"},
+        },
     )
-
-    captured: dict[str, object] = {}
-
-    def _fake_print_table(rows, *_, **__):
-        captured["rows"] = rows
 
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
-    monkeypatch.setattr(startup_menu.du, "print_table", _fake_print_table)
+    captured = _capture_table_rows(monkeypatch)
 
     result = startup_menu._show_recent_runs_overview(limit=5)  # pylint: disable=protected-access
 
@@ -998,34 +998,25 @@ def test_recent_runs_overview_can_include_noncanonical_runs(monkeypatch, tmp_pat
     valid_run.mkdir(parents=True, exist_ok=True)
     junk_run.mkdir(parents=True, exist_ok=True)
 
-    (valid_run / "run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": "20260321T161433Z__fdaeb0",
-                "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
-                "profile_params": {"profile_id": "research_all_malicious"},
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        valid_run / "run_manifest.json",
+        {
+            "run_id": "20260321T161433Z__fdaeb0",
+            "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
+            "profile_params": {"profile_id": "research_all_malicious"},
+        },
     )
-    (junk_run / "run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": "r1",
-                "timestamp_utc": "t1",
-                "profile_params": {"profile_id": "test"},
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        junk_run / "run_manifest.json",
+        {
+            "run_id": "r1",
+            "timestamp_utc": "t1",
+            "profile_params": {"profile_id": "test"},
+        },
     )
-
-    captured: dict[str, object] = {}
-
-    def _fake_print_table(rows, *_, **__):
-        captured["rows"] = rows
 
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
-    monkeypatch.setattr(startup_menu.du, "print_table", _fake_print_table)
+    captured = _capture_table_rows(monkeypatch)
 
     result = startup_menu._show_recent_runs_overview(limit=5, include_noncanonical=True)  # pylint: disable=protected-access
 
@@ -1040,41 +1031,32 @@ def test_recent_runs_overview_uses_runtime_and_model_fallbacks(monkeypatch, tmp_
     """Recent run history should use run-scoped fallbacks when manifest fields are missing."""
     out_root = tmp_path / "output"
     run_id = "20260321T161433Z__fdaeb0"
-    run_root = out_root / "runs" / run_id
-    diagnostics_dir = run_root / "diagnostics"
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_root, diagnostics_dir = _make_run_dirs(out_root, run_id)
 
-    (run_root / "run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": run_id,
-                "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
-                "cohort_size": 1226,
-                "profile_params": {"profile_id": "research_all_malicious"},
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        run_root / "run_manifest.json",
+        {
+            "run_id": run_id,
+            "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
+            "cohort_size": 1226,
+            "profile_params": {"profile_id": "research_all_malicious"},
+        },
     )
-    (diagnostics_dir / f"pipeline_stage_timings_{run_id}.csv").write_text(
+    _write_text(
+        diagnostics_dir / f"pipeline_stage_timings_{run_id}.csv",
         "stage,duration_sec,run_id,timestamp_utc\n"
         f"samples,1.2,{run_id},2026-03-21T16:17:41.213765+00:00\n"
         f"training,3.4,{run_id},2026-03-21T16:17:41.213765+00:00\n"
         f"manifest,0.4,{run_id},2026-03-21T16:17:41.213765+00:00\n",
-        encoding="utf-8",
     )
-    (diagnostics_dir / f"model_comparison_summary_{run_id}.csv").write_text(
+    _write_text(
+        diagnostics_dir / f"model_comparison_summary_{run_id}.csv",
         "Model,Macro F1-Score,Rank,Top\n"
         "random_forest,0.9530,1,*\n",
-        encoding="utf-8",
     )
 
-    captured: dict[str, object] = {}
-
-    def _fake_print_table(rows, *_, **__):
-        captured["rows"] = rows
-
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
-    monkeypatch.setattr(startup_menu.du, "print_table", _fake_print_table)
+    captured = _capture_table_rows(monkeypatch)
 
     result = startup_menu._show_recent_runs_overview(limit=5)  # pylint: disable=protected-access
 
@@ -1088,42 +1070,31 @@ def test_recent_runs_overview_prefers_canonical_run_summary(monkeypatch, tmp_pat
     """Recent run history should use run_summary.json when manifest fields are thin."""
     out_root = tmp_path / "output"
     run_id = "20260321T161433Z__fdaeb0"
-    run_root = out_root / "runs" / run_id
-    diagnostics_dir = run_root / "diagnostics"
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_root, _ = _make_run_dirs(out_root, run_id)
 
-    (run_root / "run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": run_id,
-                "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
-                "profile_params": {"profile_id": "research_all_malicious"},
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        run_root / "run_manifest.json",
+        {
+            "run_id": run_id,
+            "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
+            "profile_params": {"profile_id": "research_all_malicious"},
+        },
     )
-    (run_root / "run_summary.json").write_text(
-        json.dumps(
-            {
-                "run_id": run_id,
-                "profile_id": "research_all_malicious",
-                "cohort_size": 1226,
-                "top_model": "xgboost",
-                "top_macro_f1": 0.9444,
-                "pipeline_runtime_sec": 42.5,
-                "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        run_root / "run_summary.json",
+        {
+            "run_id": run_id,
+            "profile_id": "research_all_malicious",
+            "cohort_size": 1226,
+            "top_model": "xgboost",
+            "top_macro_f1": 0.9444,
+            "pipeline_runtime_sec": 42.5,
+            "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
+        },
     )
-
-    captured: dict[str, object] = {}
-
-    def _fake_print_table(rows, *_, **__):
-        captured["rows"] = rows
 
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
-    monkeypatch.setattr(startup_menu.du, "print_table", _fake_print_table)
+    captured = _capture_table_rows(monkeypatch)
 
     result = startup_menu._show_recent_runs_overview(limit=5)  # pylint: disable=protected-access
 
@@ -1136,45 +1107,36 @@ def test_recent_runs_overview_prefers_canonical_run_summary(monkeypatch, tmp_pat
 def test_recent_runs_overview_includes_methodology_columns(monkeypatch, tmp_path: Path) -> None:
     out_root = tmp_path / "output"
     run_id = "20260321T161433Z__fdaeb0"
-    run_root = out_root / "runs" / run_id
-    diagnostics_dir = run_root / "diagnostics"
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    (run_root / "run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": run_id,
-                "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
-                "publication_ready_status": "READY",
-                "paper_cohort_contract": {"cohort_lock_status": "count_only_incomplete_sample_lock"},
-                "profile_params": {"profile_id": "paper2_demo"},
-            }
-        ),
-        encoding="utf-8",
+    run_root, diagnostics_dir = _make_run_dirs(out_root, run_id)
+    _write_json(
+        run_root / "run_manifest.json",
+        {
+            "run_id": run_id,
+            "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
+            "publication_ready_status": "READY",
+            "paper_cohort_contract": {"cohort_lock_status": "count_only_incomplete_sample_lock"},
+            "profile_params": {"profile_id": "paper2_demo"},
+        },
     )
-    (diagnostics_dir / f"cohort_filter_contract_{run_id}.json").write_text(
+    _write_text(
+        diagnostics_dir / f"cohort_filter_contract_{run_id}.json",
         '{"cohort_gates":{"min_malicious_detections":5}}',
-        encoding="utf-8",
     )
-    (diagnostics_dir / f"analysis_snapshot_filter_summary_{run_id}.csv").write_text(
+    _write_text(
+        diagnostics_dir / f"analysis_snapshot_filter_summary_{run_id}.csv",
         "mode,source_total,post_filter_total\npaper_locked_snapshot_membership,100,98\n",
-        encoding="utf-8",
     )
-    (diagnostics_dir / f"cohort_gate_counts_{run_id}.csv").write_text(
+    _write_text(
+        diagnostics_dir / f"cohort_gate_counts_{run_id}.csv",
         (
             "run_id,step,gate_name,count_before,count_after,dropped,details\n"
             f"{run_id},1,min_malicious_detections,98,97,1,"
             "\">=5; rescued_unknown_consensus=3\"\n"
         ),
-        encoding="utf-8",
     )
 
-    captured: dict[str, object] = {}
-
-    def _fake_print_table(rows, *_, **__):
-        captured["rows"] = rows
-
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
-    monkeypatch.setattr(startup_menu.du, "print_table", _fake_print_table)
+    captured = _capture_table_rows(monkeypatch)
 
     result = startup_menu._show_recent_runs_overview(limit=5)  # pylint: disable=protected-access
 
@@ -1209,46 +1171,36 @@ def test_current_run_summary_uses_status_aware_fallbacks(monkeypatch, tmp_path: 
     """Current run summary should use stage/model exports when manifest fields are thin."""
     out_root = tmp_path / "output"
     run_id = "20260321T161433Z__fdaeb0"
-    run_root = out_root / "runs" / run_id
-    diagnostics_dir = run_root / "diagnostics"
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    (out_root / "diagnostics").mkdir(parents=True, exist_ok=True)
+    run_root, diagnostics_dir = _make_run_dirs(out_root, run_id)
 
-    (out_root / "diagnostics" / "run_manifest.latest.json").write_text(
-        json.dumps({"run_id": run_id}),
-        encoding="utf-8",
+    _write_latest_run_manifest(out_root, {"run_id": run_id})
+    _write_json(
+        run_root / "run_manifest.json",
+        {
+            "run_id": run_id,
+            "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
+            "cohort_size": 1226,
+            "selected_vendor_count": 8,
+            "vendor_constrained_run_flag": False,
+            "profile_params": {"profile_id": "research_all_malicious"},
+        },
     )
-    (run_root / "run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": run_id,
-                "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
-                "cohort_size": 1226,
-                "selected_vendor_count": 8,
-                "vendor_constrained_run_flag": False,
-                "profile_params": {"profile_id": "research_all_malicious"},
-            }
-        ),
-        encoding="utf-8",
-    )
-    (diagnostics_dir / f"pipeline_stage_timings_{run_id}.csv").write_text(
+    _write_text(
+        diagnostics_dir / f"pipeline_stage_timings_{run_id}.csv",
         "stage,duration_sec,run_id,timestamp_utc\n"
         f"samples,1.2,{run_id},2026-03-21T16:17:41.213765+00:00\n"
         f"training,3.4,{run_id},2026-03-21T16:17:41.213765+00:00\n"
         f"manifest,0.4,{run_id},2026-03-21T16:17:41.213765+00:00\n",
-        encoding="utf-8",
     )
-    (diagnostics_dir / f"model_comparison_summary_{run_id}.csv").write_text(
+    _write_text(
+        diagnostics_dir / f"model_comparison_summary_{run_id}.csv",
         "Model,Macro F1-Score,Rank,Top\n"
         "random_forest,0.9530,1,*\n"
         "xgboost,0.9412,2,\n",
-        encoding="utf-8",
     )
 
-    captured: list[tuple[str, object]] = []
-
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
-    monkeypatch.setattr(startup_menu.du, "print_stat", lambda label, value, *args, **kwargs: captured.append((str(label), value)))
+    captured = _capture_stat_rows(monkeypatch)
 
     result = startup_menu._show_latest_run_snapshot()  # pylint: disable=protected-access
 
@@ -1263,47 +1215,37 @@ def test_current_run_summary_uses_status_aware_fallbacks(monkeypatch, tmp_path: 
 def test_current_run_summary_includes_methodology_fields(monkeypatch, tmp_path: Path) -> None:
     out_root = tmp_path / "output"
     run_id = "20260321T161433Z__fdaeb0"
-    run_root = out_root / "runs" / run_id
-    diagnostics_dir = run_root / "diagnostics"
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    (out_root / "diagnostics").mkdir(parents=True, exist_ok=True)
-    (out_root / "diagnostics" / "run_manifest.latest.json").write_text(
-        json.dumps({"run_id": run_id}),
-        encoding="utf-8",
+    run_root, diagnostics_dir = _make_run_dirs(out_root, run_id)
+    _write_latest_run_manifest(out_root, {"run_id": run_id})
+    _write_json(
+        run_root / "run_manifest.json",
+        {
+            "run_id": run_id,
+            "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
+            "publication_ready_status": "READY",
+            "paper_cohort_contract": {"cohort_lock_status": "count_only_incomplete_sample_lock"},
+            "profile_params": {"profile_id": "paper2_demo"},
+        },
     )
-    (run_root / "run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": run_id,
-                "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
-                "publication_ready_status": "READY",
-                "paper_cohort_contract": {"cohort_lock_status": "count_only_incomplete_sample_lock"},
-                "profile_params": {"profile_id": "paper2_demo"},
-            }
-        ),
-        encoding="utf-8",
-    )
-    (diagnostics_dir / f"cohort_filter_contract_{run_id}.json").write_text(
+    _write_text(
+        diagnostics_dir / f"cohort_filter_contract_{run_id}.json",
         '{"cohort_gates":{"min_malicious_detections":5}}',
-        encoding="utf-8",
     )
-    (diagnostics_dir / f"analysis_snapshot_filter_summary_{run_id}.csv").write_text(
+    _write_text(
+        diagnostics_dir / f"analysis_snapshot_filter_summary_{run_id}.csv",
         "mode,source_total,post_filter_total\npaper_locked_snapshot_membership,100,98\n",
-        encoding="utf-8",
     )
-    (diagnostics_dir / f"cohort_gate_counts_{run_id}.csv").write_text(
+    _write_text(
+        diagnostics_dir / f"cohort_gate_counts_{run_id}.csv",
         (
             "run_id,step,gate_name,count_before,count_after,dropped,details\n"
             f"{run_id},1,min_malicious_detections,98,97,1,"
             "\">=5; rescued_unknown_consensus=3\"\n"
         ),
-        encoding="utf-8",
     )
 
-    captured: list[tuple[str, object]] = []
-
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
-    monkeypatch.setattr(startup_menu.du, "print_stat", lambda label, value, *args, **kwargs: captured.append((str(label), value)))
+    captured = _capture_stat_rows(monkeypatch)
 
     result = startup_menu._show_latest_run_snapshot()  # pylint: disable=protected-access
 
@@ -1324,10 +1266,7 @@ def test_within_cross_type_error_snapshot_reads_bundle_artifact(
     run_id = "20260305T055230Z__f3e105"
     diagnostics_dir = out_root / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    (diagnostics_dir / "run_manifest.latest.json").write_text(
-        json.dumps({"run_id": run_id}),
-        encoding="utf-8",
-    )
+    _write_latest_run_manifest(out_root, {"run_id": run_id})
     confusion_path = (
         out_root
         / "runs"
@@ -1338,7 +1277,8 @@ def test_within_cross_type_error_snapshot_reads_bundle_artifact(
         / "confusion_within_vs_cross_type.latest.csv"
     )
     confusion_path.parent.mkdir(parents=True, exist_ok=True)
-    confusion_path.write_text(
+    _write_text(
+        confusion_path,
         "run_id,error_type,count\n"
         f"{run_id},within_type_error,41\n"
         f"{run_id},cross_type_error,39\n"
@@ -1346,7 +1286,6 @@ def test_within_cross_type_error_snapshot_reads_bundle_artifact(
         f"{run_id},within_type_error_ratio,0.5125\n"
         f"{run_id},cross_type_error_ratio,0.4875\n"
         f"{run_id},total_predictions,1286\n",
-        encoding="utf-8",
     )
 
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
@@ -1369,7 +1308,7 @@ def test_within_cross_type_error_snapshot_fails_on_missing_schema(
         / "confusion_within_vs_cross_type.latest.csv"
     )
     confusion_path.parent.mkdir(parents=True, exist_ok=True)
-    confusion_path.write_text("run_id,bad_col\nr1,1\n", encoding="utf-8")
+    _write_text(confusion_path, "run_id,bad_col\nr1,1\n")
 
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
     result = startup_menu._show_within_cross_type_error_snapshot()  # pylint: disable=protected-access
@@ -1388,16 +1327,13 @@ def test_handle_confusion_matrix_export_blocks_multi_model_run(
     conf_dir = run_root / "conf_matrices"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     conf_dir.mkdir(parents=True, exist_ok=True)
-    (diagnostics_dir / "run_manifest.latest.json").write_text(
-        json.dumps({"run_id": run_id, "run_root": str(run_root)}),
-        encoding="utf-8",
+    _write_latest_run_manifest(out_root, {"run_id": run_id, "run_root": str(run_root)})
+    _write_json(
+        run_root / "run_manifest.json",
+        {"run_id": run_id, "model_summary": {"top_model": "logistic_regression"}},
     )
-    (run_root / "run_manifest.json").write_text(
-        json.dumps({"run_id": run_id, "model_summary": {"top_model": "logistic_regression"}}),
-        encoding="utf-8",
-    )
-    (conf_dir / "confusion_matrix_logistic_regression.png").write_text("a", encoding="utf-8")
-    (conf_dir / "confusion_matrix_random_forest.png").write_text("b", encoding="utf-8")
+    _write_text(conf_dir / "confusion_matrix_logistic_regression.png", "a")
+    _write_text(conf_dir / "confusion_matrix_random_forest.png", "b")
 
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
     result = startup_menu._handle_confusion_matrix_export()  # pylint: disable=protected-access
@@ -1419,16 +1355,13 @@ def test_handle_confusion_matrix_export_copies_single_model_matrix(
     conf_dir = run_root / "conf_matrices"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     conf_dir.mkdir(parents=True, exist_ok=True)
-    (diagnostics_dir / "run_manifest.latest.json").write_text(
-        json.dumps({"run_id": run_id, "run_root": str(run_root)}),
-        encoding="utf-8",
-    )
-    (run_root / "run_manifest.json").write_text(
-        json.dumps({"run_id": run_id, "model_summary": {"top_model": "logistic_regression"}}),
-        encoding="utf-8",
+    _write_latest_run_manifest(out_root, {"run_id": run_id, "run_root": str(run_root)})
+    _write_json(
+        run_root / "run_manifest.json",
+        {"run_id": run_id, "model_summary": {"top_model": "logistic_regression"}},
     )
     source = conf_dir / "confusion_matrix_logistic_regression.png"
-    source.write_text("matrix", encoding="utf-8")
+    _write_text(source, "matrix")
 
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
     result = startup_menu._handle_confusion_matrix_export()  # pylint: disable=protected-access

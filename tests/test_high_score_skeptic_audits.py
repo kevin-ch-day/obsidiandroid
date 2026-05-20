@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from config import app_config
 from obsidiandroid.reporting import high_score_skeptic_audits as hssa
 from obsidiandroid.reporting import high_score_skeptic_helpers as helpers
 
@@ -48,6 +49,34 @@ def test_split_contamination_package_overlap(tmp_path: Path) -> None:
     assert payload["sha_overlap_train_test"] == 0
     assert payload["package_names_in_both_splits"] == 1
     assert (tmp_path / "train_test_package_overlap.csv").is_file()
+
+
+def test_split_contamination_can_use_global_latest_split_ledger(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    output_root = tmp_path / "output"
+    diagnostics_dir = output_root / "runs" / "rid" / "diagnostics"
+    global_diag = output_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True)
+    global_diag.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+
+    df = pd.DataFrame(
+        [
+            {"sample_id": 1, "sha256": "aa", "split_role": "train", "package_name": "com.foo.app", "family_canonical": "F1", "year": 2023},
+            {"sample_id": 2, "sha256": "bb", "split_role": "test", "package_name": "com.foo.app", "family_canonical": "F2", "year": 2024},
+        ]
+    )
+    df.to_csv(global_diag / "split_freeze_headline.latest.csv", index=False)
+
+    payload = hssa.write_split_contamination_audit(
+        diagnostics_dir=diagnostics_dir,
+        run_id="rid",
+        samples_df=None,
+    )
+    assert payload["package_names_in_both_splits"] == 1
+    assert payload["split_audit_path"].endswith("split_freeze_headline.latest.csv")
 
 
 def test_package_prefix_two_segments() -> None:

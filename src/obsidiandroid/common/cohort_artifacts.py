@@ -8,6 +8,7 @@ from typing import Any
 
 from obsidiandroid.common.cohort_methodology import extract_rescued_unknown_consensus, safe_int
 from obsidiandroid.common.json_io import read_json_dict
+from obsidiandroid.common import output_hygiene as oh
 
 
 def read_csv_rows(path: Path) -> list[dict[str, Any]]:
@@ -29,9 +30,9 @@ def read_first_csv_row(path: Path) -> dict[str, Any]:
 
 def load_cohort_contract_state(*, diagnostics_dir: Path, run_id: str) -> dict[str, Any]:
     """Read canonical cohort filter artifacts for one run into a shared structure."""
-    summary_path = diagnostics_dir / f"analysis_snapshot_filter_summary_{run_id}.csv"
-    contract_path = diagnostics_dir / f"cohort_filter_contract_{run_id}.json"
-    gate_counts_path = diagnostics_dir / f"cohort_gate_counts_{run_id}.csv"
+    summary_path = oh.resolve_analysis_snapshot_filter_summary_path(diagnostics_dir, run_id)
+    contract_path = oh.resolve_cohort_filter_contract_path(diagnostics_dir, run_id)
+    gate_counts_path = oh.resolve_cohort_gate_counts_path(diagnostics_dir, run_id)
     summary_row = read_first_csv_row(summary_path)
     contract = read_json_dict(contract_path)
     gate_rows = read_csv_rows(gate_counts_path)

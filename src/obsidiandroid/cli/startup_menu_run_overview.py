@@ -15,15 +15,10 @@ from .startup_menu_run_context import (
     candidate_sort_key,
     format_run_status_display,
     format_stage_label,
-    latest_run_has_provenance,
-    publication_exports_available,
     read_json_object,
-    read_latest_run_id,
-    read_locked_publication_run_id,
     read_run_progress_summary,
     read_run_summary,
     read_top_model_snapshot,
-    resolve_latest_manifest_payload,
     resolve_run_root_for_manifest,
 )
 from .ui import display as du
@@ -378,7 +373,7 @@ def show_session_and_output_details() -> int:
     du.print_stat("Locked Evidence Run", locked_run_id)
     du.print_stat(
         "Publication Exports",
-        "Yes" if bool(shared.get("has_publication_exports", shared.get("has_paper_exports", False))) else "No",
+        "Yes" if bool(shared.get("has_publication_exports", False)) else "No",
     )
     du.print_stat("Publication-ready Status", str(shared.get("publication_ready_status", "") or "unknown"))
     du.print_stat("Cohort Lock Status", str(shared.get("cohort_lock_status", "") or "unknown"))

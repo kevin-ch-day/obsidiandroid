@@ -12,6 +12,19 @@ from obsidiandroid.cli.menu import vendor_diagnostics_actions
 from obsidiandroid.cli.menu import vendor_parser_state
 
 
+def _make_vendor_diag_run(make_run_diagnostics_layout, run_id: str) -> tuple[Path, Path]:
+    out_root, run_diag, global_diag = make_run_diagnostics_layout(run_id)
+    global_diag.mkdir(parents=True, exist_ok=True)
+    return out_root, run_diag
+
+
+def _write_latest_manifest(write_text_file, out_root: Path, payload: dict[str, object]) -> None:
+    write_text_file(
+        out_root / "diagnostics" / "run_manifest.latest.json",
+        json.dumps(payload),
+    )
+
+
 def test_validate_parser_coverage_uses_csv_fallback_when_workbook_missing(
     monkeypatch,
     tmp_path: Path,
@@ -69,13 +82,12 @@ def test_single_vendor_parser_check_reports_missing_enriched_matrix_requirement(
 
 def test_print_parser_diagnostics_state_reports_csv_vs_workbook_context(
     monkeypatch,
-    tmp_path: Path,
+    make_run_diagnostics_layout,
+    write_text_file,
     capsys,
 ) -> None:
-    out_root = tmp_path / "output"
     run_id = "20260515T141956Z__58d84f"
-    run_diag = out_root / "runs" / run_id / "diagnostics"
-    run_diag.mkdir(parents=True, exist_ok=True)
+    out_root, run_diag = _make_vendor_diag_run(make_run_diagnostics_layout, run_id)
     pd.DataFrame(
         [
             {"vendor_column": "a", "coverage_pct": 95.0, "parser_mapped": 1, "is_dynamic_generic": 0},
@@ -86,14 +98,9 @@ def test_print_parser_diagnostics_state_reports_csv_vs_workbook_context(
         run_diag / "engine_scoring_summary.csv",
         index=False,
     )
-    (out_root / "diagnostics").mkdir(parents=True, exist_ok=True)
-    (out_root / "diagnostics" / "run_manifest.latest.json").write_text(
-        json.dumps({"run_id": run_id, "selected_vendor_count": 1}),
-        encoding="utf-8",
-    )
+    _write_latest_manifest(write_text_file, out_root, {"run_id": run_id, "selected_vendor_count": 1})
 
     monkeypatch.setattr(vendor_parser_state.run_locator, "read_latest_run_id", lambda: run_id)
-    monkeypatch.setattr(vendor_parser_state.app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
     monkeypatch.setattr(vendor_diagnostics_actions, "load_enriched_matrix_for_menu", lambda **_kwargs: None)
 
     vendor_diagnostics.print_parser_diagnostics_state()
@@ -132,13 +139,12 @@ def test_single_vendor_parser_check_compact_blocked_message_without_reprinting_f
 
 def test_parser_summary_compact_focuses_on_status_and_next_actions(
     monkeypatch,
-    tmp_path: Path,
+    make_run_diagnostics_layout,
+    write_text_file,
     capsys,
 ) -> None:
-    out_root = tmp_path / "output"
     run_id = "20260515T141956Z__58d84f"
-    run_diag = out_root / "runs" / run_id / "diagnostics"
-    run_diag.mkdir(parents=True, exist_ok=True)
+    out_root, run_diag = _make_vendor_diag_run(make_run_diagnostics_layout, run_id)
     pd.DataFrame(
         [
             {"vendor_column": "crowdstrike", "coverage_pct": 100.0, "parser_mapped": 0, "is_dynamic_generic": 0},
@@ -155,14 +161,9 @@ def test_parser_summary_compact_focuses_on_status_and_next_actions(
     pd.DataFrame(
         [{"Vendor": "tencent"}, {"Vendor": "lionic"}, {"Vendor": "alibaba"}]
     ).to_csv(run_diag / f"vendor_gate_top10_pre_gate_{run_id}.csv", index=False)
-    (out_root / "diagnostics").mkdir(parents=True, exist_ok=True)
-    (out_root / "diagnostics" / "run_manifest.latest.json").write_text(
-        json.dumps({"run_id": run_id, "selected_vendor_count": 8}),
-        encoding="utf-8",
-    )
+    _write_latest_manifest(write_text_file, out_root, {"run_id": run_id, "selected_vendor_count": 8})
 
     monkeypatch.setattr(vendor_parser_state.run_locator, "read_latest_run_id", lambda: run_id)
-    monkeypatch.setattr(vendor_parser_state.app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
     monkeypatch.setattr(vendor_diagnostics_actions, "load_enriched_matrix_for_menu", lambda **_kwargs: None)
 
     vendor_diagnostics.print_compact_vendor_coverage_snapshot()
@@ -178,13 +179,12 @@ def test_parser_summary_compact_focuses_on_status_and_next_actions(
 
 def test_parser_onboarding_queue_shows_top_10_and_tuning_columns(
     monkeypatch,
-    tmp_path: Path,
+    make_run_diagnostics_layout,
+    write_text_file,
     capsys,
 ) -> None:
-    out_root = tmp_path / "output"
     run_id = "20260515T141956Z__58d84f"
-    run_diag = out_root / "runs" / run_id / "diagnostics"
-    run_diag.mkdir(parents=True, exist_ok=True)
+    out_root, run_diag = _make_vendor_diag_run(make_run_diagnostics_layout, run_id)
     coverage_rows = []
     candidate_rows = []
     names = ["crowdstrike", "gdata", "k7antivirus", "microworld_escan", "paloalto", "superantispyware", "symantecmobileinsight", "tachyon", "trustlook", "virobot", "acronis"]
@@ -203,14 +203,9 @@ def test_parser_onboarding_queue_shows_top_10_and_tuning_columns(
         run_diag / f"vendor_gate_top10_pre_gate_{run_id}.csv",
         index=False,
     )
-    (out_root / "diagnostics").mkdir(parents=True, exist_ok=True)
-    (out_root / "diagnostics" / "run_manifest.latest.json").write_text(
-        json.dumps({"run_id": run_id, "selected_vendor_count": 1}),
-        encoding="utf-8",
-    )
+    _write_latest_manifest(write_text_file, out_root, {"run_id": run_id, "selected_vendor_count": 1})
 
     monkeypatch.setattr(vendor_parser_state.run_locator, "read_latest_run_id", lambda: run_id)
-    monkeypatch.setattr(vendor_parser_state.app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
 
     vendor_diagnostics.print_parser_onboarding_candidates()
     out = capsys.readouterr().out

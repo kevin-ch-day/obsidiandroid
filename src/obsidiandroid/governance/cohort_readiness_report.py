@@ -130,11 +130,6 @@ def print_cohort_sql_scope_gate_summary(stats: dict) -> None:
         )
 
 
-def print_cohort_gate_stats(stats: dict) -> None:
-    """Compatibility alias for :func:`print_cohort_sql_scope_gate_summary`."""
-    print_cohort_sql_scope_gate_summary(stats)
-
-
 def _family_column(df: pd.DataFrame) -> str | None:
     for col in ("family_canonical", "family_name", "family_label_raw"):
         if col in df.columns:

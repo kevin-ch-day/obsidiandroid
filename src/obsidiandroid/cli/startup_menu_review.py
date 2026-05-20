@@ -71,6 +71,11 @@ def _status_rank(status: str) -> int:
     return 3
 
 
+def _taxonomy_split_report_path(*, diagnostics_dir: Path, run_id: str) -> Path:
+    """Return the run-scoped taxonomy authority split Markdown path."""
+    return diagnostics_dir / f"taxonomy_authority_split_{run_id}.md"
+
+
 def _append_warning(
     warnings: list[str],
     *,
@@ -227,10 +232,10 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
             ),
             why=(
                 f"type authority/rendering issues={type_issue_count}; "
-                f"family label mismatches={family_label_mismatch}"
+                f"model prediction errors={taxonomy_support.get('model_prediction_error_count', family_label_mismatch)}"
             ),
-            next_action="review taxonomy type authority report and mismatch summary",
-            open_label="Taxonomy consistency summary",
+            next_action="review taxonomy authority split, then inspect any remaining rendering mismatch and prediction-error CSVs",
+            open_label="Taxonomy authority split",
         )
     if health_map.get("Vendor/parser") in {"YELLOW", "RED"}:
         _append_warning(
@@ -282,15 +287,15 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
         },
         {"label": "Cohort funnel", "path": cohort_funnel_md},
         {
-            "label": "Taxonomy consistency summary",
-            "path": rdiag / f"taxonomy_consistency_summary_{rid}.json" if rid else Path(),
+            "label": "Taxonomy authority split",
+            "path": _taxonomy_split_report_path(diagnostics_dir=rdiag, run_id=rid) if rid else Path(),
         },
         {"label": "Feature-set ablation summary", "path": ablation_md if ablation_md.is_file() else ablation_csv},
         {"label": "Figure validity audit", "path": figure_md},
     ]
     row_to_open_label = {
         "Cohort / labels": "Run science index",
-        "Taxonomy consistency": "Taxonomy consistency summary",
+        "Taxonomy consistency": "Taxonomy authority split",
         "Permission signal": "Permission and feature health",
         "Vendor/parser": "Parser & Vendor Coverage",
         "Feature matrix": "Feature matrix / modality coverage",
@@ -311,7 +316,7 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
 
     tuning_actions: list[str] = []
     if health_map.get("Taxonomy consistency") in {"YELLOW", "RED"} and tax_mismatch > 0:
-        tuning_actions.append("Review taxonomy type authority report and mismatch summary.")
+        tuning_actions.append("Review taxonomy authority split before reading the older mismatch summary.")
     if health_map.get("Vendor/parser") in {"YELLOW", "RED"} and parser_summary.get("unmapped_vendors", 0):
         tuning_actions.append("Review parser onboarding candidates and top unmapped vendors.")
     if health_map.get("Permission signal") in {"YELLOW", "RED"} and q2 and q2.get("permission_signal_pct") not in (None, "", "—"):
@@ -424,8 +429,12 @@ def print_compact_review_latest_run(*, output_root: Path, latest_run_id: str | N
         du.print_stat("  Taxonomy health", str(tax.get("taxonomy_health", "—")))
         du.print_stat("  Taxonomy mismatches", str(tax.get("taxonomy_mismatch_total", "—")))
         du.print_stat(
-            "  Family mismatches vs type/rendering",
-            f"{tax.get('family_mismatch_count', '—')} vs {tax.get('type_rendering_issue_count', '—')}",
+            "  Model prediction errors vs type/rendering",
+            f"{tax.get('model_prediction_error_count', tax.get('family_mismatch_count', '—'))} vs {tax.get('type_rendering_issue_count', '—')}",
+        )
+        du.print_stat(
+            "  Authority gap rows (run/global)",
+            f"{tax.get('authority_gap_run_count', '—')} / {tax.get('authority_gap_global_count', '—')}",
         )
         du.print_stat("  min_samples_per_family", str(tax.get("min_samples_per_family", "—")))
         du.print_stat(

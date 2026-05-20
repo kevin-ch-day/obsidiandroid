@@ -8,6 +8,8 @@ from typing import Any
 
 import pandas as pd
 
+from obsidiandroid.common import output_hygiene as oh
+
 
 def write_target_validity_audit(
     *,
@@ -16,9 +18,7 @@ def write_target_validity_audit(
     samples_df: pd.DataFrame | None,
 ) -> tuple[Path, Path]:
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    abl = diagnostics_dir / f"ablation_summary_{run_id}.csv"
-    if not abl.exists():
-        abl = diagnostics_dir / "ablation_summary.latest.csv"
+    abl = oh.resolve_ablation_summary_path(diagnostics_dir, run_id)
 
     rows: list[dict[str, Any]] = []
 

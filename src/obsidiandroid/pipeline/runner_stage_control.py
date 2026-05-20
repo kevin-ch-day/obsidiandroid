@@ -72,6 +72,7 @@ class PipelineRunStageControl:
         log_event(
             self._pipeline_logger,
             "stage_timing",
+            event_id="PIPE_STAGE_200",
             run_id=self.run_id,
             stage=stage_name,
             duration_sec=round(duration, 2),

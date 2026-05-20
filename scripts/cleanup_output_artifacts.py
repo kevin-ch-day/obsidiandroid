@@ -1,5 +1,7 @@
 """Prune noisy output artifacts while preserving current/latest results."""
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import argparse
@@ -12,16 +14,15 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-import scripts.runtime_bootstrap  # noqa: F401
+from scripts._bootstrap import prepare_script_runtime  # noqa: E402
 
-from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path
-
-ensure_repo_src_on_sys_path()
+prepare_script_runtime(__file__)
 
 from obsidiandroid.common.output_cleanup_clutter import (
     DIAGNOSTICS_TIMESTAMP_GLOBS,
     LEGACY_OUTPUT_ROOT_FILES,
     LEGACY_RUN_SUBDIR_NAMES,
+    LEGACY_SHORT_NAME_LOG_FILES,
     PAPER_BUNDLE_ARCHIVE_GLOBS,
     PAPER_BUNDLE_SMOKE_GLOBS,
     RUN_DIAGNOSTICS_LOCAL_LATEST_GLOB,
@@ -135,6 +136,7 @@ def _collect_targets(
     """Build list of cleanup targets while preserving selected recent runs."""
     targets: list[Path] = []
     pipeline_runtime_candidates: list[Path] = []
+    runtime_category_targets: list[Path] = []
     runs_dir = output_dir / "runs"
 
     # Run-scoped bundles/archives (keep latest selected run IDs).
@@ -174,6 +176,14 @@ def _collect_targets(
         if legacy_path.exists():
             targets.append(legacy_path)
 
+    # Repo-root legacy short-name logs now superseded by clearer canonical names.
+    logs_root = project_logs_root()
+    if logs_root.exists():
+        for legacy_name in LEGACY_SHORT_NAME_LOG_FILES:
+            legacy_path = logs_root / legacy_name
+            if legacy_path.exists():
+                targets.append(legacy_path)
+
     # Smoke/debug bundle clutter (always remove).
     for pattern in PAPER_BUNDLE_SMOKE_GLOBS:
         targets.extend(output_dir.glob(pattern))
@@ -194,20 +204,31 @@ def _collect_targets(
         # Legacy runtime logs under output/diagnostics/runtime_logs/**/
         runtime_dir = diagnostics_dir / "runtime_logs"
         if runtime_dir.exists():
-            for path in runtime_dir.rglob("pipeline_runtime_*.log"):
+            for path in runtime_dir.rglob("pipeline_runtime*.log"):
                 if path.is_file():
                     pipeline_runtime_candidates.append(path)
 
-    # Canonical repo logs: logs/runtime/<run_id>/pipeline_runtime_*.log
+    # Canonical repo logs: logs/runtime/<run_id>/pipeline_runtime_console_*.log
     log_runtime_root = project_logs_root() / "runtime"
     if log_runtime_root.exists():
-        for path in log_runtime_root.glob("*/pipeline_runtime_*.log"):
-            if path.is_file():
-                pipeline_runtime_candidates.append(path)
+        for run_dir in log_runtime_root.iterdir():
+            if not run_dir.is_dir():
+                continue
+            run_id = _extract_run_id(run_dir) or run_dir.name
+            preserve_run = run_id in keep_run_ids
+            for path in run_dir.glob("*.log"):
+                if not path.is_file():
+                    continue
+                if path.name.startswith("pipeline_runtime"):
+                    pipeline_runtime_candidates.append(path)
+                    continue
+                if path.name in LEGACY_SHORT_NAME_LOG_FILES and (not preserve_run or prune_preserved_legacy):
+                    runtime_category_targets.append(path)
 
     if pipeline_runtime_candidates:
         pipeline_runtime_candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
         targets.extend(pipeline_runtime_candidates[max(0, keep_runtime_logs) :])
+    targets.extend(runtime_category_targets)
 
     # Vendor raw run folders: keep latest selected run IDs.
     vendor_raw_dir = output_dir / "vendor_raw"
@@ -243,6 +264,23 @@ def _remove_path(path: Path) -> None:
         path.rmdir()
     else:
         path.unlink(missing_ok=True)
+
+
+def _prune_empty_runtime_log_dirs(logs_root: Path) -> int:
+    """Remove empty ``logs/runtime/<run_id>/`` directories after file pruning."""
+    runtime_root = logs_root / "runtime"
+    if not runtime_root.exists():
+        return 0
+    removed = 0
+    for path in sorted(runtime_root.rglob("*"), reverse=True):
+        if not path.is_dir():
+            continue
+        try:
+            next(path.iterdir())
+        except StopIteration:
+            path.rmdir()
+            removed += 1
+    return removed
 
 
 def main() -> None:
@@ -282,10 +320,24 @@ def main() -> None:
     )
     pointers_synced = False
     if not targets:
+        empty_runtime_dirs_removed = 0
         if args.apply:
+            empty_runtime_dirs_removed = _prune_empty_runtime_log_dirs(project_logs_root())
             pointers_synced = _sync_promoted_latest_run_pointers(output_dir)
-        if pointers_synced:
+        if pointers_synced and empty_runtime_dirs_removed:
+            print(
+                "No cleanup targets found. "
+                f"Removed {empty_runtime_dirs_removed} empty runtime log director"
+                f"{'y' if empty_runtime_dirs_removed == 1 else 'ies'} and synced promoted latest-run pointers."
+            )
+        elif pointers_synced:
             print("No cleanup targets found. Synced promoted latest-run pointers.")
+        elif empty_runtime_dirs_removed:
+            print(
+                "No cleanup targets found. "
+                f"Removed {empty_runtime_dirs_removed} empty runtime log director"
+                f"{'y' if empty_runtime_dirs_removed == 1 else 'ies'}."
+            )
         else:
             print("No cleanup targets found.")
         return
@@ -302,8 +354,11 @@ def main() -> None:
 
     for target in targets:
         _remove_path(target)
+    empty_runtime_dirs_removed = _prune_empty_runtime_log_dirs(project_logs_root())
     pointers_synced = _sync_promoted_latest_run_pointers(output_dir)
     print(f"Deleted {len(targets)} targets.")
+    if empty_runtime_dirs_removed:
+        print(f"Removed {empty_runtime_dirs_removed} empty runtime log director{'y' if empty_runtime_dirs_removed == 1 else 'ies'}.")
     if pointers_synced:
         print("Synced promoted latest-run pointers from canonical diagnostics pointer.")
 

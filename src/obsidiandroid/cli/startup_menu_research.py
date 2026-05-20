@@ -16,60 +16,6 @@ from .ui import display as du
 from .ui import menu as mu
 
 
-def show_contract_snapshot_viewer(*, read_json_object: Callable[[Path], dict]) -> int:
-    """Show latest experiment contract highlights for quick reproducibility review."""
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    path = output_root / "diagnostics" / "experiment_contract_snapshot.latest.json"
-    if not path.exists():
-        du.print_warning(f"[MENU] Missing latest experiment contract: {path}")
-        return 1
-    payload = read_json_object(path)
-    if not payload:
-        du.print_warning("[MENU] Latest experiment contract is unreadable.")
-        return 1
-    model_contract = payload.get("model_contract", {}) if isinstance(payload.get("model_contract"), dict) else {}
-    split_contract = payload.get("split_contract", {}) if isinstance(payload.get("split_contract"), dict) else {}
-    series = payload.get("experiment_series", {}) if isinstance(payload.get("experiment_series"), dict) else {}
-    du.print_section("Contract Snapshot Viewer")
-    du.print_stat("Run ID", payload.get("run_id", "n/a"))
-    du.print_stat("Profile ID", payload.get("profile_id", "n/a"))
-    du.print_stat("Split Hash", split_contract.get("split_hash", "n/a"))
-    du.print_stat("Model Config Hash", model_contract.get("model_config_hash", "n/a"))
-    du.print_stat(
-        "No Retuning Across Perturbations",
-        model_contract.get("no_model_retuning_across_perturbations", "n/a"),
-    )
-    du.print_stat("Series ID", series.get("series_id", "n/a"))
-    return 0
-
-
-def show_experiment_series_comparison(*, read_json_object: Callable[[Path], dict]) -> int:
-    """Show latest and previous series hashes to explain run-to-run drift quickly."""
-    output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
-    path = output_root / "diagnostics" / "experiment_contract_snapshot.latest.json"
-    payload = read_json_object(path)
-    if not payload:
-        du.print_warning("[MENU] Latest experiment contract snapshot unavailable.")
-        return 1
-    series = payload.get("experiment_series", {}) if isinstance(payload.get("experiment_series"), dict) else {}
-    rows = [
-        {"field": "series_id", "value": series.get("series_id", "n/a")},
-        {"field": "split_hash", "value": (series.get("series_key") or {}).get("split_hash", "n/a")},
-        {"field": "profile_id", "value": (series.get("series_key") or {}).get("profile_id", "n/a")},
-        {"field": "previous_run_id", "value": series.get("previous_run_id_in_series", "n/a")},
-        {
-            "field": "previous_model_config_hash",
-            "value": series.get("previous_model_config_hash_in_series", "n/a"),
-        },
-        {
-            "field": "model_config_hash_stable_with_series",
-            "value": series.get("model_config_hash_stable_with_series", "n/a"),
-        },
-    ]
-    du.print_table(rows, title="Experiment Series Comparison", show_index=False)
-    return 0
-
-
 def run_evidence_bundle_series_aggregator(*, read_json_object: Callable[[Path], dict]) -> int:
     """Aggregate strict reproducibility evidence bundles into a macro-F1 comparison table."""
     output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
@@ -292,7 +238,7 @@ def run_evidence_readiness_menu_action(
     latest_run_id = str(shared.get("latest_run_id", "") or "")
     locked = read_locked_publication_run_id()
     evidence_mode = bool(shared.get("evidence_mode", False))
-    exports = bool(shared.get("has_publication_exports", shared.get("has_paper_exports", False)))
+    exports = bool(shared.get("has_publication_exports", False))
     try:
         repro_workbench.write_evidence_paper_readiness(
             output_root=output_root,
@@ -373,7 +319,7 @@ def launch_reproducibility_menu(
                 ("Latest Run Uses Evidence Mode", "Yes" if bool(shared.get("evidence_mode", False)) else "No"),
                 (
                     "Latest Run Publication Exports",
-                    "Yes" if bool(shared.get("has_publication_exports", shared.get("has_paper_exports", False))) else "No",
+                    "Yes" if bool(shared.get("has_publication_exports", False)) else "No",
                 ),
                 ("Latest Run Provenance", "Yes" if bool(shared.get("latest_run_has_provenance", False)) else "No"),
             ]
@@ -503,7 +449,5 @@ __all__ = [
     "run_evidence_bundle_series_aggregator",
     "run_evidence_readiness_menu_action",
     "run_research_validity_review_menu",
-    "show_contract_snapshot_viewer",
-    "show_experiment_series_comparison",
     "show_research_report_key_artifact_paths",
 ]

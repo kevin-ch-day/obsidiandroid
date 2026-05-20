@@ -10,6 +10,17 @@ from config import app_config
 from obsidiandroid.common.output_paths import project_logs_root, project_runtime_logs_dir
 
 _LOGGERS: dict[str, logging.Logger] = {}
+_CATEGORY_FILENAMES: dict[str, str] = {
+    "analysis": "analysis_summary.log",
+    "database": "database_access.log",
+    "export": "artifact_exports.log",
+    "label_authority": "label_authority_alerts.log",
+    "menu": "profile_preflight.log",
+    "ml": "machine_learning.log",
+    "pipeline": "pipeline_orchestration.log",
+    "temporal_readiness": "temporal_readiness_alerts.log",
+}
+_ERROR_AGGREGATE_FILENAME = "error.log"
 
 
 def _log_level() -> int:
@@ -18,7 +29,7 @@ def _log_level() -> int:
 
 
 def _log_dir() -> Path:
-    """Rolling / fallback category logs at ``<project_logs_root>/<category>.log``."""
+    """Rolling / fallback category logs at ``<project_logs_root>/<canonical-name>.log``."""
     path = project_logs_root()
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -61,8 +72,8 @@ def _current_run_id() -> str:
 def _resolve_log_paths(category: str) -> list[Path]:
     policy = _log_policy()
     run_id = _current_run_id()
-    rolling_path = _log_dir() / f"{category}.log"
-    run_path = (_runtime_log_dir(run_id) / f"{category}.log") if run_id else None
+    rolling_path = _log_dir() / _log_filename_for_category(category)
+    run_path = (_runtime_log_dir(run_id) / _log_filename_for_category(category)) if run_id else None
     if policy == "rolling_only":
         return [rolling_path]
     if policy == "hybrid":
@@ -73,8 +84,51 @@ def _resolve_log_paths(category: str) -> list[Path]:
     return [rolling_path]
 
 
+def _log_filename_for_category(category: str) -> str:
+    """Return the canonical on-disk filename for one logger category."""
+    token = str(category).strip().lower()
+    return _CATEGORY_FILENAMES.get(token, f"{token}.log")
+
+
+def _normalize_log_level(level: object) -> int:
+    """Return a stdlib logging level from string/int input."""
+    if isinstance(level, int):
+        return int(level)
+    token = str(level or "INFO").strip().upper()
+    return getattr(logging, token, logging.INFO)
+
+
+def _runtime_context_fields(logger: logging.Logger) -> dict[str, Any]:
+    """Return useful runtime context fields for every structured event."""
+    context: dict[str, Any] = {
+        "category": str(getattr(logger, "_obsidiandroid_category", "")).strip(),
+        "logger_name": str(getattr(logger, "name", "")).strip(),
+    }
+    run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "").strip()
+    if run_id and run_id != "unknown":
+        context["run_id"] = run_id
+    profile_id = str(getattr(app_config, "RUNTIME_PROFILE_ID", "") or "").strip()
+    if profile_id and profile_id != "unknown":
+        context["profile_id"] = profile_id
+    if bool(getattr(app_config, "RUNTIME_EVIDENCE_MODE", False)):
+        context["evidence_mode"] = True
+    if bool(getattr(app_config, "PAPER_MODE_ENABLED", False)):
+        context["paper_mode"] = True
+    return context
+
+
+def _merge_event_fields(logger: logging.Logger, explicit_fields: dict[str, Any]) -> dict[str, Any]:
+    """Merge auto context fields without overriding explicit event payload keys."""
+    fields = dict(explicit_fields)
+    for key, value in _runtime_context_fields(logger).items():
+        if key not in fields and value not in ("", None):
+            fields[key] = value
+    return fields
+
+
 def _sync_logger_handlers(logger: logging.Logger, category: str) -> None:
     target_paths = {path.resolve() for path in _resolve_log_paths(category)}
+    target_paths.add((_log_dir() / _ERROR_AGGREGATE_FILENAME).resolve())
     existing_handlers: list[logging.FileHandler] = [
         handler for handler in logger.handlers if isinstance(handler, logging.FileHandler)
     ]
@@ -98,7 +152,10 @@ def _sync_logger_handlers(logger: logging.Logger, category: str) -> None:
         if path in existing_paths:
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
-        handler = logging.FileHandler(path, encoding="utf-8")
+        # Delay open so categories that never emit do not leave empty placeholder files behind.
+        handler = logging.FileHandler(path, encoding="utf-8", delay=True)
+        if path.name == _ERROR_AGGREGATE_FILENAME:
+            handler.setLevel(logging.ERROR)
         handler.setFormatter(fmt)
         logger.addHandler(handler)
 
@@ -127,13 +184,22 @@ def get_logger(name: str, category: str) -> logging.Logger:
     return logger
 
 
-def log_event(logger: logging.Logger, event: str, **fields: Any) -> None:
-    """Emit a structured info event as key-value text."""
+def log_event(logger: logging.Logger, event: str, *, level: object = "INFO", **fields: Any) -> None:
+    """Emit a structured event as key-value text.
+
+    Args:
+        logger: Destination logger returned by :func:`get_logger`.
+        event: Stable event name.
+        level: Logging level name or integer.
+        **fields: Structured payload fields.
+    """
     category = str(getattr(logger, "_obsidiandroid_category", "")).strip()
     if category:
         _sync_logger_handlers(logger, category)
-    payload = " ".join(f"{k}={fields[k]!r}" for k in sorted(fields))
-    logger.info("%s %s", event, payload)
+    merged = _merge_event_fields(logger, fields)
+    payload = " ".join(f"{k}={merged[k]!r}" for k in sorted(merged))
+    message = f"event={event!r}" if not payload else f"event={event!r} {payload}"
+    logger.log(_normalize_log_level(level), message)
 
 
 def close_all_loggers() -> None:

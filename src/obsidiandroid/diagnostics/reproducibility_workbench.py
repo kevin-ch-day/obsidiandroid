@@ -20,11 +20,13 @@ from config import app_config
 from obsidiandroid.common.cohort_artifacts import load_cohort_contract_state
 from obsidiandroid.common.cohort_presentation import cohort_methodology_summary
 from obsidiandroid.common.cohort_methodology import resolve_cohort_lock_status
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common import output_paths
 from obsidiandroid.common.json_io import read_json_dict
 from obsidiandroid.common.publication_readiness import coalesce_publication_ready_status
 from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
 from obsidiandroid.diagnostics.diagnostic_provenance import latest_post_run_enrichment_dir
+from obsidiandroid.diagnostics.split_ledger_resolve import resolve_split_freeze_csv
 
 
 def run_scoped_diagnostics(output_root: Path, run_id: str) -> Path:
@@ -64,13 +66,8 @@ def _ablation_macro_f1_by_experiment(diagnostics_dir: Path, run_id: str) -> dict
         "permissions_raw": None,
         "full_fused": None,
     }
-    candidates = [
-        diagnostics_dir / f"feature_set_ablation_summary_{run_id}.csv",
-        diagnostics_dir / "feature_set_ablation_summary.csv",
-        diagnostics_dir / "feature_set_ablation_summary.latest.csv",
-    ]
-    path = pick_first_existing(candidates)[0]
-    if path is None:
+    path = oh.resolve_feature_set_ablation_summary_path(diagnostics_dir, run_id)
+    if not path.is_file():
         return out
     try:
         ab = pd.read_csv(path)
@@ -138,7 +135,7 @@ def _warn_plain(name: str, chosen: Path | None, tried: list[str]) -> str:
     if name == "parser_quality_snapshot":
         return (
             "No parser quality CSV found (checked run-scoped parser_quality_final_*.csv, "
-            "then legacy output/diagnostics/parser_quality.latest.csv). "
+            "then parser_quality_<run_id>.csv or legacy output/diagnostics/parser_quality.latest.csv). "
             "Vendor stage may be skipped or exports only run-scoped finals."
         )
     if name == "run_paths_manifest_exists":
@@ -236,9 +233,15 @@ def build_filesystem_artifact_checks(
             bucket="core",
         )
     else:
-        headline_split = rdiag / f"split_freeze_headline_{effective_run_id}.csv"
-        legacy_split = rdiag / f"split_freeze_audit_{effective_run_id}.csv"
-        picked, tried = pick_first_existing([headline_split, legacy_split])
+        picked = resolve_split_freeze_csv(rdiag, effective_run_id)
+        tried = [
+            str(rdiag / f"split_freeze_headline_{effective_run_id}.csv"),
+            str(rdiag / "split_freeze_headline.latest.csv"),
+            str(oh.global_diagnostics_root() / "split_freeze_headline.latest.csv"),
+            str(rdiag / f"split_freeze_audit_{effective_run_id}.csv"),
+            str(rdiag / "split_freeze_audit.latest.csv"),
+            str(oh.global_diagnostics_root() / "split_freeze_audit.latest.csv"),
+        ]
         if picked is not None:
             add("split_audit_exists", "PASS", str(picked), bucket="core")
         else:
@@ -274,10 +277,8 @@ def build_filesystem_artifact_checks(
         add("vendor_gate_debug_exists", "WARN", "No vendor_gate_debug_path recorded in manifest.")
 
     pq_candidates = [
-        rdiag / f"parser_quality_final_{effective_run_id}.csv",
-        rdiag / "parser_quality_final.latest.csv",
-        rdiag / "parser_quality.latest.csv",
-        gdiag / "parser_quality.latest.csv",
+        oh.resolve_parser_quality_final_path(rdiag, effective_run_id),
+        oh.resolve_parser_quality_path(rdiag, effective_run_id),
     ]
     pq_path, pq_tried = pick_first_existing(pq_candidates)
     pq_status = "PASS" if pq_path is not None else "WARN"
@@ -288,11 +289,7 @@ def build_filesystem_artifact_checks(
         plain=_warn_plain("parser_quality_snapshot", pq_path, pq_tried),
     )
 
-    cov_candidates = [
-        rdiag / f"vendor_parser_coverage_{effective_run_id}.csv",
-        rdiag / "vendor_parser_coverage.latest.csv",
-        gdiag / "vendor_parser_coverage.latest.csv",
-    ]
+    cov_candidates = [oh.resolve_vendor_parser_coverage_path(rdiag, effective_run_id)]
     cov_path, cov_tried = pick_first_existing(cov_candidates)
     add(
         "parser_coverage_snapshot_exists",
@@ -347,37 +344,22 @@ def build_filesystem_artifact_checks(
         ),
         (
             "feature_contract_json",
-            [
-                rdiag / "feature_contract.json",
-                rdiag / "feature_contract.latest.json",
-                rdiag / f"feature_contract_{effective_run_id}.json",
-                gdiag / f"feature_contract_{effective_run_id}.json",
-                gdiag / "feature_contract.latest.json",
-                gdiag / "feature_contract.json",
-            ],
+            [oh.resolve_feature_contract_path(rdiag, effective_run_id)],
             "Feature contract",
         ),
         (
             "leakage_assessment_txt",
-            [
-                rdiag / "leakage_assessment.txt",
-                rdiag / "leakage_assessment.latest.txt",
-                gdiag / "leakage_assessment.latest.txt",
-            ],
+            [oh.resolve_leakage_assessment_path(rdiag, effective_run_id)],
             "Leakage assessment",
         ),
         (
             "modality_method_contract_json",
-            [
-                rdiag / "modality_method_contract.json",
-                rdiag / "modality_method_contract.latest.json",
-                gdiag / "modality_method_contract.latest.json",
-            ],
+            [oh.resolve_modality_method_contract_path(rdiag, effective_run_id)],
             "Modality method contract",
         ),
         (
             "split_freeze_headline_csv",
-            [rdiag / f"split_freeze_headline_{effective_run_id}.csv"],
+            [resolve_split_freeze_csv(rdiag, effective_run_id) or (rdiag / f"split_freeze_headline_{effective_run_id}.csv")],
             "Split freeze headline ledger",
         ),
     ]
@@ -468,10 +450,8 @@ def write_research_validity_review(
     q3, _ = load_rel(["model_and_family_failure_summary.json"])
     scope, _ = load_rel(["headline_score_scope.json"])
     skeptical, _ = load_rel(["high_score_audit.json"])
-    taxonomy_path = rdiag / f"taxonomy_consistency_summary_{run_id}.json"
+    taxonomy_path = oh.resolve_taxonomy_consistency_summary_path(rdiag, run_id)
     taxonomy = read_json_dict(taxonomy_path) if taxonomy_path.is_file() else {}
-    if not taxonomy:
-        taxonomy = read_json_dict(gdiag / "taxonomy_consistency_summary.latest.json")
 
     from obsidiandroid.diagnostics.headline_ablation_parity import build_feature_contract_comparison
 
@@ -553,14 +533,10 @@ def write_research_validity_review(
             "support_threshold_preview_md_post_run": support_post_avail,
             "leakage_safe_score_comparison_csv": leak_csv.is_file(),
             "headline_vs_ablation_contract_comparison": bool(
-                (rdiag / f"headline_vs_ablation_contract_comparison_{run_id}.md").is_file()
-                or (rdiag / "headline_vs_ablation_contract_comparison.latest.md").is_file()
-                or (gdiag / "headline_vs_ablation_contract_comparison.latest.md").is_file()
+                oh.resolve_headline_vs_ablation_contract_comparison_path(rdiag, run_id).is_file()
             ),
             "taxonomy_type_authority_review": bool(
-                (rdiag / f"taxonomy_type_authority_review_{run_id}.md").is_file()
-                or (rdiag / "taxonomy_type_authority_review.latest.md").is_file()
-                or (gdiag / "taxonomy_type_authority_review.latest.md").is_file()
+                oh.resolve_taxonomy_type_authority_review_path(rdiag, run_id).is_file()
             ),
         },
         "claim_readiness": _build_claim_readiness(
@@ -787,9 +763,7 @@ def collect_run_comparison_row(output_root: Path, run_id: str) -> dict[str, Any]
     modality = read_json_dict(rdiag / "modality_contribution_summary.json") or read_json_dict(
         gdiag / "modality_contribution_summary.json"
     )
-    taxonomy = read_json_dict(rdiag / f"taxonomy_consistency_summary_{run_id}.json") or read_json_dict(
-        gdiag / "taxonomy_consistency_summary.latest.json"
-    )
+    taxonomy = read_json_dict(oh.resolve_taxonomy_consistency_summary_path(rdiag, run_id))
 
     macros = _ablation_macro_f1_by_experiment(rdiag, run_id)
     if all(v is None for v in macros.values()):

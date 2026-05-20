@@ -24,6 +24,15 @@ ObsidianDroid uses two logical databases on the same MySQL/MariaDB instance in t
 | VirusTotal verdict matrix | `virustotal_sample_vendor_engine_verdicts` | Wide per-sample vendor verdict table used to build parser inputs and AV feature matrices. |
 | Vendor metadata | `virustotal_vendor_engines` | Canonical vendor names plus trusted/active flags used during engine scoring and governance. |
 
+Planned authority-layer extensions for the primary Erebus database are documented in
+[`LABEL_AUTHORITY_SCHEMA_PLAN.md`](LABEL_AUTHORITY_SCHEMA_PLAN.md). Those objects are
+intended to separate:
+
+- governed family/type authority,
+- raw vendor label evidence,
+- generic label policy,
+- temporal anchor provenance.
+
 ### Permission Intel database (`OBSIDIAN_PERMISSION_INTEL_DB_NAME`, default `android_permission_intel`)
 
 | Schema area | Key tables | Purpose |
@@ -65,3 +74,5 @@ Access to replicated VirusTotal data must comply with [VirusTotal’s Terms of S
 - [`architecture.md`](architecture.md) explains how each module consumes the tables listed above.
 - [`user_guide.md`](user_guide.md) contains step-by-step configuration instructions for pointing ObsidianDroid at your database instance.
 - [`operations_playbook.md`](operations_playbook.md) provides incident response and restore workflows for the replication jobs.
+- [`LABEL_AUTHORITY_SCHEMA_PLAN.md`](LABEL_AUTHORITY_SCHEMA_PLAN.md) defines the proposed
+  family/type authority and vendor-label evidence layer for Erebus.

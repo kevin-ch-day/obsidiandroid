@@ -5,11 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import json
-
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common import output_hygiene as oh
 
 
 def write_type_permission_figure_bundle(
@@ -139,11 +138,14 @@ def write_type_permission_figure_bundle(
                 "family_vector_count": int(len(fams)),
             }
             dj = diagnostics_dir / f"permission_jsd_degenerate_diagnostics_{run_id}.json"
-            djl = diagnostics_dir / "permission_jsd_degenerate_diagnostics.latest.json"
-            js_payload = json.dumps(diag, indent=2, sort_keys=True) + "\n"
-            dj.write_text(js_payload, encoding="utf-8")
-            djl.write_text(js_payload, encoding="utf-8")
-            artifact_list.append(str(djl))
+            written = oh.mirror_json_text_run_then_global(
+                diagnostics_dir=diagnostics_dir,
+                run_filename=dj.name,
+                payload=diag,
+                global_latest_name="permission_jsd_degenerate_diagnostics.latest.json",
+            )
+            for path in written:
+                _maybe_append(artifact_list, path)
         max_skips = int(
             getattr(app_config, "PERMISSION_JSD_DEGENERATE_EVIDENCE_MAX_SKIPS", 10**9) or 10**9
         )

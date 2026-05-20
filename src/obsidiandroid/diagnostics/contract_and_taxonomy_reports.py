@@ -11,6 +11,14 @@ import pandas as pd
 
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.diagnostics.headline_ablation_parity import build_feature_contract_comparison
+from obsidiandroid.diagnostics.family_type_authority_coverage import (
+    LIVE_VIEW_MISSING_WARNING,
+    build_bucket_summary,
+    build_conflict_summary,
+    build_missing_candidates,
+    build_unknown_type_queue,
+    load_authority_df,
+)
 
 
 def write_headline_vs_ablation_contract_reports(
@@ -107,6 +115,435 @@ def _read_taxonomy_summary(diagnostics_dir: Path, run_id: str) -> dict[str, Any]
     return {}
 
 
+def _normalize_sample_id_key(value: Any) -> str:
+    """Normalize sample-id-like values into stable string keys."""
+    try:
+        fval = float(value)
+        ival = int(fval)
+        if fval == ival:
+            return str(ival)
+    except Exception:
+        pass
+    return str(value).strip()
+
+
+def _load_runtime_run_cohort_sample_keys() -> tuple[set[str] | None, str]:
+    """Best-effort run cohort sample-id scope for run-scoped authority filtering."""
+    frame = getattr(oh.app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", None)
+    if not isinstance(frame, pd.DataFrame) or frame.empty or "sample_id" not in frame.columns:
+        return None, ""
+    keys = {
+        _normalize_sample_id_key(value)
+        for value in frame["sample_id"].tolist()
+        if _normalize_sample_id_key(value) not in {"", "nan", "none", "null"}
+    }
+    if not keys:
+        return None, ""
+    return keys, "prepared_runtime_split_sample_metadata"
+
+
+def _coerce_frame_count(frame: pd.DataFrame, column: str) -> int:
+    """Sum a count-like column from a dataframe when present."""
+    if frame.empty or column not in frame.columns:
+        return 0
+    try:
+        return int(pd.to_numeric(frame[column], errors="coerce").fillna(0).sum())
+    except Exception:
+        return 0
+
+
+def _authority_scope_payload(
+    *,
+    scope_name: str,
+    source_mode: str,
+    source_label: str,
+    df: pd.DataFrame,
+    note: str = "",
+) -> dict[str, Any]:
+    """Build summary payload for one authority scope."""
+    available = not df.empty
+    bucket_df = build_bucket_summary(df) if available else pd.DataFrame()
+    missing_df = build_missing_candidates(df) if available else pd.DataFrame()
+    unknown_type_df = build_unknown_type_queue(df) if available else pd.DataFrame()
+    _conflict_summary_df, top_conflicts_df = build_conflict_summary(df) if available else (pd.DataFrame(), pd.DataFrame())
+
+    generic_df = missing_df[missing_df["candidate_kind"] == "generic_or_coarse_label"].copy() if not missing_df.empty else pd.DataFrame()
+    plausible_df = missing_df[missing_df["candidate_kind"] == "plausible_real_family_candidate"].copy() if not missing_df.empty else pd.DataFrame()
+
+    return {
+        "scope": scope_name,
+        "source": source_label,
+        "source_mode": source_mode,
+        "available": bool(available),
+        "note": str(note or "").strip(),
+        "row_count": int(len(df)) if available else 0,
+        "bucket_rows": bucket_df.to_dict(orient="records") if not bucket_df.empty else [],
+        "bucket_counts": {
+            str(row.get("authority_bucket", "")): int(row.get("row_count", 0))
+            for row in bucket_df.to_dict(orient="records")
+        } if not bucket_df.empty else {},
+        "resolved_but_no_authority_family_rows": _coerce_frame_count(
+            bucket_df[bucket_df["authority_bucket"] == "resolved_but_no_authority_family"]
+            if not bucket_df.empty else pd.DataFrame(),
+            "row_count",
+        ),
+        "generic_or_coarse_label_rows": _coerce_frame_count(generic_df, "row_count"),
+        "generic_or_coarse_label_tokens": int(generic_df["resolved_family_lc"].nunique()) if not generic_df.empty else 0,
+        "authority_family_unknown_type_rows": _coerce_frame_count(
+            bucket_df[bucket_df["authority_bucket"] == "authority_family_unknown_type"]
+            if not bucket_df.empty else pd.DataFrame(),
+            "row_count",
+        ),
+        "authority_family_unknown_type_families": int(unknown_type_df["family_slug"].nunique()) if not unknown_type_df.empty else 0,
+        "resolved_unknown_rows": _coerce_frame_count(
+            bucket_df[bucket_df["authority_bucket"] == "resolved_unknown"]
+            if not bucket_df.empty else pd.DataFrame(),
+            "row_count",
+        ),
+        "plausible_missing_candidates_top": plausible_df.head(10).to_dict(orient="records") if not plausible_df.empty else [],
+        "generic_or_coarse_candidates_top": generic_df.head(10).to_dict(orient="records") if not generic_df.empty else [],
+        "unknown_type_families_top": unknown_type_df.head(10).to_dict(orient="records") if not unknown_type_df.empty else [],
+        "raw_authority_conflicts_top": top_conflicts_df.head(10).to_dict(orient="records") if not top_conflicts_df.empty else [],
+        "_bucket_df": bucket_df,
+        "_missing_df": missing_df,
+        "_unknown_type_df": unknown_type_df,
+        "_top_conflicts_df": top_conflicts_df,
+    }
+
+
+def _taxonomy_split_reason_bucket(reason: str) -> str:
+    """Map taxonomy mismatch reasons into operator-facing split categories."""
+    token = str(reason or "").strip()
+    if token in {"type_mapping_mismatch", "type_label_missing", "type_label_noncanonical", "label_family_mismatch"}:
+        return "type_authority_vs_rendering_mismatch"
+    return "other_taxonomy_rendering_issue"
+
+
+def write_taxonomy_authority_split_reports(
+    diagnostics_dir: Path,
+    run_id: str,
+) -> tuple[Path | None, Path | None, Path | None, Path | None]:
+    """Emit scope-aware taxonomy authority split artifacts."""
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+
+    summary = _read_taxonomy_summary(diagnostics_dir, run_id)
+    mismatch_path = oh.resolve_taxonomy_consistency_mismatches_path(diagnostics_dir, run_id)
+    prediction_path = oh.resolve_prediction_errors_path(diagnostics_dir, run_id)
+
+    mismatch_df = pd.DataFrame()
+    prediction_df = pd.DataFrame()
+    if mismatch_path.is_file():
+        try:
+            mismatch_df = pd.read_csv(mismatch_path)
+        except Exception:
+            mismatch_df = pd.DataFrame()
+    if prediction_path.is_file():
+        try:
+            prediction_df = pd.read_csv(prediction_path)
+        except Exception:
+            prediction_df = pd.DataFrame()
+
+    authority_df, source_mode, warning = load_authority_df(require_live_view=True)
+    global_scope = _authority_scope_payload(
+        scope_name="global_authority_catalog",
+        source_mode=str(source_mode or "unknown"),
+        source_label="v_android_sample_family_type_authority",
+        df=authority_df,
+        note=str(warning or "").strip(),
+    ) if not authority_df.empty else {
+        "scope": "global_authority_catalog",
+        "source": "v_android_sample_family_type_authority",
+        "source_mode": str(source_mode or "unknown"),
+        "available": False,
+        "note": str(warning or LIVE_VIEW_MISSING_WARNING).strip(),
+        "row_count": 0,
+        "bucket_rows": [],
+        "bucket_counts": {},
+        "resolved_but_no_authority_family_rows": 0,
+        "generic_or_coarse_label_rows": 0,
+        "generic_or_coarse_label_tokens": 0,
+        "authority_family_unknown_type_rows": 0,
+        "authority_family_unknown_type_families": 0,
+        "resolved_unknown_rows": 0,
+        "plausible_missing_candidates_top": [],
+        "generic_or_coarse_candidates_top": [],
+        "unknown_type_families_top": [],
+        "raw_authority_conflicts_top": [],
+    }
+
+    cohort_keys, cohort_source = _load_runtime_run_cohort_sample_keys()
+    if authority_df.empty or not cohort_keys:
+        run_scope = {
+            "scope": "run_cohort_authority",
+            "source": "v_android_sample_family_type_authority",
+            "source_mode": str(source_mode or "unknown"),
+            "available": False,
+            "note": (
+                "Run cohort filtering unavailable; report is global catalog authority only."
+                if cohort_keys is None
+                else str(warning or LIVE_VIEW_MISSING_WARNING).strip()
+            ),
+            "cohort_source": cohort_source or "",
+            "row_count": 0,
+            "bucket_rows": [],
+            "bucket_counts": {},
+            "resolved_but_no_authority_family_rows": 0,
+            "generic_or_coarse_label_rows": 0,
+            "generic_or_coarse_label_tokens": 0,
+            "authority_family_unknown_type_rows": 0,
+            "authority_family_unknown_type_families": 0,
+            "resolved_unknown_rows": 0,
+            "plausible_missing_candidates_top": [],
+            "generic_or_coarse_candidates_top": [],
+            "unknown_type_families_top": [],
+            "raw_authority_conflicts_top": [],
+        }
+    else:
+        scoped_df = authority_df.copy()
+        scoped_df["sample_id_key"] = scoped_df["sample_id"].map(_normalize_sample_id_key)
+        scoped_df = scoped_df[scoped_df["sample_id_key"].isin(cohort_keys)].copy()
+        run_scope = _authority_scope_payload(
+            scope_name="run_cohort_authority",
+            source_mode=str(source_mode or "unknown"),
+            source_label="v_android_sample_family_type_authority",
+            df=scoped_df.drop(columns=["sample_id_key"], errors="ignore"),
+            note=f"Cohort source: {cohort_source}",
+        )
+        run_scope["cohort_source"] = cohort_source
+
+    rendering_df = mismatch_df.copy()
+    if not rendering_df.empty:
+        rendering_df["diagnostic_bucket"] = rendering_df["mismatch_reason"].map(_taxonomy_split_reason_bucket)
+    rendering_csv_path = diagnostics_dir / f"taxonomy_rendering_mismatches_{run_id}.csv"
+    rendering_df.to_csv(rendering_csv_path, index=False)
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=rendering_csv_path.name,
+        csv_text=rendering_df.to_csv(index=False),
+        global_latest_name="taxonomy_rendering_mismatches.latest.csv",
+    )
+
+    prediction_export_df = prediction_df.copy()
+    if not prediction_export_df.empty:
+        prediction_export_df["diagnostic_bucket"] = "model_prediction_error"
+    model_err_csv_path = diagnostics_dir / f"taxonomy_model_prediction_errors_{run_id}.csv"
+    prediction_export_df.to_csv(model_err_csv_path, index=False)
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=model_err_csv_path.name,
+        csv_text=prediction_export_df.to_csv(index=False),
+        global_latest_name="taxonomy_model_prediction_errors.latest.csv",
+    )
+
+    gap_rows: list[dict[str, Any]] = []
+    for scope_blob in (global_scope, run_scope):
+        scope_name = str(scope_blob.get("scope", ""))
+        for bucket_row in scope_blob.get("bucket_rows", []) or []:
+            gap_rows.append(
+                {
+                    "scope": scope_name,
+                    "summary_group": "authority_bucket",
+                    "key": str(bucket_row.get("authority_bucket", "")),
+                    "row_count": int(bucket_row.get("row_count", 0)),
+                    "secondary_count": int(bucket_row.get("family_count", 0)),
+                    "secondary_label": "family_count",
+                }
+            )
+        gap_rows.extend(
+            [
+                {
+                    "scope": scope_name,
+                    "summary_group": "generic_or_coarse_label_issue",
+                    "key": "generic_or_coarse_label",
+                    "row_count": int(scope_blob.get("generic_or_coarse_label_rows", 0)),
+                    "secondary_count": int(scope_blob.get("generic_or_coarse_label_tokens", 0)),
+                    "secondary_label": "token_count",
+                },
+                {
+                    "scope": scope_name,
+                    "summary_group": "unknown_type_family_issue",
+                    "key": "authority_family_unknown_type",
+                    "row_count": int(scope_blob.get("authority_family_unknown_type_rows", 0)),
+                    "secondary_count": int(scope_blob.get("authority_family_unknown_type_families", 0)),
+                    "secondary_label": "family_count",
+                },
+            ]
+        )
+    gap_summary_df = pd.DataFrame(gap_rows)
+    gap_csv_path = diagnostics_dir / f"taxonomy_authority_gap_summary_{run_id}.csv"
+    gap_summary_df.to_csv(gap_csv_path, index=False)
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=gap_csv_path.name,
+        csv_text=gap_summary_df.to_csv(index=False),
+        global_latest_name="taxonomy_authority_gap_summary.latest.csv",
+    )
+
+    rendering_counts = {
+        "type_mapping_mismatch": int(summary.get("type_mismatch_count", 0) or 0),
+        "type_label_missing": int(summary.get("type_missing_label_count", 0) or 0),
+        "type_label_noncanonical": int(summary.get("type_noncanonical_count", 0) or 0),
+        "label_family_mismatch": int(summary.get("family_label_mismatch_count", 0) or 0),
+    }
+    prediction_error_count = int(summary.get("prediction_error_count", 0) or 0)
+
+    json_payload = {
+        "run_id": run_id,
+        "authority_scopes": {
+            "global_authority_catalog": {
+                k: v for k, v in global_scope.items() if not str(k).startswith("_")
+            },
+            "run_cohort_authority": {
+                k: v for k, v in run_scope.items() if not str(k).startswith("_")
+            },
+        },
+        "taxonomy_split": {
+            "authority_gap": {
+                "split_note": "Authority coverage / curation backlog from the live authority view.",
+                "csv_path": str(gap_csv_path),
+            },
+            "type_authority_vs_rendering_mismatch": {
+                "counts": rendering_counts,
+                "csv_path": str(rendering_csv_path),
+            },
+            "model_prediction_error": {
+                "count": prediction_error_count,
+                "csv_path": str(model_err_csv_path),
+            },
+            "generic_or_coarse_label_issue": {
+                "global_row_count": int(global_scope.get("generic_or_coarse_label_rows", 0)),
+                "run_row_count": int(run_scope.get("generic_or_coarse_label_rows", 0)),
+            },
+            "unknown_type_family_issue": {
+                "global_row_count": int(global_scope.get("authority_family_unknown_type_rows", 0)),
+                "run_row_count": int(run_scope.get("authority_family_unknown_type_rows", 0)),
+            },
+        },
+        "source_mode": str(source_mode or "unknown"),
+        "authority_warning": str(warning or "").strip(),
+    }
+    json_path = diagnostics_dir / f"taxonomy_authority_split_{run_id}.json"
+    json_text = json.dumps(json_payload, indent=2, sort_keys=True)
+    json_path.write_text(json_text + "\n", encoding="utf-8")
+    oh.mirror_json_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=json_path.name,
+        payload=json_payload,
+        global_latest_name="taxonomy_authority_split.latest.json",
+    )
+
+    def _append_scope_block(lines: list[str], blob: dict[str, Any]) -> None:
+        lines.extend(
+            [
+                f"### {blob.get('scope')}",
+                "",
+                f"- Scope: `{blob.get('scope')}`",
+                f"- Source: `{blob.get('source')}`",
+                f"- Source mode: `{blob.get('source_mode')}`",
+                f"- Rows evaluated: `{blob.get('row_count')}`",
+            ]
+        )
+        note = str(blob.get("note", "") or "").strip()
+        if note:
+            lines.append(f"- Note: {note}")
+        if not bool(blob.get("available", False)):
+            lines.extend(["", "_Unavailable for this run._", ""])
+            return
+        lines.extend(["", "| authority_bucket | row_count | family_count |", "|---|---:|---:|"])
+        for row in blob.get("bucket_rows", []) or []:
+            lines.append(
+                f"| `{row.get('authority_bucket', '')}` | {int(row.get('row_count', 0))} | {int(row.get('family_count', 0))} |"
+            )
+        lines.extend(["", f"- Generic/coarse label issue rows: **{int(blob.get('generic_or_coarse_label_rows', 0))}**", f"- Unknown-type family issue rows: **{int(blob.get('authority_family_unknown_type_rows', 0))}**", ""])
+
+    md_lines = [
+        "# Taxonomy Authority Split",
+        "",
+        f"Run ID: `{run_id}`",
+        "",
+        "This report separates authority coverage / curation backlog from label-rendering mismatches and real model prediction errors.",
+        "",
+        "## Scope",
+        "",
+    ]
+    _append_scope_block(md_lines, global_scope)
+    _append_scope_block(md_lines, run_scope)
+    md_lines.extend(
+        [
+            "## Split Categories",
+            "",
+            "### 1. Authority gap",
+            "",
+            "- Uses the live authority view and separates unresolved authority-family rows from generic/coarse tokens.",
+            f"- Summary CSV: `{gap_csv_path}`",
+            "",
+            "### 2. Type authority vs rendering mismatch",
+            "",
+            f"- `type_mapping_mismatch`: **{rendering_counts['type_mapping_mismatch']}**",
+            f"- `type_label_missing`: **{rendering_counts['type_label_missing']}**",
+            f"- `type_label_noncanonical`: **{rendering_counts['type_label_noncanonical']}**",
+            f"- `label_family_mismatch`: **{rendering_counts['label_family_mismatch']}**",
+            f"- CSV: `{rendering_csv_path}`",
+            "- These are rendering/taxonomy issues, not model-family errors.",
+            "",
+            "### 3. Model prediction error",
+            "",
+            f"- Count: **{prediction_error_count}**",
+            f"- CSV: `{model_err_csv_path}`",
+            "- These rows remain separate from type/rendering mismatches.",
+            "",
+            "### 4. Generic/coarse label issue",
+            "",
+            f"- Global rows: **{int(global_scope.get('generic_or_coarse_label_rows', 0))}**",
+            f"- Run-cohort rows: **{int(run_scope.get('generic_or_coarse_label_rows', 0))}**",
+            "- Examples: `trojan`, `adware`, `spyware`, `banker trojan`, `fraud financial apps`.",
+            "",
+            "### 5. Unknown-type family issue",
+            "",
+            f"- Global rows: **{int(global_scope.get('authority_family_unknown_type_rows', 0))}**",
+            f"- Run-cohort rows: **{int(run_scope.get('authority_family_unknown_type_rows', 0))}**",
+            "- These are type-curation candidates, not model errors.",
+            "",
+        ]
+    )
+
+    if global_scope.get("raw_authority_conflicts_top"):
+        md_lines.extend(["## Top Raw-vs-Authority Conflicts", "", "| family_slug | type_slug | raw_primary | raw_subtype | row_count |", "|---|---|---|---|---:|"])
+        for row in global_scope["raw_authority_conflicts_top"][:10]:
+            md_lines.append(
+                f"| `{row.get('family_slug', '')}` | `{row.get('type_slug', '')}` | `{row.get('raw_classification_primary', '')}` | `{row.get('raw_classification_subtype', '')}` | {int(row.get('row_count', 0))} |"
+            )
+        md_lines.append("")
+
+    if global_scope.get("plausible_missing_candidates_top"):
+        md_lines.extend(["## Top Missing Authority-Family Candidates", "", "| resolved_family_lc | row_count | years_present | priority |", "|---|---:|---:|---:|"])
+        for row in global_scope["plausible_missing_candidates_top"][:10]:
+            md_lines.append(
+                f"| `{row.get('resolved_family_lc', '')}` | {int(row.get('row_count', 0))} | {int(row.get('years_present', 0))} | {int(row.get('priority_family_curation_flag', 0))} |"
+            )
+        md_lines.append("")
+
+    if global_scope.get("unknown_type_families_top"):
+        md_lines.extend(["## Top Unknown-Type Authority Families", "", "| family_slug | family_name | row_count | active_years | priority |", "|---|---|---:|---:|---:|"])
+        for row in global_scope["unknown_type_families_top"][:10]:
+            md_lines.append(
+                f"| `{row.get('family_slug', '')}` | `{row.get('family_name', '')}` | {int(row.get('row_count', 0))} | {int(row.get('active_years', 0))} | {int(row.get('priority_type_curation_flag', 0))} |"
+            )
+        md_lines.append("")
+
+    md_path = diagnostics_dir / f"taxonomy_authority_split_{run_id}.md"
+    md_text = "\n".join(md_lines) + "\n"
+    md_path.write_text(md_text, encoding="utf-8")
+    oh.mirror_utf8_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=md_path.name,
+        text=md_text,
+        global_latest_name="taxonomy_authority_split.latest.md",
+    )
+
+    return md_path, json_path, rendering_csv_path, model_err_csv_path, gap_csv_path
+
+
 def write_taxonomy_type_authority_reports(
     diagnostics_dir: Path,
     run_id: str,
@@ -116,18 +553,9 @@ def write_taxonomy_type_authority_reports(
     summary = _read_taxonomy_summary(diagnostics_dir, run_id)
     summary_present = bool(summary)
 
-    mismatch_globs = sorted(
-        diagnostics_dir.glob("taxonomy_consistency_mismatches*.csv"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    mismatch_path = None
-    for p in mismatch_globs:
-        if run_id in p.name or "latest" in p.name:
-            mismatch_path = p
-            break
-    if mismatch_path is None and mismatch_globs:
-        mismatch_path = mismatch_globs[0]
+    mismatch_path = oh.resolve_taxonomy_consistency_mismatches_path(diagnostics_dir, run_id)
+    if not mismatch_path.is_file():
+        mismatch_path = None
 
     df = pd.DataFrame()
     if mismatch_path is not None and mismatch_path.is_file():
@@ -223,9 +651,7 @@ def write_taxonomy_type_authority_reports(
     _sample("type_label_noncanonical", 3)
     _sample("label_family_mismatch", 3)
 
-    pred_path = diagnostics_dir / f"prediction_errors_{run_id}.csv"
-    if not pred_path.is_file():
-        pred_path = diagnostics_dir / "prediction_errors.latest.csv"
+    pred_path = oh.resolve_prediction_errors_path(diagnostics_dir, run_id)
     if pred_path.is_file():
         try:
             pdf = pd.read_csv(pred_path)
@@ -278,5 +704,6 @@ def write_taxonomy_type_authority_reports(
 
 __all__ = [
     "write_headline_vs_ablation_contract_reports",
+    "write_taxonomy_authority_split_reports",
     "write_taxonomy_type_authority_reports",
 ]

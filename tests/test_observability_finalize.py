@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from config import app_config
 from obsidiandroid.observability.pipeline_observability.finalize import finalize_pipeline_observability
 from obsidiandroid.observability.pipeline_observability.logging_audit import write_logging_audit_artifacts
 from obsidiandroid.observability.pipeline_observability.session import PipelineObservabilitySession
@@ -106,3 +107,39 @@ def test_finalize_pipeline_observability_records_skip_reasons(tmp_path: Path) ->
     assert blob.get("research_validity_skip_reason") == "stop_after_samples"
     assert blob.get("hostile_audit_status") == "SKIPPED"
     assert blob.get("hostile_audit_skip_reason") == "stop_after_samples"
+
+
+def test_finalize_pipeline_observability_adds_temporal_split_warning(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    ctx = {"run_id": "r_temp", "_observability_finalized_once": False}
+    manifest = {"run_id": "r_temp", "cohort_size": 5}
+    artifact_list: list[str] = []
+
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_LAST_SPLIT_ALGORITHM",
+        "stratified_seeded",
+        raising=False,
+    )
+
+    out_path = finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=artifact_list,
+        compliance_report={"overall_status": "pass"},
+        paper_mode=True,
+        evidence_mode=True,
+        result_code=0,
+        profile_id="malicious_temporal_stability_locked",
+    )
+
+    assert isinstance(out_path, Path)
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    warnings = blob.get("research_warnings_top") or []
+    assert any("non-temporal split algorithm stratified_seeded" in str(item) for item in warnings)

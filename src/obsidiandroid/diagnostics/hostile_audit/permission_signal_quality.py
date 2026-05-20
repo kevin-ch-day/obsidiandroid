@@ -36,6 +36,7 @@ def write_permission_signal_quality(
     enrichment = build_permission_enrichment_frame(
         samples_df,
         feature_flags={"enable_permission_features": True},
+        log_frame_built=False,
     )
     leakage_pruned = set()
     try:

@@ -226,6 +226,67 @@ def test_print_research_questions_terminal_labels_vendor_merge_coverage_honestly
     assert "parsed vendor merge sparse (100.0%)." not in text
 
 
+def test_print_research_questions_terminal_compact_summary_omits_headline_task_boundary(
+    monkeypatch,
+) -> None:
+    captured: list[str] = []
+
+    class _DummyDisplay:
+        @staticmethod
+        def print_section(_title: str) -> None:
+            return None
+
+        @staticmethod
+        def print_table(*_args, **_kwargs) -> None:
+            return None
+
+    monkeypatch.setattr(app_config, "ML_TERMINAL_COMPACT", True, raising=False)
+    rtq.print_research_questions_terminal(
+        {
+            "q1": {
+                "governed_samples": 10,
+                "aligned_supervised_samples": 10,
+                "trainable_after_support_filter": 8,
+                "families_represented": 2,
+                "malware_types_represented": 1,
+                "concentration": {
+                    "top_family": "fam_a",
+                    "top_family_count": 6,
+                    "top_family_share_pct": 60.0,
+                    "top3_share_pct": 100.0,
+                    "top5_share_pct": 100.0,
+                },
+                "quality_gates": {},
+                "supervised_family_claims_suitable": True,
+            },
+            "q2": {
+                "permission_signal_n": 9,
+                "permission_signal_pct": 90.0,
+                "permission_raw_observation_n": 9,
+                "permission_raw_observation_pct": 90.0,
+                "permission_feature_columns": 10,
+                "vendor_merge_n": 10,
+                "vendor_merge_pct": 100.0,
+                "av_engines_observed": 5,
+                "av_engines_included": 3,
+            },
+            "q3": {},
+            "model_key": "random_forest",
+            "macro_f1": 0.9,
+            "wf1": 0.91,
+            "acc": 0.92,
+            "gap_w_m": 0.01,
+            "concentration_warn": False,
+        },
+        pr=captured.append,
+        du=_DummyDisplay(),
+    )
+
+    text = "\n".join(captured)
+    assert "Bottom line:" in text
+    assert "Headline task boundary:" not in text
+
+
 def test_modality_summary_uses_global_feature_column_survival_mirror(make_run_diagnostics_layout) -> None:
     """Q2 feature-group export should still work when run-local `.latest` is intentionally omitted."""
     output_root, diagnostics_dir, global_diag = make_run_diagnostics_layout("run3")

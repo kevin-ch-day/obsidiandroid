@@ -27,10 +27,74 @@ from obsidiandroid.common.cv_fold_config import (
 )
 from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
 
+_AUTHORITY_VIEW_SQL_PATH = Path("database/sql/view_android_sample_family_type_authority.sql")
+
 
 def _safe_config_int(attr: str, *, default: int) -> int:
     """Parse ``app_config`` integer settings without ``int(None)`` crashes."""
     return safe_int_config_value(getattr(app_config, attr, default), default=default)
+
+
+def emit_run_authority_coverage_bundle(
+    *,
+    diagnostics_dir: Path,
+    run_id: str,
+    artifact_list: list[str],
+    manifest_context: dict[str, Any],
+) -> dict[str, Any]:
+    """Generate run-scoped authority coverage artifacts or a stub when the live view is unavailable."""
+    from obsidiandroid.diagnostics.family_type_authority_coverage import (
+        LIVE_VIEW_MISSING_WARNING,
+        generate_authority_coverage_artifacts,
+    )
+
+    md_path = diagnostics_dir / f"family_type_authority_coverage_{run_id}.md"
+    missing_out = diagnostics_dir / f"family_type_authority_missing_candidates_{run_id}.csv"
+    unknown_type_out = diagnostics_dir / f"family_type_authority_unknown_type_{run_id}.csv"
+    year_type_out = diagnostics_dir / f"family_type_authority_year_type_{run_id}.csv"
+
+    bundle = generate_authority_coverage_artifacts(
+        md_path=md_path,
+        missing_out=missing_out,
+        unknown_type_out=unknown_type_out,
+        year_type_out=year_type_out,
+        require_live_view=True,
+    )
+    source_mode = str(bundle.get("source_mode") or "unknown")
+    manifest_context["authority_coverage_artifact"] = str(md_path)
+    manifest_context["authority_coverage_source_mode"] = source_mode
+
+    if bool(bundle.get("ok", False)):
+        for path_key in ("md_path", "missing_out", "unknown_type_out", "year_type_out"):
+            path_obj = bundle.get(path_key)
+            if path_obj:
+                path_str = str(path_obj)
+                if path_str not in artifact_list:
+                    artifact_list.append(path_str)
+        return bundle
+
+    warning = str(bundle.get("warning") or LIVE_VIEW_MISSING_WARNING).strip() or LIVE_VIEW_MISSING_WARNING
+    stub_lines = [
+        "# Family/Type Authority Coverage Report",
+        "",
+        "- Status: `unavailable`",
+        f"- Source mode: `{source_mode}`",
+        f"- Warning: {warning}",
+        "- Advisory only: pipeline outputs are unchanged; this report did not participate in cohort gates or training.",
+        f"- Apply SQL first: `{_AUTHORITY_VIEW_SQL_PATH.as_posix()}`",
+        "",
+        "No authority coverage rows were materialized for this run because the live authority view was unavailable.",
+    ]
+    md_path.parent.mkdir(parents=True, exist_ok=True)
+    md_path.write_text("\n".join(stub_lines) + "\n", encoding="utf-8")
+    if str(md_path) not in artifact_list:
+        artifact_list.append(str(md_path))
+    return {
+        "ok": False,
+        "source_mode": source_mode,
+        "warning": warning,
+        "md_path": md_path,
+    }
 
 
 def write_run_summary_json(
@@ -215,6 +279,13 @@ def finalize_output_hygiene_bundle(
         from obsidiandroid.observability.pipeline_observability.finalize import finalize_pipeline_observability
         from obsidiandroid.observability.pipeline_observability.run_health import print_unified_run_health
         from obsidiandroid.pipeline.manifest.stage_manifest_artifacts import write_run_artifact_index
+
+        emit_run_authority_coverage_bundle(
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            artifact_list=artifact_list,
+            manifest_context=manifest_context,
+        )
 
         layout_path = output_inventory.write_virtual_layout(run_root)
         inv_paths, summary = output_inventory.write_artifact_inventory_bundle(

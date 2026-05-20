@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import output_hygiene as oh
 
 
 def _infer_modality(feature_name: str) -> str:
@@ -62,8 +63,11 @@ def export_rf_impurity_importances_csv(
     frame = pd.DataFrame(rows).sort_values("impurity_importance", ascending=False).reset_index(drop=True)
     frame["rank"] = range(1, len(frame) + 1)
     out = diagnostics_dir / f"rf_impurity_importance_{run_id}.csv"
-    frame.head(int(top_k)).to_csv(out, index=False)
-    latest = diagnostics_dir / "rf_impurity_importance.latest.csv"
-    frame.head(int(top_k)).to_csv(latest, index=False)
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=out.name,
+        csv_text=frame.head(int(top_k)).to_csv(index=False),
+        global_latest_name="rf_impurity_importance.latest.csv",
+    )
     du.print_debug(f"[ARTIFACT] RF impurity importance (top {top_k}): {out}")
     return out

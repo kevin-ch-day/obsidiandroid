@@ -8,6 +8,7 @@ from typing import Tuple
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common import output_hygiene as oh
 
 PermStageBundle = Tuple[dict[str, int], int]
 
@@ -97,8 +98,11 @@ def export_permission_training_survival_audit(
     out_df = pd.DataFrame(rows)
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     path = diagnostics_dir / f"permission_training_survival_{run_id}.csv"
-    latest = diagnostics_dir / "permission_training_survival.latest.csv"
-    out_df.to_csv(path, index=False)
-    out_df.to_csv(latest, index=False)
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=path.name,
+        csv_text=out_df.to_csv(index=False),
+        global_latest_name="permission_training_survival.latest.csv",
+    )
     setattr(app_config, "RUNTIME_PERMISSION_TRAINING_SURVIVAL_CSV", str(path))
     return str(path)

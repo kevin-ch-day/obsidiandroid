@@ -16,6 +16,13 @@ TABLES = {
     "vendor_verdicts": "virustotal_sample_vendor_engine_verdicts",
     "sample_catalog": "malware_sample_catalog",
     "artifact_hashes": "malware_artifact_hash_registry",
+    "family_alias_fact": "malware_family_alias_fact",
+    "family_authority_fact": "malware_family_authority_fact",
+    "family_label_evidence": "malware_family_label_evidence",
+    "vendor_label_generic_tokens": "vendor_label_generic_token_fact",
+    "av_engine_dependency_fact": "av_engine_dependency_fact",
+    "sample_temporal_resolved_view": "v_android_sample_temporal_resolved",
+    "label_authority_resolution_view": "label_authority_resolution_view",
 }
 
 

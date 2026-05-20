@@ -46,6 +46,7 @@ def train_and_evaluate_model(
         log_event(
             ML_LOGGER,
             "train_eval_start",
+            event_id="ML_EXEC_001",
             model=model_type,
             samples=int(len(features_df)),
             features=int(features_df.shape[1]),
@@ -65,6 +66,8 @@ def train_and_evaluate_model(
             log_event(
                 ML_LOGGER,
                 "train_eval_failed",
+                event_id="ML_EXEC_500",
+                level="ERROR",
                 model=model_type,
                 reason="train_result_incomplete",
             )
@@ -83,7 +86,14 @@ def train_and_evaluate_model(
             f"[{model_type.upper()}] No evaluation metrics returned."
         )
         if getattr(app_config, "ENABLE_ML_LOGGING", True):
-            log_event(ML_LOGGER, "train_eval_failed", model=model_type, reason="missing_evaluation")
+            log_event(
+                ML_LOGGER,
+                "train_eval_failed",
+                event_id="ML_EXEC_404",
+                level="WARNING",
+                model=model_type,
+                reason="missing_evaluation",
+            )
         return {}
 
     evaluation["train_time"] = round(time() - start_time, 2)
@@ -95,7 +105,14 @@ def train_and_evaluate_model(
             "result structure failed post-evaluation."
         )
         if getattr(app_config, "ENABLE_ML_LOGGING", True):
-            log_event(ML_LOGGER, "train_eval_failed", model=model_type, reason="result_validation_failed")
+            log_event(
+                ML_LOGGER,
+                "train_eval_failed",
+                event_id="ML_EXEC_422",
+                level="WARNING",
+                model=model_type,
+                reason="result_validation_failed",
+            )
         return {}
 
     display_post_training_metrics(model_type, result, evaluation, features_df)
@@ -113,6 +130,7 @@ def train_and_evaluate_model(
         log_event(
             ML_LOGGER,
             "train_eval_complete",
+            event_id="ML_EXEC_200",
             model=model_type,
             duration_sec=round(time() - start_time, 2),
             accuracy=evaluation.get("accuracy"),

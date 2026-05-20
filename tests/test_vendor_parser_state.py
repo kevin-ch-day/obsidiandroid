@@ -21,7 +21,7 @@ def test_resolve_vendor_parser_coverage_csv_prefers_run_scoped_file(
     global_diag = out_root / "diagnostics"
     run_diag.mkdir(parents=True, exist_ok=True)
     global_diag.mkdir(parents=True, exist_ok=True)
-    (run_diag / "vendor_parser_coverage.latest.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+    (run_diag / f"vendor_parser_coverage_{run_id}.csv").write_text("a,b\n1,2\n", encoding="utf-8")
     (global_diag / "vendor_parser_coverage.latest.csv").write_text("a,b\n3,4\n", encoding="utf-8")
 
     monkeypatch.setattr(vendor_parser_state.app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
@@ -29,7 +29,7 @@ def test_resolve_vendor_parser_coverage_csv_prefers_run_scoped_file(
 
     resolved = vendor_parser_state.resolve_vendor_parser_coverage_csv()
 
-    assert resolved == run_diag / "vendor_parser_coverage.latest.csv"
+    assert resolved == run_diag / f"vendor_parser_coverage_{run_id}.csv"
 
 
 def test_build_parser_diagnostics_state_returns_compact_counts(
@@ -48,7 +48,7 @@ def test_build_parser_diagnostics_state_returns_compact_counts(
             {"vendor_column": "a", "coverage_pct": 95.0, "parser_mapped": 1},
             {"vendor_column": "b", "coverage_pct": 80.0, "parser_mapped": 0},
         ]
-    ).to_csv(run_diag / "vendor_parser_coverage.latest.csv", index=False)
+    ).to_csv(run_diag / f"vendor_parser_coverage_{run_id}.csv", index=False)
     pd.DataFrame([{"engine_name": "a"}, {"engine_name": "b"}]).to_csv(
         run_diag / "engine_scoring_summary.csv",
         index=False,
@@ -75,3 +75,72 @@ def test_build_parser_diagnostics_state_returns_compact_counts(
     assert state["source_run_id"] == run_id
     assert state["coverage_from_latest_run"] is True
     assert state["selected_vendor_data_present"] is False
+
+
+def test_resolve_vendor_gate_pre_gate_and_candidates_prefer_run_scoped_named_files(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    out_root = tmp_path / "output"
+    run_id = "20260515T141956Z__58d84f"
+    run_diag = out_root / "runs" / run_id / "diagnostics"
+    global_diag = out_root / "diagnostics"
+    run_diag.mkdir(parents=True, exist_ok=True)
+    global_diag.mkdir(parents=True, exist_ok=True)
+    (run_diag / f"vendor_parser_coverage_candidates_{run_id}.csv").write_text(
+        "vendor_column,coverage_pct\nv,99\n",
+        encoding="utf-8",
+    )
+    (run_diag / f"vendor_gate_top10_pre_gate_{run_id}.csv").write_text(
+        "Vendor\nv\n",
+        encoding="utf-8",
+    )
+    (global_diag / "vendor_parser_coverage_candidates.latest.csv").write_text(
+        "vendor_column,coverage_pct\nx,88\n",
+        encoding="utf-8",
+    )
+    (global_diag / "vendor_gate_top10_pre_gate.latest.csv").write_text(
+        "Vendor\nx\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(vendor_parser_state.app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    monkeypatch.setattr(vendor_parser_state.run_locator, "read_latest_run_id", lambda: run_id)
+
+    assert (
+        vendor_parser_state.resolve_vendor_parser_coverage_candidates_csv()
+        == run_diag / f"vendor_parser_coverage_candidates_{run_id}.csv"
+    )
+    assert (
+        vendor_parser_state.resolve_vendor_gate_pre_gate_csv()
+        == run_diag / f"vendor_gate_top10_pre_gate_{run_id}.csv"
+    )
+
+
+def test_resolve_vendor_parser_strengths_and_stress_prefer_run_scoped_named_files(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    out_root = tmp_path / "output"
+    run_id = "20260515T141956Z__58d84f"
+    run_diag = out_root / "runs" / run_id / "diagnostics"
+    global_diag = out_root / "diagnostics"
+    run_diag.mkdir(parents=True, exist_ok=True)
+    global_diag.mkdir(parents=True, exist_ok=True)
+    (run_diag / f"vendor_parser_stress_test_{run_id}.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+    (run_diag / f"vendor_parser_strengths_weaknesses_{run_id}.csv").write_text(
+        "vendor,inclusion_status\nv,include\n", encoding="utf-8"
+    )
+    (global_diag / "vendor_parser_stress_test.latest.csv").write_text("a,b\n3,4\n", encoding="utf-8")
+    (global_diag / "vendor_parser_strengths_weaknesses.latest.csv").write_text(
+        "vendor,inclusion_status\nx,exclude\n", encoding="utf-8"
+    )
+
+    monkeypatch.setattr(vendor_parser_state.app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    monkeypatch.setattr(vendor_parser_state.run_locator, "read_latest_run_id", lambda: run_id)
+
+    assert vendor_parser_state.resolve_vendor_stress_test_csv() == run_diag / f"vendor_parser_stress_test_{run_id}.csv"
+    assert (
+        vendor_parser_state.resolve_vendor_strengths_weaknesses_csv()
+        == run_diag / f"vendor_parser_strengths_weaknesses_{run_id}.csv"
+    )

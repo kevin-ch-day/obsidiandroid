@@ -58,7 +58,7 @@ def start_runtime_logging(run_id: str) -> RuntimeLogContext | None:
 
     log_dir = project_runtime_logs_dir(run_id)
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / f"pipeline_runtime_{run_id}.log"
+    log_path = log_dir / f"pipeline_runtime_console_{run_id}.log"
     stream_handle = open(log_path, "w", encoding="utf-8", buffering=1)
 
     original_stdout = sys.stdout

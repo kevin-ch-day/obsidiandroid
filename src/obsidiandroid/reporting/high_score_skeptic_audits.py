@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
 
 from obsidiandroid.reporting import operator_dashboard
@@ -22,11 +23,6 @@ from obsidiandroid.reporting.high_score_skeptic_helpers import (
     safe_read_split_audit as _safe_read_split_audit,
     unique_families_from_drop_detail as _unique_families_from_drop_detail,
     write_false_attribution_empty as _write_false_attribution_empty,
-)
-from obsidiandroid.reporting.high_score_skeptic_terminal import (
-    print_scope_of_headline_score_terminal,
-    print_skeptic_audit_followup_terminal,
-    print_skeptic_audit_terminal,
 )
 
 
@@ -424,10 +420,12 @@ def write_split_contamination_audit(
     """Train/test overlap on SHA, package, and family+package using split_freeze_headline CSV."""
     del samples_df  # reserved for future joins; split CSV carries audit fields
     diagnostics_dir = Path(diagnostics_dir)
-    path = diagnostics_dir / f"split_freeze_headline_{run_id}.csv"
+    path = oh.resolve_run_or_global_artifact_path(
+        diagnostics_dir,
+        run_filename=f"split_freeze_headline_{run_id}.csv",
+        global_latest_name="split_freeze_headline.latest.csv",
+    )
     df = _safe_read_split_audit(path)
-    if df.empty:
-        df = _safe_read_split_audit(diagnostics_dir / "split_freeze_headline.latest.csv")
     payload: dict[str, Any] = {
         "run_id": run_id,
         "split_audit_path": str(path) if path.is_file() else "",
@@ -624,14 +622,12 @@ def write_leakage_safe_score_comparison(
     """Map ablation_summary Macro-F1 (same model) to human-readable feature sets."""
     diagnostics_dir = Path(diagnostics_dir)
     ab = pd.DataFrame()
-    for name in (f"ablation_summary_{run_id}.csv", "ablation_summary.latest.csv"):
-        p = diagnostics_dir / name
-        if p.is_file():
-            try:
-                ab = pd.read_csv(p)
-                break
-            except Exception:
-                pass
+    p = oh.resolve_ablation_summary_path(diagnostics_dir, run_id)
+    if p.is_file():
+        try:
+            ab = pd.read_csv(p)
+        except Exception:
+            pass
     rows_out: list[dict[str, Any]] = []
     note = ""
     if ab.empty or "experiment" not in ab.columns or "macro_f1_score" not in ab.columns or "model" not in ab.columns:

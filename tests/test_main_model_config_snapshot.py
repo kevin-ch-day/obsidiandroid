@@ -47,6 +47,41 @@ def test_export_model_config_snapshot_writes_artifacts(monkeypatch, tmp_path: Pa
     assert payload["model_contract_hash_basis"] == "config_only_no_run_id_no_metrics"
 
 
+def test_export_model_config_snapshot_uses_global_latest_for_run_scoped_diagnostics(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "output"
+    run_id = "r_scoped"
+    diagnostics_dir = output_root / "runs" / run_id / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(app_config, "RANDOM_STATE", 42, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_CROSS_VALIDATION", True, raising=False)
+    monkeypatch.setattr(app_config, "CV_FOLDS", 5, raising=False)
+    monkeypatch.setattr(app_config, "CV_REPEATS", 1, raising=False)
+
+    out_path = main._export_model_config_snapshot(  # pylint: disable=protected-access
+        run_id=run_id,
+        model_results={
+            "rf": {
+                "metadata": {"params": {"n_estimators": 10}},
+                "evaluation": {"macro_f1_score": 0.7, "accuracy": 0.8, "train_time": 1.0},
+                "cv_score_mean": 0.7,
+            }
+        },
+        artifact_list=[],
+        manifest_context={},
+    )
+
+    assert out_path == str(diagnostics_dir / f"model_config_snapshot_{run_id}.json")
+    assert Path(out_path).is_file()
+    assert not (diagnostics_dir / "model_config_snapshot.latest.json").exists()
+    assert (output_root / "diagnostics" / "model_config_snapshot.latest.json").is_file()
+
+
 def test_model_config_hash_is_stable_for_same_config(monkeypatch, tmp_path: Path) -> None:
     """Hash should ignore run_id and evaluation metrics and track only model config contract."""
     output_root = tmp_path / "output"

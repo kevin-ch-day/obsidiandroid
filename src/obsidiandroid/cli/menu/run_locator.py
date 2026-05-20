@@ -226,11 +226,6 @@ def read_locked_publication_run_id() -> str | None:
     return run_id or None
 
 
-def read_locked_paper_run_id() -> str | None:
-    """Compatibility alias for the legacy helper name."""
-    return read_locked_publication_run_id()
-
-
 def candidate_workbook_paths() -> list[Path]:
     """Return likely consolidated workbook paths in priority order."""
     filename = str(getattr(app_config, "CONSOLIDATED_EXCEL_FILENAME", "obsidiandroid_outputs.xlsx"))

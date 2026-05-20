@@ -46,11 +46,6 @@ def publication_exports_available(run_id: str | None, *, base: Path) -> bool:
     return paper_dir.exists() and paper_dir.is_dir()
 
 
-def paper_exports_available(run_id: str | None, *, base: Path) -> bool:
-    """Compatibility alias for legacy helper naming."""
-    return publication_exports_available(run_id, base=base)
-
-
 def has_structural_bundle(run_id: str | None, *, base: Path) -> bool:
     token = str(run_id or "").strip()
     if not token:
@@ -138,14 +133,12 @@ def build_operator_state(*, output_base: Path | None = None, run_id: str | None 
         "profile_id": profile_id,
         "latest_run_has_provenance": latest_run_has_provenance(effective_run_id, base=base),
         "has_publication_exports": publication_exports_available(effective_run_id, base=base),
-        "has_paper_exports": publication_exports_available(effective_run_id, base=base),
         "has_structural_bundle": has_structural_bundle(effective_run_id, base=base),
         "publication_ready_status": publication_ready_status,
         "cohort_lock_status": cohort_lock_status,
         "evidence_mode": evidence_mode,
         "publication_ready_mode": publication_ready_mode,
         "has_locked_publication_run": bool(str(locked_run_id or "").strip()),
-        "has_locked_paper_run": bool(str(locked_run_id or "").strip()),
         "best_run_index_path": best_index_path,
         "has_canonical_run_science": has_canonical_run_science,
         "parser_summary": get_parser_summary_state(mode=display_mode),
@@ -159,6 +152,5 @@ __all__ = [
     "latest_run_has_provenance",
     "output_root",
     "publication_exports_available",
-    "paper_exports_available",
     "resolve_best_run_index_path",
 ]

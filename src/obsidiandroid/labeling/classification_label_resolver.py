@@ -12,6 +12,7 @@ from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from config import app_config
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
+from obsidiandroid.observability.logging import get_logger, log_event
 
 from obsidiandroid.diagnostics import feature_build_coverage_export
 
@@ -22,6 +23,11 @@ from .label_postprocessor import summarize_prediction_results
 
 _TYPE_FROM_LABEL_RE = re.compile(r"/android\.([a-z0-9\-]+)\.", re.IGNORECASE)
 _FAMILY_FROM_LABEL_RE = re.compile(r"/android\.[a-z0-9\-]+\.([a-z0-9_\-]+)", re.IGNORECASE)
+
+LABEL_AUDIT_LOGGER = get_logger(
+    f"{getattr(app_config, 'APP_LOG_NAMESPACE', 'framework')}.labeling.taxonomy",
+    "label_authority",
+)
 
 
 def _normalize_family_key(value: Any) -> str:
@@ -773,6 +779,17 @@ def _run_summary_and_export(
             missing_type = int(audit_summary.get("type_missing_label_count", 0) or 0) if isinstance(audit_summary, dict) else 0
             type_map = int(audit_summary.get("type_mismatch_count", 0) or 0) if isinstance(audit_summary, dict) else 0
             fam_label = int(audit_summary.get("family_label_mismatch_count", 0) or 0) if isinstance(audit_summary, dict) else 0
+            log_event(
+                LABEL_AUDIT_LOGGER,
+                "taxonomy_mismatch_summary",
+                level="WARNING",
+                taxonomy_mismatch_count=int(mismatch_count),
+                type_mapping_mismatch_count=int(type_map),
+                type_missing_label_count=int(missing_type),
+                type_noncanonical_count=int(noncanonical),
+                family_label_mismatch_count=int(fam_label),
+                mismatch_path=str(mismatch_path),
+            )
             du.print_warning(
                 "[LABELS] Taxonomy rows flagged (cohort vs label-string): "
                 f"{mismatch_count} total in taxonomy_consistency_mismatches. See {mismatch_path}"
@@ -805,6 +822,13 @@ def _run_summary_and_export(
         prediction_errors = int(audit_summary.get("prediction_error_count", 0) or 0) if isinstance(audit_summary, dict) else 0
         prediction_path = str(audit_summary.get("prediction_errors_csv_path", "")).strip() if isinstance(audit_summary, dict) else ""
         if prediction_errors:
+            log_event(
+                LABEL_AUDIT_LOGGER,
+                "family_prediction_error_summary",
+                level="WARNING",
+                prediction_error_count=int(prediction_errors),
+                prediction_path=prediction_path,
+            )
             du.print_warning(
                 "[LABELS] Family prediction errors (real model vs cohort family): "
                 f"{prediction_errors} row(s). "
@@ -823,6 +847,15 @@ def _run_summary_and_export(
             )
             ratio = (float(noncanonical_count) / float(taxonomy_mismatches)) if taxonomy_mismatches > 0 else 0.0
             if taxonomy_mismatches >= warn_min_count and ratio >= warn_threshold:
+                log_event(
+                    LABEL_AUDIT_LOGGER,
+                    "taxonomy_noncanonical_dominance",
+                    level="WARNING",
+                    taxonomy_mismatch_count=int(taxonomy_mismatches),
+                    noncanonical_count=int(noncanonical_count),
+                    noncanonical_ratio=round(ratio, 4),
+                    dominance_warn_threshold=float(warn_threshold),
+                )
                 du.print_warning(
                     "[LABELS] Taxonomy audit quality warning: noncanonical type labels dominate "
                     f"taxonomy mismatches ({noncanonical_count}/{taxonomy_mismatches}, ratio={ratio:.2%}, "

@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common.publication_readiness import (
     evaluate_publication_ready_status,
@@ -58,9 +59,13 @@ def _coerce_int(v: Any) -> int | None:
 def _top_artifacts_to_open(run_root: Path | None, diagnostics_dir: Path, run_id: str) -> list[str]:
     """Ordered open-first list constrained to artifacts that actually exist."""
     rr = run_root if run_root is not None else diagnostics_dir
+    authority_md = diagnostics_dir / f"family_type_authority_coverage_{run_id}.md"
+    taxonomy_split_md = diagnostics_dir / f"taxonomy_authority_split_{run_id}.md"
     ordered: list[Path] = [
+        taxonomy_split_md,
         rr / "run_evidence_index.md",
         diagnostics_dir / AUTHORITATIVE_SUMMARY_FILENAME,
+        authority_md,
         diagnostics_dir / "pipeline_stage_summary.md",
         diagnostics_dir / "partial_failures.md",
         diagnostics_dir / "publication_claim_audit.md",
@@ -246,6 +251,20 @@ def finalize_pipeline_observability(
     rw = manifest_context.get("_research_warning_messages")
     if isinstance(rw, list):
         research_warnings_msgs = [str(x) for x in rw][:32]
+    profile_id_runtime = str(profile_id or "").strip()
+    split_algorithm_runtime = str(
+        getattr(app_config, "RUNTIME_LAST_SPLIT_ALGORITHM", "") or ""
+    ).strip()
+    if profile_id_runtime.startswith("malicious_temporal_") and split_algorithm_runtime:
+        split_algo_norm = split_algorithm_runtime.lower()
+        if "temporal" not in split_algo_norm and "year_holdout" not in split_algo_norm:
+            temporal_warning = (
+                f"[TEMPORAL] Profile {profile_id_runtime} used non-temporal split "
+                f"algorithm {split_algorithm_runtime}; interpret results as random/group "
+                "holdout evidence, not forward-in-time generalization."
+            )
+            if temporal_warning not in research_warnings_msgs:
+                research_warnings_msgs.append(temporal_warning)
 
     split_blob = manifest.get("split") if isinstance(manifest.get("split"), dict) else {}
     gov = manifest.get("cohort_size") or read_prepared_cohort_row_count(manifest_context)

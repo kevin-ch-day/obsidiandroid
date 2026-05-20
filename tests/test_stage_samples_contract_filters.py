@@ -102,6 +102,40 @@ def test_export_cohort_filter_contract_writes_files(monkeypatch, tmp_path: Path)
     assert latest.exists()
 
 
+def test_export_cohort_filter_contract_run_scoped_uses_global_latest(
+    monkeypatch,
+    make_run_diagnostics_layout,
+) -> None:
+    """Run-scoped cohort contract exports should avoid local latest duplicates."""
+    output_root, diagnostics_dir, _global_diag = make_run_diagnostics_layout("r3")
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "r3", raising=False)
+    contract_path, gate_path = stage_samples._export_cohort_filter_contract(  # pylint: disable=protected-access
+        run_id="r3",
+        profile_id="all_malicious",
+        gates={"min_malicious_detections": 5},
+        gate_rows=[
+            {
+                "run_id": "r3",
+                "step": 1,
+                "gate_name": "test",
+                "count_before": 10,
+                "count_after": 8,
+                "dropped": 2,
+                "details": "",
+            }
+        ],
+    )
+
+    assert Path(contract_path).exists()
+    assert Path(gate_path).exists()
+    assert not (diagnostics_dir / "cohort_filter_contract.latest.json").exists()
+    assert not (diagnostics_dir / "cohort_gate_counts.latest.csv").exists()
+    assert (output_root / "diagnostics" / "cohort_filter_contract.latest.json").exists()
+    assert (output_root / "diagnostics" / "cohort_gate_counts.latest.csv").exists()
+
+
 def test_export_time_window_family_distributions_skips_absent_legacy_families(
     monkeypatch, tmp_path: Path
 ) -> None:

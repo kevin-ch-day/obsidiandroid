@@ -84,8 +84,6 @@ def build_registry_payload(
     model_config_hash = str(manifest_context.get("model_config_hash", "") or "")
     effective_top_k = int(manifest_context.get("effective_top_k", 0) or 0)
 
-    cohort_contract = manifest_context.get("paper_cohort_contract", {})
-
     return {
         "schema_version": "1.0",
         "run_id": run_id,

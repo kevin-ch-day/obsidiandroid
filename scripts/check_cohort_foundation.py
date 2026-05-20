@@ -11,6 +11,8 @@ Example:
   python scripts/check_cohort_foundation.py --profile research_all_malicious --expected-raw-min 3000
 """
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import argparse
@@ -23,11 +25,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import scripts.runtime_bootstrap  # noqa: F401
+from scripts._bootstrap import prepare_script_runtime  # noqa: E402
 
-from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path
-
-ensure_repo_src_on_sys_path()
+prepare_script_runtime(__file__)
 
 from obsidiandroid.database import db_engine
 from obsidiandroid.database import db_sample_metadata_queries

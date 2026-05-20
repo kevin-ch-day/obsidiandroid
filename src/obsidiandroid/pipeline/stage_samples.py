@@ -177,6 +177,7 @@ def load_and_prepare_samples(
     log_event(
         PIPELINE_LOGGER,
         "samples_stage_start",
+        event_id="SAMPLES_001",
         run_id=str(run_id or "unknown"),
         profile_id=profile_id,
         type_slug=type_slug,
@@ -214,6 +215,8 @@ def load_and_prepare_samples(
             log_event(
                 PIPELINE_LOGGER,
                 "unknown_type_fallback_filter_applied",
+                event_id="SAMPLES_210",
+                level="WARNING",
                 run_id=str(run_id or "unknown"),
                 removed_rows=unknown_count,
                 before_rows=before_unknown,
@@ -287,6 +290,8 @@ def load_and_prepare_samples(
         log_event(
             PIPELINE_LOGGER,
             "samples_stage_failed",
+            event_id="SAMPLES_500",
+            level="ERROR",
             reason="empty_after_filters",
             run_id=str(run_id or "unknown"),
             profile_id=profile_id,
@@ -325,7 +330,7 @@ def load_and_prepare_samples(
         getattr(
             app_config,
             "ANALYSIS_SNAPSHOT_CONFLICT_FILE",
-            _diagnostics_dir() / "analysis_snapshot_label_conflicts.latest.csv",
+            _diagnostics_dir() / f"analysis_snapshot_label_conflicts_{rid}.csv",
         )
     )
     selection_rule_version = str(
@@ -381,6 +386,7 @@ def load_and_prepare_samples(
     log_event(
         PIPELINE_LOGGER,
         "samples_stage_complete",
+        event_id="SAMPLES_200",
         run_id=str(run_id or "unknown"),
         profile_id=profile_id,
         rows=int(len(samples_df)),

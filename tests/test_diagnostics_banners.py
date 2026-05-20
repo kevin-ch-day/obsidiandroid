@@ -25,7 +25,7 @@ def test_format_percent_for_menu(value: object, expected: str) -> None:
 
 
 def test_governed_cohort_n_prefers_q2_payload(tmp_path: Path) -> None:
-    from obsidiandroid.cli.startup_menu import _governed_cohort_n_for_q2
+    from obsidiandroid.cli.startup_menu_diagnostics import governed_cohort_n_for_q2 as _governed_cohort_n_for_q2
 
     rdiag = tmp_path / "run" / "diagnostics"
     gdiag = tmp_path / "diagnostics"
@@ -35,7 +35,7 @@ def test_governed_cohort_n_prefers_q2_payload(tmp_path: Path) -> None:
 
 
 def test_governed_cohort_n_falls_back_to_q1_json(tmp_path: Path) -> None:
-    from obsidiandroid.cli.startup_menu import _governed_cohort_n_for_q2
+    from obsidiandroid.cli.startup_menu_diagnostics import governed_cohort_n_for_q2 as _governed_cohort_n_for_q2
 
     rdiag = tmp_path / "run" / "diagnostics"
     gdiag = tmp_path / "diagnostics"
@@ -52,7 +52,7 @@ def test_governed_cohort_n_falls_back_to_q1_json(tmp_path: Path) -> None:
 
 
 def test_governed_cohort_n_infers_from_signal_when_no_json(tmp_path: Path) -> None:
-    from obsidiandroid.cli.startup_menu import _governed_cohort_n_for_q2
+    from obsidiandroid.cli.startup_menu_diagnostics import governed_cohort_n_for_q2 as _governed_cohort_n_for_q2
 
     rdiag = tmp_path / "run" / "diagnostics"
     gdiag = tmp_path / "diagnostics"
@@ -127,8 +127,22 @@ def test_build_diagnostics_overview_includes_traffic_lights_and_run_science_path
     (rdiag / "cohort_foundation.json").write_text("{}", encoding="utf-8")
     (rdiag / "run_science_index.md").write_text("# run science\n", encoding="utf-8")
     (rdiag / "diagnostic_provenance.json").write_text('{"entries":[]}', encoding="utf-8")
-    (rdiag / f"taxonomy_consistency_summary_{run_id}.json").write_text(
-        '{"taxonomy_mismatch_count": 2}',
+    (rdiag / f"taxonomy_authority_split_{run_id}.json").write_text(
+        json.dumps(
+            {
+                "taxonomy_split": {
+                    "type_authority_vs_rendering_mismatch": {
+                        "counts": {
+                            "type_mapping_mismatch": 1,
+                            "type_label_missing": 1,
+                            "type_label_noncanonical": 0,
+                            "label_family_mismatch": 0,
+                        }
+                    },
+                    "model_prediction_error": {"count": 1},
+                }
+            }
+        ),
         encoding="utf-8",
     )
     (rdiag / "modality_contribution_summary.json").write_text(
@@ -159,6 +173,8 @@ def test_build_diagnostics_overview_includes_traffic_lights_and_run_science_path
     assert rows["Vendor/parser coverage"] == "YELLOW"
     assert rows["Publication readiness"] == "GREEN"
     assert str(overview["run_science_index_path"]).endswith("run_science_index.md")
+    taxonomy_row = next(row for row in overview["rows"] if str(row["label"]) == "Taxonomy consistency")
+    assert "authority split" in str(taxonomy_row["action"]).lower()
 
 
 def test_build_diagnostics_overview_surfaces_cohort_contract_context(

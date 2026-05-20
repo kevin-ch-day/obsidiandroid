@@ -16,6 +16,7 @@ from obsidiandroid.common.cv_fold_config import (
     safe_float_config_value,
     safe_int_config_value,
 )
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common import output_paths
 from obsidiandroid.database import db_engine
 from obsidiandroid.cli.ui import display as du
@@ -37,9 +38,10 @@ SCORE_LOGGER = get_logger(
 def _lifecycle_path() -> Path:
     """Resolve engine lifecycle export path for current runtime context."""
     runtime_dir = str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "").strip()
+    run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
     if runtime_dir:
-        return Path(runtime_dir) / "engine_lifecycle.latest.csv"
-    return output_paths.diagnostics_root() / "engine_lifecycle.latest.csv"
+        return oh.resolve_engine_lifecycle_path(Path(runtime_dir), run_id)
+    return output_paths.diagnostics_root() / f"engine_lifecycle_{oh.normalize_artifact_run_id(run_id)}.csv"
 
 
 def is_valid_matrix(df: pd.DataFrame) -> bool:
@@ -116,6 +118,7 @@ def fetch_engine_metadata(verbose: bool = False, run_id: str = "unknown") -> dic
         log_event(
             SCORE_LOGGER,
             "metadata_fetch_failed",
+            level="WARNING",
             event_id="SCORE_META_500",
             run_id=run_id,
             error=str(exc),
@@ -442,7 +445,12 @@ def run_av_engine_scoring(
             _validate_lifecycle_reconciliation(lifecycle_df)
             lifecycle_path = _lifecycle_path()
             lifecycle_path.parent.mkdir(parents=True, exist_ok=True)
-            lifecycle_df.to_csv(lifecycle_path, index=False)
+            oh.mirror_csv_text_run_then_global(
+                diagnostics_dir=lifecycle_path.parent,
+                run_filename=lifecycle_path.name,
+                csv_text=lifecycle_df.to_csv(index=False),
+                global_latest_name="engine_lifecycle.latest.csv",
+            )
             result.attrs["engine_lifecycle"] = lifecycle_df
             result.attrs["engine_observed_count"] = int(len([c for c in matrix_df.columns if c != "sample_id"]))
             result.attrs["engine_canonical_count"] = int(lifecycle_df["engine_name_canonical"].nunique())

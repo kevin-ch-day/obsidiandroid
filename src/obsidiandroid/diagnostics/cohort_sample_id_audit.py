@@ -9,6 +9,7 @@ from typing import Any
 import pandas as pd
 
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import output_hygiene as oh
 
 
 def audit_cohort_sample_id_uniqueness(
@@ -63,11 +64,17 @@ def audit_cohort_sample_id_uniqueness(
         )
     rep = pd.DataFrame(rows)
     path = diagnostics_dir / f"duplicate_sample_id_cohort_{run_id}.csv"
-    latest = diagnostics_dir / "duplicate_sample_id_cohort.latest.csv"
-    rep.to_csv(path, index=False)
-    rep.to_csv(latest, index=False)
-    if artifact_list is not None and str(path) not in artifact_list:
-        artifact_list.append(str(path))
+    written = oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=path.name,
+        csv_text=rep.to_csv(index=False),
+        global_latest_name="duplicate_sample_id_cohort.latest.csv",
+    )
+    if artifact_list is not None:
+        for written_path in written:
+            sw = str(written_path)
+            if sw not in artifact_list:
+                artifact_list.append(sw)
     return out
 
 

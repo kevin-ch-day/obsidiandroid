@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common import output_hygiene as oh
 
 from obsidiandroid.common.json_io import read_json_dict
 from obsidiandroid.reporting import operator_dashboard
@@ -104,17 +105,12 @@ def _raw_permission_observation_count(samples_df: pd.DataFrame | None) -> int | 
 
 
 def _load_ablation_df(diagnostics_dir: Path, run_id: str) -> pd.DataFrame:
-    for name in (
-        f"ablation_summary_{run_id}.csv",
-        "ablation_summary.latest.csv",
-        f"ablation_summary_partial_{run_id}.csv",
-    ):
-        p = diagnostics_dir / name
-        if p.is_file():
-            try:
-                return pd.read_csv(p)
-            except Exception:
-                return pd.DataFrame()
+    p = oh.resolve_ablation_summary_path(diagnostics_dir, run_id, allow_partial=True)
+    if p.is_file():
+        try:
+            return pd.read_csv(p)
+        except Exception:
+            return pd.DataFrame()
     return pd.DataFrame()
 
 
@@ -250,16 +246,12 @@ def write_research_question_artifacts(
     unmapped_sql = int(gate.get("excluded_unmapped_family") or 0)
     missing_sha_sql = int(gate.get("excluded_missing_sha256") or 0)
 
-    msum = read_json_dict(diagnostics_dir / f"feature_modality_coverage_summary_{run_id}.json")
-    if not msum:
-        msum = read_json_dict(diagnostics_dir / "feature_modality_coverage_summary.latest.json")
+    msum = read_json_dict(oh.resolve_feature_modality_coverage_summary_path(diagnostics_dir, run_id))
     pi_n = msum.get("permission_pi_signal_positive_n")
     vmerge = msum.get("vendor_merge_n")
     perm_cols_fused = msum.get("permission_feature_columns_in_fused_matrix")
     if perm_cols_fused is None:
-        modality = read_json_dict(diagnostics_dir / "modality_method_contract.json")
-        if not modality:
-            modality = read_json_dict(diagnostics_dir / "modality_method_contract.latest.json")
+        modality = read_json_dict(oh.resolve_modality_method_contract_path(diagnostics_dir, run_id))
         perm_cols_fused = (
             (modality.get("fusion_modality") or {}).get("feature_count_permission")
             if modality
@@ -268,9 +260,7 @@ def write_research_question_artifacts(
         if perm_cols_fused is None and modality:
             perm_cols_fused = (modality.get("permission_modality") or {}).get("feature_count_raw")
 
-    fc_contract = read_json_dict(diagnostics_dir / "feature_contract.json")
-    if not fc_contract:
-        fc_contract = read_json_dict(diagnostics_dir / "feature_contract.latest.json")
+    fc_contract = read_json_dict(oh.resolve_feature_contract_path(diagnostics_dir, run_id))
     eng_in = int(
         fc_contract.get("engine_included_count")
         or getattr(app_config, "RUNTIME_ENGINE_COUNT_INCLUDED_AFTER_GATING", 0)
@@ -591,7 +581,7 @@ def write_research_question_artifacts(
         ]
     ).to_csv(diagnostics_dir / "vendor_feature_coverage_summary.csv", index=False)
 
-    leak_txt = diagnostics_dir / "leakage_assessment.latest.txt"
+    leak_txt = oh.resolve_leakage_assessment_path(diagnostics_dir, run_id)
     leak_rows = [{"artifact": "leakage_assessment", "path": leak_txt.name, "notes": ""}]
     if leak_txt.is_file():
         leak_rows[0]["notes"] = leak_txt.read_text(encoding="utf-8", errors="replace")[:1200]
@@ -1013,22 +1003,48 @@ def print_research_questions_terminal(
         _hssa.print_skeptic_audit_followup_terminal(sk2, pr=pr, du=du)
 
     du.print_section("RESEARCH RUN SUMMARY")
+    compact = bool(getattr(app_config, "ML_TERMINAL_COMPACT", True))
     gov_n = q1.get("governed_samples", "—")
     fam_n = q1.get("families_represented", "—")
     typ_n = q1.get("malware_types_represented", "—")
     t5 = float((q1.get("concentration") or {}).get("top5_share_pct") or 0)
-    pr("1. Dataset:")
-    pr(
-        f"   Governed cohort {gov_n}; {fam_n} families, {typ_n} types; "
-        f"top-5 share ≈ {t5:.2f}% — Macro-F1 is primary."
-    )
-    pr("2. Feature signal:")
     raw_perm_n = int(q2.get("permission_raw_observation_n") or 0)
     raw_perm_pct = float(q2.get("permission_raw_observation_pct") or 0)
     fused_perm_n = int(q2.get("permission_signal_n") or 0)
     fused_perm_pct = float(q2.get("permission_signal_pct") or 0)
     vendor_merge_pct = float(q2.get("vendor_merge_pct") or 0)
     vendor_merge_label = _vendor_merge_coverage_label(vendor_merge_pct)
+    if compact:
+        pr("1. Interpretation:")
+        pr(
+            f"   Governed cohort {gov_n}; {fam_n} families, {typ_n} types; "
+            f"top-5 share ≈ {t5:.2f}% — Macro-F1 and recall tails are primary."
+        )
+        pr("2. Modality signal:")
+        if fused_perm_n == 0 and raw_perm_n > 0:
+            pr(
+                f"   Raw permission observations cover {raw_perm_pct:.1f}% of the cohort, "
+                f"but fused permission features are disabled/absent; parsed vendor merge {vendor_merge_label} ({vendor_merge_pct:.1f}%)."
+            )
+        else:
+            pr(
+                f"   Permissions broad ({fused_perm_pct:.1f}% rows with PI signal); "
+                f"parsed vendor merge {vendor_merge_label} ({vendor_merge_pct:.1f}%)."
+            )
+        pr("3. Bottom line:")
+        pr(
+            f"   {mk}: Macro-F1={float(bundle.get('macro_f1') or 0):.4f}, "
+            f"weighted F1={float(bundle.get('wf1') or 0):.4f}; treat this as promising, not final proof, until split/SMOTE/leakage skeptic audits are reviewed."
+        )
+        pr("")
+        return
+
+    pr("1. Dataset:")
+    pr(
+        f"   Governed cohort {gov_n}; {fam_n} families, {typ_n} types; "
+        f"top-5 share ≈ {t5:.2f}% — Macro-F1 is primary."
+    )
+    pr("2. Feature signal:")
     if fused_perm_n == 0 and raw_perm_n > 0:
         pr(
             f"   Raw permission observations cover {raw_perm_pct:.1f}% of the cohort, "
@@ -1048,7 +1064,6 @@ def print_research_questions_terminal(
     pr("   Treat very high headline scores as **promising but not final proof** until support filtering, split ")
     pr("   contamination, SMOTE effect, leakage-safe ablations, and false-attribution audits are reviewed.")
     pr("")
-    gov_n = q1.get("governed_samples", "—")
     fam_gov = q1.get("families_represented", "—")
     train_n = q1.get("trainable_after_support_filter", "—")
     fam_tr = getattr(app_config, "RUNTIME_TRAINING_LABEL_CLASS_COUNT", None)

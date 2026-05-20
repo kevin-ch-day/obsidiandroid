@@ -26,6 +26,34 @@ def _normalize_family_id_token(value: Any) -> str:
     return str(value).strip()
 
 
+def _resolve_runtime_type_slug(
+    metadata: Dict[str, Any],
+    sample_id: str,
+) -> str:
+    """Return authoritative runtime type slug for a sample when present."""
+    if not isinstance(metadata, dict):
+        return ""
+
+    meta = metadata.get(sample_id)
+    if meta is None:
+        meta = metadata.get(str(sample_id))
+    if meta is None:
+        meta = metadata.get(_normalize_family_id_token(sample_id))
+    if meta is None:
+        sample_key = _normalize_family_id_token(sample_id)
+        for key, value in metadata.items():
+            if _normalize_family_id_token(key) == sample_key:
+                meta = value
+                break
+    if not isinstance(meta, dict):
+        return ""
+
+    type_slug = str(meta.get("type_slug", "") or "").strip().lower()
+    if type_slug in {"", "unknown", "none", "null", "nan"}:
+        return ""
+    return type_slug
+
+
 def _build_canonical_category_vector(
     predicted_family: str,
     normalized_fields: Dict[str, Any],
@@ -128,23 +156,13 @@ def build_classification_row(
         ):
             selected_record.malware_type = type_val
 
-    # If upstream metadata provides a canonical `type_slug`, prefer it over an unknown/generic
-    # threat_class token. This stabilizes taxonomy consistency audits and prevents the label
-    # pipeline from emitting `android.generic.*` when the cohort has an authoritative type.
+    # If upstream metadata provides a canonical `type_slug`, use it as the authoritative
+    # label-rendering type token. This keeps `classification_label` aligned with cohort
+    # type authority instead of letting parser/vendor semantics silently override it.
     try:
-        meta = metadata.get(sample_id)
-        if meta is None:
-            meta = metadata.get(str(sample_id))
-        if meta is None:
-            # Common: sample_id is numeric but keys are strings (or vice versa).
-            meta = metadata.get(_normalize_family_id_token(sample_id))
-        type_slug = ""
-        if isinstance(meta, dict):
-            type_slug = str(meta.get("type_slug", "") or "").strip().lower()
+        type_slug = _resolve_runtime_type_slug(metadata, sample_id)
         if type_slug:
-            current = str(selected_record.threat_class or "").strip().lower()
-            if current in {"", "unknown", "generic", "none", "null", "nan"}:
-                selected_record.threat_class = type_slug
+            selected_record.threat_class = type_slug
     except Exception:
         pass
 

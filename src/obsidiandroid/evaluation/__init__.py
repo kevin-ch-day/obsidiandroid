@@ -10,8 +10,8 @@ import importlib
 import sys
 
 from obsidiandroid.evaluation.vendor_classification_parser import (
-    VendorClassificationParseResult,
-    parse_vendor_classifications,
+    VendorClassificationParseResult,  # noqa: F401
+    parse_vendor_classifications,  # noqa: F401
 )
 
 _LEGACY_BY_CANONICAL = {

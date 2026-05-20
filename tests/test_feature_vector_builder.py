@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pandas as pd
+from pathlib import Path
 
 from obsidiandroid.features import feature_vector_builder
 from config import app_config
@@ -199,3 +200,32 @@ def test_merge_extra_features_joins_on_sample_id_index_when_no_column() -> None:
     out, _ = feature_vector_builder._merge_extra_features(encoded, extra, verbose=False)
     assert out["feat_a"].tolist() == [10, 20, 30]
     assert out["perm__x"].tolist() == [1, 0, 1]
+
+
+def test_export_vendor_gate_debug_run_scoped_uses_global_latest_mirror_only(
+    monkeypatch,
+    make_run_diagnostics_layout,
+) -> None:
+    output_root, diagnostics_dir, _global_diag = make_run_diagnostics_layout("rid")
+    monkeypatch.setattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "rid", raising=False)
+
+    out = feature_vector_builder._export_vendor_gate_debug(  # pylint: disable=protected-access
+        weights_df=pd.DataFrame(
+            {
+                "Vendor": ["tencent", "lionic"],
+                "Leakage Safe Score Raw": [0.9, 0.8],
+                "Leakage Safe Score": [0.9, 0.8],
+                "Vendor Category": ["High Diversity", "High Diversity"],
+            }
+        ),
+        selected_vendors=["tencent"],
+        parsed_vendor_data={"tencent": {"x": 1}, "lionic": {"x": 1}},
+        top_vendors_initial=["tencent"],
+    )
+
+    assert out == str(diagnostics_dir / "vendor_gate_debug_rid.csv")
+    assert Path(out).is_file()
+    assert not (diagnostics_dir / "vendor_gate_debug.latest.csv").exists()
+    assert (output_root / "diagnostics" / "vendor_gate_debug.latest.csv").is_file()

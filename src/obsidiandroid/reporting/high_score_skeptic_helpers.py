@@ -55,11 +55,7 @@ def build_label_map(model_results: dict[str, Any], model_key: str, diagnostics_d
         if isinstance(m, dict):
             out = {str(k): str(v) for k, v in m.items() if str(k).strip() and str(v).strip()}
     if not out:
-        p = diagnostics_dir / f"label_name_map_{run_id}.json"
-        if not p.is_file():
-            p = diagnostics_dir / "label_name_map.latest.json"
-        if not p.is_file():
-            p = oh.global_diagnostics_root() / "label_name_map.latest.json"
+        p = oh.resolve_label_name_map_path(diagnostics_dir, run_id)
         blob = read_json_dict(p)
         m2 = blob.get("label_name_map")
         if isinstance(m2, dict):

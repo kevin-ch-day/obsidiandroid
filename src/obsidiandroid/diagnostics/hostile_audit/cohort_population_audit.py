@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from obsidiandroid.common import output_hygiene as oh
 from ..cohort_vocabulary import read_prepared_cohort_row_count
 
 
@@ -236,9 +237,7 @@ def write_cohort_population_audit(
                 }
             )
 
-    cov_path = diagnostics_dir / f"feature_build_coverage_{run_id}.json"
-    if not cov_path.exists():
-        cov_path = diagnostics_dir / "feature_build_coverage.latest.json"
+    cov_path = oh.resolve_feature_build_coverage_path(diagnostics_dir, run_id)
     if cov_path.exists():
         try:
             payload = json.loads(cov_path.read_text(encoding="utf-8"))

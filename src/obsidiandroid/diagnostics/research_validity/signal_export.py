@@ -8,16 +8,12 @@ from typing import Any
 
 import pandas as pd
 
+from obsidiandroid.common import output_hygiene as oh
+
 
 def _find_ablation_summary_csv(diagnostics_dir: Path, run_id: str) -> Path | None:
-    candidates = [
-        diagnostics_dir / f"ablation_summary_{run_id}.csv",
-        diagnostics_dir / "ablation_summary.latest.csv",
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return None
+    candidate = oh.resolve_ablation_summary_path(diagnostics_dir, run_id)
+    return candidate if candidate.exists() else None
 
 
 def write_signal_decomposition_artifacts(*, diagnostics_dir: Path, run_id: str) -> list[Path]:

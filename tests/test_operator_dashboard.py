@@ -65,6 +65,18 @@ def test_emit_research_operator_report_surfaces_runtime_caveats(
         "Synthetic oversampling is enabled in evidence/paper mode.",
         raising=False,
     )
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_PROFILE_ID",
+        "malicious_temporal_stability_locked",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_LAST_SPLIT_ALGORITHM",
+        "stratified_seeded",
+        raising=False,
+    )
 
     captured: list[str] = []
     operator_dashboard.emit_research_operator_report(
@@ -100,6 +112,8 @@ def test_emit_research_operator_report_surfaces_runtime_caveats(
     assert "(No structured governance issues queued" not in text
     assert "Locked cohort drift downgraded to count-only semantics" in text
     assert "SMOTE remained enabled in evidence/publication mode" in text
+    assert "Temporal profile used a non-temporal holdout policy" in text
+    assert "stratified_seeded" in text
     assert "Taxonomy mismatch backlog present" in text
     assert "Taxonomy mismatches: total=377; claim-facing=0." in text
 
@@ -179,3 +193,55 @@ def test_emit_research_operator_report_uses_global_feature_survival_mirror(
 
     text = "\n".join(captured)
     assert "Top permission columns by training nonzero: perm__android_CAMERA(9), perm__android_SMS(7)" in text
+
+
+def test_emit_research_operator_report_uses_compact_artifact_pointer(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_art"
+
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_headline_vs_ablation_contract_reports",
+        lambda **_kwargs: (None, None, {}),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_taxonomy_type_authority_reports",
+        lambda *_args, **_kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.write_research_question_artifacts",
+        lambda **_kwargs: {"_written_paths": []},
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.print_research_questions_terminal",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "write_diagnostics_index_md",
+        lambda *_args, **_kwargs: diagnostics_dir / "index.md",
+    )
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_subheader", lambda *_args, **_kwargs: None)
+
+    captured: list[str] = []
+    operator_dashboard.clear_operator_state()
+    operator_dashboard.emit_research_operator_report(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="unit_profile",
+        manifest_context={},
+        samples_df=pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
+        model_results={},
+        top_model=None,
+        artifact_list=[],
+        print_fn=captured.append,
+    )
+
+    text = "\n".join(captured)
+    assert "Start here:" in text
+    assert "Grouped artifact writes (estimated)" not in text
+    assert f"headline_vs_ablation_contract_comparison_{run_id}.md" not in text

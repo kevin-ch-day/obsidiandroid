@@ -17,9 +17,9 @@ from __future__ import annotations
 import importlib
 import sys
 
-from obsidiandroid.vendors.contracts.parsed_label_metadata import ParsedLabelMetadata
-from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
-from obsidiandroid.vendors.parsing.generic_label_parser import parse_generic_classification
+from obsidiandroid.vendors.contracts.parsed_label_metadata import ParsedLabelMetadata  # noqa: F401
+from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord  # noqa: F401
+from obsidiandroid.vendors.parsing.generic_label_parser import parse_generic_classification  # noqa: F401
 
 _CANONICAL_SUBMODULE_NAMES = ("vendor_parser_map",)
 _LEGACY_BY_CANONICAL = {

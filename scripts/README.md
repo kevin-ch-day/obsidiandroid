@@ -1,4 +1,4 @@
-# Maintenance and research scripts
+# Maintenance, diagnostics, and research scripts
 
 Run these from the **repository root** so imports resolve (`obsidiandroid`, `database`, `config`, etc.):
 
@@ -19,13 +19,38 @@ python scripts/diagnose_alignment_gap.py --help
   # or: python -m database.split_db_health
   ```
 
+- **Bootstrap**: repo entrypoints should use [`scripts/_bootstrap.py`](_bootstrap.py) instead of open-coding repeated `sys.path` and `runtime_bootstrap` setup. Top-level scripts still add the repo root once before importing `scripts._bootstrap`; nested `scripts/diagnostics/*` and `scripts/research/*` do the same with their deeper parent path.
+
 ## Layout
 
 | Path | Role |
 | --- | --- |
-| `scripts/*.py` | Operator tools (cleanup, lineage, alignment diagnostics). |
+| `scripts/*.py` | Stable operator entrypoints plus compatibility wrappers for a few diagnostics that were moved under `scripts/diagnostics/`. |
 | `scripts/dev/*` | Shell: venv bootstrap, startup menu, pytest helpers; Python: bytecode cleanup, import smoke, ML scan, data fuzzer (see [`dev/README.md`](dev/README.md)). |
-| `scripts/diagnostics/*.py` | Data/inspection helpers (canonical; repo-root `data_inspect/` removed — use `scripts.diagnostics`). |
+| `scripts/diagnostics/*.py` | Canonical report, audit, and inspection CLIs. Prefer these paths for new docs and operator workflows. |
 | `scripts/research/*.py` | Publication tables, evidence bundles, structural diagnostics. |
+
+## Canonical diagnostics now under `scripts/diagnostics/`
+
+These top-level names are still runnable for compatibility, but the canonical locations are:
+
+| Compatibility entrypoint | Canonical path |
+| --- | --- |
+| `scripts/diagnose_alignment_gap.py` | `scripts/diagnostics/diagnose_alignment_gap.py` |
+| `scripts/report_feature_lineage.py` | `scripts/diagnostics/report_feature_lineage.py` |
+| `scripts/report_feature_matrix_gap.py` | `scripts/diagnostics/report_feature_matrix_gap.py` |
+| `scripts/report_output_inventory.py` | `scripts/diagnostics/report_output_inventory.py` |
+| `scripts/trace_feature_builder_drops.py` | `scripts/diagnostics/trace_feature_builder_drops.py` |
+| `scripts/check_run_integrity.py` | `scripts/diagnostics/check_run_integrity.py` |
+
+Top-level operator scripts that remain intentionally top-level for now include:
+- `backfill_permission_trends_warehouse.py`
+- `cleanup_output_artifacts.py`
+- `fresh_pipeline_reset.py`
+- `retrain_models_from_cached_alignment.py`
+- `family_label_taxonomy_audit.py`
+- `check_cohort_foundation.py`
+
+Those are closer to run operations, warehouse maintenance, or cohort gating than pure diagnostics.
 
 For architecture context see [`docs/architecture.md`](../docs/architecture.md). Repository root layout during the src-package migration is summarized in [`docs/STRUCTURE_MIGRATION_PLAN.md`](../docs/STRUCTURE_MIGRATION_PLAN.md).

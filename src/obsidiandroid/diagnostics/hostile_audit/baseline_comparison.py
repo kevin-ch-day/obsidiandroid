@@ -8,6 +8,7 @@ from typing import Any
 
 import pandas as pd
 
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.diagnostics.split_ledger_resolve import resolve_split_freeze_csv
 
 
@@ -82,11 +83,7 @@ def write_baseline_comparison(
     rows: list[dict[str, Any]] = []
 
     model_rows: dict[str, float] = {}
-    comp_path = diagnostics_dir / f"model_comparison_summary_{run_id}.csv"
-    if not comp_path.exists():
-        alt = diagnostics_dir / "model_comparison_summary.latest.csv"
-        if alt.exists():
-            comp_path = alt
+    comp_path = oh.resolve_model_comparison_summary_path(diagnostics_dir, run_id)
     if comp_path.exists():
         try:
             mcdf = pd.read_csv(comp_path)

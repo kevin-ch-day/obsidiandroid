@@ -41,7 +41,7 @@ def test_start_and_stop_runtime_logging(monkeypatch, tmp_path: Path) -> None:
     assert "hello-out" in capture_out.getvalue()
     assert "hello-err" in capture_err.getvalue()
 
-    log_path = tmp_path / "runtime" / "runabc" / "pipeline_runtime_runabc.log"
+    log_path = tmp_path / "runtime" / "runabc" / "pipeline_runtime_console_runabc.log"
     assert log_path.exists()
     content = log_path.read_text(encoding="utf-8")
     assert "hello-out" in content
@@ -50,4 +50,3 @@ def test_start_and_stop_runtime_logging(monkeypatch, tmp_path: Path) -> None:
     # Restore test process streams.
     monkeypatch.setattr(sys, "stdout", original_stdout)
     monkeypatch.setattr(sys, "stderr", original_stderr)
-

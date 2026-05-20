@@ -33,6 +33,7 @@ from obsidiandroid.governance import paper_cohort_contract
 from obsidiandroid.observability.logging import runtime as runtime_logging
 from obsidiandroid.observability.logging import logger as logger_manager
 from obsidiandroid.observability.logging import get_logger, log_event
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.diagnostics import cohort_foundation_export
 from obsidiandroid.diagnostics import cohort_sample_id_audit
@@ -566,6 +567,22 @@ def run_pipeline(
                     f"[COHORT_LOCK] Locked cohort for profile {profile_id} degraded to count-only semantics because "
                     "the preserved lock no longer fully overlaps the live DB."
                 )
+            runtime_drift = (
+                manifest_context["paper_cohort_contract"].get("sample_id_lock", {}).get("runtime_db_drift", {})
+                if isinstance(manifest_context.get("paper_cohort_contract"), dict)
+                else {}
+            )
+            log_event(
+                PIPELINE_MAIN_LOGGER,
+                "cohort_lock_drift",
+                event_id="PIPE_COHORT_310",
+                level="WARNING",
+                profile_id=profile_id,
+                warning_text=warning_text,
+                lock_sample_count=int(runtime_drift.get("lock_sample_count", 0) or 0),
+                matched_sample_count=int(runtime_drift.get("matched_sample_count", 0) or 0),
+                missing_from_db_count=int(runtime_drift.get("missing_from_db_count", 0) or 0),
+            )
             obs_warn = manifest_context.get("pipeline_observability")
             if isinstance(obs_warn, PipelineObservabilitySession) and warning_text:
                 obs_warn.add_warning(
@@ -669,7 +686,7 @@ def run_pipeline(
             st.fail_pipeline("[PIPELINE] Vendor metadata extraction returned no evaluation frame.")
 
         pipeline_results["vendor_eval_df"] = vendor_eval
-        parser_quality_path = Path(DIAGNOSTICS_DIR) / "parser_quality.latest.csv"
+        parser_quality_path = oh.resolve_parser_quality_path(Path(DIAGNOSTICS_DIR), run_id)
         if parser_quality_path.exists():
             artifact_list.append(str(parser_quality_path))
         if isinstance(vendor_eval, pd.DataFrame) and "sample_id" in vendor_eval.columns:
@@ -1316,13 +1333,7 @@ def run_pipeline(
                     outcome_status = str(oc_payload.get("ablation_grid_status") or "complete").strip().lower()
                 except Exception:
                     outcome_status = "complete"
-            summ = Path(DIAGNOSTICS_DIR) / f"ablation_summary_{run_id}.csv"
-            if not summ.is_file():
-                alt_partial = Path(DIAGNOSTICS_DIR) / f"ablation_summary_partial_{run_id}.csv"
-                if alt_partial.is_file():
-                    summ = alt_partial
-                else:
-                    summ = Path(DIAGNOSTICS_DIR) / "ablation_summary.latest.csv"
+            summ = oh.resolve_ablation_summary_path(Path(DIAGNOSTICS_DIR), run_id, allow_partial=True)
             manifest_context["_ablation_run_status_summary"] = (
                 f"artifact_paths={len(ablation_artifacts)} ablation_grid_status={outcome_status} "
                 f"summary={summ.name}"

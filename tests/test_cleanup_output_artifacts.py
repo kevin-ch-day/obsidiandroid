@@ -108,6 +108,50 @@ def test_collect_targets_prunes_old_run_local_latest_and_split_freeze_exports(tm
     assert "runs/20260519T020202Z__bbbbbb/diagnostics/feature_build_coverage.latest.json" not in target_set
 
 
+def test_collect_targets_prunes_repo_root_legacy_short_name_logs(tmp_path: Path, monkeypatch) -> None:
+    output_dir = tmp_path / "output"
+    logs_root = tmp_path / "logs"
+    logs_root.mkdir(parents=True, exist_ok=True)
+    (logs_root / "menu.log").write_text("", encoding="utf-8")
+    (logs_root / "database.log").write_text("legacy\n", encoding="utf-8")
+
+    monkeypatch.setattr(coa, "project_logs_root", lambda: logs_root)
+
+    targets = coa._collect_targets(  # pylint: disable=protected-access
+        output_dir,
+        keep_run_ids=set(),
+        keep_runtime_logs=0,
+    )
+
+    target_set = {path for path in targets}
+    assert logs_root / "menu.log" in target_set
+    assert logs_root / "database.log" in target_set
+
+
+def test_collect_targets_prunes_legacy_runtime_category_logs_for_old_runs(tmp_path: Path, monkeypatch) -> None:
+    output_dir = tmp_path / "output"
+    logs_root = tmp_path / "logs"
+    runtime_old = logs_root / "runtime" / "20260519T010101Z__aaaaaa"
+    runtime_keep = logs_root / "runtime" / "20260519T020202Z__bbbbbb"
+    runtime_old.mkdir(parents=True, exist_ok=True)
+    runtime_keep.mkdir(parents=True, exist_ok=True)
+    (runtime_old / "ml.log").write_text("legacy\n", encoding="utf-8")
+    (runtime_old / "pipeline_runtime_console_20260519T010101Z__aaaaaa.log").write_text("tee\n", encoding="utf-8")
+    (runtime_keep / "ml.log").write_text("legacy\n", encoding="utf-8")
+
+    monkeypatch.setattr(coa, "project_logs_root", lambda: logs_root)
+
+    targets = coa._collect_targets(  # pylint: disable=protected-access
+        output_dir,
+        keep_run_ids={"20260519T020202Z__bbbbbb"},
+        keep_runtime_logs=5,
+    )
+
+    target_set = {path for path in targets}
+    assert runtime_old / "ml.log" in target_set
+    assert runtime_keep / "ml.log" not in target_set
+
+
 def test_discover_recent_run_ids_preserves_mtime_order_not_lexicographic(tmp_path: Path) -> None:
     output_dir = tmp_path / "output"
     runs_dir = output_dir / "runs"
@@ -196,3 +240,42 @@ def test_cleanup_main_syncs_promoted_pointers_even_without_delete_targets(
     out = capsys.readouterr().out
     assert "No cleanup targets found. Synced promoted latest-run pointers." in out
     assert (promoted_dir / "latest_run.txt").read_text(encoding="utf-8").strip() == "20260519T071502Z__c09270"
+
+
+def test_cleanup_main_prunes_empty_runtime_dirs_even_without_other_targets(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    output_dir = tmp_path / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logs_root = tmp_path / "logs"
+    empty_runtime_dir = logs_root / "runtime" / "20260519T010101Z__aaaaaa"
+    empty_runtime_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(coa, "project_logs_root", lambda: logs_root)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["cleanup_output_artifacts.py", "--output-dir", str(output_dir), "--apply"],
+    )
+
+    coa.main()
+
+    out = capsys.readouterr().out
+    assert "Removed 1 empty runtime log directory" in out
+    assert not empty_runtime_dir.exists()
+
+
+def test_prune_empty_runtime_log_dirs_removes_empty_run_dirs(tmp_path: Path) -> None:
+    logs_root = tmp_path / "logs"
+    empty_run = logs_root / "runtime" / "20260519T010101Z__aaaaaa"
+    keep_run = logs_root / "runtime" / "20260519T020202Z__bbbbbb"
+    empty_run.mkdir(parents=True, exist_ok=True)
+    keep_run.mkdir(parents=True, exist_ok=True)
+    (keep_run / "pipeline_runtime_console_20260519T020202Z__bbbbbb.log").write_text("tee\n", encoding="utf-8")
+
+    removed = coa._prune_empty_runtime_log_dirs(logs_root)  # pylint: disable=protected-access
+
+    assert removed >= 1
+    assert not empty_run.exists()
+    assert keep_run.exists()

@@ -40,3 +40,24 @@ def test_audit_exports_when_duplicates(tmp_path: Path) -> None:
     cohort_sample_id_audit.merge_sample_id_audit_into_manifest(ctx, out)
     assert ctx["cohort_distinct_sample_id"] == 2
     assert ctx["cohort_duplicate_surplus_rows"] == 1
+
+
+def test_audit_uses_global_latest_for_run_scoped_dirs(
+    make_run_diagnostics_layout,
+) -> None:
+    output_root, diagnostics_dir, _global_diag = make_run_diagnostics_layout("d2")
+    df = pd.DataFrame({"sample_id": [1, 1, 2], "x": [1, 2, 3]})
+    arts: list[str] = []
+
+    out = cohort_sample_id_audit.audit_cohort_sample_id_uniqueness(
+        df,
+        diagnostics_dir=diagnostics_dir,
+        run_id="d2",
+        artifact_list=arts,
+    )
+
+    assert out["cohort_duplicate_surplus_rows"] == 1
+    assert (diagnostics_dir / "duplicate_sample_id_cohort_d2.csv").is_file()
+    assert not (diagnostics_dir / "duplicate_sample_id_cohort.latest.csv").exists()
+    assert (output_root / "diagnostics" / "duplicate_sample_id_cohort.latest.csv").is_file()
+    assert arts

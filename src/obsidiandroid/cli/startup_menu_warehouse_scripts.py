@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 from config import app_config
 
@@ -209,16 +208,6 @@ def run_evidence_lock_checker() -> int:
         return int(proc.returncode)
     du.print_success("[MENU] Evidence bundle checker passed for supplied run IDs.")
     return 0
-
-
-def run_paper_structural_diagnostics() -> int:
-    """Compatibility alias for legacy helper naming."""
-    return run_publication_structural_diagnostics()
-
-
-def run_paper2_freeze_checker() -> int:
-    """Compatibility alias for legacy helper naming."""
-    return run_evidence_lock_checker()
 
 
 def run_retrain_from_cached_alignment() -> int:

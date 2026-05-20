@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-from config import app_config
 from obsidiandroid.diagnostics.hostile_audit.taxonomy_label_quality_audit import (
     write_taxonomy_label_quality_audit,
 )

@@ -65,3 +65,46 @@ def test_write_paper_claim_audit_md_keeps_table_rows_single_line(tmp_path) -> No
     assert "overall_status=pass; checks_pass=2/2" in claim_row
     assert len(claim_row.split("|")) >= 8
     assert (diagnostics_dir / "publication_claim_audit.md").exists()
+
+
+def test_write_paper_claim_audit_md_can_use_global_latest_ablation_and_model_summary(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    diagnostics_dir = tmp_path / "output" / "runs" / "run123" / "diagnostics"
+    global_diag = tmp_path / "output" / "diagnostics"
+    diagnostics_dir.mkdir(parents=True)
+    global_diag.mkdir(parents=True, exist_ok=True)
+
+    from config import app_config
+
+    monkeypatch.setattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(tmp_path / "output"), raising=False)
+
+    (diagnostics_dir / "paper_mode_compliance_report_run123.json").write_text(
+        json.dumps({"overall_status": "pass", "checks": []}),
+        encoding="utf-8",
+    )
+    (global_diag / "ablation_summary.latest.csv").write_text(
+        "label_target,experiment,macro_f1_score\n"
+        "family_canonical_default,full_fused,0.90\n"
+        "family_canonical_default,vendor_full,0.80\n"
+        "family_canonical_default,permissions_raw,0.50\n",
+        encoding="utf-8",
+    )
+    (global_diag / "model_comparison_summary.latest.csv").write_text(
+        "Model,Macro-F1 Score\nrandom_forest,0.91\nxgboost,0.89\n",
+        encoding="utf-8",
+    )
+
+    out = write_paper_claim_audit_md(
+        diagnostics_dir=diagnostics_dir,
+        manifest={
+            "paper_mode_compliance_report": str(diagnostics_dir / "paper_mode_compliance_report_run123.json")
+        },
+        manifest_context={"paper_mode": {"resolved_value": True}},
+        run_id="run123",
+    )
+
+    text = out.read_text(encoding="utf-8")
+    assert "full_fused=0.9; vendor_full=0.8" in text
+    assert "random_forest / Macro-F1≈0.9100" in text or "random_forest" in text

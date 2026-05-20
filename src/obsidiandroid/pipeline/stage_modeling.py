@@ -42,6 +42,7 @@ def compute_engine_weights_from_pipeline(
     log_event(
         PIPELINE_LOGGER,
         "engine_weights_start",
+        event_id="PIPE_MODEL_001",
         has_vendor_eval=bool(isinstance(pipeline_results.get("vendor_eval_df"), pd.DataFrame)),
     )
     try:
@@ -66,6 +67,7 @@ def compute_engine_weights_from_pipeline(
         log_event(
             PIPELINE_LOGGER,
             "engine_weights_complete",
+            event_id="PIPE_MODEL_200",
             rows=int(weights_df.shape[0]),
             columns=int(weights_df.shape[1]),
         )
@@ -73,7 +75,13 @@ def compute_engine_weights_from_pipeline(
 
     except Exception as exc:
         du.print_error(f"[ERROR] Engine weight computation failed: {exc}")
-        log_event(PIPELINE_LOGGER, "engine_weights_failed", error=str(exc))
+        log_event(
+            PIPELINE_LOGGER,
+            "engine_weights_failed",
+            event_id="PIPE_MODEL_500",
+            level="ERROR",
+            error=str(exc),
+        )
         return None
 
 
@@ -200,6 +208,7 @@ def build_feature_matrix_stage(
     log_event(
         PIPELINE_LOGGER,
         "feature_matrix_start",
+        event_id="PIPE_MODEL_010",
         top_k=top_k,
         score_field=score_field,
         exclude_categories=exclude_categories,
@@ -250,13 +259,20 @@ def build_feature_matrix_stage(
         log_event(
             PIPELINE_LOGGER,
             "feature_matrix_complete",
+            event_id="PIPE_MODEL_210",
             rows=int(feature_df.shape[0]),
             columns=int(feature_df.shape[1]),
         )
         return feature_df
     except Exception as exc:
         du.print_error(f"[ERROR] Feature matrix generation failed: {exc}")
-        log_event(PIPELINE_LOGGER, "feature_matrix_failed", error=str(exc))
+        log_event(
+            PIPELINE_LOGGER,
+            "feature_matrix_failed",
+            event_id="PIPE_MODEL_510",
+            level="ERROR",
+            error=str(exc),
+        )
         return None
 
 
@@ -271,6 +287,7 @@ def run_training_stage(
     log_event(
         PIPELINE_LOGGER,
         "training_stage_start",
+        event_id="PIPE_MODEL_020",
         requested_models=list(model_list or []),
     )
     model_results = pipeline_core.train_all_models(
@@ -280,11 +297,18 @@ def run_training_stage(
     )
     if not model_results:
         du.print_error("[PIPELINE] Model training failed.")
-        log_event(PIPELINE_LOGGER, "training_stage_failed", reason="no_model_results")
+        log_event(
+            PIPELINE_LOGGER,
+            "training_stage_failed",
+            event_id="PIPE_MODEL_520",
+            level="ERROR",
+            reason="no_model_results",
+        )
         return None
     log_event(
         PIPELINE_LOGGER,
         "training_stage_complete",
+        event_id="PIPE_MODEL_220",
         result_keys=sorted(list(model_results.keys())),
     )
     return model_results
@@ -296,7 +320,12 @@ def resolve_final_labels_stage(
 ) -> Optional[pd.DataFrame]:
     """Resolve final structured labels from trained model output."""
     has_predictions = bool(model_output.get("predictions")) if isinstance(model_output, dict) else False
-    log_event(PIPELINE_LOGGER, "label_resolution_start", has_predictions=has_predictions)
+    log_event(
+        PIPELINE_LOGGER,
+        "label_resolution_start",
+        event_id="PIPE_MODEL_030",
+        has_predictions=has_predictions,
+    )
     try:
         if not isinstance(model_output, dict):
             raise ValueError("Model output is not a dictionary.")
@@ -310,11 +339,18 @@ def resolve_final_labels_stage(
             log_event(
                 PIPELINE_LOGGER,
                 "label_resolution_complete",
+                event_id="PIPE_MODEL_230",
                 rows=int(result_df.shape[0]),
                 columns=int(result_df.shape[1]),
             )
         return result_df
     except Exception as exc:
         du.print_error(f"[LABEL RESOLUTION] Failed to finalize structured labels: {exc}")
-        log_event(PIPELINE_LOGGER, "label_resolution_failed", error=str(exc))
+        log_event(
+            PIPELINE_LOGGER,
+            "label_resolution_failed",
+            event_id="PIPE_MODEL_530",
+            level="ERROR",
+            error=str(exc),
+        )
         return None
