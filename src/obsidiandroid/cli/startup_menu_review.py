@@ -39,15 +39,29 @@ def _status_row_map(rows: list[dict[str, object]]) -> dict[str, str]:
     return out
 
 
-def _run_class(*, evidence_mode: bool, locked_status: str, publication_ready_status: str) -> str:
+def _run_class(
+    *,
+    profile_id: str,
+    evidence_mode: bool,
+    locked_status: str,
+    publication_ready_status: str,
+) -> str:
     pub = str(publication_ready_status or "").strip().lower()
     locked = locked_status in {"locked", "count-only", "missing-lock"}
+    profile_token = str(profile_id or "").strip().lower()
     if pub in {"ready", "pass"}:
         return "Publication-ready"
     if locked:
         return "Cohort-locked"
     if evidence_mode:
         return "Evidence"
+    if profile_token in {
+        "malicious_temporal_stability",
+        "banker",
+        "malicious_temporal_consensus10",
+        "malicious_temporal_family300",
+    }:
+        return "Research"
     return "Exploratory"
 
 
@@ -100,6 +114,7 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
     lock_status = str(shared.get("cohort_lock_status", "") or "").strip() or resolve_cohort_lock_status(manifest)
     publication_ready_status = str(shared.get("publication_ready_status", "") or "unknown")
     run_class = _run_class(
+        profile_id=profile_id,
         evidence_mode=bool(shared.get("evidence_mode", False)),
         locked_status=lock_status,
         publication_ready_status=publication_ready_status,

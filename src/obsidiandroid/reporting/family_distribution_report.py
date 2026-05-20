@@ -10,6 +10,7 @@ import pandas as pd
 from config import app_config
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import ml_console
 from obsidiandroid.common import output_paths
 
 __all__ = ["print_family_distribution_stats"]
@@ -54,6 +55,8 @@ def _display_family_distribution_console(fam_counts: Counter) -> None:
             getattr(app_config, "FAMILY_DISTRIBUTION_MAX_CONSOLE_ROWS", 20), default=20
         ),
     )
+    if ml_console.is_compact():
+        max_rows = min(max_rows, 10)
 
     du.print_info(f"Detected {len(fam_counts)} unique families.")
     if low_support:
@@ -62,7 +65,14 @@ def _display_family_distribution_console(fam_counts: Counter) -> None:
         )
 
     du.print_info("-- Low-Support Families --")
-    _display_family_group(low_support, highlight=True)
+    if ml_console.is_compact() and len(low_support) > 5:
+        compact_low = dict(sorted(low_support.items(), key=lambda item: (item[1], item[0]))[:5])
+        _display_family_group(compact_low, highlight=True)
+        du.print_info(
+            f"... {len(low_support) - len(compact_low)} additional low-support families omitted from terminal output."
+        )
+    else:
+        _display_family_group(low_support, highlight=True)
 
     du.print_info("-- Sufficient-Support Families --")
     sorted_sufficient = dict(

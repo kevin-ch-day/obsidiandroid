@@ -1,5 +1,5 @@
 profile_id: paper2_primary_locked
-description: "Locked 2026 paper cohort contract anchored to historical baseline run 20260504T044304Z__8c64e6."
+description: "Deprecated compatibility alias for the locked all-malicious temporal-stability baseline anchored to historical run 20260504T044304Z__8c64e6."
 paper_locked: true
 evidence_mode: true
 allow_vendor_fallback_for_width: false
@@ -9,6 +9,7 @@ exclude_unknown_from_main_results: true
 type_slug_filter: null
 cohort_gates:
   min_samples_per_family: 20
+  min_support_guard_mode: temporal_evidence_floor_20
   require_mapped_family: true
   require_sha256: true
   allow_missing_package_name: true
@@ -54,4 +55,4 @@ paper_lock:
   sample_id_lock_file: artifacts/baselines/20260504T044304Z__8c64e6/paper2_primary_locked_sample_ids.csv
   sample_id_lock_status: recovered_from_historical_artifact
   sample_id_lock_source: artifacts/baselines/20260504T044304Z__8c64e6/sample_stage_lineage_20260504T044304Z__8c64e6.csv
-  notes: "Locked to the preserved 2026 baseline artifact bundle; model behavior follows paper2_primary gates."
+  notes: "Deprecated compatibility alias for malicious_temporal_stability_locked. This legacy alias keeps historical baseline artifact compatibility."

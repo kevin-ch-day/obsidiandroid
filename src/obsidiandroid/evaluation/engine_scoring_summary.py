@@ -11,6 +11,7 @@ from scipy.stats import zscore
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import ml_console
 from obsidiandroid.common.cv_fold_config import safe_float_config_value, safe_int_config_value
 from obsidiandroid.database import db_av_engine_detection_totals
 from obsidiandroid.common import output_paths
@@ -319,10 +320,11 @@ def _log_summary_stats(df: pd.DataFrame):
     }
 
     du.print_metric_summary(metrics, title="ML Readiness Score", precision=2)
-    du.print_statistical_range("ML Readiness Score", df["ML Readiness Score"].tolist())
-    du.print_statistical_range("Malicious %", df["malicious_pct"].tolist())
-    du.print_statistical_range("Coverage %", df["coverage_pct"].tolist())
-    du.print_statistical_range("Threat Signal Score", df["threat_signal_score"].tolist())
+    if not ml_console.is_compact():
+        du.print_statistical_range("ML Readiness Score", df["ML Readiness Score"].tolist())
+        du.print_statistical_range("Malicious %", df["malicious_pct"].tolist())
+        du.print_statistical_range("Coverage %", df["coverage_pct"].tolist())
+        du.print_statistical_range("Threat Signal Score", df["threat_signal_score"].tolist())
     du.print_tier_distribution(df["Tier Label"], label="Tier Distribution")
 
     show_top5 = bool(getattr(app_config, "ENGINE_SUMMARY_SHOW_TOP5_TABLE", False))
@@ -338,6 +340,8 @@ def _log_summary_stats(df: pd.DataFrame):
 
 def _analyze_metric_relationships(df: pd.DataFrame):
     """Display correlations between core metrics and readiness score."""
+    if ml_console.is_compact():
+        return
     try:
         metrics = ["malicious_pct", "coverage_pct", "threat_signal_score", "ML Readiness Score"]
         corr = df[metrics].corr(method="spearman").round(2)
@@ -409,12 +413,16 @@ def _export_summary_log(df: pd.DataFrame) -> dict[str, str]:
             handle.write("\n".join(lines))
         df.sort_values("ML Readiness Score", ascending=False).to_csv(summary_csv_path, index=False)
 
-        du.print_table(
-            top_engines,
-            title="Top 10 AV Engines by ML Readiness Score",
-            columns=["engine_name", "ML Readiness Score", "Tier Label", "contributor_flag"],
-            show_index=False,
-        )
+        if ml_console.is_compact():
+            top_names = ", ".join(top_engines["engine_name"].astype(str).head(5).tolist())
+            du.print_info(f"[SUMMARY] Top engines by ML Readiness Score: {top_names}")
+        else:
+            du.print_table(
+                top_engines,
+                title="Top 10 AV Engines by ML Readiness Score",
+                columns=["engine_name", "ML Readiness Score", "Tier Label", "contributor_flag"],
+                show_index=False,
+            )
         du.print_info(f"[EXPORT] Summary log saved to: {summary_export_path.as_posix()}")
         du.print_info(f"[EXPORT] Summary CSV saved to: {summary_csv_path.as_posix()}")
         log_event(

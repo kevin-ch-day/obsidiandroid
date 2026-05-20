@@ -1,5 +1,5 @@
 profile_id: malicious_temporal_stability_locked
-description: "Cohort-locked multi-type malicious corpus contract anchored to a preserved baseline run."
+description: "Locked all-malicious temporal-stability baseline anchored to a preserved baseline run."
 paper_locked: true
 evidence_mode: true
 allow_vendor_fallback_for_width: false
@@ -9,6 +9,7 @@ exclude_unknown_from_main_results: true
 type_slug_filter: null
 cohort_gates:
   min_samples_per_family: 20
+  min_support_guard_mode: temporal_evidence_floor_20
   require_mapped_family: true
   require_sha256: true
   allow_missing_package_name: true

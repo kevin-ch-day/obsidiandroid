@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 
 import obsidiandroid.governance.cohort_readiness_report as cohort_readiness_report
+from config import app_config
 
 
 def test_cohort_readiness_report_prints_percentages_and_concentration(capsys) -> None:
@@ -81,3 +82,25 @@ def test_cohort_readiness_report_warns_for_concentration_or_missingness(capsys) 
     assert isinstance(warnings, list)
     assert any("top family concentration" in msg for msg in warnings)
     assert any("banker share" in msg for msg in warnings)
+
+
+def test_cohort_readiness_report_compact_limits_terminal_lists(monkeypatch, capsys) -> None:
+    """Compact operator mode should trim long type/family terminal lists."""
+    monkeypatch.setattr(app_config, "ML_TERMINAL_COMPACT", True, raising=False)
+    monkeypatch.setattr(app_config, "ML_CONSOLE_MODE", "research", raising=False)
+    df = pd.DataFrame(
+        {
+            "sample_id": list(range(1, 13)),
+            "type_slug": ["banker", "adware", "rat", "spyware", "stealer", "sms-trojan"] * 2,
+            "family_canonical": [f"fam_{i}" for i in range(12)],
+            "android_package_name": ["pkg"] * 12,
+            "vt_first_submission_date": ["2024-01-01"] * 12,
+        }
+    )
+
+    cohort_readiness_report.print_cohort_readiness_report(df, gates={"max_missing_package_pct": 10.0})
+    out = capsys.readouterr().out
+    out_lower = out.lower()
+    assert "top families (top 5)" in out_lower
+    assert "additional families omitted from terminal output" in out_lower
+    assert "additional type bucket(s)" in out_lower

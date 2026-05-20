@@ -257,6 +257,8 @@ class PipelineRunStageControl:
         self.preflight_payload.update(
             {
                 "run_id": self.run_id,
+                "profile_id": self.manifest_context.get("profile_id")
+                or (self.manifest_context.get("profile_params", {}) or {}).get("profile_id"),
                 "status": status,
                 "reason": reason,
                 "timestamp_utc": datetime.now(timezone.utc).isoformat(),

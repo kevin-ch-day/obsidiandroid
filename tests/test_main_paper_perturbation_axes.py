@@ -22,7 +22,7 @@ def test_enforce_paper_perturbation_axes_rejects_invalid_axis() -> None:
 def test_enforce_paper_perturbation_axes_accepts_locked_axes() -> None:
     """Evidence mode should accept approved perturbation axes."""
     profile = {
-        "profile_id": "paper2_primary",
+        "profile_id": "malicious_temporal_stability",
         "evidence_perturbation_axes": [
             "min_malicious_detections",
             "family_cap",

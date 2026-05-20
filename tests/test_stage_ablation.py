@@ -1,5 +1,7 @@
 """Tests for ablation pipeline utility helpers."""
 
+import json
+
 import numpy as np
 import pandas as pd
 
@@ -148,3 +150,111 @@ def test_print_ablation_terminal_summary_compact_mode_reduces_grid(monkeypatch) 
     assert len(compact_df) == 2
     assert compact_df["best_feature_set"].tolist() == ["full_fused", "full_fused"]
     assert any("Compact terminal mode" in msg for msg in captured_info)
+
+
+def test_print_ablation_combo_summary_compacts_model_timings(monkeypatch) -> None:
+    captured: list[str] = []
+    monkeypatch.setattr(stage_ablation.du, "print_info", lambda msg, *_a, **_k: captured.append(str(msg)))
+
+    stage_ablation._print_ablation_combo_summary(  # pylint: disable=protected-access
+        "full_fused",
+        "family_canonical_default",
+        {
+            "random_forest": {"evaluation": {"macro_f1_score": 0.91, "train_time": 2.5}},
+            "xgboost": {"evaluation": {"macro_f1_score": 0.94, "train_time": 9.75}},
+            "logistic_regression": {"evaluation": {"macro_f1_score": 0.88, "train_time": 1.25}},
+        },
+    )
+
+    assert len(captured) == 1
+    assert "[ABLATION] full_fused / family_canonical_default: 3 model(s)" in captured[0]
+    assert "best=xgboost MacroF1=0.9400" in captured[0]
+    assert "fit_total=13.50s" in captured[0]
+    assert "slowest=xgboost 9.75s" in captured[0]
+
+
+def test_run_ablation_experiments_persists_skipped_feature_sets(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(stage_ablation, "_diagnostics_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        stage_ablation,
+        "_load_paper_cohort_sample_ids",
+        lambda _samples_df: {1, 2},
+    )
+    monkeypatch.setattr(
+        stage_ablation,
+        "_build_experiment_matrix_dict",
+        lambda *_args, **_kwargs: {
+            "vendor_full": lambda: pd.DataFrame({"f1": [0.1, 0.2]}, index=[1, 2]),
+            "vendor_no_family_no_type": lambda: pd.DataFrame(),
+        },
+    )
+    monkeypatch.setattr(
+        stage_ablation,
+        "_prepare_training_inputs",
+        lambda feature_df, _samples_df, forced_label_column=None: (
+            feature_df,
+            pd.Series(
+                ["fam_a", "fam_b"],
+                index=feature_df.index,
+                name=forced_label_column or "family_canonical",
+            ),
+        ),
+    )
+    monkeypatch.setattr(stage_ablation, "_print_ablation_cohort_integrity_table", lambda *_a, **_k: None)
+    monkeypatch.setattr(stage_ablation, "_print_ablation_terminal_summary", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        stage_ablation.pipeline_core,
+        "train_models",
+        lambda *_args, **_kwargs: (
+            {
+                "random_forest": {
+                    "evaluation": {
+                        "accuracy": 0.9,
+                        "f1_score": 0.88,
+                        "macro_f1_score": 0.77,
+                        "macro_precision": 0.75,
+                        "macro_recall": 0.76,
+                        "samples_tested": 2,
+                    },
+                    "metadata": {},
+                }
+            },
+            None,
+        ),
+    )
+    monkeypatch.setattr(app_config, "ENABLE_ABLATION_MULTI_LABEL_TARGETS", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ABLATION_CROSS_VALIDATION", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ABLATION_MODEL_EXPORT", False, raising=False)
+    monkeypatch.setattr(app_config, "ABLATION_COHORT_REINDEX_ZERO_FILL", True, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "rid", raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", {}, raising=False)
+
+    manifest_context: dict[str, object] = {}
+    artifact_paths = stage_ablation.run_ablation_experiments(
+        samples_df=pd.DataFrame({"sample_id": [1, 2], "family_canonical": ["fam_a", "fam_b"]}),
+        weights_df=pd.DataFrame(),
+        parsed_data={},
+        permission_features_df=None,
+        model_list=["random_forest"],
+        run_id="rid",
+        pipeline_results={},
+        manifest_context=manifest_context,
+    )
+
+    assert any("ablation_run_outcome_rid.json" in path for path in artifact_paths)
+    outcome = json.loads((tmp_path / "ablation_run_outcome_rid.json").read_text(encoding="utf-8"))
+    expected_skip = [
+        {
+            "feature_set": "vendor_no_family_no_type",
+            "reason": "empty_feature_matrix",
+            "detail": "Builder returned a non-DataFrame or empty feature matrix.",
+        }
+    ]
+    assert outcome["ablation_grid_status"] == "complete"
+    assert outcome["trainable_experiments"] == 1
+    assert outcome["skipped_experiment_count"] == 1
+    assert outcome["skipped_experiments"] == expected_skip
+    assert manifest_context["_ablation_skipped_experiments"] == expected_skip
+    assert manifest_context["_ablation_cohort_gap_summary"]["skipped_experiments"] == expected_skip

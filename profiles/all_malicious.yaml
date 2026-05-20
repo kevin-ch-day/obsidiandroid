@@ -1,5 +1,5 @@
 profile_id: all_malicious
-description: All malicious Android samples without type_slug restriction.
+description: Broad exploratory all-malicious profile without a type_slug restriction.
 evidence_mode: false
 allow_vendor_fallback_for_width: true
 allow_adaptive_top_k: true

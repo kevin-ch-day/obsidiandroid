@@ -105,8 +105,11 @@ def load_and_prepare_samples(
     cohort_label = f"Android Malware Samples ({profile_id})"
 
     configured_min_support = int(gates.get("min_samples_per_family", 3))
-    evidence_locked_profile = str(profile_id).startswith("malicious_temporal_") or str(profile_id).startswith("paper2_")
-    if bool(getattr(app_config, "PAPER_MODE_ENABLED", False)) and evidence_locked_profile:
+    min_support_guard_mode = str(gates.get("min_support_guard_mode", "") or "").strip().lower()
+    if (
+        bool(getattr(app_config, "PAPER_MODE_ENABLED", False))
+        and min_support_guard_mode == "temporal_evidence_floor_20"
+    ):
         if configured_min_support < 20:
             raise ValueError(
                 "[PROFILE] Evidence/publication-ready temporal malicious profiles require "
@@ -486,9 +489,17 @@ def _export_cohort_lock_artifacts(
     snapshot_lock_meta = samples_df.attrs.get("snapshot_lock", {})
     if not isinstance(snapshot_lock_meta, dict):
         snapshot_lock_meta = {}
-    snapshot_status = str(snapshot_lock_meta.get("status", "") or "").strip() or (
+    raw_snapshot_status = str(snapshot_lock_meta.get("status", "") or "").strip() or (
         "not_requested" if not enable_snapshot_lock else "unknown"
     )
+    missing_from_db_count = int(snapshot_lock_meta.get("missing_from_db_count", 0) or 0)
+    snapshot_status = raw_snapshot_status
+    if (
+        raw_snapshot_status == "matched"
+        and bool(snapshot_lock_meta.get("applied", False))
+        and missing_from_db_count > 0
+    ):
+        snapshot_status = "count_only_incomplete_sample_lock"
 
     payload = {
         "schema_version": "1.0",
@@ -503,12 +514,13 @@ def _export_cohort_lock_artifacts(
             "requested": bool(enable_snapshot_lock),
             "required": bool(evidence_strict_snapshot_lock),
             "status": snapshot_status,
+            "selection_status": raw_snapshot_status,
             "applied": bool(snapshot_lock_meta.get("applied", False)),
             "fail_closed": bool(snapshot_lock_meta.get("fail_closed", evidence_strict_snapshot_lock)),
             "lock_file": str(snapshot_lock_file),
             "matched_sample_count": int(snapshot_lock_meta.get("matched_sample_count", 0) or 0),
             "lock_sample_count": int(snapshot_lock_meta.get("lock_sample_count", 0) or 0),
-            "missing_from_db_count": int(snapshot_lock_meta.get("missing_from_db_count", 0) or 0),
+            "missing_from_db_count": missing_from_db_count,
             "snapshot_file": str(snapshot_file),
             "snapshot_meta_file": str(snapshot_meta_file),
             "selection_rule_version": str(selection_rule_version),

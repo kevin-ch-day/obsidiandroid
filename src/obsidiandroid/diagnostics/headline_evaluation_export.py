@@ -10,6 +10,7 @@ import pandas as pd
 
 from config import app_config
 
+
 def _headline_split_meta() -> dict[str, Any]:
     headline = getattr(app_config, "RUNTIME_HEADLINE_SPLIT_METADATA", None)
     if isinstance(headline, dict) and headline.get("split_hash"):
@@ -56,6 +57,16 @@ def export_headline_test_tables(
     split_meta = _headline_split_meta()
     split_hash = str(split_meta.get("split_hash", "") or "")
     feature_hash = str(getattr(app_config, "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH", "") or "")
+    runtime_label_name_map = getattr(app_config, "RUNTIME_LABEL_NAME_MAP", {})
+    result_label_name_map = result.get("label_name_map", {}) if isinstance(result, dict) else {}
+    label_name_map: dict[str, str] = {}
+    for candidate in (result_label_name_map, runtime_label_name_map):
+        if isinstance(candidate, dict):
+            for key, value in candidate.items():
+                skey = str(key).strip()
+                sval = str(value).strip()
+                if skey and sval:
+                    label_name_map[skey] = sval
 
     meta = getattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", None)
     meta_by_id: dict[int, dict[str, Any]] = {}
@@ -100,6 +111,9 @@ def export_headline_test_tables(
         return perm_ok, vend_ok, mismatch
 
     def _name_for_label(val: Any) -> str:
+        normalized_key = str(val).strip()
+        if normalized_key in label_name_map:
+            return label_name_map[normalized_key]
         if label_encoder is not None:
             try:
                 inv = label_encoder.inverse_transform(

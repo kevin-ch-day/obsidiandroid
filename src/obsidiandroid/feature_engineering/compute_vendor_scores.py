@@ -4,6 +4,7 @@
 import pandas as pd
 from obsidiandroid.cli.ui import display as du
 from config import app_config
+from obsidiandroid.common import ml_console
 from obsidiandroid.common.cv_fold_config import safe_float_config_value, safe_int_config_value
 
 REQUIRED_COLUMNS = [
@@ -296,6 +297,11 @@ def tag_vendor_categories(df: pd.DataFrame) -> pd.DataFrame:
 # Step 8: Optional Debug Print
 # -----------------------------------------------------------------------------
 def print_debug_top_vendors(df: pd.DataFrame):
+    if ml_console.is_compact():
+        top = df.sort_values("Final ML Score", ascending=False)["Vendor"].astype(str).head(5).tolist()
+        if top:
+            du.print_info(f"[SCORING] Top vendors by Final ML Score: {', '.join(top)}")
+        return
     du.print_section("Top Vendors by Final ML Score")
     du.print_table(
         df.sort_values("Final ML Score", ascending=False)[[

@@ -45,7 +45,7 @@ def test_validate_profile_runnable_uses_lightweight_probe_for_malicious_only(mon
         profile_preflight.profile_manager,
         "load_profile",
         lambda _profile_id: {
-            "profile_id": "all_malicious",
+            "profile_id": "malicious_temporal_stability",
             "type_slug_filter": None,
             "cohort_gates": {},
             "dataset_filters": {"mode": "none"},
@@ -63,7 +63,7 @@ def test_validate_profile_runnable_uses_lightweight_probe_for_malicious_only(mon
         _fake_fetch,
     )
 
-    ok, reason = profile_preflight.validate_profile_runnable("all_malicious")
+    ok, reason = profile_preflight.validate_profile_runnable("malicious_temporal_stability")
     assert ok is True
     assert reason == ""
     assert len(calls) == 1
@@ -92,7 +92,7 @@ def test_resolve_and_validate_profile_prints_advisory_readiness_mapping(monkeypa
     monkeypatch.setattr(
         profile_preflight.profile_manager,
         "inventory_cohort_readiness_mappings",
-        lambda: [{"profile_id": "banker", "status": "mapped"}],
+        lambda **_kwargs: [{"profile_id": "banker", "status": "mapped"}],
     )
     messages: list[str] = []
     notes: list[str] = []
@@ -127,7 +127,7 @@ def test_resolve_and_validate_profile_reports_ambiguous_inventory_advisory(monke
     monkeypatch.setattr(
         profile_preflight.profile_manager,
         "inventory_cohort_readiness_mappings",
-        lambda: [
+        lambda **_kwargs: [
             {"profile_id": "banker", "status": "mapped"},
             {"profile_id": "future_profile", "status": "ambiguous"},
         ],

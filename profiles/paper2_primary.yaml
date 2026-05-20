@@ -1,5 +1,5 @@
 profile_id: paper2_primary
-description: "Paper #2 primary cohort (one-axis baseline, real-world skew retained)."
+description: "Deprecated compatibility alias for the current all-malicious temporal-stability research profile."
 evidence_mode: true
 allow_vendor_fallback_for_width: false
 allow_adaptive_top_k: false
@@ -8,6 +8,7 @@ exclude_unknown_from_main_results: true
 type_slug_filter: null
 cohort_gates:
   min_samples_per_family: 20
+  min_support_guard_mode: temporal_evidence_floor_20
   require_mapped_family: true
   require_sha256: true
   allow_missing_package_name: true

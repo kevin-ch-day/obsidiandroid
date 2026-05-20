@@ -13,6 +13,7 @@ import pandas as pd
 from obsidiandroid.evaluation import engine_scoring_summary
 from obsidiandroid.feature_engineering import compute_vendor_scores
 from config import app_config
+from obsidiandroid.common import ml_console
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.labeling import classification_label_resolver
 from obsidiandroid.modeling import pipeline_core
@@ -186,25 +187,30 @@ def build_feature_matrix_stage(
         getattr(app_config, "FEATURE_EXCLUDE_VENDOR_CATEGORIES", [])
     )
     min_score = getattr(app_config, "FEATURE_MIN_VENDOR_SCORE", 0.0)
-    du.print_info(
-        f"[PARAM] top_k={top_k}, score='{score_field}', "
-        f"exclude_categories={exclude_categories}, min_score={min_score}"
-    )
-    baseline_final_ml = str(getattr(app_config, "FEATURE_SCORE_FIELD", "Final ML Score"))
-    leak_field = str(getattr(app_config, "LEAKAGE_SAFE_SCORE_FIELD", "Leakage Safe Score"))
-    du.print_info(
-        f"[PARAM] Vendor top_k / get_top_engines_by_score sorts on '{score_field}' "
-        f"(FEATURE_SCORE_FIELD default is '{baseline_final_ml}')."
-    )
-    if (
-        bool(getattr(app_config, "ENABLE_LEAKAGE_SAFE_VENDOR_SCORING", True))
-        and score_field == leak_field
-    ):
+    if ml_console.is_compact():
         du.print_info(
-            "[PARAM] Leakage Safe Score is the active selector for top_k vendors. "
-            "Vendor summary tables that emphasize 'Final ML Score', precision, or generic labels "
-            "describe different diagnostics and are not the same ranking key unless configured."
+            f"[PARAM] feature_top_k={top_k} | score_field='{score_field}' | min_vendor_score={min_score}"
         )
+    else:
+        du.print_info(
+            f"[PARAM] top_k={top_k}, score='{score_field}', "
+            f"exclude_categories={exclude_categories}, min_score={min_score}"
+        )
+        baseline_final_ml = str(getattr(app_config, "FEATURE_SCORE_FIELD", "Final ML Score"))
+        leak_field = str(getattr(app_config, "LEAKAGE_SAFE_SCORE_FIELD", "Leakage Safe Score"))
+        du.print_info(
+            f"[PARAM] Vendor top_k / get_top_engines_by_score sorts on '{score_field}' "
+            f"(FEATURE_SCORE_FIELD default is '{baseline_final_ml}')."
+        )
+        if (
+            bool(getattr(app_config, "ENABLE_LEAKAGE_SAFE_VENDOR_SCORING", True))
+            and score_field == leak_field
+        ):
+            du.print_info(
+                "[PARAM] Leakage Safe Score is the active selector for top_k vendors. "
+                "Vendor summary tables that emphasize 'Final ML Score', precision, or generic labels "
+                "describe different diagnostics and are not the same ranking key unless configured."
+            )
     log_event(
         PIPELINE_LOGGER,
         "feature_matrix_start",

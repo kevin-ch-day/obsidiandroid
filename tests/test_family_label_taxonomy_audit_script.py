@@ -35,7 +35,7 @@ def _seed_audit_run(
     run_root = output_root / "runs" / run_id
     write_text_file(
         run_root / "run_manifest.json",
-        json.dumps({"run_id": run_id, "profile_params": {"profile_id": "research_all_malicious"}}),
+        json.dumps({"run_id": run_id, "profile_params": {"profile_id": "malicious_temporal_stability"}}),
     )
     return output_root, diagnostics_dir
 
@@ -119,7 +119,7 @@ def test_locked_audit_records_target_run_context(
     prov = json.loads((diagnostics_dir / "diagnostic_provenance.json").read_text(encoding="utf-8"))
     entry = prov["entries"][0]
     assert entry["target_run_id"] == run_id
-    assert entry["target_run_profile"] == "research_all_malicious"
+    assert entry["target_run_profile"] == "malicious_temporal_stability"
     assert entry["audit_profile"] == "malicious_temporal_stability_locked"
     assert entry["same_profile_as_target"] is False
     assert entry["cohort_lock_status"] == "membership_locked"

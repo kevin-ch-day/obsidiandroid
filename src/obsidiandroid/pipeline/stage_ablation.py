@@ -211,6 +211,56 @@ def _print_ablation_cohort_integrity_table(rows: list[dict[str, Any]]) -> None:
     )
 
 
+def _print_ablation_combo_summary(
+    experiment_name: str,
+    label_slug: str,
+    results: dict[str, dict],
+) -> None:
+    """Emit one compact progress line per ablation combo instead of per-model timing spam."""
+    if not results:
+        return
+
+    rows: list[dict[str, float | str]] = []
+    for model_name, result in sorted(results.items()):
+        evaluation = result.get("evaluation", {}) if isinstance(result, dict) else {}
+        macro_f1 = pd.to_numeric(evaluation.get("macro_f1_score"), errors="coerce")
+        train_time = pd.to_numeric(evaluation.get("train_time"), errors="coerce")
+        rows.append(
+            {
+                "model": str(model_name),
+                "macro_f1_score": float(macro_f1) if pd.notna(macro_f1) else float("nan"),
+                "train_time": float(train_time) if pd.notna(train_time) else float("nan"),
+            }
+        )
+
+    if not rows:
+        return
+
+    best_row = max(
+        rows,
+        key=lambda item: item["macro_f1_score"]
+        if pd.notna(item["macro_f1_score"])
+        else float("-inf"),
+    )
+    slowest_row = max(
+        rows,
+        key=lambda item: item["train_time"]
+        if pd.notna(item["train_time"])
+        else float("-inf"),
+    )
+    total_fit_seconds = sum(
+        float(item["train_time"]) for item in rows if pd.notna(item["train_time"])
+    )
+    du.print_info(
+        "[ABLATION] "
+        f"{experiment_name} / {label_slug}: "
+        f"{len(rows)} model(s) | "
+        f"best={best_row['model']} MacroF1={best_row['macro_f1_score']:.4f} | "
+        f"fit_total={total_fit_seconds:.2f}s | "
+        f"slowest={slowest_row['model']} {slowest_row['train_time']:.2f}s"
+    )
+
+
 def _load_paper_cohort_sample_ids(
     samples_df: pd.DataFrame,
     source: PaperCohortSource = PaperCohortSource.AUTO,
@@ -413,6 +463,8 @@ def run_ablation_experiments(
     ablation_save_models = bool(getattr(app_config, "ENABLE_ABLATION_MODEL_EXPORT", False))
     summary_rows: list[dict[str, Any]] = []
     per_family_rows: list[dict[str, Any]] = []
+    skipped_experiments: list[dict[str, str]] = []
+    skipped_label_target_runs: list[dict[str, str]] = []
 
     if not ml_console.is_minimal():
         du.print_subheader("Ablation Experiments")
@@ -451,10 +503,24 @@ def run_ablation_experiments(
         try:
             feature_df = builder()
             if not isinstance(feature_df, pd.DataFrame) or feature_df.empty:
+                skipped_experiments.append(
+                    {
+                        "feature_set": str(experiment_name),
+                        "reason": "empty_feature_matrix",
+                        "detail": "Builder returned a non-DataFrame or empty feature matrix.",
+                    }
+                )
                 du.print_warning(f"[ABLATION] Skipping '{experiment_name}' due to empty feature matrix.")
                 continue
             experiment_matrices_raw[experiment_name] = feature_df
         except Exception as exc:
+            skipped_experiments.append(
+                {
+                    "feature_set": str(experiment_name),
+                    "reason": "build_failed",
+                    "detail": str(exc),
+                }
+            )
             du.print_warning(f"[ABLATION] '{experiment_name}' failed during build: {exc}")
 
     if not experiment_matrices_raw:
@@ -489,6 +555,13 @@ def run_ablation_experiments(
         for exp_name, raw_df in experiment_matrices_raw.items():
             reindexed = reindex_ablation_features_to_frozen_ids(raw_df, frozen_sorted)
             if reindexed.shape[1] == 0:
+                skipped_experiments.append(
+                    {
+                        "feature_set": str(exp_name),
+                        "reason": "zero_columns_after_reindex",
+                        "detail": "Feature matrix retained no columns after frozen-cohort reindex.",
+                    }
+                )
                 du.print_warning(f"[ABLATION] '{exp_name}' has zero columns after reindex — skipping.")
                 continue
             experiment_matrices[exp_name] = reindexed
@@ -557,6 +630,7 @@ def run_ablation_experiments(
             {"feature_set": row.get("feature_set"), "raw_matrix_ids": row.get("raw_matrix_ids")}
             for row in gap_table_rows
         ],
+        "skipped_experiments": list(skipped_experiments),
     }
     if isinstance(manifest_context, dict):
         manifest_context["_ablation_cohort_gap_summary"] = gap_summary_payload
@@ -605,6 +679,7 @@ def run_ablation_experiments(
         setattr(app_config, "ENABLE_CV_REBALANCING", False)
     setattr(app_config, "RUNTIME_QUIET_TRAINING", True)
     setattr(app_config, "RUNTIME_ABLATION_ACTIVE", True)
+    setattr(app_config, "RUNTIME_ABLATION_PROGRESS_ROWS", [])
     setattr(app_config, "RUNTIME_ABLATION_SCHEMA_AUDIT_ROWS", [])
     setattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", {})
 
@@ -643,6 +718,14 @@ def run_ablation_experiments(
                             )
                             work_df = work_df.loc[idx_series.isin(common_ids)].copy()
                     if work_df.empty:
+                        skipped_label_target_runs.append(
+                            {
+                                "feature_set": str(experiment_name),
+                                "label_target": str(label_slug),
+                                "reason": "empty_filtered_feature_matrix",
+                                "detail": "Filtered feature matrix became empty before training.",
+                            }
+                        )
                         du.print_warning(
                             f"[ABLATION] Skipping '{experiment_name}'/'{label_slug}' "
                             "due to empty filtered feature matrix."
@@ -654,6 +737,14 @@ def run_ablation_experiments(
                         forced_label_column=forced_col,
                     )
                     if x_train is None or y_train is None or x_train.empty:
+                        skipped_label_target_runs.append(
+                            {
+                                "feature_set": str(experiment_name),
+                                "label_target": str(label_slug),
+                                "reason": "alignment_failure",
+                                "detail": "Feature/label alignment failed or produced an empty training matrix.",
+                            }
+                        )
                         du.print_warning(
                             f"[ABLATION] Skipping '{experiment_name}'/'{label_slug}' due to alignment failure."
                         )
@@ -664,6 +755,7 @@ def run_ablation_experiments(
                         models=selected_models or None,
                         save_model=ablation_save_models,
                     )
+                    _print_ablation_combo_summary(experiment_name, label_slug, results)
                     rows, family_rows = _collect_experiment_rows(
                         experiment_name,
                         results,
@@ -673,6 +765,14 @@ def run_ablation_experiments(
                     summary_rows.extend(rows)
                     per_family_rows.extend(family_rows)
                 except Exception as exc:
+                    skipped_label_target_runs.append(
+                        {
+                            "feature_set": str(experiment_name),
+                            "label_target": str(label_slug),
+                            "reason": "combo_failed",
+                            "detail": str(exc),
+                        }
+                    )
                     du.print_warning(f"[ABLATION] '{experiment_name}'/'{label_slug}' failed: {exc}")
                 finally:
                     setattr(app_config, "RUNTIME_EXPERIMENT_ID", "")
@@ -694,6 +794,7 @@ def run_ablation_experiments(
         setattr(app_config, "ENABLE_CV_REBALANCING", previous_cv_rebalance)
         setattr(app_config, "RUNTIME_QUIET_TRAINING", previous_quiet)
         setattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)
+        setattr(app_config, "RUNTIME_ABLATION_PROGRESS_ROWS", [])
         setattr(app_config, "RUNTIME_ABLATION_SCHEMA_AUDIT_ROWS", [])
         setattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", None)
         setattr(app_config, "RUNTIME_ABLATION_LABEL_TARGET_SLUG", "")
@@ -727,8 +828,15 @@ def run_ablation_experiments(
         "exception_message": str(ablation_grid_exc) if ablation_grid_exc else "",
         "summary_row_count": len(summary_rows),
         "trainable_experiments": len(experiment_matrices),
+        "skipped_experiment_count": len(skipped_experiments),
+        "skipped_experiments": list(skipped_experiments),
+        "skipped_label_target_run_count": len(skipped_label_target_runs),
+        "skipped_label_target_runs": list(skipped_label_target_runs),
         "models": list(selected_models),
     }
+    if isinstance(manifest_context, dict):
+        manifest_context["_ablation_skipped_experiments"] = list(skipped_experiments)
+        manifest_context["_ablation_skipped_label_target_runs"] = list(skipped_label_target_runs)
     outcome_path = out_dir / f"ablation_run_outcome_{ablation_run}.json"
     outcome_path.write_text(json.dumps(outcome_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     artifact_paths.append(str(outcome_path))
@@ -796,6 +904,8 @@ def run_ablation_experiments(
             label_target_stats=label_stats_snapshot,
             summary_csv_path=str(summary_path),
             summary_status=summary_status_obs,
+            skipped_experiments=skipped_experiments,
+            skipped_label_target_runs=skipped_label_target_runs,
         )
     if ablation_grid_exc is not None:
         raise ablation_grid_exc

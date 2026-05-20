@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, List
+import warnings
 
 import yaml
 from obsidiandroid.common.repo_paths import repo_root
@@ -19,6 +20,16 @@ PROFILE_ALIASES = {
     "paper2_sensitivity_family300": "malicious_temporal_family300",
 }
 HIDDEN_PROFILE_IDS = set(PROFILE_ALIASES.keys())
+FINAL_OPERATOR_PROFILE_IDS = (
+    "malicious_temporal_stability_locked",
+    "banker_locked",
+    "malicious_temporal_stability",
+    "banker",
+    "malicious_temporal_consensus10",
+    "malicious_temporal_family300",
+    "dev_fast",
+    "dev_smoke",
+)
 REQUIRED_PROFILE_KEYS = {
     "profile_id",
     "type_slug_filter",
@@ -34,6 +45,7 @@ ALLOWED_MODEL_KEYS = {
 }
 ALLOWED_COHORT_GATE_KEYS = {
     "min_samples_per_family",
+    "min_support_guard_mode",
     "require_mapped_family",
     "require_sha256",
     "allow_missing_package_name",
@@ -64,6 +76,15 @@ def load_profile(profile_ref: str) -> Dict[str, Any]:
     if not profile_ref or not str(profile_ref).strip():
         raise ValueError("Profile reference is required.")
 
+    requested_ref = str(profile_ref).strip()
+    alias_target = PROFILE_ALIASES.get(requested_ref)
+    if alias_target:
+        warnings.warn(
+            f"Profile id '{requested_ref}' is deprecated; use '{alias_target}' instead.",
+            FutureWarning,
+            stacklevel=2,
+        )
+
     profile_path = _resolve_profile_path(profile_ref)
     if not profile_path.exists():
         raise FileNotFoundError(f"Profile not found: {profile_path}")
@@ -74,6 +95,10 @@ def load_profile(profile_ref: str) -> Dict[str, Any]:
 
     _validate_profile(profile, profile_path)
     profile["__profile_path"] = str(profile_path.as_posix())
+    profile["__requested_profile_ref"] = requested_ref
+    if alias_target:
+        profile["__deprecated_alias_of"] = requested_ref
+        profile["__canonical_profile_id"] = alias_target
     return profile
 
 
@@ -287,11 +312,18 @@ def infer_cohort_readiness_signal(profile_ref: str | Dict[str, Any] | None) -> D
     }
 
 
-def inventory_cohort_readiness_mappings(*, include_hidden: bool = True) -> List[Dict[str, Any]]:
+def inventory_cohort_readiness_mappings(
+    *,
+    include_hidden: bool = True,
+    profile_ids: list[str] | tuple[str, ...] | None = None,
+) -> List[Dict[str, Any]]:
     """Return advisory cohort-readiness mapping inventory for bundled profiles."""
     paths = sorted(PROFILES_DIR.glob("*.yaml"))
     if not include_hidden:
         paths = [path for path in paths if path.stem not in HIDDEN_PROFILE_IDS]
+    if profile_ids is not None:
+        wanted = {str(profile_id).strip() for profile_id in profile_ids if str(profile_id).strip()}
+        paths = [path for path in paths if path.stem in wanted]
 
     inventory: list[dict[str, Any]] = []
     for profile_path in paths:
@@ -339,11 +371,7 @@ def select_profile_interactive_quick(
     title: str = "Execution profile",
     exit_label: str = "Back",
 ) -> str | None:
-    """Prompt a concise profile menu for common run paths.
-
-    This keeps the primary UX focused on day-to-day profiles and allows
-    explicit opt-in to the full advanced profile catalog when needed.
-    """
+    """Prompt the intent-first operator menu for common run paths."""
     return profile_selection.select_profile_interactive_quick(
         list_profiles_fn=list_profiles,
         load_profile_fn=load_profile,

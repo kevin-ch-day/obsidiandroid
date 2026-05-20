@@ -13,6 +13,7 @@ from sklearn.datasets import make_classification
 from config import app_config
 from obsidiandroid.diagnostics import headline_evaluation_export
 from obsidiandroid.modeling import model_trainer_factory
+from obsidiandroid.pipeline.manifest.confusion_matrix_paths import find_primary_confusion_matrix
 from obsidiandroid.pipeline import stage_manifest
 
 
@@ -125,7 +126,7 @@ def test_find_primary_confusion_matrix_prefers_primary_alias(tmp_path: Path) -> 
     cm_dir.mkdir(parents=True)
     (cm_dir / "confusion_matrix_aaa_first_lex.png").write_bytes(b"a")
     (cm_dir / "confusion_matrix_primary.png").write_bytes(b"b")
-    chosen = stage_manifest._find_primary_confusion_matrix(  # pylint: disable=protected-access
+    chosen = find_primary_confusion_matrix(
         run_root=run_root,
         top_model="random_forest",
         evidence_mode=False,
@@ -191,3 +192,55 @@ def test_headline_test_predictions_only_include_eval_split(
     err_df = pd.read_csv(err_p)
     assert len(err_df) == 1
     assert int(err_df.iloc[0]["sample_id"]) == 11
+
+
+def test_headline_test_predictions_prefer_runtime_label_name_map(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Headline prediction exports should write family names, not encoded label ids."""
+    X_test = pd.DataFrame({"perm__x": [1.0]}, index=[10])
+    y_true = np.array([44])
+    y_pred = np.array([47])
+    enc = MagicMock()
+    enc.classes_ = np.array([44, 47])
+    enc.inverse_transform.side_effect = lambda arr: np.array([int(arr[0])])
+
+    model = MagicMock()
+    model.predict_proba.return_value = np.array([[0.1, 0.9]])
+
+    results = {
+        "random_forest": {
+            "model": model,
+            "X_test": X_test,
+            "y_test": y_true,
+            "label_encoder": enc,
+            "evaluation": {"y_true": y_true, "y_pred": y_pred},
+            "label_name_map": {"44": "Irata", "47": "RoamingMantis"},
+        }
+    }
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_HEADLINE_SPLIT_METADATA",
+        {"split_hash": "bb" * 32},
+        raising=False,
+    )
+    monkeypatch.setattr(app_config, "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH", "ff", raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", pd.DataFrame({"sample_id": [10]}), raising=False)
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_LABEL_NAME_MAP",
+        {"44": "Irata", "47": "RoamingMantis"},
+        raising=False,
+    )
+
+    pred_p, _ = headline_evaluation_export.export_headline_test_tables(
+        results=results,
+        promoted_model_key="random_forest",
+        diagnostics_dir=tmp_path,
+        run_id="evidence_names",
+        label_field="family_id",
+    )
+
+    pred_df = pd.read_csv(pred_p)
+    assert pred_df.iloc[0]["true_label_name"] == "Irata"
+    assert pred_df.iloc[0]["predicted_label_name"] == "RoamingMantis"

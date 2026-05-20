@@ -119,6 +119,64 @@ def test_run_analysis_menu_uses_operator_facing_actions(monkeypatch) -> None:
     ]
 
 
+def test_single_model_mode_uses_quick_intent_profile_selector(monkeypatch) -> None:
+    """Single-model runs should use the same intent-first quick selector as full pipeline."""
+    choices = iter([4, 1])
+    captured: list[bool] = []
+
+    monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: next(choices))
+    monkeypatch.setattr(
+        startup_menu,
+        "resolve_and_validate_profile",
+        lambda **kwargs: captured.append(bool(kwargs.get("prefer_quick"))) or "banker",
+    )
+    monkeypatch.setattr(startup_menu, "_build_model_menu", lambda: {"Logistic Regression": "logistic_regression"})
+    monkeypatch.setattr(startup_menu, "_run_single_model", lambda model_key, profile_id: 0)
+
+    result = startup_menu._launch_pipeline_actions_menu()  # pylint: disable=protected-access
+
+    assert result == 0
+    assert captured == [True]
+
+
+def test_stop_after_stage_uses_quick_intent_profile_selector(monkeypatch) -> None:
+    """Stage-stop runs should use the same intent-first quick selector as full pipeline."""
+    choices = iter([5])
+    captured: list[bool] = []
+
+    monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: next(choices))
+    monkeypatch.setattr(
+        startup_menu,
+        "resolve_and_validate_profile",
+        lambda **kwargs: captured.append(bool(kwargs.get("prefer_quick"))) or "banker",
+    )
+    monkeypatch.setattr(startup_menu, "_run_to_stage", lambda profile_id: 0)
+
+    result = startup_menu._launch_pipeline_actions_menu()  # pylint: disable=protected-access
+
+    assert result == 0
+    assert captured == [True]
+
+
+def test_vendor_only_uses_quick_intent_profile_selector(monkeypatch) -> None:
+    """Vendor-only runs should use the same intent-first quick selector as full pipeline."""
+    choices = iter([6])
+    captured: list[bool] = []
+
+    monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: next(choices))
+    monkeypatch.setattr(
+        startup_menu,
+        "resolve_and_validate_profile",
+        lambda **kwargs: captured.append(bool(kwargs.get("prefer_quick"))) or "banker",
+    )
+    monkeypatch.setattr(startup_menu, "_run_vendor_only", lambda profile_id: 0)
+
+    result = startup_menu._launch_pipeline_actions_menu()  # pylint: disable=protected-access
+
+    assert result == 0
+    assert captured == [True]
+
+
 def test_tools_menu_lists_operational_actions_only(monkeypatch) -> None:
     """Tools & maintenance should list operational items (no parser/health duplicates)."""
     captured: dict[str, object] = {}
@@ -185,7 +243,7 @@ def test_profile_readiness_mapping_inventory_report_uses_inventory_helper(monkey
     monkeypatch.setattr(
         startup_menu._diagnostics_menu.profile_manager,
         "inventory_cohort_readiness_mappings",
-        lambda: [
+        lambda **_kwargs: [
             {
                 "profile_id": "banker",
                 "bucket": "android_banker_with_permission_obs",
@@ -193,10 +251,10 @@ def test_profile_readiness_mapping_inventory_report_uses_inventory_helper(monkey
                 "summary": "Best matching readiness bucket: android_banker_with_permission_obs",
             },
             {
-                "profile_id": "all_malicious",
-                "bucket": "android_with_permission_obs",
+                "profile_id": "malicious_temporal_stability",
+                "bucket": "android_high_or_strong_vt_with_permission_obs",
                 "status": "mapped",
-                "summary": "Best matching readiness bucket: android_with_permission_obs",
+                "summary": "Best matching readiness bucket: android_high_or_strong_vt_with_permission_obs",
             },
         ],
     )
@@ -208,7 +266,7 @@ def test_profile_readiness_mapping_inventory_report_uses_inventory_helper(monkey
             "warnings": [],
             "buckets": {
                 "android_banker_with_permission_obs": {"sample_count": 790, "family_count": 12},
-                "android_with_permission_obs": {"sample_count": 3318, "family_count": 209},
+                "android_high_or_strong_vt_with_permission_obs": {"sample_count": 3280, "family_count": 208},
             },
             "taxonomy_signals": {
                 "banker_label_bucket_samples": 790,
@@ -322,19 +380,19 @@ def test_profile_readiness_mapping_inventory_report_uses_inventory_helper(monkey
         "android_family_ready_min3_permission_obs",
     }
     banker_bucket = next(row for row in bucket_table["rows"] if str(row["bucket"]) == "android_banker_with_permission_obs")
-    all_mal_bucket = next(row for row in bucket_table["rows"] if str(row["bucket"]) == "android_with_permission_obs")
+    all_mal_bucket = next(row for row in bucket_table["rows"] if str(row["bucket"]) == "android_high_or_strong_vt_with_permission_obs")
     assert banker_bucket["samples"] == 790
     assert banker_bucket["families"] == 12
     assert str(banker_bucket["meaning"]) == "Android banker-labeled samples with PI observations"
-    assert all_mal_bucket["samples"] == 3318
-    assert all_mal_bucket["families"] == 209
-    assert [str(row["profile_id"]) for row in profile_table["rows"]] == ["banker", "all_malicious"]
+    assert all_mal_bucket["samples"] == 3280
+    assert all_mal_bucket["families"] == 208
+    assert [str(row["profile_id"]) for row in profile_table["rows"]] == ["banker", "malicious_temporal_stability"]
     assert profile_table["kwargs"]["title"] == "Profile readiness mapping inventory"
     assert profile_table["kwargs"]["columns"] == ["profile_id", "bucket", "samples", "families", "status", "reason"]
     assert profile_table["rows"][0]["samples"] == 790
     assert profile_table["rows"][0]["families"] == 12
-    assert profile_table["rows"][1]["samples"] == 3318
-    assert profile_table["rows"][1]["families"] == 209
+    assert profile_table["rows"][1]["samples"] == 3280
+    assert profile_table["rows"][1]["families"] == 208
     assert taxonomy_table["kwargs"]["title"] == "Taxonomy drift summary"
     assert taxonomy_table["kwargs"]["columns"] == ["signal", "samples", "meaning"]
     assert {str(row["signal"]) for row in taxonomy_table["rows"]} == {
@@ -549,7 +607,7 @@ def test_taxonomy_audit_defaults_to_latest_run_profile(monkeypatch, tmp_path: Pa
     monkeypatch.setattr(
         startup_menu,
         "_resolve_latest_manifest_payload",
-        lambda **_kwargs: ({"profile_params": {"profile_id": "research_all_malicious"}}, "r1", Path("x")),
+        lambda **_kwargs: ({"profile_params": {"profile_id": "malicious_temporal_stability"}}, "r1", Path("x")),
     )
     monkeypatch.setattr(startup_menu, "repo_operator_script", lambda _name: script_path)
     monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: 1)
@@ -564,7 +622,7 @@ def test_taxonomy_audit_defaults_to_latest_run_profile(monkeypatch, tmp_path: Pa
     assert result == 0
     assert commands
     assert "--profile" in commands[0]
-    assert "research_all_malicious" in commands[0]
+    assert "malicious_temporal_stability" in commands[0]
 
 
 def test_taxonomy_audit_warns_on_different_profile(monkeypatch, tmp_path: Path) -> None:
@@ -580,7 +638,7 @@ def test_taxonomy_audit_warns_on_different_profile(monkeypatch, tmp_path: Path) 
     monkeypatch.setattr(
         startup_menu,
         "_resolve_latest_manifest_payload",
-        lambda **_kwargs: ({"profile_params": {"profile_id": "research_all_malicious"}}, "r1", Path("x")),
+        lambda **_kwargs: ({"profile_params": {"profile_id": "malicious_temporal_stability"}}, "r1", Path("x")),
     )
     monkeypatch.setattr(startup_menu, "repo_operator_script", lambda _name: script_path)
     monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: next(choices))
@@ -888,7 +946,7 @@ def test_run_specific_health_check_writes_json_report(
             "timestamp_utc": "2026-03-03T01:00:00Z",
             "split": {"split_audit_path": str(split_path)},
             "model_config_snapshot_path": str(model_config_path),
-            "profile_params": {"profile_id": "paper2_primary"},
+            "profile_params": {"profile_id": "malicious_temporal_stability"},
             "artifact_list": [],
         },
     )
@@ -932,7 +990,7 @@ def test_recent_runs_overview_reads_run_scoped_manifests(
             "run_id": "20260303T020000Z__aaa111",
             "timestamp_utc": "2026-03-03T02:00:00Z",
             "cohort_size": 1200,
-            "profile_params": {"profile_id": "all_malicious"},
+            "profile_params": {"profile_id": "malicious_temporal_stability"},
             "model_summary": {"top_model": "random_forest", "top_macro_f1": 0.71},
         },
     )
@@ -968,7 +1026,7 @@ def test_recent_runs_overview_demotes_invalid_run_ids(monkeypatch, tmp_path: Pat
         {
             "run_id": "20260321T161433Z__fdaeb0",
             "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
-            "profile_params": {"profile_id": "research_all_malicious"},
+            "profile_params": {"profile_id": "malicious_temporal_stability"},
         },
     )
     _write_json(
@@ -1003,7 +1061,7 @@ def test_recent_runs_overview_can_include_noncanonical_runs(monkeypatch, tmp_pat
         {
             "run_id": "20260321T161433Z__fdaeb0",
             "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
-            "profile_params": {"profile_id": "research_all_malicious"},
+            "profile_params": {"profile_id": "malicious_temporal_stability"},
         },
     )
     _write_json(
@@ -1039,7 +1097,7 @@ def test_recent_runs_overview_uses_runtime_and_model_fallbacks(monkeypatch, tmp_
             "run_id": run_id,
             "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
             "cohort_size": 1226,
-            "profile_params": {"profile_id": "research_all_malicious"},
+            "profile_params": {"profile_id": "malicious_temporal_stability"},
         },
     )
     _write_text(
@@ -1077,14 +1135,14 @@ def test_recent_runs_overview_prefers_canonical_run_summary(monkeypatch, tmp_pat
         {
             "run_id": run_id,
             "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
-            "profile_params": {"profile_id": "research_all_malicious"},
+            "profile_params": {"profile_id": "malicious_temporal_stability"},
         },
     )
     _write_json(
         run_root / "run_summary.json",
         {
             "run_id": run_id,
-            "profile_id": "research_all_malicious",
+            "profile_id": "malicious_temporal_stability",
             "cohort_size": 1226,
             "top_model": "xgboost",
             "top_macro_f1": 0.9444,
@@ -1182,7 +1240,7 @@ def test_current_run_summary_uses_status_aware_fallbacks(monkeypatch, tmp_path: 
             "cohort_size": 1226,
             "selected_vendor_count": 8,
             "vendor_constrained_run_flag": False,
-            "profile_params": {"profile_id": "research_all_malicious"},
+            "profile_params": {"profile_id": "malicious_temporal_stability"},
         },
     )
     _write_text(

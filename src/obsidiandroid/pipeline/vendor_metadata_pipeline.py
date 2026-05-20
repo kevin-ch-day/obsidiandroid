@@ -13,6 +13,7 @@ from config import app_config
 from obsidiandroid.common.cv_fold_config import safe_float_config_value
 from obsidiandroid.evaluation import vendor_feature_extractor
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import ml_console
 from obsidiandroid.observability.logging import get_logger, log_event
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from obsidiandroid.common import output_hygiene as oh
@@ -36,7 +37,8 @@ def extract_vendor_metadata(
 ) -> Tuple:
     """Extract vendor metadata and quality scorecard objects."""
     run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
-    du.print_subheader("Extract Vendor Metadata")
+    if not ml_console.is_compact():
+        du.print_subheader("Extract Vendor Metadata")
     log_event(
         PIPELINE_LOGGER,
         "vendor_metadata_start",
@@ -57,7 +59,10 @@ def extract_vendor_metadata(
         )
         return None, None, None, None
 
-    du.print_info("[PHASE] Starting metadata extraction...")
+    if ml_console.is_compact():
+        du.print_info("[VENDOR] Extracting vendor metadata and parser diagnostics...")
+    else:
+        du.print_info("[PHASE] Starting metadata extraction...")
     results = _perform_vendor_extraction(pipeline_results, samples_df, verbose)
     if results is None:
         du.print_error("[ABORT] Vendor extraction returned None. Cannot continue.")
@@ -73,7 +78,8 @@ def extract_vendor_metadata(
 
     vendor_eval_df, records_by_vendor, parsed_data, scorecard_df = results
 
-    du.print_info("[PHASE] Running diagnostics...")
+    if not ml_console.is_compact():
+        du.print_info("[PHASE] Running diagnostics...")
     _print_diagnostics(vendor_eval_df, records_by_vendor, parsed_data, scorecard_df, verbose)
     _check_dataframe_structure(vendor_eval_df, label="vendor_eval_df", required_columns={"Vendor", "Enrichment Score"})
     _check_dataframe_structure(scorecard_df, label="scorecard_df", required_columns={"Final ML Score"})
@@ -199,7 +205,8 @@ def _check_dataframe_structure(df: Any, label: str, required_columns: set) -> No
 def _inject_pipeline_state(pipeline_results: Dict[str, Any], vendor_eval_df: pd.DataFrame) -> None:
     if isinstance(vendor_eval_df, pd.DataFrame) and not vendor_eval_df.empty:
         pipeline_results["vendor_eval_df"] = vendor_eval_df
-        du.print_info("[INFO] vendor_eval_df injected into pipeline_results.")
+        if not ml_console.is_compact():
+            du.print_info("[INFO] vendor_eval_df injected into pipeline_results.")
     else:
         du.print_error("[FAIL] vendor_eval_df missing or empty. Pipeline state not updated.")
 

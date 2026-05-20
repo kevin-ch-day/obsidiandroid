@@ -76,13 +76,13 @@ def test_interim_warning_when_upstream_expected_min_exceeded() -> None:
         }
     )
     profile = {
-        "profile_id": "research_all_malicious",
+        "profile_id": "malicious_temporal_stability",
         "cohort_gates": {"upstream_expected_min_gate_total": 99999},
     }
     gate_stats = {"total_candidates": 10, "governed_cohort_count": 1}
     payload = cohort_foundation_export.build_cohort_foundation_payload(
         run_id="r1",
-        profile_id="research_all_malicious",
+        profile_id="malicious_temporal_stability",
         profile=profile,
         gate_stats=gate_stats,
         samples_df=df,

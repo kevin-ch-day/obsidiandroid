@@ -1,5 +1,5 @@
 profile_id: malicious_temporal_consensus10
-description: "Temporal-stability malicious corpus with a stricter malicious-detection threshold."
+description: "Sensitivity profile for the all-malicious temporal-stability cohort with a stricter consensus threshold."
 evidence_mode: true
 allow_vendor_fallback_for_width: false
 allow_adaptive_top_k: false
@@ -8,6 +8,7 @@ exclude_unknown_from_main_results: true
 type_slug_filter: null
 cohort_gates:
   min_samples_per_family: 20
+  min_support_guard_mode: temporal_evidence_floor_20
   require_mapped_family: true
   require_sha256: true
   allow_missing_package_name: true

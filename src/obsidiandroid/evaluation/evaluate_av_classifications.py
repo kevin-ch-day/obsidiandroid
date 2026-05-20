@@ -4,6 +4,7 @@
 import pandas as pd
 
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import ml_console
 from obsidiandroid.evaluation import vendor_classification_inspector as inspector
 from obsidiandroid.evaluation import parse_vendor_classifications
 from obsidiandroid.reporting import export_manager as em
@@ -21,7 +22,10 @@ def run_vendor_classification_analysis(
     - Scores classification results
     - Optionally exports summary output
     """
-    du.print_section("Running Vendor Classification Analysis")
+    if ml_console.is_compact():
+        du.print_info("[CLASSIFY] Running vendor classification analysis...")
+    else:
+        du.print_section("Running Vendor Classification Analysis")
 
     parsed_data, summary_df, records_by_vendor, flat_df = parse_vendor_classifications(
         samples_df=samples_df,

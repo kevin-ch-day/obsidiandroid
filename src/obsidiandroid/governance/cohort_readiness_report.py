@@ -11,6 +11,7 @@ from __future__ import annotations
 import pandas as pd
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import ml_console
 
 
 def print_cohort_readiness_report(
@@ -66,9 +67,14 @@ def print_cohort_readiness_report(
     if "type_slug" in samples_df.columns:
         counts = samples_df["type_slug"].fillna("unknown").value_counts()
         du.print_subheader("Type Distribution")
-        for key, value in counts.items():
+        max_type_rows = 3 if ml_console.is_compact() else len(counts)
+        for key, value in counts.head(max_type_rows).items():
             pct = (float(value) / max(total, 1)) * 100.0
             du.print_info(f"  - {key}: {value:,} ({pct:.2f}%)")
+        if len(counts) > max_type_rows:
+            du.print_info(
+                f"  - ... {len(counts) - max_type_rows} additional type bucket(s) in diagnostics / dataframe exports."
+            )
 
     if fam_col:
         fam_counts = samples_df[fam_col].fillna("unknown").value_counts()
@@ -91,9 +97,14 @@ def print_cohort_readiness_report(
             f"{top5:,} ({(float(top5) / max(total, 1)) * 100.0:.2f}%)",
         )
 
-        du.print_subheader("Top Families (Top 10)")
-        for key, value in fam_counts.head(10).items():
+        top_family_limit = 5 if ml_console.is_compact() else 10
+        du.print_subheader(f"Top Families (Top {top_family_limit})")
+        for key, value in fam_counts.head(top_family_limit).items():
             du.print_info(f"  - {key}: {int(value):,}")
+        if len(fam_counts) > top_family_limit:
+            du.print_info(
+                f"  - ... {len(fam_counts) - top_family_limit} additional families omitted from terminal output."
+            )
 
     _print_cohort_policy(samples_df=samples_df, gates=gates)
     warning_messages = _print_cohort_verdict(

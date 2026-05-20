@@ -1,5 +1,5 @@
 profile_id: research_all_malicious
-description: Exploratory all-malicious cohort with relaxed integrity gates for discovery workflows.
+description: Exploratory all-malicious discovery profile with relaxed integrity gates.
 evidence_mode: false
 allow_vendor_fallback_for_width: true
 allow_adaptive_top_k: true

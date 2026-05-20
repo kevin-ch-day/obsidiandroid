@@ -107,17 +107,80 @@ def quick_profile_label(profile_id: str) -> str:
     """Return operator-facing quick-menu labels without exposing raw profile IDs as the main cue."""
     pid = str(profile_id).strip()
     labels = {
-        "malicious_temporal_stability_locked": "Publication-ready: locked all-malicious baseline",
-        "banker_locked": "Publication-ready: locked banker baseline",
-        "research_all_malicious": "Exploratory: all-malicious research cohort",
-        "all_malicious": "Exploratory: all-malicious standard cohort",
-        "banker": "Exploratory: banker standard cohort",
-        "mixed": "Diagnostic: balanced benign-malicious cohort",
-        "benign_heavy": "Diagnostic: benign-heavy robustness cohort",
-        "dev_fast": "Development: fast local iteration",
-        "dev_smoke": "Smoke: ultra-fast sanity check",
+        "malicious_temporal_stability_locked": "Baseline: locked all-malicious",
+        "malicious_temporal_stability": "Research: current all-malicious",
+        "malicious_temporal_consensus10": "Sensitivity: consensus threshold",
+        "malicious_temporal_family300": "Sensitivity: family dominance cap",
+        "banker_locked": "Baseline: banker legacy/count-locked",
+        "banker": "Research: current banker",
+        "research_all_malicious": "Exploratory: discovery all-malicious",
+        "all_malicious": "Exploratory: broad all-malicious",
+        "mixed": "Diagnostic: balanced benign-malicious",
+        "benign_heavy": "Diagnostic: benign-heavy robustness",
+        "dev_fast": "Development: fast iteration",
+        "dev_smoke": "Smoke: sanity check",
     }
     return labels.get(pid, pid)
+
+
+def _quick_intent_options() -> list[tuple[str, str]]:
+    """Return the fixed operator-facing intent menu."""
+    return [
+        ("Reproduce locked all-malicious benchmark", "malicious_temporal_stability_locked"),
+        ("Reproduce banker benchmark", "banker_locked"),
+        ("Evaluate current all-malicious corpus", "malicious_temporal_stability"),
+        ("Evaluate current banker corpus", "banker"),
+        ("Test robustness / perturbations", "__submenu_robustness__"),
+        ("Development / smoke checks", "__submenu_development__"),
+    ]
+
+
+def _robustness_submenu_options() -> list[tuple[str, str]]:
+    """Return the fixed robustness submenu."""
+    return [
+        ("Sensitivity: consensus threshold", "malicious_temporal_consensus10"),
+        ("Sensitivity: family dominance cap", "malicious_temporal_family300"),
+    ]
+
+
+def _development_submenu_options() -> list[tuple[str, str]]:
+    """Return the fixed development submenu."""
+    return [
+        ("Development: fast iteration", "dev_fast"),
+        ("Smoke: sanity check", "dev_smoke"),
+    ]
+
+
+def _select_fixed_profile_menu(
+    *,
+    options: list[tuple[str, str]],
+    load_profile_fn: Callable[[str], dict],
+    title: str,
+    breadcrumb: str | None,
+    exit_label: str,
+) -> str | None:
+    """Render a fixed menu and return the selected canonical profile id."""
+    labels = [label for label, _ in options]
+    while True:
+        choice = mu.display_menu(
+            labels,
+            title=title,
+            breadcrumb=breadcrumb,
+            exit_label=exit_label,
+            default_choice=1,
+        )
+        if choice == 0:
+            return None
+
+        selected_profile_id = options[choice - 1][1]
+        try:
+            load_profile_fn(selected_profile_id)
+        except Exception as exc:
+            du.print_error(f"[PROFILE] Selected profile is invalid: {exc}")
+            continue
+
+        du.print_info(f"[PROFILE] Selected: {selected_profile_id}")
+        return selected_profile_id
 
 
 def select_profile_interactive(
@@ -187,44 +250,14 @@ def select_profile_interactive_quick(
     title: str = "Execution profile",
     exit_label: str = "Back",
 ) -> str | None:
-    """Prompt a concise profile menu for common run paths."""
-    quick_order = [
-        "malicious_temporal_stability_locked",
-        "banker_locked",
-        "research_all_malicious",
-        "all_malicious",
-        "banker",
-        "mixed",
-        "benign_heavy",
-        "dev_fast",
-        "dev_smoke",
-    ]
-    profiles = list_profiles_fn()
-    available = {p.stem: p for p in profiles}
-    quick_entries: list[str] = []
-    for profile_id in quick_order:
-        profile_path = available.get(profile_id)
-        if profile_path is None:
-            continue
-        quick_entries.append(profile_id)
-
-    if not quick_entries:
-        return select_profile_interactive_fn(
-            breadcrumb=breadcrumb,
-            subtitle=subtitle,
-            title=title,
-            exit_label=exit_label,
-        )
-
-    more_label = "More profiles (full catalog)"
-    quick_labels: list[tuple[str, str]] = []
-    for profile_id in quick_entries:
-        quick_labels.append((quick_profile_label(profile_id), profile_id))
-    menu_labels = [label for label, _ in quick_labels] + [more_label]
+    """Prompt an intent-first menu for common run paths."""
+    del list_profiles_fn
+    del select_profile_interactive_fn
 
     while True:
+        options = _quick_intent_options()
         choice = mu.display_menu(
-            menu_labels,
+            [label for label, _ in options],
             title=title,
             breadcrumb=breadcrumb,
             subtitle=subtitle,
@@ -234,28 +267,43 @@ def select_profile_interactive_quick(
         if choice == 0:
             return None
 
-        selected_key = menu_labels[choice - 1]
-        if selected_key == more_label:
-            return select_profile_interactive_fn(
-                breadcrumb=breadcrumb,
-                subtitle=subtitle,
-                title=title,
-                exit_label=exit_label,
+        selected_label, selected_target = options[choice - 1]
+        if selected_target == "__submenu_robustness__":
+            resolved = _select_fixed_profile_menu(
+                options=_robustness_submenu_options(),
+                load_profile_fn=load_profile_fn,
+                title="Robustness / perturbations",
+                breadcrumb=f"{breadcrumb or title} › Robustness / perturbations",
+                exit_label="Back",
             )
-        selected_profile_id = dict(quick_labels).get(selected_key, selected_key)
+            if resolved is not None:
+                return resolved
+            continue
+        if selected_target == "__submenu_development__":
+            resolved = _select_fixed_profile_menu(
+                options=_development_submenu_options(),
+                load_profile_fn=load_profile_fn,
+                title="Development / smoke checks",
+                breadcrumb=f"{breadcrumb or title} › Development / smoke checks",
+                exit_label="Back",
+            )
+            if resolved is not None:
+                return resolved
+            continue
 
         try:
-            load_profile_fn(selected_profile_id)
+            load_profile_fn(selected_target)
         except Exception as exc:
             du.print_error(f"[PROFILE] Selected profile is invalid: {exc}")
             continue
 
-        du.print_info(f"[PROFILE] Selected: {selected_profile_id}")
-        return selected_profile_id
+        du.print_info(f"[PROFILE] Selected: {selected_target}")
+        return selected_target
 
 
 __all__ = [
     "build_profile_catalog",
+    "quick_profile_label",
     "profile_sort_key",
     "select_profile_interactive",
     "select_profile_interactive_quick",

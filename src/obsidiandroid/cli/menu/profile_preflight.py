@@ -143,7 +143,10 @@ def resolve_and_validate_profile(
         if detail:
             du.print_note(f"[PROFILE] {detail}")
         try:
-            inventory = profile_manager.inventory_cohort_readiness_mappings()
+            inventory = profile_manager.inventory_cohort_readiness_mappings(
+                include_hidden=False,
+                profile_ids=list(getattr(profile_manager, "FINAL_OPERATOR_PROFILE_IDS", ())),
+            )
         except Exception:
             inventory = []
         if inventory:

@@ -208,7 +208,7 @@ def _launch_pipeline_actions_menu() -> int:
         if choice == 3:
             return _run_full_pipeline("dev_smoke")
         if choice == 4:
-            profile_id = resolve_and_validate_profile()
+            profile_id = resolve_and_validate_profile(prefer_quick=True)
             if not profile_id:
                 continue
             model_menu = _build_model_menu()
@@ -224,12 +224,12 @@ def _launch_pipeline_actions_menu() -> int:
             model_key = model_menu[model_names[model_choice - 1]]
             return _run_single_model(model_key, profile_id)
         if choice == 5:
-            profile_id = resolve_and_validate_profile()
+            profile_id = resolve_and_validate_profile(prefer_quick=True)
             if not profile_id:
                 continue
             return _run_to_stage(profile_id)
         if choice == 6:
-            profile_id = resolve_and_validate_profile()
+            profile_id = resolve_and_validate_profile(prefer_quick=True)
             if not profile_id:
                 continue
             return _run_vendor_only(profile_id)

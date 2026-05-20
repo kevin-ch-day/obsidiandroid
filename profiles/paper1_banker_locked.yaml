@@ -1,5 +1,5 @@
 profile_id: paper1_banker_locked
-description: "Locked 2025 banker-paper cohort contract. Counts are fixed; sample-id lock recovery remains pending."
+description: "Deprecated compatibility alias for the banker legacy/count-locked baseline. Counts are fixed; sample-id lock recovery remains pending."
 paper_locked: true
 evidence_mode: false
 allow_vendor_fallback_for_width: true
@@ -36,4 +36,4 @@ paper_lock:
   material_change_abs_delta_macro_f1_gt: 0.02
   sample_id_lock_status: unavailable
   sample_id_lock_todo: "Recover banker paper sample IDs from historical run outputs, archived snapshots, or DB-backed legacy exports before treating this as an immutable sample-membership lock."
-  notes: "Counts and banker-only scope are publication-locked; sample-id membership lock has not yet been recovered."
+  notes: "Deprecated compatibility alias for banker_locked. Counts and banker-only scope are locked; sample-id membership lock has not yet been recovered."

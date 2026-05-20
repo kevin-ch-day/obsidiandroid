@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+import os
+import warnings
 
 from config import app_config
 from obsidiandroid.modeling import model_prediction
@@ -77,3 +79,29 @@ def test_low_confidence_abstain_routes_to_other(monkeypatch):
     y_conf = np.array([0.95, 0.29, 0.05])
     out = model_prediction._apply_low_confidence_abstain(y_pred, y_conf, _DummyEncoder())
     assert out.tolist() == [0, 1, 1]
+
+
+def test_suppress_known_sklearn_parallel_warning_is_narrow() -> None:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pipeline_core._suppress_known_sklearn_parallel_warning():
+            warnings.warn(
+                "`sklearn.utils.parallel.delayed` should be used with "
+                "`sklearn.utils.parallel.Parallel` to make it possible to "
+                "propagate the scikit-learn configuration of the current thread to "
+                "the joblib workers.",
+                UserWarning,
+            )
+            warnings.warn("some other warning", UserWarning)
+
+    messages = [str(w.message) for w in caught]
+    assert messages == ["some other warning"]
+
+
+def test_suppress_known_sklearn_parallel_warning_restores_pythonwarnings_env(monkeypatch) -> None:
+    monkeypatch.setenv("PYTHONWARNINGS", "default")
+    with pipeline_core._suppress_known_sklearn_parallel_warning():
+        merged = os.environ["PYTHONWARNINGS"]
+        assert "default" in merged
+        assert "ignore::UserWarning:sklearn.utils.parallel" in merged
+    assert os.environ["PYTHONWARNINGS"] == "default"

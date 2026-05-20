@@ -34,6 +34,27 @@ def display_post_training_metrics(model_type, result, evaluation, features_df):
     """Display stats, label class info, and prediction preview."""
     quiet = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
     if quiet:
+        if bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)):
+            rows = getattr(app_config, "RUNTIME_ABLATION_PROGRESS_ROWS", None)
+            if not isinstance(rows, list):
+                rows = []
+                setattr(app_config, "RUNTIME_ABLATION_PROGRESS_ROWS", rows)
+            rows.append(
+                {
+                    "feature_set": str(
+                        getattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", "") or ""
+                    ),
+                    "label_target": str(
+                        getattr(app_config, "RUNTIME_ABLATION_LABEL_TARGET_SLUG", "") or ""
+                    ),
+                    "model": str(model_type),
+                    "accuracy": evaluation.get("accuracy"),
+                    "macro_f1_score": evaluation.get("macro_f1_score"),
+                    "f1_score": evaluation.get("f1_score"),
+                    "train_time": evaluation.get("train_time"),
+                }
+            )
+            return
         line = (
             f"[{model_type.upper()}] "
             f"Acc={evaluation.get('accuracy', 0.0):.4f} | "

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
+from obsidiandroid.cli import profile_manager
+from obsidiandroid.common.repo_paths import repo_root
 from obsidiandroid.pipeline import stage_samples
 from obsidiandroid.database import db_sample_metadata_queries
 
@@ -353,6 +356,190 @@ def test_stage_samples_sets_runtime_min_family_support_from_profile_gates(monkey
     )
 
     assert int(getattr(stage_samples.app_config, "RUNTIME_MIN_FAMILY_SUPPORT", 0)) == 20
+
+
+def test_stage_samples_temporal_evidence_profiles_require_min_support_floor(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """Canonical temporal evidence profiles must keep the floor-20 min-support guard."""
+    profile = {
+        "cohort_gates": {
+            "min_samples_per_family": 3,
+            "min_support_guard_mode": "temporal_evidence_floor_20",
+        }
+    }
+    monkeypatch.setattr(stage_samples.app_config, "PAPER_MODE_ENABLED", True, raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+
+    with pytest.raises(
+        ValueError,
+        match=r"Evidence/publication-ready temporal malicious profiles require .* >= 20",
+    ):
+        stage_samples.load_and_prepare_samples(
+            profile=profile,
+            profile_id="malicious_temporal_stability",
+            type_slug=None,
+            run_id="run1",
+            artifact_list=[],
+        )
+
+
+def test_stage_samples_direct_legacy_paper2_profile_path_preserves_min_support_floor(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """Directly loaded legacy paper2 YAMLs should keep the same guard via explicit metadata."""
+    profile = profile_manager.load_profile(
+        str(repo_root() / "profiles" / "paper2_primary.yaml")
+    )
+    profile["cohort_gates"]["min_samples_per_family"] = 3
+    monkeypatch.setattr(stage_samples.app_config, "PAPER_MODE_ENABLED", True, raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+
+    with pytest.raises(
+        ValueError,
+        match=r"Evidence/publication-ready temporal malicious profiles require .* >= 20",
+    ):
+        stage_samples.load_and_prepare_samples(
+            profile=profile,
+            profile_id=str(profile["profile_id"]),
+            type_slug=None,
+            run_id="run1",
+            artifact_list=[],
+        )
+
+
+def test_stage_samples_banker_locked_does_not_receive_temporal_min_support_floor(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """Non-temporal locked profiles should not inherit the temporal evidence floor."""
+    profile = {
+        "paper_locked": True,
+        "cohort_gates": {
+            "min_samples_per_family": 3,
+        },
+    }
+    monkeypatch.setattr(stage_samples.app_config, "PAPER_MODE_ENABLED", True, raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "EXPORT_ANALYSIS_SNAPSHOT", False, raising=False)
+    monkeypatch.setattr(stage_samples, "_resolve_dataset_time_contract", lambda **_kwargs: {})
+    monkeypatch.setattr(stage_samples, "_augment_dataset_time_contract", lambda **kwargs: kwargs["time_contract"])
+    monkeypatch.setattr(stage_samples, "_export_dataset_time_contract", lambda **_kwargs: "time.json")
+    monkeypatch.setattr(stage_samples, "_export_time_window_family_distributions", lambda **_kwargs: [])
+    monkeypatch.setattr(stage_samples, "_export_paper_cohort_sample_ids", lambda **_kwargs: "ids.csv")
+    monkeypatch.setattr(stage_samples, "_export_cohort_filter_contract", lambda **_kwargs: ("a.json", "b.csv"))
+    monkeypatch.setattr(stage_samples, "export_cohort_filter_summary", lambda **_kwargs: "summary.csv")
+    monkeypatch.setattr(stage_samples.cohort_readiness_report, "print_cohort_sql_scope_gate_summary", lambda _stats: None)
+    monkeypatch.setattr(stage_samples.cohort_readiness_report, "print_cohort_readiness_report", lambda _df, gates=None: None)
+    monkeypatch.setattr(stage_samples, "prepare_sample_dataframe", lambda **kwargs: kwargs["df"])
+    monkeypatch.setattr(stage_samples, "apply_dataset_filters", lambda df, _profile: df)
+    monkeypatch.setattr(stage_samples, "_assert_package_name_integrity", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "get_type_cohort_gate_stats",
+        lambda **_kwargs: {"total_candidates": 1, "final_count_estimate": 1},
+    )
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "load_samples_by_type",
+        lambda **_kwargs: pd.DataFrame(
+            [
+                {
+                    "sample_id": 1,
+                    "sha256": "a" * 64,
+                    "family_canonical": "x",
+                    "type_slug": "banker",
+                    "permissions": 1,
+                    "android_package_name": "pkg",
+                    "vt_malicious_count": 1,
+                }
+            ]
+        ),
+    )
+
+    stage_samples.load_and_prepare_samples(
+        profile=profile,
+        profile_id="banker_locked",
+        type_slug="banker",
+        run_id="run1",
+        artifact_list=[],
+    )
+
+
+def test_stage_samples_guard_uses_metadata_not_profile_name(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """The temporal support-floor guard should rely on metadata, not paper2 naming."""
+    monkeypatch.setattr(stage_samples.app_config, "PAPER_MODE_ENABLED", True, raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+
+    with pytest.raises(
+        ValueError,
+        match=r"Evidence/publication-ready temporal malicious profiles require .* >= 20",
+    ):
+        stage_samples.load_and_prepare_samples(
+            profile={
+                "cohort_gates": {
+                    "min_samples_per_family": 3,
+                    "min_support_guard_mode": "temporal_evidence_floor_20",
+                }
+            },
+            profile_id="synthetic_current_profile",
+            type_slug=None,
+            run_id="run1",
+            artifact_list=[],
+        )
+
+    monkeypatch.setattr(stage_samples.app_config, "EXPORT_ANALYSIS_SNAPSHOT", False, raising=False)
+    monkeypatch.setattr(stage_samples, "_resolve_dataset_time_contract", lambda **_kwargs: {})
+    monkeypatch.setattr(stage_samples, "_augment_dataset_time_contract", lambda **kwargs: kwargs["time_contract"])
+    monkeypatch.setattr(stage_samples, "_export_dataset_time_contract", lambda **_kwargs: "time.json")
+    monkeypatch.setattr(stage_samples, "_export_time_window_family_distributions", lambda **_kwargs: [])
+    monkeypatch.setattr(stage_samples, "_export_paper_cohort_sample_ids", lambda **_kwargs: "ids.csv")
+    monkeypatch.setattr(stage_samples, "_export_cohort_filter_contract", lambda **_kwargs: ("a.json", "b.csv"))
+    monkeypatch.setattr(stage_samples, "export_cohort_filter_summary", lambda **_kwargs: "summary.csv")
+    monkeypatch.setattr(stage_samples.cohort_readiness_report, "print_cohort_sql_scope_gate_summary", lambda _stats: None)
+    monkeypatch.setattr(stage_samples.cohort_readiness_report, "print_cohort_readiness_report", lambda _df, gates=None: None)
+    monkeypatch.setattr(stage_samples, "prepare_sample_dataframe", lambda **kwargs: kwargs["df"])
+    monkeypatch.setattr(stage_samples, "apply_dataset_filters", lambda df, _profile: df)
+    monkeypatch.setattr(stage_samples, "_assert_package_name_integrity", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "get_type_cohort_gate_stats",
+        lambda **_kwargs: {"total_candidates": 1, "final_count_estimate": 1},
+    )
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "load_samples_by_type",
+        lambda **_kwargs: pd.DataFrame(
+            [
+                {
+                    "sample_id": 1,
+                    "sha256": "a" * 64,
+                    "family_canonical": "x",
+                    "type_slug": "banker",
+                    "permissions": 1,
+                    "android_package_name": "pkg",
+                    "vt_malicious_count": 1,
+                }
+            ]
+        ),
+    )
+
+    stage_samples.load_and_prepare_samples(
+        profile={
+            "cohort_gates": {
+                "min_samples_per_family": 3,
+            }
+        },
+        profile_id="paper2_synthetic_without_metadata",
+        type_slug=None,
+        run_id="run1",
+        artifact_list=[],
+    )
 
 
 def test_stage_samples_locked_snapshot_defers_membership_shrinking_sql_gates(monkeypatch, tmp_path) -> None:

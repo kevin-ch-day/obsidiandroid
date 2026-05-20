@@ -674,7 +674,7 @@ def _build_claim_readiness(
     tt = scope.get("trainable_family_classification_task") or {}
     if tt.get("families_after_support_filter") is not None:
         strong.append(
-            f"A broad all_malicious-style headline run retains **{tt.get('families_after_support_filter')}** "
+            f"The current all-malicious headline run retains **{tt.get('families_after_support_filter')}** "
             "supported families for multiclass training after the support filter (see headline_score_scope)."
         )
 

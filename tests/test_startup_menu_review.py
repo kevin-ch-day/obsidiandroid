@@ -26,7 +26,7 @@ def _seed_review_run_artifacts(
     for rel_path, content in (extra_run_files or {}).items():
         write_text_file(rdiag / rel_path, content)
     if include_manifest:
-        payload = {"run_id": run_id, "profile_params": {"profile_id": "research_all_malicious"}}
+        payload = {"run_id": run_id, "profile_params": {"profile_id": "malicious_temporal_stability"}}
         payload.update(manifest_payload or {})
         write_text_file(
             out_root / "diagnostics" / "run_manifest.latest.json",
@@ -136,10 +136,10 @@ def test_compact_review_summary_includes_identity_health_and_tuning(
     summary = startup_menu_review.build_review_latest_run_summary(output_root=out_root, latest_run_id=run_id)
 
     assert summary["run_id"] == run_id
-    assert summary["profile_id"] == "research_all_malicious"
-    assert summary["run_class"] == "Exploratory"
+    assert summary["profile_id"] == "malicious_temporal_stability"
+    assert summary["run_class"] == "Research"
     assert summary["cohort_lock_status"] == "unlocked"
-    assert summary["publication_ready_status"] == "Not applicable — exploratory run"
+    assert summary["publication_ready_status"] == "No — exploratory run"
     labels = {str(row["label"]): str(row["status"]) for row in summary["health_rows"]}
     assert labels["Cohort / labels"] == "GREEN"
     assert labels["Taxonomy consistency"] == "YELLOW"
@@ -290,7 +290,7 @@ def test_vendor_parser_workbook_gap_is_warning_not_red(
             "latest_run_id": run_id,
             "display_mode": "compact",
             "manifest_payload": {"publication_ready_status": "NOT_APPLICABLE"},
-            "profile_id": "research_all_malicious",
+            "profile_id": "malicious_temporal_stability",
             "evidence_mode": False,
             "best_run_index_path": rdiag / "run_science_index.md",
             "has_canonical_run_science": True,
@@ -342,7 +342,7 @@ def test_tune_next_changes_with_status_flags(
             "latest_run_id": run_id,
             "display_mode": "compact",
             "manifest_payload": {"publication_ready_status": "NOT_APPLICABLE"},
-            "profile_id": "research_all_malicious",
+            "profile_id": "malicious_temporal_stability",
             "evidence_mode": False,
             "best_run_index_path": rdiag / "run_science_index.md",
             "has_canonical_run_science": True,

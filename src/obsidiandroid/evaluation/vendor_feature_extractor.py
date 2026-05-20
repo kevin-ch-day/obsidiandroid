@@ -5,6 +5,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import ml_console
 from obsidiandroid.evaluation import evaluate_av_classifications
 from obsidiandroid.reporting import export_manager as em
 from scripts.diagnostics import inspect_vendor_feature_results
@@ -15,7 +16,10 @@ def extract_vendor_feature_metadata(
     samples_df: pd.DataFrame,
     verbose: bool = False,
 ) -> tuple:
-    du.print_banner("Vendor Feature Extraction")
+    if ml_console.is_compact():
+        du.print_subheader("Vendor Feature Extraction")
+    else:
+        du.print_banner("Vendor Feature Extraction")
 
     if not _is_valid_pipeline_input(av_pipeline_results):
         return None, None, None, None
@@ -45,7 +49,8 @@ def _is_valid_pipeline_input(av_pipeline_results: dict) -> bool:
 
 def _export_pipeline_results(pipeline_data: dict):
     if not bool(getattr(app_config, "ENABLE_AV_PIPELINE_EXCEL_EXPORT", False)):
-        du.print_info("[EXPORT] AV pipeline Excel export disabled by config.")
+        if not ml_console.is_compact():
+            du.print_info("[EXPORT] AV pipeline Excel export disabled by config.")
         return
     try:
         du.print_info("[EXPORT] Writing AV pipeline results to Excel...")
@@ -168,7 +173,10 @@ def _generate_engine_metadata_map(av_pipeline_results: dict) -> dict:
             "normalized_score": row.get("Normalized Score", None),
         }
 
-    du.print_info(f"[ENGINE META] Metadata built for {len(metadata_map)} AV engines.")
+    if ml_console.is_compact():
+        du.print_info(f"[ENGINE META] Metadata ready for {len(metadata_map)} AV engines.")
+    else:
+        du.print_info(f"[ENGINE META] Metadata built for {len(metadata_map)} AV engines.")
     return metadata_map
 
 

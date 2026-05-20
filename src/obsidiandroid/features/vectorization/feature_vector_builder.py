@@ -538,6 +538,8 @@ def build_feature_vector(
     """
     if verbose or ml_console.is_debug():
         du.print_section("[FEATURE BUILD] Constructing AV-based ML Feature Matrix")
+    elif ml_console.is_compact():
+        du.print_info("[FEATURE BUILD] Building AV feature matrix...")
 
     fields = include_fields or ["Parsed Family", "Threat Class", "Malware Type"]
     requested_top_k = int(top_k)
@@ -590,7 +592,7 @@ def build_feature_vector(
         if not top_vendors:
             du.print_error("[FEATURE BUILD] No vendors remain after fallback recovery.")
             return pd.DataFrame()
-        if verbose:
+        if verbose and not ml_console.is_compact():
             du.print_warning(
                 "[FEATURE BUILD] Recovered from empty parser-gated selection using fallback vendors."
             )
@@ -700,7 +702,7 @@ def build_feature_vector(
     encoded.attrs["feature_build_encoding"] = str(encoding)
     effective_top_k = int(len(top_vendors))
     if allow_adaptive_top_k and effective_top_k < requested_top_k:
-        if verbose:
+        if verbose and not ml_console.is_compact():
             du.print_warning(
                 "[FEATURE BUILD] Adaptive top-k active: "
                 f"requested_k={requested_top_k}, effective_k={effective_top_k}."
@@ -741,7 +743,14 @@ def build_feature_vector(
     if isinstance(weights_df, pd.DataFrame):
         encoded.attrs["feature_score_field"] = str(score_preference or "")
 
-    if verbose or ml_console.is_research() or ml_console.is_debug():
+    if ml_console.is_compact():
+        selected_count = len(top_vendors)
+        du.print_success(
+            "[BUILD] Final Feature Matrix - "
+            f"{encoded.shape[0]} samples x {encoded.shape[1]} features "
+            f"| selected_vendors={selected_count} | effective_top_k={effective_top_k}"
+        )
+    elif verbose or ml_console.is_research() or ml_console.is_debug():
         du.print_success(
             f"[BUILD] Final Feature Matrix - {encoded.shape[0]} samples x {encoded.shape[1]} features"
         )

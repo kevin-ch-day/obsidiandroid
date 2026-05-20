@@ -528,7 +528,7 @@ def emit_research_operator_report(
 
     lines_strong = [
         (
-            f"A broad all_malicious-style run can retain **{active_cls or '—'}** active family classes "
+            f"The current all-malicious run can retain **{active_cls or '—'}** active family classes "
             "for headline multiclass training when support filtering is configured accordingly."
         ),
         "Permission features and AV detection-structure modalities carry measurable signal (see modality contribution + ablation).",

@@ -30,6 +30,13 @@ def is_debug() -> bool:
     return get_mode() == "debug"
 
 
+def is_compact() -> bool:
+    """Return True when terminal output should prefer compact operator summaries."""
+    if is_debug():
+        return False
+    return bool(getattr(app_config, "ML_TERMINAL_COMPACT", True))
+
+
 def show_debug_tables(default: bool = False) -> bool:
     """Gate noisy tabular terminal output."""
     if is_debug():

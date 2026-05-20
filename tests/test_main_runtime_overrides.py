@@ -117,6 +117,7 @@ def test_stop_after_samples_writes_preflight_for_cohort_audit(monkeypatch, tmp_p
     preflight_paths = list(output_base.rglob("preflight_report.json"))
     assert preflight_paths, "expected preflight_report.json under output tree"
     payload = json.loads(preflight_paths[0].read_text(encoding="utf-8"))
+    assert payload.get("profile_id") == "unit_samples_audit"
     assert payload.get("status") == "stopped_after_samples"
     audit = payload.get("samples_stage_cohort_counts") or {}
     assert audit.get("cohort_sql_scope_row_count") == 100

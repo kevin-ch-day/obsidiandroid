@@ -201,6 +201,7 @@ def test_banker_locked_profile_is_honestly_marked_count_only() -> None:
 
 
 def test_legacy_paper_profile_alias_resolves_to_generic_locked_profile() -> None:
-    """Deprecated paper-number profile ids should resolve to the generic locked profile."""
-    profile = profile_manager.load_profile("paper2_primary_locked")
+    """Deprecated legacy alias ids should resolve to the canonical locked profile."""
+    with pytest.warns(FutureWarning, match="paper2_primary_locked"):
+        profile = profile_manager.load_profile("paper2_primary_locked")
     assert profile["profile_id"] == "malicious_temporal_stability_locked"

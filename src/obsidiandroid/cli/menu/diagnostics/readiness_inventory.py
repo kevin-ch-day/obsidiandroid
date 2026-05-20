@@ -43,7 +43,10 @@ def show_profile_readiness_mapping_inventory(
     display_module=du,
 ) -> int:
     """Print bundled profile-to-readiness mapping inventory (advisory only)."""
-    inventory = profile_manager_module.inventory_cohort_readiness_mappings()
+    inventory = profile_manager_module.inventory_cohort_readiness_mappings(
+        include_hidden=False,
+        profile_ids=list(getattr(profile_manager_module, "FINAL_OPERATOR_PROFILE_IDS", ())),
+    )
     if not inventory:
         display_module.print_warning("[MENU] No bundled profiles found for readiness mapping inventory.")
         return 1

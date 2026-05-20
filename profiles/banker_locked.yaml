@@ -1,5 +1,5 @@
 profile_id: banker_locked
-description: "Cohort-locked banker corpus contract. Counts are fixed; sample-membership lock recovery remains pending."
+description: "Banker legacy/count-locked baseline contract. Counts are fixed; sample-membership lock recovery remains pending."
 paper_locked: true
 evidence_mode: false
 allow_vendor_fallback_for_width: true

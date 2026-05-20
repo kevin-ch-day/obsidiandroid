@@ -6,7 +6,9 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import traceback
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -52,6 +54,12 @@ PIPELINE_LOGGER = get_logger(
     "ml",
 )
 
+_SKLEARN_PARALLEL_WARNING_MESSAGE = (
+    r"`sklearn\.utils\.parallel\.delayed` should be used with "
+    r"`sklearn\.utils\.parallel\.Parallel`"
+)
+_SKLEARN_PARALLEL_WARNING_FILTER = "ignore::UserWarning:sklearn.utils.parallel"
+
 
 def _emit_feature_prune_warnings_to_terminal() -> bool:
     """Headline training shows prune warnings; ablation/quiet repeats them too often."""
@@ -60,6 +68,39 @@ def _emit_feature_prune_warnings_to_terminal() -> bool:
     if bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)):
         return False
     return True
+
+
+@contextlib.contextmanager
+def _suppress_known_sklearn_parallel_warning():
+    """Hide repeated sklearn parallel wrapper warnings from terminal output.
+
+    scikit-learn 1.7 / Python 3.14 can emit this warning many times during
+    parallelized training and ablation work. We keep the training behavior
+    unchanged and only suppress this known, non-actionable console spam.
+    """
+    previous_pythonwarnings = os.environ.get("PYTHONWARNINGS")
+    merged_filters = _SKLEARN_PARALLEL_WARNING_FILTER
+    if previous_pythonwarnings:
+        merged_filters = f"{previous_pythonwarnings},{_SKLEARN_PARALLEL_WARNING_FILTER}"
+    os.environ["PYTHONWARNINGS"] = merged_filters
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=_SKLEARN_PARALLEL_WARNING_MESSAGE,
+                category=UserWarning,
+            )
+            warnings.filterwarnings(
+                "ignore",
+                category=UserWarning,
+                module=r"sklearn\.utils\.parallel",
+            )
+            yield
+    finally:
+        if previous_pythonwarnings is None:
+            os.environ.pop("PYTHONWARNINGS", None)
+        else:
+            os.environ["PYTHONWARNINGS"] = previous_pythonwarnings
 
 
 def _prune_low_information_features(features_df: pd.DataFrame) -> pd.DataFrame:
@@ -365,12 +406,13 @@ def train_models(
             du.print_subheader(f"[TRAINING] {model_name.upper()}")
 
         try:
-            result = train_model_executor.train_and_evaluate_model(
-                model_type=model_name,
-                features_df=features_df,
-                labels=labels_df,
-                save_model=bool(save_model),
-            )
+            with _suppress_known_sklearn_parallel_warning():
+                result = train_model_executor.train_and_evaluate_model(
+                    model_type=model_name,
+                    features_df=features_df,
+                    labels=labels_df,
+                    save_model=bool(save_model),
+                )
 
             if not isinstance(result, dict):
                 du.print_error(f"[TRAINING] {model_name} result is invalid.")

@@ -207,3 +207,48 @@ def test_export_cohort_lock_artifacts_writes_summary_and_membership(
     assert summary_payload["sample_count"] == 2
     assert summary_payload["snapshot_lock"]["status"] == "matched"
     assert membership_df["sample_id"].tolist() == [1, 2]
+
+
+def test_export_cohort_lock_artifacts_marks_live_db_drift_as_count_only(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Lock summary should reflect degraded count-only semantics when locked ids are missing from DB."""
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "", raising=False)
+    samples_df = pd.DataFrame(
+        {
+            "sample_id": [2, 1],
+            "sha256": ["b", "a"],
+            "family_canonical": ["FamB", "FamA"],
+            "type_slug": ["banker", "banker"],
+            "android_package_name": ["pkg.b", "pkg.a"],
+        }
+    )
+    samples_df.attrs["snapshot_lock"] = {
+        "status": "matched",
+        "applied": True,
+        "matched_sample_count": 2,
+        "lock_sample_count": 3,
+        "missing_from_db_count": 1,
+        "fail_closed": True,
+    }
+
+    summary_path, _ = stage_samples._export_cohort_lock_artifacts(  # pylint: disable=protected-access
+        samples_df=samples_df,
+        run_id="r_lock",
+        profile_id="malicious_temporal_stability_locked",
+        enable_snapshot_lock=True,
+        evidence_strict_snapshot_lock=True,
+        snapshot_lock_file="lock.csv",
+        snapshot_file="snapshot.csv",
+        snapshot_meta_file="snapshot.meta.txt",
+        selection_rule_version="snapshot_v1",
+        dataset_time_contract_path="dataset_time_contract.latest.json",
+        cohort_ids_path="paper_cohort_sample_ids.csv",
+    )
+
+    summary_payload = json.loads(Path(summary_path).read_text(encoding="utf-8"))
+    assert summary_payload["snapshot_lock"]["status"] == "count_only_incomplete_sample_lock"
+    assert summary_payload["snapshot_lock"]["selection_status"] == "matched"
+    assert summary_payload["snapshot_lock"]["missing_from_db_count"] == 1

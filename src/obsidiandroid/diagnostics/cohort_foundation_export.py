@@ -157,11 +157,10 @@ def build_cohort_foundation_payload(
             "the database snapshot may be incomplete or profile gates may exclude a large share — "
             "not a final paper cohort."
         )
-        if profile_id == "research_all_malicious":
-            interim_notes.append(
-                "Current DB snapshot may be incomplete due to upstream Erebus reprocessing. "
-                "Treat this run as pipeline validation, not final paper evidence."
-            )
+        interim_notes.append(
+            "Current DB snapshot may be incomplete due to upstream Erebus reprocessing. "
+            "Treat this run as pipeline validation, not final paper evidence."
+        )
 
     payload: dict[str, Any] = {
         "schema_version": "1.0",
@@ -377,10 +376,9 @@ def append_research_warnings_for_upstream_expectation(
     rw = manifest_context.setdefault("_research_warning_messages", [])
     if isinstance(rw, list) and msg not in rw:
         rw.append(msg)
-    if profile_id == "research_all_malicious":
-        msg2 = (
-            "Current DB snapshot may be incomplete due to upstream Erebus reprocessing. "
-            "Treat this run as pipeline validation, not final paper evidence."
-        )
-        if isinstance(rw, list) and msg2 not in rw:
-            rw.append(msg2)
+    msg2 = (
+        "Current DB snapshot may be incomplete due to upstream Erebus reprocessing. "
+        "Treat this run as pipeline validation, not final paper evidence."
+    )
+    if isinstance(rw, list) and msg2 not in rw:
+        rw.append(msg2)

@@ -188,10 +188,14 @@ def record_ablation_summary(
     label_target_stats: list[dict[str, Any]],
     summary_csv_path: str,
     summary_status: str = "complete",
+    skipped_experiments: list[dict[str, Any]] | None = None,
+    skipped_label_target_runs: list[dict[str, Any]] | None = None,
 ) -> None:
     """Single JSONL anchor for ablation shapes (no per-row CSV mirroring)."""
     s = _session(manifest_context)
     if s:
+        skipped_exps = list(skipped_experiments or [])
+        skipped_runs = list(skipped_label_target_runs or [])
         s.emit_jsonl(
             LogCategory.ABLATION_STATUS,
             severity=LogSeverity.INFO,
@@ -202,6 +206,10 @@ def record_ablation_summary(
             label_target_stats=list(label_target_stats)[:48],
             ablation_summary_csv=str(summary_csv_path),
             summary_status=str(summary_status),
+            skipped_experiment_count=int(len(skipped_exps)),
+            skipped_experiments=skipped_exps[:32],
+            skipped_label_target_run_count=int(len(skipped_runs)),
+            skipped_label_target_runs=skipped_runs[:64],
         )
 
 

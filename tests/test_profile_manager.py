@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 import obsidiandroid.cli.profile_manager as profile_manager
 from obsidiandroid.cli import profile_selection
 
@@ -53,7 +55,7 @@ def test_temporal_evidence_profiles_exclude_dominant_families() -> None:
 
 
 def test_profile_sorting_prefers_locked_and_core_profiles() -> None:
-    """Sort key should rank locked publication-ready profiles before misc entries."""
+    """Sort key should rank locked baselines before misc entries."""
     ordered = sorted(
         [
             "spyware",
@@ -152,20 +154,29 @@ def test_quick_profile_label_prefers_operator_facing_descriptions() -> None:
     """Quick profile menu should lead with human labels instead of raw profile ids."""
     assert profile_manager.profile_selection.quick_profile_label(
         "malicious_temporal_stability_locked"
-    ) == "Publication-ready: locked all-malicious baseline"
+    ) == "Baseline: locked all-malicious"
     assert profile_manager.profile_selection.quick_profile_label(
-        "research_all_malicious"
-    ) == "Exploratory: all-malicious research cohort"
+        "banker_locked"
+    ) == "Baseline: banker legacy/count-locked"
+    assert profile_manager.profile_selection.quick_profile_label(
+        "banker"
+    ) == "Research: current banker"
+    assert profile_manager.profile_selection.quick_profile_label(
+        "malicious_temporal_consensus10"
+    ) == "Sensitivity: consensus threshold"
     assert profile_manager.profile_selection.quick_profile_label(
         "dev_smoke"
-    ) == "Smoke: ultra-fast sanity check"
+    ) == "Smoke: sanity check"
 
 
-def test_legacy_profile_aliases_resolve_to_generic_names() -> None:
-    """Deprecated paper-number profile ids should resolve to generic canonical profiles."""
-    assert profile_manager.load_profile("paper2_primary")["profile_id"] == "malicious_temporal_stability"
-    assert profile_manager.load_profile("paper2_primary_locked")["profile_id"] == "malicious_temporal_stability_locked"
-    assert profile_manager.load_profile("paper1_banker_locked")["profile_id"] == "banker_locked"
+def test_legacy_profile_aliases_resolve_to_generic_names_with_deprecation_warning() -> None:
+    """Deprecated legacy profile ids should resolve to canonical profiles with a warning."""
+    with pytest.warns(FutureWarning, match="paper2_primary"):
+        assert profile_manager.load_profile("paper2_primary")["profile_id"] == "malicious_temporal_stability"
+    with pytest.warns(FutureWarning, match="paper2_primary_locked"):
+        assert profile_manager.load_profile("paper2_primary_locked")["profile_id"] == "malicious_temporal_stability_locked"
+    with pytest.warns(FutureWarning, match="paper1_banker_locked"):
+        assert profile_manager.load_profile("paper1_banker_locked")["profile_id"] == "banker_locked"
 
 
 def test_infer_cohort_readiness_signal_maps_banker_profiles() -> None:
@@ -174,18 +185,20 @@ def test_infer_cohort_readiness_signal_maps_banker_profiles() -> None:
     assert "Best matching readiness bucket" in str(signal["summary"])
 
 
-def test_infer_cohort_readiness_signal_maps_temporal_and_all_malicious_profiles() -> None:
+def test_infer_cohort_readiness_signal_maps_temporal_and_current_all_malicious_profiles() -> None:
     temporal = profile_manager.infer_cohort_readiness_signal("malicious_temporal_stability_locked")
-    exploratory = profile_manager.infer_cohort_readiness_signal("all_malicious")
+    current = profile_manager.infer_cohort_readiness_signal("malicious_temporal_stability")
     assert temporal["bucket"] == "android_high_or_strong_vt_with_permission_obs"
     assert "high/strong VT confidence" in str(temporal["detail"])
-    assert exploratory["bucket"] == "android_with_permission_obs"
-    assert "permission observations." in str(exploratory["detail"])
+    assert current["bucket"] == "android_high_or_strong_vt_with_permission_obs"
+    assert "high/strong VT confidence" in str(current["detail"])
 
 
-def test_infer_cohort_readiness_signal_maps_hidden_paper2_profiles_by_intent() -> None:
-    primary = profile_manager.infer_cohort_readiness_signal("paper2_primary")
-    sensitivity = profile_manager.infer_cohort_readiness_signal("paper2_sensitivity_consensus10")
+def test_infer_cohort_readiness_signal_maps_legacy_alias_profiles_by_intent() -> None:
+    with pytest.warns(FutureWarning, match="paper2_primary"):
+        primary = profile_manager.infer_cohort_readiness_signal("paper2_primary")
+    with pytest.warns(FutureWarning, match="paper2_sensitivity_consensus10"):
+        sensitivity = profile_manager.infer_cohort_readiness_signal("paper2_sensitivity_consensus10")
     assert primary["bucket"] == "android_high_or_strong_vt_with_permission_obs"
     assert sensitivity["bucket"] == "android_high_or_strong_vt_with_permission_obs"
 
@@ -201,6 +214,79 @@ def test_infer_cohort_readiness_signal_maps_broad_android_profiles_to_android_pl
     benign_heavy = profile_manager.infer_cohort_readiness_signal("benign_heavy")
     assert mixed["bucket"] == "android_platform"
     assert benign_heavy["bucket"] == "android_platform"
+
+
+def test_select_profile_interactive_quick_uses_six_intent_menu(monkeypatch) -> None:
+    """Quick path should expose only the six benchmark/dev intents."""
+    captured: dict[str, list[str]] = {}
+
+    def _fake_display_menu(options, *_, **kwargs):
+        title = str(kwargs.get("title", ""))
+        captured[title] = list(options)
+        return 0
+
+    monkeypatch.setattr(profile_manager.profile_selection.mu, "display_menu", _fake_display_menu)
+
+    selected = profile_manager.select_profile_interactive_quick()
+
+    assert selected is None
+    assert captured["Execution profile"] == [
+        "Reproduce locked all-malicious benchmark",
+        "Reproduce banker benchmark",
+        "Evaluate current all-malicious corpus",
+        "Evaluate current banker corpus",
+        "Test robustness / perturbations",
+        "Development / smoke checks",
+    ]
+    assert "More profiles (full catalog)" not in captured["Execution profile"]
+
+
+def test_select_profile_interactive_quick_resolves_robustness_submenu(monkeypatch) -> None:
+    """Robustness intent should expose exactly two sensitivity profiles."""
+    choices = iter([5, 2])
+    seen: dict[str, list[str]] = {}
+
+    def _fake_display_menu(options, *_, **kwargs):
+        seen[str(kwargs.get("title", ""))] = list(options)
+        return next(choices)
+
+    monkeypatch.setattr(profile_manager.profile_selection.mu, "display_menu", _fake_display_menu)
+
+    selected = profile_manager.select_profile_interactive_quick()
+
+    assert selected == "malicious_temporal_family300"
+    assert seen["Execution profile"] == [
+        "Reproduce locked all-malicious benchmark",
+        "Reproduce banker benchmark",
+        "Evaluate current all-malicious corpus",
+        "Evaluate current banker corpus",
+        "Test robustness / perturbations",
+        "Development / smoke checks",
+    ]
+    assert seen["Robustness / perturbations"] == [
+        "Sensitivity: consensus threshold",
+        "Sensitivity: family dominance cap",
+    ]
+
+
+def test_select_profile_interactive_quick_resolves_development_submenu(monkeypatch) -> None:
+    """Development intent should expose exactly fast iteration and smoke."""
+    choices = iter([6, 1])
+    seen: dict[str, list[str]] = {}
+
+    def _fake_display_menu(options, *_, **kwargs):
+        seen[str(kwargs.get("title", ""))] = list(options)
+        return next(choices)
+
+    monkeypatch.setattr(profile_manager.profile_selection.mu, "display_menu", _fake_display_menu)
+
+    selected = profile_manager.select_profile_interactive_quick()
+
+    assert selected == "dev_fast"
+    assert seen["Development / smoke checks"] == [
+        "Development: fast iteration",
+        "Smoke: sanity check",
+    ]
 
 
 def test_inventory_cohort_readiness_mappings_covers_all_profile_files() -> None:

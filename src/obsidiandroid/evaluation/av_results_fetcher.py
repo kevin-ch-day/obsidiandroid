@@ -4,6 +4,7 @@
 import pandas as pd
 
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import ml_console
 from obsidiandroid.database import db_fetch_av_engine_raw_results
 
 
@@ -19,7 +20,10 @@ def fetch_av_results(samples_df: pd.DataFrame, verbose: bool = False) -> pd.Data
         pd.DataFrame: AV result matrix (rows = samples, columns = AV engines).
                       Empty DataFrame if no results are returned.
     """
-    du.print_section("AV Results Fetcher")
+    if ml_console.is_compact():
+        du.print_info("[FETCH] Loading AV engine results from the database...")
+    else:
+        du.print_section("AV Results Fetcher")
 
     if "sample_id" not in samples_df.columns:
         du.print_error("[FETCH] Input DataFrame missing required 'sample_id' column.")

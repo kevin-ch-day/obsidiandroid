@@ -1,5 +1,5 @@
 profile_id: banker
-description: Android banker-focused supervised cohort.
+description: Current banker research profile using the resolved type-scoped cohort.
 evidence_mode: false
 allow_vendor_fallback_for_width: true
 allow_adaptive_top_k: true

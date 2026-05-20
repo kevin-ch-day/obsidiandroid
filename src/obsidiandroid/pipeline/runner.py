@@ -1331,12 +1331,16 @@ def run_pipeline(
                 try:
                     oc_payload = json.loads(outcome_path.read_text(encoding="utf-8"))
                     outcome_status = str(oc_payload.get("ablation_grid_status") or "complete").strip().lower()
+                    skipped_experiment_count = int(oc_payload.get("skipped_experiment_count", 0) or 0)
                 except Exception:
                     outcome_status = "complete"
+                    skipped_experiment_count = 0
+            else:
+                skipped_experiment_count = 0
             summ = oh.resolve_ablation_summary_path(Path(DIAGNOSTICS_DIR), run_id, allow_partial=True)
             manifest_context["_ablation_run_status_summary"] = (
                 f"artifact_paths={len(ablation_artifacts)} ablation_grid_status={outcome_status} "
-                f"summary={summ.name}"
+                f"skipped_experiments={skipped_experiment_count} summary={summ.name}"
             )
             obs_ab = manifest_context.get("pipeline_observability")
             if isinstance(obs_ab, PipelineObservabilitySession):
@@ -1346,6 +1350,7 @@ def run_pipeline(
                     message="ablation_complete" if outcome_status == "complete" else "ablation_outcome",
                     ablation_summary_path=str(summ),
                     ablation_grid_status=str(outcome_status),
+                    skipped_experiment_count=int(skipped_experiment_count),
                 )
             st.record_stage_timing(
                 "ablation",
@@ -1630,7 +1635,7 @@ def run_pipeline(
                 du.print_error(error_text.replace("[INTEGRITY] ", ""))
                 if bool(getattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False)):
                     du.print_info(
-                        "Action: use research_all_malicious profile for exploratory runs "
+                        "Action: use malicious_temporal_stability for current-corpus runs "
                         "or clean package metadata for evidence runs."
                     )
 

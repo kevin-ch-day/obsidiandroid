@@ -20,7 +20,7 @@ def test_build_operator_state_respects_run_override_and_best_index_fallback(tmp_
         json.dumps(
             {
                 "run_id": run_id,
-                "profile_params": {"profile_id": "research_all_malicious"},
+                "profile_params": {"profile_id": "malicious_temporal_stability"},
                 "publication_ready_status": "unknown",
             }
         ),
@@ -31,7 +31,7 @@ def test_build_operator_state_respects_run_override_and_best_index_fallback(tmp_
     shared = operator_state.build_operator_state(output_base=out_root, run_id=run_id)
 
     assert shared["latest_run_id"] == run_id
-    assert shared["profile_id"] == "research_all_malicious"
+    assert shared["profile_id"] == "malicious_temporal_stability"
     assert shared["best_run_index_path"] == run_root / "run_evidence_index.md"
     assert shared["has_canonical_run_science"] is False
 
@@ -43,7 +43,7 @@ def test_build_operator_state_reports_canonical_run_science_when_present(tmp_pat
     diagnostics_dir = run_root / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     (run_root / "run_manifest.json").write_text(
-        json.dumps({"run_id": run_id, "profile_params": {"profile_id": "research_all_malicious"}}),
+        json.dumps({"run_id": run_id, "profile_params": {"profile_id": "malicious_temporal_stability"}}),
         encoding="utf-8",
     )
     (diagnostics_dir / "run_science_index.md").write_text("# science\n", encoding="utf-8")
