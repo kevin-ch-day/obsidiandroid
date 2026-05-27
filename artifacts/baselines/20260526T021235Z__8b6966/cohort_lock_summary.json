@@ -1,0 +1,45 @@
+{
+  "artifacts": {
+    "cohort_membership_csv": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260526T021235Z__8b6966/diagnostics/cohort_membership.csv",
+    "dataset_time_contract_json": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260526T021235Z__8b6966/diagnostics/dataset_time_contract_20260526T021235Z__8b6966.json",
+    "paper_cohort_sample_ids_csv": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260526T021235Z__8b6966/diagnostics/paper_cohort_sample_ids.csv"
+  },
+  "profile_id": "malicious_temporal_stability_locked",
+  "run_id": "20260526T021235Z__8b6966",
+  "sample_count": 1187,
+  "schema_version": "1.0",
+  "snapshot_lock": {
+    "applied": true,
+    "fail_closed": true,
+    "lock_file": "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/baselines/20260504T044304Z__8c64e6/malicious_temporal_stability_locked_sample_ids.csv",
+    "lock_sample_count": 1226,
+    "matched_sample_count": 1187,
+    "missing_from_db_count": 39,
+    "requested": true,
+    "required": true,
+    "selection_rule_version": "snapshot_v1_android_apk_mapped_quality",
+    "selection_status": "matched",
+    "snapshot_file": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260526T021235Z__8b6966/diagnostics/analysis_snapshot_20260526T021235Z__8b6966.csv",
+    "snapshot_meta_file": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260526T021235Z__8b6966/diagnostics/analysis_snapshot_20260526T021235Z__8b6966.meta.txt",
+    "status": "count_only_incomplete_sample_lock"
+  },
+  "top_family_counts": {
+    "Applite": 159,
+    "Crocodilus": 30,
+    "FluBot": 37,
+    "Irata": 197,
+    "Joker": 80,
+    "Klopatra": 30,
+    "PixPirate": 120,
+    "SpyNote": 42,
+    "TgToxic": 42,
+    "TrickMo": 48
+  },
+  "type_counts": {
+    "banker": 1078,
+    "rat": 62,
+    "spyware": 47
+  },
+  "unique_family_count": 35,
+  "unique_type_count": 3
+}

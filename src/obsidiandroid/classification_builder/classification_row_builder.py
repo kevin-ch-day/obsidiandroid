@@ -3,6 +3,8 @@
 
 from typing import Any, Dict, Optional
 
+import pandas as pd
+
 from obsidiandroid.vendors import VendorClassificationRecord
 from obsidiandroid.labeling.label_format_generator import generate_label
 from obsidiandroid.labeling import label_field_normalizer
@@ -12,6 +14,7 @@ from . import record_enrichment
 from . import prediction_utils
 from . import classification_constants as const
 from obsidiandroid.labeling.malware_family_constants import is_known_family_name
+from config import app_config
 
 
 def _normalize_family_id_token(value: Any) -> str:
@@ -31,27 +34,40 @@ def _resolve_runtime_type_slug(
     sample_id: str,
 ) -> str:
     """Return authoritative runtime type slug for a sample when present."""
-    if not isinstance(metadata, dict):
-        return ""
+    def _clean_type_slug(value: Any) -> str:
+        token = str(value or "").strip().lower()
+        if token in {"", "unknown", "none", "null", "nan"}:
+            return ""
+        return token
 
-    meta = metadata.get(sample_id)
-    if meta is None:
-        meta = metadata.get(str(sample_id))
-    if meta is None:
-        meta = metadata.get(_normalize_family_id_token(sample_id))
-    if meta is None:
-        sample_key = _normalize_family_id_token(sample_id)
-        for key, value in metadata.items():
-            if _normalize_family_id_token(key) == sample_key:
-                meta = value
-                break
-    if not isinstance(meta, dict):
-        return ""
+    if isinstance(metadata, dict):
+        meta = metadata.get(sample_id)
+        if meta is None:
+            meta = metadata.get(str(sample_id))
+        if meta is None:
+            meta = metadata.get(_normalize_family_id_token(sample_id))
+        if meta is None:
+            sample_key = _normalize_family_id_token(sample_id)
+            for key, value in metadata.items():
+                if _normalize_family_id_token(key) == sample_key:
+                    meta = value
+                    break
+        if isinstance(meta, dict):
+            direct = _clean_type_slug(meta.get("type_slug"))
+            if direct:
+                return direct
 
-    type_slug = str(meta.get("type_slug", "") or "").strip().lower()
-    if type_slug in {"", "unknown", "none", "null", "nan"}:
-        return ""
-    return type_slug
+    runtime_meta = getattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", None)
+    if isinstance(runtime_meta, pd.DataFrame) and not runtime_meta.empty:
+        if {"sample_id", "type_slug"} <= set(runtime_meta.columns):
+            sample_key = _normalize_family_id_token(sample_id)
+            series = runtime_meta["sample_id"].map(_normalize_family_id_token)
+            matches = runtime_meta.loc[series == sample_key, "type_slug"]
+            if not matches.empty:
+                fallback = _clean_type_slug(matches.iloc[-1])
+                if fallback:
+                    return fallback
+    return ""
 
 
 def _build_canonical_category_vector(

@@ -51,11 +51,33 @@ CREATE TABLE IF NOT EXISTS malware_family_authority_fact (
     authority_version VARCHAR(64) NULL,
     review_status VARCHAR(32) NOT NULL DEFAULT 'auto',
     is_active TINYINT(1) NOT NULL DEFAULT 1,
+    active_sample_id INT UNSIGNED AS (
+        CASE
+            WHEN is_active = 1 THEN sample_id
+            ELSE NULL
+        END
+    ) STORED,
+    authority_content_sha1 CHAR(40) AS (
+        SHA1(
+            CONCAT_WS(
+                '|',
+                CAST(sample_id AS CHAR),
+                COALESCE(LOWER(TRIM(governed_family_slug)), ''),
+                COALESCE(LOWER(TRIM(governed_type_slug)), ''),
+                COALESCE(LOWER(TRIM(authority_source_system)), ''),
+                COALESCE(LOWER(TRIM(authority_source_table)), ''),
+                COALESCE(LOWER(TRIM(authority_resolution_method)), ''),
+                COALESCE(LOWER(TRIM(authority_version)), ''),
+                COALESCE(LOWER(TRIM(review_status)), '')
+            )
+        )
+    ) STORED,
     notes TEXT NULL,
     resolved_at_utc DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at_utc DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (authority_id),
-    UNIQUE KEY uq_malware_family_authority_active (sample_id, is_active),
+    UNIQUE KEY uq_malware_family_authority_active_sample (active_sample_id),
+    UNIQUE KEY uq_malware_family_authority_content (authority_content_sha1),
     KEY idx_malware_family_authority_family (governed_family_slug, is_active),
     KEY idx_malware_family_authority_type (governed_type_slug, is_active),
     KEY idx_malware_family_authority_review (review_status, is_active)
@@ -121,9 +143,25 @@ CREATE TABLE IF NOT EXISTS malware_family_label_evidence (
     parser_confidence_score DECIMAL(5,4) NULL,
     source_report_date_utc DATETIME NULL,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
+    evidence_identity_sha1 CHAR(40) AS (
+        SHA1(
+            CONCAT_WS(
+                '|',
+                CAST(sample_id AS CHAR),
+                COALESCE(LOWER(TRIM(vendor_key)), ''),
+                COALESCE(TRIM(raw_vendor_label), ''),
+                COALESCE(LOWER(TRIM(parser_name)), ''),
+                COALESCE(LOWER(TRIM(parser_version)), ''),
+                COALESCE(CAST(source_report_date_utc AS CHAR), ''),
+                CAST(is_active AS CHAR)
+            )
+        )
+    ) STORED,
     notes TEXT NULL,
     created_at_utc DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at_utc DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (evidence_id),
+    UNIQUE KEY uq_mfle_identity (evidence_identity_sha1),
     KEY idx_mfle_sample (sample_id, is_active),
     KEY idx_mfle_vendor (vendor_key, is_active),
     KEY idx_mfle_family (parsed_family_token, is_active),
@@ -216,6 +254,7 @@ LEFT JOIN (
     ON fam_res.sample_id = msc.sample_id
 LEFT JOIN android_malware_family AS fam
     ON LOWER(fam.family_slug) = fam_res.resolved_family_lc
+   AND fam.is_active = 1
 LEFT JOIN android_malware_type AS typ
     ON typ.type_id = fam.primary_type_id
 LEFT JOIN v_android_sample_temporal_resolved AS tsr

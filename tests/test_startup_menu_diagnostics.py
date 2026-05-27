@@ -55,6 +55,19 @@ def test_taxonomy_support_tuning_compact_shows_status_and_tune_next(
         ),
     )
     write_text_file(
+        rdiag / f"taxonomy_target_surfaces_{run_id}.json",
+        json.dumps(
+            {
+                "label_strategy": {
+                    "preferred_family_target": "family_id",
+                    "preferred_type_target": "type_slug",
+                    "avoid_for_primary_claims": ["category_primary"],
+                    "alignment_interpretation": "Raw subtype aligns materially better than raw primary.",
+                }
+            }
+        ),
+    )
+    write_text_file(
         rdiag / "family_label_taxonomy_audit.csv",
         "family_canonical,aligned_rows,support_status,configured_min_samples_per_family\n"
         "famA,25,retained,20\n"
@@ -74,6 +87,8 @@ def test_taxonomy_support_tuning_compact_shows_status_and_tune_next(
     assert "Authority gap rows (run/global)" in out
     assert "Claim-facing mismatch total" in out
     assert "Families just below threshold" in out
+    assert "Preferred family target" in out
+    assert "Avoid for primary claims" in out
     assert "tune next" in out.lower()
     assert "taxonomy_authority_split" in out
     assert "taxonomy_model_prediction_errors" in out
@@ -115,16 +130,82 @@ def test_taxonomy_support_snapshot_includes_threshold_sensitivity(
         ),
     )
     write_text_file(rdiag / f"taxonomy_authority_split_{run_id}.md", "# Taxonomy Authority Split\n")
+    write_text_file(
+        rdiag / f"taxonomy_target_surfaces_{run_id}.json",
+        json.dumps(
+            {
+                "label_strategy": {
+                    "preferred_family_target": "family_id",
+                    "preferred_family_reporting_surface": "family_canonical",
+                    "preferred_type_target": "type_slug",
+                    "preferred_hierarchical_target": "family_within_type",
+                    "avoid_for_primary_claims": ["category_primary"],
+                    "alignment_interpretation": "Raw subtype aligns materially better than raw primary.",
+                }
+            }
+        ),
+    )
     snap = startup_menu_diagnostics.build_taxonomy_support_tuning_snapshot(run_id=run_id, output_root=out_root)
     assert snap["paper_facing_taxonomy_mismatch_total"] == "—"
     assert snap["model_prediction_error_count"] == 2
     assert snap["family_mismatch_count"] == 2
     assert snap["authority_gap_run_count"] == 3
     assert snap["taxonomy_authority_split_path"].endswith(".md")
+    assert snap["preferred_family_target"] == "family_id"
+    assert snap["preferred_type_target"] == "type_slug"
+    assert snap["avoid_for_primary_claims"] == ["category_primary"]
     sensitivity = snap.get("threshold_sensitivity")
     assert isinstance(sensitivity, list)
     assert len(sensitivity) == 5
     assert sensitivity[0]["threshold"] == 5
+
+
+def test_taxonomy_support_snapshot_prefers_sql_governed_threshold_preview(
+    make_run_diagnostics_layout,
+    write_text_file,
+) -> None:
+    run_id = "20260515T141956Z__58d84f"
+    out_root, rdiag, _ = make_run_diagnostics_layout(run_id)
+    write_text_file(
+        rdiag / "family_label_taxonomy_audit.csv",
+        "family_canonical,aligned_rows,support_status,configured_min_samples_per_family\n"
+        "famA,25,retained,20\n"
+        "famB,12,dropped_low_support,20\n",
+    )
+    write_text_file(
+        rdiag / "sql_governed_family_label_taxonomy_audit.csv",
+        "family_canonical,aligned_rows,support_status,configured_min_samples_per_family\n"
+        "famA,25,retained,20\n"
+        "famB,12,dropped_low_support,20\n"
+        "famC,7,dropped_low_support,20\n",
+    )
+    write_text_file(
+        rdiag / f"taxonomy_authority_split_{run_id}.json",
+        json.dumps(
+            {
+                "authority_scopes": {
+                    "global_authority_catalog": {"bucket_counts": {"resolved_but_no_authority_family": 10}},
+                    "run_cohort_authority": {"available": True, "bucket_counts": {"resolved_but_no_authority_family": 3}},
+                },
+                "taxonomy_split": {
+                    "type_authority_vs_rendering_mismatch": {
+                        "counts": {
+                            "type_mapping_mismatch": 2,
+                            "type_label_missing": 1,
+                            "type_label_noncanonical": 0,
+                            "label_family_mismatch": 1,
+                        }
+                    },
+                    "model_prediction_error": {"count": 2},
+                },
+            }
+        ),
+    )
+    write_text_file(rdiag / f"taxonomy_authority_split_{run_id}.md", "# Taxonomy Authority Split\n")
+
+    snap = startup_menu_diagnostics.build_taxonomy_support_tuning_snapshot(run_id=run_id, output_root=out_root)
+    assert snap["families_before_threshold"] == 3
+    assert snap["family_label_taxonomy_audit_path"].endswith("sql_governed_family_label_taxonomy_audit.csv")
 
 
 def test_taxonomy_consistency_review_prefers_taxonomy_authority_split(

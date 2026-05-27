@@ -1,5 +1,6 @@
 profile_id: banker_locked
 description: "Banker legacy/count-locked baseline contract. Counts are fixed; sample-membership lock recovery remains pending."
+cohort_readiness_bucket: android_banker_with_permission_obs
 profile_status:
   lifecycle: final_canonical
   operator_surface: supported
@@ -33,6 +34,7 @@ dataset_filters:
   mode: malicious_only
 paper_lock:
   contract_id: banker_locked_contract
+  readiness_bucket: android_banker_with_permission_obs
   canonical_historical_run_id: ""
   baseline_artifact_root: artifacts/baselines
   expected_sample_count: 354

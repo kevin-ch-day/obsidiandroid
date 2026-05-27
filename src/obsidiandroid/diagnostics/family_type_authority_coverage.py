@@ -167,6 +167,7 @@ LEFT JOIN v_android_apk_family_resolved AS fam_res
     ON fam_res.sample_id = msc.sample_id
 LEFT JOIN android_malware_family AS fam
     ON LOWER(TRIM(fam.family_slug)) = LOWER(TRIM(fam_res.resolved_family_lc))
+   AND fam.is_active = 1
 LEFT JOIN android_malware_type AS typ
     ON typ.type_id = fam.primary_type_id
 LEFT JOIN android_malware_type AS parent_typ
@@ -174,6 +175,7 @@ LEFT JOIN android_malware_type AS parent_typ
 LEFT JOIN android_malware_family_alias AS alias
     ON alias.family_id = fam.family_id
    AND LOWER(TRIM(alias.alias_name)) = LOWER(TRIM(fam_norm.family_lc))
+   AND alias.is_active = 1
 WHERE msc.platform = 'android'
   AND msc.file_extension = 'apk'
 """
@@ -205,6 +207,31 @@ def _coerce_float(value: Any) -> float:
     if pd.isna(value):
         return 0.0
     return float(value)
+
+
+def _table_has_column(table_name: str, column_name: str) -> bool:
+    query = """
+        SELECT COUNT(*) AS n
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = %s
+          AND column_name = %s
+    """
+    df = db_engine.execute_query(query, params=(table_name, column_name), fetch=True, as_dataframe=True)
+    return bool(
+        isinstance(df, pd.DataFrame)
+        and not df.empty
+        and int(df.iloc[0]["n"]) > 0
+    )
+
+
+def _authority_view_fallback_sql() -> str:
+    query = AUTHORITY_VIEW_SELECT
+    if not _table_has_column("android_malware_family", "is_active"):
+        query = query.replace("   AND fam.is_active = 1\n", "\n")
+    if not _table_has_column("android_malware_family_alias", "is_active"):
+        query = query.replace("   AND alias.is_active = 1\n", "\n")
+    return query
 
 
 def build_temporal_year_coverage(year_bucket_df: pd.DataFrame) -> pd.DataFrame:
@@ -450,7 +477,7 @@ def load_authority_df(*, require_live_view: bool = False) -> tuple[pd.DataFrame,
         return df if isinstance(df, pd.DataFrame) else pd.DataFrame(), "live_view", None
     if require_live_view:
         return pd.DataFrame(), "live_view_missing", LIVE_VIEW_MISSING_WARNING
-    df = db_engine.execute_query(AUTHORITY_VIEW_SELECT, fetch=True, as_dataframe=True)
+    df = db_engine.execute_query(_authority_view_fallback_sql(), fetch=True, as_dataframe=True)
     return df if isinstance(df, pd.DataFrame) else pd.DataFrame(), "embedded_sql_fallback", None
 
 

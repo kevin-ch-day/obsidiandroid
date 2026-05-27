@@ -108,7 +108,8 @@ def print_skeptic_audit_followup_terminal(bundle: dict[str, Any], *, pr: Callabl
     snap = sm.get("smote_snapshot") if isinstance(sm.get("smote_snapshot"), dict) else {}
     du.print_section("SMOTE EFFECT CHECK")
     pr(f"With SMOTE/ROS (headline): Macro-F1 ≈ {float(hm.get('macro_f1') or 0):.4f} | Acc ≈ {float(hm.get('accuracy') or 0):.4f}")
-    pr("Without SMOTE: (not auto-run — see smote_effect_check.md / re-run with oversampling disabled)")
+    pr("Without SMOTE: (not auto-run — see smote_effect_check.md / re-run with "
+       "`OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE=1` or oversampling disabled)")
     if snap:
         pr(f"Snapshot: original_train_n={snap.get('original_train_n')} post_resample_train_n={snap.get('post_resample_train_n')} "
             f"method={snap.get('method')} k_neighbors={snap.get('k_neighbors', '—')}")

@@ -392,13 +392,16 @@ def export_feature_build_coverage(
     )
 
     csv_named = out_dir / f"cohort_missing_from_feature_matrix_{rid}.csv"
-    missing_df = pd.DataFrame({"sample_id": missing_from_feature})
-    oh.mirror_csv_text_run_then_global(
-        diagnostics_dir=out_dir,
-        run_filename=csv_named.name,
-        csv_text=missing_df.to_csv(index=False),
-        global_latest_name="cohort_missing_from_feature_matrix.latest.csv",
-    )
+    if missing_from_feature:
+        missing_df = pd.DataFrame({"sample_id": missing_from_feature})
+        oh.mirror_csv_text_run_then_global(
+            diagnostics_dir=out_dir,
+            run_filename=csv_named.name,
+            csv_text=missing_df.to_csv(index=False),
+            global_latest_name="cohort_missing_from_feature_matrix.latest.csv",
+        )
+    else:
+        csv_named.unlink(missing_ok=True)
 
     gpp = payload.get("gap_missing_with_any_perm_bag_positive")
     gap_extra = ""
@@ -444,7 +447,9 @@ def export_feature_matrix_lineage_gate(
         Path to canonical run-scoped ``feature_matrix_lineage_gate_<run_id>.json``, or None when skipped.
     """
     if enabled is None:
-        enabled = bool(getattr(app_config, "ENABLE_FEATURE_BUILD_COVERAGE_EXPORT", True))
+        enabled = bool(getattr(app_config, "ENABLE_FEATURE_BUILD_COVERAGE_EXPORT", True)) and bool(
+            getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True)
+        )
     if not enabled:
         return None
     if (
@@ -522,7 +527,9 @@ def export_sample_stage_lineage_audit(
         Path to canonical run-scoped ``sample_stage_lineage_<run_id>.csv``, or None when skipped or empty cohort.
     """
     if enabled is None:
-        enabled = bool(getattr(app_config, "ENABLE_FEATURE_BUILD_COVERAGE_EXPORT", True))
+        enabled = bool(getattr(app_config, "ENABLE_FEATURE_BUILD_COVERAGE_EXPORT", True)) and bool(
+            getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True)
+        )
     if not enabled:
         return None
     gov = sorted(_normalize_sample_ids(cohort_sample_ids))

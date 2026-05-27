@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.diagnostics import family_label_confidence_audit
 from obsidiandroid.orchestration.profile_filters import malicious_signal_or_taxonomy_mask
 
 
@@ -116,19 +117,108 @@ def apply_contract_filters(
         if cap_value > 0:
             before = len(out)
             seed = int(gates.get("family_cap_seed", getattr(app_config, "RANDOM_STATE", 42)))
-            chunks: list[pd.DataFrame] = []
+            sql_cap_applied = bool(samples_df.attrs.get("family_cap_applied_in_sql", False))
+            sql_cap_value = samples_df.attrs.get("family_cap_sql_value")
+            sql_cap_seed = samples_df.attrs.get("family_cap_sql_seed")
             grouped = out.groupby("family_canonical", dropna=False, sort=True)
-            for _, group in grouped:
-                if len(group) <= cap_value:
-                    chunks.append(group)
-                else:
-                    chunks.append(group.sample(n=cap_value, random_state=seed))
-            out = (
-                pd.concat(chunks, axis=0)
-                .sort_values("sample_id" if "sample_id" in out.columns else out.index.name or out.columns[0])
-                .reset_index(drop=True)
-            )
-            _record("family_cap", before, len(out), f"cap={cap_value};seed={seed}")
+            residual = int(max((len(group) for _, group in grouped), default=0))
+            if sql_cap_applied and sql_cap_value == cap_value and residual <= cap_value:
+                _record("family_cap", before, len(out), f"already_applied_in_sql;cap={cap_value};seed={sql_cap_seed}")
+            else:
+                chunks: list[pd.DataFrame] = []
+                for _, group in grouped:
+                    if len(group) <= cap_value:
+                        chunks.append(group)
+                    else:
+                        chunks.append(group.sample(n=cap_value, random_state=seed))
+                out = (
+                    pd.concat(chunks, axis=0)
+                    .sort_values("sample_id" if "sample_id" in out.columns else out.index.name or out.columns[0])
+                    .reset_index(drop=True)
+                )
+                _record("family_cap", before, len(out), f"cap={cap_value};seed={seed}")
+
+    type_cap = gates.get("type_cap")
+    if type_cap is not None and "type_slug" in out.columns:
+        cap_value = int(type_cap)
+        if cap_value > 0:
+            before = len(out)
+            seed = int(gates.get("type_cap_seed", getattr(app_config, "RANDOM_STATE", 42)))
+            sql_cap_applied = bool(samples_df.attrs.get("type_cap_applied_in_sql", False))
+            sql_cap_value = samples_df.attrs.get("type_cap_sql_value")
+            sql_cap_seed = samples_df.attrs.get("type_cap_sql_seed")
+            grouped = out.groupby("type_slug", dropna=False, sort=True)
+            residual = int(max((len(group) for _, group in grouped), default=0))
+            if sql_cap_applied and sql_cap_value == cap_value and residual <= cap_value:
+                _record("type_cap", before, len(out), f"already_applied_in_sql;cap={cap_value};seed={sql_cap_seed}")
+            else:
+                chunks: list[pd.DataFrame] = []
+                for _, group in grouped:
+                    if len(group) <= cap_value:
+                        chunks.append(group)
+                    else:
+                        chunks.append(group.sample(n=cap_value, random_state=seed))
+                out = (
+                    pd.concat(chunks, axis=0)
+                    .sort_values("sample_id" if "sample_id" in out.columns else out.index.name or out.columns[0])
+                    .reset_index(drop=True)
+                )
+                _record("type_cap", before, len(out), f"cap={cap_value};seed={seed}")
+    type_cap_by_slug = gates.get("type_cap_by_slug")
+    if isinstance(type_cap_by_slug, dict) and "type_slug" in out.columns:
+        normalized_caps = {
+            str(key).strip().lower(): int(value)
+            for key, value in type_cap_by_slug.items()
+            if str(key).strip() and isinstance(value, int) and value > 0
+        }
+        if normalized_caps:
+            before = len(out)
+            sql_cap_applied = bool(samples_df.attrs.get("type_cap_by_slug_applied_in_sql", False))
+            sql_cap_value = samples_df.attrs.get("type_cap_by_slug_sql_value")
+            if sql_cap_applied and sql_cap_value == normalized_caps:
+                _record("type_cap_by_slug", before, len(out), "already_applied_in_sql")
+            else:
+                seed = int(gates.get("type_cap_seed", getattr(app_config, "RANDOM_STATE", 42)))
+                chunks: list[pd.DataFrame] = []
+                grouped = out.groupby("type_slug", dropna=False, sort=True)
+                for slug, group in grouped:
+                    cap_value = normalized_caps.get(str(slug).strip().lower())
+                    if cap_value is None or len(group) <= cap_value:
+                        chunks.append(group)
+                    else:
+                        chunks.append(group.sample(n=cap_value, random_state=seed))
+                out = (
+                    pd.concat(chunks, axis=0)
+                    .sort_values("sample_id" if "sample_id" in out.columns else out.index.name or out.columns[0])
+                    .reset_index(drop=True)
+                )
+                _record("type_cap_by_slug", before, len(out), f"caps={normalized_caps};seed={seed}")
+
+    min_confidence = gates.get("min_family_label_confidence_score")
+    if min_confidence not in (None, ""):
+        threshold = int(min_confidence)
+        before = len(out)
+        payload = family_label_confidence_audit.build_family_label_confidence_payload(
+            out,
+            min_support=int(gates.get("min_samples_per_family", 3) or 3),
+            top_n=max(len(out), 1),
+        )
+        sample_rows = payload.get("sample_rows", []) if isinstance(payload, dict) else []
+        score_by_sample_id = {
+            str(row.get("sample_id")): int(row.get("label_confidence_score", 0))
+            for row in sample_rows
+            if row.get("sample_id") is not None
+        }
+        sample_keys = out["sample_id"].map(lambda value: str(int(float(value))) if pd.notna(value) and str(value).strip() not in {"", "nan"} else str(value))
+        scores = sample_keys.map(lambda key: score_by_sample_id.get(str(key), 100))
+        out = out[scores >= threshold].copy()
+        dropped = int(before - len(out))
+        _record(
+            "min_family_label_confidence_score",
+            before,
+            len(out),
+            f">={threshold}; dropped={dropped}",
+        )
 
     if not gate_rows:
         _record("no_contract_filter", len(samples_df), len(out), "no additional gates")

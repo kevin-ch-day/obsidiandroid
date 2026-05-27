@@ -35,6 +35,24 @@ def test_extract_type_slug_from_label_applies_alias_map(monkeypatch) -> None:
     assert value == "spyware"
 
 
+def test_extract_type_slug_from_label_parses_prefix_type_form(monkeypatch) -> None:
+    """Type parser should support `<type>/android.<family>` label variants."""
+    monkeypatch.setattr(
+        resolver.app_config,
+        "TYPE_LABEL_ALIAS_MAP",
+        {},
+        raising=False,
+    )
+    value = resolver._extract_type_slug_from_label("rat/android.xrat[004c91f91]")  # pylint: disable=protected-access
+    assert value == "rat"
+
+
+def test_extract_family_slug_from_label_parses_prefix_type_form() -> None:
+    """Family parser should support `<type>/android.<family>` label variants."""
+    value = resolver._extract_family_slug_from_label("rat/android.xrat[004c91f91]")  # pylint: disable=protected-access
+    assert value == "xrat"
+
+
 def test_export_taxonomy_consistency_audit_writes_mismatch_report(monkeypatch, tmp_path: Path) -> None:
     """Audit should export mismatch report when canonical type/family diverge."""
     run_id = "run_taxonomy_test"
@@ -243,6 +261,46 @@ def test_export_taxonomy_consistency_audit_uses_type_slug_expected_column(
     assert int(payload["type_rows_evaluated"]) == 1
     assert int(payload["type_mismatch_count"]) == 0
     assert str(payload.get("type_expected_source", "")) == "type_slug_expected"
+
+
+def test_taxonomy_audit_accepts_prefix_type_label_form(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Audit should not flag valid `<type>/android.<family>` labels as missing type."""
+    run_id = "run_prefix_type_ok"
+    diagnostics_dir = tmp_path / "output" / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+
+    runtime_meta = pd.DataFrame(
+        [
+            {
+                "sample_id": 7001,
+                "type_slug_expected": "rat",
+                "family_canonical": "XRat",
+            }
+        ]
+    )
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", runtime_meta, raising=False)
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_RUN_ID", run_id, raising=False)
+    monkeypatch.setattr(resolver.app_config, "TYPE_LABEL_ALIAS_MAP", {}, raising=False)
+
+    labels_df = pd.DataFrame(
+        [
+            {
+                "sample_id": 7001,
+                "predicted_family": "XRat",
+                "classification_label": "rat/android.xrat[004c91f91]",
+            }
+        ]
+    )
+
+    mismatch_path, mismatch_count, summary = resolver._export_taxonomy_consistency_audit(labels_df)  # pylint: disable=protected-access
+    assert mismatch_path is not None
+    assert mismatch_count == 0
+    assert int(summary.get("type_missing_label_count", -1)) == 0
+    assert int(summary.get("type_mismatch_count", -1)) == 0
+    assert int(summary.get("family_label_mismatch_count", -1)) == 0
 
 
 def test_export_taxonomy_consistency_audit_falls_back_to_type_slug_source(

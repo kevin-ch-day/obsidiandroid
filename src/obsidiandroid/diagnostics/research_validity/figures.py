@@ -39,7 +39,9 @@ def write_validity_figures(
             df = pd.read_csv(sum_path)
             if {"experiment", "macro_f1_score"} <= set(df.columns):
                 if "label_target" in df.columns:
-                    df = df[df["label_target"] == "family_canonical_default"]
+                    label_targets = set(df["label_target"].astype(str).unique())
+                    preferred_target = "family_id" if "family_id" in label_targets else "family_canonical_default"
+                    df = df[df["label_target"] == preferred_target]
                 agg = (
                     df.groupby("experiment", dropna=False)["macro_f1_score"].mean().sort_values(ascending=True)
                 )
@@ -59,13 +61,19 @@ def write_validity_figures(
         if leak_path.exists():
             dfl = pd.read_csv(leak_path)
             use_col = (
+                "vendor_leakage_delta_vs_vendor_safe"
+                if "vendor_leakage_delta_vs_vendor_safe" in dfl.columns
+                else (
                 "vendor_leakage_delta_vs_vendor_full"
                 if "vendor_leakage_delta_vs_vendor_full" in dfl.columns
                 else "leakage_sensitivity_delta"
+                )
             )
             if use_col in dfl.columns and "experiment" in dfl.columns:
                 if "label_target" in dfl.columns:
-                    dfl = dfl[dfl["label_target"] == "family_canonical_default"]
+                    label_targets = set(dfl["label_target"].astype(str).unique())
+                    preferred_target = "family_id" if "family_id" in label_targets else "family_canonical_default"
+                    dfl = dfl[dfl["label_target"] == preferred_target]
                 agg = (
                     dfl.groupby("experiment", dropna=False)[use_col]
                     .mean()
@@ -76,7 +84,7 @@ def write_validity_figures(
                     fig2, ax2 = plt.subplots(figsize=(9, max(3.6, 0.33 * len(agg))), dpi=140)
                     ax2.barh(list(agg.index), list(agg.values), color="#e41a1c")
                     ax2.axvline(0, color="#333333", linewidth=1)
-                    ax2.set_title("Vendor leakage Δ vs vendor_full (Macro-F1)")
+                    ax2.set_title("Vendor leakage Δ vs safer vendor baseline (Macro-F1)")
                     ax2.set_xlabel("Δ Macro-F1")
                     fig2.tight_layout()
                     fig2.savefig(leak, bbox_inches="tight")

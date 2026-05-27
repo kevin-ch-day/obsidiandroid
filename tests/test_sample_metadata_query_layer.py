@@ -45,6 +45,13 @@ def test_stage_samples_forwards_excluded_families_to_sql_layer(monkeypatch, tmp_
     profile = {
         "cohort_gates": {
             "exclude_families": ["Devixor", " Gigabud "],
+            "family_cap": 60,
+            "family_cap_seed": 1337,
+            "type_cap": 300,
+            "type_cap_seed": 1337,
+            "type_cap_by_slug": {"banker": 90, "rat": 55},
+            "exclude_weak_label_kinds": True,
+            "exclude_family_label_conflicts": True,
         }
     }
 
@@ -91,6 +98,629 @@ def test_stage_samples_forwards_excluded_families_to_sql_layer(monkeypatch, tmp_
 
     monkeypatch.setattr(stage_samples.db_sample_metadata_queries, "get_type_cohort_gate_stats", _fake_stats)
     monkeypatch.setattr(stage_samples.db_sample_metadata_queries, "load_samples_by_type", _fake_load)
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "get_type_cohort_catalog_semantics_profile",
+        lambda **_kwargs: {"scope": "sql_governed_android_cohort", "non_android_lane_rows": 0},
+    )
+    monkeypatch.setattr(
+        stage_samples.android_authority_drift_report,
+        "export_android_authority_drift_reports",
+        lambda **_kwargs: ["android_authority_drift.json", "android_authority_drift.csv", "android_authority_drift.md"],
+    )
+    monkeypatch.setattr(
+        stage_samples.cohort_family_feed_risk,
+        "export_family_feed_risk_reports",
+        lambda **_kwargs: ["cohort_family_feed_risk.json", "cohort_family_feed_risk.csv", "cohort_family_feed_risk.md"],
+    )
+    monkeypatch.setattr(
+        stage_samples.family_label_taxonomy_audit,
+        "write_family_label_taxonomy_audit",
+        lambda **kwargs: {
+            "family_label_taxonomy_audit_csv": f"{kwargs.get('artifact_prefix', '')}family_label_taxonomy_audit.csv",
+            "family_label_taxonomy_audit_md": f"{kwargs.get('artifact_prefix', '')}family_label_taxonomy_audit.md",
+            "support_threshold_preview_csv": f"{kwargs.get('artifact_prefix', '')}support_threshold_preview.csv",
+            "support_threshold_preview_md": f"{kwargs.get('artifact_prefix', '')}support_threshold_preview.md",
+        },
+    )
+    monkeypatch.setattr(
+        stage_samples.taxonomy_target_surface_report,
+        "export_taxonomy_target_surface_reports",
+        lambda **_kwargs: [
+            "taxonomy_target_surfaces.json",
+            "taxonomy_target_surfaces.csv",
+            "taxonomy_target_surfaces.md",
+        ],
+    )
+    monkeypatch.setattr(
+        stage_samples.family_label_confidence_audit,
+        "export_family_label_confidence_reports",
+        lambda **_kwargs: [
+            "family_label_confidence_audit.json",
+            "family_label_confidence_families.csv",
+            "family_label_confidence_samples.csv",
+            "family_label_confidence_audit.md",
+        ],
+    )
+
+    artifacts: list[str] = []
+    out = stage_samples.load_and_prepare_samples(
+        profile=profile,
+        profile_id="test_profile",
+        type_slug="banker",
+        run_id="run1",
+        artifact_list=artifacts,
+    )
+    assert int(out.shape[0]) == 1
+    expected = ("devixor", "gigabud")
+    assert stats_calls[0]["exclude_family_canonical"] == expected
+    assert load_calls[0]["exclude_family_canonical"] == expected
+    assert load_calls[0]["family_cap"] == 60
+    assert load_calls[0]["family_cap_seed"] == 1337
+    assert load_calls[0]["type_cap"] == 300
+    assert load_calls[0]["type_cap_seed"] == 1337
+    assert load_calls[0]["type_cap_by_slug"] == {"banker": 90, "rat": 55}
+    assert load_calls[0]["exclude_weak_label_kinds"] is True
+    assert load_calls[0]["exclude_family_label_conflicts"] is True
+    assert out.attrs["catalog_semantics_sql_scope"]["scope"] == "sql_governed_android_cohort"
+    assert "android_authority_drift.json" in artifacts
+    assert "cohort_family_feed_risk.json" in artifacts
+    assert "sql_governed_support_threshold_preview.csv" in artifacts
+    assert "support_threshold_preview.csv" in artifacts
+    assert "taxonomy_target_surfaces.json" in artifacts
+    assert "family_label_confidence_audit.json" in artifacts
+
+
+def test_stage_samples_builds_sql_scope_semantics_from_loaded_dataframe(monkeypatch, tmp_path) -> None:
+    """Samples stage should not launch a second DB semantics scan after loading the cohort."""
+    profile = {"cohort_gates": {}}
+
+    monkeypatch.setattr(stage_samples.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "EXPORT_ANALYSIS_SNAPSHOT", False, raising=False)
+
+    monkeypatch.setattr(stage_samples, "_resolve_dataset_time_contract", lambda **_kwargs: {})
+    monkeypatch.setattr(stage_samples, "_augment_dataset_time_contract", lambda **kwargs: kwargs["time_contract"])
+    monkeypatch.setattr(stage_samples, "_export_dataset_time_contract", lambda **_kwargs: "time.json")
+    monkeypatch.setattr(stage_samples, "_export_time_window_family_distributions", lambda **_kwargs: [])
+    monkeypatch.setattr(stage_samples, "_export_paper_cohort_sample_ids", lambda **_kwargs: "ids.csv")
+    monkeypatch.setattr(stage_samples, "_export_cohort_filter_contract", lambda **_kwargs: ("a.json", "b.csv"))
+    monkeypatch.setattr(stage_samples, "export_cohort_filter_summary", lambda **_kwargs: "summary.csv")
+    monkeypatch.setattr(
+        stage_samples.cohort_readiness_report, "print_cohort_sql_scope_gate_summary", lambda _stats: None
+    )
+    monkeypatch.setattr(stage_samples.cohort_readiness_report, "print_cohort_readiness_report", lambda _df, gates=None: None)
+    monkeypatch.setattr(stage_samples, "prepare_sample_dataframe", lambda **kwargs: kwargs["df"])
+    monkeypatch.setattr(stage_samples, "apply_dataset_filters", lambda df, _profile: df)
+    monkeypatch.setattr(stage_samples, "_assert_package_name_integrity", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        stage_samples.android_authority_drift_report,
+        "export_android_authority_drift_reports",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        stage_samples.taxonomy_target_surface_report,
+        "export_taxonomy_target_surface_reports",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        stage_samples.family_label_confidence_audit,
+        "export_family_label_confidence_reports",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "get_type_cohort_gate_stats",
+        lambda **_kwargs: {"total_candidates": 1, "governed_cohort_count": 1},
+    )
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "load_samples_by_type",
+        lambda **_kwargs: pd.DataFrame(
+            [
+                {
+                    "sample_id": 1,
+                    "sha256": "a" * 64,
+                    "family_canonical": "trickmo",
+                    "family_label_raw": "trickmo",
+                    "type_slug": "banker",
+                    "analysis_lane": "android_artifact",
+                    "sample_label_kind": "family_or_common_name",
+                    "payload_target_platform": "android",
+                    "payload_target_source": "artifact_platform",
+                    "vt_family_token": "trickmo",
+                    "source_batch_label": "",
+                    "android_package_name": "pkg.a",
+                    "vt_malicious_count": 1,
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "get_type_cohort_catalog_semantics_profile",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("should not query DB semantics profile")),
+    )
+
+    out = stage_samples.load_and_prepare_samples(
+        profile=profile,
+        profile_id="df_semantics_profile",
+        type_slug=None,
+        run_id="run_df_semantics",
+        artifact_list=[],
+    )
+
+    semantics = out.attrs["catalog_semantics_sql_scope"]
+    assert semantics["scope"] == "sql_governed_android_cohort"
+    assert semantics["analysis_lane_distribution"]["android_artifact"] == 1
+    assert semantics["vt_family_token_rows"] == 1
+
+
+def test_stage_samples_marks_limited_loader_semantics_scope(monkeypatch, tmp_path) -> None:
+    """Limited profiles should not label loader-slice semantics as full governed SQL scope."""
+    profile = {"cohort_gates": {"limit": 5}}
+
+    monkeypatch.setattr(stage_samples.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "EXPORT_ANALYSIS_SNAPSHOT", False, raising=False)
+    monkeypatch.setattr(stage_samples, "_resolve_dataset_time_contract", lambda **_kwargs: {})
+    monkeypatch.setattr(stage_samples, "_augment_dataset_time_contract", lambda **kwargs: kwargs["time_contract"])
+    monkeypatch.setattr(stage_samples, "_export_dataset_time_contract", lambda **_kwargs: "time.json")
+    monkeypatch.setattr(stage_samples, "_export_time_window_family_distributions", lambda **_kwargs: [])
+    monkeypatch.setattr(stage_samples, "_export_paper_cohort_sample_ids", lambda **_kwargs: "ids.csv")
+    monkeypatch.setattr(stage_samples, "_export_cohort_filter_contract", lambda **_kwargs: ("a.json", "b.csv"))
+    monkeypatch.setattr(stage_samples, "export_cohort_filter_summary", lambda **_kwargs: "summary.csv")
+    monkeypatch.setattr(
+        stage_samples.cohort_readiness_report, "print_cohort_sql_scope_gate_summary", lambda _stats: None
+    )
+    monkeypatch.setattr(stage_samples.cohort_readiness_report, "print_cohort_readiness_report", lambda _df, gates=None: None)
+    monkeypatch.setattr(stage_samples, "prepare_sample_dataframe", lambda **kwargs: kwargs["df"])
+    monkeypatch.setattr(stage_samples, "apply_dataset_filters", lambda df, _profile: df)
+    monkeypatch.setattr(stage_samples, "_assert_package_name_integrity", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        stage_samples.android_authority_drift_report,
+        "export_android_authority_drift_reports",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        stage_samples.taxonomy_target_surface_report,
+        "export_taxonomy_target_surface_reports",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        stage_samples.family_label_confidence_audit,
+        "export_family_label_confidence_reports",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "get_type_cohort_gate_stats",
+        lambda **_kwargs: {"total_candidates": 10, "governed_cohort_count": 8},
+    )
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "load_samples_by_type",
+        lambda **_kwargs: pd.DataFrame(
+            [
+                {
+                    "sample_id": 1,
+                    "sha256": "a" * 64,
+                    "family_canonical": "gigabud",
+                    "family_label_raw": "gigabud",
+                    "type_slug": "banker",
+                    "analysis_lane": "android_artifact",
+                    "sample_label_kind": "family_or_common_name",
+                    "payload_target_platform": "android",
+                    "payload_target_source": "artifact_platform",
+                    "vt_family_token": "gigabud",
+                    "source_batch_label": "",
+                    "android_package_name": "pkg.a",
+                    "vt_malicious_count": 1,
+                }
+            ]
+        ),
+    )
+
+    out = stage_samples.load_and_prepare_samples(
+        profile=profile,
+        profile_id="limited_profile",
+        type_slug=None,
+        run_id="run_limited_semantics",
+        artifact_list=[],
+    )
+
+    assert out.attrs["catalog_semantics_sql_scope"]["scope"] == "sql_limited_loader_slice"
+
+
+def test_stage_samples_sets_gate_stats_before_readiness_and_tracks_deferred_exclusions(monkeypatch, tmp_path) -> None:
+    """Readiness should receive SQL-scope attrs, and locked runs should record deferred exclusions."""
+    profile = {
+        "paper_locked": True,
+        "cohort_gates": {
+            "exclude_families": ["Devixor", "Gigabud"],
+        },
+    }
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(stage_samples.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "EXPORT_ANALYSIS_SNAPSHOT", False, raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "ENABLE_SNAPSHOT_LOCK", True, raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "SNAPSHOT_LOCK_FILE", "baseline.csv", raising=False)
+
+    monkeypatch.setattr(stage_samples, "_resolve_dataset_time_contract", lambda **_kwargs: {})
+    monkeypatch.setattr(stage_samples, "_augment_dataset_time_contract", lambda **kwargs: kwargs["time_contract"])
+    monkeypatch.setattr(stage_samples, "_export_dataset_time_contract", lambda **_kwargs: "time.json")
+    monkeypatch.setattr(stage_samples, "_export_time_window_family_distributions", lambda **_kwargs: [])
+    monkeypatch.setattr(stage_samples, "_export_paper_cohort_sample_ids", lambda **_kwargs: "ids.csv")
+    monkeypatch.setattr(stage_samples, "_export_cohort_filter_contract", lambda **_kwargs: ("a.json", "b.csv"))
+    monkeypatch.setattr(stage_samples, "export_cohort_filter_summary", lambda **_kwargs: "summary.csv")
+    monkeypatch.setattr(stage_samples, "prepare_sample_dataframe", lambda **kwargs: kwargs["df"])
+    monkeypatch.setattr(stage_samples, "_assert_package_name_integrity", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        stage_samples.cohort_readiness_report,
+        "print_cohort_sql_scope_gate_summary",
+        lambda _stats: None,
+    )
+
+    def _capture_readiness(df, gates=None):
+        captured["cohort_gate_stats"] = dict(df.attrs.get("cohort_gate_stats", {}))
+        captured["requested_exclude_families"] = tuple(df.attrs.get("requested_exclude_families", ()))
+        captured["deferred"] = bool(df.attrs.get("exclude_families_deferred_by_snapshot_lock", False))
+
+    monkeypatch.setattr(
+        stage_samples.cohort_readiness_report,
+        "print_cohort_readiness_report",
+        _capture_readiness,
+    )
+
+    monkeypatch.setattr(
+        stage_samples.cohort_reproducibility,
+        "apply_analysis_snapshot_lock",
+        lambda samples_df, lock_file, fail_closed=False: samples_df,
+    )
+    monkeypatch.setattr(
+        stage_samples.android_authority_drift_report,
+        "export_android_authority_drift_reports",
+        lambda **_kwargs: ["android_authority_drift.json", "android_authority_drift.csv", "android_authority_drift.md"],
+    )
+    monkeypatch.setattr(
+        stage_samples.cohort_family_feed_risk,
+        "export_family_feed_risk_reports",
+        lambda **_kwargs: ["cohort_family_feed_risk.json", "cohort_family_feed_risk.csv", "cohort_family_feed_risk.md"],
+    )
+    monkeypatch.setattr(
+        stage_samples.family_label_taxonomy_audit,
+        "write_family_label_taxonomy_audit",
+        lambda **kwargs: {
+            "family_label_taxonomy_audit_csv": f"{kwargs.get('artifact_prefix', '')}family_label_taxonomy_audit.csv",
+            "family_label_taxonomy_audit_md": f"{kwargs.get('artifact_prefix', '')}family_label_taxonomy_audit.md",
+            "support_threshold_preview_csv": f"{kwargs.get('artifact_prefix', '')}support_threshold_preview.csv",
+            "support_threshold_preview_md": f"{kwargs.get('artifact_prefix', '')}support_threshold_preview.md",
+        },
+    )
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "get_type_cohort_catalog_semantics_profile",
+        lambda **_kwargs: {"scope": "sql_governed_android_cohort", "non_android_lane_rows": 0},
+    )
+
+    def _fake_stats(**kwargs):
+        return {"total_candidates": 9, "governed_cohort_count": 7}
+
+    def _fake_load(**kwargs):
+        return pd.DataFrame(
+            [
+                {
+                    "sample_id": 1,
+                    "sha256": "a" * 64,
+                    "family_canonical": "fam_a",
+                    "type_slug": "banker",
+                    "android_package_name": "pkg.a",
+                    "vt_malicious_count": 1,
+                }
+            ]
+        )
+
+    monkeypatch.setattr(stage_samples.db_sample_metadata_queries, "get_type_cohort_gate_stats", _fake_stats)
+    monkeypatch.setattr(stage_samples.db_sample_metadata_queries, "load_samples_by_type", _fake_load)
+
+    out = stage_samples.load_and_prepare_samples(
+        profile=profile,
+        profile_id="locked_profile",
+        type_slug=None,
+        run_id="run_locked",
+        artifact_list=[],
+    )
+    assert int(out.shape[0]) == 1
+    assert captured["cohort_gate_stats"] == {"total_candidates": 9, "governed_cohort_count": 7}
+    assert captured["requested_exclude_families"] == ("devixor", "gigabud")
+    assert captured["deferred"] is True
+
+
+def test_stage_samples_persists_cohort_counts_before_late_integrity_failure(monkeypatch, tmp_path) -> None:
+    """Samples-stage manifest counts should survive even if a late integrity check fails."""
+    profile = {
+        "cohort_gates": {
+            "max_missing_package_pct": 0.0,
+        }
+    }
+    manifest_context: dict[str, object] = {}
+
+    monkeypatch.setattr(stage_samples.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "EXPORT_ANALYSIS_SNAPSHOT", False, raising=False)
+    monkeypatch.setattr(stage_samples, "_resolve_dataset_time_contract", lambda **_kwargs: {})
+    monkeypatch.setattr(stage_samples, "_augment_dataset_time_contract", lambda **kwargs: kwargs["time_contract"])
+    monkeypatch.setattr(stage_samples, "_export_dataset_time_contract", lambda **_kwargs: "time.json")
+    monkeypatch.setattr(stage_samples, "_export_time_window_family_distributions", lambda **_kwargs: [])
+    monkeypatch.setattr(stage_samples, "_export_paper_cohort_sample_ids", lambda **_kwargs: "ids.csv")
+    monkeypatch.setattr(stage_samples, "_export_cohort_filter_contract", lambda **_kwargs: ("a.json", "b.csv"))
+    monkeypatch.setattr(stage_samples, "export_cohort_filter_summary", lambda **_kwargs: "summary.csv")
+    monkeypatch.setattr(
+        stage_samples.cohort_readiness_report,
+        "print_cohort_sql_scope_gate_summary",
+        lambda _stats: None,
+    )
+    monkeypatch.setattr(
+        stage_samples.cohort_readiness_report,
+        "print_cohort_readiness_report",
+        lambda _df, gates=None: None,
+    )
+    monkeypatch.setattr(stage_samples, "prepare_sample_dataframe", lambda **kwargs: kwargs["df"])
+    monkeypatch.setattr(stage_samples, "apply_dataset_filters", lambda df, _profile: df)
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "get_type_cohort_catalog_semantics_profile",
+        lambda **_kwargs: {"scope": "sql_governed_android_cohort"},
+    )
+    monkeypatch.setattr(
+        stage_samples.android_authority_drift_report,
+        "export_android_authority_drift_reports",
+        lambda **_kwargs: ["android_authority_drift.json"],
+    )
+    monkeypatch.setattr(
+        stage_samples.cohort_family_feed_risk,
+        "export_family_feed_risk_reports",
+        lambda **_kwargs: ["cohort_family_feed_risk.json"],
+    )
+    monkeypatch.setattr(
+        stage_samples.family_label_taxonomy_audit,
+        "write_family_label_taxonomy_audit",
+        lambda **kwargs: {
+            "family_label_taxonomy_audit_csv": f"{kwargs.get('artifact_prefix', '')}family_label_taxonomy_audit.csv",
+            "family_label_taxonomy_audit_md": f"{kwargs.get('artifact_prefix', '')}family_label_taxonomy_audit.md",
+            "support_threshold_preview_csv": f"{kwargs.get('artifact_prefix', '')}support_threshold_preview.csv",
+            "support_threshold_preview_md": f"{kwargs.get('artifact_prefix', '')}support_threshold_preview.md",
+        },
+    )
+
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "get_type_cohort_gate_stats",
+        lambda **_kwargs: {"total_candidates": 9, "governed_cohort_count": 7},
+    )
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "load_samples_by_type",
+        lambda **_kwargs: pd.DataFrame(
+            [
+                {
+                    "sample_id": 1,
+                    "sha256": "a" * 64,
+                    "family_canonical": "fam_a",
+                    "type_slug": "banker",
+                    "android_package_name": "",
+                    "vt_malicious_count": 1,
+                }
+            ]
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Missing package rate"):
+        stage_samples.load_and_prepare_samples(
+            profile=profile,
+            profile_id="counts_failure_profile",
+            type_slug=None,
+            run_id="run_counts_fail",
+            artifact_list=[],
+            manifest_context=manifest_context,
+        )
+
+    assert manifest_context["cohort_sql_scope_row_count"] == 9
+    assert manifest_context["cohort_prepared_row_count"] == 1
+    assert manifest_context["gate_total_candidates"] == 9
+    assert manifest_context["governed_cohort_rows"] == 1
+
+
+def test_stage_samples_locked_run_exports_sql_min_support_as_deferred(monkeypatch, tmp_path) -> None:
+    """Locked runs should not claim SQL min-support enforcement in the foundation bundle."""
+    profile = {
+        "paper_locked": True,
+        "cohort_gates": {
+            "min_samples_per_family": 20,
+            "exclude_families": ["Devixor"],
+        },
+    }
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(stage_samples.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "EXPORT_ANALYSIS_SNAPSHOT", False, raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "ENABLE_SNAPSHOT_LOCK", True, raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "SNAPSHOT_LOCK_FILE", "baseline.csv", raising=False)
+
+    monkeypatch.setattr(stage_samples, "_resolve_dataset_time_contract", lambda **_kwargs: {})
+    monkeypatch.setattr(stage_samples, "_augment_dataset_time_contract", lambda **kwargs: kwargs["time_contract"])
+    monkeypatch.setattr(stage_samples, "_export_dataset_time_contract", lambda **_kwargs: "time.json")
+    monkeypatch.setattr(stage_samples, "_export_time_window_family_distributions", lambda **_kwargs: [])
+    monkeypatch.setattr(stage_samples, "_export_paper_cohort_sample_ids", lambda **_kwargs: "ids.csv")
+    monkeypatch.setattr(stage_samples, "_export_cohort_filter_contract", lambda **_kwargs: ("a.json", "b.csv"))
+    monkeypatch.setattr(stage_samples, "export_cohort_filter_summary", lambda **_kwargs: "summary.csv")
+    monkeypatch.setattr(stage_samples, "prepare_sample_dataframe", lambda **kwargs: kwargs["df"])
+    monkeypatch.setattr(stage_samples, "_assert_package_name_integrity", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        stage_samples.cohort_readiness_report,
+        "print_cohort_sql_scope_gate_summary",
+        lambda _stats: None,
+    )
+    monkeypatch.setattr(
+        stage_samples.cohort_readiness_report,
+        "print_cohort_readiness_report",
+        lambda _df, gates=None: None,
+    )
+    monkeypatch.setattr(
+        stage_samples.cohort_reproducibility,
+        "apply_analysis_snapshot_lock",
+        lambda samples_df, lock_file, fail_closed=False: samples_df,
+    )
+    monkeypatch.setattr(
+        stage_samples.android_authority_drift_report,
+        "export_android_authority_drift_reports",
+        lambda **_kwargs: ["android_authority_drift.json", "android_authority_drift.csv", "android_authority_drift.md"],
+    )
+    monkeypatch.setattr(
+        stage_samples.cohort_family_feed_risk,
+        "export_family_feed_risk_reports",
+        lambda **_kwargs: ["cohort_family_feed_risk.json", "cohort_family_feed_risk.csv", "cohort_family_feed_risk.md"],
+    )
+    monkeypatch.setattr(
+        stage_samples.family_label_taxonomy_audit,
+        "write_family_label_taxonomy_audit",
+        lambda **kwargs: {
+            "family_label_taxonomy_audit_csv": f"{kwargs.get('artifact_prefix', '')}family_label_taxonomy_audit.csv",
+            "family_label_taxonomy_audit_md": f"{kwargs.get('artifact_prefix', '')}family_label_taxonomy_audit.md",
+            "support_threshold_preview_csv": f"{kwargs.get('artifact_prefix', '')}support_threshold_preview.csv",
+            "support_threshold_preview_md": f"{kwargs.get('artifact_prefix', '')}support_threshold_preview.md",
+        },
+    )
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "get_type_cohort_catalog_semantics_profile",
+        lambda **_kwargs: {"scope": "sql_governed_android_cohort", "non_android_lane_rows": 0},
+    )
+
+    def _fake_foundation(**kwargs):
+        captured["min_samples_per_family_sql"] = kwargs["min_samples_per_family_sql"]
+        captured["requested_excluded_families"] = tuple(
+            kwargs["samples_df"].attrs.get("requested_exclude_families", ())
+        )
+        captured["deferred"] = bool(
+            kwargs["samples_df"].attrs.get("exclude_families_deferred_by_snapshot_lock", False)
+        )
+
+    monkeypatch.setattr(
+        stage_samples.cohort_foundation_export,
+        "export_cohort_foundation_bundle",
+        _fake_foundation,
+    )
+
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "get_type_cohort_gate_stats",
+        lambda **_kwargs: {"total_candidates": 9, "governed_cohort_count": 7},
+    )
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "load_samples_by_type",
+        lambda **_kwargs: pd.DataFrame(
+            [
+                {
+                    "sample_id": 1,
+                    "sha256": "a" * 64,
+                    "family_canonical": "fam_a",
+                    "type_slug": "banker",
+                    "android_package_name": "pkg.a",
+                    "vt_malicious_count": 1,
+                }
+            ]
+        ),
+    )
+
+    out = stage_samples.load_and_prepare_samples(
+        profile=profile,
+        profile_id="locked_profile",
+        type_slug=None,
+        run_id="run_locked",
+        artifact_list=[],
+    )
+    assert int(out.shape[0]) == 1
+    assert captured["min_samples_per_family_sql"] is None
+    assert captured["requested_excluded_families"] == ("devixor",)
+    assert captured["deferred"] is True
+
+
+def test_stage_samples_tolerates_noncritical_diagnostics_export_failures(monkeypatch, tmp_path) -> None:
+    """Cohort diagnostics export bugs should not crash an otherwise valid samples stage."""
+    profile = {
+        "cohort_gates": {},
+    }
+    warnings: list[str] = []
+
+    monkeypatch.setattr(stage_samples.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(stage_samples.app_config, "EXPORT_ANALYSIS_SNAPSHOT", False, raising=False)
+
+    monkeypatch.setattr(stage_samples, "_resolve_dataset_time_contract", lambda **_kwargs: {})
+    monkeypatch.setattr(stage_samples, "_augment_dataset_time_contract", lambda **kwargs: kwargs["time_contract"])
+    monkeypatch.setattr(stage_samples, "_export_dataset_time_contract", lambda **_kwargs: "time.json")
+    monkeypatch.setattr(stage_samples, "_export_time_window_family_distributions", lambda **_kwargs: [])
+    monkeypatch.setattr(stage_samples, "_export_paper_cohort_sample_ids", lambda **_kwargs: "ids.csv")
+    monkeypatch.setattr(stage_samples, "_export_cohort_filter_contract", lambda **_kwargs: ("a.json", "b.csv"))
+    monkeypatch.setattr(stage_samples, "export_cohort_filter_summary", lambda **_kwargs: "summary.csv")
+    monkeypatch.setattr(stage_samples, "prepare_sample_dataframe", lambda **kwargs: kwargs["df"])
+    monkeypatch.setattr(stage_samples, "_assert_package_name_integrity", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_samples.du, "print_warning", lambda msg: warnings.append(str(msg)))
+    monkeypatch.setattr(
+        stage_samples.cohort_readiness_report,
+        "print_cohort_sql_scope_gate_summary",
+        lambda _stats: None,
+    )
+    monkeypatch.setattr(
+        stage_samples.cohort_readiness_report,
+        "print_cohort_readiness_report",
+        lambda _df, gates=None: None,
+    )
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "get_type_cohort_catalog_semantics_profile",
+        lambda **_kwargs: {"scope": "sql_governed_android_cohort", "non_android_lane_rows": 0},
+    )
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "get_type_cohort_gate_stats",
+        lambda **_kwargs: {"total_candidates": 9, "governed_cohort_count": 7},
+    )
+    monkeypatch.setattr(
+        stage_samples.db_sample_metadata_queries,
+        "load_samples_by_type",
+        lambda **_kwargs: pd.DataFrame(
+            [
+                {
+                    "sample_id": 1,
+                    "sha256": "a" * 64,
+                    "family_canonical": "fam_a",
+                    "type_slug": "banker",
+                    "android_package_name": "pkg.a",
+                    "vt_malicious_count": 1,
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        stage_samples.cohort_foundation_export,
+        "export_cohort_foundation_bundle",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("broken foundation export")),
+    )
+    monkeypatch.setattr(
+        stage_samples.android_authority_drift_report,
+        "export_android_authority_drift_reports",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("broken drift export")),
+    )
+    monkeypatch.setattr(
+        stage_samples.cohort_family_feed_risk,
+        "export_family_feed_risk_reports",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("broken feed risk export")),
+    )
+    monkeypatch.setattr(
+        stage_samples.family_label_taxonomy_audit,
+        "write_family_label_taxonomy_audit",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("broken family taxonomy export")),
+    )
 
     out = stage_samples.load_and_prepare_samples(
         profile=profile,
@@ -100,9 +730,10 @@ def test_stage_samples_forwards_excluded_families_to_sql_layer(monkeypatch, tmp_
         artifact_list=[],
     )
     assert int(out.shape[0]) == 1
-    expected = ("devixor", "gigabud")
-    assert stats_calls[0]["exclude_family_canonical"] == expected
-    assert load_calls[0]["exclude_family_canonical"] == expected
+    assert any("Foundation diagnostics export skipped" in msg for msg in warnings)
+    assert any("Authority-drift diagnostics export skipped" in msg for msg in warnings)
+    assert any("Family feed-risk diagnostics export skipped" in msg for msg in warnings)
+    assert any("Family taxonomy/support diagnostics export skipped" in msg for msg in warnings)
 
 
 def test_stage_samples_forwards_exclude_unknown_type_slug_to_sql_layer(monkeypatch, tmp_path) -> None:

@@ -67,6 +67,13 @@ def print_unified_run_health(
 
     row_auth = payload.get("main_training_row_authority") or payload.get("row_authority")
     du.print_stat("Row authority", row_auth or "n/a")
+    label_strategy = payload.get("label_strategy") if isinstance(payload.get("label_strategy"), dict) else {}
+    if label_strategy:
+        du.print_stat("Family target", label_strategy.get("preferred_family_target") or "n/a")
+        du.print_stat("Type target", label_strategy.get("preferred_type_target") or "n/a")
+        avoid = label_strategy.get("avoid_for_primary_claims")
+        if isinstance(avoid, list) and avoid:
+            du.print_stat("Avoid primary claims on", ", ".join(str(x) for x in avoid))
     ab_line = ""
     ab_obj = payload.get("ablation")
     if isinstance(ab_obj, dict):
@@ -123,23 +130,25 @@ def print_unified_run_health(
 
     rw = payload.get("research_warnings_top") or payload.get("research_warnings") or []
     if isinstance(rw, list) and rw:
-        du.print_info("[WARN] Top research/ops warnings:")
-        shown = rw[:3]
-        for line in shown:
-            du.print_info(f"  - {line}")
-        if len(rw) > len(shown):
-            du.print_info("  - (additional warnings are captured in diagnostics artifacts)")
+        du.print_info(f"[WARN] Top research/ops warnings: {_compact_list_line(rw, limit=3)}")
 
-    du.print_info("[OPEN] Suggested first artifacts:")
     primed = payload.get("top_artifacts_to_open_first")
     primary_hints: list[str] = []
     if isinstance(primed, list):
         primary_hints = [str(x) for x in primed[:8]]
-    for hint in _merge_open_hints(
+    open_hints = _merge_open_hints(
         primary_hints,
-        _open_first_hints(evidence_index_path, Path(payload.get("paths", {}).get("logging_audit_md", ""))),
-    ):
-        du.print_info(f"  - {hint}")
+        _open_first_hints(
+            evidence_index_path,
+            Path(payload.get("paths", {}).get("logging_audit_md", "")),
+            verbose_run_artifacts=bool(payload.get("verbose_run_artifacts", True)),
+            research_validity_enabled=bool(payload.get("research_validity_bundle_enabled", True)),
+        ),
+    )
+    if open_hints:
+        du.print_info(
+            f"[OPEN] Suggested first artifacts: {_compact_list_line(open_hints, limit=4, base=run_root)}"
+        )
 
 
 def _cohort_funnel_line(payload: dict[str, Any], inventory_summary: dict[str, Any]) -> str:
@@ -162,6 +171,33 @@ def _merge_open_hints(primary: list[str], fallback: list[str]) -> list[str]:
     return out[:8]
 
 
+def _compact_list_line(items: list[Any], *, limit: int, base: Path | None = None) -> str:
+    values = [_short_display_path(str(item), base=base) for item in items if str(item).strip()]
+    if not values:
+        return "n/a"
+    shown = values[: max(1, int(limit))]
+    suffix = ""
+    if len(values) > len(shown):
+        suffix = f" (+{len(values) - len(shown)} more in diagnostics)"
+    return " | ".join(shown) + suffix
+
+
+def _short_display_path(value: str, *, base: Path | None = None) -> str:
+    text = str(value).strip()
+    if not text:
+        return text
+    try:
+        path = Path(text)
+        if base is not None:
+            try:
+                return path.resolve().relative_to(base.resolve()).as_posix()
+            except Exception:
+                pass
+        return path.name or text
+    except Exception:
+        return text
+
+
 def _model_line(inventory_summary: dict[str, Any], payload: dict[str, Any]) -> str:
     del inventory_summary
     ms = payload.get("model_summary") if isinstance(payload.get("model_summary"), dict) else {}
@@ -179,7 +215,13 @@ def _model_line(inventory_summary: dict[str, Any], payload: dict[str, Any]) -> s
     return f"{top} Macro-F1={f1}; test n={tn}" if tn not in (None, "") else f"{top} Macro-F1={f1}"
 
 
-def _open_first_hints(evidence_index_path: Path | None, logging_audit: Path) -> list[str]:
+def _open_first_hints(
+    evidence_index_path: Path | None,
+    logging_audit: Path,
+    *,
+    verbose_run_artifacts: bool,
+    research_validity_enabled: bool,
+) -> list[str]:
     hints: list[str] = []
     if evidence_index_path and evidence_index_path.exists():
         hints.append(str(evidence_index_path))
@@ -188,14 +230,17 @@ def _open_first_hints(evidence_index_path: Path | None, logging_audit: Path) -> 
         cand = evidence_index_path.parent / "diagnostics"
         if cand.is_dir():
             diag_parent = cand
-    for name in (
-        "cohort_funnel.md",
-        "publication_claim_audit.md",
-        "paper_claim_audit.md",
-        "recommended_findings.md",
-        "figure_validity_audit.md",
-        "pipeline_stage_summary.md",
-    ):
+    names = ["pipeline_stage_summary.md"]
+    if research_validity_enabled:
+        names = [
+            "cohort_funnel.md",
+            "publication_claim_audit.md",
+            "paper_claim_audit.md",
+            "recommended_findings.md",
+            "figure_validity_audit.md",
+            *names,
+        ]
+    for name in names:
         parent = (evidence_index_path.parent if evidence_index_path else Path("."))
         p = parent / name
         if p.exists():
@@ -203,7 +248,7 @@ def _open_first_hints(evidence_index_path: Path | None, logging_audit: Path) -> 
     ros = (diag_parent or Path(".")) / "run_observability_summary.json"
     if ros.exists():
         hints.append(str(ros))
-    if logging_audit.exists():
+    if verbose_run_artifacts and logging_audit.exists():
         hints.append(str(logging_audit))
     # De-duplicate preserve order
     seen: set[str] = set()

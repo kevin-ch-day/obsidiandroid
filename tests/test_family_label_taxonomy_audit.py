@@ -53,3 +53,25 @@ def test_write_artifacts(tmp_path: Path) -> None:
     assert (tmp_path / "family_label_taxonomy_audit.csv").is_file()
     assert (tmp_path / "support_threshold_preview.csv").is_file()
     assert any("FAMILY LABEL SPACE AUDIT" in x for x in lines)
+
+
+def test_write_artifacts_supports_prefixed_outputs(tmp_path: Path) -> None:
+    df = pd.DataFrame(
+        {
+            "family_id": [1, 1, 2, 2],
+            "family_canonical": ["Irata", "Irata", "y", "y"],
+            "type_slug": ["banker", "banker", "adware", "adware"],
+        }
+    )
+
+    fla.write_family_label_taxonomy_audit(
+        df,
+        diagnostics_dir=tmp_path,
+        profile_id="test_profile",
+        training_min_support=2,
+        run_id="test_run",
+        artifact_prefix="sql_governed_",
+        print_fn=None,
+    )
+    assert (tmp_path / "sql_governed_family_label_taxonomy_audit.csv").is_file()
+    assert (tmp_path / "sql_governed_support_threshold_preview.csv").is_file()

@@ -78,7 +78,7 @@ def launch_permission_intelligence_coverage_menu(
             f"{q2.get('permission_signal_n', '—')} rows ({diagnostics_banners.format_percent_for_menu(q2.get('permission_signal_pct'))})",
         )
         du.print_stat(
-            "Vendor merge authority",
+            "Vendor weak-support coverage",
             f"{q2.get('vendor_merge_n', '—')} rows ({diagnostics_banners.format_percent_for_menu(q2.get('vendor_merge_pct'))})",
         )
         pcols = q2.get("permission_feature_columns")
@@ -98,7 +98,7 @@ def launch_permission_intelligence_coverage_menu(
                     du.print_note(line.strip())
         du.print_note(
             "Definitions: `permission_signal_pct` = cohort rows with permission-bag signal ÷ governed cohort; "
-            "`vendor_merge_pct` = rows with parsed vendor merge authority ÷ the same denominator."
+            "`vendor_merge_pct` = rows with parsed vendor weak-support metadata ÷ the same denominator."
         )
     else:
         du.print_note(

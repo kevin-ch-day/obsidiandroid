@@ -13,8 +13,8 @@
 -- Notes:
 --   - This is deliberately conservative: it imports non-empty positive-detection
 --     labels only and leaves authority untouched.
---   - It is idempotent at the row-content level by anti-joining existing active
---     evidence rows for the same sample/vendor/raw-label/parser tuple.
+--   - It is idempotent at the evidence-identity level, including parser version
+--     and source report timestamp, so reruns do not duplicate identical rows.
 
 SET NAMES utf8mb4;
 
@@ -91,11 +91,18 @@ SELECT
     'seeded from wide virustotal_sample_vendor_engine_verdicts table before parser enrichment' AS notes
 FROM vendor_clean AS vc
 LEFT JOIN malware_family_label_evidence AS e
-    ON e.sample_id = vc.sample_id
-   AND e.vendor_key = vc.vendor_key
-   AND e.raw_vendor_label = vc.raw_vendor_label
-   AND e.parser_name = 'wide_vt_seed'
-   AND e.is_active = 1
+    ON e.evidence_identity_sha1 = SHA1(
+        CONCAT_WS(
+            '|',
+            CAST(vc.sample_id AS CHAR),
+            COALESCE(vc.vendor_key, ''),
+            COALESCE(vc.raw_vendor_label, ''),
+            'wide_vt_seed',
+            'seed_v1',
+            COALESCE(CAST(vc.source_report_date_utc AS CHAR), ''),
+            '1'
+        )
+    )
 WHERE e.evidence_id IS NULL;
 
 -- Optional sanity snapshot after seed.

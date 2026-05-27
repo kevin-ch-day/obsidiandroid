@@ -56,7 +56,27 @@ def _coerce_int(v: Any) -> int | None:
         return None
 
 
-def _top_artifacts_to_open(run_root: Path | None, diagnostics_dir: Path, run_id: str) -> list[str]:
+def _read_label_strategy_blob(diagnostics_dir: Path, run_id: str) -> dict[str, Any]:
+    path = diagnostics_dir / f"taxonomy_target_surfaces_{run_id}.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    label_strategy = payload.get("label_strategy") if isinstance(payload, dict) else {}
+    return label_strategy if isinstance(label_strategy, dict) else {}
+
+
+def _top_artifacts_to_open(
+    run_root: Path | None,
+    diagnostics_dir: Path,
+    run_id: str,
+    *,
+    verbose_run_artifacts: bool,
+    research_validity_enabled: bool,
+    paper_mode: bool,
+) -> list[str]:
     """Ordered open-first list constrained to artifacts that actually exist."""
     rr = run_root if run_root is not None else diagnostics_dir
     authority_md = diagnostics_dir / f"family_type_authority_coverage_{run_id}.md"
@@ -68,15 +88,22 @@ def _top_artifacts_to_open(run_root: Path | None, diagnostics_dir: Path, run_id:
         authority_md,
         diagnostics_dir / "pipeline_stage_summary.md",
         diagnostics_dir / "partial_failures.md",
-        diagnostics_dir / "publication_claim_audit.md",
-        diagnostics_dir / "paper_claim_audit.md",
-        diagnostics_dir / "cohort_funnel.md",
-        diagnostics_dir / "recommended_findings.md",
-        diagnostics_dir / f"paper_mode_compliance_report_{run_id}.json",
-        diagnostics_dir / "logging_audit.md",
-        diagnostics_dir / "figure_validity_audit.md",
-        diagnostics_dir / "hostile_audit_partial_errors.txt",
     ]
+    if paper_mode:
+        ordered.append(diagnostics_dir / f"paper_mode_compliance_report_{run_id}.json")
+    if research_validity_enabled:
+        ordered.extend(
+            [
+                diagnostics_dir / "publication_claim_audit.md",
+                diagnostics_dir / "paper_claim_audit.md",
+                diagnostics_dir / "cohort_funnel.md",
+                diagnostics_dir / "recommended_findings.md",
+                diagnostics_dir / "figure_validity_audit.md",
+                diagnostics_dir / "hostile_audit_partial_errors.txt",
+            ]
+        )
+    if verbose_run_artifacts:
+        ordered.append(diagnostics_dir / "logging_audit.md")
     return [str(p) for p in ordered if p.exists()][:16]
 
 
@@ -114,6 +141,7 @@ def finalize_pipeline_observability(
     if manifest_context.get("_observability_finalized_once"):
         return diagnostic_status_path_fallback(diagnostics_dir)
     diagnostics_dir = Path(diagnostics_dir)
+    verbose_run_artifacts = bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True))
     resolved_run_root = Path(run_root).resolve() if run_root is not None else None
     run_id = str(manifest_context.get("run_id", manifest.get("run_id", "unknown")))
     obs = manifest_context.get("pipeline_observability")
@@ -265,6 +293,21 @@ def finalize_pipeline_observability(
             )
             if temporal_warning not in research_warnings_msgs:
                 research_warnings_msgs.append(temporal_warning)
+        else:
+            temporal_summary = getattr(app_config, "RUNTIME_TEMPORAL_SPLIT_SUMMARY", None)
+            if isinstance(temporal_summary, dict):
+                dropped_future_only = int(
+                    temporal_summary.get("test_rows_dropped_unseen_train_classes", 0) or 0
+                )
+                test_year_floor = int(temporal_summary.get("test_year_floor", 0) or 0)
+                if dropped_future_only > 0 and test_year_floor > 0:
+                    temporal_warning = (
+                        f"[TEMPORAL] Split {split_algorithm_runtime} used test years >= {test_year_floor} "
+                        f"and dropped {dropped_future_only} newer-row sample(s) from classes unseen in "
+                        "historical training years."
+                    )
+                    if temporal_warning not in research_warnings_msgs:
+                        research_warnings_msgs.append(temporal_warning)
 
     split_blob = manifest.get("split") if isinstance(manifest.get("split"), dict) else {}
     gov = manifest.get("cohort_size") or read_prepared_cohort_row_count(manifest_context)
@@ -332,8 +375,23 @@ def finalize_pipeline_observability(
     if not isinstance(label_stats, list):
         label_stats = []
 
-    top_open = _top_artifacts_to_open(resolved_run_root, diagnostics_dir, run_id)
+    research_validity_enabled = bool(getattr(app_config, "ENABLE_RESEARCH_VALIDITY_BUNDLE", True))
+    top_open = _top_artifacts_to_open(
+        resolved_run_root,
+        diagnostics_dir,
+        run_id,
+        verbose_run_artifacts=verbose_run_artifacts,
+        research_validity_enabled=research_validity_enabled,
+        paper_mode=bool(paper_mode),
+    )
     obs_summary_path_str = str(diagnostics_dir / AUTHORITATIVE_SUMMARY_FILENAME)
+
+    row_authority = (
+        manifest.get("main_training_row_authority")
+        or manifest_context.get("main_training_row_authority")
+        or manifest_context.get("feature_matrix_row_authority")
+    )
+    label_strategy = _read_label_strategy_blob(diagnostics_dir, run_id)
 
     status_blob = {
         "schema_version": "2.0",
@@ -344,13 +402,14 @@ def finalize_pipeline_observability(
         "pipeline_status": verdict,
         "paper_mode": bool(paper_mode),
         "evidence_mode": bool(evidence_mode),
+        "verbose_run_artifacts": bool(verbose_run_artifacts),
+        "research_validity_bundle_enabled": bool(research_validity_enabled),
         "research_validity_status": rv_status,
         "research_validity_skip_reason": rv_skip_reason or None,
         "hostile_audit_status": hostile_status,
         "hostile_audit_skip_reason": hostile_skip_reason or None,
         "hostile_audit_degraded": bool(hostile_failed),
-        "main_training_row_authority": manifest.get("main_training_row_authority")
-        or manifest_context.get("main_training_row_authority"),
+        "main_training_row_authority": row_authority,
         "cohort_rows": _coerce_int(gov),
         KEY_COHORT_SQL_SCOPE_ROW_COUNT: _coerce_int(sql_scope_row_count),
         KEY_COHORT_PREPARED_ROW_COUNT: _coerce_int(gov),
@@ -404,14 +463,22 @@ def finalize_pipeline_observability(
         "aligned_supervised_rows": aligned,
         "research_validity_error": rv_err or None,
         "manifest_result_code": int(result_code),
-        "row_authority": manifest.get("main_training_row_authority"),
+        "row_authority": row_authority,
+        "label_strategy": {
+            "preferred_family_target": label_strategy.get("preferred_family_target"),
+            "preferred_family_reporting_surface": label_strategy.get("preferred_family_reporting_surface"),
+            "preferred_type_target": label_strategy.get("preferred_type_target"),
+            "preferred_hierarchical_target": label_strategy.get("preferred_hierarchical_target"),
+            "avoid_for_primary_claims": label_strategy.get("avoid_for_primary_claims", []),
+            "alignment_interpretation": label_strategy.get("alignment_interpretation"),
+        },
         "paths": {
             "run_observability_summary_json": obs_summary_path_str,
             "pipeline_stage_summary_csv": str(diagnostics_dir / "pipeline_stage_summary.csv"),
             "pipeline_stage_summary_md": str(diagnostics_dir / "pipeline_stage_summary.md"),
             "pipeline_events_jsonl": str(diagnostics_dir / "pipeline_events.jsonl"),
-            "logging_audit_md": str(diagnostics_dir / "logging_audit.md"),
-            "logging_audit_csv": str(diagnostics_dir / "logging_audit.csv"),
+            "logging_audit_md": str(diagnostics_dir / "logging_audit.md") if verbose_run_artifacts else "",
+            "logging_audit_csv": str(diagnostics_dir / "logging_audit.csv") if verbose_run_artifacts else "",
             "partial_failures_md": str(diagnostics_dir / "partial_failures.md"),
             "run_manifest_json": str(resolved_run_root / "run_manifest.json") if resolved_run_root else "",
             "run_summary_json": str(resolved_run_root / "run_summary.json") if resolved_run_root else "",
@@ -437,10 +504,11 @@ def finalize_pipeline_observability(
         verdict=verdict,
     )
 
-    log_md, log_csv = write_logging_audit_artifacts(diagnostics_dir, run_id=run_id)
-    for lp in (log_md, log_csv):
-        if str(lp) not in artifact_list:
-            artifact_list.append(str(lp))
+    if verbose_run_artifacts:
+        log_md, log_csv = write_logging_audit_artifacts(diagnostics_dir, run_id=run_id)
+        for lp in (log_md, log_csv):
+            if str(lp) not in artifact_list:
+                artifact_list.append(str(lp))
 
     # Terminal visibility (minimal mode suppresses duplicates elsewhere)
     if not bool(run_status_raw == "failed" and int(result_code) != 0 and verdict.endswith("UNKNOWN")):

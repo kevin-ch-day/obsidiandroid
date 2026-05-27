@@ -23,6 +23,7 @@ from .label_postprocessor import summarize_prediction_results
 
 _TYPE_FROM_LABEL_RE = re.compile(r"/android\.([a-z0-9\-]+)\.", re.IGNORECASE)
 _FAMILY_FROM_LABEL_RE = re.compile(r"/android\.[a-z0-9\-]+\.([a-z0-9_\-]+)", re.IGNORECASE)
+_TYPE_PREFIX_FROM_LABEL_RE = re.compile(r"^([a-z0-9\-]+)/android\.([a-z0-9_\-]+)", re.IGNORECASE)
 
 LABEL_AUDIT_LOGGER = get_logger(
     f"{getattr(app_config, 'APP_LOG_NAMESPACE', 'framework')}.labeling.taxonomy",
@@ -215,9 +216,19 @@ def _extract_type_slug_from_label(label: Any) -> str:
     if not text:
         return ""
     match = _TYPE_FROM_LABEL_RE.search(text)
-    if not match:
+    token = ""
+    if match:
+        token = _normalize_text(match.group(1))
+    else:
+        # Some structured labels use `<type>/android.<family>` rather than
+        # `trojan/android.<type>.<family>`. Treat the leading token as the
+        # label-derived type so taxonomy audits do not report false missing-type
+        # rows for otherwise valid labels such as `rat/android.xrat[...]`.
+        prefix_match = _TYPE_PREFIX_FROM_LABEL_RE.search(text)
+        if prefix_match:
+            token = _normalize_text(prefix_match.group(1))
+    if not token:
         return ""
-    token = _normalize_text(match.group(1))
     alias_map = _build_type_alias_map()
     normalized = alias_map.get(token, token)
     return _normalize_text(normalized)
@@ -229,9 +240,15 @@ def _extract_family_slug_from_label(label: Any) -> str:
     if not text:
         return ""
     match = _FAMILY_FROM_LABEL_RE.search(text)
-    if not match:
+    raw = ""
+    if match:
+        raw = str(match.group(1))
+    else:
+        prefix_match = _TYPE_PREFIX_FROM_LABEL_RE.search(text)
+        if prefix_match:
+            raw = str(prefix_match.group(2))
+    if not raw:
         return ""
-    raw = str(match.group(1))
     raw = raw.split("[", 1)[0]
     return _normalize_text(raw)
 

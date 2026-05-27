@@ -65,6 +65,13 @@ def export_feature_contract(
         payload=payload,
         global_latest_name="feature_contract.latest.json",
     )
+    if not bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True)):
+        stamped_path = output_root / stamped
+        if stamped_path.exists():
+            try:
+                stamped_path.unlink()
+            except OSError:
+                pass
     compat = output_root / "feature_contract.json"
     compat.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return str(compat)
@@ -98,9 +105,9 @@ def export_leakage_assessment(
     lines = [
         f"Run ID: {run_id}",
         f"Timestamp UTC: {datetime.now(timezone.utc).isoformat()}",
-        f"Parsed Family used in features: {'Yes' if has_parsed_family else 'No'}",
-        f"Threat Class used: {'Yes' if has_threat_class else 'No'}",
-        f"Malware Type used: {'Yes' if has_malware_type else 'No'}",
+        f"Parsed Family used in features (weak vendor support only): {'Yes' if has_parsed_family else 'No'}",
+        f"Threat Class used (weak vendor support only): {'Yes' if has_threat_class else 'No'}",
+        f"Malware Type used (weak vendor support only): {'Yes' if has_malware_type else 'No'}",
         "Ground truth label source: family_id",
         f"Leakage risk classification: {leakage_class}",
     ]
@@ -114,6 +121,13 @@ def export_leakage_assessment(
         text=body,
         global_latest_name="leakage_assessment.latest.txt",
     )
+    if not bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True)):
+        stamped_path = output_root / f"leakage_assessment_{run_id}.txt"
+        if stamped_path.exists():
+            try:
+                stamped_path.unlink()
+            except OSError:
+                pass
     compat = output_root / "leakage_assessment.txt"
     compat.write_text(body, encoding="utf-8")
     return str(compat)
@@ -205,6 +219,13 @@ def export_modality_method_contract(
         payload=payload,
         global_latest_name="modality_method_contract.latest.json",
     )
+    if not bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True)):
+        stamped_path = output_root / f"modality_method_contract_{run_id}.json"
+        if stamped_path.exists():
+            try:
+                stamped_path.unlink()
+            except OSError:
+                pass
     compat = output_root / "modality_method_contract.json"
     compat.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return str(compat)

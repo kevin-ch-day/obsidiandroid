@@ -35,6 +35,10 @@ RUNTIME_OVERRIDE_KEYS = (
     "ENABLE_FEATURE_CONTRACT_EXPORT",
     "ENABLE_LEAKAGE_ASSESSMENT_EXPORT",
     "WRITE_RUN_SCOPED_PERMISSION_TREND_ARTIFACTS",
+    "ENABLE_SKEPTIC_AUDITS",
+    "ENABLE_RESEARCH_VALIDITY_BUNDLE",
+    "ENABLE_VERBOSE_RUN_ARTIFACTS",
+    "ENABLE_DETAILED_PER_CLASS_REPORTS",
 )
 
 PARSER_OVERRIDE_KEYS = (
@@ -61,6 +65,7 @@ CROSS_RUN_ARTIFACT_POINTERS: dict[str, Any] = {
     "RUNTIME_SPLIT_HASH": "",
     "RUNTIME_SPLIT_AUDIT_PATH": "",
     "RUNTIME_HEADLINE_SPLIT_METADATA": None,
+    "RUNTIME_TEMPORAL_SPLIT_SUMMARY": None,
     "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH": "",
     "RUNTIME_HEADLINE_FIT_COLUMN_NAMES": None,
     "RUNTIME_HEADLINE_FEATURE_CONTRACT_PATH": "",
@@ -71,7 +76,7 @@ CROSS_RUN_ARTIFACT_POINTERS: dict[str, Any] = {
     "RUNTIME_ABLATION_FEATURE_SET_NAME": "",
     "RUNTIME_SPLIT_LEDGER_INDEX": None,
     "CONFUSION_MATRIX_EXPORT_MODE": "headline_only",
-    "CONFUSION_MATRIX_HEADLINE_EXPERIMENT": "vendor_full",
+    "CONFUSION_MATRIX_HEADLINE_EXPERIMENT": "vendor_no_parsed_family",
 }
 
 
@@ -319,7 +324,8 @@ def apply_profile_runtime_policy(
     setattr(
         app_config,
         "CONFUSION_MATRIX_HEADLINE_EXPERIMENT",
-        str(feature_flags.get("confusion_matrix_headline_experiment", "vendor_full")).strip() or "vendor_full",
+        str(feature_flags.get("confusion_matrix_headline_experiment", "vendor_no_parsed_family")).strip()
+        or "vendor_no_parsed_family",
     )
 
     runtime_overrides = profile.get("runtime_overrides", {}) if isinstance(profile, dict) else {}

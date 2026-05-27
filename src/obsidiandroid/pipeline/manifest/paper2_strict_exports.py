@@ -410,7 +410,7 @@ def build_paper_ablation_table(*, source_path: Path, output_path: Path) -> None:
         "permissions_grouped": "permissions_only",
         "permissions_raw": "permissions_only",
         "vendor_only": "vendor_only",
-        "vendor_full": "vendor_only",
+        "vendor_no_parsed_family": "vendor_only",
         "vendor_permissions_fused": "vendor_permissions_fused",
         "permissions_grouped_plus_vendor_no_family": "vendor_permissions_fused",
         "permissions_grouped_plus_vendor_safe": "vendor_permissions_fused",

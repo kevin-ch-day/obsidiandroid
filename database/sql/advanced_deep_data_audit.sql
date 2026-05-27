@@ -7,9 +7,7 @@
 --   5) Package/family conflict patterns
 --
 -- Run with:
---   mysql -u root -D erebus_database_dev -t < database/sql/advanced_deep_data_audit.sql
-
-USE erebus_database_dev;
+--   mysql -u root -D <target_schema> -t < database/sql/advanced_deep_data_audit.sql
 
 SET SESSION group_concat_max_len = 1000000;
 
@@ -40,28 +38,21 @@ FROM virustotal_sample_scan_summary;
 -- -----------------------------------------------------------------------------
 -- Q2) Alias coverage effectiveness
 -- -----------------------------------------------------------------------------
-WITH base AS (
-  SELECT sample_id, LOWER(TRIM(family_label)) AS family_lc
-  FROM malware_sample_catalog
-  WHERE platform='android' AND file_extension='apk'
-    AND family_label IS NOT NULL AND TRIM(family_label)<>''
-), mapped AS (
-  SELECT b.sample_id, b.family_lc,
-         COALESCE(f1.family_id, f2.family_id) AS family_id,
-         CASE
-           WHEN f1.family_id IS NOT NULL THEN 'direct'
-           WHEN f2.family_id IS NOT NULL THEN 'alias'
-           ELSE 'none'
-         END AS map_mode
-  FROM base b
-  LEFT JOIN android_malware_family f1
-    ON LOWER(TRIM(f1.family_name)) = b.family_lc
-   AND f1.is_active=1
-  LEFT JOIN android_malware_family_alias a
-    ON LOWER(TRIM(a.alias_name)) = b.family_lc
-  LEFT JOIN android_malware_family f2
-    ON f2.family_id = a.family_id
-   AND f2.is_active=1
+WITH mapped AS (
+  SELECT
+    sample_id,
+    family_lc,
+    family_id,
+    CASE
+      WHEN family_id IS NOT NULL AND resolved_via_alias_flag = 0 THEN 'direct'
+      WHEN family_id IS NOT NULL AND resolved_via_alias_flag = 1 THEN 'alias'
+      ELSE 'none'
+    END AS map_mode
+  FROM v_android_sample_family_type_authority
+  WHERE platform='android'
+    AND file_extension='apk'
+    AND family_lc IS NOT NULL
+    AND TRIM(family_lc)<>''
 )
 SELECT
   COUNT(*) AS n_total,
@@ -73,50 +64,39 @@ FROM mapped;
 -- -----------------------------------------------------------------------------
 -- Q3) Unresolved label queue after direct + alias mapping
 -- -----------------------------------------------------------------------------
-WITH base AS (
-  SELECT sample_id, LOWER(TRIM(family_label)) AS family_lc
-  FROM malware_sample_catalog
-  WHERE platform='android' AND file_extension='apk'
-    AND family_label IS NOT NULL AND TRIM(family_label)<>''
-), mapped AS (
-  SELECT b.family_lc,
-         COALESCE(f1.family_id, f2.family_id) AS family_id
-  FROM base b
-  LEFT JOIN android_malware_family f1
-    ON LOWER(TRIM(f1.family_name)) = b.family_lc
-   AND f1.is_active=1
-  LEFT JOIN android_malware_family_alias a
-    ON LOWER(TRIM(a.alias_name)) = b.family_lc
-  LEFT JOIN android_malware_family f2
-    ON f2.family_id = a.family_id
-   AND f2.is_active=1
-)
-SELECT family_lc, COUNT(*) AS n_samples
-FROM mapped
-WHERE family_id IS NULL
-GROUP BY family_lc
+SELECT
+  COALESCE(NULLIF(TRIM(resolved_family_lc), ''), family_lc) AS unresolved_label_lc,
+  COUNT(*) AS n_samples
+FROM v_android_sample_family_type_authority
+WHERE platform='android'
+  AND file_extension='apk'
+  AND family_id IS NULL
+  AND family_lc IS NOT NULL
+  AND TRIM(family_lc)<>''
+GROUP BY COALESCE(NULLIF(TRIM(resolved_family_lc), ''), family_lc)
 ORDER BY n_samples DESC
 LIMIT 200;
 
 -- -----------------------------------------------------------------------------
 -- Q4) Temporal drift in mapping quality
 -- -----------------------------------------------------------------------------
-WITH base AS (
+WITH flags AS (
   SELECT
-    YEAR(COALESCE(CAST(vt_first_seen_itw_date AS DATETIME), vt_first_submission_at_utc, record_created_at_utc)) AS yr,
-    LOWER(TRIM(family_label)) AS family_lc
-  FROM malware_sample_catalog
-  WHERE platform='android' AND file_extension='apk'
-    AND family_label IS NOT NULL AND TRIM(family_label)<>''
-), flags AS (
-  SELECT
-    b.yr,
-    b.family_lc,
-    CASE WHEN f.family_id IS NOT NULL AND f.is_active=1 THEN 1 ELSE 0 END AS is_curated,
-    CASE WHEN b.family_lc IN ('unknown','trojan','adware','ransomware','spyware') THEN 1 ELSE 0 END AS is_generic
-  FROM base b
-  LEFT JOIN android_malware_family f
-    ON LOWER(TRIM(f.family_name)) = b.family_lc
+    YEAR(COALESCE(CAST(msc.vt_first_seen_itw_date AS DATETIME), msc.vt_first_submission_at_utc, msc.record_created_at_utc)) AS yr,
+    auth.family_lc,
+    CASE WHEN auth.family_id IS NOT NULL THEN 1 ELSE 0 END AS is_curated,
+    CASE
+      WHEN auth.authority_bucket = 'generic_label_candidate' THEN 1
+      WHEN auth.family_lc IN ('unknown','trojan','adware','ransomware','spyware') THEN 1
+      ELSE 0
+    END AS is_generic
+  FROM v_android_sample_family_type_authority AS auth
+  JOIN malware_sample_catalog AS msc
+    ON msc.sample_id = auth.sample_id
+  WHERE auth.platform='android'
+    AND auth.file_extension='apk'
+    AND auth.family_lc IS NOT NULL
+    AND TRIM(auth.family_lc)<>''
 )
 SELECT
   yr,
@@ -136,14 +116,37 @@ ORDER BY yr;
 SELECT
   android_package_name,
   COUNT(*) AS n_samples,
-  COUNT(DISTINCT LOWER(TRIM(family_label))) AS n_families,
-  GROUP_CONCAT(DISTINCT LOWER(TRIM(family_label)) ORDER BY LOWER(TRIM(family_label)) SEPARATOR ', ') AS families
-FROM malware_sample_catalog
+  COUNT(
+    DISTINCT COALESCE(
+      NULLIF(LOWER(TRIM(family_slug)), ''),
+      NULLIF(LOWER(TRIM(resolved_family_lc)), ''),
+      LOWER(TRIM(family_lc))
+    )
+  ) AS n_families,
+  GROUP_CONCAT(
+    DISTINCT COALESCE(
+      NULLIF(LOWER(TRIM(family_slug)), ''),
+      NULLIF(LOWER(TRIM(resolved_family_lc)), ''),
+      LOWER(TRIM(family_lc))
+    )
+    ORDER BY COALESCE(
+      NULLIF(LOWER(TRIM(family_slug)), ''),
+      NULLIF(LOWER(TRIM(resolved_family_lc)), ''),
+      LOWER(TRIM(family_lc))
+    ) SEPARATOR ', '
+  ) AS families
+FROM v_android_sample_family_type_authority
 WHERE platform='android' AND file_extension='apk'
   AND android_package_name IS NOT NULL AND TRIM(android_package_name)<>''
-  AND family_label IS NOT NULL AND TRIM(family_label)<>''
+  AND family_lc IS NOT NULL AND TRIM(family_lc)<>''
 GROUP BY android_package_name
-HAVING COUNT(DISTINCT LOWER(TRIM(family_label))) > 1
+HAVING COUNT(
+  DISTINCT COALESCE(
+    NULLIF(LOWER(TRIM(family_slug)), ''),
+    NULLIF(LOWER(TRIM(resolved_family_lc)), ''),
+    LOWER(TRIM(family_lc))
+  )
+) > 1
 ORDER BY n_families DESC, n_samples DESC
 LIMIT 200;
 

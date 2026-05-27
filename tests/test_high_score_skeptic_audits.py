@@ -98,3 +98,56 @@ def test_build_label_map_falls_back_to_global_latest(tmp_path: Path, monkeypatch
 
     out = helpers.build_label_map({}, "random_forest", diagnostics_dir, "rid")
     assert out == {"1": "Irata"}
+
+
+def test_top_feature_modality_audit_falls_back_to_rf_importance_csv(
+    make_run_diagnostics_layout,
+    monkeypatch,
+) -> None:
+    output_root, diagnostics_dir, _global_diag = make_run_diagnostics_layout("rid")
+    monkeypatch.setattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "rid", raising=False)
+    (diagnostics_dir / "rf_impurity_importance_rid.csv").write_text(
+        "\n".join(
+            [
+                "feature_name,modality_guess,impurity_importance,rank",
+                "parsed_family_kaspersky,vendor_parsed_label,0.6,1",
+                "perm__android_permission_receive_sms,permission,0.4,2",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    payload = hssa.write_top_feature_modality_audit(
+        diagnostics_dir=diagnostics_dir,
+        model_results={"random_forest": {"metadata": {}}},
+    )
+
+    assert payload["importance_mass_by_modality"]["suspicious_label_like"] == 0.6
+    assert payload["importance_mass_by_modality"]["permission"] == 0.4
+    assert len(payload["top_25"]) == 2
+
+
+def test_write_smote_effect_check_mentions_evidence_mode_toggle(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_TRAINING_PROVENANCE_SUMMARY",
+        {"holdout_train_smote_effective_last_fit": True},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_SMOTE_AUDIT_LAST",
+        {"original_train_n": 723, "post_resample_train_n": 2664, "method": "SMOTE"},
+        raising=False,
+    )
+
+    payload = hssa.write_smote_effect_check(diagnostics_dir=tmp_path, run_id="rid")
+
+    assert payload["smote_snapshot"]["method"] == "SMOTE"
+    md = (tmp_path / "smote_effect_check.md").read_text(encoding="utf-8")
+    assert "OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE=1" in md

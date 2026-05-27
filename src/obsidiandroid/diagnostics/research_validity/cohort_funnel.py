@@ -218,6 +218,23 @@ def write_cohort_funnel_artifacts(
         notes = str(row.get("notes", "") or "").replace("|", "\\|")
         lines.append(f"| {stage} | {val} | {notes} |")
     lines.append("")
+    temporal = manifest_context.get("split", {}) if isinstance(manifest_context.get("split"), dict) else {}
+    temporal = temporal.get("temporal_split_summary") if isinstance(temporal, dict) else None
+    if isinstance(temporal, dict) and temporal:
+        cutoff = temporal.get("test_year_floor")
+        ymin = temporal.get("observed_year_min")
+        ymax = temporal.get("observed_year_max")
+        dropped = temporal.get("test_rows_dropped_unseen_train_classes")
+        lines.extend(
+            [
+                "## Temporal holdout",
+                "",
+                f"- **cutoff year:** `{cutoff}`",
+                f"- **observed year span:** `{ymin}` — `{ymax}`",
+                f"- **future-only class rows dropped from test:** `{dropped}`",
+                "",
+            ]
+        )
     md_path.write_text("\n".join(lines), encoding="utf-8")
     paths.append(md_path)
 

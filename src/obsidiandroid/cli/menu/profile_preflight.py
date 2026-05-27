@@ -5,6 +5,7 @@ from __future__ import annotations
 from obsidiandroid.orchestration.profile_filters import split_benign_malicious
 from config import app_config
 from obsidiandroid.database import db_sample_metadata_fetchers
+from obsidiandroid.database.db_cohort_readiness import get_cohort_readiness_snapshot
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.observability.logging import get_logger, log_event
 import obsidiandroid.cli.profile_manager as profile_manager
@@ -13,6 +14,114 @@ MENU_LOGGER = get_logger(
     f"{getattr(app_config, 'APP_LOG_NAMESPACE', 'framework')}.menu.profile_preflight",
     "menu",
 )
+
+
+def _summarize_live_readiness_gaps(
+    *,
+    readiness: dict[str, object] | None,
+    bucket: str | None,
+    paper_locked: bool = False,
+) -> list[str]:
+    token = str(bucket or "").strip()
+    snapshot = readiness if isinstance(readiness, dict) else {}
+    buckets = snapshot.get("buckets", {}) if isinstance(snapshot, dict) else {}
+    payload = buckets.get(token, {}) if isinstance(buckets, dict) else {}
+    warnings = snapshot.get("warnings", []) if isinstance(snapshot, dict) else []
+    taxonomy = snapshot.get("taxonomy_signals", {}) if isinstance(snapshot, dict) else {}
+
+    out: list[str] = []
+    sample_count = payload.get("sample_count") if isinstance(payload, dict) else None
+    permission_obs_available = bool(snapshot.get("permission_obs_available", False))
+    if "permission_obs" in token and (
+        sample_count in (None, 0) or not permission_obs_available
+    ):
+        out.append(
+            "Live readiness mismatch: this bucket names `permission_obs`, but the current DB snapshot does not verify a matching PI-observed cohort."
+        )
+    repair_candidate_count = int(taxonomy.get("repair_candidate_count") or 0)
+    known_unresolved_count = int(taxonomy.get("known_unresolved_family_count") or 0)
+    if repair_candidate_count > 0 or known_unresolved_count > 0:
+        detail = (
+            f"Live taxonomy backlog: repair candidates={repair_candidate_count}, "
+            f"known unresolved families={known_unresolved_count}."
+        )
+        if paper_locked:
+            detail += " This profile is locked, so new Erebus-side authority fixes may not change cohort membership until the lock is refreshed."
+        else:
+            detail += " New Erebus-side authority fixes may still sit outside this cohort unless the selected profile/snapshot absorbs them."
+        out.append(detail)
+    for warning in warnings[:2]:
+        out.append(str(warning))
+    return out
+
+
+def _compact_profile_detail(detail: str, *, paper_locked: bool = False) -> str:
+    text = " ".join(str(detail or "").split()).strip()
+    if not text:
+        return ""
+    compact = text
+    compact = compact.replace(
+        "Android malicious evidence-style profile intent is best compared against the Android cohort with permission observations and high/strong VT confidence. ",
+        "",
+    )
+    compact = compact.replace(
+        "Advisory only; this does not enforce sample selection. ",
+        "Advisory only; sample selection is not enforced. ",
+    )
+    compact = compact.replace(
+        "Permission-observation wording is advisory here; bucket mapping does not verify or enforce PI observation materialization for the selected run. ",
+        "Permission-observation wording is not verified/enforced for this run. ",
+    )
+    compact = compact.replace(
+        "This profile is paper-locked; snapshot membership can prevent new DB curation or authority expansions from changing the cohort until the lock is refreshed.",
+        "Paper-locked cohort; new DB curation may not change membership until the lock is refreshed.",
+    )
+    if paper_locked and "Paper-locked cohort" not in compact:
+        compact = f"{compact} Paper-locked cohort; new DB curation may not change membership until the lock is refreshed.".strip()
+    return compact
+
+
+def _compact_live_gap_note(notes: list[str]) -> str | None:
+    cleaned = [str(note).strip().rstrip(".") for note in notes if str(note).strip()]
+    if not cleaned:
+        return None
+    preferred: list[str] = []
+    for token in (
+        "Live taxonomy backlog",
+        "Permission Intel observations include",
+        "Primary labels are missing",
+        "Live readiness mismatch",
+    ):
+        for note in cleaned:
+            if note.startswith(token) and note not in preferred:
+                preferred.append(note)
+    extras = [note for note in cleaned if note not in preferred]
+    ordered = preferred + extras
+    if len(ordered) > 3:
+        ordered = ordered[:3]
+    return " | ".join(ordered) + "."
+
+
+def _observed_readiness_note(bucket: str | None) -> str | None:
+    token = str(bucket or "").strip()
+    if not token:
+        return None
+    try:
+        readiness = get_cohort_readiness_snapshot()
+    except Exception as exc:
+        return f"Observed readiness counts unavailable: {exc}"
+    buckets = readiness.get("buckets", {}) if isinstance(readiness, dict) else {}
+    payload = buckets.get(token, {}) if isinstance(buckets, dict) else {}
+    sample_count = payload.get("sample_count") if isinstance(payload, dict) else None
+    family_count = payload.get("family_count") if isinstance(payload, dict) else None
+    if sample_count is None:
+        return f"Observed readiness for `{token}` is unavailable in the live DB snapshot."
+    note = f"Observed readiness for `{token}`: samples={sample_count}"
+    if family_count is not None:
+        note += f", families={family_count}"
+    if "permission_obs" in token and int(sample_count or 0) <= 0:
+        note += ". Live DB currently shows no matching PI-observation-ready cohort for this bucket."
+    return note
 
 
 def resolve_profile_for_run(
@@ -49,18 +158,73 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
     mode = str(dataset_filters.get("mode", "none") or "none").strip().lower()
     type_slug = profile.get("type_slug_filter")
     min_support = int(gates.get("min_samples_per_family", 3))
+    family_cap = gates.get("family_cap", None)
+    family_cap_seed = gates.get("family_cap_seed", None)
+    type_cap = gates.get("type_cap", None)
+    type_cap_seed = gates.get("type_cap_seed", None)
+    type_cap_by_slug = gates.get("type_cap_by_slug", None)
+    evidence_mode = bool(profile.get("evidence_mode", False))
+    exclude_unknown_type_slug = bool(gates.get("exclude_unknown_type_slug", False))
+    exclude_weak_label_kinds = bool(gates.get("exclude_weak_label_kinds", False))
+    exclude_family_label_conflicts = bool(gates.get("exclude_family_label_conflicts", False))
+    if not exclude_unknown_type_slug:
+        exclude_unknown_type_slug = evidence_mode
+    exclude_families = tuple(
+        str(family).strip().lower()
+        for family in (gates.get("exclude_families", []) or [])
+        if str(family).strip()
+    )
+    effective_time_start_utc = str(gates.get("time_window_start_utc", "") or "").strip() or None
+    effective_time_end_utc = str(gates.get("time_window_end_utc", "") or "").strip() or None
+    require_effective_first_seen = bool(
+        effective_time_start_utc or effective_time_end_utc or evidence_mode
+    )
     # SQL cohort loader now supports min_samples_per_family even when type_slug_filter is unset.
 
     if mode in {"none", "", "malicious_only"}:
         # Fast/silent preflight for standard malicious-only profiles.
-        # We only need to know whether at least one row survives profile gates.
+        # Use the same SQL gate summary path as the real samples stage so time-window,
+        # unknown-type, and excluded-family gates do not get silently skipped here.
+        gate_stats = db_sample_metadata_fetchers.get_type_cohort_gate_stats(
+            type_slug=type_slug,
+            min_samples_per_family=min_support,
+            require_mapped_family=bool(gates.get("require_mapped_family", True)),
+            require_sha256=bool(gates.get("require_sha256", True)),
+            allow_missing_package_name=bool(gates.get("allow_missing_package_name", True)),
+            exclude_unknown_type_slug=exclude_unknown_type_slug,
+            exclude_weak_label_kinds=exclude_weak_label_kinds,
+            exclude_family_label_conflicts=exclude_family_label_conflicts,
+            effective_time_start_utc=effective_time_start_utc,
+            effective_time_end_utc=effective_time_end_utc,
+            require_effective_first_seen=require_effective_first_seen,
+            exclude_family_canonical=exclude_families,
+        )
+        governed_count = int(
+            gate_stats.get("governed_cohort_count", gate_stats.get("final_count_estimate", 0)) or 0
+        )
+        if governed_count <= 0:
+            return False, f"[PROFILE] Profile '{profile_id}' selected an empty cohort."
+
+        # Lightweight materialization probe for the same governed SQL surface.
         sample_probe_df = db_sample_metadata_fetchers.fetch_samples_by_type(
             type_slug=type_slug,
             min_samples_per_family=min_support,
             require_mapped_family=bool(gates.get("require_mapped_family", True)),
             require_sha256=bool(gates.get("require_sha256", True)),
             allow_missing_package_name=bool(gates.get("allow_missing_package_name", True)),
+            exclude_unknown_type_slug=exclude_unknown_type_slug,
+            exclude_weak_label_kinds=exclude_weak_label_kinds,
+            exclude_family_label_conflicts=exclude_family_label_conflicts,
+            effective_time_start_utc=effective_time_start_utc,
+            effective_time_end_utc=effective_time_end_utc,
+            require_effective_first_seen=require_effective_first_seen,
+            exclude_family_canonical=exclude_families,
             limit=1,
+            family_cap=family_cap,
+            family_cap_seed=family_cap_seed,
+            type_cap=type_cap,
+            type_cap_seed=type_cap_seed,
+            type_cap_by_slug=type_cap_by_slug,
             as_dataframe=True,
         )
         if sample_probe_df is None or sample_probe_df.empty:
@@ -75,7 +239,19 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
         require_mapped_family=bool(gates.get("require_mapped_family", True)),
         require_sha256=bool(gates.get("require_sha256", True)),
         allow_missing_package_name=bool(gates.get("allow_missing_package_name", True)),
+        exclude_unknown_type_slug=exclude_unknown_type_slug,
+        exclude_weak_label_kinds=exclude_weak_label_kinds,
+        exclude_family_label_conflicts=exclude_family_label_conflicts,
         limit=gates.get("limit", None),
+        family_cap=family_cap,
+        family_cap_seed=family_cap_seed,
+        type_cap=type_cap,
+        type_cap_seed=type_cap_seed,
+        type_cap_by_slug=type_cap_by_slug,
+        effective_time_start_utc=effective_time_start_utc,
+        effective_time_end_utc=effective_time_end_utc,
+        require_effective_first_seen=require_effective_first_seen,
+        exclude_family_canonical=exclude_families,
         as_dataframe=True,
     )
     if samples_df is None or samples_df.empty:
@@ -139,9 +315,36 @@ def resolve_and_validate_profile(
 
         readiness_signal = profile_manager.infer_cohort_readiness_signal(profile_id)
         du.print_info(f"[PROFILE] {str(readiness_signal.get('summary', '') or '').strip()}")
-        detail = str(readiness_signal.get("detail", "") or "").strip()
+        readiness_snapshot = None
+        paper_locked = False
+        try:
+            profile_payload = profile_manager.load_profile(profile_id)
+        except Exception:
+            profile_payload = {}
+        if isinstance(profile_payload, dict):
+            paper_locked = bool(profile_payload.get("paper_locked", False))
+        detail = _compact_profile_detail(
+            str(readiness_signal.get("detail", "") or "").strip(),
+            paper_locked=paper_locked,
+        )
         if detail:
             du.print_note(f"[PROFILE] {detail}")
+        try:
+            readiness_snapshot = get_cohort_readiness_snapshot()
+        except Exception:
+            readiness_snapshot = None
+        observed_note = _observed_readiness_note(readiness_signal.get("bucket"))
+        if observed_note:
+            du.print_note(f"[PROFILE] {observed_note}")
+        gap_note = _compact_live_gap_note(
+            _summarize_live_readiness_gaps(
+            readiness=readiness_snapshot,
+            bucket=readiness_signal.get("bucket"),
+            paper_locked=paper_locked,
+            )
+        )
+        if gap_note:
+            du.print_note(f"[PROFILE] {gap_note}")
         try:
             inventory = profile_manager.inventory_cohort_readiness_mappings(
                 include_hidden=False,

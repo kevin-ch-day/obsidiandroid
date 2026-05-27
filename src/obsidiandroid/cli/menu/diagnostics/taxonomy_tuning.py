@@ -32,6 +32,22 @@ def _taxonomy_split_md_path(*, output_root: Path, diagnostics_dir: Path, run_id:
     )
 
 
+def _taxonomy_target_surfaces_json_path(
+    *,
+    output_root: Path,
+    diagnostics_dir: Path,
+    run_id: str,
+    first_existing_path_fn,
+) -> Path | None:
+    """Resolve taxonomy target-surface JSON with global latest fallback."""
+    return first_existing_path_fn(
+        [
+            diagnostics_dir / f"taxonomy_target_surfaces_{run_id}.json",
+            output_root / "diagnostics" / "taxonomy_target_surfaces.latest.json",
+        ]
+    )
+
+
 def _read_json_payload(path: Path | None) -> dict[str, object]:
     """Read a JSON payload when present and shaped like a mapping."""
     if path is None:
@@ -147,8 +163,20 @@ def launch_taxonomy_support_tuning_compact_menu(
     )
     taxonomy_path = first_existing_path_fn([oh.resolve_taxonomy_consistency_summary_path(rdiag, rid)])
     taxonomy = read_json_dict(taxonomy_path) if taxonomy_path else {}
-    fam_audit_path = first_existing_path_fn([rdiag / "family_label_taxonomy_audit.csv"])
-    support_preview_path = first_existing_path_fn([rdiag / "support_threshold_preview.csv"])
+    target_surfaces_path = _taxonomy_target_surfaces_json_path(
+        output_root=output_root,
+        diagnostics_dir=rdiag,
+        run_id=rid,
+        first_existing_path_fn=first_existing_path_fn,
+    )
+    target_surfaces = read_json_dict(target_surfaces_path) if target_surfaces_path else {}
+    label_strategy = target_surfaces.get("label_strategy") if isinstance(target_surfaces.get("label_strategy"), dict) else {}
+    fam_audit_path = first_existing_path_fn(
+        [rdiag / "sql_governed_family_label_taxonomy_audit.csv", rdiag / "family_label_taxonomy_audit.csv"]
+    )
+    support_preview_path = first_existing_path_fn(
+        [rdiag / "sql_governed_support_threshold_preview.csv", rdiag / "support_threshold_preview.csv"]
+    )
     low_support_path = first_existing_path_fn([rdiag / "low_support_families.csv"])
     trained_registry_path = first_existing_path_fn([rdiag / f"trained_family_registry_{rid}.csv"])
     family_distribution_path = first_existing_path_fn([rdiag / "family_distribution.csv"])
@@ -196,6 +224,13 @@ def launch_taxonomy_support_tuning_compact_menu(
         "Authority gap rows (run/global)",
         f"{authority_gap_run_count} / {authority_gap_global_count}" if split_json_path else "—",
     )
+    if label_strategy:
+        du.print_stat("Preferred family target", str(label_strategy.get("preferred_family_target", "—") or "—"))
+        du.print_stat("Preferred type target", str(label_strategy.get("preferred_type_target", "—") or "—"))
+        du.print_stat(
+            "Avoid for primary claims",
+            ", ".join(label_strategy.get("avoid_for_primary_claims", [])) or "—",
+        )
 
     min_support = "—"
     families_before = retained = dropped = dropped_samples = near_threshold = "—"
@@ -227,7 +262,9 @@ def launch_taxonomy_support_tuning_compact_menu(
         du.print_info("2) Use authority-gap queues for DB/type curation; do not treat them as model-family errors.")
     if isinstance(near_threshold, int) and near_threshold > 0:
         du.print_info("3) Review families just below threshold before changing cohort/profile support settings.")
-    du.print_info("4) Cross-check retained/dropped families with trained_family_registry and support_threshold_preview.")
+    if label_strategy:
+        du.print_info("4) Train on authoritative family_id/type_slug surfaces; keep raw category_primary as audit-only.")
+    du.print_info("5) Cross-check retained/dropped families with trained_family_registry and support_threshold_preview.")
     du.print_stat("taxonomy_authority_split", str(split_md_path.resolve()) if split_md_path else "missing")
     du.print_stat("taxonomy_authority_split_json", str(split_json_path.resolve()) if split_json_path else "missing")
     du.print_stat("taxonomy_rendering_mismatches", str(rendering_csv_path.resolve()) if rendering_csv_path else "missing")
@@ -255,8 +292,20 @@ def build_taxonomy_support_tuning_snapshot(*, run_id: str, output_root: Path, fi
     )
     taxonomy_path = first_existing_path_fn([oh.resolve_taxonomy_consistency_summary_path(rdiag, run_id)])
     taxonomy = read_json_dict(taxonomy_path) if taxonomy_path else {}
-    fam_audit_path = first_existing_path_fn([rdiag / "family_label_taxonomy_audit.csv"])
-    support_preview_path = first_existing_path_fn([rdiag / "support_threshold_preview.csv"])
+    target_surfaces_path = _taxonomy_target_surfaces_json_path(
+        output_root=output_root,
+        diagnostics_dir=rdiag,
+        run_id=run_id,
+        first_existing_path_fn=first_existing_path_fn,
+    )
+    target_surfaces = read_json_dict(target_surfaces_path) if target_surfaces_path else {}
+    label_strategy = target_surfaces.get("label_strategy") if isinstance(target_surfaces.get("label_strategy"), dict) else {}
+    fam_audit_path = first_existing_path_fn(
+        [rdiag / "sql_governed_family_label_taxonomy_audit.csv", rdiag / "family_label_taxonomy_audit.csv"]
+    )
+    support_preview_path = first_existing_path_fn(
+        [rdiag / "sql_governed_support_threshold_preview.csv", rdiag / "support_threshold_preview.csv"]
+    )
 
     tax_total = int(taxonomy.get("taxonomy_mismatch_count", 0) or 0) if taxonomy else 0
     claim_facing_tax_total = int(
@@ -342,8 +391,17 @@ def build_taxonomy_support_tuning_snapshot(*, run_id: str, output_root: Path, fi
         "taxonomy_authority_split_path": str(split_md_path.resolve()) if split_md_path else "missing",
         "taxonomy_authority_split_json_path": str(split_json_path.resolve()) if split_json_path else "missing",
         "taxonomy_consistency_summary_path": str(taxonomy_path.resolve()) if taxonomy_path else "missing",
+        "taxonomy_target_surfaces_path": str(target_surfaces_path.resolve()) if target_surfaces_path else "missing",
         "family_label_taxonomy_audit_path": str(fam_audit_path.resolve()) if fam_audit_path else "missing",
         "support_threshold_preview_path": str(support_preview_path.resolve()) if support_preview_path else "missing",
+        "preferred_family_target": str(label_strategy.get("preferred_family_target", "") or "—"),
+        "preferred_family_reporting_surface": str(label_strategy.get("preferred_family_reporting_surface", "") or "—"),
+        "preferred_type_target": str(label_strategy.get("preferred_type_target", "") or "—"),
+        "preferred_hierarchical_target": str(label_strategy.get("preferred_hierarchical_target", "") or "—"),
+        "avoid_for_primary_claims": list(label_strategy.get("avoid_for_primary_claims", []))
+        if isinstance(label_strategy.get("avoid_for_primary_claims"), list)
+        else [],
+        "alignment_interpretation": str(label_strategy.get("alignment_interpretation", "") or ""),
         "threshold_sensitivity": threshold_sensitivity,
     }
 

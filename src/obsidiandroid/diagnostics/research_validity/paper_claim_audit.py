@@ -23,11 +23,18 @@ def _ablation_rows(diagnostics_dir: Path, run_id: str) -> list[dict[str, Any]]:
 
 
 def _max_f1_by_experiment(
-    rows: list[dict[str, Any]], *, label_target: str = "family_canonical_default"
+    rows: list[dict[str, Any]],
+    *,
+    label_targets: tuple[str, ...] = ("family_id", "family_canonical_default"),
 ) -> dict[str, float]:
+    preferred_targets = tuple(str(target).strip() for target in label_targets if str(target).strip())
+    if not preferred_targets:
+        preferred_targets = ("family_id", "family_canonical_default")
+    observed_targets = {str(row.get("label_target", "")).strip() for row in rows}
+    active_target = next((target for target in preferred_targets if target in observed_targets), preferred_targets[0])
     per_exp: dict[str, list[float]] = {}
     for row in rows:
-        if str(row.get("label_target", "")) != label_target:
+        if str(row.get("label_target", "")) != active_target:
             continue
         exp = str(row.get("experiment", ""))
         f1 = row.get("macro_f1_score")
@@ -142,9 +149,11 @@ def write_paper_claim_audit_md(
     ablation_rows = _ablation_rows(diagnostics_dir, run_id)
     max_by_exp = _max_f1_by_experiment(ablation_rows)
     fused = max_by_exp.get("full_fused")
-    vend = max_by_exp.get("vendor_full")
+    vend = max_by_exp.get("vendor_no_parsed_family")
     if vend is None:
         vend = max_by_exp.get("vendor_only")
+    if vend is None:
+        vend = max_by_exp.get("vendor_full")
     perm_raw = max_by_exp.get("permissions_raw")
 
     top_mod_name, top_mod_f1 = _model_top_macro_f1(diagnostics_dir, run_id)
@@ -194,17 +203,21 @@ def write_paper_claim_audit_md(
         if fused + 1e-6 >= vend:
             fused_status = "NEEDS_REVISION"
             fused_rationale = (
-                f"full_fused max macro_f1={fused:.4f} ≥ vendor_full={vend:.4f}; fusion may not add independent lift — "
+                f"full_fused max macro_f1={fused:.4f} ≥ safer vendor baseline={vend:.4f}; "
+                "fusion may not add independent lift — "
                 "check feature independence and label leakage."
             )
         else:
             fused_status = "UNSUPPORTED"
-            fused_rationale = f"full_fused ({fused:.4f}) did not beat vendor_full ({vend:.4f}) on ablation summary."
-        fused_metric = f"max macro_f1 full_fused={fused}; vendor_full={vend}"
+            fused_rationale = (
+                f"full_fused ({fused:.4f}) did not beat the safer vendor baseline ({vend:.4f}) "
+                "on ablation summary."
+            )
+        fused_metric = f"max macro_f1 full_fused={fused}; safer_vendor_baseline={vend}"
     else:
         fused_status = "UNSUPPORTED"
         fused_metric = "n/a"
-        fused_rationale = "Missing fused or vendor rows for family_canonical_default in ablation summary."
+        fused_rationale = "Missing fused or safer vendor-baseline rows for preferred family target in ablation summary."
 
     add(
         claim="Fused multimodal features are strictly best overall",
@@ -233,7 +246,7 @@ def write_paper_claim_audit_md(
         status=perm_status,
         evidence_artifact=ablation_evidence,
         metric_value=perm_metric,
-        population=population_line + "; label_target=family_canonical_default",
+        population=population_line + "; label_target=family_id_or_fallback",
         rationale=perm_reason,
         safer_wording="Permissions correlate with coarse capability/type structure; quantify lift vs stratified_random and vendor baselines.",
     )

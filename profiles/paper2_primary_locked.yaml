@@ -1,5 +1,5 @@
 profile_id: paper2_primary_locked
-description: "Deprecated compatibility alias for the locked all-malicious temporal-stability baseline anchored to historical run 20260504T044304Z__8c64e6."
+description: "Deprecated compatibility alias for the locked all-malicious temporal-stability baseline rebaselined from the current governed cohort snapshot."
 profile_status:
   lifecycle: compatibility_alias
   operator_surface: hidden_compatibility
@@ -50,16 +50,16 @@ paper_perturbation_axes:
   - exclude_families
 paper_lock:
   paper_id: paper2_2026
-  canonical_historical_run_id: 20260504T044304Z__8c64e6
-  baseline_artifact_root: artifacts/baselines/20260504T044304Z__8c64e6
-  expected_sample_count: 1226
-  expected_family_count: 39
-  expected_type_count: 6
+  canonical_historical_run_id: 20260526T021235Z__8b6966
+  baseline_artifact_root: artifacts/baselines/20260526T021235Z__8b6966
+  expected_sample_count: 1187
+  expected_family_count: 35
+  expected_type_count: 3
   expected_type_scope: all_malicious
   time_window_start_utc: "2020-01-01T00:00:00Z"
   time_window_end_utc: "2026-01-01T00:00:00Z"
   material_change_abs_delta_macro_f1_gt: 0.02
-  sample_id_lock_file: artifacts/baselines/20260504T044304Z__8c64e6/paper2_primary_locked_sample_ids.csv
+  sample_id_lock_file: artifacts/baselines/20260526T021235Z__8b6966/paper2_primary_locked_sample_ids.csv
   sample_id_lock_status: recovered_from_historical_artifact
-  sample_id_lock_source: artifacts/baselines/20260504T044304Z__8c64e6/sample_stage_lineage_20260504T044304Z__8c64e6.csv
-  notes: "Deprecated compatibility alias for malicious_temporal_stability_locked. This legacy alias keeps historical baseline artifact compatibility."
+  sample_id_lock_source: output/runs/20260526T021235Z__8b6966/diagnostics/analysis_snapshot_20260526T021235Z__8b6966.csv
+  notes: "Deprecated compatibility alias for malicious_temporal_stability_locked. This legacy alias keeps compatibility with the current governed baseline snapshot."

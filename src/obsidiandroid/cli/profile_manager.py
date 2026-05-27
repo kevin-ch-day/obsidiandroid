@@ -24,6 +24,8 @@ FINAL_OPERATOR_PROFILE_IDS = (
     "malicious_temporal_stability_locked",
     "banker_locked",
     "malicious_temporal_stability",
+    "malicious_temporal_stability_expanded",
+    "malicious_temporal_stability_long_tail",
     "banker",
     "malicious_temporal_consensus10",
     "malicious_temporal_family300",
@@ -49,6 +51,7 @@ ALLOWED_MODEL_KEYS = {
 }
 ALLOWED_COHORT_GATE_KEYS = {
     "min_samples_per_family",
+    "min_family_label_confidence_score",
     "min_support_guard_mode",
     "require_mapped_family",
     "require_sha256",
@@ -58,11 +61,26 @@ ALLOWED_COHORT_GATE_KEYS = {
     "min_malicious_detections",
     "family_cap",
     "family_cap_seed",
+    "type_cap",
+    "type_cap_seed",
+    "type_cap_by_slug",
+    "exclude_weak_label_kinds",
+    "exclude_family_label_conflicts",
     "limit",
     "include_families",
     "exclude_families",
     "time_window_start_utc",
     "time_window_end_utc",
+}
+
+_KNOWN_READINESS_BUCKETS = {
+    "all_catalog",
+    "android_platform",
+    "android_with_permission_obs",
+    "android_high_or_strong_vt_with_permission_obs",
+    "android_labeled_primary_with_permission_obs",
+    "android_banker_with_permission_obs",
+    "android_family_ready_min3_permission_obs",
 }
 
 
@@ -188,6 +206,21 @@ def _validate_profile(profile: Dict[str, Any], profile_path: Path) -> None:
             f"Profile '{profile_path}' has unsupported cohort_gates keys: [{bad_keys}]. "
             f"Allowed keys: [{allowed_keys}]."
         )
+    type_cap_by_slug = cohort_gates.get("type_cap_by_slug")
+    if type_cap_by_slug is not None:
+        if not isinstance(type_cap_by_slug, dict):
+            raise ValueError(
+                f"Profile '{profile_path}' requires type_cap_by_slug to be a mapping."
+            )
+        for key, value in type_cap_by_slug.items():
+            if not str(key).strip():
+                raise ValueError(
+                    f"Profile '{profile_path}' has blank type_cap_by_slug key."
+                )
+            if not isinstance(value, int) or value <= 0:
+                raise ValueError(
+                    f"Profile '{profile_path}' type_cap_by_slug[{key!r}] must be a positive integer."
+                )
     if bool(profile.get("evidence_mode")):
         start_utc = str(cohort_gates.get("time_window_start_utc", "") or "").strip()
         end_utc = str(cohort_gates.get("time_window_end_utc", "") or "").strip()
@@ -294,18 +327,41 @@ def infer_cohort_readiness_signal(profile_ref: str | Dict[str, Any] | None) -> D
     cohort_gates = profile.get("cohort_gates") if isinstance(profile.get("cohort_gates"), dict) else {}
     dataset_filters = profile.get("dataset_filters") if isinstance(profile.get("dataset_filters"), dict) else {}
     paper_lock = profile.get("paper_lock") if isinstance(profile.get("paper_lock"), dict) else {}
+    paper_locked = bool(profile.get("paper_locked", False))
     expected_type_scope = str(paper_lock.get("expected_type_scope", "") or "").strip().lower()
     min_samples_per_family = cohort_gates.get("min_samples_per_family")
     dataset_mode = str(dataset_filters.get("mode", "") or "").strip().lower()
+    declared_bucket = _declared_readiness_bucket(profile)
 
     def _mapped(bucket: str, reason: str) -> Dict[str, str | None]:
+        prefix = (
+            f"Declared readiness bucket in profile contract: {declared_bucket}. "
+            if declared_bucket and declared_bucket == bucket
+            else ""
+        )
+        caveats: list[str] = []
+        if "permission_obs" in bucket:
+            caveats.append(
+                "Permission-observation wording is advisory here; bucket mapping does not verify or enforce PI observation materialization for the selected run."
+            )
+        if paper_locked:
+            caveats.append(
+                "This profile is paper-locked; snapshot membership can prevent new DB curation or authority expansions from changing the cohort until the lock is refreshed."
+            )
+        caveat_text = f" {' '.join(caveats)}" if caveats else ""
         return {
             "status": "mapped",
             "bucket": bucket,
             "summary": f"Best matching readiness bucket: {bucket}",
-            "detail": f"{reason} Advisory only; this does not enforce sample selection.",
+            "detail": f"{prefix}{reason} Advisory only; this does not enforce sample selection.{caveat_text}",
             "ambiguity_reason": None,
         }
+
+    if declared_bucket:
+        return _mapped(
+            declared_bucket,
+            _readiness_bucket_reason(declared_bucket),
+        )
 
     if (
         type_slug_filter == "banker"
@@ -374,6 +430,51 @@ def infer_cohort_readiness_signal(profile_ref: str | Dict[str, Any] | None) -> D
         "detail": "This guidance is advisory only and does not enforce sample selection.",
         "ambiguity_reason": "Ambiguous profile intent; no readiness bucket selected.",
     }
+
+
+def _readiness_bucket_reason(bucket: str) -> str:
+    """Return a human-readable reason for a declared or inferred readiness bucket."""
+    token = str(bucket or "").strip()
+    if token == "android_banker_with_permission_obs":
+        return (
+            "Banker-focused profile intent is best compared against the Android banker cohort with permission observations."
+        )
+    if token == "android_high_or_strong_vt_with_permission_obs":
+        return (
+            "Android malicious evidence-style profile intent is best compared against the Android cohort with permission observations and high/strong VT confidence."
+        )
+    if token == "android_with_permission_obs":
+        return (
+            "Android malicious permission-feature profile intent is best compared against the Android cohort with permission observations."
+        )
+    if token == "android_family_ready_min3_permission_obs":
+        return (
+            "Family classification and min-support profile intent is best compared against the Android family-ready cohort with permission observations."
+        )
+    if token == "android_platform":
+        return "Broad Android or mixed-scope exploratory profile intent is best compared against the Android platform readiness signal."
+    if token == "all_catalog":
+        return "Broad catalog profile intent is best compared against the full catalog readiness signal."
+    return "Declared readiness bucket aligns with the selected profile intent."
+
+
+def _declared_readiness_bucket(profile: Dict[str, Any]) -> str | None:
+    """Return an explicitly declared readiness bucket when the profile contract provides one."""
+    candidate_sources = (
+        profile.get("cohort_readiness_bucket"),
+        profile.get("readiness_bucket"),
+        profile.get("profile_status", {}).get("readiness_bucket")
+        if isinstance(profile.get("profile_status"), dict)
+        else None,
+        profile.get("paper_lock", {}).get("readiness_bucket")
+        if isinstance(profile.get("paper_lock"), dict)
+        else None,
+    )
+    for candidate in candidate_sources:
+        bucket = str(candidate or "").strip()
+        if bucket in _KNOWN_READINESS_BUCKETS:
+            return bucket
+    return None
 
 
 def inventory_cohort_readiness_mappings(

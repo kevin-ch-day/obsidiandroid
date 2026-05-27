@@ -209,7 +209,13 @@ def write_run_summary_json(
         run_summary_run_path = diagnostics_dir / f"run_summary_{run_id}.json"
         encoded = json.dumps(payload, indent=2, sort_keys=True)
         run_summary_path.write_text(encoded, encoding="utf-8")
-        run_summary_run_path.write_text(encoded, encoding="utf-8")
+        if bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True)):
+            run_summary_run_path.write_text(encoded, encoding="utf-8")
+        elif run_summary_run_path.exists():
+            try:
+                run_summary_run_path.unlink()
+            except OSError:
+                pass
         if oh.run_diagnostics_should_omit_latest_duplicate() and oh.path_is_under_output_runs(diagnostics_dir):
             oh.write_global_latest_text(filename="run_summary.latest.json", text=encoded)
         else:
@@ -287,18 +293,23 @@ def finalize_output_hygiene_bundle(
             manifest_context=manifest_context,
         )
 
+        verbose_run_artifacts = bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True))
+
         layout_path = output_inventory.write_virtual_layout(run_root)
-        inv_paths, summary = output_inventory.write_artifact_inventory_bundle(
-            run_root=run_root,
-            diagnostics_dir=diagnostics_dir,
-            run_id=run_id,
-            manifest_paths=list(artifact_list),
-            extra_summary={
-                "profile_id": str(profile.get("profile_id", "")),
-                "evidence_mode": evidence_mode,
-                "paper_mode": paper_mode,
-            },
-        )
+        inv_paths: list[Path] = []
+        summary = {}
+        if verbose_run_artifacts:
+            inv_paths, summary = output_inventory.write_artifact_inventory_bundle(
+                run_root=run_root,
+                diagnostics_dir=diagnostics_dir,
+                run_id=run_id,
+                manifest_paths=list(artifact_list),
+                extra_summary={
+                    "profile_id": str(profile.get("profile_id", "")),
+                    "evidence_mode": evidence_mode,
+                    "paper_mode": paper_mode,
+                },
+            )
 
         mf_start = manifest_context.get("_manifest_finalize_perf_start")
         try:
@@ -348,31 +359,35 @@ def finalize_output_hygiene_bundle(
             pipeline_artifact_paths.append(str(layout_path))
         if evidence_path:
             pipeline_artifact_paths.append(str(evidence_path))
-        provenance_path = record_diagnostic_provenance(
-            diagnostics_dir=diagnostics_dir,
-            run_root=run_root,
-            run_id=run_id,
-            entry_id=f"pipeline::{run_id}",
-            generated_during_pipeline=True,
-            source_command="run_pipeline",
-            source_run_id=run_id,
-            artifact_paths=pipeline_artifact_paths,
-        )
+        provenance_path = None
+        if verbose_run_artifacts:
+            provenance_path = record_diagnostic_provenance(
+                diagnostics_dir=diagnostics_dir,
+                run_root=run_root,
+                run_id=run_id,
+                entry_id=f"pipeline::{run_id}",
+                generated_during_pipeline=True,
+                source_command="run_pipeline",
+                source_run_id=run_id,
+                artifact_paths=pipeline_artifact_paths,
+            )
         cohort_contract = (
             manifest.get("cohort_contract")
             if isinstance(manifest.get("cohort_contract"), dict)
             else manifest_context.get("paper_cohort_contract")
         )
         cohort_locked = bool((cohort_contract or {}).get("paper_locked", False))
-        science_index_path = output_inventory.write_run_science_index_md(
-            run_root=run_root,
-            diagnostics_dir=diagnostics_dir,
-            run_id=run_id,
-            profile_id=str(profile.get("profile_id", "unknown")),
-            evidence_mode=bool(evidence_mode),
-            cohort_locked=cohort_locked,
-            publication_ready_status=paper_safe_status,
-        )
+        science_index_path = None
+        if verbose_run_artifacts:
+            science_index_path = output_inventory.write_run_science_index_md(
+                run_root=run_root,
+                diagnostics_dir=diagnostics_dir,
+                run_id=run_id,
+                profile_id=str(profile.get("profile_id", "unknown")),
+                evidence_mode=bool(evidence_mode),
+                cohort_locked=cohort_locked,
+                publication_ready_status=paper_safe_status,
+            )
         for p in inv_paths:
             if p and p not in artifact_list:
                 artifact_list.append(p)
@@ -384,39 +399,43 @@ def finalize_output_hygiene_bundle(
             artifact_list.append(str(provenance_path))
         if science_index_path and str(science_index_path) not in artifact_list:
             artifact_list.append(str(science_index_path))
-        refreshed_index_path = write_run_artifact_index(
-            run_id=run_id,
-            run_root=run_root,
-            diagnostics_dir=diagnostics_dir,
-        )
+        refreshed_index_path = None
+        if verbose_run_artifacts:
+            refreshed_index_path = write_run_artifact_index(
+                run_id=run_id,
+                run_root=run_root,
+                diagnostics_dir=diagnostics_dir,
+            )
         if refreshed_index_path and str(refreshed_index_path) not in artifact_list:
             artifact_list.append(str(refreshed_index_path))
-        inv_paths, summary = output_inventory.write_artifact_inventory_bundle(
-            run_root=run_root,
-            diagnostics_dir=diagnostics_dir,
-            run_id=run_id,
-            manifest_paths=list(artifact_list),
-            extra_summary={
-                "profile_id": str(profile.get("profile_id", "")),
-                "evidence_mode": evidence_mode,
-                "paper_mode": paper_mode,
-            },
-        )
-        for p in inv_paths:
-            if p and p not in artifact_list:
-                artifact_list.append(p)
+        if verbose_run_artifacts:
+            inv_paths, summary = output_inventory.write_artifact_inventory_bundle(
+                run_root=run_root,
+                diagnostics_dir=diagnostics_dir,
+                run_id=run_id,
+                manifest_paths=list(artifact_list),
+                extra_summary={
+                    "profile_id": str(profile.get("profile_id", "")),
+                    "evidence_mode": evidence_mode,
+                    "paper_mode": paper_mode,
+                },
+            )
+            for p in inv_paths:
+                if p and p not in artifact_list:
+                    artifact_list.append(p)
 
         observability_json_path = (
             obs_path
             if obs_path is not None
             else diagnostics_dir / "run_observability_summary.json"
         )
-        output_inventory.print_output_hygiene_terminal_summary(
-            run_root=run_root,
-            summary=summary,
-            evidence_index_path=evidence_path,
-            paper_safe_status=paper_safe_status,
-        )
+        if verbose_run_artifacts:
+            output_inventory.print_output_hygiene_terminal_summary(
+                run_root=run_root,
+                summary=summary,
+                evidence_index_path=evidence_path,
+                paper_safe_status=paper_safe_status,
+            )
         print_unified_run_health(
             inventory_summary=summary,
             observability_json_path=observability_json_path,
@@ -584,6 +603,7 @@ def write_experiment_contract_snapshot(
                 "split_seed": split_meta.get("split_seed"),
                 "split_algorithm": split_meta.get("split_algorithm"),
                 "split_algorithm_version": split_meta.get("split_algorithm_version"),
+                "temporal_holdout": split_meta.get("temporal_split_summary") or {},
                 "cv_protocol": {
                     "stratified_kfold_splits": coerce_stratified_cv_folds_config(
                         getattr(app_config, "CV_FOLDS", 5)
@@ -596,6 +616,8 @@ def write_experiment_contract_snapshot(
                 "consensus_min_malicious_detections": profile_gates.get("min_malicious_detections"),
                 "family_cap": profile_gates.get("family_cap"),
                 "family_cap_seed": profile_gates.get("family_cap_seed"),
+                "type_cap": profile_gates.get("type_cap"),
+                "type_cap_seed": profile_gates.get("type_cap_seed"),
                 "unknown_type_excluded": bool(
                     profile_gates.get(
                         "exclude_unknown_type_slug",

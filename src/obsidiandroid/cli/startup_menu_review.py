@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Callable
+import pandas as pd
 
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.cohort_methodology import resolve_cohort_lock_status, safe_int
@@ -11,6 +12,7 @@ from obsidiandroid.common.publication_readiness import publication_ready_display
 from obsidiandroid.common.json_io import read_json_dict
 from obsidiandroid.common.output_paths import output_root as canonical_output_root
 from obsidiandroid.database.db_cohort_readiness import get_cohort_readiness_snapshot
+from obsidiandroid.cli.menu.run_artifact_state import resolve_model_comparison_summary_csv
 
 from .menu import diagnostics_banners
 from .menu.display_mode import is_compact_mode, is_debug_mode, is_detailed_mode, resolve_display_mode
@@ -101,6 +103,153 @@ def _append_warning(
     warnings.append(f"{problem} Why it matters: {why} Next: {next_action} Open: {open_label}.")
 
 
+def _observed_readiness_note(readiness: dict[str, object], bucket: str | None) -> str | None:
+    token = str(bucket or "").strip()
+    if not token:
+        return None
+    buckets = readiness.get("buckets", {}) if isinstance(readiness, dict) else {}
+    payload = buckets.get(token, {}) if isinstance(buckets, dict) else {}
+    sample_count = payload.get("sample_count") if isinstance(payload, dict) else None
+    family_count = payload.get("family_count") if isinstance(payload, dict) else None
+    if sample_count is None:
+        return f"Observed readiness for `{token}` is unavailable in the live DB snapshot."
+    note = f"Observed readiness for `{token}`: samples={sample_count}"
+    if family_count is not None:
+        note += f", families={family_count}"
+    if "permission_obs" in token and int(sample_count or 0) <= 0:
+        note += ". Live DB currently shows no matching PI-observation-ready cohort for this bucket."
+    return note
+
+
+def _read_model_comparison_snapshot(*, output_root: Path, run_id: str) -> dict[str, object]:
+    path = resolve_model_comparison_summary_csv(output_root=output_root, run_id=run_id)
+    if path is None:
+        return {}
+    try:
+        df = pd.read_csv(path)
+    except Exception:
+        return {}
+    if df.empty:
+        return {}
+    top_row = df.iloc[0]
+    if "Top" in df.columns:
+        starred = df[df["Top"].astype(str).str.strip() == "*"]
+        if not starred.empty:
+            top_row = starred.iloc[0]
+    model = str(top_row.get("Model", "") or "").strip()
+    try:
+        macro_f1 = float(top_row.get("Macro F1-Score"))
+    except (TypeError, ValueError):
+        macro_f1 = None
+    try:
+        weighted_f1 = float(top_row.get("F1-Score"))
+    except (TypeError, ValueError):
+        weighted_f1 = None
+    try:
+        accuracy = float(top_row.get("Accuracy"))
+    except (TypeError, ValueError):
+        accuracy = None
+    return {
+        "path": path,
+        "top_model": model,
+        "top_macro_f1": macro_f1,
+        "top_weighted_f1": weighted_f1,
+        "top_accuracy": accuracy,
+    }
+
+
+def _read_label_strategy_snapshot(*, diagnostics_dir: Path, output_root: Path, run_id: str) -> dict[str, object]:
+    payload = _read_first_json(
+        [
+            diagnostics_dir / f"taxonomy_target_surfaces_{run_id}.json",
+            output_root / "diagnostics" / "taxonomy_target_surfaces.latest.json",
+        ]
+    )
+    label_strategy = payload.get("label_strategy") if isinstance(payload.get("label_strategy"), dict) else {}
+    return label_strategy if isinstance(label_strategy, dict) else {}
+
+
+def _temporal_generalization_notes(
+    *,
+    profile_id: str,
+    manifest: dict[str, object],
+    model_snapshot: dict[str, object],
+) -> list[str]:
+    profile_token = str(profile_id or "").strip().lower()
+    if not profile_token.startswith("malicious_temporal_"):
+        return []
+    split_blob = manifest.get("split") if isinstance(manifest.get("split"), dict) else {}
+    split_algorithm = str(split_blob.get("split_algorithm", "") or "").strip()
+    split_algo_norm = split_algorithm.lower()
+    out: list[str] = []
+    if split_algorithm and "temporal" not in split_algo_norm and "year_holdout" not in split_algo_norm:
+        out.append(
+            f"Temporal profile used non-temporal split algorithm `{split_algorithm}`; interpret the leaderboard as non-forward holdout evidence."
+        )
+        return out
+    temporal_summary = (
+        split_blob.get("temporal_split_summary")
+        if isinstance(split_blob.get("temporal_split_summary"), dict)
+        else {}
+    )
+    dropped_future_only = int(temporal_summary.get("test_rows_dropped_unseen_train_classes", 0) or 0)
+    test_year_floor = int(temporal_summary.get("test_year_floor", 0) or 0)
+    observed_min = int(temporal_summary.get("observed_year_min", 0) or 0)
+    observed_max = int(temporal_summary.get("observed_year_max", 0) or 0)
+    if dropped_future_only > 0 and test_year_floor > 0:
+        out.append(
+            f"Temporal holdout dropped {dropped_future_only} future-only row(s) from families unseen in train years < {test_year_floor} (observed year span {observed_min}-{observed_max})."
+        )
+    top_model = str(model_snapshot.get("top_model", "") or "").strip()
+    macro_f1 = model_snapshot.get("top_macro_f1")
+    if macro_f1 is not None and float(macro_f1) < 0.40:
+        model_text = top_model or "top model"
+        out.append(
+            f"Forward-in-time family generalization remains weak: {model_text} reached Macro-F1 {float(macro_f1):.4f} on the review leaderboard."
+        )
+    return out
+
+
+def _readiness_gap_notes(
+    *,
+    readiness: dict[str, object],
+    bucket: str | None,
+    paper_locked: bool,
+) -> list[str]:
+    token = str(bucket or "").strip()
+    buckets = readiness.get("buckets", {}) if isinstance(readiness, dict) else {}
+    payload = buckets.get(token, {}) if isinstance(buckets, dict) else {}
+    warnings = readiness.get("warnings", []) if isinstance(readiness, dict) else []
+    taxonomy = readiness.get("taxonomy_signals", {}) if isinstance(readiness, dict) else {}
+
+    out: list[str] = []
+    sample_count = payload.get("sample_count") if isinstance(payload, dict) else None
+    permission_obs_available = bool(readiness.get("permission_obs_available", False))
+    if "permission_obs" in token and (
+        sample_count in (None, 0) or not permission_obs_available
+    ):
+        out.append(
+            "Declared readiness intent names `permission_obs`, but the live DB does not currently verify a matching PI-observed cohort."
+        )
+    repair_candidate_count = int(taxonomy.get("repair_candidate_count") or 0)
+    known_unresolved_count = int(taxonomy.get("known_unresolved_family_count") or 0)
+    if repair_candidate_count > 0 or known_unresolved_count > 0:
+        message = (
+            f"Live taxonomy backlog remains active ({repair_candidate_count} repair candidate(s), "
+            f"{known_unresolved_count} known unresolved family name(s))."
+        )
+        if paper_locked:
+            message += " This run is lock-bound, so Erebus-side family authority improvements may not appear here until the lock is refreshed."
+        else:
+            message += " Compare against an unlocked/current cohort before concluding the new Erebus curation had no effect."
+        out.append(message)
+    for warning in warnings[:2]:
+        warning_text = str(warning).strip()
+        if warning_text:
+            out.append(warning_text)
+    return out
+
+
 def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | None) -> dict[str, object]:
     """Build operator-first summary for the latest run."""
     shared = build_operator_state(output_base=output_root, run_id=latest_run_id)
@@ -142,6 +291,8 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
             gdiag / "modality_contribution_summary.json",
         ]
     )
+    model_snapshot = _read_model_comparison_snapshot(output_root=output_root, run_id=rid) if rid else {}
+    label_strategy = _read_label_strategy_snapshot(diagnostics_dir=rdiag, output_root=output_root, run_id=rid) if rid else {}
     taxonomy_support = diagnostics_menu.build_taxonomy_support_tuning_snapshot(run_id=rid, output_root=output_root) if rid else {}
     permission_tuning = diagnostics_menu.build_permission_coverage_tuning_snapshot(run_id=rid, output_root=output_root) if rid else {}
     try:
@@ -152,7 +303,28 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
             "warnings": [f"Cohort readiness unavailable: {exc}"],
             "buckets": {},
         }
+    cohort_membership_mode = str(shared.get("cohort_membership_mode", "") or "").strip()
+    cohort_membership_note = str(shared.get("cohort_membership_authority_note", "") or "").strip()
+    rescued_unknown_consensus = safe_int(
+        shared.get("min_malicious_detections_rescued_unknown_consensus", 0),
+        0,
+    )
+    rescued_unknown_threshold = safe_int(
+        shared.get("min_malicious_detections_threshold", 0),
+        0,
+    )
     readiness_signal = infer_cohort_readiness_signal(profile_id)
+    readiness_observed_note = _observed_readiness_note(cohort_readiness, readiness_signal.get("bucket"))
+    readiness_gap_notes = _readiness_gap_notes(
+        readiness=cohort_readiness,
+        bucket=readiness_signal.get("bucket"),
+        paper_locked=cohort_membership_mode == "paper_locked_snapshot_membership",
+    )
+    temporal_gap_notes = _temporal_generalization_notes(
+        profile_id=profile_id,
+        manifest=manifest,
+        model_snapshot=model_snapshot,
+    )
 
     health_rows = [
         {"label": "Cohort / labels", "status": status_map.get("Cohort / labels", "RED")},
@@ -200,16 +372,6 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
         + int(taxonomy.get("type_missing_label_count", 0) or 0)
     ) if taxonomy else 0
     parser_summary = shared.get("parser_summary") if isinstance(shared.get("parser_summary"), dict) else {}
-    cohort_membership_mode = str(shared.get("cohort_membership_mode", "") or "").strip()
-    cohort_membership_note = str(shared.get("cohort_membership_authority_note", "") or "").strip()
-    rescued_unknown_consensus = safe_int(
-        shared.get("min_malicious_detections_rescued_unknown_consensus", 0),
-        0,
-    )
-    rescued_unknown_threshold = safe_int(
-        shared.get("min_malicious_detections_threshold", 0),
-        0,
-    )
     if health_map.get("Cohort / labels") == "RED":
         _append_warning(
             warnings,
@@ -226,6 +388,22 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
             or "sample-stage membership came from a governed locked cohort before normal shrinking gates",
             next_action="open the run science index and confirm that lock-authoritative membership is the intended methodology for this run",
             open_label="Run science index",
+        )
+    if readiness_gap_notes:
+        _append_warning(
+            warnings,
+            problem="Live readiness / authority gap: observed DB state does not fully match the profile-ready story.",
+            why="; ".join(readiness_gap_notes[:2]),
+            next_action="compare the live readiness snapshot and taxonomy backlog against this run before treating the cohort as absorbing the latest Erebus-side curation",
+            open_label="Run science index",
+        )
+    if temporal_gap_notes:
+        _append_warning(
+            warnings,
+            problem="Temporal generalization gap: forward holdout evidence remains weaker than the cohort/build surfaces suggest.",
+            why="; ".join(temporal_gap_notes[:2]),
+            next_action="review the split-freeze headline and model comparison leaderboard before retuning models or judging Erebus-side curation impact",
+            open_label="Feature-set ablation summary",
         )
     if rescued_unknown_consensus > 0:
         _append_warning(
@@ -344,6 +522,10 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
         tuning_actions.append("Review support-threshold effects and trained-family coverage.")
     if cohort_membership_mode == "paper_locked_snapshot_membership":
         tuning_actions.append("Confirm that locked sample-id membership is the intended authority before comparing this run against contract-shrunk cohorts.")
+    if readiness_gap_notes:
+        tuning_actions.append("Check live readiness mismatch and taxonomy backlog before deciding that recent Erebus-side curation failed to help this run.")
+    if temporal_gap_notes:
+        tuning_actions.append("Review temporal holdout caveats and leaderboard weakness before changing models; this run may be limited more by forward-time family drift than by missing features.")
     if rescued_unknown_consensus > 0:
         tuning_actions.append("Review rescued missing-consensus malware rows before raising or lowering the malicious-detection threshold.")
     if lock_status == "count-only":
@@ -361,6 +543,20 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
     )
     if tune_next_priority:
         tuning_actions.insert(0, "Prioritize screens in this order: " + " -> ".join(tune_next_priority[:3]) + ".")
+    if label_strategy:
+        family_target = str(label_strategy.get("preferred_family_target", "") or "").strip()
+        type_target = str(label_strategy.get("preferred_type_target", "") or "").strip()
+        avoid = label_strategy.get("avoid_for_primary_claims", [])
+        if family_target and type_target:
+            tuning_actions.append(
+                f"Keep supervision anchored on {family_target} for family and {type_target} for coarse taxonomy before retuning models."
+            )
+        if isinstance(avoid, list) and avoid:
+            tuning_actions.append(
+                "Avoid promoting raw audit-only surfaces into primary claim targets: "
+                + ", ".join(str(x) for x in avoid)
+                + "."
+            )
 
     return {
         "display_mode": mode,
@@ -377,9 +573,13 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
         "open_first": open_first,
         "tuning_actions": tuning_actions[:5],
         "taxonomy_support_summary": taxonomy_support,
+        "label_strategy_summary": label_strategy,
         "permission_tuning_summary": permission_tuning,
         "cohort_readiness_summary": cohort_readiness,
         "cohort_readiness_signal": readiness_signal,
+        "cohort_readiness_observed_note": readiness_observed_note,
+        "cohort_readiness_gap_notes": readiness_gap_notes[:3],
+        "temporal_generalization_notes": temporal_gap_notes[:3],
         "taxonomy_support_recommended_action": tax_recommended_action,
         "run_science_index_path": shared.get("best_run_index_path"),
         "run_science_index_canonical": bool(shared.get("has_canonical_run_science", False)),
@@ -435,6 +635,13 @@ def print_compact_review_latest_run(*, output_root: Path, latest_run_id: str | N
             detail = str(signal.get("detail", "") or "").strip()
             if detail:
                 du.print_note(f"  {detail}")
+        observed_note = str(summary.get("cohort_readiness_observed_note", "") or "").strip()
+        if observed_note:
+            du.print_note(f"  {observed_note}")
+        for note in summary.get("cohort_readiness_gap_notes", [])[:3]:
+            du.print_note(f"  {note}")
+        for note in summary.get("temporal_generalization_notes", [])[:3]:
+            du.print_note(f"  {note}")
         for note in readiness.get("warnings", [])[:3]:
             du.print_note(f"  {note}")
     print("")
@@ -468,9 +675,21 @@ def print_compact_review_latest_run(*, output_root: Path, latest_run_id: str | N
                     f"t{row.get('threshold')}: fam {row.get('retained_families')}/{row.get('dropped_families')} kept/dropped; "
                     f"samples {row.get('retained_samples')}/{row.get('dropped_samples')}"
                 )
-            if preview:
-                du.print_info("  Threshold sensitivity (5/10/15/20/25): " + " | ".join(preview))
+        if preview:
+            du.print_info("  Threshold sensitivity (5/10/15/20/25): " + " | ".join(preview))
         du.print_info(f"  Recommended next action: {summary.get('taxonomy_support_recommended_action', 'Review taxonomy/support artifacts.')}")
+    label_strategy = summary.get("label_strategy_summary", {})
+    if isinstance(label_strategy, dict) and label_strategy:
+        du.print_stat("  Preferred family target", str(label_strategy.get("preferred_family_target", "—") or "—"))
+        du.print_stat("  Preferred type target", str(label_strategy.get("preferred_type_target", "—") or "—"))
+        avoid = label_strategy.get("avoid_for_primary_claims", [])
+        du.print_stat(
+            "  Avoid for primary claims",
+            ", ".join(str(x) for x in avoid) if isinstance(avoid, list) and avoid else "—",
+        )
+        interp = str(label_strategy.get("alignment_interpretation", "") or "").strip()
+        if interp:
+            du.print_info(f"  Label strategy note: {interp}")
     print("")
     print("Permission Coverage Tuning")
     perm = summary.get("permission_tuning_summary", {})

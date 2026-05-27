@@ -4,8 +4,6 @@
 --   2) Profile all vendor columns for a curated taxonomy slice (type_slug = 'banker')
 --   3) Surface columns with high signal but no parser coverage
 
-USE erebus_database_dev;
-
 SET SESSION group_concat_max_len = 1000000;
 
 -- -----------------------------------------------------------------------------
@@ -65,10 +63,10 @@ SET @q2_sql = (
             "AND LOWER(TRIM(`", column_name, "`)) NOT IN ('none','null','n/a','undetected') ",
             "THEN LOWER(TRIM(`", column_name, "`)) END) AS distinct_labels ",
             "FROM virustotal_sample_vendor_engine_verdicts v ",
-            "JOIN malware_sample_catalog m ON m.sample_id = v.sample_id ",
-            "JOIN android_malware_family f ON LOWER(TRIM(m.family_label)) = LOWER(TRIM(f.family_name)) AND f.is_active=1 ",
-            "JOIN android_malware_type t ON t.type_id = f.primary_type_id ",
-            "WHERE m.platform='android' AND m.file_extension='apk' AND t.type_slug='banker'"
+            "JOIN v_android_sample_family_type_authority a ON a.sample_id = v.sample_id ",
+            "WHERE a.platform='android' AND a.file_extension='apk' ",
+            "AND a.authority_bucket='authority_family_typed' ",
+            "AND a.type_slug='banker'"
         )
         SEPARATOR " UNION ALL "
     )

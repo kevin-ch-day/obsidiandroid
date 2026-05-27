@@ -109,6 +109,150 @@ def test_finalize_pipeline_observability_records_skip_reasons(tmp_path: Path) ->
     assert blob.get("hostile_audit_skip_reason") == "stop_after_samples"
 
 
+def test_finalize_pipeline_observability_records_compact_artifact_flags(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    ctx = {"run_id": "r_compact", "_observability_finalized_once": False}
+    manifest = {"run_id": "r_compact", "cohort_size": 5}
+    artifact_list: list[str] = []
+
+    monkeypatch.setattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_RESEARCH_VALIDITY_BUNDLE", False, raising=False)
+
+    out_path = finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=artifact_list,
+        compliance_report={"overall_status": "pass"},
+        paper_mode=False,
+        evidence_mode=False,
+        result_code=0,
+        profile_id="dev_fast",
+    )
+
+    assert isinstance(out_path, Path)
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    assert blob.get("verbose_run_artifacts") is False
+    assert blob.get("research_validity_bundle_enabled") is False
+    assert blob.get("row_authority") is None
+    assert not any("paper_mode_compliance_report" in str(item) for item in (blob.get("top_artifacts_to_open_first") or []))
+
+
+def test_finalize_pipeline_observability_propagates_row_authority_from_context(
+    tmp_path: Path,
+) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    ctx = {
+        "run_id": "r_auth",
+        "_observability_finalized_once": False,
+        "main_training_row_authority": "governed_cohort",
+    }
+    manifest = {"run_id": "r_auth", "cohort_size": 5}
+    artifact_list: list[str] = []
+
+    out_path = finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=artifact_list,
+        compliance_report={"overall_status": "pass"},
+        paper_mode=False,
+        evidence_mode=False,
+        result_code=0,
+        profile_id="dev_fast",
+    )
+
+    assert isinstance(out_path, Path)
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    assert blob.get("main_training_row_authority") == "governed_cohort"
+    assert blob.get("row_authority") == "governed_cohort"
+
+
+def test_finalize_pipeline_observability_falls_back_to_feature_matrix_row_authority(
+    tmp_path: Path,
+) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    ctx = {
+        "run_id": "r_auth_fallback",
+        "_observability_finalized_once": False,
+        "feature_matrix_row_authority": "governed_cohort",
+    }
+    manifest = {"run_id": "r_auth_fallback", "cohort_size": 5}
+    artifact_list: list[str] = []
+
+    out_path = finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=artifact_list,
+        compliance_report={"overall_status": "pass"},
+        paper_mode=False,
+        evidence_mode=False,
+        result_code=0,
+        profile_id="dev_fast",
+    )
+
+    assert isinstance(out_path, Path)
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    assert blob.get("main_training_row_authority") == "governed_cohort"
+    assert blob.get("row_authority") == "governed_cohort"
+
+
+def test_finalize_pipeline_observability_includes_label_strategy_when_present(
+    tmp_path: Path,
+) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    (diagnostic / "taxonomy_target_surfaces_r_labels.json").write_text(
+        json.dumps(
+            {
+                "label_strategy": {
+                    "preferred_family_target": "family_id",
+                    "preferred_type_target": "type_slug",
+                    "avoid_for_primary_claims": ["category_primary"],
+                    "alignment_interpretation": "Raw subtype aligns materially better than raw primary.",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    ctx = {
+        "run_id": "r_labels",
+        "_observability_finalized_once": False,
+        "feature_matrix_row_authority": "governed_cohort",
+    }
+    manifest = {"run_id": "r_labels", "cohort_size": 5}
+    artifact_list: list[str] = []
+
+    out_path = finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=artifact_list,
+        compliance_report={"overall_status": "pass"},
+        paper_mode=False,
+        evidence_mode=False,
+        result_code=0,
+        profile_id="dev_fast",
+    )
+
+    assert isinstance(out_path, Path)
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    assert blob.get("label_strategy", {}).get("preferred_family_target") == "family_id"
+    assert blob.get("label_strategy", {}).get("preferred_type_target") == "type_slug"
+    assert blob.get("label_strategy", {}).get("avoid_for_primary_claims") == ["category_primary"]
+
+
 def test_finalize_pipeline_observability_adds_temporal_split_warning(
     tmp_path: Path,
     monkeypatch,
@@ -143,3 +287,48 @@ def test_finalize_pipeline_observability_adds_temporal_split_warning(
     blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
     warnings = blob.get("research_warnings_top") or []
     assert any("non-temporal split algorithm stratified_seeded" in str(item) for item in warnings)
+
+
+def test_finalize_pipeline_observability_adds_temporal_future_only_drop_warning(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    ctx = {"run_id": "r_temp_ok", "_observability_finalized_once": False}
+    manifest = {"run_id": "r_temp_ok", "cohort_size": 5}
+    artifact_list: list[str] = []
+
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_LAST_SPLIT_ALGORITHM",
+        "temporal_year_holdout_v1",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_TEMPORAL_SPLIT_SUMMARY",
+        {
+            "test_year_floor": 2024,
+            "test_rows_dropped_unseen_train_classes": 219,
+        },
+        raising=False,
+    )
+
+    out_path = finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=artifact_list,
+        compliance_report={"overall_status": "pass"},
+        paper_mode=True,
+        evidence_mode=True,
+        result_code=0,
+        profile_id="malicious_temporal_stability_locked",
+    )
+
+    assert isinstance(out_path, Path)
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    warnings = blob.get("research_warnings_top") or []
+    assert any("dropped 219 newer-row sample(s)" in str(item) for item in warnings)

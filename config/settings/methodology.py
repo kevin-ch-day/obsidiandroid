@@ -89,13 +89,19 @@ EXCLUDE_UNKNOWN_TYPE_IN_VISUALS = True
 MAX_TIME_SERIES_LINES = 4
 PAPER2_STRICT_EXPORT_PROFILE = True
 
-# When True (via env OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE=1), train_model_factory skips SMOTE
-# whenever RUNTIME_EVIDENCE_MODE or PAPER_MODE_ENABLED is active. Otherwise a warning is emitted
-# if SMOTE would run in those modes.
-_DISABLE_SMOTE_EV_RAW = os.getenv("OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE", "false")
-DISABLE_SMOTE_IN_EVIDENCE_MODE = str(_DISABLE_SMOTE_EV_RAW).strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
+# Evidence/publication runs default to no-SMOTE for stricter reproducibility.
+# Operators can opt back in with `OBSIDIAN_ENABLE_SMOTE_IN_EVIDENCE_MODE=1`, or
+# continue to force-disable with the older `OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE=1`.
+_DISABLE_SMOTE_EV_RAW = os.getenv("OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE", "")
+_ENABLE_SMOTE_EV_RAW = os.getenv("OBSIDIAN_ENABLE_SMOTE_IN_EVIDENCE_MODE", "")
+_TRUTHY_ENV = {"1", "true", "yes", "on"}
+_FALSEY_ENV = {"0", "false", "no", "off"}
+
+if str(_ENABLE_SMOTE_EV_RAW).strip().lower() in _TRUTHY_ENV:
+    DISABLE_SMOTE_IN_EVIDENCE_MODE = False
+elif str(_DISABLE_SMOTE_EV_RAW).strip().lower() in _TRUTHY_ENV:
+    DISABLE_SMOTE_IN_EVIDENCE_MODE = True
+elif str(_DISABLE_SMOTE_EV_RAW).strip().lower() in _FALSEY_ENV:
+    DISABLE_SMOTE_IN_EVIDENCE_MODE = False
+else:
+    DISABLE_SMOTE_IN_EVIDENCE_MODE = True

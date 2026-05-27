@@ -37,10 +37,13 @@ def write_signal_decomposition_artifacts(*, diagnostics_dir: Path, run_id: str) 
         ]
 
     df = pd.read_csv(src)
-    baseline_name = "vendor_full"
-    if baseline_name not in set(df.get("experiment", pd.Series(dtype=str)).astype(str).unique()):
-        if "vendor_only" in set(df["experiment"].astype(str).unique()):
+    experiment_names = set(df.get("experiment", pd.Series(dtype=str)).astype(str).unique())
+    baseline_name = "vendor_no_parsed_family"
+    if baseline_name not in experiment_names:
+        if "vendor_only" in experiment_names:
             baseline_name = "vendor_only"
+        elif "vendor_full" in experiment_names:
+            baseline_name = "vendor_full"
 
     out_summary = diagnostics_dir / "signal_decomposition_summary.csv"
     df.to_csv(out_summary, index=False)
@@ -48,11 +51,7 @@ def write_signal_decomposition_artifacts(*, diagnostics_dir: Path, run_id: str) 
 
     leakage_rows: list[dict[str, Any]] = []
     if "experiment" in df.columns and "model" in df.columns and "macro_f1_score" in df.columns:
-        lt_values = (
-            sorted(df["label_target"].dropna().unique())
-            if "label_target" in df.columns
-            else [None]
-        )
+        lt_values = sorted(df["label_target"].dropna().unique()) if "label_target" in df.columns else [None]
         for lt in lt_values:
             if lt is None or "label_target" not in df.columns:
                 sub = df
@@ -76,10 +75,13 @@ def write_signal_decomposition_artifacts(*, diagnostics_dir: Path, run_id: str) 
                 delta = round(float(f1) - float(base_v), 6) if base_v is not None else None
                 leakage_rows.append(
                     {
-                        "label_target": lt if lt is not None else "family_canonical_default",
+                        "label_target": lt if lt is not None else "family_id",
+                        "baseline_experiment": baseline_name,
                         "experiment": experiment,
                         "model": model,
                         "macro_f1_score": float(f1),
+                        "baseline_macro_f1_vendor_safe": base_v,
+                        "vendor_leakage_delta_vs_vendor_safe": delta,
                         "baseline_macro_f1_vendor_full": base_v,
                         "vendor_leakage_delta_vs_vendor_full": delta,
                         "semantic_family_removed": experiment
@@ -108,7 +110,9 @@ def write_signal_decomposition_artifacts(*, diagnostics_dir: Path, run_id: str) 
     if {"experiment", "model", "macro_f1_score"} <= set(df.columns):
         pivot_df = df.copy()
         if "label_target" in pivot_df.columns:
-            pivot_df = pivot_df[pivot_df["label_target"] == "family_canonical_default"]
+            label_targets = set(pivot_df["label_target"].astype(str).unique())
+            preferred_target = "family_id" if "family_id" in label_targets else "family_canonical_default"
+            pivot_df = pivot_df[pivot_df["label_target"] == preferred_target]
         wide = pivot_df.pivot_table(
             index="model",
             columns="experiment",

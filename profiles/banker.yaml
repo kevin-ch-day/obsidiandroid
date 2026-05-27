@@ -1,5 +1,6 @@
 profile_id: banker
 description: Current banker research profile using the resolved type-scoped cohort.
+cohort_readiness_bucket: android_banker_with_permission_obs
 profile_status:
   lifecycle: final_canonical
   operator_surface: supported

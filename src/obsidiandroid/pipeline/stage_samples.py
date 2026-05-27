@@ -25,7 +25,13 @@ from obsidiandroid.orchestration.profile_filters import (
     apply_dataset_filters,
 )
 from obsidiandroid.pipeline.contract_filters import apply_contract_filters
+from obsidiandroid.diagnostics import android_authority_drift_report
+from obsidiandroid.diagnostics import cohort_family_feed_risk
+from obsidiandroid.diagnostics import family_label_confidence_audit
 from obsidiandroid.diagnostics import cohort_foundation_export
+from obsidiandroid.diagnostics import family_label_taxonomy_audit
+from obsidiandroid.diagnostics import taxonomy_target_surface_report
+from obsidiandroid.diagnostics import cohort_vocabulary
 from obsidiandroid.pipeline.sample_exports import (
     augment_dataset_time_contract as _augment_dataset_time_contract,
     diagnostics_dir as _diagnostics_dir,
@@ -82,6 +88,7 @@ def load_and_prepare_samples(
     type_slug: str | None,
     run_id: str | None = None,
     artifact_list: list[str] | None = None,
+    manifest_context: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
     """Load samples and apply profile-driven quality gates.
 
@@ -123,11 +130,18 @@ def load_and_prepare_samples(
     # Enforce unknown-type exclusion early for evidence/paper runs, even when
     # profiles omit the explicit gate key.
     exclude_unknown_type_slug = bool(gates.get("exclude_unknown_type_slug", False))
+    exclude_weak_label_kinds = bool(gates.get("exclude_weak_label_kinds", False))
+    exclude_family_label_conflicts = bool(gates.get("exclude_family_label_conflicts", False))
     if not exclude_unknown_type_slug:
         exclude_unknown_type_slug = bool(getattr(app_config, "RUNTIME_EVIDENCE_MODE", False)) or bool(
             getattr(app_config, "PAPER_MODE_ENABLED", False)
         )
     limit = gates.get("limit", None)
+    family_cap = gates.get("family_cap", None)
+    family_cap_seed = gates.get("family_cap_seed", None)
+    type_cap = gates.get("type_cap", None)
+    type_cap_seed = gates.get("type_cap_seed", None)
+    type_cap_by_slug = gates.get("type_cap_by_slug", None)
     time_contract = _resolve_dataset_time_contract(
         gates=gates,
         run_id=str(run_id or "unknown"),
@@ -170,6 +184,8 @@ def load_and_prepare_samples(
         require_sha256=require_sha256,
         allow_missing_package_name=allow_missing_pkg,
         exclude_unknown_type_slug=exclude_unknown_type_slug,
+        exclude_weak_label_kinds=exclude_weak_label_kinds,
+        exclude_family_label_conflicts=exclude_family_label_conflicts,
         effective_time_start_utc=time_start_utc,
         effective_time_end_utc=time_end_utc,
         require_effective_first_seen=require_effective_first_seen,
@@ -194,7 +210,14 @@ def load_and_prepare_samples(
         require_sha256=require_sha256,
         allow_missing_package_name=allow_missing_pkg,
         exclude_unknown_type_slug=exclude_unknown_type_slug,
+        exclude_weak_label_kinds=exclude_weak_label_kinds,
+        exclude_family_label_conflicts=exclude_family_label_conflicts,
         limit=limit,
+        family_cap=family_cap,
+        family_cap_seed=family_cap_seed,
+        type_cap=type_cap,
+        type_cap_seed=type_cap_seed,
+        type_cap_by_slug=type_cap_by_slug,
         effective_time_start_utc=time_start_utc,
         effective_time_end_utc=time_end_utc,
         require_effective_first_seen=require_effective_first_seen,
@@ -225,7 +248,83 @@ def load_and_prepare_samples(
                 before_rows=before_unknown,
                 after_rows=int(len(samples_df)),
             )
+    try:
+        semantics_scope = (
+            "sql_limited_loader_slice"
+            if isinstance(limit, int) and limit > 0
+            else "sql_governed_android_cohort"
+        )
+        samples_df.attrs["catalog_semantics_sql_scope"] = (
+            cohort_foundation_export.build_catalog_semantics_summary(
+                samples_df,
+                scope=semantics_scope,
+            )
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        log_event(
+            PIPELINE_LOGGER,
+            "samples_sql_catalog_semantics_unavailable",
+            event_id="SAMPLES_105",
+            level="WARNING",
+            run_id=str(run_id or "unknown"),
+            profile_id=profile_id,
+            reason=type(exc).__name__,
+        )
     samples_df.attrs["sql_exclude_families_applied"] = tuple(sql_exclude_families)
+    samples_df.attrs["requested_exclude_families"] = tuple(exclude_families)
+    samples_df.attrs["exclude_families_deferred_by_snapshot_lock"] = bool(
+        lock_membership_authoritative and bool(exclude_families)
+    )
+    samples_df.attrs["configured_min_samples_per_family"] = int(configured_min_support)
+    samples_df.attrs["min_samples_per_family_applied_in_sql"] = sql_min_support is not None
+    samples_df.attrs["min_samples_per_family_sql_value"] = sql_min_support
+    samples_df.attrs["exclude_weak_label_kinds_applied_in_sql"] = exclude_weak_label_kinds
+    samples_df.attrs["exclude_family_label_conflicts_applied_in_sql"] = exclude_family_label_conflicts
+    samples_df.attrs["family_cap_applied_in_sql"] = bool(isinstance(family_cap, int) and family_cap > 0)
+    samples_df.attrs["family_cap_sql_value"] = int(family_cap) if isinstance(family_cap, int) and family_cap > 0 else None
+    samples_df.attrs["family_cap_sql_seed"] = int(family_cap_seed) if isinstance(family_cap_seed, int) else None
+    samples_df.attrs["type_cap_applied_in_sql"] = bool(isinstance(type_cap, int) and type_cap > 0)
+    samples_df.attrs["type_cap_sql_value"] = int(type_cap) if isinstance(type_cap, int) and type_cap > 0 else None
+    samples_df.attrs["type_cap_sql_seed"] = int(type_cap_seed) if isinstance(type_cap_seed, int) else None
+    samples_df.attrs["type_cap_by_slug_applied_in_sql"] = bool(isinstance(type_cap_by_slug, dict) and type_cap_by_slug)
+    samples_df.attrs["type_cap_by_slug_sql_value"] = {
+        str(key).strip().lower(): int(value)
+        for key, value in (type_cap_by_slug or {}).items()
+        if str(key).strip() and isinstance(value, int) and value > 0
+    } if isinstance(type_cap_by_slug, dict) else None
+    try:
+        governed_taxonomy_audit_artifacts = family_label_taxonomy_audit.write_family_label_taxonomy_audit(
+            samples_df=samples_df,
+            diagnostics_dir=_diagnostics_dir(),
+            profile_id=profile_id,
+            training_min_support=int(configured_min_support),
+            run_id=str(run_id or "unknown"),
+            artifact_prefix="sql_governed_",
+            print_fn=None,
+        )
+        if isinstance(artifact_list, list):
+            for key in (
+                "family_label_taxonomy_audit_csv",
+                "family_label_taxonomy_audit_md",
+                "support_threshold_preview_csv",
+                "support_threshold_preview_md",
+            ):
+                path_obj = governed_taxonomy_audit_artifacts.get(key)
+                if path_obj:
+                    artifact_list.append(str(path_obj))
+    except Exception as exc:  # pylint: disable=broad-except
+        du.print_warning(
+            f"[COHORT] SQL-governed family taxonomy/support diagnostics export skipped: {type(exc).__name__}."
+        )
+        log_event(
+            PIPELINE_LOGGER,
+            "samples_sql_governed_family_taxonomy_audit_export_failed",
+            event_id="SAMPLES_324",
+            level="WARNING",
+            run_id=str(run_id or "unknown"),
+            profile_id=profile_id,
+            reason=type(exc).__name__,
+        )
     if lock_membership_authoritative:
         samples_df = cohort_reproducibility.apply_analysis_snapshot_lock(
             samples_df=samples_df,
@@ -384,6 +483,12 @@ def load_and_prepare_samples(
         artifact_list.append(cohort_ids_path)
         artifact_list.extend([cohort_lock_summary_path, cohort_membership_path])
 
+    samples_df.attrs["cohort_gate_stats"] = gate_stats_snapshot
+    _attach_live_cohort_counts_to_manifest_context(
+        manifest_context,
+        gate_stats_snapshot=gate_stats_snapshot,
+        samples_df=samples_df,
+    )
     du.print_success(f"Validated {len(samples_df)} malware samples.")
     cohort_readiness_report.print_cohort_readiness_report(samples_df, gates=gates)
     log_event(
@@ -396,23 +501,177 @@ def load_and_prepare_samples(
         columns=int(samples_df.shape[1]),
     )
 
-    samples_df.attrs["cohort_gate_stats"] = gate_stats_snapshot
-    cohort_foundation_export.export_cohort_foundation_bundle(
-        diagnostics_dir=_diagnostics_dir(),
-        run_id=str(run_id or "unknown"),
-        profile_id=profile_id,
-        profile=profile if isinstance(profile, dict) else {},
-        gate_stats=gate_stats_snapshot,
-        samples_df=samples_df,
-        time_contract=time_contract,
-        type_slug=type_slug,
-        min_samples_per_family_sql=min_support,
-        configured_min_samples_per_family=configured_min_support,
-        artifact_list=artifact_list,
-    )
+    try:
+        cohort_foundation_export.export_cohort_foundation_bundle(
+            diagnostics_dir=_diagnostics_dir(),
+            run_id=str(run_id or "unknown"),
+            profile_id=profile_id,
+            profile=profile if isinstance(profile, dict) else {},
+            gate_stats=gate_stats_snapshot,
+            samples_df=samples_df,
+            time_contract=time_contract,
+            type_slug=type_slug,
+            min_samples_per_family_sql=sql_min_support,
+            configured_min_samples_per_family=configured_min_support,
+            artifact_list=artifact_list,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        du.print_warning(
+            f"[COHORT] Foundation diagnostics export skipped: {type(exc).__name__}."
+        )
+        log_event(
+            PIPELINE_LOGGER,
+            "samples_foundation_export_failed",
+            event_id="SAMPLES_320",
+            level="WARNING",
+            run_id=str(run_id or "unknown"),
+            profile_id=profile_id,
+            reason=type(exc).__name__,
+        )
+
+    try:
+        drift_artifacts = android_authority_drift_report.export_android_authority_drift_reports(
+            diagnostics_dir=_diagnostics_dir(),
+            run_id=str(run_id or "unknown"),
+            samples_df=samples_df,
+        )
+        if isinstance(artifact_list, list):
+            artifact_list.extend(drift_artifacts)
+    except Exception as exc:  # pylint: disable=broad-except
+        du.print_warning(
+            f"[COHORT] Authority-drift diagnostics export skipped: {type(exc).__name__}."
+        )
+        log_event(
+            PIPELINE_LOGGER,
+            "samples_authority_drift_export_failed",
+            event_id="SAMPLES_321",
+            level="WARNING",
+            run_id=str(run_id or "unknown"),
+            profile_id=profile_id,
+            reason=type(exc).__name__,
+        )
+
+    try:
+        feed_risk_artifacts = cohort_family_feed_risk.export_family_feed_risk_reports(
+            diagnostics_dir=_diagnostics_dir(),
+            run_id=str(run_id or "unknown"),
+            samples_df=samples_df,
+        )
+        if isinstance(artifact_list, list):
+            artifact_list.extend(feed_risk_artifacts)
+    except Exception as exc:  # pylint: disable=broad-except
+        du.print_warning(
+            f"[COHORT] Family feed-risk diagnostics export skipped: {type(exc).__name__}."
+        )
+        log_event(
+            PIPELINE_LOGGER,
+            "samples_family_feed_risk_export_failed",
+            event_id="SAMPLES_322",
+            level="WARNING",
+            run_id=str(run_id or "unknown"),
+            profile_id=profile_id,
+            reason=type(exc).__name__,
+        )
+
+    try:
+        taxonomy_audit_artifacts = family_label_taxonomy_audit.write_family_label_taxonomy_audit(
+            samples_df=samples_df,
+            diagnostics_dir=_diagnostics_dir(),
+            profile_id=profile_id,
+            training_min_support=int(configured_min_support),
+            run_id=str(run_id or "unknown"),
+            print_fn=None,
+        )
+        if isinstance(artifact_list, list):
+            for key in (
+                "family_label_taxonomy_audit_csv",
+                "family_label_taxonomy_audit_md",
+                "support_threshold_preview_csv",
+                "support_threshold_preview_md",
+            ):
+                path_obj = taxonomy_audit_artifacts.get(key)
+                if path_obj:
+                    artifact_list.append(str(path_obj))
+    except Exception as exc:  # pylint: disable=broad-except
+        du.print_warning(
+            f"[COHORT] Family taxonomy/support diagnostics export skipped: {type(exc).__name__}."
+        )
+        log_event(
+            PIPELINE_LOGGER,
+            "samples_family_taxonomy_audit_export_failed",
+            event_id="SAMPLES_323",
+            level="WARNING",
+            run_id=str(run_id or "unknown"),
+            profile_id=profile_id,
+            reason=type(exc).__name__,
+        )
+
+    try:
+        taxonomy_target_artifacts = taxonomy_target_surface_report.export_taxonomy_target_surface_reports(
+            diagnostics_dir=_diagnostics_dir(),
+            run_id=str(run_id or "unknown"),
+            samples_df=samples_df,
+            min_support=int(configured_min_support),
+        )
+        if isinstance(artifact_list, list):
+            artifact_list.extend(taxonomy_target_artifacts)
+    except Exception as exc:  # pylint: disable=broad-except
+        du.print_warning(
+            f"[COHORT] Taxonomy target-surface diagnostics export skipped: {type(exc).__name__}."
+        )
+        log_event(
+            PIPELINE_LOGGER,
+            "samples_taxonomy_target_surface_export_failed",
+            event_id="SAMPLES_324",
+            level="WARNING",
+            run_id=str(run_id or "unknown"),
+            profile_id=profile_id,
+            reason=type(exc).__name__,
+        )
+
+    try:
+        confidence_artifacts = family_label_confidence_audit.export_family_label_confidence_reports(
+            diagnostics_dir=_diagnostics_dir(),
+            run_id=str(run_id or "unknown"),
+            samples_df=samples_df,
+            min_support=int(configured_min_support),
+        )
+        if isinstance(artifact_list, list):
+            artifact_list.extend(confidence_artifacts)
+    except Exception as exc:  # pylint: disable=broad-except
+        du.print_warning(
+            f"[COHORT] Family label-confidence audit export skipped: {type(exc).__name__}."
+        )
+        log_event(
+            PIPELINE_LOGGER,
+            "samples_family_label_confidence_export_failed",
+            event_id="SAMPLES_325",
+            level="WARNING",
+            run_id=str(run_id or "unknown"),
+            profile_id=profile_id,
+            reason=type(exc).__name__,
+        )
 
     _assert_package_name_integrity(samples_df=samples_df, gates=gates)
     return samples_df
+
+
+def _attach_live_cohort_counts_to_manifest_context(
+    manifest_context: dict[str, Any] | None,
+    *,
+    gate_stats_snapshot: dict[str, Any],
+    samples_df: pd.DataFrame,
+) -> None:
+    """Persist samples-stage cohort counts early so failed runs keep row-funnel context."""
+    if not isinstance(manifest_context, dict):
+        return
+    sql_scope_rows = int(gate_stats_snapshot.get("total_candidates", 0) or 0)
+    prepared_rows = int(len(samples_df))
+    cohort_vocabulary.attach_cohort_row_counts_to_manifest_context(
+        manifest_context,
+        sql_scope_row_count=sql_scope_rows,
+        prepared_row_count=prepared_rows,
+    )
 
 
 def _assert_package_name_integrity(samples_df: pd.DataFrame, gates: dict[str, Any]) -> None:

@@ -93,11 +93,18 @@ SELECT
     s.notes
 FROM tmp_label_authority_vendor_evidence_load AS s
 LEFT JOIN malware_family_label_evidence AS e
-    ON e.sample_id = s.sample_id
-   AND e.vendor_key = LOWER(TRIM(s.vendor_key))
-   AND e.raw_vendor_label = s.raw_vendor_label
-   AND e.parser_name = s.parser_name
-   AND e.is_active = 1
+    ON e.evidence_identity_sha1 = SHA1(
+        CONCAT_WS(
+            '|',
+            CAST(s.sample_id AS CHAR),
+            COALESCE(LOWER(TRIM(s.vendor_key)), ''),
+            COALESCE(TRIM(s.raw_vendor_label), ''),
+            COALESCE(LOWER(TRIM(s.parser_name)), ''),
+            COALESCE(LOWER(TRIM(s.parser_version)), ''),
+            COALESCE(CAST(s.source_report_date_utc AS CHAR), ''),
+            CAST(s.is_active AS CHAR)
+        )
+    )
 WHERE e.evidence_id IS NULL;
 
 -- Post-load sanity snapshot.

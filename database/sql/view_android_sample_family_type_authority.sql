@@ -143,6 +143,7 @@ LEFT JOIN v_android_apk_family_resolved AS fam_res
     ON fam_res.sample_id = msc.sample_id
 LEFT JOIN android_malware_family AS fam
     ON LOWER(TRIM(fam.family_slug)) = LOWER(TRIM(fam_res.resolved_family_lc))
+   AND fam.is_active = 1
 LEFT JOIN android_malware_type AS typ
     ON typ.type_id = fam.primary_type_id
 LEFT JOIN android_malware_type AS parent_typ
@@ -150,5 +151,6 @@ LEFT JOIN android_malware_type AS parent_typ
 LEFT JOIN android_malware_family_alias AS alias
     ON alias.family_id = fam.family_id
    AND LOWER(TRIM(alias.alias_name)) = LOWER(TRIM(fam_norm.family_lc))
+   AND alias.is_active = 1
 WHERE msc.platform = 'android'
   AND msc.file_extension = 'apk';

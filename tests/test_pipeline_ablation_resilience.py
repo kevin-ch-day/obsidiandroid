@@ -286,3 +286,44 @@ def test_apply_profile_sets_ablation_model_list_from_yaml_shape(monkeypatch) -> 
         manifest_context={},
     )
     assert app_config.ABLATION_MODEL_LIST == ["random_forest"]
+
+
+def test_apply_profile_runtime_policy_accepts_compact_tuning_artifact_overrides(monkeypatch) -> None:
+    from obsidiandroid.pipeline.runtime_policy import apply_profile_runtime_policy
+
+    monkeypatch.setattr(app_config, "ENABLE_SKEPTIC_AUDITS", True, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_RESEARCH_VALIDITY_BUNDLE", True, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_DETAILED_PER_CLASS_REPORTS", True, raising=False)
+
+    profile = {
+        "profile_id": "unit_compact_tuning",
+        "type_slug_filter": None,
+        "cohort_gates": {},
+        "model_list": ["logistic_regression"],
+        "feature_flags": {},
+        "runtime_overrides": {
+            "ENABLE_SKEPTIC_AUDITS": False,
+            "ENABLE_RESEARCH_VALIDITY_BUNDLE": False,
+            "ENABLE_VERBOSE_RUN_ARTIFACTS": False,
+            "ENABLE_DETAILED_PER_CLASS_REPORTS": False,
+        },
+        "parser_overrides": {},
+        "evidence_mode": False,
+        "allow_vendor_fallback_for_width": True,
+        "allow_adaptive_top_k": True,
+        "top_k_requested": 8,
+        "exclude_unknown_from_main_results": False,
+    }
+    apply_profile_runtime_policy(
+        profile=profile,
+        feature_flags=profile["feature_flags"],
+        allow_evidence_override=False,
+        allow_global_artifacts=False,
+        manifest_context={},
+    )
+
+    assert app_config.ENABLE_SKEPTIC_AUDITS is False
+    assert app_config.ENABLE_RESEARCH_VALIDITY_BUNDLE is False
+    assert app_config.ENABLE_VERBOSE_RUN_ARTIFACTS is False
+    assert app_config.ENABLE_DETAILED_PER_CLASS_REPORTS is False

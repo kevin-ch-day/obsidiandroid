@@ -1,92 +1,68 @@
 -- Advanced vendor parser audit queries for ObsidianDroid
--- Target DB: erebus_database_dev (MariaDB)
+-- Target DB: run with the desired schema selected in the client session
 -- Purpose:
 -- 1) Measure parser pressure points (generic/unknown/no-detection rates)
 -- 2) Discover family token candidates from raw labels
 -- 3) Build evidence for alias mapping (raw vendor token -> canonical family)
 -- 4) Reduce future hardcoding by deriving rules from data distribution
 
-USE erebus_database_dev;
+-- ---------------------------------------------------------------------------
+-- Shared temp tables: long-form vendor labels + resolved Android authority rows
+-- ---------------------------------------------------------------------------
+DROP TEMPORARY TABLE IF EXISTS tmp_vendor_parser_audit_vendor_long;
+CREATE TEMPORARY TABLE tmp_vendor_parser_audit_vendor_long AS
+SELECT
+    sample_id,
+    'ahnlab_v3' AS vendor_name,
+    ahnlab_v3 AS raw_label
+FROM virustotal_sample_vendor_engine_verdicts
+UNION ALL SELECT sample_id, 'alibaba', alibaba FROM virustotal_sample_vendor_engine_verdicts
+UNION ALL SELECT sample_id, 'avast', avast FROM virustotal_sample_vendor_engine_verdicts
+UNION ALL SELECT sample_id, 'avast_mobile', avast_mobile FROM virustotal_sample_vendor_engine_verdicts
+UNION ALL SELECT sample_id, 'bitdefender', bitdefender FROM virustotal_sample_vendor_engine_verdicts
+UNION ALL SELECT sample_id, 'bitdefenderfalx', bitdefenderfalx FROM virustotal_sample_vendor_engine_verdicts
+UNION ALL SELECT sample_id, 'ikarus', ikarus FROM virustotal_sample_vendor_engine_verdicts
+UNION ALL SELECT sample_id, 'k7gw', k7gw FROM virustotal_sample_vendor_engine_verdicts
+UNION ALL SELECT sample_id, 'kaspersky', kaspersky FROM virustotal_sample_vendor_engine_verdicts
+UNION ALL SELECT sample_id, 'lionic', lionic FROM virustotal_sample_vendor_engine_verdicts
+UNION ALL SELECT sample_id, 'microsoft', microsoft FROM virustotal_sample_vendor_engine_verdicts
+UNION ALL SELECT sample_id, 'tencent', tencent FROM virustotal_sample_vendor_engine_verdicts
+UNION ALL SELECT sample_id, 'zonealarm', zonealarm FROM virustotal_sample_vendor_engine_verdicts;
 
--- ---------------------------------------------------------------------------
--- Common CTE: long-form vendor label table for the core ObsidianDroid parser set
--- ---------------------------------------------------------------------------
--- Core columns:
+DROP TEMPORARY TABLE IF EXISTS tmp_vendor_parser_audit_android_samples;
+CREATE TEMPORARY TABLE tmp_vendor_parser_audit_android_samples AS
+SELECT
+    sample_id,
+    sha256,
+    family_lc AS family_label_lc,
+    platform,
+    file_extension,
+    COALESCE(NULLIF(family_name, ''), NULLIF(resolved_family_lc, ''), '') AS family_canonical,
+    COALESCE(type_slug, '') AS type_slug,
+    resolved_family_lc,
+    authority_bucket
+FROM v_android_sample_family_type_authority
+WHERE platform = 'android'
+  AND file_extension = 'apk';
+
+-- Core long-form columns:
 -- - sample_id
 -- - vendor_name
 -- - raw_label
 -- - label_lc (lower/trimmed)
 -- - normalized separator version: dot_label
-WITH vendor_long AS (
-    SELECT sample_id, 'ahnlab_v3' AS vendor_name, ahnlab_v3 AS raw_label
-    FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'alibaba', alibaba FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'avast', avast FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'avast_mobile', avast_mobile FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'bitdefender', bitdefender FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'bitdefenderfalx', bitdefenderfalx FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'ikarus', ikarus FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'k7gw', k7gw FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'kaspersky', kaspersky FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'lionic', lionic FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'microsoft', microsoft FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'tencent', tencent FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'zonealarm', zonealarm FROM virustotal_sample_vendor_engine_verdicts
-),
-vendor_clean AS (
-    SELECT
-        vl.sample_id,
-        vl.vendor_name,
-        vl.raw_label,
-        LOWER(TRIM(COALESCE(vl.raw_label, ''))) AS label_lc,
-        REPLACE(REPLACE(REPLACE(LOWER(TRIM(COALESCE(vl.raw_label, ''))), ':', '.'), '-', '.'), '/', '.') AS dot_label
-    FROM vendor_long vl
-),
-android_samples AS (
-    SELECT
-        m.sample_id,
-        m.sha256,
-        LOWER(TRIM(m.family_label)) AS family_label_lc,
-        m.platform,
-        m.file_extension,
-        COALESCE(f.family_name, '') AS family_canonical,
-        COALESCE(t.type_slug, '') AS type_slug
-    FROM malware_sample_catalog m
-    LEFT JOIN android_malware_family f
-        ON LOWER(TRIM(m.family_label)) = LOWER(TRIM(f.family_name))
-       AND f.is_active = 1
-    LEFT JOIN android_malware_type t
-        ON t.type_id = f.primary_type_id
-    WHERE m.platform = 'android'
-      AND m.file_extension = 'apk'
-)
-SELECT 1;
+SELECT COUNT(*) AS staged_vendor_long_rows
+FROM tmp_vendor_parser_audit_vendor_long;
 
 -- ---------------------------------------------------------------------------
 -- Q1: Parser pressure summary by vendor (coverage + noisy label rates)
 -- ---------------------------------------------------------------------------
-WITH vendor_long AS (
-    SELECT sample_id, 'ahnlab_v3' AS vendor_name, ahnlab_v3 AS raw_label
-    FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'alibaba', alibaba FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'avast', avast FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'avast_mobile', avast_mobile FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'bitdefender', bitdefender FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'bitdefenderfalx', bitdefenderfalx FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'ikarus', ikarus FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'k7gw', k7gw FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'kaspersky', kaspersky FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'lionic', lionic FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'microsoft', microsoft FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'tencent', tencent FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'zonealarm', zonealarm FROM virustotal_sample_vendor_engine_verdicts
-),
-vendor_clean AS (
+WITH vendor_clean AS (
     SELECT
         vl.vendor_name,
         vl.sample_id,
         LOWER(TRIM(COALESCE(vl.raw_label, ''))) AS label_lc
-    FROM vendor_long vl
+    FROM tmp_vendor_parser_audit_vendor_long vl
 )
 SELECT
     vc.vendor_name,
@@ -103,27 +79,11 @@ ORDER BY genericish_pct DESC, no_detection_pct DESC, vc.vendor_name;
 -- ---------------------------------------------------------------------------
 -- Q2: Vendor token structure profile (dot-separated token counts)
 -- ---------------------------------------------------------------------------
-WITH vendor_long AS (
-    SELECT sample_id, 'ahnlab_v3' AS vendor_name, ahnlab_v3 AS raw_label
-    FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'alibaba', alibaba FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'avast', avast FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'avast_mobile', avast_mobile FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'bitdefender', bitdefender FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'bitdefenderfalx', bitdefenderfalx FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'ikarus', ikarus FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'k7gw', k7gw FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'kaspersky', kaspersky FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'lionic', lionic FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'microsoft', microsoft FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'tencent', tencent FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'zonealarm', zonealarm FROM virustotal_sample_vendor_engine_verdicts
-),
-vendor_clean AS (
+WITH vendor_clean AS (
     SELECT
         vendor_name,
         REPLACE(REPLACE(REPLACE(LOWER(TRIM(COALESCE(raw_label, ''))), ':', '.'), '-', '.'), '/', '.') AS dot_label
-    FROM vendor_long
+    FROM tmp_vendor_parser_audit_vendor_long
     WHERE raw_label IS NOT NULL
       AND TRIM(raw_label) <> ''
       AND LOWER(TRIM(raw_label)) NOT IN ('none','null','n/a')
@@ -141,28 +101,12 @@ ORDER BY avg_token_count DESC, vendor_name;
 -- ---------------------------------------------------------------------------
 -- Q3: Candidate family token mining (3rd token heuristic) by vendor
 -- ---------------------------------------------------------------------------
-WITH vendor_long AS (
-    SELECT sample_id, 'ahnlab_v3' AS vendor_name, ahnlab_v3 AS raw_label
-    FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'alibaba', alibaba FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'avast', avast FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'avast_mobile', avast_mobile FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'bitdefender', bitdefender FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'bitdefenderfalx', bitdefenderfalx FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'ikarus', ikarus FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'k7gw', k7gw FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'kaspersky', kaspersky FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'lionic', lionic FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'microsoft', microsoft FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'tencent', tencent FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'zonealarm', zonealarm FROM virustotal_sample_vendor_engine_verdicts
-),
-vendor_clean AS (
+WITH vendor_clean AS (
     SELECT
         sample_id,
         vendor_name,
         REPLACE(REPLACE(REPLACE(LOWER(TRIM(COALESCE(raw_label, ''))), ':', '.'), '-', '.'), '/', '.') AS dot_label
-    FROM vendor_long
+    FROM tmp_vendor_parser_audit_vendor_long
     WHERE raw_label IS NOT NULL
       AND TRIM(raw_label) <> ''
       AND LOWER(TRIM(raw_label)) NOT IN ('none','null','n/a')
@@ -188,25 +132,11 @@ ORDER BY vendor_name, n DESC, token3;
 -- ---------------------------------------------------------------------------
 -- Q4: Data-driven alias evidence (vendor token -> canonical family)
 -- ---------------------------------------------------------------------------
-WITH vendor_long AS (
-    SELECT sample_id, 'bitdefenderfalx' AS vendor_name, bitdefenderfalx AS raw_label
-    FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'ikarus', ikarus FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'kaspersky', kaspersky FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'lionic', lionic FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'tencent', tencent FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'zonealarm', zonealarm FROM virustotal_sample_vendor_engine_verdicts
-),
-android_samples AS (
+WITH android_samples AS (
     SELECT
-        m.sample_id,
-        COALESCE(f.family_name, LOWER(TRIM(m.family_label))) AS family_canonical
-    FROM malware_sample_catalog m
-    LEFT JOIN android_malware_family f
-        ON LOWER(TRIM(m.family_label)) = LOWER(TRIM(f.family_name))
-       AND f.is_active = 1
-    WHERE m.platform = 'android'
-      AND m.file_extension = 'apk'
+        sample_id,
+        COALESCE(NULLIF(family_canonical, ''), family_label_lc) AS family_canonical
+    FROM tmp_vendor_parser_audit_android_samples
 ),
 vendor_token AS (
     SELECT
@@ -221,7 +151,7 @@ vendor_token AS (
             '.',
             -1
         ) AS vendor_family_token
-    FROM vendor_long vl
+    FROM tmp_vendor_parser_audit_vendor_long vl
     WHERE vl.raw_label IS NOT NULL
       AND TRIM(vl.raw_label) <> ''
       AND LOWER(TRIM(vl.raw_label)) NOT IN ('none','null','n/a','undetected','type-unsupported','timeout','failure')
@@ -243,27 +173,24 @@ ORDER BY vt.vendor_name, support DESC, vt.vendor_family_token, a.family_canonica
 -- ---------------------------------------------------------------------------
 -- Q5: Unmapped catalog families with strong vendor support (curation queue)
 -- ---------------------------------------------------------------------------
-WITH catalog AS (
+WITH unresolved AS (
     SELECT
-        m.sample_id,
-        LOWER(TRIM(m.family_label)) AS family_label_lc
-    FROM malware_sample_catalog m
-    WHERE m.platform = 'android'
-      AND m.file_extension = 'apk'
-),
-mapped AS (
-    SELECT LOWER(TRIM(family_name)) AS family_name_lc
-    FROM android_malware_family
-    WHERE is_active = 1
+        sample_id,
+        family_label_lc AS family_lc,
+        resolved_family_lc,
+        authority_bucket
+    FROM tmp_vendor_parser_audit_android_samples
+    WHERE platform = 'android'
+      AND file_extension = 'apk'
+      AND authority_bucket IN ('resolved_but_no_authority_family', 'generic_label_candidate')
+      AND family_label_lc IS NOT NULL
+      AND family_label_lc <> ''
 ),
 unmapped AS (
-    SELECT c.sample_id, c.family_label_lc
-    FROM catalog c
-    LEFT JOIN mapped m
-      ON m.family_name_lc = c.family_label_lc
-    WHERE c.family_label_lc IS NOT NULL
-      AND c.family_label_lc <> ''
-      AND m.family_name_lc IS NULL
+    SELECT
+        sample_id,
+        COALESCE(NULLIF(resolved_family_lc, ''), family_lc) AS family_label_lc
+    FROM unresolved
 ),
 vendor_hits AS (
     SELECT
@@ -293,31 +220,18 @@ LIMIT 100;
 -- ---------------------------------------------------------------------------
 -- Q6: RAT/Remote semantic audit by vendor (for canonicalization checks)
 -- ---------------------------------------------------------------------------
-WITH vendor_long AS (
-    SELECT sample_id, 'ahnlab_v3' AS vendor_name, ahnlab_v3 AS raw_label
-    FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'alibaba', alibaba FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'avast', avast FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'avast_mobile', avast_mobile FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'bitdefender', bitdefender FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'bitdefenderfalx', bitdefenderfalx FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'ikarus', ikarus FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'k7gw', k7gw FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'kaspersky', kaspersky FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'lionic', lionic FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'microsoft', microsoft FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'tencent', tencent FROM virustotal_sample_vendor_engine_verdicts
-    UNION ALL SELECT sample_id, 'zonealarm', zonealarm FROM virustotal_sample_vendor_engine_verdicts
-)
 SELECT
     vendor_name,
     COUNT(*) AS n_total,
     SUM(LOWER(COALESCE(raw_label,'')) REGEXP '(^|[^a-z])rat([^a-z]|$)|androrat|realrat|xrat|gravityrat') AS rat_hits,
     SUM(LOWER(COALESCE(raw_label,'')) REGEXP 'remote[- ]access|remote[_-]?admin|remoteaccess') AS remote_hits,
     SUM(LOWER(COALESCE(raw_label,'')) REGEXP 'spy') AS spy_hits
-FROM vendor_long
+FROM tmp_vendor_parser_audit_vendor_long
 WHERE raw_label IS NOT NULL
   AND TRIM(raw_label) <> ''
   AND LOWER(TRIM(raw_label)) NOT IN ('none','null','n/a')
 GROUP BY vendor_name
 ORDER BY rat_hits DESC, remote_hits DESC, spy_hits DESC;
+
+DROP TEMPORARY TABLE IF EXISTS tmp_vendor_parser_audit_android_samples;
+DROP TEMPORARY TABLE IF EXISTS tmp_vendor_parser_audit_vendor_long;

@@ -659,9 +659,15 @@ def run_ablation_experiments(
             + samples_label_basis["family_canonical"].fillna("unknown").astype(str).str.strip()
         )
 
-    label_targets: list[tuple[str, str | None]] = [("family_canonical_default", None)]
-    if bool(getattr(app_config, "ENABLE_ABLATION_MULTI_LABEL_TARGETS", True)):
+    label_targets: list[tuple[str, str | None]] = []
+    has_family_id = "family_id" in samples_label_basis.columns
+    if has_family_id:
         label_targets.append(("family_id", "family_id"))
+    else:
+        label_targets.append(("family_canonical_default", None))
+    if bool(getattr(app_config, "ENABLE_ABLATION_MULTI_LABEL_TARGETS", True)):
+        if has_family_id:
+            label_targets.append(("family_canonical_default", None))
         if "type_slug" in samples_label_basis.columns:
             label_targets.append(("type_slug", "type_slug"))
         if "family_within_type" in samples_label_basis.columns:
@@ -928,11 +934,19 @@ def _apply_leakage_delta(summary_df: pd.DataFrame) -> pd.DataFrame:
         return summary_df
     out = summary_df.copy()
     out["leakage_sensitivity_delta"] = None
+    out["vendor_leakage_delta_vs_vendor_safe"] = None
     out["vendor_leakage_delta_vs_vendor_full"] = None
-    if "label_target" not in out.columns:
-        baseline = out[out["experiment"] == "vendor_full"][["model", "macro_f1_score"]]
+
+    def _baseline_frame(frame: pd.DataFrame) -> pd.DataFrame:
+        baseline = frame[frame["experiment"] == "vendor_no_parsed_family"][["model", "macro_f1_score"]]
         if baseline.empty:
-            baseline = out[out["experiment"] == "vendor_only"][["model", "macro_f1_score"]]
+            baseline = frame[frame["experiment"] == "vendor_only"][["model", "macro_f1_score"]]
+        if baseline.empty:
+            baseline = frame[frame["experiment"] == "vendor_full"][["model", "macro_f1_score"]]
+        return baseline
+
+    if "label_target" not in out.columns:
+        baseline = _baseline_frame(out)
         if not baseline.empty:
             baseline_map = {
                 str(row["model"]): float(row["macro_f1_score"])
@@ -945,12 +959,13 @@ def _apply_leakage_delta(summary_df: pd.DataFrame) -> pd.DataFrame:
                 if model in baseline_map and pd.notna(macro_f1):
                     delta = round(float(macro_f1) - baseline_map[model], 6)
                     out.at[idx, "leakage_sensitivity_delta"] = delta
+                    out.at[idx, "vendor_leakage_delta_vs_vendor_safe"] = delta
                     out.at[idx, "vendor_leakage_delta_vs_vendor_full"] = delta
         return out
 
     for lt_label in sorted(out["label_target"].dropna().unique()):
         lt_frame = out[out["label_target"] == lt_label]
-        baseline = lt_frame[lt_frame["experiment"] == "vendor_full"][["model", "macro_f1_score"]]
+        baseline = _baseline_frame(lt_frame)
         if baseline.empty:
             continue
         baseline_map = {
@@ -966,6 +981,7 @@ def _apply_leakage_delta(summary_df: pd.DataFrame) -> pd.DataFrame:
             if model in baseline_map and pd.notna(macro_f1):
                 delta = round(float(macro_f1) - baseline_map[model], 6)
                 out.at[idx, "leakage_sensitivity_delta"] = delta
+                out.at[idx, "vendor_leakage_delta_vs_vendor_safe"] = delta
                 out.at[idx, "vendor_leakage_delta_vs_vendor_full"] = delta
     return out
 

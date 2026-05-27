@@ -17,17 +17,17 @@ def test_parse_experiment_combo_splits_label_target() -> None:
 def test_selected_ablation_includes_permission_fusion_experiments(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(app_config, "RUNTIME_ABLATION_ACTIVE", True, raising=False)
     monkeypatch.setattr(app_config, "CONFUSION_MATRIX_EXPORT_MODE", "selected_ablation", raising=False)
-    assert cml.should_export_confusion_matrix(experiment_id="permissions_grouped__lt_family_canonical_default")
-    assert cml.should_export_confusion_matrix(experiment_id="full_fused__lt_family_canonical_default")
+    assert cml.should_export_confusion_matrix(experiment_id="permissions_grouped__lt_family_id")
+    assert cml.should_export_confusion_matrix(experiment_id="full_fused__lt_family_id")
 
 
 def test_should_export_headline_only_filters_ablation_grid(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(app_config, "RUNTIME_ABLATION_ACTIVE", True, raising=False)
     monkeypatch.setattr(app_config, "CONFUSION_MATRIX_EXPORT_MODE", "headline_only", raising=False)
-    monkeypatch.setattr(app_config, "CONFUSION_MATRIX_HEADLINE_EXPERIMENT", "vendor_full", raising=False)
-    assert cml.should_export_confusion_matrix(experiment_id="vendor_full__lt_family_canonical_default")
-    assert not cml.should_export_confusion_matrix(experiment_id="vendor_full__lt_family_id")
-    assert not cml.should_export_confusion_matrix(experiment_id="permissions_raw__lt_family_canonical_default")
+    monkeypatch.setattr(app_config, "CONFUSION_MATRIX_HEADLINE_EXPERIMENT", "vendor_no_parsed_family", raising=False)
+    assert cml.should_export_confusion_matrix(experiment_id="vendor_no_parsed_family__lt_family_id")
+    assert not cml.should_export_confusion_matrix(experiment_id="vendor_no_parsed_family__lt_family_canonical_default")
+    assert not cml.should_export_confusion_matrix(experiment_id="permissions_raw__lt_family_id")
 def test_write_catalog_smoke(tmp_path: Path) -> None:
     cm = tmp_path / "conf_matrices"
     (cm / "headline").mkdir(parents=True)

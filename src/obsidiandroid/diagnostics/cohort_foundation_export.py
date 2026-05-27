@@ -15,6 +15,7 @@ from typing import Any
 
 import pandas as pd
 
+from config import app_config
 from obsidiandroid.database import db_config
 
 from .cohort_vocabulary import KEY_COHORT_PREPARED_ROW_COUNT, KEY_COHORT_SQL_SCOPE_ROW_COUNT
@@ -94,6 +95,246 @@ def _low_support_families_retained(
     return out
 
 
+def _top_distribution(
+    samples_df: pd.DataFrame,
+    column: str,
+    *,
+    top_n: int = 20,
+) -> dict[str, int]:
+    if column not in samples_df.columns or samples_df.empty:
+        return {}
+    series = samples_df[column].fillna("").astype(str).str.strip()
+    series = series[series != ""]
+    if series.empty:
+        return {}
+    return {str(k): int(v) for k, v in series.value_counts().head(top_n).items()}
+
+
+def _normalize_text_series(samples_df: pd.DataFrame, column: str) -> pd.Series:
+    if samples_df.empty:
+        return pd.Series([], dtype="object")
+    if column not in samples_df.columns:
+        return pd.Series([""] * len(samples_df), index=samples_df.index, dtype="object")
+    return samples_df[column].fillna("").astype(str).str.strip()
+
+
+def _top_android_drift_groups(
+    samples_df: pd.DataFrame,
+    *,
+    group_columns: tuple[str, ...],
+    top_n: int = 10,
+) -> list[dict[str, Any]]:
+    if samples_df.empty or not all(col in samples_df.columns for col in group_columns):
+        return []
+
+    frame = samples_df.copy()
+    for col in group_columns:
+        frame[col] = _normalize_text_series(frame, col)
+        frame[col] = frame[col].replace("", "<blank>")
+
+    lane = _normalize_text_series(frame, "analysis_lane").str.lower()
+    target = _normalize_text_series(frame, "payload_target_platform").str.lower()
+    label_kind = _normalize_text_series(frame, "sample_label_kind").str.lower()
+    vt_token = _normalize_text_series(frame, "vt_family_token")
+    family_raw = _normalize_text_series(frame, "family_label_raw").str.lower()
+    family_canonical = _normalize_text_series(frame, "family_canonical").str.lower()
+
+    frame["issue_non_android_lane"] = lane != "android_artifact"
+    frame["issue_non_android_target"] = (target != "") & (target != "android")
+    frame["issue_weak_label"] = label_kind.isin(
+        {"filename", "hash_like", "opaque_string", "unclassified"}
+    ) & ~family_canonical.isin({"", "unknown", "other", "unmapped", "none", "null"})
+    frame["issue_blank_family_with_token"] = (
+        (vt_token != "")
+        & family_raw.isin({"", "unknown", "generic", "unclassified", "unlabeled"})
+    )
+    frame["issue_family_conflict"] = (
+        ~family_raw.isin({"", "unknown", "generic", "unclassified", "unlabeled"})
+        & ~family_canonical.isin({"", "unknown", "other", "unmapped", "none", "null"})
+        & (family_raw != family_canonical)
+    )
+    issue_columns = [
+        "issue_non_android_lane",
+        "issue_non_android_target",
+        "issue_weak_label",
+        "issue_blank_family_with_token",
+        "issue_family_conflict",
+    ]
+    frame["issue_rows"] = frame[issue_columns].any(axis=1)
+    frame = frame[frame["issue_rows"]].copy()
+    if frame.empty:
+        return []
+
+    grouped = (
+        frame.groupby(list(group_columns), dropna=False)
+        .agg(
+            rows=("issue_rows", "size"),
+            non_android_lane_rows=("issue_non_android_lane", "sum"),
+            non_android_payload_target_rows=("issue_non_android_target", "sum"),
+            weak_label_rows=("issue_weak_label", "sum"),
+            blank_family_raw_with_vt_token_rows=("issue_blank_family_with_token", "sum"),
+            raw_family_vs_canonical_conflict_rows=("issue_family_conflict", "sum"),
+        )
+        .reset_index()
+    )
+    grouped["issue_events"] = (
+        grouped["non_android_lane_rows"]
+        + grouped["non_android_payload_target_rows"]
+        + grouped["weak_label_rows"]
+        + grouped["blank_family_raw_with_vt_token_rows"]
+        + grouped["raw_family_vs_canonical_conflict_rows"]
+    )
+    grouped = grouped.sort_values(
+        by=["issue_events", "rows"],
+        ascending=[False, False],
+        kind="stable",
+    ).head(top_n)
+    return grouped.to_dict(orient="records")
+
+
+def _catalog_semantics_summary(samples_df: pd.DataFrame) -> dict[str, Any]:
+    summary = {
+        "analysis_lane_distribution": _top_distribution(samples_df, "analysis_lane"),
+        "sample_label_kind_distribution": _top_distribution(samples_df, "sample_label_kind"),
+        "payload_target_platform_distribution": _top_distribution(samples_df, "payload_target_platform"),
+        "payload_target_source_distribution": _top_distribution(samples_df, "payload_target_source"),
+        "unknown_artifact_kind_distribution": _top_distribution(samples_df, "unknown_artifact_kind"),
+        "source_batch_label_distribution": _top_distribution(samples_df, "source_batch_label"),
+        "top_drift_families": _top_android_drift_groups(
+            samples_df,
+            group_columns=("family_canonical",),
+        ),
+        "top_drift_types": _top_android_drift_groups(
+            samples_df,
+            group_columns=("type_slug",),
+        ),
+        "top_drift_source_batches": _top_android_drift_groups(
+            samples_df,
+            group_columns=("source_batch_label",),
+        ),
+    }
+    if "analysis_lane" in samples_df.columns and not samples_df.empty:
+        lane = samples_df["analysis_lane"].fillna("").astype(str).str.strip().str.lower()
+        summary["non_android_lane_rows"] = int((lane != "android_artifact").sum())
+    else:
+        summary["non_android_lane_rows"] = 0
+    if "payload_target_platform" in samples_df.columns and not samples_df.empty:
+        target = (
+            samples_df["payload_target_platform"].fillna("").astype(str).str.strip().str.lower()
+        )
+        summary["non_android_payload_target_rows"] = int(
+            ((target != "") & (target != "android")).sum()
+        )
+    else:
+        summary["non_android_payload_target_rows"] = 0
+    if "sample_label_kind" in samples_df.columns and not samples_df.empty:
+        kinds = samples_df["sample_label_kind"].fillna("").astype(str).str.strip().str.lower()
+        summary["hash_like_label_rows"] = int((kinds == "hash_like").sum())
+        summary["opaque_label_rows"] = int((kinds == "opaque_string").sum())
+        summary["unclassified_label_rows"] = int((kinds == "unclassified").sum())
+        summary["filename_label_rows"] = int((kinds == "filename").sum())
+    else:
+        summary["hash_like_label_rows"] = 0
+        summary["opaque_label_rows"] = 0
+        summary["unclassified_label_rows"] = 0
+        summary["filename_label_rows"] = 0
+    if "vt_family_token" in samples_df.columns and not samples_df.empty:
+        vt_token = samples_df["vt_family_token"].fillna("").astype(str).str.strip()
+        summary["vt_family_token_rows"] = int((vt_token != "").sum())
+    else:
+        summary["vt_family_token_rows"] = 0
+    if (
+        "vt_family_token" in samples_df.columns
+        and "family_label_raw" in samples_df.columns
+        and not samples_df.empty
+    ):
+        vt_token = samples_df["vt_family_token"].fillna("").astype(str).str.strip()
+        family_raw = samples_df["family_label_raw"].fillna("").astype(str).str.strip().str.lower()
+        summary["blank_family_raw_with_vt_token_rows"] = int(
+            (
+                (vt_token != "")
+                & family_raw.isin({"", "unknown", "generic", "unclassified", "unlabeled"})
+            ).sum()
+        )
+    else:
+        summary["blank_family_raw_with_vt_token_rows"] = 0
+    if "family_canonical" in samples_df.columns and not samples_df.empty:
+        family_canonical = samples_df["family_canonical"].fillna("").astype(str).str.strip().str.lower()
+    else:
+        family_canonical = pd.Series([], dtype="object")
+    if (
+        "sample_label_kind" in samples_df.columns
+        and "family_canonical" in samples_df.columns
+        and not samples_df.empty
+    ):
+        kinds = samples_df["sample_label_kind"].fillna("").astype(str).str.strip().str.lower()
+        summary["weak_label_with_canonical_family_rows"] = int(
+            (
+                kinds.isin({"filename", "hash_like", "opaque_string", "unclassified"})
+                & ~family_canonical.isin({"", "unknown", "other", "unmapped", "none", "null"})
+            ).sum()
+        )
+    else:
+        summary["weak_label_with_canonical_family_rows"] = 0
+    if (
+        "family_label_raw" in samples_df.columns
+        and "family_canonical" in samples_df.columns
+        and not samples_df.empty
+    ):
+        family_raw = samples_df["family_label_raw"].fillna("").astype(str).str.strip().str.lower()
+        summary["raw_family_vs_canonical_conflict_rows"] = int(
+            (
+                ~family_raw.isin({"", "unknown", "generic", "unclassified", "unlabeled"})
+                & ~family_canonical.isin({"", "unknown", "other", "unmapped", "none", "null"})
+                & (family_raw != family_canonical)
+            ).sum()
+        )
+    else:
+        summary["raw_family_vs_canonical_conflict_rows"] = 0
+    return summary
+
+
+def build_catalog_semantics_summary(
+    samples_df: pd.DataFrame,
+    *,
+    scope: str = "sql_governed_android_cohort",
+) -> dict[str, Any]:
+    """Return normalized catalog-semantics summary for an already loaded cohort frame.
+
+    This mirrors the shape previously produced by the SQL-scope semantics profiler so callers
+    that already materialized the governed cohort do not need to pay for a second full DB scan.
+    """
+    summary = _catalog_semantics_summary(samples_df)
+    return {
+        "scope": str(scope or "sql_governed_android_cohort"),
+        **summary,
+    }
+
+
+def _catalog_semantics_delta(
+    prepared: dict[str, Any],
+    sql_scope: dict[str, Any],
+) -> dict[str, int]:
+    """Summarize how much Python-side preparation reduced visible cohort drift."""
+    metrics = (
+        "non_android_lane_rows",
+        "non_android_payload_target_rows",
+        "filename_label_rows",
+        "hash_like_label_rows",
+        "opaque_label_rows",
+        "unclassified_label_rows",
+        "blank_family_raw_with_vt_token_rows",
+        "weak_label_with_canonical_family_rows",
+        "raw_family_vs_canonical_conflict_rows",
+    )
+    out: dict[str, int] = {}
+    for metric in metrics:
+        prepared_value = int(prepared.get(metric, 0) or 0)
+        sql_scope_value = int(sql_scope.get(metric, 0) or 0)
+        out[metric] = sql_scope_value - prepared_value
+    return out
+
+
 def _missing_vt_time_rate(samples_df: pd.DataFrame) -> float:
     sub = "vt_first_submission_date" if "vt_first_submission_date" in samples_df.columns else None
     itw = "vt_first_seen_itw_date" if "vt_first_seen_itw_date" in samples_df.columns else None
@@ -150,6 +391,9 @@ def build_cohort_foundation_payload(
         except (TypeError, ValueError):
             continue
     sql_scope_total = int(gate_stats.get("total_candidates", 0) or 0)
+    governed_sql_total = int(
+        gate_stats.get("governed_cohort_count", gate_stats.get("final_count_estimate", 0)) or 0
+    )
     interim_notes: list[str] = []
     if upstream_min_i is not None and sql_scope_total < upstream_min_i:
         interim_notes.append(
@@ -182,6 +426,12 @@ def build_cohort_foundation_payload(
         "min_samples_per_family_configured": int(configured_min_samples_per_family),
         "min_samples_per_family_applied_in_sql": min_samples_per_family_sql is not None,
         "min_samples_per_family_sql_value": min_samples_per_family_sql,
+        "exclude_families_deferred_by_snapshot_lock": bool(
+            getattr(samples_df, "attrs", {}).get("exclude_families_deferred_by_snapshot_lock", False)
+        ),
+        "requested_excluded_families": list(
+            getattr(samples_df, "attrs", {}).get("requested_exclude_families", ()) or ()
+        ),
         "gate_stats": {
             "total_candidates": int(gate_stats.get("total_candidates", 0) or 0),
             "excluded_unmapped_family": int(gate_stats.get("excluded_unmapped_family", 0) or 0),
@@ -190,8 +440,18 @@ def build_cohort_foundation_payload(
             "excluded_missing_hash_registry": int(gate_stats.get("excluded_missing_hash_registry", 0) or 0),
             "excluded_missing_package_name": int(gate_stats.get("excluded_missing_package_name", 0) or 0),
             "excluded_low_support": int(gate_stats.get("excluded_low_support", 0) or 0),
-            "governed_cohort_count_sql": int(gate_stats.get("governed_cohort_count", gate_stats.get("final_count_estimate", 0)) or 0),
+            "excluded_weak_label_kind": int(gate_stats.get("excluded_weak_label_kind", 0) or 0),
+            "excluded_family_label_conflict": int(gate_stats.get("excluded_family_label_conflict", 0) or 0),
+            "governed_cohort_count_sql": governed_sql_total,
             "final_count_estimate_sequential_legacy": gate_stats.get("final_count_estimate_sequential_legacy"),
+        },
+        "cohort_attrition": {
+            "sql_scope_total": sql_scope_total,
+            "governed_sql_total": governed_sql_total,
+            "prepared_total": n,
+            "sql_scope_to_governed_pct": _pct(governed_sql_total, sql_scope_total),
+            "sql_scope_to_prepared_pct": _pct(n, sql_scope_total),
+            "governed_to_prepared_pct": _pct(n, governed_sql_total),
         },
         "profile_excluded_family_canonical": list(gate_stats.get("excluded_family_canonical") or []),
         "loaded_dataframe": {
@@ -204,16 +464,28 @@ def build_cohort_foundation_payload(
         "missing_package_rate_pct": _pct(pkg_missing, n),
         "missing_vt_timestamp_rate_pct": _missing_vt_time_rate(samples_df),
         "family_type_summary": shares,
+        "catalog_semantics_summary": _catalog_semantics_summary(samples_df),
+        "catalog_semantics_sql_scope": (
+            dict(samples_df.attrs.get("catalog_semantics_sql_scope", {}))
+            if hasattr(samples_df, "attrs") and isinstance(samples_df.attrs.get("catalog_semantics_sql_scope"), dict)
+            else {}
+        ),
+        "catalog_semantics_delta": {},
         "low_support_families_retained_in_cohort": low_sup[:200],
         "cohort_definition_notes": [
             "Prepared cohort: rows in samples_df after cohort SQL fetch plus in-Python dataset/time contract filters.",
             "gate_stats.total_candidates: SQL head count for the same profile scope (joins + time window + exclusions).",
             "Marginal exclusion buckets in gate_stats can overlap; trust governed_cohort_count_sql and loaded_dataframe.rows.",
             "min_samples_per_family applies in SQL to both single-type and all-type cohorts when configured.",
+            "Catalog semantics fields are additive Erebus diagnostics only; they do not redefine Android cohort membership or type authority inside ObsidianDroid.",
             "Final research totals may change until upstream Erebus ingestion finishes rebuilding.",
         ],
         "interim_rebuild_warnings": interim_notes,
     }
+    payload["catalog_semantics_delta"] = _catalog_semantics_delta(
+        payload.get("catalog_semantics_summary", {}),
+        payload.get("catalog_semantics_sql_scope", {}),
+    )
     return payload
 
 
@@ -248,6 +520,7 @@ def export_cohort_foundation_bundle(
     paths: list[str] = []
 
     json_path = diagnostics_dir / "cohort_foundation.json"
+    json_path.parent.mkdir(parents=True, exist_ok=True)
     json_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     paths.append(str(json_path))
 
@@ -271,13 +544,55 @@ def export_cohort_foundation_bundle(
     counts_rows.append({"metric": "family_count", "value": str(ft.get("family_count")), "section": "families"})
     counts_rows.append({"metric": "type_count", "value": str(ft.get("type_count")), "section": "families"})
     counts_rows.append({"metric": "top_family_share_pct", "value": str(ft.get("top_family_share_pct")), "section": "families"})
+    attrition = payload.get("cohort_attrition", {})
+    for key in (
+        "sql_scope_total",
+        "governed_sql_total",
+        "prepared_total",
+        "sql_scope_to_governed_pct",
+        "sql_scope_to_prepared_pct",
+        "governed_to_prepared_pct",
+    ):
+        counts_rows.append({"metric": key, "value": str(attrition.get(key, 0)), "section": "cohort_attrition"})
+    semantics = payload.get("catalog_semantics_summary", {})
+    semantics_sql_scope = payload.get("catalog_semantics_sql_scope", {})
+    semantics_delta = payload.get("catalog_semantics_delta", {})
+    for key in (
+        "non_android_lane_rows",
+        "non_android_payload_target_rows",
+        "hash_like_label_rows",
+        "opaque_label_rows",
+        "unclassified_label_rows",
+        "filename_label_rows",
+        "vt_family_token_rows",
+        "blank_family_raw_with_vt_token_rows",
+        "weak_label_with_canonical_family_rows",
+        "raw_family_vs_canonical_conflict_rows",
+    ):
+        counts_rows.append({"metric": key, "value": str(semantics.get(key, 0)), "section": "catalog_semantics"})
+        counts_rows.append(
+            {
+                "metric": key,
+                "value": str(semantics_sql_scope.get(key, 0)),
+                "section": "catalog_semantics_sql_scope",
+            }
+        )
+        counts_rows.append(
+            {
+                "metric": key,
+                "value": str(semantics_delta.get(key, 0)),
+                "section": "catalog_semantics_delta",
+            }
+        )
 
-    counts_path = diagnostics_dir / "cohort_foundation_counts.csv"
-    with counts_path.open("w", encoding="utf-8", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=["section", "metric", "value"])
-        w.writeheader()
-        w.writerows(counts_rows)
-    paths.append(str(counts_path))
+    if bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True)):
+        counts_path = diagnostics_dir / "cohort_foundation_counts.csv"
+        counts_path.parent.mkdir(parents=True, exist_ok=True)
+        with counts_path.open("w", encoding="utf-8", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=["section", "metric", "value"])
+            w.writeheader()
+            w.writerows(counts_rows)
+        paths.append(str(counts_path))
 
     schema_rows: list[dict[str, Any]] = []
     for col in samples_df.columns:
@@ -291,15 +606,17 @@ def export_cohort_foundation_bundle(
                 "nunique": int(ser.nunique(dropna=True)),
             }
         )
-    schema_path = diagnostics_dir / "cohort_foundation_schema.csv"
-    with schema_path.open("w", encoding="utf-8", newline="") as fh:
-        w = csv.DictWriter(
-            fh,
-            fieldnames=["column", "dtype", "non_null_count", "null_count", "nunique"],
-        )
-        w.writeheader()
-        w.writerows(schema_rows)
-    paths.append(str(schema_path))
+    if bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True)):
+        schema_path = diagnostics_dir / "cohort_foundation_schema.csv"
+        schema_path.parent.mkdir(parents=True, exist_ok=True)
+        with schema_path.open("w", encoding="utf-8", newline="") as fh:
+            w = csv.DictWriter(
+                fh,
+                fieldnames=["column", "dtype", "non_null_count", "null_count", "nunique"],
+            )
+            w.writeheader()
+            w.writerows(schema_rows)
+        paths.append(str(schema_path))
 
     md_lines = [
         "# Cohort foundation (samples stage)",
@@ -312,6 +629,14 @@ def export_cohort_foundation_bundle(
         "",
         f"- start: `{payload.get('time_contract', {}).get('start_utc')}`",
         f"- end: `{payload.get('time_contract', {}).get('end_utc')}`",
+        "",
+        "## Cohort policy contract",
+        "",
+        f"- min_samples_per_family configured: `{payload.get('min_samples_per_family_configured')}`",
+        f"- min_samples_per_family applied in SQL: `{payload.get('min_samples_per_family_applied_in_sql')}`",
+        f"- min_samples_per_family SQL value: `{payload.get('min_samples_per_family_sql_value')}`",
+        f"- exclude_families_deferred_by_snapshot_lock: `{payload.get('exclude_families_deferred_by_snapshot_lock')}`",
+        f"- requested_excluded_families: `{', '.join(payload.get('requested_excluded_families') or []) or '(none)'}`",
         "",
         "## Database: cohort SQL scope (``gate_stats``)",
         "",
@@ -328,17 +653,112 @@ def export_cohort_foundation_bundle(
         f"- distinct sample_id: {ld.get('distinct_sample_id')} (duplicate surplus {ld.get('duplicate_sample_id_surplus')})",
         f"- distinct sha256: {ld.get('distinct_sha256')}",
         "",
+        "## Cohort attrition",
+        "",
+        f"- SQL scope → governed: {attrition.get('governed_sql_total', 0)}/{attrition.get('sql_scope_total', 0)} ({attrition.get('sql_scope_to_governed_pct', 0)}%)",
+        f"- SQL scope → prepared: {attrition.get('prepared_total', 0)}/{attrition.get('sql_scope_total', 0)} ({attrition.get('sql_scope_to_prepared_pct', 0)}%)",
+        f"- governed → prepared: {attrition.get('prepared_total', 0)}/{attrition.get('governed_sql_total', 0)} ({attrition.get('governed_to_prepared_pct', 0)}%)",
+        "",
+        "## Catalog semantics",
+        "",
+        f"- non_android_lane_rows: {semantics.get('non_android_lane_rows', 0)}",
+        f"- non_android_payload_target_rows: {semantics.get('non_android_payload_target_rows', 0)}",
+        f"- filename_label_rows: {semantics.get('filename_label_rows', 0)}",
+        f"- hash_like_label_rows: {semantics.get('hash_like_label_rows', 0)}",
+        f"- opaque_label_rows: {semantics.get('opaque_label_rows', 0)}",
+        f"- unclassified_label_rows: {semantics.get('unclassified_label_rows', 0)}",
+        f"- vt_family_token_rows: {semantics.get('vt_family_token_rows', 0)}",
+        f"- blank_family_raw_with_vt_token_rows: {semantics.get('blank_family_raw_with_vt_token_rows', 0)}",
+        f"- weak_label_with_canonical_family_rows: {semantics.get('weak_label_with_canonical_family_rows', 0)}",
+        f"- raw_family_vs_canonical_conflict_rows: {semantics.get('raw_family_vs_canonical_conflict_rows', 0)}",
+        "",
         "## What this cohort is / is not",
         "",
         *(f"- {note}" for note in payload.get("cohort_definition_notes", [])),
         "",
     ]
+    lane_dist = semantics.get("analysis_lane_distribution") or {}
+    if lane_dist:
+        md_lines.extend(["### Top analysis lanes", ""])
+        for key, value in lane_dist.items():
+            md_lines.append(f"- `{key}`: {value}")
+        md_lines.append("")
+    label_dist = semantics.get("sample_label_kind_distribution") or {}
+    if label_dist:
+        md_lines.extend(["### Top sample-label kinds", ""])
+        for key, value in label_dist.items():
+            md_lines.append(f"- `{key}`: {value}")
+        md_lines.append("")
+    target_dist = semantics.get("payload_target_platform_distribution") or {}
+    if target_dist:
+        md_lines.extend(["### Top payload targets", ""])
+        for key, value in target_dist.items():
+            md_lines.append(f"- `{key}`: {value}")
+        md_lines.append("")
+    batch_dist = semantics.get("source_batch_label_distribution") or {}
+    if batch_dist:
+        md_lines.extend(["### Top source batches", ""])
+        for key, value in batch_dist.items():
+            md_lines.append(f"- `{key}`: {value}")
+        md_lines.append("")
+    if semantics_sql_scope:
+        md_lines.extend(["## Catalog semantics (SQL scope preview)", ""])
+        md_lines.append(
+            f"- non_android_lane_rows: {semantics_sql_scope.get('non_android_lane_rows', 0)}"
+        )
+        md_lines.append(
+            f"- non_android_payload_target_rows: {semantics_sql_scope.get('non_android_payload_target_rows', 0)}"
+        )
+        md_lines.append(
+            f"- weak_label_with_canonical_family_rows: {semantics_sql_scope.get('weak_label_with_canonical_family_rows', 0)}"
+        )
+        md_lines.append(
+            f"- raw_family_vs_canonical_conflict_rows: {semantics_sql_scope.get('raw_family_vs_canonical_conflict_rows', 0)}"
+        )
+        md_lines.append("")
+    if semantics_delta:
+        md_lines.extend(["## Catalog semantics delta (SQL scope minus prepared cohort)", ""])
+        for key in (
+            "non_android_lane_rows",
+            "non_android_payload_target_rows",
+            "filename_label_rows",
+            "hash_like_label_rows",
+            "opaque_label_rows",
+            "unclassified_label_rows",
+            "blank_family_raw_with_vt_token_rows",
+            "weak_label_with_canonical_family_rows",
+            "raw_family_vs_canonical_conflict_rows",
+        ):
+            md_lines.append(f"- {key}: {semantics_delta.get(key, 0)}")
+        md_lines.append("")
+    for heading, rows, key_name in (
+        ("### Top drift families", semantics.get("top_drift_families") or [], "family_canonical"),
+        ("### Top drift types", semantics.get("top_drift_types") or [], "type_slug"),
+        (
+            "### Top drift source batches",
+            semantics.get("top_drift_source_batches") or [],
+            "source_batch_label",
+        ),
+    ):
+        if not rows:
+            continue
+        md_lines.extend([heading, ""])
+        for row in rows:
+            label = str(row.get(key_name, "<blank>") or "<blank>")
+            md_lines.append(
+                f"- `{label}`: rows={int(row.get('rows', 0))}, "
+                f"issue_events={int(row.get('issue_events', 0))}, "
+                f"weak_label_rows={int(row.get('weak_label_rows', 0))}, "
+                f"family_conflicts={int(row.get('raw_family_vs_canonical_conflict_rows', 0))}"
+            )
+        md_lines.append("")
     warns = payload.get("interim_rebuild_warnings") or []
     if warns:
         md_lines.extend(["## Warnings", ""])
         md_lines.extend(f"- **{w}**" for w in warns)
         md_lines.append("")
     md_path = diagnostics_dir / "cohort_foundation.md"
+    md_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.write_text("\n".join(md_lines), encoding="utf-8")
     paths.append(str(md_path))
 

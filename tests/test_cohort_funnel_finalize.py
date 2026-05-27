@@ -1,9 +1,12 @@
 """Cohort funnel / row authority assembly."""
 
 from obsidiandroid.diagnostics.research_validity.cohort_funnel import (
+    build_cohort_funnel_table,
     classify_main_training_row_authority,
     finalize_cohort_funnel_dict,
+    write_cohort_funnel_artifacts,
 )
+from pathlib import Path
 
 
 def test_row_authority_intersection_when_alignment_shrinks() -> None:
@@ -58,3 +61,28 @@ def test_finalize_cohort_funnel_populates_manifest_context() -> None:
     trow = next(r for r in funnel if r.get("stage") == "training_feature_cols_post_prune")
     assert trow.get("column_count") == 120
     assert trow.get("metric_kind") == "training_feature_column_count"
+
+
+def test_write_cohort_funnel_artifacts_includes_temporal_holdout_section(tmp_path: Path) -> None:
+    ctx: dict = {
+        "cohort_funnel": [
+            {"stage": "prepared_cohort", "row_count": 100, "notes": "prepared"},
+            {"stage": "eval_train_rows_split_audit", "row_count": 60, "notes": "train"},
+            {"stage": "eval_test_rows_split_audit", "row_count": 20, "notes": "test"},
+        ],
+        "main_training_row_authority": "governed_cohort",
+        "split": {
+            "temporal_split_summary": {
+                "test_year_floor": 2024,
+                "observed_year_min": 2020,
+                "observed_year_max": 2025,
+                "test_rows_dropped_unseen_train_classes": 219,
+            }
+        },
+    }
+    paths = write_cohort_funnel_artifacts(diagnostics_dir=tmp_path, manifest_context=ctx)
+    assert any(path.name == "cohort_funnel.md" for path in paths)
+    text = (tmp_path / "cohort_funnel.md").read_text(encoding="utf-8")
+    assert "## Temporal holdout" in text
+    assert "`2024`" in text
+    assert "`219`" in text

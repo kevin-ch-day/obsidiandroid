@@ -70,7 +70,17 @@ def classify_f1_status(f1: float, support: int, include_score_rank: bool = False
     return f"{tier_code} - {description}" if include_score_rank else description
 
 
-def print_evaluation_summary(df, acc, prec, recall, f1, cm_path: str = None):
+def print_evaluation_summary(
+    df,
+    acc,
+    prec,
+    recall,
+    f1,
+    macro_prec: float | None = None,
+    macro_recall: float | None = None,
+    macro_f1: float | None = None,
+    cm_path: str = None,
+):
     """Print per-family and global metrics in a console-safe format."""
     if ml_console.is_minimal():
         return
@@ -118,11 +128,17 @@ def print_evaluation_summary(df, acc, prec, recall, f1, cm_path: str = None):
     print(f"{'Metric':<12}{'Score':<10} Description")
     print(f"{'-' * 12} {'-' * 10} {'-' * 45}")
     print(f"{'Accuracy':<12}{acc:.4f}   Overall correctness of predictions")
-    print(f"{'Precision':<12}{prec:.4f}   Reliability of positive predictions")
-    print(f"{'Recall':<12}{recall:.4f}   Sensitivity to actual malware")
-    print(f"{'F1 Score':<12}{f1:.4f}   Balance of precision and recall")
+    print(f"{'Precision':<12}{prec:.4f}   Weighted precision across families")
+    print(f"{'Recall':<12}{recall:.4f}   Weighted recall across families")
+    print(f"{'F1 Score':<12}{f1:.4f}   Weighted F1 across families")
+    if macro_prec is not None:
+        print(f"{'Macro Prec':<12}{macro_prec:.4f}   Macro precision across families")
+    if macro_recall is not None:
+        print(f"{'Macro Recall':<12}{macro_recall:.4f}   Macro recall across families")
+    if macro_f1 is not None:
+        print(f"{'Macro F1':<12}{macro_f1:.4f}   Primary multiclass family-balance signal")
 
-    _print_interpretation(f1)
+    _print_interpretation(macro_f1 if macro_f1 is not None else f1)
 
     # Confusion matrix path is reported by the exporter and callers.
 
@@ -170,4 +186,6 @@ def _print_interpretation(f1: float):
     elif f1 >= 0.60:
         du.print_warning(f"{tier_code} - {description}. Review features and AV trust sources.")
     else:
-        du.print_error(f"{tier_code} - {description}. Consider retraining or rebalancing data.")
+        du.print_warning(
+            f"{tier_code} - {description}. Model-quality failure on evaluation; consider retraining or rebalancing data."
+        )

@@ -173,6 +173,39 @@ def test_print_ablation_combo_summary_compacts_model_timings(monkeypatch) -> Non
     assert "slowest=xgboost 9.75s" in captured[0]
 
 
+def test_apply_leakage_delta_prefers_vendor_no_parsed_family_baseline() -> None:
+    summary_df = pd.DataFrame(
+        [
+            {
+                "label_target": "family_id",
+                "experiment": "vendor_full",
+                "model": "random_forest",
+                "macro_f1_score": 0.90,
+            },
+            {
+                "label_target": "family_id",
+                "experiment": "vendor_no_parsed_family",
+                "model": "random_forest",
+                "macro_f1_score": 0.70,
+            },
+            {
+                "label_target": "family_id",
+                "experiment": "full_fused",
+                "model": "random_forest",
+                "macro_f1_score": 0.95,
+            },
+        ]
+    )
+
+    out = stage_ablation._apply_leakage_delta(summary_df)  # pylint: disable=protected-access
+    full_fused = out[out["experiment"] == "full_fused"].iloc[0]
+    vendor_full = out[out["experiment"] == "vendor_full"].iloc[0]
+
+    assert float(full_fused["vendor_leakage_delta_vs_vendor_safe"]) == 0.25
+    assert float(full_fused["vendor_leakage_delta_vs_vendor_full"]) == 0.25
+    assert float(vendor_full["vendor_leakage_delta_vs_vendor_safe"]) == 0.20
+
+
 def test_run_ablation_experiments_persists_skipped_feature_sets(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(stage_ablation, "_diagnostics_dir", lambda: tmp_path)
     monkeypatch.setattr(
@@ -258,3 +291,59 @@ def test_run_ablation_experiments_persists_skipped_feature_sets(tmp_path, monkey
     assert outcome["skipped_experiments"] == expected_skip
     assert manifest_context["_ablation_skipped_experiments"] == expected_skip
     assert manifest_context["_ablation_cohort_gap_summary"]["skipped_experiments"] == expected_skip
+
+
+def test_run_ablation_experiments_prefers_family_id_as_primary_family_target(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(stage_ablation, "_diagnostics_dir", lambda: tmp_path)
+    monkeypatch.setattr(stage_ablation, "_load_paper_cohort_sample_ids", lambda _samples_df: {1, 2})
+    monkeypatch.setattr(
+        stage_ablation,
+        "_build_experiment_matrix_dict",
+        lambda *args, **_kwargs: {
+            "full_fused": lambda: pd.DataFrame({"sample_id": [1, 2], "f1": [1.0, 0.0]})
+        },
+    )
+    monkeypatch.setattr(
+        stage_ablation.pipeline_core,
+        "train_models",
+        lambda *args, **kwargs: (
+            {
+                "random_forest": {
+                    "evaluation": {"macro_f1_score": 0.9, "train_time": 1.0},
+                    "metadata": {},
+                }
+            },
+            None,
+        ),
+    )
+    monkeypatch.setattr(app_config, "ENABLE_ABLATION_MULTI_LABEL_TARGETS", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ABLATION_CROSS_VALIDATION", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ABLATION_MODEL_EXPORT", False, raising=False)
+    monkeypatch.setattr(app_config, "ABLATION_COHORT_REINDEX_ZERO_FILL", True, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "rid2", raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", {}, raising=False)
+
+    manifest_context: dict[str, object] = {}
+    stage_ablation.run_ablation_experiments(
+        samples_df=pd.DataFrame(
+            {
+                "sample_id": [1, 2],
+                "family_id": [10, 11],
+                "family_canonical": ["fam_a", "fam_b"],
+                "type_slug": ["banker", "rat"],
+            }
+        ),
+        weights_df=pd.DataFrame(),
+        parsed_data={},
+        permission_features_df=None,
+        model_list=["random_forest"],
+        run_id="rid2",
+        pipeline_results={},
+        manifest_context=manifest_context,
+    )
+
+    stats = manifest_context.get("_ablation_label_target_stats")
+    assert isinstance(stats, list)
+    assert str(stats[0]["label_target"]) == "family_id"

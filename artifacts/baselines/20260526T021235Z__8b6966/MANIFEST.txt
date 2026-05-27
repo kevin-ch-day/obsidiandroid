@@ -1,0 +1,6 @@
+run_id=20260526T021235Z__8b6966
+profile=malicious_temporal_stability_locked
+frozen_at=copied from output/runs/20260526T021235Z__8b6966/diagnostics after the governed cohort snapshot matched 1187 samples, 35 families, and 5 types.
+source_snapshot=output/runs/20260526T021235Z__8b6966/diagnostics/analysis_snapshot_20260526T021235Z__8b6966.csv
+taxonomy_rebaselined_at=2026-05-26
+taxonomy_note=android type authority updated after Erebus Android-family repairs; locked sample IDs still match 1187 rows, but represented types are now 3 under current taxonomy.

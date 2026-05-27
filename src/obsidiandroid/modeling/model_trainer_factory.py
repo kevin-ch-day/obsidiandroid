@@ -97,6 +97,7 @@ def _build_split_cache_key(
         if (group_aware_requested and not ablation_lock)
         else int(0)
     )
+    temporal_token = int(1) if _temporal_holdout_requested() else int(0)
     return (
         int(len(features_df)),
         n_features_key,
@@ -110,6 +111,7 @@ def _build_split_cache_key(
             default=1,
         ),
         group_token,
+        temporal_token,
     )
 
 
@@ -159,6 +161,90 @@ def _derive_year(frame: pd.DataFrame) -> pd.Series:
             dt = pd.to_datetime(frame[col], errors="coerce", utc=True)
             return dt.dt.year
     return pd.Series([None] * len(frame), index=frame.index)
+
+
+def _temporal_holdout_requested() -> bool:
+    """Return True when the active profile should prefer a time-ordered holdout."""
+    profile_id = str(getattr(app_config, "RUNTIME_PROFILE_ID", "") or "").strip().lower()
+    return profile_id.startswith("malicious_temporal_")
+
+
+def _build_temporal_holdout_split(
+    features_df: pd.DataFrame,
+    encoded_labels: np.ndarray,
+    *,
+    quiet_train: bool,
+) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray, np.ndarray, str] | None:
+    """Build a forward-in-time holdout using the last two observed years as test."""
+    setattr(app_config, "RUNTIME_TEMPORAL_SPLIT_SUMMARY", None)
+    meta = _runtime_sample_metadata()
+    if meta.empty or "sample_id" not in meta.columns:
+        return None
+
+    sid_numeric = pd.to_numeric(features_df.index, errors="coerce")
+    if sid_numeric.isna().any():
+        return None
+    bridge = pd.DataFrame({"sample_id": sid_numeric.astype(int).values}, index=features_df.index)
+    merged = bridge.merge(meta, on="sample_id", how="left")
+    years = _derive_year(merged)
+    valid_years = years.dropna().astype(int)
+    unique_years = sorted(valid_years.unique().tolist())
+    if len(unique_years) < 3:
+        return None
+
+    test_year_floor = int(unique_years[-2])
+    train_mask = years.astype("Float64") < float(test_year_floor)
+    test_mask = years.astype("Float64") >= float(test_year_floor)
+    if not bool(train_mask.fillna(False).any()) or not bool(test_mask.fillna(False).any()):
+        return None
+
+    train_pos = np.flatnonzero(train_mask.fillna(False).to_numpy(dtype=bool))
+    test_pos = np.flatnonzero(test_mask.fillna(False).to_numpy(dtype=bool))
+    if len(train_pos) == 0 or len(test_pos) == 0:
+        return None
+
+    y_train_candidate = encoded_labels[train_pos]
+    y_test_candidate = encoded_labels[test_pos]
+    seen_labels = set(int(v) for v in y_train_candidate.tolist())
+    keep_test_mask = np.isin(y_test_candidate, list(seen_labels))
+    dropped_unseen = int((~keep_test_mask).sum())
+    test_pos = test_pos[keep_test_mask]
+    y_test_candidate = y_test_candidate[keep_test_mask]
+    if len(test_pos) == 0:
+        return None
+
+    X_train = features_df.iloc[train_pos]
+    X_test = features_df.iloc[test_pos]
+    y_train = y_train_candidate
+    y_test = y_test_candidate
+    split_algo = "temporal_year_holdout_v1"
+    setattr(
+        app_config,
+        "RUNTIME_TEMPORAL_SPLIT_SUMMARY",
+        {
+            "test_year_floor": int(test_year_floor),
+            "observed_year_min": int(unique_years[0]),
+            "observed_year_max": int(unique_years[-1]),
+            "observed_year_count": int(len(unique_years)),
+            "train_candidate_rows": int(len(train_pos)),
+            "test_candidate_rows": int(len(keep_test_mask)),
+            "test_rows_dropped_unseen_train_classes": int(dropped_unseen),
+            "final_train_rows": int(len(X_train)),
+            "final_test_rows": int(len(X_test)),
+        },
+    )
+    if not quiet_train:
+        message = (
+            f"[SPLIT] Temporal year holdout active: train years < {test_year_floor}, "
+            f"test years >= {test_year_floor}."
+        )
+        if dropped_unseen > 0:
+            message += (
+                f" Dropped {dropped_unseen} newer-row sample(s) from classes unseen in "
+                "the historical training years."
+            )
+        du.print_info(message)
+    return X_train, X_test, y_train, y_test, split_algo
 
 
 def _filename_slug(value: str, max_len: int = 64) -> str:
@@ -355,6 +441,14 @@ def _export_split_audit(
     split_df["split_key_hash"] = split_key_hash
     split_df["train_sample_hash"] = train_sample_hash
     split_df["test_sample_hash"] = test_sample_hash
+    temporal_summary = getattr(app_config, "RUNTIME_TEMPORAL_SPLIT_SUMMARY", None)
+    if isinstance(temporal_summary, dict):
+        split_df["temporal_test_year_floor"] = int(temporal_summary.get("test_year_floor", 0) or 0)
+        split_df["temporal_observed_year_min"] = int(temporal_summary.get("observed_year_min", 0) or 0)
+        split_df["temporal_observed_year_max"] = int(temporal_summary.get("observed_year_max", 0) or 0)
+        split_df["temporal_test_rows_dropped_unseen_train_classes"] = int(
+            temporal_summary.get("test_rows_dropped_unseen_train_classes", 0) or 0
+        )
     train_sha = set(
         split_df.loc[(split_df["split_role"] == "train") & (split_df["sha256"] != ""), "sha256"].tolist()
     )
@@ -393,6 +487,15 @@ def _export_split_audit(
         "train_sample_hash",
         "test_sample_hash",
     ]
+    if isinstance(temporal_summary, dict):
+        audit_cols.extend(
+            [
+                "temporal_test_year_floor",
+                "temporal_observed_year_min",
+                "temporal_observed_year_max",
+                "temporal_test_rows_dropped_unseen_train_classes",
+            ]
+        )
     audit_df = split_df[audit_cols].sort_values(["sha256", "sample_id"]).reset_index(drop=True)
     audit_csv = audit_df.to_csv(index=False)
 
@@ -439,6 +542,8 @@ def _export_split_audit(
         "feature_set": str(feature_set_token),
         "split_model_written_for": str(model_type),
     }
+    if isinstance(temporal_summary, dict):
+        meta["temporal_split_summary"] = dict(temporal_summary)
     if ledger_kind == "headline":
         meta["compat_split_audit_path"] = str((out_dir / f"split_freeze_audit_{run_id}.csv").resolve())
 
@@ -557,7 +662,28 @@ def train_model_factory(
                 setattr(app_config, "RUNTIME_LAST_SPLIT_ALGORITHM", "stratified_seeded")
         else:
             split_algo = "stratified_seeded"
-            if getattr(app_config, "AUTO_ADJUST_TRAIN_TEST_SPLIT", False):
+            if _temporal_holdout_requested():
+                temporal_split = _build_temporal_holdout_split(
+                    features_df,
+                    encoded_labels,
+                    quiet_train=quiet_train,
+                )
+                if temporal_split is not None:
+                    X_train, X_test, y_train, y_test, split_algo = temporal_split
+                else:
+                    if not quiet_train:
+                        du.print_warning(
+                            "[SPLIT] Temporal holdout could not be formed from runtime years; "
+                            "falling back to the configured random/group split policy."
+                        )
+                    log_event(
+                        ML_LOGGER,
+                        "temporal_holdout_unavailable_fallback",
+                        level="WARNING",
+                        profile_id=str(getattr(app_config, "RUNTIME_PROFILE_ID", "") or ""),
+                        note="runtime years insufficient or produced an empty train/test slice",
+                    )
+            if split_algo == "stratified_seeded" and getattr(app_config, "AUTO_ADJUST_TRAIN_TEST_SPLIT", False):
                 from .dataset_splitter import balanced_train_test_split
 
                 X_train, X_test, y_train, y_test = balanced_train_test_split(
@@ -568,7 +694,7 @@ def train_model_factory(
                     min_test_per_class=getattr(app_config, "MIN_TEST_SAMPLES_PER_CLASS", 1),
                 )
                 split_algo = "balanced_auto_adjusted_v1"
-            elif group_aware_requested:
+            elif split_algo == "stratified_seeded" and group_aware_requested:
                 groups_arr, group_note = _build_lineage_groups_for_split(features_df)
                 if groups_arr is not None:
                     try:
@@ -621,7 +747,7 @@ def train_model_factory(
                         stratify=stratify_y,
                         random_state=random_state,
                     )
-            else:
+            elif split_algo == "stratified_seeded":
                 label_counts = Counter(encoded_labels)
                 min_support = min(label_counts.values()) if label_counts else 0
                 stratify_y = encoded_labels if min_support >= 2 else None
@@ -706,8 +832,8 @@ def train_model_factory(
     if use_smote_effective and evidence_or_paper and disable_smote_evidence:
         if not quiet_train:
             du.print_info(
-                "[SMOTE] Skipped for evidence/paper run (DISABLE_SMOTE_IN_EVIDENCE_MODE / "
-                "OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE)."
+                "[SMOTE] Skipped for evidence/paper run (default reproducibility policy / "
+                "DISABLE_SMOTE_IN_EVIDENCE_MODE)."
             )
         log_event(
             ML_LOGGER,
@@ -724,8 +850,8 @@ def train_model_factory(
         and not quiet_train
     ):
         warning_text = (
-            "[SMOTE] Synthetic oversampling is enabled in evidence/paper mode; "
-            "set OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE=1 to disable for stricter reproducibility."
+            "[SMOTE] Synthetic oversampling remains enabled in evidence/paper mode by explicit "
+            "configuration; set OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE=1 to restore stricter reproducibility."
         )
         already_emitted = bool(getattr(app_config, "RUNTIME_SMOTE_WARNING_EMITTED", False))
         if not already_emitted:

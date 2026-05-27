@@ -250,12 +250,14 @@ def write_family_label_taxonomy_audit(
     training_min_support: int,
     run_id: str | None = None,
     label_col: str = "family_id",
+    artifact_prefix: str = "",
     print_fn: Callable[[str], None] | None = None,
 ) -> dict[str, Path]:
     """Write CSV/MD artifacts and optionally print terminal audit section."""
     diagnostics_dir = Path(diagnostics_dir)
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     rid = run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "__taxonomy_audit"
+    prefix = str(artifact_prefix or "").strip()
 
     fam_df, th_df, summary = build_family_taxonomy_audit_frames(
         samples_df,
@@ -263,10 +265,10 @@ def write_family_label_taxonomy_audit(
         label_col=label_col,
     )
 
-    csv_path = diagnostics_dir / "family_label_taxonomy_audit.csv"
-    md_path = diagnostics_dir / "family_label_taxonomy_audit.md"
-    th_csv = diagnostics_dir / "support_threshold_preview.csv"
-    th_md = diagnostics_dir / "support_threshold_preview.md"
+    csv_path = diagnostics_dir / f"{prefix}family_label_taxonomy_audit.csv"
+    md_path = diagnostics_dir / f"{prefix}family_label_taxonomy_audit.md"
+    th_csv = diagnostics_dir / f"{prefix}support_threshold_preview.csv"
+    th_md = diagnostics_dir / f"{prefix}support_threshold_preview.md"
 
     fam_df.to_csv(csv_path, index=False)
     th_df.to_csv(th_csv, index=False)

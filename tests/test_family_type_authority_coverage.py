@@ -2,6 +2,7 @@ import pandas as pd
 from obsidiandroid.observability.logging import logger as logger_mod
 
 from obsidiandroid.diagnostics.family_type_authority_coverage import (
+    AUTHORITY_VIEW_SELECT,
     classify_missing_candidate,
     generate_authority_coverage_artifacts,
     load_authority_df,
@@ -119,3 +120,20 @@ def test_generate_authority_coverage_artifacts_writes_outputs(monkeypatch, tmp_p
     assert "temporal_readiness_summary" in temporal_text
     assert "type_year_concentration_alert" in temporal_text
     assert "temporal_split_caveat" in temporal_text
+
+
+def test_authority_view_select_filters_inactive_taxonomy_rows() -> None:
+    assert "AND fam.is_active = 1" in AUTHORITY_VIEW_SELECT
+    assert "AND alias.is_active = 1" in AUTHORITY_VIEW_SELECT
+
+
+def test_authority_view_fallback_sql_drops_inactive_filters_when_columns_missing(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.family_type_authority_coverage._table_has_column",
+        lambda table_name, column_name: False,
+    )
+    from obsidiandroid.diagnostics.family_type_authority_coverage import _authority_view_fallback_sql
+
+    fallback_sql = _authority_view_fallback_sql()
+    assert "AND fam.is_active = 1" not in fallback_sql
+    assert "AND alias.is_active = 1" not in fallback_sql

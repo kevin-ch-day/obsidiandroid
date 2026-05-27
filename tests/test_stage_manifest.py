@@ -788,6 +788,46 @@ def test_write_run_summary_json_creates_canonical_and_latest(
     payload = json.loads(out_path.read_text(encoding="utf-8"))
     assert payload["run_status"] == "failed"
     assert payload["failure_reason"] == "training crashed"
+
+
+def test_write_run_summary_json_omits_diagnostics_copy_in_compact_mode(
+    tmp_path: Path, monkeypatch
+) -> None:
+    run_root = tmp_path / "output" / "runs" / "r2"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(
+        stage_manifest.app_config,
+        "RUNTIME_OUTPUT_ROOT_BASE",
+        str(tmp_path / "output"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stage_manifest.app_config,
+        "ENABLE_VERBOSE_RUN_ARTIFACTS",
+        False,
+        raising=False,
+    )
+    out_path = stage_manifest._write_run_summary_json(  # pylint: disable=protected-access
+        run_root=run_root,
+        diagnostics_dir=diagnostics_dir,
+        manifest_context={"run_id": "r2", "timestamp_utc": "2026-03-21T00:00:00Z"},
+        manifest={
+            "run_id": "r2",
+            "timestamp_utc": "2026-03-21T00:00:00Z",
+            "profile_params": {"profile_id": "dev_fast"},
+            "cohort_size": 10,
+            "model_summary": {},
+            "paper_mode": {"resolved_value": False},
+            "evidence_mode": False,
+        },
+        result_code=0,
+    )
+
+    assert out_path == run_root / "run_summary.json"
+    assert out_path.exists()
+    assert not (diagnostics_dir / "run_summary_r2.json").exists()
     assert payload["publication_ready_status"] == "FAIL"
     assert "paper_compliance_not_pass" in payload["publication_ready_reasons"]
 
@@ -972,16 +1012,29 @@ def test_write_experiment_contract_snapshot_creates_files(tmp_path: Path, monkey
                 "contract_id": "malicious_temporal_stability_locked_contract",
                 "paper_locked": True,
                 "contract_status": "membership_locked",
-                "canonical_historical_run_id": "20260504T044304Z__8c64e6",
-                "expected": {"sample_count": 1226, "family_count": 39, "type_count": 6},
+                "canonical_historical_run_id": "20260526T021235Z__8b6966",
+                "expected": {"sample_count": 1187, "family_count": 35, "type_count": 3},
                 "sample_id_lock": {
                     "path": "/tmp/lock.csv",
-                    "lock_sample_count": 1226,
+                    "lock_sample_count": 1187,
                     "lock_sample_id_hash": "abc123",
                 },
             },
         },
-        manifest={"split": {"split_hash": "shash", "split_seed": 42, "split_algorithm": "stratified_seeded", "split_algorithm_version": "1.0"}},
+        manifest={
+            "split": {
+                "split_hash": "shash",
+                "split_seed": 42,
+                "split_algorithm": "temporal_year_holdout_v1",
+                "split_algorithm_version": "1.0",
+                "temporal_split_summary": {
+                    "test_year_floor": 2024,
+                    "observed_year_min": 2020,
+                    "observed_year_max": 2025,
+                    "test_rows_dropped_unseen_train_classes": 219,
+                },
+            }
+        },
     )
 
     assert out_path is not None
@@ -995,10 +1048,11 @@ def test_write_experiment_contract_snapshot_creates_files(tmp_path: Path, monkey
     assert payload["experiment_series"]["series_id"]
     assert payload["target_task"]["training_label_field"] == "family_id"
     assert payload["label_authority_reporting"]["training_label_field"] == "family_id"
+    assert payload["split_contract"]["temporal_holdout"]["test_year_floor"] == 2024
     assert payload["paper_cohort_contract"]["contract_name"] == "malicious_temporal_stability_locked"
     assert payload["paper_cohort_contract"]["paper_locked"] is True
-    assert payload["paper_cohort_contract"]["expected"]["sample_count"] == 1226
-    assert payload["paper_cohort_contract"]["sample_id_lock"]["lock_sample_count"] == 1226
+    assert payload["paper_cohort_contract"]["expected"]["sample_count"] == 1187
+    assert payload["paper_cohort_contract"]["sample_id_lock"]["lock_sample_count"] == 1187
     assert payload["cohort_contract"]["contract_id"] == "malicious_temporal_stability_locked_contract"
 
 
@@ -1456,7 +1510,7 @@ def test_build_paper_ablation_table_normalizes_current_runtime_feature_sets(tmp_
             "experiment,label_target,model,accuracy,macro_f1_score,delta_vs_full_fused\n"
             "permissions_grouped,family_id,random_forest,0.95,0.93,-0.03\n"
             "permissions_raw,family_within_type,random_forest,0.96,0.94,-0.02\n"
-            "vendor_full,family_id,xgboost,0.96,0.92,-0.05\n"
+            "vendor_no_parsed_family,family_id,xgboost,0.96,0.92,-0.05\n"
             "permissions_grouped_plus_vendor_no_family,family_id,xgboost,0.98,0.97,-0.01\n"
             "full_fused,family_id,xgboost,0.99,0.98,0.00\n"
         ),

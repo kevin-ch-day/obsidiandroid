@@ -15,6 +15,10 @@ import pandas as pd
 from config import app_config
 from obsidiandroid.common.json_io import read_json_dict
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.reporting.high_score_skeptic_helpers import (
+    build_label_map as _build_label_map,
+    label_display as _label_display,
+)
 
 # Internal experiment keys → human-readable modality descriptions (CSV keeps internal keys).
 ABLATION_FEATURE_SET_LABELS: dict[str, str] = {
@@ -34,6 +38,15 @@ def format_feature_set_label(internal_key: str) -> str:
     return ABLATION_FEATURE_SET_LABELS.get(str(internal_key), str(internal_key))
 
 
+def _artifact_label(path: Path, *, base: Path | None = None) -> str:
+    try:
+        if base is not None:
+            return path.resolve().relative_to(base.resolve()).as_posix()
+    except Exception:
+        pass
+    return path.name
+
+
 def clear_operator_state() -> None:
     """Reset per-run operator narrative buffers (call at pipeline start)."""
     setattr(app_config, "RUNTIME_OPERATOR_ISSUES", [])
@@ -42,6 +55,7 @@ def clear_operator_state() -> None:
     setattr(app_config, "RUNTIME_SMOTE_WARNING_EMITTED", False)
     setattr(app_config, "RUNTIME_SMOTE_AUDIT_LAST", None)
     setattr(app_config, "RUNTIME_SMOTE_AUDIT_BY_MODEL", {})
+    setattr(app_config, "RUNTIME_TEMPORAL_SPLIT_SUMMARY", None)
 
 
 def record_operator_issue(
@@ -109,6 +123,7 @@ def _queue_runtime_operator_issues(
     split_algorithm = str(getattr(app_config, "RUNTIME_LAST_SPLIT_ALGORITHM", "") or "").strip()
     if profile_id.startswith("malicious_temporal_") and split_algorithm:
         split_algo_norm = split_algorithm.lower()
+        temporal_summary = getattr(app_config, "RUNTIME_TEMPORAL_SPLIT_SUMMARY", None)
         if "temporal" not in split_algo_norm and "year_holdout" not in split_algo_norm:
             record_operator_issue(
                 tag="TEMPORAL",
@@ -118,6 +133,23 @@ def _queue_runtime_operator_issues(
                     "Interpret results as random/group holdout evidence, not forward-in-time generalization.",
                 ],
             )
+        elif isinstance(temporal_summary, dict):
+            test_year_floor = int(temporal_summary.get("test_year_floor", 0) or 0)
+            dropped_future_only = int(
+                temporal_summary.get("test_rows_dropped_unseen_train_classes", 0) or 0
+            )
+            observed_min = int(temporal_summary.get("observed_year_min", 0) or 0)
+            observed_max = int(temporal_summary.get("observed_year_max", 0) or 0)
+            if dropped_future_only > 0:
+                record_operator_issue(
+                    tag="TEMPORAL",
+                    title="Temporal holdout excluded future-only family rows",
+                    lines=[
+                        f"Split algorithm `{split_algorithm}` used train years < {test_year_floor} and test years >= {test_year_floor}.",
+                        f"Dropped {dropped_future_only} newer-row sample(s) because their class never appeared in the historical training years "
+                        f"(observed year span {observed_min}–{observed_max}).",
+                    ],
+                )
 
     run_id = str(manifest_context.get("run_id", "") or "").strip()
     taxonomy = read_json_dict(oh.resolve_taxonomy_consistency_summary_path(diagnostics_dir, run_id))
@@ -206,6 +238,12 @@ def _classification_report_family_insights(model_results: dict[str, Any], model_
     creport = res.get("metadata", {}).get("classification_report")
     if not isinstance(creport, dict):
         return {}
+    diagnostics_dir = Path(
+        str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "")
+        or str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output"))
+    )
+    run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
+    label_map = _build_label_map(model_results, model_key, diagnostics_dir, run_id)
     per_class: list[tuple[str, float, float, float, int]] = []
     for label, stats in creport.items():
         if not isinstance(stats, dict):
@@ -219,7 +257,7 @@ def _classification_report_family_insights(model_results: dict[str, Any], model_
             sup = int(float(stats.get("support", 0)))
         except (TypeError, ValueError):
             continue
-        per_class.append((str(label), p, r, f1, sup))
+        per_class.append((_label_display(label, label_map), p, r, f1, sup))
     if not per_class:
         return {}
     lowest_recall = sorted(per_class, key=lambda x: x[2])[:5]
@@ -317,6 +355,7 @@ def write_diagnostics_index_md(
     """Emit ``diagnostics/index.md`` with standard sections + artifact map excerpt."""
     if not diagnostics_dir.exists():
         return None
+    verbose_run_artifacts = bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True))
     rel = diagnostics_dir.resolve()
     lines: list[str] = []
     lines.append(f"# Diagnostics index — `{run_id}`")
@@ -379,11 +418,14 @@ def write_diagnostics_index_md(
         lines.append("")
     lines.append("## Artifact map (this run enumeration)")
     lines.append("")
-    art = [str(Path(p).name) for p in artifact_list if str(run_id) in str(p) or "/diagnostics/" in str(p)]
-    for chunk in sorted(set(art))[:120]:
+    art = [
+        name for name in listing
+        if verbose_run_artifacts or ".latest." not in name
+    ]
+    for chunk in art[:120]:
         lines.append(f"- `{chunk}`")
-    if len(set(art)) > 120:
-        lines.append(f"- … `{len(set(art)) - 120}` additional paths omitted")
+    if len(art) > 120:
+        lines.append(f"- … `{len(art) - 120}` additional paths omitted")
     lines.append("")
     out_path = diagnostics_dir / "index.md"
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -460,6 +502,8 @@ def emit_research_operator_report(
     pr(f"Run ID: {run_id}  |  Profile: {profile_id}")
     pr("")
     research_rq.print_research_questions_terminal(bundle, pr=pr, du=du)
+    q1 = bundle.get("q1") if isinstance(bundle.get("q1"), dict) else {}
+    label_strategy = q1.get("label_strategy") if isinstance(q1.get("label_strategy"), dict) else {}
 
     if parity:
         du.print_section("FEATURE CONTRACT COMPARISON (headline vs ablation full_fused)")
@@ -534,18 +578,35 @@ def emit_research_operator_report(
         "Permission features and AV detection-structure modalities carry measurable signal (see modality contribution + ablation).",
     ]
     caution = [
-        "`supervised_family_claims_suitable=false` in dataset foundation means guarded language for family-level scientific claims.",
+        "`supervised_family_claims_suitable=false` in dataset foundation means guarded language for family-level scientific claims. "
         "Top-family concentration remains high — Macro-F1 and recall tails must lead interpretation.",
-        "Type-level claims using generated `classification_label` strings are not publication-safe until cohort vs label-derived type authority is reconciled (see taxonomy_type_authority_review).",
-        "Use `taxonomy_authority_split` to distinguish authority gaps, generic/coarse tokens, unknown-type families, rendering mismatches, and real model prediction errors.",
-        "Headline leaderboard metrics vs ablation `full_fused` are not comparable unless feature hashes match (see FEATURE CONTRACT COMPARISON).",
-        "Parsed vendor metadata is often sparse — do not describe it as cohort-wide dense labels.",
-        "Vendor-derived parsed family/type features may couple to labels — separate detection binaries, consensus scores, and parsed strings.",
+        "Type-level claims using generated `classification_label` strings are not publication-safe until cohort vs label-derived type authority is reconciled "
+        "(see taxonomy_type_authority_review). Use `taxonomy_authority_split` to distinguish authority gaps, generic/coarse tokens, unknown-type families, "
+        "rendering mismatches, and real model prediction errors.",
+        "Headline leaderboard metrics vs ablation `full_fused` are not comparable unless feature hashes match (see FEATURE CONTRACT COMPARISON). "
+        "Parsed vendor metadata is often sparse — do not describe it as cohort-wide dense labels. Vendor-derived parsed family/type features may couple to labels — "
+        "separate detection binaries, consensus scores, and parsed strings.",
     ]
+    if label_strategy:
+        family_target = str(label_strategy.get("preferred_family_target", "") or "").strip()
+        type_target = str(label_strategy.get("preferred_type_target", "") or "").strip()
+        avoid = label_strategy.get("avoid_for_primary_claims", [])
+        alignment_note = str(label_strategy.get("alignment_interpretation", "") or "").strip()
+        if family_target and type_target:
+            lines_strong.append(
+                f"Label policy is explicit: train family on `{family_target}` and coarse taxonomy on `{type_target}`."
+            )
+        if isinstance(avoid, list) and avoid:
+            caution.append(
+                "Do not promote raw label surfaces such as "
+                + ", ".join(f"`{str(item)}`" for item in avoid)
+                + " into primary scientific claim targets."
+            )
+        if alignment_note:
+            caution.append(alignment_note)
     nxt = [
-        "Dominance-cap stability and temporal permission drift.",
-        "Permission-only vs fused delta stability (feature_set_ablation_summary).",
-        "Family-level failure explanations (top_confusion_pairs, lowest recall).",
+        "Dominance-cap stability and temporal permission drift; permission-only vs fused delta stability "
+        "(feature_set_ablation_summary); family-level failure explanations (top_confusion_pairs, lowest recall).",
     ]
     pr("Strong")
     for item in lines_strong:
@@ -562,14 +623,27 @@ def emit_research_operator_report(
     pr(f"Diagnostics index : {md_path}")
     rr = getattr(app_config, "RUNTIME_RUN_ROOT", "") or ""
     pr(f"Run root            : {rr}")
-    pr("Start here:")
-    pr(f"  • `{diagnostics_dir / 'dataset_foundation_summary.md'}`")
-    pr(f"  • `{diagnostics_dir / 'modality_contribution_summary.md'}`")
-    pr(f"  • `{diagnostics_dir / 'model_and_family_failure_summary.md'}`")
-    pr(f"  • `{diagnostics_dir / f'taxonomy_authority_split_{run_id}.md'}`")
-    pr(f"  • `{diagnostics_dir / f'taxonomy_type_authority_review_{run_id}.md'}`")
-    pr("Skeptic audits:")
-    pr(f"  • `{diagnostics_dir / 'headline_score_scope.md'}`")
-    pr(f"  • `{diagnostics_dir / 'split_contamination_audit.md'}`")
-    pr(f"  • `{diagnostics_dir / 'smote_effect_check.md'}`")
-    pr(f"  • `{diagnostics_dir / 'recommended_validation_plan.md'}`")
+    diag_base = diagnostics_dir
+    pr(
+        "Start here        : "
+        + " | ".join(
+            [
+                f"`{_artifact_label(diagnostics_dir / 'dataset_foundation_summary.md', base=diag_base)}`",
+                f"`{_artifact_label(diagnostics_dir / 'modality_contribution_summary.md', base=diag_base)}`",
+                f"`{_artifact_label(diagnostics_dir / 'model_and_family_failure_summary.md', base=diag_base)}`",
+                f"`{_artifact_label(diagnostics_dir / f'taxonomy_authority_split_{run_id}.md', base=diag_base)}`",
+                f"`{_artifact_label(diagnostics_dir / f'taxonomy_type_authority_review_{run_id}.md', base=diag_base)}`",
+            ]
+        )
+    )
+    pr(
+        "Skeptic audits    : "
+        + " | ".join(
+            [
+                f"`{_artifact_label(diagnostics_dir / 'headline_score_scope.md', base=diag_base)}`",
+                f"`{_artifact_label(diagnostics_dir / 'split_contamination_audit.md', base=diag_base)}`",
+                f"`{_artifact_label(diagnostics_dir / 'smote_effect_check.md', base=diag_base)}`",
+                f"`{_artifact_label(diagnostics_dir / 'recommended_validation_plan.md', base=diag_base)}`",
+            ]
+        )
+    )

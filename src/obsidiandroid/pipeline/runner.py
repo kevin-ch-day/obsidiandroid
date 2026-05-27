@@ -444,6 +444,7 @@ def run_pipeline(
             type_slug=type_slug,
             run_id=run_id,
             artifact_list=artifact_list,
+            manifest_context=manifest_context,
         )
         snapshot_file = Path(
             getattr(

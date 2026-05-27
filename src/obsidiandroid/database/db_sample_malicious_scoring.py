@@ -9,22 +9,33 @@ from . import schema_map
 from .verdict_semantics import sql_non_detection_predicate
 from obsidiandroid.cli.ui import display as du
 
+
+_AUXILIARY_NON_VENDOR_SOURCES = {"androguard", "android_info", "apk"}
+
+
+def _normalize_engine_key(engine_name: str) -> str:
+    """Canonicalize engine/source names for matching against wide verdict columns."""
+    return str(engine_name).strip().lower().replace("-", "_").replace(" ", "_")
+
 def get_active_trusted_engines():
     vendors_table = schema_map.table("vendor_engines")
     engine_col = schema_map.column("vendor_engines", "engine_name")
     trusted_col = schema_map.column("vendor_engines", "trusted_flag")
     active_col = schema_map.column("vendor_engines", "active_flag")
+    auxiliary_sources_sql = ", ".join(f"'{source}'" for source in sorted(_AUXILIARY_NON_VENDOR_SOURCES))
     query = """
         SELECT {engine_col} AS engine_name
         FROM {vendors_table}
         WHERE {trusted_col} = 1
           AND {active_col} = 1
+          AND LOWER(TRIM({engine_col})) NOT IN ({auxiliary_sources_sql})
     """
     query = query.format(
         engine_col=engine_col,
         vendors_table=vendors_table,
         trusted_col=trusted_col,
         active_col=active_col,
+        auxiliary_sources_sql=auxiliary_sources_sql,
     )
     try:
         _columns, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
@@ -131,7 +142,7 @@ def _get_normalized_trusted_engines():
     if not trusted_engines:
         du.print_warning("[ERROR] No trusted AV engines found.")
         return []
-    return [e.replace("-", "_") for e in trusted_engines]
+    return [_normalize_engine_key(e) for e in trusted_engines]
 
 
 # --- Helper: Filter out trusted engines not found in the wide verdict table ---
@@ -139,10 +150,17 @@ def _filter_valid_engine_columns(normalized_engines):
     available_columns = get_existing_result_columns()
     valid_engines = []
     for e in normalized_engines:
-        if e in available_columns:
-            valid_engines.append(e)
+        normalized_engine = _normalize_engine_key(e)
+        if normalized_engine in available_columns:
+            valid_engines.append(normalized_engine)
+        elif normalized_engine in _AUXILIARY_NON_VENDOR_SOURCES:
+            du.print_debug(
+                f"[SKIP] Auxiliary analysis source '{normalized_engine}' is not modeled as a wide vendor verdict column."
+            )
         else:
-            du.print_warning(f"[SKIP] Trusted engine '{e}' not found in results table columns.")
+            du.print_warning(
+                f"[SKIP] Trusted engine '{normalized_engine}' not found in results table columns."
+            )
     if not valid_engines:
         du.print_warning("[ERROR] No valid trusted AV engine columns found in virustotal_sample_vendor_engine_verdicts.")
     return valid_engines

@@ -62,6 +62,89 @@ def test_apply_contract_filters_family_cap_and_min_malicious(monkeypatch) -> Non
     assert set(out_df["family_canonical"].tolist()) == {"A", "B"}
 
 
+def test_apply_contract_filters_family_cap_recognizes_sql_applied_cap(monkeypatch) -> None:
+    """Family-cap bookkeeping should not claim fresh drops when SQL already enforced the cap."""
+    samples_df = pd.DataFrame(
+        {
+            "sample_id": [1, 4],
+            "type_slug": ["banker", "banker"],
+            "family_canonical": ["A", "B"],
+            "vt_malicious_count": [5, 9],
+            "vt_suspicious_count": [0, 0],
+        }
+    )
+    samples_df.attrs["family_cap_applied_in_sql"] = True
+    samples_df.attrs["family_cap_sql_value"] = 1
+    samples_df.attrs["family_cap_sql_seed"] = 42
+
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+    out_df, gate_rows = apply_contract_filters(
+        samples_df=samples_df,
+        gates={"family_cap": 1, "family_cap_seed": 42},
+        run_id="r2_sql_cap",
+    )
+
+    assert len(out_df) == 2
+    family_cap_gate = next(row for row in gate_rows if row["gate_name"] == "family_cap")
+    assert family_cap_gate["dropped"] == 0
+    assert "already_applied_in_sql" in family_cap_gate["details"]
+
+
+def test_apply_contract_filters_type_cap_recognizes_sql_applied_cap(monkeypatch) -> None:
+    """Type-cap bookkeeping should not claim fresh drops when SQL already enforced the cap."""
+    samples_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "type_slug": ["banker", "rat", "spyware"],
+            "family_canonical": ["A", "B", "C"],
+            "vt_malicious_count": [5, 9, 7],
+            "vt_suspicious_count": [0, 0, 0],
+        }
+    )
+    samples_df.attrs["type_cap_applied_in_sql"] = True
+    samples_df.attrs["type_cap_sql_value"] = 1
+    samples_df.attrs["type_cap_sql_seed"] = 42
+
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+    out_df, gate_rows = apply_contract_filters(
+        samples_df=samples_df,
+        gates={"type_cap": 1, "type_cap_seed": 42},
+        run_id="r2_sql_type_cap",
+    )
+
+    assert len(out_df) == 3
+    type_cap_gate = next(row for row in gate_rows if row["gate_name"] == "type_cap")
+    assert type_cap_gate["dropped"] == 0
+    assert "already_applied_in_sql" in type_cap_gate["details"]
+
+
+def test_apply_contract_filters_type_cap_by_slug_recognizes_sql_applied_cap(monkeypatch) -> None:
+    """Per-type quota bookkeeping should not claim fresh drops when SQL already enforced them."""
+    samples_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "type_slug": ["banker", "rat", "spyware"],
+            "family_canonical": ["A", "B", "C"],
+            "vt_malicious_count": [5, 9, 7],
+            "vt_suspicious_count": [0, 0, 0],
+        }
+    )
+    samples_df.attrs["type_cap_by_slug_applied_in_sql"] = True
+    samples_df.attrs["type_cap_by_slug_sql_value"] = {"banker": 1, "rat": 1}
+
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+    out_df, gate_rows = apply_contract_filters(
+        samples_df=samples_df,
+        gates={"type_cap_by_slug": {"banker": 1, "rat": 1}, "type_cap_seed": 42},
+        run_id="r2_sql_type_cap_by_slug",
+    )
+
+    assert len(out_df) == 3
+    gate = next(row for row in gate_rows if row["gate_name"] == "type_cap_by_slug")
+    assert gate["dropped"] == 0
+    assert "already_applied_in_sql" in gate["details"]
+
+
 def test_apply_contract_filters_min_malicious_rescues_unknown_consensus_malware() -> None:
     """Rows with missing VT counts should survive when malware taxonomy still marks them malicious."""
     samples_df = pd.DataFrame(
@@ -84,6 +167,40 @@ def test_apply_contract_filters_min_malicious_rescues_unknown_consensus_malware(
     assert out_df["sample_id"].tolist() == [1, 3]
     min_gate = next(row for row in gate_rows if row["gate_name"] == "min_malicious_detections")
     assert "rescued_unknown_consensus=1" in min_gate["details"]
+
+
+def test_apply_contract_filters_min_family_label_confidence_score_excludes_noisy_rows(
+    monkeypatch,
+) -> None:
+    """Confidence-sieving gate should drop rows below the configured family-label score."""
+    samples_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "type_slug": ["banker", "banker", "rat"],
+            "family_canonical": ["A", "A", "B"],
+            "family_label_raw": ["A", "WrongA", "B"],
+            "category_primary": ["trojan", "trojan", "rat"],
+            "category_subtype": ["banker", "spyware", "rat"],
+            "sample_label_kind": [
+                "family_or_common_name",
+                "family_or_common_name",
+                "family_or_common_name",
+            ],
+            "vt_family_token": ["a", "a", "b"],
+        }
+    )
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+
+    out_df, gate_rows = apply_contract_filters(
+        samples_df=samples_df,
+        gates={"min_family_label_confidence_score": 80, "min_samples_per_family": 2},
+        run_id="r_conf",
+    )
+
+    assert out_df["sample_id"].tolist() == [1, 3]
+    conf_gate = next(row for row in gate_rows if row["gate_name"] == "min_family_label_confidence_score")
+    assert conf_gate["dropped"] == 1
+    assert ">=80" in conf_gate["details"]
 
 
 def test_export_cohort_filter_contract_writes_files(monkeypatch, tmp_path: Path) -> None:

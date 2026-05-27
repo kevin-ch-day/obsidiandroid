@@ -91,6 +91,116 @@ def test_modality_summary_falls_back_to_runtime_engine_counts_and_notes_raw_perm
     assert summary_payload["av_engines_observed"] == 10
 
 
+def test_dataset_foundation_summary_emits_compatibility_fields(
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_foundation"
+
+    (diagnostics_dir / "cohort_foundation.json").write_text(
+        json.dumps(
+            {
+                "cohort_prepared_row_count": 317,
+                "cohort_sql_scope_row_count": 3065,
+                "cohort_attrition": {"governed_sql_total": 2621},
+                "family_type_summary": {
+                    "family_count": 42,
+                    "type_count": 6,
+                    "top_family": "SpyNote",
+                    "top_family_count": 44,
+                    "top_family_share_pct": 13.88,
+                    "top3_share_pct": 31.0,
+                    "top5_share_pct": 46.0,
+                    "family_distribution": {"SpyNote": 44, "Gigabud": 33},
+                    "type_distribution": {"banker": 139, "rat": 83},
+                },
+                "gate_stats": {
+                    "excluded_unmapped_family": 0,
+                    "excluded_missing_sha256": 0,
+                    "governed_cohort_count_sql": 2621,
+                    "total_candidates": 3065,
+                },
+                "catalog_semantics_summary": {
+                    "vt_family_token_rows": 205,
+                    "raw_family_vs_canonical_conflict_rows": 0,
+                    "weak_label_with_canonical_family_rows": 0,
+                },
+                "missing_package_rate_pct": 5.36,
+                "missing_vt_timestamp_rate_pct": 0.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"taxonomy_target_surfaces_{run_id}.json").write_text(
+        json.dumps(
+            {
+                "label_strategy": {
+                    "preferred_family_target": "family_id",
+                    "preferred_family_reporting_surface": "family_canonical",
+                    "preferred_type_target": "type_slug",
+                    "preferred_hierarchical_target": "family_within_type",
+                    "auxiliary_audit_surfaces": ["category_subtype", "category_primary_subtype"],
+                    "avoid_for_primary_claims": ["category_primary"],
+                    "alignment_interpretation": "Raw subtype aligns materially better than raw primary.",
+                },
+                "alignment": {
+                    "subtype_exact_type_match_pct": 69.72,
+                    "primary_exact_type_match_pct": 4.10,
+                    "inferred_type_match_pct": 70.03,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"feature_modality_coverage_summary_{run_id}.json").write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "permission_pi_signal_positive_n": 300,
+                "vendor_merge_n": 317,
+                "permission_feature_columns_in_fused_matrix": 223,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / "feature_contract.json").write_text(
+        json.dumps({"engine_included_count": 56, "engine_excluded_count": 37}),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / "permission_signal_quality.csv").write_text(
+        "metric,value,notes\nsamples_with_any_permission_observation,300,\n",
+        encoding="utf-8",
+    )
+
+    rtq.write_research_question_artifacts(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="dev_fast",
+        manifest_context={"governed_cohort_rows": 317},
+        samples_df=pd.DataFrame({"sample_id": [1, 2], "family_canonical": ["SpyNote", "Gigabud"], "type_slug": ["rat", "banker"]}),
+        model_results={},
+        top_model=None,
+    )
+
+    payload = json.loads((diagnostics_dir / "dataset_foundation_summary.json").read_text(encoding="utf-8"))
+    assert payload["final_samples"] == 317
+    assert payload["sql_profile_scope"] == 3065
+    assert payload["sql_governed_cohort"] == 2621
+    assert payload["unique_families"] == 42
+    assert payload["represented_types"] == 6
+    assert payload["type_distribution"] == {"banker": 139, "rat": 83}
+    assert payload["rows_with_vt_family_token"] == 205
+    assert payload["raw_to_type_alignment"]["subtype_exact_pct"] == 69.72
+    assert payload["weak_labels_with_canonical_family"] == 0
+    assert payload["label_strategy"]["preferred_family_target"] == "family_id"
+    assert payload["label_strategy"]["preferred_type_target"] == "type_slug"
+    assert payload["label_strategy"]["avoid_for_primary_claims"] == ["category_primary"]
+    md_text = (diagnostics_dir / "dataset_foundation_summary.md").read_text(encoding="utf-8")
+    assert "Preferred family supervision target" in md_text
+    assert "Preferred coarse type target" in md_text
+
+
 def test_modality_summary_computes_raw_permission_fallback_without_csv(
     monkeypatch,
     tmp_path: Path,
@@ -167,6 +277,164 @@ def test_modality_summary_computes_raw_permission_fallback_without_csv(
     assert any("Raw permission observations exist in the DB" in note for note in q2["interpretation_notes"])
 
 
+def test_write_research_question_artifacts_exports_family_names_not_numeric_ids(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_labels"
+    (diagnostics_dir / "cohort_foundation.json").write_text(
+        json.dumps(
+            {
+                "cohort_prepared_row_count": 2,
+                "family_type_summary": {
+                    "family_count": 2,
+                    "type_count": 1,
+                    "top_family": "Godfather",
+                    "top_family_count": 1,
+                    "top_family_share_pct": 50.0,
+                    "top3_share_pct": 100.0,
+                    "top5_share_pct": 100.0,
+                    "family_distribution": {"Godfather": 1, "Irata": 1},
+                    "type_distribution": {"banker": 2},
+                },
+                "gate_stats": {
+                    "excluded_unmapped_family": 0,
+                    "excluded_missing_sha256": 0,
+                },
+                "missing_package_rate_pct": 0.0,
+                "missing_vt_timestamp_rate_pct": 0.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"label_name_map_{run_id}.json").write_text(
+        json.dumps({"label_name_map": {"17": "Godfather", "44": "Irata"}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_DIAGNOSTICS_DIR",
+        str(diagnostics_dir),
+        raising=False,
+    )
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", run_id, raising=False)
+
+    bundle = rtq.write_research_question_artifacts(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="unit_profile",
+        manifest_context={},
+        samples_df=pd.DataFrame(
+            {
+                "sample_id": [1, 2],
+                "family_canonical": ["Godfather", "Irata"],
+                "family_id": [17, 44],
+                "type_slug": ["banker", "banker"],
+            }
+        ),
+        model_results={
+            "random_forest": {
+                "label_name_map": {"17": "Godfather", "44": "Irata"},
+                "metadata": {
+                    "classification_report": {
+                        "17": {"precision": 1.0, "recall": 0.5, "f1-score": 0.66, "support": 1},
+                        "44": {"precision": 1.0, "recall": 1.0, "f1-score": 1.0, "support": 1},
+                    }
+                },
+                "evaluation": {
+                    "macro_f1_score": 0.83,
+                    "f1_score": 0.9,
+                    "accuracy": 0.9,
+                },
+            }
+        },
+        top_model="random_forest",
+    )
+
+    family_rows = pd.read_csv(diagnostics_dir / "lowest_recall_families.csv").to_dict(orient="records")
+    assert family_rows[0]["family"] == "Godfather"
+    assert bundle["q3"]["headline_model"] == "random_forest"
+    confusion_rows = pd.read_csv(diagnostics_dir / "top_confusion_pairs.csv").to_dict(orient="records")
+    assert confusion_rows == [{"note": "insufficient_model_state"}]
+
+
+def test_write_research_question_artifacts_writes_top_confusion_pairs_without_skeptic_audits(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_conf"
+    (diagnostics_dir / "cohort_foundation.json").write_text(
+        json.dumps(
+            {
+                "cohort_prepared_row_count": 2,
+                "family_type_summary": {
+                    "family_count": 2,
+                    "type_count": 1,
+                    "top_family": "Godfather",
+                    "top_family_count": 1,
+                    "top_family_share_pct": 50.0,
+                    "top3_share_pct": 100.0,
+                    "top5_share_pct": 100.0,
+                    "family_distribution": {"Godfather": 1, "Irata": 1},
+                    "type_distribution": {"banker": 2},
+                },
+                "gate_stats": {
+                    "excluded_unmapped_family": 0,
+                    "excluded_missing_sha256": 0,
+                },
+                "missing_package_rate_pct": 0.0,
+                "missing_vt_timestamp_rate_pct": 0.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"label_name_map_{run_id}.json").write_text(
+        json.dumps({"label_name_map": {"17": "Godfather", "44": "Irata"}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", run_id, raising=False)
+
+    rtq.write_research_question_artifacts(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="unit_profile",
+        manifest_context={},
+        samples_df=pd.DataFrame(
+            {
+                "sample_id": [1, 2],
+                "family_canonical": ["Godfather", "Irata"],
+                "family_id": [17, 44],
+                "type_slug": ["banker", "banker"],
+            }
+        ),
+        model_results={
+            "random_forest": {
+                "label_name_map": {"17": "Godfather", "44": "Irata"},
+                "metadata": {"classification_report": {}},
+                "evaluation": {
+                    "macro_f1_score": 0.83,
+                    "f1_score": 0.9,
+                    "accuracy": 0.9,
+                    "confusion_matrix": [[0, 1], [0, 1]],
+                    "class_labels": ["17", "44"],
+                },
+            }
+        },
+        top_model="random_forest",
+    )
+
+    confusion_rows = pd.read_csv(diagnostics_dir / "top_confusion_pairs.csv").to_dict(orient="records")
+    assert confusion_rows[0]["true_family"] == "Godfather"
+    assert confusion_rows[0]["predicted_family"] == "Irata"
+    assert int(confusion_rows[0]["count"]) == 1
+    assert confusion_rows[0]["shared_type"] == "yes"
+
+
 def test_print_research_questions_terminal_labels_vendor_merge_coverage_honestly() -> None:
     """Run summary should not describe 100% vendor-merge coverage as sparse."""
     captured: list[str] = []
@@ -222,8 +490,8 @@ def test_print_research_questions_terminal_labels_vendor_merge_coverage_honestly
     )
 
     text = "\n".join(captured)
-    assert "parsed vendor merge full (100.0%)." in text
-    assert "parsed vendor merge sparse (100.0%)." not in text
+    assert "parsed vendor weak-support coverage is full (100.0%)." in text
+    assert "parsed vendor weak-support coverage is sparse (100.0%)." not in text
 
 
 def test_print_research_questions_terminal_compact_summary_omits_headline_task_boundary(

@@ -1,5 +1,6 @@
 profile_id: malicious_temporal_consensus10
 description: "Sensitivity profile for the all-malicious temporal-stability cohort with a stricter consensus threshold."
+cohort_readiness_bucket: android_high_or_strong_vt_with_permission_obs
 profile_status:
   lifecycle: final_canonical
   operator_surface: supported

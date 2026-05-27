@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from mysql.connector import Error as MySQLError
+import pytest
 
 from obsidiandroid.database import db_engine, schema_map
 from obsidiandroid.database.db_config import DB_NAME, PERMISSION_INTEL_DB_NAME
@@ -63,6 +64,31 @@ def test_execute_permission_query_uses_permission_intel_database(monkeypatch) ->
     monkeypatch.setattr(db_engine.mysql.connector, "connect", fake_connect)
     db_engine.execute_permission_query("SELECT 1", fetch=False)
     assert captured.get("database") == PERMISSION_INTEL_DB_NAME
+
+
+def test_run_query_does_not_mask_keyboard_interrupt_with_cursor_close_error() -> None:
+    class _FakeCursor:
+        description = None
+
+        def execute(self, *_args, **_kwargs):
+            raise KeyboardInterrupt()
+
+        def close(self):
+            raise MySQLError("Unread result found")
+
+    class _FakeConn:
+        def cursor(self):
+            return _FakeCursor()
+
+        def rollback(self):
+            return None
+
+    with pytest.raises(KeyboardInterrupt):
+        db_engine._run_query(  # pylint: disable=protected-access
+            _FakeConn(),
+            "SELECT 1",
+            fetch=False,
+        )
 
 
 def test_fetch_banking_trojans_sql_qualifies_primary_and_pi(monkeypatch) -> None:

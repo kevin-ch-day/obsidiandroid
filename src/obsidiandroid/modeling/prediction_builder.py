@@ -33,6 +33,8 @@ def export_model(
                         "importance": float(score),
                     }
                 )
+        if isinstance(result.get("metadata"), dict):
+            result["metadata"]["feature_importances_named"] = named_feature_importances
 
         metadata = {
             "model_type": model_type,

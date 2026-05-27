@@ -75,6 +75,9 @@ def evaluate_model_performance(
                 prec=prec,
                 recall=rec,
                 f1=f1,
+                macro_prec=macro_prec,
+                macro_recall=macro_rec,
+                macro_f1=macro_f1,
                 cm_path=cm_path,
             )
             _display_confidence_stats(model, X_test)

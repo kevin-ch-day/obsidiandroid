@@ -561,7 +561,7 @@ def write_research_validity_review(
         "## Feature signal",
         "",
         f"- Permission signal (share of cohort): **{payload['feature_signal'].get('permission_signal_pct', '—')}**%",
-        f"- Parsed vendor merge authority: **{payload['feature_signal'].get('vendor_merge_pct', '—')}**%",
+        f"- Parsed vendor weak-support coverage: **{payload['feature_signal'].get('vendor_merge_pct', '—')}**%",
         f"- permissions_raw Macro-F1 (ablation): **{payload['feature_signal'].get('permissions_raw_macro_f1', '—')}**",
         f"- full_fused Macro-F1 (ablation): **{payload['feature_signal'].get('full_fused_macro_f1', '—')}**",
         "",

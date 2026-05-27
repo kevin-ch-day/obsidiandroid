@@ -119,9 +119,12 @@ def apply_analysis_snapshot_lock(
         return prepared
 
     filtered = prepared[prepared["sample_id"].isin(kept_ids)].copy()
+    _inherit_dataframe_attrs(filtered, prepared)
     lock_subset = lock_df[lock_df["sample_id"].isin(kept_ids)].drop_duplicates("sample_id")
     filtered = _apply_optional_lock_constraints(filtered, lock_subset)
+    _inherit_dataframe_attrs(filtered, prepared)
     filtered = _sort_by_sample_id(filtered)
+    _inherit_dataframe_attrs(filtered, prepared)
 
     missing_from_db = len(locked_ids - live_ids)
     _set_snapshot_lock_metadata(
@@ -324,6 +327,16 @@ def _set_snapshot_lock_metadata(df: pd.DataFrame, payload: dict[str, object]) ->
     attrs = dict(getattr(df, "attrs", {}))
     attrs["snapshot_lock"] = dict(payload)
     df.attrs = attrs
+
+
+def _inherit_dataframe_attrs(target: pd.DataFrame, source: pd.DataFrame) -> None:
+    """Preserve attrs across pandas copy/filter/sort operations that drop them."""
+    source_attrs = dict(getattr(source, "attrs", {}))
+    if not source_attrs:
+        return
+    merged = dict(source_attrs)
+    merged.update(dict(getattr(target, "attrs", {})))
+    target.attrs = merged
 
 
 def _hash_sha256_values(values: list[object]) -> str:

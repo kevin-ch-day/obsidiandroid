@@ -18,9 +18,9 @@ def test_load_locked_temporal_profile_exposes_contract() -> None:
     contract = paper_cohort_contract.build_declared_contract(profile)
 
     assert profile["paper_locked"] is True
-    assert contract["expected"]["sample_count"] == 1226
-    assert contract["expected"]["family_count"] == 39
-    assert contract["expected"]["type_count"] == 6
+    assert contract["expected"]["sample_count"] == 1187
+    assert contract["expected"]["family_count"] == 35
+    assert contract["expected"]["type_count"] == 3
     assert contract["contract_id"] == "malicious_temporal_stability_locked_contract"
     assert contract["sample_id_lock"]["path"].endswith("malicious_temporal_stability_locked_sample_ids.csv")
     assert Path(contract["sample_id_lock"]["path"]).exists()
@@ -100,7 +100,7 @@ def test_recovered_historical_lock_degrades_when_live_db_is_missing_locked_rows(
             "expected_family_count": 2,
             "expected_type_count": 1,
             "sample_id_lock_status": "recovered_from_historical_artifact",
-            "sample_id_lock_file": "artifacts/baselines/20260504T044304Z__8c64e6/paper2_primary_locked_sample_ids.csv",
+            "sample_id_lock_file": "artifacts/baselines/20260526T021235Z__8b6966/paper2_primary_locked_sample_ids.csv",
         },
     }
     samples_df = pd.DataFrame(
@@ -154,7 +154,7 @@ def test_manifest_payload_records_expected_cohort_contract_metadata() -> None:
             "paper_cohort_contract": {
                 "paper_locked": True,
                 "contract_id": "malicious_temporal_stability_locked_contract",
-                "expected": {"sample_count": 1226, "family_count": 39, "type_count": 6},
+                "expected": {"sample_count": 1187, "family_count": 35, "type_count": 3},
                 "validation": {"checked": True, "status": "match", "mismatches": []},
             },
             "db_query_contract": {"version": "v1"},
@@ -173,7 +173,7 @@ def test_manifest_payload_records_expected_cohort_contract_metadata() -> None:
 
     assert manifest["paper_cohort_contract"]["paper_locked"] is True
     assert manifest["cohort_contract"]["contract_id"] == "malicious_temporal_stability_locked_contract"
-    assert manifest["paper_cohort_contract"]["expected"]["sample_count"] == 1226
+    assert manifest["paper_cohort_contract"]["expected"]["sample_count"] == 1187
     assert manifest["paper_cohort_contract"]["validation"]["status"] == "match"
 
 

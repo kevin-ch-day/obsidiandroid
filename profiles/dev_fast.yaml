@@ -19,14 +19,27 @@ cohort_gates:
   allow_missing_package_name: true
   max_missing_package_pct: 10.0
   exclude_unknown_type_slug: false
+  exclude_weak_label_kinds: true
+  exclude_family_label_conflicts: true
+  min_family_label_confidence_score: 80
   min_malicious_detections: 1
-  family_cap: null
-  family_cap_seed: null
+  family_cap: 80
+  family_cap_seed: 1337
+  type_cap: 220
+  type_cap_seed: 1337
+  type_cap_by_slug:
+    banker: 140
+    rat: 90
+    spyware: 90
+    adware: 70
+    dropper: 70
+  limit: 1600
 model_list:
   - logistic_regression
 parser_overrides: {}
 feature_flags:
   enable_sample_metadata_features: true
+  enable_permission_features: true
   enable_dynamic_generic_vendor_parsers: false
 runtime_overrides:
   ENABLE_CROSS_VALIDATION: false
@@ -40,6 +53,11 @@ runtime_overrides:
   ENABLE_AV_PIPELINE_EXCEL_EXPORT: false
   ENABLE_MODEL_COMPARISON_CSV_EXPORT: true
   ENABLE_MODEL_COMPARISON_EXCEL_EXPORT: false
+  EXPORT_ALIGNED_TRAINING_CACHE: false
+  ENABLE_SKEPTIC_AUDITS: false
+  ENABLE_RESEARCH_VALIDITY_BUNDLE: false
+  ENABLE_VERBOSE_RUN_ARTIFACTS: false
+  ENABLE_DETAILED_PER_CLASS_REPORTS: false
 threshold_overrides: {}
 dataset_filters:
   mode: malicious_only

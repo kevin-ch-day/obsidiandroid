@@ -17,6 +17,10 @@ from config import app_config
 from obsidiandroid.common import output_hygiene as oh
 
 from obsidiandroid.common.json_io import read_json_dict
+from obsidiandroid.reporting.high_score_skeptic_helpers import (
+    build_label_map as _build_label_map,
+    label_display as _label_display,
+)
 from obsidiandroid.reporting import operator_dashboard
 
 
@@ -27,7 +31,7 @@ def _safe_pct(num: float, den: float) -> float:
 
 
 def _vendor_merge_coverage_label(pct: float) -> str:
-    """Human-readable vendor-merge coverage label for operator summaries."""
+    """Human-readable weak-support vendor coverage label for operator summaries."""
     try:
         value = float(pct)
     except (TypeError, ValueError):
@@ -165,13 +169,39 @@ def _top_confusion_pairs_labeled(
     return rows
 
 
-def _classification_table_rows(model_results: dict[str, Any], model_key: str) -> list[dict[str, Any]]:
+def _write_top_confusion_pairs_csv(
+    diagnostics_dir: Path,
+    rows: list[dict[str, Any]],
+) -> None:
+    payload_rows: list[dict[str, Any]] = []
+    for row in rows:
+        payload_rows.append(
+            {
+                "true_family": str(row.get("true_label", "") or ""),
+                "predicted_family": str(row.get("predicted_label", "") or ""),
+                "count": int(row.get("count", 0) or 0),
+                "shared_type": str(row.get("shared_malware_type", "") or ""),
+            }
+        )
+    if not payload_rows:
+        payload_rows = [{"note": "insufficient_model_state"}]
+    pd.DataFrame(payload_rows).to_csv(diagnostics_dir / "top_confusion_pairs.csv", index=False)
+
+
+def _classification_table_rows(
+    model_results: dict[str, Any],
+    model_key: str,
+    *,
+    diagnostics_dir: Path,
+    run_id: str,
+) -> list[dict[str, Any]]:
     res = model_results.get(model_key) if isinstance(model_results, dict) else None
     if not isinstance(res, dict):
         return []
     creport = res.get("metadata", {}).get("classification_report")
     if not isinstance(creport, dict):
         return []
+    label_map = _build_label_map(model_results, model_key, diagnostics_dir, run_id)
     rows: list[dict[str, Any]] = []
     for label, stats in creport.items():
         if not isinstance(stats, dict):
@@ -181,7 +211,7 @@ def _classification_table_rows(model_results: dict[str, Any], model_key: str) ->
         try:
             rows.append(
                 {
-                    "family": str(label),
+                    "family": _label_display(label, label_map),
                     "precision": float(stats.get("precision", 0)),
                     "recall": float(stats.get("recall", 0)),
                     "f1_score": float(stats.get("f1-score", 0)),
@@ -245,6 +275,42 @@ def write_research_question_artifacts(
     missing_vt = float(cf.get("missing_vt_timestamp_rate_pct") or 0)
     unmapped_sql = int(gate.get("excluded_unmapped_family") or 0)
     missing_sha_sql = int(gate.get("excluded_missing_sha256") or 0)
+    sql_scope_total = int(
+        cf.get("cohort_sql_scope_row_count")
+        or gate.get("total_candidates")
+        or manifest_context.get("cohort_sql_scope_row_count")
+        or 0
+    )
+    sql_governed_total = int(
+        (cf.get("cohort_attrition") or {}).get("governed_sql_total")
+        or gate.get("governed_cohort_count_sql")
+        or manifest_context.get("governed_cohort_rows")
+        or gov
+        or 0
+    )
+    semantics = (
+        cf.get("catalog_semantics_summary")
+        if isinstance(cf.get("catalog_semantics_summary"), dict)
+        else {}
+    )
+    vt_family_token_rows = int(semantics.get("vt_family_token_rows") or 0)
+    raw_vs_canonical_family_conflicts = int(
+        semantics.get("raw_family_vs_canonical_conflict_rows") or 0
+    )
+    weak_labels_with_canonical_family = int(
+        semantics.get("weak_label_with_canonical_family_rows") or 0
+    )
+    target_surfaces = read_json_dict(diagnostics_dir / f"taxonomy_target_surfaces_{run_id}.json")
+    alignment_blob = (
+        target_surfaces.get("alignment")
+        if isinstance(target_surfaces.get("alignment"), dict)
+        else {}
+    )
+    label_strategy_blob = (
+        target_surfaces.get("label_strategy")
+        if isinstance(target_surfaces.get("label_strategy"), dict)
+        else {}
+    )
 
     msum = read_json_dict(oh.resolve_feature_modality_coverage_summary_path(diagnostics_dir, run_id))
     pi_n = msum.get("permission_pi_signal_positive_n")
@@ -394,6 +460,36 @@ def write_research_question_artifacts(
         "concentration_warning": concentration_warn,
         "supervised_family_claims_suitable": bool(sup_ok),
         "sample_lineage_loss_summary": lineage_loss.strip(),
+        "final_samples": int(gov),
+        "sql_profile_scope": int(sql_scope_total),
+        "sql_governed_cohort": int(sql_governed_total),
+        "unique_families": int(fam_count),
+        "represented_types": int(type_count),
+        "type_distribution": type_dist,
+        "family_concentration": {
+            "top_family": top_fam,
+            "top_family_count": top_n,
+            "top_family_share_pct": top_share,
+            "top3_share_pct": t3_share,
+            "top5_share_pct": t5_share,
+        },
+        "raw_to_type_alignment": {
+            "subtype_exact_pct": alignment_blob.get("subtype_exact_type_match_pct"),
+            "primary_exact_pct": alignment_blob.get("primary_exact_type_match_pct"),
+            "inferred_match_pct": alignment_blob.get("inferred_type_match_pct"),
+        },
+        "label_strategy": {
+            "preferred_family_target": label_strategy_blob.get("preferred_family_target"),
+            "preferred_family_reporting_surface": label_strategy_blob.get("preferred_family_reporting_surface"),
+            "preferred_type_target": label_strategy_blob.get("preferred_type_target"),
+            "preferred_hierarchical_target": label_strategy_blob.get("preferred_hierarchical_target"),
+            "auxiliary_audit_surfaces": label_strategy_blob.get("auxiliary_audit_surfaces", []),
+            "avoid_for_primary_claims": label_strategy_blob.get("avoid_for_primary_claims", []),
+            "alignment_interpretation": label_strategy_blob.get("alignment_interpretation"),
+        },
+        "rows_with_vt_family_token": int(vt_family_token_rows),
+        "raw_vs_canonical_family_conflicts": int(raw_vs_canonical_family_conflicts),
+        "weak_labels_with_canonical_family": int(weak_labels_with_canonical_family),
     }
     (diagnostics_dir / "dataset_foundation_summary.json").write_text(
         json.dumps(q1_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -419,6 +515,9 @@ def write_research_question_artifacts(
         "## Interpretation",
         "",
         "- Prefer **Macro-F1** and per-family recall when concentration is high.",
+        f"- Preferred family supervision target: **`{label_strategy_blob.get('preferred_family_target', 'family_id')}`**.",
+        f"- Preferred coarse type target: **`{label_strategy_blob.get('preferred_type_target', 'type_slug')}`**.",
+        f"- Avoid raw primary claims on: **`{', '.join(label_strategy_blob.get('avoid_for_primary_claims', ['category_primary']))}`**.",
         "- See `family_distribution.csv`, `low_support_families.csv`.",
         "",
     ]
@@ -497,6 +596,21 @@ def write_research_question_artifacts(
                         )
                 except (TypeError, ValueError, IndexError):
                     perm_vs_fused_note = ""
+            try:
+                if not fused_row.empty:
+                    headline_eval = (
+                        (mr.get(mk) or {}).get("evaluation", {})
+                        if isinstance(mr.get(mk), dict)
+                        else {}
+                    )
+                    headline_macro = float(headline_eval.get("macro_f1_score", 0.0) or 0.0)
+                    fused_macro = float(fused_row.iloc[0]["macro_f1_score"])
+                    if headline_macro > 0 and abs(fused_macro - headline_macro) >= 0.10:
+                        interpret_q2.append(
+                            "Headline family result and best full-fused ablation diverge materially; compare split or label-target regime before treating the ablation peak as the main benchmark."
+                        )
+            except (TypeError, ValueError, IndexError):
+                pass
 
             vfull = best_per_exp[best_per_exp["experiment"].astype(str) == "vendor_full"]
             vnof = best_per_exp[best_per_exp["experiment"].astype(str) == "vendor_no_parsed_family"]
@@ -581,11 +695,13 @@ def write_research_question_artifacts(
         ]
     ).to_csv(diagnostics_dir / "vendor_feature_coverage_summary.csv", index=False)
 
+    detailed_per_class_reports = bool(getattr(app_config, "ENABLE_DETAILED_PER_CLASS_REPORTS", True))
     leak_txt = oh.resolve_leakage_assessment_path(diagnostics_dir, run_id)
     leak_rows = [{"artifact": "leakage_assessment", "path": leak_txt.name, "notes": ""}]
     if leak_txt.is_file():
         leak_rows[0]["notes"] = leak_txt.read_text(encoding="utf-8", errors="replace")[:1200]
-    pd.DataFrame(leak_rows).to_csv(diagnostics_dir / "vendor_leakage_safety_audit.csv", index=False)
+    if detailed_per_class_reports:
+        pd.DataFrame(leak_rows).to_csv(diagnostics_dir / "vendor_leakage_safety_audit.csv", index=False)
 
     surv_path = operator_dashboard.resolve_feature_column_survival_path(
         diagnostics_dir=diagnostics_dir,
@@ -596,15 +712,18 @@ def write_research_question_artifacts(
             sdf = pd.read_csv(surv_path)
             if "modality" in sdf.columns and "feature_name" in sdf.columns:
                 vc = sdf.groupby(sdf["modality"].astype(str), dropna=False).size().reset_index(name="n_features")
-                vc.to_csv(diagnostics_dir / "feature_group_survival.csv", index=False)
+                if detailed_per_class_reports:
+                    vc.to_csv(diagnostics_dir / "feature_group_survival.csv", index=False)
         except Exception:
-            pd.DataFrame([{"note": "feature_column_survival_unreadable"}]).to_csv(
+            if detailed_per_class_reports:
+                pd.DataFrame([{"note": "feature_column_survival_unreadable"}]).to_csv(
+                    diagnostics_dir / "feature_group_survival.csv", index=False
+                )
+    else:
+        if detailed_per_class_reports:
+            pd.DataFrame([{"note": "feature_column_survival_missing"}]).to_csv(
                 diagnostics_dir / "feature_group_survival.csv", index=False
             )
-    else:
-        pd.DataFrame([{"note": "feature_column_survival_missing"}]).to_csv(
-            diagnostics_dir / "feature_group_survival.csv", index=False
-        )
 
     q2_payload = {
         "run_id": run_id,
@@ -629,7 +748,7 @@ def write_research_question_artifacts(
         "",
         f"- Permission signal: **{int(pi_n or 0)} / {gov}** ({pi_pct:.2f}%)",
         f"- Permission feature columns (fused / contract): **{perm_cols_fused if perm_cols_fused is not None else '—'}**",
-        f"- Parsed vendor merge authority: **{int(vmerge or 0)} / {gov}** ({vm_pct:.2f}%)",
+        f"- Parsed vendor weak-support coverage: **{int(vmerge or 0)} / {gov}** ({vm_pct:.2f}%)",
         f"- AV engines (observed / included): **{eng_obs}** / **{eng_in}**",
         "",
         "See `feature_set_ablation_summary.csv` and `.md`.",
@@ -639,29 +758,35 @@ def write_research_question_artifacts(
 
     # --- Q3 model / family ---
     type_lookup = _build_family_type_lookup(samples_df)
-    cls_rows = _classification_table_rows(mr, mk)
+    cls_rows = _classification_table_rows(
+        mr,
+        mk,
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+    )
     cls_df = pd.DataFrame(cls_rows)
-    if not cls_df.empty:
-        cls_df.to_csv(diagnostics_dir / "family_precision_recall.csv", index=False)
-        low_r = cls_df.sort_values("recall", ascending=True).head(10)
-        low_p = cls_df.sort_values("precision", ascending=True).head(10)
-        low_r.to_csv(diagnostics_dir / "lowest_recall_families.csv", index=False)
-        low_p.to_csv(diagnostics_dir / "lowest_precision_families.csv", index=False)
+    if detailed_per_class_reports:
+        if not cls_df.empty:
+            cls_df.to_csv(diagnostics_dir / "family_precision_recall.csv", index=False)
+            low_r = cls_df.sort_values("recall", ascending=True).head(10)
+            low_p = cls_df.sort_values("precision", ascending=True).head(10)
+            low_r.to_csv(diagnostics_dir / "lowest_recall_families.csv", index=False)
+            low_p.to_csv(diagnostics_dir / "lowest_precision_families.csv", index=False)
 
-        sup_med = float(cls_df["support"].median()) if not cls_df.empty else 0.0
-        cls_df["metric_unstable_low_support"] = cls_df["support"] < max(3.0, sup_med * 0.1)
-        cls_df.to_csv(diagnostics_dir / "family_support_vs_performance.csv", index=False)
-    else:
-        _cols = ["family", "precision", "recall", "f1_score", "support"]
-        pd.DataFrame(columns=_cols).to_csv(diagnostics_dir / "family_precision_recall.csv", index=False)
-        pd.DataFrame(columns=_cols).to_csv(diagnostics_dir / "lowest_recall_families.csv", index=False)
-        pd.DataFrame(columns=_cols).to_csv(diagnostics_dir / "lowest_precision_families.csv", index=False)
-        pd.DataFrame(columns=_cols + ["metric_unstable_low_support"]).to_csv(
-            diagnostics_dir / "family_support_vs_performance.csv", index=False
-        )
+            sup_med = float(cls_df["support"].median()) if not cls_df.empty else 0.0
+            cls_df["metric_unstable_low_support"] = cls_df["support"] < max(3.0, sup_med * 0.1)
+            cls_df.to_csv(diagnostics_dir / "family_support_vs_performance.csv", index=False)
+        else:
+            _cols = ["family", "precision", "recall", "f1_score", "support"]
+            pd.DataFrame(columns=_cols).to_csv(diagnostics_dir / "family_precision_recall.csv", index=False)
+            pd.DataFrame(columns=_cols).to_csv(diagnostics_dir / "lowest_recall_families.csv", index=False)
+            pd.DataFrame(columns=_cols).to_csv(diagnostics_dir / "lowest_precision_families.csv", index=False)
+            pd.DataFrame(columns=_cols + ["metric_unstable_low_support"]).to_csv(
+                diagnostics_dir / "family_support_vs_performance.csv", index=False
+            )
 
     conf_rows = _top_confusion_pairs_labeled(mr, mk, top_n=8, type_lookup=type_lookup)
-    # top_confusion_pairs.csv is written by high_score_skeptic_audits (holdout CM + shared type).
+    _write_top_confusion_pairs_csv(diagnostics_dir, conf_rows)
 
     ft_perf_rows: list[dict[str, Any]] = []
     if not ab_df.empty and "label_target" in ab_df.columns and "macro_f1_score" in ab_df.columns:
@@ -696,13 +821,14 @@ def write_research_question_artifacts(
             [{"note": "family_vs_type_performance requires ablation_summary with label_target and macro_f1_score"}]
         ).to_csv(diagnostics_dir / "family_vs_type_performance.csv", index=False)
 
-    pd.DataFrame(
-        [
-            {
-                "note": "Per-class type precision/recall: train a type_slug headline model or inspect ablation exports."
-            }
-        ]
-    ).to_csv(diagnostics_dir / "type_precision_recall.csv", index=False)
+    if detailed_per_class_reports:
+        pd.DataFrame(
+            [
+                {
+                    "note": "Per-class type precision/recall: train a type_slug headline model or inspect ablation exports."
+                }
+            ]
+        ).to_csv(diagnostics_dir / "type_precision_recall.csv", index=False)
 
     ev = {}
     if mk in mr and isinstance(mr[mk], dict):
@@ -757,41 +883,57 @@ def write_research_question_artifacts(
     ]
     if type_easier:
         q3_md.extend(["## Target comparison (ablation grid)", "", type_easier, ""])
-    q3_md.append("See `family_precision_recall.csv`, `top_confusion_pairs.csv`, `family_vs_type_performance.csv`.")
-    q3_md.extend(
-        [
-            "",
-            "## High-score skepticism (Q3 extension)",
-            "",
-            "- Why might Macro-F1 look **very high**? See `high_score_audit.md` and `headline_score_scope.md`.",
-            "- What was **removed** before training? See `headline_score_scope.md` and `low_support_families.csv`.",
-            "- Are **wrong predictions** concentrated? See `false_attribution_audit.md` and `high_confidence_wrong_predictions.csv`.",
-            "- Is the **random split** too easy? See `split_contamination_audit.md` and package overlap CSVs.",
-            "- Is **SMOTE** inflating training rows? See `smote_effect_check.md` / `RUNTIME_SMOTE_AUDIT_BY_MODEL`.",
-            "- Are **label-like features** driving RF? See `top_feature_modality_audit.md` and `suspicious_label_like_features.csv`.",
-            "",
-        ]
-    )
+    if detailed_per_class_reports:
+        q3_md.append("See `family_precision_recall.csv`, `top_confusion_pairs.csv`, `family_vs_type_performance.csv`.")
+    else:
+        q3_md.append("See `top_confusion_pairs.csv` and `family_vs_type_performance.csv`.")
+    skeptic_audits_enabled = bool(getattr(app_config, "ENABLE_SKEPTIC_AUDITS", True))
+    if skeptic_audits_enabled:
+        q3_md.extend(
+            [
+                "",
+                "## High-score skepticism (Q3 extension)",
+                "",
+                "- Why might Macro-F1 look **very high**? See `high_score_audit.md` and `headline_score_scope.md`.",
+                "- What was **removed** before training? See `headline_score_scope.md` and `low_support_families.csv`.",
+                "- Are **wrong predictions** concentrated? See `false_attribution_audit.md` and `high_confidence_wrong_predictions.csv`.",
+                "- Is the **random split** too easy? See `split_contamination_audit.md` and package overlap CSVs.",
+                "- Is **SMOTE** inflating training rows? See `smote_effect_check.md` / `RUNTIME_SMOTE_AUDIT_BY_MODEL`.",
+                "- Are **label-like features** driving RF? See `top_feature_modality_audit.md` and `suspicious_label_like_features.csv`.",
+                "",
+            ]
+        )
+    else:
+        q3_md.extend(
+            [
+                "",
+                "## High-score skepticism (Q3 extension)",
+                "",
+                "- Skeptic audit bundle disabled by profile for compact tuning runs.",
+                "",
+            ]
+        )
     (diagnostics_dir / "model_and_family_failure_summary.md").write_text("\n".join(q3_md) + "\n", encoding="utf-8")
 
-    from obsidiandroid.reporting import high_score_skeptic_audits as _hssa
+    if skeptic_audits_enabled:
+        from obsidiandroid.reporting import high_score_skeptic_audits as _hssa
 
-    _hssa.write_all_skeptic_audits(
-        diagnostics_dir=diagnostics_dir,
-        run_id=run_id,
-        profile_id=profile_id,
-        q1_payload=q1_payload,
-        manifest_context=dict(manifest_context),
-        model_results=mr,
-        top_model_key=mk,
-        samples_df=samples_df,
-        headline_macro_f1=macro_f1,
-        headline_acc=acc,
-        headline_weighted_f1=wf1,
-        drop_detail=drop_detail,
-        primary_label_target=str(primary_lt),
-        type_lookup=type_lookup,
-    )
+        _hssa.write_all_skeptic_audits(
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            profile_id=profile_id,
+            q1_payload=q1_payload,
+            manifest_context=dict(manifest_context),
+            model_results=mr,
+            top_model_key=mk,
+            samples_df=samples_df,
+            headline_macro_f1=macro_f1,
+            headline_acc=acc,
+            headline_weighted_f1=wf1,
+            drop_detail=drop_detail,
+            primary_label_target=str(primary_lt),
+            type_lookup=type_lookup,
+        )
 
     written_paths: list[str] = []
     for name in (
@@ -808,47 +950,75 @@ def write_research_question_artifacts(
         "feature_set_ablation_summary.md",
         "permission_coverage_summary.csv",
         "vendor_feature_coverage_summary.csv",
-        "vendor_leakage_safety_audit.csv",
-        "feature_group_survival.csv",
+        *(
+            [
+                "vendor_leakage_safety_audit.csv",
+                "feature_group_survival.csv",
+            ]
+            if detailed_per_class_reports else []
+        ),
         "model_and_family_failure_summary.json",
         "model_and_family_failure_summary.md",
-        "family_precision_recall.csv",
-        "lowest_recall_families.csv",
-        "lowest_precision_families.csv",
+        *(
+            [
+                "family_precision_recall.csv",
+                "lowest_recall_families.csv",
+                "lowest_precision_families.csv",
+            ]
+            if detailed_per_class_reports else []
+        ),
         "top_confusion_pairs.csv",
         "family_vs_type_performance.csv",
-        "type_precision_recall.csv",
-        "family_support_vs_performance.csv",
-        "headline_score_scope.json",
-        "headline_score_scope.md",
-        "high_score_audit.json",
-        "high_score_audit.md",
-        "false_attribution_audit.json",
-        "false_attribution_audit.md",
-        "false_positive_by_predicted_family.csv",
-        "false_negative_by_true_family.csv",
-        "high_confidence_wrong_predictions.csv",
-        "split_contamination_audit.json",
-        "split_contamination_audit.md",
-        "train_test_package_overlap.csv",
-        "train_test_family_package_overlap.csv",
-        "smote_effect_check.csv",
-        "smote_effect_check.md",
-        "smote_effect_check.json",
-        "leakage_safe_score_comparison.csv",
-        "leakage_safe_score_comparison.md",
-        "leakage_safe_score_comparison.json",
-        "top_feature_modality_audit.csv",
-        "top_feature_modality_audit.md",
-        "top_feature_modality_audit.json",
-        "suspicious_label_like_features.csv",
-        "recommended_validation_plan.md",
+        *(
+            [
+                "type_precision_recall.csv",
+                "family_support_vs_performance.csv",
+            ]
+            if detailed_per_class_reports else []
+        ),
     ):
         p = diagnostics_dir / name
         if p.is_file():
             written_paths.append(str(p))
+    if skeptic_audits_enabled:
+        for name in (
+            "headline_score_scope.json",
+            "headline_score_scope.md",
+            "high_score_audit.json",
+            "high_score_audit.md",
+            "false_attribution_audit.json",
+            "false_attribution_audit.md",
+            "false_positive_by_predicted_family.csv",
+            "false_negative_by_true_family.csv",
+            "high_confidence_wrong_predictions.csv",
+            "split_contamination_audit.json",
+            "split_contamination_audit.md",
+            "train_test_package_overlap.csv",
+            "train_test_family_package_overlap.csv",
+            "smote_effect_check.csv",
+            "smote_effect_check.md",
+            "smote_effect_check.json",
+            "leakage_safe_score_comparison.csv",
+            "leakage_safe_score_comparison.md",
+            "leakage_safe_score_comparison.json",
+            "top_feature_modality_audit.csv",
+            "top_feature_modality_audit.md",
+            "top_feature_modality_audit.json",
+            "suspicious_label_like_features.csv",
+            "recommended_validation_plan.md",
+        ):
+            p = diagnostics_dir / name
+            if p.is_file():
+                written_paths.append(str(p))
     if written_paths:
         operator_dashboard.bump_artifact_counter("research_summaries", len(written_paths))
+
+    top_confusion_csv = diagnostics_dir / "top_confusion_pairs.csv"
+    try:
+        if not top_confusion_csv.exists() or top_confusion_csv.stat().st_size <= 1:
+            _write_top_confusion_pairs_csv(diagnostics_dir, conf_rows)
+    except Exception:
+        pass
 
     return {
         "q1": q1_payload,
@@ -918,8 +1088,20 @@ def print_research_questions_terminal(
     if not q1.get("supervised_family_claims_suitable"):
         pr("⚠ Supervised family claims may be weak — check labels and alignment.")
         pr("")
+    label_strategy = q1.get("label_strategy") if isinstance(q1.get("label_strategy"), dict) else {}
     pr("Interpretation:")
     pr("  Cohort structure drives interpretability; Macro-F1 and recall tails are primary evidence.")
+    if label_strategy:
+        pr(
+            f"  Train family models on {label_strategy.get('preferred_family_target', 'family_id')} "
+            f"and coarse taxonomy on {label_strategy.get('preferred_type_target', 'type_slug')}."
+        )
+        avoid = label_strategy.get("avoid_for_primary_claims", [])
+        if isinstance(avoid, list) and avoid:
+            pr(f"  Avoid primary scientific claims on raw surfaces: {', '.join(str(x) for x in avoid)}.")
+        interp = str(label_strategy.get("alignment_interpretation", "") or "").strip()
+        if interp:
+            pr(f"  {interp}")
     pr("  Files: dataset_foundation_summary.md, family_distribution.csv, low_support_families.csv")
     pr("")
 
@@ -933,7 +1115,7 @@ def print_research_questions_terminal(
     )
     pr(f"  Permission feature columns: {q2.get('permission_feature_columns', '—')}")
     pr(
-        f"  Parsed vendor metadata (merge authority): {q2.get('vendor_merge_n', '—')} / {gov} "
+        f"  Parsed vendor metadata (weak-support coverage): {q2.get('vendor_merge_n', '—')} / {gov} "
         f"({float(q2.get('vendor_merge_pct') or 0):.2f}%)"
     )
     pr(
@@ -1024,12 +1206,12 @@ def print_research_questions_terminal(
         if fused_perm_n == 0 and raw_perm_n > 0:
             pr(
                 f"   Raw permission observations cover {raw_perm_pct:.1f}% of the cohort, "
-                f"but fused permission features are disabled/absent; parsed vendor merge {vendor_merge_label} ({vendor_merge_pct:.1f}%)."
+                f"but fused permission features are disabled/absent; parsed vendor weak-support coverage is {vendor_merge_label} ({vendor_merge_pct:.1f}%)."
             )
         else:
             pr(
                 f"   Permissions broad ({fused_perm_pct:.1f}% rows with PI signal); "
-                f"parsed vendor merge {vendor_merge_label} ({vendor_merge_pct:.1f}%)."
+                f"parsed vendor weak-support coverage is {vendor_merge_label} ({vendor_merge_pct:.1f}%)."
             )
         pr("3. Bottom line:")
         pr(
@@ -1049,12 +1231,12 @@ def print_research_questions_terminal(
         pr(
             f"   Raw permission observations cover {raw_perm_pct:.1f}% of the cohort, "
             f"but fused permission features are disabled/absent for this run; "
-            f"parsed vendor merge {vendor_merge_label} ({vendor_merge_pct:.1f}%)."
+            f"parsed vendor weak-support coverage is {vendor_merge_label} ({vendor_merge_pct:.1f}%)."
         )
     else:
         pr(
             f"   Permissions broad ({fused_perm_pct:.1f}% rows with PI signal); "
-            f"parsed vendor merge {vendor_merge_label} ({vendor_merge_pct:.1f}%)."
+            f"parsed vendor weak-support coverage is {vendor_merge_label} ({vendor_merge_pct:.1f}%)."
         )
     pr("3. Model behavior:")
     pr(

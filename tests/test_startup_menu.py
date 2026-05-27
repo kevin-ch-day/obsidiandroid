@@ -1432,6 +1432,138 @@ def test_handle_confusion_matrix_export_copies_single_model_matrix(
     assert not (run_root / "paper2_pack" / "confusion_matrix_primary.png").exists()
 
 
+def test_review_summary_flags_temporal_generalization_gap(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    out_root = tmp_path / "output"
+    run_id = "20260526T124924Z__c55a08"
+    run_root, diagnostics_dir = _make_run_dirs(out_root, run_id)
+    (out_root / "diagnostics").mkdir(parents=True, exist_ok=True)
+    _write_latest_run_manifest(
+        out_root,
+        {
+            "run_id": run_id,
+            "run_root": str(run_root),
+        },
+    )
+    _write_json(
+        run_root / "run_manifest.json",
+        {
+            "run_id": run_id,
+            "profile_params": {"profile_id": "malicious_temporal_stability_locked"},
+            "publication_ready_status": "NOT_APPLICABLE",
+            "split": {
+                "split_algorithm": "temporal_year_holdout_v1",
+                "temporal_split_summary": {
+                    "test_year_floor": 2024,
+                    "observed_year_min": 2020,
+                    "observed_year_max": 2025,
+                    "test_rows_dropped_unseen_train_classes": 219,
+                },
+            },
+        },
+    )
+    _write_text(
+        diagnostics_dir / f"model_comparison_summary_{run_id}.csv",
+        "\n".join(
+            [
+                "Model,Accuracy,Precision,Recall,F1-Score,Macro F1-Score,Rank,Top",
+                "random_forest,0.5474,0.7295,0.5474,0.589,0.3261,1,*",
+                "logistic_regression,0.3504,0.6528,0.3504,0.4386,0.2505,2,",
+            ]
+        ),
+    )
+    _write_text(diagnostics_dir / "cohort_funnel.md", "# funnel\n")
+    _write_text(diagnostics_dir / "feature_set_ablation_summary.md", "# ablation\n")
+    _write_text(diagnostics_dir / "figure_validity_audit.md", "# figure\n")
+    _write_text(diagnostics_dir / "run_science_index.md", "# index\n")
+    _write_json(diagnostics_dir / f"taxonomy_consistency_summary_{run_id}.json", {"taxonomy_mismatch_count": 0})
+
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    monkeypatch.setattr(
+        startup_menu._review_menu,
+        "get_cohort_readiness_snapshot",
+        lambda: {"status": "ok", "warnings": [], "buckets": {}},
+    )
+    monkeypatch.setattr(
+        startup_menu._review_menu,
+        "infer_cohort_readiness_signal",
+        lambda _profile_id: {
+            "bucket": "android_high_or_strong_vt_with_permission_obs",
+            "summary": "Best matching readiness bucket: android_high_or_strong_vt_with_permission_obs",
+            "detail": "Readiness mapping is advisory only; it does not enforce sample selection.",
+        },
+    )
+
+    summary = startup_menu._review_menu.build_review_latest_run_summary(
+        output_root=out_root,
+        latest_run_id=run_id,
+    )
+
+    temporal_notes = [str(x) for x in summary.get("temporal_generalization_notes", [])]
+    warnings = [str(x) for x in summary.get("warnings", [])]
+    tuning_actions = [str(x) for x in summary.get("tuning_actions", [])]
+    assert any("dropped 219 future-only row(s)" in note for note in temporal_notes)
+    assert any("Macro-F1 0.3261" in note for note in temporal_notes)
+    assert any("Temporal generalization gap" in note for note in warnings)
+    assert any("forward-time family drift" in note for note in tuning_actions)
+
+
+def test_review_summary_surfaces_label_strategy_in_top_level_review(monkeypatch, tmp_path: Path) -> None:
+    out_root = tmp_path / "output"
+    run_id = "r_labels"
+    run_root, diagnostics_dir = _make_run_dirs(out_root, run_id)
+    _write_latest_run_manifest(
+        out_root,
+        {
+            "run_id": run_id,
+            "profile_id": "dev_fast",
+            "publication_ready_status": "NOT_APPLICABLE",
+        },
+    )
+    _write_text(run_root / "run_science_index.md", "# index\n")
+    _write_json(diagnostics_dir / f"taxonomy_consistency_summary_{run_id}.json", {"taxonomy_mismatch_count": 0})
+    _write_json(
+        diagnostics_dir / f"taxonomy_target_surfaces_{run_id}.json",
+        {
+            "label_strategy": {
+                "preferred_family_target": "family_id",
+                "preferred_type_target": "type_slug",
+                "avoid_for_primary_claims": ["category_primary"],
+                "alignment_interpretation": "Raw subtype aligns materially better than raw primary.",
+            }
+        },
+    )
+
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    monkeypatch.setattr(
+        startup_menu._review_menu,
+        "get_cohort_readiness_snapshot",
+        lambda: {"status": "ok", "warnings": [], "buckets": {}},
+    )
+    monkeypatch.setattr(
+        startup_menu._review_menu,
+        "infer_cohort_readiness_signal",
+        lambda _profile_id: {
+            "bucket": "android_high_or_strong_vt_with_permission_obs",
+            "summary": "Best matching readiness bucket: android_high_or_strong_vt_with_permission_obs",
+            "detail": "Readiness mapping is advisory only; it does not enforce sample selection.",
+        },
+    )
+
+    summary = startup_menu._review_menu.build_review_latest_run_summary(
+        output_root=out_root,
+        latest_run_id=run_id,
+    )
+
+    assert summary["label_strategy_summary"]["preferred_family_target"] == "family_id"
+    assert summary["label_strategy_summary"]["preferred_type_target"] == "type_slug"
+    assert summary["label_strategy_summary"]["avoid_for_primary_claims"] == ["category_primary"]
+    tuning_actions = [str(x) for x in summary.get("tuning_actions", [])]
+    assert any("anchored on family_id for family and type_slug for coarse taxonomy" in action for action in tuning_actions)
+
+
 def test_evidence_readiness_hub_uses_generic_labels(monkeypatch) -> None:
     """Evidence readiness hub should expose generic operator-facing labels."""
     captured: dict[str, object] = {}

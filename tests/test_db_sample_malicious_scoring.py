@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from obsidiandroid.database import db_fetch_av_engine_raw_results as raw_fetcher
 from obsidiandroid.database import db_sample_malicious_scoring as scoring
@@ -59,3 +60,49 @@ def test_fetch_av_results_drops_legacy_optional_metadata_columns() -> None:
 
     assert out.columns.tolist() == ["sample_id", "avast"]
     assert out["sample_id"].tolist() == [1, 2]
+
+
+def test_filter_valid_engine_columns_skips_auxiliary_androguard_without_warning(monkeypatch) -> None:
+    monkeypatch.setattr(scoring, "get_existing_result_columns", lambda: {"sample_id", "avast"})
+
+    warnings: list[str] = []
+    debug: list[str] = []
+    monkeypatch.setattr(scoring.du, "print_warning", lambda msg: warnings.append(str(msg)))
+    monkeypatch.setattr(scoring.du, "print_debug", lambda msg: debug.append(str(msg)))
+
+    out = scoring._filter_valid_engine_columns(["avast", "androguard"])  # pylint: disable=protected-access
+
+    assert out == ["avast"]
+    assert not any("Trusted engine 'androguard'" in msg for msg in warnings)
+    assert any("Auxiliary analysis source 'androguard'" in msg for msg in debug)
+
+
+def test_filter_valid_engine_columns_normalizes_auxiliary_variants(monkeypatch) -> None:
+    monkeypatch.setattr(scoring, "get_existing_result_columns", lambda: {"sample_id", "avast"})
+
+    warnings: list[str] = []
+    debug: list[str] = []
+    monkeypatch.setattr(scoring.du, "print_warning", lambda msg: warnings.append(str(msg)))
+    monkeypatch.setattr(scoring.du, "print_debug", lambda msg: debug.append(str(msg)))
+
+    out = scoring._filter_valid_engine_columns(["avast", "AndroGuard", "androguard "])  # pylint: disable=protected-access
+
+    assert out == ["avast"]
+    assert warnings == []
+    assert debug.count(
+        "[SKIP] Auxiliary analysis source 'androguard' is not modeled as a wide vendor verdict column."
+    ) == 2
+
+
+def test_get_normalized_trusted_engines_canonicalizes_case_and_spacing(monkeypatch) -> None:
+    monkeypatch.setattr(
+        scoring,
+        "get_active_trusted_engines",
+        lambda: [" Trend-Micro ", "AndroGuard", "ESET_NOD32"],
+    )
+
+    assert scoring._get_normalized_trusted_engines() == [  # pylint: disable=protected-access
+        "trend_micro",
+        "androguard",
+        "eset_nod32",
+    ]

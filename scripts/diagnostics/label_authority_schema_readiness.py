@@ -93,6 +93,10 @@ PROPOSED_OBJECTS = [
     table("label_authority_resolution_view"),
 ]
 
+LIVE_AUTHORITY_OBJECTS = [
+    "v_android_sample_family_type_authority",
+]
+
 
 def _fetch_columns() -> pd.DataFrame:
     query = """
@@ -194,8 +198,18 @@ def main() -> int:
         print("- all core vendor columns present")
 
     print("\nProposed label-authority objects")
+    proposed_presence: dict[str, str] = {}
     for object_name in PROPOSED_OBJECTS:
         status = _object_presence(objects_df, object_name)
+        proposed_presence[object_name] = status
+        print(f"- {object_name}: {status}")
+
+    print("\nCurrent live authority objects")
+    live_authority_present = False
+    for object_name in LIVE_AUTHORITY_OBJECTS:
+        status = _object_presence(objects_df, object_name)
+        if status != "missing":
+            live_authority_present = True
         print(f"- {object_name}: {status}")
 
     print("\nEstimated seedable vendor-label evidence rows")
@@ -211,6 +225,12 @@ def main() -> int:
     print("\nOverall readiness")
     if all_ready and not vendor_missing:
         print("- base schema looks ready for the label-authority foundation pack")
+        if live_authority_present:
+            print("- current live authority coverage view is already present")
+        elif any(status != "missing" for status in proposed_presence.values()):
+            print("- label-authority foundation rollout appears partially applied")
+        else:
+            print("- label-authority foundation objects still need to be applied")
         return 0
 
     print("- base schema is missing prerequisites; review the gaps above before applying DDL")

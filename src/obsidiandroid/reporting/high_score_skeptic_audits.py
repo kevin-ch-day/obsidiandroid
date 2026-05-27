@@ -595,8 +595,9 @@ def write_smote_effect_check(*, diagnostics_dir: Path, run_id: str) -> dict[str,
         "",
         "## Without SMOTE",
         "",
-        "Not auto-computed in this pipeline revision. Re-run with `ENABLE_SMOTE_OVERSAMPLING=False` "
-        "or add a dedicated baseline job to populate `without_smote_value` columns.",
+        "Not auto-computed in this pipeline revision. Re-run with "
+        "`OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE=1` for evidence/publication profiles "
+        "or `ENABLE_SMOTE_OVERSAMPLING=False` for a broader no-resampling baseline.",
         "",
         "## Interpretation",
         "",
@@ -713,6 +714,25 @@ def write_top_feature_modality_audit(
         raw = rf.get("metadata", {}).get("feature_importances_named")
         if isinstance(raw, list):
             named = [x for x in raw if isinstance(x, dict)]
+    if not named:
+        importances_path = oh.resolve_run_or_global_artifact_path(
+            diagnostics_dir,
+            run_filename=f"rf_impurity_importance_{getattr(app_config, 'RUNTIME_RUN_ID', 'unknown')}.csv",
+            global_latest_name="rf_impurity_importance.latest.csv",
+        )
+        if importances_path.is_file():
+            try:
+                frame = pd.read_csv(importances_path)
+                if {"feature_name", "impurity_importance"}.issubset(frame.columns):
+                    named = [
+                        {
+                            "feature_name": str(row.get("feature_name") or ""),
+                            "importance": float(row.get("impurity_importance") or 0.0),
+                        }
+                        for row in frame.to_dict(orient="records")
+                    ]
+            except Exception:
+                named = []
     rows: list[dict[str, Any]] = []
     suspicious: list[dict[str, Any]] = []
     bucket_counts: Counter[str] = Counter()
@@ -787,7 +807,8 @@ def write_recommended_validation_plan(*, diagnostics_dir: Path, headline_macro_f
         "1. **package_grouped split** — prevent the same `package_name` from appearing in both train and test.",
         "2. **family_package_grouped split** — prevent the same `(family_canonical, package_name)` pair from crossing.",
         "3. **time split** — train on older `first_seen` / VT timestamps, test on newer samples.",
-        "4. **no-SMOTE baseline** — re-run with `ENABLE_SMOTE_OVERSAMPLING=False` and compare Macro-F1.",
+        "4. **no-SMOTE baseline** — re-run with `OBSIDIAN_DISABLE_SMOTE_IN_EVIDENCE_MODE=1` "
+        "(or `ENABLE_SMOTE_OVERSAMPLING=False`) and compare Macro-F1.",
         "5. **Leakage-safe fused model** — train on vendor_parsed_no_family + permissions only; compare to full_fused.",
         "",
         f"Current headline Macro-F1 (evaluation): **{headline_macro_f1:.4f}**",

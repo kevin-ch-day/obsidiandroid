@@ -153,7 +153,7 @@ def test_smote_warns_in_evidence_when_not_disabled(monkeypatch):
     )
 
     assert any("[SMOTE]" in w for w in warnings)
-    assert "[SMOTE] Synthetic oversampling is enabled in evidence/paper mode;" in str(
+    assert "[SMOTE] Synthetic oversampling remains enabled in evidence/paper mode by explicit configuration;" in str(
         getattr(app_config, "RUNTIME_SMOTE_WARNING_LAST", "")
     )
 
@@ -191,9 +191,34 @@ def test_smote_warning_is_emitted_once_per_run(monkeypatch):
     )
 
     assert sum("[SMOTE]" in w for w in warnings) == 1
-    assert "[SMOTE] Synthetic oversampling is enabled in evidence/paper mode;" in str(
+    assert "[SMOTE] Synthetic oversampling remains enabled in evidence/paper mode by explicit configuration;" in str(
         getattr(app_config, "RUNTIME_SMOTE_WARNING_LAST", "")
     )
+
+
+def test_smote_default_policy_skips_in_evidence_mode(monkeypatch):
+    X, y = _imbalanced_data()
+    call_tracker = {"called": False}
+
+    def fake_apply_smote(X_train, y_train, random_state):
+        call_tracker["called"] = True
+        return X_train, y_train
+
+    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_MODE", True, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_SMOTE_OVERSAMPLING", True, raising=False)
+    monkeypatch.setattr(app_config, "DISABLE_SMOTE_IN_EVIDENCE_MODE", True, raising=False)
+    monkeypatch.setattr(model_trainer_factory, "apply_smote", fake_apply_smote)
+
+    model_trainer_factory.train_model_factory(
+        X,
+        y,
+        model_type="logistic_regression",
+        enable_grid_search=False,
+        random_state=0,
+    )
+
+    assert not call_tracker["called"]
 
 
 def test_smote_respects_runtime_flag_when_use_smote_not_explicit(monkeypatch):

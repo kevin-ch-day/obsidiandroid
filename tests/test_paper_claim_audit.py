@@ -86,9 +86,9 @@ def test_write_paper_claim_audit_md_can_use_global_latest_ablation_and_model_sum
     )
     (global_diag / "ablation_summary.latest.csv").write_text(
         "label_target,experiment,macro_f1_score\n"
-        "family_canonical_default,full_fused,0.90\n"
-        "family_canonical_default,vendor_full,0.80\n"
-        "family_canonical_default,permissions_raw,0.50\n",
+        "family_id,full_fused,0.90\n"
+        "family_id,vendor_no_parsed_family,0.80\n"
+        "family_id,permissions_raw,0.50\n",
         encoding="utf-8",
     )
     (global_diag / "model_comparison_summary.latest.csv").write_text(
@@ -106,5 +106,5 @@ def test_write_paper_claim_audit_md_can_use_global_latest_ablation_and_model_sum
     )
 
     text = out.read_text(encoding="utf-8")
-    assert "full_fused=0.9; vendor_full=0.8" in text
+    assert "full_fused=0.9; safer_vendor_baseline=0.8" in text
     assert "random_forest / Macro-F1≈0.9100" in text or "random_forest" in text

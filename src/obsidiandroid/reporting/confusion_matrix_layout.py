@@ -47,7 +47,10 @@ def export_mode() -> str:
 
 def headline_experiment_name() -> str:
     """Primary feature-set token for ``headline_only`` ablation exports."""
-    return str(getattr(app_config, "CONFUSION_MATRIX_HEADLINE_EXPERIMENT", "vendor_full") or "vendor_full").strip()
+    return str(
+        getattr(app_config, "CONFUSION_MATRIX_HEADLINE_EXPERIMENT", "vendor_no_parsed_family")
+        or "vendor_no_parsed_family"
+    ).strip()
 
 
 SELECTED_ABLATION_EXPERIMENTS: frozenset[str] = frozenset(
@@ -74,9 +77,9 @@ def should_export_confusion_matrix(*, experiment_id: str) -> bool:
     fs, lt = parse_experiment_combo(experiment_id)
     label = lt or "family_canonical_default"
     if mode == "headline_only":
-        return fs == _token(headline_experiment_name()) and label == "family_canonical_default"
+        return fs == _token(headline_experiment_name()) and label == "family_id"
     if mode == "selected_ablation":
-        return label == "family_canonical_default" and fs in SELECTED_ABLATION_EXPERIMENTS
+        return label == "family_id" and fs in SELECTED_ABLATION_EXPERIMENTS
     return True
 
 
@@ -202,8 +205,8 @@ def write_confusion_matrix_catalog(conf_matrices_dir: Path, *, run_id: str) -> t
                 f"Effective `CONFUSION_MATRIX_EXPORT_MODE`: **{export_mode()}** "
                 "(profile `feature_flags.confusion_matrix_export_mode`).",
                 "",
-                "- `headline_only` — ablation emits only the primary feature set + `family_canonical_default`.",
-                "- `selected_ablation` — primary label + a fixed set of feature-set experiments.",
+                "- `headline_only` — ablation emits only the primary feature set + `family_id`.",
+                "- `selected_ablation` — `family_id` + a fixed set of feature-set experiments.",
                 "- `full_grid` — every `(feature_set × label_target × model)` cell.",
                 "",
             ]

@@ -25,6 +25,7 @@ from .db_sample_metadata_fetchers import (
     fetch_available_android_type_slugs,
     fetch_sample_metadata,
     fetch_samples_by_type as _fetch_samples_by_type,
+    get_type_cohort_catalog_semantics_profile,
     get_type_cohort_gate_stats,
 )
 
@@ -81,7 +82,14 @@ def load_samples_by_type(
     require_sha256: bool = True,
     allow_missing_package_name: bool = True,
     exclude_unknown_type_slug: bool = False,
+    exclude_weak_label_kinds: bool = False,
+    exclude_family_label_conflicts: bool = False,
     limit: int | None = None,
+    family_cap: int | None = None,
+    family_cap_seed: int | None = None,
+    type_cap: int | None = None,
+    type_cap_seed: int | None = None,
+    type_cap_by_slug: dict[str, int] | None = None,
     effective_time_start_utc: str | None = None,
     effective_time_end_utc: str | None = None,
     require_effective_first_seen: bool = True,
@@ -98,7 +106,14 @@ def load_samples_by_type(
         allow_missing_package_name: If False, drops rows missing package name.
         exclude_unknown_type_slug: If True and ``type_slug`` is None, excludes
             taxonomy rows mapped to ``unknown``.
+        exclude_weak_label_kinds: If True, excludes weak label surfaces like filename/hash-like/opaque/unclassified.
+        exclude_family_label_conflicts: If True, excludes rows where raw family label conflicts with canonical family authority.
         limit: Optional result cap.
+        family_cap: Optional SQL-side per-family cap applied before any global limit.
+        family_cap_seed: Deterministic seed for limited/capped loader ordering.
+        type_cap: Optional SQL-side per-type cap applied before any global limit.
+        type_cap_seed: Deterministic seed for limited/capped type balancing.
+        type_cap_by_slug: Optional per-type cap overrides applied before any global limit.
         effective_time_start_utc: Inclusive lower bound for effective first-seen.
         effective_time_end_utc: Exclusive upper bound for effective first-seen.
         require_effective_first_seen: Require effective first-seen timestamp.
@@ -120,7 +135,14 @@ def load_samples_by_type(
         require_sha256=require_sha256,
         allow_missing_package_name=allow_missing_package_name,
         exclude_unknown_type_slug=exclude_unknown_type_slug,
+        exclude_weak_label_kinds=exclude_weak_label_kinds,
+        exclude_family_label_conflicts=exclude_family_label_conflicts,
         limit=limit,
+        family_cap=family_cap,
+        family_cap_seed=family_cap_seed,
+        type_cap=type_cap,
+        type_cap_seed=type_cap_seed,
+        type_cap_by_slug=type_cap_by_slug,
         effective_time_start_utc=effective_time_start_utc,
         effective_time_end_utc=effective_time_end_utc,
         require_effective_first_seen=require_effective_first_seen,
@@ -193,6 +215,7 @@ def load_sample_metadata_dataframe(sample_id) -> pd.DataFrame:
 
 
 __all__ = [
+    "get_type_cohort_catalog_semantics_profile",
     "get_type_cohort_gate_stats",
     "get_type_slug_alignment_report",
     "load_samples_by_type",

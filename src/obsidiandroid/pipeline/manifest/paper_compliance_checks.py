@@ -21,8 +21,8 @@ def build_paper_compliance_checks(
     experiment_registry_path: str,
     taxonomy_summary_path: str,
     taxonomy_type_rows_evaluated: int,
-    taxonomy_mismatch_count: int,
-    taxonomy_mismatch_max_allowed: int,
+    taxonomy_mismatch_count: int = 0,
+    taxonomy_mismatch_max_allowed: int = 0,
 ) -> list[dict[str, Any]]:
     """Build compliance check payload rows for paper/evidence runs."""
     checks: list[dict[str, Any]] = []
@@ -116,22 +116,23 @@ def build_paper_compliance_checks(
             enabled=paper_mode,
         )
     )
-    checks.append(
-        _compliance_check_row(
-            "taxonomy_mismatch_budget_respected",
-            bool(taxonomy_summary_path)
-            and Path(taxonomy_summary_path).exists()
-            and int(taxonomy_mismatch_count) <= int(taxonomy_mismatch_max_allowed),
-            "fatal",
-            (
-                "taxonomy mismatch strict budget exceeded "
-                f"(mismatches={int(taxonomy_mismatch_count)}, max_allowed={int(taxonomy_mismatch_max_allowed)})"
-            ),
-            artifacts.ArtifactKey.RUN_PATHS_MANIFEST_JSON,
-            "Reconcile taxonomy mismatches or relax strict mismatch policy before finalizing paper run.",
-            enabled=paper_mode,
+    if paper_mode:
+        checks.append(
+            _compliance_check_row(
+                "taxonomy_mismatch_budget_respected",
+                bool(taxonomy_summary_path)
+                and Path(taxonomy_summary_path).exists()
+                and int(taxonomy_mismatch_count) <= int(taxonomy_mismatch_max_allowed),
+                "fatal",
+                (
+                    "taxonomy mismatch strict budget exceeded "
+                    f"(mismatches={int(taxonomy_mismatch_count)}, max_allowed={int(taxonomy_mismatch_max_allowed)})"
+                ),
+                artifacts.ArtifactKey.RUN_PATHS_MANIFEST_JSON,
+                "Reconcile taxonomy mismatches or relax strict mismatch policy before finalizing paper run.",
+                enabled=paper_mode,
+            )
         )
-    )
     return checks
 
 

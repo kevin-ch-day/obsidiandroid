@@ -1,9 +1,11 @@
 import pytest
+import pandas as pd
 
 from obsidiandroid.classification_builder.classification_row_builder import build_classification_row
 from obsidiandroid.classification_builder import sample_classification_builder
 from obsidiandroid.inference.label_consensus_engine import resolve_consensus_label
 from obsidiandroid.labeling import label_field_normalizer, label_format_generator
+from config import app_config
 from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
 
 
@@ -147,6 +149,65 @@ def test_build_row_prefers_runtime_type_slug_for_label_rendering(monkeypatch):
 
     assert row["threat_class"] == "dropper"
     assert row["classification_label"] == "trojan/android.dropper.applite"
+
+
+def test_build_row_uses_runtime_split_sample_metadata_when_prediction_metadata_lacks_type_slug(monkeypatch):
+    sample_id = "1003"
+    record = VendorClassificationRecord(
+        sample_id=sample_id,
+        vendor_name="av",
+        original_label="Trojan.Android.Applite",
+        family="applite",
+        malware_type="trojan",
+        threat_class="banker",
+        platform="android",
+    )
+    records_by_vendor = {"av": [record]}
+    label_decoder = {0: "applite"}
+    true_labels = {sample_id: "applite"}
+    metadata = {1003: {"confidence": 0.95}}
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_SPLIT_SAMPLE_METADATA",
+        pd.DataFrame(
+            [
+                {
+                    "sample_id": 1003,
+                    "type_slug": "adware",
+                    "family_canonical": "applite",
+                }
+            ]
+        ),
+        raising=False,
+    )
+
+    monkeypatch.setattr(
+        "obsidiandroid.classification_builder.classification_row_builder.vendor_record_selector.select_best_vendor_record",
+        lambda *a, **k: record,
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.classification_builder.classification_row_builder.record_enrichment.enrich_variant_from_trusted_vendors",
+        lambda *a, **k: record.variant,
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.classification_builder.classification_row_builder.record_enrichment.enrich_threat_class_if_unknown",
+        lambda *a, **k: record.threat_class,
+    )
+
+    row = build_classification_row(
+        sample_id,
+        0,
+        label_decoder,
+        true_labels,
+        metadata,
+        label_name_map={"applite": "Applite"},
+        records_by_vendor=records_by_vendor,
+        label_format="structured",
+        include_confidence=True,
+    )
+
+    assert row["threat_class"] == "adware"
+    assert row["classification_label"] == "trojan/android.adware.applite"
 
 
 def test_generate_structured_label_retains_type_when_matching():

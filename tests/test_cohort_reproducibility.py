@@ -39,6 +39,29 @@ def test_apply_analysis_snapshot_lock_fails_closed_when_requested(tmp_path) -> N
         )
 
 
+def test_apply_analysis_snapshot_lock_preserves_dataframe_attrs(tmp_path) -> None:
+    samples_df = pd.DataFrame(
+        {
+            "sample_id": [100, 200, 300],
+            "family_name": ["A", "B", "C"],
+        }
+    )
+    samples_df.attrs["catalog_semantics_sql_scope"] = {"scope": "sql_governed_android_cohort"}
+    samples_df.attrs["requested_exclude_families"] = ("devixor", "gigabud")
+    samples_df.attrs["exclude_families_deferred_by_snapshot_lock"] = True
+
+    lock_file = tmp_path / "analysis.lock.csv"
+    pd.DataFrame({"sample_id": [300, 100]}).to_csv(lock_file, index=False)
+
+    filtered = cr.apply_analysis_snapshot_lock(samples_df, str(lock_file))
+
+    assert filtered["sample_id"].tolist() == [100, 300]
+    assert filtered.attrs["catalog_semantics_sql_scope"]["scope"] == "sql_governed_android_cohort"
+    assert filtered.attrs["requested_exclude_families"] == ("devixor", "gigabud")
+    assert filtered.attrs["exclude_families_deferred_by_snapshot_lock"] is True
+    assert filtered.attrs["snapshot_lock"]["status"] == "matched"
+
+
 def test_apply_cohort_lock_fails_closed_in_strict_evidence_mode(
     monkeypatch,
     tmp_path,

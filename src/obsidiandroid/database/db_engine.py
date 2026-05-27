@@ -164,6 +164,7 @@ def _run_query(
     """Execute a query on an existing connection (internal)."""
     started = perf_counter() if started is None else started
     cursor = conn.cursor()
+    active_exc: BaseException | None = None
     try:
         if DEBUG_SQL:
             print("[SQL] Query:", query)
@@ -216,6 +217,7 @@ def _run_query(
         return rows
 
     except Error as e:
+        active_exc = e
         _log_mysql_failure(
             "sql_error",
             e,
@@ -227,8 +229,26 @@ def _run_query(
             print(f"[ERROR] SQL execution failed\nQuery: {query}\nError: {e}")
         conn.rollback()
         raise
+    except BaseException as e:
+        active_exc = e
+        try:
+            if conn:
+                conn.rollback()
+        except Exception:
+            pass
+        raise
     finally:
-        cursor.close()
+        try:
+            cursor.close()
+        except Error as close_exc:
+            if active_exc is None:
+                raise
+            _log_mysql_failure(
+                "sql_cursor_close_suppressed",
+                close_exc,
+                log_label=log_label,
+                during_exception=type(active_exc).__name__,
+            )
 
 
 # === Core Query Executors === #

@@ -70,9 +70,12 @@ def read_headline_feature_column_hash(
 
 
 def read_ablation_full_fused_feature_column_hash(
-    diagnostics_dir: Path, run_id: str
+    diagnostics_dir: Path,
+    run_id: str,
+    *,
+    preferred_label_targets: list[str] | None = None,
 ) -> tuple[str | None, str | None]:
-    """Hash from ablation grid row ``full_fused`` × ``family_canonical_default``."""
+    """Hash from ablation grid row ``full_fused`` × preferred family label target."""
     globs = sorted(
         diagnostics_dir.glob("ablation_summary*.csv"),
         key=lambda p: p.stat().st_mtime,
@@ -86,14 +89,18 @@ def read_ablation_full_fused_feature_column_hash(
             rows = list(csv.DictReader(fh))
     except OSError:
         return None, str(path)
-    for r in rows:
-        if str(r.get("experiment") or "").strip() != "full_fused":
-            continue
-        if str(r.get("label_target") or "").strip() != "family_canonical_default":
-            continue
-        h = r.get("feature_column_hash")
-        if isinstance(h, str) and h.strip():
-            return h.strip(), str(path)
+    targets = list(preferred_label_targets or ["family_id", "family_canonical_default"])
+    matching_rows = [
+        r for r in rows
+        if str(r.get("experiment") or "").strip() == "full_fused"
+    ]
+    for target in targets:
+        for r in matching_rows:
+            if str(r.get("label_target") or "").strip() != target:
+                continue
+            h = r.get("feature_column_hash")
+            if isinstance(h, str) and h.strip():
+                return h.strip(), str(path)
     return None, str(path)
 
 
@@ -108,7 +115,25 @@ def build_feature_contract_comparison(
     headline_hash, headline_src = read_headline_feature_column_hash(
         diagnostics_dir, run_id, runtime_hash=runtime_headline_hash
     )
-    ablation_hash, ablation_src = read_ablation_full_fused_feature_column_hash(diagnostics_dir, run_id)
+    preferred_targets = ["family_id", "family_canonical_default"]
+    ec = read_evaluation_contract(diagnostics_dir, run_id)
+    la_hint = ec.get("label_authority") if isinstance(ec, dict) else None
+    training_field = ""
+    if isinstance(manifest_context, dict):
+        la = manifest_context.get("label_authority")
+        if isinstance(la, dict):
+            training_field = str(la.get("training_label_field") or "").strip()
+    if not training_field and isinstance(la_hint, dict):
+        training_field = str(la_hint.get("training_label_field") or "").strip()
+    if training_field == "family_canonical":
+        preferred_targets = ["family_canonical_default", "family_id"]
+    elif training_field == "family_id":
+        preferred_targets = ["family_id", "family_canonical_default"]
+    ablation_hash, ablation_src = read_ablation_full_fused_feature_column_hash(
+        diagnostics_dir,
+        run_id,
+        preferred_label_targets=preferred_targets,
+    )
 
     split_hash = ""
     label_target = ""
@@ -123,7 +148,6 @@ def build_feature_contract_comparison(
             if disp or train:
                 label_target = f"display={disp}; train={train}"
 
-    ec = read_evaluation_contract(diagnostics_dir, run_id)
     sc = ec.get("split_contract") if isinstance(ec, dict) else None
     if isinstance(sc, dict) and not split_hash:
         split_hash = str(sc.get("split_hash") or "").strip()

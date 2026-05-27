@@ -32,12 +32,15 @@ SUPPORTED_ANDROID_TYPE_SLUGS = (
     "worm",
 )
 
-QUERY_CONTRACT_VERSION = "android_samples_v1_ordered_2026-03-04"
+QUERY_CONTRACT_VERSION = "android_samples_v2_extended_catalog_semantics_2026-05-22"
 QUERY_ORDERING_POLICY = "ORDER BY sample_id ASC for cohort and metadata retrieval"
 QUERY_CONTRACT_NOTES = (
     "Deterministic query ordering is enforced for key sample retrieval paths. "
     "VT scan summary, family-resolution, and artifact hash-registry joins use "
-    "ROW_NUMBER-ranked subqueries so each catalog sample_id maps to one joined row "
+    "ROW_NUMBER-ranked subqueries so each catalog sample_id maps to one joined row. "
+    "Android cohort metadata now also carries additive Erebus catalog-semantics "
+    "fields (analysis_lane, payload_target_*, sample_label_kind, vt_family_token, "
+    "unknown_artifact_kind) for diagnostics and readiness reporting "
     "(see obsidiandroid.database.cohort_sql_fragments)."
 )
 

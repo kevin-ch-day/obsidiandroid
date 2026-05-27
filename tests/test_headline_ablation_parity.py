@@ -40,3 +40,30 @@ def test_build_feature_contract_comparison_merges_evaluation_contract(tmp_path: 
     assert out["split_hash"] == "splith"
     assert "51" in (out.get("label_target") or "")
 
+
+def test_build_feature_contract_comparison_prefers_family_id_full_fused_hash_when_available(tmp_path: Path) -> None:
+    rid = "run_family_id"
+    diag = tmp_path / "diagnostics"
+    diag.mkdir(parents=True)
+    (diag / f"evaluation_contract_{rid}.json").write_text(
+        json.dumps(
+            {
+                "label_authority": {
+                    "display_label_field": "family_canonical",
+                    "training_label_field": "family_id",
+                    "active_training_classes": 18,
+                },
+                "feature_contract": {"headline_feature_column_hash": "hhh"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    ab = diag / f"ablation_summary_{rid}.csv"
+    with ab.open("w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["experiment", "label_target", "model", "feature_column_hash"])
+        w.writerow(["full_fused", "family_canonical_default", "random_forest", "display_hash"])
+        w.writerow(["full_fused", "family_id", "random_forest", "authority_hash"])
+
+    out = build_feature_contract_comparison(diag, rid, manifest_context=None)
+    assert out["ablation_full_fused_feature_column_hash"] == "authority_hash"

@@ -14,6 +14,8 @@ _FINAL_PROFILE_IDS = {
     "malicious_temporal_stability_locked",
     "banker_locked",
     "malicious_temporal_stability",
+    "malicious_temporal_stability_expanded",
+    "malicious_temporal_stability_long_tail",
     "banker",
     "malicious_temporal_consensus10",
     "malicious_temporal_family300",
@@ -54,8 +56,12 @@ def profile_sort_key(profile_id: str) -> tuple[int, int, str]:
         return (0, 1, pid)
     if pid == "malicious_temporal_stability":
         return (1, 0, pid)
-    if pid in {"malicious_temporal_consensus10", "malicious_temporal_family300"}:
+    if pid == "malicious_temporal_stability_expanded":
         return (1, 1, pid)
+    if pid == "malicious_temporal_stability_long_tail":
+        return (1, 2, pid)
+    if pid in {"malicious_temporal_consensus10", "malicious_temporal_family300"}:
+        return (1, 3, pid)
     if pid == "banker":
         return (2, 0, pid)
     if pid in {"mixed", "benign_heavy"}:
@@ -108,6 +114,9 @@ def summarize_profile(profile_path: Path) -> str:
     family_cap = gates.get("family_cap", None)
     if family_cap:
         parts.append(f"family_cap={family_cap}")
+    type_cap = gates.get("type_cap", None)
+    if type_cap:
+        parts.append(f"type_cap={type_cap}")
 
     exclude_unknown = gates.get("exclude_unknown_type_slug", None)
     if exclude_unknown is not None:
@@ -135,6 +144,8 @@ def quick_profile_label(profile_id: str) -> str:
     labels = {
         "malicious_temporal_stability_locked": "Baseline: locked all-malicious",
         "malicious_temporal_stability": "Research: current all-malicious",
+        "malicious_temporal_stability_expanded": "Research: expanded all-malicious",
+        "malicious_temporal_stability_long_tail": "Research: long-tail all-malicious",
         "malicious_temporal_consensus10": "Sensitivity: consensus threshold",
         "malicious_temporal_family300": "Sensitivity: family dominance cap",
         "banker_locked": "Baseline: banker legacy/count-locked",

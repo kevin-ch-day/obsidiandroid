@@ -83,3 +83,39 @@ def test_evaluation_keeps_labels_when_no_runtime_family_map(monkeypatch):
     )
 
     assert result["class_labels"] == [43, 44]
+
+
+def test_evaluation_passes_macro_metrics_to_console_summary(monkeypatch):
+    label_encoder = LabelEncoder()
+    label_encoder.fit([10, 20, 30])
+
+    y_test = np.array([0, 1, 2, 0, 1, 2])
+    y_pred = np.array([0, 0, 0, 0, 1, 2])
+    x_test = np.zeros((6, 1))
+
+    monkeypatch.setattr(
+        ml_eval_engine.export_manager,
+        "export_confusion_matrix",
+        lambda **kwargs: "cm.png",
+    )
+
+    captured = {}
+
+    def _capture_summary(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(ml_eval_engine.ml_report_builder, "print_evaluation_summary", _capture_summary)
+
+    result = ml_eval_engine.evaluate_model_performance(
+        model=_DummyModel(y_pred),
+        X_test=x_test,
+        y_test=y_test,
+        label_encoder=label_encoder,
+        model_name="random_forest",
+        verbose=True,
+    )
+
+    assert "macro_prec" in captured
+    assert "macro_recall" in captured
+    assert "macro_f1" in captured
+    assert captured["macro_f1"] == result["macro_f1_score"]

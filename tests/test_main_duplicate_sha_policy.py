@@ -51,6 +51,29 @@ def test_duplicate_sha_policy_warns_in_non_paper_mode(
     assert any("duplicate_sha256_report_run123.csv" in path for path in artifacts)
 
 
+def test_duplicate_sha_policy_skips_empty_report_in_compact_non_paper_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", False, raising=False)
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+
+    labels_df = _labels_frame(["a" * 64, "b" * 64])
+    artifacts: list[str] = []
+    manifest_context: dict[str, object] = {}
+
+    main._enforce_duplicate_sha_policy(
+        aligned_labels_df=labels_df,
+        run_id="run_clean",
+        artifact_list=artifacts,
+        manifest_context=manifest_context,
+    )
+
+    assert "duplicate_sha" in manifest_context
+    assert not any("duplicate_sha256_report_run_clean.csv" in path for path in artifacts)
+
+
 def test_duplicate_sha_policy_hard_fails_in_paper_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

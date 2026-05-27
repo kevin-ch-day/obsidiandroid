@@ -33,6 +33,21 @@ intended to separate:
 - generic label policy,
 - temporal anchor provenance.
 
+Current additive Erebus catalog-semantics fields that ObsidianDroid diagnostics may
+consume when present include:
+
+- `analysis_lane`
+- `payload_target_platform`
+- `payload_target_source`
+- `sample_label_kind`
+- `vt_family_token`
+- `unknown_artifact_kind`
+- `observed_filename`
+
+These fields are **diagnostic/contextual inputs only** in current ObsidianDroid usage.
+They do not replace Android cohort gating (`platform='android'` + `file_extension='apk'`)
+or family/type authority from the Android taxonomy layer.
+
 ### Permission Intel database (`OBSIDIAN_PERMISSION_INTEL_DB_NAME`, default `android_permission_intel`)
 
 | Schema area | Key tables | Purpose |

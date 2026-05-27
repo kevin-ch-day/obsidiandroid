@@ -10,6 +10,7 @@
 --   3. sample-level authority seed from current resolved family view
 
 SET NAMES utf8mb4;
+SET collation_connection = 'utf8mb4_unicode_ci';
 
 -- ---------------------------------------------------------------------------
 -- Step 1: seed canonical self-aliases from active family taxonomy.
@@ -106,23 +107,17 @@ ON DUPLICATE KEY UPDATE
 -- ---------------------------------------------------------------------------
 -- Step 3: seed sample-level governed authority from current resolved family view.
 --
--- This preserves current Erebus truth while making authority provenance explicit.
+-- History model:
+--   - one active row per sample
+--   - inactive rows preserve prior governed-family decisions
+--   - exact content matches are reactivated instead of duplicated
 -- ---------------------------------------------------------------------------
-INSERT INTO malware_family_authority_fact (
-    sample_id,
-    governed_family_id,
-    governed_family_slug,
-    governed_family_name,
-    governed_type_id,
-    governed_type_slug,
-    authority_source_system,
-    authority_source_table,
-    authority_resolution_method,
-    authority_version,
-    review_status,
-    is_active,
-    notes
-)
+DROP TEMPORARY TABLE IF EXISTS tmp_malware_family_authority_seed;
+CREATE TEMPORARY TABLE tmp_malware_family_authority_seed
+ENGINE=InnoDB
+DEFAULT CHARSET=utf8mb4
+COLLATE=utf8mb4_unicode_ci
+AS
 SELECT
     msc.sample_id,
     fam.family_id AS governed_family_id,
@@ -136,7 +131,20 @@ SELECT
     'bootstrap_v1' AS authority_version,
     'auto' AS review_status,
     1 AS is_active,
-    'seeded from current resolved family/type view' AS notes
+    'seeded from current resolved family/type view' AS notes,
+    SHA1(
+        CONCAT_WS(
+            '|',
+            CAST(msc.sample_id AS CHAR),
+            COALESCE(LOWER(TRIM(fam.family_slug)), ''),
+            COALESCE(LOWER(TRIM(typ.type_slug)), ''),
+            'erebus',
+            'v_android_apk_family_resolved',
+            'resolved_family_lc_join',
+            'bootstrap_v1',
+            'auto'
+        )
+    ) COLLATE utf8mb4_unicode_ci AS authority_content_sha1
 FROM malware_sample_catalog AS msc
 JOIN (
     SELECT sample_id, resolved_family_lc
@@ -155,22 +163,59 @@ JOIN (
   ON fam_res.sample_id = msc.sample_id
 JOIN android_malware_family AS fam
   ON LOWER(TRIM(fam.family_slug)) = fam_res.resolved_family_lc
+ AND fam.is_active = 1
 LEFT JOIN android_malware_type AS typ
   ON typ.type_id = fam.primary_type_id
-WHERE COALESCE(TRIM(fam.family_slug), '') <> ''
-ON DUPLICATE KEY UPDATE
-    governed_family_id = VALUES(governed_family_id),
-    governed_family_slug = VALUES(governed_family_slug),
-    governed_family_name = VALUES(governed_family_name),
-    governed_type_id = VALUES(governed_type_id),
-    governed_type_slug = VALUES(governed_type_slug),
-    authority_source_system = VALUES(authority_source_system),
-    authority_source_table = VALUES(authority_source_table),
-    authority_resolution_method = VALUES(authority_resolution_method),
-    authority_version = VALUES(authority_version),
-    review_status = VALUES(review_status),
-    notes = VALUES(notes),
-    updated_at_utc = CURRENT_TIMESTAMP;
+WHERE COALESCE(TRIM(fam.family_slug), '') <> '';
+
+UPDATE malware_family_authority_fact AS auth
+JOIN tmp_malware_family_authority_seed AS seed
+  ON seed.sample_id = auth.sample_id
+SET auth.is_active = 0,
+    auth.updated_at_utc = CURRENT_TIMESTAMP
+WHERE auth.is_active = 1
+  AND auth.authority_content_sha1 <> seed.authority_content_sha1;
+
+UPDATE malware_family_authority_fact AS auth
+JOIN tmp_malware_family_authority_seed AS seed
+  ON auth.authority_content_sha1 = seed.authority_content_sha1
+SET auth.is_active = 1,
+    auth.updated_at_utc = CURRENT_TIMESTAMP
+WHERE auth.is_active = 0;
+
+INSERT INTO malware_family_authority_fact (
+    sample_id,
+    governed_family_id,
+    governed_family_slug,
+    governed_family_name,
+    governed_type_id,
+    governed_type_slug,
+    authority_source_system,
+    authority_source_table,
+    authority_resolution_method,
+    authority_version,
+    review_status,
+    is_active,
+    notes
+)
+SELECT
+    seed.sample_id,
+    seed.governed_family_id,
+    seed.governed_family_slug,
+    seed.governed_family_name,
+    seed.governed_type_id,
+    seed.governed_type_slug,
+    seed.authority_source_system,
+    seed.authority_source_table,
+    seed.authority_resolution_method,
+    seed.authority_version,
+    seed.review_status,
+    seed.is_active,
+    seed.notes
+FROM tmp_malware_family_authority_seed AS seed
+LEFT JOIN malware_family_authority_fact AS auth
+  ON auth.authority_content_sha1 = seed.authority_content_sha1
+WHERE auth.authority_id IS NULL;
 
 -- ---------------------------------------------------------------------------
 -- Step 4: optional operator sanity snapshot.

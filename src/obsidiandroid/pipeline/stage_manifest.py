@@ -336,14 +336,16 @@ def finalize_run_manifest_stage(
             paper_mode=paper_mode,
             run_root=Path(str(getattr(app_config, "RUNTIME_RUN_ROOT", output_root))),
         )
-        onepager_path = _write_run_summary_onepager(
-            run_id=run_id,
-            diagnostics_dir=diagnostics_dir,
-            profile=profile,
-            manifest_context=manifest_context,
-            manifest=manifest,
-            compliance_path=diagnostics_dir / f"paper_mode_compliance_report_{run_id}.json",
-        )
+        onepager_path = None
+        if bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True)):
+            onepager_path = _write_run_summary_onepager(
+                run_id=run_id,
+                diagnostics_dir=diagnostics_dir,
+                profile=profile,
+                manifest_context=manifest_context,
+                manifest=manifest,
+                compliance_path=diagnostics_dir / f"paper_mode_compliance_report_{run_id}.json",
+            )
         if onepager_path is not None:
             if str(onepager_path) not in artifact_list:
                 artifact_list.append(str(onepager_path))
@@ -371,11 +373,13 @@ def finalize_run_manifest_stage(
         )
         if taxonomy_auth_path is not None and str(taxonomy_auth_path) not in artifact_list:
             artifact_list.append(str(taxonomy_auth_path))
-        artifact_index_path = _write_run_artifact_index(
-            run_id=run_id,
-            run_root=run_root,
-            diagnostics_dir=diagnostics_dir,
-        )
+        artifact_index_path = None
+        if bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True)):
+            artifact_index_path = _write_run_artifact_index(
+                run_id=run_id,
+                run_root=run_root,
+                diagnostics_dir=diagnostics_dir,
+            )
         if artifact_index_path is not None and str(artifact_index_path) not in artifact_list:
             artifact_list.append(str(artifact_index_path))
         trained_registry_path, trained_family_count = _export_trained_family_registry(
@@ -562,6 +566,9 @@ def finalize_run_manifest_stage(
         )
         manifest_context["research_validity_bundle_error"] = ""
         allow_research_bundle, research_skip_reason = _run_allows_research_validity_bundle(manifest_context)
+        if not bool(getattr(app_config, "ENABLE_RESEARCH_VALIDITY_BUNDLE", True)):
+            allow_research_bundle = False
+            research_skip_reason = "config_disabled"
         if allow_research_bundle:
             manifest_context.pop("_research_bundle_skipped_reason", None)
             manifest_context.pop("_hostile_bundle_skipped_reason", None)

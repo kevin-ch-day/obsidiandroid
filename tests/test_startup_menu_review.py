@@ -201,10 +201,60 @@ def test_compact_review_screen_avoids_debug_path_dump(
     assert "android_with_permission_obs" in out
     assert "Best matching readiness bucket: android_banker_with_permission_obs" in out
     assert "does not enforce sample selection" in out
+    assert "Observed readiness for `android_banker_with_permission_obs`: samples=unavailable" in out or "Observed readiness for `android_banker_with_permission_obs` is unavailable" in out or "Observed readiness for `android_banker_with_permission_obs`: samples=0" in out
     assert "Permission Intel unavailable for readiness counts." in out
     assert "Taxonomy & Support Tuning" in out
     assert "Model prediction errors vs type/rendering" in out
     assert "Permission Coverage Tuning" in out
+
+
+def test_review_summary_surfaces_live_readiness_gap_notes(
+    monkeypatch,
+    make_run_diagnostics_layout,
+    write_text_file,
+) -> None:
+    run_id = "20260515T141956Z__58d84f"
+    out_root, rdiag, _ = make_run_diagnostics_layout(run_id)
+    _seed_review_run_artifacts(write_text_file, out_root, run_id, rdiag)
+    monkeypatch.setattr(
+        startup_menu_review,
+        "get_cohort_readiness_snapshot",
+        lambda: {
+            "status": "degraded",
+            "permission_obs_available": False,
+            "warnings": ["Permission Intel unavailable for readiness counts."],
+            "buckets": {
+                "android_high_or_strong_vt_with_permission_obs": {
+                    "sample_count": None,
+                    "family_count": None,
+                }
+            },
+            "taxonomy_signals": {
+                "repair_candidate_count": 5,
+                "known_unresolved_family_count": 2,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        startup_menu_review,
+        "infer_cohort_readiness_signal",
+        lambda _profile_id: {
+            "bucket": "android_high_or_strong_vt_with_permission_obs",
+            "summary": "Best matching readiness bucket: android_high_or_strong_vt_with_permission_obs",
+            "detail": "Android malicious evidence-style profile intent is best compared against the Android cohort with permission observations and high/strong VT confidence. Advisory only; this does not enforce sample selection.",
+        },
+    )
+
+    summary = startup_menu_review.build_review_latest_run_summary(output_root=out_root, latest_run_id=run_id)
+
+    gap_notes = [str(note) for note in summary.get("cohort_readiness_gap_notes", [])]
+    warnings = [str(note) for note in summary.get("warnings", [])]
+    tuning_actions = [str(note) for note in summary.get("tuning_actions", [])]
+    assert any("does not currently verify a matching PI-observed cohort" in note for note in gap_notes)
+    assert any("repair candidate(s), 2 known unresolved family name(s)" in note for note in gap_notes)
+    assert any("lock-bound" in note for note in gap_notes)
+    assert any("Live readiness / authority gap" in note for note in warnings)
+    assert any("Check live readiness mismatch and taxonomy backlog" in note for note in tuning_actions)
 
 
 def test_detailed_review_screen_can_show_deeper_paths(

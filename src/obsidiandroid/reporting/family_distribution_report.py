@@ -42,13 +42,14 @@ def print_family_distribution_stats(samples_df: pd.DataFrame) -> None:
         du.print_warning("No values found in 'family_name' column.")
         return
 
-    _display_family_distribution_console(fam_counts)
-    _export_family_distribution_report(fam_counts)
+    min_support = _resolve_min_family_support(samples_df)
+    _display_family_distribution_console(fam_counts, min_support=min_support)
+    _export_family_distribution_report(fam_counts, min_support=min_support)
     du.print_success("Family distribution analysis complete.")
 
 
-def _display_family_distribution_console(fam_counts: Counter) -> None:
-    low_support, sufficient_support = _split_families_by_support(fam_counts)
+def _display_family_distribution_console(fam_counts: Counter, *, min_support: int) -> None:
+    low_support, sufficient_support = _split_families_by_support(fam_counts, min_support=min_support)
     max_rows = max(
         1,
         safe_int_config_value(
@@ -61,7 +62,7 @@ def _display_family_distribution_console(fam_counts: Counter) -> None:
     du.print_info(f"Detected {len(fam_counts)} unique families.")
     if low_support:
         du.print_warning(
-            f"{len(low_support)} families have <=3 samples. These may affect classifier reliability."
+            f"{len(low_support)} families have <{min_support} samples. These may affect classifier reliability."
         )
 
     du.print_info("-- Low-Support Families --")
@@ -94,11 +95,11 @@ def _display_family_group(group: dict, highlight: bool = False) -> None:
         du.print_stat(fam, label)
 
 
-def _export_family_distribution_report(fam_counts: Counter) -> None:
+def _export_family_distribution_report(fam_counts: Counter, *, min_support: int) -> None:
     try:
         report_path = _report_output_path()
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        content = _generate_family_report_text(fam_counts)
+        content = _generate_family_report_text(fam_counts, min_support=min_support)
         _write_report_to_disk(report_path, content)
         du.print_info(f"[EXPORT] Family report saved: {report_path.resolve()}")
     except Exception as e:
@@ -110,16 +111,17 @@ def _write_report_to_disk(path: Path, content: str) -> None:
         f.write(content)
 
 
-def _generate_family_report_text(fam_counts: Counter) -> str:
-    low_support, sufficient_support = _split_families_by_support(fam_counts)
+def _generate_family_report_text(fam_counts: Counter, *, min_support: int) -> str:
+    low_support, sufficient_support = _split_families_by_support(fam_counts, min_support=min_support)
 
     lines: list[str] = []
     lines.append("# FAMILY DISTRIBUTION REPORT")
     lines.append("=" * 80)
     lines.append("")
     lines.append(f"Total Unique Families               : {len(fam_counts)}")
-    lines.append(f"Low-Sample Families (<=3)            : {len(low_support)}")
-    lines.append(f"Sufficient-Sample Families (>3)     : {len(sufficient_support)}")
+    lines.append(f"Configured Min Family Support       : {min_support}")
+    lines.append(f"Low-Sample Families (<{min_support})          : {len(low_support)}")
+    lines.append(f"Sufficient-Sample Families (>={min_support})  : {len(sufficient_support)}")
     lines.append("")
 
     lines.append("-- LOW-SUPPORT FAMILIES --")
@@ -136,7 +138,20 @@ def _generate_family_report_text(fam_counts: Counter) -> str:
     return "\n".join(lines)
 
 
-def _split_families_by_support(fam_counts: Counter) -> Tuple[dict, dict]:
-    low_support = {fam: cnt for fam, cnt in fam_counts.items() if cnt <= 3}
-    sufficient_support = {fam: cnt for fam, cnt in fam_counts.items() if cnt > 3}
+def _split_families_by_support(fam_counts: Counter, *, min_support: int) -> Tuple[dict, dict]:
+    threshold = max(1, int(min_support))
+    low_support = {fam: cnt for fam, cnt in fam_counts.items() if cnt < threshold}
+    sufficient_support = {fam: cnt for fam, cnt in fam_counts.items() if cnt >= threshold}
     return low_support, sufficient_support
+
+
+def _resolve_min_family_support(samples_df: pd.DataFrame) -> int:
+    attrs = getattr(samples_df, "attrs", {}) if isinstance(getattr(samples_df, "attrs", None), dict) else {}
+    raw = attrs.get(
+        "configured_min_samples_per_family",
+        getattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", getattr(app_config, "MIN_FAMILY_SUPPORT", 3)),
+    )
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        return 3

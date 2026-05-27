@@ -14,6 +14,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import ml_console
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common import output_paths
 from obsidiandroid.common.cv_fold_config import (
@@ -181,15 +182,22 @@ def enforce_duplicate_sha_policy(
     ).reset_index(drop=True)
 
     duplicate_count = int((duplicate_groups["count_samples"] > 1).sum())
-    csv_text = duplicate_groups.to_csv(index=False)
-    mirror_paths = oh.mirror_csv_text_run_then_global(
-        diagnostics_dir=diagnostics_dir,
-        run_filename=f"duplicate_sha256_report_{run_id}.csv",
-        csv_text=csv_text,
-        global_latest_name="duplicate_sha256_report.latest.csv",
-    )
-    report_path = mirror_paths[0]
-    artifact_list.extend(str(p) for p in mirror_paths)
+    report_path = diagnostics_dir / f"duplicate_sha256_report_{run_id}.csv"
+    mirror_paths: list[Path] = []
+    verbose = bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True))
+    should_write_report = paper_mode or duplicate_count > 0 or invalid_sha_count > 0 or verbose
+    if should_write_report:
+        csv_text = duplicate_groups.to_csv(index=False)
+        mirror_paths = oh.mirror_csv_text_run_then_global(
+            diagnostics_dir=diagnostics_dir,
+            run_filename=report_path.name,
+            csv_text=csv_text,
+            global_latest_name="duplicate_sha256_report.latest.csv",
+        )
+        report_path = mirror_paths[0]
+        artifact_list.extend(str(p) for p in mirror_paths)
+    else:
+        report_path.unlink(missing_ok=True)
 
     summary = {
         "report_path": str(report_path),
@@ -231,12 +239,27 @@ def print_run_context_line(
     paper_mode = bool(getattr(app_config, "PAPER_MODE_ENABLED", False))
     experiment_id = str(getattr(app_config, "RUNTIME_EXPERIMENT_ID", "") or "")
     model_text = ",".join(selected_models) if selected_models else "profile_default"
-    du.print_info(
-        "[CTX] "
-        f"run_id={run_id} profile={profile_id} stage={stage} "
-        f"paper_mode={'on' if paper_mode else 'off'} stop_after={stop_after} "
-        f"models={model_text} experiment={experiment_id or 'n/a'}"
-    )
+    if ml_console.is_debug():
+        du.print_info(
+            "[CTX] "
+            f"run_id={run_id} profile={profile_id} stage={stage} "
+            f"paper_mode={'on' if paper_mode else 'off'} stop_after={stop_after} "
+            f"models={model_text} experiment={experiment_id or 'n/a'}"
+        )
+        return
+
+    milestone_stages = {"samples", "feature_matrix", "training", "label_resolution"}
+    if str(stage).strip() not in milestone_stages:
+        return
+
+    compact = f"[CTX] stage={stage} | models={model_text}"
+    if paper_mode:
+        compact += " | paper=on"
+    if str(stop_after).strip() and str(stop_after).strip().lower() != "full":
+        compact += f" | stop_after={stop_after}"
+    if experiment_id:
+        compact += f" | experiment={experiment_id}"
+    du.print_info(compact)
 
 
 def format_population_pipeline_summary_line(manifest_context: dict[str, Any]) -> str:

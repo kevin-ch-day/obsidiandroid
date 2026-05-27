@@ -217,29 +217,35 @@ def export_time_window_family_distributions(samples_df: pd.DataFrame) -> list[st
     family_year_df.to_csv(family_year_path, index=False)
     artifacts.append(str(family_year_path))
 
-    for family_name in ("Devixor", "Gigabud"):
-        family_year = (
-            family_year_df[
-                family_year_df["family_canonical"].astype(str).str.lower() == family_name.lower()
-            ]
-            .copy()
-            .sort_values(year_col)
-        )
-        family_path = out_dir / f"{family_name.lower()}_by_year.csv"
-        if family_year.empty:
-            if family_path.exists():
-                try:
-                    family_path.unlink()
-                except Exception:
-                    pass
-            continue
-        family_year.to_csv(family_path, index=False)
-        artifacts.append(str(family_path))
+    if bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True)):
+        for family_name in ("Devixor", "Gigabud"):
+            family_year = (
+                family_year_df[
+                    family_year_df["family_canonical"].astype(str).str.lower() == family_name.lower()
+                ]
+                .copy()
+                .sort_values(year_col)
+            )
+            family_path = out_dir / f"{family_name.lower()}_by_year.csv"
+            if family_year.empty:
+                if family_path.exists():
+                    try:
+                        family_path.unlink()
+                    except Exception:
+                        pass
+                continue
+            family_year.to_csv(family_path, index=False)
+            artifacts.append(str(family_path))
     return artifacts
 
 
 def export_paper_cohort_sample_ids(samples_df: pd.DataFrame) -> str:
     """Freeze cohort sample IDs used for paper ablation comparability."""
+    if (
+        not bool(getattr(app_config, "PAPER_MODE_ENABLED", False))
+        and not bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True))
+    ):
+        return ""
     out_path = Path(
         str(
             getattr(
