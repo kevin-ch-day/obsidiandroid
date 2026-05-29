@@ -74,6 +74,18 @@ def vendor_semantic_subset(encoded_df: pd.DataFrame, variant: str) -> pd.DataFra
     return out
 
 
+def _resolve_vendor_include_fields() -> list[str]:
+    """Return the full-risk vendor semantic field set for ablation experiments.
+
+    Ablation is where we intentionally compare leakage-prone lexical vendor surfaces
+    against safer baselines such as ``vendor_no_parsed_family``. The headline modeling
+    path may strip ``Parsed Family`` under evidence mode, but the ablation registry
+    must preserve the declared meaning of ``vendor_full`` / ``full_fused`` so the
+    comparisons remain interpretable.
+    """
+    return ["Parsed Family", "Threat Class", "Malware Type"]
+
+
 def build_binary_detection_only_matrix(binary_matrix: pd.DataFrame | None) -> pd.DataFrame:
     """Build a sample_id-indexed matrix of per-engine binary detections."""
     if not isinstance(binary_matrix, pd.DataFrame) or binary_matrix.empty:
@@ -126,7 +138,8 @@ def build_experiment_matrix_dict(
     permissions_band_builder: Callable[[pd.DataFrame | None, str], pd.DataFrame],
 ) -> dict[str, Any]:
     """Return mapping of experiment names to lazy matrix builders (pre-reindex)."""
-    full_vendor_fields = ["Parsed Family", "Threat Class", "Malware Type"]
+    full_vendor_fields = _resolve_vendor_include_fields()
+    threat_type_vendor_fields = ["Threat Class", "Malware Type"]
     pipelines = pipeline_results if isinstance(pipeline_results, dict) else {}
     cids = cohort_sample_ids
 
@@ -138,7 +151,7 @@ def build_experiment_matrix_dict(
     builders["vendor_no_parsed_family"] = lambda: build_vendor_matrix(
         weights_df,
         parsed_data,
-        ["Threat Class", "Malware Type"],
+        threat_type_vendor_fields,
         extra_features_df=None,
         cohort_sample_ids=cids,
     )
@@ -166,7 +179,7 @@ def build_experiment_matrix_dict(
             return build_vendor_matrix(
                 weights_df,
                 parsed_data,
-                ["Threat Class", "Malware Type"],
+                threat_type_vendor_fields,
                 cohort_sample_ids=cids,
             )
         g_df = gmat.reset_index()
@@ -175,7 +188,7 @@ def build_experiment_matrix_dict(
         return build_vendor_matrix(
             weights_df,
             parsed_data,
-            ["Threat Class", "Malware Type"],
+            threat_type_vendor_fields,
             extra_features_df=g_df,
             cohort_sample_ids=cids,
         )

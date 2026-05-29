@@ -68,7 +68,7 @@ def test_build_report_from_fixture_contracts(tmp_path: Path) -> None:
     assert groups.get("permission_intel_binary") == 1
 
 
-def test_write_artifacts(tmp_path: Path) -> None:
+def test_write_feature_lineage_artifacts(tmp_path: Path) -> None:
     diag = tmp_path / "d"
     diag.mkdir(parents=True)
     (diag / "modality_method_contract.json").write_text(

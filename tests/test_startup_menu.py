@@ -8,6 +8,7 @@ import json
 from config import app_config
 
 import obsidiandroid.cli.startup_menu as startup_menu
+from obsidiandroid.cli.ui import menu
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -63,6 +64,34 @@ def test_main_menu_clear_screen_option(monkeypatch) -> None:
 
     assert result == 0
     assert clear_calls["count"] == 1
+
+
+def test_display_menu_blank_input_selects_default(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "")
+    assert menu.display_menu(["First", "Second"], title="T", default_choice=2) == 2
+
+
+def test_display_menu_blank_without_default_reprompts(monkeypatch) -> None:
+    """Main menu: empty line shows hint then accepts numeric choice."""
+    replies = iter(["", "2"])
+
+    def _fake_input(_prompt: str = "") -> str:
+        return next(replies)
+
+    monkeypatch.setattr("builtins.input", _fake_input)
+    assert menu.display_menu(["First", "Second"], title="T") == 2
+
+
+def test_display_menu_blank_returns_back_when_exit_label_back(monkeypatch) -> None:
+    """Submenus with Back: blank Enter returns 0 without extra prompts."""
+    monkeypatch.setattr("builtins.input", lambda _p="": "")
+    assert menu.display_menu(["Only"], title="T", exit_label="Back") == 0
+
+
+def test_display_rich_menu_blank_input_selects_default(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "")
+    opts = {"A": "one", "B": "two"}
+    assert menu.display_rich_menu(opts, title="T", default_choice=2) == 2
 
 
 def test_main_menu_uses_concise_title_and_primary_workflow_order(monkeypatch) -> None:
@@ -222,11 +251,14 @@ def test_data_diagnostics_menu_uses_compact_view_first_order(monkeypatch) -> Non
     assert "View summaries first" in captured["subtitle"]
     assert captured["labels"] == [
         "Open run science index",
-        "Pipeline profile tuning (latest manifest)",
+        "Pipeline profile tuning (resolved manifest)",
         "Profile readiness mapping inventory",
+        "Refresh backlog triage exports",
         "Taxonomy & Support Tuning",
         "Taxonomy Consistency Review",
         "Family/Type Authority Coverage",
+        "Android Missing-Resolution Triage",
+        "VT False-Positive Review Triage",
         "Parser & Vendor Coverage",
         "Permission Intelligence Coverage",
         "Feature Matrix / Modality Coverage",
@@ -277,12 +309,38 @@ def test_profile_readiness_mapping_inventory_report_uses_inventory_helper(monkey
                 "unresolved_family_count": 25,
                 "known_unresolved_family_samples": 17,
                 "known_unresolved_family_count": 4,
+                "policy_held_family_samples": 42,
+                "policy_held_family_count": 11,
+                "top_policy_held_families": [
+                    {
+                        "family": "badpack",
+                        "sample_count": 8,
+                        "high_strong_sample_count": 8,
+                        "token_kind": "packer_evasion_token",
+                    },
+                    {
+                        "family": "spybanker",
+                        "sample_count": 4,
+                        "high_strong_sample_count": 4,
+                        "token_kind": "generic_family_token",
+                    },
+                ],
                 "family_type_conflict_count": 3,
                 "family_type_conflict_issue_counts": {
                     "type_mismatch": 1,
                     "db_family_missing": 1,
                     "label_sparse": 1,
                 },
+                "family_type_conflict_priority_counts": {
+                    "high": 2,
+                    "low": 1,
+                },
+                "family_type_conflict_action_counts": {
+                    "review_db_type_mapping": 1,
+                    "add_db_family_mapping": 1,
+                    "monitor_label_backfill": 1,
+                },
+                "high_priority_conflict_count": 2,
                 "repair_candidate_count": 2,
                 "top_unresolved_families": [
                     {"family": "unknown", "sample_count": 289, "high_strong_sample_count": 279, "known_locally": False},
@@ -363,8 +421,8 @@ def test_profile_readiness_mapping_inventory_report_uses_inventory_helper(monkey
     result = startup_menu._diagnostics_menu.show_profile_readiness_mapping_inventory()
 
     assert result == 0
-    assert len(tables) == 6
-    bucket_table, profile_table, taxonomy_table, unresolved_table, conflict_table, repair_table = tables
+    assert len(tables) == 8
+    bucket_table, profile_table, taxonomy_table, unresolved_table, policy_table, conflict_table, discipline_table, repair_table = tables
     assert bucket_table["kwargs"]["title"] == "Readiness bucket summary"
     assert bucket_table["kwargs"]["columns"] == ["bucket", "samples", "families", "meaning"]
     assert {
@@ -401,8 +459,9 @@ def test_profile_readiness_mapping_inventory_report_uses_inventory_helper(monkey
         "missing_primary_labels",
         "unresolved_family_samples",
         "known_unresolved_family_samples",
+        "policy_held_family_samples",
     }
-    assert unresolved_table["kwargs"]["title"] == "Top unresolved family backlog"
+    assert unresolved_table["kwargs"]["title"] == "Top true unresolved family backlog"
     assert unresolved_table["kwargs"]["columns"] == ["family", "samples", "high_strong", "known_locally"]
     assert unresolved_table["rows"] == [
         {"family": "unknown", "samples": 289, "high_strong": 279, "known_locally": "no"},
@@ -438,6 +497,25 @@ def test_profile_readiness_mapping_inventory_report_uses_inventory_helper(monkey
             "label_signal": "trojan_untyped (9)",
         },
     ]
+    assert discipline_table["kwargs"]["title"] == "Taxonomy curation discipline"
+    assert discipline_table["kwargs"]["columns"] == ["focus", "families", "meaning"]
+    assert discipline_table["rows"] == [
+        {
+            "focus": "add_db_family_mapping",
+            "families": 1,
+            "meaning": "Suggested curation action for family/type conflict cleanup",
+        },
+        {
+            "focus": "monitor_label_backfill",
+            "families": 1,
+            "meaning": "Suggested curation action for family/type conflict cleanup",
+        },
+        {
+            "focus": "review_db_type_mapping",
+            "families": 1,
+            "meaning": "Suggested curation action for family/type conflict cleanup",
+        },
+    ]
     assert repair_table["kwargs"]["title"] == "Taxonomy repair candidates"
     assert repair_table["kwargs"]["columns"] == ["family", "priority", "action", "issue", "db_type", "samples", "high_strong", "perm_signal"]
     assert repair_table["rows"] == [
@@ -464,9 +542,11 @@ def test_profile_readiness_mapping_inventory_report_uses_inventory_helper(monkey
     ]
     assert ("Supported operator profiles", 2) in stats
     assert ("Ambiguous / unmapped", 0) in stats
-    assert ("Unresolved family slugs", 25) in stats
+    assert ("True unresolved family slugs", 25) in stats
     assert ("Known unresolved families", 4) in stats
-    assert ("Family/type conflict candidates", 3) in stats
+    assert ("Policy-held family tokens", 11) in stats
+    assert ("True family/type conflict candidates", 3) in stats
+    assert ("High-priority taxonomy conflicts", 2) in stats
     assert ("Taxonomy repair candidates", 2) in stats
     assert "Supported profile intent guide" in subheaders
     assert any("Supported banker profiles -> android_banker_with_permission_obs" in note for note in notes)
@@ -475,11 +555,13 @@ def test_profile_readiness_mapping_inventory_report_uses_inventory_helper(monkey
     assert any("Deprecated exploratory and compatibility-alias profiles are intentionally excluded" in note for note in notes)
     assert any("the supported operator architecture is the canonical final profile set" in note for note in notes)
     assert any("Banker type scope currently exceeds the banker label bucket by 505 sample(s)." in note for note in notes)
-    assert any("Top unresolved resolved-family slugs: unknown (289), blankbot (9)" in note for note in notes)
+    assert any("Top true unresolved resolved-family slugs: unknown (289), blankbot (9)" in note for note in notes)
+    assert any("Top policy-held token noise: badpack (8, packer_evasion_token), spybanker (4, generic_family_token)" in note for note in notes)
     assert any("Some unresolved family samples already map to known local taxonomy names" in note for note in notes)
-    assert any("Top family/type conflict candidates: devixor [type_mismatch], blankbot [db_family_missing]" in note for note in notes)
+    assert any("Top true family/type conflict candidates: devixor [type_mismatch], blankbot [db_family_missing]" in note for note in notes)
     assert any("Operator-model hypotheses: devixor → rat, blankbot → unclear" in note for note in notes)
     assert any("Suggested next actions: devixor → review_db_type_mapping, blankbot → add_db_family_mapping" in note for note in notes)
+    assert any("Taxonomy curation discipline: high-priority conflicts=2/3; dominant action=review_db_type_mapping (1); dominant issue=type_mismatch (1)." in note for note in notes)
     assert any("Top taxonomy repair queue: devixor (725), blankbot (9)" in note for note in notes)
     assert any("Advisory only; does not enforce sample selection." in note for note in notes)
     assert not any(
@@ -653,6 +735,112 @@ def test_taxonomy_audit_warns_on_different_profile(monkeypatch, tmp_path: Path) 
     assert any("Different profile than latest run" in message for message in warnings)
 
 
+def test_android_missing_resolution_triage_script_runs_operator_script(monkeypatch, tmp_path: Path) -> None:
+    """Android missing-resolution triage should invoke the diagnostics script."""
+    script_path = tmp_path / "report_android_missing_resolution_triage.py"
+    script_path.write_text("print('ok')\n", encoding="utf-8")
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(startup_menu, "repo_operator_script", lambda *parts: script_path)
+    monkeypatch.setattr(
+        startup_menu,
+        "subprocess",
+        type("SubprocessStub", (), {"run": staticmethod(lambda cmd, check=False: commands.append(list(cmd)) or type("P", (), {"returncode": 0})())}),
+    )
+
+    result = startup_menu._run_android_missing_resolution_triage_script()  # pylint: disable=protected-access
+
+    assert result == 0
+    assert commands
+    assert commands[0][0].endswith("python3")
+    assert commands[0][1] == str(script_path)
+
+
+def test_refresh_backlog_triage_exports_runs_all_triage_scripts(monkeypatch) -> None:
+    """Composite backlog refresh should run all backlog triage exports in sequence."""
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        startup_menu,
+        "_run_android_missing_resolution_triage_script",
+        lambda: calls.append("android") or 0,
+    )
+    monkeypatch.setattr(
+        startup_menu,
+        "_run_vt_false_positive_review_triage_script",
+        lambda: calls.append("vt") or 0,
+    )
+    monkeypatch.setattr(
+        startup_menu,
+        "_run_policy_held_token_risk_script",
+        lambda: calls.append("policy") or 0,
+    )
+
+    result = startup_menu._refresh_backlog_triage_exports()  # pylint: disable=protected-access
+
+    assert result == 0
+    assert calls == ["android", "vt", "policy"]
+
+
+def test_policy_held_token_risk_script_runs_operator_script(monkeypatch, tmp_path: Path) -> None:
+    """Policy-held token-risk triage should invoke the diagnostics script."""
+    script_path = tmp_path / "report_android_policy_held_token_risk.py"
+    script_path.write_text("print('ok')\n", encoding="utf-8")
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(startup_menu, "repo_operator_script", lambda *parts: script_path)
+    monkeypatch.setattr(
+        startup_menu,
+        "subprocess",
+        type("SubprocessStub", (), {"run": staticmethod(lambda cmd, check=False: commands.append(list(cmd)) or type("P", (), {"returncode": 0})())}),
+    )
+
+    result = startup_menu._run_policy_held_token_risk_script()  # pylint: disable=protected-access
+
+    assert result == 0
+    assert commands
+    assert commands[0][0].endswith("python3")
+    assert commands[0][1] == str(script_path)
+
+
+def test_vt_false_positive_review_triage_script_runs_operator_script(monkeypatch, tmp_path: Path) -> None:
+    """VT false-positive triage should invoke the diagnostics script."""
+    script_path = tmp_path / "report_vt_false_positive_review_triage.py"
+    script_path.write_text("print('ok')\n", encoding="utf-8")
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(startup_menu, "repo_operator_script", lambda *parts: script_path)
+    monkeypatch.setattr(
+        startup_menu,
+        "subprocess",
+        type("SubprocessStub", (), {"run": staticmethod(lambda cmd, check=False: commands.append(list(cmd)) or type("P", (), {"returncode": 0})())}),
+    )
+
+    result = startup_menu._run_vt_false_positive_review_triage_script()  # pylint: disable=protected-access
+
+    assert result == 0
+    assert commands
+    assert commands[0][0].endswith("python3")
+    assert commands[0][1] == str(script_path)
+
+
+def test_vt_false_positive_triage_script_exports_live_report(monkeypatch, tmp_path: Path) -> None:
+    """The triage report script should be callable from the diagnostics menu helper."""
+    script_path = tmp_path / "report_vt_false_positive_review_triage.py"
+    script_path.write_text("print('ok')\n", encoding="utf-8")
+    commands: list[list[str]] = []
+
+    result = startup_menu._diagnostics_menu.run_vt_false_positive_review_triage_script(  # pylint: disable=protected-access
+        operator_script_resolver=lambda *_parts: script_path,
+        subprocess_run=lambda cmd, check=False: commands.append(list(cmd)) or type("P", (), {"returncode": 0})(),
+    )
+
+    assert result == 0
+    assert commands
+    assert commands[0][0].endswith("python3")
+    assert commands[0][1] == str(script_path)
+
+
 def test_parser_menu_does_not_repeat_state_block_when_state_is_unchanged(monkeypatch) -> None:
     """Parser submenu should not reprint the summary block when state did not change."""
     choices = iter([1, 0])
@@ -661,7 +849,7 @@ def test_parser_menu_does_not_repeat_state_block_when_state_is_unchanged(monkeyp
     monkeypatch.setattr(
         startup_menu.vendor_diagnostics,
         "get_parser_summary_state",
-        lambda: {
+        lambda **_kwargs: {
             "csv_ready": True,
             "workbook_ready": False,
             "observed_engines": 95,
@@ -696,7 +884,7 @@ def test_parser_menu_uses_tuning_labels_in_compact_mode(monkeypatch) -> None:
     monkeypatch.setattr(
         startup_menu.vendor_diagnostics,
         "get_parser_summary_state",
-        lambda: {
+        lambda **_kwargs: {
             "display_mode": "compact",
             "csv_ready": True,
             "workbook_ready": False,
@@ -1206,6 +1394,41 @@ def test_recent_runs_overview_includes_methodology_columns(monkeypatch, tmp_path
     assert "rescued_unknown=3" in str(captured["rows"][0]["cohort_methodology"])
 
 
+def test_recent_runs_overview_includes_taxonomy_drift_methodology(monkeypatch, tmp_path: Path) -> None:
+    out_root = tmp_path / "output"
+    run_id = "20260321T161433Z__fdaeb0"
+    run_root, _diagnostics_dir = _make_run_dirs(out_root, run_id)
+    _write_json(
+        run_root / "run_manifest.json",
+        {
+            "run_id": run_id,
+            "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
+            "publication_ready_status": "READY",
+            "paper_cohort_contract": {
+                "cohort_lock_status": "membership_locked_taxonomy_drift",
+                "sample_id_lock": {
+                    "taxonomy_label_drift": {
+                        "drift_class": "taxonomy_expansion",
+                        "family_delta": 5,
+                        "type_delta": 1,
+                    }
+                },
+            },
+            "profile_params": {"profile_id": "paper2_demo"},
+        },
+    )
+
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    captured = _capture_table_rows(monkeypatch)
+
+    result = startup_menu._show_recent_runs_overview(limit=5)  # pylint: disable=protected-access
+
+    assert result == 0
+    assert captured["rows"][0]["cohort_lock_status"] == "taxonomy-drift"
+    assert "taxonomy=taxonomy_expansion" in str(captured["rows"][0]["cohort_methodology"])
+    assert "family_delta=+5" in str(captured["rows"][0]["cohort_methodology"])
+
+
 def test_run_status_history_menu_includes_advanced_history_option(monkeypatch) -> None:
     """Run status menu should expose an explicit advanced history option."""
     captured: list[str] = []
@@ -1314,6 +1537,44 @@ def test_current_run_summary_includes_methodology_fields(monkeypatch, tmp_path: 
     assert values["Cohort Lock Status"] == "count-only"
     assert "membership=locked_sample_ids" in str(values["Cohort Methodology"])
     assert "rescued_unknown=3" in str(values["Cohort Methodology"])
+
+
+def test_current_run_summary_includes_taxonomy_drift_semantics(monkeypatch, tmp_path: Path) -> None:
+    out_root = tmp_path / "output"
+    run_id = "20260321T161433Z__fdaeb0"
+    run_root, _diagnostics_dir = _make_run_dirs(out_root, run_id)
+    _write_latest_run_manifest(out_root, {"run_id": run_id})
+    _write_json(
+        run_root / "run_manifest.json",
+        {
+            "run_id": run_id,
+            "timestamp_utc": "2026-03-21T16:14:33.823560+00:00",
+            "publication_ready_status": "READY",
+            "paper_cohort_contract": {
+                "cohort_lock_status": "membership_locked_taxonomy_drift",
+                "sample_id_lock": {
+                    "taxonomy_label_drift": {
+                        "drift_class": "taxonomy_expansion",
+                        "family_delta": 5,
+                        "type_delta": 1,
+                        "recommended_action": "Review newly split families/types.",
+                    }
+                },
+            },
+            "profile_params": {"profile_id": "paper2_demo"},
+        },
+    )
+
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    captured = _capture_stat_rows(monkeypatch)
+
+    result = startup_menu._show_latest_run_snapshot()  # pylint: disable=protected-access
+
+    values = {label: value for label, value in captured}
+    assert result == 0
+    assert values["Cohort Lock Status"] == "taxonomy-drift"
+    assert "taxonomy_expansion" in str(values["Taxonomy Drift"])
+    assert "family_delta=+5" in str(values["Taxonomy Drift"])
 
 
 def test_within_cross_type_error_snapshot_reads_bundle_artifact(
@@ -1561,7 +1822,7 @@ def test_review_summary_surfaces_label_strategy_in_top_level_review(monkeypatch,
     assert summary["label_strategy_summary"]["preferred_type_target"] == "type_slug"
     assert summary["label_strategy_summary"]["avoid_for_primary_claims"] == ["category_primary"]
     tuning_actions = [str(x) for x in summary.get("tuning_actions", [])]
-    assert any("anchored on family_id for family and type_slug for coarse taxonomy" in action for action in tuning_actions)
+    assert any("Keep supervision anchored on family_id for family and type_slug for coarse taxonomy before retuning models." in action for action in tuning_actions)
 
 
 def test_evidence_readiness_hub_uses_generic_labels(monkeypatch) -> None:
@@ -1582,3 +1843,9 @@ def test_evidence_readiness_hub_uses_generic_labels(monkeypatch) -> None:
     assert "Cohort Lock Checker" in options
     assert "Evidence Bundle Series Aggregator" in options
     assert captured["title"] == "Evidence readiness"
+    assert policy_table["kwargs"]["title"] == "Top policy-held token backlog"
+    assert policy_table["kwargs"]["columns"] == ["family", "samples", "high_strong", "token_kind"]
+    assert policy_table["rows"] == [
+        {"family": "badpack", "samples": 8, "high_strong": 8, "token_kind": "packer_evasion_token"},
+        {"family": "spybanker", "samples": 4, "high_strong": 4, "token_kind": "generic_family_token"},
+    ]

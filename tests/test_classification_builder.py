@@ -7,6 +7,7 @@ from obsidiandroid.inference.label_consensus_engine import resolve_consensus_lab
 from obsidiandroid.labeling import label_field_normalizer, label_format_generator
 from config import app_config
 from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord
+from obsidiandroid.classification_builder import vendor_record_selector
 
 
 def test_build_row_handles_tuple_enrichment(monkeypatch):
@@ -210,6 +211,124 @@ def test_build_row_uses_runtime_split_sample_metadata_when_prediction_metadata_l
     assert row["classification_label"] == "trojan/android.adware.applite"
 
 
+def test_build_row_suppresses_cross_type_known_family_prediction(monkeypatch):
+    sample_id = "1003"
+    record = VendorClassificationRecord(
+        sample_id=sample_id,
+        vendor_name="av",
+        original_label="Android.SpyNote",
+        family="spynote",
+        malware_type="trojan",
+        threat_class="banker",
+        platform="android",
+    )
+    records_by_vendor = {"av": [record]}
+    label_decoder = {0: "spynote"}
+    true_labels = {sample_id: "irata"}
+    metadata = {"1003": {"confidence": 0.95, "type_slug": "banker"}}
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_SPLIT_SAMPLE_METADATA",
+        pd.DataFrame(
+            [
+                {"sample_id": 1003, "type_slug": "banker", "family_canonical": "irata"},
+                {"sample_id": 2001, "type_slug": "rat", "family_canonical": "spynote"},
+            ]
+        ),
+        raising=False,
+    )
+
+    monkeypatch.setattr(
+        "obsidiandroid.classification_builder.classification_row_builder.vendor_record_selector.select_best_vendor_record",
+        lambda *a, **k: record,
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.classification_builder.classification_row_builder.record_enrichment.enrich_variant_from_trusted_vendors",
+        lambda *a, **k: record.variant,
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.classification_builder.classification_row_builder.record_enrichment.enrich_threat_class_if_unknown",
+        lambda *a, **k: record.threat_class,
+    )
+
+    row = build_classification_row(
+        sample_id,
+        0,
+        label_decoder,
+        true_labels,
+        metadata,
+        label_name_map={"spynote": "SpyNote", "irata": "Irata"},
+        records_by_vendor=records_by_vendor,
+        label_format="structured",
+        include_confidence=True,
+    )
+
+    assert row["predicted_family"] == "other"
+    assert row["predicted_family_id"] == "other"
+    assert row["classification_label"] == "trojan/android.banker.other"
+    assert row["override_tag"] == "type_guard_family_suppressed"
+    assert row["raw_predicted_family"] == "SpyNote"
+    assert metadata["1003"]["override_tag"] == "type_guard_family_suppressed"
+    assert metadata["1003"]["raw_predicted_family"] == "SpyNote"
+
+
+def test_build_row_keeps_same_type_known_family_prediction(monkeypatch):
+    sample_id = "1004"
+    record = VendorClassificationRecord(
+        sample_id=sample_id,
+        vendor_name="av",
+        original_label="Android.SpyNote",
+        family="spynote",
+        malware_type="trojan",
+        threat_class="banker",
+        platform="android",
+    )
+    records_by_vendor = {"av": [record]}
+    label_decoder = {0: "spynote"}
+    true_labels = {sample_id: "spynote"}
+    metadata = {"1004": {"confidence": 0.9, "type_slug": "rat"}}
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_SPLIT_SAMPLE_METADATA",
+        pd.DataFrame(
+            [
+                {"sample_id": 1004, "type_slug": "rat", "family_canonical": "spynote"},
+                {"sample_id": 2001, "type_slug": "dropper", "family_canonical": "applite"},
+            ]
+        ),
+        raising=False,
+    )
+
+    monkeypatch.setattr(
+        "obsidiandroid.classification_builder.classification_row_builder.vendor_record_selector.select_best_vendor_record",
+        lambda *a, **k: record,
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.classification_builder.classification_row_builder.record_enrichment.enrich_variant_from_trusted_vendors",
+        lambda *a, **k: record.variant,
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.classification_builder.classification_row_builder.record_enrichment.enrich_threat_class_if_unknown",
+        lambda *a, **k: record.threat_class,
+    )
+
+    row = build_classification_row(
+        sample_id,
+        0,
+        label_decoder,
+        true_labels,
+        metadata,
+        label_name_map={"spynote": "SpyNote"},
+        records_by_vendor=records_by_vendor,
+        label_format="structured",
+        include_confidence=True,
+    )
+
+    assert row["predicted_family"] == "SpyNote"
+    assert row["classification_label"] == "rat/android.rat.spynote"
+    assert metadata["1004"].get("override_tag") is None
+
+
 def test_generate_structured_label_retains_type_when_matching():
     record = VendorClassificationRecord(
         sample_id='s1',
@@ -255,6 +374,55 @@ def test_structured_label_keeps_type_when_matching_threat():
     label = label_format_generator.generate_structured_label(fields)
     assert fields['mtype'] == 'banker'
     assert label.startswith('banker/android.banker')
+
+
+def test_build_sample_classification_records_includes_confidence() -> None:
+    rec = VendorClassificationRecord(
+        sample_id="s1", vendor_name="av", original_label="x"
+    )
+    records_by_vendor = {"s1": [rec]}
+    results = {
+        "predictions": {"s1": 0},
+        "true_labels": {"s1": "foo"},
+        "prediction_metadata": {"s1": {"confidence": 0.88}},
+        "label_decoder": {0: "foo"},
+    }
+    df = sample_classification_builder.build_sample_classification_records(
+        records_by_vendor,
+        results,
+        include_confidence=True,
+        verbose=False,
+        use_consensus=False,
+    )
+    assert not df.empty
+    assert df.loc[0, "confidence"] == 0.88
+
+
+def test_build_sample_classification_records_handles_bad_predictions() -> None:
+    df = sample_classification_builder.build_sample_classification_records({}, {"predictions": []}, verbose=False)
+    assert df.empty
+
+
+def test_select_best_vendor_record_uses_preindexed_records() -> None:
+    """Selector should work with pre-index map even when vendor map is empty."""
+    rec = VendorClassificationRecord(
+        sample_id="1001",
+        vendor_name="trusted_vendor",
+        original_label="trojan.example",
+        confidence_score=0.9,
+        parser_quality="high",
+        is_known_family=True,
+    )
+
+    selected = vendor_record_selector.select_best_vendor_record(
+        sample_id="1001",
+        records_by_vendor={},
+        records_by_sample_id={"1001": [rec]},
+        verbose=False,
+    )
+
+    assert selected.sample_id == "1001"
+    assert selected.vendor_name == "trusted_vendor"
 
 
 @pytest.mark.parametrize(

@@ -8,6 +8,8 @@ import json
 
 import pandas as pd
 
+from config import app_config
+
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.output_paths import output_root as canonical_output_root
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir

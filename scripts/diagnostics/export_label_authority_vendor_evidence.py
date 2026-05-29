@@ -29,6 +29,7 @@ from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path
 ensure_repo_src_on_sys_path()
 
 from obsidiandroid.database import db_engine
+from obsidiandroid.database import verdict_contracts
 from obsidiandroid.database.verdict_semantics import NON_DETECTION_TOKENS, VERDICT_METADATA_COLUMNS
 from obsidiandroid.vendors.parsing.vendor_parser_map import (
     get_vendor_parser_map,
@@ -59,17 +60,7 @@ def _normalize(value: object) -> str:
 
 
 def _fetch_vendor_columns() -> list[str]:
-    query = """
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_schema = DATABASE()
-          AND table_name = 'virustotal_sample_vendor_engine_verdicts'
-        ORDER BY ordinal_position
-    """
-    df = db_engine.execute_query(query, fetch=True, as_dataframe=True)
-    if df is None or df.empty:
-        return []
-    return df["column_name"].astype(str).tolist()
+    return verdict_contracts.fetch_verdict_table_columns()
 
 
 def _select_vendor_columns(available_columns: list[str], requested_vendors: list[str] | None) -> list[tuple[str, str, object]]:

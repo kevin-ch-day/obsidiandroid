@@ -37,3 +37,13 @@ def test_write_catalog_smoke(tmp_path: Path) -> None:
     idx, readme = cml.write_confusion_matrix_catalog(cm, run_id="rid")
     assert idx is not None and idx.is_file()
     assert readme is not None and "headline" in readme.read_text(encoding="utf-8")
+
+
+def test_confusion_matrix_exporter_forces_agg_backend() -> None:
+    """Confusion matrix exports should use a non-interactive backend."""
+    import matplotlib
+
+    import obsidiandroid.reporting.confusion_matrix_exporter  # noqa: F401 pylint: disable=import-outside-toplevel,unused-import
+
+    backend = str(matplotlib.get_backend()).lower()
+    assert "agg" in backend

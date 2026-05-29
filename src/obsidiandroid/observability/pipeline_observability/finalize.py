@@ -18,6 +18,7 @@ from obsidiandroid.common.publication_readiness import (
     evaluate_publication_ready_status,
     publication_ready_alias_payload,
 )
+from obsidiandroid.common.scientific_adequacy import classify_scientific_adequacy
 
 from obsidiandroid.diagnostics.cohort_vocabulary import (
     KEY_COHORT_PREPARED_ROW_COUNT,
@@ -54,6 +55,23 @@ def _coerce_int(v: Any) -> int | None:
         return int(v)
     except Exception:
         return None
+
+
+def _format_top_count_pairs(counts: dict[str, Any], *, limit: int = 5) -> str:
+    """Render compact ``name=count`` pairs for observability summaries."""
+    if not isinstance(counts, dict) or not counts:
+        return ""
+    rows: list[tuple[str, int]] = []
+    for key, value in counts.items():
+        try:
+            rows.append((str(key), int(value)))
+        except (TypeError, ValueError):
+            continue
+    rows.sort(key=lambda item: (-item[1], item[0].lower()))
+    shown = [f"{name}={count}" for name, count in rows[: max(1, int(limit))]]
+    if len(rows) > len(shown):
+        shown.append("…")
+    return ", ".join(shown)
 
 
 def _read_label_strategy_blob(diagnostics_dir: Path, run_id: str) -> dict[str, Any]:
@@ -309,6 +327,22 @@ def finalize_pipeline_observability(
                     if temporal_warning not in research_warnings_msgs:
                         research_warnings_msgs.append(temporal_warning)
 
+    cohort_contract = (
+        manifest_context.get("paper_cohort_contract")
+        if isinstance(manifest_context.get("paper_cohort_contract"), dict)
+        else {}
+    )
+    cohort_validation = (
+        cohort_contract.get("validation")
+        if isinstance(cohort_contract.get("validation"), dict)
+        else {}
+    )
+    cohort_validation_status = str(cohort_validation.get("status", "") or "").strip()
+    cohort_validation_warning = str(cohort_validation.get("warning", "") or "").strip()
+    if cohort_validation_status.startswith("degraded_") and cohort_validation_warning:
+        if cohort_validation_warning not in research_warnings_msgs:
+            research_warnings_msgs.append(cohort_validation_warning)
+
     split_blob = manifest.get("split") if isinstance(manifest.get("split"), dict) else {}
     gov = manifest.get("cohort_size") or read_prepared_cohort_row_count(manifest_context)
     fused = manifest_context.get("fused_feature_rows")
@@ -392,6 +426,82 @@ def finalize_pipeline_observability(
         or manifest_context.get("feature_matrix_row_authority")
     )
     label_strategy = _read_label_strategy_blob(diagnostics_dir, run_id)
+    dataset_foundation_payload: dict[str, Any] = {}
+    dataset_foundation_path = diagnostics_dir / "dataset_foundation_summary.json"
+    if dataset_foundation_path.exists():
+        try:
+            dataset_foundation_payload = json.loads(dataset_foundation_path.read_text(encoding="utf-8"))
+        except Exception:
+            dataset_foundation_payload = {}
+    supervised_family_claims_suitable = bool(
+        dataset_foundation_payload.get("supervised_family_claims_suitable", False)
+    )
+    temporal_split_summary = {}
+    split_blob = manifest_context.get("split")
+    if isinstance(split_blob, dict):
+        temporal_split_summary = (
+            split_blob.get("temporal_split_summary")
+            if isinstance(split_blob.get("temporal_split_summary"), dict)
+            else {}
+        )
+    scientific_adequacy, scientific_blockers = classify_scientific_adequacy(
+        macro_f1=top_macro_f1,
+        supervised_family_claims_suitable=supervised_family_claims_suitable,
+        dropped_future_only_rows=temporal_split_summary.get("test_rows_dropped_unseen_train_classes", 0),
+    )
+    taxonomy_summary_payload: dict[str, Any] = {}
+    taxonomy_summary_path = diagnostics_dir / f"taxonomy_consistency_summary_{run_id}.json"
+    if taxonomy_summary_path.exists():
+        try:
+            taxonomy_summary_payload = json.loads(taxonomy_summary_path.read_text(encoding="utf-8"))
+        except Exception:
+            taxonomy_summary_payload = {}
+    label_resolution_enabled = bool(manifest_context.get("label_resolution_enabled", True))
+    type_guard_family_suppressed_count = int(
+        taxonomy_summary_payload.get("type_guard_family_suppressed_count", 0) or 0
+    )
+    alignment_attrition = (
+        manifest_context.get("alignment_attrition_stats")
+        if isinstance(manifest_context.get("alignment_attrition_stats"), dict)
+        else {}
+    )
+    alignment_attrition_details = (
+        manifest_context.get("alignment_attrition_details")
+        if isinstance(manifest_context.get("alignment_attrition_details"), dict)
+        else {}
+    )
+    low_support_detail = (
+        manifest_context.get("low_support_family_drop_detail")
+        if isinstance(manifest_context.get("low_support_family_drop_detail"), list)
+        else []
+    )
+    low_support_row_drop_count = 0
+    low_support_family_drop_count = 0
+    low_support_top: list[tuple[str, int]] = []
+    for row in low_support_detail:
+        if not isinstance(row, dict):
+            continue
+        family = str(row.get("family", "")).strip()
+        if not family:
+            continue
+        try:
+            support = int(row.get("aligned_support"))
+        except (TypeError, ValueError):
+            continue
+        low_support_family_drop_count += 1
+        low_support_row_drop_count += support
+        low_support_top.append((family, support))
+    low_support_top.sort(key=lambda item: (item[1], item[0].lower()))
+    low_support_top_preview = ", ".join(
+        f"{family}={support}" for family, support in low_support_top[:5]
+    )
+    if len(low_support_top) > 5:
+        low_support_top_preview += ", …"
+    temporal_dropped_family_counts = (
+        temporal_split_summary.get("test_rows_dropped_unseen_train_class_families")
+        if isinstance(temporal_split_summary.get("test_rows_dropped_unseen_train_class_families"), dict)
+        else {}
+    )
 
     status_blob = {
         "schema_version": "2.0",
@@ -409,6 +519,28 @@ def finalize_pipeline_observability(
         "hostile_audit_status": hostile_status,
         "hostile_audit_skip_reason": hostile_skip_reason or None,
         "hostile_audit_degraded": bool(hostile_failed),
+        "label_resolution_enabled": label_resolution_enabled,
+        "type_guard_family_suppressed_count": type_guard_family_suppressed_count,
+        "alignment_non_authoritative_family_drop_count": int(
+            alignment_attrition.get("alignment_non_authoritative_family_drop_count", 0) or 0
+        ),
+        "alignment_live_authority_rescue_count": int(
+            alignment_attrition.get("alignment_live_authority_rescue_count", 0) or 0
+        ),
+        "alignment_live_authority_rescue_families_top": _format_top_count_pairs(
+            alignment_attrition_details.get("alignment_live_authority_rescue_families", {})
+            if isinstance(alignment_attrition_details, dict)
+            else {}
+        ),
+        "alignment_non_authoritative_family_drops_top": _format_top_count_pairs(
+            alignment_attrition_details.get("alignment_non_authoritative_family_drop_families", {})
+            if isinstance(alignment_attrition_details, dict)
+            else {}
+        ),
+        "low_support_family_drop_count": int(low_support_family_drop_count),
+        "low_support_row_drop_count": int(low_support_row_drop_count),
+        "low_support_family_drops_top": low_support_top_preview,
+        "temporal_future_only_family_drops_top": _format_top_count_pairs(temporal_dropped_family_counts),
         "main_training_row_authority": row_authority,
         "cohort_rows": _coerce_int(gov),
         KEY_COHORT_SQL_SCOPE_ROW_COUNT: _coerce_int(sql_scope_row_count),
@@ -443,6 +575,14 @@ def finalize_pipeline_observability(
         },
         "model": {"top_model": top_model, "top_macro_f1": top_macro_f1},
         "model_summary": model_summary,
+        "scientific_adequacy": {
+            "posture": scientific_adequacy,
+            "blockers": scientific_blockers,
+            "supervised_family_claims_suitable": supervised_family_claims_suitable,
+            "temporal_future_only_rows_dropped": temporal_split_summary.get(
+                "test_rows_dropped_unseen_train_classes", 0
+            ),
+        },
         "ablation": {
             "status_line": manifest_context.get("_ablation_run_status_summary", ""),
             "cohort_gap_summary": ablation_snap,

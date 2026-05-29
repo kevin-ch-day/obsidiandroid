@@ -18,6 +18,7 @@ from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path
 
 ensure_repo_src_on_sys_path()
 
+from obsidiandroid.database import authority_contracts
 from obsidiandroid.database import db_engine
 from scripts.diagnostics import export_label_authority_vendor_evidence as evidence_export
 
@@ -49,107 +50,14 @@ def _load_evidence(path: Path) -> pd.DataFrame:
 
 
 def _table_has_column(table_name: str, column_name: str) -> bool:
-    df = db_engine.execute_query(
-        """
-        SELECT COUNT(*) AS n
-        FROM information_schema.columns
-        WHERE table_schema = DATABASE()
-          AND table_name = %s
-          AND column_name = %s
-        """,
-        params=(table_name, column_name),
-        fetch=True,
-        as_dataframe=True,
-    )
-    return bool(
-        isinstance(df, pd.DataFrame)
-        and not df.empty
-        and int(df.iloc[0]["n"]) > 0
-    )
+    try:
+        return authority_contracts.table_has_column(table_name, column_name)
+    except Exception:
+        return False
 
 
 def _load_known_tokens() -> tuple[set[str], set[str]]:
-    family_active_clause = "AND is_active = 1" if _table_has_column("android_malware_family", "is_active") else ""
-    families_df = db_engine.execute_query(
-        """
-        SELECT LOWER(TRIM(family_slug)) AS token
-        FROM android_malware_family
-        WHERE 1 = 1
-        {family_active_clause}
-          AND family_slug IS NOT NULL
-          AND TRIM(family_slug) <> ''
-        UNION
-        SELECT LOWER(TRIM(family_name)) AS token
-        FROM android_malware_family
-        WHERE 1 = 1
-        {family_active_clause}
-          AND family_name IS NOT NULL
-          AND TRIM(family_name) <> ''
-        """.format(family_active_clause=family_active_clause),
-        fetch=True,
-        as_dataframe=True,
-    )
-    known_families = set(families_df["token"].dropna().astype(str).str.strip().str.lower()) if isinstance(families_df, pd.DataFrame) and not families_df.empty else set()
-
-    table_df = db_engine.execute_query(
-        """
-        SELECT COUNT(*) AS n
-        FROM information_schema.tables
-        WHERE table_schema = DATABASE()
-          AND table_name = 'malware_family_alias_fact'
-        """,
-        fetch=True,
-        as_dataframe=True,
-    )
-    has_alias_table = bool(
-        isinstance(table_df, pd.DataFrame)
-        and not table_df.empty
-        and int(table_df.iloc[0]["n"]) > 0
-    )
-    legacy_table_df = db_engine.execute_query(
-        """
-        SELECT COUNT(*) AS n
-        FROM information_schema.tables
-        WHERE table_schema = DATABASE()
-          AND table_name = 'android_malware_family_alias'
-        """,
-        fetch=True,
-        as_dataframe=True,
-    )
-    has_legacy_alias_table = bool(
-        isinstance(legacy_table_df, pd.DataFrame)
-        and not legacy_table_df.empty
-        and int(legacy_table_df.iloc[0]["n"]) > 0
-    )
-    known_aliases: set[str] = set()
-    if has_alias_table:
-        alias_active_clause = "AND is_active = 1" if _table_has_column("malware_family_alias_fact", "is_active") else ""
-        alias_df = db_engine.execute_query(
-            """
-            SELECT LOWER(TRIM(alias_token)) AS token
-            FROM malware_family_alias_fact
-            WHERE 1 = 1
-            {alias_active_clause}
-              AND alias_token IS NOT NULL
-              AND TRIM(alias_token) <> ''
-            """.format(alias_active_clause=alias_active_clause),
-            fetch=True,
-            as_dataframe=True,
-        )
-        known_aliases = set(alias_df["token"].dropna().astype(str).str.strip().str.lower()) if isinstance(alias_df, pd.DataFrame) and not alias_df.empty else set()
-    elif has_legacy_alias_table:
-        alias_df = db_engine.execute_query(
-            """
-            SELECT LOWER(TRIM(alias_name)) AS token
-            FROM android_malware_family_alias
-            WHERE alias_name IS NOT NULL
-              AND TRIM(alias_name) <> ''
-            """,
-            fetch=True,
-            as_dataframe=True,
-        )
-        known_aliases = set(alias_df["token"].dropna().astype(str).str.strip().str.lower()) if isinstance(alias_df, pd.DataFrame) and not alias_df.empty else set()
-    return known_families, known_aliases
+    return authority_contracts.load_known_family_and_alias_tokens()
 
 
 def _safe_load_alias_tokens() -> tuple[set[str], set[str]]:

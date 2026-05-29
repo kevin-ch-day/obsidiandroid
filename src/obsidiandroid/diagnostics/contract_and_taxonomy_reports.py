@@ -399,7 +399,7 @@ def write_taxonomy_authority_split_reports(
         },
         "taxonomy_split": {
             "authority_gap": {
-                "split_note": "Authority coverage / curation backlog from the live authority view.",
+                "split_note": "Authority coverage / curation debt from the live authority view; separate this from policy-held generic/coarse token residue.",
                 "csv_path": str(gap_csv_path),
             },
             "type_authority_vs_rendering_mismatch": {
@@ -461,7 +461,7 @@ def write_taxonomy_authority_split_reports(
         "",
         f"Run ID: `{run_id}`",
         "",
-        "This report separates authority coverage / curation backlog from label-rendering mismatches and real model prediction errors.",
+        "This report separates authority coverage / curation debt from policy-held generic/coarse token residue, label-rendering mismatches, and real model prediction errors.",
         "",
         "## Scope",
         "",
@@ -474,7 +474,7 @@ def write_taxonomy_authority_split_reports(
             "",
             "### 1. Authority gap",
             "",
-            "- Uses the live authority view and separates unresolved authority-family rows from generic/coarse tokens.",
+            "- Uses the live authority view and separates true unresolved authority-family rows from policy-held generic/coarse token residue.",
             f"- Summary CSV: `{gap_csv_path}`",
             "",
             "### 2. Type authority vs rendering mismatch",
@@ -516,8 +516,16 @@ def write_taxonomy_authority_split_reports(
         md_lines.append("")
 
     if global_scope.get("plausible_missing_candidates_top"):
-        md_lines.extend(["## Top Missing Authority-Family Candidates", "", "| resolved_family_lc | row_count | years_present | priority |", "|---|---:|---:|---:|"])
+        md_lines.extend(["## Top True Missing Authority-Family Candidates", "", "| resolved_family_lc | row_count | years_present | priority |", "|---|---:|---:|---:|"])
         for row in global_scope["plausible_missing_candidates_top"][:10]:
+            md_lines.append(
+                f"| `{row.get('resolved_family_lc', '')}` | {int(row.get('row_count', 0))} | {int(row.get('years_present', 0))} | {int(row.get('priority_family_curation_flag', 0))} |"
+            )
+        md_lines.append("")
+
+    if global_scope.get("generic_or_coarse_candidates_top"):
+        md_lines.extend(["## Top Policy-Held Generic/Coarse Token Residue", "", "| resolved_family_lc | row_count | years_present | priority |", "|---|---:|---:|---:|"])
+        for row in global_scope["generic_or_coarse_candidates_top"][:10]:
             md_lines.append(
                 f"| `{row.get('resolved_family_lc', '')}` | {int(row.get('row_count', 0))} | {int(row.get('years_present', 0))} | {int(row.get('priority_family_curation_flag', 0))} |"
             )

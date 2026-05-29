@@ -5,6 +5,7 @@
 # ``database.db_permission_analysis_queries`` shim has been retired.
 
 from . import db_engine
+from . import permission_contracts
 from .db_config import DB_NAME, PERMISSION_INTEL_DB_NAME
 
 BANKING_TROJAN_FAMILIES = (
@@ -28,9 +29,6 @@ BANKING_TROJAN_FAMILIES = (
     "trickmo",
     "vultur",
 )
-_PERMISSION_OBS_NORM_AVAILABLE: bool | None = None
-
-
 def _primary(table: str) -> str:
     """Fully qualify a table in the primary Erebus schema."""
     return f"`{DB_NAME}`.`{table}`"
@@ -48,16 +46,7 @@ def _sql_string_list(values: tuple[str, ...]) -> str:
 
 def _permission_obs_key_expr() -> str:
     """Return the canonical join key expression for permission observations."""
-    global _PERMISSION_OBS_NORM_AVAILABLE  # pylint: disable=global-statement
-    if _PERMISSION_OBS_NORM_AVAILABLE is None:
-        columns = {
-            str(col).strip().lower()
-            for col in db_engine.get_table_columns("android_permission_obs_sample")
-        }
-        _PERMISSION_OBS_NORM_AVAILABLE = "permission_string_norm" in columns
-    if _PERMISSION_OBS_NORM_AVAILABLE:
-        return "COALESCE(NULLIF(TRIM(ops.permission_string_norm), ''), LOWER(TRIM(ops.permission_string)))"
-    return "LOWER(TRIM(ops.permission_string))"
+    return permission_contracts.permission_obs_key_expr(alias="ops")
 
 
 def fetch_android_banking_trojans_with_permissions():

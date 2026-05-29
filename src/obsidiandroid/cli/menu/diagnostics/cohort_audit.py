@@ -9,6 +9,7 @@ from obsidiandroid.cli.menu.operator_state import build_operator_state
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.cli.ui import menu as mu
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common.authority_taxonomy_terms import taxonomy_count_drift_note
 from obsidiandroid.governance import paper_cohort_contract
 
 
@@ -167,7 +168,11 @@ def print_cohort_family_artifact_paths(
     gdiag = (output_root / "diagnostics").resolve()
 
     def stat(label: str, path: Path) -> None:
-        du.print_stat(label, "present" if path.is_file() else "missing")
+        if not path.is_file():
+            du.print_stat(label, "missing")
+            return
+        origin = oh.classify_artifact_origin(path, rdiag)
+        du.print_stat(label, f"present [{origin}]")
 
     du.print_stat("Run diagnostics dir", str(rdiag))
 
@@ -215,6 +220,9 @@ def print_cohort_family_artifact_paths(
                 "yes" if bool(latest_entry.get("same_profile_as_target", False)) else "no",
             )
             du.print_stat("Cohort lock status", str(latest_entry.get("cohort_lock_status", "") or "unknown"))
+            drift = latest_entry.get("taxonomy_label_drift")
+            if isinstance(drift, dict) and drift:
+                du.print_stat("Taxonomy drift", taxonomy_count_drift_note(drift))
         for label in (
             "family_label_taxonomy_audit.csv",
             "family_label_taxonomy_audit.md",

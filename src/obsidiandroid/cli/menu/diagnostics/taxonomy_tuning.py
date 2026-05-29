@@ -135,6 +135,8 @@ def _taxonomy_split_summary(
             "authority_gap_global_count": _authority_gap_row_count(global_scope),
             "run_scope_available": bool(run_scope.get("available", False)) if isinstance(run_scope, dict) else False,
             "source_mode": str(payload.get("source_mode", "") or ""),
+            "split_json_origin": oh.classify_artifact_origin(split_json_path, diagnostics_dir),
+            "split_md_origin": oh.classify_artifact_origin(split_md_path, diagnostics_dir),
         },
         split_json_path,
         split_md_path,
@@ -224,6 +226,29 @@ def launch_taxonomy_support_tuning_compact_menu(
         "Authority gap rows (run/global)",
         f"{authority_gap_run_count} / {authority_gap_global_count}" if split_json_path else "—",
     )
+    split_json_origin = str(split_summary.get("split_json_origin", "") or "")
+    split_md_origin = str(split_summary.get("split_md_origin", "") or "")
+    target_surfaces_origin = oh.classify_artifact_origin(target_surfaces_path, rdiag)
+    taxonomy_origin = oh.classify_artifact_origin(taxonomy_path, rdiag)
+    if split_json_origin or taxonomy_origin:
+        du.print_stat(
+            "Artifact provenance",
+            ", ".join(
+                part
+                for part in (
+                    f"split_json={split_json_origin}" if split_json_origin else "",
+                    f"split_md={split_md_origin}" if split_md_origin else "",
+                    f"taxonomy_summary={taxonomy_origin}" if taxonomy_origin else "",
+                    f"target_surfaces={target_surfaces_origin}" if target_surfaces_origin != "missing" else "",
+                )
+                if part
+            )
+            or "—",
+        )
+    if "global_latest_mirror" in {split_json_origin, split_md_origin, taxonomy_origin, target_surfaces_origin}:
+        du.print_warning(
+            "[MENU] One or more taxonomy tuning artifacts came from the global latest mirror, not this run's diagnostics directory."
+        )
     if label_strategy:
         du.print_stat("Preferred family target", str(label_strategy.get("preferred_family_target", "—") or "—"))
         du.print_stat("Preferred type target", str(label_strategy.get("preferred_type_target", "—") or "—"))
@@ -390,8 +415,12 @@ def build_taxonomy_support_tuning_snapshot(*, run_id: str, output_root: Path, fi
         "families_just_below_threshold": near_threshold,
         "taxonomy_authority_split_path": str(split_md_path.resolve()) if split_md_path else "missing",
         "taxonomy_authority_split_json_path": str(split_json_path.resolve()) if split_json_path else "missing",
+        "taxonomy_authority_split_origin": str(split_summary.get("split_md_origin", "") or "missing"),
+        "taxonomy_authority_split_json_origin": str(split_summary.get("split_json_origin", "") or "missing"),
         "taxonomy_consistency_summary_path": str(taxonomy_path.resolve()) if taxonomy_path else "missing",
+        "taxonomy_consistency_summary_origin": oh.classify_artifact_origin(taxonomy_path, rdiag),
         "taxonomy_target_surfaces_path": str(target_surfaces_path.resolve()) if target_surfaces_path else "missing",
+        "taxonomy_target_surfaces_origin": oh.classify_artifact_origin(target_surfaces_path, rdiag),
         "family_label_taxonomy_audit_path": str(fam_audit_path.resolve()) if fam_audit_path else "missing",
         "support_threshold_preview_path": str(support_preview_path.resolve()) if support_preview_path else "missing",
         "preferred_family_target": str(label_strategy.get("preferred_family_target", "") or "—"),

@@ -7,9 +7,18 @@ import json
 from pathlib import Path
 from typing import Any
 
+from obsidiandroid.common.backlog_semantics import (
+    build_backlog_debt_summary,
+    build_backlog_markdown_lines,
+    choose_priority_triage,
+    read_android_missing_resolution_snapshot,
+    read_false_positive_triage_snapshot,
+    read_policy_held_token_risk_snapshot,
+)
 from obsidiandroid.common.cohort_artifacts import load_cohort_contract_state
 from obsidiandroid.common.cohort_presentation import cohort_filter_highlight_lines
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.database.db_cohort_readiness import get_cohort_readiness_snapshot
 from . import output_artifact_policy
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common.publication_readiness import evaluate_publication_ready_status
@@ -126,7 +135,7 @@ def write_artifact_inventory_bundle(
     manifest_paths: list[str] | None,
     extra_summary: dict[str, Any] | None,
 ) -> tuple[list[str], dict[str, Any]]:
-    """Write CSV/MD/JSON inventory under ``diagnostics_dir`` and return paths + summary."""
+    """Write JSON/CSV inventory under ``diagnostics_dir`` and return paths + summary."""
     rows = build_inventory_rows(run_root)
     counts = _bucket_counts(rows)
     dup_latest_run = sum(
@@ -161,7 +170,6 @@ def write_artifact_inventory_bundle(
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     json_path = diagnostics_dir / "artifact_inventory.json"
     csv_path = diagnostics_dir / "artifact_inventory.csv"
-    md_path = diagnostics_dir / "artifact_inventory.md"
 
     json_payload = {"summary": summary, "rows": rows}
     json_path.write_text(json.dumps(json_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -183,28 +191,14 @@ def write_artifact_inventory_bundle(
         writer.writeheader()
         for row in rows:
             writer.writerow({k: row.get(k) for k in fieldnames})
+    stale_md_path = diagnostics_dir / "artifact_inventory.md"
+    if stale_md_path.exists():
+        try:
+            stale_md_path.unlink()
+        except OSError:
+            pass
 
-    md_lines = [
-        "# Artifact inventory",
-        "",
-        f"**run_id:** `{run_id}`",
-        "",
-        "## Summary",
-        "",
-        "```json",
-        json.dumps(summary, indent=2, sort_keys=True),
-        "```",
-        "",
-        "## Rows",
-        "",
-        "```json",
-        json.dumps(rows, indent=2)[:120000],
-        "```",
-        "",
-    ]
-    md_path.write_text("\n".join(md_lines), encoding="utf-8")
-
-    return [str(json_path), str(csv_path), str(md_path)], summary
+    return [str(json_path), str(csv_path)], summary
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -222,6 +216,83 @@ def _authority_coverage_report_path(*, diagnostics_dir: Path, run_id: str) -> Pa
 def _taxonomy_authority_split_report_path(*, diagnostics_dir: Path, run_id: str) -> Path | None:
     path = diagnostics_dir / f"taxonomy_authority_split_{run_id}.md"
     return path if path.exists() else None
+
+
+def _backlog_output_root_for_run(run_root: Path) -> Path:
+    """Resolve the output root that owns run-level triage exports."""
+    try:
+        if run_root.parent.name == "runs":
+            return run_root.parent.parent.resolve()
+    except Exception:
+        pass
+    return run_root.parent.resolve()
+
+
+def _read_backlog_context(
+    *,
+    run_root: Path,
+    diagnostics_dir: Path,
+    run_id: str,
+) -> dict[str, Any]:
+    """Load shared backlog/debt context without breaking report generation on DB issues."""
+    try:
+        readiness = get_cohort_readiness_snapshot()
+    except Exception:
+        readiness = {"status": "degraded", "warnings": [], "taxonomy_signals": {}}
+    output_root = _backlog_output_root_for_run(run_root)
+    fp_triage = read_false_positive_triage_snapshot(output_root=output_root)
+    android_triage = read_android_missing_resolution_snapshot(output_root=output_root)
+    policy_held_triage = read_policy_held_token_risk_snapshot(output_root=output_root)
+    debt_summary = build_backlog_debt_summary(
+        readiness=readiness,
+        fp_triage=fp_triage,
+        android_missing_triage=android_triage,
+        policy_held_triage=policy_held_triage,
+    )
+    priority_backlog = choose_priority_triage(
+        fp_triage=fp_triage,
+        android_missing_triage=android_triage,
+    )
+    backlog_md = diagnostics_dir / f"backlog_debt_summary_{run_id}.md"
+    return {
+        "readiness": readiness,
+        "debt_summary": debt_summary,
+        "priority_backlog": priority_backlog,
+        "fp_triage": fp_triage,
+        "android_triage": android_triage,
+        "policy_held_triage": policy_held_triage,
+        "backlog_md": backlog_md if backlog_md.exists() else None,
+    }
+
+
+def _extend_with_backlog_section(
+    lines: list[str],
+    *,
+    backlog_context: dict[str, Any],
+) -> None:
+    """Append shared backlog/debt summary lines to a Markdown report."""
+    debt_summary = backlog_context.get("debt_summary") if isinstance(backlog_context, dict) else {}
+    priority_backlog = backlog_context.get("priority_backlog") if isinstance(backlog_context, dict) else {}
+    fp_triage = backlog_context.get("fp_triage") if isinstance(backlog_context, dict) else {}
+    android_triage = backlog_context.get("android_triage") if isinstance(backlog_context, dict) else {}
+    policy_held_triage = backlog_context.get("policy_held_triage") if isinstance(backlog_context, dict) else {}
+    backlog_md = backlog_context.get("backlog_md") if isinstance(backlog_context, dict) else None
+    fp_path = fp_triage.get("path") if isinstance(fp_triage, dict) else None
+    android_path = android_triage.get("path") if isinstance(android_triage, dict) else None
+    policy_held_path = policy_held_triage.get("path") if isinstance(policy_held_triage, dict) else None
+    lines.extend(
+        build_backlog_markdown_lines(
+            debt_summary=debt_summary if isinstance(debt_summary, dict) else {},
+            priority_backlog=priority_backlog if isinstance(priority_backlog, dict) else {},
+            backlog_md=backlog_md if isinstance(backlog_md, Path) else None,
+            android_path=android_path,
+            fp_path=fp_path,
+            policy_held_path=policy_held_path,
+            heading="## Backlog and operator queues",
+            ranked_style="bullets",
+            max_rows=5,
+        )
+    )
 
 
 def write_run_evidence_index_md(
@@ -300,6 +371,11 @@ def write_run_evidence_index_md(
         missing_n = cov.get("missing_from_feature_matrix_count") or cov.get("missing_count")
     authority_md = _authority_coverage_report_path(diagnostics_dir=diagnostics_dir, run_id=run_id)
     taxonomy_split_md = _taxonomy_authority_split_report_path(diagnostics_dir=diagnostics_dir, run_id=run_id)
+    backlog_context = _read_backlog_context(
+        run_root=run_root,
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+    )
 
     lines = [
         "# Run evidence index",
@@ -324,6 +400,8 @@ def write_run_evidence_index_md(
         ha_st = summary_obs.get("hostile_audit_status")
         ha_skip = summary_obs.get("hostile_audit_skip_reason")
         ps_safe = summary_obs.get("publication_ready_status") or summary_obs.get("paper_safe_status")
+        label_resolution_enabled = summary_obs.get("label_resolution_enabled")
+        type_guard_suppressed = summary_obs.get("type_guard_family_suppressed_count")
         rv_line = f"`{rv_st}`"
         if str(rv_skip or "").strip():
             rv_line = f"`{rv_st}` ({rv_skip})"
@@ -340,6 +418,21 @@ def write_run_evidence_index_md(
                 "",
             ]
         )
+        if label_resolution_enabled is False:
+            lines.extend(
+                [
+                    "- **label_resolution:** `DISABLED`",
+                    "- **type_guard_family_suppressions:** unavailable (label resolution disabled)",
+                    "",
+                ]
+            )
+        else:
+            if label_resolution_enabled is True:
+                lines.append("- **label_resolution:** `ENABLED`")
+            if type_guard_suppressed is not None:
+                lines.append(f"- **type_guard_family_suppressions:** {type_guard_suppressed}")
+            if label_resolution_enabled is True or type_guard_suppressed is not None:
+                lines.append("")
     else:
         lines.extend(
             [
@@ -378,17 +471,18 @@ def write_run_evidence_index_md(
     )
     if paper_safe_reasons and paper_safe_status == "FAIL":
         lines.append(f"- **reasons:** {', '.join(paper_safe_reasons)}")
+    lines.append("")
+    _extend_with_backlog_section(lines, backlog_context=backlog_context)
     lines.extend(
         [
-            "",
             "## Primary paths",
             "",
             f"- Run manifest: `{run_root / 'run_manifest.json'}`",
             f"- Run summary JSON: `{run_root / 'run_summary.json'}`",
             f"- Observability summary JSON: `{diagnostics_dir / 'run_observability_summary.json'}`",
             f"- Diagnostics dir: `{diagnostics_dir}`",
-            f"- Inventory: `{diagnostics_dir / 'artifact_inventory.md'}`",
-            f"- Virtual layout (logical buckets): `{diagnostics_dir / 'virtual_layout.json'}`",
+            f"- Inventory JSON: `{diagnostics_dir / 'artifact_inventory.json'}`",
+            f"- Inventory CSV: `{diagnostics_dir / 'artifact_inventory.csv'}`",
             "",
         ]
     )
@@ -448,6 +542,14 @@ def write_run_science_index_md(
     ]
     authority_md = _authority_coverage_report_path(diagnostics_dir=diagnostics_dir, run_id=run_id)
     taxonomy_split_md = _taxonomy_authority_split_report_path(diagnostics_dir=diagnostics_dir, run_id=run_id)
+    backlog_context = _read_backlog_context(
+        run_root=run_root,
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+    )
+    backlog_md = backlog_context.get("backlog_md") if isinstance(backlog_context, dict) else None
+    if isinstance(backlog_md, Path):
+        authoritative_paths.append(backlog_md)
 
     lines = [
         f"# Run Science Index ({run_id})",
@@ -482,8 +584,8 @@ def write_run_science_index_md(
                 f"- `{taxonomy_split_md}`",
             ]
         )
+    _extend_with_backlog_section(lines, backlog_context=backlog_context)
     lines.extend([
-        "",
         "## Observability mirror",
         "",
     ])
@@ -494,6 +596,8 @@ def write_run_science_index_md(
         ha_skip = summary_obs.get("hostile_audit_skip_reason")
         pipe_st = summary_obs.get("pipeline_status")
         ps_safe = summary_obs.get("publication_ready_status") or summary_obs.get("paper_safe_status")
+        label_resolution_enabled = summary_obs.get("label_resolution_enabled")
+        type_guard_suppressed = summary_obs.get("type_guard_family_suppressed_count")
         rv_line = f"`{rv_st}`"
         if str(rv_skip or "").strip():
             rv_line = f"`{rv_st}` ({rv_skip})"
@@ -505,8 +609,18 @@ def write_run_science_index_md(
             f"- **research_validity_status:** {rv_line}",
             f"- **hostile_audit_status:** {ha_line}",
             f"- **publication_ready_status:** `{ps_safe}`",
-            "",
         ])
+        if label_resolution_enabled is False:
+            lines.extend([
+                "- **label_resolution:** `DISABLED`",
+                "- **type_guard_family_suppressions:** unavailable (label resolution disabled)",
+            ])
+        else:
+            if label_resolution_enabled is True:
+                lines.append("- **label_resolution:** `ENABLED`")
+            if type_guard_suppressed is not None:
+                lines.append(f"- **type_guard_family_suppressions:** {type_guard_suppressed}")
+        lines.append("")
     else:
         lines.extend([
             "- observability summary unavailable",

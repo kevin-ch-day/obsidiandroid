@@ -5,7 +5,14 @@ from typing import Any
 import pandas as pd
 
 from obsidiandroid.cli.ui import display as du
-from obsidiandroid.labeling.taxonomy import canonicalize_family_label
+from obsidiandroid.labeling.malware_family_constants import (
+    GENERIC_TOKENS,
+)
+from obsidiandroid.labeling.taxonomy import (
+    canonicalize_family_label,
+    normalize_family_name,
+    is_known_family_name,
+)
 
 
 class DataAlignmentError(ValueError):
@@ -41,11 +48,126 @@ class InsufficientLabelClassesError(DataAlignmentError):
     """Raised when alignment leaves fewer than two unique classes."""
 
 
+def _normalize_authority_mask(
+    family_values: pd.Series,
+) -> pd.Series:
+    """Return rows that point to an authoritative known family token."""
+    normalized = (
+        family_values.astype(str)
+        .str.strip()
+        .apply(lambda value: str(value).strip().lower())
+    )
+    placeholder = {"", "unknown", "unmapped", "other", "none", "nan", "null"}
+    weak_tokens = {token.lower() for token in GENERIC_TOKENS} | {
+        "android",
+        "malware",
+        "banker",
+        "ransomware",
+        "trojan",
+        "spyware",
+    }
+
+    # Avoid accidentally learning from AV-style pseudo labels or placeholder tokens.
+    def _is_authoritative(value: str) -> bool:
+        canonical = normalize_family_name(value)
+        if not value or value in placeholder or value in weak_tokens:
+            return False
+        if "trojan." in value or value.startswith("trojan"):
+            return False
+        if not canonical or canonical in placeholder:
+            return False
+        if canonical in weak_tokens:
+            return False
+        # Keep only canonical family names that map to a known canonical family.
+        # This is strict by design for evidence-aligned training and improves
+        # consistency between family label intent and downstream authority checks.
+        if canonical in {"metasploit", "unknown"}:
+            return False
+        return is_known_family_name(canonical)
+
+    return normalized.apply(_is_authoritative)
+
+
+def _live_authority_family_mask(
+    family_values: pd.Series,
+    *,
+    family_ids: pd.Series | None = None,
+    family_names: pd.Series | None = None,
+    sample_label_kinds: pd.Series | None = None,
+    type_values: pd.Series | None = None,
+) -> pd.Series:
+    """Allow cohort-live authoritative family rows absent from the local registry.
+
+    This is a narrow fallback for runs where the database authority has already
+    accepted a family/token pairing but the local static known-family registry has
+    not been refreshed yet. It still rejects placeholder/generic/pseudo-family
+    labels such as ``trojan.*`` and metasploit-like catch-alls.
+    """
+    normalized = family_values.astype(str).str.strip().str.lower()
+    placeholder = {"", "unknown", "unmapped", "other", "none", "nan", "null"}
+    weak_tokens = {token.lower() for token in GENERIC_TOKENS} | {
+        "android",
+        "malware",
+        "banker",
+        "ransomware",
+        "trojan",
+        "spyware",
+    }
+    if family_ids is None:
+        family_ids = pd.Series([None] * len(normalized), index=normalized.index)
+    if family_names is None:
+        family_names = pd.Series([""] * len(normalized), index=normalized.index)
+    if sample_label_kinds is None:
+        sample_label_kinds = pd.Series([""] * len(normalized), index=normalized.index)
+    if type_values is None:
+        type_values = pd.Series([""] * len(normalized), index=normalized.index)
+
+    normalized_family_names = family_names.astype(str).str.strip().str.lower().apply(normalize_family_name)
+    normalized_types = type_values.astype(str).str.strip().str.lower()
+    normalized_label_kinds = sample_label_kinds.astype(str).str.strip().str.lower()
+    family_id_present = family_ids.notna()
+
+    def _is_live_authority_row(value: str, family_name: str, label_kind: str, type_value: str, has_family_id: bool) -> bool:
+        canonical = normalize_family_name(value)
+        if not has_family_id:
+            return False
+        if not value or value in placeholder or value in weak_tokens:
+            return False
+        if "trojan." in value or value.startswith("trojan"):
+            return False
+        if canonical in placeholder or canonical in weak_tokens or canonical in {"metasploit", "unknown"}:
+            return False
+        if label_kind != "family_or_common_name":
+            return False
+        if not type_value or type_value in placeholder or type_value == "unknown":
+            return False
+        if not family_name or family_name in placeholder:
+            return False
+        return family_name == canonical
+
+    return pd.Series(
+        [
+            _is_live_authority_row(value, family_name, label_kind, type_value, bool(has_family_id))
+            for value, family_name, label_kind, type_value, has_family_id in zip(
+                normalized.tolist(),
+                normalized_family_names.tolist(),
+                normalized_label_kinds.tolist(),
+                normalized_types.tolist(),
+                family_id_present.tolist(),
+            )
+        ],
+        index=normalized.index,
+    )
+
+
 def normalize_labels(labels: pd.Series, normalization_map: dict) -> pd.Series:
     """
     Normalize family labels using a known variant map (e.g., "Flubot" -> "FluBot").
     """
     normalized = labels.astype(str).str.strip().replace(normalization_map).fillna("unknown")
+    normalized = normalized.apply(
+        lambda value: "unknown" if "metasploit" in str(value).lower() else value
+    )
     return normalized.apply(canonicalize_family_label)
 
 
@@ -167,11 +289,22 @@ def extract_aligned_labels(
         raise SampleIdMismatchError(list(map(str, missing_ids.tolist()))) from exc
 
     missing = int(labels.isnull().sum())
+    attrition_stats: dict[str, int] = {
+        "alignment_input_rows": int(len(features)),
+        "alignment_missing_label_drop_count": 0,
+        "alignment_non_authoritative_family_drop_count": 0,
+        "alignment_live_authority_rescue_count": 0,
+    }
+    attrition_details: dict[str, dict[str, int]] = {
+        "alignment_non_authoritative_family_drop_families": {},
+        "alignment_live_authority_rescue_families": {},
+    }
     if missing > 0:
         du.print_warning(f"{missing} samples missing labels - excluded.")
         valid_idx = labels.dropna().index
         features = features.loc[valid_idx]
         labels = labels.loc[valid_idx]
+        attrition_stats["alignment_missing_label_drop_count"] = int(missing)
 
     if label_col == "family_id":
         labels = labels.astype(int).astype(str)
@@ -181,6 +314,52 @@ def extract_aligned_labels(
                 .astype(str)
                 .str.strip()
             )
+
+            authority_mask = _normalize_authority_mask(family_names)
+            rescued = 0
+            if not authority_mask.all():
+                live_authority_mask = _live_authority_family_mask(
+                    family_names,
+                    family_ids=labels,
+                    family_names=samples.loc[features.index, "family_name"]
+                    if "family_name" in samples.columns
+                    else None,
+                    sample_label_kinds=samples.loc[features.index, "sample_label_kind"]
+                    if "sample_label_kind" in samples.columns
+                    else None,
+                    type_values=samples.loc[features.index, "type_slug"]
+                    if "type_slug" in samples.columns
+                    else None,
+                )
+                rescued = int(((~authority_mask) & live_authority_mask).sum())
+                authority_mask = authority_mask | live_authority_mask
+                dropped = int((~authority_mask).sum())
+                if rescued:
+                    du.print_info(
+                        f"Retaining {rescued} sample(s) backed by live-authority family rows absent from the local known-family registry."
+                    )
+                if dropped:
+                    du.print_warning(
+                        f"Dropping {dropped} sample(s) with non-authoritative family_canonical labels before training alignment."
+                    )
+                rescued_family_counts = family_names.loc[(~_normalize_authority_mask(family_names)) & live_authority_mask]
+                if not rescued_family_counts.empty:
+                    attrition_details["alignment_live_authority_rescue_families"] = {
+                        str(key): int(value)
+                        for key, value in rescued_family_counts.value_counts().items()
+                    }
+                dropped_family_counts = family_names.loc[~authority_mask]
+                if not dropped_family_counts.empty:
+                    attrition_details["alignment_non_authoritative_family_drop_families"] = {
+                        str(key): int(value)
+                        for key, value in dropped_family_counts.value_counts().items()
+                    }
+                labels = labels.loc[authority_mask]
+                features = features.loc[authority_mask]
+                family_names = family_names.loc[authority_mask]
+                attrition_stats["alignment_non_authoritative_family_drop_count"] = int(dropped)
+                attrition_stats["alignment_live_authority_rescue_count"] = int(rescued)
+
             label_map = (
                 pd.DataFrame({"family_id": labels.values, "family_name": family_names.values})
                 .dropna()
@@ -206,6 +385,11 @@ def extract_aligned_labels(
         "teabot": "TeaBot",
         "Cerber": "Cerberus",
         "Golddigger": "GoldDigger",
+        "Metasploit": "unknown",
+        "Trojan.MetaSploit": "unknown",
+        "Trojan.Metasploit": "unknown",
+        "trojan metasploit": "unknown",
+        "trojan metasploit android": "unknown",
     }
     normalization_map = normalization_map or default_map
     if label_col not in {"family_id", "type_slug", "family_within_type"}:
@@ -237,5 +421,8 @@ def extract_aligned_labels(
         top = labels.value_counts().head(5)
         du.print_stat("Top labels", ", ".join(f"{fam} ({cnt})" for fam, cnt in top.items()))
 
+    attrition_stats["alignment_rows_post_authority_filter"] = int(len(labels))
+    labels.attrs["alignment_attrition_stats"] = attrition_stats
+    labels.attrs["alignment_attrition_details"] = attrition_details
     labels.name = str(label_col)
     return features, labels

@@ -10,6 +10,7 @@ from sklearn.metrics import (
     classification_report,
 )
 import pandas as pd
+import numpy as np
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
@@ -37,6 +38,7 @@ def evaluate_model_performance(
 
     try:
         y_pred = model.predict(X_test)
+        y_pred = _remap_prediction_indices(y_pred, model)
         acc = accuracy_score(y_test, y_pred)
         prec = precision_score(y_test, y_pred, average="weighted", zero_division=0)
         rec = recall_score(y_test, y_pred, average="weighted", zero_division=0)
@@ -123,6 +125,23 @@ def _decode_labels(y_true, y_pred, label_ids, label_encoder):
         return y_true, y_pred, label_ids
 
 
+def _remap_prediction_indices(y_pred, model):
+    """Project model-local class indices back to global encoded label indices when needed."""
+    remap = getattr(model, "_obsidiandroid_prediction_index_remap", None)
+    if remap is None:
+        return y_pred
+    try:
+        lookup = np.asarray(remap, dtype=np.int64)
+        pred_arr = np.asarray(y_pred, dtype=np.int64).ravel()
+        if pred_arr.size == 0:
+            return y_pred
+        if pred_arr.min() < 0 or pred_arr.max() >= len(lookup):
+            return y_pred
+        return lookup[pred_arr]
+    except Exception:
+        return y_pred
+
+
 def _display_confidence_stats(model, X_test):
     if not hasattr(model, "predict_proba"):
         du.print_info("[CONFIDENCE] Model does not support probability estimates.")
@@ -199,3 +218,20 @@ def _get_model_name(model):
     if "logistic" in class_name:
         return "logistic_regression"
     return class_name
+
+
+def display_post_training_metrics(model_type, result, evaluation, features_df=None):
+    """Compatibility wrapper retained for callers that expect the historical location.
+
+    The canonical implementation now lives in
+    :mod:`obsidiandroid.modeling.model_evaluation`, but several call sites and tests
+    still import this helper from ``evaluation.ml_eval_engine``.
+    """
+    from obsidiandroid.modeling import model_evaluation
+
+    return model_evaluation.display_post_training_metrics(
+        model_type=model_type,
+        result=result,
+        evaluation=evaluation,
+        features_df=features_df,
+    )

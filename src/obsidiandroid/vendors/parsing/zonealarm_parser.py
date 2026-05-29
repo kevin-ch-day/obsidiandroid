@@ -24,7 +24,7 @@ FAMILY_KEYWORDS = {
     "badpack", "godfather", "xhelper", "pigetrl", "wroba", "anubis", "gigabud", "monocle",
     "basbanke", "banbra", "brats", "smaps", "drinik", "ghimob", "donot", "yaats",
     "aitarat", "triada", "facestealer", "fakewallet", "guerrilla", "strongpity", "freecash",
-    "grifthorse", "dnotua", "mobhey", "trackplus", "teddad"
+    "grifthorse", "dnotua", "mobhey", "trackplus", "teddad", "otpstealer"
 }
 
 THREAT_CLASS_ALIASES = {

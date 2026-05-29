@@ -7,6 +7,7 @@ from typing import Any
 CONTRACT_STATUS_NOT_LOCKED = "not_paper_locked"
 CONTRACT_STATUS_MEMBERSHIP_LOCKED = "membership_locked"
 CONTRACT_STATUS_COUNT_ONLY = "count_only_incomplete_sample_lock"
+CONTRACT_STATUS_TAXONOMY_DRIFT = "membership_locked_taxonomy_drift"
 
 ENFORCEMENT_NONE = "none"
 ENFORCEMENT_FULL = "full"

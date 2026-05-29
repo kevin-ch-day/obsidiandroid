@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from obsidiandroid.orchestration.profile_filters import split_benign_malicious
 from config import app_config
+from obsidiandroid.common.authority_taxonomy_terms import (
+    live_taxonomy_backlog_detail,
+    policy_held_only_note,
+)
+from obsidiandroid.common.backlog_semantics import build_taxonomy_curation_posture
 from obsidiandroid.database import db_sample_metadata_fetchers
 from obsidiandroid.database.db_cohort_readiness import get_cohort_readiness_snapshot
 from obsidiandroid.cli.ui import display as du
@@ -39,17 +44,27 @@ def _summarize_live_readiness_gaps(
             "Live readiness mismatch: this bucket names `permission_obs`, but the current DB snapshot does not verify a matching PI-observed cohort."
         )
     repair_candidate_count = int(taxonomy.get("repair_candidate_count") or 0)
+    unresolved_family_count = int(taxonomy.get("unresolved_family_count") or 0)
     known_unresolved_count = int(taxonomy.get("known_unresolved_family_count") or 0)
-    if repair_candidate_count > 0 or known_unresolved_count > 0:
-        detail = (
-            f"Live taxonomy backlog: repair candidates={repair_candidate_count}, "
-            f"known unresolved families={known_unresolved_count}."
+    policy_held_count = int(taxonomy.get("policy_held_family_count") or 0)
+    posture = build_taxonomy_curation_posture(readiness=snapshot)
+    if repair_candidate_count > 0 or known_unresolved_count > 0 or policy_held_count > 0:
+        detail = live_taxonomy_backlog_detail(
+            repair_candidate_count=repair_candidate_count,
+            known_unresolved_count=known_unresolved_count,
+            policy_held_count=policy_held_count,
         )
         if paper_locked:
             detail += " This profile is locked, so new Erebus-side authority fixes may not change cohort membership until the lock is refreshed."
         else:
             detail += " New Erebus-side authority fixes may still sit outside this cohort unless the selected profile/snapshot absorbs them."
         out.append(detail)
+    unresolved_family_count_value = taxonomy.get("unresolved_family_count")
+    if unresolved_family_count_value is not None and unresolved_family_count == 0 and policy_held_count > 0:
+        out.append(policy_held_only_note())
+    curation_note = str(posture.get("note", "") or "").strip() or None
+    if curation_note:
+        out.append(curation_note)
     for warning in warnings[:2]:
         out.append(str(warning))
     return out
@@ -74,11 +89,21 @@ def _compact_profile_detail(detail: str, *, paper_locked: bool = False) -> str:
     )
     compact = compact.replace(
         "This profile is paper-locked; snapshot membership can prevent new DB curation or authority expansions from changing the cohort until the lock is refreshed.",
-        "Paper-locked cohort; new DB curation may not change membership until the lock is refreshed.",
+        "Paper-locked cohort; new DB curation will not change membership until the lock is refreshed.",
     )
     if paper_locked and "Paper-locked cohort" not in compact:
-        compact = f"{compact} Paper-locked cohort; new DB curation may not change membership until the lock is refreshed.".strip()
+        compact = f"{compact} Paper-locked cohort; new DB curation will not change membership until the lock is refreshed.".strip()
     return compact
+
+
+def _paper_locked_follow_up_note(*, profile_id: str | None, paper_locked: bool = False) -> str | None:
+    token = str(profile_id or "").strip()
+    if not paper_locked or not token:
+        return None
+    return (
+        "This run uses a locked benchmark cohort. Use the current-corpus profiles in "
+        "`Run Analysis` when you want recent DB curation and authority repairs to affect membership immediately."
+    )
 
 
 def _compact_live_gap_note(notes: list[str]) -> str | None:
@@ -87,10 +112,12 @@ def _compact_live_gap_note(notes: list[str]) -> str | None:
         return None
     preferred: list[str] = []
     for token in (
-        "Live taxonomy backlog",
+        "Live authority/taxonomy backlog",
+        "Taxonomy curation discipline",
         "Permission Intel observations include",
-        "Primary labels are missing",
+        "Primary labels are raw-missing",
         "Live readiness mismatch",
+        "Live readiness shows no true unresolved family slugs",
     ):
         for note in cleaned:
             if note.startswith(token) and note not in preferred:
@@ -329,6 +356,12 @@ def resolve_and_validate_profile(
         )
         if detail:
             du.print_note(f"[PROFILE] {detail}")
+        locked_follow_up = _paper_locked_follow_up_note(
+            profile_id=profile_id,
+            paper_locked=paper_locked,
+        )
+        if locked_follow_up:
+            du.print_note(f"[PROFILE] {locked_follow_up}")
         try:
             readiness_snapshot = get_cohort_readiness_snapshot()
         except Exception:

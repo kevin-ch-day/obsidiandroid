@@ -64,9 +64,53 @@ def print_unified_run_health(
     publication_ready_reasons = coalesce_publication_ready_reasons(payload)
     if publication_ready_reasons:
         du.print_stat("publication_ready_reasons", ", ".join(str(x) for x in publication_ready_reasons))
+    scientific = payload.get("scientific_adequacy") if isinstance(payload.get("scientific_adequacy"), dict) else {}
+    scientific_posture = str(scientific.get("posture", "") or "").strip()
+    if scientific_posture:
+        du.print_stat("Scientific adequacy", scientific_posture)
+        blockers = scientific.get("blockers")
+        if isinstance(blockers, list) and blockers:
+            du.print_stat("Scientific blockers", "; ".join(str(x) for x in blockers[:4]))
 
     row_auth = payload.get("main_training_row_authority") or payload.get("row_authority")
     du.print_stat("Row authority", row_auth or "n/a")
+    if payload.get("label_resolution_enabled") is False:
+        du.print_stat("Label resolution", "DISABLED")
+        du.print_stat("Type-guard suppressions", "unavailable (label resolution disabled)")
+    else:
+        if payload.get("label_resolution_enabled") is True:
+            du.print_stat("Label resolution", "ENABLED")
+        if payload.get("type_guard_family_suppressed_count") is not None:
+            du.print_stat(
+                "Type-guard suppressions",
+                str(payload.get("type_guard_family_suppressed_count")),
+            )
+    alignment_drop = payload.get("alignment_non_authoritative_family_drop_count")
+    alignment_rescue = payload.get("alignment_live_authority_rescue_count")
+    if alignment_drop is not None or alignment_rescue is not None:
+        du.print_stat(
+            "Alignment authority filter",
+            f"dropped={alignment_drop or 0}; rescued={alignment_rescue or 0}",
+        )
+    rescue_top = str(payload.get("alignment_live_authority_rescue_families_top", "") or "").strip()
+    if rescue_top:
+        du.print_stat("Alignment rescue families", rescue_top)
+    dropped_top = str(payload.get("alignment_non_authoritative_family_drops_top", "") or "").strip()
+    if dropped_top:
+        du.print_stat("Alignment dropped families", dropped_top)
+    low_support_fams = payload.get("low_support_family_drop_count")
+    low_support_rows = payload.get("low_support_row_drop_count")
+    if low_support_fams is not None or low_support_rows is not None:
+        du.print_stat(
+            "Low-support drops",
+            f"rows={low_support_rows or 0}; families={low_support_fams or 0}",
+        )
+    low_support_top = str(payload.get("low_support_family_drops_top", "") or "").strip()
+    if low_support_top:
+        du.print_stat("Low-support families", low_support_top)
+    temporal_top = str(payload.get("temporal_future_only_family_drops_top", "") or "").strip()
+    if temporal_top:
+        du.print_stat("Temporal future-only families", temporal_top)
     label_strategy = payload.get("label_strategy") if isinstance(payload.get("label_strategy"), dict) else {}
     if label_strategy:
         du.print_stat("Family target", label_strategy.get("preferred_family_target") or "n/a")

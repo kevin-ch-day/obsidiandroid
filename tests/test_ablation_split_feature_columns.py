@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LogisticRegression
 
 from config import app_config
 from obsidiandroid.modeling import model_trainer_factory
@@ -55,3 +56,35 @@ def test_ablation_split_cache_reslices_current_feature_columns(monkeypatch) -> N
     assert len(captured) == 2
     assert all(c.startswith("v") for c in captured[0])
     assert all(c.startswith("p") for c in captured[1])
+
+
+def test_schema_audit_ok_when_names_match(monkeypatch) -> None:
+    """Schema audit should pass when feature names are unchanged."""
+    monkeypatch.setattr(app_config, "RUNTIME_EXPERIMENT_ID", "vendor_only", raising=False)
+    X = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+    m = LogisticRegression()
+    m.fit(X, [0, 1])
+    from obsidiandroid.features import feature_schema_audit
+
+    row = feature_schema_audit.build_ablation_schema_audit_row(
+        model=m, model_type="logistic_regression", features_df=X
+    )
+    assert row["status"] == "OK"
+    assert row["missing_at_predict_count"] == 0
+    assert row["extra_at_predict_count"] == 0
+
+
+def test_schema_audit_detects_extra_columns(monkeypatch) -> None:
+    """Schema audit should report extras when prediction features differ."""
+    monkeypatch.setattr(app_config, "RUNTIME_EXPERIMENT_ID", "permissions_only", raising=False)
+    fit_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+    m = LogisticRegression()
+    m.fit(fit_df, [0, 1])
+    pred_df = pd.DataFrame({"a": [1, 2], "b": [3, 4], "c": [0, 0]})
+    from obsidiandroid.features import feature_schema_audit
+
+    row = feature_schema_audit.build_ablation_schema_audit_row(
+        model=m, model_type="logistic_regression", features_df=pred_df
+    )
+    assert row["status"] == "schema_mismatch"
+    assert row["extra_at_predict_count"] == 1

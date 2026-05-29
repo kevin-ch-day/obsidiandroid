@@ -9,7 +9,8 @@ from obsidiandroid.vendors.contracts.parsed_label_metadata import ParsedLabelMet
 # Known families for normalization
 KNOWN_FAMILIES = {
     "anubis", "cerberus", "sova", "flubot", "joker", "teabot", "marcher", "vultur",
-    "spymax", "donot", "medusa", "sharkbot", "clast82", "hqwar", "trickmo", "golddigger"
+    "spymax", "donot", "medusa", "sharkbot", "clast82", "hqwar", "trickmo", "golddigger",
+    "otpstealer"
 }
 
 # Ability mapping from label prefix to malware type and threat class

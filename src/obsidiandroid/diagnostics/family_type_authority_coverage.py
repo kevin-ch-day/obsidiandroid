@@ -7,6 +7,7 @@ from typing import Any
 
 import pandas as pd
 
+from obsidiandroid.database import authority_contracts
 from obsidiandroid.database import db_engine
 from obsidiandroid.observability import get_logger, log_event
 
@@ -210,19 +211,7 @@ def _coerce_float(value: Any) -> float:
 
 
 def _table_has_column(table_name: str, column_name: str) -> bool:
-    query = """
-        SELECT COUNT(*) AS n
-        FROM information_schema.columns
-        WHERE table_schema = DATABASE()
-          AND table_name = %s
-          AND column_name = %s
-    """
-    df = db_engine.execute_query(query, params=(table_name, column_name), fetch=True, as_dataframe=True)
-    return bool(
-        isinstance(df, pd.DataFrame)
-        and not df.empty
-        and int(df.iloc[0]["n"]) > 0
-    )
+    return authority_contracts.table_has_column(table_name, column_name)
 
 
 def _authority_view_fallback_sql() -> str:
@@ -454,17 +443,7 @@ def emit_temporal_readiness_alerts(
 
 
 def view_present() -> bool:
-    df = db_engine.execute_query(
-        """
-        SELECT COUNT(*) AS n
-        FROM information_schema.views
-        WHERE table_schema = DATABASE()
-          AND table_name = 'v_android_sample_family_type_authority'
-        """,
-        fetch=True,
-        as_dataframe=True,
-    )
-    return bool(isinstance(df, pd.DataFrame) and not df.empty and int(df.iloc[0]["n"]) > 0)
+    return authority_contracts.authority_view_present()
 
 
 def load_authority_df(*, require_live_view: bool = False) -> tuple[pd.DataFrame, str, str | None]:
@@ -638,6 +617,16 @@ def write_report(
     concentration_df: pd.DataFrame,
     md_path: Path,
 ) -> None:
+    plausible_missing_df = (
+        missing_df[missing_df["candidate_kind"] == "plausible_real_family_candidate"].copy()
+        if not missing_df.empty
+        else pd.DataFrame()
+    )
+    policy_held_df = (
+        missing_df[missing_df["candidate_kind"] == "generic_or_coarse_label"].copy()
+        if not missing_df.empty
+        else pd.DataFrame()
+    )
     lines = [
         "# Family/Type Authority Coverage Report",
         "",
@@ -666,19 +655,35 @@ def write_report(
     for _, row in conflict_summary_df.iterrows():
         lines.append(f"| `{row['raw_vs_authority_status']}` | {int(row['row_count'])} |")
 
-    if not missing_df.empty:
+    if not plausible_missing_df.empty:
         lines.extend(
             [
                 "",
-                "## Missing Authority-Family Candidates",
+                "## True Missing Authority-Family Candidates",
                 "",
-                "| resolved_family_lc | gap_reason | candidate_kind | row_count | years_present | priority |",
-                "|---|---|---|---:|---:|---:|",
+                "| resolved_family_lc | gap_reason | row_count | years_present | priority |",
+                "|---|---|---:|---:|---:|",
             ]
         )
-        for _, row in missing_df.head(25).iterrows():
+        for _, row in plausible_missing_df.head(25).iterrows():
             lines.append(
-                f"| `{row['resolved_family_lc']}` | `{row['authority_gap_reason']}` | `{row['candidate_kind']}` | "
+                f"| `{row['resolved_family_lc']}` | `{row['authority_gap_reason']}` | "
+                f"{int(row['row_count'])} | {int(row['years_present'])} | {int(row['priority_family_curation_flag'])} |"
+            )
+
+    if not policy_held_df.empty:
+        lines.extend(
+            [
+                "",
+                "## Policy-Held Generic/Coarse Token Residue",
+                "",
+                "| resolved_family_lc | gap_reason | row_count | years_present | priority |",
+                "|---|---|---:|---:|---:|",
+            ]
+        )
+        for _, row in policy_held_df.head(25).iterrows():
+            lines.append(
+                f"| `{row['resolved_family_lc']}` | `{row['authority_gap_reason']}` | "
                 f"{int(row['row_count'])} | {int(row['years_present'])} | {int(row['priority_family_curation_flag'])} |"
             )
 

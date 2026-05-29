@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import obsidiandroid.cli.startup_menu_run_overview as run_overview
 from obsidiandroid.cli.startup_menu_run_overview import print_profile_tuning_from_manifest
 
 
@@ -54,3 +57,35 @@ def test_print_profile_tuning_from_manifest_missing_profile_params(capsys) -> No
     print_profile_tuning_from_manifest({"run_id": "x"})
     out = capsys.readouterr().out
     assert "No profile_params" in out
+
+
+def test_show_profile_tuning_snapshot_prefers_canonical_run_manifest_path(monkeypatch) -> None:
+    stats: list[tuple[str, object]] = []
+
+    monkeypatch.setattr(
+        run_overview,
+        "build_operator_state",
+        lambda: {
+            "manifest_payload": {
+                "run_id": "r_can",
+                "profile_params": {"profile_id": "dev_smoke"},
+                "paper_mode": {"resolved_value": False, "source": "profile"},
+            },
+            "resolved_run_id": "r_can",
+            "manifest_path": Path("/tmp/output/diagnostics/run_manifest.latest.json"),
+            "canonical_manifest_path": Path("/tmp/output/runs/r_can/run_manifest.json"),
+        },
+    )
+    monkeypatch.setattr(run_overview.du, "print_section", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        run_overview.du,
+        "print_stat",
+        lambda label, value, *args, **kwargs: stats.append((str(label), value)),
+    )
+    monkeypatch.setattr(run_overview.du, "print_info", lambda *_args, **_kwargs: None)
+
+    result = run_overview.show_profile_tuning_snapshot()
+
+    assert result == 0
+    assert ("Resolved run ID", "r_can") in stats
+    assert ("Manifest path", "/tmp/output/runs/r_can/run_manifest.json") in stats

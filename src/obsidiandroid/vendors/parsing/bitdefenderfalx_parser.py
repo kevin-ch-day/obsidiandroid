@@ -14,7 +14,7 @@ TRUE_FAMILIES = {
     "ghimob", "bankbot", "slocker", "spyc23", "spynote", "donot",
     "grifthorse", "androrat", "xenomorph", "mobok", "mandrake",
     "triada", "domestickitten", "bahamut", "bitterrat", "taropeore",
-    "bingomod", "systemmonitor", "facestealer", "gravity"
+    "bingomod", "systemmonitor", "facestealer", "gravity", "otpstealer"
 }
 
 FAMILY_ALIAS_MAP = {

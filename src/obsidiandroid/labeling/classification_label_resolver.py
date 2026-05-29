@@ -415,6 +415,8 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
     )
     audit["predicted_family"] = _series_or_default(audit, "predicted_family").fillna("").astype(str)
     audit["predicted_family_norm"] = _series_or_default(audit, "predicted_family").map(_normalize_text)
+    audit["override_tag"] = _series_or_default(audit, "override_tag").fillna("").astype(str).str.strip()
+    audit["raw_predicted_family"] = _series_or_default(audit, "raw_predicted_family").fillna("").astype(str).str.strip()
     # Keep match flags nullable when no expected taxonomy value is available.
     audit["type_match"] = pd.Series(pd.NA, index=audit.index, dtype="boolean")
     type_expected_mask = audit["type_slug_expected"].astype(str).str.strip() != ""
@@ -529,7 +531,9 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
         "type_match",
         "label_family_slug",
         "predicted_family",
+        "raw_predicted_family",
         "predicted_family_norm",
+        "override_tag",
         "family_canonical_expected",
         "label_family_match",
         "cohort_raw_type_slug",
@@ -546,6 +550,8 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
         "sample_id",
         "family_canonical_expected",
         "predicted_family",
+        "raw_predicted_family",
+        "override_tag",
         "family_prediction_match",
         "type_slug_expected",
         "label_type_slug",
@@ -656,6 +662,8 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
 
     mismatch_reason_counts: list[dict[str, Any]] = []
     mismatch_examples: list[dict[str, Any]] = []
+    override_tag_counts: list[dict[str, Any]] = []
+    type_guard_suppressed_count = 0
     if not taxonomy_mismatches.empty:
         reason_counts = (
             taxonomy_mismatches["mismatch_reason"]
@@ -712,6 +720,24 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
             for row in example_frame.to_dict(orient="records")
         ]
 
+    if "override_tag" in audit.columns:
+        override_counts = (
+            audit["override_tag"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .replace("", pd.NA)
+            .dropna()
+            .value_counts()
+        )
+        override_tag_counts = [
+            {"override_tag": str(tag), "count": int(count)}
+            for tag, count in override_counts.items()
+        ]
+        type_guard_suppressed_count = int(
+            audit["override_tag"].eq("type_guard_family_suppressed").fillna(False).sum()
+        )
+
     summary = {
         "run_id": run_id,
         "rows_evaluated": int(len(audit)),
@@ -726,6 +752,7 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
         "prediction_error_count": int(prediction_mismatch_mask.sum()),
         "prediction_missing_count": int(family_prediction_missing_mask.sum()),
         "family_mismatch_count": int(prediction_mismatch_mask.sum()),
+        "type_guard_family_suppressed_count": type_guard_suppressed_count,
         "total_mismatch_count": taxonomy_mismatch_count,
         "total_issue_count": taxonomy_mismatch_count + int(prediction_mismatch_mask.sum()),
         "mismatch_csv_path": str(mismatch_path),
@@ -733,6 +760,7 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
         "noncanonical_type_tokens_csv_path": str(noncanonical_path),
         "type_expected_source": type_source_mode,
         "paper_taxonomy_excluded_sample_ids_path": paper_excl_path,
+        "override_tag_counts": override_tag_counts,
         "mismatch_reason_counts": mismatch_reason_counts,
         "mismatch_examples": mismatch_examples,
     }

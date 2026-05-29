@@ -268,6 +268,19 @@ def test_resolve_and_validate_profile_surfaces_live_gap_notes(monkeypatch) -> No
             "taxonomy_signals": {
                 "repair_candidate_count": 7,
                 "known_unresolved_family_count": 3,
+                "policy_held_family_count": 11,
+                "family_type_conflict_count": 5,
+                "high_priority_conflict_count": 4,
+                "family_type_conflict_action_counts": {
+                    "review_db_type_mapping": 2,
+                    "replace_unknown_db_type": 2,
+                    "add_db_family_mapping": 1,
+                },
+                "family_type_conflict_issue_counts": {
+                    "type_mismatch": 2,
+                    "type_unknown": 2,
+                    "db_family_missing": 1,
+                },
             },
         },
     )
@@ -284,5 +297,23 @@ def test_resolve_and_validate_profile_surfaces_live_gap_notes(monkeypatch) -> No
 
     assert selected == "malicious_temporal_stability_locked"
     assert any("does not verify a matching PI-observed cohort" in msg for msg in notes)
-    assert any("repair candidates=7, known unresolved families=3" in msg for msg in notes)
+    assert any("repair candidates=7, known unresolved families=3, policy-held tokens=11" in msg for msg in notes)
+    assert any("high-priority conflicts=4/5; dominant action=review_db_type_mapping (2); dominant issue=type_unknown (2)" in msg for msg in notes)
     assert any("may not change cohort membership until the lock is refreshed" in msg for msg in notes)
+    assert any("current-corpus profiles" in msg for msg in notes)
+
+
+def test_compact_profile_detail_hardens_locked_cohort_wording() -> None:
+    detail = (
+        "Declared readiness bucket in profile contract: android_high_or_strong_vt_with_permission_obs. "
+        "Android malicious evidence-style profile intent is best compared against the Android cohort with permission observations and high/strong VT confidence. "
+        "Advisory only; this does not enforce sample selection. "
+        "Permission-observation wording is advisory here; bucket mapping does not verify or enforce PI observation materialization for the selected run. "
+        "This profile is paper-locked; snapshot membership can prevent new DB curation or authority expansions from changing the cohort until the lock is refreshed."
+    )
+
+    compact = profile_preflight._compact_profile_detail(detail, paper_locked=True)  # pylint: disable=protected-access
+
+    assert "Advisory only; sample selection is not enforced." in compact
+    assert "Permission-observation wording is not verified/enforced for this run." in compact
+    assert "Paper-locked cohort; new DB curation will not change membership until the lock is refreshed." in compact

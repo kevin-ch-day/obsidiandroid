@@ -27,6 +27,10 @@ The canonical implementations are **here**. Import them as **`scripts.diagnostic
 | [`report_run_log_issues.py`](report_run_log_issues.py) | Summarize latest-run warning hotspots, stage timing hotspots, authority/temporal alert counts, and missing error-log coverage |
 | [`report_label_noise_candidates.py`](report_label_noise_candidates.py) | Read-only label-risk scoring from vendor evidence and current governed family truth |
 | [`summarize_label_authority_vendor_evidence.py`](summarize_label_authority_vendor_evidence.py) | Summarize parser-enriched evidence and emit family-alias review candidates |
+| [`report_android_missing_resolution_triage.py`](report_android_missing_resolution_triage.py) | Read-only Android/APK missing-resolution triage report and CSV export |
+| [`report_vt_false_positive_review_triage.py`](report_vt_false_positive_review_triage.py) | Suppression-aware VT false-positive triage report and CSV export |
+| [`report_android_policy_held_token_risk.py`](report_android_policy_held_token_risk.py) | Read-only policy-held Android family-token risk report and CSV export |
+| [`report_vendor_verdict_debt.py`](report_vendor_verdict_debt.py) | Read-only vendor-verdict debt report that buckets malicious labels into family-ready, overlap, generic-signal, and provenance-noise classes and exports vendor/token/sample pressure CSVs |
 
 ## Canonical diagnostics migrated from top-level `scripts/`
 

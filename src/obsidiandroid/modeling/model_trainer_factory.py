@@ -169,10 +169,27 @@ def _temporal_holdout_requested() -> bool:
     return profile_id.startswith("malicious_temporal_")
 
 
+def _display_label_name_for_temporal_summary(raw_label: Any, label_name_map: dict[str, str]) -> str:
+    """Map raw training labels to readable family/type labels for temporal summaries."""
+    s = str(raw_label).strip()
+    if not s:
+        return "unknown"
+    if s in label_name_map:
+        return str(label_name_map[s])
+    try:
+        ik = str(int(float(s)))
+        if ik in label_name_map:
+            return str(label_name_map[ik])
+    except (ValueError, TypeError):
+        pass
+    return s
+
+
 def _build_temporal_holdout_split(
     features_df: pd.DataFrame,
     encoded_labels: np.ndarray,
     *,
+    labels: pd.Series | list[Any],
     quiet_train: bool,
 ) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray, np.ndarray, str] | None:
     """Build a forward-in-time holdout using the last two observed years as test."""
@@ -205,9 +222,31 @@ def _build_temporal_holdout_split(
 
     y_train_candidate = encoded_labels[train_pos]
     y_test_candidate = encoded_labels[test_pos]
+    raw_labels = pd.Series(labels).reset_index(drop=True)
+    raw_test_candidate = raw_labels.iloc[test_pos].astype(str).tolist()
+    label_name_map: dict[str, str] = {}
+    if isinstance(labels, pd.Series):
+        maybe_map = getattr(labels, "attrs", {}).get("label_name_map", {})
+        if isinstance(maybe_map, dict):
+            label_name_map = {
+                str(key): str(value)
+                for key, value in maybe_map.items()
+                if str(key).strip() and str(value).strip()
+            }
     seen_labels = set(int(v) for v in y_train_candidate.tolist())
     keep_test_mask = np.isin(y_test_candidate, list(seen_labels))
     dropped_unseen = int((~keep_test_mask).sum())
+    dropped_unseen_family_counts: dict[str, int] = {}
+    if dropped_unseen > 0:
+        dropped_labels = [
+            _display_label_name_for_temporal_summary(raw_label, label_name_map)
+            for raw_label, keep in zip(raw_test_candidate, keep_test_mask.tolist())
+            if not keep
+        ]
+        if dropped_labels:
+            dropped_unseen_family_counts = {
+                str(key): int(value) for key, value in Counter(dropped_labels).items()
+            }
     test_pos = test_pos[keep_test_mask]
     y_test_candidate = y_test_candidate[keep_test_mask]
     if len(test_pos) == 0:
@@ -229,6 +268,7 @@ def _build_temporal_holdout_split(
             "train_candidate_rows": int(len(train_pos)),
             "test_candidate_rows": int(len(keep_test_mask)),
             "test_rows_dropped_unseen_train_classes": int(dropped_unseen),
+            "test_rows_dropped_unseen_train_class_families": dropped_unseen_family_counts,
             "final_train_rows": int(len(X_train)),
             "final_test_rows": int(len(X_test)),
         },
@@ -666,6 +706,7 @@ def train_model_factory(
                 temporal_split = _build_temporal_holdout_split(
                     features_df,
                     encoded_labels,
+                    labels=labels,
                     quiet_train=quiet_train,
                 )
                 if temporal_split is not None:

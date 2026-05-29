@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.reporting import research_three_questions as rtq
 
 
@@ -275,6 +276,88 @@ def test_modality_summary_computes_raw_permission_fallback_without_csv(
     q2 = bundle["q2"]
     assert q2["permission_raw_observation_n"] == 3
     assert any("Raw permission observations exist in the DB" in note for note in q2["interpretation_notes"])
+
+
+def test_write_research_question_artifacts_ignores_global_latest_ablation_when_current_run_has_none(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_no_ablation"
+
+    (diagnostics_dir / "cohort_foundation.json").write_text(
+        json.dumps(
+            {
+                "cohort_prepared_row_count": 4,
+                "family_type_summary": {
+                    "family_count": 2,
+                    "type_count": 1,
+                    "top_family": "fam_a",
+                    "top_family_count": 2,
+                    "top_family_share_pct": 50.0,
+                    "top3_share_pct": 100.0,
+                    "top5_share_pct": 100.0,
+                    "family_distribution": {"fam_a": 2, "fam_b": 2},
+                    "type_distribution": {"banker": 4},
+                },
+                "gate_stats": {
+                    "excluded_unmapped_family": 0,
+                    "excluded_missing_sha256": 0,
+                },
+                "missing_package_rate_pct": 0.0,
+                "missing_vt_timestamp_rate_pct": 0.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"feature_modality_coverage_summary_{run_id}.json").write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "permission_pi_signal_positive_n": 0,
+                "vendor_merge_n": 4,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    global_diag = tmp_path / "global_diagnostics"
+    global_diag.mkdir(parents=True, exist_ok=True)
+    (global_diag / "ablation_summary.latest.csv").write_text(
+        "\n".join(
+            [
+                "experiment,label_target,model,macro_f1_score,accuracy,weighted_f1_score,delta_vs_full_fused",
+                "full_fused,family_id,random_forest,0.91,0.92,0.93,0.0",
+                "permissions_grouped,family_id,logistic_regression,0.81,0.82,0.83,-0.10",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(oh, "global_diagnostics_root", lambda: global_diag)
+
+    bundle = rtq.write_research_question_artifacts(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="unit_profile",
+        manifest_context={},
+        samples_df=pd.DataFrame(
+            {
+                "sample_id": [1, 2, 3, 4],
+                "family_canonical": ["fam_a", "fam_a", "fam_b", "fam_b"],
+                "type_slug": ["banker"] * 4,
+            }
+        ),
+        model_results={},
+        top_model=None,
+    )
+
+    assert bundle["ablation_display"].empty
+    assert any("Ablation summary missing or empty" in note for note in bundle["interpret_q2"])
+    ablation_summary = pd.read_csv(diagnostics_dir / "feature_set_ablation_summary.csv")
+    assert set(ablation_summary.columns) == {"status", "run_id"}
+    assert ablation_summary.iloc[0]["status"] == "ablation_summary_unavailable_or_empty"
 
 
 def test_write_research_question_artifacts_exports_family_names_not_numeric_ids(
@@ -625,5 +708,112 @@ def test_modality_summary_uses_global_feature_column_survival_mirror(make_run_di
         top_model=None,
     )
 
-    got = pd.read_csv(diagnostics_dir / "feature_group_survival.csv")
-    assert got.to_dict(orient="records") == [{"modality": "permission", "n_features": 1}]
+
+def test_terminal_summary_bottom_line_is_not_promising_for_weak_macro_f1() -> None:
+    captured: list[str] = []
+
+    class _DummyDisplay:
+        @staticmethod
+        def print_section(_title: str) -> None:
+            return None
+
+    rtq.print_research_questions_terminal(
+        bundle={
+            "q1": {
+                "governed_samples": 1187,
+                "families_represented": 35,
+                "malware_types_represented": 3,
+                "concentration": {"top5_share_pct": 50.88},
+            },
+            "q2": {
+                "permission_raw_observation_n": 1151,
+                "permission_raw_observation_pct": 96.97,
+                "permission_signal_n": 1151,
+                "permission_signal_pct": 96.97,
+                "vendor_merge_pct": 100.0,
+                "av_engines_observed": 93,
+                "av_engines_included": 56,
+            },
+            "q3": {},
+            "model_key": "random_forest",
+            "macro_f1": 0.3261,
+            "wf1": 0.5890,
+            "acc": 0.5474,
+            "gap_w_m": 0.2629,
+            "concentration_warn": True,
+        },
+        pr=captured.append,
+        du=_DummyDisplay(),
+    )
+
+    text = "\n".join(captured)
+    assert "Bottom line:" in text
+    assert "treat this as weak evidence" in text
+    assert "promising, not final proof" not in text
+
+
+def test_terminal_summary_surfaces_dominant_blockers_for_weak_run(monkeypatch) -> None:
+    captured: list[str] = []
+
+    class _DummyDisplay:
+        @staticmethod
+        def print_section(_title: str) -> None:
+            return None
+
+    monkeypatch.setattr(
+        rtq.app_config,
+        "RUNTIME_TEMPORAL_SPLIT_SUMMARY",
+        {"test_rows_dropped_unseen_train_classes": 219},
+        raising=False,
+    )
+
+    rtq.print_research_questions_terminal(
+        bundle={
+            "q1": {
+                "governed_samples": 1187,
+                "families_represented": 43,
+                "malware_types_represented": 4,
+                "concentration": {"top5_share_pct": 50.46},
+                "supervised_family_claims_suitable": False,
+            },
+            "q2": {
+                "permission_raw_observation_n": 1151,
+                "permission_raw_observation_pct": 96.97,
+                "permission_signal_n": 1151,
+                "permission_signal_pct": 96.97,
+                "vendor_merge_pct": 100.0,
+                "av_engines_observed": 93,
+                "av_engines_included": 56,
+            },
+            "q3": {},
+            "model_key": "xgboost",
+            "macro_f1": 0.2186,
+            "wf1": 0.3848,
+            "acc": 0.3387,
+            "gap_w_m": 0.1662,
+            "confusion_rows": [
+                {
+                    "true_label": "SpyNote",
+                    "predicted_label": "Alien",
+                    "count": 10,
+                    "shared_malware_type": "no",
+                },
+                {
+                    "true_label": "Godfather",
+                    "predicted_label": "PixPirate",
+                    "count": 7,
+                    "shared_malware_type": "yes",
+                },
+            ],
+            "concentration_warn": True,
+        },
+        pr=captured.append,
+        du=_DummyDisplay(),
+    )
+
+    text = "\n".join(captured)
+    assert "4. Dominant blockers:" in text
+    assert "supervised family claims are not yet suitable" in text
+    assert "temporal holdout dropped 219 future-only family row(s)" in text
+    assert "weighted F1 exceeds Macro-F1 by +0.1662" in text
+    assert "cross-type confusions appear in 1/2 top confusion pairs" in text

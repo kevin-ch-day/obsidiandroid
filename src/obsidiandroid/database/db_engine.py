@@ -380,6 +380,14 @@ def get_table_columns(table_name: str) -> list:
         return []
 
 
+def table_exists(table_name: str) -> bool:
+    """Return whether *table_name* exists on the appropriate database surface."""
+    try:
+        return bool(get_table_columns(table_name))
+    except Exception:
+        return False
+
+
 # === Basic Connection Diagnostic === #
 def test_connection(verbose: bool = False) -> bool:
     """Return True if the primary database accepts a connection, else False."""

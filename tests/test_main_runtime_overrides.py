@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
+import pytest
 import pandas as pd
 
 from config import app_config
 import main
+from obsidiandroid.cli import main_override_bridge
+from obsidiandroid.pipeline import main_facade
+from obsidiandroid.pipeline import runtime_policy
 
 
 def test_runtime_overrides_are_restored_after_run(monkeypatch, tmp_path: Path) -> None:
@@ -373,3 +378,52 @@ def test_exploratory_profile_is_not_blocked_by_publication_lock(
 
     result = main.run_pipeline(stop_after="samples", profile_ref="research_all_malicious")
     assert result == 0
+
+
+def test_enforce_paper_perturbation_axes_rejects_invalid_axis() -> None:
+    """Evidence mode should fail when profile declares a non-approved perturbation axis."""
+    profile = {
+        "profile_id": "repro_bad",
+        "evidence_perturbation_axes": ["min_malicious_detections", "random_undersampling"],
+    }
+    with pytest.raises(ValueError, match="Invalid perturbation axis"):
+        runtime_policy.enforce_paper_perturbation_axes(profile=profile, paper_mode=True)
+
+
+def test_enforce_paper_perturbation_axes_accepts_locked_axes() -> None:
+    """Evidence mode should accept approved perturbation axes."""
+    profile = {
+        "profile_id": "malicious_temporal_stability",
+        "evidence_perturbation_axes": [
+            "min_malicious_detections",
+            "family_cap",
+            "exclude_unknown_type_slug",
+        ],
+    }
+    runtime_policy.enforce_paper_perturbation_axes(profile=profile, paper_mode=True)
+
+
+def test_from_main_or_returns_default_when_main_missing(monkeypatch) -> None:
+    monkeypatch.delitem(sys.modules, "main", raising=False)
+    assert main_facade.from_main_or("anything", 42) == 42
+
+
+def test_from_main_or_prefers_main_attribute(monkeypatch) -> None:
+    class _FakeMain:
+        marker = "patched"
+
+    monkeypatch.setitem(sys.modules, "main", _FakeMain())
+    assert main_facade.from_main_or("marker", "default") == "patched"
+
+
+def test_resolve_main_override_returns_default_when_main_missing(monkeypatch) -> None:
+    monkeypatch.delitem(sys.modules, "main", raising=False)
+    assert main_override_bridge.resolve_main_override("anything", 42) == 42
+
+
+def test_resolve_main_override_prefers_main_attribute(monkeypatch) -> None:
+    class _FakeMain:
+        marker = "patched"
+
+    monkeypatch.setitem(sys.modules, "main", _FakeMain())
+    assert main_override_bridge.resolve_main_override("marker", "default") == "patched"

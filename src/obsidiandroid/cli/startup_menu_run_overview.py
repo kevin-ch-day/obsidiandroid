@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from obsidiandroid.common.cohort_methodology import taxonomy_label_drift_display
 from obsidiandroid.common.cohort_presentation import cohort_methodology_summary
 from obsidiandroid.common.output_paths import output_root as canonical_output_root
 from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
@@ -137,10 +138,13 @@ def show_profile_tuning_snapshot() -> int:
     manifest = shared.get("manifest_payload") if isinstance(shared.get("manifest_payload"), dict) else {}
     resolved_run_id = str(shared.get("resolved_run_id", "") or "")
     manifest_path = shared.get("manifest_path")
+    canonical_manifest_path = shared.get("canonical_manifest_path")
     if not manifest:
-        du.print_warning("[MENU] Latest run manifest not found at output/diagnostics/run_manifest.latest.json")
+        du.print_warning("[MENU] Latest run manifest could not be resolved.")
         return 1
     run_id = str(resolved_run_id or manifest.get("run_id", "unknown"))
+    if resolved_run_id and isinstance(canonical_manifest_path, Path):
+        manifest_path = canonical_manifest_path
     du.print_section("Pipeline profile tuning")
     du.print_stat("Resolved run ID", run_id)
     du.print_stat("Manifest path", str(manifest_path))
@@ -156,7 +160,7 @@ def show_latest_run_snapshot() -> int:
     resolved_run_id = str(shared.get("resolved_run_id", "") or "")
     manifest_path = shared.get("manifest_path")
     if not manifest:
-        du.print_warning("[MENU] Latest run manifest not found at output/diagnostics/run_manifest.latest.json")
+        du.print_warning("[MENU] Latest run manifest could not be resolved.")
         return 1
 
     run_id = str(resolved_run_id or manifest.get("run_id", "unknown"))
@@ -229,6 +233,9 @@ def show_latest_run_snapshot() -> int:
     du.print_stat("Vendor Constrained", constrained)
     du.print_stat("Publication-ready Status", str(shared.get("publication_ready_status", "") or "unknown"))
     du.print_stat("Cohort Lock Status", str(shared.get("cohort_lock_status", "") or "unknown"))
+    taxonomy_drift = taxonomy_label_drift_display(manifest)
+    if taxonomy_drift:
+        du.print_stat("Taxonomy Drift", taxonomy_drift)
     du.print_stat("Cohort Methodology", cohort_methodology_summary(shared))
     du.print_stat("Pipeline Runtime (sec)", runtime_display)
     du.print_stat("Top Model", top_model)

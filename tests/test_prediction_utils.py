@@ -1,5 +1,7 @@
 import obsidiandroid.classification_builder.prediction_utils as pu
 import obsidiandroid.classification_builder.sample_classification_builder as sb
+import pandas as pd
+from obsidiandroid.modeling import prediction_builder
 
 
 class DummyRecord:
@@ -64,6 +66,37 @@ def test_builder_uses_prediction_metadata_confidence(monkeypatch):
     df = sb.build_sample_classification_records({}, results, include_confidence=True, verbose=False)
     assert not df.empty
     assert df.loc[0, 'confidence'] == 0.6
+
+
+def test_export_model_backfills_named_feature_importances_into_result_metadata(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(
+        prediction_builder.model_exporter,
+        "export_model_to_file",
+        lambda **_kwargs: tmp_path / "dummy.joblib",
+    )
+    result = {
+        "metadata": {
+            "feature_importances": [(1, 0.7), (0, 0.3)],
+        },
+        "label_classes": ["fam_a"],
+        "label_name_map": {},
+    }
+    features_df = pd.DataFrame({"perm__internet": [1], "parsed_family_vendor": [0]})
+
+    prediction_builder.export_model(
+        result,
+        "random_forest",
+        features_df,
+        {"accuracy": 1.0},
+        tmp_path,
+    )
+
+    named = result["metadata"]["feature_importances_named"]
+    assert named[0]["feature_name"] == "parsed_family_vendor"
+    assert named[1]["feature_name"] == "perm__internet"
 
 
 def test_builder_accepts_nested_prediction_metadata(monkeypatch):

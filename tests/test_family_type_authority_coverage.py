@@ -77,6 +77,19 @@ def test_generate_authority_coverage_artifacts_writes_outputs(monkeypatch, tmp_p
                 "raw_classification_subtype": "",
             },
             {
+                "sample_id": 4,
+                "vt_first_submission_at_utc": "2025-03-01T00:00:00Z",
+                "authority_bucket": "resolved_but_no_authority_family",
+                "resolved_family_lc": "adware",
+                "authority_gap_reason": "resolved_token_not_in_authority_taxonomy",
+                "family_slug": None,
+                "family_name": None,
+                "type_slug": None,
+                "raw_vs_authority_status": "authority_unknown",
+                "raw_classification_primary": "",
+                "raw_classification_subtype": "",
+            },
+            {
                 "sample_id": 3,
                 "vt_first_submission_at_utc": "2024-01-01T00:00:00Z",
                 "authority_bucket": "authority_family_unknown_type",
@@ -108,6 +121,9 @@ def test_generate_authority_coverage_artifacts_writes_outputs(monkeypatch, tmp_p
     assert bundle["missing_out"].exists()
     assert bundle["unknown_type_out"].exists()
     assert bundle["year_type_out"].exists()
+    md_text = bundle["md_path"].read_text(encoding="utf-8")
+    assert "## True Missing Authority-Family Candidates" in md_text
+    assert "## Policy-Held Generic/Coarse Token Residue" in md_text
     label_text = (tmp_path / "logs" / "runtime" / "authority_diag_run" / "label_authority_alerts.log").read_text(
         encoding="utf-8"
     )

@@ -1,7 +1,7 @@
 # Filename: classification_row_builder.py
 # Purpose  : Build structured classification output rows from selected vendor records and model predictions
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 import pandas as pd
 
@@ -13,8 +13,14 @@ from . import vendor_record_selector
 from . import record_enrichment
 from . import prediction_utils
 from . import classification_constants as const
-from obsidiandroid.labeling.malware_family_constants import is_known_family_name
+from obsidiandroid.labeling.malware_family_constants import (
+    is_known_family_name,
+    normalize_family_name,
+)
 from config import app_config
+
+
+UNKNOWN_TYPE_TOKENS = {"", "unknown", "none", "null", "nan"}
 
 
 def _normalize_family_id_token(value: Any) -> str:
@@ -68,6 +74,95 @@ def _resolve_runtime_type_slug(
                 if fallback:
                     return fallback
     return ""
+
+
+def _normalize_type_token(value: Any) -> str:
+    """Normalize type tokens for authority-profile comparisons."""
+    token = str(value or "").strip().lower()
+    return "" if token in UNKNOWN_TYPE_TOKENS else token
+
+
+def _build_runtime_family_type_profile() -> Dict[str, Set[str]]:
+    """Build observed family-to-type mappings from runtime cohort metadata."""
+    runtime_meta = getattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", None)
+    if not isinstance(runtime_meta, pd.DataFrame) or runtime_meta.empty:
+        return {}
+
+    family_column = next(
+        (column for column in ("family_canonical", "family_name") if column in runtime_meta.columns),
+        None,
+    )
+    if family_column is None or "type_slug" not in runtime_meta.columns:
+        return {}
+
+    profile: Dict[str, Set[str]] = {}
+    rows = runtime_meta[[family_column, "type_slug"]].dropna()
+    for family_value, type_value in rows.itertuples(index=False, name=None):
+        family_token = normalize_family_name(family_value)
+        type_token = _normalize_type_token(type_value)
+        if not family_token or not type_token:
+            continue
+        profile.setdefault(family_token, set()).add(type_token)
+    return profile
+
+
+def _resolve_metadata_entry(metadata: Dict[str, Any], sample_id: str) -> Dict[str, Any]:
+    """Return a mutable metadata entry for a sample, creating one if needed."""
+    if not isinstance(metadata, dict):
+        return {}
+
+    candidate_keys = [sample_id, str(sample_id), _normalize_family_id_token(sample_id)]
+    for candidate in candidate_keys:
+        value = metadata.get(candidate)
+        if isinstance(value, dict):
+            return value
+
+    sample_key = _normalize_family_id_token(sample_id)
+    for key, value in metadata.items():
+        if _normalize_family_id_token(key) == sample_key and isinstance(value, dict):
+            return value
+
+    entry: Dict[str, Any] = {}
+    metadata[str(sample_id)] = entry
+    return entry
+
+
+def _apply_type_consistent_family_guard(
+    *,
+    sample_id: str,
+    predicted_family: str,
+    predicted_family_id: str,
+    metadata: Dict[str, Any],
+    sample_type_slug: str,
+) -> tuple[str, str]:
+    """
+    Suppress impossible family labels when they conflict with authoritative sample type.
+
+    This is intentionally conservative: it never rewrites a prediction to another specific
+    family. It only demotes a known family to `other` when runtime cohort evidence shows the
+    predicted family belongs to a different type lineage.
+    """
+    normalized_family = normalize_family_name(predicted_family)
+    if not normalized_family or normalized_family == "other":
+        return predicted_family, predicted_family_id
+    if not is_known_family_name(predicted_family):
+        return predicted_family, predicted_family_id
+
+    sample_type = _normalize_type_token(sample_type_slug)
+    if not sample_type:
+        return predicted_family, predicted_family_id
+
+    family_type_profile = _build_runtime_family_type_profile()
+    observed_types = family_type_profile.get(normalized_family, set())
+    if not observed_types or sample_type in observed_types:
+        return predicted_family, predicted_family_id
+
+    sample_meta = _resolve_metadata_entry(metadata, sample_id)
+    sample_meta["raw_predicted_family"] = predicted_family
+    sample_meta["override_tag"] = "type_guard_family_suppressed"
+    sample_meta["type_guard_expected_type"] = sample_type
+    sample_meta["type_guard_observed_types"] = sorted(observed_types)
+    return "other", "other"
 
 
 def _build_canonical_category_vector(
@@ -175,12 +270,21 @@ def build_classification_row(
     # If upstream metadata provides a canonical `type_slug`, use it as the authoritative
     # label-rendering type token. This keeps `classification_label` aligned with cohort
     # type authority instead of letting parser/vendor semantics silently override it.
+    type_slug = ""
     try:
         type_slug = _resolve_runtime_type_slug(metadata, sample_id)
         if type_slug:
             selected_record.threat_class = type_slug
     except Exception:
-        pass
+        type_slug = ""
+
+    predicted_family, predicted_family_id = _apply_type_consistent_family_guard(
+        sample_id=sample_id,
+        predicted_family=str(predicted_family),
+        predicted_family_id=_normalize_family_id_token(predicted_family_id),
+        metadata=metadata,
+        sample_type_slug=type_slug,
+    )
 
     normalized_fields: Dict[str, Any] = {}
     # Normalize record fields before generating output label to keep
@@ -245,6 +349,7 @@ def build_classification_row(
         variant=selected_record.variant,
         true_family_id=_normalize_family_id_token(true_family_id),
         predicted_family_id=_normalize_family_id_token(predicted_family_id),
+        sample_metadata=_resolve_metadata_entry(metadata, sample_id),
     )
 
 
@@ -279,6 +384,7 @@ def _build_output_row(
     high_confidence: bool,
     true_family_id: str,
     predicted_family_id: str,
+    sample_metadata: Optional[Dict[str, Any]] = None,
 ) -> dict:
     """
     Constructs a dictionary with all relevant classification data for downstream analysis.
@@ -305,5 +411,21 @@ def _build_output_row(
         "true_family_id": true_family_id,
         "predicted_family_id": predicted_family_id,
     }
+
+    if isinstance(sample_metadata, dict):
+        override_tag = str(sample_metadata.get("override_tag", "") or "").strip()
+        raw_predicted_family = str(sample_metadata.get("raw_predicted_family", "") or "").strip()
+        if override_tag:
+            output_row["override_tag"] = override_tag
+        if raw_predicted_family:
+            output_row["raw_predicted_family"] = raw_predicted_family
+        type_guard_expected_type = str(sample_metadata.get("type_guard_expected_type", "") or "").strip()
+        if type_guard_expected_type:
+            output_row["type_guard_expected_type"] = type_guard_expected_type
+        observed_types = sample_metadata.get("type_guard_observed_types")
+        if isinstance(observed_types, (list, tuple, set)):
+            cleaned_types = [str(item).strip() for item in observed_types if str(item).strip()]
+            if cleaned_types:
+                output_row["type_guard_observed_types"] = ";".join(sorted(set(cleaned_types)))
 
     return output_row

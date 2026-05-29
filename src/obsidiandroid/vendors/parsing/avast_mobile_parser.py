@@ -28,7 +28,7 @@ KNOWN_FAMILIES = {
     "brazking", "rafel", "bahamut", "cabassous", "clast82", "golddigger", "fatboypanel",
     "hiddenads", "mobok", "subscriber", "masterfred", "ultimasms", "projectspy", "zoom",
     "icici", "coronavirus", "pakchat", "fakecalls", "fakeplayer", "tgtoxic", "sendsms",
-    "xrat", "spyc23.a", "repsandbox"
+    "xrat", "spyc23.a", "repsandbox", "otpstealer"
 }
 
 def extract_threat_class(label: str) -> str:

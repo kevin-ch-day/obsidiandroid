@@ -253,6 +253,99 @@ def test_finalize_pipeline_observability_includes_label_strategy_when_present(
     assert blob.get("label_strategy", {}).get("avoid_for_primary_claims") == ["category_primary"]
 
 
+def test_finalize_pipeline_observability_includes_label_resolution_and_type_guard_counts(
+    tmp_path: Path,
+) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    run_id = "r_guard"
+    (diagnostic / f"taxonomy_consistency_summary_{run_id}.json").write_text(
+        json.dumps({"type_guard_family_suppressed_count": 3}),
+        encoding="utf-8",
+    )
+    ctx = {
+        "run_id": run_id,
+        "_observability_finalized_once": False,
+        "label_resolution_enabled": True,
+    }
+    manifest = {"run_id": run_id, "cohort_size": 5}
+    artifact_list: list[str] = []
+
+    out_path = finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=artifact_list,
+        compliance_report={"overall_status": "pass"},
+        paper_mode=False,
+        evidence_mode=False,
+        result_code=0,
+        profile_id="dev_fast",
+    )
+
+    assert isinstance(out_path, Path)
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    assert blob.get("label_resolution_enabled") is True
+    assert blob.get("type_guard_family_suppressed_count") == 3
+
+
+def test_finalize_pipeline_observability_includes_stage_loss_summaries(
+    tmp_path: Path,
+) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    run_id = "r_stage_losses"
+    ctx = {
+        "run_id": run_id,
+        "_observability_finalized_once": False,
+        "alignment_attrition_stats": {
+            "alignment_non_authoritative_family_drop_count": 4,
+            "alignment_live_authority_rescue_count": 179,
+        },
+        "alignment_attrition_details": {
+            "alignment_live_authority_rescue_families": {"Applite": 159, "Wroba": 15, "Piom": 5},
+            "alignment_non_authoritative_family_drop_families": {"unknown_family": 4},
+        },
+        "low_support_family_drop_detail": [
+            {"family": "BrowBot", "aligned_support": 1},
+            {"family": "GINP", "aligned_support": 1},
+            {"family": "BRATA", "aligned_support": 2},
+        ],
+        "split": {
+            "temporal_split_summary": {
+                "test_rows_dropped_unseen_train_classes": 7,
+                "test_rows_dropped_unseen_train_class_families": {"Zanubis": 4, "Alien": 3},
+            }
+        },
+    }
+    manifest = {"run_id": run_id, "cohort_size": 5}
+
+    out_path = finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=[],
+        compliance_report={"overall_status": "pass"},
+        paper_mode=False,
+        evidence_mode=False,
+        result_code=0,
+        profile_id="dev_fast",
+    )
+
+    assert isinstance(out_path, Path)
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    assert blob.get("alignment_non_authoritative_family_drop_count") == 4
+    assert blob.get("alignment_live_authority_rescue_count") == 179
+    assert blob.get("alignment_live_authority_rescue_families_top") == "Applite=159, Wroba=15, Piom=5"
+    assert blob.get("alignment_non_authoritative_family_drops_top") == "unknown_family=4"
+    assert blob.get("low_support_family_drop_count") == 3
+    assert blob.get("low_support_row_drop_count") == 4
+    assert blob.get("low_support_family_drops_top") == "BrowBot=1, GINP=1, BRATA=2"
+    assert blob.get("temporal_future_only_family_drops_top") == "Zanubis=4, Alien=3"
+
+
 def test_finalize_pipeline_observability_adds_temporal_split_warning(
     tmp_path: Path,
     monkeypatch,
@@ -332,3 +425,44 @@ def test_finalize_pipeline_observability_adds_temporal_future_only_drop_warning(
     blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
     warnings = blob.get("research_warnings_top") or []
     assert any("dropped 219 newer-row sample(s)" in str(item) for item in warnings)
+
+
+def test_finalize_pipeline_observability_carries_degraded_cohort_contract_warning(
+    tmp_path: Path,
+) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    warning = (
+        "[COHORT_LOCK] Locked cohort taxonomy drift for profile demo: "
+        "sample-id membership still matches, but family/type counts changed."
+    )
+    ctx = {
+        "run_id": "r_cohort_drift",
+        "_observability_finalized_once": False,
+        "paper_cohort_contract": {
+            "validation": {
+                "status": "degraded_taxonomy_label_drift",
+                "warning": warning,
+            }
+        },
+    }
+    manifest = {"run_id": "r_cohort_drift", "cohort_size": 5}
+    artifact_list: list[str] = []
+
+    out_path = finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=artifact_list,
+        compliance_report={"overall_status": "pass"},
+        paper_mode=True,
+        evidence_mode=True,
+        result_code=0,
+        profile_id="malicious_temporal_stability_locked",
+    )
+
+    assert isinstance(out_path, Path)
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    warnings = blob.get("research_warnings_top") or []
+    assert warning in warnings

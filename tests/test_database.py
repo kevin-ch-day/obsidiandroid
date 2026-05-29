@@ -9,9 +9,14 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from mysql.connector import Error as MySQLError
+import pandas as pd
 import pytest
 
-from obsidiandroid.database import db_engine, schema_map
+from obsidiandroid.database import authority_contracts, db_engine, schema_map, verdict_contracts
+import obsidiandroid.database.db_errors as db_errors
+import obsidiandroid.database.db_permission_analysis_queries as db_permission_analysis_queries
+from obsidiandroid.database import cohort_sql_fragments
+import obsidiandroid.database.db_extract_av_label_keywords as db_extract_av_label_keywords
 from obsidiandroid.database.db_config import DB_NAME, PERMISSION_INTEL_DB_NAME
 from obsidiandroid.database.db_permission_analysis_queries import (
     fetch_android_banking_trojans_with_permissions_count,
@@ -24,6 +29,7 @@ from obsidiandroid.database.db_sample_timelines_queries import (
     fetch_samples_by_year,
     summarize_family_timelines,
 )
+from obsidiandroid.database.settings import ObsidianConnectionSettings, load_connection_settings
 
 
 def test_test_connection_does_not_raise_unboundlocal_on_connect_failure(monkeypatch) -> None:
@@ -36,6 +42,50 @@ def test_test_connection_does_not_raise_unboundlocal_on_connect_failure(monkeypa
     assert db_engine.test_connection(verbose=False) is False
 
 
+def test_mysql_error_summary_includes_errno_and_transient_flag() -> None:
+    """Error helper should classify common MySQL transport failures as transient."""
+    exc = MySQLError("server gone")
+    exc.errno = 2006
+    s = db_errors.mysql_error_summary(exc)
+    assert s["errno"] == 2006
+    assert s["transient"] is True
+    assert "gone" in s["message"].lower() or "server" in s["message"].lower()
+
+
+def test_mysql_error_summary_deadlock_is_transient() -> None:
+    """Deadlocks should classify as transient for retry policy."""
+    exc = MySQLError("deadlock")
+    exc.errno = 1213
+    assert db_errors.mysql_error_summary(exc)["transient"] is True
+    assert db_errors.is_transient_mysql_error(exc) is True
+
+
+def test_non_mysql_exception_summary() -> None:
+    """Non-MySQL exceptions should be marked non-transient and keep type details."""
+    s = db_errors.mysql_error_summary(ValueError("bad arg"))
+    assert s["error_type"] == "ValueError"
+    assert s["errno"] is None
+    assert s["transient"] is False
+
+
+def test_operator_facing_db_message_truncates() -> None:
+    """Operator message should include error code and obey max length cap."""
+    exc = MySQLError("x" * 500)
+    exc.errno = 1146
+    msg = db_errors.operator_facing_db_message(exc, max_len=80)
+    assert len(msg) <= 80
+    assert "1146" in msg
+
+
+def test_load_connection_settings_matches_dataclass_fields() -> None:
+    s = load_connection_settings()
+    assert isinstance(s, ObsidianConnectionSettings)
+    assert isinstance(s.host, str)
+    assert isinstance(s.port, int)
+    assert isinstance(s.database, str)
+    assert isinstance(s.permission_intel_database, str)
+
+
 def test_schema_table_resolution():
     assert schema_map.table("vendor_engines") == "virustotal_vendor_engines"
     assert schema_map.table("vendor_verdicts") == "virustotal_sample_vendor_engine_verdicts"
@@ -45,6 +95,262 @@ def test_schema_column_resolution():
     assert schema_map.column("vendor_engines", "engine_name") == "vendor_key"
     assert schema_map.column("vendor_engines", "trusted_flag") == "is_trusted_vendor"
     assert schema_map.column("vendor_engines", "active_flag") == "is_engine_active"
+
+
+def test_schema_compatible_column_resolution_prefers_canonical_then_legacy() -> None:
+    assert schema_map.compatible_columns("vendor_label_generic_tokens", "active_flag") == (
+        "is_active",
+        "active_flag",
+    )
+    assert (
+        schema_map.resolve_existing_column(
+            "vendor_label_generic_tokens",
+            "active_flag",
+            {"normalized_token", "is_active"},
+        )
+        == "is_active"
+    )
+    assert (
+        schema_map.resolve_existing_column(
+            "vendor_label_generic_tokens",
+            "active_flag",
+            {"normalized_token", "active_flag"},
+        )
+        == "active_flag"
+    )
+    assert (
+        schema_map.resolve_existing_column(
+            "vendor_label_generic_tokens",
+            "active_flag",
+            {"normalized_token"},
+        )
+        is None
+    )
+
+
+def test_authority_view_present_requires_view_and_required_columns(monkeypatch) -> None:
+    objects_df = pd.DataFrame(
+        [
+            {
+                "table_name": schema_map.table("android_sample_family_type_authority_view"),
+                "table_type": "VIEW",
+            }
+        ]
+    )
+    columns_df = pd.DataFrame(
+        [
+            {
+                "table_name": schema_map.table("android_sample_family_type_authority_view"),
+                "column_name": column_name,
+            }
+            for column_name in authority_contracts.LIVE_AUTHORITY_REQUIRED_COLUMNS[
+                schema_map.table("android_sample_family_type_authority_view")
+            ]
+        ]
+    )
+    monkeypatch.setattr(authority_contracts, "fetch_objects_df", lambda: objects_df)
+    monkeypatch.setattr(authority_contracts, "fetch_columns_df", lambda: columns_df)
+
+    assert authority_contracts.authority_view_present() is True
+
+    missing_df = columns_df[columns_df["column_name"] != "authority_gap_reason"].copy()
+    monkeypatch.setattr(authority_contracts, "fetch_columns_df", lambda: missing_df)
+
+    assert authority_contracts.authority_view_present() is False
+
+
+def test_load_family_alias_map_prefers_legacy_when_canonical_missing(monkeypatch) -> None:
+    def _fake_query(query: str, **_kwargs):
+        if "FROM information_schema.tables" in query and "malware_family_alias_fact" in query:
+            return pd.DataFrame([{"table_name": "x", "table_type": "BASE TABLE"}]).iloc[0:0]
+        if "FROM information_schema.tables" in query and "android_malware_family_alias" in query:
+            return pd.DataFrame([{"table_name": "android_malware_family_alias", "table_type": "BASE TABLE"}])
+        if "FROM android_malware_family_alias AS a" in query:
+            return pd.DataFrame(
+                [
+                    {"alias_token": "monocle", "canonical_family_slug": "monokle"},
+                    {"alias_token": "spymax", "canonical_family_slug": "spynote"},
+                ]
+            )
+        raise AssertionError(query)
+
+    monkeypatch.setattr(authority_contracts, "fetch_objects_df", lambda: pd.DataFrame())
+    monkeypatch.setattr(authority_contracts.db_engine, "execute_query", _fake_query)
+    monkeypatch.setattr(
+        authority_contracts,
+        "authority_alias_fact_present",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        authority_contracts,
+        "legacy_android_family_alias_present",
+        lambda: True,
+    )
+
+    out = authority_contracts.load_family_alias_map()
+
+    assert out == {"monocle": "monokle", "spymax": "spynote"}
+
+
+def test_load_family_alias_map_merges_canonical_and_legacy_sources(monkeypatch) -> None:
+    def _fake_query(query: str, **_kwargs):
+        if "FROM malware_family_alias_fact" in query:
+            return pd.DataFrame(
+                [
+                    {"alias_token": "fakecalls", "canonical_family_slug": "fakecall"},
+                    {"alias_token": "spymax", "canonical_family_slug": "spynote"},
+                ]
+            )
+        if "FROM android_malware_family_alias AS a" in query:
+            return pd.DataFrame(
+                [
+                    {"alias_token": "brats", "canonical_family_slug": "brata"},
+                    {"alias_token": "spymax", "canonical_family_slug": "spynote"},
+                ]
+            )
+        raise AssertionError(query)
+
+    monkeypatch.setattr(authority_contracts, "authority_alias_fact_present", lambda: True)
+    monkeypatch.setattr(authority_contracts, "legacy_android_family_alias_present", lambda: True)
+    monkeypatch.setattr(authority_contracts, "table_has_column", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(authority_contracts.db_engine, "execute_query", _fake_query)
+
+    out = authority_contracts.load_family_alias_map()
+
+    assert out == {
+        "fakecalls": "fakecall",
+        "spymax": "spynote",
+        "brats": "brata",
+    }
+
+
+def test_load_known_family_and_alias_tokens_includes_parser_aliases_for_active_families(monkeypatch) -> None:
+    monkeypatch.setattr(authority_contracts, "load_active_family_tokens", lambda: {"spynote", "gravityrat"})
+    monkeypatch.setattr(authority_contracts, "load_family_alias_map", lambda: {"fakecalls": "fakecall"})
+
+    families, aliases = authority_contracts.load_known_family_and_alias_tokens()
+
+    assert families == {"spynote", "gravityrat"}
+    assert "fakecalls" in aliases
+    assert "spymax" in aliases
+    assert "gravity_rat" in aliases
+
+
+def test_vt_scan_summary_subquery_uses_row_number_per_sample_id() -> None:
+    sql = cohort_sql_fragments.latest_vt_scan_summary_subquery()
+    assert "ROW_NUMBER()" in sql
+    assert "PARTITION BY s0.sample_id" in sql
+    assert "virustotal_sample_scan_summary" in sql
+
+
+def test_family_resolution_subquery_uses_row_number_per_sample_id() -> None:
+    sql = cohort_sql_fragments.latest_family_resolution_subquery()
+    assert "ROW_NUMBER()" in sql
+    assert "PARTITION BY v0.sample_id" in sql
+    assert "v_android_apk_family_resolved" in sql
+
+
+def test_fetch_sample_authority_map_falls_back_without_live_view(monkeypatch) -> None:
+    queries: list[str] = []
+
+    def _fake_query(query: str, params=None, **_kwargs):
+        queries.append(query)
+        if "FROM malware_sample_catalog AS msc" in query:
+            return pd.DataFrame(
+                [
+                    {
+                        "sample_id": 99,
+                        "authority_family_slug": "blankbot",
+                        "authority_family_name": "blankbot",
+                        "authority_type_slug": "banker",
+                    }
+                ]
+            )
+        raise AssertionError(query)
+
+    monkeypatch.setattr(authority_contracts, "authority_view_present", lambda **_kwargs: False)
+    monkeypatch.setattr(authority_contracts, "table_has_column", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(authority_contracts.db_engine, "execute_query", _fake_query)
+
+    out = authority_contracts.fetch_sample_authority_map([99])
+
+    assert len(out) == 1
+    assert "FROM malware_sample_catalog AS msc" in queries[0]
+
+
+def test_collect_raw_engine_labels_query_excludes_non_detection_tokens(monkeypatch) -> None:
+    seen: dict[str, str] = {}
+
+    def fake_execute_query(query, **_kwargs):
+        seen["query"] = query
+        return ["result"], [("Detected",), ("Trojan.Android",)]
+
+    monkeypatch.setattr(db_extract_av_label_keywords.db_engine, "execute_query", fake_execute_query)
+
+    labels = db_extract_av_label_keywords.collect_raw_engine_labels("google", sample_limit=10)
+
+    assert labels == ["Detected", "Trojan.Android"]
+    assert "type-unsupported" in seen["query"]
+    assert "undetected" in seen["query"]
+    assert "WHERE NOT (" in seen["query"]
+
+
+def test_fetch_vendor_verdict_columns_uses_shared_table_columns(monkeypatch) -> None:
+    monkeypatch.setattr(
+        verdict_contracts.db_engine,
+        "get_table_columns",
+        lambda table_name: ["sample_id", "updated_at", "kaspersky", "microsoft"],
+    )
+
+    assert verdict_contracts.fetch_verdict_table_columns() == [
+        "sample_id",
+        "updated_at",
+        "kaspersky",
+        "microsoft",
+    ]
+    assert verdict_contracts.fetch_vendor_verdict_columns() == ["kaspersky", "microsoft"]
+
+
+def test_fetch_vendor_engine_flags_uses_schema_map_columns(monkeypatch) -> None:
+    queries: list[str] = []
+
+    def _fake_query(query: str, **_kwargs):
+        queries.append(query)
+        return pd.DataFrame(
+            [
+                {
+                    "vendor_key": "kaspersky",
+                    "is_engine_active": 1,
+                    "is_trusted_vendor": 1,
+                }
+            ]
+        )
+
+    monkeypatch.setattr(verdict_contracts.db_engine, "execute_query", _fake_query)
+
+    out = verdict_contracts.fetch_vendor_engine_flags()
+
+    assert len(out) == 1
+    assert "FROM virustotal_vendor_engines" in queries[0]
+    assert "vendor_key" in queries[0]
+    assert "is_engine_active" in queries[0]
+    assert "is_trusted_vendor" in queries[0]
+
+
+def test_load_active_family_tokens_uses_active_clause_when_available(monkeypatch) -> None:
+    queries: list[str] = []
+
+    def _fake_query(query: str, **_kwargs):
+        queries.append(query)
+        return pd.DataFrame([{"token": "blankbot"}, {"token": "bankbot"}])
+
+    monkeypatch.setattr(authority_contracts, "table_has_column", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(authority_contracts.db_engine, "execute_query", _fake_query)
+
+    out = authority_contracts.load_active_family_tokens()
+
+    assert out == {"blankbot", "bankbot"}
+    assert "AND is_active = 1" in queries[0]
 
 
 def test_execute_permission_query_uses_permission_intel_database(monkeypatch) -> None:
@@ -117,14 +423,11 @@ def test_fetch_banking_trojans_sql_prefers_permission_string_norm_when_available
         queries.append(query)
         return (["c"], [])
 
+    db_permission_analysis_queries.permission_contracts.reset_permission_obs_norm_cache()
     monkeypatch.setattr(
-        db_engine,
+        db_permission_analysis_queries.permission_contracts.db_engine,
         "get_table_columns",
         lambda _table: ["sample_id", "permission_string", "permission_string_norm"],
-    )
-    monkeypatch.setattr(
-        "obsidiandroid.database.db_permission_analysis_queries._PERMISSION_OBS_NORM_AVAILABLE",
-        None,
     )
     monkeypatch.setattr(db_engine, "execute_query", capture)
     fetch_android_banking_trojans_with_permissions()
@@ -140,14 +443,11 @@ def test_fetch_banking_trojans_sql_falls_back_without_permission_string_norm(mon
         queries.append(query)
         return (["c"], [])
 
+    db_permission_analysis_queries.permission_contracts.reset_permission_obs_norm_cache()
     monkeypatch.setattr(
-        db_engine,
+        db_permission_analysis_queries.permission_contracts.db_engine,
         "get_table_columns",
         lambda _table: ["sample_id", "permission_string"],
-    )
-    monkeypatch.setattr(
-        "obsidiandroid.database.db_permission_analysis_queries._PERMISSION_OBS_NORM_AVAILABLE",
-        None,
     )
     monkeypatch.setattr(db_engine, "execute_query", capture)
     fetch_android_banking_trojans_with_permissions()

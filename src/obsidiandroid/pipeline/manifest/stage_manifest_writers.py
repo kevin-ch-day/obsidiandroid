@@ -295,7 +295,7 @@ def finalize_output_hygiene_bundle(
 
         verbose_run_artifacts = bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True))
 
-        layout_path = output_inventory.write_virtual_layout(run_root)
+        layout_path = output_inventory.write_virtual_layout(run_root) if verbose_run_artifacts else None
         inv_paths: list[Path] = []
         summary = {}
         if verbose_run_artifacts:
@@ -377,17 +377,15 @@ def finalize_output_hygiene_bundle(
             else manifest_context.get("paper_cohort_contract")
         )
         cohort_locked = bool((cohort_contract or {}).get("paper_locked", False))
-        science_index_path = None
-        if verbose_run_artifacts:
-            science_index_path = output_inventory.write_run_science_index_md(
-                run_root=run_root,
-                diagnostics_dir=diagnostics_dir,
-                run_id=run_id,
-                profile_id=str(profile.get("profile_id", "unknown")),
-                evidence_mode=bool(evidence_mode),
-                cohort_locked=cohort_locked,
-                publication_ready_status=paper_safe_status,
-            )
+        science_index_path = output_inventory.write_run_science_index_md(
+            run_root=run_root,
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            profile_id=str(profile.get("profile_id", "unknown")),
+            evidence_mode=bool(evidence_mode),
+            cohort_locked=cohort_locked,
+            publication_ready_status=paper_safe_status,
+        )
         for p in inv_paths:
             if p and p not in artifact_list:
                 artifact_list.append(p)

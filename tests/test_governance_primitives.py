@@ -165,3 +165,12 @@ def test_manifest_writer_rejects_non_run_scoped_artifact_in_paper_mode(tmp_path:
             content_type="text/csv",
             description="split",
         )
+
+
+def test_evidence_mode_resolver_public_symbols() -> None:
+    assert callable(evidence_mode_resolver.resolve_evidence_mode)
+    assert callable(evidence_mode_resolver.enforce_immutable_lock)
+    assert isinstance(evidence_mode_resolver.ENV_EVIDENCE_MODE, str)
+    assert evidence_mode_resolver.EvidenceModeConfigError is not None
+    assert evidence_mode_resolver.EvidenceModeImmutableError is not None
+    assert evidence_mode_resolver.EvidenceModeResolution is not None

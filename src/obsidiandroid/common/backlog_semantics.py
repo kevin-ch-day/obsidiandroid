@@ -1,0 +1,781 @@
+"""Shared backlog/debt semantics across operator surfaces."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from pathlib import Path
+import re
+from typing import Any
+
+import pandas as pd
+
+from obsidiandroid.common.authority_taxonomy_terms import (
+    ANDROID_MISSING_RESOLUTION_BACKLOG_LABEL,
+    FAMILY_TYPE_CONFLICT_BACKLOG_LABEL,
+    POLICY_HELD_FAMILY_NOISE_LABEL,
+    TRUE_UNRESOLVED_FAMILY_DEBT_LABEL,
+    VT_FALSE_POSITIVE_REVIEW_RESIDUE_LABEL,
+    taxonomy_curation_discipline_note,
+)
+from obsidiandroid.common.cohort_methodology import safe_int
+
+
+BACKLOG_ROW_ANDROID_MISSING_RESOLUTION = "android_missing_resolution"
+BACKLOG_ROW_VT_FALSE_POSITIVE = "vt_false_positive_review"
+BACKLOG_ROW_MISSING_PRIMARY_LABELS = "missing_primary_labels"
+BACKLOG_ROW_TRUE_UNRESOLVED_FAMILY = "true_unresolved_family"
+BACKLOG_ROW_POLICY_HELD_FAMILY = "policy_held_family"
+BACKLOG_ROW_FAMILY_TYPE_CONFLICT = "family_type_conflict"
+
+_RUN_BACKLOG_LABELS = (
+    "Missing primary labels",
+    TRUE_UNRESOLVED_FAMILY_DEBT_LABEL,
+    POLICY_HELD_FAMILY_NOISE_LABEL,
+    ANDROID_MISSING_RESOLUTION_BACKLOG_LABEL,
+    VT_FALSE_POSITIVE_REVIEW_RESIDUE_LABEL,
+    FAMILY_TYPE_CONFLICT_BACKLOG_LABEL,
+)
+
+
+def file_freshness_label(path: Path) -> str:
+    """Classify an export file by mtime recency."""
+    if not path.is_file():
+        return "missing"
+    try:
+        modified = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    except OSError:
+        return "unknown"
+    age_hours = max(0.0, (datetime.now(timezone.utc) - modified).total_seconds() / 3600.0)
+    if age_hours <= 24.0:
+        return "current"
+    if age_hours <= 72.0:
+        return "aging"
+    return "stale"
+
+
+def _count_map(df: pd.DataFrame, column: str) -> dict[str, int]:
+    if column not in df.columns:
+        return {}
+    counts: dict[str, int] = {}
+    for raw in df[column].fillna("").astype(str):
+        value = str(raw).strip()
+        if not value:
+            continue
+        counts[value] = counts.get(value, 0) + 1
+    return counts
+
+
+def _count_map_masked(df: pd.DataFrame, column: str, mask: pd.Series) -> dict[str, int]:
+    """Count non-empty values in ``column`` for the masked subset."""
+    if column not in df.columns or not isinstance(mask, pd.Series):
+        return {}
+    try:
+        work = df.loc[mask.fillna(False)]
+    except Exception:
+        return {}
+    return _count_map(work, column)
+
+
+def _top_bucket(counts: dict[str, int] | object) -> tuple[str, int] | None:
+    if not isinstance(counts, dict) or not counts:
+        return None
+    items = sorted(
+        ((str(k), safe_int(v, 0)) for k, v in counts.items() if str(k).strip()),
+        key=lambda item: -item[1],
+    )
+    return items[0] if items else None
+
+
+def _missing_primary_lane_rows(taxonomy: dict[str, object]) -> list[dict[str, object]]:
+    rows = taxonomy.get("top_missing_primary_label_lanes", [])
+    if isinstance(rows, list) and rows:
+        out: list[dict[str, object]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            lane = str(row.get("lane", "") or "").strip()
+            count = safe_int(row.get("sample_count", 0), 0)
+            if lane and count > 0:
+                out.append({"lane": lane, "sample_count": count})
+        if out:
+            return out
+    counts = taxonomy.get("missing_primary_label_lane_counts", {})
+    if not isinstance(counts, dict):
+        return []
+    return [
+        {"lane": lane, "sample_count": count}
+        for lane, count in sorted(
+            (
+                (str(lane), safe_int(count, 0))
+                for lane, count in counts.items()
+                if str(lane).strip() and safe_int(count, 0) > 0
+            ),
+            key=lambda item: (-item[1], item[0]),
+        )
+    ]
+
+
+def _format_missing_primary_lane_split(rows: list[dict[str, object]], *, limit: int = 4) -> str:
+    parts = [
+        f"{str(row.get('lane', '') or '')}={safe_int(row.get('sample_count', 0), 0)}"
+        for row in rows[:limit]
+        if str(row.get("lane", "") or "").strip()
+    ]
+    return ", ".join(parts)
+
+
+def _missing_primary_action(taxonomy: dict[str, object]) -> str:
+    if safe_int(taxonomy.get("missing_primary_label_actionable_samples", 0), 0) > 0:
+        return "Work high/strong missing-primary label-review rows first."
+    if taxonomy.get("missing_primary_label_active_residual_samples") is not None:
+        return "Open active residual worklist; suppressed/provenance rows are already closed from label-backfill work."
+    if taxonomy.get("missing_primary_label_residual_samples") is not None:
+        return "Open residual triage; remaining missing-primary rows are provenance/suppression/manual-review debt."
+    return "Open profile readiness mapping inventory and inspect missing-primary-label debt."
+
+
+def _missing_primary_detail(taxonomy: dict[str, object]) -> str:
+    if taxonomy.get("missing_primary_label_active_residual_samples") is not None:
+        return (
+            "Active/actionable Android + PI missing-primary debt"
+            f"; raw_missing={safe_int(taxonomy.get('missing_primary_label_raw_samples', 0), 0)}"
+            f"; actionable={safe_int(taxonomy.get('missing_primary_label_actionable_samples', 0), 0)}"
+            f"; suppressed={safe_int(taxonomy.get('missing_primary_label_suppressed_samples', 0), 0)}"
+            f"; active_residual={safe_int(taxonomy.get('missing_primary_label_active_residual_samples', 0), 0)}."
+        )
+    if (
+        taxonomy.get("missing_primary_label_actionable_samples") is not None
+        or taxonomy.get("missing_primary_label_residual_samples") is not None
+    ):
+        return (
+            "Active/actionable Android + PI missing-primary debt"
+            f"; raw_missing={safe_int(taxonomy.get('missing_primary_label_raw_samples', 0), 0)}"
+            f"; actionable={safe_int(taxonomy.get('missing_primary_label_actionable_samples', 0), 0)}"
+            f"; residual={safe_int(taxonomy.get('missing_primary_label_residual_samples', 0), 0)}."
+        )
+    return "Android + PI-observed rows missing classification_primary."
+
+
+def _policy_held_family_detail(taxonomy: dict[str, object]) -> str:
+    """Summarize policy-held token residue without implying family authority debt."""
+    counts = taxonomy.get("policy_held_family_token_kind_counts", {})
+    if not isinstance(counts, dict) or not counts:
+        return "Resolved-family rows intentionally held by generic/coarse token policy."
+    parts = [
+        f"{str(token_kind)}={safe_int(count, 0)}"
+        for token_kind, count in sorted(
+            counts.items(),
+            key=lambda item: (-safe_int(item[1], 0), str(item[0])),
+        )
+        if str(token_kind).strip() and safe_int(count, 0) > 0
+    ]
+    if not parts:
+        return "Resolved-family rows intentionally held by generic/coarse token policy."
+    return (
+        "Resolved-family rows intentionally held by generic/coarse token policy; "
+        f"token_classes={', '.join(parts[:6])}."
+    )
+
+
+def _policy_held_family_action(policy_held_triage: dict[str, object] | None) -> str:
+    """Choose the next action for policy-held family noise."""
+    triage = policy_held_triage if isinstance(policy_held_triage, dict) else {}
+    freshness = str(triage.get("freshness", "") or "").strip()
+    if freshness == "stale":
+        return "Refresh the policy-held token risk export before auditing generic/coarse token policy."
+    if safe_int(triage.get("high_or_strong_row_count", 0), 0) > 0:
+        return "Open the policy-held token risk export and review the dominant high/strong hold lane plus token/package cluster before creating more family authority rows."
+    if safe_int(triage.get("row_count", 0), 0) > 0:
+        return "Open the policy-held token risk export and audit the dominant hold lane plus token/package cluster before creating more family authority rows."
+    return "Audit generic/coarse token policy before creating more family authority rows."
+
+
+def _augment_policy_held_family_detail(
+    detail: str,
+    policy_held_triage: dict[str, object] | None,
+) -> str:
+    """Append live policy-held triage context to the generic summary detail."""
+    triage = policy_held_triage if isinstance(policy_held_triage, dict) else {}
+    suffix: list[str] = []
+    top_lane = str(triage.get("top_lane", "") or "").strip()
+    top_lane_count = safe_int(triage.get("top_lane_count", 0), 0)
+    if top_lane and top_lane_count > 0:
+        suffix.append(f"top_lane={top_lane} ({top_lane_count})")
+    top_token_kind = str(triage.get("top_token_kind", "") or "").strip()
+    top_token_kind_count = safe_int(triage.get("top_token_kind_count", 0), 0)
+    if top_token_kind and top_token_kind_count > 0:
+        suffix.append(f"top_token_kind={top_token_kind} ({top_token_kind_count})")
+    top_policy_held_token = str(triage.get("top_policy_held_token", "") or "").strip()
+    top_policy_held_token_count = safe_int(triage.get("top_policy_held_token_count", 0), 0)
+    if top_policy_held_token and top_policy_held_token_count > 0:
+        suffix.append(f"top_token={top_policy_held_token} ({top_policy_held_token_count})")
+    top_android_package_name = str(triage.get("top_android_package_name", "") or "").strip()
+    top_android_package_name_count = safe_int(triage.get("top_android_package_name_count", 0), 0)
+    if top_android_package_name and top_android_package_name != "<blank>" and top_android_package_name_count > 0:
+        suffix.append(f"top_package={top_android_package_name} ({top_android_package_name_count})")
+    high_or_strong_row_count = safe_int(triage.get("high_or_strong_row_count", 0), 0)
+    if high_or_strong_row_count > 0:
+        suffix.append(f"high_or_strong={high_or_strong_row_count}")
+    top_high_token = str(triage.get("top_high_or_strong_policy_held_token", "") or "").strip()
+    top_high_token_count = safe_int(triage.get("top_high_or_strong_policy_held_token_count", 0), 0)
+    if top_high_token and top_high_token_count > 0:
+        suffix.append(f"top_high_token={top_high_token} ({top_high_token_count})")
+    top_high_package = str(triage.get("top_high_or_strong_android_package_name", "") or "").strip()
+    top_high_package_count = safe_int(triage.get("top_high_or_strong_android_package_name_count", 0), 0)
+    if top_high_package and top_high_package != "<blank>" and top_high_package_count > 0:
+        suffix.append(f"top_high_package={top_high_package} ({top_high_package_count})")
+    freshness = str(triage.get("freshness", "") or "").strip()
+    if freshness:
+        suffix.append(f"freshness={freshness}")
+    if not suffix:
+        return detail
+    return f"{detail} {'; '.join(suffix)}."
+
+
+def _top_bucket_with_priority(
+    counts: dict[str, int] | object,
+    *,
+    priority_order: tuple[str, ...],
+) -> tuple[str, int] | None:
+    if not isinstance(counts, dict) or not counts:
+        return None
+    priority_rank = {name: idx for idx, name in enumerate(priority_order)}
+    items = sorted(
+        ((str(k), safe_int(v, 0)) for k, v in counts.items() if str(k).strip()),
+        key=lambda item: (-item[1], priority_rank.get(item[0], len(priority_rank)), item[0]),
+    )
+    return items[0] if items else None
+
+
+def read_triage_snapshot(
+    *,
+    path: Path,
+    lane_column: str,
+    action_column: str,
+    extra_count_columns: dict[str, str] | None = None,
+) -> dict[str, object]:
+    """Read a triage CSV export into a shared operator snapshot shape."""
+    if not path.is_file():
+        return {}
+    try:
+        df = pd.read_csv(path)
+    except Exception:
+        return {}
+    if df.empty:
+        snapshot: dict[str, object] = {
+            "path": path,
+            "row_count": 0,
+            "lane_counts": {},
+            "action_counts": {},
+            "freshness": file_freshness_label(path),
+        }
+    else:
+        snapshot = {
+            "path": path,
+            "row_count": int(len(df)),
+            "lane_counts": _count_map(df, lane_column),
+            "action_counts": _count_map(df, action_column),
+            "freshness": file_freshness_label(path),
+        }
+    for key, column in (extra_count_columns or {}).items():
+        snapshot[key] = _count_map(df, column) if not df.empty else {}
+    top_lane = _top_bucket(snapshot.get("lane_counts"))
+    if top_lane is not None:
+        snapshot["top_lane"] = top_lane[0]
+        snapshot["top_lane_count"] = top_lane[1]
+    else:
+        snapshot["top_lane"] = ""
+        snapshot["top_lane_count"] = 0
+    return snapshot
+
+
+def read_false_positive_triage_snapshot(*, output_root: Path) -> dict[str, object]:
+    """Load the latest suppression-aware false-positive triage export."""
+    return read_triage_snapshot(
+        path=output_root / "diagnostics" / "vt_false_positive_review_triage_latest.csv",
+        lane_column="review_lane",
+        action_column="recommended_triage_action",
+        extra_count_columns={"global_policy_counts": "global_policy_bucket"},
+    )
+
+
+def read_android_missing_resolution_snapshot(*, output_root: Path) -> dict[str, object]:
+    """Load the latest Android missing-resolution triage export."""
+    snapshot = read_triage_snapshot(
+        path=output_root / "diagnostics" / "android_missing_resolution_triage_latest.csv",
+        lane_column="review_lane",
+        action_column="recommended_action",
+        extra_count_columns={"cluster_counts": "package_cluster_key"},
+    )
+    top_lane = _top_bucket_with_priority(
+        snapshot.get("lane_counts"),
+        priority_order=(
+            "blank_package_review",
+            "package_cluster_review",
+            "singleton_package_review",
+            "vt_tail_review",
+        ),
+    )
+    if top_lane is not None:
+        snapshot["top_lane"] = top_lane[0]
+        snapshot["top_lane_count"] = top_lane[1]
+    return snapshot
+
+
+def read_policy_held_token_risk_snapshot(*, output_root: Path) -> dict[str, object]:
+    """Load the latest policy-held family-token risk export."""
+    snapshot = read_triage_snapshot(
+        path=output_root / "diagnostics" / "android_policy_held_token_risk_latest.csv",
+        lane_column="policy_hold_lane",
+        action_column="recommended_next_action",
+        extra_count_columns={
+            "token_kind_counts": "token_kind",
+            "policy_held_token_counts": "policy_held_token",
+            "android_package_name_counts": "android_package_name",
+        },
+    )
+    token_kind = _top_bucket(snapshot.get("token_kind_counts"))
+    if token_kind is not None:
+        snapshot["top_token_kind"] = token_kind[0]
+        snapshot["top_token_kind_count"] = token_kind[1]
+    else:
+        snapshot["top_token_kind"] = ""
+        snapshot["top_token_kind_count"] = 0
+    held_token = _top_bucket(snapshot.get("policy_held_token_counts"))
+    if held_token is not None:
+        snapshot["top_policy_held_token"] = held_token[0]
+        snapshot["top_policy_held_token_count"] = held_token[1]
+    else:
+        snapshot["top_policy_held_token"] = ""
+        snapshot["top_policy_held_token_count"] = 0
+    package_name = _top_bucket(snapshot.get("android_package_name_counts"))
+    if package_name is not None:
+        snapshot["top_android_package_name"] = package_name[0]
+        snapshot["top_android_package_name_count"] = package_name[1]
+    else:
+        snapshot["top_android_package_name"] = ""
+        snapshot["top_android_package_name_count"] = 0
+    path = snapshot.get("path")
+    if isinstance(path, Path) and path.is_file():
+        try:
+            df = pd.read_csv(path)
+        except Exception:
+            df = pd.DataFrame()
+        if not df.empty and "confidence_bucket" in df.columns:
+            high_mask = df["confidence_bucket"].fillna("").astype(str).str.strip().isin(["high", "strong"])
+            snapshot["high_or_strong_row_count"] = safe_int(high_mask.sum(), 0)
+            high_token = _top_bucket(_count_map_masked(df, "policy_held_token", high_mask))
+            if high_token is not None:
+                snapshot["top_high_or_strong_policy_held_token"] = high_token[0]
+                snapshot["top_high_or_strong_policy_held_token_count"] = high_token[1]
+            else:
+                snapshot["top_high_or_strong_policy_held_token"] = ""
+                snapshot["top_high_or_strong_policy_held_token_count"] = 0
+            high_package = _top_bucket(_count_map_masked(df, "android_package_name", high_mask))
+            if high_package is not None:
+                snapshot["top_high_or_strong_android_package_name"] = high_package[0]
+                snapshot["top_high_or_strong_android_package_name_count"] = high_package[1]
+            else:
+                snapshot["top_high_or_strong_android_package_name"] = ""
+                snapshot["top_high_or_strong_android_package_name_count"] = 0
+        else:
+            snapshot["high_or_strong_row_count"] = 0
+            snapshot["top_high_or_strong_policy_held_token"] = ""
+            snapshot["top_high_or_strong_policy_held_token_count"] = 0
+            snapshot["top_high_or_strong_android_package_name"] = ""
+            snapshot["top_high_or_strong_android_package_name_count"] = 0
+    return snapshot
+
+
+def triage_status(*, row_count: int | None, freshness: str) -> str:
+    """Return traffic-light status for a triage export."""
+    if row_count is None:
+        return "YELLOW"
+    if freshness == "stale":
+        return "RED"
+    if freshness in {"aging", "unknown"}:
+        return "YELLOW"
+    return "YELLOW" if row_count > 0 else "GREEN"
+
+
+def triage_detail(
+    row_count: int | None,
+    *,
+    noun: str,
+    top_bucket: tuple[str, int] | None = None,
+    freshness: str | None = None,
+) -> str:
+    """Render a compact operator-facing triage detail."""
+    if row_count is None:
+        return "report missing"
+    detail = f"{row_count} {noun}"
+    if top_bucket is not None:
+        name, count = top_bucket
+        detail += f"; top={name} ({count})"
+    if freshness:
+        detail += f"; freshness={freshness}"
+    return detail
+
+
+def choose_priority_triage(
+    *,
+    android_missing_triage: dict[str, object],
+    fp_triage: dict[str, object],
+) -> dict[str, str | int]:
+    """Choose the first triage queue the operator should open."""
+    candidates: list[dict[str, str | int]] = []
+    for label, payload, action in (
+        (
+            "Android missing-resolution triage",
+            android_missing_triage,
+            "Open Android missing-resolution triage first.",
+        ),
+        (
+            "VT false-positive triage",
+            fp_triage,
+            "Open VT false-positive triage first.",
+        ),
+    ):
+        if not isinstance(payload, dict) or not payload:
+            continue
+        freshness = str(payload.get("freshness", "") or "").strip()
+        row_count = safe_int(payload.get("row_count", 0), 0)
+        top_lane = str(payload.get("top_lane", "") or "").strip()
+        top_lane_count = safe_int(payload.get("top_lane_count", 0), 0)
+        if freshness == "stale":
+            action = f"Refresh {label.lower()} export first, then reopen it."
+        candidates.append(
+            {
+                "label": label,
+                "row_count": row_count,
+                "freshness": freshness,
+                "top_lane": top_lane,
+                "top_lane_count": top_lane_count,
+                "action": action,
+            }
+        )
+    if not candidates:
+        return {}
+    freshness_rank = {"current": 0, "aging": 1, "unknown": 2, "stale": 3, "missing": 4}
+    candidates.sort(
+        key=lambda item: (
+            -safe_int(item.get("row_count", 0), 0),
+            freshness_rank.get(str(item.get("freshness", "")), 5),
+            -safe_int(item.get("top_lane_count", 0), 0),
+            str(item.get("label", "")),
+        )
+    )
+    return candidates[0]
+
+
+def build_taxonomy_curation_posture(*, readiness: dict[str, object]) -> dict[str, object]:
+    """Build one normalized taxonomy-curation posture summary from readiness signals."""
+    taxonomy = readiness.get("taxonomy_signals", {}) if isinstance(readiness, dict) else {}
+    if not isinstance(taxonomy, dict):
+        taxonomy = {}
+    conflict_count = safe_int(taxonomy.get("family_type_conflict_count", 0), 0)
+    high_priority_count = safe_int(taxonomy.get("high_priority_conflict_count", 0), 0)
+    action_counts = taxonomy.get("family_type_conflict_action_counts", {})
+    if not isinstance(action_counts, dict):
+        action_counts = {}
+    issue_counts = taxonomy.get("family_type_conflict_issue_counts", {})
+    if not isinstance(issue_counts, dict):
+        issue_counts = {}
+
+    dominant_action = ""
+    dominant_action_count = 0
+    if action_counts:
+        dominant_action, dominant_action_count = max(
+            ((str(k), safe_int(v, 0)) for k, v in action_counts.items() if str(k).strip()),
+            key=lambda item: (item[1], item[0]),
+            default=("", 0),
+        )
+    dominant_issue = ""
+    dominant_issue_count = 0
+    if issue_counts:
+        dominant_issue, dominant_issue_count = max(
+            ((str(k), safe_int(v, 0)) for k, v in issue_counts.items() if str(k).strip()),
+            key=lambda item: (item[1], item[0]),
+            default=("", 0),
+        )
+    note = taxonomy_curation_discipline_note(
+        conflict_count=conflict_count,
+        high_priority_count=high_priority_count,
+        action_counts=action_counts,
+        issue_counts=issue_counts,
+    )
+    return {
+        "conflict_count": conflict_count,
+        "high_priority_count": high_priority_count,
+        "action_counts": action_counts,
+        "issue_counts": issue_counts,
+        "dominant_action": dominant_action,
+        "dominant_action_count": dominant_action_count,
+        "dominant_issue": dominant_issue,
+        "dominant_issue_count": dominant_issue_count,
+        "note": note,
+    }
+
+
+def build_backlog_debt_summary(
+    *,
+    readiness: dict[str, object],
+    fp_triage: dict[str, object],
+    android_missing_triage: dict[str, object],
+    policy_held_triage: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Build one ranked cross-surface debt ledger for operator cleanup."""
+    taxonomy = readiness.get("taxonomy_signals", {}) if isinstance(readiness, dict) else {}
+    posture = build_taxonomy_curation_posture(readiness=readiness)
+    missing_primary_lanes = _missing_primary_lane_rows(taxonomy if isinstance(taxonomy, dict) else {})
+
+    def _row(*, code: str, label: str, count: int, action: str, detail: str = "") -> dict[str, object] | None:
+        if count <= 0:
+            return None
+        return {
+            "code": str(code),
+            "label": label,
+            "count": int(count),
+            "action": action,
+            "detail": detail,
+        }
+
+    rows = [
+        _row(
+            code=BACKLOG_ROW_ANDROID_MISSING_RESOLUTION,
+            label=ANDROID_MISSING_RESOLUTION_BACKLOG_LABEL,
+            count=safe_int(android_missing_triage.get("row_count", 0), 0),
+            action=(
+                "Refresh the Android missing-resolution triage export first."
+                if str(android_missing_triage.get("freshness", "") or "").strip() == "stale"
+                else "Open Android missing-resolution triage and work the dominant package/lane cluster."
+            ),
+            detail=(
+                f"freshness={str(android_missing_triage.get('freshness', '') or '').strip()}; "
+                f"top_lane={str(android_missing_triage.get('top_lane', '') or '').strip() or 'none'}"
+            ),
+        ),
+        _row(
+            code=BACKLOG_ROW_VT_FALSE_POSITIVE,
+            label=VT_FALSE_POSITIVE_REVIEW_RESIDUE_LABEL,
+            count=safe_int(fp_triage.get("row_count", 0), 0),
+            action=(
+                "Refresh the VT false-positive triage export first."
+                if str(fp_triage.get("freshness", "") or "").strip() == "stale"
+                else "Open VT false-positive triage and drain the dominant review lane."
+            ),
+            detail=(
+                f"freshness={str(fp_triage.get('freshness', '') or '').strip()}; "
+                f"top_lane={str(fp_triage.get('top_lane', '') or '').strip() or 'none'}"
+            ),
+        ),
+        _row(
+            code=BACKLOG_ROW_MISSING_PRIMARY_LABELS,
+            label="Missing primary labels",
+            count=safe_int(taxonomy.get("missing_primary_label_samples", 0), 0),
+            action=_missing_primary_action(taxonomy if isinstance(taxonomy, dict) else {}),
+            detail=_missing_primary_detail(taxonomy if isinstance(taxonomy, dict) else {}),
+        ),
+        _row(
+            code=BACKLOG_ROW_TRUE_UNRESOLVED_FAMILY,
+            label=TRUE_UNRESOLVED_FAMILY_DEBT_LABEL,
+            count=safe_int(taxonomy.get("unresolved_family_samples", 0), 0),
+            action="Open profile readiness mapping inventory and review live unresolved family slugs.",
+            detail="Resolved families not mapped into authority and not already policy-held.",
+        ),
+        _row(
+            code=BACKLOG_ROW_POLICY_HELD_FAMILY,
+            label=POLICY_HELD_FAMILY_NOISE_LABEL,
+            count=safe_int(taxonomy.get("policy_held_family_samples", 0), 0),
+            action=_policy_held_family_action(policy_held_triage),
+            detail=_augment_policy_held_family_detail(
+                _policy_held_family_detail(taxonomy if isinstance(taxonomy, dict) else {}),
+                policy_held_triage,
+            ),
+        ),
+        _row(
+            code=BACKLOG_ROW_FAMILY_TYPE_CONFLICT,
+            label=FAMILY_TYPE_CONFLICT_BACKLOG_LABEL,
+            count=safe_int(taxonomy.get("family_type_conflict_count", 0), 0),
+            action="Open profile readiness mapping inventory and review family/type conflict candidates.",
+            detail=(
+                str(posture.get("note", "") or "").strip()
+                or "Rows where DB type, label semantics, or authority mapping still disagree."
+            ),
+        ),
+    ]
+    ranked_rows = [row for row in rows if isinstance(row, dict)]
+    ranked_rows.sort(key=lambda row: (-safe_int(row.get("count", 0), 0), str(row.get("label", ""))))
+    top = ranked_rows[0] if ranked_rows else {}
+    return {
+        "rows": ranked_rows,
+        "focus_code": str(top.get("code", "") or ""),
+        "focus_label": str(top.get("label", "") or ""),
+        "focus_count": safe_int(top.get("count", 0), 0),
+        "focus_action": str(top.get("action", "") or ""),
+        "focus_detail": str(top.get("detail", "") or ""),
+        "missing_primary_label_lanes": missing_primary_lanes,
+        "taxonomy_curation_posture": posture,
+    }
+
+
+def read_run_backlog_snapshot_counts(path: Path) -> dict[str, int]:
+    """Parse a run-scoped backlog summary markdown file into label->count."""
+    if not path.is_file():
+        return {}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    counts: dict[str, int] = {}
+    for label in _RUN_BACKLOG_LABELS:
+        pattern = re.compile(rf"{re.escape(label)}(?: \(\*\*| \(|: )(\d+)")
+        match = pattern.search(text)
+        if match:
+            counts[label] = safe_int(match.group(1), 0)
+    return counts
+
+
+def build_backlog_markdown_lines(
+    *,
+    debt_summary: dict[str, Any],
+    priority_backlog: dict[str, Any],
+    backlog_md: Path | None = None,
+    android_path: Path | str | None = None,
+    fp_path: Path | str | None = None,
+    policy_held_path: Path | str | None = None,
+    heading: str = "## Backlog and operator queues",
+    ranked_style: str = "bullets",
+    max_rows: int = 5,
+) -> list[str]:
+    """Render a shared Markdown backlog/debt block for exported report surfaces."""
+    lines: list[str] = [heading, ""]
+    if isinstance(debt_summary, dict) and debt_summary.get("rows"):
+        lines.append(
+            f"- **Focus area:** {str(debt_summary.get('focus_label', '—') or '—')} "
+            f"({int(debt_summary.get('focus_count', 0) or 0)} row(s))"
+        )
+        source_note = str(debt_summary.get("source_note", "") or "").strip()
+        if source_note:
+            lines.append(f"- **Source:** {source_note}")
+        focus_detail = str(debt_summary.get("focus_detail", "") or "").strip()
+        if focus_detail:
+            lines.append(f"- **Focus detail:** {focus_detail}")
+        lane_split = _format_missing_primary_lane_split(
+            debt_summary.get("missing_primary_label_lanes", [])
+            if isinstance(debt_summary.get("missing_primary_label_lanes", []), list)
+            else []
+        )
+        if lane_split:
+            lines.append(f"- **Missing-primary lane split:** {lane_split}")
+        snapshot_note = str(debt_summary.get("snapshot_compare_note", "") or "").strip()
+        if snapshot_note:
+            lines.append(f"- **Run snapshot:** {snapshot_note}")
+        focus_action = str(debt_summary.get("focus_action", "") or "").strip()
+        if focus_action:
+            lines.append(f"- **Recommended next action:** {focus_action}")
+        if isinstance(priority_backlog, dict) and priority_backlog:
+            lines.append(
+                f"- **Priority queue:** {str(priority_backlog.get('label', '—') or '—')} "
+                f"[freshness={str(priority_backlog.get('freshness', '—') or '—')}]"
+            )
+        taxonomy_posture = debt_summary.get("taxonomy_curation_posture", {}) if isinstance(debt_summary, dict) else {}
+        curation_note = str((taxonomy_posture or {}).get("note", "") or "").strip()
+        if curation_note:
+            lines.append(f"- **Family taxonomy posture:** {curation_note}")
+        if ranked_style == "table":
+            lines.extend(
+                [
+                    "- **Ranked debt:**",
+                    "",
+                    "| category | count | detail |",
+                    "| --- | ---: | --- |",
+                ]
+            )
+            for row in list(debt_summary.get("rows", []))[:max_rows]:
+                if not isinstance(row, dict):
+                    continue
+                lines.append(
+                    f"| {str(row.get('label', '') or '')} | {int(row.get('count', 0) or 0)} | {str(row.get('detail', '') or '—')} |"
+                )
+        else:
+            lines.append("- **Ranked debt:**")
+            for row in list(debt_summary.get("rows", []))[:max_rows]:
+                if not isinstance(row, dict):
+                    continue
+                detail = str(row.get("detail", "") or "").strip()
+                suffix = f" — {detail}" if detail else ""
+                lines.append(
+                    f"  - {str(row.get('label', '') or '')}: {int(row.get('count', 0) or 0)}{suffix}"
+                )
+    else:
+        lines.append("- No ranked backlog debt rows surfaced.")
+
+    if backlog_md is not None or android_path or fp_path or policy_held_path:
+        lines.append("- **Related queue artifacts:**")
+        if backlog_md is not None:
+            lines.append(f"  - backlog debt summary: `{backlog_md}`")
+        if android_path:
+            lines.append(f"  - android missing-resolution triage: `{android_path}`")
+        if fp_path:
+            lines.append(f"  - vt false-positive triage: `{fp_path}`")
+        if policy_held_path:
+            lines.append(f"  - policy-held token risk: `{policy_held_path}`")
+    lines.append("")
+    return lines
+
+
+def build_backlog_terminal_lines(
+    *,
+    debt_summary: dict[str, Any],
+    priority_backlog: dict[str, Any] | None = None,
+    backlog_path: Path | str | None = None,
+    max_rows: int = 5,
+) -> list[str]:
+    """Render a shared terminal-friendly backlog/debt block."""
+    lines: list[str] = []
+    if not isinstance(debt_summary, dict) or not debt_summary:
+        return lines
+    lines.append(
+        f"Focus area: {str(debt_summary.get('focus_label', '—') or '—')} "
+        f"({int(debt_summary.get('focus_count', 0) or 0)} row(s))"
+    )
+    source_note = str(debt_summary.get("source_note", "") or "").strip()
+    if source_note:
+        lines.append(f"Source: {source_note}")
+    focus_detail = str(debt_summary.get("focus_detail", "") or "").strip()
+    if focus_detail:
+        lines.append(f"Focus detail: {focus_detail}")
+    lane_split = _format_missing_primary_lane_split(
+        debt_summary.get("missing_primary_label_lanes", [])
+        if isinstance(debt_summary.get("missing_primary_label_lanes", []), list)
+        else []
+    )
+    if lane_split:
+        lines.append(f"Missing-primary lane split: {lane_split}")
+    snapshot_note = str(debt_summary.get("snapshot_compare_note", "") or "").strip()
+    if snapshot_note:
+        lines.append(f"Run snapshot: {snapshot_note}")
+    focus_action = str(debt_summary.get("focus_action", "") or "").strip()
+    if focus_action:
+        lines.append(f"Recommended next action: {focus_action}")
+    for row in list(debt_summary.get("rows", []))[:max_rows]:
+        if not isinstance(row, dict):
+            continue
+        detail = str(row.get("detail", "") or "").strip()
+        suffix = f" — {detail}" if detail else ""
+        lines.append(
+            f"{str(row.get('label', '') or '')}: {int(row.get('count', 0) or 0)}{suffix}"
+        )
+    if isinstance(priority_backlog, dict) and priority_backlog:
+        lines.append(
+            f"Priority queue: {str(priority_backlog.get('label', '—') or '—')} "
+            f"[freshness={str(priority_backlog.get('freshness', '—') or '—')}]"
+        )
+    taxonomy_posture = debt_summary.get("taxonomy_curation_posture", {}) if isinstance(debt_summary, dict) else {}
+    curation_note = str((taxonomy_posture or {}).get("note", "") or "").strip()
+    if curation_note:
+        lines.append(curation_note)
+    if backlog_path:
+        lines.append(f"File: `{backlog_path}`")
+    return lines

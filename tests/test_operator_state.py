@@ -113,6 +113,38 @@ def test_build_operator_state_exposes_cohort_lock_status(tmp_path: Path) -> None
     assert shared["cohort_lock_status"] == "count-only"
 
 
+def test_build_operator_state_exposes_taxonomy_label_drift(tmp_path: Path) -> None:
+    out_root = tmp_path / "output"
+    run_id = "20260515T141956Z__58d84f"
+    run_root = out_root / "runs" / run_id
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "publication_ready_status": "READY",
+                "paper_cohort_contract": {
+                    "cohort_lock_status": "membership_locked_taxonomy_drift",
+                    "sample_id_lock": {
+                        "taxonomy_label_drift": {
+                            "drift_class": "taxonomy_expansion",
+                            "family_delta": 5,
+                            "type_delta": 1,
+                        }
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    shared = operator_state.build_operator_state(output_base=out_root, run_id=run_id)
+
+    assert shared["cohort_lock_status"] == "taxonomy-drift"
+    assert shared["taxonomy_label_drift"]["drift_class"] == "taxonomy_expansion"
+
+
 def test_build_operator_state_respects_dict_shaped_evidence_mode_false(tmp_path: Path) -> None:
     out_root = tmp_path / "output"
     run_id = "20260515T141956Z__58d84f"

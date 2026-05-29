@@ -15,7 +15,7 @@ KNOWN_FAMILIES = {
     "boogr", "hqwar", "nloader", "coper", "bankbot", "ermac", "teabot",
     "blackrock", "cerberus", "trickmo", "tgtoxic", "copybara", "monokle",
     "marcher", "vultur", "joker", "xenomorph", "zanubis", "irata", "gigabud",
-    "spyloan", "sonicspy"
+    "spyloan", "sonicspy", "otpstealer"
 }
 
 FAMILY_ALIAS = {

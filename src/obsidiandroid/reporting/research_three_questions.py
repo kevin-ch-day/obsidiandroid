@@ -47,6 +47,62 @@ def _vendor_merge_coverage_label(pct: float) -> str:
     return "absent"
 
 
+def _bottom_line_interpretation(*, macro_f1: float) -> str:
+    """Return a compact bottom-line interpretation aligned with headline quality."""
+    try:
+        value = float(macro_f1)
+    except (TypeError, ValueError):
+        value = 0.0
+    if value >= 0.75:
+        return (
+            "treat this as promising, not final proof, until split/SMOTE/leakage skeptic audits are reviewed."
+        )
+    if value >= 0.50:
+        return (
+            "treat this as mixed evidence; review split, class concentration, and skeptic audits before making strong claims."
+        )
+    return (
+        "treat this as weak evidence; do not frame the headline model as promising until split, label, and failure diagnostics are resolved."
+    )
+
+
+def _research_run_summary_blockers(bundle: dict[str, Any]) -> list[str]:
+    """Return the dominant compact-summary blockers for weak or mixed runs."""
+    blockers: list[str] = []
+    q1 = bundle.get("q1") if isinstance(bundle.get("q1"), dict) else {}
+    if q1 and not bool(q1.get("supervised_family_claims_suitable", True)):
+        blockers.append("supervised family claims are not yet suitable")
+
+    temporal = getattr(app_config, "RUNTIME_TEMPORAL_SPLIT_SUMMARY", None)
+    if isinstance(temporal, dict):
+        dropped = int(temporal.get("test_rows_dropped_unseen_train_classes", 0) or 0)
+        if dropped > 0:
+            blockers.append(f"temporal holdout dropped {dropped} future-only family row(s)")
+
+    try:
+        gap = float(bundle.get("gap_w_m") or 0.0)
+    except (TypeError, ValueError):
+        gap = 0.0
+    if gap > 0.05:
+        blockers.append(f"weighted F1 exceeds Macro-F1 by +{gap:.4f}, so dominant families remain much easier than the tail")
+
+    confusion_rows = bundle.get("confusion_rows") if isinstance(bundle.get("confusion_rows"), list) else []
+    cross_type_rows = [
+        row for row in confusion_rows if isinstance(row, dict) and str(row.get("shared_malware_type", "")).strip().lower() == "no"
+    ]
+    if cross_type_rows:
+        blockers.append(f"cross-type confusions appear in {len(cross_type_rows)}/{len(confusion_rows)} top confusion pairs")
+
+    top_confusion = next((row for row in confusion_rows if isinstance(row, dict) and int(row.get("count", 0) or 0) > 0), None)
+    if isinstance(top_confusion, dict):
+        blockers.append(
+            "top confusion="
+            f"{top_confusion.get('true_label', '')} -> {top_confusion.get('predicted_label', '')} "
+            f"n={int(top_confusion.get('count', 0) or 0)}"
+        )
+    return blockers[:4]
+
+
 def _permission_signal_quality_metric(diagnostics_dir: Path, metric: str) -> int | None:
     """Read one integer metric from permission-signal-quality CSV when present."""
     path = diagnostics_dir / "permission_signal_quality.csv"
@@ -109,10 +165,25 @@ def _raw_permission_observation_count(samples_df: pd.DataFrame | None) -> int | 
 
 
 def _load_ablation_df(diagnostics_dir: Path, run_id: str) -> pd.DataFrame:
-    p = oh.resolve_ablation_summary_path(diagnostics_dir, run_id, allow_partial=True)
-    if p.is_file():
+    """Load ablation results for the current run only.
+
+    The end-of-run research summary should never pull ablation data from a
+    global ``latest`` artifact, because that can leak stale results from a
+    different run into the current run narrative when ablations are disabled.
+    Other diagnostics may still use broader fallback resolution where that is
+    appropriate; this summary intentionally does not.
+    """
+    rid = oh.normalize_artifact_run_id(run_id)
+    candidates = (
+        diagnostics_dir / f"ablation_summary_{rid}.csv",
+        diagnostics_dir / "ablation_summary.latest.csv",
+        diagnostics_dir / f"ablation_summary_partial_{rid}.csv",
+    )
+    for path in candidates:
+        if not path.is_file():
+            continue
         try:
-            return pd.read_csv(p)
+            return pd.read_csv(path)
         except Exception:
             return pd.DataFrame()
     return pd.DataFrame()
@@ -1196,6 +1267,10 @@ def print_research_questions_terminal(
     fused_perm_pct = float(q2.get("permission_signal_pct") or 0)
     vendor_merge_pct = float(q2.get("vendor_merge_pct") or 0)
     vendor_merge_label = _vendor_merge_coverage_label(vendor_merge_pct)
+    bottom_line = _bottom_line_interpretation(
+        macro_f1=float(bundle.get("macro_f1") or 0)
+    )
+    summary_blockers = _research_run_summary_blockers(bundle)
     if compact:
         pr("1. Interpretation:")
         pr(
@@ -1216,8 +1291,11 @@ def print_research_questions_terminal(
         pr("3. Bottom line:")
         pr(
             f"   {mk}: Macro-F1={float(bundle.get('macro_f1') or 0):.4f}, "
-            f"weighted F1={float(bundle.get('wf1') or 0):.4f}; treat this as promising, not final proof, until split/SMOTE/leakage skeptic audits are reviewed."
+            f"weighted F1={float(bundle.get('wf1') or 0):.4f}; {bottom_line}"
         )
+        if summary_blockers:
+            pr("4. Dominant blockers:")
+            pr("   " + "; ".join(summary_blockers) + ".")
         pr("")
         return
 

@@ -38,3 +38,19 @@ def test_compare_model_performance_ranks_by_macro_f1(monkeypatch) -> None:
     summary_df = ml_comparator_summary.compare_model_performance(results)
     assert not summary_df.empty
     assert summary_df.iloc[0]["Model"] == "model_b"
+
+
+def test_model_display_name_aliases() -> None:
+    """Known model aliases should be compact and stable."""
+    assert ml_comparator_summary._model_display_name("logistic_regression") == "log_reg"  # pylint: disable=protected-access
+    assert ml_comparator_summary._model_display_name("balanced_random_forest") == "bal_rf"  # pylint: disable=protected-access
+
+
+def test_model_display_name_truncates_unknown() -> None:
+    """Unknown long model names should be ellipsized."""
+    label = ml_comparator_summary._model_display_name(
+        "a_very_long_custom_model_name",
+        max_len=10,
+    )  # pylint: disable=protected-access
+    assert len(label) <= 10
+    assert label.endswith("…")

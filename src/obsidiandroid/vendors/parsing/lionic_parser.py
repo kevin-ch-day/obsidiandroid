@@ -6,11 +6,16 @@ from .parser_defaults import ParserDefaults
 from . import parser_confidence_estimator
 
 FAMILY_ALIAS = {
-    "banbra": "bankbot", "basbanke": "bankbot", "banker": "bankbot",
-    "spyloan": "spynote", "callerspy": "spynote", "smsspy": "spynote", "mobok": "spynote",
-    "hiddad": "adware", "hiddenad": "adware", "hiddapp": "adware", "browserad": "adware",
+    # Preserve family-like vendor tokens when local authority shows they span
+    # multiple governed families. Collapsing them into a single canonical
+    # family here creates false agreement and makes taxonomy repair noisier.
+    "banbra": "banbra", "basbanke": "basbanke", "banker": "banker",
+    "spyloan": "spyloan", "callerspy": "callerspy", "smsspy": "smsspy", "mobok": "mobok",
+    "hiddad": "hiddad", "hiddenad": "hiddenad", "hiddapp": "hiddapp", "browserad": "browserad",
     "generic": "unknown"
 }
+
+BANKER_FAMILY_HINTS = {"banbra", "basbanke", "bankbot", "copybara", "copybara.b"}
 
 def split_label(classification: str) -> list:
     return [p.strip() for p in classification.replace(":", ".").split(".") if p.strip()]
@@ -24,6 +29,8 @@ def normalize_family(family: str) -> str:
 
 def infer_threat_class(family: str) -> str:
     fam = family.lower()
+    if fam in BANKER_FAMILY_HINTS:
+        return "banker"
     if "rat" in fam or "remote" in fam:
         return "rat"
     if "bank" in fam:

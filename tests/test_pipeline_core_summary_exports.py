@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.orchestration.runtime_reporting import format_population_pipeline_summary_line
 from obsidiandroid.modeling import pipeline_core
 
 
@@ -175,7 +176,7 @@ def test_run_classifier_pipeline_exports_leakage_pruning_audit(
         {
             "sample_id": [101, 102],
             "family_id": [44, 51],
-            "family_canonical": ["Irata", "Applite"],
+            "family_canonical": ["Irata", "SpyNote"],
         }
     )
 
@@ -249,3 +250,93 @@ def test_export_leakage_pruning_audit_rejects_literal_none_directory(
         assert "literal 'None' path" in str(exc)
     else:
         raise AssertionError("expected literal None diagnostics path to be rejected")
+
+
+def test_format_population_pipeline_summary_line_includes_class_count(monkeypatch) -> None:
+    """Population summary helper should include class count and row accounting."""
+    monkeypatch.setattr(app_config, "RUNTIME_TRAINING_LABEL_CLASS_COUNT", 13, raising=False)
+    mc = {
+        "cohort_prepared_row_count": 1226,
+        "fused_feature_rows": 1226,
+        "aligned_supervised_rows": 1220,
+        "post_low_support_training_rows": 712,
+        "train_sample_count": 534,
+        "test_sample_count": 178,
+    }
+    line = format_population_pipeline_summary_line(mc)
+    assert "governed_cohort_n=1226" in line
+    assert "fused_feature_matrix_n=1226" in line
+    assert "train_n=534" in line
+    assert "test_n=178" in line
+    assert "distinct_family_labels_after_support=13" in line
+
+
+def test_format_population_pipeline_summary_line_empty_without_core_counts() -> None:
+    """Empty payload should return an empty summary line."""
+    assert format_population_pipeline_summary_line({}) == ""
+
+
+def test_run_classifier_pipeline_drops_low_support_without_other_group(monkeypatch, tmp_path: Path) -> None:
+    """Default low-support behavior should drop rows, not create a synthetic 'other' class."""
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_FEATURE_CONTRACT_EXPORT", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_LEAKAGE_ASSESSMENT_EXPORT", False, raising=False)
+    monkeypatch.setattr(app_config, "GROUP_LOW_SUPPORT_LABELS", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", 20, raising=False)
+
+    captured: dict[str, object] = {}
+
+    features = pd.DataFrame({"f1": [0.1, 0.2]}, index=[1, 2])
+    labels = pd.Series(["fam_a", "fam_b"], index=[1, 2], name="family")
+
+    monkeypatch.setattr(pipeline_core, "align_data", lambda *_args, **_kwargs: (features, labels))
+    monkeypatch.setattr(
+        pipeline_core.distribution_reporter,
+        "print_family_distribution",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def _fake_apply_min_family_support(**kwargs):
+        captured.update(kwargs)
+        return kwargs["features_df"], kwargs["labels_df"], 0, 0, []
+
+    monkeypatch.setattr(
+        pipeline_core.distribution_reporter,
+        "apply_min_family_support",
+        _fake_apply_min_family_support,
+    )
+    monkeypatch.setattr(pipeline_core, "_prune_low_information_features", lambda df: df)
+    monkeypatch.setattr(
+        pipeline_core,
+        "_prune_potential_leakage_features",
+        lambda feature_df, _labels_df: feature_df,
+    )
+    monkeypatch.setattr(
+        pipeline_core,
+        "train_models",
+        lambda *_args, **_kwargs: (
+            {"logistic_regression": {"evaluation": {"accuracy": 1.0}}},
+            [],
+        ),
+    )
+    monkeypatch.setattr(pipeline_core, "summarize_models", lambda _results: "logistic_regression")
+    monkeypatch.setattr(pipeline_core, "promote_default_model", lambda *_args, **_kwargs: None)
+
+    result = pipeline_core.run_classifier_pipeline(
+        features_df=features,
+        samples_df=pd.DataFrame(
+            {
+                "sample_id": [1, 2],
+                "type_slug": ["banker", "adware"],
+                "family_canonical": ["fam_a", "fam_b"],
+            }
+        ),
+        save_model=False,
+        models=["logistic_regression"],
+    )
+
+    assert "logistic_regression" in result
+    assert int(captured["min_support"]) == 20
+    assert captured["group_label"] is None
+    runtime_meta = getattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", pd.DataFrame())
+    assert "type_slug" in runtime_meta.columns

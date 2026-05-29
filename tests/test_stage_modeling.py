@@ -2,6 +2,7 @@
 
 import pandas as pd
 
+from config import app_config
 from obsidiandroid.pipeline import stage_modeling
 
 
@@ -67,3 +68,38 @@ def test_enrich_vendor_trust_flags_merges_engine_scores() -> None:
     assert int(lionic["trusted_vendor_flag"]) == 1
     assert int(drweb["trusted_vendor_flag"]) == 0
     assert int(unknown["trusted_vendor_flag"]) == 0
+
+
+def test_resolve_vendor_include_fields_respects_evidence_controls(monkeypatch) -> None:
+    """Evidence controls should drop Parsed Family from headline feature fields."""
+
+    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", True, raising=False)
+    assert stage_modeling._resolve_vendor_include_fields() == [
+        "Threat Class",
+        "Malware Type",
+    ]
+
+    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_MODE", True, raising=False)
+    assert stage_modeling._resolve_vendor_include_fields() == [
+        "Threat Class",
+        "Malware Type",
+    ]
+
+    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_MODE", False, raising=False)
+    assert stage_modeling._resolve_vendor_include_fields() == [
+        "Parsed Family",
+        "Threat Class",
+        "Malware Type",
+    ]
+
+
+def test_resolve_vendor_include_fields_defaults_in_normal_mode(monkeypatch) -> None:
+    """Parsed family should be included when evidence controls are not enabled."""
+    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_MODE", False, raising=False)
+    assert stage_modeling._resolve_vendor_include_fields() == [
+        "Parsed Family",
+        "Threat Class",
+        "Malware Type",
+    ]

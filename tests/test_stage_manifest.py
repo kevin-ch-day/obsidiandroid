@@ -9,6 +9,7 @@ import pytest
 
 from obsidiandroid.pipeline import stage_manifest
 from obsidiandroid.pipeline.manifest import paper_compliance_checks
+from obsidiandroid.pipeline.manifest import stage_manifest_writers as smw
 from obsidiandroid.pipeline.manifest import stage_manifest_evidence_pack as evidence_pack
 
 build_paper_compliance_checks = paper_compliance_checks.build_paper_compliance_checks
@@ -830,6 +831,71 @@ def test_write_run_summary_json_omits_diagnostics_copy_in_compact_mode(
     assert not (diagnostics_dir / "run_summary_r2.json").exists()
     assert payload["publication_ready_status"] == "FAIL"
     assert "paper_compliance_not_pass" in payload["publication_ready_reasons"]
+
+
+def test_finalize_output_hygiene_bundle_still_writes_run_science_index_in_compact_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_id = "r_science"
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / run_id
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / "run_observability_summary.json").write_text("{}", encoding="utf-8")
+
+    from obsidiandroid.diagnostics import output_inventory
+    from obsidiandroid.diagnostics import diagnostic_provenance
+    from obsidiandroid.observability.pipeline_observability import finalize as obs_finalize
+    from obsidiandroid.observability.pipeline_observability import run_health
+
+    seen: dict[str, object] = {"science_index_called": False, "virtual_layout_called": False}
+
+    monkeypatch.setattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", False, raising=False)
+    monkeypatch.setattr(smw, "emit_run_authority_coverage_bundle", lambda **_kwargs: {})
+
+    def _fake_write_virtual_layout(_run_root: Path) -> Path:
+        seen["virtual_layout_called"] = True
+        return _run_root / "virtual_layout.json"
+
+    monkeypatch.setattr(output_inventory, "write_virtual_layout", _fake_write_virtual_layout)
+    monkeypatch.setattr(output_inventory, "write_artifact_inventory_bundle", lambda **_kwargs: ([], {}))
+    monkeypatch.setattr(
+        output_inventory,
+        "write_run_evidence_index_md",
+        lambda **_kwargs: run_root / "run_evidence_index.md",
+    )
+
+    def _fake_write_run_science_index_md(**_kwargs):
+        seen["science_index_called"] = True
+        out = diagnostics_dir / "run_science_index.md"
+        out.write_text("# run science\n", encoding="utf-8")
+        return out
+
+    monkeypatch.setattr(output_inventory, "write_run_science_index_md", _fake_write_run_science_index_md)
+    monkeypatch.setattr(output_inventory, "print_output_hygiene_terminal_summary", lambda **_kwargs: None)
+    monkeypatch.setattr(diagnostic_provenance, "record_diagnostic_provenance", lambda **_kwargs: None)
+    monkeypatch.setattr(obs_finalize, "finalize_pipeline_observability", lambda **_kwargs: diagnostics_dir / "run_observability_summary.json")
+    monkeypatch.setattr(run_health, "print_unified_run_health", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_write_run_artifact_index", lambda **_kwargs: None)
+
+    stage_manifest._finalize_output_hygiene_bundle(  # pylint: disable=protected-access
+        run_root=run_root,
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile={"profile_id": "dev_smoke"},
+        manifest={"cohort_size": 10, "trained_models": [], "paper_mode": {"resolved_value": False}},
+        manifest_context={},
+        artifact_list=[],
+        compliance_report=None,
+        paper_mode=False,
+        evidence_mode=False,
+        result_code=0,
+    )
+
+    assert seen["science_index_called"] is True
+    assert seen["virtual_layout_called"] is False
+    assert (diagnostics_dir / "run_science_index.md").is_file()
 
 
 def test_write_manifest_with_pointer_paper_mode(tmp_path: Path, monkeypatch) -> None:

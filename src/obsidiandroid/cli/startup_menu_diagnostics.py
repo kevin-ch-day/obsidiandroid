@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import subprocess
+import sys
 from typing import Callable
 
 
@@ -96,6 +97,75 @@ def run_family_label_taxonomy_audit_script(
         operator_script_resolver=operator_script_resolver,
         subprocess_run=subprocess_run,
     )
+
+
+def run_android_missing_resolution_triage_script(
+    *,
+    operator_script_resolver: Callable[[str], Path] = repo_operator_script,
+    subprocess_run: Callable[..., object] = subprocess.run,
+) -> int:
+    """Invoke the Android missing-resolution triage diagnostics script."""
+    script_path = operator_script_resolver("diagnostics", "report_android_missing_resolution_triage.py")
+    if not script_path.exists():
+        du.print_error(f"[MENU] Missing script: {script_path}")
+        return 1
+    cmd = [sys.executable, str(script_path)]
+    du.print_info(f"[MENU] Running: {' '.join(cmd)}")
+    proc = subprocess_run(cmd, check=False)
+    return int(getattr(proc, "returncode", 0) or 0)
+
+
+def run_vt_false_positive_review_triage_script(
+    *,
+    operator_script_resolver: Callable[[str], Path] = repo_operator_script,
+    subprocess_run: Callable[..., object] = subprocess.run,
+) -> int:
+    """Invoke the suppression-aware VT false-positive triage diagnostics script."""
+    script_path = operator_script_resolver("diagnostics", "report_vt_false_positive_review_triage.py")
+    if not script_path.exists():
+        du.print_error(f"[MENU] Missing script: {script_path}")
+        return 1
+    cmd = [sys.executable, str(script_path)]
+    du.print_info(f"[MENU] Running: {' '.join(cmd)}")
+    proc = subprocess_run(cmd, check=False)
+    return int(getattr(proc, "returncode", 0) or 0)
+
+
+def run_policy_held_token_risk_script(
+    *,
+    operator_script_resolver: Callable[[str], Path] = repo_operator_script,
+    subprocess_run: Callable[..., object] = subprocess.run,
+) -> int:
+    """Invoke the policy-held token-risk diagnostics script."""
+    script_path = operator_script_resolver("diagnostics", "report_android_policy_held_token_risk.py")
+    if not script_path.exists():
+        du.print_error(f"[MENU] Missing script: {script_path}")
+        return 1
+    cmd = [sys.executable, str(script_path)]
+    du.print_info(f"[MENU] Running: {' '.join(cmd)}")
+    proc = subprocess_run(cmd, check=False)
+    return int(getattr(proc, "returncode", 0) or 0)
+
+
+def refresh_backlog_triage_exports(
+    *,
+    run_android_missing_resolution_triage_action: Callable[[], int],
+    run_vt_false_positive_review_triage_action: Callable[[], int],
+    run_policy_held_token_risk_action: Callable[[], int] | None = None,
+) -> int:
+    """Refresh backlog triage exports in one operator action."""
+    du.print_info("[MENU] Refreshing backlog triage exports...")
+    android_rc = int(run_android_missing_resolution_triage_action() or 0)
+    vt_rc = int(run_vt_false_positive_review_triage_action() or 0)
+    policy_rc = int(run_policy_held_token_risk_action() or 0) if run_policy_held_token_risk_action else 0
+    if android_rc == 0 and vt_rc == 0 and policy_rc == 0:
+        du.print_success("[MENU] Backlog triage exports refreshed.")
+        return 0
+    du.print_warning(
+        "[MENU] Backlog triage refresh completed with issues "
+        f"(android_missing_resolution={android_rc}, vt_false_positive={vt_rc}, policy_held_token_risk={policy_rc})."
+    )
+    return android_rc or vt_rc or policy_rc
 
 
 def open_run_science_index(
@@ -274,6 +344,9 @@ def launch_data_diagnostics_menu(
     launch_permission_intelligence_coverage_action: Callable[[], None],
     launch_feature_matrix_modality_action: Callable[[], None],
     launch_cohort_family_audit_action: Callable[[], None],
+    refresh_backlog_triage_exports_action: Callable[[], int],
+    launch_android_missing_resolution_triage_action: Callable[[], int],
+    launch_vt_false_positive_review_triage_action: Callable[[], int],
 ) -> None:
     """Launch the top-level Data Diagnostics submenu."""
     output_root = canonical_output_root()
@@ -302,11 +375,14 @@ def launch_data_diagnostics_menu(
             last_overview_signature = signature
         data_sections = [
             "Open run science index",
-            "Pipeline profile tuning (latest manifest)",
+            "Pipeline profile tuning (resolved manifest)",
             "Profile readiness mapping inventory",
+            "Refresh backlog triage exports",
             "Taxonomy & Support Tuning",
             "Taxonomy Consistency Review",
             "Family/Type Authority Coverage",
+            "Android Missing-Resolution Triage",
+            "VT False-Positive Review Triage",
             "Parser & Vendor Coverage",
             "Permission Intelligence Coverage",
             "Feature Matrix / Modality Coverage",
@@ -331,24 +407,33 @@ def launch_data_diagnostics_menu(
             show_profile_readiness_mapping_inventory()
             continue
         if choice == 4:
-            launch_taxonomy_support_tuning_compact_menu(read_latest_run_id=read_latest_run_id)
+            refresh_backlog_triage_exports_action()
             continue
         if choice == 5:
-            launch_taxonomy_consistency_review_action()
+            launch_taxonomy_support_tuning_compact_menu(read_latest_run_id=read_latest_run_id)
             continue
         if choice == 6:
-            launch_family_type_authority_coverage_action()
+            launch_taxonomy_consistency_review_action()
             continue
         if choice == 7:
-            launch_parser_vendor_coverage_action()
+            launch_family_type_authority_coverage_action()
             continue
         if choice == 8:
-            launch_permission_intelligence_coverage_action()
+            launch_android_missing_resolution_triage_action()
             continue
         if choice == 9:
-            launch_feature_matrix_modality_action()
+            launch_vt_false_positive_review_triage_action()
             continue
         if choice == 10:
+            launch_parser_vendor_coverage_action()
+            continue
+        if choice == 11:
+            launch_permission_intelligence_coverage_action()
+            continue
+        if choice == 12:
+            launch_feature_matrix_modality_action()
+            continue
+        if choice == 13:
             launch_cohort_family_audit_action()
             continue
         du.print_warning("[MENU] Invalid choice received.")
@@ -369,6 +454,10 @@ __all__ = [
     "launch_taxonomy_support_tuning_compact_menu",
     "open_run_science_index",
     "print_cohort_family_artifact_paths",
+    "refresh_backlog_triage_exports",
+    "run_android_missing_resolution_triage_script",
+    "run_policy_held_token_risk_script",
     "run_family_label_taxonomy_audit_script",
+    "run_vt_false_positive_review_triage_script",
     "show_profile_readiness_mapping_inventory",
 ]

@@ -25,6 +25,14 @@ def _read_json_payload(path: Path | None) -> dict[str, object]:
     return blob if isinstance(blob, dict) else {}
 
 
+def _format_artifact_stat(*, label: str, path: Path | None, run_diag: Path) -> tuple[str, str]:
+    """Render an artifact path plus provenance in one stable stat line."""
+    if path is None:
+        return label, "missing"
+    origin = oh.classify_artifact_origin(path, run_diag)
+    return label, f"{path.resolve()} [{origin}]"
+
+
 def launch_permission_intelligence_coverage_menu(
     *,
     read_latest_run_id,
@@ -62,9 +70,13 @@ def launch_permission_intelligence_coverage_menu(
             [rdiag / "permission_signal_quality_report.md", gdiag / "permission_signal_quality_report.md"],
         ),
     ]
+    used_global_mirror = False
     for label, candidates in rows:
         hit = first_existing_path_fn(candidates)
-        du.print_stat(label, str(hit.resolve()) if hit else "missing")
+        stat_label, stat_value = _format_artifact_stat(label=label, path=hit, run_diag=rdiag)
+        du.print_stat(stat_label, stat_value)
+        if hit is not None and oh.classify_artifact_origin(hit, rdiag) == "global_latest_mirror":
+            used_global_mirror = True
 
     q2 = read_json_dict(rdiag / "modality_contribution_summary.json") or read_json_dict(
         gdiag / "modality_contribution_summary.json"
@@ -104,6 +116,11 @@ def launch_permission_intelligence_coverage_menu(
         du.print_note(
             "No modality_contribution_summary.json found for this run (or global mirror). "
             "Generate Q1–Q3 diagnostics for the run to populate Q2 permission intelligence."
+        )
+
+    if used_global_mirror:
+        du.print_warning(
+            "[MENU] Permission intelligence coverage is using at least one global latest mirror artifact rather than a run-scoped file."
         )
 
     du.print_info(
@@ -147,9 +164,17 @@ def launch_feature_matrix_modality_menu(
         ),
         ("Feature group survival", [rdiag / "feature_group_survival.csv", gdiag / "feature_group_survival.csv"]),
     ]
+    used_global_mirror = False
     for label, candidates in entries:
         hit = first_existing_path_fn(candidates)
-        du.print_stat(label, str(hit.resolve()) if hit else "missing")
+        stat_label, stat_value = _format_artifact_stat(label=label, path=hit, run_diag=rdiag)
+        du.print_stat(stat_label, stat_value)
+        if hit is not None and oh.classify_artifact_origin(hit, rdiag) == "global_latest_mirror":
+            used_global_mirror = True
+    if used_global_mirror:
+        du.print_warning(
+            "[MENU] Feature matrix / modality coverage is using at least one global latest mirror artifact rather than a run-scoped file."
+        )
     print("")
 
 
@@ -179,12 +204,15 @@ def launch_taxonomy_consistency_review_menu(
         ]
     )
     split_payload = _read_json_payload(split_json_path)
+    split_json_origin = oh.classify_artifact_origin(split_json_path, rdiag)
+    split_md_origin = oh.classify_artifact_origin(split_md_path, rdiag)
     split_blob = (
         split_payload.get("taxonomy_split")
         if isinstance(split_payload.get("taxonomy_split"), dict)
         else {}
     )
     summary_path = first_existing_path_fn([oh.resolve_taxonomy_consistency_summary_path(rdiag, rid)])
+    summary_origin = oh.classify_artifact_origin(summary_path, rdiag)
     summary = read_json_dict(summary_path) if summary_path else {}
     if split_blob:
         rendering = (
@@ -216,6 +244,19 @@ def launch_taxonomy_consistency_review_menu(
         du.print_subheader("Compact summary")
         du.print_stat("Authority split source mode", str(split_payload.get("source_mode", "—") or "—"))
         du.print_stat(
+            "Artifact provenance",
+            ", ".join(
+                part
+                for part in (
+                    f"split_json={split_json_origin}" if split_json_origin != "missing" else "",
+                    f"split_md={split_md_origin}" if split_md_origin != "missing" else "",
+                    f"taxonomy_summary={summary_origin}" if summary_origin != "missing" else "",
+                )
+                if part
+            )
+            or "—",
+        )
+        du.print_stat(
             "Run-cohort authority scope",
             "available" if bool(run_scope.get("available", False)) else "unavailable",
         )
@@ -232,6 +273,10 @@ def launch_taxonomy_consistency_review_menu(
                     )
                 )
             ),
+        )
+        du.print_stat(
+            "Type-guard suppressions",
+            str(summary.get("type_guard_family_suppressed_count", "—")) if isinstance(summary, dict) else "—",
         )
         du.print_stat("Model prediction errors", str(model_prediction.get("count", "—")))
         du.print_stat(
@@ -259,15 +304,25 @@ def launch_taxonomy_consistency_review_menu(
         note = str(run_scope.get("note", "") or global_scope.get("note", "") or "").strip()
         if note:
             du.print_note(note)
+        if "global_latest_mirror" in {split_json_origin, split_md_origin, summary_origin}:
+            du.print_warning(
+                "[MENU] Taxonomy consistency review is using at least one global latest mirror artifact rather than a run-scoped file."
+            )
         print("")
     elif summary:
         du.print_subheader("Compact summary")
+        du.print_stat("Artifact provenance", summary_origin if summary_origin != "missing" else "—")
         du.print_stat("Rows evaluated", str(summary.get("rows_evaluated", "—")))
         du.print_stat("Taxonomy mismatches", str(summary.get("taxonomy_mismatch_count", "—")))
         du.print_stat("Claim-facing mismatches", str(summary.get("paper_facing_taxonomy_mismatch_count", "—")))
         du.print_stat("Type mismatches", str(summary.get("type_mismatch_count", "—")))
+        du.print_stat("Type-guard suppressions", str(summary.get("type_guard_family_suppressed_count", "—")))
         du.print_stat("Missing type labels", str(summary.get("type_missing_label_count", "—")))
         du.print_stat("Family label mismatches", str(summary.get("family_label_mismatch_count", "—")))
+        if summary_origin == "global_latest_mirror":
+            du.print_warning(
+                "[MENU] Taxonomy consistency summary came from the global latest mirror rather than this run's diagnostics directory."
+            )
         print("")
     rows: list[tuple[str, list[Path]]] = [
         (
@@ -302,7 +357,8 @@ def launch_taxonomy_consistency_review_menu(
     ]
     for label, candidates in rows:
         hit = first_existing_path_fn(candidates)
-        du.print_stat(label, str(hit.resolve()) if hit else "missing")
+        stat_label, stat_value = _format_artifact_stat(label=label, path=hit, run_diag=rdiag)
+        du.print_stat(stat_label, stat_value)
     du.print_info(
         "[MENU] Prefer run-scoped names; global `*.latest.*` under output/diagnostics/ mirrors when hygiene omits duplicates."
     )

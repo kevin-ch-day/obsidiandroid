@@ -86,6 +86,67 @@ def test_emit_research_operator_report_surfaces_runtime_caveats(
         "write_diagnostics_index_md",
         lambda *_args, **_kwargs: diagnostics_dir / "index.md",
     )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "_read_run_taxonomy_summary",
+        lambda _diagnostics_dir, _run_id: {
+            "taxonomy_mismatch_count": 377,
+            "paper_facing_taxonomy_mismatch_count": 0,
+            "mismatch_reason_counts": [
+                {"mismatch_reason": "type_mapping_conflict", "count": 310},
+                {"mismatch_reason": "missing_type_token", "count": 64},
+                {"mismatch_reason": "noncanonical_type_token", "count": 3},
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "get_cohort_readiness_snapshot",
+        lambda: {
+            "status": "ok",
+            "warnings": [],
+            "buckets": {},
+            "taxonomy_signals": {
+                "missing_primary_label_samples": 153,
+                "unresolved_family_samples": 76,
+                "policy_held_family_samples": 44,
+                "family_type_conflict_count": 12,
+                "high_priority_conflict_count": 9,
+                "family_type_conflict_action_counts": {
+                    "review_db_type_mapping": 7,
+                    "add_db_family_mapping": 3,
+                    "replace_unknown_db_type": 2,
+                },
+                "family_type_conflict_issue_counts": {
+                    "type_mismatch": 7,
+                    "db_family_missing": 3,
+                    "type_unknown": 2,
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "read_false_positive_triage_snapshot",
+        lambda **_kwargs: {
+            "row_count": 1,
+            "freshness": "current",
+            "top_lane": "real_malware_family_or_class_review",
+            "top_lane_count": 1,
+            "lane_counts": {"real_malware_family_or_class_review": 1},
+        },
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "read_android_missing_resolution_snapshot",
+        lambda **_kwargs: {
+            "row_count": 3,
+            "freshness": "current",
+            "top_lane": "blank_package_review",
+            "top_lane_count": 2,
+            "lane_counts": {"blank_package_review": 2, "package_cluster_review": 1},
+        },
+    )
     monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("obsidiandroid.cli.ui.display.print_subheader", lambda *_args, **_kwargs: None)
 
@@ -145,8 +206,172 @@ def test_emit_research_operator_report_surfaces_runtime_caveats(
     assert "SMOTE remained enabled in evidence/publication mode" in text
     assert "Temporal profile used a non-temporal holdout policy" in text
     assert "stratified_seeded" in text
-    assert "Taxonomy mismatch backlog present" in text
+    assert "Taxonomy split issues present" in text
+    assert "Family taxonomy curation discipline required" in text
     assert "Taxonomy mismatches: total=377; claim-facing=0." in text
+    assert "policy-held generic/coarse token residue" in text
+    assert "Taxonomy curation discipline: high-priority conflicts=9/12; dominant action=review_db_type_mapping (7); dominant issue=type_mismatch (7)." in text
+    assert "Focus area: Missing primary labels (153 row(s))" in text
+    assert "Source: live DB now (operator debt is not a frozen run-time snapshot)" in text
+    assert "Focus detail: Android + PI-observed rows missing classification_primary." in text
+    assert "Android missing-resolution backlog: 3" in text
+    assert "Priority queue: True unresolved family debt" not in text
+    assert "Priority queue: Android missing-resolution triage [freshness=current]" in text
+    assert f"backlog_debt_summary_{run_id}.md" in text
+    backlog_md = diagnostics_dir / f"backlog_debt_summary_{run_id}.md"
+    assert backlog_md.is_file()
+    backlog_text = backlog_md.read_text(encoding="utf-8")
+    assert "**Source:** live DB now (operator debt is not a frozen run-time snapshot)" in backlog_text
+
+
+def test_emit_research_operator_report_flags_disabled_label_resolution(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_label_off"
+
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_headline_vs_ablation_contract_reports",
+        lambda **_kwargs: (None, None, {}),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_taxonomy_type_authority_reports",
+        lambda *_args, **_kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.write_research_question_artifacts",
+        lambda **_kwargs: {"_written_paths": [], "q1": {"label_strategy": {}}},
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.print_research_questions_terminal",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "write_diagnostics_index_md",
+        lambda *_args, **_kwargs: diagnostics_dir / "index.md",
+    )
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_subheader", lambda *_args, **_kwargs: None)
+
+    captured: list[str] = []
+    operator_dashboard.clear_operator_state()
+    operator_dashboard.emit_research_operator_report(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="dev_smoke",
+        manifest_context={"label_resolution_enabled": False},
+        samples_df=pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
+        model_results={},
+        top_model=None,
+        artifact_list=[],
+        print_fn=captured.append,
+    )
+
+    text = "\n".join(captured)
+    assert "Label resolution stage was disabled" in text
+    assert "family/type guard telemetry were not exercised" in text
+    assert "Type-guard suppressions: unavailable for this run because structured label resolution was disabled." in text
+
+
+def test_emit_research_operator_report_surfaces_type_guard_suppression_count(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_type_guard"
+    (diagnostics_dir / f"taxonomy_consistency_summary_{run_id}.json").write_text(
+        json.dumps(
+            {
+                "taxonomy_mismatch_count": 0,
+                "paper_facing_taxonomy_mismatch_count": 0,
+                "type_guard_family_suppressed_count": 4,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_headline_vs_ablation_contract_reports",
+        lambda **_kwargs: (None, None, {}),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_taxonomy_type_authority_reports",
+        lambda *_args, **_kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.write_research_question_artifacts",
+        lambda **_kwargs: {"_written_paths": [], "q1": {"label_strategy": {}}},
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.print_research_questions_terminal",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "write_diagnostics_index_md",
+        lambda *_args, **_kwargs: diagnostics_dir / "index.md",
+    )
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_subheader", lambda *_args, **_kwargs: None)
+
+    captured: list[str] = []
+    operator_dashboard.clear_operator_state()
+    operator_dashboard.emit_research_operator_report(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="dev_smoke",
+        manifest_context={"label_resolution_enabled": True},
+        samples_df=pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
+        model_results={},
+        top_model=None,
+        artifact_list=[],
+        print_fn=captured.append,
+    )
+
+    text = "\n".join(captured)
+    assert "Type-guard suppressions: 4 structured family prediction(s) were demoted for cross-type incompatibility." in text
+    assert "Type guard suppressed cross-type family predictions" in text
+    assert "demoted 4 known-family prediction(s)" in text
+
+
+def test_queue_runtime_operator_issues_surfaces_taxonomy_label_drift(tmp_path: Path) -> None:
+    """Taxonomy-only drift should be an operator issue without implying sample membership loss."""
+    operator_dashboard.clear_operator_state()
+    operator_dashboard._queue_runtime_operator_issues(  # pylint: disable=protected-access
+        diagnostics_dir=tmp_path,
+        manifest_context={
+            "paper_cohort_contract": {
+                "validation": {"status": "degraded_taxonomy_label_drift"},
+                "sample_id_lock": {
+                    "taxonomy_label_drift": {
+                        "matched_sample_count": 1187,
+                        "expected_family_count": 35,
+                        "observed_family_count": 40,
+                        "expected_type_count": 3,
+                        "observed_type_count": 4,
+                        "family_delta": 5,
+                        "type_delta": 1,
+                        "drift_class": "taxonomy_expansion",
+                        "recommended_action": "Review newly split families/types inside the locked sample set.",
+                    }
+                },
+            }
+        },
+    )
+
+    issues = getattr(app_config, "RUNTIME_OPERATOR_ISSUES", [])
+    assert issues
+    text = "\n".join(str(line) for issue in issues for line in [issue["title"], *issue["lines"]])
+    assert "Locked cohort membership preserved but taxonomy labels drifted" in text
+    assert "families 40 vs expected 35" in text
+    assert "types 4 vs expected 3" in text
+    assert "Taxonomy drift class=taxonomy_expansion" in text
+    assert "family_delta=+5" in text
+    assert "sample-id membership" in text
 
 
 def test_emit_research_operator_report_flags_temporal_holdout_future_only_drop(
@@ -321,7 +546,9 @@ def test_emit_research_operator_report_uses_compact_artifact_pointer(
 
     text = "\n".join(captured)
     assert "Start here" in text
+    assert "Operator debt" in text
     assert "Skeptic audits" in text
+    assert f"backlog_debt_summary_{run_id}.md" in text
     assert "Grouped artifact writes (estimated)" not in text
     assert f"headline_vs_ablation_contract_comparison_{run_id}.md" not in text
 
@@ -404,3 +631,242 @@ def test_emit_research_operator_report_surfaces_label_strategy_guidance(
     assert "Label policy is explicit: train family on `family_id` and coarse taxonomy on `type_slug`." in text
     assert "Do not promote raw label surfaces such as `category_primary`" in text
     assert "Raw subtype aligns materially better than raw primary." in text
+
+
+def test_emit_research_operator_report_surfaces_support_threshold_tracks(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_support_tracks"
+
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_headline_vs_ablation_contract_reports",
+        lambda **_kwargs: (None, None, {}),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_taxonomy_type_authority_reports",
+        lambda *_args, **_kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_taxonomy_authority_split_reports",
+        lambda *_args, **_kwargs: (None, None, None, None, None),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.write_research_question_artifacts",
+        lambda **_kwargs: {"_written_paths": [], "q1": {}, "q2": {}, "q3": {}},
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.print_research_questions_terminal",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.ml_tuning_recommendations.write_ml_tuning_recommendations",
+        lambda **_kwargs: (
+            diagnostics_dir / f"ml_tuning_recommendations_{run_id}.md",
+            diagnostics_dir / f"ml_tuning_recommendations_{run_id}.csv",
+            diagnostics_dir / f"ml_tuning_recommendations_{run_id}.json",
+            {"recommendations": []},
+        ),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.data_problem_quantification.write_data_problem_quantification",
+        lambda **_kwargs: (
+            diagnostics_dir / f"data_problem_quantification_{run_id}.md",
+            diagnostics_dir / f"data_problem_quantification_{run_id}.csv",
+            diagnostics_dir / f"data_problem_quantification_{run_id}.json",
+            {
+                "priority_score": {"composite_problem_score_0_100": 72.5},
+                "support_gap": {
+                    "families_with_gap_le_5": 1,
+                    "samples_needed_to_make_all_families_trainable": 96,
+                },
+                "support_threshold_curve": {
+                    "threshold_20": {
+                        "threshold": 20,
+                        "trainable_classes": 17,
+                        "retained_rows": 957,
+                        "dropped_rows": 230,
+                    },
+                    "recommended_exploratory_threshold": {
+                        "threshold": 10,
+                        "trainable_classes": 31,
+                        "retained_rows": 1168,
+                        "dropped_rows": 19,
+                    },
+                },
+                "training_policy_recommendations": {
+                    "tracks": [
+                        {
+                            "track": "exploratory_expanded_class_threshold",
+                            "recommended_action": "Run this as a separate exploratory track.",
+                        }
+                    ]
+                },
+                "issue_flags": [
+                    {
+                        "severity": "medium",
+                        "issue": "dual_support_threshold_track",
+                        "value": 10,
+                        "threshold": "retains >=90%",
+                        "recommended_action": "Keep threshold 20 for evidence claims.",
+                    }
+                ],
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "_build_reporting_backlog_summary",
+        lambda **_kwargs: ({}, None, None, {}),
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "write_diagnostics_index_md",
+        lambda *_args, **_kwargs: diagnostics_dir / "index.md",
+    )
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda *_args, **_kwargs: None)
+
+    captured: list[str] = []
+    operator_dashboard.clear_operator_state()
+    operator_dashboard.emit_research_operator_report(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="dev_fast",
+        manifest_context={},
+        samples_df=pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
+        model_results={},
+        top_model=None,
+        artifact_list=[],
+        print_fn=captured.append,
+    )
+
+    text = "\n".join(captured)
+    assert "Conservative support track: threshold=20 classes=17 retained=957 dropped=230." in text
+    assert "Exploratory expanded-class track: threshold=10 classes=31 retained=1168 dropped=19" in text
+    assert "Training policy `exploratory_expanded_class_threshold`" in text
+
+
+def test_write_diagnostics_index_surfaces_backlog_section(tmp_path: Path) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_idx"
+    for name in (
+        f"backlog_debt_summary_{run_id}.md",
+        "android_missing_resolution_triage_latest.csv",
+        "vt_false_positive_review_triage_latest.csv",
+        "android_policy_held_token_risk_latest.csv",
+    ):
+        (diagnostics_dir / name).write_text("placeholder\n", encoding="utf-8")
+
+    out_path = operator_dashboard.write_diagnostics_index_md(
+        diagnostics_dir,
+        run_id=run_id,
+        artifact_list=[str(diagnostics_dir / f"backlog_debt_summary_{run_id}.md")],
+    )
+
+    assert out_path is not None
+    text = out_path.read_text(encoding="utf-8")
+    assert "Backlog and review queues" in text
+    assert f"`backlog_debt_summary_{run_id}.md`" in text
+    assert "`android_missing_resolution_triage_latest.csv`" in text
+    assert "`vt_false_positive_review_triage_latest.csv`" in text
+    assert "`android_policy_held_token_risk_latest.csv`" in text
+
+
+def test_emit_research_operator_report_downgrades_claim_readiness_for_weak_family_evidence(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_claims"
+    (diagnostics_dir / f"taxonomy_consistency_summary_{run_id}.json").write_text(
+        json.dumps({"taxonomy_mismatch_count": 0}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_headline_vs_ablation_contract_reports",
+        lambda **_kwargs: (None, None, {}),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_taxonomy_type_authority_reports",
+        lambda *_args, **_kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.print_research_questions_terminal",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "write_diagnostics_index_md",
+        lambda *_args, **_kwargs: diagnostics_dir / "index.md",
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "_read_run_taxonomy_summary",
+        lambda _diagnostics_dir, _run_id: {"taxonomy_mismatch_count": 0},
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "get_cohort_readiness_snapshot",
+        lambda: {"status": "ok", "warnings": [], "buckets": {}, "taxonomy_signals": {}},
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "read_false_positive_triage_snapshot",
+        lambda **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "read_android_missing_resolution_snapshot",
+        lambda **_kwargs: {},
+    )
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_subheader", lambda *_args, **_kwargs: None)
+    def _fake_rq(**_kwargs):
+        return {
+            "_written_paths": [],
+            "macro_f1": 0.3261,
+            "wf1": 0.5890,
+            "q1": {
+                "supervised_family_claims_suitable": False,
+                "label_strategy": {
+                    "preferred_family_target": "family_id",
+                    "preferred_type_target": "type_slug",
+                },
+            },
+        }
+
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.write_research_question_artifacts",
+        _fake_rq,
+    )
+
+    captured: list[str] = []
+    operator_dashboard.clear_operator_state()
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_TEMPORAL_SPLIT_SUMMARY",
+        {"test_rows_dropped_unseen_train_classes": 219},
+        raising=False,
+    )
+    operator_dashboard.emit_research_operator_report(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="malicious_temporal_stability_locked",
+        manifest_context={"label_authority": {"active_training_classes": 18}},
+        samples_df=pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
+        model_results={},
+        top_model=None,
+        artifact_list=[],
+        print_fn=captured.append,
+    )
+
+    text = "\n".join(captured)
+    assert "\nWeak\n" in text
+    assert "headline family Macro-F1 is weak (0.3261)." in text
+    assert "dataset foundation does not mark supervised family claims as suitable." in text
+    assert "temporal holdout dropped 219 future-only family row(s)." in text
+    assert "\nStrong\n" not in text

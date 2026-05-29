@@ -40,13 +40,11 @@ PERMISSION_GROUP_DEFINITIONS: tuple[tuple[str, re.Pattern[str]], ...] = (
 
 from config import app_config
 from obsidiandroid.database import db_engine
+from obsidiandroid.database import permission_contracts
 from obsidiandroid.cli.ui import display as du
 
 
 _TOKEN_PATTERN = re.compile(r"[^a-z0-9]+")
-_PERMISSION_OBS_NORM_AVAILABLE: bool | None = None
-
-
 def _permission_obs_key_expr() -> str:
     """Return the SQL expression for the canonical permission grouping key.
 
@@ -54,16 +52,7 @@ def _permission_obs_key_expr() -> str:
     live Permission Intel schema. Older fixtures or deployments may not expose it,
     so we fall back to the legacy lowercase/trim expression.
     """
-    global _PERMISSION_OBS_NORM_AVAILABLE  # pylint: disable=global-statement
-    if _PERMISSION_OBS_NORM_AVAILABLE is None:
-        columns = {
-            str(col).strip().lower()
-            for col in db_engine.get_table_columns("android_permission_obs_sample")
-        }
-        _PERMISSION_OBS_NORM_AVAILABLE = "permission_string_norm" in columns
-    if _PERMISSION_OBS_NORM_AVAILABLE:
-        return "COALESCE(NULLIF(TRIM(ops.permission_string_norm), ''), LOWER(TRIM(ops.permission_string)))"
-    return "LOWER(TRIM(ops.permission_string))"
+    return permission_contracts.permission_obs_key_expr(alias="ops")
 
 
 def augment_grouped_permission_counts(permission_df: pd.DataFrame, feature_df: pd.DataFrame) -> pd.DataFrame:

@@ -27,6 +27,16 @@ from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path
 ensure_repo_src_on_sys_path()
 
 from obsidiandroid.database import db_engine
+from obsidiandroid.database.authority_contracts import (
+    CURRENT_OPERATOR_VIEW_COLUMNS,
+    CURRENT_POLICY_TABLE_COLUMNS,
+    LIVE_AUTHORITY_REQUIRED_COLUMNS,
+    active_column_contract,
+    evaluate_object_contracts,
+    fetch_columns_df,
+    fetch_objects_df,
+    object_presence,
+)
 from obsidiandroid.database.schema_map import table
 
 
@@ -97,39 +107,16 @@ LIVE_AUTHORITY_OBJECTS = [
     "v_android_sample_family_type_authority",
 ]
 
-
 def _fetch_columns() -> pd.DataFrame:
-    query = """
-        SELECT
-            table_name,
-            column_name
-        FROM information_schema.columns
-        WHERE table_schema = DATABASE()
-        ORDER BY table_name, ordinal_position
-    """
-    return db_engine.execute_query(query, fetch=True, as_dataframe=True)
+    return fetch_columns_df()
 
 
 def _fetch_objects() -> pd.DataFrame:
-    query = """
-        SELECT table_name, table_type
-        FROM information_schema.tables
-        WHERE table_schema = DATABASE()
-        ORDER BY table_name
-    """
-    return db_engine.execute_query(query, fetch=True, as_dataframe=True)
+    return fetch_objects_df()
 
 
 def _object_presence(objects_df: pd.DataFrame, name: str) -> str:
-    if objects_df.empty:
-        return "missing"
-    mask = objects_df["table_name"].astype(str).str.lower() == str(name).lower()
-    if not mask.any():
-        return "missing"
-    table_type = str(objects_df.loc[mask, "table_type"].iloc[0]).upper()
-    if "VIEW" in table_type:
-        return "view"
-    return "table"
+    return object_presence(objects_df, name)
 
 
 def _missing_columns(columns_df: pd.DataFrame, object_name: str, required: list[str]) -> list[str]:
@@ -141,6 +128,10 @@ def _missing_columns(columns_df: pd.DataFrame, object_name: str, required: list[
         for value in columns_df.loc[mask, "column_name"].astype(str).tolist()
     }
     return [col for col in required if col.lower() not in present]
+
+
+def _active_column_contract(columns_df: pd.DataFrame, object_name: str) -> str:
+    return active_column_contract(columns_df, object_name)
 
 
 def _estimate_seedable_vendor_rows() -> pd.DataFrame:
@@ -206,11 +197,52 @@ def main() -> int:
 
     print("\nCurrent live authority objects")
     live_authority_present = False
+    live_authority_contracts = evaluate_object_contracts(
+        LIVE_AUTHORITY_REQUIRED_COLUMNS,
+        columns_df=columns_df,
+        objects_df=objects_df,
+    )
     for object_name in LIVE_AUTHORITY_OBJECTS:
         status = _object_presence(objects_df, object_name)
         if status != "missing":
             live_authority_present = True
-        print(f"- {object_name}: {status}")
+        missing = list(live_authority_contracts.get(object_name, {}).get("missing_columns", []))
+        missing_text = ", ".join(missing) if missing else "-"
+        print(f"- {object_name}: {status}; missing columns: {missing_text}")
+
+    print("\nCurrent operator views")
+    operator_views_ready = True
+    operator_contracts = evaluate_object_contracts(
+        CURRENT_OPERATOR_VIEW_COLUMNS,
+        columns_df=columns_df,
+        objects_df=objects_df,
+    )
+    for object_name in CURRENT_OPERATOR_VIEW_COLUMNS:
+        status = _object_presence(objects_df, object_name)
+        missing = list(operator_contracts.get(object_name, {}).get("missing_columns", []))
+        if status == "missing" or missing:
+            operator_views_ready = False
+        missing_text = ", ".join(missing) if missing else "-"
+        print(f"- {object_name}: {status}; missing columns: {missing_text}")
+
+    print("\nCurrent policy tables")
+    policy_tables_ready = True
+    policy_contracts = evaluate_object_contracts(
+        CURRENT_POLICY_TABLE_COLUMNS,
+        columns_df=columns_df,
+        objects_df=objects_df,
+    )
+    for object_name in CURRENT_POLICY_TABLE_COLUMNS:
+        status = _object_presence(objects_df, object_name)
+        missing = list(policy_contracts.get(object_name, {}).get("missing_columns", []))
+        active_contract = _active_column_contract(columns_df, object_name)
+        if status == "missing" or missing or active_contract == "missing":
+            policy_tables_ready = False
+        missing_text = ", ".join(missing) if missing else "-"
+        print(
+            f"- {object_name}: {status}; missing columns: {missing_text}; "
+            f"active-column contract: {active_contract}"
+        )
 
     print("\nEstimated seedable vendor-label evidence rows")
     seed_df = _estimate_seedable_vendor_rows()
@@ -227,6 +259,14 @@ def main() -> int:
         print("- base schema looks ready for the label-authority foundation pack")
         if live_authority_present:
             print("- current live authority coverage view is already present")
+            if operator_views_ready and policy_tables_ready:
+                print("- current operator triage views satisfy the expected live contract")
+                print("- current generic-token policy table satisfies the expected live contract")
+            else:
+                if not operator_views_ready:
+                    print("- one or more current operator triage views are missing or incomplete")
+                if not policy_tables_ready:
+                    print("- generic-token policy table is missing or incomplete for the live contract")
         elif any(status != "missing" for status in proposed_presence.values()):
             print("- label-authority foundation rollout appears partially applied")
         else:

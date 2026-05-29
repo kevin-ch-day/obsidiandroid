@@ -35,8 +35,10 @@ from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path
 
 ensure_repo_src_on_sys_path()
 
+from obsidiandroid.database import authority_contracts
 from obsidiandroid.database import db_engine
 from obsidiandroid.database import db_sample_metadata_queries
+from obsidiandroid.database import verdict_contracts
 from obsidiandroid.vendors.vendor_parser_map import get_vendor_parser_map
 from obsidiandroid.cli.ui import display as du
 
@@ -65,48 +67,19 @@ def _non_empty_series(series: pd.Series) -> pd.Series:
 
 def _fetch_vendor_columns() -> list[str]:
     """Return verdict-table vendor columns except non-engine fields."""
-    query = """
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_schema = DATABASE()
-          AND table_name = 'virustotal_sample_vendor_engine_verdicts'
-          AND column_name NOT IN ('sample_id', 'updated_at')
-        ORDER BY ordinal_position
-    """
-    df = db_engine.execute_query(query, fetch=True, as_dataframe=True)
-    if df is None or df.empty:
-        return []
-    return df["column_name"].astype(str).tolist()
+    return verdict_contracts.fetch_vendor_verdict_columns()
 
 
 def _fetch_vendor_engine_flags() -> pd.DataFrame:
     """Return active/trusted flags keyed by vendor_key."""
-    query = """
-        SELECT
-            LOWER(TRIM(vendor_key)) AS vendor_key,
-            is_engine_active,
-            is_trusted_vendor
-        FROM virustotal_vendor_engines
-    """
-    df = db_engine.execute_query(query, fetch=True, as_dataframe=True)
-    return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
+    return verdict_contracts.fetch_vendor_engine_flags()
 
 
 def _fetch_family_tokens() -> set[str]:
     """Build normalized family-token set for token-hit estimates."""
-    query = """
-        SELECT DISTINCT LOWER(TRIM(family_name)) AS family_name
-        FROM android_malware_family
-        WHERE is_active = 1
-          AND family_name IS NOT NULL
-          AND TRIM(family_name) <> ''
-    """
-    df = db_engine.execute_query(query, fetch=True, as_dataframe=True)
-    if df is None or df.empty:
-        return set()
-
+    families = authority_contracts.load_active_family_tokens()
     tokens: set[str] = set()
-    for family in df["family_name"].astype(str):
+    for family in families:
         clean = _normalize(family)
         if not clean:
             continue

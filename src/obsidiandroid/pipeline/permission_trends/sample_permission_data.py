@@ -5,35 +5,18 @@ from __future__ import annotations
 import pandas as pd
 
 from obsidiandroid.database import db_engine
+from obsidiandroid.database import permission_contracts
 
 from .constants import COMMON_PERMISSIONS, PERMISSION_ALIAS_MAP
 
-
-_PERMISSION_OBS_NORM_AVAILABLE: bool | None = None
-
-
 def _permission_obs_key_expr() -> str:
     """Return the canonical SQL expression for permission grouping keys."""
-    global _PERMISSION_OBS_NORM_AVAILABLE  # pylint: disable=global-statement
-    if _PERMISSION_OBS_NORM_AVAILABLE is None:
-        columns = {
-            str(col).strip().lower()
-            for col in db_engine.get_table_columns("android_permission_obs_sample")
-        }
-        _PERMISSION_OBS_NORM_AVAILABLE = "permission_string_norm" in columns
-    if _PERMISSION_OBS_NORM_AVAILABLE:
-        return "COALESCE(NULLIF(TRIM(permission_string_norm), ''), LOWER(TRIM(permission_string)))"
-    return "LOWER(TRIM(permission_string))"
+    return permission_contracts.permission_obs_key_expr()
 
 
 def _permission_obs_key_expr_ops() -> str:
     """Return the canonical SQL expression for ``ops``-aliased permission rows."""
-    global _PERMISSION_OBS_NORM_AVAILABLE  # pylint: disable=global-statement
-    if _PERMISSION_OBS_NORM_AVAILABLE is None:
-        _permission_obs_key_expr()
-    if _PERMISSION_OBS_NORM_AVAILABLE:
-        return "COALESCE(NULLIF(TRIM(ops.permission_string_norm), ''), LOWER(TRIM(ops.permission_string)))"
-    return "LOWER(TRIM(ops.permission_string))"
+    return permission_contracts.permission_obs_key_expr(alias="ops")
 
 
 def build_sample_core(samples_df: pd.DataFrame) -> pd.DataFrame:

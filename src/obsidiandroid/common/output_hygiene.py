@@ -60,6 +60,31 @@ def global_diagnostics_root() -> Path:
     )
 
 
+def classify_artifact_origin(path: Path | None, diagnostics_dir: Path) -> str:
+    """Classify one diagnostics artifact path for operator provenance reporting.
+
+    Returns one of:
+    - ``missing`` when no path is available
+    - ``run_scoped`` for canonical/stamped artifacts under the run diagnostics dir
+    - ``run_local_latest_duplicate`` for ``*.latest.*`` files under the run diagnostics dir
+    - ``global_latest_mirror`` for ``output/diagnostics/*.latest.*`` mirrors
+    - ``other`` when the path exists but falls outside the expected run/global roots
+    """
+    if path is None:
+        return "missing"
+    try:
+        resolved = Path(path).resolve()
+        run_diag = Path(diagnostics_dir).resolve()
+        global_diag = global_diagnostics_root().resolve()
+    except OSError:
+        return "other"
+    if resolved.parent == run_diag:
+        return "run_local_latest_duplicate" if ".latest." in resolved.name else "run_scoped"
+    if resolved.parent == global_diag:
+        return "global_latest_mirror"
+    return "other"
+
+
 def path_is_under_output_runs(path: Path) -> bool:
     """True when the path resolves under ``.../runs/<run_id>/``."""
     try:

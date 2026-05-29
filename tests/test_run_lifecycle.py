@@ -8,6 +8,7 @@ from obsidiandroid.common.run_lifecycle import (
     finalize_run_lifecycle_terminal,
     mark_run_lifecycle_running,
 )
+from obsidiandroid.pipeline import run_bounds
 
 
 def test_lifecycle_running_then_complete(tmp_path: Path) -> None:
@@ -67,3 +68,20 @@ def test_merge_lifecycle_into_run_summaries(tmp_path: Path, monkeypatch) -> None
     disk = json.loads((run_capsule / "run_summary.json").read_text(encoding="utf-8"))
     assert disk["lifecycle_state"] == "complete"
     assert "lifecycle_finished_at_utc" in disk
+
+
+def test_run_bounds_lifecycle() -> None:
+    """run_bounds module should preserve lifecycle capsules through set/get/clear."""
+    assert run_bounds.get_pipeline_run_bounds() is None
+    b = run_bounds.PipelineRunBounds(
+        run_id="rid",
+        profile_ref="p",
+        stop_after="full",
+        diagnostics_dir=Path("/tmp/diag"),
+        output_root_base=Path("/tmp/out"),
+        runtime_run_root=Path("/tmp/out/runs/rid"),
+    )
+    run_bounds.set_pipeline_run_bounds(b)
+    assert run_bounds.get_pipeline_run_bounds() is b
+    run_bounds.clear_pipeline_run_bounds()
+    assert run_bounds.get_pipeline_run_bounds() is None

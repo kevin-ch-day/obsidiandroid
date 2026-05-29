@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from obsidiandroid.common.authority_taxonomy_terms import taxonomy_count_drift_note
 from obsidiandroid.common.cohort_methodology import safe_int
 
 
@@ -16,6 +17,15 @@ def cohort_methodology_summary(payload: dict[str, Any]) -> str:
     parts: list[str] = []
     if lock_status:
         parts.append(f"lock={lock_status}")
+    drift = payload.get("taxonomy_label_drift")
+    if isinstance(drift, dict) and drift:
+        drift_class = str(drift.get("drift_class", "") or "").strip()
+        family_delta = safe_int(drift.get("family_delta", 0), 0)
+        type_delta = safe_int(drift.get("type_delta", 0), 0)
+        if drift_class:
+            parts.append(f"taxonomy={drift_class}")
+            parts.append(f"family_delta={family_delta:+d}")
+            parts.append(f"type_delta={type_delta:+d}")
     if membership_mode == "paper_locked_snapshot_membership":
         parts.append("membership=locked_sample_ids")
     elif membership_mode:
@@ -41,6 +51,9 @@ def cohort_methodology_notes(payload: dict[str, Any]) -> list[str]:
             "Malware rescue: "
             f"{rescued} rows were retained despite missing VT consensus because other malware evidence remained authoritative."
         )
+    drift = payload.get("taxonomy_label_drift")
+    if isinstance(drift, dict) and drift:
+        notes.append(taxonomy_count_drift_note(drift))
     return notes
 
 

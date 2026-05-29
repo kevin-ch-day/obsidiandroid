@@ -10,7 +10,7 @@ from obsidiandroid.vendors.contracts.parsed_label_metadata import ParsedLabelMet
 TRUE_FAMILIES = {
     "anubis", "cerberus", "eventbot", "sharkbot", "godfather", "teabot",
     "flubot", "chameleon", "blackrock", "ermac", "sova", "brunhilda",
-    "spyahmyth", "hqwar", "polph"
+    "spyahmyth", "hqwar", "polph", "otpstealer"
 }
 
 FAMILY_ALIAS_MAP = {
@@ -29,7 +29,7 @@ THREAT_HINT_TOKENS = {
 }
 
 FAMILY_REGEX_PATTERN = re.compile(
-    r"(anubis|cerberus|eventbot|sharkbot|godfather|teabot|flubot|ermac|sova|brunhilda|chameleon|blackrock|spyahmyth|hqwar|polph)",
+    r"(anubis|cerberus|eventbot|sharkbot|godfather|teabot|flubot|ermac|sova|brunhilda|chameleon|blackrock|spyahmyth|hqwar|polph|otpstealer)",
     re.IGNORECASE
 )
 

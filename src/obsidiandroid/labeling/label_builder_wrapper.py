@@ -1,20 +1,80 @@
-# Filename: src/obsidiandroid/labeling/label_builder_wrapper.py
-# Purpose  : Construct structured classification label records using vendor metadata and ML model output
-
 import pandas as pd
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional, Set
+
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.classification_builder import sample_classification_builder
-from obsidiandroid.labeling.malware_family_constants import normalize_family_name
+from obsidiandroid.labeling.malware_family_constants import (
+    is_known_family_name,
+    normalize_family_name,
+)
 from config import app_config
 
-def should_use_db_family(sample_metadata: dict, predicted_family: str) -> bool:
+
+UNKNOWN_TYPE_TOKENS = {"", "unknown", "none", "null", "nan"}
+
+
+def _normalize_type_token(value: Any) -> str:
+    """Normalize type tokens for safe cohort-authority checks."""
+    token = str(value or "").strip().lower()
+    return "" if token in UNKNOWN_TYPE_TOKENS else token
+
+
+def _normalize_family_type_profile() -> Dict[str, Set[str]]:
+    """
+    Build observed family→type mappings from run-level metadata.
+
+    This keeps DB family overrides aligned with authoritative sample type context and avoids
+    cross-type spillover where known family tokens are reused across incompatible types.
+    """
+    meta = getattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", None)
+    if not isinstance(meta, pd.DataFrame) or meta.empty:
+        return {}
+
+    family_column = next(
+        (c for c in ("family_canonical", "family_name") if c in meta.columns),
+        None,
+    )
+    if family_column is None or "type_slug" not in meta.columns:
+        return {}
+
+    profile: Dict[str, Set[str]] = {}
+    rows = meta[[family_column, "type_slug"]].copy()
+    rows = rows.dropna()
+    for family_value, type_value in rows.itertuples(index=False, name=None):
+        family_token = normalize_family_name(family_value)
+        type_token = _normalize_type_token(type_value)
+        if not family_token or not type_token:
+            continue
+        profile.setdefault(family_token, set()).add(type_token)
+    return profile
+
+
+def should_use_db_family(
+    sample_metadata: dict,
+    predicted_family: str,
+    family_type_profile: Optional[Dict[str, Set[str]]] = None,
+) -> bool:
     """
     Determine if the database family name should override the model prediction.
     """
-    family_name = normalize_family_name((sample_metadata or {}).get("family_name", ""))
+    raw_family_name = (sample_metadata or {}).get("family_name", "")
+    family_name = normalize_family_name(raw_family_name)
     predicted = normalize_family_name(predicted_family)
-    return bool(family_name and family_name != "unknown" and family_name != predicted)
+    if not family_name or family_name == predicted:
+        return False
+    if not is_known_family_name(raw_family_name):
+        return False
+
+    sample_type = _normalize_type_token((sample_metadata or {}).get("type_slug", ""))
+    if not sample_type or not family_type_profile:
+        return True
+
+    observed_types = family_type_profile.get(family_name, set())
+    if observed_types and sample_type not in observed_types:
+        return False
+
+    return True
+
 
 def apply_db_family_override(model_output: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -25,9 +85,10 @@ def apply_db_family_override(model_output: Dict[str, Any]) -> Dict[str, Any]:
     updated_predictions = {}
     override_count = 0
 
+    family_type_profile = _normalize_family_type_profile()
     for sample_id, predicted_family in predictions.items():
         sample_meta = metadata.get(sample_id, {}) or {}
-        if should_use_db_family(sample_meta, predicted_family):
+        if should_use_db_family(sample_meta, predicted_family, family_type_profile):
             db_family = sample_meta.get("family_name", "").strip()
             updated_predictions[sample_id] = db_family
             sample_meta["override_tag"] = "db_family_override"
@@ -43,6 +104,7 @@ def apply_db_family_override(model_output: Dict[str, Any]) -> Dict[str, Any]:
     model_output["predictions"] = updated_predictions
     model_output["metadata"] = metadata
     return model_output
+
 
 def _log_model_output_debug(model_output: Dict[str, Any]):
     """

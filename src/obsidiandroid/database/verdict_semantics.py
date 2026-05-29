@@ -1,6 +1,8 @@
-"""Shared verdict-label semantics and schema exclusions for wide AV verdict rows."""
+"""Shared verdict-label semantics and schema exclusions for AV verdict rows."""
 
 from __future__ import annotations
+
+import re
 
 NON_DETECTION_TOKENS = frozenset(
     {
@@ -45,6 +47,26 @@ VERDICT_METADATA_COLUMNS = frozenset(
     }
 )
 
+GENERIC_SIGNAL_RE = re.compile(
+    r"\b("
+    r"android|androidos|andr|trojan|agent|generic|malware|dropper|downloader|"
+    r"spyware|banker|riskware|pua|pup|adware|heur|heuristic|gen|variant|packed|"
+    r"fakeapp|fakeav|rogue|debugkey|testkey|hidden|locker|ransom|smsspy|spy"
+    r")\b"
+)
+PROVENANCE_NOISE_RE = re.compile(
+    r"\b("
+    r"apk|exe|dll|jar|zip|rar|bin|so|file|hash|unclassified|phishing|"
+    r"setup|uninstall|lib[a-z0-9_]+|classes\.dex|base\.apk"
+    r")\b"
+)
+OVERLAP_SIGNAL_RE = re.compile(
+    r"\b("
+    r"boogr|hqwar|bankbot|spynote|spyagent|secimage|penguin|metasploit|"
+    r"cerberus|copybara|basbanke|svpeng|blacklister|kidlogger|pnsms|ftzo"
+    r")\b"
+)
+
 
 def normalize_verdict_token(value: object) -> str:
     """Normalize a wide-table vendor verdict to a lowercase comparison token."""
@@ -66,3 +88,36 @@ def sql_non_detection_predicate(column_ref: str) -> str:
         f"{column_ref} IS NULL OR "
         f"TRIM(LOWER({column_ref})) IN ({token_sql})"
     )
+
+
+def tokenize_verdict_label(value: object) -> list[str]:
+    """Split a verdict label into lowercase alphanumeric tokens."""
+    text = normalize_verdict_token(value)
+    if not text:
+        return []
+    return [token for token in re.split(r"[^a-z0-9]+", text) if token]
+
+
+def classify_verdict_noise_bucket(
+    value: object,
+    *,
+    known_family_tokens: set[str] | None = None,
+    known_alias_tokens: set[str] | None = None,
+) -> str:
+    """Classify a raw vendor verdict label into a debt-analysis bucket."""
+    text = normalize_verdict_token(value)
+    if text in NON_DETECTION_TOKENS or not text:
+        return "non_detection"
+
+    tokens = set(tokenize_verdict_label(text))
+    family_hits = tokens & (known_family_tokens or set())
+    alias_hits = tokens & (known_alias_tokens or set())
+    if family_hits or alias_hits:
+        if OVERLAP_SIGNAL_RE.search(text):
+            return "family_overlap"
+        return "family_ready"
+    if PROVENANCE_NOISE_RE.search(text):
+        return "provenance_noise"
+    if GENERIC_SIGNAL_RE.search(text):
+        return "generic_signal"
+    return "other_signal"

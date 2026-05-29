@@ -6,6 +6,7 @@ import math
 from typing import Any
 
 from . import db_engine
+from . import schema_map
 from .db_config import DB_NAME, PERMISSION_INTEL_DB_NAME
 from obsidiandroid.labeling.taxonomy import is_known_family_name
 
@@ -16,6 +17,9 @@ _ANDROID_AUTHORITY_VIEW = "v_android_sample_family_type_authority"
 _ANDROID_FAMILY_RESOLVED_VIEW = "v_android_apk_family_resolved"
 _ANDROID_FAMILY_TABLE = "android_malware_family"
 _ANDROID_TYPE_TABLE = "android_malware_type"
+_GENERIC_TOKEN_TABLE = "vendor_label_generic_token_fact"
+_FP_SUPPRESSION_TABLE = "vt_false_positive_suppression_rule"
+_VT_VENDOR_VERDICTS_TABLE = "virustotal_sample_vendor_verdicts"
 
 _SMS_SIGNAL_PERMISSIONS = {
     "android.permission.read_sms",
@@ -73,35 +77,29 @@ _BUCKET_ORDER: tuple[str, ...] = (
 
 
 def _table_exists_primary(table_name: str) -> bool:
-    query = """
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_schema = %s AND table_name = %s
-        LIMIT 1
-    """
     try:
-        rows = db_engine.execute_query(query, params=(DB_NAME, table_name), fetch=True)
+        return db_engine.table_exists(table_name)
     except Exception:
         return False
-    return bool(rows)
+
+
+def _primary_table_columns(table_name: str) -> set[str]:
+    try:
+        rows = db_engine.get_table_columns(table_name)
+    except Exception:
+        return set()
+    return {
+        str(row).strip().lower()
+        for row in rows
+        if row is not None and str(row).strip()
+    }
 
 
 def _table_exists_permission(table_name: str) -> bool:
-    query = """
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_schema = %s AND table_name = %s
-        LIMIT 1
-    """
     try:
-        rows = db_engine.execute_permission_query(
-            query,
-            params=(PERMISSION_INTEL_DB_NAME, table_name),
-            fetch=True,
-        )
+        return db_engine.table_exists(table_name)
     except Exception:
         return False
-    return bool(rows)
 
 
 def _fetch_catalog_rows() -> list[dict[str, Any]]:
@@ -205,6 +203,154 @@ def _fetch_family_permission_signal_rows() -> list[dict[str, Any]]:
     for row in rows:
         out.append(dict(zip(columns, row)))
     return out
+
+
+def _fetch_active_generic_token_facts() -> dict[str, str]:
+    columns_available = _primary_table_columns(_GENERIC_TOKEN_TABLE)
+    active_filter = ""
+    active_column = schema_map.resolve_existing_column(
+        "vendor_label_generic_tokens",
+        "active_flag",
+        columns_available,
+    )
+    if active_column:
+        active_filter = f"AND {active_column} = 1"
+    query = f"""
+        SELECT normalized_token, token_kind
+        FROM `{DB_NAME}`.`{_GENERIC_TOKEN_TABLE}`
+        WHERE normalized_token IS NOT NULL
+          AND TRIM(normalized_token) <> ''
+          {active_filter}
+    """
+    columns, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
+    out: dict[str, str] = {}
+    for row in rows:
+        payload = dict(zip(columns, row))
+        token = _family_key(payload.get("normalized_token"))
+        if token is None:
+            continue
+        out[token] = _norm_text(payload.get("token_kind")).lower() or "policy_held_token"
+    return out
+
+
+def _fetch_missing_primary_label_lane_counts() -> list[dict[str, Any]]:
+    """Return lane counts for Android + PI rows that still lack a primary label."""
+    if not (
+        _table_exists_primary(_PRIMARY_CATALOG_TABLE)
+        and _table_exists_primary(_ANDROID_AUTHORITY_VIEW)
+        and _table_exists_primary(_VT_CONFIDENCE_TABLE)
+        and _table_exists_primary(_FP_SUPPRESSION_TABLE)
+        and _table_exists_permission(_PERMISSION_OBS_TABLE)
+    ):
+        return []
+    query = f"""
+        WITH
+        pi AS (
+            SELECT DISTINCT sample_id
+            FROM `{PERMISSION_INTEL_DB_NAME}`.`{_PERMISSION_OBS_TABLE}`
+            WHERE sample_id IS NOT NULL
+        ),
+        suppression AS (
+            SELECT
+                msc.sample_id,
+                MAX(s.suppression_weight) AS max_suppression_weight
+            FROM `{DB_NAME}`.`{_PRIMARY_CATALOG_TABLE}` AS msc
+            JOIN `{DB_NAME}`.`{_FP_SUPPRESSION_TABLE}` AS s
+              ON s.active_flag = 1
+             AND (s.starts_at_utc IS NULL OR s.starts_at_utc <= UTC_TIMESTAMP())
+             AND (s.expires_at_utc IS NULL OR s.expires_at_utc > UTC_TIMESTAMP())
+             AND (
+                (s.scope_type = 'sample' AND s.scope_value = CAST(msc.sample_id AS CHAR))
+                OR (s.scope_type = 'package' AND s.scope_value = msc.android_package_name)
+             )
+            GROUP BY msc.sample_id
+        ),
+        vendor_labels AS (
+            SELECT
+                sample_id,
+                SUM(CASE WHEN LOWER(verdict_label) REGEXP 'fake(app|wallet|samsung|update)' THEN 1 ELSE 0 END) AS fake_app_hits,
+                SUM(CASE WHEN LOWER(verdict_label) REGEXP 'keylogger' THEN 1 ELSE 0 END) AS keylogger_hits,
+                SUM(CASE WHEN LOWER(verdict_label) REGEXP 'mobidash|adware' THEN 1 ELSE 0 END) AS adware_hits,
+                SUM(CASE WHEN LOWER(verdict_label) REGEXP 'pua|pup|debugkey|testkey' THEN 1 ELSE 0 END) AS pua_testkey_hits
+            FROM `{DB_NAME}`.`{_VT_VENDOR_VERDICTS_TABLE}`
+            WHERE COALESCE(TRIM(verdict_label), '') <> ''
+              AND verdict_category = 'malicious'
+            GROUP BY sample_id
+        ),
+        base AS (
+            SELECT
+                msc.sample_id,
+                msc.android_package_name,
+                COALESCE(a.authority_bucket, '<none>') AS authority_bucket,
+                COALESCE(vs.confidence_bucket, 'none') AS confidence_bucket,
+                COALESCE(vs.vt_malicious_count, 0) AS vt_malicious_count,
+                COALESCE(s.max_suppression_weight, 0) AS sample_suppression_weight,
+                COALESCE(vl.fake_app_hits, 0) AS fake_app_hits,
+                COALESCE(vl.keylogger_hits, 0) AS keylogger_hits,
+                COALESCE(vl.adware_hits, 0) AS adware_hits,
+                COALESCE(vl.pua_testkey_hits, 0) AS pua_testkey_hits
+            FROM `{DB_NAME}`.`{_PRIMARY_CATALOG_TABLE}` AS msc
+            JOIN pi
+              ON pi.sample_id = msc.sample_id
+            LEFT JOIN `{DB_NAME}`.`{_ANDROID_AUTHORITY_VIEW}` AS a
+              ON a.sample_id = msc.sample_id
+            LEFT JOIN `{DB_NAME}`.`{_VT_CONFIDENCE_TABLE}` AS vs
+              ON vs.sample_id = msc.sample_id
+            LEFT JOIN suppression AS s
+              ON s.sample_id = msc.sample_id
+            LEFT JOIN vendor_labels AS vl
+              ON vl.sample_id = msc.sample_id
+            WHERE LOWER(TRIM(COALESCE(msc.platform, ''))) = 'android'
+              AND COALESCE(TRIM(msc.classification_primary), '') = ''
+        ),
+        lane_rows AS (
+            SELECT
+                sample_id,
+                confidence_bucket,
+                vt_malicious_count,
+                sample_suppression_weight,
+                CASE
+                    WHEN sample_suppression_weight > 0 THEN 'already_sample_suppressed'
+                    WHEN keylogger_hits > 0 THEN 'high_risk_keylogger_signal_review'
+                    WHEN fake_app_hits > 0 THEN 'fake_app_or_impersonation_signal_review'
+                    WHEN adware_hits > 0 OR pua_testkey_hits > 0 THEN 'pua_adware_or_testkey_signal_review'
+                    WHEN authority_bucket = 'missing_resolved_family'
+                         AND android_package_name IN (
+                            'com.ubnt.easyunifi',
+                            'net.telewebion',
+                            'by.lsdsl.hdrezka',
+                            'com.learn.toppr'
+                         )
+                         THEN 'public_package_identity_provenance_review'
+                    WHEN confidence_bucket IN ('high', 'strong')
+                         THEN 'high_strong_primary_backfill_review'
+                    WHEN authority_bucket = 'missing_resolved_family'
+                         AND vt_malicious_count = 0
+                         THEN 'zero_detection_blank_family_provenance_review'
+                    WHEN authority_bucket = 'missing_resolved_family'
+                         THEN 'blank_family_low_consensus_manual_review'
+                    WHEN authority_bucket = 'resolved_unknown'
+                         AND confidence_bucket IN ('none', '')
+                         THEN 'unknown_family_zero_signal_review'
+                    WHEN authority_bucket = 'resolved_unknown'
+                         AND confidence_bucket IN ('review', 'moderate')
+                         THEN 'unknown_family_low_consensus_review'
+                    ELSE 'manual_review'
+                END AS residual_lane
+            FROM base
+        )
+        SELECT
+            residual_lane,
+            COUNT(*) AS sample_count,
+            SUM(CASE WHEN confidence_bucket IN ('high', 'strong') THEN 1 ELSE 0 END) AS high_or_strong_sample_count,
+            SUM(CASE WHEN vt_malicious_count = 0 THEN 1 ELSE 0 END) AS zero_malicious_sample_count,
+            SUM(CASE WHEN sample_suppression_weight > 0 THEN 1 ELSE 0 END) AS already_suppressed_sample_count
+        FROM lane_rows
+        GROUP BY residual_lane
+        ORDER BY sample_count DESC, residual_lane
+    """
+    columns, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
+    return [dict(zip(columns, row)) for row in rows]
 
 
 def _norm_text(value: Any) -> str:
@@ -467,6 +613,7 @@ def _build_family_type_conflict_signals(
     authority_rows: list[dict[str, Any]],
     high_confidence_ids: set[int],
     family_permission_signal_rows: list[dict[str, Any]] | None = None,
+    held_generic_tokens: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     resolution_by_sample: dict[int, dict[str, Any]] = {}
     for row in authority_rows:
@@ -524,6 +671,9 @@ def _build_family_type_conflict_signals(
     backlog: list[dict[str, Any]] = []
     for stats in family_stats.values():
         samples = int(stats["samples"])
+        family_slug = str(stats["family"])
+        if family_slug in (held_generic_tokens or {}):
+            continue
         label_counts = dict(stats["label_counts"])
         dominant_semantic = ""
         dominant_count = 0
@@ -620,12 +770,21 @@ def _build_family_type_conflict_signals(
         )
     )
     counts_by_issue: dict[str, int] = {}
+    counts_by_priority: dict[str, int] = {}
+    counts_by_action: dict[str, int] = {}
     for entry in backlog:
         issue = str(entry.get("issue", ""))
         counts_by_issue[issue] = counts_by_issue.get(issue, 0) + 1
+        priority = str(entry.get("priority", "") or "low")
+        counts_by_priority[priority] = counts_by_priority.get(priority, 0) + 1
+        action = str(entry.get("suggested_action", "") or "review_manually")
+        counts_by_action[action] = counts_by_action.get(action, 0) + 1
     return {
         "family_type_conflict_count": len(backlog),
         "family_type_conflict_issue_counts": counts_by_issue,
+        "family_type_conflict_priority_counts": counts_by_priority,
+        "family_type_conflict_action_counts": counts_by_action,
+        "high_priority_conflict_count": counts_by_priority.get("high", 0),
         "top_family_type_conflicts": backlog[:8],
         "repair_candidate_count": len(repair_candidates),
         "top_repair_candidates": repair_candidates[:8],
@@ -647,14 +806,28 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
             "banker_label_bucket_samples": None,
             "banker_type_bucket_samples": None,
             "banker_type_minus_label_samples": None,
+            "missing_primary_label_raw_samples": None,
             "missing_primary_label_samples": None,
+            "missing_primary_label_actionable_samples": None,
+            "missing_primary_label_residual_samples": None,
+            "missing_primary_label_suppressed_samples": None,
+            "missing_primary_label_active_residual_samples": None,
+            "missing_primary_label_lane_counts": {},
+            "top_missing_primary_label_lanes": [],
             "unresolved_family_samples": None,
             "unresolved_family_count": None,
             "known_unresolved_family_samples": None,
             "known_unresolved_family_count": None,
+            "policy_held_family_samples": None,
+            "policy_held_family_count": None,
+            "policy_held_family_token_kind_counts": {},
+            "top_policy_held_families": [],
             "top_unresolved_families": [],
             "family_type_conflict_count": None,
             "family_type_conflict_issue_counts": {},
+            "family_type_conflict_priority_counts": {},
+            "family_type_conflict_action_counts": {},
+            "high_priority_conflict_count": None,
             "top_family_type_conflicts": [],
             "repair_candidate_count": None,
             "top_repair_candidates": [],
@@ -743,14 +916,73 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
         if _norm_text(row.get("classification_primary"))
     ]
     payload["buckets"]["android_labeled_primary_with_permission_obs"] = _bucket(*_sample_and_family_counts(labeled_rows))
-    missing_primary_count = len(android_with_pi_rows) - len(labeled_rows)
+    raw_missing_primary_count = len(android_with_pi_rows) - len(labeled_rows)
+    missing_primary_count = raw_missing_primary_count
+    payload["taxonomy_signals"]["missing_primary_label_raw_samples"] = raw_missing_primary_count
     payload["taxonomy_signals"]["missing_primary_label_samples"] = missing_primary_count
-    if missing_primary_count > 0:
-        payload["warnings"].append(
-            "Primary labels are missing for "
-            f"{missing_primary_count} Android + PI-observed sample(s); "
-            "label-based readiness buckets are narrower than PI-observed Android coverage."
-        )
+    missing_primary_lane_rows: list[dict[str, Any]] = []
+    if raw_missing_primary_count > 0:
+        try:
+            missing_primary_lane_rows = _fetch_missing_primary_label_lane_counts()
+        except Exception as exc:
+            payload["warnings"].append(f"Missing-primary residual lane split unavailable: {exc}")
+    if missing_primary_lane_rows:
+        lane_counts = {
+            str(row.get("residual_lane", "") or "manual_review"): int(row.get("sample_count", 0) or 0)
+            for row in missing_primary_lane_rows
+        }
+        actionable_count = lane_counts.get("high_strong_primary_backfill_review", 0)
+        suppressed_count = lane_counts.get("already_sample_suppressed", 0)
+        residual_count = max(sum(lane_counts.values()) - actionable_count, 0)
+        active_residual_count = max(residual_count - suppressed_count, 0)
+        missing_primary_count = actionable_count + active_residual_count
+        payload["taxonomy_signals"]["missing_primary_label_samples"] = missing_primary_count
+        payload["taxonomy_signals"]["missing_primary_label_actionable_samples"] = actionable_count
+        payload["taxonomy_signals"]["missing_primary_label_residual_samples"] = residual_count
+        payload["taxonomy_signals"]["missing_primary_label_suppressed_samples"] = suppressed_count
+        payload["taxonomy_signals"]["missing_primary_label_active_residual_samples"] = active_residual_count
+        payload["taxonomy_signals"]["missing_primary_label_lane_counts"] = lane_counts
+        payload["taxonomy_signals"]["top_missing_primary_label_lanes"] = [
+            {
+                "lane": str(row.get("residual_lane", "") or "manual_review"),
+                "sample_count": int(row.get("sample_count", 0) or 0),
+                "high_or_strong_sample_count": int(row.get("high_or_strong_sample_count", 0) or 0),
+                "zero_malicious_sample_count": int(row.get("zero_malicious_sample_count", 0) or 0),
+                "already_suppressed_sample_count": int(row.get("already_suppressed_sample_count", 0) or 0),
+            }
+            for row in missing_primary_lane_rows[:6]
+        ]
+    if raw_missing_primary_count > 0:
+        actionable = payload["taxonomy_signals"].get("missing_primary_label_actionable_samples")
+        residual = payload["taxonomy_signals"].get("missing_primary_label_residual_samples")
+        suppressed = payload["taxonomy_signals"].get("missing_primary_label_suppressed_samples")
+        active_residual = payload["taxonomy_signals"].get("missing_primary_label_active_residual_samples")
+        if (
+            actionable is not None
+            and suppressed is not None
+            and active_residual is not None
+            and missing_primary_count <= 0
+        ):
+            payload["warnings"].append(
+                "Primary labels are raw-missing for "
+                f"{raw_missing_primary_count} Android + PI-observed sample(s), "
+                "but active/actionable missing-primary debt is 0 after suppression-aware triage. "
+                f"Suppressed provenance/false-positive rows={suppressed}; "
+                f"active residual review rows={active_residual}; "
+                f"actionable high/strong label-review rows={actionable}."
+            )
+        else:
+            lane_note = ""
+            if actionable is not None and residual is not None:
+                lane_note = f" Actionable high/strong label-review rows={actionable}; residual/provenance rows={residual}."
+                if suppressed is not None and active_residual is not None:
+                    lane_note += f" Already-suppressed rows={suppressed}; active residual review rows={active_residual}."
+            payload["warnings"].append(
+                "Primary labels are raw-missing for "
+                f"{raw_missing_primary_count} Android + PI-observed sample(s); "
+                f"active/actionable missing-primary debt={missing_primary_count}."
+                f"{lane_note}"
+            )
 
     banker_rows = [
         row
@@ -768,6 +1000,12 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
     )
     authority_rows: list[dict[str, Any]] = []
     authority_source_mode = "unavailable"
+    held_generic_tokens: dict[str, str] = {}
+    if _table_exists_primary(_GENERIC_TOKEN_TABLE):
+        try:
+            held_generic_tokens = _fetch_active_generic_token_facts()
+        except Exception as exc:
+            payload["warnings"].append(f"Generic token policy unavailable: {exc}")
     if family_resolution_tables:
         try:
             authority_rows = _fetch_android_authority_rows()
@@ -807,8 +1045,11 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
 
         unresolved_counts: dict[str, int] = {}
         unresolved_high_strong_counts: dict[str, int] = {}
+        held_counts: dict[str, int] = {}
+        held_kind_counts: dict[str, int] = {}
         unresolved_samples = 0
         known_unresolved_samples = 0
+        held_unresolved_samples = 0
         unresolved_buckets = {"resolved_but_no_authority_family", "generic_label_candidate"}
         for row in authority_rows:
             sample_id = row.get("sample_id")
@@ -819,6 +1060,16 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
             unresolved_fallback = authority_source_mode != "live_view" and not _norm_text(row.get("type_slug"))
             unresolved_live = authority_source_mode == "live_view" and authority_bucket in unresolved_buckets
             if resolved_family is None or not (unresolved_live or unresolved_fallback):
+                continue
+            if resolved_family in held_generic_tokens:
+                held_unresolved_samples += 1
+                held_counts[resolved_family] = held_counts.get(resolved_family, 0) + 1
+                token_kind = held_generic_tokens.get(resolved_family, "policy_held_token")
+                held_kind_counts[token_kind] = held_kind_counts.get(token_kind, 0) + 1
+                if payload["vt_confidence_available"] and int(sample_id) in high_confidence_ids:
+                    unresolved_high_strong_counts[resolved_family] = (
+                        unresolved_high_strong_counts.get(resolved_family, 0) + 1
+                    )
                 continue
             unresolved_samples += 1
             unresolved_counts[resolved_family] = unresolved_counts.get(resolved_family, 0) + 1
@@ -834,6 +1085,21 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
         payload["taxonomy_signals"]["known_unresolved_family_count"] = sum(
             1 for family in unresolved_counts if is_known_family_name(family)
         )
+        payload["taxonomy_signals"]["policy_held_family_samples"] = held_unresolved_samples
+        payload["taxonomy_signals"]["policy_held_family_count"] = len(held_counts)
+        payload["taxonomy_signals"]["policy_held_family_token_kind_counts"] = held_kind_counts
+        payload["taxonomy_signals"]["top_policy_held_families"] = [
+            {
+                "family": family,
+                "sample_count": count,
+                "token_kind": held_generic_tokens.get(family, "policy_held_token"),
+                "high_strong_sample_count": unresolved_high_strong_counts.get(family, 0),
+            }
+            for family, count in sorted(
+                held_counts.items(),
+                key=lambda item: (-item[1], item[0]),
+            )[:5]
+        ]
         payload["taxonomy_signals"]["top_unresolved_families"] = [
             {
                 "family": family,
@@ -852,6 +1118,12 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
                 f"{len(unresolved_counts)} unmapped family slug(s); "
                 "type-ready cohorts may undercount live Android malware families."
             )
+        if held_counts:
+            payload["warnings"].append(
+                "Resolved-family coverage also includes "
+                f"{len(held_counts)} policy-held generic/coarse token(s); "
+                "these are excluded from live family-repair backlog counts."
+            )
         if payload["taxonomy_signals"]["known_unresolved_family_count"]:
             payload["warnings"].append(
                 "Some unresolved family slugs are already recognized by the local canonical taxonomy; "
@@ -863,6 +1135,7 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
             authority_rows=authority_rows,
             high_confidence_ids=high_confidence_ids if payload["vt_confidence_available"] else set(),
             family_permission_signal_rows=family_permission_signal_rows,
+            held_generic_tokens=held_generic_tokens,
         )
         payload["taxonomy_signals"].update(conflict_signals)
         if conflict_signals.get("family_type_conflict_count"):

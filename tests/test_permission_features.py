@@ -50,9 +50,9 @@ def test_permission_fetch_strict_evidence_raises_integrity(monkeypatch) -> None:
 
 
 def test_permission_features_prefer_permission_string_norm_when_available(monkeypatch) -> None:
-    monkeypatch.setattr(permission_features, "_PERMISSION_OBS_NORM_AVAILABLE", None)
+    permission_features.permission_contracts.reset_permission_obs_norm_cache()
     monkeypatch.setattr(
-        permission_features.db_engine,
+        permission_features.permission_contracts.db_engine,
         "get_table_columns",
         lambda _table: ["sample_id", "permission_string", "permission_string_norm"],
     )
@@ -94,9 +94,9 @@ def test_permission_features_prefer_permission_string_norm_when_available(monkey
 
 
 def test_permission_features_fall_back_when_permission_string_norm_is_unavailable(monkeypatch) -> None:
-    monkeypatch.setattr(permission_features, "_PERMISSION_OBS_NORM_AVAILABLE", None)
+    permission_features.permission_contracts.reset_permission_obs_norm_cache()
     monkeypatch.setattr(
-        permission_features.db_engine,
+        permission_features.permission_contracts.db_engine,
         "get_table_columns",
         lambda _table: ["sample_id", "permission_string"],
     )

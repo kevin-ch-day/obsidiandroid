@@ -70,7 +70,7 @@ def test_build_summary_dominant() -> None:
     assert summary["dominant_count"] == 2
 
 
-def test_write_artifacts(tmp_path: Path) -> None:
+def test_write_feature_builder_drop_trace_artifacts(tmp_path: Path) -> None:
     df = pd.DataFrame({"first_missing_stage": ["x"], "sample_id": [1]})
     summary = {"dominant_first_missing_stage": "x", "notes": [], "first_missing_stage_counts": {"x": 1}}
     c, j, m = fb.write_feature_builder_drop_artifacts(df, summary, tmp_path)

@@ -13,8 +13,22 @@ import numpy as np
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.common.authority_taxonomy_terms import taxonomy_count_drift_note
+from obsidiandroid.common.backlog_semantics import (
+    build_backlog_debt_summary,
+    build_backlog_markdown_lines,
+    build_backlog_terminal_lines,
+    build_taxonomy_curation_posture,
+    choose_priority_triage,
+    read_android_missing_resolution_snapshot,
+    read_false_positive_triage_snapshot,
+    read_policy_held_token_risk_snapshot,
+)
 from obsidiandroid.common.json_io import read_json_dict
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common.output_paths import output_root as canonical_output_root
+from obsidiandroid.common.scientific_adequacy import classify_scientific_adequacy
+from obsidiandroid.database.db_cohort_readiness import get_cohort_readiness_snapshot
 from obsidiandroid.reporting.high_score_skeptic_helpers import (
     build_label_map as _build_label_map,
     label_display as _label_display,
@@ -45,6 +59,112 @@ def _artifact_label(path: Path, *, base: Path | None = None) -> str:
     except Exception:
         pass
     return path.name
+
+
+def _read_run_taxonomy_summary(diagnostics_dir: Path, run_id: str) -> dict[str, Any]:
+    """Read the run-scoped taxonomy summary, falling back only when needed."""
+    candidates = [
+        diagnostics_dir / f"taxonomy_consistency_summary_{run_id}.json",
+        oh.resolve_taxonomy_consistency_summary_path(diagnostics_dir, run_id),
+    ]
+    for path in candidates:
+        payload = read_json_dict(path)
+        if isinstance(payload, dict) and payload:
+            return payload
+    return {}
+
+
+def _reporting_output_root(*, diagnostics_dir: Path, run_id: str) -> Path:
+    """Resolve output root for report-side backlog lookups."""
+    try:
+        if diagnostics_dir.name == "diagnostics" and diagnostics_dir.parent.name == str(run_id):
+            runs_dir = diagnostics_dir.parent.parent
+            if runs_dir.name == "runs":
+                return runs_dir.parent.resolve()
+    except Exception:
+        pass
+    return canonical_output_root()
+
+
+def _write_backlog_debt_summary_md(
+    *,
+    diagnostics_dir: Path,
+    run_id: str,
+    debt_summary: dict[str, Any],
+    priority_backlog: dict[str, Any],
+) -> Path:
+    """Emit a compact run-scoped backlog/debt summary markdown artifact."""
+    lines = [f"# Backlog debt summary — `{run_id}`", ""]
+    if priority_backlog:
+        lines.extend(
+            [
+                "## Priority backlog",
+                "",
+                f"- Focus first: **{str(priority_backlog.get('label', '—') or '—')}**",
+                f"- Rows: **{int(priority_backlog.get('row_count', 0) or 0)}**",
+                f"- Freshness: **{str(priority_backlog.get('freshness', '—') or '—')}**",
+            ]
+        )
+        top_lane = str(priority_backlog.get("top_lane", "") or "").strip()
+        if top_lane:
+            lines.append(
+                f"- Dominant lane: **{top_lane} ({int(priority_backlog.get('top_lane_count', 0) or 0)})**"
+            )
+        action = str(priority_backlog.get("action", "") or "").strip()
+        if action:
+            lines.append(f"- Recommended next action: {action}")
+        lines.append("")
+    lines.extend(
+        build_backlog_markdown_lines(
+            debt_summary=debt_summary,
+            priority_backlog={},
+            heading="## Ranked backlog debt",
+            ranked_style="table",
+            max_rows=len(list(debt_summary.get("rows", []))) if isinstance(debt_summary, dict) else 0,
+        )
+    )
+
+    path = diagnostics_dir / f"backlog_debt_summary_{run_id}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def _build_reporting_backlog_summary(
+    *,
+    diagnostics_dir: Path,
+    run_id: str,
+) -> tuple[dict[str, Any], dict[str, Any], Path | None, dict[str, Any]]:
+    """Build shared backlog/debt summary for exported/operator report surfaces."""
+    try:
+        readiness = get_cohort_readiness_snapshot()
+    except Exception as exc:
+        readiness = {"status": "degraded", "warnings": [f"Cohort readiness unavailable: {exc}"], "buckets": {}}
+    out_root = _reporting_output_root(diagnostics_dir=diagnostics_dir, run_id=run_id)
+    fp_triage = read_false_positive_triage_snapshot(output_root=out_root)
+    android_triage = read_android_missing_resolution_snapshot(output_root=out_root)
+    policy_held_triage = read_policy_held_token_risk_snapshot(output_root=out_root)
+    debt_summary = build_backlog_debt_summary(
+        readiness=readiness,
+        fp_triage=fp_triage,
+        android_missing_triage=android_triage,
+        policy_held_triage=policy_held_triage,
+    )
+    if isinstance(debt_summary, dict):
+        debt_summary["source_note"] = "live DB now (operator debt is not a frozen run-time snapshot)"
+    priority_backlog = choose_priority_triage(
+        fp_triage=fp_triage,
+        android_missing_triage=android_triage,
+    )
+    if not debt_summary.get("rows") and not priority_backlog:
+        return debt_summary, priority_backlog, None, readiness
+    md_path = _write_backlog_debt_summary_md(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        debt_summary=debt_summary,
+        priority_backlog=priority_backlog,
+    )
+    return debt_summary, priority_backlog, md_path, readiness
 
 
 def clear_operator_state() -> None:
@@ -94,8 +214,24 @@ def _queue_runtime_operator_issues(
         else {}
     )
     validation = contract.get("validation") if isinstance(contract.get("validation"), dict) else {}
-    runtime_drift = contract.get("sample_id_lock", {}).get("runtime_db_drift") if isinstance(contract.get("sample_id_lock"), dict) else {}
-    if str(validation.get("status", "")).strip().lower() == "degraded_live_db_drift":
+    sample_id_lock = contract.get("sample_id_lock") if isinstance(contract.get("sample_id_lock"), dict) else {}
+    runtime_drift = sample_id_lock.get("runtime_db_drift") if isinstance(sample_id_lock.get("runtime_db_drift"), dict) else {}
+    taxonomy_drift = (
+        sample_id_lock.get("taxonomy_label_drift")
+        if isinstance(sample_id_lock.get("taxonomy_label_drift"), dict)
+        else {}
+    )
+    validation_status = str(validation.get("status", "")).strip().lower()
+    if manifest_context.get("label_resolution_enabled") is False:
+        record_operator_issue(
+            tag="TAXONOMY",
+            title="Label resolution stage was disabled",
+            lines=[
+                "Final structured label resolution did not run, so taxonomy rendering audits and family/type guard telemetry were not exercised for this run.",
+                "Treat family-level metrics as model-output-only until `ENABLE_LABEL_RESOLUTION_STAGE=True` for the same cohort/profile.",
+            ],
+        )
+    if validation_status == "degraded_live_db_drift":
         matched = int(runtime_drift.get("matched_sample_count", 0) or 0)
         missing = int(runtime_drift.get("missing_from_db_count", 0) or 0)
         expected = int(runtime_drift.get("lock_sample_count", 0) or 0)
@@ -105,6 +241,21 @@ def _queue_runtime_operator_issues(
             lines=[
                 f"Preserved lock expected {expected} sample_ids; {matched} matched the live DB and {missing} are now absent.",
                 "Publication-ready status passed, but exact historical sample membership is no longer fully recoverable.",
+            ],
+        )
+    elif validation_status == "degraded_taxonomy_label_drift":
+        matched = int(taxonomy_drift.get("matched_sample_count", 0) or 0)
+        expected_families = int(taxonomy_drift.get("expected_family_count", 0) or 0)
+        observed_families = int(taxonomy_drift.get("observed_family_count", 0) or 0)
+        expected_types = int(taxonomy_drift.get("expected_type_count", 0) or 0)
+        observed_types = int(taxonomy_drift.get("observed_type_count", 0) or 0)
+        record_operator_issue(
+            tag="COHORT_LOCK",
+            title="Locked cohort membership preserved but taxonomy labels drifted",
+            lines=[
+                f"Preserved sample-id membership matched {matched} locked row(s), but live labels now report families {observed_families} vs expected {expected_families} and types {observed_types} vs expected {expected_types}.",
+                taxonomy_count_drift_note(taxonomy_drift),
+                "Treat cohort membership as locked, but refresh the lock or reconcile taxonomy curation before comparing family/type counts to the historical contract.",
             ],
         )
 
@@ -152,10 +303,11 @@ def _queue_runtime_operator_issues(
                 )
 
     run_id = str(manifest_context.get("run_id", "") or "").strip()
-    taxonomy = read_json_dict(oh.resolve_taxonomy_consistency_summary_path(diagnostics_dir, run_id))
+    taxonomy = _read_run_taxonomy_summary(diagnostics_dir, run_id)
     if taxonomy:
         total = int(taxonomy.get("taxonomy_mismatch_count", 0) or 0)
         paper_facing = int(taxonomy.get("paper_facing_taxonomy_mismatch_count", total) or 0)
+        type_guard_suppressed = int(taxonomy.get("type_guard_family_suppressed_count", 0) or 0)
         if total > 0:
             counts = taxonomy.get("mismatch_reason_counts")
             top_bits: list[str] = []
@@ -170,10 +322,36 @@ def _queue_runtime_operator_issues(
             detail = ", ".join(top_bits) if top_bits else "see taxonomy_consistency_mismatches CSV"
             record_operator_issue(
                 tag="TAXONOMY",
-                title="Taxonomy mismatch backlog present",
+                title="Taxonomy split issues present",
                 lines=[
                     f"Taxonomy mismatches: total={total}; claim-facing={paper_facing}.",
                     f"Top mismatch buckets: {detail}.",
+                    "Use taxonomy_authority_split to separate authority gaps, policy-held generic/coarse token residue, unknown-type families, rendering mismatches, and real model prediction errors.",
+                ],
+            )
+        if type_guard_suppressed > 0:
+            record_operator_issue(
+                tag="TAXONOMY",
+                title="Type guard suppressed cross-type family predictions",
+                lines=[
+                    f"Structured label resolution demoted {type_guard_suppressed} known-family prediction(s) because they conflicted with authoritative sample type lineage.",
+                    "Review `taxonomy_consistency_summary_*.json`, `prediction_errors_*.csv`, and taxonomy consistency review diagnostics to confirm the guard is reducing false family attribution rather than masking label debt.",
+                ],
+            )
+    try:
+        readiness = get_cohort_readiness_snapshot()
+    except Exception:
+        readiness = {}
+    taxonomy_signals = readiness.get("taxonomy_signals", {}) if isinstance(readiness, dict) else {}
+    if isinstance(taxonomy_signals, dict):
+        curation_note = str(build_taxonomy_curation_posture(readiness=readiness).get("note", "") or "").strip()
+        if curation_note:
+            record_operator_issue(
+                tag="TAXONOMY",
+                title="Family taxonomy curation discipline required",
+                lines=[
+                    curation_note,
+                    "Prioritize DB type mapping, family mapping, and unknown-type cleanup before treating family taxonomy as stable.",
                 ],
             )
 
@@ -229,6 +407,23 @@ def _rf_perm_importance_top(model_results: dict[str, Any], *, top_n: int = 8) ->
             rows.append((name, imp_f))
     rows.sort(key=lambda x: -x[1])
     return rows[:top_n]
+
+
+def _claim_readiness_posture(
+    *,
+    bundle: dict[str, Any],
+    runtime_temporal_summary: Mapping[str, Any] | None,
+) -> tuple[str, list[str]]:
+    """Classify claim-readiness strength for the terminal summary."""
+    q1 = bundle.get("q1") if isinstance(bundle.get("q1"), dict) else {}
+    supervised_ok = bool(q1.get("supervised_family_claims_suitable", False))
+    temporal_summary = runtime_temporal_summary if isinstance(runtime_temporal_summary, Mapping) else {}
+    dropped_future_only = int(temporal_summary.get("test_rows_dropped_unseen_train_classes", 0) or 0)
+    return classify_scientific_adequacy(
+        macro_f1=bundle.get("macro_f1"),
+        supervised_family_claims_suitable=supervised_ok,
+        dropped_future_only_rows=dropped_future_only,
+    )
 
 
 def _classification_report_family_insights(model_results: dict[str, Any], model_key: str) -> dict[str, Any]:
@@ -370,6 +565,7 @@ def write_diagnostics_index_md(
         ("dataset_foundation_summary", "Q1 dataset validity (cohort, concentration, gates)."),
         ("modality_contribution_summary", "Q2 modality coverage + ablation pointers."),
         ("model_and_family_failure_summary", "Q3 headline metrics, confusion, type vs family."),
+        ("backlog_debt_summary_", "Shared operator backlog/debt ledger for this run."),
         ("run_health_summary_", "High-level cohort/model health snapshot (JSON)."),
         ("model_comparison_summary_", "Model leaderboard CSV for this run."),
         ("experiment_registry_", "Experiment registry wiring + profile context."),
@@ -388,6 +584,15 @@ def write_diagnostics_index_md(
     sections = [
         ("Cohort and label distribution", ["cohort_foundation", "analysis_snapshot", "family_distribution"]),
         ("Dataset concentration", ["cohort_foundation", "family_distribution_report"]),
+        (
+            "Backlog and review queues",
+            [
+                "backlog_debt_summary",
+                "android_missing_resolution_triage",
+                "vt_false_positive_review_triage",
+                "android_policy_held_token_risk",
+            ],
+        ),
         ("Modality coverage", ["feature_modality_coverage", "feature_build_coverage", "permission_fuse_audit"]),
         ("Feature contracts", ["feature_contract", "feature_column_survival"]),
         ("Leakage assessment", ["leakage_assessment", "leakage_pruning_audit"]),
@@ -418,10 +623,23 @@ def write_diagnostics_index_md(
         lines.append("")
     lines.append("## Artifact map (this run enumeration)")
     lines.append("")
-    art = [
-        name for name in listing
-        if verbose_run_artifacts or ".latest." not in name
-    ]
+    referenced_artifacts = {
+        Path(str(path)).name
+        for path in artifact_list
+        if str(path).strip()
+    }
+    art = sorted(
+        {
+            name
+            for name in listing
+            if verbose_run_artifacts or ".latest." not in name
+        }
+        | {
+            name
+            for name in referenced_artifacts
+            if verbose_run_artifacts or ".latest." not in name
+        }
+    )
     for chunk in art[:120]:
         lines.append(f"- `{chunk}`")
     if len(art) > 120:
@@ -450,6 +668,12 @@ def emit_research_operator_report(
         write_headline_vs_ablation_contract_reports,
         write_taxonomy_authority_split_reports,
         write_taxonomy_type_authority_reports,
+    )
+    from obsidiandroid.diagnostics.data_problem_quantification import (
+        write_data_problem_quantification,
+    )
+    from obsidiandroid.diagnostics.ml_tuning_recommendations import (
+        write_ml_tuning_recommendations,
     )
     from obsidiandroid.reporting import research_three_questions as research_rq
 
@@ -492,6 +716,44 @@ def emit_research_operator_report(
             "run_id": run_id,
         },
     )
+    backlog_debt_summary, priority_backlog, backlog_md_path, _readiness_snapshot = _build_reporting_backlog_summary(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+    )
+    if backlog_md_path is not None and str(backlog_md_path) not in artifact_list:
+        artifact_list.append(str(backlog_md_path))
+    ml_tuning_payload: dict[str, Any] = {}
+    try:
+        ml_md, ml_csv, ml_json, ml_tuning_payload = write_ml_tuning_recommendations(
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+        )
+        for p in (ml_md, ml_csv, ml_json):
+            if p is not None and str(p) not in artifact_list:
+                artifact_list.append(str(p))
+    except Exception as exc:
+        ml_tuning_payload = {
+            "recommendations": [
+                {
+                    "priority": "low",
+                    "area": "ml_tuning_artifact",
+                    "finding": f"ML tuning recommendation artifact was skipped: {exc}",
+                    "recommended_action": "Inspect ablation and model diagnostics manually.",
+                    "evidence": "artifact_writer_exception",
+                }
+            ]
+        }
+    data_problem_payload: dict[str, Any] = {}
+    try:
+        dp_md, dp_csv, dp_json, data_problem_payload = write_data_problem_quantification(
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+        )
+        for p in (dp_md, dp_csv, dp_json):
+            if p is not None and str(p) not in artifact_list:
+                artifact_list.append(str(p))
+    except Exception:
+        data_problem_payload = {}
     extra_paths = bundle.get("_written_paths") or []
     combined_artifacts = list(artifact_list) + [p for p in extra_paths if p not in set(artifact_list)]
 
@@ -522,6 +784,18 @@ def emit_research_operator_report(
 
     du.print_section("TAXONOMY AUTHORITY (type ground truth)")
     pr("  Cohort type_slug is authoritative for type-level reporting; label-derived type is a parser artifact.")
+    taxonomy_summary = _read_run_taxonomy_summary(diagnostics_dir, run_id)
+    if isinstance(taxonomy_summary, dict):
+        type_guard_suppressed = int(taxonomy_summary.get("type_guard_family_suppressed_count", 0) or 0)
+        if type_guard_suppressed > 0:
+            pr(
+                "  Type-guard suppressions: "
+                f"{type_guard_suppressed} structured family prediction(s) were demoted for cross-type incompatibility."
+            )
+        elif manifest_context.get("label_resolution_enabled") is False:
+            pr(
+                "  Type-guard suppressions: unavailable for this run because structured label resolution was disabled."
+            )
     pr(
         f"  Review: `{diagnostics_dir / f'taxonomy_type_authority_review_{run_id}.md'}` "
         f"and `taxonomy_type_authority_review_{run_id}.csv`"
@@ -545,6 +819,117 @@ def emit_research_operator_report(
             )
         pr("")
 
+    data_problem_flags = (
+        data_problem_payload.get("issue_flags") if isinstance(data_problem_payload, dict) else []
+    )
+    if isinstance(data_problem_flags, list) and data_problem_flags:
+        du.print_section("DATA PROBLEM QUANTIFICATION")
+        priority = (
+            data_problem_payload.get("priority_score")
+            if isinstance(data_problem_payload.get("priority_score"), dict)
+            else {}
+        )
+        support_gap = (
+            data_problem_payload.get("support_gap")
+            if isinstance(data_problem_payload.get("support_gap"), dict)
+            else {}
+        )
+        pred_errors = (
+            data_problem_payload.get("prediction_errors")
+            if isinstance(data_problem_payload.get("prediction_errors"), dict)
+            else {}
+        )
+        support_curve = (
+            data_problem_payload.get("support_threshold_curve")
+            if isinstance(data_problem_payload.get("support_threshold_curve"), dict)
+            else {}
+        )
+        training_policy = (
+            data_problem_payload.get("training_policy_recommendations")
+            if isinstance(data_problem_payload.get("training_policy_recommendations"), dict)
+            else {}
+        )
+        pr(
+            "  Composite problem score: "
+            f"{priority.get('composite_problem_score_0_100', 'n/a')} / 100"
+        )
+        if support_gap:
+            pr(
+                "  Support-gap ROI: "
+                f"{support_gap.get('families_with_gap_le_5', 0)} family/families within <=5 "
+                f"sample(s) of trainability; all-tail closure needs "
+                f"{support_gap.get('samples_needed_to_make_all_families_trainable', 0)} sample(s)."
+            )
+        threshold_20 = (
+            support_curve.get("threshold_20")
+            if isinstance(support_curve.get("threshold_20"), dict)
+            else {}
+        )
+        exploratory = (
+            support_curve.get("recommended_exploratory_threshold")
+            if isinstance(support_curve.get("recommended_exploratory_threshold"), dict)
+            else {}
+        )
+        if threshold_20:
+            pr(
+                "  Conservative support track: "
+                f"threshold={threshold_20.get('threshold', 20)} "
+                f"classes={threshold_20.get('trainable_classes', 0)} "
+                f"retained={threshold_20.get('retained_rows', 0)} "
+                f"dropped={threshold_20.get('dropped_rows', 0)}."
+            )
+        if exploratory:
+            pr(
+                "  Exploratory expanded-class track: "
+                f"threshold={exploratory.get('threshold', '')} "
+                f"classes={exploratory.get('trainable_classes', 0)} "
+                f"retained={exploratory.get('retained_rows', 0)} "
+                f"dropped={exploratory.get('dropped_rows', 0)} "
+                "(separate from evidence headline)."
+            )
+        tracks = training_policy.get("tracks") if isinstance(training_policy.get("tracks"), list) else []
+        if tracks:
+            for track in tracks[:3]:
+                if not isinstance(track, dict):
+                    continue
+                action = str(track.get("recommended_action", "") or "").strip()
+                if action:
+                    pr(f"  Training policy `{track.get('track', '')}`: {action}")
+        if pred_errors:
+            top_pair = pred_errors.get("top_error_pair") if isinstance(pred_errors.get("top_error_pair"), dict) else {}
+            if top_pair:
+                pr(
+                    "  Top error pair: "
+                    f"{top_pair.get('expected_family', '')} -> {top_pair.get('predicted_family', '')} "
+                    f"n={top_pair.get('count', 0)}"
+                )
+        for row in data_problem_flags[:6]:
+            if not isinstance(row, dict):
+                continue
+            pr(
+                f"  [{str(row.get('severity', 'note')).upper()}] "
+                f"{row.get('issue', '')}: value={row.get('value', '')} "
+                f"threshold={row.get('threshold', '')}"
+            )
+            action = str(row.get("recommended_action", "") or "").strip()
+            if action:
+                pr(f"      Action: {action}")
+        pr(f"  File: `{diagnostics_dir / f'data_problem_quantification_{run_id}.md'}`")
+        pr("")
+
+    recs = ml_tuning_payload.get("recommendations") if isinstance(ml_tuning_payload, dict) else []
+    if isinstance(recs, list) and recs:
+        du.print_section("ML TUNING RECOMMENDATIONS")
+        for row in recs[:5]:
+            if not isinstance(row, dict):
+                continue
+            pr(f"  [{str(row.get('priority', 'note')).upper()}] {row.get('area', '')}: {row.get('finding', '')}")
+            action = str(row.get("recommended_action", "") or "").strip()
+            if action:
+                pr(f"      Action: {action}")
+        pr(f"  File: `{diagnostics_dir / f'ml_tuning_recommendations_{run_id}.md'}`")
+        pr("")
+
     du.print_section("ISSUES FOUND")
     issues = getattr(app_config, "RUNTIME_OPERATOR_ISSUES", []) or []
     if not isinstance(issues, list) or not issues:
@@ -563,6 +948,16 @@ def emit_research_operator_report(
             for ln in issue.get("lines") or []:
                 pr(f"    {ln}")
             pr("")
+    if isinstance(backlog_debt_summary, dict) and backlog_debt_summary.get("rows"):
+        du.print_section("BACKLOG DEBT")
+        for line in build_backlog_terminal_lines(
+            debt_summary=backlog_debt_summary,
+            priority_backlog=priority_backlog if isinstance(priority_backlog, dict) else {},
+            backlog_path=backlog_md_path,
+            max_rows=5,
+        ):
+            pr(f"  {line}")
+        pr("")
     du.print_section("CLAIM READINESS")
 
     active_cls = ""
@@ -581,7 +976,7 @@ def emit_research_operator_report(
         "`supervised_family_claims_suitable=false` in dataset foundation means guarded language for family-level scientific claims. "
         "Top-family concentration remains high — Macro-F1 and recall tails must lead interpretation.",
         "Type-level claims using generated `classification_label` strings are not publication-safe until cohort vs label-derived type authority is reconciled "
-        "(see taxonomy_type_authority_review). Use `taxonomy_authority_split` to distinguish authority gaps, generic/coarse tokens, unknown-type families, "
+        "(see taxonomy_type_authority_review). Use `taxonomy_authority_split` to distinguish authority gaps, policy-held generic/coarse token residue, unknown-type families, "
         "rendering mismatches, and real model prediction errors.",
         "Headline leaderboard metrics vs ablation `full_fused` are not comparable unless feature hashes match (see FEATURE CONTRACT COMPARISON). "
         "Parsed vendor metadata is often sparse — do not describe it as cohort-wide dense labels. Vendor-derived parsed family/type features may couple to labels — "
@@ -608,9 +1003,16 @@ def emit_research_operator_report(
         "Dominance-cap stability and temporal permission drift; permission-only vs fused delta stability "
         "(feature_set_ablation_summary); family-level failure explanations (top_confusion_pairs, lowest recall).",
     ]
-    pr("Strong")
+    readiness_heading, readiness_blockers = _claim_readiness_posture(
+        bundle=bundle,
+        runtime_temporal_summary=getattr(app_config, "RUNTIME_TEMPORAL_SPLIT_SUMMARY", None),
+    )
+    pr(readiness_heading)
     for item in lines_strong:
         pr(f"  + {item}")
+    if readiness_heading != "Strong":
+        for blocker in readiness_blockers:
+            pr(f"  ! {blocker}.")
     pr("")
     pr("Needs caution")
     for item in caution:
@@ -631,10 +1033,15 @@ def emit_research_operator_report(
                 f"`{_artifact_label(diagnostics_dir / 'dataset_foundation_summary.md', base=diag_base)}`",
                 f"`{_artifact_label(diagnostics_dir / 'modality_contribution_summary.md', base=diag_base)}`",
                 f"`{_artifact_label(diagnostics_dir / 'model_and_family_failure_summary.md', base=diag_base)}`",
+                f"`{_artifact_label(diagnostics_dir / f'backlog_debt_summary_{run_id}.md', base=diag_base)}`",
                 f"`{_artifact_label(diagnostics_dir / f'taxonomy_authority_split_{run_id}.md', base=diag_base)}`",
                 f"`{_artifact_label(diagnostics_dir / f'taxonomy_type_authority_review_{run_id}.md', base=diag_base)}`",
             ]
         )
+    )
+    pr(
+        "Operator debt    : "
+        + f"`{_artifact_label(diagnostics_dir / f'backlog_debt_summary_{run_id}.md', base=diag_base)}`"
     )
     pr(
         "Skeptic audits    : "

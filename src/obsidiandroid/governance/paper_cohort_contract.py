@@ -19,6 +19,10 @@ from obsidiandroid.common.cohort_contracts import (
     declared_cohort_enforcement_level,
     unresolved_cohort_contract_payload,
 )
+from obsidiandroid.common.authority_taxonomy_terms import (
+    taxonomy_count_drift_note,
+    taxonomy_count_drift_semantics,
+)
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.common.repo_paths import repo_root
 from obsidiandroid.database import db_config
@@ -220,10 +224,21 @@ def build_runtime_contract(
         runtime_snapshot_lock=runtime_snapshot_lock,
         mismatches=mismatches,
     )
+    taxonomy_drift = _taxonomy_label_drift_summary(
+        declared=declared,
+        observed=observed,
+        sample_id_lock=sample_id_lock,
+        runtime_snapshot_lock=runtime_snapshot_lock,
+        mismatches=mismatches,
+    )
     if runtime_drift is not None:
         validation_status = "degraded_live_db_drift"
         validation_severity = "warning"
         sample_id_lock["runtime_db_drift"] = runtime_drift
+    elif taxonomy_drift is not None:
+        validation_status = "degraded_taxonomy_label_drift"
+        validation_severity = "warning"
+        sample_id_lock["taxonomy_label_drift"] = taxonomy_drift
 
     payload = {
         **declared,
@@ -245,7 +260,15 @@ def build_runtime_contract(
             profile=profile,
             runtime_drift=runtime_drift,
         )
-    if mismatches and raise_on_mismatch:
+    elif taxonomy_drift is not None:
+        payload["contract_status"] = "membership_locked_taxonomy_drift"
+        payload["cohort_lock_status"] = "membership_locked_taxonomy_drift"
+        payload["enforcement_level"] = "partial"
+        payload["validation"]["warning"] = _format_taxonomy_label_drift_warning(
+            profile=profile,
+            taxonomy_drift=taxonomy_drift,
+        )
+    if validation_status == "mismatch" and raise_on_mismatch:
         raise ValueError(_format_contract_mismatch_error(profile=profile, declared=declared, mismatches=mismatches))
     return payload
 
@@ -275,6 +298,23 @@ def _format_runtime_db_drift_warning(
         f"[COHORT_LOCK] Locked cohort drift for profile {profile_id}: preserved sample-id lock still exists, "
         f"but {int(runtime_drift.get('missing_from_db_count', 0) or 0)} locked sample(s) are absent from the "
         "current live DB cohort. Downgrading to count-only lock semantics for this run."
+    )
+
+
+def _format_taxonomy_label_drift_warning(
+    *,
+    profile: dict[str, Any],
+    taxonomy_drift: dict[str, Any],
+) -> str:
+    """Explain degraded enforcement when sample membership is stable but labels changed."""
+    profile_id = str(profile.get("profile_id", "unknown") or "unknown")
+    return (
+        f"[COHORT_LOCK] Locked cohort taxonomy drift for profile {profile_id}: sample-id membership still matches "
+        "the preserved lock, but current live DB taxonomy changed family/type counts "
+        f"(families observed={taxonomy_drift.get('observed_family_count')} expected={taxonomy_drift.get('expected_family_count')}; "
+        f"types observed={taxonomy_drift.get('observed_type_count')} expected={taxonomy_drift.get('expected_type_count')}). "
+        f"{taxonomy_count_drift_note(taxonomy_drift)} "
+        "Continuing with partial lock semantics and recording the drift in run artifacts."
     )
 
 
@@ -413,6 +453,65 @@ def _runtime_db_drift_summary(
         "matched_sample_count": matched_sample_count,
         "expected_family_count": expected_family_count,
         "observed_family_count": observed["family_count"],
+    }
+
+
+def _taxonomy_label_drift_summary(
+    *,
+    declared: dict[str, Any],
+    observed: dict[str, Any],
+    sample_id_lock: dict[str, Any],
+    runtime_snapshot_lock: dict[str, Any],
+    mismatches: list[str],
+) -> dict[str, Any] | None:
+    """Return degraded metadata when curation changes labels inside a matched sample lock."""
+    if not mismatches:
+        return None
+    if not bool(runtime_snapshot_lock.get("applied", False)):
+        return None
+    if int(runtime_snapshot_lock.get("missing_from_db_count", 0) or 0) != 0:
+        return None
+    matched_sample_count = int(runtime_snapshot_lock.get("matched_sample_count", observed["sample_count"]) or observed["sample_count"])
+    if matched_sample_count != observed["sample_count"]:
+        return None
+
+    expected = dict(declared.get("expected", {}) or {})
+    expected_sample_count = int(expected.get("sample_count", 0) or 0)
+    expected_family_count = int(expected.get("family_count", 0) or 0)
+    expected_type_count = int(expected.get("type_count", 0) or 0)
+    if expected_sample_count and observed["sample_count"] != expected_sample_count:
+        return None
+
+    lock_sample_count = int(sample_id_lock.get("lock_sample_count", 0) or 0)
+    if lock_sample_count and lock_sample_count != observed["sample_count"]:
+        return None
+    lock_sample_id_hash = str(sample_id_lock.get("lock_sample_id_hash", "") or "")
+    if lock_sample_id_hash and lock_sample_id_hash != str(observed.get("sample_id_hash", "") or ""):
+        return None
+
+    allowed_prefixes = (
+        "family_count observed=",
+        "type_count observed=",
+    )
+    if any(not any(item.startswith(prefix) for prefix in allowed_prefixes) for item in mismatches):
+        return None
+
+    semantics = taxonomy_count_drift_semantics(
+        expected_family_count=expected_family_count,
+        observed_family_count=observed["family_count"],
+        expected_type_count=expected_type_count,
+        observed_type_count=observed["type_count"],
+    )
+
+    return {
+        "reason": "taxonomy_label_drift_with_matched_sample_lock",
+        "matched_sample_count": matched_sample_count,
+        "lock_sample_count": lock_sample_count or matched_sample_count,
+        "expected_family_count": expected_family_count,
+        "observed_family_count": observed["family_count"],
+        "expected_type_count": expected_type_count,
+        "observed_type_count": observed["type_count"],
+        **semantics,
     }
 
 

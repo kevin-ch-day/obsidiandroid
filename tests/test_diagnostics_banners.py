@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import os
+import time
 
 import pytest
 
@@ -149,6 +151,14 @@ def test_build_diagnostics_overview_includes_traffic_lights_and_run_science_path
         '{"permission_signal_pct": 97.31}',
         encoding="utf-8",
     )
+    (out_root / "diagnostics" / "android_missing_resolution_triage_latest.csv").write_text(
+        "sample_id,review_lane\n1,blank_package_review\n2,vt_tail_review\n",
+        encoding="utf-8",
+    )
+    (out_root / "diagnostics" / "vt_false_positive_review_triage_latest.csv").write_text(
+        "sample_id,review_lane\n1,real_malware_family_or_class_review\n2,file_artifact_review\n3,other_review\n",
+        encoding="utf-8",
+    )
     (out_root / "diagnostics" / "run_manifest.latest.json").write_text(
         json.dumps({"run_id": run_id, "publication_ready_status": "ready"}),
         encoding="utf-8",
@@ -170,11 +180,100 @@ def test_build_diagnostics_overview_includes_traffic_lights_and_run_science_path
     rows = {str(row["label"]): str(row["status"]) for row in overview["rows"]}
     assert rows["Cohort / labels"] == "GREEN"
     assert rows["Taxonomy consistency"] == "YELLOW"
+    assert rows["Android missing-resolution triage"] == "YELLOW"
+    assert rows["VT false-positive triage"] == "YELLOW"
     assert rows["Vendor/parser coverage"] == "YELLOW"
     assert rows["Publication readiness"] == "GREEN"
     assert str(overview["run_science_index_path"]).endswith("run_science_index.md")
     taxonomy_row = next(row for row in overview["rows"] if str(row["label"]) == "Taxonomy consistency")
+    android_triage_row = next(row for row in overview["rows"] if str(row["label"]) == "Android missing-resolution triage")
+    fp_triage_row = next(row for row in overview["rows"] if str(row["label"]) == "VT false-positive triage")
+    priority_triage = overview["priority_triage"]
     assert "authority split" in str(taxonomy_row["action"]).lower()
+    assert str(android_triage_row["detail"]) == "2 queued row(s); top=blank_package_review (1); freshness=current"
+    assert str(fp_triage_row["detail"]) == "3 review row(s); top=real_malware_family_or_class_review (1); freshness=current"
+    assert str(priority_triage["label"]) == "VT false-positive triage"
+    assert str(priority_triage["freshness"]) == "current"
+
+
+def test_print_compact_diagnostics_overview_shows_triage_backlog_counts(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    out_root = tmp_path / "output"
+    run_id = "20260515T141956Z__58d84f"
+    rdiag = out_root / "runs" / run_id / "diagnostics"
+    rdiag.mkdir(parents=True, exist_ok=True)
+    (out_root / "diagnostics").mkdir(parents=True, exist_ok=True)
+    (rdiag / "run_science_index.md").write_text("# run science\n", encoding="utf-8")
+    (out_root / "diagnostics" / "android_missing_resolution_triage_latest.csv").write_text(
+        "sample_id,review_lane\n1,blank_package_review\n2,vt_tail_review\n",
+        encoding="utf-8",
+    )
+    (out_root / "diagnostics" / "vt_false_positive_review_triage_latest.csv").write_text(
+        "sample_id,review_lane\n1,real_malware_family_or_class_review\n2,file_artifact_review\n3,other_review\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        diagnostics_banners,
+        "build_operator_state",
+        lambda **_kwargs: {
+            "latest_run_id": run_id,
+            "best_run_index_path": rdiag / "run_science_index.md",
+            "has_canonical_run_science": True,
+            "publication_ready_status": "ready",
+            "parser_summary": {"csv_ready": True, "workbook_ready": True},
+        },
+    )
+
+    diagnostics_banners.print_compact_diagnostics_overview(output_root=out_root, latest_run_id=run_id)
+    out = capsys.readouterr().out
+
+    assert "Focus first" in out
+    assert "VT false-positive triage" in out
+    assert "3 row(s); top lane=real_malware_family_or_class_review (1); freshness=current" in out
+    assert "Android missing-resolution triage" in out
+    assert "Current backlog: 2 queued row(s); top=blank_package_review (1); freshness=current" in out
+    assert "Current backlog: 3 review row(s); top=real_malware_family_or_class_review (1); freshness=current" in out
+
+
+def test_build_diagnostics_overview_marks_stale_triage_export_red(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    out_root = tmp_path / "output"
+    run_id = "20260515T141956Z__58d84f"
+    rdiag = out_root / "runs" / run_id / "diagnostics"
+    rdiag.mkdir(parents=True, exist_ok=True)
+    gdiag = out_root / "diagnostics"
+    gdiag.mkdir(parents=True, exist_ok=True)
+    triage_path = gdiag / "android_missing_resolution_triage_latest.csv"
+    triage_path.write_text(
+        "sample_id,review_lane\n1,blank_package_review\n",
+        encoding="utf-8",
+    )
+    stale_epoch = time.time() - (96 * 3600)
+    os.utime(triage_path, (stale_epoch, stale_epoch))
+    monkeypatch.setattr(
+        diagnostics_banners,
+        "build_operator_state",
+        lambda **_kwargs: {
+            "latest_run_id": run_id,
+            "best_run_index_path": rdiag / "run_science_index.md",
+            "has_canonical_run_science": True,
+            "publication_ready_status": "ready",
+            "parser_summary": {"csv_ready": True, "workbook_ready": True},
+        },
+    )
+
+    overview = diagnostics_banners.build_diagnostics_overview(output_root=out_root, latest_run_id=run_id)
+    row = next(row for row in overview["rows"] if str(row["label"]) == "Android missing-resolution triage")
+    priority = overview["priority_triage"]
+    assert str(row["status"]) == "RED"
+    assert "freshness=stale" in str(row["detail"])
+    assert str(priority["label"]) == "Android missing-resolution triage"
+    assert "Refresh android missing-resolution triage export first" in str(priority["action"])
 
 
 def test_build_diagnostics_overview_surfaces_cohort_contract_context(

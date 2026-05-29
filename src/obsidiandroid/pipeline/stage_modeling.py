@@ -158,6 +158,21 @@ def _enrich_vendor_trust_flags(
     return out
 
 
+def _resolve_vendor_include_fields() -> list[str]:
+    """Return vendor semantic fields for feature construction.
+
+    Evidence mode keeps the modeling pipeline lean by dropping parsed family to avoid
+    leakage through label-like features.
+    """
+
+    if bool(
+        getattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False)
+        or getattr(app_config, "RUNTIME_EVIDENCE_MODE", False)
+    ):
+        return ["Threat Class", "Malware Type"]
+    return ["Parsed Family", "Threat Class", "Malware Type"]
+
+
 def build_feature_matrix_stage(
     weights_df: pd.DataFrame,
     vendor_data: dict,
@@ -229,7 +244,7 @@ def build_feature_matrix_stage(
             score_preference=score_field,
             exclude_categories=exclude_categories,
             min_score=min_score,
-            include_fields=["Parsed Family", "Threat Class", "Malware Type"],
+            include_fields=_resolve_vendor_include_fields(),
             encoding="category",
             verbose=True,
             extra_features_df=extra_features,

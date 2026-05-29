@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
+from obsidiandroid.common.authority_taxonomy_terms import taxonomy_count_drift_note
 
 
 def safe_int(value: object, default: int = 0) -> int:
@@ -33,9 +33,13 @@ def extract_rescued_unknown_consensus(details: object) -> int:
 
 def resolve_cohort_lock_status(manifest: dict[str, Any]) -> str:
     """Normalize cohort-lock status across manifest and contract payload variants."""
+    from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
+
     direct = str(manifest.get("cohort_lock_status", "") or "").strip().lower()
     if direct in {"membership_locked", "locked"}:
         return "locked"
+    if direct in {"membership_locked_taxonomy_drift", "taxonomy-drift", "taxonomy_drift"}:
+        return "taxonomy-drift"
     if direct in {"count_only_incomplete_sample_lock", "count_only", "count-only"}:
         return "count-only"
     if direct in {"not_paper_locked", "not_locked", "unlocked"}:
@@ -55,6 +59,8 @@ def resolve_cohort_lock_status(manifest: dict[str, Any]) -> str:
         status = str(payload.get("cohort_lock_status", "") or payload.get("contract_status", "") or "").strip().lower()
         if status in {"membership_locked", "locked"}:
             return "locked"
+        if status in {"membership_locked_taxonomy_drift", "taxonomy-drift", "taxonomy_drift"}:
+            return "taxonomy-drift"
         if status in {"count_only_incomplete_sample_lock", "count_only", "count-only"}:
             return "count-only"
         if status in {"not_paper_locked", "not_locked", "unlocked"}:
@@ -67,3 +73,24 @@ def resolve_cohort_lock_status(manifest: dict[str, Any]) -> str:
     if evidence_mode or publication_raw in {"ready", "pass", "fail", "not_ready"}:
         return "missing-lock"
     return "unlocked"
+
+
+def extract_taxonomy_label_drift(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Return taxonomy-label drift metadata from manifest/contract payloads when present."""
+    for key in ("paper_cohort_contract", "cohort_contract"):
+        payload = manifest.get(key) if isinstance(manifest, dict) else {}
+        if not isinstance(payload, dict):
+            continue
+        sample_id_lock = payload.get("sample_id_lock")
+        if not isinstance(sample_id_lock, dict):
+            continue
+        drift = sample_id_lock.get("taxonomy_label_drift")
+        if isinstance(drift, dict) and drift:
+            return drift
+    return {}
+
+
+def taxonomy_label_drift_display(manifest: dict[str, Any]) -> str:
+    """Render taxonomy-label drift metadata for compact operator screens."""
+    drift = extract_taxonomy_label_drift(manifest)
+    return taxonomy_count_drift_note(drift) if drift else ""

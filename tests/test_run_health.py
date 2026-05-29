@@ -221,6 +221,183 @@ def test_print_unified_run_health_shows_label_strategy_targets(tmp_path: Path, c
     assert "Avoid primary claims on" in out
 
 
+def test_print_unified_run_health_surfaces_scientific_adequacy(tmp_path: Path, capsys) -> None:
+    run_root = tmp_path / "output" / "runs" / "r_science"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    obs_path = diagnostics_dir / "run_observability_summary.json"
+    obs_path.write_text(
+        json.dumps(
+            {
+                "run_id": "r_science",
+                "profile_id": "malicious_temporal_stability_locked",
+                "pipeline_status": "PASS",
+                "research_validity_status": "PASS",
+                "paper_mode": True,
+                "evidence_mode": True,
+                "publication_ready_status": "PASS",
+                "publication_ready_reasons": [],
+                "scientific_adequacy": {
+                    "posture": "Weak",
+                    "blockers": [
+                        "headline family Macro-F1 is weak (0.3261)",
+                        "dataset foundation does not mark supervised family claims as suitable",
+                        "temporal holdout dropped 219 future-only family row(s)",
+                    ],
+                },
+                "top_artifacts_to_open_first": [],
+                "paths": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_health.print_unified_run_health(
+        inventory_summary={},
+        observability_json_path=obs_path,
+        evidence_index_path=None,
+        run_root=run_root,
+    )
+
+    out = capsys.readouterr().out
+    assert "publication_ready_status" in out
+    assert "PASS" in out
+    assert "Scientific adequacy" in out
+    assert "Weak" in out
+    assert "Scientific blockers" in out
+    assert "headline family Macro-F1 is weak (0.3261)" in out
+
+
+def test_print_unified_run_health_shows_disabled_label_resolution(tmp_path: Path, capsys) -> None:
+    run_root = tmp_path / "output" / "runs" / "r_label_off"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    obs_path = diagnostics_dir / "run_observability_summary.json"
+    obs_path.write_text(
+        json.dumps(
+            {
+                "run_id": "r_label_off",
+                "profile_id": "dev_smoke",
+                "pipeline_status": "PASS",
+                "research_validity_status": "SKIPPED",
+                "paper_mode": False,
+                "evidence_mode": False,
+                "publication_ready_status": "NOT_APPLICABLE",
+                "publication_ready_reasons": [],
+                "label_resolution_enabled": False,
+                "top_artifacts_to_open_first": [],
+                "paths": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_health.print_unified_run_health(
+        inventory_summary={},
+        observability_json_path=obs_path,
+        evidence_index_path=None,
+        run_root=run_root,
+    )
+
+    out = capsys.readouterr().out
+    assert "Label resolution" in out
+    assert "DISABLED" in out
+    assert "Type-guard suppressions" in out
+    assert "unavailable (label resolution disabled)" in out
+
+
+def test_print_unified_run_health_shows_type_guard_suppression_count(tmp_path: Path, capsys) -> None:
+    run_root = tmp_path / "output" / "runs" / "r_label_on"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    obs_path = diagnostics_dir / "run_observability_summary.json"
+    obs_path.write_text(
+        json.dumps(
+            {
+                "run_id": "r_label_on",
+                "profile_id": "dev_smoke",
+                "pipeline_status": "PASS",
+                "research_validity_status": "SKIPPED",
+                "paper_mode": False,
+                "evidence_mode": False,
+                "publication_ready_status": "NOT_APPLICABLE",
+                "publication_ready_reasons": [],
+                "label_resolution_enabled": True,
+                "type_guard_family_suppressed_count": 5,
+                "top_artifacts_to_open_first": [],
+                "paths": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_health.print_unified_run_health(
+        inventory_summary={},
+        observability_json_path=obs_path,
+        evidence_index_path=None,
+        run_root=run_root,
+    )
+
+    out = capsys.readouterr().out
+    assert "Label resolution" in out
+    assert "ENABLED" in out
+    assert "Type-guard suppressions" in out
+    assert "5" in out
+
+
+def test_print_unified_run_health_shows_stage_loss_summaries(tmp_path: Path, capsys) -> None:
+    run_root = tmp_path / "output" / "runs" / "r_stage_losses"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    obs_path = diagnostics_dir / "run_observability_summary.json"
+    obs_path.write_text(
+        json.dumps(
+            {
+                "run_id": "r_stage_losses",
+                "profile_id": "malicious_temporal_stability_locked",
+                "pipeline_status": "PASS",
+                "research_validity_status": "PASS",
+                "paper_mode": True,
+                "evidence_mode": True,
+                "publication_ready_status": "PASS",
+                "publication_ready_reasons": [],
+                "alignment_non_authoritative_family_drop_count": 4,
+                "alignment_live_authority_rescue_count": 179,
+                "alignment_live_authority_rescue_families_top": "Applite=159, Wroba=15, Piom=5",
+                "alignment_non_authoritative_family_drops_top": "unknown_family=4",
+                "low_support_family_drop_count": 3,
+                "low_support_row_drop_count": 4,
+                "low_support_family_drops_top": "BrowBot=1, GINP=1, BRATA=2",
+                "temporal_future_only_family_drops_top": "Zanubis=4, Alien=3",
+                "top_artifacts_to_open_first": [],
+                "paths": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_health.print_unified_run_health(
+        inventory_summary={},
+        observability_json_path=obs_path,
+        evidence_index_path=None,
+        run_root=run_root,
+    )
+
+    out = capsys.readouterr().out
+    assert "Alignment authority filter" in out
+    assert "dropped=4; rescued=179" in out
+    assert "Alignment rescue families" in out
+    assert "Applite=159, Wroba=15, Piom=5" in out
+    assert "Alignment dropped families" in out
+    assert "unknown_family=4" in out
+    assert "Low-support drops" in out
+    assert "rows=4; families=3" in out
+    assert "Low-support families" in out
+    assert "BrowBot=1, GINP=1, BRATA=2" in out
+    assert "Temporal future-only families" in out
+    assert "Zanubis=4, Alien=3" in out
+
+
 def test_open_first_hints_respects_compact_tuning_flags(tmp_path: Path) -> None:
     run_root = tmp_path / "output" / "runs" / "r_compact"
     diagnostics_dir = run_root / "diagnostics"

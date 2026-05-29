@@ -35,6 +35,7 @@ from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path
 
 ensure_repo_src_on_sys_path()
 
+from obsidiandroid.database import authority_contracts
 from obsidiandroid.database import db_engine
 from scripts.diagnostics import export_label_authority_vendor_evidence as evidence_export
 
@@ -50,175 +51,27 @@ def _normalize(value: object) -> str:
 
 
 def _table_has_column(table_name: str, column_name: str) -> bool:
-    df = db_engine.execute_query(
-        """
-        SELECT COUNT(*) AS n
-        FROM information_schema.columns
-        WHERE table_schema = DATABASE()
-          AND table_name = %s
-          AND column_name = %s
-        """,
-        params=(table_name, column_name),
-        fetch=True,
-        as_dataframe=True,
-    )
-    return bool(
-        isinstance(df, pd.DataFrame)
-        and not df.empty
-        and int(df.iloc[0]["n"]) > 0
-    )
+    return authority_contracts.table_has_column(table_name, column_name)
 
 
 def _alias_table_present() -> bool:
-    df = db_engine.execute_query(
-        """
-        SELECT COUNT(*) AS n
-        FROM information_schema.tables
-        WHERE table_schema = DATABASE()
-          AND table_name = 'malware_family_alias_fact'
-        """,
-        fetch=True,
-        as_dataframe=True,
-    )
-    return bool(isinstance(df, pd.DataFrame) and not df.empty and int(df.iloc[0]["n"]) > 0)
+    return authority_contracts.authority_alias_fact_present()
 
 
 def _legacy_alias_table_present() -> bool:
-    df = db_engine.execute_query(
-        """
-        SELECT COUNT(*) AS n
-        FROM information_schema.tables
-        WHERE table_schema = DATABASE()
-          AND table_name = 'android_malware_family_alias'
-        """,
-        fetch=True,
-        as_dataframe=True,
-    )
-    return bool(isinstance(df, pd.DataFrame) and not df.empty and int(df.iloc[0]["n"]) > 0)
+    return authority_contracts.legacy_android_family_alias_present()
 
 
 def _authority_view_present() -> bool:
-    df = db_engine.execute_query(
-        """
-        SELECT COUNT(*) AS n
-        FROM information_schema.views
-        WHERE table_schema = DATABASE()
-          AND table_name = 'v_android_sample_family_type_authority'
-        """,
-        fetch=True,
-        as_dataframe=True,
-    )
-    return bool(isinstance(df, pd.DataFrame) and not df.empty and int(df.iloc[0]["n"]) > 0)
+    return authority_contracts.authority_view_present()
 
 
 def _load_alias_map() -> dict[str, str]:
-    df = pd.DataFrame()
-    if _alias_table_present():
-        active_clause = "WHERE 1 = 1"
-        if _table_has_column("malware_family_alias_fact", "is_active"):
-            active_clause = "WHERE is_active = 1"
-        df = db_engine.execute_query(
-            f"""
-            SELECT
-                LOWER(TRIM(alias_token)) AS alias_token,
-                LOWER(TRIM(canonical_family_slug)) AS canonical_family_slug
-            FROM malware_family_alias_fact
-            {active_clause}
-              AND alias_token IS NOT NULL
-              AND canonical_family_slug IS NOT NULL
-              AND TRIM(alias_token) <> ''
-              AND TRIM(canonical_family_slug) <> ''
-            """,
-            fetch=True,
-            as_dataframe=True,
-        )
-    elif _legacy_alias_table_present():
-        df = db_engine.execute_query(
-            """
-            SELECT
-                LOWER(TRIM(a.alias_name)) AS alias_token,
-                LOWER(TRIM(f.family_slug)) AS canonical_family_slug
-            FROM android_malware_family_alias AS a
-            JOIN android_malware_family AS f
-              ON f.family_id = a.family_id
-            WHERE a.alias_name IS NOT NULL
-              AND TRIM(a.alias_name) <> ''
-              AND f.family_slug IS NOT NULL
-              AND TRIM(f.family_slug) <> ''
-            """,
-            fetch=True,
-            as_dataframe=True,
-        )
-    if not isinstance(df, pd.DataFrame) or df.empty:
-        return {}
-    return {
-        _normalize(row["alias_token"]): _normalize(row["canonical_family_slug"])
-        for _, row in df.iterrows()
-        if _normalize(row["alias_token"]) and _normalize(row["canonical_family_slug"])
-    }
+    return authority_contracts.load_family_alias_map()
 
 
 def _fetch_authority_map(sample_ids: list[int]) -> pd.DataFrame:
-    if not sample_ids:
-        return pd.DataFrame(columns=["sample_id", "authority_family_slug", "authority_family_name", "authority_type_slug"])
-
-    parts: list[pd.DataFrame] = []
-    use_live_view = _authority_view_present()
-    chunk_size = 1000
-    for start in range(0, len(sample_ids), chunk_size):
-        chunk = sample_ids[start : start + chunk_size]
-        placeholders = ", ".join(["%s"] * len(chunk))
-        if use_live_view:
-            query = f"""
-                SELECT
-                    sample_id,
-                    LOWER(TRIM(COALESCE(family_slug, ''))) AS authority_family_slug,
-                    LOWER(TRIM(COALESCE(family_name, ''))) AS authority_family_name,
-                    LOWER(TRIM(COALESCE(type_slug, ''))) AS authority_type_slug
-                FROM v_android_sample_family_type_authority
-                WHERE sample_id IN ({placeholders})
-            """
-        else:
-            family_active_clause = ""
-            if _table_has_column("android_malware_family", "is_active"):
-                family_active_clause = "AND fam.is_active = 1"
-            query = f"""
-                SELECT
-                    msc.sample_id,
-                    LOWER(TRIM(COALESCE(fam.family_slug, ''))) AS authority_family_slug,
-                    LOWER(TRIM(COALESCE(fam.family_name, ''))) AS authority_family_name,
-                    LOWER(TRIM(COALESCE(typ.type_slug, ''))) AS authority_type_slug
-                FROM malware_sample_catalog AS msc
-                LEFT JOIN (
-                    SELECT sample_id, resolved_family_lc
-                    FROM (
-                        SELECT
-                            v0.sample_id,
-                            v0.resolved_family_lc,
-                            ROW_NUMBER() OVER (
-                                PARTITION BY v0.sample_id
-                                ORDER BY COALESCE(v0.resolved_family_lc, '') ASC, v0.sample_id ASC
-                            ) AS rn
-                        FROM v_android_apk_family_resolved AS v0
-                    ) AS ranked_family
-                    WHERE rn = 1
-                ) AS fam_res
-                    ON fam_res.sample_id = msc.sample_id
-                LEFT JOIN android_malware_family AS fam
-                    ON LOWER(TRIM(fam.family_slug)) = fam_res.resolved_family_lc
-                   {family_active_clause}
-                LEFT JOIN android_malware_type AS typ
-                    ON typ.type_id = fam.primary_type_id
-                WHERE msc.sample_id IN ({placeholders})
-            """
-        part = db_engine.execute_query(query, params=chunk, fetch=True, as_dataframe=True)
-        if isinstance(part, pd.DataFrame) and not part.empty:
-            parts.append(part)
-    if not parts:
-        return pd.DataFrame(columns=["sample_id", "authority_family_slug", "authority_family_name", "authority_type_slug"])
-    out = pd.concat(parts, ignore_index=True)
-    out["sample_id"] = out["sample_id"].astype(int)
-    return out
+    return authority_contracts.fetch_sample_authority_map(sample_ids)
 
 
 def _bootstrap_input(input_path: Path) -> bool:

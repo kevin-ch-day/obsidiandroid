@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 
 def test_pipeline_facade_matches_runner_public_surface() -> None:
     """``obsidiandroid.pipeline`` delegates to live ``runner`` bindings (PEP 562 __getattr__)."""
@@ -36,6 +37,7 @@ def test_pipeline_facade_matches_runner_public_surface() -> None:
         ("vendor_metadata_pipeline", "analysis.pipeline.vendor_metadata_pipeline"),
     )
     import importlib
+    from pathlib import Path
 
     for attr, canon_name in module_pairs:
         canon_mod = importlib.import_module(canon_name)
@@ -72,6 +74,14 @@ def test_pipeline_physical_leaf_modules_share_identity_with_legacy_shims() -> No
         physical = importlib.import_module(f"obsidiandroid.pipeline.{name}")
         legacy = importlib.import_module(f"analysis.pipeline.{name}")
         assert physical is legacy
+
+
+def test_pipeline_entrypoints_match_runner_public_surface() -> None:
+    """``obsidiandroid.cli.pipeline_entry`` should expose the pipeline runner facade."""
+    from obsidiandroid.cli import pipeline_entry
+    from obsidiandroid.pipeline import runner as runner_mod
+
+    assert pipeline_entry.run_pipeline is runner_mod.run_pipeline
 
 
 def test_analysis_pipeline_nested_package_submodules_resolve_to_canonical_modules() -> None:
@@ -186,6 +196,40 @@ def test_labeling_taxonomy_is_wrapper_not_legacy_module_alias() -> None:
     assert tax.normalize_family_name("Flu-Bot") == canon.normalize_family_name("Flu-Bot")
 
 
+def test_taxonomy_module_is_canonical_src_file() -> None:
+    """Pass 58: taxonomy wrapper must be canonical source file, not alias shim."""
+    import obsidiandroid.labeling.malware_family_constants as canon_constants
+    import obsidiandroid.labeling.taxonomy as taxonomy
+
+    path = Path(taxonomy.__file__).resolve()
+    assert path.name == "taxonomy.py"
+    assert path.parts[-3:-1] == ("obsidiandroid", "labeling")
+    for raw in ("HQWar", "Flu-Bot", 15, "Cabassous", "", None):
+        assert taxonomy.normalize_family_name(raw) == canon_constants.normalize_family_name(raw)
+
+
+def test_taxonomy_public_functions_match_canonical_constants() -> None:
+    import obsidiandroid.labeling.malware_family_constants as canon_constants
+    import obsidiandroid.labeling.taxonomy as taxonomy
+
+    for raw in ("HQWar", "Flu-Bot", 15, "Cabassous", "", None):
+        assert taxonomy.normalize_family_name(raw) == canon_constants.normalize_family_name(raw)
+
+    assert taxonomy.is_known_family_name("hqwar") == canon_constants.is_known_family_name("hqwar")
+    assert taxonomy.is_known_family_name("TrickMo") == canon_constants.is_known_family_name("TrickMo")
+    assert taxonomy.canonicalize_family_label("Cabassous") == canon_constants.canonicalize_family_label("Cabassous")
+
+
+def test_taxonomy_functions_are_not_constants_object_identity() -> None:
+    """Wrappers deliberately do not re-export underlying function objects."""
+    import obsidiandroid.labeling.malware_family_constants as canon_constants
+    import obsidiandroid.labeling.taxonomy as taxonomy
+
+    assert taxonomy.normalize_family_name is not canon_constants.normalize_family_name
+    assert taxonomy.is_known_family_name is not canon_constants.is_known_family_name
+    assert taxonomy.canonicalize_family_label is not canon_constants.canonicalize_family_label
+
+
 def test_malware_family_constants_canonical_behavior() -> None:
     """Malware-family constants live canonically under ``obsidiandroid.labeling``."""
     import importlib
@@ -197,6 +241,18 @@ def test_malware_family_constants_canonical_behavior() -> None:
     assert canon.canonicalize_family_label("GravityRAT") == "GravityRAT"
     assert canon.normalize_family_name("PixPirate") == "pixpirate"
     assert canon.canonicalize_family_label("BlankBot") == "BlankBot"
+    assert canon.normalize_family_name("OTPStealer") == "otpstealer"
+    assert canon.canonicalize_family_label("OTPStealer") == "OTPStealer"
+    assert canon.normalize_family_name("Arsink RAT") == "arsinkrat"
+    assert canon.canonicalize_family_label("Arsink RAT") == "ArsinkRAT"
+    assert canon.normalize_family_name("Fantasy Hub") == "fantasyhub"
+    assert canon.canonicalize_family_label("Fantasy Hub") == "FantasyHub"
+    assert canon.normalize_family_name("Recruit Rat") == "recruitrat"
+    assert canon.normalize_family_name("Taxi Spy RAT") == "taxispyrat"
+    assert canon.normalize_family_name("Play Praetors") == "playpraetors"
+    assert canon.normalize_family_name("Droid Lock") == "droidlock"
+    assert canon.normalize_family_name("Metasploit") == "unknown"
+    assert canon.canonicalize_family_label("Trojan.MetaSploit") == "unknown"
 
 
 def test_ml_classification_ml_utils_namespace_is_retired() -> None:

@@ -558,3 +558,44 @@ def test_split_audit_cache_isolated_per_run_id(
     assert path_a.exists()
     assert path_b.exists()
     assert legacy_a.exists()
+
+
+def test_temporal_holdout_summary_records_dropped_family_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    features_df = pd.DataFrame(
+        np.random.randn(6, 3),
+        index=[1001, 1002, 1003, 1004, 1005, 1006],
+    )
+    labels = pd.Series(["1", "1", "2", "1", "2", "3"], index=features_df.index)
+    labels.attrs["label_name_map"] = {"1": "Irata", "2": "Applite", "3": "Zanubis"}
+
+    meta_df = pd.DataFrame(
+        {
+            "sample_id": features_df.index.tolist(),
+            "effective_first_seen_at_utc": [
+                "2020-01-01T00:00:00Z",
+                "2021-01-01T00:00:00Z",
+                "2022-01-01T00:00:00Z",
+                "2024-01-01T00:00:00Z",
+                "2024-06-01T00:00:00Z",
+                "2025-01-01T00:00:00Z",
+            ],
+        }
+    )
+    monkeypatch.setattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", meta_df, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_PROFILE_ID", "malicious_temporal_test", raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_TEMPORAL_SPLIT_SUMMARY", None, raising=False)
+
+    encoded = np.array([0, 0, 1, 0, 1, 2], dtype=int)
+    temporal = model_trainer_factory._build_temporal_holdout_split(  # pylint: disable=protected-access
+        features_df,
+        encoded,
+        labels=labels,
+        quiet_train=True,
+    )
+
+    assert temporal is not None
+    summary = getattr(app_config, "RUNTIME_TEMPORAL_SPLIT_SUMMARY", {}) or {}
+    assert summary.get("test_rows_dropped_unseen_train_classes") == 1
+    assert summary.get("test_rows_dropped_unseen_train_class_families") == {"Zanubis": 1}

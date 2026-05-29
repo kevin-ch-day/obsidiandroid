@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 import subprocess
 from typing import Callable, Dict, List
 
@@ -19,6 +20,8 @@ from .menu import startup_menu_actions
 from . import startup_menu_diagnostics as _diagnostics_menu
 from . import startup_menu_research as _research_menu
 from . import startup_menu_review as _review_menu
+
+vendor_diagnostics = _diagnostics_menu.vendor_diagnostics
 
 from .startup_menu_health import run_health_check as _run_health_check
 from .startup_menu_run_context import (
@@ -492,6 +495,39 @@ def _run_family_label_taxonomy_audit_script() -> int:
     )
 
 
+def _run_android_missing_resolution_triage_script() -> int:
+    """Invoke the Android missing-resolution triage diagnostics script."""
+    return _diagnostics_menu.run_android_missing_resolution_triage_script(
+        operator_script_resolver=repo_operator_script,
+        subprocess_run=subprocess.run,
+    )
+
+
+def _run_vt_false_positive_review_triage_script() -> int:
+    """Invoke the suppression-aware VT false-positive triage diagnostics script."""
+    return _diagnostics_menu.run_vt_false_positive_review_triage_script(
+        operator_script_resolver=repo_operator_script,
+        subprocess_run=subprocess.run,
+    )
+
+
+def _run_policy_held_token_risk_script() -> int:
+    """Invoke the policy-held token-risk diagnostics script."""
+    return _diagnostics_menu.run_policy_held_token_risk_script(
+        operator_script_resolver=repo_operator_script,
+        subprocess_run=subprocess.run,
+    )
+
+
+def _refresh_backlog_triage_exports() -> int:
+    """Refresh backlog triage exports in one operator action."""
+    return _diagnostics_menu.refresh_backlog_triage_exports(
+        run_android_missing_resolution_triage_action=_run_android_missing_resolution_triage_script,
+        run_vt_false_positive_review_triage_action=_run_vt_false_positive_review_triage_script,
+        run_policy_held_token_risk_action=_run_policy_held_token_risk_script,
+    )
+
+
 def _open_run_science_index() -> int:
     """Print the authoritative run science index path for the latest run."""
     return _diagnostics_menu.open_run_science_index(read_latest_run_id=_read_latest_run_id)
@@ -545,6 +581,9 @@ def _launch_data_diagnostics_menu() -> None:
         launch_permission_intelligence_coverage_action=_launch_permission_intelligence_coverage_menu,
         launch_feature_matrix_modality_action=_launch_feature_matrix_modality_menu,
         launch_cohort_family_audit_action=_launch_cohort_family_audit_menu,
+        refresh_backlog_triage_exports_action=_refresh_backlog_triage_exports,
+        launch_android_missing_resolution_triage_action=_run_android_missing_resolution_triage_script,
+        launch_vt_false_positive_review_triage_action=_run_vt_false_positive_review_triage_script,
     )
 
 

@@ -226,6 +226,7 @@ def main() -> int:
             cohort_lock_status_value: str,
             observed_counts: dict | None = None,
             lock_diff: dict | None = None,
+            taxonomy_label_drift: dict | None = None,
         ) -> None:
             cmd_bits = [
                 "scripts/family_label_taxonomy_audit.py",
@@ -259,6 +260,7 @@ def main() -> int:
                     "expected_counts": dict(declared_contract.get("expected", {}) or {}),
                     "observed_counts": dict(observed_counts or {}),
                     "lock_diff": dict(lock_diff or {}),
+                    "taxonomy_label_drift": dict(taxonomy_label_drift or {}),
                     "contract_id": declared_contract.get("contract_id"),
                 },
             )
@@ -287,6 +289,7 @@ def main() -> int:
                     cohort_lock_status_value="lock_unenforceable",
                     observed_counts={},
                     lock_diff={},
+                    taxonomy_label_drift={},
                 )
                 return 2
             du.print_info(
@@ -322,6 +325,7 @@ def main() -> int:
             str((declared_contract.get("sample_id_lock") or {}).get("path", "") or ""),
         )
         if bool(declared_contract.get("paper_locked", False)):
+            taxonomy_label_drift: dict[str, object] = {}
             try:
                 runtime_contract = paper_cohort_contract.build_runtime_contract(
                     profile=profile,
@@ -331,6 +335,24 @@ def main() -> int:
                 cohort_lock_status = str(
                     runtime_contract.get("cohort_lock_status", cohort_lock_status) or cohort_lock_status
                 )
+                validation = (
+                    runtime_contract.get("validation")
+                    if isinstance(runtime_contract.get("validation"), dict)
+                    else {}
+                )
+                validation_warning = str(validation.get("warning", "") or "").strip()
+                if str(validation.get("status", "") or "").strip() == "degraded_taxonomy_label_drift":
+                    sample_lock = (
+                        runtime_contract.get("sample_id_lock")
+                        if isinstance(runtime_contract.get("sample_id_lock"), dict)
+                        else {}
+                    )
+                    drift = sample_lock.get("taxonomy_label_drift") if isinstance(sample_lock, dict) else {}
+                    taxonomy_label_drift = dict(drift) if isinstance(drift, dict) else {}
+                    du.print_warning(
+                        validation_warning
+                        or "[AUDIT] Locked sample membership matched, but live taxonomy labels drifted from the contract."
+                    )
             except ValueError as exc:
                 du.print_error(str(exc))
                 du.print_error(
@@ -352,8 +374,11 @@ def main() -> int:
                     cohort_lock_status_value=cohort_lock_status,
                     observed_counts=observed,
                     lock_diff=lock_diff,
+                    taxonomy_label_drift={},
                 )
                 return 3
+        else:
+            taxonomy_label_drift = {}
 
         paths = fam_audit.write_family_label_taxonomy_audit(
             samples_df,
@@ -369,6 +394,7 @@ def main() -> int:
             cohort_lock_status_value=cohort_lock_status,
             observed_counts=observed,
             lock_diff=lock_diff,
+            taxonomy_label_drift=taxonomy_label_drift,
         )
         du.print_success("Wrote:")
         for k, p in paths.items():

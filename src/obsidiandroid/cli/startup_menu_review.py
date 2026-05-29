@@ -7,6 +7,22 @@ from typing import Callable
 import pandas as pd
 
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common.authority_taxonomy_terms import (
+    AUTHORITY_TAXONOMY_SPLIT_PROBLEM_LABEL,
+    live_taxonomy_backlog_detail,
+    policy_held_only_note,
+    taxonomy_count_drift_note,
+)
+from obsidiandroid.common.backlog_semantics import build_taxonomy_curation_posture
+from obsidiandroid.common.backlog_semantics import (
+    build_backlog_debt_summary,
+    build_backlog_terminal_lines,
+    choose_priority_triage,
+    read_run_backlog_snapshot_counts,
+    read_android_missing_resolution_snapshot,
+    read_false_positive_triage_snapshot,
+    read_policy_held_token_risk_snapshot,
+)
 from obsidiandroid.common.cohort_methodology import resolve_cohort_lock_status, safe_int
 from obsidiandroid.common.publication_readiness import publication_ready_display
 from obsidiandroid.common.json_io import read_json_dict
@@ -49,7 +65,7 @@ def _run_class(
     publication_ready_status: str,
 ) -> str:
     pub = str(publication_ready_status or "").strip().lower()
-    locked = locked_status in {"locked", "count-only", "missing-lock"}
+    locked = locked_status in {"locked", "taxonomy-drift", "count-only", "missing-lock"}
     profile_token = str(profile_id or "").strip().lower()
     if pub in {"ready", "pass"}:
         return "Publication-ready"
@@ -232,17 +248,27 @@ def _readiness_gap_notes(
             "Declared readiness intent names `permission_obs`, but the live DB does not currently verify a matching PI-observed cohort."
         )
     repair_candidate_count = int(taxonomy.get("repair_candidate_count") or 0)
+    unresolved_family_count = int(taxonomy.get("unresolved_family_count") or 0)
     known_unresolved_count = int(taxonomy.get("known_unresolved_family_count") or 0)
-    if repair_candidate_count > 0 or known_unresolved_count > 0:
-        message = (
-            f"Live taxonomy backlog remains active ({repair_candidate_count} repair candidate(s), "
-            f"{known_unresolved_count} known unresolved family name(s))."
+    policy_held_count = int(taxonomy.get("policy_held_family_count") or 0)
+    posture = build_taxonomy_curation_posture(readiness=readiness)
+    if repair_candidate_count > 0 or known_unresolved_count > 0 or policy_held_count > 0:
+        message = live_taxonomy_backlog_detail(
+            repair_candidate_count=repair_candidate_count,
+            known_unresolved_count=known_unresolved_count,
+            policy_held_count=policy_held_count,
         )
         if paper_locked:
             message += " This run is lock-bound, so Erebus-side family authority improvements may not appear here until the lock is refreshed."
         else:
             message += " Compare against an unlocked/current cohort before concluding the new Erebus curation had no effect."
         out.append(message)
+    unresolved_family_count_value = taxonomy.get("unresolved_family_count")
+    if unresolved_family_count_value is not None and unresolved_family_count == 0 and policy_held_count > 0:
+        out.append(policy_held_only_note())
+    curation_note = str(posture.get("note", "") or "").strip() or None
+    if curation_note:
+        out.append(curation_note)
     for warning in warnings[:2]:
         warning_text = str(warning).strip()
         if warning_text:
@@ -259,6 +285,23 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
     rdiag = run_root / "diagnostics" if rid else Path()
     gdiag = output_root / "diagnostics"
     manifest = shared.get("manifest_payload") if isinstance(shared.get("manifest_payload"), dict) else {}
+    cohort_contract = (
+        manifest.get("paper_cohort_contract")
+        if isinstance(manifest.get("paper_cohort_contract"), dict)
+        else manifest.get("cohort_contract")
+        if isinstance(manifest.get("cohort_contract"), dict)
+        else {}
+    )
+    sample_id_lock = (
+        cohort_contract.get("sample_id_lock")
+        if isinstance(cohort_contract.get("sample_id_lock"), dict)
+        else {}
+    )
+    taxonomy_drift = (
+        sample_id_lock.get("taxonomy_label_drift")
+        if isinstance(sample_id_lock.get("taxonomy_label_drift"), dict)
+        else {}
+    )
     profile_id = str(shared.get("profile_id", "") or "unknown")
     lock_status = str(shared.get("cohort_lock_status", "") or "").strip() or resolve_cohort_lock_status(manifest)
     publication_ready_status = str(shared.get("publication_ready_status", "") or "unknown")
@@ -293,6 +336,13 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
     )
     model_snapshot = _read_model_comparison_snapshot(output_root=output_root, run_id=rid) if rid else {}
     label_strategy = _read_label_strategy_snapshot(diagnostics_dir=rdiag, output_root=output_root, run_id=rid) if rid else {}
+    fp_triage = read_false_positive_triage_snapshot(output_root=output_root)
+    android_missing_triage = read_android_missing_resolution_snapshot(output_root=output_root)
+    policy_held_triage = read_policy_held_token_risk_snapshot(output_root=output_root)
+    backlog_priority = choose_priority_triage(
+        fp_triage=fp_triage,
+        android_missing_triage=android_missing_triage,
+    )
     taxonomy_support = diagnostics_menu.build_taxonomy_support_tuning_snapshot(run_id=rid, output_root=output_root) if rid else {}
     permission_tuning = diagnostics_menu.build_permission_coverage_tuning_snapshot(run_id=rid, output_root=output_root) if rid else {}
     try:
@@ -303,6 +353,40 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
             "warnings": [f"Cohort readiness unavailable: {exc}"],
             "buckets": {},
         }
+    debt_summary = build_backlog_debt_summary(
+        readiness=cohort_readiness,
+        fp_triage=fp_triage,
+        android_missing_triage=android_missing_triage,
+        policy_held_triage=policy_held_triage,
+    )
+    backlog_snapshot_warning: dict[str, str] | None = None
+    if isinstance(debt_summary, dict) and debt_summary:
+        debt_summary["source_note"] = "live DB now (reviewing an older run may differ)"
+        run_backlog_counts = read_run_backlog_snapshot_counts(
+            rdiag / f"backlog_debt_summary_{rid}.md"
+        ) if rid else {}
+        live_missing = 0
+        for row in list(debt_summary.get("rows", [])):
+            if isinstance(row, dict) and str(row.get("label", "") or "") == "Missing primary labels":
+                live_missing = safe_int(row.get("count", 0), 0)
+                break
+        run_missing = safe_int(run_backlog_counts.get("Missing primary labels", 0), 0)
+        if run_missing > 0 and run_missing != live_missing:
+            debt_summary["snapshot_compare_note"] = (
+                f"missing primary labels were {run_missing} at run time; live DB now shows {live_missing}"
+            )
+            backlog_snapshot_warning = {
+                "problem": "Backlog debt: run snapshot differs from current live DB.",
+                "why": (
+                    f"the saved run reported missing primary labels={run_missing}, "
+                    f"but live DB now shows {live_missing}"
+                ),
+                "next_action": (
+                    "treat backlog rows in review mode as live operator debt, "
+                    "and use the saved run bundle only as historical context"
+                ),
+                "open_label": "Backlog debt",
+            }
     cohort_membership_mode = str(shared.get("cohort_membership_mode", "") or "").strip()
     cohort_membership_note = str(shared.get("cohort_membership_authority_note", "") or "").strip()
     rescued_unknown_consensus = safe_int(
@@ -345,12 +429,32 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
     health_map = _health_status_map(health_rows)
 
     warnings: list[str] = []
+    if isinstance(backlog_snapshot_warning, dict):
+        _append_warning(
+            warnings,
+            problem=str(backlog_snapshot_warning.get("problem", "") or ""),
+            why=str(backlog_snapshot_warning.get("why", "") or ""),
+            next_action=str(backlog_snapshot_warning.get("next_action", "") or ""),
+            open_label=str(backlog_snapshot_warning.get("open_label", "") or ""),
+        )
     if lock_status == "count-only":
         _append_warning(
             warnings,
             problem="Cohort lock: count-only lock.",
             why="row counts are governed, but exact sample-id membership is not fully reproducible from a locked snapshot",
             next_action="open the run science index and cohort funnel, then confirm whether this run is acceptable for exploratory review only",
+            open_label="Run science index",
+        )
+    elif lock_status == "taxonomy-drift":
+        drift_detail = taxonomy_count_drift_note(taxonomy_drift) if taxonomy_drift else ""
+        why = "the preserved sample-id set still matches, but live family/type labels changed inside the locked cohort"
+        if drift_detail:
+            why += f"; {drift_detail}"
+        _append_warning(
+            warnings,
+            problem="Cohort lock: locked sample membership with taxonomy-label drift.",
+            why=why,
+            next_action="open the cohort contract and taxonomy authority artifacts, then decide whether to reconcile records or refresh the paper lock",
             open_label="Run science index",
         )
     elif lock_status == "missing-lock":
@@ -392,9 +496,9 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
     if readiness_gap_notes:
         _append_warning(
             warnings,
-            problem="Live readiness / authority gap: observed DB state does not fully match the profile-ready story.",
+            problem=f"{AUTHORITY_TAXONOMY_SPLIT_PROBLEM_LABEL}: observed DB state does not fully match the profile-ready story.",
             why="; ".join(readiness_gap_notes[:2]),
-            next_action="compare the live readiness snapshot and taxonomy backlog against this run before treating the cohort as absorbing the latest Erebus-side curation",
+            next_action="compare the live readiness snapshot, true authority debt, and policy-held token residue against this run before treating the cohort as absorbing the latest Erebus-side curation",
             open_label="Run science index",
         )
     if temporal_gap_notes:
@@ -404,6 +508,40 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
             why="; ".join(temporal_gap_notes[:2]),
             next_action="review the split-freeze headline and model comparison leaderboard before retuning models or judging Erebus-side curation impact",
             open_label="Feature-set ablation summary",
+        )
+    for label, payload in (
+        ("VT false-positive triage", fp_triage),
+        ("Android missing-resolution triage", android_missing_triage),
+    ):
+        if not isinstance(payload, dict) or not payload:
+            continue
+        freshness = str(payload.get("freshness", "") or "").strip()
+        if freshness != "stale":
+            continue
+        _append_warning(
+            warnings,
+            problem=f"{label}: latest export is stale.",
+            why="the visible backlog may not reflect current DB state or the latest suppression/authority repairs",
+            next_action=f"refresh the {label.lower()} export before using it as the main cleanup surface",
+            open_label=label,
+        )
+    if backlog_priority:
+        backlog_label = str(backlog_priority.get("label", "") or "").strip()
+        backlog_rows = safe_int(backlog_priority.get("row_count", 0), 0)
+        backlog_lane = str(backlog_priority.get("top_lane", "") or "").strip()
+        backlog_lane_count = safe_int(backlog_priority.get("top_lane_count", 0), 0)
+        backlog_freshness = str(backlog_priority.get("freshness", "") or "").strip()
+        why = f"{backlog_rows} queued row(s) currently dominate operator cleanup pressure"
+        if backlog_lane:
+            why += f"; top lane `{backlog_lane}` carries {backlog_lane_count} row(s)"
+        if backlog_freshness:
+            why += f"; export freshness is {backlog_freshness}"
+        _append_warning(
+            warnings,
+            problem=f"Priority backlog: {backlog_label} is currently the main cleanup surface.",
+            why=why,
+            next_action=str(backlog_priority.get("action", "") or "Open the dominant backlog queue."),
+            open_label=backlog_label,
         )
     if rescued_unknown_consensus > 0:
         _append_warning(
@@ -523,13 +661,25 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
     if cohort_membership_mode == "paper_locked_snapshot_membership":
         tuning_actions.append("Confirm that locked sample-id membership is the intended authority before comparing this run against contract-shrunk cohorts.")
     if readiness_gap_notes:
-        tuning_actions.append("Check live readiness mismatch and taxonomy backlog before deciding that recent Erebus-side curation failed to help this run.")
+        tuning_actions.append("Check live readiness mismatch, true authority debt, and policy-held token residue before deciding that recent Erebus-side curation failed to help this run.")
     if temporal_gap_notes:
         tuning_actions.append("Review temporal holdout caveats and leaderboard weakness before changing models; this run may be limited more by forward-time family drift than by missing features.")
     if rescued_unknown_consensus > 0:
         tuning_actions.append("Review rescued missing-consensus malware rows before raising or lowering the malicious-detection threshold.")
+    if backlog_priority:
+        tuning_actions.append(str(backlog_priority.get("action", "") or "Open the dominant backlog queue."))
+    if str(fp_triage.get("freshness", "") or "").strip() == "stale":
+        tuning_actions.append("Refresh the VT false-positive triage export before using it to drive suppression or review work.")
+    if str(android_missing_triage.get("freshness", "") or "").strip() == "stale":
+        tuning_actions.append("Refresh the Android missing-resolution triage export before treating it as the current backlog.")
     if lock_status == "count-only":
         tuning_actions.append("Confirm that count-only cohort lock is acceptable for this review before using the run as a reproducible evidence baseline.")
+    elif lock_status == "taxonomy-drift":
+        drift_detail = taxonomy_count_drift_note(taxonomy_drift) if taxonomy_drift else ""
+        if drift_detail:
+            tuning_actions.append(f"Review taxonomy-label drift inside the locked sample set before comparing family/type counts to the historical paper contract: {drift_detail}")
+        else:
+            tuning_actions.append("Review taxonomy-label drift inside the locked sample set before comparing family/type counts to the historical paper contract.")
     elif lock_status == "missing-lock":
         tuning_actions.append("Do not treat this run as publication-grade until the sample-id cohort lock is restored and revalidated.")
     if health_map.get("Figure validity") in {"YELLOW", "RED"}:
@@ -548,7 +698,8 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
         type_target = str(label_strategy.get("preferred_type_target", "") or "").strip()
         avoid = label_strategy.get("avoid_for_primary_claims", [])
         if family_target and type_target:
-            tuning_actions.append(
+            tuning_actions.insert(
+                1 if tuning_actions else 0,
                 f"Keep supervision anchored on {family_target} for family and {type_target} for coarse taxonomy before retuning models."
             )
         if isinstance(avoid, list) and avoid:
@@ -575,6 +726,11 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
         "taxonomy_support_summary": taxonomy_support,
         "label_strategy_summary": label_strategy,
         "permission_tuning_summary": permission_tuning,
+        "false_positive_triage_summary": fp_triage,
+        "android_missing_resolution_summary": android_missing_triage,
+        "policy_held_token_risk_summary": policy_held_triage,
+        "priority_backlog_summary": backlog_priority,
+        "backlog_debt_summary": debt_summary,
         "cohort_readiness_summary": cohort_readiness,
         "cohort_readiness_signal": readiness_signal,
         "cohort_readiness_observed_note": readiness_observed_note,
@@ -658,6 +814,23 @@ def print_compact_review_latest_run(*, output_root: Path, latest_run_id: str | N
             "  Authority gap rows (run/global)",
             f"{tax.get('authority_gap_run_count', '—')} / {tax.get('authority_gap_global_count', '—')}",
         )
+        provenance_parts = [
+            f"split={tax.get('taxonomy_authority_split_json_origin')}"
+            for _key in ("taxonomy_authority_split_json_origin",)
+            if str(tax.get("taxonomy_authority_split_json_origin", "") or "").strip()
+        ]
+        summary_origin = str(tax.get("taxonomy_consistency_summary_origin", "") or "").strip()
+        if summary_origin:
+            provenance_parts.append(f"summary={summary_origin}")
+        target_origin = str(tax.get("taxonomy_target_surfaces_origin", "") or "").strip()
+        if target_origin:
+            provenance_parts.append(f"target_surfaces={target_origin}")
+        if provenance_parts:
+            du.print_info("  Artifact provenance: " + ", ".join(provenance_parts))
+        if any("global_latest_mirror" in part for part in provenance_parts):
+            du.print_note(
+                "  Taxonomy/support summary is using at least one global latest mirror artifact; treat it as cross-run guidance until the run-scoped export exists."
+            )
         du.print_stat("  min_samples_per_family", str(tax.get("min_samples_per_family", "—")))
         du.print_stat(
             "  Families retained/dropped",
@@ -665,9 +838,9 @@ def print_compact_review_latest_run(*, output_root: Path, latest_run_id: str | N
         )
         du.print_stat("  Samples dropped (estimate)", str(tax.get("samples_dropped_estimate", "—")))
         du.print_stat("  Families just below threshold", str(tax.get("families_just_below_threshold", "—")))
+        preview: list[str] = []
         sens = tax.get("threshold_sensitivity", [])
         if isinstance(sens, list) and sens:
-            preview = []
             for row in sens[:5]:
                 if not isinstance(row, dict):
                     continue
@@ -691,6 +864,98 @@ def print_compact_review_latest_run(*, output_root: Path, latest_run_id: str | N
         if interp:
             du.print_info(f"  Label strategy note: {interp}")
     print("")
+    fp_triage = summary.get("false_positive_triage_summary", {})
+    if isinstance(fp_triage, dict) and fp_triage:
+        print("False-Positive Triage")
+        du.print_stat("  Triage rows", str(fp_triage.get("row_count", "—")))
+        freshness = str(fp_triage.get("freshness", "") or "").strip()
+        if freshness:
+            du.print_info(f"  Export freshness: {freshness}")
+        lane_counts = fp_triage.get("lane_counts", {})
+        if isinstance(lane_counts, dict) and lane_counts:
+            top_lanes = ", ".join(
+                f"{lane}={count}" for lane, count in list(lane_counts.items())[:3]
+            )
+            du.print_info(f"  Lane summary: {top_lanes}")
+        global_policy_counts = fp_triage.get("global_policy_counts", {})
+        if isinstance(global_policy_counts, dict) and global_policy_counts:
+            policy_text = ", ".join(
+                f"{bucket}={count}" for bucket, count in list(global_policy_counts.items())[:3]
+            )
+            du.print_info(f"  Global policy: {policy_text}")
+        print("")
+    debt_summary = summary.get("backlog_debt_summary", {})
+    if isinstance(debt_summary, dict) and debt_summary:
+        print("Backlog Debt")
+        lines = build_backlog_terminal_lines(debt_summary=debt_summary, max_rows=5)
+        if lines:
+            first = str(lines[0])
+            if first.startswith("Focus area: "):
+                du.print_info(f"  {first}")
+                for line in lines[1:]:
+                    if "Recommended next action:" in line:
+                        du.print_info(f"  {line}")
+                    else:
+                        du.print_note(f"  {line}")
+        print("")
+    priority_backlog = summary.get("priority_backlog_summary", {})
+    if isinstance(priority_backlog, dict) and priority_backlog:
+        print("Priority Backlog")
+        du.print_stat("  Focus first", str(priority_backlog.get("label", "—")))
+        du.print_stat("  Rows", str(priority_backlog.get("row_count", "—")))
+        freshness = str(priority_backlog.get("freshness", "") or "").strip()
+        if freshness:
+            du.print_info(f"  Export freshness: {freshness}")
+        top_lane = str(priority_backlog.get("top_lane", "") or "").strip()
+        if top_lane:
+            du.print_info(
+                f"  Dominant lane: {top_lane} ({priority_backlog.get('top_lane_count', '—')})"
+            )
+        action = str(priority_backlog.get("action", "") or "").strip()
+        if action:
+            du.print_info(f"  Recommended next action: {action}")
+        print("")
+    android_missing_triage = summary.get("android_missing_resolution_summary", {})
+    if isinstance(android_missing_triage, dict) and android_missing_triage:
+        print("Android Missing-Resolution Triage")
+        du.print_stat("  Triage rows", str(android_missing_triage.get("row_count", "—")))
+        freshness = str(android_missing_triage.get("freshness", "") or "").strip()
+        if freshness:
+            du.print_info(f"  Export freshness: {freshness}")
+        lane_counts = android_missing_triage.get("lane_counts", {})
+        if isinstance(lane_counts, dict) and lane_counts:
+            top_lanes = ", ".join(
+                f"{lane}={count}" for lane, count in list(lane_counts.items())[:3]
+            )
+            du.print_info(f"  Lane summary: {top_lanes}")
+        cluster_counts = android_missing_triage.get("cluster_counts", {})
+        if isinstance(cluster_counts, dict) and cluster_counts:
+            top_clusters = ", ".join(
+                f"{cluster}={count}" for cluster, count in list(cluster_counts.items())[:3]
+            )
+            du.print_info(f"  Package clusters: {top_clusters}")
+        print("")
+    policy_held_triage = summary.get("policy_held_token_risk_summary", {})
+    if isinstance(policy_held_triage, dict) and policy_held_triage:
+        print("Policy-Held Token Risk")
+        du.print_stat("  Triage rows", str(policy_held_triage.get("row_count", "—")))
+        freshness = str(policy_held_triage.get("freshness", "") or "").strip()
+        if freshness:
+            du.print_info(f"  Export freshness: {freshness}")
+        lane_counts = policy_held_triage.get("lane_counts", {})
+        if isinstance(lane_counts, dict) and lane_counts:
+            top_lanes = ", ".join(
+                f"{lane}={count}" for lane, count in list(lane_counts.items())[:3]
+            )
+            du.print_info(f"  Lane summary: {top_lanes}")
+        token_kind_counts = policy_held_triage.get("token_kind_counts", {})
+        if isinstance(token_kind_counts, dict) and token_kind_counts:
+            top_kinds = ", ".join(
+                f"{kind}={count}" for kind, count in list(token_kind_counts.items())[:3]
+            )
+            du.print_info(f"  Token classes: {top_kinds}")
+        du.print_note("  Treat this as hold-policy review, not safe family-authority promotion.")
+        print("")
     print("Permission Coverage Tuning")
     perm = summary.get("permission_tuning_summary", {})
     if isinstance(perm, dict) and perm:

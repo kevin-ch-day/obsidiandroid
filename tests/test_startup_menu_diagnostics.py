@@ -258,6 +258,204 @@ def test_taxonomy_consistency_review_prefers_taxonomy_authority_split(
 
     assert "Taxonomy consistency review" in out
     assert "Authority split source mode" in out
+
+
+def test_taxonomy_support_tuning_warns_when_using_global_latest_mirror(
+    monkeypatch,
+    make_run_diagnostics_layout,
+    write_text_file,
+    capsys,
+) -> None:
+    run_id = "20260515T141956Z__58d84f"
+    out_root, rdiag, _ = make_run_diagnostics_layout(run_id)
+    gdiag = out_root / "diagnostics"
+    write_text_file(
+        gdiag / "taxonomy_authority_split.latest.json",
+        json.dumps(
+            {
+                "source_mode": "live_view",
+                "authority_scopes": {
+                    "global_authority_catalog": {"bucket_counts": {"resolved_but_no_authority_family": 8}},
+                    "run_cohort_authority": {"available": False, "bucket_counts": {}},
+                },
+                "taxonomy_split": {
+                    "type_authority_vs_rendering_mismatch": {
+                        "counts": {
+                            "type_mapping_mismatch": 1,
+                            "type_label_missing": 0,
+                            "type_label_noncanonical": 0,
+                            "label_family_mismatch": 0,
+                        }
+                    },
+                    "model_prediction_error": {"count": 1},
+                },
+            }
+        ),
+    )
+    write_text_file(gdiag / "taxonomy_authority_split.latest.md", "# Taxonomy Authority Split\n")
+    write_text_file(gdiag / "taxonomy_target_surfaces.latest.json", json.dumps({"label_strategy": {"preferred_family_target": "family_id"}}))
+    write_text_file(gdiag / "taxonomy_consistency_summary.latest.json", json.dumps({"taxonomy_mismatch_count": 1}))
+    write_text_file(rdiag / "family_label_taxonomy_audit.csv", "family_canonical,aligned_rows,support_status,configured_min_samples_per_family\nfamA,5,retained,3\n")
+
+    monkeypatch.setattr(startup_menu_diagnostics, "resolve_display_mode", lambda: "compact")
+    startup_menu_diagnostics.launch_taxonomy_support_tuning_compact_menu(read_latest_run_id=lambda: run_id)
+    out = capsys.readouterr().out
+
+    assert "Artifact provenance" in out
+    assert "global_latest_mirror" in out
+    assert "global latest mirror" in out.lower()
+
+
+def test_taxonomy_consistency_review_warns_when_using_global_latest_mirror(
+    make_run_diagnostics_layout,
+    write_text_file,
+    capsys,
+) -> None:
+    run_id = "20260515T141956Z__58d84f"
+    out_root, _rdiag, _ = make_run_diagnostics_layout(run_id)
+    gdiag = out_root / "diagnostics"
+    write_text_file(
+        gdiag / "taxonomy_authority_split.latest.json",
+        json.dumps(
+            {
+                "source_mode": "global_fallback",
+                "authority_scopes": {"global_authority_catalog": {"available": True}},
+                "taxonomy_split": {
+                    "type_authority_vs_rendering_mismatch": {
+                        "counts": {
+                            "type_mapping_mismatch": 2,
+                            "type_label_missing": 1,
+                            "type_label_noncanonical": 0,
+                            "label_family_mismatch": 0,
+                        }
+                    },
+                    "model_prediction_error": {"count": 0},
+                },
+            }
+        ),
+    )
+    write_text_file(gdiag / "taxonomy_authority_split.latest.md", "# Taxonomy Authority Split\n")
+    write_text_file(
+        gdiag / "taxonomy_consistency_summary.latest.json",
+        json.dumps({"taxonomy_mismatch_count": 3, "type_guard_family_suppressed_count": 2}),
+    )
+
+    artifact_views.launch_taxonomy_consistency_review_menu(
+        read_latest_run_id=lambda: run_id,
+        output_root=out_root,
+        first_existing_path_fn=startup_menu_diagnostics.first_existing_path,
+    )
+    out = capsys.readouterr().out
+
+    assert "Artifact provenance" in out
+    assert "global_latest_mirror" in out
+    assert "global latest mirror" in out.lower()
     assert "Model prediction errors" in out
+    assert "Type-guard suppressions" in out
     assert "Taxonomy authority split (Markdown)" in out
     assert "Taxonomy authority gap summary (CSV)" in out
+
+
+def test_permission_intelligence_coverage_shows_artifact_origin_and_warns_on_global_mirror(
+    make_run_diagnostics_layout,
+    write_text_file,
+    capsys,
+) -> None:
+    run_id = "20260515T141956Z__58d84f"
+    out_root, _rdiag, _ = make_run_diagnostics_layout(run_id)
+    gdiag = out_root / "diagnostics"
+    write_text_file(
+        gdiag / "modality_contribution_summary.json",
+        json.dumps({"permission_signal_pct": 95.0, "permission_signal_n": 10, "vendor_merge_pct": 90.0, "vendor_merge_n": 9}),
+    )
+    write_text_file(gdiag / "permission_coverage_summary.csv", "a,b\n1,2\n")
+
+    artifact_views.launch_permission_intelligence_coverage_menu(
+        read_latest_run_id=lambda: run_id,
+        output_root=out_root,
+        first_existing_path_fn=startup_menu_diagnostics.first_existing_path,
+        governed_cohort_n_for_q2_fn=lambda **_kwargs: 10,
+    )
+    out = capsys.readouterr().out
+
+    assert "Permission coverage summary" in out
+    assert "global_latest_mirror" in out
+    assert "Permission intelligence coverage is using at least one global latest mirror artifact" in out
+
+
+def test_feature_matrix_modality_view_shows_artifact_origin_and_warns_on_global_mirror(
+    make_run_diagnostics_layout,
+    write_text_file,
+    capsys,
+) -> None:
+    run_id = "20260515T141956Z__58d84f"
+    out_root, _rdiag, _ = make_run_diagnostics_layout(run_id)
+    gdiag = out_root / "diagnostics"
+    write_text_file(gdiag / "feature_contract.json", json.dumps({"feature_columns": 10}))
+
+    artifact_views.launch_feature_matrix_modality_menu(
+        read_latest_run_id=lambda: run_id,
+        output_root=out_root,
+        first_existing_path_fn=startup_menu_diagnostics.first_existing_path,
+    )
+    out = capsys.readouterr().out
+
+    assert "Feature contract" in out
+    assert "global_latest_mirror" in out
+    assert "Feature matrix / modality coverage is using at least one global latest mirror artifact" in out
+
+
+def test_cohort_family_artifact_paths_show_origin_for_global_latest_mirror(
+    make_run_diagnostics_layout,
+    write_text_file,
+    capsys,
+) -> None:
+    run_id = "20260515T141956Z__58d84f"
+    out_root, rdiag, _ = make_run_diagnostics_layout(run_id)
+    gdiag = out_root / "diagnostics"
+    write_text_file(gdiag / "analysis_snapshot.latest.csv", "sample_id\n1\n")
+
+    startup_menu_diagnostics._cohort_audit.print_cohort_family_artifact_paths(
+        read_latest_run_id=lambda: run_id,
+        output_root=out_root,
+        latest_post_run_enrichment_dir_fn=lambda _rdiag: None,
+        latest_post_run_entry_fn=lambda _rdiag: {},
+    )
+    out = capsys.readouterr().out
+
+    assert "analysis_snapshot.latest.csv" in out
+    assert "present [global_latest_mirror]" in out
+
+
+def test_cohort_family_artifact_paths_show_taxonomy_drift_from_latest_enrichment(
+    make_run_diagnostics_layout,
+    write_text_file,
+    capsys,
+) -> None:
+    run_id = "20260515T141956Z__58d84f"
+    out_root, rdiag, _ = make_run_diagnostics_layout(run_id)
+    enrichment_dir = rdiag / "post_run_enrichments" / "audit1"
+    enrichment_dir.mkdir(parents=True, exist_ok=True)
+
+    startup_menu_diagnostics._cohort_audit.print_cohort_family_artifact_paths(
+        read_latest_run_id=lambda: run_id,
+        output_root=out_root,
+        latest_post_run_enrichment_dir_fn=lambda _rdiag: enrichment_dir,
+        latest_post_run_entry_fn=lambda _rdiag: {
+            "audit_profile": "malicious_temporal_stability_locked",
+            "target_run_profile": "malicious_temporal_stability_locked",
+            "same_profile_as_target": True,
+            "cohort_lock_status": "membership_locked_taxonomy_drift",
+            "taxonomy_label_drift": {
+                "drift_class": "taxonomy_expansion",
+                "family_delta": 5,
+                "type_delta": 1,
+                "recommended_action": "Review newly split families/types.",
+            },
+        },
+    )
+    out = capsys.readouterr().out
+
+    assert "Taxonomy drift" in out
+    assert "taxonomy_expansion" in out
+    assert "family_delta=+5" in out

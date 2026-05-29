@@ -2,8 +2,21 @@
 
 from __future__ import annotations
 
+import inspect
+
 import obsidiandroid.cli.profile_manager as profile_manager
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common.authority_taxonomy_terms import (
+    POLICY_HELD_FAMILY_TOKENS_LABEL,
+    HIGH_PRIORITY_TAXONOMY_CONFLICTS_LABEL,
+    TAXONOMY_CURATION_DISCIPLINE_TITLE,
+    TOP_POLICY_HELD_TOKEN_BACKLOG_TITLE,
+    TOP_TRUE_UNRESOLVED_FAMILY_BACKLOG_TITLE,
+    TRUE_FAMILY_TYPE_CONFLICT_CANDIDATES_LABEL,
+    TRUE_UNRESOLVED_FAMILY_SLUGS_LABEL,
+    policy_held_only_note,
+)
+from obsidiandroid.common.backlog_semantics import build_taxonomy_curation_posture
 from obsidiandroid.database.db_cohort_readiness import get_cohort_readiness_snapshot
 
 _READINESS_BUCKET_MEANINGS: tuple[tuple[str, str], ...] = (
@@ -43,10 +56,19 @@ def show_profile_readiness_mapping_inventory(
     display_module=du,
 ) -> int:
     """Print bundled profile-to-readiness mapping inventory (advisory only)."""
-    inventory = profile_manager_module.inventory_cohort_readiness_mappings(
-        include_hidden=False,
-        profile_ids=list(getattr(profile_manager_module, "FINAL_OPERATOR_PROFILE_IDS", ())),
-    )
+    inventory_fn = profile_manager_module.inventory_cohort_readiness_mappings
+    inventory_kwargs = {
+        "include_hidden": False,
+        "profile_ids": list(getattr(profile_manager_module, "FINAL_OPERATOR_PROFILE_IDS", ())),
+    }
+    try:
+        params = inspect.signature(inventory_fn).parameters
+    except (TypeError, ValueError):
+        params = {}
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()) or inventory_kwargs.keys() <= params.keys():
+        inventory = inventory_fn(**inventory_kwargs)
+    else:
+        inventory = inventory_fn()
     if not inventory:
         display_module.print_warning("[MENU] No bundled profiles found for readiness mapping inventory.")
         return 1
@@ -133,14 +155,42 @@ def show_profile_readiness_mapping_inventory(
                 "samples": taxonomy_signals.get("missing_primary_label_samples", "unavailable")
                 if taxonomy_signals.get("missing_primary_label_samples") is not None
                 else "unavailable",
-                "meaning": "Android + PI samples missing classification_primary",
+                "meaning": "Active/actionable Android + PI missing-primary debt after suppression-aware triage",
+            },
+            {
+                "signal": "missing_primary_actionable",
+                "samples": taxonomy_signals.get("missing_primary_label_actionable_samples", "unavailable")
+                if taxonomy_signals.get("missing_primary_label_actionable_samples") is not None
+                else "unavailable",
+                "meaning": "Missing-primary rows with high/strong evidence still eligible for label review",
+            },
+            {
+                "signal": "missing_primary_residual",
+                "samples": taxonomy_signals.get("missing_primary_label_residual_samples", "unavailable")
+                if taxonomy_signals.get("missing_primary_label_residual_samples") is not None
+                else "unavailable",
+                "meaning": "Missing-primary rows blocked by provenance, suppression, zero-signal, or low-consensus posture",
+            },
+            {
+                "signal": "missing_primary_suppressed",
+                "samples": taxonomy_signals.get("missing_primary_label_suppressed_samples", "unavailable")
+                if taxonomy_signals.get("missing_primary_label_suppressed_samples") is not None
+                else "unavailable",
+                "meaning": "Missing-primary rows already closed by sample/package false-positive suppression",
+            },
+            {
+                "signal": "missing_primary_active_residual",
+                "samples": taxonomy_signals.get("missing_primary_label_active_residual_samples", "unavailable")
+                if taxonomy_signals.get("missing_primary_label_active_residual_samples") is not None
+                else "unavailable",
+                "meaning": "Missing-primary rows still needing manual provenance or low-consensus review",
             },
             {
                 "signal": "unresolved_family_samples",
                 "samples": taxonomy_signals.get("unresolved_family_samples", "unavailable")
                 if taxonomy_signals.get("unresolved_family_samples") is not None
                 else "unavailable",
-                "meaning": "Android + PI samples whose resolved family is not in android_malware_family",
+                "meaning": "Android + PI samples whose resolved family is not in android_malware_family and not already policy-held",
             },
             {
                 "signal": "known_unresolved_family_samples",
@@ -148,6 +198,13 @@ def show_profile_readiness_mapping_inventory(
                 if taxonomy_signals.get("known_unresolved_family_samples") is not None
                 else "unavailable",
                 "meaning": "Unresolved samples whose family is already known locally",
+            },
+            {
+                "signal": "policy_held_family_samples",
+                "samples": taxonomy_signals.get("policy_held_family_samples", "unavailable")
+                if taxonomy_signals.get("policy_held_family_samples") is not None
+                else "unavailable",
+                "meaning": "Resolved-family samples held by generic/coarse token policy and excluded from true family-repair backlog",
             },
         ]
         display_module.print_table(
@@ -173,8 +230,50 @@ def show_profile_readiness_mapping_inventory(
         if unresolved_rows:
             display_module.print_table(
                 unresolved_rows,
-                title="Top unresolved family backlog",
+                title=TOP_TRUE_UNRESOLVED_FAMILY_BACKLOG_TITLE,
                 columns=["family", "samples", "high_strong", "known_locally"],
+                show_index=False,
+            )
+        top_policy_held = taxonomy_signals.get("top_policy_held_families", [])
+        policy_rows: list[dict[str, object]] = []
+        if isinstance(top_policy_held, list):
+            for entry in top_policy_held[:5]:
+                if not isinstance(entry, dict):
+                    continue
+                policy_rows.append(
+                    {
+                        "family": str(entry.get("family", "") or ""),
+                        "samples": entry.get("sample_count", "unavailable"),
+                        "high_strong": entry.get("high_strong_sample_count", "unavailable"),
+                        "token_kind": str(entry.get("token_kind", "") or "policy_held_token"),
+                    }
+                )
+        if policy_rows:
+            display_module.print_table(
+                policy_rows,
+                title=TOP_POLICY_HELD_TOKEN_BACKLOG_TITLE,
+                columns=["family", "samples", "high_strong", "token_kind"],
+                show_index=False,
+            )
+        policy_kind_counts = taxonomy_signals.get("policy_held_family_token_kind_counts", {})
+        policy_kind_rows: list[dict[str, object]] = []
+        if isinstance(policy_kind_counts, dict):
+            for token_kind, count in sorted(
+                policy_kind_counts.items(),
+                key=lambda item: (-int(item[1] or 0), str(item[0])),
+            ):
+                policy_kind_rows.append(
+                    {
+                        "token_kind": str(token_kind or "policy_held_token"),
+                        "samples": int(count or 0),
+                        "meaning": "Policy-held rows by generic/coarse token class",
+                    }
+                )
+        if policy_kind_rows:
+            display_module.print_table(
+                policy_kind_rows,
+                title="Policy-Held Token Classes",
+                columns=["token_kind", "samples", "meaning"],
                 show_index=False,
             )
         top_conflicts = taxonomy_signals.get("top_family_type_conflicts", [])
@@ -208,6 +307,27 @@ def show_profile_readiness_mapping_inventory(
                 columns=["family", "priority", "action", "db_type", "issue", "operator_model", "fraud_posture", "perm_signal", "samples", "high_strong", "label_signal"],
                 show_index=False,
             )
+        discipline_rows: list[dict[str, object]] = []
+        action_counts = taxonomy_signals.get("family_type_conflict_action_counts", {})
+        if isinstance(action_counts, dict):
+            for action, count in sorted(
+                action_counts.items(),
+                key=lambda item: (-int(item[1] or 0), str(item[0])),
+            ):
+                discipline_rows.append(
+                    {
+                        "focus": str(action or "review_manually"),
+                        "families": int(count or 0),
+                        "meaning": "Suggested curation action for family/type conflict cleanup",
+                    }
+                )
+        if discipline_rows:
+            display_module.print_table(
+                discipline_rows,
+                title=TAXONOMY_CURATION_DISCIPLINE_TITLE,
+                columns=["focus", "families", "meaning"],
+                show_index=False,
+            )
         repair_candidates = taxonomy_signals.get("top_repair_candidates", [])
         repair_rows: list[dict[str, object]] = []
         if isinstance(repair_candidates, list):
@@ -237,13 +357,19 @@ def show_profile_readiness_mapping_inventory(
     display_module.print_stat("Ambiguous / unmapped", ambiguous_count)
     unresolved_family_count = taxonomy_signals.get("unresolved_family_count") if isinstance(taxonomy_signals, dict) else None
     if unresolved_family_count is not None:
-        display_module.print_stat("Unresolved family slugs", unresolved_family_count)
+        display_module.print_stat(TRUE_UNRESOLVED_FAMILY_SLUGS_LABEL, unresolved_family_count)
     known_unresolved_family_count = taxonomy_signals.get("known_unresolved_family_count") if isinstance(taxonomy_signals, dict) else None
     if known_unresolved_family_count is not None:
         display_module.print_stat("Known unresolved families", known_unresolved_family_count)
+    policy_held_family_count = taxonomy_signals.get("policy_held_family_count") if isinstance(taxonomy_signals, dict) else None
+    if policy_held_family_count is not None:
+        display_module.print_stat(POLICY_HELD_FAMILY_TOKENS_LABEL, policy_held_family_count)
     family_type_conflict_count = taxonomy_signals.get("family_type_conflict_count") if isinstance(taxonomy_signals, dict) else None
     if family_type_conflict_count is not None:
-        display_module.print_stat("Family/type conflict candidates", family_type_conflict_count)
+        display_module.print_stat(TRUE_FAMILY_TYPE_CONFLICT_CANDIDATES_LABEL, family_type_conflict_count)
+    high_priority_conflict_count = taxonomy_signals.get("high_priority_conflict_count") if isinstance(taxonomy_signals, dict) else None
+    if high_priority_conflict_count is not None:
+        display_module.print_stat(HIGH_PRIORITY_TAXONOMY_CONFLICTS_LABEL, high_priority_conflict_count)
     repair_candidate_count = taxonomy_signals.get("repair_candidate_count") if isinstance(taxonomy_signals, dict) else None
     if repair_candidate_count is not None:
         display_module.print_stat("Taxonomy repair candidates", repair_candidate_count)
@@ -269,7 +395,20 @@ def show_profile_readiness_mapping_inventory(
                 if isinstance(entry, dict) and entry.get("family")
             )
             if families:
-                display_module.print_note(f"Top unresolved resolved-family slugs: {families}")
+                display_module.print_note(f"Top true unresolved resolved-family slugs: {families}")
+        top_policy_held = taxonomy_signals.get("top_policy_held_families", [])
+        if isinstance(top_policy_held, list) and top_policy_held:
+            families = ", ".join(
+                f"{entry.get('family')} ({entry.get('sample_count')}, {entry.get('token_kind')})"
+                for entry in top_policy_held[:5]
+                if isinstance(entry, dict) and entry.get("family")
+            )
+            if families:
+                display_module.print_note(f"Top policy-held token noise: {families}")
+        unresolved_family_count = taxonomy_signals.get("unresolved_family_count")
+        policy_held_family_count = taxonomy_signals.get("policy_held_family_count")
+        if unresolved_family_count is not None and int(unresolved_family_count or 0) == 0 and int(policy_held_family_count or 0) > 0:
+            display_module.print_note(policy_held_only_note())
         known_unresolved_samples = taxonomy_signals.get("known_unresolved_family_samples")
         if known_unresolved_samples:
             display_module.print_note(
@@ -284,7 +423,7 @@ def show_profile_readiness_mapping_inventory(
                 if isinstance(entry, dict) and entry.get("family")
             )
             if families:
-                display_module.print_note(f"Top family/type conflict candidates: {families}")
+                display_module.print_note(f"Top true family/type conflict candidates: {families}")
             posture_pairs = ", ".join(
                 f"{entry.get('family')} → {entry.get('operator_model_candidate')}"
                 for entry in top_conflicts[:3]
@@ -299,6 +438,9 @@ def show_profile_readiness_mapping_inventory(
             )
             if actions:
                 display_module.print_note(f"Suggested next actions: {actions}")
+        curation_note = str(build_taxonomy_curation_posture(readiness=readiness).get("note", "") or "").strip()
+        if curation_note:
+            display_module.print_note(curation_note)
         repair_candidates = taxonomy_signals.get("top_repair_candidates", [])
         if isinstance(repair_candidates, list) and repair_candidates:
             families = ", ".join(

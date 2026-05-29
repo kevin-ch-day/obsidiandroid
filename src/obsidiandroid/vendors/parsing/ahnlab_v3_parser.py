@@ -21,7 +21,7 @@ KNOWN_FAMILIES = {
     "iframemal", "kimsuky", "abstractemu", "fakewallet", "smssend", "mobok", "clipper", "boogr",
     "gspy", "telerat", "mobistealth", "beitaad", "hiddensploit", "bahamut", "smsagent", "bankun",
     "stalkspy", "tekya", "sandrorat", "maclt", "crycryptor", "spykids", "tispy", "darkshades",
-    "ispytracker", "dendroid"
+    "ispytracker", "dendroid", "otpstealer"
 }
 
 # Known Threat Classes (lowercase)

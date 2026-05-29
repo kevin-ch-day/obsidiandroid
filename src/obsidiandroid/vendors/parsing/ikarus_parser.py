@@ -35,7 +35,7 @@ KNOWN_FAMILIES = {
     "trickmo", "ermac", "spymax", "spyloan", "clast82", "cabassous", "golddigger",
     "blackrock", "blankbot", "bahamut", "rafel", "spyagent", "chameleon", "mobok",
     "fatboypanel", "masterfred", "icici", "fakecalls", "zoom", "pakchat", "tgtoxic",
-    "fakeplayer", "sendsms", "xrat"
+    "fakeplayer", "sendsms", "xrat", "otpstealer"
 }
 
 RAT_FAMILY_HINTS = {

@@ -337,6 +337,50 @@ def test_export_taxonomy_consistency_audit_falls_back_to_type_slug_source(
     assert str(summary.get("type_expected_source", "")) == "type_slug"
 
 
+def test_export_taxonomy_consistency_audit_counts_type_guard_suppressions(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Taxonomy summary should expose type-guard suppression counts from row output."""
+    run_id = "run_type_guard_count"
+    diagnostics_dir = tmp_path / "output" / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    runtime_meta = pd.DataFrame(
+        [
+            {
+                "sample_id": 2201,
+                "type_slug": "banker",
+                "family_canonical": "Irata",
+            }
+        ]
+    )
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", runtime_meta, raising=False)
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_RUN_ID", run_id, raising=False)
+
+    labels_df = pd.DataFrame(
+        [
+            {
+                "sample_id": 2201,
+                "predicted_family": "other",
+                "raw_predicted_family": "SpyNote",
+                "override_tag": "type_guard_family_suppressed",
+                "classification_label": "trojan/android.banker.other",
+            }
+        ]
+    )
+
+    _, _, summary = resolver._export_taxonomy_consistency_audit(labels_df)  # pylint: disable=protected-access
+    assert int(summary.get("type_guard_family_suppressed_count", -1)) == 1
+    assert summary.get("override_tag_counts") == [
+        {"override_tag": "type_guard_family_suppressed", "count": 1}
+    ]
+
+    prediction_path = diagnostics_dir / f"prediction_errors_{run_id}.csv"
+    prediction_df = pd.read_csv(prediction_path)
+    assert str(prediction_df.loc[0, "raw_predicted_family"]) == "SpyNote"
+    assert str(prediction_df.loc[0, "override_tag"]) == "type_guard_family_suppressed"
+
+
 def test_run_summary_and_export_fails_in_paper_mode_when_type_audit_blind(
     monkeypatch,
     tmp_path: Path,

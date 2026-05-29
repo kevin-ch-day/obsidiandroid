@@ -4,6 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from obsidiandroid.common.backlog_semantics import (
+    choose_priority_triage,
+    read_android_missing_resolution_snapshot,
+    read_false_positive_triage_snapshot,
+    triage_detail,
+    triage_status,
+)
 from obsidiandroid.common.cohort_presentation import cohort_methodology_notes
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.publication_readiness import publication_ready_status_light
@@ -77,6 +84,28 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
     if not q2:
         q2 = read_json_dict(gdiag / "modality_contribution_summary.json")
     parser_state = shared.get("parser_summary") if isinstance(shared.get("parser_summary"), dict) else {}
+    fp_triage = read_false_positive_triage_snapshot(output_root=output_root)
+    android_triage = read_android_missing_resolution_snapshot(output_root=output_root)
+    fp_triage_count = int(fp_triage.get("row_count", 0)) if fp_triage else None
+    android_triage_count = int(android_triage.get("row_count", 0)) if android_triage else None
+    fp_triage_top_lane = (
+        (str(fp_triage.get("top_lane", "") or ""), int(fp_triage.get("top_lane_count", 0)))
+        if fp_triage and str(fp_triage.get("top_lane", "") or "").strip()
+        else None
+    )
+    android_triage_top_lane = (
+        (str(android_triage.get("top_lane", "") or ""), int(android_triage.get("top_lane_count", 0)))
+        if android_triage and str(android_triage.get("top_lane", "") or "").strip()
+        else None
+    )
+    fp_triage_freshness = str(fp_triage.get("freshness", "") or "").strip() if fp_triage else "missing"
+    android_triage_freshness = (
+        str(android_triage.get("freshness", "") or "").strip() if android_triage else "missing"
+    )
+    priority_triage = choose_priority_triage(
+        android_missing_triage=android_triage,
+        fp_triage=fp_triage,
+    )
 
     overview_rows = [
         {
@@ -98,6 +127,34 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
             "label": "Permission signal",
             "status": _status_light(bool(q2) and q2.get("permission_signal_pct") not in (None, "", "—")),
             "action": "View profile tuning snapshot",
+        },
+        {
+            "label": "Android missing-resolution triage",
+                "status": triage_status(
+                    row_count=android_triage_count,
+                    freshness=android_triage_freshness,
+                ),
+                "action": "Open Android missing-resolution triage",
+                "detail": triage_detail(
+                    android_triage_count,
+                    noun="queued row(s)",
+                    top_bucket=android_triage_top_lane,
+                    freshness=android_triage_freshness,
+                ),
+        },
+        {
+            "label": "VT false-positive triage",
+                "status": triage_status(
+                    row_count=fp_triage_count,
+                    freshness=fp_triage_freshness,
+                ),
+                "action": "Open VT false-positive triage",
+                "detail": triage_detail(
+                    fp_triage_count,
+                    noun="review row(s)",
+                    top_bucket=fp_triage_top_lane,
+                    freshness=fp_triage_freshness,
+                ),
         },
         {
             "label": "Vendor/parser coverage",
@@ -141,6 +198,7 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
         "run_science_index_canonical": bool(shared.get("has_canonical_run_science", False)),
         "cohort_membership_mode": cohort_membership_mode or "standard_contract_filters",
         "rescued_unknown_consensus": rescued_unknown_consensus,
+        "priority_triage": priority_triage,
         "rows": overview_rows,
     }
 
@@ -152,11 +210,30 @@ def print_compact_diagnostics_overview(*, output_root: Path, latest_run_id: str 
     overview = build_diagnostics_overview(output_root=output_root, latest_run_id=latest_run_id)
     du.print_subheader("Diagnostics overview")
     du.print_stat("Latest run", str(overview.get("latest_run_id") or "None yet"))
+    priority_triage = overview.get("priority_triage", {})
+    if isinstance(priority_triage, dict) and priority_triage:
+        du.print_stat("Focus first", str(priority_triage.get("label", "—")))
+        freshness = str(priority_triage.get("freshness", "") or "").strip()
+        top_lane = str(priority_triage.get("top_lane", "") or "").strip()
+        row_count = priority_triage.get("row_count", "—")
+        lane_count = priority_triage.get("top_lane_count", "—")
+        detail = f"{row_count} row(s)"
+        if top_lane:
+            detail += f"; top lane={top_lane} ({lane_count})"
+        if freshness:
+            detail += f"; freshness={freshness}"
+        du.print_note(f"  {detail}")
+        action = str(priority_triage.get("action", "") or "").strip()
+        if action:
+            du.print_info(f"  {action}")
     rows = overview.get("rows") if isinstance(overview.get("rows"), list) else []
     for row in rows:
         if not isinstance(row, dict):
             continue
         du.print_stat(str(row.get("label", "")), str(row.get("status", "")))
+        detail = str(row.get("detail", "") or "").strip()
+        if detail:
+            du.print_note(f"  Current backlog: {detail}")
         du.print_info(f"  Recommended next action: {row.get('action', '')}")
     for note in cohort_methodology_notes(
         {

@@ -476,6 +476,27 @@ def run_pipeline(
             "snapshot_label_conflict_count": int(snapshot_meta.get("label_conflict_count", "0")),
         }
         gate_rows = samples_df.attrs.get("cohort_gate_rows", [])
+        if isinstance(gate_rows, list):
+            manifest_context["cohort_gate_rows"] = [
+                dict(row) for row in gate_rows if isinstance(row, dict)
+            ]
+        manifest_context["cohort_policy_snapshot"] = {
+            "exclude_families_deferred_by_snapshot_lock": bool(
+                samples_df.attrs.get("exclude_families_deferred_by_snapshot_lock", False)
+            ),
+            "min_samples_per_family_applied_in_sql": bool(
+                samples_df.attrs.get("min_samples_per_family_applied_in_sql", False)
+            ),
+            "min_samples_per_family_sql_value": samples_df.attrs.get(
+                "min_samples_per_family_sql_value"
+            ),
+            "configured_min_samples_per_family": samples_df.attrs.get(
+                "configured_min_samples_per_family"
+            ),
+            "requested_exclude_families": list(
+                samples_df.attrs.get("requested_exclude_families", ()) or ()
+            ),
+        }
         unknown_excluded = 0
         if isinstance(gate_rows, list):
             for row in gate_rows:
@@ -555,7 +576,7 @@ def run_pipeline(
                     + "; ".join(mismatch_rows)
                 ),
             )
-        elif contract_validation_status == "degraded_live_db_drift":
+        elif contract_validation_status in {"degraded_live_db_drift", "degraded_taxonomy_label_drift"}:
             warning_text = str(contract_validation.get("warning", "") or "").strip()
             if warning_text:
                 du.print_warning(warning_text)
@@ -1074,6 +1095,12 @@ def run_pipeline(
             st.fail_pipeline("[PIPELINE] Feature-label alignment failed.")
         manifest_context["aligned_supervised_rows"] = int(len(aligned_feature_df))
         manifest_context["_aligned_feature_cols"] = int(aligned_feature_df.shape[1])
+        alignment_attrition = getattr(aligned_labels_df, "attrs", {}).get("alignment_attrition_stats", {})
+        if isinstance(alignment_attrition, dict):
+            manifest_context["alignment_attrition_stats"] = dict(alignment_attrition)
+        alignment_attrition_details = getattr(aligned_labels_df, "attrs", {}).get("alignment_attrition_details", {})
+        if isinstance(alignment_attrition_details, dict):
+            manifest_context["alignment_attrition_details"] = dict(alignment_attrition_details)
         obs_al = manifest_context.get("pipeline_observability")
         if isinstance(obs_al, PipelineObservabilitySession):
             split_audit_guess = str(Path(DIAGNOSTICS_DIR) / f"split_freeze_headline_{run_id}.csv")
@@ -1187,6 +1214,11 @@ def run_pipeline(
         manifest_context["post_low_support_training_rows"] = getattr(
             app_config, "RUNTIME_POST_LOW_SUPPORT_TRAINING_ROWS", None
         )
+        low_support_drop_detail = getattr(app_config, "RUNTIME_LOW_SUPPORT_FAMILY_DROP_DETAIL", None)
+        if isinstance(low_support_drop_detail, list):
+            manifest_context["low_support_family_drop_detail"] = [
+                dict(row) for row in low_support_drop_detail if isinstance(row, dict)
+            ]
         perm_surv_csv = str(getattr(app_config, "RUNTIME_PERMISSION_TRAINING_SURVIVAL_CSV", "") or "").strip()
         if perm_surv_csv:
             manifest_context["permission_training_survival_csv"] = perm_surv_csv
@@ -1453,6 +1485,7 @@ def run_pipeline(
 
         # Step 9: Final label resolution
         label_resolution_enabled = bool(getattr(app_config, "ENABLE_LABEL_RESOLUTION_STAGE", True))
+        manifest_context["label_resolution_enabled"] = label_resolution_enabled
         if label_resolution_enabled:
             stage_started_at = perf_counter()
             st.begin_stage("label_resolution")

@@ -323,15 +323,21 @@ def train_xgboost(
 
     duration = time.time() - start
 
+    remap_payload = (
+        present_encoded_lookup.tolist()
+        if present_encoded_lookup is not None
+        else None
+    )
+    if remap_payload is not None:
+        setattr(model, "_obsidiandroid_prediction_index_remap", remap_payload)
+
     results = {
         "metadata": {
             "duration": duration,
             "params": model_params,
             "num_classes": num_classes,
             "ontology_classes": ontology_n if ontology_n else None,
-            "xgb_encoded_label_remap": present_encoded_lookup.tolist()
-            if present_encoded_lookup is not None
-            else None,
+            "xgb_encoded_label_remap": remap_payload,
             "top_classes": class_counts.most_common(5),
             "best_iteration": getattr(model, "best_iteration", None),
             "xgb_guardrail_profile": guardrails["profile"],

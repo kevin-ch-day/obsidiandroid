@@ -6,7 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from obsidiandroid.common.cohort_artifacts import load_cohort_contract_state
-from obsidiandroid.common.cohort_methodology import resolve_cohort_lock_status
+from obsidiandroid.common.cohort_methodology import (
+    extract_taxonomy_label_drift,
+    resolve_cohort_lock_status,
+)
 from obsidiandroid.common.output_paths import output_root as canonical_output_root
 from obsidiandroid.common.publication_readiness import coalesce_publication_ready_status
 from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_evidence_mode
@@ -30,7 +33,6 @@ def resolve_best_run_index_path(run_root: Path) -> tuple[Path, bool]:
         run_root / "run_evidence_index.md",
         diagnostics_dir / "index.md",
         diagnostics_dir / "run_artifact_index.md",
-        diagnostics_dir / "artifact_inventory.md",
     ]
     for candidate in candidates:
         if candidate.is_file():
@@ -117,6 +119,7 @@ def build_operator_state(*, output_base: Path | None = None, run_id: str | None 
     paper_mode = manifest.get("paper_mode") if isinstance(manifest.get("paper_mode"), dict) else {}
     publication_ready_mode = bool(paper_mode.get("resolved_value", False)) if paper_mode else False
     cohort_lock_status = resolve_cohort_lock_status(manifest if isinstance(manifest, dict) else {})
+    taxonomy_label_drift = extract_taxonomy_label_drift(manifest if isinstance(manifest, dict) else {})
 
     return {
         "display_mode": display_mode,
@@ -136,6 +139,7 @@ def build_operator_state(*, output_base: Path | None = None, run_id: str | None 
         "has_structural_bundle": has_structural_bundle(effective_run_id, base=base),
         "publication_ready_status": publication_ready_status,
         "cohort_lock_status": cohort_lock_status,
+        "taxonomy_label_drift": taxonomy_label_drift,
         "evidence_mode": evidence_mode,
         "publication_ready_mode": publication_ready_mode,
         "has_locked_publication_run": bool(str(locked_run_id or "").strip()),

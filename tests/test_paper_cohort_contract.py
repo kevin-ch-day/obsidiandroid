@@ -145,6 +145,69 @@ def test_recovered_historical_lock_degrades_when_live_db_is_missing_locked_rows(
     assert "Downgrading to count-only lock semantics" in contract["validation"]["warning"]
 
 
+def test_matched_sample_lock_degrades_when_only_taxonomy_counts_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Curation can change labels inside a fully matched locked sample set."""
+    profile = {
+        "profile_id": "paper_lock_taxonomy_drift",
+        "paper_locked": True,
+        "paper_lock": {
+            "contract_id": "demo_contract",
+            "expected_sample_count": 3,
+            "expected_family_count": 2,
+            "expected_type_count": 1,
+            "sample_id_lock_status": "recovered_from_historical_artifact",
+            "sample_id_lock_file": "artifacts/baselines/20260526T021235Z__8b6966/paper2_primary_locked_sample_ids.csv",
+        },
+    }
+    samples_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "family_canonical": ["f1", "f2", "f3"],
+            "type_slug": ["banker", "banker", "backdoor"],
+        }
+    )
+    samples_df.attrs["snapshot_lock"] = {
+        "status": "matched",
+        "applied": True,
+        "matched_sample_count": 3,
+        "lock_sample_count": 3,
+        "missing_from_db_count": 0,
+    }
+
+    monkey_contract = paper_cohort_contract.build_declared_contract(profile)
+    lock_path = Path(monkey_contract["sample_id_lock"]["path"])
+    expected_hash = paper_cohort_contract._sample_id_hash(samples_df)
+
+    def _fake_reader(path: Path) -> dict[str, object]:
+        if path == lock_path:
+            return {"lock_sample_count": 3, "lock_sample_id_hash": expected_hash}
+        raise AssertionError(f"unexpected lock path: {path}")
+
+    monkeypatch.setattr(
+        paper_cohort_contract,
+        "_read_lock_file_metadata",
+        _fake_reader,
+    )
+    contract = paper_cohort_contract.build_runtime_contract(
+        profile=profile,
+        manifest_context={"db_query_contract": {"version": "v1"}},
+        samples_df=samples_df,
+    )
+
+    assert contract["validation"]["status"] == "degraded_taxonomy_label_drift"
+    assert contract["validation"]["severity"] == "warning"
+    assert contract["cohort_lock_status"] == "membership_locked_taxonomy_drift"
+    assert contract["enforcement_level"] == "partial"
+    assert contract["sample_id_lock"]["taxonomy_label_drift"]["observed_family_count"] == 3
+    assert contract["sample_id_lock"]["taxonomy_label_drift"]["family_delta"] == 1
+    assert contract["sample_id_lock"]["taxonomy_label_drift"]["type_delta"] == 1
+    assert contract["sample_id_lock"]["taxonomy_label_drift"]["drift_class"] == "taxonomy_expansion"
+    assert "sample-id membership still matches" in contract["validation"]["warning"]
+    assert "family_delta=+1" in contract["validation"]["warning"]
+
+
 def test_manifest_payload_records_expected_cohort_contract_metadata() -> None:
     """Run manifests should carry the declared locked cohort contract metadata."""
     manifest = runtime_support.build_manifest_payload(
