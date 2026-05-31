@@ -52,7 +52,7 @@ def coalesce_manifest_evidence_mode(payload: Any) -> bool:
 
 
 def coalesce_manifest_publication_mode(manifest: dict[str, Any] | None) -> bool:
-    """Resolve publication-ready mode from manifest evidence/paper aliases."""
+    """Resolve publication-ready mode from canonical evidence mode and historical paper aliases."""
     if not isinstance(manifest, dict):
         return False
     evidence_payload = manifest.get("evidence_mode")

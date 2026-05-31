@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from obsidiandroid.orchestration.profile_filters import split_benign_malicious
 from config import app_config
 from obsidiandroid.common.authority_taxonomy_terms import (
@@ -11,6 +13,11 @@ from obsidiandroid.common.authority_taxonomy_terms import (
 from obsidiandroid.common.backlog_semantics import build_taxonomy_curation_posture
 from obsidiandroid.database import db_sample_metadata_fetchers
 from obsidiandroid.database.db_cohort_readiness import get_cohort_readiness_snapshot
+from obsidiandroid.governance.cohort_lock_manifest import (
+    load_lock_manifest,
+    read_member_list,
+    validate_lock_manifest,
+)
 from obsidiandroid.cli.menu.readiness_notes import (
     build_observed_readiness_note,
     build_permission_obs_gap_note,
@@ -136,11 +143,17 @@ def _compact_live_gap_note(notes: list[str]) -> str | None:
     return " | ".join(ordered) + "."
 
 
-def _observed_readiness_note(bucket: str | None) -> str | None:
-    try:
-        readiness = get_cohort_readiness_snapshot()
-    except Exception as exc:
-        return f"Observed readiness counts unavailable: {exc}"
+def _observed_readiness_note(
+    bucket: str | None,
+    *,
+    readiness_snapshot: dict[str, object] | None = None,
+) -> str | None:
+    readiness = readiness_snapshot
+    if not isinstance(readiness, dict):
+        try:
+            readiness = get_cohort_readiness_snapshot()
+        except Exception as exc:
+            return f"Observed readiness counts unavailable: {exc}"
     return build_observed_readiness_note(readiness, bucket)
 
 
@@ -175,6 +188,8 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
 
     gates = profile.get("cohort_gates", {}) if isinstance(profile, dict) else {}
     dataset_filters = profile.get("dataset_filters", {}) if isinstance(profile, dict) else {}
+    raw_lock = profile.get("paper_lock") if isinstance(profile.get("paper_lock"), dict) else {}
+    paper_locked = bool(profile.get("paper_locked", False))
     mode = str(dataset_filters.get("mode", "none") or "none").strip().lower()
     type_slug = profile.get("type_slug_filter")
     min_support = int(gates.get("min_samples_per_family", 3))
@@ -199,6 +214,27 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
     require_effective_first_seen = bool(
         effective_time_start_utc or effective_time_end_utc or evidence_mode
     )
+    if paper_locked:
+        try:
+            manifest = load_lock_manifest(raw_lock)
+            if manifest is not None:
+                validate_lock_manifest(manifest=manifest, manifest_path=Path(str(manifest.get("manifest_path", ""))))
+                member_df = read_member_list(str(manifest.get("member_list_path", "") or ""))
+                if member_df.empty:
+                    return False, f"[PROFILE] Locked profile '{profile_id}' has an empty member-list lock."
+                return True, ""
+            lock_file = str(raw_lock.get("sample_id_lock_file", "") or "").strip()
+            if lock_file:
+                member_df = read_member_list(lock_file)
+                if member_df.empty:
+                    return False, f"[PROFILE] Locked profile '{profile_id}' has an empty sample-id lock."
+                return True, ""
+            return (
+                False,
+                f"[PROFILE] Locked profile '{profile_id}' is missing an immutable cohort lock manifest/member list.",
+            )
+        except Exception as exc:
+            return False, f"[PROFILE] Locked profile '{profile_id}' lock validation failed: {exc}"
     # SQL cohort loader now supports min_samples_per_family even when type_slug_filter is unset.
 
     if mode in {"none", "", "malicious_only"}:
@@ -365,7 +401,10 @@ def resolve_and_validate_profile(
             paper_locked=paper_locked,
             )
         )
-        observed_note = _observed_readiness_note(readiness_signal.get("bucket"))
+        observed_note = _observed_readiness_note(
+            readiness_signal.get("bucket"),
+            readiness_snapshot=readiness_snapshot,
+        )
         if observed_note and not (
             gap_note
             and (

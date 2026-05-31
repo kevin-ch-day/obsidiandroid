@@ -518,6 +518,8 @@ def test_manifest_payload_records_expected_cohort_contract_metadata() -> None:
     assert manifest["cohort_contract"]["contract_id"] == "malicious_temporal_stability_locked_contract"
     assert manifest["paper_cohort_contract"]["expected"]["sample_count"] == 1226
     assert manifest["paper_cohort_contract"]["validation"]["status"] == "match"
+    assert manifest["publication_ready_mode"] is False
+    assert manifest["publication_ready_mode_resolution"] == {"resolved_value": False}
 
 
 def test_exploratory_profile_is_not_mistaken_for_paper_locked() -> None:

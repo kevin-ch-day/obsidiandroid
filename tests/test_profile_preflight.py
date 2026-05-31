@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pandas as pd
 
 import obsidiandroid.database.db_sample_metadata_fetchers as sample_metadata_fetchers
@@ -138,6 +141,87 @@ def test_validate_profile_runnable_fails_fast_when_sql_governed_count_is_zero(mo
     assert ok is False
     assert "selected an empty cohort" in reason
     assert fetch_calls == []
+
+
+def test_validate_profile_runnable_paper_locked_uses_lock_manifest_without_live_sql(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    baseline_dir = tmp_path / "baseline"
+    baseline_dir.mkdir()
+    member_path = baseline_dir / "members.csv"
+    member_path.write_text("sample_id\n1\n2\n3\n", encoding="utf-8")
+    manifest_path = baseline_dir / "cohort_lock_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "lock_version": "v1",
+                "profile_id": "malicious_temporal_stability_locked",
+                "contract_id": "locked_contract",
+                "created_at_utc": "2026-05-31T00:00:00Z",
+                "member_list_path": "members.csv",
+                "sample_count": 3,
+                "family_count": 2,
+                "type_count": 2,
+                "cohort_hash": "x" * 64,
+                "taxonomy_hash": "y" * 64,
+                "time_window": {"start_utc": "2020-01-01T00:00:00Z", "end_utc": "2026-01-01T00:00:00Z"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    from obsidiandroid.governance.cohort_lock_manifest import compute_cohort_hash_from_member_list
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["cohort_hash"] = compute_cohort_hash_from_member_list(pd.DataFrame({"sample_id": [1, 2, 3]}))
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    monkeypatch.setattr(
+        profile_preflight.profile_manager,
+        "load_profile",
+        lambda _profile_id: {
+            "profile_id": "malicious_temporal_stability_locked",
+            "paper_locked": True,
+            "paper_lock": {
+                "cohort_lock_manifest_file": str(manifest_path),
+            },
+            "cohort_gates": {},
+            "dataset_filters": {"mode": "malicious_only"},
+        },
+    )
+    monkeypatch.setattr(
+        sample_metadata_fetchers,
+        "get_type_cohort_gate_stats",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("live SQL stats should be skipped")),
+    )
+    monkeypatch.setattr(
+        sample_metadata_fetchers,
+        "fetch_samples_by_type",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("live SQL fetch should be skipped")),
+    )
+
+    ok, reason = profile_preflight.validate_profile_runnable("malicious_temporal_stability_locked")
+    assert ok is True
+    assert reason == ""
+
+
+def test_validate_profile_runnable_paper_locked_fails_when_lock_missing(monkeypatch) -> None:
+    monkeypatch.setattr(
+        profile_preflight.profile_manager,
+        "load_profile",
+        lambda _profile_id: {
+            "profile_id": "malicious_temporal_stability_locked",
+            "paper_locked": True,
+            "paper_lock": {},
+            "cohort_gates": {},
+            "dataset_filters": {"mode": "malicious_only"},
+        },
+    )
+
+    ok, reason = profile_preflight.validate_profile_runnable("malicious_temporal_stability_locked")
+    assert ok is False
+    assert "missing an immutable cohort lock manifest/member list" in reason
 
 
 def test_resolve_and_validate_profile_prints_advisory_readiness_mapping(monkeypatch) -> None:

@@ -48,7 +48,8 @@ def materialize_locked_paper_cohort(
     *,
     profile: dict[str, Any],
     run_id: str,
-    current_fetch_df: pd.DataFrame,
+    current_fetch_sample_ids: set[int] | list[int] | tuple[int, ...],
+    current_fetch_count: int,
     snapshot_lock_file: str,
     diagnostics_dir: Path,
 ) -> LockedPaperMaterializationResult:
@@ -57,7 +58,8 @@ def materialize_locked_paper_cohort(
     Args:
         profile: Loaded profile dictionary containing ``paper_lock`` metadata.
         run_id: Active run identifier for artifact payloads.
-        current_fetch_df: Current live SQL-governed cohort slice for drift auditing.
+        current_fetch_sample_ids: Current live SQL-governed sample IDs for drift auditing.
+        current_fetch_count: Current live SQL-governed head count for drift auditing.
         snapshot_lock_file: Path to the canonical member-list CSV.
         diagnostics_dir: Run diagnostics directory for emitted artifacts.
     """
@@ -68,7 +70,7 @@ def materialize_locked_paper_cohort(
     manifest = load_lock_manifest(raw_lock) or {}
     lock_members = read_member_list(snapshot_lock_file)
     lock_ids = set(lock_members["sample_id"].astype(int).tolist())
-    current_ids = _sample_id_set(current_fetch_df)
+    current_ids = {int(sample_id) for sample_id in current_fetch_sample_ids}
 
     broad_df = db_sample_metadata_queries.load_samples_by_type(
         type_slug=None,
@@ -109,7 +111,7 @@ def materialize_locked_paper_cohort(
     missing_report_df = _build_missing_locked_members_report(
         lock_members=lock_members,
         broad_df=live_label_df,
-        current_fetch_df=current_fetch_df,
+        current_fetch_sample_ids=current_ids,
         lock_source=str(raw_lock.get("sample_id_lock_source", "") or snapshot_lock_file),
         time_window=manifest.get("time_window", {}) if isinstance(manifest.get("time_window"), dict) else {},
     )
@@ -154,7 +156,7 @@ def materialize_locked_paper_cohort(
         "mode": "immutable_lock_first_broad_catalog_fetch",
         "lock_file_count": int(len(lock_members)),
         "materialized_count": int(len(materialized_df)),
-        "current_fetch_sql_count": int(len(current_fetch_df)),
+        "current_fetch_sql_count": int(current_fetch_count),
         "broad_catalog_match_count": int(len(live_label_df)),
         "excluded_by_current_fetch_sql_count": int((missing_report_df["excluded_by_current_fetch_sql"] == True).sum()),
         "missing_from_catalog_count": int((missing_report_df["missing_from_catalog"] == True).sum()),
@@ -337,7 +339,7 @@ def _build_missing_locked_members_report(
     *,
     lock_members: pd.DataFrame,
     broad_df: pd.DataFrame,
-    current_fetch_df: pd.DataFrame,
+    current_fetch_sample_ids: set[int],
     lock_source: str,
     time_window: dict[str, Any],
 ) -> pd.DataFrame:
@@ -360,7 +362,7 @@ def _build_missing_locked_members_report(
         "vt_first_submission_date",
     ]
     broad_lookup = _normalize_sample_id_frame(broad_df).set_index("sample_id", drop=False) if not broad_df.empty else pd.DataFrame()
-    current_ids = _sample_id_set(current_fetch_df)
+    current_ids = {int(sample_id) for sample_id in current_fetch_sample_ids}
     rows: list[dict[str, Any]] = []
     for sample_id in lock_members["sample_id"].astype(int).tolist():
         live_row = broad_lookup.loc[sample_id] if sample_id in broad_lookup.index else None

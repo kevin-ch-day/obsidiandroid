@@ -59,7 +59,7 @@ def test_write_paper_claim_audit_md_keeps_table_rows_single_line(tmp_path) -> No
     claim_row = next(
         line
         for line in lines
-        if line.startswith("| Evidence pack / publication-safe status is materially valid without further operator review |")
+        if line.startswith("| Evidence pack / publication-ready status is materially valid without further operator review |")
     )
     assert "\n" not in claim_row
     assert "overall_status=pass; checks_pass=2/2" in claim_row
@@ -108,3 +108,4 @@ def test_write_paper_claim_audit_md_can_use_global_latest_ablation_and_model_sum
     text = out.read_text(encoding="utf-8")
     assert "full_fused=0.9; safer_vendor_baseline=0.8" in text
     assert "random_forest / Macro-F1≈0.9100" in text or "random_forest" in text
+    assert "publication/evidence mode ON" in text

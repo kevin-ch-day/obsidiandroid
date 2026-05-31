@@ -80,7 +80,7 @@ def test_materialize_locked_paper_cohort_recovers_members_excluded_by_current_sq
             "vt_first_submission_date": ["2020-02-02", "2021-02-02", "2026-02-02"],
         }
     )
-    current_fetch_df = broad_df[broad_df["sample_id"].isin([1, 2])].copy()
+    current_fetch_sample_ids = {1, 2}
 
     monkeypatch.setattr(
         locked_paper_materialization.db_sample_metadata_queries,
@@ -97,7 +97,8 @@ def test_materialize_locked_paper_cohort_recovers_members_excluded_by_current_sq
             },
         },
         run_id="run123",
-        current_fetch_df=current_fetch_df,
+        current_fetch_sample_ids=current_fetch_sample_ids,
+        current_fetch_count=2,
         snapshot_lock_file=str(baseline_dir / "members.csv"),
         diagnostics_dir=tmp_path / "diag",
     )
@@ -161,7 +162,8 @@ def test_materialize_locked_paper_cohort_fails_when_lock_cannot_be_fully_rejoine
                 },
             },
             run_id="run123",
-            current_fetch_df=broad_df.copy(),
+            current_fetch_sample_ids={1, 2},
+            current_fetch_count=2,
             snapshot_lock_file=str(baseline_dir / "members.csv"),
             diagnostics_dir=diagnostics_dir,
         )
@@ -227,7 +229,8 @@ def test_materialize_locked_paper_cohort_applies_archived_labels_when_available(
             },
         },
         run_id="run123",
-        current_fetch_df=broad_df.copy(),
+        current_fetch_sample_ids={1, 2, 3},
+        current_fetch_count=3,
         snapshot_lock_file=str(baseline_dir / "members.csv"),
         diagnostics_dir=tmp_path / "diag",
     )

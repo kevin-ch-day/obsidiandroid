@@ -23,6 +23,7 @@ from .db_sample_metadata_contracts import (
 )
 from .db_sample_metadata_fetchers import (
     fetch_available_android_type_slugs,
+    fetch_sample_ids_by_type as _fetch_sample_ids_by_type,
     fetch_sample_metadata,
     fetch_samples_by_type as _fetch_samples_by_type,
     get_type_cohort_catalog_semantics_profile,
@@ -156,6 +157,52 @@ def load_samples_by_type(
     return frame
 
 
+def load_sample_ids_by_type(
+    type_slug: str | None,
+    min_samples_per_family: int | None = None,
+    require_mapped_family: bool = True,
+    require_sha256: bool = True,
+    allow_missing_package_name: bool = True,
+    exclude_unknown_type_slug: bool = False,
+    exclude_weak_label_kinds: bool = False,
+    exclude_family_label_conflicts: bool = False,
+    limit: int | None = None,
+    family_cap: int | None = None,
+    family_cap_seed: int | None = None,
+    type_cap: int | None = None,
+    type_cap_seed: int | None = None,
+    type_cap_by_slug: dict[str, int] | None = None,
+    effective_time_start_utc: str | None = None,
+    effective_time_end_utc: str | None = None,
+    require_effective_first_seen: bool = True,
+    exclude_family_ids: tuple[int, ...] | None = None,
+    exclude_family_canonical: tuple[str, ...] | None = None,
+) -> set[int]:
+    """Load governed ``sample_id`` values without materializing the full metadata frame."""
+    _validate_type_slug(type_slug)
+    return _fetch_sample_ids_by_type(
+        type_slug=type_slug,
+        min_samples_per_family=min_samples_per_family,
+        require_mapped_family=require_mapped_family,
+        require_sha256=require_sha256,
+        allow_missing_package_name=allow_missing_package_name,
+        exclude_unknown_type_slug=exclude_unknown_type_slug,
+        exclude_weak_label_kinds=exclude_weak_label_kinds,
+        exclude_family_label_conflicts=exclude_family_label_conflicts,
+        limit=limit,
+        family_cap=family_cap,
+        family_cap_seed=family_cap_seed,
+        type_cap=type_cap,
+        type_cap_seed=type_cap_seed,
+        type_cap_by_slug=type_cap_by_slug,
+        effective_time_start_utc=effective_time_start_utc,
+        effective_time_end_utc=effective_time_end_utc,
+        require_effective_first_seen=require_effective_first_seen,
+        exclude_family_ids=exclude_family_ids,
+        exclude_family_canonical=exclude_family_canonical,
+    )
+
+
 def get_type_slug_alignment_report() -> dict[str, list[str]]:
     """Compare hardcoded supported type slugs against database taxonomy values."""
     configured = set(get_supported_android_type_slugs())
@@ -218,6 +265,7 @@ __all__ = [
     "get_type_cohort_catalog_semantics_profile",
     "get_type_cohort_gate_stats",
     "get_type_slug_alignment_report",
+    "load_sample_ids_by_type",
     "load_samples_by_type",
     "load_banker_dataframe",
     "load_dropper_dataframe",

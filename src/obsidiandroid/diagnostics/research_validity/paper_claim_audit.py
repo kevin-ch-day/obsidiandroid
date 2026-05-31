@@ -1,4 +1,4 @@
-"""Generated claim-by-evidence audit for paper alignment (strict row format)."""
+"""Generated publication claim audit for paper alignment (strict row format)."""
 
 from __future__ import annotations
 
@@ -162,7 +162,11 @@ def write_paper_claim_audit_md(
     nf = cohort_summary.get("n_families")
     active_train = mctx.get("trained_model_count") or man.get("trained_model_count")
 
-    paper_mode = bool(mctx.get("paper_mode", {}).get("resolved_value", False))
+    publication_ready_mode = bool(
+        mctx.get("publication_ready_mode")
+        or mctx.get("evidence_mode")
+        or mctx.get("paper_mode", {}).get("resolved_value", False)
+    )
     compliance_path = man.get("paper_mode_compliance_report") or diagnostics_dir / f"paper_mode_compliance_report_{run_id}.json"
 
     population_line = _cohort_snapshot(man, mctx)
@@ -335,10 +339,10 @@ def write_paper_claim_audit_md(
 
     comp_status = "UNSUPPORTED"
     comp_metric = ""
-    compliance_note = "`NOT_APPLICABLE` — paper_mode off"
-    if paper_mode:
+    compliance_note = "`NOT_APPLICABLE` — publication/evidence mode off"
+    if publication_ready_mode:
         comp_status = "NEEDS_REVISION"
-        compliance_note = f"paper_mode ON — mandatory human review `{compliance_path}`"
+        compliance_note = f"publication/evidence mode ON — mandatory human review `{compliance_path}`"
         try:
             cpath = Path(str(compliance_path))
             if cpath.exists():
@@ -348,13 +352,13 @@ def write_paper_claim_audit_md(
             comp_metric = "unreadable compliance json"
 
     add(
-        claim="Evidence pack / publication-safe status is materially valid without further operator review",
+        claim="Evidence pack / publication-ready status is materially valid without further operator review",
         status=comp_status,
         evidence_artifact=str(compliance_path),
-        metric_value=comp_metric or ("resolved_paper_mode=" + str(paper_mode)),
+        metric_value=comp_metric or ("publication_ready_mode=" + str(publication_ready_mode)),
         population=population_line,
         rationale=compliance_note,
-        safer_wording="Paper safety is procedural — tie each figure to audited populations and forbid absent artifacts.",
+        safer_wording="Publication readiness is procedural — tie each figure to audited populations and forbid absent artifacts.",
     )
 
     lines = [

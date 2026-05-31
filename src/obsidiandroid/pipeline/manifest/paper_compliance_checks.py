@@ -1,4 +1,4 @@
-"""Paper-mode compliance gate rows (split audit, duplicates, taxonomy, etc.)."""
+"""Publication/evidence compliance gate rows (split audit, duplicates, taxonomy, etc.)."""
 
 from __future__ import annotations
 
@@ -25,7 +25,8 @@ def build_paper_compliance_checks(
     taxonomy_mismatch_count: int = 0,
     taxonomy_mismatch_max_allowed: int = 0,
 ) -> list[dict[str, Any]]:
-    """Build compliance check payload rows for paper/evidence runs."""
+    """Build compliance check payload rows for publication/evidence runs."""
+    publication_ready_enabled = bool(paper_mode)
     checks: list[dict[str, Any]] = []
     checks.append(
         _compliance_check_row(
@@ -35,7 +36,7 @@ def build_paper_compliance_checks(
             "split_hash missing",
             artifacts.ArtifactKey.SPLIT_AUDIT_CSV,
             "Ensure split audit exports before training.",
-            enabled=paper_mode,
+            enabled=publication_ready_enabled,
         )
     )
     checks.append(
@@ -46,7 +47,7 @@ def build_paper_compliance_checks(
             "cohort_hash missing",
             artifacts.ArtifactKey.EXPERIMENT_REGISTRY_JSON,
             "Resolve paper-locked cohort contract from an immutable lock manifest before finalizing paper run.",
-            enabled=paper_mode,
+            enabled=publication_ready_enabled,
         )
     )
     checks.append(
@@ -57,7 +58,7 @@ def build_paper_compliance_checks(
             "split audit artifact missing",
             artifacts.ArtifactKey.SPLIT_AUDIT_CSV,
             "Export split_freeze_headline_<run_id>.csv prior to training.",
-            enabled=paper_mode,
+            enabled=publication_ready_enabled,
         )
     )
     checks.append(
@@ -68,7 +69,7 @@ def build_paper_compliance_checks(
             "duplicate sha report missing",
             artifacts.ArtifactKey.DUPLICATE_SHA_REPORT_CSV,
             "Run duplicate SHA audit after alignment.",
-            enabled=paper_mode,
+            enabled=publication_ready_enabled,
         )
     )
     checks.append(
@@ -78,8 +79,8 @@ def build_paper_compliance_checks(
             "fatal",
             f"duplicate/invalid sha detected (dup={duplicate_count}, invalid={invalid_sha_count})",
             artifacts.ArtifactKey.DUPLICATE_SHA_REPORT_CSV,
-            "Fix sample universe and rerun paper mode.",
-            enabled=paper_mode,
+            "Fix sample universe and rerun publication-ready mode.",
+            enabled=publication_ready_enabled,
         )
     )
     checks.append(
@@ -90,7 +91,7 @@ def build_paper_compliance_checks(
             "vendor gate debug artifact missing",
             artifacts.ArtifactKey.VENDOR_GATE_DEBUG_CSV,
             "Export vendor gate debug CSV from feature build stage.",
-            enabled=paper_mode,
+            enabled=publication_ready_enabled,
         )
     )
     checks.append(
@@ -101,7 +102,7 @@ def build_paper_compliance_checks(
             "experiment registry missing",
             artifacts.ArtifactKey.EXPERIMENT_REGISTRY_JSON,
             "Ensure registry write in finalize stage.",
-            enabled=paper_mode,
+            enabled=publication_ready_enabled,
         )
     )
     checks.append(
@@ -112,7 +113,7 @@ def build_paper_compliance_checks(
             "run paths manifest missing",
             artifacts.ArtifactKey.RUN_PATHS_MANIFEST_JSON,
             "Ensure manifest writer persists run_paths_manifest.",
-            enabled=paper_mode,
+            enabled=publication_ready_enabled,
         )
     )
     checks.append(
@@ -124,11 +125,11 @@ def build_paper_compliance_checks(
             "fatal",
             f"taxonomy type audit blind or missing (type_rows_evaluated={int(taxonomy_type_rows_evaluated)})",
             artifacts.ArtifactKey.RUN_PATHS_MANIFEST_JSON,
-            "Ensure taxonomy audit has type_slug_expected coverage before finalizing paper run.",
-            enabled=paper_mode,
+            "Ensure taxonomy audit has type_slug_expected coverage before finalizing publication-ready run.",
+            enabled=publication_ready_enabled,
         )
     )
-    if paper_mode:
+    if publication_ready_enabled:
         checks.append(
             _compliance_check_row(
                 "taxonomy_mismatch_budget_respected",
@@ -141,8 +142,8 @@ def build_paper_compliance_checks(
                     f"(mismatches={int(taxonomy_mismatch_count)}, max_allowed={int(taxonomy_mismatch_max_allowed)})"
                 ),
                 artifacts.ArtifactKey.RUN_PATHS_MANIFEST_JSON,
-                "Reconcile taxonomy mismatches or relax strict mismatch policy before finalizing paper run.",
-                enabled=paper_mode,
+                "Reconcile taxonomy mismatches or relax strict mismatch policy before finalizing publication-ready run.",
+                enabled=publication_ready_enabled,
             )
         )
     return checks
@@ -164,7 +165,7 @@ def _compliance_check_row(
             "check_id": check_id,
             "status": "skipped",
             "severity": severity,
-            "reason": "paper_mode disabled",
+            "reason": "publication/evidence mode disabled",
             "artifact_key": artifact_key,
             "remediation": "",
         }

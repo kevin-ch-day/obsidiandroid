@@ -409,7 +409,9 @@ def test_stage_samples_sets_gate_stats_before_readiness_and_tracks_deferred_excl
     monkeypatch.setattr(
         stage_samples,
         "materialize_locked_paper_cohort",
-        lambda **kwargs: _locked_materialization_stub(kwargs["current_fetch_df"]),
+        lambda **kwargs: _locked_materialization_stub(
+            pd.DataFrame({"sample_id": sorted(kwargs["current_fetch_sample_ids"])})
+        ),
     )
     monkeypatch.setattr(
         stage_samples.android_authority_drift_report,
@@ -455,6 +457,7 @@ def test_stage_samples_sets_gate_stats_before_readiness_and_tracks_deferred_excl
         )
 
     monkeypatch.setattr(stage_samples.db_sample_metadata_queries, "get_type_cohort_gate_stats", _fake_stats)
+    monkeypatch.setattr(stage_samples.db_sample_metadata_queries, "load_sample_ids_by_type", lambda **_kwargs: {1})
     monkeypatch.setattr(stage_samples.db_sample_metadata_queries, "load_samples_by_type", _fake_load)
 
     out = stage_samples.load_and_prepare_samples(
@@ -602,7 +605,9 @@ def test_stage_samples_locked_run_exports_sql_min_support_as_deferred(monkeypatc
     monkeypatch.setattr(
         stage_samples,
         "materialize_locked_paper_cohort",
-        lambda **kwargs: _locked_materialization_stub(kwargs["current_fetch_df"]),
+        lambda **kwargs: _locked_materialization_stub(
+            pd.DataFrame({"sample_id": sorted(kwargs["current_fetch_sample_ids"])})
+        ),
     )
     monkeypatch.setattr(
         stage_samples.android_authority_drift_report,
@@ -666,6 +671,7 @@ def test_stage_samples_locked_run_exports_sql_min_support_as_deferred(monkeypatc
             ]
         ),
     )
+    monkeypatch.setattr(stage_samples.db_sample_metadata_queries, "load_sample_ids_by_type", lambda **_kwargs: {1})
 
     out = stage_samples.load_and_prepare_samples(
         profile=profile,
@@ -1127,7 +1133,9 @@ def test_stage_samples_banker_locked_does_not_receive_temporal_min_support_floor
     monkeypatch.setattr(
         stage_samples,
         "materialize_locked_paper_cohort",
-        lambda **kwargs: _locked_materialization_stub(kwargs["current_fetch_df"]),
+        lambda **kwargs: _locked_materialization_stub(
+            pd.DataFrame({"sample_id": sorted(kwargs["current_fetch_sample_ids"])})
+        ),
     )
 
     stage_samples.load_and_prepare_samples(
@@ -1250,6 +1258,10 @@ def test_stage_samples_locked_snapshot_defers_membership_shrinking_sql_gates(mon
         captured["gate_stats_kwargs"] = kwargs
         return {"total_candidates": 10, "governed_cohort_count": 10}
 
+    def _fake_load_ids(**kwargs):
+        captured["load_ids_kwargs"] = kwargs
+        return {1}
+
     def _fake_load(**kwargs):
         captured["load_kwargs"] = kwargs
         return pd.DataFrame(
@@ -1267,12 +1279,15 @@ def test_stage_samples_locked_snapshot_defers_membership_shrinking_sql_gates(mon
         )
 
     monkeypatch.setattr(stage_samples.db_sample_metadata_queries, "get_type_cohort_gate_stats", _fake_gate_stats)
+    monkeypatch.setattr(stage_samples.db_sample_metadata_queries, "load_sample_ids_by_type", _fake_load_ids)
     monkeypatch.setattr(stage_samples.db_sample_metadata_queries, "load_samples_by_type", _fake_load)
 
     monkeypatch.setattr(
         stage_samples,
         "materialize_locked_paper_cohort",
-        lambda **kwargs: _locked_materialization_stub(kwargs["current_fetch_df"]),
+        lambda **kwargs: _locked_materialization_stub(
+            pd.DataFrame({"sample_id": sorted(kwargs["current_fetch_sample_ids"])})
+        ),
     )
     monkeypatch.setattr(
         stage_samples,
@@ -1294,7 +1309,8 @@ def test_stage_samples_locked_snapshot_defers_membership_shrinking_sql_gates(mon
     )
 
     assert captured["gate_stats_kwargs"]["min_samples_per_family"] is None
-    assert captured["load_kwargs"]["min_samples_per_family"] is None
+    assert captured["load_ids_kwargs"]["min_samples_per_family"] is None
     assert captured["gate_stats_kwargs"]["exclude_family_canonical"] == tuple()
-    assert captured["load_kwargs"]["exclude_family_canonical"] == tuple()
+    assert captured["load_ids_kwargs"]["exclude_family_canonical"] == tuple()
+    assert "load_kwargs" not in captured
     assert str(profile["paper_lock"]["sample_id_lock_file"]) == str(tmp_path / "lock.csv")

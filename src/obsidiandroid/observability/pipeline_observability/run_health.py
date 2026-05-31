@@ -12,6 +12,7 @@ from obsidiandroid.common.publication_readiness import (
     coalesce_publication_ready_reasons,
     coalesce_publication_ready_status,
 )
+from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
 
 
 def print_unified_run_health(
@@ -58,14 +59,14 @@ def print_unified_run_health(
     else:
         du.print_stat("Research validity bundle", research_validity_status)
     evidence_mode = bool(payload.get("evidence_mode"))
-    publication_ready_mode = evidence_mode or bool(payload.get("paper_mode"))
+    publication_ready_mode = coalesce_manifest_publication_mode(payload)
     du.print_stat("Publication-ready mode", "ON" if publication_ready_mode else "OFF")
     du.print_stat("Evidence mode", "ON" if evidence_mode else "OFF")
     publication_ready_status = coalesce_publication_ready_status(payload)
-    du.print_stat("publication_ready_status", publication_ready_status)
+    du.print_stat("Publication-ready status", publication_ready_status)
     publication_ready_reasons = coalesce_publication_ready_reasons(payload)
     if publication_ready_reasons:
-        du.print_stat("publication_ready_reasons", ", ".join(str(x) for x in publication_ready_reasons))
+        du.print_stat("Publication-ready reasons", ", ".join(str(x) for x in publication_ready_reasons))
     scientific = payload.get("scientific_adequacy") if isinstance(payload.get("scientific_adequacy"), dict) else {}
     scientific_posture = str(scientific.get("posture", "") or "").strip()
     if scientific_posture:

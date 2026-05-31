@@ -54,9 +54,7 @@ def test_gate_stats_accounts_for_missing_hash_registry_rows(monkeypatch) -> None
         seen_queries.append(text)
         if "cohort_governed_count" in text:
             return (["c"], [(79,)])
-        if "COALESCE(SUM(cnt), 0) AS c" in text:
-            return (["c"], [(4,)])
-        if "SUM(CASE WHEN y.sha256 IS NULL OR LENGTH(TRIM(y.sha256)) <> 64 THEN 1 ELSE 0 END) AS missing_sha256" in text:
+        if "SUM(CASE WHEN base.sha256 IS NULL OR LENGTH(TRIM(base.sha256)) <> 64 THEN 1 ELSE 0 END) AS missing_sha256" in text:
             return (
                 [
                     "total_candidates",
@@ -67,8 +65,9 @@ def test_gate_stats_accounts_for_missing_hash_registry_rows(monkeypatch) -> None
                     "unknown_type_slug",
                     "weak_label_kind_rows",
                     "family_label_conflict_rows",
+                    "low_support_rows",
                 ],
-                [(100, 7, 5, 3, 2, 0, 0, 0)],
+                [(100, 7, 5, 3, 2, 0, 0, 0, 4)],
             )
         return (["c"], [(100,)])
 
@@ -223,9 +222,7 @@ def test_gate_stats_reports_quality_exclusions_when_enabled(monkeypatch) -> None
         text = str(query)
         if "cohort_governed_count" in text:
             return (["c"], [(91,)])
-        if "COALESCE(SUM(cnt), 0) AS c" in text:
-            return (["c"], [(0,)])
-        if "SUM(CASE WHEN y.sha256 IS NULL OR LENGTH(TRIM(y.sha256)) <> 64 THEN 1 ELSE 0 END) AS missing_sha256" in text:
+        if "SUM(CASE WHEN base.sha256 IS NULL OR LENGTH(TRIM(base.sha256)) <> 64 THEN 1 ELSE 0 END) AS missing_sha256" in text:
             return (
                 [
                     "total_candidates",
@@ -236,8 +233,9 @@ def test_gate_stats_reports_quality_exclusions_when_enabled(monkeypatch) -> None
                     "unknown_type_slug",
                     "weak_label_kind_rows",
                     "family_label_conflict_rows",
+                    "low_support_rows",
                 ],
-                [(100, 0, 0, 0, 0, 0, 6, 3)],
+                [(100, 0, 0, 0, 0, 0, 6, 3, 0)],
             )
         return (["c"], [(100,)])
 
@@ -294,9 +292,7 @@ def test_gate_stats_reports_unknown_type_exclusions_when_enabled(monkeypatch) ->
         text = str(query)
         if "cohort_governed_count" in text:
             return (["c"], [(89,)])
-        if "COALESCE(SUM(cnt), 0) AS c" in text:
-            return (["c"], [(0,)])
-        if "SUM(CASE WHEN y.sha256 IS NULL OR LENGTH(TRIM(y.sha256)) <> 64 THEN 1 ELSE 0 END) AS missing_sha256" in text:
+        if "SUM(CASE WHEN base.sha256 IS NULL OR LENGTH(TRIM(base.sha256)) <> 64 THEN 1 ELSE 0 END) AS missing_sha256" in text:
             return (
                 [
                     "total_candidates",
@@ -305,8 +301,9 @@ def test_gate_stats_reports_unknown_type_exclusions_when_enabled(monkeypatch) ->
                     "unmapped_family",
                     "missing_package",
                     "unknown_type_slug",
+                    "low_support_rows",
                 ],
-                [(100, 0, 0, 0, 0, 11)],
+                [(100, 0, 0, 0, 0, 11, 0)],
             )
         return (["c"], [(100,)])
 

@@ -437,43 +437,6 @@ def fetch_samples_by_type(
     as_dataframe: bool = False,
 ):
     """Fetch Android APK samples joined to canonical family/type taxonomy."""
-    parts = _cohort_loader_sql_parts(
-        type_slug=type_slug,
-        min_samples_per_family=min_samples_per_family,
-        require_mapped_family=require_mapped_family,
-        require_sha256=require_sha256,
-        allow_missing_package_name=allow_missing_package_name,
-        exclude_unknown_type_slug=exclude_unknown_type_slug,
-        exclude_weak_label_kinds=exclude_weak_label_kinds,
-        exclude_family_label_conflicts=exclude_family_label_conflicts,
-        effective_time_start_utc=effective_time_start_utc,
-        effective_time_end_utc=effective_time_end_utc,
-        require_effective_first_seen=require_effective_first_seen,
-        exclude_family_ids=exclude_family_ids,
-        exclude_family_canonical=exclude_family_canonical,
-    )
-    params = list(parts["params"])
-    where_sql = " AND ".join(parts["where_clauses"])
-    scan_one = parts["scan_one"]
-    fam_one = parts["fam_one"]
-    hash_join_clause = parts["hash_join_clause"]
-
-    limit_value = int(limit) if isinstance(limit, int) and limit > 0 else None
-    family_cap_value = int(family_cap) if isinstance(family_cap, int) and family_cap > 0 else None
-    sampling_seed = int(family_cap_seed) if isinstance(family_cap_seed, int) else 42
-    type_cap_value = int(type_cap) if isinstance(type_cap, int) and type_cap > 0 else None
-    type_cap_by_slug_value = {
-        str(key).strip().lower(): int(value)
-        for key, value in (type_cap_by_slug or {}).items()
-        if str(key).strip() and isinstance(value, int) and value > 0
-    } if isinstance(type_cap_by_slug, dict) else {}
-    type_sampling_seed = (
-        int(type_cap_seed)
-        if isinstance(type_cap_seed, int)
-        else int(family_cap_seed) if isinstance(family_cap_seed, int)
-        else 42
-    )
-
     output_columns = """
                 sample_id,
                 sha256,
@@ -523,83 +486,264 @@ def fetch_samples_by_type(
                 hash_md5,
                 hash_sha1
     """
+    return _execute_samples_by_type_query(
+        output_columns=output_columns,
+        type_slug=type_slug,
+        min_samples_per_family=min_samples_per_family,
+        require_mapped_family=require_mapped_family,
+        require_sha256=require_sha256,
+        allow_missing_package_name=allow_missing_package_name,
+        exclude_unknown_type_slug=exclude_unknown_type_slug,
+        exclude_weak_label_kinds=exclude_weak_label_kinds,
+        exclude_family_label_conflicts=exclude_family_label_conflicts,
+        limit=limit,
+        family_cap=family_cap,
+        family_cap_seed=family_cap_seed,
+        type_cap=type_cap,
+        type_cap_seed=type_cap_seed,
+        type_cap_by_slug=type_cap_by_slug,
+        effective_time_start_utc=effective_time_start_utc,
+        effective_time_end_utc=effective_time_end_utc,
+        require_effective_first_seen=require_effective_first_seen,
+        exclude_family_ids=exclude_family_ids,
+        exclude_family_canonical=exclude_family_canonical,
+        as_dataframe=as_dataframe,
+    )
 
-    base_select_sql = f"""
-        SELECT
-            y.sample_id,
-            y.sha256 AS sha256,
-            y.sha256 AS hash_sha256,
-            y.sample_label AS sample_name,
-            y.sample_label AS sample_label_raw,
-            y.sample_label_kind,
-            y.observed_filename,
-            y.family_label AS family_label_raw,
-            y.vt_family_token,
-            f.family_id,
-            f.family_name AS family_canonical,
-            t.type_slug,
-            COALESCE(f.family_name, y.family_label) AS family_name,
-            y.classification_primary AS category_primary,
-            y.classification_subtype AS category_subtype,
-            y.vt_suggested_label,
-            y.analysis_lane,
-            y.payload_target_platform,
-            y.payload_target_source,
-            y.unknown_artifact_kind,
-            y.source_batch_label,
-            y.vt_first_submission_at_utc AS vt_first_submission_date,
-            y.vt_first_seen_itw_date AS vt_first_seen_itw_date,
-            COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) AS effective_first_seen_at_utc,
-            NULL AS vt_scan_status,
-            y.android_package_name AS package_name,
-            y.android_package_name AS android_package_name,
-            y.android_launcher_activity AS main_activity,
-            y.android_min_sdk AS target_min_version,
-            y.android_target_sdk AS target_sdk_version,
-            y.android_permission_count AS permissions,
-            s.vt_malicious_count,
-            s.vt_suspicious_count,
-            s.vt_undetected_count,
-            s.vt_harmless_count,
-            s.vt_timeout_count,
-            s.vt_confirmed_timeout_count,
-            s.vt_failure_count,
-            s.vt_type_unsupported_count,
-            s.vt_reputation,
-            s.vt_times_submitted,
-            s.vt_unique_sources,
-            s.vt_suggested_threat_label,
-            s.vt_tags,
-            NULL AS hash_id,
-            x.md5 AS hash_md5,
-            x.sha1 AS hash_sha1,
-            CASE
-                WHEN LOWER(TRIM(COALESCE(y.sample_label_kind, ''))) IN ('filename', 'hash_like', 'opaque_string', 'unclassified')
-                THEN 1 ELSE 0
-            END AS _weak_label_rank,
-            CASE
-                WHEN f.family_id IS NULL THEN 1 ELSE 0
-            END AS _family_mapping_rank,
-            CASE
-                WHEN LOWER(TRIM(COALESCE(y.family_label, ''))) NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled')
-                 AND LOWER(TRIM(COALESCE(f.family_name, ''))) NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null')
-                 AND LOWER(TRIM(COALESCE(y.family_label, ''))) <> LOWER(TRIM(COALESCE(f.family_name, '')))
-                THEN 1 ELSE 0
-            END AS _family_conflict_rank,
-            CASE
-                WHEN COALESCE(LOWER(TRIM(t.type_slug)), '') IN ('', 'unknown') THEN 1 ELSE 0
-            END AS _type_unknown_rank,
-            LOWER(TRIM(COALESCE(t.type_slug, ''))) AS _type_slug_cap_probe,
-            CRC32(CONCAT(%s, ':', COALESCE(CAST(y.sample_id AS CHAR), ''))) AS _loader_order_key,
-            CRC32(CONCAT(%s, ':', COALESCE(CAST(y.sample_id AS CHAR), ''))) AS _type_loader_order_key
-        FROM malware_sample_catalog y
-        {hash_join_clause}
-        LEFT JOIN {scan_one} s ON s.sample_id = y.sample_id
-        LEFT JOIN {fam_one} v ON v.sample_id = y.sample_id
-        LEFT JOIN android_malware_family f ON LOWER(f.family_slug) = v.resolved_family_lc
-        LEFT JOIN android_malware_type t ON t.type_id = f.primary_type_id
-        WHERE {where_sql}
-    """
+
+def fetch_sample_ids_by_type(
+    type_slug: str | None,
+    min_samples_per_family: int | None = None,
+    require_mapped_family: bool = True,
+    require_sha256: bool = True,
+    allow_missing_package_name: bool = True,
+    exclude_unknown_type_slug: bool = False,
+    exclude_weak_label_kinds: bool = False,
+    exclude_family_label_conflicts: bool = False,
+    limit: int | None = None,
+    family_cap: int | None = None,
+    family_cap_seed: int | None = None,
+    type_cap: int | None = None,
+    type_cap_seed: int | None = None,
+    type_cap_by_slug: dict[str, int] | None = None,
+    effective_time_start_utc: str | None = None,
+    effective_time_end_utc: str | None = None,
+    require_effective_first_seen: bool = True,
+    exclude_family_ids: tuple[int, ...] | None = None,
+    exclude_family_canonical: tuple[str, ...] | None = None,
+) -> set[int]:
+    """Fetch only governed ``sample_id`` values for a cohort loader query."""
+    columns, rows = _execute_samples_by_type_query(
+        output_columns="                sample_id",
+        type_slug=type_slug,
+        min_samples_per_family=min_samples_per_family,
+        require_mapped_family=require_mapped_family,
+        require_sha256=require_sha256,
+        allow_missing_package_name=allow_missing_package_name,
+        exclude_unknown_type_slug=exclude_unknown_type_slug,
+        exclude_weak_label_kinds=exclude_weak_label_kinds,
+        exclude_family_label_conflicts=exclude_family_label_conflicts,
+        limit=limit,
+        family_cap=family_cap,
+        family_cap_seed=family_cap_seed,
+        type_cap=type_cap,
+        type_cap_seed=type_cap_seed,
+        type_cap_by_slug=type_cap_by_slug,
+        effective_time_start_utc=effective_time_start_utc,
+        effective_time_end_utc=effective_time_end_utc,
+        require_effective_first_seen=require_effective_first_seen,
+        exclude_family_ids=exclude_family_ids,
+        exclude_family_canonical=exclude_family_canonical,
+        as_dataframe=False,
+        id_only_projection=True,
+    )
+    if not columns or not rows:
+        return set()
+    sample_idx = next((idx for idx, name in enumerate(columns) if str(name).strip() == "sample_id"), None)
+    if sample_idx is None:
+        return set()
+    return {
+        int(sample_id)
+        for row in rows
+        for sample_id in [row[sample_idx] if len(row) > sample_idx else None]
+        if sample_id is not None and str(sample_id).strip() != ""
+    }
+
+
+def _execute_samples_by_type_query(
+    *,
+    output_columns: str,
+    type_slug: str | None,
+    min_samples_per_family: int | None = None,
+    require_mapped_family: bool = True,
+    require_sha256: bool = True,
+    allow_missing_package_name: bool = True,
+    exclude_unknown_type_slug: bool = False,
+    exclude_weak_label_kinds: bool = False,
+    exclude_family_label_conflicts: bool = False,
+    limit: int | None = None,
+    family_cap: int | None = None,
+    family_cap_seed: int | None = None,
+    type_cap: int | None = None,
+    type_cap_seed: int | None = None,
+    type_cap_by_slug: dict[str, int] | None = None,
+    effective_time_start_utc: str | None = None,
+    effective_time_end_utc: str | None = None,
+    require_effective_first_seen: bool = True,
+    exclude_family_ids: tuple[int, ...] | None = None,
+    exclude_family_canonical: tuple[str, ...] | None = None,
+    as_dataframe: bool = False,
+    id_only_projection: bool = False,
+):
+    """Execute the cohort loader query with a caller-provided projection."""
+    parts = _cohort_loader_sql_parts(
+        type_slug=type_slug,
+        min_samples_per_family=min_samples_per_family,
+        require_mapped_family=require_mapped_family,
+        require_sha256=require_sha256,
+        allow_missing_package_name=allow_missing_package_name,
+        exclude_unknown_type_slug=exclude_unknown_type_slug,
+        exclude_weak_label_kinds=exclude_weak_label_kinds,
+        exclude_family_label_conflicts=exclude_family_label_conflicts,
+        effective_time_start_utc=effective_time_start_utc,
+        effective_time_end_utc=effective_time_end_utc,
+        require_effective_first_seen=require_effective_first_seen,
+        exclude_family_ids=exclude_family_ids,
+        exclude_family_canonical=exclude_family_canonical,
+    )
+    params = list(parts["params"])
+    where_sql = " AND ".join(parts["where_clauses"])
+    scan_one = parts["scan_one"]
+    fam_one = parts["fam_one"]
+    hash_join_clause = parts["hash_join_clause"]
+
+    limit_value = int(limit) if isinstance(limit, int) and limit > 0 else None
+    family_cap_value = int(family_cap) if isinstance(family_cap, int) and family_cap > 0 else None
+    sampling_seed = int(family_cap_seed) if isinstance(family_cap_seed, int) else 42
+    type_cap_value = int(type_cap) if isinstance(type_cap, int) and type_cap > 0 else None
+    type_cap_by_slug_value = {
+        str(key).strip().lower(): int(value)
+        for key, value in (type_cap_by_slug or {}).items()
+        if str(key).strip() and isinstance(value, int) and value > 0
+    } if isinstance(type_cap_by_slug, dict) else {}
+    type_sampling_seed = (
+        int(type_cap_seed)
+        if isinstance(type_cap_seed, int)
+        else int(family_cap_seed) if isinstance(family_cap_seed, int)
+        else 42
+    )
+
+    if id_only_projection:
+        base_select_sql = f"""
+            SELECT
+                y.sample_id,
+                f.family_id,
+                f.family_name AS family_canonical,
+                t.type_slug,
+                CASE
+                    WHEN LOWER(TRIM(COALESCE(y.sample_label_kind, ''))) IN ('filename', 'hash_like', 'opaque_string', 'unclassified')
+                    THEN 1 ELSE 0
+                END AS _weak_label_rank,
+                CASE
+                    WHEN f.family_id IS NULL THEN 1 ELSE 0
+                END AS _family_mapping_rank,
+                CASE
+                    WHEN LOWER(TRIM(COALESCE(y.family_label, ''))) NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled')
+                     AND LOWER(TRIM(COALESCE(f.family_name, ''))) NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null')
+                     AND LOWER(TRIM(COALESCE(y.family_label, ''))) <> LOWER(TRIM(COALESCE(f.family_name, '')))
+                    THEN 1 ELSE 0
+                END AS _family_conflict_rank,
+                CASE
+                    WHEN COALESCE(LOWER(TRIM(t.type_slug)), '') IN ('', 'unknown') THEN 1 ELSE 0
+                END AS _type_unknown_rank,
+                LOWER(TRIM(COALESCE(t.type_slug, ''))) AS _type_slug_cap_probe,
+                CRC32(CONCAT(%s, ':', COALESCE(CAST(y.sample_id AS CHAR), ''))) AS _loader_order_key,
+                CRC32(CONCAT(%s, ':', COALESCE(CAST(y.sample_id AS CHAR), ''))) AS _type_loader_order_key
+            FROM malware_sample_catalog y
+            {hash_join_clause}
+            LEFT JOIN {scan_one} s ON s.sample_id = y.sample_id
+            LEFT JOIN {fam_one} v ON v.sample_id = y.sample_id
+            LEFT JOIN android_malware_family f ON LOWER(f.family_slug) = v.resolved_family_lc
+            LEFT JOIN android_malware_type t ON t.type_id = f.primary_type_id
+            WHERE {where_sql}
+        """
+    else:
+        base_select_sql = f"""
+            SELECT
+                y.sample_id,
+                y.sha256 AS sha256,
+                y.sha256 AS hash_sha256,
+                y.sample_label AS sample_name,
+                y.sample_label AS sample_label_raw,
+                y.sample_label_kind,
+                y.observed_filename,
+                y.family_label AS family_label_raw,
+                y.vt_family_token,
+                f.family_id,
+                f.family_name AS family_canonical,
+                t.type_slug,
+                COALESCE(f.family_name, y.family_label) AS family_name,
+                y.classification_primary AS category_primary,
+                y.classification_subtype AS category_subtype,
+                y.vt_suggested_label,
+                y.analysis_lane,
+                y.payload_target_platform,
+                y.payload_target_source,
+                y.unknown_artifact_kind,
+                y.source_batch_label,
+                y.vt_first_submission_at_utc AS vt_first_submission_date,
+                y.vt_first_seen_itw_date AS vt_first_seen_itw_date,
+                COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) AS effective_first_seen_at_utc,
+                NULL AS vt_scan_status,
+                y.android_package_name AS package_name,
+                y.android_package_name AS android_package_name,
+                y.android_launcher_activity AS main_activity,
+                y.android_min_sdk AS target_min_version,
+                y.android_target_sdk AS target_sdk_version,
+                y.android_permission_count AS permissions,
+                s.vt_malicious_count,
+                s.vt_suspicious_count,
+                s.vt_undetected_count,
+                s.vt_harmless_count,
+                s.vt_timeout_count,
+                s.vt_confirmed_timeout_count,
+                s.vt_failure_count,
+                s.vt_type_unsupported_count,
+                s.vt_reputation,
+                s.vt_times_submitted,
+                s.vt_unique_sources,
+                s.vt_suggested_threat_label,
+                s.vt_tags,
+                NULL AS hash_id,
+                x.md5 AS hash_md5,
+                x.sha1 AS hash_sha1,
+                CASE
+                    WHEN LOWER(TRIM(COALESCE(y.sample_label_kind, ''))) IN ('filename', 'hash_like', 'opaque_string', 'unclassified')
+                    THEN 1 ELSE 0
+                END AS _weak_label_rank,
+                CASE
+                    WHEN f.family_id IS NULL THEN 1 ELSE 0
+                END AS _family_mapping_rank,
+                CASE
+                    WHEN LOWER(TRIM(COALESCE(y.family_label, ''))) NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled')
+                     AND LOWER(TRIM(COALESCE(f.family_name, ''))) NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null')
+                     AND LOWER(TRIM(COALESCE(y.family_label, ''))) <> LOWER(TRIM(COALESCE(f.family_name, '')))
+                    THEN 1 ELSE 0
+                END AS _family_conflict_rank,
+                CASE
+                    WHEN COALESCE(LOWER(TRIM(t.type_slug)), '') IN ('', 'unknown') THEN 1 ELSE 0
+                END AS _type_unknown_rank,
+                LOWER(TRIM(COALESCE(t.type_slug, ''))) AS _type_slug_cap_probe,
+                CRC32(CONCAT(%s, ':', COALESCE(CAST(y.sample_id AS CHAR), ''))) AS _loader_order_key,
+                CRC32(CONCAT(%s, ':', COALESCE(CAST(y.sample_id AS CHAR), ''))) AS _type_loader_order_key
+            FROM malware_sample_catalog y
+            {hash_join_clause}
+            LEFT JOIN {scan_one} s ON s.sample_id = y.sample_id
+            LEFT JOIN {fam_one} v ON v.sample_id = y.sample_id
+            LEFT JOIN android_malware_family f ON LOWER(f.family_slug) = v.resolved_family_lc
+            LEFT JOIN android_malware_type t ON t.type_id = f.primary_type_id
+            WHERE {where_sql}
+        """
     query_params: list[Any] = [sampling_seed, type_sampling_seed, *params]
 
     stage_sql = base_select_sql
@@ -775,40 +919,83 @@ def get_type_cohort_gate_stats(
         )
         params = tuple(list(params) + list(normalized_exclude_canonical))
 
-    aggregate_sql = f"""
-        SELECT
-            COUNT(*) AS total_candidates,
-            SUM(CASE WHEN y.sha256 IS NULL OR LENGTH(TRIM(y.sha256)) <> 64 THEN 1 ELSE 0 END) AS missing_sha256,
+    aggregate_params: list[Any] = list(params)
+    low_support_expr = "0 AS low_support_rows"
+    low_support_family_counts_cte = ""
+    low_support_join = ""
+    if min_samples_per_family is not None:
+        low_support_family_counts_cte = """
+            , low_support_family_counts AS (
+                SELECT base.family_id, COUNT(*) AS family_count
+                FROM base_candidates base
+                WHERE base.family_id IS NOT NULL
+                GROUP BY base.family_id
+            )
+        """
+        low_support_expr = """
             SUM(
                 CASE
-                    WHEN y.sha256 IS NOT NULL
-                     AND LENGTH(TRIM(y.sha256)) = 64
-                     AND x.sha256 IS NULL
+                    WHEN base.family_id IS NOT NULL
+                     AND COALESCE(low_support_family_counts.family_count, 0) < %s
+                    THEN 1 ELSE 0
+                END
+            ) AS low_support_rows
+        """
+        aggregate_params.append(int(min_samples_per_family))
+        low_support_join = """
+        LEFT JOIN low_support_family_counts
+          ON low_support_family_counts.family_id = base.family_id
+        """
+
+    aggregate_sql = f"""
+        WITH base_candidates AS (
+            SELECT
+                y.sha256,
+                x.sha256 AS registry_sha256,
+                f.family_id,
+                f.family_name,
+                y.android_package_name,
+                t.type_slug,
+                y.sample_label_kind,
+                y.family_label
+            {base_query}
+        )
+        {low_support_family_counts_cte}
+        SELECT
+            COUNT(*) AS total_candidates,
+            SUM(CASE WHEN base.sha256 IS NULL OR LENGTH(TRIM(base.sha256)) <> 64 THEN 1 ELSE 0 END) AS missing_sha256,
+            SUM(
+                CASE
+                    WHEN base.sha256 IS NOT NULL
+                     AND LENGTH(TRIM(base.sha256)) = 64
+                     AND base.registry_sha256 IS NULL
                     THEN 1 ELSE 0
                 END
             ) AS missing_hash_registry,
-            SUM(CASE WHEN f.family_id IS NULL THEN 1 ELSE 0 END) AS unmapped_family,
-            SUM(CASE WHEN COALESCE(TRIM(y.android_package_name), '') = '' THEN 1 ELSE 0 END) AS missing_package,
-            SUM(CASE WHEN COALESCE(LOWER(TRIM(t.type_slug)), '') = 'unknown' THEN 1 ELSE 0 END) AS unknown_type_slug,
+            SUM(CASE WHEN base.family_id IS NULL THEN 1 ELSE 0 END) AS unmapped_family,
+            SUM(CASE WHEN COALESCE(TRIM(base.android_package_name), '') = '' THEN 1 ELSE 0 END) AS missing_package,
+            SUM(CASE WHEN COALESCE(LOWER(TRIM(base.type_slug)), '') = 'unknown' THEN 1 ELSE 0 END) AS unknown_type_slug,
             SUM(
                 CASE
-                    WHEN COALESCE(LOWER(TRIM(y.sample_label_kind)), '') IN ('filename', 'hash_like', 'opaque_string', 'unclassified')
+                    WHEN COALESCE(LOWER(TRIM(base.sample_label_kind)), '') IN ('filename', 'hash_like', 'opaque_string', 'unclassified')
                     THEN 1 ELSE 0
                 END
             ) AS weak_label_kind_rows,
             SUM(
                 CASE
-                    WHEN LOWER(TRIM(COALESCE(y.family_label, ''))) NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled')
-                     AND LOWER(TRIM(COALESCE(f.family_name, ''))) NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null')
-                     AND LOWER(TRIM(COALESCE(y.family_label, ''))) <> LOWER(TRIM(COALESCE(f.family_name, '')))
+                    WHEN LOWER(TRIM(COALESCE(base.family_label, ''))) NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled')
+                     AND LOWER(TRIM(COALESCE(base.family_name, ''))) NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null')
+                     AND LOWER(TRIM(COALESCE(base.family_label, ''))) <> LOWER(TRIM(COALESCE(base.family_name, '')))
                     THEN 1 ELSE 0
                 END
-            ) AS family_label_conflict_rows
-        {base_query}
+            ) AS family_label_conflict_rows,
+            {low_support_expr}
+        FROM base_candidates base
+        {low_support_join}
     """
     columns, rows = db_engine.execute_query(
         aggregate_sql,
-        params=params,
+        params=tuple(aggregate_params),
         fetch=True,
         return_columns=True,
     )
@@ -825,25 +1012,7 @@ def get_type_cohort_gate_stats(
     weak_label_kind_rows = int(aggregate_map.get("weak_label_kind_rows", 0))
     family_label_conflict_rows = int(aggregate_map.get("family_label_conflict_rows", 0))
 
-    low_support_excluded = 0
-    if min_samples_per_family is not None:
-        q_low = f"""
-            SELECT COALESCE(SUM(cnt), 0) AS c
-            FROM (
-                SELECT f.family_id, COUNT(*) AS cnt
-                {base_query}
-                  AND f.family_id IS NOT NULL
-                GROUP BY f.family_id
-                HAVING COUNT(*) < %s
-            ) x
-        """
-        _columns, rows = db_engine.execute_query(
-            q_low,
-            params=(*(params or ()), int(min_samples_per_family)),
-            fetch=True,
-            return_columns=True,
-        )
-        low_support_excluded = int(rows[0][0]) if rows else 0
+    low_support_excluded = int(aggregate_map.get("low_support_rows", 0))
 
     # Authoritative row count matching fetch_samples_by_type (conjunctive gates).
     loader_parts = _cohort_loader_sql_parts(

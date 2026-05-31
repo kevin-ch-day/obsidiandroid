@@ -206,26 +206,50 @@ def load_and_prepare_samples(
         min_samples_per_family=min_support,
     )
 
-    samples_df = db_sample_metadata_queries.load_samples_by_type(
-        type_slug=type_slug,
-        min_samples_per_family=sql_min_support,
-        require_mapped_family=require_mapped,
-        require_sha256=require_sha256,
-        allow_missing_package_name=allow_missing_pkg,
-        exclude_unknown_type_slug=exclude_unknown_type_slug,
-        exclude_weak_label_kinds=exclude_weak_label_kinds,
-        exclude_family_label_conflicts=exclude_family_label_conflicts,
-        limit=limit,
-        family_cap=family_cap,
-        family_cap_seed=family_cap_seed,
-        type_cap=type_cap,
-        type_cap_seed=type_cap_seed,
-        type_cap_by_slug=type_cap_by_slug,
-        effective_time_start_utc=time_start_utc,
-        effective_time_end_utc=time_end_utc,
-        require_effective_first_seen=require_effective_first_seen,
-        exclude_family_canonical=sql_exclude_families,
-    )
+    current_fetch_sample_ids: set[int] = set()
+    if lock_membership_authoritative:
+        current_fetch_sample_ids = db_sample_metadata_queries.load_sample_ids_by_type(
+            type_slug=type_slug,
+            min_samples_per_family=sql_min_support,
+            require_mapped_family=require_mapped,
+            require_sha256=require_sha256,
+            allow_missing_package_name=allow_missing_pkg,
+            exclude_unknown_type_slug=exclude_unknown_type_slug,
+            exclude_weak_label_kinds=exclude_weak_label_kinds,
+            exclude_family_label_conflicts=exclude_family_label_conflicts,
+            limit=limit,
+            family_cap=family_cap,
+            family_cap_seed=family_cap_seed,
+            type_cap=type_cap,
+            type_cap_seed=type_cap_seed,
+            type_cap_by_slug=type_cap_by_slug,
+            effective_time_start_utc=time_start_utc,
+            effective_time_end_utc=time_end_utc,
+            require_effective_first_seen=require_effective_first_seen,
+            exclude_family_canonical=sql_exclude_families,
+        )
+        samples_df = pd.DataFrame({"sample_id": sorted(current_fetch_sample_ids)})
+    else:
+        samples_df = db_sample_metadata_queries.load_samples_by_type(
+            type_slug=type_slug,
+            min_samples_per_family=sql_min_support,
+            require_mapped_family=require_mapped,
+            require_sha256=require_sha256,
+            allow_missing_package_name=allow_missing_pkg,
+            exclude_unknown_type_slug=exclude_unknown_type_slug,
+            exclude_weak_label_kinds=exclude_weak_label_kinds,
+            exclude_family_label_conflicts=exclude_family_label_conflicts,
+            limit=limit,
+            family_cap=family_cap,
+            family_cap_seed=family_cap_seed,
+            type_cap=type_cap,
+            type_cap_seed=type_cap_seed,
+            type_cap_by_slug=type_cap_by_slug,
+            effective_time_start_utc=time_start_utc,
+            effective_time_end_utc=time_end_utc,
+            require_effective_first_seen=require_effective_first_seen,
+            exclude_family_canonical=sql_exclude_families,
+        )
     if exclude_unknown_type_slug:
         before_unknown = int(len(samples_df))
         type_slug_norm = (
@@ -295,44 +319,46 @@ def load_and_prepare_samples(
         for key, value in (type_cap_by_slug or {}).items()
         if str(key).strip() and isinstance(value, int) and value > 0
     } if isinstance(type_cap_by_slug, dict) else None
-    try:
-        governed_taxonomy_audit_artifacts = family_label_taxonomy_audit.write_family_label_taxonomy_audit(
-            samples_df=samples_df,
-            diagnostics_dir=_diagnostics_dir(),
-            profile_id=profile_id,
-            training_min_support=int(configured_min_support),
-            run_id=str(run_id or "unknown"),
-            artifact_prefix="sql_governed_",
-            print_fn=None,
-        )
-        if isinstance(artifact_list, list):
-            for key in (
-                "family_label_taxonomy_audit_csv",
-                "family_label_taxonomy_audit_md",
-                "support_threshold_preview_csv",
-                "support_threshold_preview_md",
-            ):
-                path_obj = governed_taxonomy_audit_artifacts.get(key)
-                if path_obj:
-                    artifact_list.append(str(path_obj))
-    except Exception as exc:  # pylint: disable=broad-except
-        du.print_warning(
-            f"[COHORT] SQL-governed family taxonomy/support diagnostics export skipped: {type(exc).__name__}."
-        )
-        log_event(
-            PIPELINE_LOGGER,
-            "samples_sql_governed_family_taxonomy_audit_export_failed",
-            event_id="SAMPLES_324",
-            level="WARNING",
-            run_id=str(run_id or "unknown"),
-            profile_id=profile_id,
-            reason=type(exc).__name__,
-        )
+    if not lock_membership_authoritative:
+        try:
+            governed_taxonomy_audit_artifacts = family_label_taxonomy_audit.write_family_label_taxonomy_audit(
+                samples_df=samples_df,
+                diagnostics_dir=_diagnostics_dir(),
+                profile_id=profile_id,
+                training_min_support=int(configured_min_support),
+                run_id=str(run_id or "unknown"),
+                artifact_prefix="sql_governed_",
+                print_fn=None,
+            )
+            if isinstance(artifact_list, list):
+                for key in (
+                    "family_label_taxonomy_audit_csv",
+                    "family_label_taxonomy_audit_md",
+                    "support_threshold_preview_csv",
+                    "support_threshold_preview_md",
+                ):
+                    path_obj = governed_taxonomy_audit_artifacts.get(key)
+                    if path_obj:
+                        artifact_list.append(str(path_obj))
+        except Exception as exc:  # pylint: disable=broad-except
+            du.print_warning(
+                f"[COHORT] SQL-governed family taxonomy/support diagnostics export skipped: {type(exc).__name__}."
+            )
+            log_event(
+                PIPELINE_LOGGER,
+                "samples_sql_governed_family_taxonomy_audit_export_failed",
+                event_id="SAMPLES_324",
+                level="WARNING",
+                run_id=str(run_id or "unknown"),
+                profile_id=profile_id,
+                reason=type(exc).__name__,
+            )
     if lock_membership_authoritative:
         locked_result = materialize_locked_paper_cohort(
             profile=profile,
             run_id=str(run_id or "unknown"),
-            current_fetch_df=samples_df,
+            current_fetch_sample_ids=current_fetch_sample_ids,
+            current_fetch_count=int(gate_stats_snapshot.get("governed_cohort_count", len(current_fetch_sample_ids)) or len(current_fetch_sample_ids)),
             snapshot_lock_file=snapshot_lock_file,
             diagnostics_dir=_diagnostics_dir(),
         )
@@ -383,6 +409,28 @@ def load_and_prepare_samples(
             run_id=str(run_id or "unknown"),
         )
         filter_summary = samples_df.attrs.get("cohort_filter_summary", {})
+    samples_df.attrs["sql_exclude_families_applied"] = tuple(sql_exclude_families)
+    samples_df.attrs["requested_exclude_families"] = tuple(exclude_families)
+    samples_df.attrs["exclude_families_deferred_by_snapshot_lock"] = bool(
+        lock_membership_authoritative and bool(exclude_families)
+    )
+    samples_df.attrs["configured_min_samples_per_family"] = int(configured_min_support)
+    samples_df.attrs["min_samples_per_family_applied_in_sql"] = sql_min_support is not None
+    samples_df.attrs["min_samples_per_family_sql_value"] = sql_min_support
+    samples_df.attrs["exclude_weak_label_kinds_applied_in_sql"] = exclude_weak_label_kinds
+    samples_df.attrs["exclude_family_label_conflicts_applied_in_sql"] = exclude_family_label_conflicts
+    samples_df.attrs["family_cap_applied_in_sql"] = bool(isinstance(family_cap, int) and family_cap > 0)
+    samples_df.attrs["family_cap_sql_value"] = int(family_cap) if isinstance(family_cap, int) and family_cap > 0 else None
+    samples_df.attrs["family_cap_sql_seed"] = int(family_cap_seed) if isinstance(family_cap_seed, int) else None
+    samples_df.attrs["type_cap_applied_in_sql"] = bool(isinstance(type_cap, int) and type_cap > 0)
+    samples_df.attrs["type_cap_sql_value"] = int(type_cap) if isinstance(type_cap, int) and type_cap > 0 else None
+    samples_df.attrs["type_cap_sql_seed"] = int(type_cap_seed) if isinstance(type_cap_seed, int) else None
+    samples_df.attrs["type_cap_by_slug_applied_in_sql"] = bool(isinstance(type_cap_by_slug, dict) and type_cap_by_slug)
+    samples_df.attrs["type_cap_by_slug_sql_value"] = {
+        str(key).strip().lower(): int(value)
+        for key, value in (type_cap_by_slug or {}).items()
+        if str(key).strip() and isinstance(value, int) and value > 0
+    } if isinstance(type_cap_by_slug, dict) else None
     samples_df.attrs["cohort_gate_rows"] = gate_rows
     rid = str(run_id or "unknown")
     primary = _diagnostics_dir() / f"analysis_snapshot_filter_summary_{rid}.csv"

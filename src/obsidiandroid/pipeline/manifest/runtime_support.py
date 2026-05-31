@@ -83,12 +83,22 @@ def build_registry_payload(
     vendor_set_hash = str(getattr(app_config, "RUNTIME_VENDOR_SET_HASH", ""))
     model_config_hash = str(manifest_context.get("model_config_hash", "") or "")
     effective_top_k = int(manifest_context.get("effective_top_k", 0) or 0)
+    publication_mode_resolution = manifest_context.get("paper_mode", {})
+    publication_ready_mode = bool(
+        (
+            publication_mode_resolution.get("resolved_value")
+            if isinstance(publication_mode_resolution, dict)
+            else paper_mode
+        )
+        or paper_mode
+    )
 
     return {
         "schema_version": "1.0",
         "run_id": run_id,
         "created_at_utc": manifest_context.get("timestamp_utc"),
         "paper_mode": paper_mode,
+        "publication_ready_mode": publication_ready_mode,
         "flags": {
             "vendor_constrained": vendor_constrained,
             "gated_vendor_fallback_allowed": not paper_mode,
@@ -101,7 +111,8 @@ def build_registry_payload(
                 )
             ),
         },
-        "paper_mode_resolution": manifest_context.get("paper_mode", {}),
+        "paper_mode_resolution": publication_mode_resolution,
+        "publication_ready_mode_resolution": publication_mode_resolution,
         "hashes": {
             "split_hash": split_hash,
             "universe_hash": "",
@@ -164,6 +175,15 @@ def build_manifest_payload(
     )
     effective_top_k = int(manifest_context.get("effective_top_k", 0) or 0)
     cohort_contract = manifest_context.get("paper_cohort_contract", {})
+    publication_mode_resolution = manifest_context.get("paper_mode", {})
+    publication_ready_mode = bool(
+        (
+            publication_mode_resolution.get("resolved_value")
+            if isinstance(publication_mode_resolution, dict)
+            else paper_mode
+        )
+        or paper_mode
+    )
 
     return {
         "run_id": run_id,
@@ -191,7 +211,9 @@ def build_manifest_payload(
         "model_config_snapshot_path": model_config_snapshot_path,
         "model_config_hash": model_config_hash,
         "dependency_versions": manifest_context.get("dependency_versions", {}),
-        "paper_mode": manifest_context.get("paper_mode", {}),
+        "paper_mode": publication_mode_resolution,
+        "publication_ready_mode": publication_ready_mode,
+        "publication_ready_mode_resolution": publication_mode_resolution,
         "evidence_mode": evidence_mode,
         "non_standard_features": non_standard_features,
         "included_engine_count": included_engines,

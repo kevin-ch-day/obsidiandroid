@@ -260,7 +260,7 @@ def test_print_unified_run_health_surfaces_scientific_adequacy(tmp_path: Path, c
     )
 
     out = capsys.readouterr().out
-    assert "publication_ready_status" in out
+    assert "Publication-ready status" in out
     assert "PASS" in out
     assert "Scientific adequacy" in out
     assert "Weak" in out

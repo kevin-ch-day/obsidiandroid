@@ -3,7 +3,7 @@
 Compatibility note:
     This module retains historical ``paper_*`` field names for older callers
     and artifacts. New operator-facing profiles and emitted payloads should
-    prefer generic cohort-contract language.
+    prefer publication-ready and generic cohort-contract language.
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ def validate_profile_paper_lock(profile: dict[str, Any], profile_path: Path) -> 
     if not contract_id:
         raise ValueError(
             f"Profile '{profile_path}' paper_lock must declare contract_id "
-            "(paper_id accepted as a legacy alias)."
+            "(paper_id accepted as a historical compatibility alias)."
         )
 
     required = {
