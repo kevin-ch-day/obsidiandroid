@@ -15,6 +15,7 @@ from obsidiandroid.database.db_engine import database_connection
 
 
 HEX_RE = re.compile(r"\b[a-fA-F0-9]{32}\b|\b[a-fA-F0-9]{40}\b|\b[a-fA-F0-9]{64}\b")
+ACTIVE_QUEUE_STATUSES = ("PENDING", "PROCESSING")
 REPO_ROOT = Path("research/external_iocs/Zimperium-IOC")
 OUTPUT_DIR = Path("output/diagnostics")
 SUMMARY_CSV = OUTPUT_DIR / "zimperium_ioc_repo_coverage_summary_latest.csv"
@@ -81,11 +82,13 @@ def load_local_indexes() -> tuple[
             )
 
         cur.execute(
-            """
+            f"""
             SELECT LOWER(COALESCE(artifact_hash_norm, '')), LOWER(COALESCE(artifact_hash_type, ''))
             FROM malware_artifact_ingest_queue
-            WHERE COALESCE(artifact_hash_norm, '') <> ''
-            """
+            WHERE queue_status IN ({",".join(["%s"] * len(ACTIVE_QUEUE_STATUSES))})
+              AND COALESCE(artifact_hash_norm, '') <> ''
+            """,
+            ACTIVE_QUEUE_STATUSES,
         )
         for token, hash_type in cur.fetchall():
             token = str(token)

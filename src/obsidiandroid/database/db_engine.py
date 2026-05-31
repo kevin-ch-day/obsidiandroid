@@ -39,6 +39,48 @@ DB_LOGGER = get_logger(f"{getattr(app_config, 'APP_LOG_NAMESPACE', 'framework')}
 _CONNECTION_POOL = None
 
 
+def _should_retry_via_tcp_loopback(exc: BaseException, connect_kwargs: dict) -> bool:
+    """Return True when a localhost socket-style failure should retry via TCP loopback."""
+    host = str(connect_kwargs.get("host") or "").strip().lower()
+    if host != "localhost":
+        return False
+    summary = mysql_error_summary(exc)
+    errno = summary.get("errno")
+    message = str(summary.get("message") or "").lower()
+    return bool(
+        errno in {2002, 2003, 2004}
+        or "socket" in message
+        or "can't connect to local server" in message
+        or "can't create tcp/ip socket" in message
+    )
+
+
+def _tcp_loopback_kwargs(connect_kwargs: dict) -> dict:
+    """Clone connector kwargs and force TCP loopback instead of localhost/socket lookup."""
+    tcp_kwargs = dict(connect_kwargs)
+    tcp_kwargs["host"] = "127.0.0.1"
+    return tcp_kwargs
+
+
+def _connect_with_localhost_fallback(connect_kwargs: dict, *, database_name: str):
+    """Open a connector connection, retrying localhost failures via 127.0.0.1 when safe."""
+    try:
+        return mysql.connector.connect(**connect_kwargs)
+    except Error as exc:
+        if not _should_retry_via_tcp_loopback(exc, connect_kwargs):
+            raise
+        fallback_kwargs = _tcp_loopback_kwargs(connect_kwargs)
+        log_event(
+            DB_LOGGER,
+            "db_localhost_tcp_fallback",
+            original_host=connect_kwargs.get("host"),
+            fallback_host=fallback_kwargs.get("host"),
+            database=database_name,
+            errno=mysql_error_summary(exc).get("errno"),
+        )
+        return mysql.connector.connect(**fallback_kwargs)
+
+
 def _log_mysql_failure(event: str, exc: BaseException, **extra: object) -> None:
     """Emit a structured DB failure log (errno/sqlstate/transient when available)."""
     if not getattr(app_config, "ENABLE_DB_LOGGING", True):
@@ -90,20 +132,45 @@ def _get_connection():
     global _CONNECTION_POOL
     use_pool = bool(DB_ENABLE_POOLING)
     if not use_pool:
-        return mysql.connector.connect(**_build_connect_kwargs())
+        return _connect_with_localhost_fallback(
+            _build_connect_kwargs(),
+            database_name=DB_NAME,
+        )
 
     if _CONNECTION_POOL is None:
-        _CONNECTION_POOL = pooling.MySQLConnectionPool(
-            pool_name=str(DB_POOL_NAME),
-            pool_size=max(1, int(DB_POOL_SIZE)),
-            **_build_connect_kwargs(),
-        )
+        connect_kwargs = _build_connect_kwargs()
+        try:
+            _CONNECTION_POOL = pooling.MySQLConnectionPool(
+                pool_name=str(DB_POOL_NAME),
+                pool_size=max(1, int(DB_POOL_SIZE)),
+                **connect_kwargs,
+            )
+        except Error as exc:
+            if not _should_retry_via_tcp_loopback(exc, connect_kwargs):
+                raise
+            fallback_kwargs = _tcp_loopback_kwargs(connect_kwargs)
+            log_event(
+                DB_LOGGER,
+                "db_pool_localhost_tcp_fallback",
+                original_host=connect_kwargs.get("host"),
+                fallback_host=fallback_kwargs.get("host"),
+                database=DB_NAME,
+                errno=mysql_error_summary(exc).get("errno"),
+            )
+            _CONNECTION_POOL = pooling.MySQLConnectionPool(
+                pool_name=f"{DB_POOL_NAME}_tcp",
+                pool_size=max(1, int(DB_POOL_SIZE)),
+                **fallback_kwargs,
+            )
     return _CONNECTION_POOL.get_connection()
 
 
 def _get_permission_intel_connection():
     """Return a connection to the Permission Intel schema (no pooling for secondary DB)."""
-    return mysql.connector.connect(**_build_permission_intel_connect_kwargs())
+    return _connect_with_localhost_fallback(
+        _build_permission_intel_connect_kwargs(),
+        database_name=PERMISSION_INTEL_DB_NAME,
+    )
 
 
 # === Connection Context Managers === #
@@ -393,7 +460,10 @@ def test_connection(verbose: bool = False) -> bool:
     """Return True if the primary database accepts a connection, else False."""
     conn = None
     try:
-        conn = mysql.connector.connect(**_build_connect_kwargs())
+        conn = _connect_with_localhost_fallback(
+            _build_connect_kwargs(),
+            database_name=DB_NAME,
+        )
         if conn.is_connected() and verbose:
             print("[OK] Database connection successful.")
         if conn.is_connected() and getattr(app_config, "ENABLE_DB_LOGGING", True):
@@ -413,7 +483,10 @@ def test_permission_intel_connection(verbose: bool = False) -> bool:
     """Smoke-test connectivity to the Permission Intel database."""
     conn = None
     try:
-        conn = mysql.connector.connect(**_build_permission_intel_connect_kwargs())
+        conn = _connect_with_localhost_fallback(
+            _build_permission_intel_connect_kwargs(),
+            database_name=PERMISSION_INTEL_DB_NAME,
+        )
         if conn.is_connected() and verbose:
             print("[OK] Permission Intel database connection successful.")
         if conn.is_connected() and getattr(app_config, "ENABLE_DB_LOGGING", True):
@@ -454,7 +527,10 @@ def check_split_database_health() -> dict:
         "permission_intel_error": None,
     }
     try:
-        conn = mysql.connector.connect(**_build_connect_kwargs())
+        conn = _connect_with_localhost_fallback(
+            _build_connect_kwargs(),
+            database_name=DB_NAME,
+        )
         try:
             result["primary_ok"] = bool(conn.is_connected())
         finally:
@@ -465,7 +541,10 @@ def check_split_database_health() -> dict:
         _log_mysql_failure("split_db_health_primary_failed", e, database=DB_NAME)
 
     try:
-        conn = mysql.connector.connect(**_build_permission_intel_connect_kwargs())
+        conn = _connect_with_localhost_fallback(
+            _build_permission_intel_connect_kwargs(),
+            database_name=PERMISSION_INTEL_DB_NAME,
+        )
         try:
             if conn.is_connected():
                 cur = conn.cursor()

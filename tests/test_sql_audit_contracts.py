@@ -18,16 +18,17 @@ def test_read_only_audit_sql_does_not_hardcode_dev_schema() -> None:
 def test_live_operator_sql_does_not_hardcode_prod_schema() -> None:
     active_paths = [
         "database/sql/create_android_missing_resolution_triage.sql",
-        "database/sql/android_missing_resolution_triage_audit.sql",
         "database/sql/android_missing_resolution_worklist.sql",
         "database/sql/android_missing_primary_label_audit.sql",
+        "database/sql/android_observed_filename_anomaly_audit.sql",
+        "database/sql/android_observed_filename_transport_cleanup.sql",
         "database/sql/android_family_resolution_gap_regex_audit.sql",
         "database/sql/android_family_resolution_priority_regex_worklist.sql",
         "database/sql/android_missing_primary_label_remediation_priorities.sql",
         "database/sql/android_missing_primary_label_false_positive_provenance_queue.sql",
         "database/sql/android_missing_primary_label_likely_legit_package_identity_queue.sql",
         "database/sql/android_missing_primary_label_package_reuse_review_queue.sql",
-        "database/sql/android_policy_held_token_risk_worklist_2026_05_28.sql",
+        "database/sql/android_missing_subtype_family_consensus_backfill.sql",
         "database/sql/android_unknown_high_confidence_family_review_queue.sql",
         "database/sql/android_pattern_information_metrics.sql",
         "database/sql/android_pattern_advanced_metrics.sql",
@@ -152,15 +153,6 @@ def test_missing_primary_label_audit_uses_live_contract_surfaces() -> None:
     assert "android_permission_intel.android_permission_obs_sample" in unknown_sql
     assert "resolved_unknown" in unknown_sql
     assert "candidate_same_package_label_review" in unknown_sql
-
-    policy_held_sql = _read("database/sql/android_policy_held_token_risk_worklist_2026_05_28.sql")
-    assert "tmp_android_policy_held_token_risk" in policy_held_sql
-    assert "vendor_label_generic_token_fact" in policy_held_sql
-    assert "android_permission_intel.android_permission_obs_sample" in policy_held_sql
-    assert "class_label_not_family" in policy_held_sql
-    assert "technical_signal_not_family" in policy_held_sql
-    assert "placeholder_or_source_artifact" in policy_held_sql
-    assert "campaign_or_actor_not_family" in policy_held_sql
 
     policy_held_report = _read("scripts/diagnostics/report_android_policy_held_token_risk.py")
     assert "android_policy_held_token_risk_latest.csv" in policy_held_report

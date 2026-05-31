@@ -97,3 +97,27 @@ def test_filter_new_hashes_skips_registry_mapped_hint_hashes(monkeypatch) -> Non
     result = tranche.filter_new_hashes(hashes)
 
     assert result == ["d" * 32, "e" * 40]
+    queue_queries = [
+        (sql, params)
+        for sql, params in fake_conn.cursor_obj.queries
+        if "malware_artifact_ingest_queue" in sql.lower()
+    ]
+    assert queue_queries
+    assert all("queue_status in (%s,%s)" in sql.lower() for sql, _params in queue_queries)
+    assert queue_queries[0][1][:2] == tranche.ACTIVE_QUEUE_STATUSES
+
+
+def test_build_sql_only_blocks_active_queue_rows() -> None:
+    sql = tranche.build_sql(
+        ["a" * 64],
+        artifact_name=None,
+        artifact_family=None,
+        artifact_category=None,
+        artifact_subtype=None,
+        artifact_source="unit-test",
+        workload_lane="raw_hash_reservoir",
+        temp_suffix="abc123",
+        source_note="test",
+    )
+
+    assert "existing.queue_status IN ('PENDING', 'PROCESSING')" in sql

@@ -42,6 +42,111 @@ def test_test_connection_does_not_raise_unboundlocal_on_connect_failure(monkeypa
     assert db_engine.test_connection(verbose=False) is False
 
 
+def test_connect_with_localhost_fallback_retries_via_tcp_loopback(monkeypatch) -> None:
+    """localhost socket-style failures should retry once against 127.0.0.1."""
+    calls: list[dict] = []
+
+    class _Conn:
+        def is_connected(self) -> bool:
+            return True
+
+    def fake_connect(**kwargs):
+        calls.append(dict(kwargs))
+        if kwargs["host"] == "localhost":
+            exc = MySQLError("Can't connect to local server through socket '/var/lib/mysql/mysql.sock' (1)")
+            exc.errno = 2002
+            raise exc
+        return _Conn()
+
+    monkeypatch.setattr(db_engine.mysql.connector, "connect", fake_connect)
+
+    conn = db_engine._connect_with_localhost_fallback(  # pylint: disable=protected-access
+        {
+            "host": "localhost",
+            "port": 3306,
+            "user": "root",
+            "password": "pw",
+            "database": "db",
+        },
+        database_name="db",
+    )
+
+    assert conn.is_connected() is True
+    assert [call["host"] for call in calls] == ["localhost", "127.0.0.1"]
+
+
+def test_connect_with_localhost_fallback_does_not_retry_non_localhost(monkeypatch) -> None:
+    """Non-localhost connection failures should bubble without a TCP-loopback retry."""
+    calls: list[dict] = []
+
+    def fake_connect(**kwargs):
+        calls.append(dict(kwargs))
+        exc = MySQLError("network down")
+        exc.errno = 2003
+        raise exc
+
+    monkeypatch.setattr(db_engine.mysql.connector, "connect", fake_connect)
+
+    with pytest.raises(MySQLError):
+        db_engine._connect_with_localhost_fallback(  # pylint: disable=protected-access
+            {
+                "host": "db.example.internal",
+                "port": 3306,
+                "user": "root",
+                "password": "pw",
+                "database": "db",
+            },
+            database_name="db",
+        )
+
+    assert [call["host"] for call in calls] == ["db.example.internal"]
+
+
+def test_execute_permission_query_retries_permission_intel_localhost_via_tcp(monkeypatch) -> None:
+    """Permission Intel DB helpers should inherit the same localhost fallback behavior."""
+    calls: list[dict] = []
+
+    class _Cursor:
+        description = None
+
+        def execute(self, *_args, **_kwargs):
+            return None
+
+        def close(self):
+            return None
+
+    class _Conn:
+        def cursor(self):
+            return _Cursor()
+
+        def commit(self):
+            return None
+
+        def rollback(self):
+            return None
+
+        def close(self):
+            return None
+
+        def is_connected(self) -> bool:
+            return True
+
+    def fake_connect(**kwargs):
+        calls.append(dict(kwargs))
+        if kwargs["host"] == "localhost":
+            exc = MySQLError("Can't connect to local server through socket '/var/lib/mysql/mysql.sock' (1)")
+            exc.errno = 2002
+            raise exc
+        return _Conn()
+
+    monkeypatch.setattr(db_engine.mysql.connector, "connect", fake_connect)
+    monkeypatch.setattr(db_engine, "PERMISSION_INTEL_DB_HOST", "localhost")
+
+    db_engine.execute_permission_query("SELECT 1", fetch=False)
+
+    assert [call["host"] for call in calls] == ["localhost", "127.0.0.1"]
+
+
 def test_mysql_error_summary_includes_errno_and_transient_flag() -> None:
     """Error helper should classify common MySQL transport failures as transient."""
     exc = MySQLError("server gone")

@@ -8,8 +8,10 @@ import scripts.diagnostics.report_zimperium_ioc_repo_coverage as coverage
 class _FakeCursor:
     def __init__(self) -> None:
         self._rows: list[tuple[str, ...]] = []
+        self.queries: list[tuple[str, tuple[object, ...]]] = []
 
     def execute(self, sql: str, params: tuple[object, ...] = ()) -> None:
+        self.queries.append((sql, params))
         lowered = sql.lower()
         if "from malware_sample_catalog" in lowered:
             if "lower(sha256)" in lowered:
@@ -30,8 +32,7 @@ class _FakeCursor:
 
         if "from malware_artifact_ingest_queue" in lowered:
             if "artifact_hash_norm" in lowered:
-                requested = {str(v).lower() for v in params} or {"d" * 64}
-                self._rows = [(token, "sha256") for token in requested if token == "d" * 64]
+                self._rows = [("d" * 64, "sha256")]
             else:
                 self._rows = []
             return
@@ -53,8 +54,11 @@ class _FakeCursor:
 
 
 class _FakeConnection:
+    def __init__(self) -> None:
+        self.cursor_obj = _FakeCursor()
+
     def cursor(self):
-        return _FakeCursor()
+        return self.cursor_obj
 
     def __enter__(self):
         return self
@@ -66,6 +70,7 @@ class _FakeConnection:
 def test_report_treats_registry_mapped_md5_and_sha1_as_known(
     monkeypatch, tmp_path
 ) -> None:
+    fake_conn = _FakeConnection()
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     sample_file = repo_root / "feed.csv"
@@ -76,7 +81,7 @@ def test_report_treats_registry_mapped_md5_and_sha1_as_known(
     monkeypatch.setattr(coverage, "OUTPUT_DIR", output_dir)
     monkeypatch.setattr(coverage, "SUMMARY_CSV", output_dir / "summary.csv")
     monkeypatch.setattr(coverage, "NEW_HASHES_CSV", output_dir / "new_hashes.csv")
-    monkeypatch.setattr(coverage, "database_connection", lambda: _FakeConnection())
+    monkeypatch.setattr(coverage, "database_connection", lambda: fake_conn)
 
     coverage.main()
 
@@ -87,3 +92,11 @@ def test_report_treats_registry_mapped_md5_and_sha1_as_known(
     assert "feed.csv" in summary[1]
     assert ",0," in summary[1] or summary[1].endswith(",0,,")
     assert new_hashes == ["repo_file,source_label,hash_type,hash_value"]
+    queue_queries = [
+        (sql, params)
+        for sql, params in fake_conn.cursor_obj.queries
+        if "from malware_artifact_ingest_queue" in sql.lower()
+    ]
+    assert queue_queries
+    assert "queue_status in (%s,%s)" in queue_queries[0][0].lower()
+    assert queue_queries[0][1] == coverage.ACTIVE_QUEUE_STATUSES

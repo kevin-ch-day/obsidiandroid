@@ -2,7 +2,7 @@
 
 Hash handling policy:
 1. detect hash type from token length first,
-2. dedupe against the ingest queue for all supported hash types,
+2. dedupe against active ingest-queue rows for all supported hash types,
 3. dedupe against the live sample catalog for SHA-256 tokens,
 4. resolve MD5/SHA1 hint hashes through the artifact-hash registry and skip
    them when their mapped SHA-256 is already known.
@@ -21,6 +21,7 @@ from obsidiandroid.database.db_engine import database_connection
 
 
 HEX_RE = re.compile(r"\b[a-fA-F0-9]{32}\b|\b[a-fA-F0-9]{40}\b|\b[a-fA-F0-9]{64}\b")
+ACTIVE_QUEUE_STATUSES = ("PENDING", "PROCESSING")
 
 
 def infer_hash_type(token: str) -> str:
@@ -101,9 +102,13 @@ def filter_new_hashes(hashes: list[str]) -> list[str]:
                 tuple(sha256_hashes),
             )
             catalog_sha256_matches = {str(row[0]) for row in cur.fetchall()}
+        active_status_placeholders = ",".join(["%s"] * len(ACTIVE_QUEUE_STATUSES))
         cur.execute(
-            f"SELECT LOWER(artifact_hash_norm) FROM malware_artifact_ingest_queue WHERE LOWER(artifact_hash_norm) IN ({placeholders})",
-            tuple(hashes),
+            "SELECT LOWER(artifact_hash_norm) "
+            "FROM malware_artifact_ingest_queue "
+            f"WHERE queue_status IN ({active_status_placeholders}) "
+            f"AND LOWER(artifact_hash_norm) IN ({placeholders})",
+            tuple(ACTIVE_QUEUE_STATUSES) + tuple(hashes),
         )
         queue_matches = {str(row[0]) for row in cur.fetchall()}
 
@@ -133,8 +138,11 @@ def filter_new_hashes(hashes: list[str]) -> list[str]:
             )
             mapped_catalog_matches = {str(row[0]) for row in cur.fetchall()}
             cur.execute(
-                f"SELECT LOWER(artifact_hash_norm) FROM malware_artifact_ingest_queue WHERE LOWER(artifact_hash_norm) IN ({mapped_placeholders})",
-                tuple(mapped_sha256s),
+                "SELECT LOWER(artifact_hash_norm) "
+                "FROM malware_artifact_ingest_queue "
+                f"WHERE queue_status IN ({active_status_placeholders}) "
+                f"AND LOWER(artifact_hash_norm) IN ({mapped_placeholders})",
+                tuple(ACTIVE_QUEUE_STATUSES) + tuple(mapped_sha256s),
             )
             mapped_queue_matches = {str(row[0]) for row in cur.fetchall()}
             known_mapped_sha256 = mapped_catalog_matches | mapped_queue_matches
@@ -359,6 +367,7 @@ WHERE NOT EXISTS (
   SELECT 1
   FROM malware_artifact_ingest_queue AS existing
   WHERE LOWER(COALESCE(existing.artifact_hash_norm, '')) = t.artifact_hash_norm
+    AND existing.queue_status IN ('PENDING', 'PROCESSING')
 )
 AND NOT EXISTS (
   SELECT 1

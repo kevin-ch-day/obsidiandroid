@@ -54,8 +54,12 @@ noise rather than malware naming truth.
 4. Keep Android family governance separate from mixed-platform installer/admin
    false-positive churn.
 
-## SQL
+## Current Audit Surfaces
 
-Use:
+This note is historical guidance, not a live SQL contract. The old one-off
+regex bucket audit was removed during SQL surface cleanup.
 
-- [vt_false_positive_regex_pattern_audit.sql](/home/secadmin/Laughlin/GitHub/obsidiandroid/database/sql/vt_false_positive_regex_pattern_audit.sql)
+For current read-only QA around the false-positive review surface, use:
+
+- [vt_false_positive_review_suppression_audit.sql](/home/secadmin/Laughlin/GitHub/obsidiandroid/database/sql/vt_false_positive_review_suppression_audit.sql)
+- [vt_false_positive_suppression_contract_gap_audit.sql](/home/secadmin/Laughlin/GitHub/obsidiandroid/database/sql/vt_false_positive_suppression_contract_gap_audit.sql)

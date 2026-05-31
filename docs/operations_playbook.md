@@ -6,6 +6,7 @@ This playbook equips site reliability engineers and operators with procedures fo
 
 - **Pipeline health:** Verify the latest scheduled `main.py` run completed successfully. Review orchestrator dashboards (e.g., Airflow, Prefect) for failed tasks.
 - **Data freshness:** Confirm replication jobs populated the expected **primary** and **Permission Intel** tables (canonical names include `malware_sample_catalog`, `virustotal_sample_vendor_engine_verdicts`, `android_permission_obs_sample`; legacy `vt_*` aliases may appear in older notes). Reference [`data_sources.md`](data_sources.md) for schema specifics and validation steps.
+- **Queue buffer hygiene:** Treat `malware_artifact_ingest_queue` as a transient buffer. Successful `DONE` + `OK` rows that already exist in `malware_sample_catalog` should be pruned instead of retained. Use `python scripts/diagnostics/prune_malware_artifact_ingest_queue.py` for a dry run, then rerun with `--commit` when the summary looks correct. During live backlog waves, prefer `--workload-lane <lane>` so cleanup stays scoped to the buffer you are reviewing.
 - **Storage usage:** Monitor `output/` for growth. Inspection CLIs live under `scripts/diagnostics/`. Archive or prune artifacts older than retention targets.
 - **Model drift signals:** Check monitoring alerts for sudden drops in precision/recall or shifts in feature distributions. Trigger retraining if thresholds are crossed.
 
