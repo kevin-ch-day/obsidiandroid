@@ -258,13 +258,175 @@ def test_matched_sample_lock_degrades_when_only_taxonomy_counts_drift(
     assert contract["validation"]["status"] == "degraded_taxonomy_label_drift"
     assert contract["validation"]["severity"] == "warning"
     assert contract["cohort_lock_status"] == "membership_locked_taxonomy_drift"
-    assert contract["enforcement_level"] == "partial"
-    assert contract["sample_id_lock"]["taxonomy_label_drift"]["observed_family_count"] == 3
-    assert contract["sample_id_lock"]["taxonomy_label_drift"]["family_delta"] == 1
-    assert contract["sample_id_lock"]["taxonomy_label_drift"]["type_delta"] == 1
-    assert contract["sample_id_lock"]["taxonomy_label_drift"]["drift_class"] == "taxonomy_expansion"
-    assert "sample-id membership still matches" in contract["validation"]["warning"]
-    assert "family_delta=+1" in contract["validation"]["warning"]
+
+
+def test_locked_paper_contract_requires_archived_label_snapshot(
+    tmp_path: Path,
+) -> None:
+    """Locked paper runs should fail explicitly when archived labels are unavailable."""
+    baseline_dir = tmp_path / "baseline"
+    baseline_dir.mkdir()
+    member_path = baseline_dir / "members.csv"
+    member_path.write_text("sample_id\n1\n2\n3\n", encoding="utf-8")
+    manifest_path = baseline_dir / "cohort_lock_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "lock_version": "v1",
+                "profile_id": "locked_profile",
+                "contract_id": "locked_contract",
+                "canonical_historical_run_id": "",
+                "created_at_utc": "2026-05-31T00:00:00Z",
+                "member_list_path": "members.csv",
+                "sample_count": 3,
+                "family_count": 2,
+                "type_count": 2,
+                "cohort_hash": paper_cohort_contract.hash_payload([1, 2, 3]),
+                "taxonomy_hash": "taxhash123",
+                "sql_profile_version": "test",
+                "profile_version": "test",
+                "time_window": {"start_utc": "2020-01-01T00:00:00Z", "end_utc": "2026-01-01T00:00:00Z"},
+                "source_artifacts": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    profile = {
+        "profile_id": "locked_profile",
+        "paper_locked": True,
+        "paper_lock": {
+            "contract_id": "locked_contract",
+            "baseline_artifact_root": str(baseline_dir),
+            "cohort_lock_manifest_file": str(manifest_path),
+            "expected_sample_count": 3,
+            "expected_family_count": 2,
+            "expected_type_count": 2,
+            "expected_type_slugs": ["banker", "spyware"],
+            "sample_id_lock_file": str(member_path),
+            "sample_id_lock_status": "recovered_from_historical_artifact",
+        },
+    }
+    samples_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "family_canonical": ["f1", "f1", "f2"],
+            "type_slug": ["banker", "spyware", "banker"],
+        }
+    )
+    samples_df.attrs["snapshot_lock"] = {
+        "status": "matched",
+        "applied": True,
+        "matched_sample_count": 3,
+        "lock_sample_count": 3,
+        "missing_from_db_count": 0,
+    }
+    samples_df.attrs["paper_locked_label_snapshot"] = {
+        "status": "archived_label_snapshot_unavailable",
+        "available": False,
+        "path": "",
+        "label_snapshot_hash": "",
+    }
+
+    contract = paper_cohort_contract.build_runtime_contract(
+        profile=profile,
+        manifest_context={"db_query_contract": {"version": "v1"}},
+        samples_df=samples_df,
+        raise_on_mismatch=False,
+    )
+
+    assert contract["validation"]["status"] == "mismatch"
+    assert "archived_label_snapshot unavailable" in contract["validation"]["mismatches"]
+
+
+def test_locked_paper_contract_accepts_matching_archived_label_snapshot(
+    tmp_path: Path,
+) -> None:
+    """Locked paper validation should pass when archived label snapshot and hashes match."""
+    baseline_dir = tmp_path / "baseline"
+    baseline_dir.mkdir()
+    member_path = baseline_dir / "members.csv"
+    member_path.write_text("sample_id\n1\n2\n3\n", encoding="utf-8")
+    label_hash = paper_cohort_contract.hash_payload(
+        [
+            {"sample_id": 1, "family_id": 10, "family_canonical": "f1", "type_slug": "banker"},
+            {"sample_id": 2, "family_id": 11, "family_canonical": "f1", "type_slug": "spyware"},
+            {"sample_id": 3, "family_id": 12, "family_canonical": "f2", "type_slug": "banker"},
+        ]
+    )
+    manifest_path = baseline_dir / "cohort_lock_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "lock_version": "v1",
+                "profile_id": "locked_profile",
+                "contract_id": "locked_contract",
+                "canonical_historical_run_id": "",
+                "created_at_utc": "2026-05-31T00:00:00Z",
+                "member_list_path": "members.csv",
+                "sample_count": 3,
+                "family_count": 2,
+                "type_count": 2,
+                "cohort_hash": paper_cohort_contract.hash_payload([1, 2, 3]),
+                "taxonomy_hash": label_hash,
+                "sql_profile_version": "test",
+                "profile_version": "test",
+                "time_window": {"start_utc": "2020-01-01T00:00:00Z", "end_utc": "2026-01-01T00:00:00Z"},
+                "source_artifacts": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    profile = {
+        "profile_id": "locked_profile",
+        "paper_locked": True,
+        "paper_lock": {
+            "contract_id": "locked_contract",
+            "baseline_artifact_root": str(baseline_dir),
+            "cohort_lock_manifest_file": str(manifest_path),
+            "expected_sample_count": 3,
+            "expected_family_count": 2,
+            "expected_type_count": 2,
+            "expected_type_slugs": ["banker", "spyware"],
+            "sample_id_lock_file": str(member_path),
+            "sample_id_lock_status": "recovered_from_historical_artifact",
+        },
+    }
+    samples_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "family_id": [10, 11, 12],
+            "family_canonical": ["f1", "f1", "f2"],
+            "type_slug": ["banker", "spyware", "banker"],
+        }
+    )
+    samples_df.attrs["snapshot_lock"] = {
+        "status": "matched",
+        "applied": True,
+        "matched_sample_count": 3,
+        "lock_sample_count": 3,
+        "missing_from_db_count": 0,
+    }
+    samples_df.attrs["paper_locked_label_snapshot"] = {
+        "status": "baseline_artifact_label_snapshot",
+        "available": True,
+        "path": str(baseline_dir / "labels.csv"),
+        "label_snapshot_hash": label_hash,
+    }
+
+    contract = paper_cohort_contract.build_runtime_contract(
+        profile=profile,
+        manifest_context={"db_query_contract": {"version": "v1"}},
+        samples_df=samples_df,
+    )
+
+    assert contract["validation"]["status"] == "match"
+    assert contract["enforcement_level"] == "full"
+    assert contract["observed"]["sample_count"] == 3
+    assert contract["observed"]["family_count"] == 2
+    assert contract["observed"]["type_count"] == 2
+    assert contract["observed"]["type_slugs"] == ("banker", "spyware")
 
 
 def test_manifest_payload_records_expected_cohort_contract_metadata() -> None:

@@ -754,7 +754,7 @@ def test_review_summary_surfaces_live_readiness_gap_notes(
     gap_notes = [str(note) for note in summary.get("cohort_readiness_gap_notes", [])]
     warnings = [str(note) for note in summary.get("warnings", [])]
     tuning_actions = [str(note) for note in summary.get("tuning_actions", [])]
-    assert any("does not currently verify a matching PI-observed cohort" in note for note in gap_notes)
+    assert any("does not verify a matching PI-observed cohort" in note for note in gap_notes)
     assert any("repair candidates=5, known unresolved families=2, policy-held tokens=7" in note for note in gap_notes)
     assert any("high-priority conflicts=2/4; dominant action=review_db_type_mapping (3); dominant issue=type_mismatch (3)." in note for note in gap_notes)
     assert any("Compare against an unlocked/current cohort" in note for note in gap_notes)

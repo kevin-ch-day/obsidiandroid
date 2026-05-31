@@ -19,9 +19,6 @@ from config import app_config
 
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
-from obsidiandroid.common.cv_fold_config import safe_int_config_value
-from obsidiandroid.pipeline.manifest.confusion_matrix_paths import find_primary_confusion_matrix
-from obsidiandroid.pipeline.manifest.hashing import sha256_hex
 from obsidiandroid.pipeline.manifest.paper_evidence import (
     build_manuscript_table_constants,
     validate_paper_contract_bundle,
@@ -29,6 +26,17 @@ from obsidiandroid.pipeline.manifest.paper_evidence import (
     write_manuscript_table_constants,
     write_perturbation_summary,
 )
+from obsidiandroid.pipeline.manifest.paper_export_contracts import (
+    build_paper_export_contract,
+    missing_required_paper_sources,
+)
+from obsidiandroid.pipeline.manifest.paper_export_paths import (
+    build_paper_export_settings,
+    build_paper_docs_paths,
+    build_paper_export_profile_payload,
+    build_paper_exports_manifest_payload,
+)
+from obsidiandroid.pipeline.manifest.paper_export_registry import build_paper_registry_payload
 from obsidiandroid.pipeline.manifest.paper_figure_renderers import (
     annotate_confusion_matrix_with_metrics,
     export_paper_figure_qc,
@@ -38,16 +46,6 @@ from obsidiandroid.pipeline.manifest.paper_figure_renderers import (
     render_pipeline_architecture_figure,
 )
 from obsidiandroid.reporting.latex_tables import LatexTableSpec, render_tabular
-
-
-def _resolve_existing_path(*candidates: Path | None) -> Path:
-    """Return the first existing path from a candidate list, or the first non-null candidate."""
-    normalized = [Path(candidate) for candidate in candidates if candidate is not None]
-    for candidate in normalized:
-        if candidate.exists():
-            return candidate
-    return normalized[0] if normalized else Path()
-
 
 def build_paper_model_comparison_table(*, source_path: Path, output_path: Path) -> None:
     """Build compact paper model-comparison table for RF/XGB/LR only."""
@@ -106,100 +104,6 @@ def write_table_latex_from_csv(*, csv_path: Path, tex_path: Path) -> None:
         render_tabular(df, spec=LatexTableSpec(align=align, use_booktabs=False)),
         encoding="utf-8",
     )
-
-
-
-def build_paper_registry_payload(
-    *,
-    run_root: Path,
-    run_id: str,
-    contract_version: str,
-    figure_registry_rows: list[dict[str, Any]],
-    table_registry_rows: list[dict[str, Any]],
-    latex_paths: dict[str, str],
-    blocked_non_paper_ids: set[str],
-) -> dict[str, Any]:
-    """Build unified paper artifact registry for deterministic manuscript mapping."""
-    artifacts_out: list[dict[str, Any]] = []
-    for row in figure_registry_rows:
-        artifact_id = str(row.get("figure_id", "")).strip()
-        temp_destination_path = str(row.get("destination_path", "")).strip()
-        destination_filename = str(row.get("destination_filename", "")).strip()
-        destination_path = (
-            str((run_root / "paper_exports" / "figures" / destination_filename).resolve())
-            if destination_filename
-            else ""
-        )
-        source_path = str(row.get("source_path", "")).strip()
-        sha = (
-            sha256_hex(Path(temp_destination_path).read_bytes())
-            if temp_destination_path and Path(temp_destination_path).exists()
-            else ""
-        )
-        artifacts_out.append(
-            {
-                "artifact_id": artifact_id,
-                "artifact_type": "figure",
-                "run_id": str(run_id),
-                "source_path": source_path,
-                "destination_path": destination_path,
-                "sha256": sha,
-                "paper_allowed": True,
-                "contract_version": str(contract_version),
-            }
-        )
-    for row in table_registry_rows:
-        artifact_id = str(row.get("table_id", "")).strip()
-        temp_destination_path = str(row.get("destination_path", "")).strip()
-        destination_filename = str(row.get("destination_filename", "")).strip()
-        destination_path = (
-            str((run_root / "paper_exports" / "tables" / destination_filename).resolve())
-            if destination_filename
-            else ""
-        )
-        source_path = str(row.get("source_path", "")).strip()
-        sha = (
-            sha256_hex(Path(temp_destination_path).read_bytes())
-            if temp_destination_path and Path(temp_destination_path).exists()
-            else ""
-        )
-        latex_name = str(latex_paths.get(artifact_id, "")).strip()
-        artifacts_out.append(
-            {
-                "artifact_id": artifact_id,
-                "artifact_type": "table",
-                "run_id": str(run_id),
-                "source_path": source_path,
-                "destination_path": destination_path,
-                "sha256": sha,
-                "paper_allowed": True,
-                "contract_version": str(contract_version),
-                "latex_path": (
-                    str((run_root / "paper_exports" / "tables_latex" / latex_name).resolve())
-                    if latex_name
-                    else ""
-                ),
-            }
-        )
-    for blocked_id in sorted(blocked_non_paper_ids):
-        artifacts_out.append(
-            {
-                "artifact_id": blocked_id,
-                "artifact_type": "blocked_non_paper",
-                "run_id": str(run_id),
-                "source_path": "",
-                "destination_path": "",
-                "sha256": "",
-                "paper_allowed": False,
-                "contract_version": str(contract_version),
-            }
-        )
-    return {
-        "run_id": str(run_id),
-        "contract_version": str(contract_version),
-        "artifacts": sorted(artifacts_out, key=lambda item: str(item.get("artifact_id", ""))),
-    }
-
 
 
 def validate_paper_export_content(
@@ -622,114 +526,27 @@ def build_strict_paper2_exports(
     if temp_export_root.exists():
         shutil.rmtree(temp_export_root, ignore_errors=True)
 
-    required_figure_ids = {
-        "fig1_pipeline_architecture",
-        "fig2_type_permission_heatmap",
-        "fig3_dangerous_permission_distribution_by_type",
-        "fig4_family_jsd_heatmap_top12",
-        "fig5_confusion_matrix_random_forest",
-    }
-    required_table_ids = {
-        "table1_cohort_summary",
-        "table2_malware_family_temporal_scope",
-        "table3_model_comparison_rf_xgb_lr_fused",
-        "table4_feature_ablation",
-        "table5_dangerous_permission_stats_tests",
-    }
-    blocked_non_paper_ids = {
-        "family_permission_heatmap_top12",
-        "generic_consensus_vs_entropy",
-        "per_family_performance_spread",
-        "misclassified_samples_by_type",
-    }
-
-    figure_filename_map = {
-        "fig1_pipeline_architecture": "pipeline_architecture.png",
-        "fig2_type_permission_heatmap": "type_permission_heatmap.png",
-        "fig3_dangerous_permission_distribution_by_type": "dangerous_permission_distribution_by_type.png",
-        "fig4_family_jsd_heatmap_top12": "family_jsd_heatmap_top12.png",
-        "fig5_confusion_matrix_random_forest": "confusion_matrix_random_forest.png",
-    }
-    table_filename_map = {
-        "table1_cohort_summary": "cohort_summary.csv",
-        "table2_malware_family_temporal_scope": "malware_family_temporal_scope.csv",
-        "table3_model_comparison_rf_xgb_lr_fused": "model_comparison_rf_xgb_lr_fused.csv",
-        "table4_feature_ablation": "feature_ablation.csv",
-        "table5_dangerous_permission_stats_tests": "dangerous_permission_stats_tests.csv",
-    }
-
-    bundle_dir = run_root / "bundles" / "permission_trends"
-    figure_sources: dict[str, Path] = {}
-    conf_rf = find_primary_confusion_matrix(
+    export_contract = build_paper_export_contract(
         run_root=run_root,
-        top_model="random_forest",
-        evidence_mode=True if evidence_mode else False,
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        evidence_mode=evidence_mode,
     )
-    if conf_rf is not None:
-        figure_sources["fig5_confusion_matrix_random_forest"] = conf_rf
+    required_figure_ids = export_contract["required_figure_ids"]
+    required_table_ids = export_contract["required_table_ids"]
+    blocked_non_paper_ids = export_contract["blocked_non_paper_ids"]
+    figure_filename_map = export_contract["figure_filename_map"]
+    table_filename_map = export_contract["table_filename_map"]
+    figure_stage_map = export_contract["figure_stage_map"]
+    table_stage_map = export_contract["table_stage_map"]
+    figure_sources = export_contract["figure_sources"]
+    table_sources = export_contract["table_sources"]
+    type_prev_csv = export_contract["type_prevalence_csv"]
+    discrim_csv = export_contract["permission_discriminability_csv"]
+    dangerous_csv = export_contract["dangerous_distribution_csv"]
+    jsd_pairs_csv = export_contract["family_jsd_pairs_csv"]
 
-    table_sources = {
-        "table3_model_comparison_rf_xgb_lr_fused": diagnostics_dir / f"model_comparison_summary_{run_id}.csv",
-        "table4_feature_ablation": _resolve_existing_path(
-            diagnostics_dir / f"ablation_summary_{run_id}.csv",
-            diagnostics_dir / "ablation_summary.latest.csv",
-            diagnostics_dir / "ablation_summary.csv",
-        ),
-        "table5_dangerous_permission_stats_tests": _resolve_existing_path(
-            bundle_dir / "tables" / f"dangerous_stats_tests_{run_id}.csv",
-            bundle_dir / "tables" / "dangerous_stats_tests.latest.csv",
-        ),
-    }
-    figure_stage_map = {
-        "fig1_pipeline_architecture": "manifest_export",
-        "fig2_type_permission_heatmap": "permission_trends_bundle.tables",
-        "fig3_dangerous_permission_distribution_by_type": "permission_trends_bundle.tables",
-        "fig4_family_jsd_heatmap_top12": "diagnostics.family_jsd_pairs_verification",
-        "fig5_confusion_matrix_random_forest": "training_evaluation.conf_matrices",
-    }
-    table_stage_map = {
-        "table1_cohort_summary": "manifest_export.samples",
-        "table2_malware_family_temporal_scope": "manifest_export.samples",
-        "table3_model_comparison_rf_xgb_lr_fused": "training_summary.diagnostics",
-        "table4_feature_ablation": "ablation.diagnostics",
-        "table5_dangerous_permission_stats_tests": "permission_trends_bundle.tables",
-    }
-
-    type_prev_csv = _resolve_existing_path(
-        bundle_dir / "tables" / f"type_permission_prevalence_{run_id}.csv",
-        bundle_dir / "tables" / "type_permission_prevalence.latest.csv",
-    )
-    discrim_csv = _resolve_existing_path(
-        bundle_dir / "tables" / f"permission_discriminability_rank_{run_id}.csv",
-        bundle_dir / "tables" / "permission_discriminability_rank.latest.csv",
-    )
-    dangerous_csv = _resolve_existing_path(
-        bundle_dir / "tables" / f"dangerous_distribution_by_type_{run_id}.csv",
-        bundle_dir / "tables" / "dangerous_distribution_by_type.latest.csv",
-    )
-    jsd_pairs_csv = diagnostics_dir / f"family_jsd_pairs_verification_{run_id}.csv"
-
-    required_sources: dict[str, Path] = {
-        "fig2_type_permission_heatmap:table_type_permission_prevalence": type_prev_csv,
-        "fig2_type_permission_heatmap:table_permission_discriminability_rank": discrim_csv,
-        "fig3_dangerous_permission_distribution_by_type:table_dangerous_distribution": dangerous_csv,
-        "fig4_family_jsd_heatmap_top12:table_jsd_pairs_verification": jsd_pairs_csv,
-        "fig5_confusion_matrix_random_forest:figure_confusion_matrix": (
-            conf_rf if conf_rf is not None else (run_root / "__missing_confusion_matrix__")
-        ),
-        "table3_model_comparison_rf_xgb_lr_fused:source_model_comparison": table_sources[
-            "table3_model_comparison_rf_xgb_lr_fused"
-        ],
-        "table4_feature_ablation:source_ablation_summary": table_sources["table4_feature_ablation"],
-        "table5_dangerous_permission_stats_tests:source_dangerous_stats": table_sources[
-            "table5_dangerous_permission_stats_tests"
-        ],
-    }
-
-    missing: list[str] = []
-    for logical, path in required_sources.items():
-        if path is None or not Path(path).exists():
-            missing.append(logical)
+    missing = missing_required_paper_sources(export_contract["required_sources"])
     if missing and strict_profile:
         raise ValueError(
             "[PAPER2] Strict paper export failed; missing required artifacts: "
@@ -741,6 +558,7 @@ def build_strict_paper2_exports(
     figure_inputs: dict[str, list[str]] = {}
     table_inputs: dict[str, list[str]] = {}
     validation_summary: dict[str, Any] = {}
+    export_settings = build_paper_export_settings(app_config_obj=app_config)
     try:
         fig_dir = temp_export_root / "figures"
         tab_dir = temp_export_root / "tables"
@@ -806,7 +624,7 @@ def build_strict_paper2_exports(
             type_prevalence_path=type_prev_csv,
             discriminability_path=discrim_csv,
             output_path=fig_dir / figure_filename_map["fig2_type_permission_heatmap"],
-            top_permissions=safe_int_config_value(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 16), default=16),
+            top_permissions=export_settings["top_permissions"],
         )
         render_paper_dangerous_distribution_from_table(
             dangerous_distribution_path=dangerous_csv,
@@ -946,9 +764,9 @@ def build_strict_paper2_exports(
             diagnostics_dir=diagnostics_dir,
             fig_dir=fig_dir,
             tab_dir=tab_dir,
-            top_permissions=safe_int_config_value(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 16), default=16),
-            top_families=safe_int_config_value(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12), default=12),
-            min_family_support=safe_int_config_value(getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 20), default=20),
+            top_permissions=export_settings["top_permissions"],
+            top_families=export_settings["top_families_visual"],
+            min_family_support=export_settings["visual_family_support_threshold"],
             strict_profile=strict_profile,
         )
 
@@ -969,15 +787,17 @@ def build_strict_paper2_exports(
             exported_paths.append(str(tex_path))
             latex_paths[table_id] = tex_path.name
 
-        profile_payload = {
-            "strict_profile_enabled": strict_profile,
-            "single_run_id": str(run_id),
-            "visual_family_support_threshold": safe_int_config_value(getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 20), default=20),
-            "top_families_visual": safe_int_config_value(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12), default=12),
-            "top_permissions": safe_int_config_value(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 16), default=16),
-            "paper_export_contract_version": contract_version,
-        }
-        profile_path = docs_dir / "paper_export_profile.json"
+        docs_paths = build_paper_docs_paths(docs_dir=docs_dir)
+        profile_payload = build_paper_export_profile_payload(
+            strict_profile=strict_profile,
+            run_id=run_id,
+            contract_version=contract_version,
+            visual_family_support_threshold=export_settings["visual_family_support_threshold"],
+            top_families_visual=export_settings["top_families_visual"],
+            top_permissions=export_settings["top_permissions"],
+            docs_paths=docs_paths,
+        )
+        profile_path = docs_paths["paper_export_profile_json"]
         profile_path.write_text(json.dumps(profile_payload, indent=2, sort_keys=True), encoding="utf-8")
         exported_paths.append(str(profile_path))
 
@@ -991,7 +811,7 @@ def build_strict_paper2_exports(
             if isinstance(maybe_contract, dict):
                 cohort_contract = maybe_contract
 
-        manuscript_constants_path = docs_dir / "manuscript_table_constants.json"
+        manuscript_constants_path = docs_paths["manuscript_table_constants_json"]
         manuscript_constants_payload = build_manuscript_table_constants(
             run_id=run_id,
             profile_id=str((profile or {}).get("profile_id", "unknown")),
@@ -1005,8 +825,8 @@ def build_strict_paper2_exports(
         exported_paths.append(str(manuscript_constants_path))
 
         glossary_json_path, glossary_md_path = write_feature_set_glossary(
-            json_path=docs_dir / "feature_set_glossary.json",
-            md_path=docs_dir / "feature_set_glossary.md",
+            json_path=docs_paths["feature_set_glossary_json"],
+            md_path=docs_paths["feature_set_glossary_md"],
         )
         exported_paths.extend([str(glossary_json_path), str(glossary_md_path)])
 
@@ -1020,7 +840,7 @@ def build_strict_paper2_exports(
         exported_paths.extend(str(path) for path in perturbation_paths.values())
 
         contract_validation = None
-        contract_validation_path = docs_dir / "paper_contract_validation.json"
+        contract_validation_path = docs_paths["paper_contract_validation_json"]
         paper_constants_raw = str(
             (manifest or {}).get("paper_constants_path", "")
             or manifest_context.get("paper_constants_path", "")
@@ -1042,11 +862,11 @@ def build_strict_paper2_exports(
             if strict_profile and not bool(contract_validation.get("passed", False)):
                 raise ValueError("[PAPER2] strict paper contract validation failed")
 
-        figure_qc_path = docs_dir / "paper_figure_qc.csv"
+        figure_qc_path = docs_paths["paper_figure_qc_csv"]
         export_paper_figure_qc(fig_dir=fig_dir, output_path=figure_qc_path)
         exported_paths.append(str(figure_qc_path))
 
-        paper_registry_path = docs_dir / "paper_registry.json"
+        paper_registry_path = docs_paths["paper_registry_json"]
         paper_registry_payload = build_paper_registry_payload(
             run_root=run_root,
             run_id=run_id,
@@ -1062,32 +882,24 @@ def build_strict_paper2_exports(
         )
         exported_paths.append(str(paper_registry_path))
 
-        export_manifest_path = docs_dir / "paper_exports_manifest.json"
-        export_manifest_payload = {
-            "run_id": str(run_id),
-            "contract_version": contract_version,
-            "strict_profile_enabled": bool(strict_profile),
-            "run_mode": "paper",
-            "figure_ids": sorted([str(row.get("figure_id", "")) for row in figure_registry_rows]),
-            "table_ids": sorted([str(row.get("table_id", "")) for row in table_registry_rows]),
-            "figure_registry_csv": str(figure_registry_path.resolve()),
-            "table_registry_csv": str(table_registry_path.resolve()),
-            "paper_export_profile_json": str(profile_path.resolve()),
-            "paper_registry_json": str(paper_registry_path.resolve()),
-            "tables_latex_dir": str(latex_dir.resolve()),
-            "figure_sources": figure_inputs,
-            "table_sources": table_inputs,
-            "manuscript_table_constants_json": str(manuscript_constants_path.resolve()),
-            "feature_set_glossary_json": str(glossary_json_path.resolve()),
-            "feature_set_glossary_md": str(glossary_md_path.resolve()),
-            "perturbation_summary_csv": str(perturbation_paths["csv"].resolve()),
-            "perturbation_summary_json": str(perturbation_paths["json"].resolve()),
-            "perturbation_summary_md": str(perturbation_paths["md"].resolve()),
-            "paper_contract_validation_json": (
-                str(contract_validation_path.resolve()) if contract_validation is not None else ""
-            ),
-            "validation_summary": validation_summary,
-        }
+        export_manifest_path = docs_paths["paper_exports_manifest_json"]
+        export_manifest_payload = build_paper_exports_manifest_payload(
+            run_id=run_id,
+            contract_version=contract_version,
+            strict_profile=strict_profile,
+            figure_registry_path=figure_registry_path,
+            table_registry_path=table_registry_path,
+            profile_path=profile_path,
+            paper_registry_path=paper_registry_path,
+            latex_dir=latex_dir,
+            figure_registry_rows=figure_registry_rows,
+            table_registry_rows=table_registry_rows,
+            figure_inputs=figure_inputs,
+            table_inputs=table_inputs,
+            docs_paths=docs_paths,
+            validation_summary=validation_summary,
+            contract_validation_written=contract_validation is not None,
+        )
         export_manifest_path.write_text(
             json.dumps(export_manifest_payload, indent=2, sort_keys=True),
             encoding="utf-8",
@@ -1105,20 +917,14 @@ def build_strict_paper2_exports(
         raise
 
     return {
-        "profile": {
-            "strict_profile_enabled": strict_profile,
-            "single_run_id": str(run_id),
-            "visual_family_support_threshold": safe_int_config_value(getattr(app_config, "MIN_FAMILY_SUPPORT_FOR_VISUAL", 20), default=20),
-            "top_families_visual": safe_int_config_value(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12), default=12),
-            "top_permissions": safe_int_config_value(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 16), default=16),
-            "paper_export_contract_version": contract_version,
-            "manuscript_table_constants_path": str((paper_exports_root / "docs" / "manuscript_table_constants.json").resolve()),
-            "feature_set_glossary_json": str((paper_exports_root / "docs" / "feature_set_glossary.json").resolve()),
-            "feature_set_glossary_md": str((paper_exports_root / "docs" / "feature_set_glossary.md").resolve()),
-            "perturbation_summary_csv": str((paper_exports_root / "docs" / "perturbation_summary.csv").resolve()),
-            "perturbation_summary_json": str((paper_exports_root / "docs" / "perturbation_summary.json").resolve()),
-            "perturbation_summary_md": str((paper_exports_root / "docs" / "perturbation_summary.md").resolve()),
-            "paper_contract_validation_path": str((paper_exports_root / "docs" / "paper_contract_validation.json").resolve()),
-        },
+        "profile": build_paper_export_profile_payload(
+            strict_profile=strict_profile,
+            run_id=run_id,
+            contract_version=contract_version,
+            visual_family_support_threshold=export_settings["visual_family_support_threshold"],
+            top_families_visual=export_settings["top_families_visual"],
+            top_permissions=export_settings["top_permissions"],
+            docs_paths=build_paper_docs_paths(docs_dir=paper_exports_root / "docs"),
+        ),
         "artifact_paths": sorted(set([str(Path(path).resolve()) for path in exported_paths])),
     }

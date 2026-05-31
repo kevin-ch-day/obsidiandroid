@@ -11,6 +11,10 @@ from obsidiandroid.common.authority_taxonomy_terms import (
 from obsidiandroid.common.backlog_semantics import build_taxonomy_curation_posture
 from obsidiandroid.database import db_sample_metadata_fetchers
 from obsidiandroid.database.db_cohort_readiness import get_cohort_readiness_snapshot
+from obsidiandroid.cli.menu.readiness_notes import (
+    build_observed_readiness_note,
+    build_permission_obs_gap_note,
+)
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.observability.logging import get_logger, log_event
 import obsidiandroid.cli.profile_manager as profile_manager
@@ -35,14 +39,9 @@ def _summarize_live_readiness_gaps(
     taxonomy = snapshot.get("taxonomy_signals", {}) if isinstance(snapshot, dict) else {}
 
     out: list[str] = []
-    sample_count = payload.get("sample_count") if isinstance(payload, dict) else None
-    permission_obs_available = bool(snapshot.get("permission_obs_available", False))
-    if "permission_obs" in token and (
-        sample_count in (None, 0) or not permission_obs_available
-    ):
-        out.append(
-            "Live readiness mismatch: this bucket names `permission_obs`, but the current DB snapshot does not verify a matching PI-observed cohort."
-        )
+    permission_obs_note = build_permission_obs_gap_note(snapshot, token)
+    if permission_obs_note:
+        out.append(permission_obs_note)
     repair_candidate_count = int(taxonomy.get("repair_candidate_count") or 0)
     unresolved_family_count = int(taxonomy.get("unresolved_family_count") or 0)
     known_unresolved_count = int(taxonomy.get("known_unresolved_family_count") or 0)
@@ -106,6 +105,14 @@ def _paper_locked_follow_up_note(*, profile_id: str | None, paper_locked: bool =
     )
 
 
+def _merge_advisory_notes(*notes: str | None) -> str | None:
+    """Combine short advisory notes into one operator-facing line."""
+    parts = [str(note).strip() for note in notes if str(note or "").strip()]
+    if not parts:
+        return None
+    return " ".join(parts)
+
+
 def _compact_live_gap_note(notes: list[str]) -> str | None:
     cleaned = [str(note).strip().rstrip(".") for note in notes if str(note).strip()]
     if not cleaned:
@@ -130,25 +137,11 @@ def _compact_live_gap_note(notes: list[str]) -> str | None:
 
 
 def _observed_readiness_note(bucket: str | None) -> str | None:
-    token = str(bucket or "").strip()
-    if not token:
-        return None
     try:
         readiness = get_cohort_readiness_snapshot()
     except Exception as exc:
         return f"Observed readiness counts unavailable: {exc}"
-    buckets = readiness.get("buckets", {}) if isinstance(readiness, dict) else {}
-    payload = buckets.get(token, {}) if isinstance(buckets, dict) else {}
-    sample_count = payload.get("sample_count") if isinstance(payload, dict) else None
-    family_count = payload.get("family_count") if isinstance(payload, dict) else None
-    if sample_count is None:
-        return f"Observed readiness for `{token}` is unavailable in the live DB snapshot."
-    note = f"Observed readiness for `{token}`: samples={sample_count}"
-    if family_count is not None:
-        note += f", families={family_count}"
-    if "permission_obs" in token and int(sample_count or 0) <= 0:
-        note += ". Live DB currently shows no matching PI-observation-ready cohort for this bucket."
-    return note
+    return build_observed_readiness_note(readiness, bucket)
 
 
 def resolve_profile_for_run(
@@ -354,21 +347,17 @@ def resolve_and_validate_profile(
             str(readiness_signal.get("detail", "") or "").strip(),
             paper_locked=paper_locked,
         )
-        if detail:
-            du.print_note(f"[PROFILE] {detail}")
         locked_follow_up = _paper_locked_follow_up_note(
             profile_id=profile_id,
             paper_locked=paper_locked,
         )
-        if locked_follow_up:
-            du.print_note(f"[PROFILE] {locked_follow_up}")
+        advisory_note = _merge_advisory_notes(detail, locked_follow_up)
+        if advisory_note:
+            du.print_note(f"[PROFILE] {advisory_note}")
         try:
             readiness_snapshot = get_cohort_readiness_snapshot()
         except Exception:
             readiness_snapshot = None
-        observed_note = _observed_readiness_note(readiness_signal.get("bucket"))
-        if observed_note:
-            du.print_note(f"[PROFILE] {observed_note}")
         gap_note = _compact_live_gap_note(
             _summarize_live_readiness_gaps(
             readiness=readiness_snapshot,
@@ -376,6 +365,15 @@ def resolve_and_validate_profile(
             paper_locked=paper_locked,
             )
         )
+        observed_note = _observed_readiness_note(readiness_signal.get("bucket"))
+        if observed_note and not (
+            gap_note
+            and (
+                "is unavailable in the live DB snapshot" in observed_note
+                or "counts unavailable" in observed_note
+            )
+        ):
+            du.print_note(f"[PROFILE] {observed_note}")
         if gap_note:
             du.print_note(f"[PROFILE] {gap_note}")
         try:

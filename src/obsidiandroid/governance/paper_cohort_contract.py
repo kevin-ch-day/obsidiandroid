@@ -187,6 +187,7 @@ def build_runtime_contract(
         "family_count": _unique_count(samples_df, ("family_canonical", "family_id")),
         "type_count": _unique_count(samples_df, ("type_slug",)),
         "sample_id_hash": _sample_id_hash(samples_df),
+        "type_slugs": _type_slugs(samples_df),
     }
     expected = dict(declared.get("expected", {}))
     mismatches: list[str] = []
@@ -202,6 +203,11 @@ def build_runtime_contract(
         mismatches.append(
             f"type_count observed={observed['type_count']} expected={expected.get('type_count')}"
         )
+    expected_type_slugs = tuple(expected.get("type_slugs", ()) or ())
+    if expected_type_slugs and tuple(observed["type_slugs"]) != expected_type_slugs:
+        mismatches.append(
+            f"type_slugs observed={tuple(observed['type_slugs'])} expected={expected_type_slugs}"
+        )
 
     sample_id_lock = dict(declared.get("sample_id_lock", {}))
     lock_path = str(sample_id_lock.get("path", "") or "").strip()
@@ -214,6 +220,27 @@ def build_runtime_contract(
             mismatches.append(
                 f"lock_sample_count observed={observed['sample_count']} lock_file={lock_count}"
             )
+    expected_cohort_hash = str(sample_id_lock.get("cohort_hash", "") or "").strip()
+    if expected_cohort_hash and observed["sample_id_hash"] != expected_cohort_hash:
+        mismatches.append(
+            f"cohort_hash observed={observed['sample_id_hash']} expected={expected_cohort_hash}"
+        )
+
+    label_snapshot_meta = dict(samples_df.attrs.get("paper_locked_label_snapshot", {}) or {})
+    expected_taxonomy_hash = str(sample_id_lock.get("taxonomy_hash", "") or "").strip()
+    if expected_taxonomy_hash:
+        if not bool(label_snapshot_meta.get("available", False)):
+            mismatches.append("archived_label_snapshot unavailable")
+        else:
+            observed_taxonomy_hash = str(
+                label_snapshot_meta.get("label_snapshot_hash", "")
+                or label_snapshot_meta.get("taxonomy_hash", "")
+                or ""
+            ).strip()
+            if observed_taxonomy_hash != expected_taxonomy_hash:
+                mismatches.append(
+                    f"taxonomy_hash observed={observed_taxonomy_hash} expected={expected_taxonomy_hash}"
+                )
 
     db_query_contract = manifest_context.get("db_query_contract", {})
     db_snapshot = {
@@ -388,6 +415,19 @@ def build_declared_contract(profile: dict[str, Any]) -> dict[str, Any]:
                 (manifest_expected.get("type_count", 0) or 0)
                 or (raw_lock.get("expected_type_count", 0) or 0)
             ),
+            "type_slugs": tuple(
+                sorted(
+                    {
+                        str(value).strip().lower()
+                        for value in (
+                            raw_lock.get("expected_type_slugs", [])
+                            or manifest_expected.get("expected_type_slugs", [])
+                            or []
+                        )
+                        if str(value).strip()
+                    }
+                )
+            ),
             "type_scope": str(
                 (manifest_expected.get("type_scope", "") or time_window.get("type_scope", "") or "")
                 or raw_lock.get("expected_type_scope", "")
@@ -431,6 +471,9 @@ def build_declared_contract(profile: dict[str, Any]) -> dict[str, Any]:
             "profile_version": str((manifest_expected.get("profile_version", "") or "")),
             "top_family_share": manifest_expected.get("top_family_share"),
             "top_family_support": manifest_expected.get("top_family_support"),
+            "label_snapshot_path": str((manifest_expected.get("label_snapshot_path", "") or "")),
+            "label_snapshot_hash": str((manifest_expected.get("label_snapshot_hash", "") or "")),
+            "source_artifacts": dict(manifest_expected.get("source_artifacts", {}) or {}),
         },
         "notes": str(raw_lock.get("notes", "") or ""),
         "validation": {"checked": False, "status": "declared_only", "mismatches": []},
@@ -606,6 +649,14 @@ def _unique_count(samples_df: pd.DataFrame, preferred_columns: tuple[str, ...]) 
         if not series.empty:
             return int(series.nunique())
     return 0
+
+
+def _type_slugs(samples_df: pd.DataFrame) -> tuple[str, ...]:
+    if "type_slug" not in samples_df.columns:
+        return tuple()
+    series = samples_df["type_slug"].fillna("").astype(str).str.strip().str.lower()
+    series = series[(series != "") & (~series.isin({"nan"}))]
+    return tuple(sorted(series.drop_duplicates().tolist()))
 
 
 def _suggest_locked_profile_id(profile_id: str) -> str:

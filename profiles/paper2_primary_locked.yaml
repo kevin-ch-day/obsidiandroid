@@ -56,6 +56,13 @@ paper_lock:
   expected_sample_count: 1226
   expected_family_count: 39
   expected_type_count: 6
+  expected_type_slugs:
+    - adware
+    - banker
+    - rat
+    - sms-trojan
+    - spyware
+    - stealer
   expected_type_scope: all_malicious
   time_window_start_utc: "2020-01-01T00:00:00Z"
   time_window_end_utc: "2026-01-01T00:00:00Z"

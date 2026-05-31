@@ -17,6 +17,7 @@ from obsidiandroid.database import db_sample_metadata_queries
 import obsidiandroid.governance.cohort_readiness_report as cohort_readiness_report
 import obsidiandroid.governance.cohort_reproducibility as cohort_reproducibility
 from obsidiandroid.governance.cohort_lock_manifest import build_lock_manifest_payload
+from obsidiandroid.governance.locked_paper_materialization import materialize_locked_paper_cohort
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as output_hygiene_mod
 from obsidiandroid.common.hash_utils import hash_payload
@@ -328,11 +329,14 @@ def load_and_prepare_samples(
             reason=type(exc).__name__,
         )
     if lock_membership_authoritative:
-        samples_df = cohort_reproducibility.apply_analysis_snapshot_lock(
-            samples_df=samples_df,
-            lock_file=snapshot_lock_file,
-            fail_closed=evidence_strict_snapshot_lock,
+        locked_result = materialize_locked_paper_cohort(
+            profile=profile,
+            run_id=str(run_id or "unknown"),
+            current_fetch_df=samples_df,
+            snapshot_lock_file=snapshot_lock_file,
+            diagnostics_dir=_diagnostics_dir(),
         )
+        samples_df = locked_result.samples_df
         filter_summary = {
             "mode": "paper_locked_snapshot_membership",
             "source_total": int(gate_stats_snapshot.get("governed_cohort_count", len(samples_df)) or len(samples_df)),
@@ -362,6 +366,15 @@ def load_and_prepare_samples(
             }
         ]
         samples_df.attrs["cohort_filter_summary"] = filter_summary
+        if isinstance(artifact_list, list):
+            artifact_list.extend(
+                [
+                    locked_result.missing_locked_members_path,
+                    locked_result.label_drift_csv_path,
+                    locked_result.label_drift_summary_path,
+                    locked_result.label_drift_report_path,
+                ]
+            )
     else:
         samples_df = apply_dataset_filters(samples_df, profile)
         samples_df, gate_rows = apply_contract_filters(
@@ -761,6 +774,12 @@ def _export_cohort_lock_artifacts(
     snapshot_lock_meta = samples_df.attrs.get("snapshot_lock", {})
     if not isinstance(snapshot_lock_meta, dict):
         snapshot_lock_meta = {}
+    locked_paper_meta = samples_df.attrs.get("paper_locked_materialization", {})
+    if not isinstance(locked_paper_meta, dict):
+        locked_paper_meta = {}
+    locked_label_snapshot = samples_df.attrs.get("paper_locked_label_snapshot", {})
+    if not isinstance(locked_label_snapshot, dict):
+        locked_label_snapshot = {}
     raw_snapshot_status = str(snapshot_lock_meta.get("status", "") or "").strip() or (
         "not_requested" if not enable_snapshot_lock else "unknown"
     )
@@ -866,7 +885,13 @@ def _export_cohort_lock_artifacts(
             "cohort_membership_csv": str(membership_path),
             "dataset_time_contract_json": str(dataset_time_contract_path),
             "paper_cohort_sample_ids_csv": str(cohort_ids_path),
+            "missing_locked_members_csv": str(locked_paper_meta.get("missing_locked_members_csv", "") or ""),
+            "locked_paper_label_drift_csv": str(locked_paper_meta.get("label_drift_csv", "") or ""),
+            "locked_paper_label_drift_summary_json": str(locked_paper_meta.get("label_drift_summary_json", "") or ""),
+            "locked_paper_label_drift_report_md": str(locked_paper_meta.get("label_drift_report_md", "") or ""),
         },
+        "locked_paper_materialization": dict(locked_paper_meta),
+        "locked_paper_label_snapshot": dict(locked_label_snapshot),
     }
     summary_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return str(summary_path), str(membership_path)

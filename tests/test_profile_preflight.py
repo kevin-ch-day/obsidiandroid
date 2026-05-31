@@ -296,11 +296,12 @@ def test_resolve_and_validate_profile_surfaces_live_gap_notes(monkeypatch) -> No
     selected = profile_preflight.resolve_and_validate_profile()
 
     assert selected == "malicious_temporal_stability_locked"
-    assert any("does not verify a matching PI-observed cohort" in msg for msg in notes)
+    assert any("does not enforce sample selection" in msg and "current-corpus profiles" in msg for msg in notes)
     assert any("repair candidates=7, known unresolved families=3, policy-held tokens=11" in msg for msg in notes)
     assert any("high-priority conflicts=4/5; dominant action=review_db_type_mapping (2); dominant issue=type_unknown (2)" in msg for msg in notes)
     assert any("may not change cohort membership until the lock is refreshed" in msg for msg in notes)
-    assert any("current-corpus profiles" in msg for msg in notes)
+    assert any("does not verify a matching PI-observed cohort" in msg for msg in notes)
+    assert not any("Observed readiness for `android_high_or_strong_vt_with_permission_obs` is unavailable" in msg for msg in notes)
 
 
 def test_compact_profile_detail_hardens_locked_cohort_wording() -> None:

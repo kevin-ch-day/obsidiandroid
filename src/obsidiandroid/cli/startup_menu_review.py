@@ -28,6 +28,10 @@ from obsidiandroid.common.publication_readiness import publication_ready_display
 from obsidiandroid.common.json_io import read_json_dict
 from obsidiandroid.common.output_paths import output_root as canonical_output_root
 from obsidiandroid.database.db_cohort_readiness import get_cohort_readiness_snapshot
+from obsidiandroid.cli.menu.readiness_notes import (
+    build_observed_readiness_note,
+    build_permission_obs_gap_note,
+)
 from obsidiandroid.cli.menu.run_artifact_state import resolve_model_comparison_summary_csv
 
 from .menu import diagnostics_banners
@@ -120,21 +124,7 @@ def _append_warning(
 
 
 def _observed_readiness_note(readiness: dict[str, object], bucket: str | None) -> str | None:
-    token = str(bucket or "").strip()
-    if not token:
-        return None
-    buckets = readiness.get("buckets", {}) if isinstance(readiness, dict) else {}
-    payload = buckets.get(token, {}) if isinstance(buckets, dict) else {}
-    sample_count = payload.get("sample_count") if isinstance(payload, dict) else None
-    family_count = payload.get("family_count") if isinstance(payload, dict) else None
-    if sample_count is None:
-        return f"Observed readiness for `{token}` is unavailable in the live DB snapshot."
-    note = f"Observed readiness for `{token}`: samples={sample_count}"
-    if family_count is not None:
-        note += f", families={family_count}"
-    if "permission_obs" in token and int(sample_count or 0) <= 0:
-        note += ". Live DB currently shows no matching PI-observation-ready cohort for this bucket."
-    return note
+    return build_observed_readiness_note(readiness, bucket)
 
 
 def _read_model_comparison_snapshot(*, output_root: Path, run_id: str) -> dict[str, object]:
@@ -239,14 +229,9 @@ def _readiness_gap_notes(
     taxonomy = readiness.get("taxonomy_signals", {}) if isinstance(readiness, dict) else {}
 
     out: list[str] = []
-    sample_count = payload.get("sample_count") if isinstance(payload, dict) else None
-    permission_obs_available = bool(readiness.get("permission_obs_available", False))
-    if "permission_obs" in token and (
-        sample_count in (None, 0) or not permission_obs_available
-    ):
-        out.append(
-            "Declared readiness intent names `permission_obs`, but the live DB does not currently verify a matching PI-observed cohort."
-        )
+    permission_obs_note = build_permission_obs_gap_note(readiness, token)
+    if permission_obs_note:
+        out.append(permission_obs_note)
     repair_candidate_count = int(taxonomy.get("repair_candidate_count") or 0)
     unresolved_family_count = int(taxonomy.get("unresolved_family_count") or 0)
     known_unresolved_count = int(taxonomy.get("known_unresolved_family_count") or 0)

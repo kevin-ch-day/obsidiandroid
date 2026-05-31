@@ -1,0 +1,874 @@
+{
+  "archived_lock_concepts": [
+    {
+      "body": "run_id=20260504T044304Z__8c64e6\nprofile=research_all_malicious\nfrozen_at=copied from output/runs/<run_id>/diagnostics after governed cohort fused rows == 1226 lineage gate pass.",
+      "is_1187_rebaseline": false,
+      "path": "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/baselines/20260504T044304Z__8c64e6/MANIFEST.txt",
+      "summary": "run_id=20260504T044304Z__8c64e6"
+    },
+    {
+      "body": "run_id=20260526T021235Z__8b6966\nprofile=malicious_temporal_stability_locked\nfrozen_at=copied from output/runs/20260526T021235Z__8b6966/diagnostics after the governed cohort snapshot matched 1187 samples, 35 families, and 5 types.\nsource_snapshot=output/runs/20260526T021235Z__8b6966/diagnostics/analysis_snapshot_20260526T021235Z__8b6966.csv\ntaxonomy_rebaselined_at=2026-05-26\ntaxonomy_note=android type authority updated after Erebus Android-family repairs; locked sample IDs still match 1187 rows, but represented types are now 3 under current taxonomy.",
+      "is_1187_rebaseline": true,
+      "path": "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/baselines/20260526T021235Z__8b6966/MANIFEST.txt",
+      "summary": "run_id=20260526T021235Z__8b6966"
+    }
+  ],
+  "devixor_gigabud_counterfactual": {
+    "Devixor": {
+      "rows": 709,
+      "share": 0.252583
+    },
+    "Gigabud": {
+      "rows": 496,
+      "share": 0.176701
+    },
+    "cohort_size_if_included": 2807,
+    "combined_share": 0.429284
+  },
+  "expansion_recommendation": {
+    "best_candidate_profile_id": "malicious_temporal_stability_expanded",
+    "candidate_expansion_top_family_share": 0.367378,
+    "candidate_family_count": 38,
+    "candidate_sample_count": 1815,
+    "candidate_top_family_share": 0.265565,
+    "candidate_type_count": 4,
+    "defensible_today": true,
+    "locked_sample_count": 1226,
+    "rationale": "best conservative expansion candidate: support floor 10 increases coverage beyond the standard floor-20 cohort without dropping to the long-tail floor 5."
+  },
+  "profiles": [
+    {
+      "broad_catalog_family_count": 142,
+      "canonical_profile_id": "malicious_temporal_consensus10",
+      "cohort_membership_hash": "0faaa4bdba960b52bba7a8dcfd6c6093ec69831b4e2096f19c1bcc8d1f85a1cf",
+      "confidence_bucket_distribution": {
+        "high": 1115
+      },
+      "confidence_bucket_enforced": false,
+      "confidence_bucket_rule": "advisory_high_or_strong_readiness_bucket",
+      "family_cap": null,
+      "family_count": 23,
+      "family_exclusions": [
+        "devixor",
+        "gigabud"
+      ],
+      "label_snapshot_hash": "76d18739e32e15d40912d00cd8202d18e204121514c57f69455a54f7938f95d4",
+      "live_catalog_family_count": 23,
+      "live_catalog_match_count": 1596,
+      "live_catalog_type_count": 3,
+      "malicious_detection_threshold": 10,
+      "paper_locked": false,
+      "permission_coverage": {
+        "coverage_pct": 0.963033,
+        "rows_total": 1596,
+        "rows_with_permission_obs": 1537
+      },
+      "permission_observation_enforced": false,
+      "permission_observation_requirement": "advisory_readiness_bucket",
+      "profile_id": "malicious_temporal_consensus10",
+      "readiness_bucket": "android_high_or_strong_vt_with_permission_obs",
+      "sample_count": 1596,
+      "source_batch_label_distribution": {
+        "<blank>": 1115,
+        "Zimperium IOC": 481
+      },
+      "source_snapshot_or_lock_file": "live_loader:malware_sample_catalog",
+      "support_floor": 20,
+      "suspicious_handling": {
+        "dataset_filter_mode": "malicious_only",
+        "exclude_family_label_conflicts": false,
+        "exclude_unknown_from_main_results": true,
+        "exclude_unknown_type_slug": true,
+        "exclude_weak_label_kinds": false
+      },
+      "taxonomy_hash": "76d18739e32e15d40912d00cd8202d18e204121514c57f69455a54f7938f95d4",
+      "time_window": {
+        "end_utc": "2026-01-01T00:00:00Z",
+        "semantics": "start_inclusive_end_exclusive",
+        "start_utc": "2020-01-01T00:00:00Z"
+      },
+      "top_families": {
+        "Applite": 159,
+        "ArsinkRAT": 481,
+        "BankBot": 32,
+        "FluBot": 38,
+        "Irata": 200,
+        "Joker": 83,
+        "PixPirate": 119,
+        "SpyNote": 66,
+        "TgToxic": 42,
+        "TrickMo": 43
+      },
+      "top_family_share": 0.301378,
+      "top_malware_types": {
+        "banker": 988,
+        "rat": 567,
+        "spyware": 41
+      },
+      "type_count": 3,
+      "type_slugs": [
+        "banker",
+        "rat",
+        "spyware"
+      ]
+    },
+    {
+      "broad_catalog_family_count": 142,
+      "canonical_profile_id": "malicious_temporal_consensus10",
+      "cohort_membership_hash": "0faaa4bdba960b52bba7a8dcfd6c6093ec69831b4e2096f19c1bcc8d1f85a1cf",
+      "confidence_bucket_distribution": {
+        "high": 1115
+      },
+      "confidence_bucket_enforced": false,
+      "confidence_bucket_rule": "advisory_high_or_strong_readiness_bucket",
+      "family_cap": null,
+      "family_count": 23,
+      "family_exclusions": [
+        "devixor",
+        "gigabud"
+      ],
+      "label_snapshot_hash": "76d18739e32e15d40912d00cd8202d18e204121514c57f69455a54f7938f95d4",
+      "live_catalog_family_count": 23,
+      "live_catalog_match_count": 1596,
+      "live_catalog_type_count": 3,
+      "malicious_detection_threshold": 10,
+      "paper_locked": false,
+      "permission_coverage": {
+        "coverage_pct": 0.963033,
+        "rows_total": 1596,
+        "rows_with_permission_obs": 1537
+      },
+      "permission_observation_enforced": false,
+      "permission_observation_requirement": "advisory_readiness_bucket",
+      "profile_id": "paper2_sensitivity_consensus10",
+      "readiness_bucket": "android_high_or_strong_vt_with_permission_obs",
+      "sample_count": 1596,
+      "source_batch_label_distribution": {
+        "<blank>": 1115,
+        "Zimperium IOC": 481
+      },
+      "source_snapshot_or_lock_file": "live_loader:malware_sample_catalog",
+      "support_floor": 20,
+      "suspicious_handling": {
+        "dataset_filter_mode": "malicious_only",
+        "exclude_family_label_conflicts": false,
+        "exclude_unknown_from_main_results": true,
+        "exclude_unknown_type_slug": true,
+        "exclude_weak_label_kinds": false
+      },
+      "taxonomy_hash": "76d18739e32e15d40912d00cd8202d18e204121514c57f69455a54f7938f95d4",
+      "time_window": {
+        "end_utc": "2026-01-01T00:00:00Z",
+        "semantics": "start_inclusive_end_exclusive",
+        "start_utc": "2020-01-01T00:00:00Z"
+      },
+      "top_families": {
+        "Applite": 159,
+        "ArsinkRAT": 481,
+        "BankBot": 32,
+        "FluBot": 38,
+        "Irata": 200,
+        "Joker": 83,
+        "PixPirate": 119,
+        "SpyNote": 66,
+        "TgToxic": 42,
+        "TrickMo": 43
+      },
+      "top_family_share": 0.301378,
+      "top_malware_types": {
+        "banker": 988,
+        "rat": 567,
+        "spyware": 41
+      },
+      "type_count": 3,
+      "type_slugs": [
+        "banker",
+        "rat",
+        "spyware"
+      ]
+    },
+    {
+      "broad_catalog_family_count": 142,
+      "canonical_profile_id": "malicious_temporal_family300",
+      "cohort_membership_hash": "626dbf8f0690e74a0938ba391376c7117efe2f669f27d3bb22f5b09f022931ad",
+      "confidence_bucket_distribution": {
+        "high": 1115,
+        "strong": 5
+      },
+      "confidence_bucket_enforced": false,
+      "confidence_bucket_rule": "advisory_high_or_strong_readiness_bucket",
+      "family_cap": 300,
+      "family_count": 23,
+      "family_exclusions": [
+        "devixor",
+        "gigabud"
+      ],
+      "label_snapshot_hash": "155ca03e8fbe386f705611ab2bf3ce7af16d778b565aa3b400dee42f73f62996",
+      "live_catalog_family_count": 23,
+      "live_catalog_match_count": 1420,
+      "live_catalog_type_count": 3,
+      "malicious_detection_threshold": 1,
+      "paper_locked": false,
+      "permission_coverage": {
+        "coverage_pct": 0.961972,
+        "rows_total": 1420,
+        "rows_with_permission_obs": 1366
+      },
+      "permission_observation_enforced": false,
+      "permission_observation_requirement": "advisory_readiness_bucket",
+      "profile_id": "malicious_temporal_family300",
+      "readiness_bucket": "android_high_or_strong_vt_with_permission_obs",
+      "sample_count": 1420,
+      "source_batch_label_distribution": {
+        "<blank>": 1120,
+        "Zimperium IOC": 300
+      },
+      "source_snapshot_or_lock_file": "live_loader:malware_sample_catalog",
+      "support_floor": 20,
+      "suspicious_handling": {
+        "dataset_filter_mode": "malicious_only",
+        "exclude_family_label_conflicts": false,
+        "exclude_unknown_from_main_results": true,
+        "exclude_unknown_type_slug": true,
+        "exclude_weak_label_kinds": false
+      },
+      "taxonomy_hash": "155ca03e8fbe386f705611ab2bf3ce7af16d778b565aa3b400dee42f73f62996",
+      "time_window": {
+        "end_utc": "2026-01-01T00:00:00Z",
+        "semantics": "start_inclusive_end_exclusive",
+        "start_utc": "2020-01-01T00:00:00Z"
+      },
+      "top_families": {
+        "Applite": 159,
+        "ArsinkRAT": 300,
+        "BankBot": 32,
+        "FluBot": 38,
+        "Irata": 201,
+        "Joker": 85,
+        "PixPirate": 119,
+        "SpyNote": 66,
+        "TgToxic": 42,
+        "TrickMo": 43
+      },
+      "top_family_share": 0.211268,
+      "top_malware_types": {
+        "banker": 992,
+        "rat": 386,
+        "spyware": 42
+      },
+      "type_count": 3,
+      "type_slugs": [
+        "banker",
+        "rat",
+        "spyware"
+      ]
+    },
+    {
+      "broad_catalog_family_count": 142,
+      "canonical_profile_id": "malicious_temporal_family300",
+      "cohort_membership_hash": "626dbf8f0690e74a0938ba391376c7117efe2f669f27d3bb22f5b09f022931ad",
+      "confidence_bucket_distribution": {
+        "high": 1115,
+        "strong": 5
+      },
+      "confidence_bucket_enforced": false,
+      "confidence_bucket_rule": "advisory_high_or_strong_readiness_bucket",
+      "family_cap": 300,
+      "family_count": 23,
+      "family_exclusions": [
+        "devixor",
+        "gigabud"
+      ],
+      "label_snapshot_hash": "155ca03e8fbe386f705611ab2bf3ce7af16d778b565aa3b400dee42f73f62996",
+      "live_catalog_family_count": 23,
+      "live_catalog_match_count": 1420,
+      "live_catalog_type_count": 3,
+      "malicious_detection_threshold": 1,
+      "paper_locked": false,
+      "permission_coverage": {
+        "coverage_pct": 0.961972,
+        "rows_total": 1420,
+        "rows_with_permission_obs": 1366
+      },
+      "permission_observation_enforced": false,
+      "permission_observation_requirement": "advisory_readiness_bucket",
+      "profile_id": "paper2_sensitivity_family300",
+      "readiness_bucket": "android_high_or_strong_vt_with_permission_obs",
+      "sample_count": 1420,
+      "source_batch_label_distribution": {
+        "<blank>": 1120,
+        "Zimperium IOC": 300
+      },
+      "source_snapshot_or_lock_file": "live_loader:malware_sample_catalog",
+      "support_floor": 20,
+      "suspicious_handling": {
+        "dataset_filter_mode": "malicious_only",
+        "exclude_family_label_conflicts": false,
+        "exclude_unknown_from_main_results": true,
+        "exclude_unknown_type_slug": true,
+        "exclude_weak_label_kinds": false
+      },
+      "taxonomy_hash": "155ca03e8fbe386f705611ab2bf3ce7af16d778b565aa3b400dee42f73f62996",
+      "time_window": {
+        "end_utc": "2026-01-01T00:00:00Z",
+        "semantics": "start_inclusive_end_exclusive",
+        "start_utc": "2020-01-01T00:00:00Z"
+      },
+      "top_families": {
+        "Applite": 159,
+        "ArsinkRAT": 300,
+        "BankBot": 32,
+        "FluBot": 38,
+        "Irata": 201,
+        "Joker": 85,
+        "PixPirate": 119,
+        "SpyNote": 66,
+        "TgToxic": 42,
+        "TrickMo": 43
+      },
+      "top_family_share": 0.211268,
+      "top_malware_types": {
+        "banker": 992,
+        "rat": 386,
+        "spyware": 42
+      },
+      "type_count": 3,
+      "type_slugs": [
+        "banker",
+        "rat",
+        "spyware"
+      ]
+    },
+    {
+      "broad_catalog_family_count": 142,
+      "canonical_profile_id": "malicious_temporal_stability",
+      "cohort_membership_hash": "e007f0ad6c8699b403af6d1461b84e9b034d8ac23e3d52879981c445c3adf7ad",
+      "confidence_bucket_distribution": {
+        "high": 1115,
+        "strong": 5
+      },
+      "confidence_bucket_enforced": false,
+      "confidence_bucket_rule": "advisory_high_or_strong_readiness_bucket",
+      "family_cap": null,
+      "family_count": 23,
+      "family_exclusions": [
+        "devixor",
+        "gigabud"
+      ],
+      "label_snapshot_hash": "9644d373b1e081b1511134953f04965442501e95d96c42e056fb5f4e6bd74e75",
+      "live_catalog_family_count": 23,
+      "live_catalog_match_count": 1602,
+      "live_catalog_type_count": 3,
+      "malicious_detection_threshold": 1,
+      "paper_locked": false,
+      "permission_coverage": {
+        "coverage_pct": 0.963171,
+        "rows_total": 1602,
+        "rows_with_permission_obs": 1543
+      },
+      "permission_observation_enforced": false,
+      "permission_observation_requirement": "advisory_readiness_bucket",
+      "profile_id": "malicious_temporal_stability",
+      "readiness_bucket": "android_high_or_strong_vt_with_permission_obs",
+      "sample_count": 1602,
+      "source_batch_label_distribution": {
+        "<blank>": 1120,
+        "Zimperium IOC": 482
+      },
+      "source_snapshot_or_lock_file": "live_loader:malware_sample_catalog",
+      "support_floor": 20,
+      "suspicious_handling": {
+        "dataset_filter_mode": "malicious_only",
+        "exclude_family_label_conflicts": false,
+        "exclude_unknown_from_main_results": true,
+        "exclude_unknown_type_slug": true,
+        "exclude_weak_label_kinds": false
+      },
+      "taxonomy_hash": "9644d373b1e081b1511134953f04965442501e95d96c42e056fb5f4e6bd74e75",
+      "time_window": {
+        "end_utc": "2026-01-01T00:00:00Z",
+        "semantics": "start_inclusive_end_exclusive",
+        "start_utc": "2020-01-01T00:00:00Z"
+      },
+      "top_families": {
+        "Applite": 159,
+        "ArsinkRAT": 482,
+        "BankBot": 32,
+        "FluBot": 38,
+        "Irata": 201,
+        "Joker": 85,
+        "PixPirate": 119,
+        "SpyNote": 66,
+        "TgToxic": 42,
+        "TrickMo": 43
+      },
+      "top_family_share": 0.300874,
+      "top_malware_types": {
+        "banker": 992,
+        "rat": 568,
+        "spyware": 42
+      },
+      "type_count": 3,
+      "type_slugs": [
+        "banker",
+        "rat",
+        "spyware"
+      ]
+    },
+    {
+      "broad_catalog_family_count": 142,
+      "canonical_profile_id": "malicious_temporal_stability",
+      "cohort_membership_hash": "e007f0ad6c8699b403af6d1461b84e9b034d8ac23e3d52879981c445c3adf7ad",
+      "confidence_bucket_distribution": {
+        "high": 1115,
+        "strong": 5
+      },
+      "confidence_bucket_enforced": false,
+      "confidence_bucket_rule": "advisory_high_or_strong_readiness_bucket",
+      "family_cap": null,
+      "family_count": 23,
+      "family_exclusions": [
+        "devixor",
+        "gigabud"
+      ],
+      "label_snapshot_hash": "9644d373b1e081b1511134953f04965442501e95d96c42e056fb5f4e6bd74e75",
+      "live_catalog_family_count": 23,
+      "live_catalog_match_count": 1602,
+      "live_catalog_type_count": 3,
+      "malicious_detection_threshold": 1,
+      "paper_locked": false,
+      "permission_coverage": {
+        "coverage_pct": 0.963171,
+        "rows_total": 1602,
+        "rows_with_permission_obs": 1543
+      },
+      "permission_observation_enforced": false,
+      "permission_observation_requirement": "advisory_readiness_bucket",
+      "profile_id": "paper2_primary",
+      "readiness_bucket": "android_high_or_strong_vt_with_permission_obs",
+      "sample_count": 1602,
+      "source_batch_label_distribution": {
+        "<blank>": 1120,
+        "Zimperium IOC": 482
+      },
+      "source_snapshot_or_lock_file": "live_loader:malware_sample_catalog",
+      "support_floor": 20,
+      "suspicious_handling": {
+        "dataset_filter_mode": "malicious_only",
+        "exclude_family_label_conflicts": false,
+        "exclude_unknown_from_main_results": true,
+        "exclude_unknown_type_slug": true,
+        "exclude_weak_label_kinds": false
+      },
+      "taxonomy_hash": "9644d373b1e081b1511134953f04965442501e95d96c42e056fb5f4e6bd74e75",
+      "time_window": {
+        "end_utc": "2026-01-01T00:00:00Z",
+        "semantics": "start_inclusive_end_exclusive",
+        "start_utc": "2020-01-01T00:00:00Z"
+      },
+      "top_families": {
+        "Applite": 159,
+        "ArsinkRAT": 482,
+        "BankBot": 32,
+        "FluBot": 38,
+        "Irata": 201,
+        "Joker": 85,
+        "PixPirate": 119,
+        "SpyNote": 66,
+        "TgToxic": 42,
+        "TrickMo": 43
+      },
+      "top_family_share": 0.300874,
+      "top_malware_types": {
+        "banker": 992,
+        "rat": 568,
+        "spyware": 42
+      },
+      "type_count": 3,
+      "type_slugs": [
+        "banker",
+        "rat",
+        "spyware"
+      ]
+    },
+    {
+      "broad_catalog_family_count": 142,
+      "canonical_profile_id": "malicious_temporal_stability_expanded",
+      "cohort_membership_hash": "d952309c51c7b929e38e78b71c851e881ad377d17e0dd53a00c7defee5b48c4a",
+      "confidence_bucket_distribution": {
+        "high": 1312,
+        "strong": 5
+      },
+      "confidence_bucket_enforced": false,
+      "confidence_bucket_rule": "advisory_high_or_strong_readiness_bucket",
+      "family_cap": null,
+      "family_count": 38,
+      "family_exclusions": [
+        "devixor",
+        "gigabud"
+      ],
+      "label_snapshot_hash": "1fea2b6a9473b6fa7989cd8607513e6a044e09ccec360cc620947e4d22fea24b",
+      "live_catalog_family_count": 38,
+      "live_catalog_match_count": 1815,
+      "live_catalog_type_count": 4,
+      "malicious_detection_threshold": 1,
+      "paper_locked": false,
+      "permission_coverage": {
+        "coverage_pct": 0.962534,
+        "rows_total": 1815,
+        "rows_with_permission_obs": 1747
+      },
+      "permission_observation_enforced": false,
+      "permission_observation_requirement": "advisory_readiness_bucket",
+      "profile_id": "malicious_temporal_stability_expanded",
+      "readiness_bucket": "android_high_or_strong_vt_with_permission_obs",
+      "sample_count": 1815,
+      "source_batch_label_distribution": {
+        "<blank>": 1317,
+        "Zimperium IOC": 482,
+        "external_ioc_fakecop_source_bundle_2026_05_28": 16
+      },
+      "source_snapshot_or_lock_file": "live_loader:malware_sample_catalog",
+      "support_floor": 10,
+      "suspicious_handling": {
+        "dataset_filter_mode": "malicious_only",
+        "exclude_family_label_conflicts": false,
+        "exclude_unknown_from_main_results": true,
+        "exclude_unknown_type_slug": true,
+        "exclude_weak_label_kinds": false
+      },
+      "taxonomy_hash": "1fea2b6a9473b6fa7989cd8607513e6a044e09ccec360cc620947e4d22fea24b",
+      "time_window": {
+        "end_utc": "2026-01-01T00:00:00Z",
+        "semantics": "start_inclusive_end_exclusive",
+        "start_utc": "2020-01-01T00:00:00Z"
+      },
+      "top_families": {
+        "Applite": 159,
+        "ArsinkRAT": 482,
+        "BankBot": 32,
+        "FluBot": 38,
+        "Irata": 201,
+        "Joker": 85,
+        "PixPirate": 119,
+        "SpyNote": 66,
+        "TgToxic": 42,
+        "TrickMo": 43
+      },
+      "top_family_share": 0.265565,
+      "top_malware_types": {
+        "banker": 1176,
+        "rat": 568,
+        "spyware": 55,
+        "trojan": 16
+      },
+      "type_count": 4,
+      "type_slugs": [
+        "banker",
+        "rat",
+        "spyware",
+        "trojan"
+      ]
+    },
+    {
+      "broad_catalog_family_count": 142,
+      "canonical_profile_id": "malicious_temporal_stability_locked",
+      "cohort_membership_hash": "1af3ccdd43dbca1ee6a547b7714cccdf414a7c5a687de116619b446b75f6debf",
+      "confidence_bucket_distribution": {
+        "high": 1183,
+        "strong": 4
+      },
+      "confidence_bucket_enforced": false,
+      "confidence_bucket_rule": "advisory_high_or_strong_readiness_bucket",
+      "family_cap": null,
+      "family_count": 39,
+      "family_exclusions": [
+        "devixor",
+        "gigabud"
+      ],
+      "label_snapshot_hash": "caef83cce5274ad0bbdc55323ff9086cce19674063d5d1ac6992062ec5d0b921",
+      "live_catalog_family_count": 43,
+      "live_catalog_match_count": 1187,
+      "live_catalog_type_count": 4,
+      "malicious_detection_threshold": 1,
+      "paper_locked": true,
+      "permission_coverage": {
+        "coverage_pct": 0.969671,
+        "rows_total": 1187,
+        "rows_with_permission_obs": 1151
+      },
+      "permission_observation_enforced": false,
+      "permission_observation_requirement": "advisory_readiness_bucket",
+      "profile_id": "malicious_temporal_stability_locked",
+      "readiness_bucket": "android_high_or_strong_vt_with_permission_obs",
+      "sample_count": 1226,
+      "source_batch_label_distribution": {
+        "<blank>": 1187
+      },
+      "source_snapshot_or_lock_file": "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/baselines/20260504T044304Z__8c64e6/malicious_temporal_stability_locked_sample_ids.csv",
+      "support_floor": 20,
+      "suspicious_handling": {
+        "dataset_filter_mode": "malicious_only",
+        "exclude_family_label_conflicts": false,
+        "exclude_unknown_from_main_results": true,
+        "exclude_unknown_type_slug": true,
+        "exclude_weak_label_kinds": false
+      },
+      "taxonomy_hash": "381fa8ae2f222e81d3044d3fd633ec60688fe4df064ce85e458574b35b0c73b5",
+      "time_window": {
+        "end_utc": "2026-01-01T00:00:00Z",
+        "semantics": "start_inclusive_end_exclusive",
+        "start_utc": "2020-01-01T00:00:00Z"
+      },
+      "top_families": {
+        "Applite": 159,
+        "Crocodilus": 30,
+        "FluBot": 38,
+        "Irata": 197,
+        "Joker": 80,
+        "Klopatra": 30,
+        "PixPirate": 119,
+        "SpyNote": 44,
+        "TgToxic": 42,
+        "TrickMo": 43
+      },
+      "top_family_share": 0.165965,
+      "top_malware_types": {
+        "backdoor": 1,
+        "banker": 1075,
+        "rat": 64,
+        "spyware": 47
+      },
+      "type_count": 6,
+      "type_slugs": [
+        "backdoor",
+        "banker",
+        "rat",
+        "spyware"
+      ]
+    },
+    {
+      "broad_catalog_family_count": 142,
+      "canonical_profile_id": "malicious_temporal_stability_locked",
+      "cohort_membership_hash": "1af3ccdd43dbca1ee6a547b7714cccdf414a7c5a687de116619b446b75f6debf",
+      "confidence_bucket_distribution": {
+        "high": 1183,
+        "strong": 4
+      },
+      "confidence_bucket_enforced": false,
+      "confidence_bucket_rule": "advisory_high_or_strong_readiness_bucket",
+      "family_cap": null,
+      "family_count": 39,
+      "family_exclusions": [
+        "devixor",
+        "gigabud"
+      ],
+      "label_snapshot_hash": "caef83cce5274ad0bbdc55323ff9086cce19674063d5d1ac6992062ec5d0b921",
+      "live_catalog_family_count": 43,
+      "live_catalog_match_count": 1187,
+      "live_catalog_type_count": 4,
+      "malicious_detection_threshold": 1,
+      "paper_locked": true,
+      "permission_coverage": {
+        "coverage_pct": 0.969671,
+        "rows_total": 1187,
+        "rows_with_permission_obs": 1151
+      },
+      "permission_observation_enforced": false,
+      "permission_observation_requirement": "advisory_readiness_bucket",
+      "profile_id": "paper2_primary_locked",
+      "readiness_bucket": "android_high_or_strong_vt_with_permission_obs",
+      "sample_count": 1226,
+      "source_batch_label_distribution": {
+        "<blank>": 1187
+      },
+      "source_snapshot_or_lock_file": "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/baselines/20260504T044304Z__8c64e6/malicious_temporal_stability_locked_sample_ids.csv",
+      "support_floor": 20,
+      "suspicious_handling": {
+        "dataset_filter_mode": "malicious_only",
+        "exclude_family_label_conflicts": false,
+        "exclude_unknown_from_main_results": true,
+        "exclude_unknown_type_slug": true,
+        "exclude_weak_label_kinds": false
+      },
+      "taxonomy_hash": "381fa8ae2f222e81d3044d3fd633ec60688fe4df064ce85e458574b35b0c73b5",
+      "time_window": {
+        "end_utc": "2026-01-01T00:00:00Z",
+        "semantics": "start_inclusive_end_exclusive",
+        "start_utc": "2020-01-01T00:00:00Z"
+      },
+      "top_families": {
+        "Applite": 159,
+        "Crocodilus": 30,
+        "FluBot": 38,
+        "Irata": 197,
+        "Joker": 80,
+        "Klopatra": 30,
+        "PixPirate": 119,
+        "SpyNote": 44,
+        "TgToxic": 42,
+        "TrickMo": 43
+      },
+      "top_family_share": 0.165965,
+      "top_malware_types": {
+        "backdoor": 1,
+        "banker": 1075,
+        "rat": 64,
+        "spyware": 47
+      },
+      "type_count": 6,
+      "type_slugs": [
+        "backdoor",
+        "banker",
+        "rat",
+        "spyware"
+      ]
+    },
+    {
+      "broad_catalog_family_count": 142,
+      "canonical_profile_id": "malicious_temporal_stability_long_tail",
+      "cohort_membership_hash": "701a8ebe9d1c6b705310183b426c10e145d37e00ccb3cffe0e9a9442d931af3c",
+      "confidence_bucket_distribution": {
+        "high": 1447,
+        "strong": 9
+      },
+      "confidence_bucket_enforced": false,
+      "confidence_bucket_rule": "advisory_high_or_strong_readiness_bucket",
+      "family_cap": null,
+      "family_count": 60,
+      "family_exclusions": [
+        "devixor",
+        "gigabud"
+      ],
+      "label_snapshot_hash": "75ba9230a14ababd692795af40d48de445ecb0b4f2a72e3b100ee9840fa41dce",
+      "live_catalog_family_count": 60,
+      "live_catalog_match_count": 1954,
+      "live_catalog_type_count": 7,
+      "malicious_detection_threshold": 1,
+      "paper_locked": false,
+      "permission_coverage": {
+        "coverage_pct": 0.95957,
+        "rows_total": 1954,
+        "rows_with_permission_obs": 1875
+      },
+      "permission_observation_enforced": false,
+      "permission_observation_requirement": "advisory_readiness_bucket",
+      "profile_id": "malicious_temporal_stability_long_tail",
+      "readiness_bucket": "android_high_or_strong_vt_with_permission_obs",
+      "sample_count": 1954,
+      "source_batch_label_distribution": {
+        "<blank>": 1456,
+        "Zimperium IOC": 482,
+        "external_ioc_fakecop_source_bundle_2026_05_28": 16
+      },
+      "source_snapshot_or_lock_file": "live_loader:malware_sample_catalog",
+      "support_floor": 5,
+      "suspicious_handling": {
+        "dataset_filter_mode": "malicious_only",
+        "exclude_family_label_conflicts": false,
+        "exclude_unknown_from_main_results": true,
+        "exclude_unknown_type_slug": true,
+        "exclude_weak_label_kinds": false
+      },
+      "taxonomy_hash": "75ba9230a14ababd692795af40d48de445ecb0b4f2a72e3b100ee9840fa41dce",
+      "time_window": {
+        "end_utc": "2026-01-01T00:00:00Z",
+        "semantics": "start_inclusive_end_exclusive",
+        "start_utc": "2020-01-01T00:00:00Z"
+      },
+      "top_families": {
+        "Applite": 159,
+        "ArsinkRAT": 482,
+        "BankBot": 32,
+        "FluBot": 38,
+        "Irata": 201,
+        "Joker": 85,
+        "PixPirate": 119,
+        "SpyNote": 66,
+        "TgToxic": 42,
+        "TrickMo": 43
+      },
+      "top_family_share": 0.246673,
+      "top_malware_types": {
+        "adware": 25,
+        "banker": 1252,
+        "dropper": 7,
+        "rat": 574,
+        "spyware": 72,
+        "trojan": 16,
+        "worm": 8
+      },
+      "type_count": 7,
+      "type_slugs": [
+        "adware",
+        "banker",
+        "dropper",
+        "rat",
+        "spyware",
+        "trojan",
+        "worm"
+      ]
+    }
+  ],
+  "schema_version": "1.0",
+  "strict_export_status": {
+    "latest_paper_run_root": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260529T065132Z__e92ba3",
+    "latest_run_root": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260531T151433Z__8938b8",
+    "missing_required_sources": [
+      "paper_constants.json"
+    ],
+    "paper_constants_path": "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/paper/paper_constants.json",
+    "paper_constants_present": false,
+    "passes": false
+  },
+  "support_floor_reference": [
+    {
+      "family_count": 23,
+      "permission_coverage": {
+        "coverage_pct": 0.963171,
+        "rows_total": 1602,
+        "rows_with_permission_obs": 1543
+      },
+      "sample_count": 1602,
+      "support_floor": 20,
+      "top_family_share": 0.300874,
+      "type_count": 3
+    },
+    {
+      "family_count": 38,
+      "permission_coverage": {
+        "coverage_pct": 0.962534,
+        "rows_total": 1815,
+        "rows_with_permission_obs": 1747
+      },
+      "sample_count": 1815,
+      "support_floor": 10,
+      "top_family_share": 0.265565,
+      "type_count": 4
+    },
+    {
+      "family_count": 60,
+      "permission_coverage": {
+        "coverage_pct": 0.95957,
+        "rows_total": 1954,
+        "rows_with_permission_obs": 1875
+      },
+      "sample_count": 1954,
+      "support_floor": 5,
+      "top_family_share": 0.246673,
+      "type_count": 7
+    },
+    {
+      "family_count": 111,
+      "permission_coverage": {
+        "coverage_pct": 0.958758,
+        "rows_total": 2061,
+        "rows_with_permission_obs": 1976
+      },
+      "sample_count": 2061,
+      "support_floor": 1,
+      "top_family_share": 0.233867,
+      "type_count": 10
+    }
+  ]
+}
