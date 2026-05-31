@@ -17,12 +17,20 @@ ObsidianDroid is an end-to-end framework for Android malware analysis, AV engine
 | [`GOVERNANCE.md`](GOVERNANCE.md) | Mandatory governance behavior for runtime, diagnostics, and reproducibility. |
 | [`AGENTS.md`](AGENTS.md) | Contributor and automated-agent conventions (layout, testing, hygiene); repo-root `AGENTS.md` is a pointer. |
 | [`ROOT_AND_STRUCTURE_AUDIT.md`](ROOT_AND_STRUCTURE_AUDIT.md) | **Project status & deep root/layout audit** — hybrid layout rationale, what moved vs what stays, CI/professionalism checklist. |
+| [`STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md) | Living migration/status ledger for canonical `src/obsidiandroid` relocation and shim retirement. |
+| [`LABEL_AUTHORITY_ROLLOUT_RUNBOOK.md`](LABEL_AUTHORITY_ROLLOUT_RUNBOOK.md) | Operator workflow for label-authority rollout and validation. |
+| [`LABEL_AUTHORITY_SCHEMA_PLAN.md`](LABEL_AUTHORITY_SCHEMA_PLAN.md) | Schema and view plan for label-authority adoption. |
+| [`ML_BOUNDARY_PLAN.md`](ML_BOUNDARY_PLAN.md) | Boundary notes for ML pipeline responsibilities and future cleanup seams. |
+| [`VENDOR_EVALUATION_BOUNDARY_PLAN.md`](VENDOR_EVALUATION_BOUNDARY_PLAN.md) | Boundary notes for vendor parsing, evaluation, and related contract cleanup. |
+| [`module_split_audit.md`](module_split_audit.md) | Audit of large modules/functions and candidates for decomposition. |
+| [`code_review.md`](code_review.md) | Historical engineering review notes that still inform migration and cleanup work. |
 
 ## Quick Facts
 
 - **Entry points:** Repo-root `main.py` is a thin shim; canonical CLI lives in `src/obsidiandroid/cli/main.py`. **Pipeline orchestration** is **`obsidiandroid.pipeline.runner`** (`analysis.pipeline.runner` is an identity shim). **Stage implementations** (`stage_*`, AV/vendor chain, permission-trends report, manifest, …) live under **`src/obsidiandroid/pipeline/`**; on-disk `analysis/pipeline/stage_*.py` and related leaves are **shims** for legacy imports (see [`STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md)). Model tuning entrypoint: `python -m obsidiandroid.evaluation.model_tuning`. `scripts/` holds maintenance tools (`scripts/dev/` for hygiene/import checks, `scripts/diagnostics/` for inspection CLIs).
 - **Configuration:** YAML/JSON files in `config/` control feature toggles, model parameters, and database credentials.
 - **Outputs:** Runtime artifacts (labels, evaluation metrics, feature matrices) are written under an `output/` directory that is created on demand.
+- **Generated paper exports:** `paper_exports/docs/` holds generated runtime evidence such as cohort census reports. Regenerate these files when needed; do not treat checked-in copies as hand-maintained source of truth.
 - **Testing:** Run **`make verify`** (import smoke + fast pytest), `pytest -q`, or `make test` before committing changes. The fuzzer and ML call-site scan live under `scripts/dev/`. See **Makefile quick reference** in `developer_guide.md` for `make setup`, `make menu`, and `make install-editable`.
 - **VirusTotal data:** The pipeline consumes replicated VirusTotal tables (`vt_av_engines*`, `vt_permissions`, `vt_*_metadata`) from the project database rather than issuing live API calls. Integration specifics and required refresh cadences are captured in [`data_sources.md`](data_sources.md).
 

@@ -87,8 +87,6 @@ def write_temporal_validity_audit(
                 suspicious.append(f"{r['family_canonical']} max_year>=2026 while profile may cap 2025")
 
     split_path = resolve_split_freeze_csv(diagnostics_dir, run_id)
-    if split_path is None:
-        split_path = diagnostics_dir / f"split_freeze_audit_{run_id}.csv"
     mix_rows: list[dict[str, Any]] = []
     if split_path.exists() and year_series is not None and "sample_id" in s.columns:
         try:

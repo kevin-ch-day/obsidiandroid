@@ -212,6 +212,11 @@ def build_runtime_contract(
     sample_id_lock = dict(declared.get("sample_id_lock", {}))
     lock_path = str(sample_id_lock.get("path", "") or "").strip()
     runtime_snapshot_lock = dict(samples_df.attrs.get("snapshot_lock", {}) or {})
+    locked_materialization = dict(samples_df.attrs.get("paper_locked_materialization", {}) or {})
+    immutable_lock_first_materialization = (
+        str(locked_materialization.get("mode", "") or "").strip().lower()
+        == "immutable_lock_first_broad_catalog_fetch"
+    )
     if lock_path:
         lock_meta = _read_lock_file_metadata(Path(lock_path))
         sample_id_lock.update(lock_meta)
@@ -227,8 +232,9 @@ def build_runtime_contract(
         )
 
     label_snapshot_meta = dict(samples_df.attrs.get("paper_locked_label_snapshot", {}) or {})
+    expected_label_snapshot_hash = str(sample_id_lock.get("label_snapshot_hash", "") or "").strip()
     expected_taxonomy_hash = str(sample_id_lock.get("taxonomy_hash", "") or "").strip()
-    if expected_taxonomy_hash:
+    if expected_label_snapshot_hash or expected_taxonomy_hash:
         if not bool(label_snapshot_meta.get("available", False)):
             mismatches.append("archived_label_snapshot unavailable")
         else:
@@ -237,9 +243,10 @@ def build_runtime_contract(
                 or label_snapshot_meta.get("taxonomy_hash", "")
                 or ""
             ).strip()
-            if observed_taxonomy_hash != expected_taxonomy_hash:
+            expected_hash = expected_label_snapshot_hash or expected_taxonomy_hash
+            if observed_taxonomy_hash != expected_hash:
                 mismatches.append(
-                    f"taxonomy_hash observed={observed_taxonomy_hash} expected={expected_taxonomy_hash}"
+                    f"taxonomy_hash observed={observed_taxonomy_hash} expected={expected_hash}"
                 )
 
     db_query_contract = manifest_context.get("db_query_contract", {})
@@ -255,20 +262,23 @@ def build_runtime_contract(
 
     validation_status = "match" if not mismatches else "mismatch"
     validation_severity = "error" if mismatches else "none"
-    runtime_drift = _runtime_db_drift_summary(
-        declared=declared,
-        observed=observed,
-        sample_id_lock=sample_id_lock,
-        runtime_snapshot_lock=runtime_snapshot_lock,
-        mismatches=mismatches,
-    )
-    taxonomy_drift = _taxonomy_label_drift_summary(
-        declared=declared,
-        observed=observed,
-        sample_id_lock=sample_id_lock,
-        runtime_snapshot_lock=runtime_snapshot_lock,
-        mismatches=mismatches,
-    )
+    runtime_drift = None
+    taxonomy_drift = None
+    if not immutable_lock_first_materialization:
+        runtime_drift = _runtime_db_drift_summary(
+            declared=declared,
+            observed=observed,
+            sample_id_lock=sample_id_lock,
+            runtime_snapshot_lock=runtime_snapshot_lock,
+            mismatches=mismatches,
+        )
+        taxonomy_drift = _taxonomy_label_drift_summary(
+            declared=declared,
+            observed=observed,
+            sample_id_lock=sample_id_lock,
+            runtime_snapshot_lock=runtime_snapshot_lock,
+            mismatches=mismatches,
+        )
     if runtime_drift is not None:
         validation_status = "degraded_live_db_drift"
         validation_severity = "warning"
@@ -661,11 +671,8 @@ def _type_slugs(samples_df: pd.DataFrame) -> tuple[str, ...]:
 
 def _suggest_locked_profile_id(profile_id: str) -> str:
     suggestions = {
-        "paper2_primary": "malicious_temporal_stability_locked",
         "malicious_temporal_stability": "malicious_temporal_stability_locked",
-        "paper2_primary_locked": "malicious_temporal_stability_locked",
         "banker": "banker_locked",
-        "paper1_banker_locked": "banker_locked",
     }
     if profile_id in suggestions:
         return suggestions[profile_id]

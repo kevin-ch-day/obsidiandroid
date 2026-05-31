@@ -1,7 +1,6 @@
 """Tests for run manifest stage helper module."""
 
 import json
-import os
 from pathlib import Path
 
 import pandas as pd
@@ -229,26 +228,7 @@ def test_write_evidence_readiness_includes_generic_alias_keys(tmp_path: Path) ->
     assert payload["evidence_readiness"] == "ready"
     assert payload["publication_ready_status"] == "ready"
     assert payload["cohort_lock_status"] == "membership_locked"
-    assert (tmp_path / "run1" / "paper2_pack" / "evidence_readiness.json").exists()
-
-
-def test_legacy_evidence_bundle_mirror_prefers_hardlink_when_possible(tmp_path: Path) -> None:
-    """Legacy paper2_pack mirroring should avoid duplicate bytes when the FS supports hard links."""
-    source_dir = tmp_path / "run1" / "evidence_bundle"
-    source_dir.mkdir(parents=True, exist_ok=True)
-    source_path = source_dir / "manifest.json"
-    source_path.write_text('{"ok": true}\n', encoding="utf-8")
-
-    legacy_dir = tmp_path / "run1" / "paper2_pack"
-    evidence_pack._mirror_legacy_bundle_file(  # pylint: disable=protected-access
-        source_path=source_path,
-        legacy_dir=legacy_dir,
-    )
-
-    legacy_path = legacy_dir / "manifest.json"
-    assert legacy_path.exists()
-    assert legacy_path.read_text(encoding="utf-8") == source_path.read_text(encoding="utf-8")
-    assert os.path.samefile(source_path, legacy_path)
+    assert (tmp_path / "run1" / "evidence_bundle" / "evidence_readiness.json").exists()
 
 
 def test_finalize_run_manifest_stage_success(monkeypatch) -> None:
@@ -305,7 +285,6 @@ def test_finalize_run_manifest_stage_success(monkeypatch) -> None:
     assert captured["manifest"]["profile_id"] == "test"
     assert captured["manifest"]["run_status"] == "complete"
     assert captured["manifest"]["publication_ready_status"] == "NOT_APPLICABLE"
-    assert captured["manifest"]["paper_safe_status"] == "NOT_APPLICABLE"
     assert captured["manifest"]["integrity_status"] == "pass"
     assert captured["manifest"]["trained_models"] == ["xgboost"]
     assert captured["manifest"]["included_engine_count"] == 1
@@ -394,7 +373,7 @@ def test_finalize_run_manifest_stage_skips_strict_paper_exports_for_failed_run(
     monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
     monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_VENDOR_GATE_DEBUG_PATH", "", raising=False)
     monkeypatch.setattr(stage_manifest, "_build_strict_paper2_exports", _strict_exports_should_not_run)
-    monkeypatch.setattr(stage_manifest, "_build_paper2_pack", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_build_evidence_bundle", lambda **_kwargs: None)
 
     result = stage_manifest.finalize_run_manifest_stage(
         manifest_context={
@@ -438,7 +417,7 @@ def test_finalize_run_manifest_stage_rewrites_terminal_manifest_with_compliance_
     monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
     monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_VENDOR_GATE_DEBUG_PATH", "", raising=False)
     monkeypatch.setattr(stage_manifest, "_build_strict_paper2_exports", lambda **_kwargs: {})
-    monkeypatch.setattr(stage_manifest, "_build_paper2_pack", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_build_evidence_bundle", lambda **_kwargs: None)
     monkeypatch.setattr(
         stage_manifest,
         "_write_manifest_with_pointer",
@@ -515,7 +494,6 @@ def test_finalize_run_manifest_stage_rewrites_terminal_manifest_with_compliance_
     manifest = captured["manifest"]
     assert manifest["profile_id"] == "paper_profile"
     assert manifest["publication_ready_status"] == "FAIL"
-    assert manifest["paper_safe_status"] == "FAIL"
     assert "paper_compliance_not_pass" in manifest["publication_ready_reasons"]
 
 
@@ -539,7 +517,7 @@ def test_finalize_run_manifest_stage_skips_research_validity_bundle_for_samples_
     monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
     monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_VENDOR_GATE_DEBUG_PATH", "", raising=False)
     monkeypatch.setattr(stage_manifest, "_build_strict_paper2_exports", lambda **_kwargs: {})
-    monkeypatch.setattr(stage_manifest, "_build_paper2_pack", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_build_evidence_bundle", lambda **_kwargs: None)
     monkeypatch.setattr(
         stage_manifest,
         "_write_run_summary_json",
@@ -649,7 +627,7 @@ def test_finalize_run_manifest_stage_keeps_evidence_samples_stop_nonfatal(
     monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
     monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_VENDOR_GATE_DEBUG_PATH", "", raising=False)
     monkeypatch.setattr(stage_manifest, "_build_strict_paper2_exports", lambda **_kwargs: {})
-    monkeypatch.setattr(stage_manifest, "_build_paper2_pack", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_build_evidence_bundle", lambda **_kwargs: None)
     monkeypatch.setattr(
         stage_manifest,
         "_write_run_summary_json",
@@ -1000,7 +978,7 @@ def test_write_run_summary_onepager_creates_run_and_latest(tmp_path: Path) -> No
     out_path = stage_manifest._write_run_summary_onepager(  # pylint: disable=protected-access
         run_id="r1",
         diagnostics_dir=diagnostics_dir,
-        profile={"profile_id": "all_malicious"},
+        profile={"profile_id": "malicious_temporal_stability"},
         manifest_context={
             "paper_mode": {"resolved_value": True, "source": "cli"},
             "model_summary": {
@@ -1041,7 +1019,7 @@ def test_write_run_summary_onepager_run_scoped_uses_global_latest(
     out_path = stage_manifest._write_run_summary_onepager(  # pylint: disable=protected-access
         run_id="r1",
         diagnostics_dir=diagnostics_dir,
-        profile={"profile_id": "all_malicious"},
+        profile={"profile_id": "malicious_temporal_stability"},
         manifest_context={"paper_mode": {"resolved_value": True, "source": "cli"}},
         manifest={"cohort_size": 10},
         compliance_path=None,

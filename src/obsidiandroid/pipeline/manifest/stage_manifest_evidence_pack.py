@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -18,30 +17,16 @@ from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.pipeline.manifest.confusion_matrix_paths import find_primary_confusion_matrix
 
 EVIDENCE_BUNDLE_DIRNAME = "evidence_bundle"
-LEGACY_EVIDENCE_BUNDLE_DIRNAME = "paper2_pack"
 
 
-def _bundle_dirs(run_root: Path) -> tuple[Path, Path]:
+def _bundle_dir(run_root: Path) -> Path:
+    """Return the canonical evidence-bundle directory for a run."""
     bundle_dir = run_root / EVIDENCE_BUNDLE_DIRNAME
-    legacy_dir = run_root / LEGACY_EVIDENCE_BUNDLE_DIRNAME
     bundle_dir.mkdir(parents=True, exist_ok=True)
-    return bundle_dir, legacy_dir
+    return bundle_dir
 
 
-def _mirror_legacy_bundle_file(*, source_path: Path, legacy_dir: Path) -> None:
-    legacy_path = legacy_dir / source_path.name
-    if source_path.resolve() == legacy_path.resolve():
-        return
-    legacy_dir.mkdir(parents=True, exist_ok=True)
-    if legacy_path.exists():
-        legacy_path.unlink()
-    try:
-        os.link(source_path, legacy_path)
-    except OSError:
-        legacy_path.write_bytes(source_path.read_bytes())
-
-
-def build_paper2_pack(
+def build_evidence_bundle(
     *,
     run_root: Path,
     run_id: str,
@@ -50,8 +35,8 @@ def build_paper2_pack(
     manifest_context: dict[str, Any],
     ranking_path: Path | None,
 ) -> dict[str, str]:
-    """Build run-scoped evidence-bundle files with legacy bundle mirroring."""
-    pack_dir, legacy_pack_dir = _bundle_dirs(run_root)
+    """Build the canonical run-scoped evidence bundle."""
+    pack_dir = _bundle_dir(run_root)
     artifacts_written: dict[str, str] = {}
 
     sample_count = int(len(samples_df)) if isinstance(samples_df, pd.DataFrame) else 0
@@ -79,7 +64,6 @@ def build_paper2_pack(
     }
     dataset_path = pack_dir / "dataset_characterization.json"
     dataset_path.write_text(json.dumps(dataset_characterization, indent=2, sort_keys=True), encoding="utf-8")
-    _mirror_legacy_bundle_file(source_path=dataset_path, legacy_dir=legacy_pack_dir)
     artifacts_written["dataset_characterization.json"] = str(dataset_path)
 
     if ranking_path is not None and ranking_path.exists():
@@ -88,15 +72,12 @@ def build_paper2_pack(
     consensus_df, consensus_stats = build_consensus_distribution(samples_df=samples_df, manifest=manifest)
     consensus_csv = pack_dir / "consensus_distribution.csv"
     consensus_df.to_csv(consensus_csv, index=False, lineterminator="\n", float_format="%.6f")
-    _mirror_legacy_bundle_file(source_path=consensus_csv, legacy_dir=legacy_pack_dir)
     artifacts_written["consensus_distribution.csv"] = str(consensus_csv)
     consensus_stats_path = pack_dir / "consensus_stats.json"
     consensus_stats_path.write_text(json.dumps(consensus_stats, indent=2, sort_keys=True), encoding="utf-8")
-    _mirror_legacy_bundle_file(source_path=consensus_stats_path, legacy_dir=legacy_pack_dir)
     artifacts_written["consensus_stats.json"] = str(consensus_stats_path)
     consensus_png = pack_dir / "consensus_distribution.png"
     render_consensus_distribution_png(consensus_df=consensus_df, output_path=consensus_png)
-    _mirror_legacy_bundle_file(source_path=consensus_png, legacy_dir=legacy_pack_dir)
     artifacts_written["consensus_distribution.png"] = str(consensus_png)
 
     metrics_payload = {
@@ -105,7 +86,6 @@ def build_paper2_pack(
     }
     metrics_path = pack_dir / "model_metrics.json"
     metrics_path.write_text(json.dumps(metrics_payload, indent=2, sort_keys=True), encoding="utf-8")
-    _mirror_legacy_bundle_file(source_path=metrics_path, legacy_dir=legacy_pack_dir)
     artifacts_written["model_metrics.json"] = str(metrics_path)
 
     conf_src = find_primary_confusion_matrix(
@@ -116,7 +96,6 @@ def build_paper2_pack(
     if conf_src is not None and conf_src.exists():
         conf_dst = pack_dir / "confusion_matrix_primary.png"
         conf_dst.write_bytes(conf_src.read_bytes())
-        _mirror_legacy_bundle_file(source_path=conf_dst, legacy_dir=legacy_pack_dir)
         artifacts_written["confusion_matrix_primary.png"] = str(conf_dst)
 
     manifest_src = run_root / "run_manifest.json"
@@ -125,7 +104,6 @@ def build_paper2_pack(
     if manifest_src.exists():
         manifest_dst = pack_dir / "manifest.json"
         manifest_dst.write_bytes(manifest_src.read_bytes())
-        _mirror_legacy_bundle_file(source_path=manifest_dst, legacy_dir=legacy_pack_dir)
         artifacts_written["manifest.json"] = str(manifest_dst)
 
     compliance_path = pack_dir / "evidence_compliance_summary.json"
@@ -138,7 +116,6 @@ def build_paper2_pack(
         "effective_top_k": int(manifest.get("effective_top_k", 0) or 0),
     }
     compliance_path.write_text(json.dumps(compliance_payload, indent=2, sort_keys=True), encoding="utf-8")
-    _mirror_legacy_bundle_file(source_path=compliance_path, legacy_dir=legacy_pack_dir)
     artifacts_written["evidence_compliance_summary.json"] = str(compliance_path)
     return artifacts_written
 
@@ -371,7 +348,7 @@ def write_evidence_readiness(
     integrity_reason: str,
 ) -> Path:
     """Write machine-readable evidence readiness verdict."""
-    pack_dir, legacy_pack_dir = _bundle_dirs(run_root)
+    pack_dir = _bundle_dir(run_root)
     cohort_contract = manifest.get("cohort_contract") or manifest.get("paper_cohort_contract") or {}
     cohort_lock_status = resolve_contract_cohort_lock_status(cohort_contract)
     checks = {
@@ -397,7 +374,6 @@ def write_evidence_readiness(
     }
     out_path = pack_dir / "evidence_readiness.json"
     out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    _mirror_legacy_bundle_file(source_path=out_path, legacy_dir=legacy_pack_dir)
     return out_path
 
 
@@ -409,7 +385,7 @@ def write_evidence_compliance_stub(
     reason: str,
 ) -> Path:
     """Write minimal compliance stub for early-stop runs."""
-    pack_dir, legacy_pack_dir = _bundle_dirs(run_root)
+    pack_dir = _bundle_dir(run_root)
     out_path = pack_dir / "evidence_compliance_summary.json"
     payload = {
         "run_id": str(run_id),
@@ -421,5 +397,4 @@ def write_evidence_compliance_stub(
         "reason": str(reason or ""),
     }
     out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    _mirror_legacy_bundle_file(source_path=out_path, legacy_dir=legacy_pack_dir)
     return out_path

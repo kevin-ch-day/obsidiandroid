@@ -16,8 +16,8 @@ routed under ``diagnostics/post_run_enrichments/<audit_id>/`` and provenance is 
 in the canonical run-scoped ``diagnostic_provenance.json`` ledger.
 
 Example:
-  python scripts/family_label_taxonomy_audit.py --profile research_all_malicious
-  python scripts/family_label_taxonomy_audit.py --profile research_all_malicious \\
+  python scripts/family_label_taxonomy_audit.py --profile malicious_temporal_stability
+  python scripts/family_label_taxonomy_audit.py --profile malicious_temporal_stability \\
       --diagnostics-dir output/runs/my_audit/diagnostics
 """
 

@@ -7,8 +7,8 @@ catalog+registry rows under the time contract; *cohort SQL profile scope* matche
 cohort loader.
 
 Example:
-  python scripts/check_cohort_foundation.py --profile research_all_malicious
-  python scripts/check_cohort_foundation.py --profile research_all_malicious --expected-raw-min 3000
+  python scripts/check_cohort_foundation.py --profile malicious_temporal_stability
+  python scripts/check_cohort_foundation.py --profile malicious_temporal_stability --expected-raw-min 3000
 """
 
 # ruff: noqa: E402

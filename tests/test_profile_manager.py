@@ -20,6 +20,9 @@ def test_profile_list_contains_default_profiles() -> None:
     assert "dev_smoke" in names
     assert "paper2_primary_locked" not in names
     assert "paper1_banker_locked" not in names
+    assert "paper2_primary" not in names
+    assert "research_all_malicious" not in names
+    assert "all_malicious" not in names
 
 
 def test_load_profile_required_keys() -> None:
@@ -242,7 +245,7 @@ def test_quick_profile_label_prefers_operator_facing_descriptions() -> None:
     ) == "Research: long-tail all-malicious"
     assert profile_manager.profile_selection.quick_profile_label(
         "banker_locked"
-    ) == "Baseline: banker legacy/count-locked"
+    ) == "Baseline: banker count-locked"
     assert profile_manager.profile_selection.quick_profile_label(
         "banker"
     ) == "Research: current banker"
@@ -253,18 +256,23 @@ def test_quick_profile_label_prefers_operator_facing_descriptions() -> None:
         "dev_smoke"
     ) == "Smoke: sanity check"
     assert profile_manager.profile_selection.quick_profile_label(
-        "research_all_malicious"
-    ) == "Deprecated exploratory: discovery all-malicious"
+        "definitely_unknown_profile"
+    ) == "definitely_unknown_profile"
 
 
-def test_legacy_profile_aliases_resolve_to_generic_names_with_deprecation_warning() -> None:
-    """Deprecated legacy profile ids should resolve to canonical profiles with a warning."""
-    with pytest.warns(FutureWarning, match="paper2_primary"):
-        assert profile_manager.load_profile("paper2_primary")["profile_id"] == "malicious_temporal_stability"
-    with pytest.warns(FutureWarning, match="paper2_primary_locked"):
-        assert profile_manager.load_profile("paper2_primary_locked")["profile_id"] == "malicious_temporal_stability_locked"
-    with pytest.warns(FutureWarning, match="paper1_banker_locked"):
-        assert profile_manager.load_profile("paper1_banker_locked")["profile_id"] == "banker_locked"
+def test_removed_legacy_profile_ids_fail_to_load() -> None:
+    """Removed legacy/deprecated profile ids should fail instead of aliasing silently."""
+    for profile_id in (
+        "paper2_primary",
+        "paper2_primary_locked",
+        "paper1_banker_locked",
+        "paper2_sensitivity_consensus10",
+        "paper2_sensitivity_family300",
+        "research_all_malicious",
+        "all_malicious",
+    ):
+        with pytest.raises(FileNotFoundError):
+            profile_manager.load_profile(profile_id)
 
 
 def test_infer_cohort_readiness_signal_maps_banker_profiles() -> None:
@@ -286,15 +294,6 @@ def test_infer_cohort_readiness_signal_maps_temporal_and_current_all_malicious_p
     assert "high/strong VT confidence" in str(current["detail"])
     assert expanded["bucket"] == "android_high_or_strong_vt_with_permission_obs"
     assert long_tail["bucket"] == "android_high_or_strong_vt_with_permission_obs"
-
-
-def test_infer_cohort_readiness_signal_maps_legacy_alias_profiles_by_intent() -> None:
-    with pytest.warns(FutureWarning, match="paper2_primary"):
-        primary = profile_manager.infer_cohort_readiness_signal("paper2_primary")
-    with pytest.warns(FutureWarning, match="paper2_sensitivity_consensus10"):
-        sensitivity = profile_manager.infer_cohort_readiness_signal("paper2_sensitivity_consensus10")
-    assert primary["bucket"] == "android_high_or_strong_vt_with_permission_obs"
-    assert sensitivity["bucket"] == "android_high_or_strong_vt_with_permission_obs"
 
 
 def test_infer_cohort_readiness_signal_returns_unmapped_advisory_for_unknown_profile() -> None:
@@ -341,10 +340,10 @@ def test_select_profile_interactive_quick_uses_six_intent_menu(monkeypatch) -> N
 
     assert selected is None
     assert captured["Execution profile"] == [
-        "Reproduce locked all-malicious benchmark",
-        "Reproduce banker benchmark",
-        "Evaluate current all-malicious corpus",
-        "Evaluate current banker corpus",
+        "Paper benchmark (locked 2026: 1226 / 39 / 6)",
+        "Banker benchmark (count-locked)",
+        "Current governed all-malicious corpus",
+        "Current governed banker corpus",
         "Test robustness / perturbations",
         "Development / smoke checks",
     ]
@@ -366,10 +365,10 @@ def test_select_profile_interactive_quick_resolves_robustness_submenu(monkeypatc
 
     assert selected == "malicious_temporal_family300"
     assert seen["Execution profile"] == [
-        "Reproduce locked all-malicious benchmark",
-        "Reproduce banker benchmark",
-        "Evaluate current all-malicious corpus",
-        "Evaluate current banker corpus",
+        "Paper benchmark (locked 2026: 1226 / 39 / 6)",
+        "Banker benchmark (count-locked)",
+        "Current governed all-malicious corpus",
+        "Current governed banker corpus",
         "Test robustness / perturbations",
         "Development / smoke checks",
     ]
@@ -417,22 +416,12 @@ def test_inventory_cohort_readiness_mappings_current_catalog_has_no_ambiguous_en
     assert ambiguous == []
 
 
-def test_profile_status_metadata_classifies_supported_deprecated_and_compatibility_profiles() -> None:
+def test_profile_status_metadata_classifies_supported_profiles() -> None:
     final_profile = profile_manager.load_profile("malicious_temporal_stability_locked")
-    deprecated_profile = profile_manager.load_profile("research_all_malicious")
-    compatibility_profile = profile_manager.load_profile(
-        str(profile_manager.PROFILES_DIR / "paper2_primary.yaml")
-    )
     dev_profile = profile_manager.load_profile("dev_fast")
 
     assert final_profile["profile_status"]["lifecycle"] == "final_canonical"
     assert final_profile["profile_status"]["operator_surface"] == "supported"
-
-    assert deprecated_profile["profile_status"]["lifecycle"] == "deprecated_exploratory"
-    assert deprecated_profile["profile_status"]["replacement_profile_id"] == "malicious_temporal_stability"
-
-    assert compatibility_profile["profile_status"]["lifecycle"] == "compatibility_alias"
-    assert compatibility_profile["profile_status"]["canonical_profile_id"] == "malicious_temporal_stability"
 
     assert dev_profile["profile_status"]["lifecycle"] == "dev_only"
     assert dev_profile["profile_status"]["operator_surface"] == "supported_dev"

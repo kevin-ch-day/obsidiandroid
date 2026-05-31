@@ -118,8 +118,8 @@ def test_write_run_evidence_index_prefers_canonical_feature_build_coverage(
         manifest={},
         manifest_context={},
         trained_models=[],
-        paper_safe_status="NOT_APPLICABLE",
-        paper_safe_reasons=[],
+        publication_ready_status="NOT_APPLICABLE",
+        publication_ready_reasons=[],
     )
 
     text = out_path.read_text(encoding="utf-8")
@@ -154,8 +154,8 @@ def test_write_run_evidence_index_includes_authority_coverage_pointer(
         manifest={},
         manifest_context={},
         trained_models=[],
-        paper_safe_status="PASS",
-        paper_safe_reasons=[],
+        publication_ready_status="PASS",
+        publication_ready_reasons=[],
     )
 
     text = out_path.read_text(encoding="utf-8")
@@ -191,8 +191,8 @@ def test_write_run_evidence_index_includes_taxonomy_authority_split_pointer(
         manifest={},
         manifest_context={},
         trained_models=[],
-        paper_safe_status="PASS",
-        paper_safe_reasons=[],
+        publication_ready_status="PASS",
+        publication_ready_reasons=[],
     )
 
     text = out_path.read_text(encoding="utf-8")
@@ -235,8 +235,8 @@ def test_write_run_evidence_index_surfaces_label_resolution_disabled_state(
         manifest={},
         manifest_context={},
         trained_models=[],
-        paper_safe_status="NOT_APPLICABLE",
-        paper_safe_reasons=[],
+        publication_ready_status="NOT_APPLICABLE",
+        publication_ready_reasons=[],
     )
 
     text = out_path.read_text(encoding="utf-8")
@@ -369,8 +369,8 @@ def test_write_run_evidence_index_includes_shared_backlog_summary(
         manifest={},
         manifest_context={},
         trained_models=[],
-        paper_safe_status="PASS",
-        paper_safe_reasons=[],
+        publication_ready_status="PASS",
+        publication_ready_reasons=[],
     )
 
     text = out_path.read_text(encoding="utf-8")
@@ -573,8 +573,8 @@ def test_write_run_science_index_surfaces_policy_held_focus_detail(
     assert "Open the policy-held token risk export and review the dominant high/strong hold lane plus token/package cluster" in text
 
 
-def test_paper_safe_status_not_applicable_when_paper_mode_off() -> None:
-    status, reasons = output_inventory.evaluate_paper_safe_status(
+def test_publication_ready_summary_status_not_applicable_when_paper_mode_off() -> None:
+    status, reasons = output_inventory.evaluate_publication_ready_summary_status(
         paper_mode=False,
         manifest={},
         compliance_report=None,
@@ -583,8 +583,8 @@ def test_paper_safe_status_not_applicable_when_paper_mode_off() -> None:
     assert reasons == []
 
 
-def test_paper_safe_status_pass_when_compliance_passes() -> None:
-    status, reasons = output_inventory.evaluate_paper_safe_status(
+def test_publication_ready_summary_status_pass_when_compliance_passes() -> None:
+    status, reasons = output_inventory.evaluate_publication_ready_summary_status(
         paper_mode=True,
         manifest={},
         compliance_report={"overall_status": "pass"},
@@ -593,8 +593,8 @@ def test_paper_safe_status_pass_when_compliance_passes() -> None:
     assert reasons == []
 
 
-def test_paper_safe_status_fail_when_compliance_fails() -> None:
-    status, reasons = output_inventory.evaluate_paper_safe_status(
+def test_publication_ready_summary_status_fail_when_compliance_fails() -> None:
+    status, reasons = output_inventory.evaluate_publication_ready_summary_status(
         paper_mode=True,
         manifest={},
         compliance_report={"overall_status": "fail"},
@@ -621,7 +621,7 @@ def test_output_hygiene_terminal_summary_omits_open_first(capsys, tmp_path: Path
             "duplicate_latest_inside_run_legacy_compatibility": 2,
         },
         evidence_index_path=run_root / "run_evidence_index.md",
-        paper_safe_status="PASS",
+        publication_ready_status="PASS",
     )
 
     out = capsys.readouterr().out

@@ -1,5 +1,5 @@
 profile_id: banker_locked
-description: "Banker legacy/count-locked baseline contract. Counts are fixed; sample-membership lock recovery remains pending."
+description: "Banker count-locked baseline contract. Counts are fixed; sample-membership lock recovery remains pending."
 cohort_readiness_bucket: android_banker_with_permission_obs
 profile_status:
   lifecycle: final_canonical
@@ -43,5 +43,5 @@ paper_lock:
   expected_type_scope: banker
   material_change_abs_delta_macro_f1_gt: 0.02
   sample_id_lock_status: unavailable
-  sample_id_lock_todo: "Recover banker cohort sample IDs from historical run outputs, archived snapshots, or DB-backed legacy exports before treating this as an immutable sample-membership lock."
+  sample_id_lock_todo: "Recover banker cohort sample IDs from historical run outputs, archived snapshots, or DB-backed exports before treating this as an immutable sample-membership lock."
   notes: "Counts and banker-only scope are locked for reproducibility; sample-membership lock has not yet been recovered."

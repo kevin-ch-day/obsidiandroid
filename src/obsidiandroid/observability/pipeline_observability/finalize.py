@@ -16,7 +16,7 @@ from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common.publication_readiness import (
     evaluate_publication_ready_status,
-    publication_ready_alias_payload,
+    publication_ready_payload,
 )
 from obsidiandroid.common.scientific_adequacy import classify_scientific_adequacy
 
@@ -287,7 +287,7 @@ def finalize_pipeline_observability(
         readiness_issues=list(evidence_readiness_issues),
     )
 
-    paper_safe_terminal, reasons = evaluate_publication_ready_status(
+    publication_ready_terminal, reasons = evaluate_publication_ready_status(
         paper_mode=bool(paper_mode),
         manifest=manifest,
         compliance_report=compliance_report,
@@ -625,7 +625,7 @@ def finalize_pipeline_observability(
             "run_evidence_index_md": str(resolved_run_root / "run_evidence_index.md") if resolved_run_root else "",
         },
     }
-    status_blob.update(publication_ready_alias_payload(paper_safe_terminal, reasons))
+    status_blob.update(publication_ready_payload(publication_ready_terminal, reasons))
 
     summary_text = json.dumps(status_blob, indent=2, sort_keys=True)
     summary_path = diagnostics_dir / AUTHORITATIVE_SUMMARY_FILENAME
@@ -655,7 +655,7 @@ def finalize_pipeline_observability(
         du.print_section("Observability snapshot")
         du.print_stat("Aggregate pipeline verdict", verdict)
         du.print_stat("Research validity bundle", rv_status + (f" ({rv_err})" if rv_err else ""))
-        du.print_stat("strict_publication_status", paper_safe_terminal)
+        du.print_stat("strict_publication_status", publication_ready_terminal)
         du.print_stat(AUTHORITATIVE_SUMMARY_FILENAME, str(summary_path))
 
     manifest_context["_observability_finalized_once"] = True

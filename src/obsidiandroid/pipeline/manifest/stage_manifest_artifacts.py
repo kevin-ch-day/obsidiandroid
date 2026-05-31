@@ -199,13 +199,9 @@ def export_engine_ranking_tiers(
         return None, ""
     if evidence_mode:
         out_dir = run_root / "evidence_bundle"
-        legacy_out_dir = run_root / "paper2_pack"
     else:
         out_dir = run_root / "paper_exports" / "tables"
-        legacy_out_dir = None
     out_dir.mkdir(parents=True, exist_ok=True)
-    if legacy_out_dir is not None:
-        legacy_out_dir.mkdir(parents=True, exist_ok=True)
 
     frame = weights_df.copy()
     vendor_col = "Vendor" if "Vendor" in frame.columns else None
@@ -247,8 +243,6 @@ def export_engine_ranking_tiers(
     export_df = frame[columns].copy()
     out_path = out_dir / "engine_ranking_tiers.csv"
     export_df.to_csv(out_path, index=False, lineterminator="\n", float_format="%.6f")
-    if legacy_out_dir is not None:
-        (legacy_out_dir / out_path.name).write_bytes(out_path.read_bytes())
     ranking_hash = sha256_hex(
         canonical_csv_bytes(
             export_df,

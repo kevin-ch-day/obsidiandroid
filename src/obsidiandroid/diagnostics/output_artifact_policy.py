@@ -83,16 +83,6 @@ def _init_rules() -> None:
                 description="Canonical evidence bundle (evidence mode).",
             ),
             _rule(
-                "**/paper2_pack/**",
-                bucket="evidence_required",
-                producer="obsidiandroid.pipeline.stage_manifest",
-                run_scoped=True,
-                paper_required=True,
-                safe_delete_after_run=False,
-                duplicate_latest=False,
-                description="Legacy compatibility mirror of the evidence bundle (evidence mode).",
-            ),
-            _rule(
                 "**/cohort_filter_contract_*.json",
                 bucket="evidence_required",
                 producer="obsidiandroid.pipeline.sample_exports",
@@ -113,14 +103,14 @@ def _init_rules() -> None:
                 description="Experiment registry for reproducibility tracking.",
             ),
             _rule(
-                "**/split_freeze_audit_*.csv",
+                "**/split_freeze_headline_*.csv",
                 bucket="evidence_required",
                 producer="obsidiandroid.modeling.model_trainer_factory",
                 run_scoped=True,
                 paper_required=True,
                 safe_delete_after_run=False,
                 duplicate_latest=False,
-                description="Train/test split freeze audit rows.",
+                description="Train/test split freeze ledger rows.",
             ),
             _rule(
                 "**/preflight_report.json",
@@ -407,8 +397,6 @@ def lifecycle_class_for_artifact(rel_posix: str, *, artifact_bucket: str) -> str
         return "operator_convenience_mirror"
     if rel.startswith("diagnostics/latest_run_pointer.json"):
         return "operator_convenience_mirror"
-    if "/paper2_pack/" in f"/{rel}" or rel.startswith("paper2_pack/"):
-        return "legacy_compatibility"
     if ".latest." in Path(rel).name and rel.startswith("diagnostics/"):
         return "legacy_compatibility" if bucket == "deprecated_or_duplicate" else "operator_convenience_mirror"
     if rel.startswith("promoted/") or rel.startswith("latest/"):

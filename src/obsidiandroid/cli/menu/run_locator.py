@@ -212,11 +212,7 @@ def resolve_run_root_for_manifest(
 def read_locked_publication_run_id() -> str | None:
     """Return locked publication/evidence run pointer when available."""
     diagnostics_root = output_paths.diagnostics_root()
-    candidates = [
-        diagnostics_root / "evidence_locked_run.txt",
-        diagnostics_root / "paper2_locked_run.txt",
-    ]
-    pointer = next((path for path in candidates if path.exists()), candidates[0])
+    pointer = diagnostics_root / "evidence_locked_run.txt"
     if not pointer.exists():
         return None
     try:

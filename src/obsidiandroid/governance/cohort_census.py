@@ -17,6 +17,7 @@ from obsidiandroid.database import db_engine
 from obsidiandroid.database import db_sample_metadata_queries
 from obsidiandroid.governance import paper_cohort_contract
 from obsidiandroid.governance.cohort_lock_manifest import read_member_list
+from obsidiandroid.governance.label_snapshot_contract import label_snapshot_hash
 from obsidiandroid.governance.cohort_reproducibility import apply_analysis_snapshot_lock
 from obsidiandroid.orchestration.profile_filters import (
     apply_dataset_filters,
@@ -38,10 +39,6 @@ TARGET_PROFILE_IDS: tuple[str, ...] = (
     "malicious_temporal_stability_long_tail",
     "malicious_temporal_consensus10",
     "malicious_temporal_family300",
-    "paper2_primary",
-    "paper2_primary_locked",
-    "paper2_sensitivity_consensus10",
-    "paper2_sensitivity_family300",
 )
 
 SUPPORT_FLOOR_REFERENCE_VALUES: tuple[int, ...] = (20, 10, 5, 1)
@@ -159,26 +156,6 @@ def _cohort_membership_hash(df: pd.DataFrame) -> str:
         .tolist()
     )
     return hash_payload(ids)
-
-
-def _label_snapshot_hash(df: pd.DataFrame) -> str:
-    payload: list[tuple[Any, ...]] = []
-    if df.empty:
-        return ""
-    sample_ids = pd.to_numeric(df["sample_id"], errors="coerce").fillna(-1).astype(int)
-    family_ids = pd.to_numeric(df.get("family_id"), errors="coerce").fillna(-1).astype(int)
-    family_names = df["family_canonical"].fillna("").astype(str).str.strip().str.lower()
-    type_slugs = df["type_slug"].fillna("").astype(str).str.strip().str.lower()
-    for sample_id, family_id, family_name, type_slug in zip(
-        sample_ids.tolist(),
-        family_ids.tolist(),
-        family_names.tolist(),
-        type_slugs.tolist(),
-        strict=False,
-    ):
-        payload.append((sample_id, family_id, family_name, type_slug))
-    payload.sort()
-    return hash_payload(payload)
 
 
 def _to_runtime_semantics(profile: dict[str, Any]) -> ProfileRuntimeSemantics:
@@ -652,7 +629,7 @@ def _build_profile_summary_row(
         family_count = int(family_series[family_series != ""].nunique())
         type_count = int(type_series[type_series != ""].nunique())
         cohort_hash = _cohort_membership_hash(cohort_df)
-        taxonomy_hash = _label_snapshot_hash(cohort_df)
+        taxonomy_hash = label_snapshot_hash(cohort_df)
         source_snapshot = "live_loader:malware_sample_catalog"
 
     permission_requirement = (
@@ -694,7 +671,7 @@ def _build_profile_summary_row(
         },
         "cohort_membership_hash": cohort_hash,
         "taxonomy_hash": taxonomy_hash,
-        "label_snapshot_hash": _label_snapshot_hash(cohort_df),
+        "label_snapshot_hash": label_snapshot_hash(cohort_df),
         "source_snapshot_or_lock_file": source_snapshot,
         "top_families": _top_count_dict(family_series[family_series != ""], limit=10),
         "top_malware_types": _top_count_dict(type_series[type_series != ""], limit=10),
@@ -1142,7 +1119,7 @@ def _report_lines(bundle: dict[str, Any]) -> list[str]:
         "",
         "## Required answers",
         "",
-        f"1. `1226 / 39 / 6` encoded in active source tree: **yes** (`malicious_temporal_stability_locked`, `paper2_primary_locked`, `20260504T044304Z__8c64e6/cohort_lock_manifest.json`).",
+        f"1. `1226 / 39 / 6` encoded in active source tree: **yes** (`malicious_temporal_stability_locked`, `20260504T044304Z__8c64e6/cohort_lock_manifest.json`).",
         "2. `1187 / 35 / 3` still the active locked profile contract: **no**. That count survives only as an archived baseline note, not the active lock manifest.",
         f"3. Multiple lock concepts: **yes**. Manuscript-facing lock = `20260504T044304Z__8c64e6`; archived rebaseline = `{archived_rebaseline.get('path', 'none')}`.",
         f"4. Available now under exact profile semantics:",

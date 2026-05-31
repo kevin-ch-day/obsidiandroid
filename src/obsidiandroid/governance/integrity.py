@@ -141,7 +141,7 @@ def _is_operator_mirror_path(
         return True
     if name_lower.startswith("run_summary.latest"):
         return True
-    if name_lower.startswith("split_freeze_audit.latest"):
+    if name_lower.startswith("split_freeze_headline.latest"):
         return True
     if name_lower.startswith("ablation_summary.latest"):
         return True

@@ -159,7 +159,7 @@ def test_recovered_historical_lock_degrades_when_live_db_is_missing_locked_rows(
             "expected_family_count": 2,
             "expected_type_count": 1,
             "sample_id_lock_status": "recovered_from_historical_artifact",
-            "sample_id_lock_file": "artifacts/baselines/20260526T021235Z__8b6966/paper2_primary_locked_sample_ids.csv",
+            "sample_id_lock_file": "artifacts/baselines/20260504T044304Z__8c64e6/malicious_temporal_stability_locked_sample_ids.csv",
         },
     }
     samples_df = pd.DataFrame(
@@ -217,7 +217,7 @@ def test_matched_sample_lock_degrades_when_only_taxonomy_counts_drift(
             "expected_family_count": 2,
             "expected_type_count": 1,
             "sample_id_lock_status": "recovered_from_historical_artifact",
-            "sample_id_lock_file": "artifacts/baselines/20260526T021235Z__8b6966/paper2_primary_locked_sample_ids.csv",
+            "sample_id_lock_file": "artifacts/baselines/20260504T044304Z__8c64e6/malicious_temporal_stability_locked_sample_ids.csv",
         },
     }
     samples_df = pd.DataFrame(
@@ -258,6 +258,65 @@ def test_matched_sample_lock_degrades_when_only_taxonomy_counts_drift(
     assert contract["validation"]["status"] == "degraded_taxonomy_label_drift"
     assert contract["validation"]["severity"] == "warning"
     assert contract["cohort_lock_status"] == "membership_locked_taxonomy_drift"
+
+
+def test_immutable_lock_first_materialization_keeps_mismatch_hard_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The manuscript-facing immutable lock must not downgrade into warning-style drift semantics."""
+    profile = {
+        "profile_id": "paper_lock_demo_locked",
+        "paper_locked": True,
+        "paper_lock": {
+            "contract_id": "demo_contract",
+            "expected_sample_count": 3,
+            "expected_family_count": 2,
+            "expected_type_count": 1,
+            "sample_id_lock_status": "recovered_from_historical_artifact",
+            "sample_id_lock_file": "artifacts/baselines/20260504T044304Z__8c64e6/malicious_temporal_stability_locked_sample_ids.csv",
+        },
+    }
+    samples_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "family_canonical": ["f1", "f1"],
+            "type_slug": ["banker", "banker"],
+        }
+    )
+    samples_df.attrs["snapshot_lock"] = {
+        "status": "matched",
+        "applied": True,
+        "matched_sample_count": 2,
+        "lock_sample_count": 3,
+        "missing_from_db_count": 1,
+    }
+    samples_df.attrs["paper_locked_materialization"] = {
+        "mode": "immutable_lock_first_broad_catalog_fetch",
+        "lock_file_count": 3,
+        "materialized_count": 2,
+    }
+
+    def _fake_reader(path: Path) -> dict[str, object]:
+        if str(path).endswith("malicious_temporal_stability_locked_sample_ids.csv"):
+            return {"lock_sample_count": 3, "lock_sample_id_hash": "abc"}
+        raise AssertionError(f"unexpected lock path: {path}")
+
+    monkeypatch.setattr(
+        paper_cohort_contract,
+        "_read_lock_file_metadata",
+        _fake_reader,
+    )
+    contract = paper_cohort_contract.build_runtime_contract(
+        profile=profile,
+        manifest_context={"db_query_contract": {"version": "v1"}},
+        samples_df=samples_df,
+        raise_on_mismatch=False,
+    )
+
+    assert contract["validation"]["status"] == "mismatch"
+    assert contract["validation"]["severity"] == "error"
+    assert "sample_count observed=2 expected=3" in contract["validation"]["mismatches"]
+    assert "runtime_db_drift" not in contract["sample_id_lock"]
 
 
 def test_locked_paper_contract_requires_archived_label_snapshot(
@@ -462,8 +521,8 @@ def test_manifest_payload_records_expected_cohort_contract_metadata() -> None:
 
 
 def test_exploratory_profile_is_not_mistaken_for_paper_locked() -> None:
-    """Exploratory profiles should remain clearly outside the locked-cohort contract path."""
-    profile = profile_manager.load_profile("research_all_malicious")
+    """Current research profiles should remain clearly outside the locked-cohort contract path."""
+    profile = profile_manager.load_profile("malicious_temporal_stability")
     contract = paper_cohort_contract.build_declared_contract(profile)
 
     assert profile["paper_locked"] is False
@@ -484,8 +543,7 @@ def test_banker_locked_profile_is_honestly_marked_count_only() -> None:
     assert "Recover banker cohort sample IDs" in contract["sample_id_lock"]["todo"]
 
 
-def test_legacy_paper_profile_alias_resolves_to_generic_locked_profile() -> None:
-    """Deprecated legacy alias ids should resolve to the canonical locked profile."""
-    with pytest.warns(FutureWarning, match="paper2_primary_locked"):
-        profile = profile_manager.load_profile("paper2_primary_locked")
-    assert profile["profile_id"] == "malicious_temporal_stability_locked"
+def test_removed_legacy_locked_profile_alias_fails_to_load() -> None:
+    """Removed legacy locked alias ids should no longer resolve."""
+    with pytest.raises(FileNotFoundError):
+        profile_manager.load_profile("paper2_primary_locked")

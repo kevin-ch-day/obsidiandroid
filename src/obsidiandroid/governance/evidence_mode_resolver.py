@@ -76,8 +76,6 @@ def resolve_evidence_mode(
     profile_value = None
     if isinstance(profile, dict):
         profile_value = profile.get("evidence_mode")
-        if profile_value is None:
-            profile_value = profile.get("paper_mode")
 
     parsed_cli = _parse_bool_like(cli_value, "cli", strict=True)
     parsed_env = _parse_bool_like(env_value, "env", strict=strict_env)

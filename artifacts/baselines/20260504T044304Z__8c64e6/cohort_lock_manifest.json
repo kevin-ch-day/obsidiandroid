@@ -4,6 +4,7 @@
   "contract_id": "malicious_temporal_stability_locked_contract",
   "created_at_utc": "2026-05-04T04:43:04Z",
   "family_count": 39,
+  "label_snapshot_hash": "7b91912838e288816471cf9d44eac84b8953b0b7580e616c9a9085f5a2d80ae4",
   "label_target_class_stats": [
     {
       "class_count": 39,
@@ -41,6 +42,7 @@
   "sample_count": 1226,
   "schema_version": "1.0",
   "source_artifacts": {
+    "analysis_snapshot_sample_archive_table": "analysis_snapshot_sample_archive:20260504T044304Z__8c64e6",
     "member_list_csv": "malicious_temporal_stability_locked_sample_ids.csv",
     "run_observability_summary_json": "run_observability_summary.json",
     "sample_stage_lineage_csv": "sample_stage_lineage_20260504T044304Z__8c64e6.csv"

@@ -358,7 +358,7 @@ def test_exploratory_profile_is_not_blocked_by_publication_lock(
         main.profile_manager,
         "load_profile",
         lambda _ref: {
-            "profile_id": "research_all_malicious",
+            "profile_id": "malicious_temporal_stability",
             "type_slug_filter": None,
             "cohort_gates": {},
             "model_list": ["logistic_regression"],
@@ -376,7 +376,7 @@ def test_exploratory_profile_is_not_blocked_by_publication_lock(
         lambda **_kwargs: pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
     )
 
-    result = main.run_pipeline(stop_after="samples", profile_ref="research_all_malicious")
+    result = main.run_pipeline(stop_after="samples", profile_ref="malicious_temporal_stability")
     assert result == 0
 
 

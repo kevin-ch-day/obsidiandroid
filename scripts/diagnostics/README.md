@@ -1,6 +1,6 @@
 # Diagnostics scripts (`scripts/diagnostics/`)
 
-Operator inspection and analysis helpers that live in this package. Run from the **repository root** so imports resolve (`analysis`, `database`, `config`, …).
+Operator inspection and analysis helpers that live in this package. Run from the **repository root** so imports resolve (`obsidiandroid`, `database`, `config`, …).
 
 ## Inspect modules (formerly top-level `data_inspect/`)
 

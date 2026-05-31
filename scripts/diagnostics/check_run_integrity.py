@@ -135,10 +135,10 @@ def compare_run_artifacts(
         if not _close(f1_s, f1_o, tol=f1_tolerance):
             issues.append(f"top_macro_f1 mismatch: run_summary={f1_s} observability={f1_o} (tol={f1_tolerance})")
 
-        ps_s = str(summary.get("paper_safe_status") or "").strip()
-        ps_o = str(observability.get("paper_safe_status") or "").strip()
+        ps_s = str(summary.get("publication_ready_status") or "").strip()
+        ps_o = str(observability.get("publication_ready_status") or "").strip()
         if ps_s and ps_o and ps_s != ps_o:
-            issues.append(f"paper_safe_status mismatch: run_summary={ps_s!r} observability={ps_o!r}")
+            issues.append(f"publication_ready_status mismatch: run_summary={ps_s!r} observability={ps_o!r}")
 
     return issues
 

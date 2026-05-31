@@ -160,9 +160,6 @@ def _collect_targets(
                 legacy_dir = run_dir / dirname
                 if legacy_dir.exists():
                     targets.append(legacy_dir)
-            legacy_pack_dir = run_dir / "paper2_pack"
-            if legacy_pack_dir.exists() and (run_dir / "evidence_bundle").exists():
-                targets.append(legacy_pack_dir)
             if preserve_run:
                 continue
             diagnostics_dir = run_dir / "diagnostics"

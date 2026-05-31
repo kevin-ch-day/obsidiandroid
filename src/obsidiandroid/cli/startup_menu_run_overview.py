@@ -52,9 +52,14 @@ def print_profile_tuning_from_manifest(manifest: dict[str, Any]) -> None:
     if ch:
         du.print_stat("Profile config hash", ch[:16] + ("…" if len(ch) > 16 else ""))
 
-    du.print_stat("Evidence mode (manifest)", "Yes" if coalesce_manifest_publication_mode(manifest) else "No")
-    pmd = manifest.get("paper_mode") if isinstance(manifest.get("paper_mode"), dict) else {}
-    du.print_stat("Publication-ready mode (manifest)", "Yes" if bool(pmd.get("resolved_value")) else "No")
+    manifest_publication_mode = coalesce_manifest_publication_mode(manifest)
+    du.print_stat("Evidence mode (manifest)", "Yes" if manifest_publication_mode else "No")
+    du.print_stat("Publication-ready mode (manifest)", "Yes" if manifest_publication_mode else "No")
+    pmd = (
+        manifest.get("evidence_mode")
+        if isinstance(manifest.get("evidence_mode"), dict)
+        else (manifest.get("paper_mode") if isinstance(manifest.get("paper_mode"), dict) else {})
+    )
     psrc = str(pmd.get("source") or "").strip()
     if psrc:
         du.print_stat("Publication-ready mode source", psrc)

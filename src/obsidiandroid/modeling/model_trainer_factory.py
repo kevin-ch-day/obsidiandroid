@@ -547,13 +547,6 @@ def _export_split_audit(
             csv_text=audit_csv,
             global_latest_name="split_freeze_headline.latest.csv",
         )
-        legacy_audit_name = f"split_freeze_audit_{run_id}.csv"
-        oh.mirror_csv_text_run_then_global(
-            diagnostics_dir=out_dir,
-            run_filename=legacy_audit_name,
-            csv_text=audit_csv,
-            global_latest_name="split_freeze_audit.latest.csv",
-        )
         primary_path = out_dir / headline_path_name
     else:
         ablation_name = (
@@ -584,8 +577,6 @@ def _export_split_audit(
     }
     if isinstance(temporal_summary, dict):
         meta["temporal_split_summary"] = dict(temporal_summary)
-    if ledger_kind == "headline":
-        meta["compat_split_audit_path"] = str((out_dir / f"split_freeze_audit_{run_id}.csv").resolve())
 
     split_audit_cache[cache_key] = dict(meta)
     setattr(app_config, "RUNTIME_SPLIT_HASH", split_hash)

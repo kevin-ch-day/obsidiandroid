@@ -18,9 +18,9 @@ def test_collect_targets_prunes_legacy_run_subdirs_for_older_runs(tmp_path: Path
     old_run = _make_run(output_dir, "20260519T010101Z__aaaaaa")
     keep_run = _make_run(output_dir, "20260519T020202Z__bbbbbb")
 
-    for name in ("latest", "promoted", "runs", "paper2_pack", "evidence_bundle"):
+    for name in ("latest", "promoted", "runs", "evidence_bundle"):
         (old_run / name).mkdir(parents=True, exist_ok=True)
-    for name in ("latest", "promoted", "runs", "paper2_pack", "evidence_bundle"):
+    for name in ("latest", "promoted", "runs", "evidence_bundle"):
         (keep_run / name).mkdir(parents=True, exist_ok=True)
 
     targets = coa._collect_targets(  # pylint: disable=protected-access
@@ -33,15 +33,13 @@ def test_collect_targets_prunes_legacy_run_subdirs_for_older_runs(tmp_path: Path
     assert "runs/20260519T010101Z__aaaaaa/latest" in target_set
     assert "runs/20260519T010101Z__aaaaaa/promoted" in target_set
     assert "runs/20260519T010101Z__aaaaaa/runs" in target_set
-    assert "runs/20260519T010101Z__aaaaaa/paper2_pack" in target_set
     assert "runs/20260519T020202Z__bbbbbb/latest" not in target_set
-    assert "runs/20260519T020202Z__bbbbbb/paper2_pack" not in target_set
 
 
 def test_collect_targets_can_prune_legacy_subdirs_for_preserved_latest_run(tmp_path: Path) -> None:
     output_dir = tmp_path / "output"
     keep_run = _make_run(output_dir, "20260519T020202Z__bbbbbb")
-    for name in ("latest", "promoted", "runs", "paper2_pack", "evidence_bundle"):
+    for name in ("latest", "promoted", "runs", "evidence_bundle"):
         (keep_run / name).mkdir(parents=True, exist_ok=True)
 
     targets = coa._collect_targets(  # pylint: disable=protected-access
@@ -55,22 +53,6 @@ def test_collect_targets_can_prune_legacy_subdirs_for_preserved_latest_run(tmp_p
     assert "runs/20260519T020202Z__bbbbbb/latest" in target_set
     assert "runs/20260519T020202Z__bbbbbb/promoted" in target_set
     assert "runs/20260519T020202Z__bbbbbb/runs" in target_set
-    assert "runs/20260519T020202Z__bbbbbb/paper2_pack" in target_set
-
-
-def test_collect_targets_only_prunes_paper2_pack_when_evidence_bundle_exists(tmp_path: Path) -> None:
-    output_dir = tmp_path / "output"
-    run_dir = _make_run(output_dir, "20260519T010101Z__aaaaaa")
-    (run_dir / "paper2_pack").mkdir(parents=True, exist_ok=True)
-
-    targets = coa._collect_targets(  # pylint: disable=protected-access
-        output_dir,
-        keep_run_ids=set(),
-        keep_runtime_logs=0,
-    )
-
-    target_set = {path.relative_to(output_dir).as_posix() for path in targets}
-    assert "runs/20260519T010101Z__aaaaaa/paper2_pack" not in target_set
 
 
 def test_collect_targets_prunes_old_run_local_latest_and_split_freeze_exports(tmp_path: Path) -> None:

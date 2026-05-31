@@ -56,7 +56,7 @@ def build_paper_compliance_checks(
             "fatal",
             "split audit artifact missing",
             artifacts.ArtifactKey.SPLIT_AUDIT_CSV,
-            "Export split_freeze_audit_<run_id>.csv prior to training.",
+            "Export split_freeze_headline_<run_id>.csv prior to training.",
             enabled=paper_mode,
         )
     )

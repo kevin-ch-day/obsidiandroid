@@ -208,7 +208,7 @@ def test_export_cohort_filter_contract_writes_files(monkeypatch, tmp_path: Path)
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
     contract_path, gate_path = stage_samples._export_cohort_filter_contract(  # pylint: disable=protected-access
         run_id="r3",
-        profile_id="all_malicious",
+        profile_id="malicious_temporal_stability",
         gates={"min_malicious_detections": 5},
         gate_rows=[{"run_id": "r3", "step": 1, "gate_name": "test", "count_before": 10, "count_after": 8, "dropped": 2, "details": ""}],
     )
@@ -230,7 +230,7 @@ def test_export_cohort_filter_contract_run_scoped_uses_global_latest(
     monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "r3", raising=False)
     contract_path, gate_path = stage_samples._export_cohort_filter_contract(  # pylint: disable=protected-access
         run_id="r3",
-        profile_id="all_malicious",
+        profile_id="malicious_temporal_stability",
         gates={"min_malicious_detections": 5},
         gate_rows=[
             {

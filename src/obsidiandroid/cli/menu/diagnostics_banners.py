@@ -259,9 +259,7 @@ def print_data_diagnostics_banner(*, output_root: Path, latest_run_id: str | Non
     provenance = False
     if latest_run_id:
         diag = output_root / "runs" / latest_run_id / "diagnostics"
-        provenance = (diag / f"split_freeze_headline_{latest_run_id}.csv").exists() or (
-            diag / f"split_freeze_audit_{latest_run_id}.csv"
-        ).exists()
+        provenance = (diag / f"split_freeze_headline_{latest_run_id}.csv").exists()
     du.print_stat("Diagnostics ready", "Yes" if provenance else "No")
 
     cov_path = resolve_vendor_parser_coverage_csv()

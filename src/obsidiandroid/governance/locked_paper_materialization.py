@@ -19,6 +19,10 @@ from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.database import db_engine
 from obsidiandroid.database import db_sample_metadata_queries
 from obsidiandroid.governance.cohort_lock_manifest import load_lock_manifest, read_member_list
+from obsidiandroid.governance.label_snapshot_contract import (
+    label_snapshot_hash,
+    normalize_label_snapshot_frame,
+)
 from obsidiandroid.governance.cohort_reproducibility import apply_analysis_snapshot_lock
 
 
@@ -139,6 +143,13 @@ def materialize_locked_paper_cohort(
         encoding="utf-8",
     )
 
+    if len(materialized_df) != len(lock_members):
+        raise ValueError(
+            "[COHORT_LOCK] Failed to fully materialize immutable paper lock: "
+            f"lock_file_count={len(lock_members)} materialized_count={len(materialized_df)}. "
+            f"See {missing_locked_members_path} and {label_drift_report_path}."
+        )
+
     materialized_df.attrs["paper_locked_materialization"] = {
         "mode": "immutable_lock_first_broad_catalog_fetch",
         "lock_file_count": int(len(lock_members)),
@@ -224,27 +235,29 @@ def _load_archived_label_snapshot(
             df = pd.read_csv(candidate)
         except Exception:
             continue
-        normalized = _normalize_archived_label_snapshot(df)
+        normalized = normalize_label_snapshot_frame(df)
         if normalized is None:
             continue
         return normalized, {
             "available": True,
             "status": "baseline_artifact_label_snapshot",
             "path": str(candidate),
-            "label_snapshot_hash": _label_snapshot_hash(normalized),
+            "label_snapshot_hash": label_snapshot_hash(normalized),
+            "taxonomy_hash": label_snapshot_hash(normalized),
         }
 
     historical_run_id = str(manifest.get("canonical_historical_run_id", "") or raw_lock.get("canonical_historical_run_id", "") or "").strip()
     if historical_run_id:
-        warehouse_df = _load_archived_label_snapshot_from_warehouse(historical_run_id)
+        warehouse_df, warehouse_source = _load_archived_label_snapshot_from_warehouse(historical_run_id)
         if warehouse_df is not None and not warehouse_df.empty:
-            normalized = _normalize_archived_label_snapshot(warehouse_df)
+            normalized = normalize_label_snapshot_frame(warehouse_df)
             if normalized is not None:
                 return normalized, {
                     "available": True,
-                    "status": "results_warehouse_analysis_snapshot_sample",
-                    "path": f"analysis_snapshot_sample:{historical_run_id}",
-                    "label_snapshot_hash": _label_snapshot_hash(normalized),
+                    "status": warehouse_source,
+                    "path": f"{warehouse_source}:{historical_run_id}",
+                    "label_snapshot_hash": label_snapshot_hash(normalized),
+                    "taxonomy_hash": label_snapshot_hash(normalized),
                 }
 
     return None, {
@@ -252,59 +265,43 @@ def _load_archived_label_snapshot(
         "status": "archived_label_snapshot_unavailable",
         "path": "",
         "label_snapshot_hash": "",
+        "taxonomy_hash": "",
     }
 
 
-def _load_archived_label_snapshot_from_warehouse(run_id: str) -> pd.DataFrame | None:
-    query = """
-        SELECT sample_id, sha256, family_id, family_canonical, type_slug
-        FROM analysis_snapshot_sample
-        WHERE run_id = %s
-    """
-    try:
-        with db_engine.database_connection() as conn:
-            frame = pd.read_sql_query(query, conn, params=(run_id,))
-    except Exception:
-        return None
-    return frame if isinstance(frame, pd.DataFrame) else None
-
-
-def _normalize_archived_label_snapshot(df: pd.DataFrame) -> pd.DataFrame | None:
-    required = {"sample_id", "family_canonical", "type_slug"}
-    if not required.issubset(df.columns):
-        return None
-    work = df.copy()
-    work["sample_id"] = pd.to_numeric(work["sample_id"], errors="coerce")
-    work = work.dropna(subset=["sample_id"])
-    work["sample_id"] = work["sample_id"].astype(int)
-    if "family_id" not in work.columns:
-        work["family_id"] = pd.NA
-    if "sha256" not in work.columns:
-        work["sha256"] = ""
-    keep = ["sample_id", "sha256", "family_id", "family_canonical", "type_slug"]
-    return work[keep].drop_duplicates("sample_id").sort_values("sample_id", kind="mergesort").reset_index(drop=True)
-
-
-def _label_snapshot_hash(df: pd.DataFrame) -> str:
-    ordered = _normalize_archived_label_snapshot(df)
-    if ordered is None:
-        return ""
-    records = []
-    for _, row in ordered.iterrows():
-        records.append(
-            {
-                "sample_id": int(row["sample_id"]),
-                "family_id": None if pd.isna(row.get("family_id")) else int(row["family_id"]),
-                "family_canonical": str(row.get("family_canonical", "") or "").strip(),
-                "type_slug": str(row.get("type_slug", "") or "").strip().lower(),
-            }
-        )
-    return hash_payload(records)
+def _load_archived_label_snapshot_from_warehouse(run_id: str) -> tuple[pd.DataFrame | None, str]:
+    queries = (
+        (
+            "results_warehouse_analysis_snapshot_sample",
+            """
+            SELECT sample_id, sha256, family_id, family_canonical, type_slug
+            FROM analysis_snapshot_sample
+            WHERE run_id = %s
+            """,
+        ),
+        (
+            "results_warehouse_analysis_snapshot_sample_archive",
+            """
+            SELECT sample_id, sha256, family_id, family_canonical, type_slug
+            FROM analysis_snapshot_sample_archive
+            WHERE run_id = %s
+            """,
+        ),
+    )
+    for source, query in queries:
+        try:
+            with db_engine.database_connection() as conn:
+                frame = pd.read_sql_query(query, conn, params=(run_id,))
+        except Exception:
+            continue
+        if isinstance(frame, pd.DataFrame) and not frame.empty:
+            return frame, source
+    return None, ""
 
 
 def _apply_archived_labels(samples_df: pd.DataFrame, archived_label_df: pd.DataFrame) -> pd.DataFrame:
     live = _normalize_sample_id_frame(samples_df)
-    archived = _normalize_archived_label_snapshot(archived_label_df)
+    archived = normalize_label_snapshot_frame(archived_label_df)
     assert archived is not None
     merged = live.merge(
         archived.rename(

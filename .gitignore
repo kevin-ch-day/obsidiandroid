@@ -71,6 +71,13 @@ output/
 logs/
 *.log
 None/
+paper_exports/docs/cohort_*.csv
+paper_exports/docs/cohort_*.json
+paper_exports/docs/cohort_*.md
+paper_exports/docs/locked_vs_current_overlap.csv
+paper_exports/docs/locked_vs_current_overlap.json
+artifacts/paper/cohort_gap_audit_latest/
+artifacts/baselines/output_writer_audit.csv
 
 # Patch / merge artifacts
 *.orig

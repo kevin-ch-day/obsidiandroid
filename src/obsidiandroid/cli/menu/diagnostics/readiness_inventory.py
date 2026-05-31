@@ -45,7 +45,7 @@ _PROFILE_INTENT_GUIDE: tuple[str, ...] = (
     "Supported banker profiles -> android_banker_with_permission_obs",
     "Supported all-malicious and sensitivity profiles -> android_high_or_strong_vt_with_permission_obs",
     "Supported dev profiles are included for local/operator checks, not scientific benchmark interpretation.",
-    "Deprecated exploratory and compatibility-alias profiles are intentionally excluded from this supported inventory view.",
+    "Only supported profiles are shown in this readiness inventory view.",
 )
 
 

@@ -52,7 +52,7 @@
         "devixor",
         "gigabud"
       ],
-      "label_snapshot_hash": "76d18739e32e15d40912d00cd8202d18e204121514c57f69455a54f7938f95d4",
+      "label_snapshot_hash": "8bd40b6455125c5249a6f794a62a2ad993b03662e3c845c0b51930182b775129",
       "live_catalog_family_count": 23,
       "live_catalog_match_count": 1596,
       "live_catalog_type_count": 3,
@@ -81,7 +81,7 @@
         "exclude_unknown_type_slug": true,
         "exclude_weak_label_kinds": false
       },
-      "taxonomy_hash": "76d18739e32e15d40912d00cd8202d18e204121514c57f69455a54f7938f95d4",
+      "taxonomy_hash": "8bd40b6455125c5249a6f794a62a2ad993b03662e3c845c0b51930182b775129",
       "time_window": {
         "end_utc": "2026-01-01T00:00:00Z",
         "semantics": "start_inclusive_end_exclusive",
@@ -127,7 +127,7 @@
         "devixor",
         "gigabud"
       ],
-      "label_snapshot_hash": "76d18739e32e15d40912d00cd8202d18e204121514c57f69455a54f7938f95d4",
+      "label_snapshot_hash": "8bd40b6455125c5249a6f794a62a2ad993b03662e3c845c0b51930182b775129",
       "live_catalog_family_count": 23,
       "live_catalog_match_count": 1596,
       "live_catalog_type_count": 3,
@@ -156,7 +156,7 @@
         "exclude_unknown_type_slug": true,
         "exclude_weak_label_kinds": false
       },
-      "taxonomy_hash": "76d18739e32e15d40912d00cd8202d18e204121514c57f69455a54f7938f95d4",
+      "taxonomy_hash": "8bd40b6455125c5249a6f794a62a2ad993b03662e3c845c0b51930182b775129",
       "time_window": {
         "end_utc": "2026-01-01T00:00:00Z",
         "semantics": "start_inclusive_end_exclusive",
@@ -203,7 +203,7 @@
         "devixor",
         "gigabud"
       ],
-      "label_snapshot_hash": "155ca03e8fbe386f705611ab2bf3ce7af16d778b565aa3b400dee42f73f62996",
+      "label_snapshot_hash": "ef64eebfe17c8a3a26ae996abc418179b35763e2ddec1cf868c282119e30073a",
       "live_catalog_family_count": 23,
       "live_catalog_match_count": 1420,
       "live_catalog_type_count": 3,
@@ -232,7 +232,7 @@
         "exclude_unknown_type_slug": true,
         "exclude_weak_label_kinds": false
       },
-      "taxonomy_hash": "155ca03e8fbe386f705611ab2bf3ce7af16d778b565aa3b400dee42f73f62996",
+      "taxonomy_hash": "ef64eebfe17c8a3a26ae996abc418179b35763e2ddec1cf868c282119e30073a",
       "time_window": {
         "end_utc": "2026-01-01T00:00:00Z",
         "semantics": "start_inclusive_end_exclusive",
@@ -279,7 +279,7 @@
         "devixor",
         "gigabud"
       ],
-      "label_snapshot_hash": "155ca03e8fbe386f705611ab2bf3ce7af16d778b565aa3b400dee42f73f62996",
+      "label_snapshot_hash": "ef64eebfe17c8a3a26ae996abc418179b35763e2ddec1cf868c282119e30073a",
       "live_catalog_family_count": 23,
       "live_catalog_match_count": 1420,
       "live_catalog_type_count": 3,
@@ -308,7 +308,7 @@
         "exclude_unknown_type_slug": true,
         "exclude_weak_label_kinds": false
       },
-      "taxonomy_hash": "155ca03e8fbe386f705611ab2bf3ce7af16d778b565aa3b400dee42f73f62996",
+      "taxonomy_hash": "ef64eebfe17c8a3a26ae996abc418179b35763e2ddec1cf868c282119e30073a",
       "time_window": {
         "end_utc": "2026-01-01T00:00:00Z",
         "semantics": "start_inclusive_end_exclusive",
@@ -355,7 +355,7 @@
         "devixor",
         "gigabud"
       ],
-      "label_snapshot_hash": "9644d373b1e081b1511134953f04965442501e95d96c42e056fb5f4e6bd74e75",
+      "label_snapshot_hash": "5db55ebef541e6fd9dca66a5d7719bd385b6004c8e0441a79e848e328b44bb51",
       "live_catalog_family_count": 23,
       "live_catalog_match_count": 1602,
       "live_catalog_type_count": 3,
@@ -384,7 +384,7 @@
         "exclude_unknown_type_slug": true,
         "exclude_weak_label_kinds": false
       },
-      "taxonomy_hash": "9644d373b1e081b1511134953f04965442501e95d96c42e056fb5f4e6bd74e75",
+      "taxonomy_hash": "5db55ebef541e6fd9dca66a5d7719bd385b6004c8e0441a79e848e328b44bb51",
       "time_window": {
         "end_utc": "2026-01-01T00:00:00Z",
         "semantics": "start_inclusive_end_exclusive",
@@ -431,7 +431,7 @@
         "devixor",
         "gigabud"
       ],
-      "label_snapshot_hash": "9644d373b1e081b1511134953f04965442501e95d96c42e056fb5f4e6bd74e75",
+      "label_snapshot_hash": "5db55ebef541e6fd9dca66a5d7719bd385b6004c8e0441a79e848e328b44bb51",
       "live_catalog_family_count": 23,
       "live_catalog_match_count": 1602,
       "live_catalog_type_count": 3,
@@ -460,7 +460,7 @@
         "exclude_unknown_type_slug": true,
         "exclude_weak_label_kinds": false
       },
-      "taxonomy_hash": "9644d373b1e081b1511134953f04965442501e95d96c42e056fb5f4e6bd74e75",
+      "taxonomy_hash": "5db55ebef541e6fd9dca66a5d7719bd385b6004c8e0441a79e848e328b44bb51",
       "time_window": {
         "end_utc": "2026-01-01T00:00:00Z",
         "semantics": "start_inclusive_end_exclusive",
@@ -507,7 +507,7 @@
         "devixor",
         "gigabud"
       ],
-      "label_snapshot_hash": "1fea2b6a9473b6fa7989cd8607513e6a044e09ccec360cc620947e4d22fea24b",
+      "label_snapshot_hash": "9228473cb13c8a0ea8eed3a274b342fd67ede146f3866ee056f830f7023842bb",
       "live_catalog_family_count": 38,
       "live_catalog_match_count": 1815,
       "live_catalog_type_count": 4,
@@ -537,7 +537,7 @@
         "exclude_unknown_type_slug": true,
         "exclude_weak_label_kinds": false
       },
-      "taxonomy_hash": "1fea2b6a9473b6fa7989cd8607513e6a044e09ccec360cc620947e4d22fea24b",
+      "taxonomy_hash": "9228473cb13c8a0ea8eed3a274b342fd67ede146f3866ee056f830f7023842bb",
       "time_window": {
         "end_utc": "2026-01-01T00:00:00Z",
         "semantics": "start_inclusive_end_exclusive",
@@ -586,7 +586,7 @@
         "devixor",
         "gigabud"
       ],
-      "label_snapshot_hash": "caef83cce5274ad0bbdc55323ff9086cce19674063d5d1ac6992062ec5d0b921",
+      "label_snapshot_hash": "99ce173426f07f3c2fe70330d1cb002f22579ba28df3bfc87646d4992b02a9cd",
       "live_catalog_family_count": 43,
       "live_catalog_match_count": 1187,
       "live_catalog_type_count": 4,
@@ -663,7 +663,7 @@
         "devixor",
         "gigabud"
       ],
-      "label_snapshot_hash": "caef83cce5274ad0bbdc55323ff9086cce19674063d5d1ac6992062ec5d0b921",
+      "label_snapshot_hash": "99ce173426f07f3c2fe70330d1cb002f22579ba28df3bfc87646d4992b02a9cd",
       "live_catalog_family_count": 43,
       "live_catalog_match_count": 1187,
       "live_catalog_type_count": 4,
@@ -740,7 +740,7 @@
         "devixor",
         "gigabud"
       ],
-      "label_snapshot_hash": "75ba9230a14ababd692795af40d48de445ecb0b4f2a72e3b100ee9840fa41dce",
+      "label_snapshot_hash": "eca4178548cf3a53c014776cf3bb83cb2cb471371064b5daa4765e9a23882401",
       "live_catalog_family_count": 60,
       "live_catalog_match_count": 1954,
       "live_catalog_type_count": 7,
@@ -770,7 +770,7 @@
         "exclude_unknown_type_slug": true,
         "exclude_weak_label_kinds": false
       },
-      "taxonomy_hash": "75ba9230a14ababd692795af40d48de445ecb0b4f2a72e3b100ee9840fa41dce",
+      "taxonomy_hash": "eca4178548cf3a53c014776cf3bb83cb2cb471371064b5daa4765e9a23882401",
       "time_window": {
         "end_utc": "2026-01-01T00:00:00Z",
         "semantics": "start_inclusive_end_exclusive",
@@ -812,9 +812,10 @@
   ],
   "schema_version": "1.0",
   "strict_export_status": {
-    "latest_paper_run_root": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260529T065132Z__e92ba3",
-    "latest_run_root": "/home/secadmin/Laughlin/GitHub/obsidiandroid/output/runs/20260531T151433Z__8938b8",
+    "latest_paper_run_root": "",
+    "latest_run_root": "",
     "missing_required_sources": [
+      "no_run_with_paper_exports_docs",
       "paper_constants.json"
     ],
     "paper_constants_path": "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/paper/paper_constants.json",

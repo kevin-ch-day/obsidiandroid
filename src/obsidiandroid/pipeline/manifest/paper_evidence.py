@@ -18,12 +18,6 @@ _PERTURBATION_PROFILE_FAMILIES: dict[str, set[str]] = {
         "malicious_temporal_consensus10",
         "malicious_temporal_family300",
     },
-    "paper2_primary_locked": {
-        "paper2_primary_locked",
-        "paper2_primary",
-        "paper2_sensitivity_consensus10",
-        "paper2_sensitivity_family300",
-    },
 }
 
 

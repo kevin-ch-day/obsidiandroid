@@ -48,9 +48,7 @@ def resolve_cohort_lock_status(manifest: dict[str, Any]) -> str:
         return "missing-lock"
 
     evidence_mode = coalesce_manifest_publication_mode(manifest)
-    publication_raw = str(
-        manifest.get("publication_ready_status", "") or manifest.get("paper_safe_status", "") or ""
-    ).strip().lower()
+    publication_raw = str(manifest.get("publication_ready_status", "") or "").strip().lower()
 
     for key in ("cohort_contract", "paper_cohort_contract"):
         payload = manifest.get(key)

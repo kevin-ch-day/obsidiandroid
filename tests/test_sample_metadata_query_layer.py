@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pandas as pd
 import pytest
 
@@ -9,6 +11,39 @@ from obsidiandroid.cli import profile_manager
 from obsidiandroid.common.repo_paths import repo_root
 from obsidiandroid.pipeline import stage_samples
 from obsidiandroid.database import db_sample_metadata_queries
+
+
+def _locked_materialization_stub(samples_df: pd.DataFrame, **overrides) -> SimpleNamespace:
+    """Return a minimal lock-first materialization result for stage-sample tests."""
+
+    work = samples_df.copy()
+    work.attrs["paper_locked_materialization"] = {
+        "mode": "immutable_lock_first_broad_catalog_fetch",
+        "lock_file_count": int(len(work)),
+        "materialized_count": int(len(work)),
+    }
+    work.attrs["paper_locked_label_snapshot"] = {
+        "status": str(overrides.get("archived_label_snapshot_status", "available")),
+        "available": bool(overrides.get("archived_label_snapshot_available", True)),
+        "path": str(overrides.get("archived_label_snapshot_path", "labels.csv")),
+        "label_snapshot_hash": str(overrides.get("archived_label_snapshot_hash", "labelhash")),
+        "taxonomy_hash": str(overrides.get("archived_label_snapshot_hash", "labelhash")),
+    }
+    return SimpleNamespace(
+        samples_df=work,
+        missing_locked_members_path=str(overrides.get("missing_locked_members_path", "missing_locked_members.csv")),
+        label_drift_csv_path=str(overrides.get("label_drift_csv_path", "locked_paper_label_drift.csv")),
+        label_drift_summary_path=str(
+            overrides.get("label_drift_summary_path", "locked_paper_label_drift_summary.json")
+        ),
+        label_drift_report_path=str(
+            overrides.get("label_drift_report_path", "locked_paper_label_drift_report.md")
+        ),
+        archived_label_snapshot_available=bool(overrides.get("archived_label_snapshot_available", True)),
+        archived_label_snapshot_status=str(overrides.get("archived_label_snapshot_status", "available")),
+        archived_label_snapshot_path=str(overrides.get("archived_label_snapshot_path", "labels.csv")),
+        archived_label_snapshot_hash=str(overrides.get("archived_label_snapshot_hash", "labelhash")),
+    )
 
 
 def test_load_samples_by_type_supports_all_types_when_slug_none(monkeypatch) -> None:
@@ -372,9 +407,9 @@ def test_stage_samples_sets_gate_stats_before_readiness_and_tracks_deferred_excl
     )
 
     monkeypatch.setattr(
-        stage_samples.cohort_reproducibility,
-        "apply_analysis_snapshot_lock",
-        lambda samples_df, lock_file, fail_closed=False: samples_df,
+        stage_samples,
+        "materialize_locked_paper_cohort",
+        lambda **kwargs: _locked_materialization_stub(kwargs["current_fetch_df"]),
     )
     monkeypatch.setattr(
         stage_samples.android_authority_drift_report,
@@ -565,9 +600,9 @@ def test_stage_samples_locked_run_exports_sql_min_support_as_deferred(monkeypatc
         lambda _df, gates=None: None,
     )
     monkeypatch.setattr(
-        stage_samples.cohort_reproducibility,
-        "apply_analysis_snapshot_lock",
-        lambda samples_df, lock_file, fail_closed=False: samples_df,
+        stage_samples,
+        "materialize_locked_paper_cohort",
+        lambda **kwargs: _locked_materialization_stub(kwargs["current_fetch_df"]),
     )
     monkeypatch.setattr(
         stage_samples.android_authority_drift_report,
@@ -1016,13 +1051,13 @@ def test_stage_samples_temporal_evidence_profiles_require_min_support_floor(
         )
 
 
-def test_stage_samples_direct_legacy_paper2_profile_path_preserves_min_support_floor(
+def test_stage_samples_direct_canonical_locked_profile_path_preserves_min_support_floor(
     monkeypatch,
     tmp_path,
 ) -> None:
-    """Directly loaded legacy paper2 YAMLs should keep the same guard via explicit metadata."""
+    """Directly loaded canonical locked YAMLs should keep the same guard via explicit metadata."""
     profile = profile_manager.load_profile(
-        str(repo_root() / "profiles" / "paper2_primary.yaml")
+        str(repo_root() / "profiles" / "malicious_temporal_stability_locked.yaml")
     )
     profile["cohort_gates"]["min_samples_per_family"] = 3
     monkeypatch.setattr(stage_samples.app_config, "PAPER_MODE_ENABLED", True, raising=False)
@@ -1088,6 +1123,11 @@ def test_stage_samples_banker_locked_does_not_receive_temporal_min_support_floor
                 }
             ]
         ),
+    )
+    monkeypatch.setattr(
+        stage_samples,
+        "materialize_locked_paper_cohort",
+        lambda **kwargs: _locked_materialization_stub(kwargs["current_fetch_df"]),
     )
 
     stage_samples.load_and_prepare_samples(
@@ -1229,20 +1269,11 @@ def test_stage_samples_locked_snapshot_defers_membership_shrinking_sql_gates(mon
     monkeypatch.setattr(stage_samples.db_sample_metadata_queries, "get_type_cohort_gate_stats", _fake_gate_stats)
     monkeypatch.setattr(stage_samples.db_sample_metadata_queries, "load_samples_by_type", _fake_load)
 
-    def _snapshot_lock(**kwargs):
-        captured["snapshot_lock_kwargs"] = kwargs
-        df = kwargs["samples_df"].copy()
-        df.attrs["snapshot_lock"] = {
-            "status": "matched",
-            "applied": True,
-            "matched_sample_count": len(df),
-            "lock_sample_count": len(df),
-            "missing_from_db_count": 0,
-            "fail_closed": kwargs["fail_closed"],
-        }
-        return df
-
-    monkeypatch.setattr(stage_samples.cohort_reproducibility, "apply_analysis_snapshot_lock", _snapshot_lock)
+    monkeypatch.setattr(
+        stage_samples,
+        "materialize_locked_paper_cohort",
+        lambda **kwargs: _locked_materialization_stub(kwargs["current_fetch_df"]),
+    )
     monkeypatch.setattr(
         stage_samples,
         "apply_dataset_filters",
@@ -1266,4 +1297,4 @@ def test_stage_samples_locked_snapshot_defers_membership_shrinking_sql_gates(mon
     assert captured["load_kwargs"]["min_samples_per_family"] is None
     assert captured["gate_stats_kwargs"]["exclude_family_canonical"] == tuple()
     assert captured["load_kwargs"]["exclude_family_canonical"] == tuple()
-    assert captured["snapshot_lock_kwargs"]["lock_file"] == str(tmp_path / "lock.csv")
+    assert str(profile["paper_lock"]["sample_id_lock_file"]) == str(tmp_path / "lock.csv")

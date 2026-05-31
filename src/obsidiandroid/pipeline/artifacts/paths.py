@@ -29,11 +29,6 @@ class ArtifactPaths:
         return self.run_root / "diagnostics"
 
     @property
-    def paper2_pack_dir(self) -> Path:
-        """Return run-scoped Paper #2 pack directory."""
-        return self.run_root / "paper2_pack"
-
-    @property
     def evidence_bundle_dir(self) -> Path:
         """Return canonical run-scoped evidence-bundle directory."""
         return self.run_root / "evidence_bundle"

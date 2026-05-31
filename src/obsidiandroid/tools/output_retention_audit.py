@@ -17,6 +17,7 @@ from typing import Any
 
 from obsidiandroid.common import output_paths
 from obsidiandroid.common.json_io import read_json_dict
+from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
 
 KEEP_MARKER = ".keep"
 PROTECTED_MARKER = ".protected"
@@ -138,9 +139,8 @@ class RunRetentionRecord:
     run_status: str = "unknown"
     completed_stage: str = ""
     publication_ready_status: str = ""
-    paper_safe_status: str = ""
     evidence_mode: bool | None = None
-    paper_mode: bool | None = None
+    publication_ready_mode: bool | None = None
     timestamp_utc: datetime | None = None
     mode: str = "unknown"
     status_bucket: str = "unknown"
@@ -206,13 +206,11 @@ def parse_run_record(run_dir: Path) -> RunRetentionRecord:
     evidence_mode = payload.get("evidence_mode")
     if evidence_mode is None and "evidence_mode" in profile_params:
         evidence_mode = profile_params.get("evidence_mode")
-    paper_mode_payload = payload.get("paper_mode")
-    if isinstance(paper_mode_payload, dict):
-        paper_mode = bool(paper_mode_payload.get("resolved_value"))
-    elif isinstance(paper_mode_payload, bool):
-        paper_mode = paper_mode_payload
-    else:
-        paper_mode = None
+    publication_ready_mode = (
+        coalesce_manifest_publication_mode(payload)
+        if any(key in payload for key in ("evidence_mode", "paper_mode"))
+        else None
+    )
 
     record = RunRetentionRecord(
         run_id=run_id,
@@ -225,9 +223,8 @@ def parse_run_record(run_dir: Path) -> RunRetentionRecord:
         run_status=_first_str(payload, "run_status") or "unknown",
         completed_stage=_first_str(payload, "completed_stage"),
         publication_ready_status=_first_str(payload, "publication_ready_status"),
-        paper_safe_status=_first_str(payload, "paper_safe_status"),
         evidence_mode=bool(evidence_mode) if evidence_mode is not None else None,
-        paper_mode=paper_mode,
+        publication_ready_mode=publication_ready_mode,
         timestamp_utc=timestamp,
         marker_keep=(run_dir / KEEP_MARKER).exists(),
         marker_protected=(run_dir / PROTECTED_MARKER).exists(),
@@ -244,7 +241,7 @@ def infer_run_mode(record: RunRetentionRecord) -> str:
     desc = record.profile_description.lower()
     if (
         record.evidence_mode is True
-        or record.paper_mode is True
+        or record.publication_ready_mode is True
         or record.publication_ready_status.upper() == "PASS"
         or "publication-ready" in desc
         or "locked" in profile

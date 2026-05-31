@@ -21,11 +21,11 @@ def _load_checker():
 def test_compare_run_artifacts_aligned() -> None:
     chk = _load_checker()
     man = {"run_id": "r1", "cohort_size": 100, "train_sample_count": 70, "test_sample_count": 30, "profile_params": {"profile_id": "p1"}}
-    summ = {"top_model": "rf", "top_macro_f1": 0.77, "paper_safe_status": "NOT_APPLICABLE", "train_sample_count": 70}
+    summ = {"top_model": "rf", "top_macro_f1": 0.77, "publication_ready_status": "NOT_APPLICABLE", "train_sample_count": 70}
     obs = {
         "run_id": "r1",
         "profile_id": "p1",
-        "paper_safe_status": "NOT_APPLICABLE",
+        "publication_ready_status": "NOT_APPLICABLE",
         "counts": {"governed_cohort_rows": 100, "train_rows": 70, "test_rows": 30},
         "model_summary": {"top_model": "rf", "top_macro_f1": 0.77},
         "model": {"top_model": "rf", "top_macro_f1": 0.77},
@@ -70,12 +70,12 @@ def test_cli_end_to_end_ok(tmp_path: Path) -> None:
         "test_sample_count": 4,
         "top_model": "a",
         "top_macro_f1": 0.5,
-        "paper_safe_status": "NOT_APPLICABLE",
+        "publication_ready_status": "NOT_APPLICABLE",
     }
     obs = {
         "run_id": "r2",
         "profile_id": "banker",
-        "paper_safe_status": "NOT_APPLICABLE",
+        "publication_ready_status": "NOT_APPLICABLE",
         "counts": {"governed_cohort_rows": 10, "train_rows": 6, "test_rows": 4},
         "model_summary": {"top_model": "a", "top_macro_f1": 0.5},
     }

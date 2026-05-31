@@ -1,6 +1,12 @@
 # Code Review: Architecture & Performance Opportunities
 
-> **Note:** Snapshot from an earlier review cycle. Line counts and suggested splits describe historical layout before the stage split and `src/obsidiandroid/` migration; use canonical **`src/obsidiandroid/pipeline/runner.py`** (legacy `analysis.pipeline.runner` shim) and **`docs/pipeline_staging_guide.md`** as the source of truth for current stages.
+> **Status:** Historical review snapshot.
+>
+> Use this file as background context only. It captures earlier architecture and performance concerns from before later stage moves, shim retirement, and CLI/pipeline cleanup work. For current source-of-truth guidance, prefer:
+>
+> - [`docs/module_split_audit.md`](module_split_audit.md) for current oversized modules and split targets
+> - [`docs/pipeline_staging_guide.md`](pipeline_staging_guide.md) for current pipeline stage boundaries
+> - [`docs/STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md) for current migration / retirement status
 
 ## Scope and approach
 

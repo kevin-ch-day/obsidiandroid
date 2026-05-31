@@ -18,7 +18,7 @@ def test_resolve_evidence_mode_precedence_cli_wins() -> None:
     result = evidence_mode_resolver.resolve_evidence_mode(
         cli_value=False,
         env_value="1",
-        profile={"paper_mode": True},
+        profile={"evidence_mode": True},
         default=False,
         strict_env=True,
     )
@@ -43,7 +43,7 @@ def test_resolve_evidence_mode_env_overrides_profile() -> None:
     result = evidence_mode_resolver.resolve_evidence_mode(
         cli_value=None,
         env_value="0",
-        profile={"paper_mode": True},
+        profile={"evidence_mode": True},
         default=True,
         strict_env=True,
     )

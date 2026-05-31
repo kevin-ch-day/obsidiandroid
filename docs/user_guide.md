@@ -81,15 +81,19 @@ This runs the module’s sample tuning workflow (`tune_models`); wire your own s
 
 ## 6. Inspect Outputs
 
-After a successful run, inspect the `output/` directory:
+After a successful run, inspect the run-scoped artifacts under `output/runs/<run_id>/` first:
 
 | Artifact | Description |
 | --- | --- |
-| `labels.csv` | Canonical family label and associated confidence per sample. |
-| `model_metrics.json` | Aggregate precision, recall, F1, and ROC metrics. |
-| `confusion_matrix.png` | Visualization of predicted vs actual families (if ground truth provided). |
-| `feature_importance.csv` | Ranked feature contributions per estimator. |
-| `run.log` | Timestamped log of pipeline events and warnings. |
+| `run_manifest.json` | Canonical run contract and stage/output registry. |
+| `run_summary.json` | Compact run summary for operators and downstream scripts. |
+| `run_evidence_index.md` | Best first human-facing entrypoint for the run. |
+| `diagnostics/run_observability_summary.json` | Authoritative observability rollup used by terminal Run Health and diagnostics tooling. |
+| `diagnostics/artifact_inventory.json` | Inventory of run-scoped outputs and lifecycle classification. |
+| `diagnostics/model_comparison_summary_<run_id>.csv` | Ranked model metrics for the run. |
+| `final_classification_labels.xlsx` | Final label recommendations with supporting context when the run reaches export stages. |
+
+Additional artifacts such as confusion matrices, feature importance exports, paper bundles, and permission-trends outputs are emitted only when the selected profile and runtime path enable them.
 
 ## 7. Troubleshooting
 
@@ -109,7 +113,7 @@ After a successful run, inspect the `output/` directory:
 
 ## 9. Getting Help
 
-- Review inline docstrings and comments within `analysis/` and `src/obsidiandroid/` modules.
+- Review inline docstrings and comments within `src/obsidiandroid/` modules. The remaining `analysis/` tree is compatibility-only.
 - Search the `tests/` directory for usage examples of specific utilities.
 - Open an issue or start a discussion thread in the repository with details about your environment and logs when requesting support.
 

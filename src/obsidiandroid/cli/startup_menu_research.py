@@ -27,8 +27,6 @@ def run_evidence_bundle_series_aggregator(*, read_json_object: Callable[[Path], 
     rows: list[dict[str, object]] = []
     for run_dir in sorted([p for p in runs_root.iterdir() if p.is_dir()]):
         pack_dir = run_dir / "evidence_bundle"
-        if not pack_dir.exists():
-            pack_dir = run_dir / "paper2_pack"
         readiness_path = pack_dir / "evidence_readiness.json"
         manifest_path = pack_dir / "manifest.json"
         metrics_path = pack_dir / "model_metrics.json"

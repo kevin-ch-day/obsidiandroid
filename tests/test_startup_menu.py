@@ -552,7 +552,7 @@ def test_profile_readiness_mapping_inventory_report_uses_inventory_helper(monkey
     assert any("Supported banker profiles -> android_banker_with_permission_obs" in note for note in notes)
     assert any("Supported all-malicious and sensitivity profiles -> android_high_or_strong_vt_with_permission_obs" in note for note in notes)
     assert any("Supported dev profiles are included for local/operator checks" in note for note in notes)
-    assert any("Deprecated exploratory and compatibility-alias profiles are intentionally excluded" in note for note in notes)
+    assert any("Only supported profiles are shown in this readiness inventory view." in note for note in notes)
     assert any("the supported operator architecture is the canonical final profile set" in note for note in notes)
     assert any("Banker type scope currently exceeds the banker label bucket by 505 sample(s)." in note for note in notes)
     assert any("Top true unresolved resolved-family slugs: unknown (289), blankbot (9)" in note for note in notes)
@@ -1033,7 +1033,7 @@ def test_quick_health_check_passes_with_complete_artifacts(
     run_root, _ = _make_run_dirs(out_root, run_id)
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
-    split_path = diagnostics_dir / f"split_freeze_audit_{run_id}.csv"
+    split_path = diagnostics_dir / f"split_freeze_headline_{run_id}.csv"
     model_config_path = diagnostics_dir / f"model_config_snapshot_{run_id}.json"
     vendor_gate_path = diagnostics_dir / f"vendor_gate_debug_{run_id}.csv"
     run_paths_manifest_path = diagnostics_dir / f"run_paths_manifest_{run_id}.json"
@@ -1092,7 +1092,7 @@ def test_quick_health_check_warns_but_passes_without_optional_diagnostics(
     run_root, _ = _make_run_dirs(out_root, run_id)
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
-    split_path = diagnostics_dir / f"split_freeze_audit_{run_id}.csv"
+    split_path = diagnostics_dir / f"split_freeze_headline_{run_id}.csv"
     model_config_path = diagnostics_dir / f"model_config_snapshot_{run_id}.json"
     _write_text(split_path, "sample_id,fold\n1,0\n")
     _write_text(model_config_path, "{}")
@@ -1124,7 +1124,7 @@ def test_run_specific_health_check_writes_json_report(
     run_root, _ = _make_run_dirs(out_root, run_id)
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
-    split_path = diagnostics_dir / f"split_freeze_audit_{run_id}.csv"
+    split_path = diagnostics_dir / f"split_freeze_headline_{run_id}.csv"
     model_config_path = diagnostics_dir / f"model_config_snapshot_{run_id}.json"
     _write_text(split_path, "sample_id,fold\n1,0\n")
     _write_text(model_config_path, "{}")
@@ -1660,7 +1660,6 @@ def test_handle_confusion_matrix_export_blocks_multi_model_run(
 
     assert result == 0
     assert not (run_root / "evidence_bundle" / "confusion_matrix_primary.png").exists()
-    assert not (run_root / "paper2_pack" / "confusion_matrix_primary.png").exists()
 
 
 def test_handle_confusion_matrix_export_copies_single_model_matrix(
@@ -1690,7 +1689,6 @@ def test_handle_confusion_matrix_export_copies_single_model_matrix(
     assert result == 0
     assert target.exists()
     assert target.read_text(encoding="utf-8") == "matrix"
-    assert not (run_root / "paper2_pack" / "confusion_matrix_primary.png").exists()
 
 
 def test_review_summary_flags_temporal_generalization_gap(

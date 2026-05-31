@@ -1,5 +1,15 @@
 # Pass 50B: vendor/evaluation boundary inventory
 
+> **Status:** Historical boundary inventory.
+>
+> This file records the pre- and mid-migration vendor/evaluation boundary analysis. It is still useful for why certain domain splits happened, but it should not be read as the live implementation map.
+>
+> For current source-of-truth status, prefer:
+>
+> - [`docs/STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md)
+> - [`docs/README.md`](README.md)
+> - the canonical code under `src/obsidiandroid/vendors/`, `src/obsidiandroid/evaluation/`, and adjacent packages
+
 This document is the Pass 50B docs-only inventory for the vendor, evaluation, and
 vendor-contract boundary. It intentionally does not add aliases, migrate callers,
 move files, or change parser/model/training/output/DB behavior.

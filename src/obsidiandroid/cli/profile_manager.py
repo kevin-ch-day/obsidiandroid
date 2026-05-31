@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, List
-import warnings
 
 import yaml
 from obsidiandroid.common.repo_paths import repo_root
@@ -12,14 +11,7 @@ from obsidiandroid.governance.paper_cohort_contract import validate_profile_pape
 from . import profile_selection
 
 PROFILES_DIR = repo_root() / "profiles"
-PROFILE_ALIASES = {
-    "paper1_banker_locked": "banker_locked",
-    "paper2_primary": "malicious_temporal_stability",
-    "paper2_primary_locked": "malicious_temporal_stability_locked",
-    "paper2_sensitivity_consensus10": "malicious_temporal_consensus10",
-    "paper2_sensitivity_family300": "malicious_temporal_family300",
-}
-HIDDEN_PROFILE_IDS = set(PROFILE_ALIASES.keys())
+HIDDEN_PROFILE_IDS: set[str] = set()
 FINAL_OPERATOR_PROFILE_IDS = (
     "malicious_temporal_stability_locked",
     "banker_locked",
@@ -31,10 +23,6 @@ FINAL_OPERATOR_PROFILE_IDS = (
     "malicious_temporal_family300",
     "dev_fast",
     "dev_smoke",
-)
-DEPRECATED_EXPLORATORY_PROFILE_IDS = (
-    "research_all_malicious",
-    "all_malicious",
 )
 REQUIRED_PROFILE_KEYS = {
     "profile_id",
@@ -99,13 +87,6 @@ def load_profile(profile_ref: str) -> Dict[str, Any]:
         raise ValueError("Profile reference is required.")
 
     requested_ref = str(profile_ref).strip()
-    alias_target = PROFILE_ALIASES.get(requested_ref)
-    if alias_target:
-        warnings.warn(
-            f"Profile id '{requested_ref}' is deprecated; use '{alias_target}' instead.",
-            FutureWarning,
-            stacklevel=2,
-        )
 
     profile_path = _resolve_profile_path(profile_ref)
     if not profile_path.exists():
@@ -118,9 +99,6 @@ def load_profile(profile_ref: str) -> Dict[str, Any]:
     _validate_profile(profile, profile_path)
     profile["__profile_path"] = str(profile_path.as_posix())
     profile["__requested_profile_ref"] = requested_ref
-    if alias_target:
-        profile["__deprecated_alias_of"] = requested_ref
-        profile["__canonical_profile_id"] = alias_target
     return profile
 
 
@@ -129,7 +107,6 @@ def _resolve_profile_path(profile_ref: str) -> Path:
     candidate = Path(normalized_ref)
     if candidate.exists():
         return candidate
-    normalized_ref = PROFILE_ALIASES.get(normalized_ref, normalized_ref)
     suffix = ".yaml" if not str(normalized_ref).endswith(".yaml") else ""
     return PROFILES_DIR / f"{normalized_ref}{suffix}"
 
@@ -249,25 +226,7 @@ def _normalize_profile_status(profile: Dict[str, Any]) -> Dict[str, str]:
     profile_id = str(profile.get("profile_id", "") or "").strip()
     declared = profile.get("profile_status") if isinstance(profile.get("profile_status"), dict) else {}
 
-    if profile_id in PROFILE_ALIASES:
-        defaults = {
-            "lifecycle": "compatibility_alias",
-            "operator_surface": "hidden_compatibility",
-            "support_tier": "compatibility",
-            "status_label": "Compatibility alias",
-            "canonical_profile_id": PROFILE_ALIASES[profile_id],
-            "replacement_profile_id": PROFILE_ALIASES[profile_id],
-        }
-    elif profile_id in DEPRECATED_EXPLORATORY_PROFILE_IDS:
-        defaults = {
-            "lifecycle": "deprecated_exploratory",
-            "operator_surface": "loadable_non_primary",
-            "support_tier": "deprecated",
-            "status_label": "Deprecated exploratory",
-            "canonical_profile_id": profile_id,
-            "replacement_profile_id": "malicious_temporal_stability",
-        }
-    elif profile_id in FINAL_OPERATOR_PROFILE_IDS and profile_id.startswith("dev_"):
+    if profile_id in FINAL_OPERATOR_PROFILE_IDS and profile_id.startswith("dev_"):
         defaults = {
             "lifecycle": "dev_only",
             "operator_surface": "supported_dev",
@@ -318,7 +277,7 @@ def infer_cohort_readiness_signal(profile_ref: str | Dict[str, Any] | None) -> D
             try:
                 profile = load_profile(token)
             except Exception:
-                profile = {"profile_id": PROFILE_ALIASES.get(token, token)}
+                profile = {"profile_id": token}
 
     profile_id = str(profile.get("profile_id", "") or "").strip()
     profile_id_lc = profile_id.lower()
@@ -374,10 +333,10 @@ def infer_cohort_readiness_signal(profile_ref: str | Dict[str, Any] | None) -> D
         )
 
     if profile_id_lc in {
-        "research_all_malicious",
-        "all_malicious",
         "malicious_temporal_stability",
         "malicious_temporal_stability_locked",
+        "malicious_temporal_stability_expanded",
+        "malicious_temporal_stability_long_tail",
         "malicious_temporal_consensus10",
         "malicious_temporal_family300",
     } or expected_type_scope == "all_malicious" or (

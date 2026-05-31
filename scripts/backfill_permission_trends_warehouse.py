@@ -373,7 +373,9 @@ def main() -> None:
         run_id=run_id,
     )
 
-    profile_id = args.profile_id or str(coverage_df.iloc[0].get("profile_id", "all_malicious"))
+    profile_id = args.profile_id or str(
+        coverage_df.iloc[0].get("profile_id", "malicious_temporal_stability")
+    )
     artifact_paths = [str(path) for path in bundle_dir.iterdir() if path.is_file()]
 
     persist_permission_trends_results(

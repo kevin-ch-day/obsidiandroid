@@ -12,7 +12,10 @@ from obsidiandroid.common.cohort_methodology import (
 )
 from obsidiandroid.common.output_paths import output_root as canonical_output_root
 from obsidiandroid.common.publication_readiness import coalesce_publication_ready_status
-from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_evidence_mode
+from obsidiandroid.governance.evidence_mode_resolver import (
+    coalesce_manifest_evidence_mode,
+    coalesce_manifest_publication_mode,
+)
 
 from obsidiandroid.cli.menu import run_locator
 from obsidiandroid.cli.menu.display_mode import resolve_display_mode
@@ -62,9 +65,8 @@ def latest_run_has_provenance(run_id: str | None, *, base: Path) -> bool:
         return False
     diagnostics = base / "runs" / token / "diagnostics"
     split_ledger = diagnostics / f"split_freeze_headline_{token}.csv"
-    split_legacy = diagnostics / f"split_freeze_audit_{token}.csv"
     required = [
-        split_ledger if split_ledger.exists() else split_legacy,
+        split_ledger,
         diagnostics / f"run_paths_manifest_{token}.json",
         diagnostics / f"experiment_registry_{token}.json",
     ]
@@ -116,8 +118,7 @@ def build_operator_state(*, output_base: Path | None = None, run_id: str | None 
         manifest if isinstance(manifest, dict) else {}
     )
     evidence_mode = coalesce_manifest_evidence_mode(manifest.get("evidence_mode")) if isinstance(manifest, dict) else False
-    paper_mode = manifest.get("paper_mode") if isinstance(manifest.get("paper_mode"), dict) else {}
-    publication_ready_mode = bool(paper_mode.get("resolved_value", False)) if paper_mode else False
+    publication_ready_mode = coalesce_manifest_publication_mode(manifest if isinstance(manifest, dict) else None)
     cohort_lock_status = resolve_cohort_lock_status(manifest if isinstance(manifest, dict) else {})
     taxonomy_label_drift = extract_taxonomy_label_drift(manifest if isinstance(manifest, dict) else {})
 

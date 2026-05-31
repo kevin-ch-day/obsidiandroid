@@ -7,14 +7,12 @@ from typing import Any
 
 def coalesce_publication_ready_status(payload: dict[str, Any]) -> str:
     """Resolve the canonical publication-ready status token from mixed payloads."""
-    return str(
-        payload.get("publication_ready_status", "") or payload.get("paper_safe_status", "") or "unknown"
-    ).strip() or "unknown"
+    return str(payload.get("publication_ready_status", "") or "unknown").strip() or "unknown"
 
 
 def coalesce_publication_ready_reasons(payload: dict[str, Any]) -> list[str]:
     """Resolve the canonical publication-ready reasons list from mixed payloads."""
-    raw = payload.get("publication_ready_reasons", payload.get("paper_safe_reasons", []))
+    raw = payload.get("publication_ready_reasons", [])
     if not isinstance(raw, list):
         return []
     return [str(item) for item in raw if str(item).strip()]
@@ -64,13 +62,11 @@ def evaluate_publication_ready_status(
     return ("PASS" if len(reasons) == 0 else "FAIL", reasons)
 
 
-def publication_ready_alias_payload(status: object, reasons: list[str] | None = None) -> dict[str, Any]:
-    """Return canonical + legacy publication-ready alias fields for JSON payloads."""
+def publication_ready_payload(status: object, reasons: list[str] | None = None) -> dict[str, Any]:
+    """Return canonical publication-ready fields for JSON payloads."""
     normalized_status = str(status or "").strip() or "unknown"
     normalized_reasons = [str(item) for item in (reasons or []) if str(item).strip()]
     return {
-        "paper_safe_status": normalized_status,
-        "paper_safe_reasons": normalized_reasons,
         "publication_ready_status": normalized_status,
         "publication_ready_reasons": normalized_reasons,
     }

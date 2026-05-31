@@ -68,8 +68,8 @@ def test_finalize_pipeline_observability_minimal(tmp_path: Path) -> None:
     paths = blob.get("paths") if isinstance(blob.get("paths"), dict) else {}
     assert "run_observability_summary_json" in paths
     assert "pipeline_observability_status_json" not in paths
-    assert blob.get("publication_ready_status") == blob.get("paper_safe_status")
-    assert blob.get("publication_ready_reasons") == blob.get("paper_safe_reasons")
+    assert blob.get("publication_ready_status") == "NOT_APPLICABLE"
+    assert blob.get("publication_ready_reasons") == []
     assert blob.get("run_status") == "complete"
     assert blob.get("completed_stage") == "manifest"
     assert ctx["_observability_finalized_once"] is True

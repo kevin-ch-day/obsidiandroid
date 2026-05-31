@@ -306,8 +306,8 @@ def write_run_evidence_index_md(
     manifest: dict[str, Any] | None,
     manifest_context: dict[str, Any] | None,
     trained_models: list[str] | None,
-    paper_safe_status: str,
-    paper_safe_reasons: list[str],
+    publication_ready_status: str,
+    publication_ready_reasons: list[str],
 ) -> Path | None:
     """First-stop Markdown summary for researchers."""
     summary_obs = _load_json(diagnostics_dir / "run_observability_summary.json")
@@ -399,7 +399,7 @@ def write_run_evidence_index_md(
         rv_skip = summary_obs.get("research_validity_skip_reason")
         ha_st = summary_obs.get("hostile_audit_status")
         ha_skip = summary_obs.get("hostile_audit_skip_reason")
-        ps_safe = summary_obs.get("publication_ready_status") or summary_obs.get("paper_safe_status")
+        ps_safe = summary_obs.get("publication_ready_status")
         label_resolution_enabled = summary_obs.get("label_resolution_enabled")
         type_guard_suppressed = summary_obs.get("type_guard_family_suppressed_count")
         rv_line = f"`{rv_st}`"
@@ -466,11 +466,11 @@ def write_run_evidence_index_md(
             "",
             "## Publication-ready gate",
             "",
-            f"- **publication_ready_status:** `{paper_safe_status}`",
+            f"- **publication_ready_status:** `{publication_ready_status}`",
         ]
     )
-    if paper_safe_reasons and paper_safe_status == "FAIL":
-        lines.append(f"- **reasons:** {', '.join(paper_safe_reasons)}")
+    if publication_ready_reasons and publication_ready_status == "FAIL":
+        lines.append(f"- **reasons:** {', '.join(publication_ready_reasons)}")
     lines.append("")
     _extend_with_backlog_section(lines, backlog_context=backlog_context)
     lines.extend(
@@ -595,7 +595,7 @@ def write_run_science_index_md(
         ha_st = summary_obs.get("hostile_audit_status")
         ha_skip = summary_obs.get("hostile_audit_skip_reason")
         pipe_st = summary_obs.get("pipeline_status")
-        ps_safe = summary_obs.get("publication_ready_status") or summary_obs.get("paper_safe_status")
+        ps_safe = summary_obs.get("publication_ready_status")
         label_resolution_enabled = summary_obs.get("label_resolution_enabled")
         type_guard_suppressed = summary_obs.get("type_guard_family_suppressed_count")
         rv_line = f"`{rv_st}`"
@@ -688,7 +688,7 @@ def print_output_hygiene_terminal_summary(
     run_root: Path,
     summary: dict[str, Any],
     evidence_index_path: Path | None,
-    paper_safe_status: str,
+    publication_ready_status: str,
 ) -> None:
     if ml_console.is_minimal():
         return
@@ -710,16 +710,16 @@ def print_output_hygiene_terminal_summary(
             "Legacy .latest compatibility copies",
             legacy_latest,
         )
-    du.print_stat("Publication-ready status", paper_safe_status)
+    du.print_stat("Publication-ready status", publication_ready_status)
 
 
-def evaluate_paper_safe_status(
+def evaluate_publication_ready_summary_status(
     *,
     paper_mode: bool,
     manifest: dict[str, Any] | None,
     compliance_report: dict[str, Any] | None,
 ) -> tuple[str, list[str]]:
-    """Return paper_safe_status string for operator summary (strict checks remain in compliance JSON)."""
+    """Return publication-ready status string for operator summary."""
     return evaluate_publication_ready_status(
         paper_mode=paper_mode,
         manifest=manifest,
@@ -729,7 +729,7 @@ def evaluate_paper_safe_status(
 
 __all__ = [
     "build_inventory_rows",
-    "evaluate_paper_safe_status",
+    "evaluate_publication_ready_summary_status",
     "print_output_hygiene_terminal_summary",
     "write_artifact_inventory_bundle",
     "write_run_evidence_index_md",

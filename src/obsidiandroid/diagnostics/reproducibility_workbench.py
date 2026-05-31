@@ -238,9 +238,6 @@ def build_filesystem_artifact_checks(
             str(rdiag / f"split_freeze_headline_{effective_run_id}.csv"),
             str(rdiag / "split_freeze_headline.latest.csv"),
             str(oh.global_diagnostics_root() / "split_freeze_headline.latest.csv"),
-            str(rdiag / f"split_freeze_audit_{effective_run_id}.csv"),
-            str(rdiag / "split_freeze_audit.latest.csv"),
-            str(oh.global_diagnostics_root() / "split_freeze_audit.latest.csv"),
         ]
         if picked is not None:
             add("split_audit_exists", "PASS", str(picked), bucket="core")

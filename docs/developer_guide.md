@@ -57,6 +57,7 @@ Quick sanity check: **`python scripts/dev/check_import_surface.py`** or **`make 
 - Add Google-style docstrings to public modules, classes, and functions.
 - Keep configuration defaults in `config/` and avoid hard-coded secrets or paths.
 - Leverage canonical helpers under `obsidiandroid.*` and operational tools under `scripts/` instead of duplicating logic.
+- When documenting outputs or debugging completed runs, prefer run-scoped artifacts under `output/runs/<run_id>/` and treat `run_evidence_index.md` plus `diagnostics/run_observability_summary.json` as the primary human + machine entrypoints.
 
 ## Working with the Staged Pipeline
 

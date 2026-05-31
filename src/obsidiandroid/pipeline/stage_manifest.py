@@ -29,7 +29,7 @@ from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.common.repo_paths import repo_root
 from obsidiandroid.common.publication_readiness import (
     evaluate_publication_ready_status,
-    publication_ready_alias_payload,
+    publication_ready_payload,
 )
 from obsidiandroid.pipeline.manifest.runtime_support import (
     build_manifest_payload,
@@ -71,7 +71,7 @@ from obsidiandroid.pipeline.manifest.stage_manifest_artifacts import (
 )
 from obsidiandroid.pipeline.manifest.stage_manifest_evidence_pack import (
     build_cohort_limitation_summary as _build_cohort_limitation_summary,
-    build_paper2_pack as _build_paper2_pack,
+    build_evidence_bundle as _build_evidence_bundle,
     export_confusion_matrix_provenance as _export_confusion_matrix_provenance,
     export_trained_family_registry as _export_trained_family_registry,
     render_consensus_distribution_png as _render_consensus_distribution_png,
@@ -173,12 +173,7 @@ def _apply_terminal_manifest_status(
         manifest=manifest,
         compliance_report=compliance_report,
     )
-    manifest.update(
-        publication_ready_alias_payload(
-            publication_ready_status,
-            publication_ready_reasons,
-        )
-    )
+    manifest.update(publication_ready_payload(publication_ready_status, publication_ready_reasons))
     failed_checks = manifest_context.get("_evidence_readiness_failed_checks", [])
     if isinstance(failed_checks, list):
         manifest["evidence_readiness_failed_checks"] = sorted(
@@ -704,7 +699,7 @@ def finalize_run_manifest_stage(
         readiness_status = "ready"
         failed_checks: list[str] = []
         if evidence_mode:
-            _build_paper2_pack(
+            _build_evidence_bundle(
                 run_root=run_root,
                 run_id=run_id,
                 samples_df=samples_df,
@@ -723,8 +718,6 @@ def finalize_run_manifest_stage(
                 "evidence_compliance_summary.json",
             ]
             pack_dir = run_root / "evidence_bundle"
-            if not pack_dir.exists():
-                pack_dir = run_root / "paper2_pack"
             missing = [name for name in mandatory if not (pack_dir / name).exists()]
             if missing:
                 failed_checks.append("mandatory_artifacts_present")

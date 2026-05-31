@@ -191,7 +191,7 @@ def write_baseline_comparison(
         "# Baseline comparison",
         "",
         "Macro-F1 baselines compare to the **test split declared in split_freeze_headline** "
-        "(or ``split_freeze_audit`` compatibility mirror) merged with cohort labels.",
+        "merged with cohort labels.",
         "They do **not** reproduce post-low-support training label filtering unless that filtering is mirrored in cohort rows.",
         "",
         "| baseline | Macro-F1 (or Δ) | population |",

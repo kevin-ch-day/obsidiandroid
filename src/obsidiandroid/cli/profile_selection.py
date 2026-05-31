@@ -22,19 +22,6 @@ _FINAL_PROFILE_IDS = {
     "dev_fast",
     "dev_smoke",
 }
-_DEPRECATED_EXPLORATORY_PROFILE_IDS = {
-    "research_all_malicious",
-    "all_malicious",
-}
-_COMPATIBILITY_ALIAS_IDS = {
-    "paper1_banker_locked",
-    "paper2_primary",
-    "paper2_primary_locked",
-    "paper2_sensitivity_consensus10",
-    "paper2_sensitivity_family300",
-}
-
-
 def build_profile_catalog(profiles: list[Path]) -> list[tuple[str, str]]:
     """Build ordered profile summaries for interactive menu presentation."""
     entries: list[tuple[str, str]] = []
@@ -67,15 +54,12 @@ def profile_sort_key(profile_id: str) -> tuple[int, int, str]:
     if pid in {"mixed", "benign_heavy"}:
         diagnostic_order = {"mixed": 0, "benign_heavy": 1}
         return (3, diagnostic_order[pid], pid)
-    if pid in {"research_all_malicious", "all_malicious"}:
-        deprecated_order = {"research_all_malicious": 0, "all_malicious": 1}
-        return (4, deprecated_order[pid], pid)
     if pid == "dev_fast":
-        return (6, 0, pid)
+        return (4, 0, pid)
     if pid == "dev_smoke":
-        return (6, 1, pid)
+        return (4, 1, pid)
 
-    return (5, 0, pid)
+    return (3, 0, pid)
 
 
 def summarize_profile(profile_path: Path) -> str:
@@ -148,10 +132,8 @@ def quick_profile_label(profile_id: str) -> str:
         "malicious_temporal_stability_long_tail": "Research: long-tail all-malicious",
         "malicious_temporal_consensus10": "Sensitivity: consensus threshold",
         "malicious_temporal_family300": "Sensitivity: family dominance cap",
-        "banker_locked": "Baseline: banker legacy/count-locked",
+        "banker_locked": "Baseline: banker count-locked",
         "banker": "Research: current banker",
-        "research_all_malicious": "Deprecated exploratory: discovery all-malicious",
-        "all_malicious": "Deprecated exploratory: broad all-malicious",
         "mixed": "Diagnostic: balanced benign-malicious",
         "benign_heavy": "Diagnostic: benign-heavy robustness",
         "dev_fast": "Development: fast iteration",
@@ -168,10 +150,6 @@ def _profile_status_label(raw: dict[str, object], profile_id: str) -> str:
         return status_label
 
     pid = str(profile_id).strip().lower()
-    if pid in _COMPATIBILITY_ALIAS_IDS:
-        return "Compatibility alias"
-    if pid in _DEPRECATED_EXPLORATORY_PROFILE_IDS:
-        return "Deprecated exploratory"
     if pid in _FINAL_PROFILE_IDS and pid.startswith("dev_"):
         return "Dev-only supported"
     if pid in _FINAL_PROFILE_IDS:
@@ -182,10 +160,10 @@ def _profile_status_label(raw: dict[str, object], profile_id: str) -> str:
 def _quick_intent_options() -> list[tuple[str, str]]:
     """Return the fixed operator-facing intent menu."""
     return [
-        ("Reproduce locked all-malicious benchmark", "malicious_temporal_stability_locked"),
-        ("Reproduce banker benchmark", "banker_locked"),
-        ("Evaluate current all-malicious corpus", "malicious_temporal_stability"),
-        ("Evaluate current banker corpus", "banker"),
+        ("Paper benchmark (locked 2026: 1226 / 39 / 6)", "malicious_temporal_stability_locked"),
+        ("Banker benchmark (count-locked)", "banker_locked"),
+        ("Current governed all-malicious corpus", "malicious_temporal_stability"),
+        ("Current governed banker corpus", "banker"),
         ("Test robustness / perturbations", "__submenu_robustness__"),
         ("Development / smoke checks", "__submenu_development__"),
     ]

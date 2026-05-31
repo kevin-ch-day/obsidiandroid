@@ -19,7 +19,7 @@ from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.common.publication_readiness import (
     evaluate_publication_ready_status,
-    publication_ready_alias_payload,
+    publication_ready_payload,
 )
 from obsidiandroid.common.cv_fold_config import (
     coerce_stratified_cv_folds_config,
@@ -198,12 +198,7 @@ def write_run_summary_json(
             "lifecycle_state": manifest_context.get("lifecycle_state"),
             "lifecycle_finished_at_utc": manifest_context.get("lifecycle_finished_at_utc"),
         }
-        payload.update(
-            publication_ready_alias_payload(
-                publication_ready_status,
-                publication_ready_reasons,
-            )
-        )
+        payload.update(publication_ready_payload(publication_ready_status, publication_ready_reasons))
 
         run_summary_path = run_root / "run_summary.json"
         run_summary_run_path = diagnostics_dir / f"run_summary_{run_id}.json"
@@ -333,7 +328,7 @@ def finalize_output_hygiene_bundle(
             profile_id=str(profile.get("profile_id", "unknown")),
         )
 
-        paper_safe_status, reasons = evaluate_publication_ready_status(
+        publication_ready_status, publication_ready_reasons = evaluate_publication_ready_status(
             paper_mode=paper_mode,
             manifest=manifest,
             compliance_report=compliance_report,
@@ -350,8 +345,8 @@ def finalize_output_hygiene_bundle(
             manifest=manifest,
             manifest_context=manifest_context,
             trained_models=trained_models,
-            paper_safe_status=paper_safe_status,
-            paper_safe_reasons=reasons,
+            publication_ready_status=publication_ready_status,
+            publication_ready_reasons=publication_ready_reasons,
         )
         pipeline_artifact_paths = list(artifact_list)
         pipeline_artifact_paths.extend(str(p) for p in inv_paths if p)
@@ -384,7 +379,7 @@ def finalize_output_hygiene_bundle(
             profile_id=str(profile.get("profile_id", "unknown")),
             evidence_mode=bool(evidence_mode),
             cohort_locked=cohort_locked,
-            publication_ready_status=paper_safe_status,
+            publication_ready_status=publication_ready_status,
         )
         for p in inv_paths:
             if p and p not in artifact_list:
@@ -432,7 +427,7 @@ def finalize_output_hygiene_bundle(
                 run_root=run_root,
                 summary=summary,
                 evidence_index_path=evidence_path,
-                paper_safe_status=paper_safe_status,
+                publication_ready_status=publication_ready_status,
             )
         print_unified_run_health(
             inventory_summary=summary,

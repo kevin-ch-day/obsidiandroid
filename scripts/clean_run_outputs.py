@@ -37,7 +37,7 @@ def main() -> int:
     unreferenced: list[str] = []
     unexpected_roots: list[str] = []
 
-    allowed_prefixes = ("diagnostics", "models", "logs", "bundles", "paper_exports", "paper2_pack", "conf_matrices")
+    allowed_prefixes = ("diagnostics", "models", "logs", "bundles", "paper_exports", "conf_matrices")
     for path in sorted(run_root.rglob("*")):
         if not path.is_file():
             continue

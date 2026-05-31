@@ -154,6 +154,8 @@ from obsidiandroid.database import db_config  # thin façade; same module object
   - `final_classification_labels.xlsx` – Predicted malware family per sample.
   - `diagnostics/model_comparison_summary_<run_id>.csv` - Ranked model metrics (default fast path).
   - `diagnostics/run_observability_summary.json` – Authoritative observability rollup (stage verdicts, cohort funnel counts, audits); drives terminal **Run Health** and `run_evidence_index.md` (`paths.run_observability_summary_json` in that JSON).
+  - `run_evidence_index.md` – Best first human-facing summary for a completed run.
+  - `diagnostics/artifact_inventory.json` – Run-scoped output inventory and lifecycle classification.
   - `model_comparison_summary.xlsx` - Optional ranked model workbook export.
   - Feature matrix with AV and permission-based statistics.
 

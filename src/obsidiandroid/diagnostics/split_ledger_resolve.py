@@ -1,4 +1,4 @@
-"""Resolve on-disk split ledger CSV paths (headline preferred; audit mirror for compatibility)."""
+"""Resolve on-disk split ledger CSV paths (canonical headline ledger only)."""
 
 from __future__ import annotations
 
@@ -13,17 +13,12 @@ def resolve_split_freeze_csv(diagnostics_dir: Path, run_id: str) -> Path | None:
     Preference order:
     1. Run-scoped headline ledger (canonical contract for manifest ``split_hash``)
     2. Global/latest headline mirror
-    3. Run-scoped legacy ``split_freeze_audit`` mirror (byte copy of headline when present)
-    4. Legacy global/latest mirror
     """
     rid = str(run_id).strip()
     candidates = [
         diagnostics_dir / f"split_freeze_headline_{rid}.csv",
         diagnostics_dir / "split_freeze_headline.latest.csv",
         oh.global_diagnostics_root() / "split_freeze_headline.latest.csv",
-        diagnostics_dir / f"split_freeze_audit_{rid}.csv",
-        diagnostics_dir / "split_freeze_audit.latest.csv",
-        oh.global_diagnostics_root() / "split_freeze_audit.latest.csv",
     ]
     for path in candidates:
         if path.is_file():
