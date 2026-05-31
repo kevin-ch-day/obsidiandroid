@@ -16,8 +16,10 @@ from config import app_config
 from obsidiandroid.database import db_sample_metadata_queries
 import obsidiandroid.governance.cohort_readiness_report as cohort_readiness_report
 import obsidiandroid.governance.cohort_reproducibility as cohort_reproducibility
+from obsidiandroid.governance.cohort_lock_manifest import build_lock_manifest_payload
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as output_hygiene_mod
+from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.observability.logging import get_logger, log_event
 from obsidiandroid.common.sample_metadata_preprocessor import prepare_sample_dataframe
 
@@ -717,6 +719,7 @@ def _export_cohort_lock_artifacts(
     diagnostics_dir = _diagnostics_dir()
     membership_path = diagnostics_dir / "cohort_membership.csv"
     summary_path = diagnostics_dir / "cohort_lock_summary.json"
+    manifest_path = diagnostics_dir / "cohort_lock_manifest.json"
 
     export_columns = [
         "sample_id",
@@ -734,6 +737,16 @@ def _export_cohort_lock_artifacts(
         membership_df["sample_id"] = pd.to_numeric(membership_df["sample_id"], errors="coerce")
         membership_df = membership_df.sort_values("sample_id", kind="mergesort")
     membership_df.to_csv(membership_path, index=False)
+    member_ids = (
+        pd.to_numeric(membership_df.get("sample_id"), errors="coerce")
+        .dropna()
+        .astype(int)
+        .drop_duplicates()
+        .sort_values()
+        .tolist()
+        if "sample_id" in membership_df.columns
+        else []
+    )
 
     family_counts = (
         samples_df["family_canonical"].fillna("unknown").astype(str).value_counts().head(10).to_dict()
@@ -760,13 +773,77 @@ def _export_cohort_lock_artifacts(
     ):
         snapshot_status = "count_only_incomplete_sample_lock"
 
+    time_window_payload: dict[str, Any] = {}
+    dataset_time_contract_file = Path(str(dataset_time_contract_path))
+    if dataset_time_contract_file.exists():
+        try:
+            loaded = json.loads(dataset_time_contract_file.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                time_window_payload = loaded
+        except Exception:
+            time_window_payload = {}
+
+    family_count = int(samples_df["family_canonical"].nunique()) if "family_canonical" in samples_df.columns else 0
+    type_count = int(samples_df["type_slug"].nunique()) if "type_slug" in samples_df.columns else 0
+    top_family_support = int(max(family_counts.values()) if family_counts else 0)
+    top_family_share = float(top_family_support / len(samples_df)) if len(samples_df) else 0.0
+    taxonomy_hash = hash_payload(
+        {
+            "family_count": family_count,
+            "type_count": type_count,
+            "top_family_support": top_family_support,
+            "top_family_share": round(top_family_share, 12),
+            "time_window": {
+                "start_utc": str(time_window_payload.get("start_utc", "") or ""),
+                "end_utc": str(time_window_payload.get("end_utc", "") or ""),
+                "window_semantics": str(
+                    time_window_payload.get("window_semantics", "start_inclusive_end_exclusive") or ""
+                ),
+                "timestamp_field": str(time_window_payload.get("timestamp_field", "") or ""),
+                "require_effective_first_seen": bool(
+                    time_window_payload.get("require_effective_first_seen", True)
+                ),
+                "fallback_order": list(time_window_payload.get("fallback_order", []) or []),
+            },
+        }
+    )
+    lock_manifest = build_lock_manifest_payload(
+        lock_version=str(run_id),
+        profile_id=profile_id,
+        contract_id=f"{profile_id}_contract",
+        created_at_utc=str(run_id),
+        canonical_historical_run_id=str(run_id),
+        member_list_path=str(cohort_ids_path or membership_path),
+        sample_count=int(len(samples_df)),
+        family_count=family_count,
+        type_count=type_count,
+        cohort_hash=hash_payload(member_ids),
+        taxonomy_hash=taxonomy_hash,
+        sql_profile_version="live_stage_samples_v1",
+        profile_version=str(profile_id),
+        time_window={
+            "start_utc": str(time_window_payload.get("start_utc", "") or ""),
+            "end_utc": str(time_window_payload.get("end_utc", "") or ""),
+            "window_semantics": str(
+                time_window_payload.get("window_semantics", "start_inclusive_end_exclusive") or ""
+            ),
+            "timestamp_field": str(time_window_payload.get("timestamp_field", "") or ""),
+            "require_effective_first_seen": bool(time_window_payload.get("require_effective_first_seen", True)),
+            "fallback_order": list(time_window_payload.get("fallback_order", []) or []),
+            "type_scope": "all_malicious" if profile_id.endswith("_locked") else "",
+        },
+        top_family_support=top_family_support,
+        top_family_share=round(top_family_share, 12),
+    )
+    manifest_path.write_text(json.dumps(lock_manifest, indent=2, sort_keys=True), encoding="utf-8")
+
     payload = {
         "schema_version": "1.0",
         "run_id": run_id,
         "profile_id": profile_id,
         "sample_count": int(len(samples_df)),
-        "unique_family_count": int(samples_df["family_canonical"].nunique()) if "family_canonical" in samples_df.columns else 0,
-        "unique_type_count": int(samples_df["type_slug"].nunique()) if "type_slug" in samples_df.columns else 0,
+        "unique_family_count": family_count,
+        "unique_type_count": type_count,
         "top_family_counts": family_counts,
         "type_counts": type_counts,
         "snapshot_lock": {
@@ -785,6 +862,7 @@ def _export_cohort_lock_artifacts(
             "selection_rule_version": str(selection_rule_version),
         },
         "artifacts": {
+            "cohort_lock_manifest_json": str(manifest_path),
             "cohort_membership_csv": str(membership_path),
             "dataset_time_contract_json": str(dataset_time_contract_path),
             "paper_cohort_sample_ids_csv": str(cohort_ids_path),

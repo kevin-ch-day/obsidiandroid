@@ -99,6 +99,23 @@ def _log_mysql_failure(event: str, exc: BaseException, **extra: object) -> None:
         DB_LOGGER.error(parts, exc_info=True)
 
 
+def _safe_rollback(conn, *, context: str, original_exc: BaseException | None = None) -> None:
+    """Best-effort rollback that never masks the original database failure."""
+    if conn is None:
+        return
+    try:
+        conn.rollback()
+    except Error as rollback_exc:
+        _log_mysql_failure(
+            "db_rollback_suppressed",
+            rollback_exc,
+            context=context,
+            during_exception=type(original_exc).__name__ if original_exc is not None else None,
+        )
+    except Exception:
+        pass
+
+
 def _build_connect_kwargs() -> dict:
     """Build shared connector kwargs for direct and pooled connections (primary DB)."""
     return {
@@ -186,7 +203,7 @@ def database_connection():
         if VERBOSE_ERRORS:
             print(f"[ERROR] DB connection error: {e}")
         if conn:
-            conn.rollback()
+            _safe_rollback(conn, context="database_connection", original_exc=e)
         raise
     finally:
         if conn and conn.is_connected():
@@ -210,7 +227,7 @@ def permission_intel_database_connection():
         if VERBOSE_ERRORS:
             print(f"[ERROR] Permission Intel DB connection error: {e}")
         if conn:
-            conn.rollback()
+            _safe_rollback(conn, context="permission_intel_database_connection", original_exc=e)
         raise
     finally:
         if conn and conn.is_connected():
@@ -294,13 +311,13 @@ def _run_query(
         )
         if VERBOSE_ERRORS:
             print(f"[ERROR] SQL execution failed\nQuery: {query}\nError: {e}")
-        conn.rollback()
+        _safe_rollback(conn, context="_run_query", original_exc=e)
         raise
     except BaseException as e:
         active_exc = e
         try:
             if conn:
-                conn.rollback()
+                _safe_rollback(conn, context="_run_query_base_exception", original_exc=e)
         except Exception:
             pass
         raise

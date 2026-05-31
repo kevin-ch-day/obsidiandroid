@@ -703,6 +703,11 @@ def write_evaluation_contract_json(
                 "errors_csv": str(errors_path),
                 "errors_csv_exists": bool(errors_path.is_file()),
             },
+            "promoted_paper_model": dict(
+                manifest.get("promoted_paper_model", {})
+                if isinstance(manifest.get("promoted_paper_model"), dict)
+                else {}
+            ),
         }
         out_path = diagnostics_dir / f"evaluation_contract_{run_id}.json"
         text = json.dumps(payload, indent=2, sort_keys=True) + "\n"

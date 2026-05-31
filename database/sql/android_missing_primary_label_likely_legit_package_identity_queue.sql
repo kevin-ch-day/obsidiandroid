@@ -23,10 +23,14 @@ package_catalog_stats AS (
         ) AS distinct_catalog_labels_for_package
     FROM malware_sample_catalog
     WHERE android_package_name IN (
+        'com.aptoide.android.aptoidegames',
         'com.ubnt.easyunifi',
+        'fc.admin.fcexpressadmin',
+        'com.frontrow.vlog',
         'net.telewebion',
         'by.lsdsl.hdrezka',
-        'com.learn.toppr'
+        'com.learn.toppr',
+        'com.theporter.android.driverapp'
     )
     GROUP BY android_package_name
 )
@@ -58,12 +62,16 @@ LEFT JOIN package_catalog_stats AS pcs
 WHERE LOWER(TRIM(COALESCE(msc.platform, ''))) = 'android'
   AND COALESCE(TRIM(msc.classification_primary), '') = ''
   AND COALESCE(TRIM(msc.family_label), '') = ''
-  AND COALESCE(a.authority_bucket, '<none>') = 'missing_resolved_family'
+  AND COALESCE(a.authority_bucket, '<none>') IN ('missing_resolved_family', 'known_legit_package_identity_review')
   AND msc.android_package_name IN (
+      'com.aptoide.android.aptoidegames',
       'com.ubnt.easyunifi',
+      'fc.admin.fcexpressadmin',
+      'com.frontrow.vlog',
       'net.telewebion',
       'by.lsdsl.hdrezka',
-      'com.learn.toppr'
+      'com.learn.toppr',
+      'com.theporter.android.driverapp'
   )
 ORDER BY
     msc.android_package_name,

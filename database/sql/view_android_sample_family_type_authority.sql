@@ -36,6 +36,8 @@ SELECT
     parent_typ.type_slug AS parent_type_slug,
 
     alias.alias_name AS matched_alias_name,
+    gt.token_kind AS generic_token_kind,
+    gt_vt.token_kind AS vt_tail_token_kind,
     CASE
         WHEN alias.alias_id IS NOT NULL THEN 1
         WHEN COALESCE(LOWER(TRIM(fam_norm.family_lc)), '') <> ''
@@ -52,10 +54,52 @@ SELECT
         WHEN fam.family_id IS NOT NULL
              AND COALESCE(LOWER(TRIM(typ.type_slug)), '') IN ('', 'unknown')
         THEN 'authority_family_unknown_type'
+        WHEN COALESCE(LOWER(TRIM(fam_res.resolved_family_lc)), '') = ''
+             AND gt_vt.generic_token_id IS NOT NULL
+        THEN 'vt_tail_policy_hold_review'
+        WHEN COALESCE(LOWER(TRIM(fam_res.resolved_family_lc)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.classification_primary)), '') = 'pua'
+             AND COALESCE(LOWER(TRIM(msc.vt_family_token)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.vt_suggested_label)), '') = ''
+        THEN 'pua_or_provenance_review'
+        WHEN COALESCE(LOWER(TRIM(fam_res.resolved_family_lc)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.classification_primary)), '') = 'trojan'
+             AND COALESCE(LOWER(TRIM(msc.classification_subtype)), '') = 'banker'
+             AND COALESCE(LOWER(TRIM(msc.vt_family_token)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.vt_suggested_label)), '') = ''
+        THEN 'typed_malware_no_family_signal_review'
+        WHEN COALESCE(LOWER(TRIM(fam_res.resolved_family_lc)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.classification_primary)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.classification_subtype)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.android_package_name)), '') <> ''
+             AND COALESCE(LOWER(TRIM(msc.vt_family_token)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.vt_suggested_label)), '') = ''
+        THEN 'low_signal_singleton_provenance_review'
+        WHEN COALESCE(LOWER(TRIM(fam_res.resolved_family_lc)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.android_package_name)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.vt_family_token)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.vt_suggested_label)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.sample_label_kind)), '') IN ('opaque_string', 'unclassified', 'hash_like')
+        THEN 'low_context_provenance_review'
+        WHEN COALESCE(LOWER(TRIM(msc.android_package_name)), '') IN (
+            'by.lsdsl.hdrezka',
+            'com.aptoide.android.aptoidegames',
+            'com.frontrow.vlog',
+            'com.learn.toppr',
+            'com.theporter.android.driverapp',
+            'com.ubnt.easyunifi',
+            'cris.org.in.prs.ima',
+            'fc.admin.fcexpressadmin',
+            'net.telewebion'
+        )
+             AND COALESCE(LOWER(TRIM(fam_res.resolved_family_lc)), '') = ''
+        THEN 'known_legit_package_identity_review'
         WHEN COALESCE(LOWER(TRIM(fam_res.resolved_family_lc)), '') = 'unknown'
         THEN 'resolved_unknown'
         WHEN COALESCE(LOWER(TRIM(fam_res.resolved_family_lc)), '') = ''
         THEN 'missing_resolved_family'
+        WHEN gt.generic_token_id IS NOT NULL
+        THEN 'generic_label_candidate'
         WHEN LOWER(TRIM(fam_res.resolved_family_lc)) IN (
             'trojan',
             'adware',
@@ -85,10 +129,52 @@ SELECT
         WHEN fam.family_id IS NOT NULL
              AND COALESCE(LOWER(TRIM(typ.type_slug)), '') IN ('', 'unknown')
         THEN 'authority_family_missing_type'
+        WHEN COALESCE(LOWER(TRIM(fam_res.resolved_family_lc)), '') = ''
+             AND gt_vt.generic_token_id IS NOT NULL
+        THEN 'vt_tail_token_policy_held_not_family'
+        WHEN COALESCE(LOWER(TRIM(fam_res.resolved_family_lc)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.classification_primary)), '') = 'pua'
+             AND COALESCE(LOWER(TRIM(msc.vt_family_token)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.vt_suggested_label)), '') = ''
+        THEN 'pua_without_family_signal'
+        WHEN COALESCE(LOWER(TRIM(fam_res.resolved_family_lc)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.classification_primary)), '') = 'trojan'
+             AND COALESCE(LOWER(TRIM(msc.classification_subtype)), '') = 'banker'
+             AND COALESCE(LOWER(TRIM(msc.vt_family_token)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.vt_suggested_label)), '') = ''
+        THEN 'coarse_trojan_banker_without_family_signal'
+        WHEN COALESCE(LOWER(TRIM(fam_res.resolved_family_lc)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.classification_primary)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.classification_subtype)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.android_package_name)), '') <> ''
+             AND COALESCE(LOWER(TRIM(msc.vt_family_token)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.vt_suggested_label)), '') = ''
+        THEN 'blank_family_singleton_no_signal'
+        WHEN COALESCE(LOWER(TRIM(fam_res.resolved_family_lc)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.android_package_name)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.vt_family_token)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.vt_suggested_label)), '') = ''
+             AND COALESCE(LOWER(TRIM(msc.sample_label_kind)), '') IN ('opaque_string', 'unclassified', 'hash_like')
+        THEN 'low_context_blank_package_no_family_signal'
+        WHEN COALESCE(LOWER(TRIM(msc.android_package_name)), '') IN (
+            'by.lsdsl.hdrezka',
+            'com.aptoide.android.aptoidegames',
+            'com.frontrow.vlog',
+            'com.learn.toppr',
+            'com.theporter.android.driverapp',
+            'com.ubnt.easyunifi',
+            'cris.org.in.prs.ima',
+            'fc.admin.fcexpressadmin',
+            'net.telewebion'
+        )
+             AND COALESCE(LOWER(TRIM(fam_res.resolved_family_lc)), '') = ''
+        THEN 'known_legit_package_identity'
         WHEN COALESCE(LOWER(TRIM(fam_res.resolved_family_lc)), '') = 'unknown'
         THEN 'resolved_token_unknown'
         WHEN COALESCE(LOWER(TRIM(fam_res.resolved_family_lc)), '') = ''
         THEN 'missing_resolved_family'
+        WHEN gt.generic_token_id IS NOT NULL
+        THEN 'resolved_token_policy_held_not_family'
         WHEN LOWER(TRIM(fam_res.resolved_family_lc)) IN (
             'trojan',
             'adware',
@@ -152,5 +238,11 @@ LEFT JOIN android_malware_family_alias AS alias
     ON alias.family_id = fam.family_id
    AND LOWER(TRIM(alias.alias_name)) = LOWER(TRIM(fam_norm.family_lc))
    AND alias.is_active = 1
+LEFT JOIN vendor_label_generic_token_fact AS gt
+    ON gt.normalized_token COLLATE utf8mb4_unicode_ci = fam_res.resolved_family_lc COLLATE utf8mb4_unicode_ci
+   AND gt.is_active = 1
+LEFT JOIN vendor_label_generic_token_fact AS gt_vt
+    ON gt_vt.normalized_token COLLATE utf8mb4_unicode_ci = LOWER(TRIM(COALESCE(msc.vt_family_token, ''))) COLLATE utf8mb4_unicode_ci
+   AND gt_vt.is_active = 1
 WHERE msc.platform = 'android'
   AND msc.file_extension = 'apk';

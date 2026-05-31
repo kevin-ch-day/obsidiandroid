@@ -12,6 +12,7 @@ def build_paper_compliance_checks(
     *,
     paper_mode: bool,
     split_hash: str,
+    cohort_hash: str,
     split_audit_path: str,
     duplicate_report_path: str,
     duplicate_count: int,
@@ -34,6 +35,17 @@ def build_paper_compliance_checks(
             "split_hash missing",
             artifacts.ArtifactKey.SPLIT_AUDIT_CSV,
             "Ensure split audit exports before training.",
+            enabled=paper_mode,
+        )
+    )
+    checks.append(
+        _compliance_check_row(
+            "cohort_hash_present",
+            bool(cohort_hash),
+            "fatal",
+            "cohort_hash missing",
+            artifacts.ArtifactKey.EXPERIMENT_REGISTRY_JSON,
+            "Resolve paper-locked cohort contract from an immutable lock manifest before finalizing paper run.",
             enabled=paper_mode,
         )
     )

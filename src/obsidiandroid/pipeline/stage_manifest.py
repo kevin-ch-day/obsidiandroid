@@ -20,10 +20,13 @@ import pandas as pd
 from config import app_config
 import obsidiandroid.governance.compliance as compliance
 import obsidiandroid.governance.artifacts as artifacts
+import obsidiandroid.governance.run_manifest as run_manifest
+from obsidiandroid.governance.paper_constants import write_paper_constants
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.common.hash_utils import hash_payload
+from obsidiandroid.common.repo_paths import repo_root
 from obsidiandroid.common.publication_readiness import (
     evaluate_publication_ready_status,
     publication_ready_alias_payload,
@@ -36,7 +39,13 @@ from obsidiandroid.pipeline.manifest.runtime_support import (
     validate_run_scoped_artifact_paths as _manifest_validate_run_scoped_artifact_paths,
 )
 from obsidiandroid.pipeline.manifest.paper2_strict_exports import (
+    build_paper_ablation_table as _build_paper_ablation_table,
     build_strict_paper2_exports as _build_strict_paper2_exports,
+)
+from obsidiandroid.pipeline.manifest.paper_evidence import (
+    build_manuscript_table_constants,
+    build_promoted_paper_model_binding,
+    write_promoted_paper_model_binding,
 )
 from obsidiandroid.pipeline.manifest.paper_compliance_checks import build_paper_compliance_checks
 
@@ -65,8 +74,12 @@ from obsidiandroid.pipeline.manifest.stage_manifest_evidence_pack import (
     build_paper2_pack as _build_paper2_pack,
     export_confusion_matrix_provenance as _export_confusion_matrix_provenance,
     export_trained_family_registry as _export_trained_family_registry,
+    render_consensus_distribution_png as _render_consensus_distribution_png,
     write_evidence_compliance_stub as _write_evidence_compliance_stub,
     write_evidence_readiness as _write_evidence_readiness,
+)
+from obsidiandroid.pipeline.manifest.stage_manifest_writers import (
+    compute_experiment_series_id as _compute_experiment_series_id,
 )
 
 
@@ -329,6 +342,22 @@ def finalize_run_manifest_stage(
         manifest["engine_ranking_hash"] = ranking_hash
         manifest["engine_list_hash"] = hash_payload(engine_names)
         manifest["trained_models"] = _trained_models_for_manifest(pipeline_results, manifest_context)
+        cohort_contract = manifest.get("cohort_contract", {}) if isinstance(manifest, dict) else {}
+        contract_validation_status = str(
+            (cohort_contract.get("validation", {}) if isinstance(cohort_contract.get("validation"), dict) else {}).get("status", "")
+            or ""
+        ).strip()
+        if bool(cohort_contract.get("paper_locked", False)) and contract_validation_status == "match":
+            paper_constants_path = write_paper_constants(
+                run_id=run_id,
+                profile_id=str(profile.get("profile_id", "unknown") or "unknown"),
+                cohort_contract=cohort_contract,
+                split_hash=split_hash,
+                samples_df=samples_df,
+                output_root=repo_root(),
+            )
+            manifest["paper_constants_path"] = str(paper_constants_path)
+            manifest_context["paper_constants_path"] = str(paper_constants_path)
         _merge_lifecycle_into_manifest(manifest, manifest_context)
         _write_manifest_with_pointer(
             manifest=manifest,
@@ -358,6 +387,29 @@ def finalize_run_manifest_stage(
         )
         if contract_snapshot_path is not None and str(contract_snapshot_path) not in artifact_list:
             artifact_list.append(str(contract_snapshot_path))
+        predictions_path = diagnostics_dir / f"headline_test_predictions_{run_id}.csv"
+        if (
+            (paper_mode or evidence_mode)
+            and predictions_path.exists()
+            and str(((manifest.get("model_summary") or {})).get("top_model", "") or "").strip()
+        ):
+            promoted_binding_path = diagnostics_dir / f"promoted_paper_model_binding_{run_id}.json"
+            promoted_binding = build_promoted_paper_model_binding(
+                run_root=run_root,
+                diagnostics_dir=diagnostics_dir,
+                manifest=manifest,
+                evidence_mode=evidence_mode,
+                feature_column_hash=str(
+                    getattr(app_config, "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH", "") or ""
+                ),
+            )
+            write_promoted_paper_model_binding(output_path=promoted_binding_path, payload=promoted_binding)
+            manifest["promoted_paper_model"] = {
+                **promoted_binding,
+                "binding_path": str(promoted_binding_path),
+            }
+            if str(promoted_binding_path) not in artifact_list:
+                artifact_list.append(str(promoted_binding_path))
         eval_contract_path = _write_evaluation_contract_json(
             diagnostics_dir=diagnostics_dir,
             run_id=run_id,
@@ -400,6 +452,12 @@ def finalize_run_manifest_stage(
         if confusion_provenance_path and str(confusion_provenance_path) not in artifact_list:
             artifact_list.append(str(confusion_provenance_path))
         manifest["cohort_limitation_summary"] = _build_cohort_limitation_summary(samples_df=samples_df)
+        manifest["paper_cohort_summary"] = build_manuscript_table_constants(
+            run_id=run_id,
+            profile_id=str(profile.get("profile_id", "unknown") or "unknown"),
+            samples_df=samples_df,
+            cohort_contract=manifest.get("cohort_contract", {}) if isinstance(manifest.get("cohort_contract"), dict) else {},
+        )
         allow_strict_paper_exports, skip_reason = _run_allows_strict_paper_exports(manifest_context)
         if paper_mode and not allow_strict_paper_exports:
             manifest["paper2_export_profile"] = {
@@ -422,6 +480,8 @@ def finalize_run_manifest_stage(
                 run_id=run_id,
                 samples_df=samples_df,
                 manifest_context=manifest_context,
+                manifest=manifest,
+                profile=profile,
                 evidence_mode=evidence_mode,
                 paper_mode=paper_mode,
             )
@@ -543,6 +603,9 @@ def finalize_run_manifest_stage(
         compliance_checks = build_paper_compliance_checks(
             paper_mode=paper_mode,
             split_hash=split_hash,
+            cohort_hash=str(
+                ((manifest.get("cohort_contract") or {}).get("sample_id_lock") or {}).get("cohort_hash", "")
+            ),
             split_audit_path=str(split_meta.get("split_audit_path", "")),
             duplicate_report_path=str(duplicate_meta.get("report_path", "")),
             duplicate_count=int(duplicate_meta.get("duplicate_sha_groups", 0) or 0),

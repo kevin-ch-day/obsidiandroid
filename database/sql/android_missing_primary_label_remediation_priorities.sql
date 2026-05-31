@@ -44,8 +44,19 @@ SELECT
     CASE
         WHEN g.sample_id = 32521 THEN 'candidate_pua_manual_confirm'
         WHEN g.sample_id = 31128 THEN 'possible_false_positive_or_package_reuse'
-        WHEN g.authority_bucket = 'missing_resolved_family'
-             AND g.android_package_name IN ('com.ubnt.easyunifi', 'net.telewebion', 'by.lsdsl.hdrezka', 'com.learn.toppr')
+        WHEN g.android_package_name = 'com.moonfair.wlkm' THEN 'internet_confirmed_malware_package_review'
+        WHEN g.android_package_name = 'com.example.kyc' THEN 'likely_false_positive_or_provenance_review'
+        WHEN g.android_package_name IN (
+                 'cris.org.in.prs.ima',
+                 'com.aptoide.android.aptoidegames',
+                 'com.ubnt.easyunifi',
+                 'fc.admin.fcexpressadmin',
+                 'com.frontrow.vlog',
+                 'net.telewebion',
+                 'by.lsdsl.hdrezka',
+                 'com.learn.toppr',
+                 'com.theporter.android.driverapp'
+             )
              THEN 'likely_legit_package_identity_review'
         WHEN g.authority_bucket = 'missing_resolved_family'
              AND g.confidence_score = 0 THEN 'likely_false_positive_or_provenance_review'
@@ -57,8 +68,19 @@ SELECT
     CASE
         WHEN g.sample_id = 32521 THEN 'High'
         WHEN g.sample_id = 31128 THEN 'High'
-        WHEN g.authority_bucket = 'missing_resolved_family'
-             AND g.android_package_name IN ('com.ubnt.easyunifi', 'net.telewebion', 'by.lsdsl.hdrezka', 'com.learn.toppr')
+        WHEN g.android_package_name = 'com.moonfair.wlkm' THEN 'High'
+        WHEN g.android_package_name = 'com.example.kyc' THEN 'High'
+        WHEN g.android_package_name IN (
+                 'cris.org.in.prs.ima',
+                 'com.aptoide.android.aptoidegames',
+                 'com.ubnt.easyunifi',
+                 'fc.admin.fcexpressadmin',
+                 'com.frontrow.vlog',
+                 'net.telewebion',
+                 'by.lsdsl.hdrezka',
+                 'com.learn.toppr',
+                 'com.theporter.android.driverapp'
+             )
              THEN 'High'
         WHEN g.authority_bucket = 'missing_resolved_family'
              AND g.confidence_score = 0 THEN 'High'
@@ -69,8 +91,19 @@ SELECT
     CASE
         WHEN g.sample_id = 32521 THEN 'Package matches public Your Freedom app listing; detections look clone/PUP-like, not family-attribution-ready.'
         WHEN g.sample_id = 31128 THEN 'Package name is heavily reused on third-party APK sites; weak VT signal suggests package/provenance review before labeling.'
-        WHEN g.authority_bucket = 'missing_resolved_family'
-             AND g.android_package_name IN ('com.ubnt.easyunifi', 'net.telewebion', 'by.lsdsl.hdrezka', 'com.learn.toppr')
+        WHEN g.android_package_name = 'com.moonfair.wlkm' THEN 'Public reporting ties this package to the fake NEXTA LIVE surveillance app; review as confirmed-malware package evidence before leaving it in Unknown.'
+        WHEN g.android_package_name = 'com.example.kyc' THEN 'Placeholder-style com.example package namespace plus hash-like labeling and zero VT confidence suggest test/provenance noise before malware-family review.'
+        WHEN g.android_package_name IN (
+                 'cris.org.in.prs.ima',
+                 'com.aptoide.android.aptoidegames',
+                 'com.ubnt.easyunifi',
+                 'fc.admin.fcexpressadmin',
+                 'com.frontrow.vlog',
+                 'net.telewebion',
+                 'by.lsdsl.hdrezka',
+                 'com.learn.toppr',
+                 'com.theporter.android.driverapp'
+             )
              THEN 'Package matches a public app identity strongly enough that this row should be reviewed as likely legit / provenance drift before any malware labeling.'
         WHEN g.authority_bucket = 'missing_resolved_family'
              AND g.confidence_score = 0 THEN 'Blank-family reservoir row with no current VT confidence; route to false-positive/provenance queue before malware labeling.'

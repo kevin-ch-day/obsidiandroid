@@ -1,0 +1,5 @@
+exclusion_reason,rows
+excluded_family,1206
+below_min_samples_per_family,459
+outside_time_window,360
+missing_mapped_family,338

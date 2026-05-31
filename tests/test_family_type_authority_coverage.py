@@ -13,6 +13,9 @@ from obsidiandroid.diagnostics.family_type_authority_coverage import (
 def test_classify_missing_candidate_generic_coarse() -> None:
     assert classify_missing_candidate("trojan", "resolved_token_coarse_behavior") == "generic_or_coarse_label"
     assert classify_missing_candidate("adware", "resolved_token_not_in_authority_taxonomy") == "generic_or_coarse_label"
+    assert classify_missing_candidate("badpack", "resolved_token_not_in_authority_taxonomy") == "generic_or_coarse_label"
+    assert classify_missing_candidate("kimsuky", "resolved_token_not_in_authority_taxonomy") == "generic_or_coarse_label"
+    assert classify_missing_candidate("blankbot", "resolved_token_policy_held_not_family") == "generic_or_coarse_label"
 
 
 def test_classify_missing_candidate_unknown_and_malformed() -> None:
@@ -141,6 +144,20 @@ def test_generate_authority_coverage_artifacts_writes_outputs(monkeypatch, tmp_p
 def test_authority_view_select_filters_inactive_taxonomy_rows() -> None:
     assert "AND fam.is_active = 1" in AUTHORITY_VIEW_SELECT
     assert "AND alias.is_active = 1" in AUTHORITY_VIEW_SELECT
+    assert "LEFT JOIN vendor_label_generic_token_fact AS gt" in AUTHORITY_VIEW_SELECT
+    assert "resolved_token_policy_held_not_family" in AUTHORITY_VIEW_SELECT
+    assert "known_legit_package_identity_review" in AUTHORITY_VIEW_SELECT
+    assert "known_legit_package_identity" in AUTHORITY_VIEW_SELECT
+    assert "low_context_provenance_review" in AUTHORITY_VIEW_SELECT
+    assert "low_context_blank_package_no_family_signal" in AUTHORITY_VIEW_SELECT
+    assert "pua_or_provenance_review" in AUTHORITY_VIEW_SELECT
+    assert "pua_without_family_signal" in AUTHORITY_VIEW_SELECT
+    assert "vt_tail_policy_hold_review" in AUTHORITY_VIEW_SELECT
+    assert "vt_tail_token_policy_held_not_family" in AUTHORITY_VIEW_SELECT
+    assert "typed_malware_no_family_signal_review" in AUTHORITY_VIEW_SELECT
+    assert "coarse_trojan_banker_without_family_signal" in AUTHORITY_VIEW_SELECT
+    assert "low_signal_singleton_provenance_review" in AUTHORITY_VIEW_SELECT
+    assert "blank_family_singleton_no_signal" in AUTHORITY_VIEW_SELECT
 
 
 def test_authority_view_fallback_sql_drops_inactive_filters_when_columns_missing(monkeypatch) -> None:

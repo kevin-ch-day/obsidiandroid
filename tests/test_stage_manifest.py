@@ -160,6 +160,7 @@ def test_build_paper_compliance_checks_fails_when_taxonomy_mismatch_budget_excee
     checks = build_paper_compliance_checks(
         paper_mode=True,
         split_hash="abc",
+        cohort_hash="cohort123",
         split_audit_path=str(tmp_path / "split.csv"),
         duplicate_report_path=str(tmp_path / "dup.csv"),
         duplicate_count=0,
@@ -188,6 +189,7 @@ def test_build_paper_compliance_checks_can_pass_when_only_non_paper_facing_taxon
     checks = build_paper_compliance_checks(
         paper_mode=True,
         split_hash="abc",
+        cohort_hash="cohort123",
         split_audit_path=str(tmp_path / "split.csv"),
         duplicate_report_path=str(tmp_path / "dup.csv"),
         duplicate_count=0,
@@ -1302,6 +1304,7 @@ def test_build_paper_compliance_checks_includes_taxonomy_type_guard(tmp_path: Pa
     checks = build_paper_compliance_checks(
         paper_mode=True,
         split_hash="abc",
+        cohort_hash="cohort123",
         split_audit_path=str(split_audit),
         duplicate_report_path=str(dup),
         duplicate_count=0,
@@ -1493,6 +1496,9 @@ def test_build_strict_paper2_exports_creates_registries(tmp_path: Path, monkeypa
     docs_dir = run_root / "paper_exports" / "docs"
     assert (docs_dir / "paper_figure_registry.csv").exists()
     assert (docs_dir / "paper_table_registry.csv").exists()
+    assert (docs_dir / "manuscript_table_constants.json").exists()
+    assert (docs_dir / "feature_set_glossary.json").exists()
+    assert (docs_dir / "perturbation_summary.json").exists()
     assert not stale.exists()
     model_table = pd.read_csv(run_root / "paper_exports" / "tables" / "model_comparison_rf_xgb_lr_fused.csv")
     assert set(model_table["model"].tolist()) == {
@@ -1657,6 +1663,62 @@ def test_build_strict_paper2_exports_writes_machine_manifest(tmp_path: Path, mon
     assert latex_dir.exists()
     assert len(list(latex_dir.glob("*.tex"))) == 5
     assert any(str(path).endswith("paper_exports_manifest.json") for path in out["artifact_paths"])
+
+
+def test_build_strict_paper2_exports_fails_on_paper_contract_mismatch(tmp_path: Path, monkeypatch) -> None:
+    """Strict paper export should fail when paper constants disagree with exported manuscript constants."""
+    output_root = tmp_path / "output"
+    run_id = "rcontract"
+    run_root = output_root / "runs" / run_id
+    diagnostics_dir = _seed_strict_paper2_inputs(run_root, run_id, family_count=12)
+    monkeypatch.setattr(stage_manifest.app_config, "PAPER2_STRICT_EXPORT_PROFILE", True, raising=False)
+    paper_constants = tmp_path / "artifacts" / "paper" / "paper_constants.json"
+    paper_constants.parent.mkdir(parents=True, exist_ok=True)
+    paper_constants.write_text(
+        json.dumps(
+            {
+                "sample_count": 1226,
+                "family_count": 39,
+                "malware_type_count": 6,
+                "time_window": {
+                    "start_utc": "2020-01-01T00:00:00Z",
+                    "end_utc": "2026-01-01T00:00:00Z",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="strict paper contract validation failed"):
+        stage_manifest._build_strict_paper2_exports(  # pylint: disable=protected-access
+            run_root=run_root,
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            samples_df=pd.DataFrame(
+                {
+                    "family_canonical": ["f1", "f1", "f2"],
+                    "type_slug": ["banker", "banker", "adware"],
+                    "effective_first_seen_at_utc": ["2020-01-01", "2021-01-01", "2022-01-01"],
+                }
+            ),
+            manifest_context={"paper_constants_path": str(paper_constants)},
+            manifest={
+                "paper_constants_path": str(paper_constants),
+                "paper_cohort_summary": {"sample_count": 3, "family_count": 2, "type_count": 2},
+            },
+            profile={
+                "profile_id": "malicious_temporal_stability_locked",
+                "paper_lock": {
+                    "expected_sample_count": 1226,
+                    "expected_family_count": 39,
+                    "expected_type_count": 6,
+                    "time_window_start_utc": "2020-01-01T00:00:00Z",
+                    "time_window_end_utc": "2026-01-01T00:00:00Z",
+                },
+            },
+            evidence_mode=False,
+            paper_mode=True,
+        )
 
 
 def test_build_strict_paper2_exports_fails_closed_when_required_artifact_missing(

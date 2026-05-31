@@ -22,6 +22,13 @@ from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.pipeline.manifest.confusion_matrix_paths import find_primary_confusion_matrix
 from obsidiandroid.pipeline.manifest.hashing import sha256_hex
+from obsidiandroid.pipeline.manifest.paper_evidence import (
+    build_manuscript_table_constants,
+    validate_paper_contract_bundle,
+    write_feature_set_glossary,
+    write_manuscript_table_constants,
+    write_perturbation_summary,
+)
 from obsidiandroid.pipeline.manifest.paper_figure_renderers import (
     annotate_confusion_matrix_with_metrics,
     export_paper_figure_qc,
@@ -589,6 +596,8 @@ def build_strict_paper2_exports(
     run_id: str,
     samples_df: pd.DataFrame | None,
     manifest_context: dict[str, Any],
+    manifest: dict[str, Any] | None = None,
+    profile: dict[str, Any] | None = None,
     evidence_mode: bool,
     paper_mode: bool,
 ) -> dict[str, Any]:
@@ -972,6 +981,67 @@ def build_strict_paper2_exports(
         profile_path.write_text(json.dumps(profile_payload, indent=2, sort_keys=True), encoding="utf-8")
         exported_paths.append(str(profile_path))
 
+        cohort_contract = {}
+        if isinstance(manifest, dict):
+            maybe_contract = manifest.get("cohort_contract")
+            if isinstance(maybe_contract, dict):
+                cohort_contract = maybe_contract
+        if not cohort_contract and isinstance(manifest_context, dict):
+            maybe_contract = manifest_context.get("paper_cohort_contract")
+            if isinstance(maybe_contract, dict):
+                cohort_contract = maybe_contract
+
+        manuscript_constants_path = docs_dir / "manuscript_table_constants.json"
+        manuscript_constants_payload = build_manuscript_table_constants(
+            run_id=run_id,
+            profile_id=str((profile or {}).get("profile_id", "unknown")),
+            samples_df=samples_df,
+            cohort_contract=cohort_contract,
+        )
+        write_manuscript_table_constants(
+            output_path=manuscript_constants_path,
+            payload=manuscript_constants_payload,
+        )
+        exported_paths.append(str(manuscript_constants_path))
+
+        glossary_json_path, glossary_md_path = write_feature_set_glossary(
+            json_path=docs_dir / "feature_set_glossary.json",
+            md_path=docs_dir / "feature_set_glossary.md",
+        )
+        exported_paths.extend([str(glossary_json_path), str(glossary_md_path)])
+
+        perturbation_paths = write_perturbation_summary(
+            docs_dir=docs_dir,
+            runs_root=run_root.parent,
+            current_run_root=run_root,
+            profile=profile or {},
+            manifest=manifest or {},
+        )
+        exported_paths.extend(str(path) for path in perturbation_paths.values())
+
+        contract_validation = None
+        contract_validation_path = docs_dir / "paper_contract_validation.json"
+        paper_constants_raw = str(
+            (manifest or {}).get("paper_constants_path", "")
+            or manifest_context.get("paper_constants_path", "")
+            or ""
+        ).strip()
+        paper_constants_path = Path(paper_constants_raw) if paper_constants_raw else None
+        if paper_constants_path is not None and paper_constants_path.exists():
+            contract_validation = validate_paper_contract_bundle(
+                profile=profile or {},
+                manifest=manifest or {},
+                paper_constants_path=paper_constants_path,
+                manuscript_constants_path=manuscript_constants_path,
+            )
+            contract_validation_path.write_text(
+                json.dumps(contract_validation, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            exported_paths.append(str(contract_validation_path))
+            if strict_profile and not bool(contract_validation.get("passed", False)):
+                raise ValueError("[PAPER2] strict paper contract validation failed")
+
         figure_qc_path = docs_dir / "paper_figure_qc.csv"
         export_paper_figure_qc(fig_dir=fig_dir, output_path=figure_qc_path)
         exported_paths.append(str(figure_qc_path))
@@ -1007,6 +1077,15 @@ def build_strict_paper2_exports(
             "tables_latex_dir": str(latex_dir.resolve()),
             "figure_sources": figure_inputs,
             "table_sources": table_inputs,
+            "manuscript_table_constants_json": str(manuscript_constants_path.resolve()),
+            "feature_set_glossary_json": str(glossary_json_path.resolve()),
+            "feature_set_glossary_md": str(glossary_md_path.resolve()),
+            "perturbation_summary_csv": str(perturbation_paths["csv"].resolve()),
+            "perturbation_summary_json": str(perturbation_paths["json"].resolve()),
+            "perturbation_summary_md": str(perturbation_paths["md"].resolve()),
+            "paper_contract_validation_json": (
+                str(contract_validation_path.resolve()) if contract_validation is not None else ""
+            ),
             "validation_summary": validation_summary,
         }
         export_manifest_path.write_text(
@@ -1033,6 +1112,13 @@ def build_strict_paper2_exports(
             "top_families_visual": safe_int_config_value(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12), default=12),
             "top_permissions": safe_int_config_value(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 16), default=16),
             "paper_export_contract_version": contract_version,
+            "manuscript_table_constants_path": str((paper_exports_root / "docs" / "manuscript_table_constants.json").resolve()),
+            "feature_set_glossary_json": str((paper_exports_root / "docs" / "feature_set_glossary.json").resolve()),
+            "feature_set_glossary_md": str((paper_exports_root / "docs" / "feature_set_glossary.md").resolve()),
+            "perturbation_summary_csv": str((paper_exports_root / "docs" / "perturbation_summary.csv").resolve()),
+            "perturbation_summary_json": str((paper_exports_root / "docs" / "perturbation_summary.json").resolve()),
+            "perturbation_summary_md": str((paper_exports_root / "docs" / "perturbation_summary.md").resolve()),
+            "paper_contract_validation_path": str((paper_exports_root / "docs" / "paper_contract_validation.json").resolve()),
         },
         "artifact_paths": sorted(set([str(Path(path).resolve()) for path in exported_paths])),
     }

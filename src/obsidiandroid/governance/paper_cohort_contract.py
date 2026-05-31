@@ -26,6 +26,11 @@ from obsidiandroid.common.authority_taxonomy_terms import (
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.common.repo_paths import repo_root
 from obsidiandroid.database import db_config
+from obsidiandroid.governance.cohort_lock_manifest import (
+    load_lock_manifest,
+    resolve_lock_manifest_path,
+    validate_lock_manifest,
+)
 
 
 def validate_profile_paper_lock(profile: dict[str, Any], profile_path: Path) -> None:
@@ -91,8 +96,14 @@ def validate_profile_paper_lock(profile: dict[str, Any], profile_path: Path) -> 
             ) from exc
 
     lock_file = _resolve_repo_relative_path(raw_lock.get("sample_id_lock_file"))
+    manifest_path = resolve_lock_manifest_path(raw_lock)
     lock_status = str(raw_lock.get("sample_id_lock_status", "") or "").strip().lower()
     lock_todo = str(raw_lock.get("sample_id_lock_todo", "") or "").strip()
+    if manifest_path is not None and manifest_path.exists():
+        manifest = load_lock_manifest(raw_lock)
+        assert manifest is not None
+        validate_lock_manifest(manifest=manifest, manifest_path=manifest_path)
+        lock_file = str(manifest.get("member_list_path", "") or "").strip() or lock_file
     if lock_file:
         if not Path(lock_file).exists():
             raise ValueError(
@@ -326,29 +337,76 @@ def build_declared_contract(profile: dict[str, Any]) -> dict[str, Any]:
     if not paper_locked:
         return unresolved_cohort_contract_payload(profile_id=profile_id)
 
-    sample_id_lock_path = _resolve_repo_relative_path(raw_lock.get("sample_id_lock_file"))
+    manifest_payload = load_lock_manifest(raw_lock)
+    manifest_path = str(manifest_payload.get("manifest_path", "") or "") if isinstance(manifest_payload, dict) else ""
+    manifest_member_list = (
+        str(manifest_payload.get("member_list_path", "") or "").strip()
+        if isinstance(manifest_payload, dict)
+        else ""
+    )
+    sample_id_lock_path = manifest_member_list or _resolve_repo_relative_path(raw_lock.get("sample_id_lock_file"))
     has_sample_lock = bool(sample_id_lock_path)
     contract_status = declared_cohort_contract_status(has_sample_lock=has_sample_lock)
     enforcement_level = declared_cohort_enforcement_level(has_sample_lock=has_sample_lock)
-    contract_id = str(raw_lock.get("contract_id", "") or raw_lock.get("paper_id", "") or profile_id)
+    contract_id = str(
+        raw_lock.get("contract_id", "")
+        or raw_lock.get("paper_id", "")
+        or (manifest_payload or {}).get("contract_id", "")
+        or profile_id
+    )
+    manifest_expected = manifest_payload if isinstance(manifest_payload, dict) else {}
+    time_window = manifest_expected.get("time_window", {}) if isinstance(manifest_expected.get("time_window"), dict) else {}
+    baseline_artifact_root = (
+        str(manifest_expected.get("baseline_artifact_root", "") or "")
+        or _resolve_repo_relative_path(raw_lock.get("baseline_artifact_root"))
+    )
     return {
         "paper_locked": True,
         "profile_id": profile_id,
         "contract_name": profile_id,
         "contract_id": contract_id,
         "paper_id": contract_id,
-        "canonical_historical_run_id": str(raw_lock.get("canonical_historical_run_id", "") or ""),
-        "baseline_artifact_root": _resolve_repo_relative_path(raw_lock.get("baseline_artifact_root")),
+        "canonical_historical_run_id": str(
+            (manifest_payload or {}).get("canonical_historical_run_id", "")
+            or raw_lock.get("canonical_historical_run_id", "")
+            or ""
+        ),
+        "baseline_artifact_root": baseline_artifact_root,
         "contract_status": contract_status,
         "cohort_lock_status": contract_status,
         "enforcement_level": enforcement_level,
         "expected": {
-            "sample_count": int(raw_lock.get("expected_sample_count", 0) or 0),
-            "family_count": int(raw_lock.get("expected_family_count", 0) or 0),
-            "type_count": int(raw_lock.get("expected_type_count", 0) or 0),
-            "type_scope": str(raw_lock.get("expected_type_scope", "") or ""),
-            "time_window_start_utc": str(raw_lock.get("time_window_start_utc", "") or ""),
-            "time_window_end_utc": str(raw_lock.get("time_window_end_utc", "") or ""),
+            "sample_count": int(
+                (manifest_expected.get("sample_count", 0) or 0)
+                or (raw_lock.get("expected_sample_count", 0) or 0)
+            ),
+            "family_count": int(
+                (manifest_expected.get("family_count", 0) or 0)
+                or (raw_lock.get("expected_family_count", 0) or 0)
+            ),
+            "type_count": int(
+                (manifest_expected.get("type_count", 0) or 0)
+                or (raw_lock.get("expected_type_count", 0) or 0)
+            ),
+            "type_scope": str(
+                (manifest_expected.get("type_scope", "") or time_window.get("type_scope", "") or "")
+                or raw_lock.get("expected_type_scope", "")
+                or ""
+            ),
+            "time_window_start_utc": str(
+                (time_window.get("start_utc", "") or "")
+                or raw_lock.get("time_window_start_utc", "")
+                or ""
+            ),
+            "time_window_end_utc": str(
+                (time_window.get("end_utc", "") or "")
+                or raw_lock.get("time_window_end_utc", "")
+                or ""
+            ),
+            "time_window_semantics": str(
+                (time_window.get("window_semantics", "") or "")
+                or "start_inclusive_end_exclusive"
+            ),
             "material_change_abs_delta_macro_f1_gt": float(
                 raw_lock.get(
                     "material_change_abs_delta_macro_f1_gt",
@@ -358,11 +416,21 @@ def build_declared_contract(profile: dict[str, Any]) -> dict[str, Any]:
         },
         "sample_id_lock": {
             "path": sample_id_lock_path,
+            "member_list_path": sample_id_lock_path,
             "present": has_sample_lock,
             "enforceable": has_sample_lock,
             "status": str(raw_lock.get("sample_id_lock_status", "") or ""),
             "source": str(raw_lock.get("sample_id_lock_source", "") or ""),
             "todo": str(raw_lock.get("sample_id_lock_todo", "") or ""),
+            "lock_manifest_path": manifest_path,
+            "lock_version": str((manifest_expected.get("lock_version", "") or "")),
+            "created_at_utc": str((manifest_expected.get("created_at_utc", "") or "")),
+            "cohort_hash": str((manifest_expected.get("cohort_hash", "") or "")),
+            "taxonomy_hash": str((manifest_expected.get("taxonomy_hash", "") or "")),
+            "sql_profile_version": str((manifest_expected.get("sql_profile_version", "") or "")),
+            "profile_version": str((manifest_expected.get("profile_version", "") or "")),
+            "top_family_share": manifest_expected.get("top_family_share"),
+            "top_family_support": manifest_expected.get("top_family_support"),
         },
         "notes": str(raw_lock.get("notes", "") or ""),
         "validation": {"checked": False, "status": "declared_only", "mismatches": []},

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -18,11 +19,14 @@ def test_load_locked_temporal_profile_exposes_contract() -> None:
     contract = paper_cohort_contract.build_declared_contract(profile)
 
     assert profile["paper_locked"] is True
-    assert contract["expected"]["sample_count"] == 1187
-    assert contract["expected"]["family_count"] == 35
-    assert contract["expected"]["type_count"] == 3
+    assert contract["expected"]["sample_count"] == 1226
+    assert contract["expected"]["family_count"] == 39
+    assert contract["expected"]["type_count"] == 6
     assert contract["contract_id"] == "malicious_temporal_stability_locked_contract"
     assert contract["sample_id_lock"]["path"].endswith("malicious_temporal_stability_locked_sample_ids.csv")
+    assert contract["sample_id_lock"]["lock_manifest_path"].endswith("cohort_lock_manifest.json")
+    assert contract["sample_id_lock"]["cohort_hash"]
+    assert contract["sample_id_lock"]["taxonomy_hash"]
     assert Path(contract["sample_id_lock"]["path"]).exists()
 
 
@@ -55,6 +59,61 @@ def test_locked_profile_requires_marker_when_paper_lock_declared(
 
     with pytest.raises(ValueError, match="paper_lock metadata but is not marked paper_locked"):
         profile_manager.load_profile("broken_profile")
+
+
+def test_locked_profile_fails_when_manifest_membership_changes_without_new_lock_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The immutable lock manifest must fail if the member list drifts under the same lock version."""
+    baseline_dir = tmp_path / "baseline"
+    baseline_dir.mkdir()
+    member_path = baseline_dir / "members.csv"
+    member_path.write_text("sample_id\n1\n2\n", encoding="utf-8")
+    manifest_path = baseline_dir / "cohort_lock_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "lock_version": "v1",
+                "profile_id": "locked_profile",
+                "contract_id": "locked_contract",
+                "created_at_utc": "2026-05-31T00:00:00Z",
+                "member_list_path": "members.csv",
+                "sample_count": 3,
+                "family_count": 2,
+                "type_count": 1,
+                "cohort_hash": "wrong",
+                "taxonomy_hash": "tax123",
+                "time_window": {"start_utc": "2020-01-01T00:00:00Z", "end_utc": "2026-01-01T00:00:00Z"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    profile_path = tmp_path / "locked_profile.yaml"
+    profile_path.write_text(
+        "\n".join(
+            [
+                "profile_id: locked_profile",
+                "paper_locked: true",
+                "type_slug_filter: all",
+                "cohort_gates: {}",
+                "model_list:",
+                "  - random_forest",
+                "paper_lock:",
+                "  contract_id: locked_contract",
+                f"  baseline_artifact_root: {baseline_dir.as_posix()}",
+                f"  cohort_lock_manifest_file: {manifest_path.as_posix()}",
+                "  expected_sample_count: 3",
+                "  expected_family_count: 2",
+                "  expected_type_count: 1",
+                f"  sample_id_lock_file: {member_path.as_posix()}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(profile_manager, "PROFILES_DIR", tmp_path)
+    with pytest.raises(ValueError, match="sample_count mismatch|cohort_hash mismatch"):
+        profile_manager.load_profile("locked_profile")
 
 
 def test_locked_cohort_mismatch_raises_failure() -> None:
@@ -217,7 +276,7 @@ def test_manifest_payload_records_expected_cohort_contract_metadata() -> None:
             "paper_cohort_contract": {
                 "paper_locked": True,
                 "contract_id": "malicious_temporal_stability_locked_contract",
-                "expected": {"sample_count": 1187, "family_count": 35, "type_count": 3},
+                "expected": {"sample_count": 1226, "family_count": 39, "type_count": 6},
                 "validation": {"checked": True, "status": "match", "mismatches": []},
             },
             "db_query_contract": {"version": "v1"},
@@ -236,7 +295,7 @@ def test_manifest_payload_records_expected_cohort_contract_metadata() -> None:
 
     assert manifest["paper_cohort_contract"]["paper_locked"] is True
     assert manifest["cohort_contract"]["contract_id"] == "malicious_temporal_stability_locked_contract"
-    assert manifest["paper_cohort_contract"]["expected"]["sample_count"] == 1187
+    assert manifest["paper_cohort_contract"]["expected"]["sample_count"] == 1226
     assert manifest["paper_cohort_contract"]["validation"]["status"] == "match"
 
 

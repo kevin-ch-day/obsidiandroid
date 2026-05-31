@@ -54,7 +54,15 @@ base AS (
     ON a.sample_id = msc.sample_id
   LEFT JOIN suppression AS s
     ON s.sample_id = msc.sample_id
-  WHERE a.authority_bucket = 'missing_resolved_family'
+  WHERE a.authority_bucket IN (
+    'missing_resolved_family',
+    'known_legit_package_identity_review',
+    'low_context_provenance_review',
+    'pua_or_provenance_review',
+    'vt_tail_policy_hold_review',
+    'typed_malware_no_family_signal_review',
+    'low_signal_singleton_provenance_review'
+  )
     AND COALESCE(s.max_suppression_weight, 0) <= 0
 ),
 scored AS (
@@ -93,12 +101,38 @@ SELECT
   package_cluster_rank,
   CASE
     WHEN android_package_name = '<blank>' THEN 'blank_package_review'
+    WHEN android_package_name = 'com.moonfair.wlkm' THEN 'internet_confirmed_malware_review'
+    WHEN android_package_name = 'com.app.pacotesinkinstall' THEN 'internet_confirmed_malware_review'
+    WHEN android_package_name IN (
+      'cris.org.in.prs.ima',
+      'com.aptoide.android.aptoidegames',
+      'com.ubnt.easyunifi',
+      'fc.admin.fcexpressadmin',
+      'com.frontrow.vlog',
+      'net.telewebion',
+      'by.lsdsl.hdrezka',
+      'com.learn.toppr',
+      'com.theporter.android.driverapp'
+    ) THEN 'likely_legit_package_review'
     WHEN vt_family_token <> '<blank>' OR vt_suggested_threat_label <> '<blank>' THEN 'vt_tail_review'
     WHEN package_cluster_size > 1 THEN 'package_cluster_review'
     ELSE 'singleton_package_review'
   END AS review_lane,
   CASE
     WHEN android_package_name = '<blank>' THEN 'inspect_unknown_sparse'
+    WHEN android_package_name = 'com.moonfair.wlkm' THEN 'internet_confirmed_malware_package_review'
+    WHEN android_package_name = 'com.app.pacotesinkinstall' THEN 'internet_confirmed_malware_package_review'
+    WHEN android_package_name IN (
+      'cris.org.in.prs.ima',
+      'com.aptoide.android.aptoidegames',
+      'com.ubnt.easyunifi',
+      'fc.admin.fcexpressadmin',
+      'com.frontrow.vlog',
+      'net.telewebion',
+      'by.lsdsl.hdrezka',
+      'com.learn.toppr',
+      'com.theporter.android.driverapp'
+    ) THEN 'likely_legit_package_identity_review'
     WHEN LOWER(vt_family_token) = 'jiagu' THEN 'policy_hold_packer'
     WHEN LOWER(vt_family_token) IN ('fklz', 'boogr')
       OR LOWER(vt_suggested_threat_label) LIKE '%boogr%' THEN 'policy_hold_generic'

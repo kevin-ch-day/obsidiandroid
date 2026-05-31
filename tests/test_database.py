@@ -502,6 +502,37 @@ def test_run_query_does_not_mask_keyboard_interrupt_with_cursor_close_error() ->
         )
 
 
+def test_run_query_does_not_mask_lost_connection_with_rollback_error() -> None:
+    class _FakeCursor:
+        description = None
+
+        def execute(self, *_args, **_kwargs):
+            exc = MySQLError("Lost connection to MySQL server during query")
+            exc.errno = 2013
+            raise exc
+
+        def close(self):
+            return None
+
+    class _FakeConn:
+        def cursor(self):
+            return _FakeCursor()
+
+        def rollback(self):
+            exc = MySQLError("Lost connection to MySQL server during query")
+            exc.errno = 2013
+            raise exc
+
+    with pytest.raises(MySQLError) as excinfo:
+        db_engine._run_query(  # pylint: disable=protected-access
+            _FakeConn(),
+            "SELECT 1",
+            fetch=False,
+        )
+
+    assert "Lost connection to MySQL server during query" in str(excinfo.value)
+
+
 def test_fetch_banking_trojans_sql_qualifies_primary_and_pi(monkeypatch) -> None:
     """Cross-schema banking trojan query must fully qualify both databases."""
     queries: list[str] = []

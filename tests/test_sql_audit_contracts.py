@@ -50,7 +50,13 @@ def test_android_missing_resolution_triage_view_excludes_suppressed_rows() -> No
     assert "s.scope_type = 'sample'" in sql
     assert "s.scope_type = 'package'" in sql
     assert "COALESCE(s.max_suppression_weight, 0) <= 0" in sql
-    assert "a.authority_bucket = 'missing_resolved_family'" in sql
+    assert "'vt_tail_policy_hold_review'" in sql
+    assert "'typed_malware_no_family_signal_review'" in sql
+    assert "'low_signal_singleton_provenance_review'" in sql
+    assert "com.app.pacotesinkinstall" in sql
+    assert "internet_confirmed_malware_package_review" in sql
+    assert "com.theporter.android.driverapp" in sql
+    assert "likely_legit_package_identity_review" in sql
 
 
 def test_authority_sql_views_filter_inactive_family_and_alias_rows() -> None:
@@ -60,6 +66,20 @@ def test_authority_sql_views_filter_inactive_family_and_alias_rows() -> None:
 
     assert "AND fam.is_active = 1" in authority_view_sql
     assert "AND alias.is_active = 1" in authority_view_sql
+    assert "LEFT JOIN vendor_label_generic_token_fact AS gt" in authority_view_sql
+    assert "resolved_token_policy_held_not_family" in authority_view_sql
+    assert "known_legit_package_identity_review" in authority_view_sql
+    assert "known_legit_package_identity" in authority_view_sql
+    assert "low_context_provenance_review" in authority_view_sql
+    assert "low_context_blank_package_no_family_signal" in authority_view_sql
+    assert "pua_or_provenance_review" in authority_view_sql
+    assert "pua_without_family_signal" in authority_view_sql
+    assert "vt_tail_policy_hold_review" in authority_view_sql
+    assert "vt_tail_token_policy_held_not_family" in authority_view_sql
+    assert "typed_malware_no_family_signal_review" in authority_view_sql
+    assert "coarse_trojan_banker_without_family_signal" in authority_view_sql
+    assert "low_signal_singleton_provenance_review" in authority_view_sql
+    assert "blank_family_singleton_no_signal" in authority_view_sql
     assert "AND fam.is_active = 1" in resolution_view_sql
     assert "FROM v_android_sample_family_type_authority" in deep_audit_sql
 
@@ -140,7 +160,12 @@ def test_missing_primary_label_audit_uses_live_contract_surfaces() -> None:
     legit_sql = _read("database/sql/android_missing_primary_label_likely_legit_package_identity_queue.sql")
     assert "android_permission_intel.android_permission_obs_sample" in legit_sql
     assert "missing_resolved_family" in legit_sql
+    assert "known_legit_package_identity_review" in legit_sql
     assert "com.ubnt.easyunifi" in legit_sql
+    assert "com.aptoide.android.aptoidegames" in legit_sql
+    assert "fc.admin.fcexpressadmin" in legit_sql
+    assert "com.frontrow.vlog" in legit_sql
+    assert "com.theporter.android.driverapp" in legit_sql
     assert "likely_legit_package_identity_review" in legit_sql
     assert "catalog_rows_for_package" in legit_sql
     assert "distinct_catalog_labels_for_package" in legit_sql
@@ -172,3 +197,29 @@ def test_missing_primary_label_audit_uses_live_contract_surfaces() -> None:
     assert "accepted_alias_mapping_gap" in family_priority_sql
     assert "alias_family_contradiction" in family_priority_sql
     assert "repeated unresolved family/vt-token pairs" in family_priority_sql.lower()
+
+    missing_resolution_worklist_sql = _read("database/sql/android_missing_resolution_worklist.sql")
+    assert "known_legit_package_identity_review" in missing_resolution_worklist_sql
+    assert "low_context_provenance_review" in missing_resolution_worklist_sql
+    assert "pua_or_provenance_review" in missing_resolution_worklist_sql
+    assert "vt_tail_policy_hold_review" in missing_resolution_worklist_sql
+    assert "typed_malware_no_family_signal_review" in missing_resolution_worklist_sql
+    assert "low_signal_singleton_provenance_review" in missing_resolution_worklist_sql
+    assert "com.app.pacotesinkinstall" in missing_resolution_worklist_sql
+    assert "internet_confirmed_malware_package_review" in missing_resolution_worklist_sql
+    assert "com.moonfair.wlkm" in missing_resolution_worklist_sql
+    assert "cris.org.in.prs.ima" in missing_resolution_worklist_sql
+    assert "com.aptoide.android.aptoidegames" in missing_resolution_worklist_sql
+    assert "fc.admin.fcexpressadmin" in missing_resolution_worklist_sql
+    assert "com.theporter.android.driverapp" in missing_resolution_worklist_sql
+    assert "likely_legit_package_identity_review" in missing_resolution_worklist_sql
+
+    remediation_priorities_sql = _read("database/sql/android_missing_primary_label_remediation_priorities.sql")
+    assert "com.moonfair.wlkm" in remediation_priorities_sql
+    assert "internet_confirmed_malware_package_review" in remediation_priorities_sql
+    assert "com.example.kyc" in remediation_priorities_sql
+    assert "cris.org.in.prs.ima" in remediation_priorities_sql
+    assert "com.aptoide.android.aptoidegames" in remediation_priorities_sql
+    assert "fc.admin.fcexpressadmin" in remediation_priorities_sql
+    assert "com.frontrow.vlog" in remediation_priorities_sql
+    assert "com.theporter.android.driverapp" in remediation_priorities_sql

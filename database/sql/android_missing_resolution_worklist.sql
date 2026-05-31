@@ -19,7 +19,7 @@ SELECT
 FROM malware_sample_catalog c
 JOIN v_android_sample_family_type_authority a
   ON a.sample_id = c.sample_id
-WHERE a.authority_bucket = 'missing_resolved_family'
+WHERE a.authority_bucket IN ('missing_resolved_family', 'known_legit_package_identity_review', 'low_context_provenance_review', 'pua_or_provenance_review', 'vt_tail_policy_hold_review', 'typed_malware_no_family_signal_review', 'low_signal_singleton_provenance_review')
 GROUP BY COALESCE(NULLIF(c.source_batch_label, ''), '<blank>')
 ORDER BY row_count DESC, source_batch_label;
 
@@ -31,7 +31,7 @@ SELECT
 FROM malware_sample_catalog c
 JOIN v_android_sample_family_type_authority a
   ON a.sample_id = c.sample_id
-WHERE a.authority_bucket = 'missing_resolved_family'
+WHERE a.authority_bucket IN ('missing_resolved_family', 'known_legit_package_identity_review', 'low_context_provenance_review', 'pua_or_provenance_review', 'vt_tail_policy_hold_review', 'typed_malware_no_family_signal_review', 'low_signal_singleton_provenance_review')
 GROUP BY COALESCE(NULLIF(c.android_package_name, ''), '<blank>')
 ORDER BY row_count DESC, android_package_name;
 
@@ -43,7 +43,7 @@ SELECT
 FROM malware_sample_catalog c
 JOIN v_android_sample_family_type_authority a
   ON a.sample_id = c.sample_id
-WHERE a.authority_bucket = 'missing_resolved_family'
+WHERE a.authority_bucket IN ('missing_resolved_family', 'known_legit_package_identity_review', 'low_context_provenance_review', 'pua_or_provenance_review', 'vt_tail_policy_hold_review', 'typed_malware_no_family_signal_review', 'low_signal_singleton_provenance_review')
 GROUP BY COALESCE(NULLIF(SUBSTRING_INDEX(c.android_package_name, '.', 3), ''), '<blank>')
 ORDER BY row_count DESC, package_prefix3;
 
@@ -65,7 +65,7 @@ SELECT
 FROM malware_sample_catalog c
 JOIN v_android_sample_family_type_authority a
   ON a.sample_id = c.sample_id
-WHERE a.authority_bucket = 'missing_resolved_family'
+WHERE a.authority_bucket IN ('missing_resolved_family', 'known_legit_package_identity_review', 'low_context_provenance_review', 'pua_or_provenance_review', 'vt_tail_policy_hold_review', 'typed_malware_no_family_signal_review', 'low_signal_singleton_provenance_review')
 ORDER BY c.source_batch_label DESC, c.analysis_lane, c.sample_id;
 
 -- 6. Rows with any VT tail inside missing-resolution bucket
@@ -85,7 +85,7 @@ SELECT
 FROM malware_sample_catalog c
 JOIN v_android_sample_family_type_authority a
   ON a.sample_id = c.sample_id
-WHERE a.authority_bucket = 'missing_resolved_family'
+WHERE a.authority_bucket IN ('missing_resolved_family', 'known_legit_package_identity_review', 'low_context_provenance_review', 'pua_or_provenance_review', 'vt_tail_policy_hold_review', 'typed_malware_no_family_signal_review', 'low_signal_singleton_provenance_review')
   AND (
     COALESCE(c.vt_family_token, '') <> ''
     OR COALESCE(c.vt_suggested_label, '') <> ''
@@ -107,15 +107,25 @@ FROM (
     GROUP_CONCAT(c.sample_id ORDER BY c.sample_id) AS sample_ids,
     CASE
       WHEN COALESCE(NULLIF(c.android_package_name, ''), '<blank>') = '<blank>' THEN 'inspect_unknown_sparse'
+      WHEN c.android_package_name = 'com.moonfair.wlkm' THEN 'internet_confirmed_malware_package_review'
+      WHEN c.android_package_name = 'com.app.pacotesinkinstall' THEN 'internet_confirmed_malware_package_review'
       WHEN c.android_package_name = 'com.ubnt.easyunifi' THEN 'likely_legit_or_repacked_app_cluster'
-      WHEN c.android_package_name = 'com.frontrow.vlog' THEN 'inspect_repeated_package_cluster'
-      WHEN c.android_package_name = 'net.telewebion' THEN 'inspect_repeated_package_cluster'
+      WHEN c.android_package_name IN (
+        'cris.org.in.prs.ima',
+        'com.aptoide.android.aptoidegames',
+        'fc.admin.fcexpressadmin',
+        'com.frontrow.vlog',
+        'net.telewebion',
+        'by.lsdsl.hdrezka',
+        'com.learn.toppr',
+        'com.theporter.android.driverapp'
+      ) THEN 'likely_legit_package_identity_review'
       ELSE 'inspect_singleton_package'
     END AS review_action
   FROM malware_sample_catalog c
   JOIN v_android_sample_family_type_authority a
     ON a.sample_id = c.sample_id
-  WHERE a.authority_bucket = 'missing_resolved_family'
+  WHERE a.authority_bucket IN ('missing_resolved_family', 'known_legit_package_identity_review', 'low_context_provenance_review', 'pua_or_provenance_review', 'vt_tail_policy_hold_review', 'typed_malware_no_family_signal_review', 'low_signal_singleton_provenance_review')
   GROUP BY COALESCE(NULLIF(c.android_package_name, ''), '<blank>')
 ) ranked
 ORDER BY row_count DESC, cluster_value;

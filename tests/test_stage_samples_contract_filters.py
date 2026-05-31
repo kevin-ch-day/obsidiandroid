@@ -321,9 +321,14 @@ def test_export_cohort_lock_artifacts_writes_summary_and_membership(
     membership_df = pd.read_csv(membership_path)
     assert Path(summary_path).exists()
     assert Path(membership_path).exists()
+    manifest_path = Path(summary_payload["artifacts"]["cohort_lock_manifest_json"])
+    assert manifest_path.exists()
+    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert summary_payload["sample_count"] == 2
     assert summary_payload["snapshot_lock"]["status"] == "matched"
     assert membership_df["sample_id"].tolist() == [1, 2]
+    assert manifest_payload["sample_count"] == 2
+    assert manifest_payload["cohort_hash"]
 
 
 def test_export_cohort_lock_artifacts_marks_live_db_drift_as_count_only(

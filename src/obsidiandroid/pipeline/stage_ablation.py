@@ -703,86 +703,87 @@ def run_ablation_experiments(
     schema_audit_snapshot: list[dict[str, Any]] = []
     ablation_grid_exc: BaseException | None = None
     try:
-        for experiment_name, feature_df in experiment_matrices.items():
-            for label_slug, forced_col in label_targets:
-                combo_id = f"{experiment_name}__lt_{label_slug}"
-                try:
-                    setattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", experiment_name)
-                    setattr(app_config, "RUNTIME_ABLATION_LABEL_TARGET_SLUG", label_slug)
-                    setattr(app_config, "RUNTIME_EXPERIMENT_ID", combo_id)
-                    work_df = feature_df.copy()
-                    if not reindex_zero_fill:
-                        if "sample_id" in work_df.columns:
-                            work_df["sample_id"] = pd.to_numeric(
-                                work_df["sample_id"], errors="coerce"
+        with pipeline_core._suppress_known_sklearn_parallel_warning():
+            for experiment_name, feature_df in experiment_matrices.items():
+                for label_slug, forced_col in label_targets:
+                    combo_id = f"{experiment_name}__lt_{label_slug}"
+                    try:
+                        setattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", experiment_name)
+                        setattr(app_config, "RUNTIME_ABLATION_LABEL_TARGET_SLUG", label_slug)
+                        setattr(app_config, "RUNTIME_EXPERIMENT_ID", combo_id)
+                        work_df = feature_df.copy()
+                        if not reindex_zero_fill:
+                            if "sample_id" in work_df.columns:
+                                work_df["sample_id"] = pd.to_numeric(
+                                    work_df["sample_id"], errors="coerce"
+                                )
+                                work_df = work_df[work_df["sample_id"].isin(common_ids)].copy()
+                            else:
+                                idx_series = pd.Series(
+                                    pd.to_numeric(pd.Index(work_df.index), errors="coerce"),
+                                    index=work_df.index,
+                                )
+                                work_df = work_df.loc[idx_series.isin(common_ids)].copy()
+                        if work_df.empty:
+                            skipped_label_target_runs.append(
+                                {
+                                    "feature_set": str(experiment_name),
+                                    "label_target": str(label_slug),
+                                    "reason": "empty_filtered_feature_matrix",
+                                    "detail": "Filtered feature matrix became empty before training.",
+                                }
                             )
-                            work_df = work_df[work_df["sample_id"].isin(common_ids)].copy()
-                        else:
-                            idx_series = pd.Series(
-                                pd.to_numeric(pd.Index(work_df.index), errors="coerce"),
-                                index=work_df.index,
+                            du.print_warning(
+                                f"[ABLATION] Skipping '{experiment_name}'/'{label_slug}' "
+                                "due to empty filtered feature matrix."
                             )
-                            work_df = work_df.loc[idx_series.isin(common_ids)].copy()
-                    if work_df.empty:
+                            continue
+                        x_train, y_train = _prepare_training_inputs(
+                            work_df,
+                            samples_label_basis,
+                            forced_label_column=forced_col,
+                        )
+                        if x_train is None or y_train is None or x_train.empty:
+                            skipped_label_target_runs.append(
+                                {
+                                    "feature_set": str(experiment_name),
+                                    "label_target": str(label_slug),
+                                    "reason": "alignment_failure",
+                                    "detail": "Feature/label alignment failed or produced an empty training matrix.",
+                                }
+                            )
+                            du.print_warning(
+                                f"[ABLATION] Skipping '{experiment_name}'/'{label_slug}' due to alignment failure."
+                            )
+                            continue
+                        results, _ = pipeline_core.train_models(
+                            x_train,
+                            y_train,
+                            models=selected_models or None,
+                            save_model=ablation_save_models,
+                        )
+                        _print_ablation_combo_summary(experiment_name, label_slug, results)
+                        rows, family_rows = _collect_experiment_rows(
+                            experiment_name,
+                            results,
+                            run_id=run_id,
+                            label_target=label_slug,
+                        )
+                        summary_rows.extend(rows)
+                        per_family_rows.extend(family_rows)
+                    except Exception as exc:
                         skipped_label_target_runs.append(
                             {
                                 "feature_set": str(experiment_name),
                                 "label_target": str(label_slug),
-                                "reason": "empty_filtered_feature_matrix",
-                                "detail": "Filtered feature matrix became empty before training.",
+                                "reason": "combo_failed",
+                                "detail": str(exc),
                             }
                         )
-                        du.print_warning(
-                            f"[ABLATION] Skipping '{experiment_name}'/'{label_slug}' "
-                            "due to empty filtered feature matrix."
-                        )
-                        continue
-                    x_train, y_train = _prepare_training_inputs(
-                        work_df,
-                        samples_label_basis,
-                        forced_label_column=forced_col,
-                    )
-                    if x_train is None or y_train is None or x_train.empty:
-                        skipped_label_target_runs.append(
-                            {
-                                "feature_set": str(experiment_name),
-                                "label_target": str(label_slug),
-                                "reason": "alignment_failure",
-                                "detail": "Feature/label alignment failed or produced an empty training matrix.",
-                            }
-                        )
-                        du.print_warning(
-                            f"[ABLATION] Skipping '{experiment_name}'/'{label_slug}' due to alignment failure."
-                        )
-                        continue
-                    results, _ = pipeline_core.train_models(
-                        x_train,
-                        y_train,
-                        models=selected_models or None,
-                        save_model=ablation_save_models,
-                    )
-                    _print_ablation_combo_summary(experiment_name, label_slug, results)
-                    rows, family_rows = _collect_experiment_rows(
-                        experiment_name,
-                        results,
-                        run_id=run_id,
-                        label_target=label_slug,
-                    )
-                    summary_rows.extend(rows)
-                    per_family_rows.extend(family_rows)
-                except Exception as exc:
-                    skipped_label_target_runs.append(
-                        {
-                            "feature_set": str(experiment_name),
-                            "label_target": str(label_slug),
-                            "reason": "combo_failed",
-                            "detail": str(exc),
-                        }
-                    )
-                    du.print_warning(f"[ABLATION] '{experiment_name}'/'{label_slug}' failed: {exc}")
-                finally:
-                    setattr(app_config, "RUNTIME_EXPERIMENT_ID", "")
-                    setattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", "")
+                        du.print_warning(f"[ABLATION] '{experiment_name}'/'{label_slug}' failed: {exc}")
+                    finally:
+                        setattr(app_config, "RUNTIME_EXPERIMENT_ID", "")
+                        setattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", "")
     except BaseException as exc:
         ablation_grid_exc = exc
         if isinstance(exc, (KeyboardInterrupt, SystemExit)):

@@ -1,0 +1,65 @@
+{
+  "canonical_historical_run_id": "20260504T044304Z__8c64e6",
+  "cohort_hash": "1af3ccdd43dbca1ee6a547b7714cccdf414a7c5a687de116619b446b75f6debf",
+  "contract_id": "malicious_temporal_stability_locked_contract",
+  "created_at_utc": "2026-05-04T04:43:04Z",
+  "family_count": 39,
+  "label_target_class_stats": [
+    {
+      "class_count": 39,
+      "column": "family_canonical",
+      "label_target": "family_canonical_default",
+      "max_class_support": 197,
+      "min_class_support": 1
+    },
+    {
+      "class_count": 39,
+      "column": "family_id",
+      "label_target": "family_id",
+      "max_class_support": 197,
+      "min_class_support": 1
+    },
+    {
+      "class_count": 6,
+      "column": "type_slug",
+      "label_target": "type_slug",
+      "max_class_support": 770,
+      "min_class_support": 30
+    },
+    {
+      "class_count": 39,
+      "column": "family_within_type",
+      "label_target": "family_within_type",
+      "max_class_support": 197,
+      "min_class_support": 1
+    }
+  ],
+  "lock_version": "20260504T044304Z__8c64e6",
+  "member_list_path": "malicious_temporal_stability_locked_sample_ids.csv",
+  "profile_id": "malicious_temporal_stability_locked",
+  "profile_version": "profiles/malicious_temporal_stability_locked.yaml@20260504",
+  "sample_count": 1226,
+  "schema_version": "1.0",
+  "source_artifacts": {
+    "member_list_csv": "malicious_temporal_stability_locked_sample_ids.csv",
+    "run_observability_summary_json": "run_observability_summary.json",
+    "sample_stage_lineage_csv": "sample_stage_lineage_20260504T044304Z__8c64e6.csv"
+  },
+  "sql_profile_version": "android_governed_apk_loader_v1",
+  "taxonomy_hash": "381fa8ae2f222e81d3044d3fd633ec60688fe4df064ce85e458574b35b0c73b5",
+  "time_window": {
+    "end_utc": "2026-01-01T00:00:00Z",
+    "fallback_order": [
+      "vt_first_seen_itw_date",
+      "vt_first_submission_at_utc"
+    ],
+    "require_effective_first_seen": true,
+    "start_utc": "2020-01-01T00:00:00Z",
+    "timestamp_field": "effective_first_seen_at_utc",
+    "type_scope": "all_malicious",
+    "window_semantics": "start_inclusive_end_exclusive"
+  },
+  "top_family_share": 0.160685154976,
+  "top_family_support": 197,
+  "type_count": 6
+}
