@@ -267,10 +267,17 @@ class PipelineRunStageControl:
                 "evidence_mode": self.manifest_context.get("evidence_mode", {}),
             }
         )
-        self.preflight_path.write_text(
-            json.dumps(self.preflight_payload, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
+        preflight_text = json.dumps(self.preflight_payload, indent=2, sort_keys=True)
+        self.preflight_path.write_text(preflight_text, encoding="utf-8")
+        output_root_raw = str(getattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", "") or "").strip()
+        if output_root_raw:
+            compatibility_path = Path(output_root_raw) / "runs" / self.run_id / "diagnostics" / "preflight_report.json"
+            if compatibility_path != self.preflight_path:
+                try:
+                    compatibility_path.parent.mkdir(parents=True, exist_ok=True)
+                    compatibility_path.write_text(preflight_text, encoding="utf-8")
+                except Exception:
+                    pass
         if str(self.preflight_path) not in self.artifact_list:
             self.artifact_list.append(str(self.preflight_path))
 

@@ -45,7 +45,10 @@ def compute_taxonomy_version_hash() -> str:
         WHERE is_active = 1
         ORDER BY family_id
     """
-    _, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
+    try:
+        _, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
+    except Exception:
+        return "unavailable"
     payload = [{"family_id": r[0], "family_canonical": r[1]} for r in rows or []]
     return short_hash(hash_payload(payload), 12)
 

@@ -1235,6 +1235,7 @@ def get_type_cohort_catalog_semantics_profile(
     require_effective_first_seen: bool = True,
     exclude_family_ids: tuple[int, ...] | None = None,
     exclude_family_canonical: tuple[str, ...] | None = None,
+    include_family_canonical: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     """Return SQL-scope Android cohort semantics using the governed cohort filters."""
     parts = _cohort_loader_sql_parts(
@@ -1249,6 +1250,7 @@ def get_type_cohort_catalog_semantics_profile(
         effective_time_start_utc=effective_time_start_utc,
         effective_time_end_utc=effective_time_end_utc,
         require_effective_first_seen=require_effective_first_seen,
+        include_family_canonical=include_family_canonical,
         exclude_family_ids=exclude_family_ids,
         exclude_family_canonical=exclude_family_canonical,
     )

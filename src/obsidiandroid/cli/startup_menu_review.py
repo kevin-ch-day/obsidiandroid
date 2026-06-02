@@ -360,6 +360,14 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
             debt_summary["snapshot_compare_note"] = (
                 f"missing primary labels were {run_missing} at run time; live DB now shows {live_missing}"
             )
+            for row in list(debt_summary.get("rows", [])):
+                if isinstance(row, dict) and str(row.get("label", "") or "") == "Missing primary labels":
+                    debt_summary["focus_code"] = str(row.get("code", "") or "")
+                    debt_summary["focus_label"] = str(row.get("label", "") or "")
+                    debt_summary["focus_count"] = safe_int(row.get("count", 0), 0)
+                    debt_summary["focus_action"] = str(row.get("action", "") or "")
+                    debt_summary["focus_detail"] = str(row.get("detail", "") or "")
+                    break
             backlog_snapshot_warning = {
                 "problem": "Backlog debt: run snapshot differs from current live DB.",
                 "why": (

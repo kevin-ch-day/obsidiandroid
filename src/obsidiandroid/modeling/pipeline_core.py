@@ -63,6 +63,7 @@ _SKLEARN_PARALLEL_WARNING_FILTER = "ignore::UserWarning:sklearn.utils.parallel"
 _FAMILY_BENCHMARK_LABEL_FIELDS = {
     "family_id",
     "family_canonical",
+    "family",
     "family_name",
     "family_within_type",
 }

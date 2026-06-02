@@ -33,7 +33,8 @@ def test_export_dataframe_to_excel_compact_emits_single_summary(monkeypatch, cap
         os.makedirs(export_manager.OUTPUT_ROOT, exist_ok=True)
         export_manager.export_dataframe_to_excel(df, "test.xlsx", sheet_name="Sheet1", preview_rows=0)
         out = capsys.readouterr().out
-    assert "[EXPORT] workbook: test.xlsx -> test.xlsx (1 sheet)" in out
+    assert "[EXPORT] consolidated: test.xlsx -> obsidiandroid_outputs.xlsx" in out
+    assert "(1" in out and "sheet)" in out
     assert "Exported:" not in out
 
 
@@ -88,7 +89,8 @@ def test_write_excel_file_compact_emits_single_summary(monkeypatch, capsys):
         os.makedirs(export_manager.OUTPUT_ROOT, exist_ok=True)
         export_manager.write_excel_file(frames, "multi.xlsx")
         out = capsys.readouterr().out
-    assert "[EXPORT] workbook: multi.xlsx -> multi.xlsx (2 sheets)" in out
+    assert "[EXPORT] consolidated: multi.xlsx -> obsidiandroid_outputs.xlsx" in out
+    assert "(2" in out and "sheets)" in out
     assert "Excel file saved:" not in out
 
 
