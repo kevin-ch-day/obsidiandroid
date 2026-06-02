@@ -1,0 +1,72 @@
+authority_id: android_family_tier_authority
+version: 20260601-v1
+source: curated_authority
+seed_source: archived_paper_lock_20260504T044304Z__8c64e6
+review_status: provisional
+review_notes:
+  - Seeded from the manuscript-facing 2026 paper lock as a bootstrap authority.
+  - This artifact defines major/minor family tiers independently of support thresholds.
+major_families:
+  - albiriox
+  - alien
+  - anubis
+  - applite
+  - bankbot
+  - blackrock
+  - cabassous
+  - cerberus
+  - chameleon
+  - coper
+  - crocodilus
+  - donot
+  - ermac
+  - eventbot
+  - flubot
+  - ginp
+  - godfather
+  - golddigger
+  - irata
+  - joker
+  - klopatra
+  - marcher
+  - octo
+  - pixpirate
+  - promptspy
+  - roamingmantis
+  - sharkbot
+  - sova
+  - spyloan
+  - spymax
+  - spynote
+  - tanglebot
+  - teabot
+  - tgtoxic
+  - trickmo
+  - vultur
+  - xenomorph
+  - xrat
+  - zanubis
+generic_coarse_tokens:
+  - adware
+  - android
+  - backdoor
+  - banker
+  - dropper
+  - malware
+  - rat
+  - ransomware
+  - riskware
+  - sms-trojan
+  - spyware
+  - stealer
+  - trojan
+  - worm
+type_targets:
+  - adware
+  - banker
+  - dropper
+  - rat
+  - sms-trojan
+  - spyware
+  - stealer
+  - backdoor

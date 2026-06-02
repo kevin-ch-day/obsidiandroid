@@ -137,12 +137,12 @@ def _export_alignment_diagnostics(
 
     if feature_only:
         pd.Series(sorted(feature_only)).to_csv(feature_path, index=False, header=["sample_id"])
-        du.print_info(f"[EXPORT] Unmatched feature IDs saved to: {feature_path}")
+        du.print_info(f"[EXPORT] Unmatched feature IDs:{du.format_console_path(feature_path)}")
     elif os.path.exists(feature_path):
         os.remove(feature_path)
 
     if label_only:
         pd.Series(sorted(label_only)).to_csv(label_path, index=False, header=["sample_id"])
-        du.print_info(f"[EXPORT] Unmatched label IDs  saved to: {label_path}")
+        du.print_info(f"[EXPORT] Unmatched label IDs:{du.format_console_path(label_path)}")
     elif os.path.exists(label_path):
         os.remove(label_path)

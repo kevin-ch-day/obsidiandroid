@@ -32,13 +32,13 @@ def run_backfill_results_warehouse() -> int:
         return 1
 
     cmd = [sys.executable, str(script_path), "--run-id", run_id]
-    du.print_info(f"[MENU] Running: {' '.join(cmd)}")
+    print(f"[ACTION] Run: {' '.join(cmd)}")
     proc = subprocess.run(cmd, check=False)
     if proc.returncode != 0:
         du.print_error(f"[MENU] Backfill failed with exit code {proc.returncode}.")
         return int(proc.returncode)
 
-    du.print_success(f"[MENU] Warehouse backfill completed for run_id={run_id}.")
+    print(f"[DIAGNOSTICS] Warehouse backfill completed for run_id={run_id}.")
     return 0
 
 
@@ -95,11 +95,11 @@ def run_results_warehouse_status() -> int:
     )
     if total_rows == 0:
         du.print_warning(
-            "[MENU] No rows found for this run_id. Use 'Backfill Results Warehouse from Existing Artifacts'."
+            "[DIAGNOSTICS] No rows found for this run_id. Use 'Backfill Results Warehouse from Existing Artifacts'."
         )
         return 1
 
-    du.print_success(f"[MENU] Warehouse rows detected for run_id={run_id}: total={total_rows}")
+    print(f"[DIAGNOSTICS] Warehouse rows detected for run_id={run_id}: total={total_rows}")
     return 0
 
 
@@ -122,9 +122,9 @@ def run_publication_structural_diagnostics() -> int:
     if latest_run_id:
         env["SCYTALEDROID_RUN_ID"] = latest_run_id
     env["SCYTALEDROID_OUTPUT_ROOT"] = str(canonical_output_root())
-    du.print_info(f"[MENU] Running: {' '.join(cmd)}")
-    du.print_info(
-        "[MENU] Structural export context: "
+    print(f"[ACTION] Run: {' '.join(cmd)}")
+    print(
+        "[DIAGNOSTICS] Structural export context: "
         f"evidence_mode={env['SCYTALEDROID_EVIDENCE_MODE']} "
         f"figure_mode={env['SCYTALEDROID_FIGURE_MODE']} "
         f"analysis_scope={env['SCYTALEDROID_ANALYSIS_SCOPE']}"
@@ -144,9 +144,9 @@ def run_publication_structural_diagnostics() -> int:
             break
     setattr(app_config, "RUNTIME_LAST_STRUCTURAL_OUTPUT", output_path)
     if output_path:
-        du.print_success(f"[MENU] Structural diagnostics exported to {output_path}")
+        print(f"[DIAGNOSTICS] Structural diagnostics:{du.format_console_path(output_path)}")
     else:
-        du.print_success("[MENU] Structural diagnostics exported.")
+        print("[DIAGNOSTICS] Structural diagnostics exported.")
     return 0
 
 
@@ -168,7 +168,7 @@ def run_claim_artifact_map_scaffold() -> int:
         du.print_warning("[MENU] No run IDs provided.")
         return 1
     cmd = [sys.executable, str(script_path), "--run-ids", run_ids]
-    du.print_info(f"[MENU] Running: {' '.join(cmd)}")
+    print(f"[ACTION] Run: {' '.join(cmd)}")
     proc = subprocess.run(cmd, check=False)
     if proc.returncode != 0:
         du.print_error(f"[MENU] claim_artifact_map generation failed with exit code {proc.returncode}.")
@@ -180,8 +180,8 @@ def run_evidence_lock_checker() -> int:
     """Run strict reproducibility checks for supplied evidence run IDs."""
     du.print_section("Run Cohort Lock Checker")
     if not latest_run_publication_mode_enabled():
-        du.print_info(
-            "[MENU] Latest run is not in evidence/publication-ready mode. "
+        print(
+            "[RUN] Latest run is not in evidence/publication-ready mode. "
             "This script validates strict evidence bundles; pass evidence-mode run IDs if defaults look sparse."
         )
     script_path = repo_operator_script("research", "check_evidence_bundle.py")
@@ -199,14 +199,14 @@ def run_evidence_lock_checker() -> int:
         du.print_warning("[MENU] No run IDs provided.")
         return 1
     cmd = [sys.executable, str(script_path), "--run-ids", run_ids]
-    du.print_info(f"[MENU] Running: {' '.join(cmd)}")
+    print(f"[ACTION] Run: {' '.join(cmd)}")
     proc = subprocess.run(cmd, check=False)
     if proc.returncode != 0:
         du.print_warning(
-            "[MENU] Evidence bundle checker reported issues; inspect output/diagnostics/evidence_bundle_check.latest.json"
+            "[DIAGNOSTICS] Evidence bundle checker reported issues; inspect obsidiandroid/output/diagnostics/evidence_bundle_check.latest.json"
         )
         return int(proc.returncode)
-    du.print_success("[MENU] Evidence bundle checker passed for supplied run IDs.")
+    print("[DIAGNOSTICS] Evidence bundle checker passed for supplied run IDs.")
     return 0
 
 
@@ -218,7 +218,7 @@ def run_retrain_from_cached_alignment() -> int:
         du.print_error(f"[MENU] Missing script: {script_path}")
         return 1
     cmd = [sys.executable, str(script_path)]
-    du.print_info(f"[MENU] Running: {' '.join(cmd)}")
+    print(f"[ACTION] Run: {' '.join(cmd)}")
     proc = subprocess.run(cmd, check=False)
     if proc.returncode != 0:
         du.print_error(f"[MENU] Cached retrain failed with exit code {proc.returncode}.")

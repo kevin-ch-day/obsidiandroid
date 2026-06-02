@@ -21,7 +21,7 @@ def fetch_av_results(samples_df: pd.DataFrame, verbose: bool = False) -> pd.Data
                       Empty DataFrame if no results are returned.
     """
     if ml_console.is_compact():
-        du.print_info("[FETCH] Loading AV engine results from the database...")
+        du.print_info("[FETCH] Loading AV engine results...")
     else:
         du.print_section("AV Results Fetcher")
 

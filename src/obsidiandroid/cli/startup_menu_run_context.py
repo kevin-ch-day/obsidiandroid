@@ -13,6 +13,7 @@ import pandas as pd
 from .menu.operator_state import (
     build_operator_state,
     has_structural_bundle as _shared_has_structural_bundle,
+    latest_run_has_diagnostics as _shared_latest_run_has_diagnostics,
     latest_run_has_provenance as _shared_latest_run_has_provenance,
     output_root as _shared_output_root,
 )
@@ -74,6 +75,13 @@ def latest_run_has_provenance() -> bool:
     shared = build_operator_state()
     token = str(shared.get("latest_run_id", "") or "").strip()
     return _shared_latest_run_has_provenance(token, base=_shared_output_root().resolve())
+
+
+def latest_run_has_diagnostics() -> bool:
+    """Return whether any run-scoped diagnostics artifacts exist for latest run."""
+    shared = build_operator_state()
+    token = str(shared.get("latest_run_id", "") or "").strip()
+    return _shared_latest_run_has_diagnostics(token, base=_shared_output_root().resolve())
 
 
 def print_availability_block(*, rows: list[tuple[str, str]]) -> None:
@@ -239,12 +247,14 @@ def print_startup_context() -> None:
     context = latest_run_context_status()
     latest_run_id = str(context.get("latest_run_id", "")).strip() or "None yet"
     publication_ready = bool(context.get("has_publication_exports", False))
+    diagnostics_ready = latest_run_has_diagnostics()
     provenance_ready = latest_run_has_provenance()
+    diagnostics_status = "ready" if provenance_ready else "available" if diagnostics_ready else "missing"
 
     du.print_rule(" ObsidianDroid ")
     du.print_info(
         f"Latest run {latest_run_id} · "
-        f"Diagnostics {status_text(provenance_ready, ready='ready', pending='missing')} · "
+        f"Diagnostics {diagnostics_status} · "
         f"Publication exports {status_text(publication_ready, ready='ready', pending='none')}"
     )
     print("")

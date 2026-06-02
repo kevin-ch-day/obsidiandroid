@@ -173,6 +173,12 @@ def export_run_summary_onepager(
     bundle_metadata: dict[str, Any],
     banker_enrichment_df: pd.DataFrame,
     select_banker_summary_rows: Any,
+    discriminability_df: pd.DataFrame | None = None,
+    type_entropy_df: pd.DataFrame | None = None,
+    family_profiles_df: pd.DataFrame | None = None,
+    type_capability_df: pd.DataFrame | None = None,
+    family_capability_df: pd.DataFrame | None = None,
+    attack_hypotheses_df: pd.DataFrame | None = None,
 ) -> str:
     coverage = coverage_df.iloc[0].to_dict() if not coverage_df.empty else {}
     unknown_rate = float(dangerous_df["unknown_protection_rate"].mean()) if not dangerous_df.empty else 0.0
@@ -223,8 +229,442 @@ def export_run_summary_onepager(
             lines.append(
                 f"- {row['permission']}: OR={float(row['odds_ratio']):.3f}, FDR={float(row['p_value_fdr_bh']):.3e}"
             )
+
+    if isinstance(discriminability_df, pd.DataFrame) and not discriminability_df.empty:
+        top_disc = discriminability_df.head(5).copy()
+        lines.extend(["", "Top permission discriminators:"])
+        for _, row in top_disc.iterrows():
+            lines.append(
+                f"- {row['permission']}: Cramer's V={float(row['cramers_v']):.3f}, support={int(row['global_support'])}"
+            )
+
+    if isinstance(type_entropy_df, pd.DataFrame) and not type_entropy_df.empty:
+        top_types = (
+            type_entropy_df.sort_values(
+                by=["sample_count", "permission_entropy", "type_slug"],
+                ascending=[False, False, True],
+                kind="mergesort",
+            )
+            .head(4)
+            .copy()
+        )
+        lines.extend(["", "Type permission patterns:"])
+        for _, row in top_types.iterrows():
+            lines.append(
+                f"- {row['type_slug']}: entropy={float(row['permission_entropy']):.3f}, "
+                f"effective_diversity={float(row['effective_diversity']):.2f}, n={int(row['sample_count'])}"
+            )
+    if isinstance(type_capability_df, pd.DataFrame) and not type_capability_df.empty:
+        cap_top = (
+            type_capability_df.sort_values(
+                by=["sample_count", "prevalence", "type_slug", "capability_bundle"],
+                ascending=[False, False, True, True],
+                kind="mergesort",
+            )
+            .groupby(["type_slug", "sample_count"], as_index=False, sort=False)
+            .head(3)
+        )
+        lines.extend(["", "Type capability bundles:"])
+        for type_slug, group in cap_top.groupby("type_slug", sort=False):
+            sample_count = int(pd.to_numeric(group["sample_count"], errors="coerce").fillna(0).iloc[0])
+            bundles = ", ".join(
+                f"{row['capability_bundle']}={float(row['prevalence']):.2f}"
+                for _, row in group.iterrows()
+            )
+            lines.append(f"- {type_slug} (n={sample_count}): {bundles}")
+
+    if isinstance(family_profiles_df, pd.DataFrame) and not family_profiles_df.empty:
+        family_scope_df = family_profiles_df.copy()
+        if "profile_scope" in family_scope_df.columns:
+            main_scope = family_scope_df[family_scope_df["profile_scope"].astype(str) == "main"].copy()
+            if not main_scope.empty:
+                family_scope_df = main_scope
+        family_examples = (
+            family_scope_df.sort_values(
+                by=["sample_count", "family_canonical", "prevalence", "permission"],
+                ascending=[False, True, False, True],
+                kind="mergesort",
+            )
+            .groupby(["family_canonical", "sample_count"], as_index=False, sort=False)
+            .head(3)
+        )
+        lines.extend(["", "Example family permission signatures:"])
+        for family_name, group in family_examples.groupby("family_canonical", sort=False):
+            sample_count = int(pd.to_numeric(group["sample_count"], errors="coerce").fillna(0).iloc[0])
+            permissions = ", ".join(
+                f"{str(row['permission']).replace('android.permission.', '')}={float(row['prevalence']):.2f}"
+                for _, row in group.iterrows()
+            )
+            lines.append(f"- {family_name} (n={sample_count}): {permissions}")
+    if isinstance(family_capability_df, pd.DataFrame) and not family_capability_df.empty:
+        cap_examples = (
+            family_capability_df.sort_values(
+                by=["sample_count", "family_canonical", "prevalence", "capability_bundle"],
+                ascending=[False, True, False, True],
+                kind="mergesort",
+            )
+            .groupby(["family_canonical", "sample_count"], as_index=False, sort=False)
+            .head(3)
+        )
+        lines.extend(["", "Example family capability bundles:"])
+        for family_name, group in cap_examples.groupby("family_canonical", sort=False):
+            sample_count = int(pd.to_numeric(group["sample_count"], errors="coerce").fillna(0).iloc[0])
+            bundles = ", ".join(
+                f"{row['capability_bundle']}={float(row['prevalence']):.2f}"
+                for _, row in group.iterrows()
+            )
+            lines.append(f"- {family_name} (n={sample_count}): {bundles}")
+    if isinstance(attack_hypotheses_df, pd.DataFrame) and not attack_hypotheses_df.empty:
+        lines.extend(["", "Top ATT&CK-Mobile capability hypotheses:"])
+        ordered = attack_hypotheses_df.sort_values(
+            by=["group_kind", "sample_count", "matched_permission_count", "evidence_prevalence_mean"],
+            ascending=[True, False, False, False],
+            kind="mergesort",
+        )
+        for _, row in ordered.head(6).iterrows():
+            lines.append(
+                f"- {row['group_kind']} `{row['group_value']}` -> `{row['attack_id']}` {row['attack_name']} "
+                f"[{row['confidence']}] via {row['evidence_permissions']}"
+            )
     text = "\n".join(lines) + "\n"
     return export_markdown_with_latest(text, run_id, "run_summary_onepager", bundle_dir)
+
+
+def export_permission_pattern_summary(
+    *,
+    run_id: str,
+    bundle_dir: Path,
+    prevalence_by_type_df: pd.DataFrame,
+    prevalence_by_family_df: pd.DataFrame,
+    signal_prevalence_by_type_df: pd.DataFrame,
+    signal_prevalence_by_type_behavior_safe_df: pd.DataFrame,
+    signal_prevalence_by_family_df: pd.DataFrame,
+    signal_prevalence_by_family_behavior_safe_df: pd.DataFrame,
+    family_signal_similarity_df: pd.DataFrame,
+    family_signal_similarity_behavior_safe_df: pd.DataFrame,
+    signal_governance_coverage_df: pd.DataFrame,
+    type_enrichment_df: pd.DataFrame,
+    family_enrichment_df: pd.DataFrame,
+    family_similarity_df: pd.DataFrame,
+    attack_hypotheses_df: pd.DataFrame,
+    generic_summary_df: pd.DataFrame,
+) -> str:
+    broad_family_df = (
+        prevalence_by_family_df.copy()
+        if isinstance(prevalence_by_family_df, pd.DataFrame)
+        else pd.DataFrame()
+    )
+    lines = [
+        "# Permission Pattern Discovery Summary",
+        "",
+        f"Run ID: `{run_id}`",
+        "",
+        "Permissions are treated here as static declared-capability signals, not direct proof of runtime behavior or causality.",
+        "",
+        "## Broad corpus signal",
+    ]
+    if isinstance(prevalence_by_type_df, pd.DataFrame) and not prevalence_by_type_df.empty:
+        common = (
+            prevalence_by_type_df.groupby("permission", dropna=False)["permission_positive_count"]
+            .sum()
+            .sort_values(ascending=False)
+            .head(10)
+        )
+        lines.append("")
+        lines.append("Top common permissions:")
+        for permission, count in common.items():
+            lines.append(f"- {permission}: positive_count={int(count)}")
+    else:
+        lines.append("")
+        lines.append("No type-level prevalence rows available.")
+
+    lines.extend(["", "## Type-level signal"])
+    if isinstance(type_enrichment_df, pd.DataFrame) and not type_enrichment_df.empty:
+        top_type = (
+            type_enrichment_df[type_enrichment_df["interpretation_bucket"].astype(str) != "no_signal"]
+            .sort_values(
+                by=["q_value_fdr", "odds_ratio", "type_slug", "permission"],
+                ascending=[True, False, True, True],
+                kind="mergesort",
+            )
+            .head(10)
+        )
+        if top_type.empty:
+            lines.append("")
+            lines.append("No type-distinguishing permissions met the current significance/odds thresholds.")
+        else:
+            lines.append("")
+            lines.append("Top type-distinguishing permissions:")
+            for _, row in top_type.iterrows():
+                lines.append(
+                    f"- {row['type_slug']} :: {row['permission']}: "
+                    f"OR={float(row['odds_ratio']):.2f}, q={float(row['q_value_fdr']):.3e}, "
+                    f"bucket={row['interpretation_bucket']}"
+                )
+    else:
+        lines.append("")
+        lines.append("No type enrichment rows available.")
+
+    lines.extend(["", "## Signal-group interpretation"])
+    if isinstance(signal_prevalence_by_type_df, pd.DataFrame) and not signal_prevalence_by_type_df.empty:
+        behavior_safe = signal_prevalence_by_type_behavior_safe_df.sort_values(
+            by=["prevalence_pct", "type_slug", "signal_key"],
+            ascending=[False, True, True],
+            kind="mergesort",
+        ).head(12)
+        model_only = signal_prevalence_by_type_df[
+            signal_prevalence_by_type_df["include_in_model_features"].astype(bool)
+            & ~signal_prevalence_by_type_df["include_in_behavioral_claims"].astype(bool)
+        ].sort_values(
+            by=["prevalence_pct", "type_slug", "signal_key"],
+            ascending=[False, True, True],
+            kind="mergesort",
+        ).head(12)
+        lines.append("")
+        lines.append("Behavior-claim-safe signal groups:")
+        for _, row in behavior_safe.iterrows():
+            lines.append(
+                f"- {row['type_slug']} :: {row['signal_key']}: "
+                f"prevalence={float(row['prevalence_pct']):.1f}%"
+            )
+        lines.append("")
+        lines.append("Model-only / fingerprint signal groups:")
+        for _, row in model_only.iterrows():
+            lines.append(
+                f"- {row['type_slug']} :: {row['signal_key']} "
+                f"({row['authority_lane']}): prevalence={float(row['prevalence_pct']):.1f}%"
+            )
+    else:
+        lines.append("")
+        lines.append("No signal-group prevalence rows available.")
+
+    lines.extend(["", "## Governance coverage"])
+    if isinstance(signal_governance_coverage_df, pd.DataFrame) and not signal_governance_coverage_df.empty:
+        coverage_metrics = {
+            str(row["metric"]): row["value"]
+            for _, row in signal_governance_coverage_df.iterrows()
+            if "metric" in row and "value" in row
+        }
+        permission_row_count = int(pd.to_numeric(coverage_metrics.get("permission_row_count", 0), errors="coerce"))
+        rows_with_effective_lane = int(
+            pd.to_numeric(coverage_metrics.get("rows_with_effective_lane", 0), errors="coerce")
+        )
+        rows_with_candidate_lane = int(
+            pd.to_numeric(coverage_metrics.get("rows_with_candidate_lane", 0), errors="coerce")
+        )
+        rows_with_any_governance_lane = int(
+            pd.to_numeric(coverage_metrics.get("rows_with_any_governance_lane", 0), errors="coerce")
+        )
+        signal_assignment_pairs = int(
+            pd.to_numeric(coverage_metrics.get("signal_assignment_pairs", 0), errors="coerce")
+        )
+        pct_governed = (
+            (rows_with_any_governance_lane / permission_row_count) * 100.0
+            if permission_row_count > 0
+            else 0.0
+        )
+        lines.append("")
+        lines.append(
+            "These counts describe how much of the permission surface carried live governance lane metadata "
+            "from Permission Intel during this run."
+        )
+        lines.append(f"- Permission rows evaluated: {permission_row_count}")
+        lines.append(
+            f"- Rows with any governance lane: {rows_with_any_governance_lane} ({pct_governed:.1f}%)"
+        )
+        lines.append(f"- Rows with effective governed lane: {rows_with_effective_lane}")
+        lines.append(f"- Rows with candidate lane: {rows_with_candidate_lane}")
+        lines.append(f"- Sample-permission signal assignment pairs: {signal_assignment_pairs}")
+    else:
+        lines.append("")
+        lines.append("No signal governance coverage rows available.")
+
+    lines.extend(["", "## Benchmark-eligible family signal"])
+    if isinstance(family_enrichment_df, pd.DataFrame) and not family_enrichment_df.empty:
+        benchmark_family = family_enrichment_df[
+            pd.to_numeric(family_enrichment_df["benchmark_eligible_n_ge_3"], errors="coerce").fillna(0).astype(bool)
+        ]
+        top_family = (
+            benchmark_family[benchmark_family["interpretation_bucket"].astype(str) != "no_signal"]
+            .sort_values(
+                by=["q_value_fdr", "odds_ratio", "family_support", "family_canonical", "permission"],
+                ascending=[True, False, False, True, True],
+                kind="mergesort",
+            )
+            .head(10)
+        )
+        if top_family.empty:
+            lines.append("")
+            lines.append("No family-distinguishing permissions met the current significance/odds thresholds on benchmark-eligible families.")
+        else:
+            lines.append("")
+            lines.append("Top family-distinguishing permissions:")
+            for _, row in top_family.iterrows():
+                lines.append(
+                    f"- {row['family_canonical']} ({row['type_slug']}, n={int(row['family_support'])}) :: {row['permission']}: "
+                    f"OR={float(row['odds_ratio']):.2f}, q={float(row['q_value_fdr']):.3e}, "
+                    f"bucket={row['interpretation_bucket']}"
+                )
+        low_support = pd.DataFrame()
+        if not broad_family_df.empty and {"benchmark_eligible_n_ge_3", "family_canonical", "family_support"}.issubset(
+            broad_family_df.columns
+        ):
+            low_support = broad_family_df[
+                ~pd.to_numeric(broad_family_df["benchmark_eligible_n_ge_3"], errors="coerce").fillna(0).astype(bool)
+            ][["family_canonical", "family_support"]].drop_duplicates().sort_values(
+                ["family_support", "family_canonical"],
+                ascending=[True, True],
+                kind="mergesort",
+            ).head(10)
+        if not low_support.empty:
+            lines.append("")
+            lines.append("Benchmark-excluded families (support <3) remain visible in diagnostics:")
+            for _, row in low_support.iterrows():
+                lines.append(f"- {row['family_canonical']}: n={int(row['family_support'])}")
+    else:
+        lines.append("")
+        lines.append("No family enrichment rows available.")
+
+    if isinstance(signal_prevalence_by_family_df, pd.DataFrame) and not signal_prevalence_by_family_df.empty:
+        top_family_signals = signal_prevalence_by_family_df[
+            signal_prevalence_by_family_df["benchmark_eligible_n_ge_3"].astype(bool)
+        ].sort_values(
+            by=["prevalence_pct", "family_support", "family_canonical", "signal_key"],
+            ascending=[False, False, True, True],
+            kind="mergesort",
+        ).head(10)
+        lines.append("")
+        lines.append("Secondary mixed-signal family groups (includes fingerprint/model-only lanes):")
+        for _, row in top_family_signals.iterrows():
+            lines.append(
+                f"- {row['family_canonical']} ({row['type_slug']}, n={int(row['family_support'])}) :: "
+                f"{row['signal_key']} prevalence={float(row['prevalence_pct']):.1f}%"
+            )
+    if isinstance(signal_prevalence_by_family_behavior_safe_df, pd.DataFrame) and not signal_prevalence_by_family_behavior_safe_df.empty:
+        top_family_behavior_safe = signal_prevalence_by_family_behavior_safe_df[
+            signal_prevalence_by_family_behavior_safe_df["benchmark_eligible_n_ge_3"].astype(bool)
+        ].sort_values(
+            by=["prevalence_pct", "family_support", "family_canonical", "signal_key"],
+            ascending=[False, False, True, True],
+            kind="mergesort",
+        ).head(10)
+        lines.append("")
+        lines.append("Top benchmark-eligible behavior-safe family signal groups:")
+        for _, row in top_family_behavior_safe.iterrows():
+            lines.append(
+                f"- {row['family_canonical']} ({row['type_slug']}, n={int(row['family_support'])}) :: "
+                f"{row['signal_key']} prevalence={float(row['prevalence_pct']):.1f}%"
+            )
+
+    lines.extend(["", "## Family-within-type clusters"])
+    if isinstance(family_similarity_df, pd.DataFrame) and not family_similarity_df.empty:
+        same_type = family_similarity_df[family_similarity_df["same_type_flag"].astype(bool)].sort_values(
+            by=["cosine_similarity", "jaccard_similarity", "spearman_correlation", "family_a", "family_b"],
+            ascending=[False, False, False, True, True],
+            kind="mergesort",
+        ).head(10)
+        if same_type.empty:
+            lines.append("")
+            lines.append("No same-type family similarity pairs available.")
+        else:
+            lines.append("")
+            lines.append("Closest same-type family pairs:")
+            for _, row in same_type.iterrows():
+                lines.append(
+                    f"- {row['family_a']} vs {row['family_b']} ({row['type_a']}): "
+                    f"cosine={float(row['cosine_similarity']):.3f}, "
+                    f"jaccard={float(row['jaccard_similarity']):.3f}, "
+                    f"spearman={float(row['spearman_correlation']):.3f}"
+                )
+    else:
+        lines.append("")
+        lines.append("No family similarity rows available.")
+
+    if isinstance(family_signal_similarity_df, pd.DataFrame) and not family_signal_similarity_df.empty:
+        same_type_signal = family_signal_similarity_df[
+            family_signal_similarity_df["same_type_flag"].astype(bool)
+        ].sort_values(
+            by=["cosine_similarity", "jaccard_similarity", "family_a", "family_b"],
+            ascending=[False, False, True, True],
+            kind="mergesort",
+        ).head(10)
+        lines.append("")
+        lines.append("Secondary mixed-signal family signal-group pairs:")
+        for _, row in same_type_signal.iterrows():
+            lines.append(
+                f"- {row['family_a']} vs {row['family_b']} ({row['type_a']}): "
+                f"cosine={float(row['cosine_similarity']):.3f}, "
+                f"jaccard={float(row['jaccard_similarity']):.3f}"
+            )
+    if isinstance(family_signal_similarity_behavior_safe_df, pd.DataFrame) and not family_signal_similarity_behavior_safe_df.empty:
+        same_type_signal_behavior_safe = family_signal_similarity_behavior_safe_df[
+            family_signal_similarity_behavior_safe_df["same_type_flag"].astype(bool)
+        ].sort_values(
+            by=["cosine_similarity", "jaccard_similarity", "family_a", "family_b"],
+            ascending=[False, False, True, True],
+            kind="mergesort",
+        ).head(10)
+        lines.append("")
+        lines.append("Closest same-type behavior-safe family signal-group pairs:")
+        for _, row in same_type_signal_behavior_safe.iterrows():
+            lines.append(
+                f"- {row['family_a']} vs {row['family_b']} ({row['type_a']}): "
+                f"cosine={float(row['cosine_similarity']):.3f}, "
+                f"jaccard={float(row['jaccard_similarity']):.3f}"
+            )
+
+    lines.extend(["", "## Taxonomy anomalies"])
+    if isinstance(generic_summary_df, pd.DataFrame) and not generic_summary_df.empty:
+        for _, row in generic_summary_df.iterrows():
+            lines.append(
+                f"- {row['group']}: n={int(row['sample_count'])}, "
+                f"entropy_mean={float(row['permission_entropy_mean']):.3f}, "
+                f"dangerous_mean={float(row['dangerous_count_strict_mean']):.3f}"
+            )
+    else:
+        lines.append("- No generic/unresolved anomaly summary available.")
+
+    lines.extend(["", "## Exclusions and caution lanes"])
+    if isinstance(signal_prevalence_by_type_df, pd.DataFrame) and not signal_prevalence_by_type_df.empty:
+        caution_keys = [
+            "app_defined_scaffolding",
+            "launcher_sdk_ecosystem_noise",
+            "oem_vendor_ecosystem",
+            "google_gms_ecosystem",
+            "aosp_hidden_privileged",
+        ]
+        caution = signal_prevalence_by_type_df[
+            signal_prevalence_by_type_df["signal_key"].isin(caution_keys)
+        ].sort_values(
+            by=["signal_key", "prevalence_pct", "type_slug"],
+            ascending=[True, False, True],
+            kind="mergesort",
+        )
+        lines.append("")
+        lines.append("These signal groups stay available for ML/fingerprinting but are not behavior-claim-safe by default:")
+        for _, row in caution.head(15).iterrows():
+            lines.append(
+                f"- {row['signal_key']} :: {row['type_slug']} prevalence={float(row['prevalence_pct']):.1f}% "
+                f"(behavioral={'yes' if bool(row['include_in_behavioral_claims']) else 'no'})"
+            )
+    lines.append("- Treat behavior-safe signal tables as the primary interpretation surface; mixed signal tables are secondary diagnostics.")
+    lines.append("- AOSP metadata debt remains a separate review lane and should not be promoted into hard behavior claims.")
+
+    lines.extend(["", "## Candidate MITRE ATT&CK capability hypothesis mappings"])
+    if isinstance(attack_hypotheses_df, pd.DataFrame) and not attack_hypotheses_df.empty:
+        lines.append("")
+        lines.append("These ATT&CK-Mobile mappings are permission-derived capability hypotheses only.")
+        top_attack = attack_hypotheses_df.head(10)
+        for _, row in top_attack.iterrows():
+            lines.append(
+                f"- {row['group_kind']} `{row['group_value']}` -> {row['attack_id']} {row['attack_name']} "
+                f"({row['confidence']}; matched_permissions={int(row['matched_permission_count'])})"
+            )
+    else:
+        lines.append("- No ATT&CK-Mobile hypotheses available.")
+
+    text = "\n".join(lines) + "\n"
+    return export_markdown_with_latest(text, run_id, "permission_pattern_summary", bundle_dir)
 
 
 __all__ = [

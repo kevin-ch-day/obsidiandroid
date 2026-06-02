@@ -327,3 +327,68 @@ def test_apply_profile_runtime_policy_accepts_compact_tuning_artifact_overrides(
     assert app_config.ENABLE_RESEARCH_VALIDITY_BUNDLE is False
     assert app_config.ENABLE_VERBOSE_RUN_ARTIFACTS is False
     assert app_config.ENABLE_DETAILED_PER_CLASS_REPORTS is False
+
+
+def test_apply_profile_runtime_policy_sets_diagnostic_only_support_floor(monkeypatch) -> None:
+    from obsidiandroid.pipeline.runtime_policy import apply_profile_runtime_policy
+
+    profile = {
+        "profile_id": "android_malware_all_current",
+        "type_slug_filter": None,
+        "cohort_gates": {
+            "support_floor_mode": "diagnostic_only",
+            "min_samples_per_family": None,
+        },
+        "model_list": ["logistic_regression"],
+        "feature_flags": {},
+        "runtime_overrides": {},
+        "parser_overrides": {},
+        "evidence_mode": False,
+        "allow_vendor_fallback_for_width": True,
+        "allow_adaptive_top_k": True,
+        "top_k_requested": 8,
+        "exclude_unknown_from_main_results": False,
+    }
+    apply_profile_runtime_policy(
+        profile=profile,
+        feature_flags=profile["feature_flags"],
+        allow_evidence_override=False,
+        allow_global_artifacts=False,
+        manifest_context={},
+    )
+
+    assert app_config.RUNTIME_SUPPORT_FLOOR_MODE == "diagnostic_only"
+    assert app_config.RUNTIME_MIN_FAMILY_SUPPORT == 3
+
+
+def test_apply_profile_runtime_policy_sets_benchmark_eligibility_support_floor(monkeypatch) -> None:
+    from obsidiandroid.pipeline.runtime_policy import apply_profile_runtime_policy
+
+    profile = {
+        "profile_id": "android_malware_major_families",
+        "type_slug_filter": None,
+        "cohort_gates": {
+            "support_floor_mode": "benchmark_eligibility",
+            "min_samples_per_family": 3,
+        },
+        "model_list": ["logistic_regression"],
+        "feature_flags": {},
+        "runtime_overrides": {},
+        "parser_overrides": {},
+        "evidence_mode": False,
+        "allow_vendor_fallback_for_width": False,
+        "allow_adaptive_top_k": False,
+        "top_k_requested": 8,
+        "exclude_unknown_from_main_results": True,
+    }
+    apply_profile_runtime_policy(
+        profile=profile,
+        feature_flags=profile["feature_flags"],
+        allow_evidence_override=False,
+        allow_global_artifacts=False,
+        manifest_context={},
+    )
+
+    assert app_config.RUNTIME_SUPPORT_FLOOR_MODE == "benchmark_eligibility"
+    assert app_config.RUNTIME_MIN_FAMILY_SUPPORT == 3
+    assert app_config.RUNTIME_BENCHMARK_MIN_FAMILY_SUPPORT == 3

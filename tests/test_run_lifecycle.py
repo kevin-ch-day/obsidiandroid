@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from obsidiandroid.common.run_lifecycle import (
+    find_active_profile_runs,
     finalize_run_lifecycle_terminal,
     mark_run_lifecycle_running,
 )
@@ -13,9 +15,18 @@ from obsidiandroid.pipeline import run_bounds
 
 def test_lifecycle_running_then_complete(tmp_path: Path) -> None:
     run_root = tmp_path / "output" / "runs" / "rid1"
-    mark_run_lifecycle_running(run_root)
+    mark_run_lifecycle_running(
+        run_root,
+        run_id="rid1",
+        profile_id="android_malware_all_current",
+    )
     assert (run_root / ".RUNNING").is_file()
     assert not (run_root / ".COMPLETE").exists()
+    running_payload = json.loads((run_root / ".RUNNING").read_text(encoding="utf-8"))
+    assert running_payload["run_id"] == "rid1"
+    assert running_payload["profile_id"] == "android_malware_all_current"
+    assert isinstance(running_payload.get("pid"), int)
+    assert str(running_payload.get("hostname", "")).strip()
 
     ctx: dict = {"run_status": "complete", "completed_stage": "manifest"}
     finalize_run_lifecycle_terminal(run_root, manifest_context=ctx, manifest_stage_result_code=0)
@@ -27,7 +38,7 @@ def test_lifecycle_running_then_complete(tmp_path: Path) -> None:
 
 def test_lifecycle_failed_on_interrupt_status(tmp_path: Path) -> None:
     run_root = tmp_path / "output" / "runs" / "rid2"
-    mark_run_lifecycle_running(run_root)
+    mark_run_lifecycle_running(run_root, run_id="rid2")
     ctx = {"run_status": "interrupted", "failure_reason": "KeyboardInterrupt"}
     finalize_run_lifecycle_terminal(run_root, manifest_context=ctx, manifest_stage_result_code=0)
     assert (run_root / ".FAILED").is_file()
@@ -35,9 +46,47 @@ def test_lifecycle_failed_on_interrupt_status(tmp_path: Path) -> None:
     assert ctx.get("lifecycle_state") == "interrupted"
 
 
-def test_merge_lifecycle_into_run_summaries(tmp_path: Path, monkeypatch) -> None:
-    import json
+def test_find_active_profile_runs_returns_live_peer_for_current_pid(tmp_path: Path) -> None:
+    run_root = tmp_path / "output" / "runs" / "rid3"
+    mark_run_lifecycle_running(
+        run_root,
+        run_id="rid3",
+        profile_id="android_malware_all_current",
+    )
 
+    peers = find_active_profile_runs(
+        tmp_path / "output",
+        profile_id="android_malware_all_current",
+    )
+
+    assert len(peers) == 1
+    assert peers[0].run_id == "rid3"
+    assert peers[0].profile_id == "android_malware_all_current"
+
+
+def test_find_active_profile_runs_ignores_dead_same_host_pid(tmp_path: Path) -> None:
+    run_root = tmp_path / "output" / "runs" / "rid4"
+    mark_run_lifecycle_running(
+        run_root,
+        run_id="rid4",
+        profile_id="android_malware_all_current",
+    )
+    payload = json.loads((run_root / ".RUNNING").read_text(encoding="utf-8"))
+    payload["pid"] = 99999999
+    (run_root / ".RUNNING").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    peers = find_active_profile_runs(
+        tmp_path / "output",
+        profile_id="android_malware_all_current",
+    )
+
+    assert peers == []
+
+
+def test_merge_lifecycle_into_run_summaries(tmp_path: Path, monkeypatch) -> None:
     from config import app_config
     from obsidiandroid.pipeline.manifest.stage_manifest_writers import (
         merge_lifecycle_fields_into_run_summaries,

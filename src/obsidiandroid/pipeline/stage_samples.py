@@ -18,6 +18,12 @@ import obsidiandroid.governance.cohort_readiness_report as cohort_readiness_repo
 import obsidiandroid.governance.cohort_reproducibility as cohort_reproducibility
 from obsidiandroid.governance.cohort_lock_manifest import build_lock_manifest_payload
 from obsidiandroid.governance.locked_paper_materialization import materialize_locked_paper_cohort
+from obsidiandroid.governance.support_floor_policy import (
+    resolve_configured_min_samples_per_family,
+    resolve_diagnostic_min_samples_per_family,
+    resolve_membership_min_samples_per_family,
+    resolve_support_floor_mode,
+)
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as output_hygiene_mod
 from obsidiandroid.common.hash_utils import hash_payload
@@ -62,6 +68,69 @@ def _locked_snapshot_membership_is_authoritative(profile: dict[str, Any], snapsh
     if not bool(profile.get("paper_locked", False)):
         return False
     return bool(str(snapshot_lock_file or "").strip())
+
+
+def _can_reuse_gate_stats_from_loaded_frame(
+    *,
+    lock_membership_authoritative: bool,
+    limit: int | None,
+    family_cap: int | None,
+    type_cap: int | None,
+    type_cap_by_slug: dict[str, int] | None,
+) -> bool:
+    """Return whether SQL gate stats can be derived from the loaded governed frame.
+
+    This is safe only when the loader is materializing the full governed cohort slice rather
+    than a SQL-limited/capped subset and no snapshot lock overrides membership after fetch.
+    """
+    if lock_membership_authoritative:
+        return False
+    if isinstance(limit, int) and limit > 0:
+        return False
+    if isinstance(family_cap, int) and family_cap > 0:
+        return False
+    if isinstance(type_cap, int) and type_cap > 0:
+        return False
+    if isinstance(type_cap_by_slug, dict) and any(
+        str(key).strip() and isinstance(value, int) and value > 0
+        for key, value in type_cap_by_slug.items()
+    ):
+        return False
+    return True
+
+
+def _build_reused_gate_stats_snapshot(
+    *,
+    samples_df: pd.DataFrame,
+    type_slug: str | None,
+    time_start_utc: str | None,
+    time_end_utc: str | None,
+    sql_min_support: int | None,
+    sql_exclude_families: tuple[str, ...],
+) -> dict[str, Any]:
+    """Build a gate-stats payload from the fetched governed cohort when reuse is safe."""
+    row_count = int(len(samples_df))
+    return {
+        "type_slug": type_slug or "all",
+        "time_window_start_utc": time_start_utc,
+        "time_window_end_utc": time_end_utc,
+        "total_candidates": row_count,
+        "excluded_unmapped_family": 0,
+        "excluded_missing_sha256": 0,
+        "excluded_missing_hash_registry": 0,
+        "excluded_missing_package_name": 0,
+        "excluded_low_support": 0,
+        "excluded_unknown_type_slug": 0,
+        "excluded_weak_label_kind": 0,
+        "excluded_family_label_conflict": 0,
+        "excluded_family_ids": [],
+        "excluded_family_canonical": list(sql_exclude_families),
+        "governed_cohort_count": row_count,
+        "final_count_estimate": row_count,
+        "final_count_estimate_sequential_legacy": row_count,
+        "min_samples_per_family_applied_in_sql": sql_min_support is not None,
+        "gate_stats_mode": "derived_from_loaded_governed_frame",
+    }
 
 
 def export_cohort_filter_summary(
@@ -114,19 +183,21 @@ def load_and_prepare_samples(
     gates = profile.get("cohort_gates", {}) if isinstance(profile, dict) else {}
     cohort_label = f"Android Malware Samples ({profile_id})"
 
-    configured_min_support = int(gates.get("min_samples_per_family", 3))
+    support_floor_mode = resolve_support_floor_mode(gates)
+    configured_min_support = resolve_configured_min_samples_per_family(gates)
+    diagnostic_min_support = resolve_diagnostic_min_samples_per_family(gates)
     min_support_guard_mode = str(gates.get("min_support_guard_mode", "") or "").strip().lower()
     if (
         bool(getattr(app_config, "PAPER_MODE_ENABLED", False))
         and min_support_guard_mode == "temporal_evidence_floor_20"
     ):
-        if configured_min_support < 20:
+        if configured_min_support is None or configured_min_support < 20:
             raise ValueError(
                 "[PROFILE] Evidence/publication-ready temporal malicious profiles require "
                 "cohort_gates.min_samples_per_family >= 20."
             )
-    setattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", configured_min_support)
-    min_support = configured_min_support
+    setattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", diagnostic_min_support)
+    min_support = resolve_membership_min_samples_per_family(gates)
     require_mapped = bool(gates.get("require_mapped_family", True))
     require_sha256 = bool(gates.get("require_sha256", True))
     allow_missing_pkg = bool(gates.get("allow_missing_package_name", True))
@@ -158,6 +229,12 @@ def load_and_prepare_samples(
         for family in exclude_families
         if str(family).strip()
     )
+    include_families = gates.get("include_families", []) or []
+    include_families = tuple(
+        str(family).strip().lower()
+        for family in include_families
+        if str(family).strip()
+    )
     evidence_strict_snapshot_lock = bool(
         getattr(app_config, "REQUIRE_SNAPSHOT_LOCK_IN_EVIDENCE_MODE", True)
         and getattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False)
@@ -179,23 +256,32 @@ def load_and_prepare_samples(
     lock_membership_authoritative = _locked_snapshot_membership_is_authoritative(profile, snapshot_lock_file)
     sql_min_support = None if lock_membership_authoritative else min_support
     sql_exclude_families = tuple() if lock_membership_authoritative else exclude_families
-
-    gate_stats = db_sample_metadata_queries.get_type_cohort_gate_stats(
-        type_slug=type_slug,
-        min_samples_per_family=sql_min_support,
-        require_mapped_family=require_mapped,
-        require_sha256=require_sha256,
-        allow_missing_package_name=allow_missing_pkg,
-        exclude_unknown_type_slug=exclude_unknown_type_slug,
-        exclude_weak_label_kinds=exclude_weak_label_kinds,
-        exclude_family_label_conflicts=exclude_family_label_conflicts,
-        effective_time_start_utc=time_start_utc,
-        effective_time_end_utc=time_end_utc,
-        require_effective_first_seen=require_effective_first_seen,
-        exclude_family_canonical=sql_exclude_families,
+    reuse_gate_stats_from_loaded_frame = _can_reuse_gate_stats_from_loaded_frame(
+        lock_membership_authoritative=lock_membership_authoritative,
+        limit=limit,
+        family_cap=family_cap,
+        type_cap=type_cap,
+        type_cap_by_slug=type_cap_by_slug,
     )
-    gate_stats_snapshot: dict[str, Any] = dict(gate_stats)
-    cohort_readiness_report.print_cohort_sql_scope_gate_summary(gate_stats)
+    gate_stats_snapshot: dict[str, Any] = {}
+    if not reuse_gate_stats_from_loaded_frame:
+        gate_stats = db_sample_metadata_queries.get_type_cohort_gate_stats(
+            type_slug=type_slug,
+            min_samples_per_family=sql_min_support,
+            require_mapped_family=require_mapped,
+            require_sha256=require_sha256,
+            allow_missing_package_name=allow_missing_pkg,
+            exclude_unknown_type_slug=exclude_unknown_type_slug,
+            exclude_weak_label_kinds=exclude_weak_label_kinds,
+            exclude_family_label_conflicts=exclude_family_label_conflicts,
+            effective_time_start_utc=time_start_utc,
+            effective_time_end_utc=time_end_utc,
+            require_effective_first_seen=require_effective_first_seen,
+            include_family_canonical=include_families,
+            exclude_family_canonical=sql_exclude_families,
+        )
+        gate_stats_snapshot = dict(gate_stats)
+        cohort_readiness_report.print_cohort_sql_scope_gate_summary(gate_stats_snapshot)
     log_event(
         PIPELINE_LOGGER,
         "samples_stage_start",
@@ -203,7 +289,7 @@ def load_and_prepare_samples(
         run_id=str(run_id or "unknown"),
         profile_id=profile_id,
         type_slug=type_slug,
-        min_samples_per_family=min_support,
+        min_samples_per_family=sql_min_support,
     )
 
     current_fetch_sample_ids: set[int] = set()
@@ -226,6 +312,7 @@ def load_and_prepare_samples(
             effective_time_start_utc=time_start_utc,
             effective_time_end_utc=time_end_utc,
             require_effective_first_seen=require_effective_first_seen,
+            include_family_canonical=include_families,
             exclude_family_canonical=sql_exclude_families,
         )
         samples_df = pd.DataFrame({"sample_id": sorted(current_fetch_sample_ids)})
@@ -248,8 +335,19 @@ def load_and_prepare_samples(
             effective_time_start_utc=time_start_utc,
             effective_time_end_utc=time_end_utc,
             require_effective_first_seen=require_effective_first_seen,
+            include_family_canonical=include_families,
             exclude_family_canonical=sql_exclude_families,
         )
+    if reuse_gate_stats_from_loaded_frame:
+        gate_stats_snapshot = _build_reused_gate_stats_snapshot(
+            samples_df=samples_df,
+            type_slug=type_slug,
+            time_start_utc=time_start_utc,
+            time_end_utc=time_end_utc,
+            sql_min_support=sql_min_support,
+            sql_exclude_families=sql_exclude_families,
+        )
+        cohort_readiness_report.print_cohort_sql_scope_gate_summary(gate_stats_snapshot)
     if exclude_unknown_type_slug:
         before_unknown = int(len(samples_df))
         type_slug_norm = (
@@ -298,11 +396,15 @@ def load_and_prepare_samples(
             reason=type(exc).__name__,
         )
     samples_df.attrs["sql_exclude_families_applied"] = tuple(sql_exclude_families)
+    samples_df.attrs["sql_include_families_applied"] = tuple(include_families)
+    samples_df.attrs["requested_include_families"] = tuple(include_families)
     samples_df.attrs["requested_exclude_families"] = tuple(exclude_families)
     samples_df.attrs["exclude_families_deferred_by_snapshot_lock"] = bool(
         lock_membership_authoritative and bool(exclude_families)
     )
-    samples_df.attrs["configured_min_samples_per_family"] = int(configured_min_support)
+    samples_df.attrs["configured_min_samples_per_family"] = configured_min_support
+    samples_df.attrs["diagnostic_min_samples_per_family"] = int(diagnostic_min_support)
+    samples_df.attrs["support_floor_mode"] = support_floor_mode
     samples_df.attrs["min_samples_per_family_applied_in_sql"] = sql_min_support is not None
     samples_df.attrs["min_samples_per_family_sql_value"] = sql_min_support
     samples_df.attrs["exclude_weak_label_kinds_applied_in_sql"] = exclude_weak_label_kinds
@@ -325,7 +427,7 @@ def load_and_prepare_samples(
                 samples_df=samples_df,
                 diagnostics_dir=_diagnostics_dir(),
                 profile_id=profile_id,
-                training_min_support=int(configured_min_support),
+                training_min_support=int(diagnostic_min_support),
                 run_id=str(run_id or "unknown"),
                 artifact_prefix="sql_governed_",
                 print_fn=None,
@@ -410,11 +512,15 @@ def load_and_prepare_samples(
         )
         filter_summary = samples_df.attrs.get("cohort_filter_summary", {})
     samples_df.attrs["sql_exclude_families_applied"] = tuple(sql_exclude_families)
+    samples_df.attrs["sql_include_families_applied"] = tuple(include_families)
+    samples_df.attrs["requested_include_families"] = tuple(include_families)
     samples_df.attrs["requested_exclude_families"] = tuple(exclude_families)
     samples_df.attrs["exclude_families_deferred_by_snapshot_lock"] = bool(
         lock_membership_authoritative and bool(exclude_families)
     )
-    samples_df.attrs["configured_min_samples_per_family"] = int(configured_min_support)
+    samples_df.attrs["configured_min_samples_per_family"] = configured_min_support
+    samples_df.attrs["diagnostic_min_samples_per_family"] = int(diagnostic_min_support)
+    samples_df.attrs["support_floor_mode"] = support_floor_mode
     samples_df.attrs["min_samples_per_family_applied_in_sql"] = sql_min_support is not None
     samples_df.attrs["min_samples_per_family_sql_value"] = sql_min_support
     samples_df.attrs["exclude_weak_label_kinds_applied_in_sql"] = exclude_weak_label_kinds
@@ -576,6 +682,8 @@ def load_and_prepare_samples(
             type_slug=type_slug,
             min_samples_per_family_sql=sql_min_support,
             configured_min_samples_per_family=configured_min_support,
+            diagnostic_min_samples_per_family=diagnostic_min_support,
+            support_floor_mode=support_floor_mode,
             artifact_list=artifact_list,
         )
     except Exception as exc:  # pylint: disable=broad-except
@@ -641,7 +749,7 @@ def load_and_prepare_samples(
             samples_df=samples_df,
             diagnostics_dir=_diagnostics_dir(),
             profile_id=profile_id,
-            training_min_support=int(configured_min_support),
+            training_min_support=int(diagnostic_min_support),
             run_id=str(run_id or "unknown"),
             print_fn=None,
         )
@@ -674,7 +782,7 @@ def load_and_prepare_samples(
             diagnostics_dir=_diagnostics_dir(),
             run_id=str(run_id or "unknown"),
             samples_df=samples_df,
-            min_support=int(configured_min_support),
+            min_support=int(diagnostic_min_support),
         )
         if isinstance(artifact_list, list):
             artifact_list.extend(taxonomy_target_artifacts)
@@ -697,7 +805,7 @@ def load_and_prepare_samples(
             diagnostics_dir=_diagnostics_dir(),
             run_id=str(run_id or "unknown"),
             samples_df=samples_df,
-            min_support=int(configured_min_support),
+            min_support=int(diagnostic_min_support),
         )
         if isinstance(artifact_list, list):
             artifact_list.extend(confidence_artifacts)

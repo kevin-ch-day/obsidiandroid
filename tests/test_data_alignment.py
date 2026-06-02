@@ -157,12 +157,11 @@ def test_extract_aligned_labels_with_family_id_retains_live_authority_family_out
     assert list(labels.astype(str)) == ["1", "2", "3", "4"]
     stats = labels.attrs.get("alignment_attrition_stats", {})
     assert stats.get("alignment_non_authoritative_family_drop_count") == 0
-    assert stats.get("alignment_live_authority_rescue_count") == 3
+    assert stats.get("alignment_live_authority_rescue_count") == 2
     assert stats.get("alignment_rows_post_authority_filter") == 4
     details = labels.attrs.get("alignment_attrition_details", {})
     assert details.get("alignment_live_authority_rescue_families") == {
         "Applite": 1,
-        "Wroba": 1,
         "Piom": 1,
     }
 
@@ -199,6 +198,50 @@ def test_extract_aligned_labels_does_not_retain_unknown_family_without_live_auth
     assert details.get("alignment_non_authoritative_family_drop_families") == {
         "some_unknown_token": 1,
     }
+
+
+def test_extract_aligned_labels_retains_matching_family_authority_even_if_label_kind_is_stale() -> None:
+    """Weak label kinds should not veto a row when the raw family label already matches authority."""
+    features_df = pd.DataFrame(
+        {
+            "sample_id": [101, 102],
+            "feat": [1.0, 2.0],
+        },
+        index=pd.RangeIndex(2),
+    )
+    samples_df = pd.DataFrame(
+        {
+            "sample_id": [101, 102],
+            "family_id": [1, 2],
+            "family_canonical": ["SpyNote", "FluBot"],
+            "family_name": ["SpyNote", "FluBot"],
+            "sample_label_kind": ["opaque_string", "family_or_common_name"],
+            "type_slug": ["rat", "banker"],
+        }
+    )
+    aligned, labels = data_alignment.extract_aligned_labels(
+        features_df,
+        samples_df,
+        drop_low_support=False,
+        verbose=False,
+    )
+
+    assert list(aligned.index) == ["101", "102"]
+    assert list(labels.astype(str)) == ["1", "2"]
+
+
+def test_emit_live_authority_retention_note_only_once_during_ablation(monkeypatch) -> None:
+    printed: list[str] = []
+    monkeypatch.setattr(data_alignment.app_config, "RUNTIME_ABLATION_ACTIVE", True, raising=False)
+    monkeypatch.setattr(data_alignment.app_config, "RUNTIME_ABLATION_AUTHORITY_NOTE_EMITTED", False, raising=False)
+    monkeypatch.setattr(data_alignment.du, "print_info", lambda msg, *_a, **_k: printed.append(str(msg)))
+
+    data_alignment._emit_live_authority_retention_note(159)  # pylint: disable=protected-access
+    data_alignment._emit_live_authority_retention_note(159)  # pylint: disable=protected-access
+
+    assert printed == [
+        "Authority note: 159 live-authority-backed sample(s) retained despite local registry drift."
+    ]
 
 
 def test_feature_correlation_summary_runs() -> None:

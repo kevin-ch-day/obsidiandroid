@@ -6,6 +6,7 @@ cohort semantics, modality coverage, model leaderboard context, and claim hygien
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -86,6 +87,33 @@ def _reporting_output_root(*, diagnostics_dir: Path, run_id: str) -> Path:
     return canonical_output_root()
 
 
+def _claim_readiness_context(profile_id: str, manifest_context: Mapping[str, Any], samples_df: pd.DataFrame) -> tuple[str, str]:
+    """Return terminal heading and machine-readable primary surface label."""
+    publication_ready_mode = bool(
+        manifest_context.get("publication_ready_mode")
+        or manifest_context.get("evidence_mode")
+    )
+    if publication_ready_mode:
+        return "PUBLICATION CLAIM READINESS", "locked_publication_surface"
+    support_floor_mode = str(samples_df.attrs.get("support_floor_mode", "") or "").strip().lower()
+    if support_floor_mode == "benchmark_eligibility":
+        return "BENCHMARK CLAIM READINESS", "major_family_benchmark"
+    if str(profile_id or "").strip() == "android_malware_all_current":
+        return "CORPUS DIAGNOSTIC READINESS", "broad_current_corpus"
+    return "BENCHMARK CLAIM READINESS", "benchmark_surface"
+
+
+def _write_claim_readiness_summary_json(
+    *,
+    diagnostics_dir: Path,
+    run_id: str,
+    payload: Mapping[str, Any],
+) -> Path:
+    path = diagnostics_dir / f"claim_readiness_summary_{run_id}.json"
+    path.write_text(json.dumps(dict(payload), indent=2, sort_keys=True), encoding="utf-8")
+    return path
+
+
 def _write_backlog_debt_summary_md(
     *,
     diagnostics_dir: Path,
@@ -151,7 +179,7 @@ def _build_reporting_backlog_summary(
         policy_held_triage=policy_held_triage,
     )
     if isinstance(debt_summary, dict):
-        debt_summary["source_note"] = "live DB now (operator debt is not a frozen run-time snapshot)"
+        debt_summary["source_note"] = "live DB current-state view, not frozen run snapshot"
     priority_backlog = choose_priority_triage(
         fp_triage=fp_triage,
         android_missing_triage=android_triage,
@@ -763,7 +791,7 @@ def emit_research_operator_report(
     pr("")
     pr(f"Run ID: {run_id}  |  Profile: {profile_id}")
     pr("")
-    research_rq.print_research_questions_terminal(bundle, pr=pr, du=du)
+    research_rq.print_research_questions_terminal(bundle, pr=(print_fn or print), du=du)
     q1 = bundle.get("q1") if isinstance(bundle.get("q1"), dict) else {}
     label_strategy = q1.get("label_strategy") if isinstance(q1.get("label_strategy"), dict) else {}
 
@@ -773,6 +801,10 @@ def emit_research_operator_report(
         pr(f"  ablation_full_fused_feature_hash: {parity.get('ablation_full_fused_feature_column_hash') or '—'}")
         pr(f"  split_hash                       : {parity.get('split_hash') or '—'}")
         pr(f"  label_target                     : {parity.get('label_target') or '—'}")
+        pr(
+            "  headline_extra_modalities        : "
+            f"{parity.get('headline_extra_non_vendor_permission_feature_count') or 0}"
+        )
         am = parity.get("apples_to_apples")
         pr(f"  apples_to_apples                 : {'yes' if am is True else 'no' if am is False else 'unknown'}")
         if am is False:
@@ -958,38 +990,56 @@ def emit_research_operator_report(
         ):
             pr(f"  {line}")
         pr("")
-    du.print_section("CLAIM READINESS")
+    readiness_title, readiness_surface = _claim_readiness_context(
+        profile_id=str(profile_id or ""),
+        manifest_context=manifest_context if isinstance(manifest_context, Mapping) else {},
+        samples_df=samples_df,
+    )
+    du.print_section(readiness_title)
 
     active_cls = ""
     mc_la = manifest_context.get("label_authority") if isinstance(manifest_context, dict) else None
     if isinstance(mc_la, dict) and mc_la.get("active_training_classes") is not None:
         active_cls = str(mc_la.get("active_training_classes"))
+    benchmark_support_floor = int(bundle.get("benchmark_support_floor", 0) or 0)
+    benchmark_support_excluded_sample_count = int(bundle.get("benchmark_support_excluded_sample_count", 0) or 0)
+    benchmark_support_excluded_family_count = int(bundle.get("benchmark_support_excluded_family_count", 0) or 0)
+    family_target = str(label_strategy.get("preferred_family_target", "") or "").strip()
+    type_target = str(label_strategy.get("preferred_type_target", "") or "").strip()
 
-    lines_strong = [
-        (
-            f"The current all-malicious run can retain **{active_cls or '—'}** active family classes "
-            "for headline multiclass training when support filtering is configured accordingly."
-        ),
-        "Permission features and AV detection-structure modalities carry measurable signal (see modality contribution + ablation).",
-    ]
+    lines_strong = []
+    if readiness_surface == "major_family_benchmark":
+        lines_strong.append(
+            f"Major-family benchmark surface is suitable for supervised family reporting on **{active_cls or '—'}** active benchmark classes."
+        )
+    elif readiness_surface == "broad_current_corpus":
+        lines_strong.append(
+            "Broad current-corpus surface is suitable for diagnostics, residue discovery, and permission-pattern analysis."
+        )
+    elif readiness_surface == "locked_publication_surface":
+        lines_strong.append(
+            f"Locked publication surface is the claim-bearing cohort for **{active_cls or '—'}** active benchmark classes."
+        )
+    else:
+        lines_strong.append(
+            f"Current benchmark surface is suitable for supervised family reporting on **{active_cls or '—'}** active classes."
+        )
+    lines_strong.append(
+        "Permission features carry strong independent signal and should be treated as a first-class capability-analysis layer."
+    )
     caution = [
-        "`supervised_family_claims_suitable=false` in dataset foundation means guarded language for family-level scientific claims. "
-        "Top-family concentration remains high — Macro-F1 and recall tails must lead interpretation.",
-        "Type-level claims using generated `classification_label` strings are not publication-safe until cohort vs label-derived type authority is reconciled "
-        "(see taxonomy_type_authority_review). Use `taxonomy_authority_split` to distinguish authority gaps, policy-held generic/coarse token residue, unknown-type families, "
-        "rendering mismatches, and real model prediction errors.",
-        "Headline leaderboard metrics vs ablation `full_fused` are not comparable unless feature hashes match (see FEATURE CONTRACT COMPARISON). "
-        "Parsed vendor metadata is often sparse — do not describe it as cohort-wide dense labels. Vendor-derived parsed family/type features may couple to labels — "
-        "separate detection binaries, consensus scores, and parsed strings.",
+        "Frame family-level results as benchmark-surface claims, not claims about every Android malware family in the broad corpus.",
+        "Lead interpretation with Macro-F1, balanced accuracy, per-family recall, confusion pairs, and benchmark support exclusions.",
+        "Do not use raw label fields as primary scientific targets; use authoritative `type_slug` for type claims.",
+        "Vendor-derived parsed family/type strings may echo labels; interpret them separately from detection binaries, consensus scores, and permission features.",
+        "Headline metrics and ablation metrics are comparable only when the feature-set contract and sample universe match.",
     ]
     if label_strategy:
-        family_target = str(label_strategy.get("preferred_family_target", "") or "").strip()
-        type_target = str(label_strategy.get("preferred_type_target", "") or "").strip()
         avoid = label_strategy.get("avoid_for_primary_claims", [])
         alignment_note = str(label_strategy.get("alignment_interpretation", "") or "").strip()
         if family_target and type_target:
             lines_strong.append(
-                f"Label policy is explicit: train family on `{family_target}` and coarse taxonomy on `{type_target}`."
+                f"Label policy is explicit: family benchmark target=`{family_target}`; coarse taxonomy target=`{type_target}`."
             )
         if isinstance(avoid, list) and avoid:
             caution.append(
@@ -1000,31 +1050,76 @@ def emit_research_operator_report(
         if alignment_note:
             caution.append(alignment_note)
     nxt = [
-        "Dominance-cap stability and temporal permission drift; permission-only vs fused delta stability "
-        "(feature_set_ablation_summary); family-level failure explanations (top_confusion_pairs, lowest recall).",
+        "Review top confusion pairs and lowest-recall families.",
+        "Compare permission-only, vendor-safe, and fused feature performance on the frozen split.",
+        "Generate permission-pattern reports by type_slug, family_canonical, and family-within-type.",
     ]
     readiness_heading, readiness_blockers = _claim_readiness_posture(
         bundle=bundle,
         runtime_temporal_summary=getattr(app_config, "RUNTIME_TEMPORAL_SPLIT_SUMMARY", None),
     )
-    pr(readiness_heading)
+    claim_status = readiness_heading.replace("Needs guarded language", "Guarded").replace("Strong", "Strong")
+    primary_surface_label = {
+        "major_family_benchmark": "Major-family Android malware classification",
+        "broad_current_corpus": "Current Android malware — all samples",
+        "locked_publication_surface": "Locked publication cohort",
+        "benchmark_surface": "Benchmark classification surface",
+    }.get(readiness_surface, "Benchmark classification surface")
+    du.print_stat("Overall claim status", claim_status)
+    du.print_stat("Primary surface", primary_surface_label)
+    if active_cls:
+        du.print_stat("Benchmark family classes", active_cls)
+    if benchmark_support_floor > 0:
+        du.print_stat("Benchmark support rule", f"n >= {benchmark_support_floor} per family")
+    if family_target:
+        du.print_stat("Primary family target", family_target)
+    if type_target:
+        du.print_stat("Primary type target", type_target)
+    pr("")
+    pr("Supported claims")
     for item in lines_strong:
         pr(f"  + {item}")
     if readiness_heading != "Strong":
         for blocker in readiness_blockers:
             pr(f"  ! {blocker}.")
     pr("")
-    pr("Needs caution")
+    pr("Caution required")
     for item in caution:
         pr(f"  ! {item}")
     pr("")
-    pr("Needs next analysis")
+    pr("Next analysis")
     for item in nxt:
         pr(f"  → {item}")
+    claim_readiness_payload = {
+        "claim_status": str(claim_status).strip().lower().replace(" ", "_"),
+        "primary_surface": readiness_surface,
+        "benchmark_family_support_floor": benchmark_support_floor if benchmark_support_floor > 0 else None,
+        "family_claim_surface": family_target or None,
+        "type_claim_surface": type_target or None,
+        "permission_claim_status": "strong_independent_signal",
+        "publication_ready": bool(manifest_context.get("publication_ready_mode") or manifest_context.get("evidence_mode")),
+        "paper_locked": bool(manifest_context.get("paper_locked")),
+        "benchmark_family_classes": int(active_cls) if str(active_cls).isdigit() else None,
+        "benchmark_support_excluded_samples": benchmark_support_excluded_sample_count,
+        "benchmark_support_excluded_families": benchmark_support_excluded_family_count,
+    }
+    claim_readiness_path = _write_claim_readiness_summary_json(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        payload=claim_readiness_payload,
+    )
+    combined_artifacts.append(claim_readiness_path)
     du.print_section("ARTIFACT POINTER")
-    pr(f"Diagnostics index : {md_path}")
+    if print_fn is None:
+        print(f"[Diagnostics] {du.format_console_path(md_path)}")
+    else:
+        print_fn(f"[Diagnostics] {du.format_console_path(md_path)}")
     rr = getattr(app_config, "RUNTIME_RUN_ROOT", "") or ""
-    pr(f"Run root            : {rr}")
+    if rr:
+        if print_fn is None:
+            print(f"[Run] {du.format_console_path(rr)}")
+        else:
+            print_fn(f"[Run] {du.format_console_path(rr)}")
     diag_base = diagnostics_dir
     pr(
         "Start here        : "

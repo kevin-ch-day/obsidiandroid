@@ -261,6 +261,8 @@ def test_finalize_run_manifest_stage_success(monkeypatch) -> None:
             {
                 "included_in_model_flag": [True, False],
                 "engine_name_canonical": ["a", "b"],
+                "exclusion_reason": ["NONE", "LOW_COVERAGE"],
+                "near_miss_flag": [False, True],
             }
         ),
         "xgboost": {"evaluation": {"macro_f1_score": 0.5}},
@@ -289,6 +291,8 @@ def test_finalize_run_manifest_stage_success(monkeypatch) -> None:
     assert captured["manifest"]["trained_models"] == ["xgboost"]
     assert captured["manifest"]["included_engine_count"] == 1
     assert captured["manifest"]["excluded_engine_count"] == 1
+    assert captured["manifest"]["engine_count_near_miss"] == 1
+    assert captured["manifest"]["engine_exclusion_reason_counts"] == {"LOW_COVERAGE": 1}
     assert captured["manifest"]["excluded_non_run_scoped_count"] >= 0
     artifact_list = captured["manifest"]["artifact_list"]
     assert any(str(item).endswith("a.csv") for item in artifact_list)
@@ -892,7 +896,12 @@ def test_write_manifest_with_pointer_paper_mode(tmp_path: Path, monkeypatch) -> 
     monkeypatch.setattr(stage_manifest.run_manifest, "MANIFEST_PATH", latest_manifest_path)
 
     stage_manifest._write_manifest_with_pointer(  # pylint: disable=protected-access
-        manifest={"run_id": "r1", "timestamp_utc": "2026-01-01T00:00:00Z"},
+        manifest={
+            "run_id": "r1",
+            "run_instance_id": "r1",
+            "run_slot": "majorfam_benchmark",
+            "timestamp_utc": "2026-01-01T00:00:00Z",
+        },
         run_id="r1",
         paper_mode=True,
         run_root=run_root,
@@ -903,6 +912,7 @@ def test_write_manifest_with_pointer_paper_mode(tmp_path: Path, monkeypatch) -> 
     assert pointer_path.exists()
     pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
     assert pointer["run_id"] == "r1"
+    assert pointer["run_slot"] == "majorfam_benchmark"
     assert "run_root" in pointer
     assert latest_manifest_path.exists()
     latest_manifest = json.loads(latest_manifest_path.read_text(encoding="utf-8"))

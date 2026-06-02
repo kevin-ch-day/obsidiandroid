@@ -16,6 +16,7 @@ from obsidiandroid.modeling import feature_label_alignment_helper
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common import output_paths
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from obsidiandroid.observability.pipeline_observability.session import PipelineObservabilitySession
 from obsidiandroid.observability.pipeline_observability.taxonomy import LogCategory, LogSeverity
@@ -31,7 +32,11 @@ def _diagnostics_dir_str() -> str:
 
 def _engine_lifecycle_path(run_id: str) -> Path:
     """Resolve canonical engine-lifecycle artifact path for the active run."""
-    return oh.resolve_engine_lifecycle_path(Path(_diagnostics_dir_str()), run_id)
+    runtime_dir = str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "").strip()
+    normalized_run_id = oh.normalize_artifact_run_id(run_id)
+    if runtime_dir:
+        return Path(runtime_dir) / f"engine_lifecycle_{normalized_run_id}.csv"
+    return output_paths.diagnostics_root() / f"engine_lifecycle_{normalized_run_id}.csv"
 
 
 def run_av_analysis_stage(
@@ -122,6 +127,11 @@ def run_av_analysis_stage(
         artifact_list.append(str(lifecycle_path))
         if obs is not None:
             obs.emit_artifact_written(str(lifecycle_path), detail="engine lifecycle CSV")
+        exclusion_audit_path = str(engine_scores_df.attrs.get("engine_exclusion_audit_path", "") or "").strip()
+        if exclusion_audit_path:
+            artifact_list.append(exclusion_audit_path)
+            if obs is not None:
+                obs.emit_artifact_written(exclusion_audit_path, detail="engine exclusion audit CSV")
         _assert_engine_lifecycle_integrity(lifecycle_df)
         _assert_engine_count_consistency(
             lifecycle_df=lifecycle_df,
@@ -131,6 +141,21 @@ def run_av_analysis_stage(
             app_config,
             "RUNTIME_ENGINE_COUNT_INCLUDED_AFTER_GATING",
             int(engine_scores_df.attrs.get("engine_included_count", 0) or 0),
+        )
+        setattr(
+            app_config,
+            "RUNTIME_ENGINE_COUNT_OBSERVED",
+            int(engine_scores_df.attrs.get("engine_observed_count", 0) or 0),
+        )
+        setattr(
+            app_config,
+            "RUNTIME_ENGINE_COUNT_CANONICAL",
+            int(engine_scores_df.attrs.get("engine_canonical_count", 0) or 0),
+        )
+        setattr(
+            app_config,
+            "RUNTIME_ENGINE_COUNT_NEAR_MISS",
+            int(engine_scores_df.attrs.get("engine_near_miss_count", 0) or 0),
         )
         setattr(
             app_config,
@@ -222,10 +247,12 @@ def _assert_engine_lifecycle_integrity(lifecycle_df: pd.DataFrame) -> None:
     canonicalized_count = _bool_sum("canonicalized_flag")
     included_count = _bool_sum("included_in_model_flag")
     excluded_count = int(len(lifecycle_df) - included_count)
-    du.print_info(
-        "[LIFECYCLE] Engines observed="
-        f"{observed_count}, canonicalized={canonicalized_count}, "
-        f"included={included_count}, excluded={excluded_count}"
+    du.print_stat(
+        "Engine Lifecycle",
+        (
+            f"observed={observed_count}, canonicalized={canonicalized_count}, "
+            f"included={included_count}, excluded={excluded_count}"
+        ),
     )
     if included_count == 0:
         raise ValueError("[INTEGRITY] included_engines == 0")

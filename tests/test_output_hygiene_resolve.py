@@ -35,9 +35,9 @@ def test_resolve_runtime_run_directory_uses_layout_when_no_runtime_root(
 def test_resolve_runtime_run_directory_prefers_runtime_run_root(
     monkeypatch, tmp_path: Path
 ) -> None:
-    """Evidence-style runs should not force double ``runs/`` nesting."""
+    """Runtime run roots may be slot-based and should be returned as-is."""
     rid = "run123"
-    run_root = tmp_path / "output" / "runs" / rid
+    run_root = tmp_path / "output" / "runs" / "majorfam_benchmark"
     run_root.mkdir(parents=True)
     monkeypatch.setattr(app_config, "RUNTIME_RUN_ROOT", str(run_root), raising=False)
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(run_root), raising=False)

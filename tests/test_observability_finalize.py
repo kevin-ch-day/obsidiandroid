@@ -346,6 +346,61 @@ def test_finalize_pipeline_observability_includes_stage_loss_summaries(
     assert blob.get("temporal_future_only_family_drops_top") == "Zanubis=4, Alien=3"
 
 
+def test_finalize_pipeline_observability_marks_sample_only_science_as_not_assessed(
+    tmp_path: Path,
+) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    run_id = "r_samples_only"
+    (diagnostic / f"taxonomy_target_surfaces_{run_id}.json").write_text(
+        json.dumps(
+            {
+                "benchmark_support_policy": {
+                    "benchmark_min_support": 3,
+                    "excluded_below_support_family_count": 2,
+                    "excluded_below_support_families": [
+                        {"family_canonical": "ginp", "sample_count": 1},
+                        {"family_canonical": "marcher", "sample_count": 1},
+                    ],
+                },
+                "tier_counts": {
+                    "excluded_below_benchmark_support_samples": 2,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    ctx = {
+        "run_id": run_id,
+        "_observability_finalized_once": False,
+        "run_status": "partial",
+        "completed_stage": "samples",
+    }
+    manifest = {"run_id": run_id, "cohort_size": 1231}
+
+    out_path = finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=[],
+        compliance_report={"overall_status": "not_applicable"},
+        paper_mode=False,
+        evidence_mode=False,
+        result_code=0,
+        profile_id="android_malware_major_families",
+    )
+
+    assert isinstance(out_path, Path)
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    assert blob.get("scientific_adequacy", {}).get("posture") == "Not assessed"
+    assert blob.get("scientific_adequacy", {}).get("blockers") == []
+    assert blob.get("benchmark_support_floor") == 3
+    assert blob.get("benchmark_support_excluded_sample_count") == 2
+    assert blob.get("benchmark_support_excluded_family_count") == 2
+    assert blob.get("benchmark_support_excluded_families_top") == "ginp=1, marcher=1"
+
+
 def test_finalize_pipeline_observability_adds_temporal_split_warning(
     tmp_path: Path,
     monkeypatch,

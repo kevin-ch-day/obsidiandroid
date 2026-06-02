@@ -69,6 +69,73 @@ def read_headline_feature_column_hash(
     return None, str(path)
 
 
+def _resolve_headline_feature_contract_path(
+    diagnostics_dir: Path,
+    run_id: str,
+) -> Path | None:
+    """Resolve the concrete feature-contract JSON path for the headline run."""
+    ec = read_evaluation_contract(diagnostics_dir, run_id)
+    fc = ec.get("feature_contract") if isinstance(ec, dict) else None
+    if isinstance(fc, dict):
+        raw = str(fc.get("headline_feature_contract_path") or "").strip()
+        if raw:
+            candidate = Path(raw)
+            if candidate.is_file():
+                return candidate
+    for name in (f"feature_contract_{run_id}.json", "feature_contract.json", "feature_contract.latest.json"):
+        candidate = diagnostics_dir / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _summarize_headline_feature_modalities(
+    diagnostics_dir: Path,
+    run_id: str,
+) -> dict[str, Any]:
+    """Summarize headline feature-column composition for parity interpretation."""
+    path = _resolve_headline_feature_contract_path(diagnostics_dir, run_id)
+    if path is None:
+        return {}
+    try:
+        blob = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(blob, dict):
+        return {}
+    columns = blob.get("feature_columns")
+    if not isinstance(columns, list):
+        return {}
+    col_text = [str(col) for col in columns]
+    permission_count = sum(
+        1 for col in col_text
+        if col.startswith("perm__") or col.startswith("perm_grp__") or col == "meta__permissions"
+    )
+    vendor_semantic_count = sum(
+        1 for col in col_text
+        if "parsed_family" in col.lower() or "threat_class" in col.lower() or "malware_type" in col.lower()
+    )
+    extra_non_vendor_permission_count = sum(
+        1
+        for col in col_text
+        if not (
+            col.startswith("perm__")
+            or col.startswith("perm_grp__")
+            or col == "meta__permissions"
+            or "parsed_family" in col.lower()
+            or "threat_class" in col.lower()
+            or "malware_type" in col.lower()
+            or col == "sample_id"
+        )
+    )
+    return {
+        "headline_feature_contract_path": str(path),
+        "headline_permission_feature_count": int(permission_count),
+        "headline_vendor_semantic_feature_count": int(vendor_semantic_count),
+        "headline_extra_non_vendor_permission_feature_count": int(extra_non_vendor_permission_count),
+    }
+
+
 def read_ablation_full_fused_feature_column_hash(
     diagnostics_dir: Path,
     run_id: str,
@@ -134,6 +201,7 @@ def build_feature_contract_comparison(
         run_id,
         preferred_label_targets=preferred_targets,
     )
+    modality_summary = _summarize_headline_feature_modalities(diagnostics_dir, run_id)
 
     split_hash = ""
     label_target = ""
@@ -173,6 +241,13 @@ def build_feature_contract_comparison(
     incommensurable_msg = (
         "Headline model and ablation full_fused are not directly comparable because feature contracts differ."
     )
+    extra_modalities = int(modality_summary.get("headline_extra_non_vendor_permission_feature_count", 0) or 0)
+    if extra_modalities > 0:
+        incommensurable_msg = (
+            "Headline model and ablation full_fused are not directly comparable because the headline feature "
+            f"contract includes {extra_modalities} additional non-vendor/non-permission feature column(s) "
+            "beyond the ablation full_fused recipe."
+        )
 
     return {
         "run_id": run_id,
@@ -184,6 +259,7 @@ def build_feature_contract_comparison(
         "label_target": label_target,
         "apples_to_apples": apples,
         "incommensurable_message": incommensurable_msg,
+        **modality_summary,
     }
 
 

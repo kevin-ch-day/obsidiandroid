@@ -68,12 +68,17 @@ def test_resolve_latest_manifest_payload_respects_output_base_full_payload(tmp_p
 def test_resolve_latest_manifest_payload_follows_pointer_under_output_base(tmp_path: Path) -> None:
     out = tmp_path / "output"
     diag = out / "diagnostics"
-    runs = out / "runs" / "rid2"
+    runs = out / "runs" / "majorfam_benchmark"
     diag.mkdir(parents=True, exist_ok=True)
     runs.mkdir(parents=True, exist_ok=True)
     pointer = {"run_id": "rid2"}
     (diag / "run_manifest.latest.json").write_text(json.dumps(pointer), encoding="utf-8")
-    canonical = {"run_id": "rid2", "profile_params": {"profile_id": "frozen"}}
+    canonical = {
+        "run_id": "rid2",
+        "run_slot": "majorfam_benchmark",
+        "run_root": str(runs),
+        "profile_params": {"profile_id": "frozen"},
+    }
     (runs / "run_manifest.json").write_text(json.dumps(canonical), encoding="utf-8")
 
     man, rid, path = run_locator.resolve_latest_manifest_payload(output_base=out)

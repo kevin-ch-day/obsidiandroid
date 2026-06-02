@@ -615,15 +615,15 @@ def _show_cache_pointer_guidance() -> None:
     output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
     du.print_stat("run_manifest.latest.json", str((output_root / "diagnostics" / "run_manifest.latest.json").resolve()))
     du.print_stat("promoted latest_run.txt", str((output_root / "promoted" / "latest_run.txt").resolve()))
-    du.print_info("[MENU] Newest canonical manifests live under output/runs/<run_id>/run_manifest.json.")
+    print("[RUN] Canonical manifests: obsidiandroid/output/runs/<run_id>/run_manifest.json")
     print("")
 
 
 def _show_repair_migration_info() -> None:
     """Point operators at migration/repair entrypoints (no destructive actions here)."""
     du.print_section("Repair / migration helpers")
-    du.print_info("[MENU] Use repo scripts under scripts/ for targeted repairs (see docs/STRUCTURE_MIGRATION_PLAN.md).")
-    du.print_info("[MENU] Pipeline reruns with profile validation: Run Analysis menu.")
+    print("[ACTION] Targeted repair scripts: obsidiandroid/scripts/ (see docs/STRUCTURE_MIGRATION_PLAN.md)")
+    print("[ACTION] Profile-validated reruns: Run Analysis menu")
     print("")
 
 
@@ -643,10 +643,10 @@ def _launch_developer_utilities_menu() -> None:
         if choice == 0:
             return
         if choice == 1:
-            du.print_info("[MENU] From repo root: make ci   (mirrors GitHub Actions)")
+            print("[ACTION] CI check: make ci")
             continue
         if choice == 2:
-            du.print_info("[MENU] Run: python scripts/dev/check_import_surface.py")
+            print("[ACTION] Import surface check: python scripts/dev/check_import_surface.py")
             continue
         du.print_warning("[MENU] Invalid choice received.")
 

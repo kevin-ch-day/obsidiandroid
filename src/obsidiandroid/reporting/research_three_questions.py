@@ -17,6 +17,7 @@ from config import app_config
 from obsidiandroid.common import output_hygiene as oh
 
 from obsidiandroid.common.json_io import read_json_dict
+from obsidiandroid.diagnostics.headline_ablation_parity import build_feature_contract_comparison
 from obsidiandroid.reporting.high_score_skeptic_helpers import (
     build_label_map as _build_label_map,
     label_display as _label_display,
@@ -45,6 +46,59 @@ def _vendor_merge_coverage_label(pct: float) -> str:
     if value > 0.0:
         return "sparse"
     return "absent"
+
+
+def _terminal_family_label(value: Any) -> str:
+    text = str(value or "").strip()
+    if text.isdigit():
+        return f"family_id={text} (unresolved label)"
+    return text or "family_label_unresolved"
+
+
+def _artifact_pointer_line(prefix: str, names: list[str]) -> str:
+    compact = ", ".join(str(name) for name in names if str(name).strip())
+    return f"{prefix} {compact}" if compact else prefix
+
+
+def _skeptic_takeaway_lines(bundle: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    skeptic = bundle.get("skeptic_audits") if isinstance(bundle.get("skeptic_audits"), dict) else {}
+    scope = skeptic.get("scope") if isinstance(skeptic.get("scope"), dict) else {}
+    tt = scope.get("trainable_family_classification_task") if isinstance(scope.get("trainable_family_classification_task"), dict) else {}
+    dropped_samples = tt.get("samples_dropped_before_training")
+    dropped_families = tt.get("families_dropped_before_training_est")
+    if dropped_samples not in (None, "", "—") or dropped_families not in (None, "", "—"):
+        lines.append(
+            "Support filter narrowed the supervised task before training: "
+            f"dropped_samples={dropped_samples if dropped_samples not in (None, '') else '—'}, "
+            f"dropped_families_est={dropped_families if dropped_families not in (None, '') else '—'}."
+        )
+    split = skeptic.get("split_contamination") if isinstance(skeptic.get("split_contamination"), dict) else {}
+    if split:
+        lines.append(
+            "Split audit: "
+            f"sha_overlap={split.get('sha_overlap_train_test', '—')}, "
+            f"package_overlap={split.get('package_names_in_both_splits', '—')}, "
+            f"family_package_overlap={split.get('family_package_pairs_in_both', '—')}."
+        )
+    leakage = skeptic.get("leakage_comparison") if isinstance(skeptic.get("leakage_comparison"), dict) else {}
+    note = str(leakage.get("note", "") or "").strip()
+    if note:
+        lines.append(f"Leakage-safe comparison: {note}")
+    smote = skeptic.get("smote") if isinstance(skeptic.get("smote"), dict) else {}
+    smote_snap = smote.get("smote_snapshot") if isinstance(smote.get("smote_snapshot"), dict) else {}
+    if smote_snap:
+        lines.append(
+            "SMOTE audit: "
+            f"original_train_n={smote_snap.get('original_train_n', '—')}, "
+            f"post_resample_train_n={smote_snap.get('post_resample_train_n', '—')}, "
+            f"method={smote_snap.get('method', '—')}."
+        )
+    if not lines:
+        lines.append(
+            "Review support-filter scope, split contamination, SMOTE expansion, and leakage-safe comparisons before treating the headline as final evidence."
+        )
+    return lines
 
 
 def _bottom_line_interpretation(*, macro_f1: float) -> str:
@@ -213,23 +267,56 @@ def _build_family_type_lookup(samples_df: pd.DataFrame | None) -> dict[str, str]
     return out
 
 
+def _build_family_display_lookup(samples_df: pd.DataFrame | None) -> dict[str, str]:
+    """Map encoded/raw family labels to canonical display names when possible."""
+    if samples_df is None or samples_df.empty:
+        return {}
+    out: dict[str, str] = {}
+    canonical = (
+        samples_df["family_canonical"].fillna("").astype(str).str.strip()
+        if "family_canonical" in samples_df.columns
+        else pd.Series(dtype="object")
+    )
+    if "family_id" in samples_df.columns and not canonical.empty:
+        family_id = samples_df["family_id"].apply(lambda x: str(x).strip() if pd.notna(x) else "")
+        for fam_id in family_id.unique():
+            if not fam_id:
+                continue
+            mask = family_id == fam_id
+            names = canonical.loc[mask]
+            names = names[names.astype(str).str.strip() != ""]
+            if names.empty:
+                continue
+            out[fam_id] = str(names.mode().iloc[0]) if len(names.mode()) else str(names.iloc[0])
+    if not canonical.empty:
+        for fam in canonical.unique():
+            fam_text = str(fam).strip()
+            if fam_text:
+                out[fam_text] = fam_text
+    return out
+
+
 def _top_confusion_pairs_labeled(
     model_results: dict[str, Any],
     model_key: str,
     *,
     top_n: int = 5,
     type_lookup: dict[str, str],
+    label_map: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     pairs = operator_dashboard.top_confusion_pairs_for_model(model_results, model_key, top_n=top_n)
     rows: list[dict[str, Any]] = []
+    label_map = label_map if isinstance(label_map, dict) else {}
     for true_l, pred_l, cnt in pairs:
-        tt = type_lookup.get(str(true_l), "")
-        tp = type_lookup.get(str(pred_l), "")
+        true_display = _label_display(true_l, label_map)
+        pred_display = _label_display(pred_l, label_map)
+        tt = type_lookup.get(str(true_l), "") or type_lookup.get(str(true_display), "")
+        tp = type_lookup.get(str(pred_l), "") or type_lookup.get(str(pred_display), "")
         shared = "yes" if tt and tp and tt == tp else ("no" if tt and tp else "")
         rows.append(
             {
-                "true_label": str(true_l),
-                "predicted_label": str(pred_l),
+                "true_label": str(true_display),
+                "predicted_label": str(pred_display),
                 "count": int(cnt),
                 "true_type_slug": tt,
                 "pred_type_slug": tp,
@@ -292,6 +379,24 @@ def _classification_table_rows(
         except (TypeError, ValueError):
             continue
     return rows
+
+
+def _balanced_accuracy_from_classification_report(model_results: dict[str, Any], model_key: str) -> float | None:
+    """Return macro-recall as a balanced-accuracy proxy when classification_report is available."""
+    res = model_results.get(model_key) if isinstance(model_results, dict) else None
+    if not isinstance(res, dict):
+        return None
+    creport = res.get("metadata", {}).get("classification_report")
+    if not isinstance(creport, dict):
+        return None
+    macro = creport.get("macro avg")
+    if not isinstance(macro, dict):
+        return None
+    try:
+        value = float(macro.get("recall", None))
+    except (TypeError, ValueError):
+        return None
+    return value
 
 
 def write_research_question_artifacts(
@@ -609,6 +714,12 @@ def write_research_question_artifacts(
     interpret_q2: list[str] = []
     perm_vs_fused_note = ""
     vendor_leak_hint = ""
+    parity_payload = build_feature_contract_comparison(
+        diagnostics_dir,
+        run_id,
+        manifest_context=dict(manifest_context) if isinstance(manifest_context, Mapping) else None,
+        runtime_headline_hash=str(getattr(app_config, "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH", "") or ""),
+    )
 
     if not ab_df.empty and "macro_f1_score" in ab_df.columns:
         ab_df = ab_df.copy()
@@ -676,7 +787,15 @@ def write_research_question_artifacts(
                     )
                     headline_macro = float(headline_eval.get("macro_f1_score", 0.0) or 0.0)
                     fused_macro = float(fused_row.iloc[0]["macro_f1_score"])
-                    if headline_macro > 0 and abs(fused_macro - headline_macro) >= 0.10:
+                    apples = parity_payload.get("apples_to_apples")
+                    if apples is False:
+                        interpret_q2.append(
+                            str(
+                                parity_payload.get("incommensurable_message")
+                                or "Headline and ablation full_fused are not directly comparable on this run."
+                            )
+                        )
+                    elif headline_macro > 0 and abs(fused_macro - headline_macro) >= 0.10:
                         interpret_q2.append(
                             "Headline family result and best full-fused ablation diverge materially; compare split or label-target regime before treating the ablation peak as the main benchmark."
                         )
@@ -809,6 +928,10 @@ def write_research_question_artifacts(
         "av_engines_observed": eng_obs,
         "av_engines_included": eng_in,
         "ablation_primary_label_target": primary_lt,
+        "headline_vs_ablation_apples_to_apples": parity_payload.get("apples_to_apples"),
+        "headline_extra_non_vendor_permission_feature_count": int(
+            parity_payload.get("headline_extra_non_vendor_permission_feature_count") or 0
+        ),
         "interpretation_notes": interpret_q2 + ([perm_vs_fused_note] if perm_vs_fused_note else []) + ([vendor_leak_hint] if vendor_leak_hint else []),
     }
     (diagnostics_dir / "modality_contribution_summary.json").write_text(
@@ -829,6 +952,8 @@ def write_research_question_artifacts(
 
     # --- Q3 model / family ---
     type_lookup = _build_family_type_lookup(samples_df)
+    label_map = _build_label_map(mr, mk, diagnostics_dir, run_id)
+    label_map.update(_build_family_display_lookup(samples_df))
     cls_rows = _classification_table_rows(
         mr,
         mk,
@@ -856,7 +981,7 @@ def write_research_question_artifacts(
                 diagnostics_dir / "family_support_vs_performance.csv", index=False
             )
 
-    conf_rows = _top_confusion_pairs_labeled(mr, mk, top_n=8, type_lookup=type_lookup)
+    conf_rows = _top_confusion_pairs_labeled(mr, mk, top_n=8, type_lookup=type_lookup, label_map=label_map)
     _write_top_confusion_pairs_csv(diagnostics_dir, conf_rows)
 
     ft_perf_rows: list[dict[str, Any]] = []
@@ -928,10 +1053,13 @@ def write_research_question_artifacts(
         elif type_macro < fam_macro - 0.02:
             type_easier = "Family-level Macro-F1 meets or exceeds type-level on this run (unusual; verify label targets)."
 
+    balanced_accuracy = _balanced_accuracy_from_classification_report(mr, mk)
+
     q3_payload = {
         "run_id": run_id,
         "headline_model": mk,
         "macro_f1": macro_f1,
+        "balanced_accuracy": balanced_accuracy,
         "weighted_f1": wf1,
         "accuracy": acc,
         "weighted_minus_macro_f1": gap_w_m,
@@ -949,6 +1077,7 @@ def write_research_question_artifacts(
         "",
         f"- Headline model: **{mk}**",
         f"- Macro-F1 / weighted F1 / accuracy: **{macro_f1:.4f}** / **{wf1:.4f}** / **{acc:.4f}**",
+        f"- Balanced accuracy (macro recall): **{balanced_accuracy:.4f}**" if balanced_accuracy is not None else "",
         f"- Weighted − Macro: **{gap_w_m:+.4f}**",
         "",
     ]
@@ -1120,14 +1249,14 @@ def print_research_questions_terminal(
     du: Any,
 ) -> None:
     """Print DATASET FOUNDATION, MODALITY CONTRIBUTION, MODEL FAILURE, and RESEARCH RUN SUMMARY."""
-    from obsidiandroid.reporting import high_score_skeptic_audits as _hssa
+    from obsidiandroid.reporting import high_score_skeptic_terminal as _hssa
 
     sk = bundle.get("skeptic_audits")
     if isinstance(sk, dict) and sk:
         _hssa.print_scope_of_headline_score_terminal(sk, pr=pr, du=du)
 
     q1 = bundle.get("q1") or {}
-    du.print_section("DATASET FOUNDATION")
+    du.print_section("BENCHMARK VALIDITY")
     pr("Cohort:")
     pr(f"  Governed samples: {q1.get('governed_samples', '—')}")
     pr(f"  Aligned supervised: {q1.get('aligned_supervised_samples', '—')}")
@@ -1161,7 +1290,7 @@ def print_research_questions_terminal(
         pr("")
     label_strategy = q1.get("label_strategy") if isinstance(q1.get("label_strategy"), dict) else {}
     pr("Interpretation:")
-    pr("  Cohort structure drives interpretability; Macro-F1 and recall tails are primary evidence.")
+    pr("  Benchmark validity comes first; Macro-F1 and recall tails are primary evidence.")
     if label_strategy:
         pr(
             f"  Train family models on {label_strategy.get('preferred_family_target', 'family_id')} "
@@ -1173,11 +1302,12 @@ def print_research_questions_terminal(
         interp = str(label_strategy.get("alignment_interpretation", "") or "").strip()
         if interp:
             pr(f"  {interp}")
+    pr("  Family benchmark eligibility is support-gated at n>=3; broad-corpus residue remains diagnostic.")
     pr("  Files: dataset_foundation_summary.md, family_distribution.csv, low_support_families.csv")
     pr("")
 
     q2 = bundle.get("q2") or {}
-    du.print_section("FEATURE MODALITY CONTRIBUTION")
+    du.print_section("CAPABILITY / MODALITY SIGNAL")
     gov = int(q1.get("governed_samples") or 0) or 1
     pr("Coverage:")
     pr(
@@ -1194,6 +1324,8 @@ def print_research_questions_terminal(
         f"{q2.get('av_engines_included', '—')}"
     )
     pr("")
+    pr("Interpretation:")
+    pr("  Permissions are declared static capabilities; compare modalities on leakage-safe feature contracts.")
     adf = bundle.get("ablation_display")
     if isinstance(adf, pd.DataFrame) and not adf.empty:
         pr(f"Ablation (best Macro-F1 per feature set, label_target≈{bundle.get('primary_label_target')}):")
@@ -1212,43 +1344,82 @@ def print_research_questions_terminal(
     pr("")
 
     mk = str(bundle.get("model_key") or "random_forest")
-    du.print_section("MODEL AND FAMILY FAILURE SUMMARY")
-    pr("Best model (headline):")
-    pr(f"  Model: {mk}")
-    pr(f"  Macro-F1: {float(bundle.get('macro_f1') or 0):.4f}")
-    pr(f"  Weighted F1: {float(bundle.get('wf1') or 0):.4f}")
-    pr(f"  Accuracy: {float(bundle.get('acc') or 0):.4f}")
-    pr(f"  Gap weighted F1 − Macro-F1: {float(bundle.get('gap_w_m') or 0):+.4f}")
+    du.print_section("FAILURE STRUCTURE")
+    pr(f"[MODEL] Best headline model: {mk}")
+    pr(f"[MODEL] Macro-F1: {float(bundle.get('macro_f1') or 0):.4f}")
+    if bundle.get("balanced_accuracy") is not None:
+        pr(f"[MODEL] Balanced accuracy: {float(bundle.get('balanced_accuracy') or 0):.4f}")
+    pr(f"[MODEL] Weighted F1: {float(bundle.get('wf1') or 0):.4f}")
+    pr(f"[MODEL] Accuracy: {float(bundle.get('acc') or 0):.4f}")
+    pr(f"[MODEL] Gap weighted F1 − Macro-F1: {float(bundle.get('gap_w_m') or 0):+.4f}")
     if float(bundle.get("gap_w_m") or 0) > 0.05:
-        pr("  ⚠ Gap > 0.05 — dominant families likely easier than tail families.")
+        pr("[FAILURE] Class concentration warning: dominant families outperform tail families.")
     pr("")
     cdf = bundle.get("classification_df")
     if isinstance(cdf, pd.DataFrame) and not cdf.empty:
-        pr("Lowest recall families (holdout):")
-        tail = cdf.sort_values("recall", ascending=True).head(5)
-        for _, r in tail.iterrows():
-            unst = " (unstable support)" if int(r.get("support", 0)) < 5 else ""
-            pr(
-                f"  • {r.get('family')}: support={int(r['support'])} recall={float(r['recall']):.3f} "
-                f"precision={float(r['precision']):.3f}{unst}"
-            )
-        pr("")
-    for row in (bundle.get("confusion_rows") or [])[:5]:
-        pr(
-            f"  Confusion: true={row.get('true_label')} → pred={row.get('predicted_label')} "
-            f"n={row.get('count')} same_type={row.get('shared_malware_type') or '?'}"
+        tail = cdf.sort_values("recall", ascending=True).head(5).copy()
+        tail["family"] = tail["family"].map(_terminal_family_label)
+        tail["stability"] = tail["support"].apply(
+            lambda x: "unstable_support" if int(x or 0) < 5 else "stable"
         )
-    pr("")
-    if bundle.get("type_easier"):
-        pr(f"Target comparison: {bundle['type_easier']}")
+        tail = tail.rename(
+            columns={
+                "family": "family",
+                "support": "support",
+                "recall": "recall",
+                "precision": "precision",
+            }
+        )[["family", "support", "recall", "precision", "stability"]]
+        pr("[FAILURE] Lowest-recall families (holdout):")
+        du.print_table(tail, show_index=False)
         pr("")
-    pr("Interpretation:")
-    pr("  Lead with Macro-F1 and confusion structure; qualify accuracy when concentration is high.")
-    pr("Files: model_and_family_failure_summary.md, top_confusion_pairs.csv, family_vs_type_performance.csv")
+    confusion_rows = list(bundle.get("confusion_rows") or [])[:5]
+    if confusion_rows:
+        conf_df = pd.DataFrame(
+            [
+                {
+                    "true_family": _terminal_family_label(row.get("true_label")),
+                    "pred_family": _terminal_family_label(row.get("predicted_label")),
+                    "n": int(row.get("count", 0) or 0),
+                    "same_type": str(row.get("shared_malware_type") or "?"),
+                }
+                for row in confusion_rows
+            ]
+        )
+        pr("[FAILURE] Top confusion pairs:")
+        du.print_table(conf_df, show_index=False)
+        pr("")
+    if bundle.get("type_easier"):
+        pr(f"[INTERPRETATION] Target comparison: {bundle['type_easier']}")
+        pr("")
+    pr("[INTERPRETATION] Lead with Macro-F1, balanced accuracy, and confusion structure; qualify accuracy when concentration is high.")
+    pr(
+        _artifact_pointer_line(
+            "[EXPORT]",
+            [
+                "model_and_family_failure_summary.md",
+                "top_confusion_pairs.csv",
+                "family_vs_type_performance.csv",
+            ],
+        )
+    )
     pr("")
-    pr("Q3 — skepticism (why high / what was removed / split & SMOTE):")
-    pr("  See terminal blocks below and diagnostics: headline_score_scope.*, high_score_audit.*, ")
-    pr("  false_attribution_audit.*, split_contamination_audit.*, smote_effect_check.*, leakage_safe_score_comparison.*")
+    pr("[SKEPTIC] Main skepticism checks:")
+    for line in _skeptic_takeaway_lines(bundle):
+        pr(f"           {line}")
+    pr(
+        _artifact_pointer_line(
+            "[EXPORT]",
+            [
+                "headline_score_scope.md",
+                "high_score_audit.md",
+                "false_attribution_audit.md",
+                "split_contamination_audit.md",
+                "smote_effect_check.md",
+                "leakage_safe_score_comparison.csv",
+            ],
+        )
+    )
     pr("")
 
     sk2 = bundle.get("skeptic_audits")
@@ -1293,6 +1464,10 @@ def print_research_questions_terminal(
             f"   {mk}: Macro-F1={float(bundle.get('macro_f1') or 0):.4f}, "
             f"weighted F1={float(bundle.get('wf1') or 0):.4f}; {bottom_line}"
         )
+        if bundle.get("balanced_accuracy") is not None:
+            pr(
+                f"   Balanced accuracy (macro recall)={float(bundle.get('balanced_accuracy') or 0):.4f}."
+            )
         if summary_blockers:
             pr("4. Dominant blockers:")
             pr("   " + "; ".join(summary_blockers) + ".")
@@ -1321,6 +1496,8 @@ def print_research_questions_terminal(
         f"   {mk}: Macro-F1={float(bundle.get('macro_f1') or 0):.4f}, "
         f"weighted F1={float(bundle.get('wf1') or 0):.4f}."
     )
+    if bundle.get("balanced_accuracy") is not None:
+        pr(f"   Balanced accuracy (macro recall)={float(bundle.get('balanced_accuracy') or 0):.4f}.")
     pr("   Treat very high headline scores as **promising but not final proof** until support filtering, split ")
     pr("   contamination, SMOTE effect, leakage-safe ablations, and false-attribution audits are reviewed.")
     pr("")

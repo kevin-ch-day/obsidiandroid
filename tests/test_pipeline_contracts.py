@@ -73,12 +73,43 @@ def test_prune_low_information_verbose_emits_warning(monkeypatch):
 def test_low_confidence_abstain_routes_to_other(monkeypatch):
     monkeypatch.setattr(app_config, "ENABLE_LOW_CONFIDENCE_ABSTAIN", True, raising=False)
     monkeypatch.setattr(app_config, "LOW_CONFIDENCE_THRESHOLD", 0.30, raising=False)
+    monkeypatch.setattr(app_config, "LOW_CONFIDENCE_MARGIN_THRESHOLD", 0.0, raising=False)
     monkeypatch.setattr(app_config, "ABSTAIN_LABEL", "other", raising=False)
 
     y_pred = np.array([0, 0, 0])  # all Anubis initially
     y_conf = np.array([0.95, 0.29, 0.05])
-    out = model_prediction._apply_low_confidence_abstain(y_pred, y_conf, _DummyEncoder())
+    out, meta = model_prediction._apply_low_confidence_abstain(y_pred, y_conf, _DummyEncoder())
     assert out.tolist() == [0, 1, 1]
+    assert meta[1]["abstain_reasons"] == ["low_confidence"]
+
+
+class _TriEncoder:
+    classes_ = np.array(["Anubis", "BankBot", "other"])
+
+
+def test_benchmark_family_guardrail_abstains_on_ambiguous_margin(monkeypatch):
+    monkeypatch.setattr(app_config, "ENABLE_LOW_CONFIDENCE_ABSTAIN", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_BENCHMARK_ABSTAIN_GUARDRAIL", True, raising=False)
+    monkeypatch.setattr(app_config, "BENCHMARK_LOW_CONFIDENCE_THRESHOLD", 0.45, raising=False)
+    monkeypatch.setattr(app_config, "BENCHMARK_LOW_CONFIDENCE_MARGIN_THRESHOLD", 0.15, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_SUPPORT_FLOOR_MODE", "benchmark_eligibility", raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD", "family_id", raising=False)
+    monkeypatch.setattr(app_config, "ABSTAIN_LABEL", "other", raising=False)
+
+    y_pred = np.array([0, 1])
+    y_conf = np.array([0.51, 0.83])
+    y_prob = np.array(
+        [
+            [0.51, 0.44, 0.05],
+            [0.83, 0.10, 0.07],
+        ]
+    )
+    out, meta = model_prediction._apply_low_confidence_abstain(
+        y_pred, y_conf, _TriEncoder(), y_prob=y_prob
+    )
+    assert out.tolist() == [2, 1]
+    assert meta[0]["abstain_reasons"] == ["low_margin"]
+    assert meta[0]["raw_prediction_label"] == "Anubis"
 
 
 def test_suppress_known_sklearn_parallel_warning_is_narrow() -> None:

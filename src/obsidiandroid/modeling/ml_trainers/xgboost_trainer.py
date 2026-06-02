@@ -13,6 +13,7 @@ from config import app_config
 from obsidiandroid.common.cv_fold_config import safe_float_config_value, safe_int_config_value
 from obsidiandroid.modeling.parallel_layout import (
     grid_search_job_counts,
+    resolve_adaptive_job_count,
     stratified_kfold_for_grid_search,
 )
 
@@ -164,6 +165,35 @@ def train_xgboost(
             index=raw.index,
         )
 
+    def _filter_supervised_eval_rows(eval_x, eval_y):
+        """Return eval rows whose labels are present in the current train fold.
+
+        XGBoost multiclass requires eval labels to live in the same contiguous label
+        space as the fitted model. Broad sparse-tail splits can put globally valid
+        classes into the holdout that are absent from the train fold. We still want
+        to score those rows in the final global-space evaluation, but they cannot be
+        used in the early-stopping eval_set.
+        """
+        if eval_x is None or eval_y is None:
+            return eval_x, eval_y, 0
+        if present_encoded_lookup is None:
+            return eval_x, eval_y, 0
+
+        raw = eval_y if isinstance(eval_y, pd.Series) else pd.Series(np.asarray(eval_y).ravel())
+        present_set = {int(v) for v in present_encoded_lookup.tolist()}
+        keep_mask = raw.astype(np.int64).isin(present_set)
+        excluded = int((~keep_mask).sum())
+        if excluded == 0:
+            return eval_x, _global_to_supervised(raw), 0
+        if not bool(keep_mask.any()):
+            return None, None, excluded
+        if isinstance(eval_x, pd.DataFrame):
+            filtered_x = eval_x.loc[keep_mask.to_numpy(dtype=bool)]
+        else:
+            filtered_x = eval_x[keep_mask.to_numpy(dtype=bool)]
+        filtered_y = _global_to_supervised(raw.loc[keep_mask.to_numpy(dtype=bool)])
+        return filtered_x, filtered_y, excluded
+
     class_counts = Counter(y_supervised)
 
     train_cardinality = int(len(present_encoded_order))
@@ -187,7 +217,7 @@ def train_xgboost(
         "gamma": 0.2,
         "reg_alpha": 0.1,
         "reg_lambda": 1.0,
-        "n_jobs": -1,
+        "n_jobs": resolve_adaptive_job_count(-1, kind="training"),
         "random_state": random_state,
         "verbosity": 0 if not getattr(app_config, "DEBUG_MODE", False) else 1,
     }
@@ -241,6 +271,7 @@ def train_xgboost(
             calibration_enabled = False
 
     model = None
+    eval_excluded_unseen_label_rows = 0
     if grid_search or getattr(app_config, "ENABLE_XGB_GRID_SEARCH", False):
         from sklearn.model_selection import GridSearchCV
 
@@ -295,8 +326,16 @@ def train_xgboost(
         eval_y = y_test
         if X_cal is not None and y_cal is not None:
             eval_x, eval_y = X_cal, y_cal
-        elif y_test is not None and present_encoded_lookup is not None:
-            eval_y = _global_to_supervised(y_test)
+        elif y_test is not None:
+            eval_x, eval_y, eval_excluded_unseen_label_rows = _filter_supervised_eval_rows(
+                X_test,
+                y_test,
+            )
+        else:
+            eval_x, eval_y, eval_excluded_unseen_label_rows = _filter_supervised_eval_rows(
+                eval_x,
+                eval_y,
+            )
 
         if early_stopping_rounds and eval_x is not None and eval_y is not None:
             fit_verbose = bool(verbose and getattr(app_config, "DEBUG_MODE", False))
@@ -347,6 +386,7 @@ def train_xgboost(
             "xgb_effective_estimators": model_params.get("n_estimators"),
             "xgb_base_early_stopping_rounds": guardrails["base_early_stopping_rounds"],
             "xgb_effective_early_stopping_rounds": early_stopping_rounds,
+            "xgb_eval_rows_excluded_for_unseen_labels": int(eval_excluded_unseen_label_rows),
             "calibrated": bool(calibration_enabled),
             "calibration_method": calibration_method if calibration_enabled else None,
             "calibration_holdout_size": len(X_cal) if X_cal is not None else 0,
@@ -417,7 +457,7 @@ def get_default_xgboost_params():
         "tree_method": "hist",
         "subsample": 0.8,
         "colsample_bytree": 0.8,
-        "n_jobs": -1,
+        "n_jobs": resolve_adaptive_job_count(-1, kind="training"),
     }
 
 

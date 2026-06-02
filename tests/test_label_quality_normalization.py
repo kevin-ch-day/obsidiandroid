@@ -32,6 +32,11 @@ def test_family_alias_normalization():
     assert normalize_family_name("Oblivion RAT") == "oblivionrat"
     assert normalize_family_name("Play Praetors") == "playpraetors"
     assert normalize_family_name("Droid Lock") == "droidlock"
+    assert normalize_family_name("AlienBot") == "alien"
+    assert normalize_family_name("BlackLoan") == "spyloan"
+    assert normalize_family_name("StealJob") == "donot"
+    assert normalize_family_name("ExobotCompact.D/Octo") == "octo"
+    assert normalize_family_name("Wroba") == "roamingmantis"
     assert normalize_family_name(15) == "15"
 
 
@@ -72,6 +77,11 @@ def test_live_family_normalization_and_display_for_recent_android_families():
     assert canonicalize_family_label("Oblivion RAT") == "OblivionRAT"
     assert canonicalize_family_label("Play Praetors") == "PlayPraetors"
     assert canonicalize_family_label("Droid Lock") == "DroidLock"
+    assert canonicalize_family_label("AlienBot") == "Alien"
+    assert canonicalize_family_label("BlackLoan") == "SpyLoan"
+    assert canonicalize_family_label("StealJob") == "DoNot"
+    assert canonicalize_family_label("ExobotCompact.D/Octo") == "Octo"
+    assert canonicalize_family_label("Wroba") == "RoamingMantis"
 
 
 def test_cabassous_canonicalizes_to_flubot_token_and_flubot_display():

@@ -350,6 +350,21 @@ def test_random_forest_class_weight(monkeypatch):
     assert model.get_params()["class_weight"] == "balanced_subsample"
 
 
+def test_random_forest_caps_training_threads_for_broad_corpus(monkeypatch):
+    X, y = _create_dataset()
+    monkeypatch.setattr(app_config, "ENABLE_ADAPTIVE_TRAINING_PARALLELISM", True, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_PROFILE_ID", "android_malware_all_current", raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_ABLATION_ACTIVE", False, raising=False)
+    monkeypatch.setattr(app_config, "BROAD_CORPUS_TRAINING_N_JOBS_CAP", 2, raising=False)
+    model, result = random_forest_trainer.train_random_forest(
+        X,
+        y,
+        verbose=False,
+    )
+    assert model.get_params()["n_jobs"] == 2
+    assert result["metadata"]["params"]["n_jobs"] == 2
+
+
 def test_balanced_random_forest_training(monkeypatch):
     X, y = _create_dataset()
     monkeypatch.setattr(app_config, "BRF_NUM_TREES", 10, raising=False)
@@ -455,6 +470,35 @@ def test_xgboost_num_class_uses_label_encoder_when_train_omits_label(monkeypatch
     assert result["metadata"]["ontology_classes"] == 4  # encoder still holds 4 string classes
     assert result["metadata"]["xgb_encoded_label_remap"] == [0, 2, 3]
     assert int(model.get_params().get("num_class", 0)) == 3
+
+
+def test_xgboost_early_stopping_tolerates_unseen_test_labels(monkeypatch):
+    """Eval-set remap should exclude unseen train-absent labels instead of crashing."""
+    le = LabelEncoder()
+    le.fit(["a", "b", "c", "d"])
+    rng = np.random.default_rng(1)
+    X_train = pd.DataFrame(rng.standard_normal((18, 6)))
+    y_train = pd.Series([0] * 6 + [2] * 6 + [3] * 6)
+    X_test = pd.DataFrame(rng.standard_normal((8, 6)))
+    y_test = pd.Series([0, 2, 3, 1, 1, 2, 3, 0])
+
+    monkeypatch.setattr(app_config, "XGB_NUM_ESTIMATORS", 12, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_PROBABILITY_CALIBRATION", False, raising=False)
+
+    model, result = xgboost_trainer.train_xgboost(
+        X_train,
+        y_train,
+        X_test=X_test,
+        y_test=y_test,
+        label_encoder=le,
+        early_stopping_rounds=3,
+        verbose=False,
+    )
+
+    assert result["metadata"]["xgb_encoded_label_remap"] == [0, 2, 3]
+    assert result["metadata"]["xgb_eval_rows_excluded_for_unseen_labels"] == 2
+    assert len(result["predictions"]) == len(y_test)
+    assert hasattr(model, "best_iteration")
 
 
 def test_xgboost_guardrail_profile_caps_override(monkeypatch):

@@ -67,3 +67,48 @@ def test_build_feature_contract_comparison_prefers_family_id_full_fused_hash_whe
 
     out = build_feature_contract_comparison(diag, rid, manifest_context=None)
     assert out["ablation_full_fused_feature_column_hash"] == "authority_hash"
+
+
+def test_build_feature_contract_comparison_reports_extra_headline_modalities(tmp_path: Path) -> None:
+    rid = "run_extra_modalities"
+    diag = tmp_path / "diagnostics"
+    diag.mkdir(parents=True)
+    feature_contract_path = diag / "feature_contract.json"
+    feature_contract_path.write_text(
+        json.dumps(
+            {
+                "feature_columns": [
+                    "parsed_family_vendor_a_FakeCall",
+                    "threat_class_vendor_a_banker",
+                    "perm__android.permission.INTERNET",
+                    "meta__permissions",
+                    "meta__vt_consensus_score",
+                    "meta__package_name_length",
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diag / f"evaluation_contract_{rid}.json").write_text(
+        json.dumps(
+            {
+                "feature_contract": {
+                    "headline_feature_column_hash": "hhh",
+                    "headline_feature_contract_path": str(feature_contract_path),
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    ab = diag / f"ablation_summary_{rid}.csv"
+    with ab.open("w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["experiment", "label_target", "model", "feature_column_hash"])
+        w.writerow(["full_fused", "family_id", "random_forest", "aaa"])
+
+    out = build_feature_contract_comparison(diag, rid, manifest_context=None)
+
+    assert out["headline_permission_feature_count"] == 2
+    assert out["headline_vendor_semantic_feature_count"] == 2
+    assert out["headline_extra_non_vendor_permission_feature_count"] == 2
+    assert "additional non-vendor/non-permission feature column(s)" in out["incommensurable_message"]

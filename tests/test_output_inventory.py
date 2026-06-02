@@ -569,6 +569,7 @@ def test_write_run_science_index_surfaces_policy_held_focus_detail(
 
     text = out_path.read_text(encoding="utf-8")
     assert "Focus area:** Policy-held family noise (129 row(s))" in text
+    assert "No true unresolved family debt in this slice; remaining resolved-family rows are intentionally held by generic/coarse token policy; token_classes=behavior_class_token=45, generic_family_token=39, campaign_actor_token=19, placeholder_token=16." in text
     assert "top_lane=class_label_not_family (45); top_token_kind=behavior_class_token (45); top_token=banker (31); top_package=com.example.banker (12); high_or_strong=27; top_high_token=banker (10); top_high_package=com.example.banker (6); freshness=current." in text
     assert "Open the policy-held token risk export and review the dominant high/strong hold lane plus token/package cluster" in text
 

@@ -173,9 +173,7 @@ def _generate_engine_metadata_map(av_pipeline_results: dict) -> dict:
             "normalized_score": row.get("Normalized Score", None),
         }
 
-    if ml_console.is_compact():
-        du.print_info(f"[ENGINE META] Metadata ready for {len(metadata_map)} AV engines.")
-    else:
+    if not ml_console.is_compact():
         du.print_info(f"[ENGINE META] Metadata built for {len(metadata_map)} AV engines.")
     return metadata_map
 

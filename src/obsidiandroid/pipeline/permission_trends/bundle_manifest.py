@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,7 @@ def canonical_bundle_artifact_id_from_path(path: Path, *, category: str) -> str:
     stem = str(path.stem)
     if stem.endswith(".latest"):
         stem = stem[: -len(".latest")]
+    stem = re.sub(r"_\d{8}T\d{6}Z__[\w-]+$", "", stem)
 
     aliases = {
         "dangerous_distribution_by_type": "dangerous_permission_distribution_by_type",
@@ -74,10 +76,84 @@ def infer_bundle_artifact_parameters(
     return params
 
 
+def bundle_artifact_entry(
+    manifest: dict[str, Any],
+    artifact_id: str,
+    *,
+    prefer_behavior_claim_surface: bool = False,
+) -> dict[str, Any] | None:
+    """Resolve one bundle manifest artifact entry by id.
+
+    When ``prefer_behavior_claim_surface`` is enabled, mixed signal artifacts can
+    redirect to their behavior-safe replacement through
+    ``preferred_behavior_claim_artifact_id``.
+    """
+
+    artifacts = manifest.get("artifacts", []) if isinstance(manifest, dict) else []
+    if not isinstance(artifacts, list):
+        return None
+    index = {
+        str(entry.get("artifact_id", "")).strip(): entry
+        for entry in artifacts
+        if isinstance(entry, dict) and str(entry.get("artifact_id", "")).strip()
+    }
+    current_id = str(artifact_id).strip()
+    if not current_id:
+        return None
+    visited: set[str] = set()
+    while current_id and current_id not in visited:
+        visited.add(current_id)
+        entry = index.get(current_id)
+        if not isinstance(entry, dict):
+            return None
+        if not prefer_behavior_claim_surface:
+            return entry
+        preferred_id = str(entry.get("preferred_behavior_claim_artifact_id", "")).strip()
+        if not preferred_id or preferred_id == current_id:
+            return entry
+        current_id = preferred_id
+    return index.get(str(artifact_id).strip())
+
+
+def resolve_bundle_artifact_path(
+    *,
+    bundle_dir: Path,
+    manifest: dict[str, Any],
+    artifact_id: str,
+    prefer_behavior_claim_surface: bool = False,
+) -> Path | None:
+    """Resolve one artifact path from the bundle manifest."""
+
+    entry = bundle_artifact_entry(
+        manifest,
+        artifact_id,
+        prefer_behavior_claim_surface=prefer_behavior_claim_surface,
+    )
+    if not isinstance(entry, dict):
+        return None
+    rel = str(entry.get("relative_path", "")).strip()
+    if not rel:
+        return None
+    candidate = (bundle_dir / rel).resolve()
+    if candidate.exists():
+        return candidate
+    return None
+
+
 def bundle_artifact_role(artifact_id: str, category: str) -> tuple[str, bool]:
     """Classify bundle artifact role for audit/readability."""
     primary_ids = {
+        "permission_prevalence_by_type",
+        "permission_prevalence_by_family",
+        "permission_signal_prevalence_by_type_behavior_safe",
+        "permission_signal_prevalence_by_family_behavior_safe",
+        "permission_type_enrichment",
+        "permission_family_enrichment",
+        "family_permission_similarity",
+        "family_signal_similarity_behavior_safe",
+        "type_permission_similarity",
         "type_permission_prevalence",
+        "type_capability_bundle_prevalence",
         "type_permission_entropy",
         "permission_discriminability_rank",
         "dangerous_permission_distribution_by_type",
@@ -86,6 +162,8 @@ def bundle_artifact_role(artifact_id: str, category: str) -> tuple[str, bool]:
         "permission_coverage_report",
     }
     if artifact_id.startswith("family_permission_profiles_top"):
+        return "primary_structural", True
+    if artifact_id.startswith("family_capability_bundle_profiles_top"):
         return "primary_structural", True
     if artifact_id.startswith("family_permission_entropy_top"):
         return "primary_structural", True
@@ -111,10 +189,52 @@ def bundle_artifact_role(artifact_id: str, category: str) -> tuple[str, bool]:
     return "bundle_contract", False
 
 
+def preferred_behavior_claim_artifact_id(artifact_id: str) -> str:
+    """Return the preferred behavior-claim-safe artifact id for a signal table."""
+    mapping = {
+        "permission_signal_prevalence_by_type": "permission_signal_prevalence_by_type_behavior_safe",
+        "permission_signal_prevalence_by_family": "permission_signal_prevalence_by_family_behavior_safe",
+        "family_signal_similarity": "family_signal_similarity_behavior_safe",
+        "permission_signal_prevalence_by_type_behavior_safe": "permission_signal_prevalence_by_type_behavior_safe",
+        "permission_signal_prevalence_by_family_behavior_safe": "permission_signal_prevalence_by_family_behavior_safe",
+        "family_signal_similarity_behavior_safe": "family_signal_similarity_behavior_safe",
+    }
+    return mapping.get(str(artifact_id), "")
+
+
+def interpretation_surface(artifact_id: str) -> str:
+    """Return interpretation-surface posture for bundle tables."""
+    behavior_safe_primary = {
+        "permission_signal_prevalence_by_type_behavior_safe",
+        "permission_signal_prevalence_by_family_behavior_safe",
+        "family_signal_similarity_behavior_safe",
+    }
+    mixed_secondary = {
+        "permission_signal_prevalence_by_type",
+        "permission_signal_prevalence_by_family",
+        "family_signal_similarity",
+    }
+    if artifact_id in behavior_safe_primary:
+        return "behavior_safe_primary"
+    if artifact_id in mixed_secondary:
+        return "mixed_signal_secondary"
+    return "not_applicable"
+
+
 def bundle_table_policy(artifact_id: str) -> dict[str, Any]:
     """Return table governance metadata for bundle inventory/audit."""
     primary_structural = {
+        "permission_prevalence_by_type",
+        "permission_prevalence_by_family",
+        "permission_signal_prevalence_by_type_behavior_safe",
+        "permission_signal_prevalence_by_family_behavior_safe",
+        "permission_type_enrichment",
+        "permission_family_enrichment",
+        "family_permission_similarity",
+        "family_signal_similarity_behavior_safe",
+        "type_permission_similarity",
         "type_permission_prevalence",
+        "type_capability_bundle_prevalence",
         "type_permission_entropy",
         "permission_discriminability_rank",
         "dangerous_permission_distribution_by_type",
@@ -123,10 +243,16 @@ def bundle_table_policy(artifact_id: str) -> dict[str, Any]:
         "permission_coverage_report",
     }
     auxiliary_structural = {
+        "permission_signal_prevalence_by_type",
+        "permission_signal_prevalence_by_family",
+        "family_signal_similarity",
         "consensus_distribution",
         "consensus_correlation_report",
+        "attack_mobile_hypotheses",
         "generic_definition_audit",
         "generic_vs_non_generic_summary",
+        "permission_pattern_summary",
+        "permission_signal_governance_coverage",
     }
     diagnostic_tables = {
         "misclassified_samples_by_type",
@@ -141,6 +267,14 @@ def bundle_table_policy(artifact_id: str) -> dict[str, Any]:
             "target_location": "bundles/permission_trends/tables",
             "needs_latex_export": "no",
             "notes": "Core family profile table.",
+        }
+    if artifact_id.startswith("family_capability_bundle_profiles_top"):
+        return {
+            "used_by": "bundle_only,paper",
+            "keep_in_permission_trends": "yes",
+            "target_location": "bundles/permission_trends/tables",
+            "needs_latex_export": "no",
+            "notes": "Core family capability-bundle table.",
         }
     if artifact_id.startswith("family_permission_entropy_top"):
         return {
@@ -178,12 +312,22 @@ def bundle_table_policy(artifact_id: str) -> dict[str, Any]:
             "notes": "Primary structural table.",
         }
     if artifact_id in auxiliary_structural:
+        notes = "Auxiliary/supporting analysis table."
+        if artifact_id in {
+            "permission_signal_prevalence_by_type",
+            "permission_signal_prevalence_by_family",
+            "family_signal_similarity",
+        }:
+            notes = (
+                "Mixed signal table; includes model-only/fingerprint lanes and should not be the default "
+                "surface for behavior claims."
+            )
         return {
             "used_by": "bundle_only,backfill",
             "keep_in_permission_trends": "yes",
             "target_location": "bundles/permission_trends/tables",
             "needs_latex_export": "no",
-            "notes": "Auxiliary/supporting analysis table.",
+            "notes": notes,
         }
     if artifact_id in diagnostic_tables:
         return {
@@ -277,6 +421,8 @@ def export_permission_trends_bundle_manifest(
         }
         if normalized_category == "table":
             entry.update(bundle_table_policy(artifact_id))
+            entry["interpretation_surface"] = interpretation_surface(artifact_id)
+            entry["preferred_behavior_claim_artifact_id"] = preferred_behavior_claim_artifact_id(artifact_id)
         entries.append(dict(entry))
     entries = sorted(
         entries,
@@ -332,6 +478,10 @@ def export_permission_trends_table_inventory_from_manifest(
                 "keep_in_permission_trends": str(entry.get("keep_in_permission_trends", "")),
                 "target_location": str(entry.get("target_location", "")),
                 "needs_latex_export": str(entry.get("needs_latex_export", "")),
+                "interpretation_surface": str(entry.get("interpretation_surface", "")),
+                "preferred_behavior_claim_artifact_id": str(
+                    entry.get("preferred_behavior_claim_artifact_id", "")
+                ),
                 "notes": str(entry.get("notes", "")),
             }
         )

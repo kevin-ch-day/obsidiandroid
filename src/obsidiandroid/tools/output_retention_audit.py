@@ -379,6 +379,10 @@ def audit_output_retention(
     if runs_root.exists():
         for child in sorted(runs_root.iterdir()):
             if child.is_dir():
+                if child.name.startswith("_"):
+                    for archived_run in sorted(p for p in child.rglob("*") if p.is_dir() and (p / "run_manifest.json").exists()):
+                        run_records.append(parse_run_record(archived_run))
+                    continue
                 run_records.append(parse_run_record(child))
 
     classify_runs(run_records, output_dir=output_dir, policy=policy, now_utc=now_utc)

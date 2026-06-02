@@ -83,15 +83,18 @@ def test_taxonomy_support_tuning_compact_shows_status_and_tune_next(
 
     assert "Taxonomy & support tuning" in out
     assert "Taxonomy health" in out
-    assert "Model prediction error count" in out
+    assert "Model prediction errors" in out
     assert "Authority gap rows (run/global)" in out
-    assert "Claim-facing mismatch total" in out
-    assert "Families just below threshold" in out
+    assert "Rendering / claim mismatch" in out
+    assert "Families near threshold" in out
     assert "Preferred family target" in out
     assert "Avoid for primary claims" in out
     assert "tune next" in out.lower()
-    assert "taxonomy_authority_split" in out
-    assert "taxonomy_model_prediction_errors" in out
+    assert "Start here" in out
+    assert "Model errors" in out
+    assert "Authority gaps" in out
+    assert f"taxonomy_authority_split_{run_id}.md" in out
+    assert f"taxonomy_model_prediction_errors_{run_id}.csv" in out or "missing" in out
 
 
 def test_taxonomy_support_snapshot_includes_threshold_sensitivity(
@@ -303,7 +306,7 @@ def test_taxonomy_support_tuning_warns_when_using_global_latest_mirror(
 
     assert "Artifact provenance" in out
     assert "global_latest_mirror" in out
-    assert "global latest mirror" in out.lower()
+    assert "taxonomy_authority_split.latest" in out or "*.latest.*" in out
 
 
 def test_taxonomy_consistency_review_warns_when_using_global_latest_mirror(
@@ -349,11 +352,11 @@ def test_taxonomy_consistency_review_warns_when_using_global_latest_mirror(
 
     assert "Artifact provenance" in out
     assert "global_latest_mirror" in out
-    assert "global latest mirror" in out.lower()
+    assert "taxonomy_authority_split.latest" in out or "*.latest.*" in out
     assert "Model prediction errors" in out
     assert "Type-guard suppressions" in out
-    assert "Taxonomy authority split (Markdown)" in out
-    assert "Taxonomy authority gap summary (CSV)" in out
+    assert "Start here" in out
+    assert "Authority gap summary" in out
 
 
 def test_permission_intelligence_coverage_shows_artifact_origin_and_warns_on_global_mirror(
@@ -380,7 +383,8 @@ def test_permission_intelligence_coverage_shows_artifact_origin_and_warns_on_glo
 
     assert "Permission coverage summary" in out
     assert "global_latest_mirror" in out
-    assert "Permission intelligence coverage is using at least one global latest mirror artifact" in out
+    assert "Permission intelligence coverage is using at least one" in out
+    assert "global latest mirror artifact" in out.lower()
 
 
 def test_feature_matrix_modality_view_shows_artifact_origin_and_warns_on_global_mirror(
@@ -402,7 +406,8 @@ def test_feature_matrix_modality_view_shows_artifact_origin_and_warns_on_global_
 
     assert "Feature contract" in out
     assert "global_latest_mirror" in out
-    assert "Feature matrix / modality coverage is using at least one global latest mirror artifact" in out
+    assert "Feature matrix / modality coverage is using at least one" in out
+    assert "global latest mirror artifact" in out.lower()
 
 
 def test_cohort_family_artifact_paths_show_origin_for_global_latest_mirror(

@@ -43,14 +43,46 @@ def summarize_prediction_results(df: pd.DataFrame):
 
         fam_counts = df["predicted_family"].value_counts()
         unknown_count = fam_counts.get("unknown", 0)
-        unique_preds = df["predicted_family"].nunique()
+        synthetic_other_mask = (
+            df["predicted_family"].astype(str).str.strip().str.lower().eq("other")
+            & df.get("override_tag", pd.Series(index=df.index, dtype=object))
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .eq("type_guard_family_suppressed")
+        )
+        unique_preds = int(df["predicted_family"].nunique())
+        comparable_unique_preds = int(
+            df.loc[~synthetic_other_mask, "predicted_family"].nunique()
+        )
+        synthetic_other_rows = int(synthetic_other_mask.sum())
+        abstain_rows = int(
+            df.get("override_tag", pd.Series(index=df.index, dtype=object))
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .isin({"low_confidence_family_abstain", "ambiguous_family_abstain"})
+            .sum()
+        )
         unknown_ratio = unknown_count / total if total > 0 else 0.0
 
         du.print_stat("Top Predicted Family", fam_counts.idxmax())
-        du.print_stat("Unique Predicted Families", unique_preds)
+        if synthetic_other_rows:
+            du.print_stat(
+                "Unique Predicted Families",
+                f"{comparable_unique_preds} (+ synthetic other bucket)",
+            )
+            du.print_stat(
+                "Type-Guard Synthetic Other Rows",
+                synthetic_other_rows,
+            )
+        else:
+            du.print_stat("Unique Predicted Families", unique_preds)
+        if abstain_rows:
+            du.print_stat("False-Positive Guardrail Abstains", abstain_rows)
         du.print_stat("Unknown Predictions", f"{unknown_count} / {total} ({unknown_ratio:.2%})")
 
-        if unique_preds <= DIVERSITY_WARNING_THRESHOLD:
+        if comparable_unique_preds <= DIVERSITY_WARNING_THRESHOLD:
             du.print_warning("[DIAG] Low prediction diversity — possible overfitting or label collapse.")
 
         if unknown_ratio >= UNKNOWN_THRESHOLD:

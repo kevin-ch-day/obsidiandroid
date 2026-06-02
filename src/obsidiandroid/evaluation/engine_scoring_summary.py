@@ -14,6 +14,7 @@ from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.common.cv_fold_config import safe_float_config_value, safe_int_config_value
 from obsidiandroid.database import db_av_engine_detection_totals
+from obsidiandroid.database import verdict_contracts
 from obsidiandroid.common import output_paths
 from obsidiandroid.observability.logging import get_logger, log_event
 
@@ -45,6 +46,48 @@ SUMMARY_LOGGER = get_logger(
     f"{getattr(app_config, 'APP_LOG_NAMESPACE', 'framework')}.evaluation.engine_scoring_summary",
     "analysis",
 )
+
+# Derived from VirusTotal's current documented file-engine prefix list:
+# https://docs.virustotal.com/docs/list-file-engines
+VT_CURRENT_ENGINE_PREFIXES = {
+    "acronis", "ad_aware", "aegislab", "ahnlab", "ahnlab_v3", "alibaba", "alibabacloud",
+    "alyac", "antivir", "antivir7", "antiy_avl", "apex", "arcabit", "avast", "avast_mobile",
+    "avg", "avira", "avware", "babable", "baidu", "bitdefender", "bitdefenderfalx",
+    "bitdefendertheta", "bkav", "bkav_pro", "cat_quickheal", "clamav", "cmc", "commtouch",
+    "comodo", "crowdstrike", "ctx", "cybereason", "cylance", "cynet", "cyren",
+    "deepinstinct", "drweb", "egambit", "elastic", "emsisoft", "endgame", "escan",
+    "eset_nod32", "f_prot", "f_secure", "fireeye", "fortinet", "gdata", "google",
+    "gridinsoft", "huorong", "ikarus", "invincea", "jiangmin", "k7antivirus", "k7gw",
+    "kaspersky", "kingsoft", "lionic", "malwarebytes", "max", "maxsecure", "mcafee",
+    "mcafee_gw_edition", "microsoft", "microworld_escan", "nano_antivirus", "nod32",
+    "nprotect", "paloalto", "panda", "prevx1", "qihoo_360", "rising", "sangfor",
+    "sentinelone", "sophos", "sunbelt", "superantispyware", "symantec",
+    "symantecmobileinsight", "tachyon", "tencent", "thehacker", "totaldefense",
+    "trapmine", "trendmicro", "trendmicro_housecall", "trellixens", "trustlook",
+    "varist", "vba32", "vipre", "virit", "virobot", "webroot", "whitearmor",
+    "yandex", "zillya", "zonealarm", "zoner",
+}
+
+VT_LEGACY_METADATA_ALIAS_SUGGESTIONS = {
+    "a_squared": "",
+    "androguard": "",
+    "authentium": "",
+    "avast5": "avast",
+    "command": "",
+    "cyrencloud": "cyren",
+    "esafe": "",
+    "etrust_vet": "",
+    "ewido": "",
+    "mcafee_artemis": "mcafee",
+    "nod32beta": "eset_nod32",
+    "pandabeta": "panda",
+    "pctools": "",
+    "prevx": "prevx1",
+    "secureweb_gateway": "",
+    "sunbelt": "sunbelt",
+    "virusbuster": "",
+    "webrootd": "webroot",
+}
 
 
 def _effective_readiness_weights() -> dict[str, float]:
@@ -110,10 +153,12 @@ def build_av_engine_scoring_summary_from_db() -> pd.DataFrame:
         )
         return pd.DataFrame()
 
-    export_paths = _export_summary_log(summary_df)
+    drift_df = _build_engine_metadata_drift_df()
+    export_paths = _export_summary_log(summary_df, drift_df=drift_df)
     _print_summary_context(
         engine_df=engine_df,
         summary_df=summary_df,
+        drift_df=drift_df,
         export_paths=export_paths,
     )
     du.print_success(f"[DONE] Engine scoring summary completed for {len(summary_df)} engines.")
@@ -382,10 +427,90 @@ def _resolve_summary_export_paths() -> tuple[Path, Path]:
     )
 
 
-def _export_summary_log(df: pd.DataFrame) -> dict[str, str]:
+def _build_engine_metadata_drift_df() -> pd.DataFrame:
+    """Compare verdict-table vendor keys against vendor-engine metadata keys."""
+    verdict_columns = {
+        str(column).strip().lower()
+        for column in verdict_contracts.fetch_vendor_verdict_columns()
+        if str(column).strip()
+    }
+    metadata_df = verdict_contracts.fetch_vendor_engine_flags()
+    if not isinstance(metadata_df, pd.DataFrame):
+        metadata_df = pd.DataFrame()
+
+    metadata_df = metadata_df.copy()
+    if "vendor_key" not in metadata_df.columns:
+        metadata_df["vendor_key"] = ""
+    metadata_df["vendor_key"] = metadata_df["vendor_key"].astype(str).str.strip().str.lower()
+    metadata_df = metadata_df[metadata_df["vendor_key"] != ""]
+    metadata_df["is_engine_active"] = pd.to_numeric(
+        metadata_df.get("is_engine_active", 0), errors="coerce"
+    ).fillna(0).astype(int)
+    metadata_df["is_trusted_vendor"] = pd.to_numeric(
+        metadata_df.get("is_trusted_vendor", 0), errors="coerce"
+    ).fillna(0).astype(int)
+    metadata_keys = set(metadata_df["vendor_key"].tolist())
+    all_keys = sorted(metadata_keys | verdict_columns)
+
+    rows: list[dict[str, object]] = []
+    metadata_map = metadata_df.set_index("vendor_key").to_dict(orient="index") if not metadata_df.empty else {}
+    for vendor_key in all_keys:
+        in_metadata = vendor_key in metadata_keys
+        in_verdict = vendor_key in verdict_columns
+        status = (
+            "metadata_and_verdict"
+            if in_metadata and in_verdict
+            else "metadata_only"
+            if in_metadata
+            else "verdict_only"
+        )
+        meta = metadata_map.get(vendor_key, {})
+        rows.append(
+            {
+                "vendor_key": vendor_key,
+                "drift_status": status,
+                "vt_current_prefix_flag": int(vendor_key in VT_CURRENT_ENGINE_PREFIXES),
+                "likely_current_vendor_key": _suggest_current_vendor_key(vendor_key, status),
+                "suggestion_basis": _suggestion_basis(vendor_key, status),
+                "in_metadata_table": int(in_metadata),
+                "in_verdict_table": int(in_verdict),
+                "is_engine_active": int(meta.get("is_engine_active", 0) or 0),
+                "is_trusted_vendor": int(meta.get("is_trusted_vendor", 0) or 0),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _suggest_current_vendor_key(vendor_key: str, drift_status: str) -> str:
+    if drift_status != "metadata_only":
+        return ""
+    suggested = VT_LEGACY_METADATA_ALIAS_SUGGESTIONS.get(vendor_key, "")
+    if suggested:
+        return suggested
+    if vendor_key in VT_CURRENT_ENGINE_PREFIXES:
+        return vendor_key
+    return ""
+
+
+def _suggestion_basis(vendor_key: str, drift_status: str) -> str:
+    if drift_status != "metadata_only":
+        return ""
+    if vendor_key in VT_LEGACY_METADATA_ALIAS_SUGGESTIONS:
+        return (
+            "legacy_metadata_alias_to_current_vt_prefix"
+            if VT_LEGACY_METADATA_ALIAS_SUGGESTIONS[vendor_key]
+            else "legacy_or_unclear_metadata_only_key"
+        )
+    if vendor_key in VT_CURRENT_ENGINE_PREFIXES:
+        return "current_vt_documented_prefix_without_verdict_column"
+    return ""
+
+
+def _export_summary_log(df: pd.DataFrame, drift_df: pd.DataFrame | None = None) -> dict[str, str]:
     """Save AV engine scoring summary to text and CSV artifacts."""
     try:
         summary_export_path, summary_csv_path = _resolve_summary_export_paths()
+        metadata_drift_path = summary_csv_path.with_name("engine_metadata_drift.csv")
         top_engines = df.sort_values("ML Readiness Score", ascending=False).head(10)
 
         lines = [
@@ -412,6 +537,8 @@ def _export_summary_log(df: pd.DataFrame) -> dict[str, str]:
         with open(summary_export_path, "w", encoding="utf-8") as handle:
             handle.write("\n".join(lines))
         df.sort_values("ML Readiness Score", ascending=False).to_csv(summary_csv_path, index=False)
+        if isinstance(drift_df, pd.DataFrame) and not drift_df.empty:
+            drift_df.to_csv(metadata_drift_path, index=False)
 
         if ml_console.is_compact():
             top_names = ", ".join(top_engines["engine_name"].astype(str).head(5).tolist())
@@ -423,8 +550,10 @@ def _export_summary_log(df: pd.DataFrame) -> dict[str, str]:
                 columns=["engine_name", "ML Readiness Score", "Tier Label", "contributor_flag"],
                 show_index=False,
             )
-        du.print_info(f"[EXPORT] Summary log saved to: {summary_export_path.as_posix()}")
-        du.print_info(f"[EXPORT] Summary CSV saved to: {summary_csv_path.as_posix()}")
+        du.print_info(f"[EXPORT] Summary log:{du.format_console_path(summary_export_path)}")
+        du.print_info(f"[EXPORT] Summary CSV:{du.format_console_path(summary_csv_path)}")
+        if isinstance(drift_df, pd.DataFrame) and not drift_df.empty:
+            du.print_info(f"[EXPORT] Metadata drift:{du.format_console_path(metadata_drift_path)}")
         log_event(
             SUMMARY_LOGGER,
             "summary_log_exported",
@@ -432,7 +561,11 @@ def _export_summary_log(df: pd.DataFrame) -> dict[str, str]:
             path=str(summary_export_path),
             rows=int(top_engines.shape[0]),
         )
-        return {"log_path": str(summary_export_path), "csv_path": str(summary_csv_path)}
+        return {
+            "log_path": str(summary_export_path),
+            "csv_path": str(summary_csv_path),
+            "metadata_drift_path": str(metadata_drift_path) if metadata_drift_path.exists() else "",
+        }
 
     except Exception as exc:
         du.print_warning(f"[WARN] Failed to export summary log: {exc}")
@@ -449,21 +582,48 @@ def _print_summary_context(
     *,
     engine_df: pd.DataFrame,
     summary_df: pd.DataFrame,
+    drift_df: pd.DataFrame | None,
     export_paths: dict[str, str],
 ) -> None:
     """Print compact context for engine-scoring execution."""
-    observed = int(len(engine_df))
-    canonical = int(summary_df["engine_name"].nunique()) if "engine_name" in summary_df.columns else observed
+    db_verdict_universe = int(len(engine_df))
+    db_summary_canonical = (
+        int(summary_df["engine_name"].nunique()) if "engine_name" in summary_df.columns else db_verdict_universe
+    )
+    cohort_observed = safe_int_config_value(
+        getattr(app_config, "RUNTIME_ENGINE_COUNT_OBSERVED", 0), default=0
+    )
+    cohort_canonical = safe_int_config_value(
+        getattr(app_config, "RUNTIME_ENGINE_COUNT_CANONICAL", 0), default=0
+    )
     included_after_gating = safe_int_config_value(
         getattr(app_config, "RUNTIME_ENGINE_COUNT_INCLUDED_AFTER_GATING", 0), default=0
     )
     if included_after_gating <= 0:
-        included_after_gating = canonical
+        included_after_gating = cohort_canonical or db_summary_canonical
     du.print_subheader("Engine Scoring Context")
-    du.print_stat("Source", "DB only (engine scoring table)")
+    du.print_stat("Source", "DB verdict-table summary")
     du.print_stat(
         "Engine Universe",
-        f"observed={observed} | canonical={canonical} | included_after_gating={included_after_gating}",
+        (
+            f"db_verdict_table={db_verdict_universe} | "
+            f"db_summary_canonical={db_summary_canonical} | "
+            f"cohort_observed={cohort_observed or 'n/a'} | "
+            f"cohort_canonical={cohort_canonical or 'n/a'} | "
+            f"included_after_gating={included_after_gating}"
+        ),
     )
+    if isinstance(drift_df, pd.DataFrame) and not drift_df.empty:
+        metadata_table = int(drift_df["in_metadata_table"].fillna(0).astype(bool).sum())
+        metadata_only = int((drift_df["drift_status"] == "metadata_only").sum())
+        verdict_only = int((drift_df["drift_status"] == "verdict_only").sum())
+        du.print_stat(
+            "Metadata Drift",
+            (
+                f"metadata_table={metadata_table} | "
+                f"metadata_only={metadata_only} | "
+                f"verdict_only={verdict_only}"
+            ),
+        )
     if export_paths.get("csv_path"):
-        du.print_stat("Export", str(export_paths["csv_path"]).replace("\\", "/"))
+        du.print_stat("Export", du.format_console_path(export_paths["csv_path"]))

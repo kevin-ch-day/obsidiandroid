@@ -28,6 +28,9 @@ prepare_script_runtime(__file__)
 from config import app_config
 
 from obsidiandroid.pipeline import stage_results_warehouse
+from obsidiandroid.pipeline.permission_trends.bundle_manifest import (
+    resolve_bundle_artifact_path as _resolve_bundle_artifact_path_from_manifest,
+)
 
 persist_permission_trends_results = stage_results_warehouse.persist_permission_trends_results
 
@@ -58,21 +61,12 @@ def _load_bundle_manifest(bundle_dir: Path) -> dict:
 
 def _artifact_path_from_manifest(bundle_dir: Path, manifest: dict, artifact_id: str) -> Path | None:
     """Resolve artifact path by canonical id from bundle manifest."""
-    artifacts = manifest.get("artifacts", []) if isinstance(manifest, dict) else []
-    if not isinstance(artifacts, list):
-        return None
-    for entry in artifacts:
-        if not isinstance(entry, dict):
-            continue
-        if str(entry.get("artifact_id", "")).strip() != str(artifact_id).strip():
-            continue
-        rel = str(entry.get("relative_path", "")).strip()
-        if not rel:
-            continue
-        candidate = (bundle_dir / rel).resolve()
-        if candidate.exists():
-            return candidate
-    return None
+    return _resolve_bundle_artifact_path_from_manifest(
+        bundle_dir=bundle_dir,
+        manifest=manifest,
+        artifact_id=artifact_id,
+        prefer_behavior_claim_surface=False,
+    )
 
 
 def _resolve_csv_by_artifact_id(

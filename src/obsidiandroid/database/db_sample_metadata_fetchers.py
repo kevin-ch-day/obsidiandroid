@@ -33,6 +33,7 @@ def _cohort_loader_sql_parts(
     effective_time_start_utc: str | None,
     effective_time_end_utc: str | None,
     require_effective_first_seen: bool,
+    include_family_canonical: tuple[str, ...] | None,
     exclude_family_ids: tuple[int, ...] | None,
     exclude_family_canonical: tuple[str, ...] | None,
 ) -> dict[str, Any]:
@@ -74,9 +75,20 @@ def _cohort_loader_sql_parts(
 
     if not allow_missing_package_name:
         where_clauses.append("COALESCE(TRIM(y.android_package_name), '') <> ''")
+    family_label_match_override_sql = """
+        (
+            LOWER(TRIM(COALESCE(y.sample_label, ''))) <> ''
+            AND LOWER(TRIM(COALESCE(y.sample_label, ''))) = LOWER(TRIM(COALESCE(y.family_label, '')))
+            AND LOWER(TRIM(COALESCE(y.family_label, ''))) = LOWER(TRIM(COALESCE(f.family_name, '')))
+            AND LOWER(TRIM(COALESCE(f.family_name, ''))) NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null')
+        )
+    """
     if exclude_weak_label_kinds:
         where_clauses.append(
-            "COALESCE(LOWER(TRIM(y.sample_label_kind)), '') NOT IN ('filename', 'hash_like', 'opaque_string', 'unclassified')"
+            f"""(
+                COALESCE(LOWER(TRIM(y.sample_label_kind)), '') NOT IN ('filename', 'hash_like', 'opaque_string', 'unclassified')
+                OR {family_label_match_override_sql}
+            )"""
         )
     if exclude_family_label_conflicts:
         where_clauses.append(
@@ -92,6 +104,11 @@ def _cohort_loader_sql_parts(
     normalized_exclude_canonical = tuple(
         str(family).strip().lower()
         for family in (exclude_family_canonical or ())
+        if str(family).strip()
+    )
+    normalized_include_canonical = tuple(
+        str(family).strip().lower()
+        for family in (include_family_canonical or ())
         if str(family).strip()
     )
     normalized_exclude_ids = tuple(
@@ -152,6 +169,12 @@ def _cohort_loader_sql_parts(
                 )
                 """
             )
+        if normalized_include_canonical:
+            placeholders = ", ".join(["%s"] * len(normalized_include_canonical))
+            inner_where_clauses.append(
+                f"LOWER(TRIM(COALESCE(f_inner.family_name, ''))) IN ({placeholders})"
+            )
+            inner_params.extend(normalized_include_canonical)
         if normalized_exclude_ids:
             placeholders = ", ".join(["%s"] * len(normalized_exclude_ids))
             inner_where_clauses.append(
@@ -187,6 +210,12 @@ def _cohort_loader_sql_parts(
         )
         params.extend(inner_params)
         params.append(int(min_samples_per_family))
+    if normalized_include_canonical:
+        placeholders = ", ".join(["%s"] * len(normalized_include_canonical))
+        where_clauses.append(
+            f"LOWER(TRIM(COALESCE(f.family_name, ''))) IN ({placeholders})"
+        )
+        params.extend(normalized_include_canonical)
     if normalized_exclude_ids:
         placeholders = ", ".join(["%s"] * len(normalized_exclude_ids))
         where_clauses.append(f"(f.family_id IS NULL OR f.family_id NOT IN ({placeholders}))")
@@ -215,6 +244,7 @@ def _cohort_catalog_semantics_base_sql(parts: dict[str, Any]) -> tuple[str, tupl
     base_sql = f"""
         SELECT
             COALESCE(TRIM(y.analysis_lane), '') AS analysis_lane,
+            COALESCE(TRIM(y.sample_label), '') AS sample_label,
             COALESCE(TRIM(y.sample_label_kind), '') AS sample_label_kind,
             COALESCE(TRIM(y.payload_target_platform), '') AS payload_target_platform,
             COALESCE(TRIM(y.payload_target_source), '') AS payload_target_source,
@@ -268,6 +298,12 @@ def _semantics_aggregate_counts(base_sql: str, params: tuple[Any, ...]) -> dict[
             SUM(
                 CASE
                     WHEN LOWER(TRIM(sample_label_kind)) IN ('filename', 'hash_like', 'opaque_string', 'unclassified')
+                     AND NOT (
+                        LOWER(TRIM(COALESCE(sample_label, ''))) <> ''
+                        AND LOWER(TRIM(COALESCE(sample_label, ''))) = LOWER(TRIM(COALESCE(family_label_raw, '')))
+                        AND LOWER(TRIM(COALESCE(family_label_raw, ''))) = LOWER(TRIM(COALESCE(family_canonical, '')))
+                        AND LOWER(TRIM(COALESCE(family_canonical, ''))) NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null')
+                     )
                      AND LOWER(TRIM(family_canonical)) NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null')
                     THEN 1 ELSE 0
                 END
@@ -432,6 +468,7 @@ def fetch_samples_by_type(
     effective_time_start_utc: str | None = None,
     effective_time_end_utc: str | None = None,
     require_effective_first_seen: bool = True,
+    include_family_canonical: tuple[str, ...] | None = None,
     exclude_family_ids: tuple[int, ...] | None = None,
     exclude_family_canonical: tuple[str, ...] | None = None,
     as_dataframe: bool = False,
@@ -505,6 +542,7 @@ def fetch_samples_by_type(
         effective_time_start_utc=effective_time_start_utc,
         effective_time_end_utc=effective_time_end_utc,
         require_effective_first_seen=require_effective_first_seen,
+        include_family_canonical=include_family_canonical,
         exclude_family_ids=exclude_family_ids,
         exclude_family_canonical=exclude_family_canonical,
         as_dataframe=as_dataframe,
@@ -529,6 +567,7 @@ def fetch_sample_ids_by_type(
     effective_time_start_utc: str | None = None,
     effective_time_end_utc: str | None = None,
     require_effective_first_seen: bool = True,
+    include_family_canonical: tuple[str, ...] | None = None,
     exclude_family_ids: tuple[int, ...] | None = None,
     exclude_family_canonical: tuple[str, ...] | None = None,
 ) -> set[int]:
@@ -552,6 +591,7 @@ def fetch_sample_ids_by_type(
         effective_time_start_utc=effective_time_start_utc,
         effective_time_end_utc=effective_time_end_utc,
         require_effective_first_seen=require_effective_first_seen,
+        include_family_canonical=include_family_canonical,
         exclude_family_ids=exclude_family_ids,
         exclude_family_canonical=exclude_family_canonical,
         as_dataframe=False,
@@ -590,6 +630,7 @@ def _execute_samples_by_type_query(
     effective_time_start_utc: str | None = None,
     effective_time_end_utc: str | None = None,
     require_effective_first_seen: bool = True,
+    include_family_canonical: tuple[str, ...] | None = None,
     exclude_family_ids: tuple[int, ...] | None = None,
     exclude_family_canonical: tuple[str, ...] | None = None,
     as_dataframe: bool = False,
@@ -608,6 +649,7 @@ def _execute_samples_by_type_query(
         effective_time_start_utc=effective_time_start_utc,
         effective_time_end_utc=effective_time_end_utc,
         require_effective_first_seen=require_effective_first_seen,
+        include_family_canonical=include_family_canonical,
         exclude_family_ids=exclude_family_ids,
         exclude_family_canonical=exclude_family_canonical,
     )
@@ -632,8 +674,26 @@ def _execute_samples_by_type_query(
         else int(family_cap_seed) if isinstance(family_cap_seed, int)
         else 42
     )
+    needs_rank_wrappers = bool(
+        family_cap_value is not None
+        or type_cap_value is not None
+        or type_cap_by_slug_value
+        or limit_value is not None
+    )
 
-    if id_only_projection:
+    if id_only_projection and not needs_rank_wrappers:
+        base_select_sql = f"""
+            SELECT
+                y.sample_id
+            FROM malware_sample_catalog y
+            {hash_join_clause}
+            LEFT JOIN {scan_one} s ON s.sample_id = y.sample_id
+            LEFT JOIN {fam_one} v ON v.sample_id = y.sample_id
+            LEFT JOIN android_malware_family f ON LOWER(f.family_slug) = v.resolved_family_lc
+            LEFT JOIN android_malware_type t ON t.type_id = f.primary_type_id
+            WHERE {where_sql}
+        """
+    elif id_only_projection:
         base_select_sql = f"""
             SELECT
                 y.sample_id,
@@ -659,6 +719,64 @@ def _execute_samples_by_type_query(
                 LOWER(TRIM(COALESCE(t.type_slug, ''))) AS _type_slug_cap_probe,
                 CRC32(CONCAT(%s, ':', COALESCE(CAST(y.sample_id AS CHAR), ''))) AS _loader_order_key,
                 CRC32(CONCAT(%s, ':', COALESCE(CAST(y.sample_id AS CHAR), ''))) AS _type_loader_order_key
+            FROM malware_sample_catalog y
+            {hash_join_clause}
+            LEFT JOIN {scan_one} s ON s.sample_id = y.sample_id
+            LEFT JOIN {fam_one} v ON v.sample_id = y.sample_id
+            LEFT JOIN android_malware_family f ON LOWER(f.family_slug) = v.resolved_family_lc
+            LEFT JOIN android_malware_type t ON t.type_id = f.primary_type_id
+            WHERE {where_sql}
+        """
+    elif not needs_rank_wrappers:
+        base_select_sql = f"""
+            SELECT
+                y.sample_id,
+                y.sha256 AS sha256,
+                y.sha256 AS hash_sha256,
+                y.sample_label AS sample_name,
+                y.sample_label AS sample_label_raw,
+                y.sample_label_kind,
+                y.observed_filename,
+                y.family_label AS family_label_raw,
+                y.vt_family_token,
+                f.family_id,
+                f.family_name AS family_canonical,
+                t.type_slug,
+                COALESCE(f.family_name, y.family_label) AS family_name,
+                y.classification_primary AS category_primary,
+                y.classification_subtype AS category_subtype,
+                y.vt_suggested_label,
+                y.analysis_lane,
+                y.payload_target_platform,
+                y.payload_target_source,
+                y.unknown_artifact_kind,
+                y.source_batch_label,
+                y.vt_first_submission_at_utc AS vt_first_submission_date,
+                y.vt_first_seen_itw_date AS vt_first_seen_itw_date,
+                COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) AS effective_first_seen_at_utc,
+                NULL AS vt_scan_status,
+                y.android_package_name AS package_name,
+                y.android_package_name AS android_package_name,
+                y.android_launcher_activity AS main_activity,
+                y.android_min_sdk AS target_min_version,
+                y.android_target_sdk AS target_sdk_version,
+                y.android_permission_count AS permissions,
+                s.vt_malicious_count,
+                s.vt_suspicious_count,
+                s.vt_undetected_count,
+                s.vt_harmless_count,
+                s.vt_timeout_count,
+                s.vt_confirmed_timeout_count,
+                s.vt_failure_count,
+                s.vt_type_unsupported_count,
+                s.vt_reputation,
+                s.vt_times_submitted,
+                s.vt_unique_sources,
+                s.vt_suggested_threat_label,
+                s.vt_tags,
+                NULL AS hash_id,
+                x.md5 AS hash_md5,
+                x.sha1 AS hash_sha1
             FROM malware_sample_catalog y
             {hash_join_clause}
             LEFT JOIN {scan_one} s ON s.sample_id = y.sample_id
@@ -744,7 +862,7 @@ def _execute_samples_by_type_query(
             LEFT JOIN android_malware_type t ON t.type_id = f.primary_type_id
             WHERE {where_sql}
         """
-    query_params: list[Any] = [sampling_seed, type_sampling_seed, *params]
+    query_params: list[Any] = [sampling_seed, type_sampling_seed, *params] if needs_rank_wrappers else list(params)
 
     stage_sql = base_select_sql
     stage_alias = "base"
@@ -809,19 +927,22 @@ def _execute_samples_by_type_query(
     if final_where_clauses:
         final_where_sql = "\nWHERE " + " AND ".join(final_where_clauses)
 
-    query = f"""
-        SELECT
+    if needs_rank_wrappers:
+        query = f"""
+            SELECT
 {output_columns}
-        FROM ({stage_sql}) {stage_alias}
-        {final_where_sql}
-        ORDER BY
-            {stage_alias}._family_mapping_rank ASC,
-            {stage_alias}._weak_label_rank ASC,
-            {stage_alias}._family_conflict_rank ASC,
-            {stage_alias}._type_unknown_rank ASC,
-            {stage_alias}._loader_order_key ASC,
-            {stage_alias}.sample_id ASC
-    """
+            FROM ({stage_sql}) {stage_alias}
+            {final_where_sql}
+            ORDER BY
+                {stage_alias}._family_mapping_rank ASC,
+                {stage_alias}._weak_label_rank ASC,
+                {stage_alias}._family_conflict_rank ASC,
+                {stage_alias}._type_unknown_rank ASC,
+                {stage_alias}._loader_order_key ASC,
+                {stage_alias}.sample_id ASC
+        """
+    else:
+        query = base_select_sql
 
     if limit_value is not None:
         query += "\nLIMIT %s"
@@ -848,6 +969,7 @@ def get_type_cohort_gate_stats(
     effective_time_start_utc: str | None = None,
     effective_time_end_utc: str | None = None,
     require_effective_first_seen: bool = True,
+    include_family_canonical: tuple[str, ...] | None = None,
     exclude_family_ids: tuple[int, ...] | None = None,
     exclude_family_canonical: tuple[str, ...] | None = None,
 ) -> dict:
@@ -902,11 +1024,23 @@ def get_type_cohort_gate_stats(
         for family in (exclude_family_canonical or ())
         if str(family).strip()
     )
+    normalized_include_canonical = tuple(
+        str(family).strip().lower()
+        for family in (include_family_canonical or ())
+        if str(family).strip()
+    )
     normalized_exclude_ids = tuple(
         int(family_id)
         for family_id in (exclude_family_ids or ())
         if str(family_id).strip()
     )
+    if normalized_include_canonical:
+        placeholders = ", ".join(["%s"] * len(normalized_include_canonical))
+        base_query += (
+            "\n          AND "
+            f"LOWER(TRIM(COALESCE(f.family_name, ''))) IN ({placeholders})"
+        )
+        params = tuple(list(params) + list(normalized_include_canonical))
     if normalized_exclude_ids:
         placeholders = ", ".join(["%s"] * len(normalized_exclude_ids))
         base_query += f"\n          AND (f.family_id IS NULL OR f.family_id NOT IN ({placeholders}))"
@@ -1027,6 +1161,7 @@ def get_type_cohort_gate_stats(
         effective_time_start_utc=effective_time_start_utc,
         effective_time_end_utc=effective_time_end_utc,
         require_effective_first_seen=require_effective_first_seen,
+        include_family_canonical=include_family_canonical,
         exclude_family_ids=exclude_family_ids,
         exclude_family_canonical=exclude_family_canonical,
     )

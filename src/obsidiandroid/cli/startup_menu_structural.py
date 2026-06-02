@@ -122,7 +122,7 @@ def warn_if_no_latest_run_context(*, area: str) -> None:
     if read_latest_run_id():
         return
     du.print_warning(
-        f"[MENU] {area}: no run selected yet. Some actions may be unavailable until a pipeline run completes."
+        f"[RUN] {area}: no run selected yet. Some actions may be unavailable until a pipeline run completes."
     )
 
 

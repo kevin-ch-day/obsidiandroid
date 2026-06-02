@@ -86,8 +86,15 @@ def run_av_analysis_pipeline(
         if engine_scores is None:
             engine_scores = pd.DataFrame()
     except Exception as exc:
-        du.print_error(f"[PIPELINE] Engine scoring stage failed: {exc}")
-        engine_scores = pd.DataFrame()
+        err_type = exc.__class__.__name__
+        du.print_error(f"[PIPELINE] Engine scoring stage failed ({err_type}): {exc}")
+        return {
+            "error": f"Engine scoring error ({err_type}): {exc}",
+            "binary_matrix": binary_matrix,
+            "enriched_matrix": enriched_matrix,
+            "engine_scores": None,
+            "engine_lifecycle": None,
+        }
 
     engine_lifecycle = None
     if isinstance(engine_scores, pd.DataFrame):

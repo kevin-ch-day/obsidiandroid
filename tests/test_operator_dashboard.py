@@ -147,7 +147,8 @@ def test_emit_research_operator_report_surfaces_runtime_caveats(
             "lane_counts": {"blank_package_review": 2, "package_cluster_review": 1},
         },
     )
-    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda *_args, **_kwargs: None)
+    captured: list[str] = []
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda title, *_args, **_kwargs: captured.append(str(title)))
     monkeypatch.setattr("obsidiandroid.cli.ui.display.print_subheader", lambda *_args, **_kwargs: None)
 
     operator_dashboard.clear_operator_state()
@@ -211,17 +212,84 @@ def test_emit_research_operator_report_surfaces_runtime_caveats(
     assert "Taxonomy mismatches: total=377; claim-facing=0." in text
     assert "policy-held generic/coarse token residue" in text
     assert "Taxonomy curation discipline: high-priority conflicts=9/12; dominant action=review_db_type_mapping (7); dominant issue=type_mismatch (7)." in text
-    assert "Focus area: Missing primary labels (153 row(s))" in text
-    assert "Source: live DB now (operator debt is not a frozen run-time snapshot)" in text
-    assert "Focus detail: Android + PI-observed rows missing classification_primary." in text
-    assert "Android missing-resolution backlog: 3" in text
+    assert "Focus area: Android missing-resolution backlog (3 row(s))" in text
+    assert "Source: live DB current-state view, not frozen run snapshot" in text
+    assert "Focus detail: freshness=current; top_lane=blank_package_review" in text
+    assert "Missing primary labels: 153" in text
     assert "Priority queue: True unresolved family debt" not in text
     assert "Priority queue: Android missing-resolution triage [freshness=current]" in text
     assert f"backlog_debt_summary_{run_id}.md" in text
     backlog_md = diagnostics_dir / f"backlog_debt_summary_{run_id}.md"
     assert backlog_md.is_file()
     backlog_text = backlog_md.read_text(encoding="utf-8")
-    assert "**Source:** live DB now (operator debt is not a frozen run-time snapshot)" in backlog_text
+    assert "**Source:** live DB current-state view, not frozen run snapshot" in backlog_text
+
+
+def test_emit_research_operator_report_prints_compact_diagnostics_pointer(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_diag_ptr"
+
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_headline_vs_ablation_contract_reports",
+        lambda **_kwargs: (None, None, {}),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_taxonomy_type_authority_reports",
+        lambda *_args, **_kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.write_research_question_artifacts",
+        lambda **_kwargs: {"_written_paths": []},
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.print_research_questions_terminal",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "write_diagnostics_index_md",
+        lambda *_args, **_kwargs: diagnostics_dir / "index.md",
+    )
+    monkeypatch.setattr(operator_dashboard, "_read_run_taxonomy_summary", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(operator_dashboard, "get_cohort_readiness_snapshot", lambda: {"status": "ok", "warnings": [], "buckets": {}, "taxonomy_signals": {}})
+    monkeypatch.setattr(operator_dashboard, "read_false_positive_triage_snapshot", lambda **_kwargs: {})
+    monkeypatch.setattr(operator_dashboard, "read_android_missing_resolution_snapshot", lambda **_kwargs: {})
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_subheader", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "obsidiandroid.cli.ui.display.format_console_path",
+        lambda path: (
+            "obsidiandroid/output/runs/run_diag_ptr/diagnostics/index.md"
+            if str(path).endswith("index.md")
+            else "obsidiandroid/output/runs/run_diag_ptr"
+        ),
+    )
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_RUN_ROOT",
+        "/tmp/work/obsidiandroid/output/runs/run_diag_ptr",
+        raising=False,
+    )
+
+    captured: list[str] = []
+    operator_dashboard.emit_research_operator_report(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="android_malware_major_families",
+        manifest_context={},
+        samples_df=pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
+        model_results={},
+        top_model=None,
+        artifact_list=[],
+        print_fn=captured.append,
+    )
+
+    assert "[Diagnostics] obsidiandroid/output/runs/run_diag_ptr/diagnostics/index.md" in captured
+    assert "[Run] obsidiandroid/output/runs/run_diag_ptr" in captured
 
 
 def test_emit_research_operator_report_flags_disabled_label_resolution(
@@ -253,10 +321,10 @@ def test_emit_research_operator_report_flags_disabled_label_resolution(
         "write_diagnostics_index_md",
         lambda *_args, **_kwargs: diagnostics_dir / "index.md",
     )
-    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda *_args, **_kwargs: None)
+    captured: list[str] = []
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda title, *_args, **_kwargs: captured.append(str(title)))
     monkeypatch.setattr("obsidiandroid.cli.ui.display.print_subheader", lambda *_args, **_kwargs: None)
 
-    captured: list[str] = []
     operator_dashboard.clear_operator_state()
     operator_dashboard.emit_research_operator_report(
         diagnostics_dir=diagnostics_dir,
@@ -315,7 +383,8 @@ def test_emit_research_operator_report_surfaces_type_guard_suppression_count(
         "write_diagnostics_index_md",
         lambda *_args, **_kwargs: diagnostics_dir / "index.md",
     )
-    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda *_args, **_kwargs: None)
+    captured: list[str] = []
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda title, *_args, **_kwargs: captured.append(str(title)))
     monkeypatch.setattr("obsidiandroid.cli.ui.display.print_subheader", lambda *_args, **_kwargs: None)
 
     captured: list[str] = []
@@ -471,7 +540,8 @@ def test_emit_research_operator_report_uses_global_feature_survival_mirror(
         "write_diagnostics_index_md",
         lambda *_args, **_kwargs: diagnostics_dir / "index.md",
     )
-    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda *_args, **_kwargs: None)
+    captured: list[str] = []
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda title, *_args, **_kwargs: captured.append(str(title)))
     monkeypatch.setattr("obsidiandroid.cli.ui.display.print_subheader", lambda *_args, **_kwargs: None)
 
     captured: list[str] = []
@@ -527,7 +597,8 @@ def test_emit_research_operator_report_uses_compact_artifact_pointer(
         "write_diagnostics_index_md",
         lambda *_args, **_kwargs: diagnostics_dir / "index.md",
     )
-    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda *_args, **_kwargs: None)
+    captured: list[str] = []
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda title, *_args, **_kwargs: captured.append(str(title)))
     monkeypatch.setattr("obsidiandroid.cli.ui.display.print_subheader", lambda *_args, **_kwargs: None)
 
     captured: list[str] = []
@@ -574,12 +645,23 @@ def test_emit_research_operator_report_surfaces_label_strategy_guidance(
         "write_diagnostics_index_md",
         lambda *_args, **_kwargs: diagnostics_dir / "index.md",
     )
-    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda *_args, **_kwargs: None)
+    captured: list[str] = []
+    monkeypatch.setattr(
+        "obsidiandroid.cli.ui.display.print_section",
+        lambda title, *_args, **_kwargs: captured.append(str(title)),
+    )
     monkeypatch.setattr("obsidiandroid.cli.ui.display.print_subheader", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "obsidiandroid.cli.ui.display.print_stat",
+        lambda key, value, *_args, **_kwargs: captured.append(f"{key}: {value}"),
+    )
 
     def _fake_rq(**_kwargs):
         return {
             "_written_paths": [],
+            "benchmark_support_floor": 3,
+            "benchmark_support_excluded_sample_count": 2,
+            "benchmark_support_excluded_family_count": 2,
             "q1": {
                 "governed_samples": 317,
                 "aligned_supervised_samples": 317,
@@ -612,14 +694,15 @@ def test_emit_research_operator_report_surfaces_label_strategy_guidance(
         _fake_rq,
     )
 
-    captured: list[str] = []
+    samples_df = pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]})
+    samples_df.attrs["support_floor_mode"] = "benchmark_eligibility"
     operator_dashboard.clear_operator_state()
     operator_dashboard.emit_research_operator_report(
         diagnostics_dir=diagnostics_dir,
         run_id=run_id,
         profile_id="dev_fast",
         manifest_context={"label_authority": {"active_training_classes": 30}},
-        samples_df=pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
+        samples_df=samples_df,
         model_results={},
         top_model=None,
         artifact_list=[],
@@ -627,10 +710,23 @@ def test_emit_research_operator_report_surfaces_label_strategy_guidance(
     )
 
     text = "\n".join(captured)
+    assert "BENCHMARK CLAIM READINESS" in text
+    assert "Overall claim status" in text
+    assert "Primary surface" in text
+    assert "Major-family Android malware classification" in text
+    assert "Benchmark support rule" in text
+    assert "n >= 3 per family" in text
     assert "Train family models on family_id and coarse taxonomy on type_slug." in text
-    assert "Label policy is explicit: train family on `family_id` and coarse taxonomy on `type_slug`." in text
+    assert "Label policy is explicit: family benchmark target=`family_id`; coarse taxonomy target=`type_slug`." in text
     assert "Do not promote raw label surfaces such as `category_primary`" in text
     assert "Raw subtype aligns materially better than raw primary." in text
+    claim_path = diagnostics_dir / f"claim_readiness_summary_{run_id}.json"
+    assert claim_path.is_file()
+    payload = json.loads(claim_path.read_text(encoding="utf-8"))
+    assert payload["primary_surface"] == "major_family_benchmark"
+    assert payload["benchmark_family_support_floor"] == 3
+    assert payload["family_claim_surface"] == "family_id"
+    assert payload["type_claim_surface"] == "type_slug"
 
 
 def test_emit_research_operator_report_surfaces_support_threshold_tracks(

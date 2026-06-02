@@ -23,6 +23,20 @@ def test_export_dataframe_to_excel_creates_file(monkeypatch):
         assert os.path.isfile(path)
 
 
+def test_export_dataframe_to_excel_compact_emits_single_summary(monkeypatch, capsys):
+    df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+    monkeypatch.setattr(export_manager.app_config, "ML_CONSOLE_MODE", "research", raising=False)
+    monkeypatch.setattr(export_manager.app_config, "ML_TERMINAL_COMPACT", True, raising=False)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir) / "out"
+        monkeypatch.setattr(export_manager, "OUTPUT_ROOT", output_root)
+        os.makedirs(export_manager.OUTPUT_ROOT, exist_ok=True)
+        export_manager.export_dataframe_to_excel(df, "test.xlsx", sheet_name="Sheet1", preview_rows=0)
+        out = capsys.readouterr().out
+    assert "[EXPORT] workbook: test.xlsx -> test.xlsx (1 sheet)" in out
+    assert "Exported:" not in out
+
+
 def test_save_structured_classification_report_uses_export(monkeypatch):
     df = pd.DataFrame({"sample_id": ["s1"], "predicted_family": ["foo"]})
     captured = {}
@@ -59,6 +73,23 @@ def test_write_excel_file_locked_consolidated_returns_empty(monkeypatch):
     monkeypatch.setattr(export_manager, "_write_consolidated_batch", fail_write)
     path = export_manager.write_excel_file(frames, "locked_multi.xlsx")
     assert path == ""
+
+
+def test_write_excel_file_compact_emits_single_summary(monkeypatch, capsys):
+    frames = {
+        "Sheet1": pd.DataFrame({"a": [1]}),
+        "Sheet2": pd.DataFrame({"b": [2]}),
+    }
+    monkeypatch.setattr(export_manager.app_config, "ML_CONSOLE_MODE", "research", raising=False)
+    monkeypatch.setattr(export_manager.app_config, "ML_TERMINAL_COMPACT", True, raising=False)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir) / "out"
+        monkeypatch.setattr(export_manager, "OUTPUT_ROOT", output_root)
+        os.makedirs(export_manager.OUTPUT_ROOT, exist_ok=True)
+        export_manager.write_excel_file(frames, "multi.xlsx")
+        out = capsys.readouterr().out
+    assert "[EXPORT] workbook: multi.xlsx -> multi.xlsx (2 sheets)" in out
+    assert "Excel file saved:" not in out
 
 
 def test_export_vendor_results_skips_raw_excel_when_disabled(monkeypatch):

@@ -486,6 +486,176 @@ def test_cohort_readiness_snapshot_excludes_policy_held_tokens_from_unresolved_b
     assert any("policy-held generic/coarse token" in warning for warning in snapshot["warnings"])
 
 
+def test_cohort_readiness_snapshot_suppresses_broad_spyware_vs_rat_conflict_when_permission_model_supports_rat(monkeypatch) -> None:
+    def fake_get_table_columns(table_name: str) -> list[str]:
+        columns = {
+            "malware_sample_catalog": ["sample_id", "platform", "family_label", "classification_primary", "classification_subtype"],
+            "vt_sample_verdict_confidence_current": ["sample_id", "confidence_bucket"],
+            "v_android_sample_family_type_authority": [
+                "sample_id",
+                "resolved_family_lc",
+                "family_slug",
+                "type_slug",
+                "raw_classification_primary",
+                "raw_classification_subtype",
+                "authority_bucket",
+                "raw_vs_authority_status",
+            ],
+            "v_android_apk_family_resolved": ["sample_id", "resolved_family_lc"],
+            "android_malware_family": ["family_id", "family_slug", "primary_type_id"],
+            "android_malware_type": ["type_id", "type_slug"],
+            "vendor_label_generic_token_fact": ["normalized_token", "token_kind", "is_active"],
+            "android_permission_obs_sample": ["sample_id", "permission_string_norm"],
+        }
+        return columns.get(table_name, [])
+
+    def fake_primary(query, params=None, fetch=False, return_columns=False, **_kwargs):
+        if "FROM `erebus_threat_intel_prod`.`vendor_label_generic_token_fact`" in query:
+            columns = ["normalized_token", "token_kind"]
+            rows: list[tuple[str, str]] = []
+            return (columns, rows) if return_columns else rows
+        if "FROM `erebus_threat_intel_prod`.`v_android_sample_family_type_authority`" in query:
+            columns = [
+                "sample_id",
+                "resolved_family_lc",
+                "family_slug",
+                "type_slug",
+                "raw_classification_primary",
+                "raw_classification_subtype",
+                "authority_bucket",
+                "raw_vs_authority_status",
+            ]
+            rows = [(1, "arsinkrat", "arsinkrat", "rat", "Trojan", "Spyware", "authority_family_typed", "mismatch")]
+            return (columns, rows) if return_columns else rows
+        if "FROM `erebus_threat_intel_prod`.`malware_sample_catalog`" in query:
+            columns = [
+                "sample_id",
+                "platform",
+                "family_label",
+                "classification_primary",
+                "classification_subtype",
+            ]
+            rows = [(1, "android", "ArsinkRAT", "Trojan", "Spyware")]
+            return (columns, rows) if return_columns else rows
+        if "FROM `erebus_threat_intel_prod`.`vt_sample_verdict_confidence_current`" in query:
+            return [(1,)]
+        raise AssertionError(f"Unexpected primary query: {query}")
+
+    def fake_permission(query, params=None, fetch=False, return_columns=False, **_kwargs):
+        if "GROUP BY r.resolved_family_lc, ops.permission_string_norm" in query:
+            columns = ["family", "permission_string_norm", "sample_count"]
+            rows = [
+                ("arsinkrat", "android.permission.read_sms", 1),
+                ("arsinkrat", "android.permission.read_call_log", 1),
+                ("arsinkrat", "android.permission.record_audio", 1),
+                ("arsinkrat", "android.permission.system_alert_window", 1),
+            ]
+            return (columns, rows) if return_columns else rows
+        if "FROM `android_permission_intel`.`android_permission_obs_sample`" in query:
+            return [(1,)]
+        raise AssertionError(f"Unexpected permission query: {query}")
+
+    monkeypatch.setattr(db_cohort_readiness.db_engine, "execute_query", fake_primary)
+    monkeypatch.setattr(db_cohort_readiness.db_engine, "execute_permission_query", fake_permission)
+    monkeypatch.setattr(db_cohort_readiness.db_engine, "get_table_columns", fake_get_table_columns)
+
+    snapshot = db_cohort_readiness.get_cohort_readiness_snapshot()
+
+    assert snapshot["taxonomy_signals"]["family_type_conflict_count"] == 0
+    assert snapshot["taxonomy_signals"]["top_family_type_conflicts"] == []
+
+
+def test_cohort_readiness_snapshot_reports_cross_family_alias_slug_overlap(monkeypatch) -> None:
+    def fake_get_table_columns(table_name: str) -> list[str]:
+        columns = {
+            "malware_sample_catalog": ["sample_id", "platform", "family_label", "classification_primary", "classification_subtype"],
+            "vt_sample_verdict_confidence_current": ["sample_id", "confidence_bucket"],
+            "v_android_sample_family_type_authority": [
+                "sample_id",
+                "resolved_family_lc",
+                "family_slug",
+                "type_slug",
+                "raw_classification_primary",
+                "raw_classification_subtype",
+                "authority_bucket",
+                "raw_vs_authority_status",
+            ],
+            "v_android_apk_family_resolved": ["sample_id", "resolved_family_lc"],
+            "android_malware_family": ["family_id", "family_slug", "primary_type_id", "is_active"],
+            "android_malware_family_alias": ["alias_id", "alias_name", "family_id", "is_active", "review_status"],
+            "android_malware_type": ["type_id", "type_slug"],
+            "android_permission_obs_sample": ["sample_id", "permission_string_norm"],
+        }
+        return columns.get(table_name, [])
+
+    def fake_primary(query, params=None, fetch=False, return_columns=False, **_kwargs):
+        if "JOIN `erebus_threat_intel_prod`.`android_malware_family` AS alias_family" in query:
+            columns = [
+                "alias_name",
+                "alias_family_id",
+                "alias_family_slug",
+                "slug_family_id",
+                "family_slug",
+                "family_name",
+            ]
+            rows = [("Wroba", 47, "roamingmantis", 129, "wroba", "Wroba")]
+            return (columns, rows) if return_columns else rows
+        if "FROM `erebus_threat_intel_prod`.`v_android_sample_family_type_authority`" in query:
+            columns = [
+                "sample_id",
+                "resolved_family_lc",
+                "family_slug",
+                "type_slug",
+                "raw_classification_primary",
+                "raw_classification_subtype",
+                "authority_bucket",
+                "raw_vs_authority_status",
+            ]
+            rows = [(1, "roamingmantis", "roamingmantis", "banker", "Trojan", "Banker", "authority_family_typed", "raw_subtype_matches_authority")]
+            return (columns, rows) if return_columns else rows
+        if "FROM `erebus_threat_intel_prod`.`malware_sample_catalog`" in query:
+            columns = [
+                "sample_id",
+                "platform",
+                "family_label",
+                "classification_primary",
+                "classification_subtype",
+            ]
+            rows = [(1, "android", "RoamingMantis", "Trojan", "Banker")]
+            return (columns, rows) if return_columns else rows
+        if "FROM `erebus_threat_intel_prod`.`vt_sample_verdict_confidence_current`" in query:
+            return [(1,)]
+        raise AssertionError(f"Unexpected primary query: {query}")
+
+    def fake_permission(query, params=None, fetch=False, return_columns=False, **_kwargs):
+        if "GROUP BY r.resolved_family_lc, ops.permission_string_norm" in query:
+            columns = ["family", "permission_string_norm", "sample_count"]
+            rows = [("roamingmantis", "android.permission.read_sms", 1)]
+            return (columns, rows) if return_columns else rows
+        if "FROM `android_permission_intel`.`android_permission_obs_sample`" in query:
+            return [(1,)]
+        raise AssertionError(f"Unexpected permission query: {query}")
+
+    monkeypatch.setattr(db_cohort_readiness.db_engine, "execute_query", fake_primary)
+    monkeypatch.setattr(db_cohort_readiness.db_engine, "execute_permission_query", fake_permission)
+    monkeypatch.setattr(db_cohort_readiness.db_engine, "get_table_columns", fake_get_table_columns)
+
+    snapshot = db_cohort_readiness.get_cohort_readiness_snapshot()
+
+    assert snapshot["taxonomy_signals"]["alias_family_overlap_count"] == 1
+    assert snapshot["taxonomy_signals"]["top_alias_family_overlaps"] == [
+        {
+            "alias_name": "Wroba",
+            "alias_family_id": 47,
+            "alias_family_slug": "roamingmantis",
+            "slug_family_id": 129,
+            "family_slug": "wroba",
+            "family_name": "Wroba",
+        }
+    ]
+    assert any("Alias/family authority overlap includes 1 accepted alias token(s)" in warning for warning in snapshot["warnings"])
+
+
 def test_cohort_readiness_snapshot_degrades_when_vt_confidence_missing(monkeypatch) -> None:
     monkeypatch.setattr(
         db_cohort_readiness.db_engine,

@@ -198,6 +198,9 @@ def test_build_promoted_paper_model_binding_records_manifest_split_hash(tmp_path
     assert payload["heldout_predictions_split_hash"] == "aa" * 32
     assert payload["label_target"] == "family_id"
     assert payload["display_label_field"] == "family_canonical"
+    display_policy = payload["paper_family_display_policy"]
+    assert display_policy["policy_id"] == "android_paper_family_display_policy"
+    assert display_policy["family_confusion_matrix"]["top_k_major_families"] == 12
 
 
 def test_feature_set_glossary_uses_paper_label_vocabulary() -> None:
@@ -213,6 +216,8 @@ def test_write_evaluation_contract_json_preserves_promoted_binding(tmp_path: Pat
     """Evaluation contract should surface the promoted paper-model binding."""
     diagnostics_dir = tmp_path / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    family_tier_csv = diagnostics_dir / "family_tier_model_evaluation_r3.csv"
+    family_tier_csv.write_text("model,evaluation_scope,sample_count\nrf,major,10\n", encoding="utf-8")
     monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH", "feat123", raising=False)
     monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_HEADLINE_FEATURE_CONTRACT_PATH", "feature_contract.json", raising=False)
     out_path = stage_manifest._write_evaluation_contract_json(  # pylint: disable=protected-access
@@ -226,12 +231,20 @@ def test_write_evaluation_contract_json_preserves_promoted_binding(tmp_path: Pat
                 "confusion_matrix_path": "/tmp/conf.png",
                 "heldout_predictions_csv": "/tmp/preds.csv",
             },
+            "model_summary": {
+                "top_model": "xgboost",
+                "top_model_family_tier_rows": [
+                    {"model": "xgboost", "evaluation_scope": "major", "sample_count": 10}
+                ],
+            },
         },
         manifest_context={"label_authority": {"training_label_field": "family_id"}},
     )
     payload = json.loads(out_path.read_text(encoding="utf-8"))
     assert payload["promoted_paper_model"]["model"] == "xgboost"
     assert payload["promoted_paper_model"]["split_hash"] == "aa" * 32
+    assert payload["family_tier_evaluation"]["csv_exists"] is True
+    assert payload["family_tier_evaluation"]["top_model_rows"][0]["evaluation_scope"] == "major"
 
 
 def test_build_paper_constants_requires_split_and_cohort_hash() -> None:

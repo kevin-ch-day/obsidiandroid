@@ -2,9 +2,13 @@
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from config import app_config
+from obsidiandroid.governance.family_tier_authority import major_family_name_list
+from obsidiandroid.pipeline.manifest.confusion_matrix_paths import find_primary_confusion_matrix
+from obsidiandroid.reporting import confusion_matrix_exporter as cme
 from obsidiandroid.reporting import confusion_matrix_layout as cml
 
 
@@ -47,3 +51,68 @@ def test_confusion_matrix_exporter_forces_agg_backend() -> None:
 
     backend = str(matplotlib.get_backend()).lower()
     assert "agg" in backend
+
+
+def test_build_grouped_family_confusion_matrix_buckets_major_minor_and_generic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(app_config, "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD", "family_id", raising=False)
+    labels = [name.title() for name in major_family_name_list()[:13]] + [f"MinorFam{i}" for i in range(11)] + [
+        "banker",
+        "",
+    ]
+    cm = np.eye(len(labels), dtype=int)
+    cm[0, 0] = 20
+    cm[1, 1] = 18
+    cm[13, 13] = 7
+    cm[14, 14] = 6
+    cm[-2, -2] = 5
+    cm[-1, -1] = 3
+
+    grouped = cme.build_grouped_family_confusion_matrix(cm, labels)
+    assert grouped is not None
+    grouped_cm, grouped_labels = grouped
+    kept_major_labels = set(labels[:12])
+    assert kept_major_labels.intersection(grouped_labels)
+    assert "Other Major" in grouped_labels
+    assert "Minor/Long-tail" in grouped_labels
+    assert "Generic/Coarse" in grouped_labels
+    assert "Unresolved" in grouped_labels
+    assert int(grouped_cm.sum()) == int(cm.sum())
+
+
+def test_export_confusion_matrix_image_writes_display_variant_for_large_family_surface(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(app_config, "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD", "family_id", raising=False)
+    major = list(major_family_name_list()[:13])
+    minor = [f"MinorFam{i}" for i in range(11)]
+    labels = [name.title() for name in major] + minor + ["banker", ""]
+    size = len(labels)
+    cm = np.eye(size, dtype=int)
+    output_path = tmp_path / "random_forest.png"
+
+    rendered = cme.export_confusion_matrix_image(
+        cm=cm,
+        class_labels=labels,
+        model_name="random_forest",
+        output_path=output_path,
+        verbose=False,
+    )
+
+    assert Path(rendered).is_file()
+    assert cme.display_variant_output_path(output_path).is_file()
+
+
+def test_find_primary_confusion_matrix_prefers_display_variant_for_evidence(tmp_path: Path) -> None:
+    run_root = tmp_path / "run"
+    cm_dir = run_root / "conf_matrices"
+    cm_dir.mkdir(parents=True, exist_ok=True)
+    raw = cm_dir / "confusion_matrix_primary.png"
+    display = cm_dir / "confusion_matrix_primary_display.png"
+    raw.write_bytes(b"raw")
+    display.write_bytes(b"display")
+
+    resolved = find_primary_confusion_matrix(run_root=run_root, top_model="random_forest", evidence_mode=True)
+    assert resolved == display

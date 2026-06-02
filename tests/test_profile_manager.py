@@ -11,6 +11,10 @@ from obsidiandroid.cli import profile_selection
 def test_profile_list_contains_default_profiles() -> None:
     """Profiles directory should contain baseline profiles."""
     names = [p.stem for p in profile_manager.list_profiles()]
+    assert "android_malware_all_current" in names
+    assert "android_malware_major_families" in names
+    assert "android_malware_expanded_families" in names
+    assert "android_malware_type_taxonomy" in names
     assert "banker" in names
     assert "banker_locked" in names
     assert "malicious_temporal_stability_expanded" in names
@@ -32,6 +36,50 @@ def test_load_profile_required_keys() -> None:
         assert key in profile
     assert profile["profile_status"]["lifecycle"] == "final_canonical"
     assert profile["profile_status"]["operator_surface"] == "supported"
+
+
+def test_all_current_profile_uses_diagnostic_only_support_floor() -> None:
+    profile = profile_manager.load_profile("android_malware_all_current")
+    gates = profile.get("cohort_gates", {})
+    runtime_overrides = profile.get("runtime_overrides", {})
+
+    assert gates.get("support_floor_mode") == "diagnostic_only"
+    assert gates.get("min_samples_per_family") is None
+    assert runtime_overrides.get("ENABLE_CROSS_VALIDATION") is False
+    assert runtime_overrides.get("ENABLE_CV_REBALANCING") is False
+    assert runtime_overrides.get("ENABLE_ABLATION_EXPERIMENTS") is False
+    assert runtime_overrides.get("ENABLE_DETAILED_PER_CLASS_REPORTS") is False
+
+def test_major_family_profile_resolves_include_families_from_authority() -> None:
+    profile = profile_manager.load_profile("android_malware_major_families")
+    gates = profile.get("cohort_gates", {})
+
+    assert profile.get("evidence_mode") is False
+    assert profile.get("paper_locked") is False
+    assert gates.get("support_floor_mode") == "benchmark_eligibility"
+    assert gates.get("min_samples_per_family") == 3
+    assert gates.get("include_families_from_authority") == "major_families"
+    include_families = gates.get("include_families", [])
+    assert isinstance(include_families, list)
+    assert len(include_families) == 39
+    assert "spynote" in include_families
+    assert "donot" in include_families
+
+
+def test_expanded_family_profile_uses_benchmark_eligibility_support_floor() -> None:
+    profile = profile_manager.load_profile("android_malware_expanded_families")
+    gates = profile.get("cohort_gates", {})
+
+    assert gates.get("support_floor_mode") == "benchmark_eligibility"
+    assert gates.get("min_samples_per_family") == 3
+
+
+def test_major_family_profile_yaml_references_authority_instead_of_copying_family_list() -> None:
+    raw_path = profile_manager.PROFILES_DIR / "android_malware_major_families.yaml"
+    raw_text = raw_path.read_text(encoding="utf-8")
+
+    assert "include_families_from_authority: major_families" in raw_text
+    assert "\n  include_families:\n" not in raw_text
 
 
 def test_load_profile_resolves_bundled_profiles_outside_repo_cwd(
@@ -129,6 +177,10 @@ def test_profile_sorting_prefers_locked_and_core_profiles() -> None:
     """Sort key should rank locked baselines before misc entries."""
     ordered = sorted(
         [
+            "android_malware_all_current",
+            "android_malware_major_families",
+            "android_malware_expanded_families",
+            "android_malware_type_taxonomy",
             "spyware",
             "malicious_temporal_stability_locked",
             "banker_locked",
@@ -142,13 +194,12 @@ def test_profile_sorting_prefers_locked_and_core_profiles() -> None:
         ],
         key=profile_selection.profile_sort_key,
     )
-    assert ordered[0] == "malicious_temporal_stability_locked"
-    assert ordered[1] == "banker_locked"
-    assert ordered[2] == "malicious_temporal_stability"
-    assert ordered[3] == "malicious_temporal_stability_expanded"
-    assert ordered[4] == "malicious_temporal_stability_long_tail"
-    assert ordered[5] == "malicious_temporal_family300"
-    assert ordered[6] == "banker"
+    assert ordered[0] == "android_malware_all_current"
+    assert ordered[1] == "android_malware_major_families"
+    assert ordered[2] == "android_malware_expanded_families"
+    assert ordered[3] == "android_malware_type_taxonomy"
+    assert ordered[4] == "malicious_temporal_stability_locked"
+    assert ordered[5] == "banker_locked"
     assert ordered[-2] == "dev_fast"
     assert ordered[-1] == "dev_smoke"
 
@@ -235,20 +286,20 @@ def test_profile_summary_exposes_locked_status(tmp_path: Path) -> None:
 def test_quick_profile_label_prefers_operator_facing_descriptions() -> None:
     """Quick profile menu should lead with human labels instead of raw profile ids."""
     assert profile_manager.profile_selection.quick_profile_label(
+        "android_malware_all_current"
+    ) == "Research: all current Android malware"
+    assert profile_manager.profile_selection.quick_profile_label(
+        "android_malware_major_families"
+    ) == "Research: major-family classification"
+    assert profile_manager.profile_selection.quick_profile_label(
+        "android_malware_expanded_families"
+    ) == "Research: expanded family classification"
+    assert profile_manager.profile_selection.quick_profile_label(
+        "android_malware_type_taxonomy"
+    ) == "Research: type-level taxonomy"
+    assert profile_manager.profile_selection.quick_profile_label(
         "malicious_temporal_stability_locked"
-    ) == "Baseline: locked all-malicious"
-    assert profile_manager.profile_selection.quick_profile_label(
-        "malicious_temporal_stability_expanded"
-    ) == "Research: expanded all-malicious"
-    assert profile_manager.profile_selection.quick_profile_label(
-        "malicious_temporal_stability_long_tail"
-    ) == "Research: long-tail all-malicious"
-    assert profile_manager.profile_selection.quick_profile_label(
-        "banker_locked"
-    ) == "Baseline: banker count-locked"
-    assert profile_manager.profile_selection.quick_profile_label(
-        "banker"
-    ) == "Research: current banker"
+    ) == "Reproducibility: locked 2026 paper benchmark"
     assert profile_manager.profile_selection.quick_profile_label(
         "malicious_temporal_consensus10"
     ) == "Sensitivity: consensus threshold"
@@ -340,11 +391,11 @@ def test_select_profile_interactive_quick_uses_six_intent_menu(monkeypatch) -> N
 
     assert selected is None
     assert captured["Execution profile"] == [
-        "Paper benchmark (locked 2026: 1226 / 39 / 6)",
-        "Banker benchmark (count-locked)",
-        "Current governed all-malicious corpus",
-        "Current governed banker corpus",
-        "Test robustness / perturbations",
+        "Current Android malware — all samples",
+        "Major-family Android malware classification",
+        "Expanded Android malware — major + minor families",
+        "Type-level / coarse taxonomy classification",
+        "Robustness and perturbation suite",
         "Development / smoke checks",
     ]
     assert "More profiles (full catalog)" not in captured["Execution profile"]
@@ -365,17 +416,22 @@ def test_select_profile_interactive_quick_resolves_robustness_submenu(monkeypatc
 
     assert selected == "malicious_temporal_family300"
     assert seen["Execution profile"] == [
-        "Paper benchmark (locked 2026: 1226 / 39 / 6)",
-        "Banker benchmark (count-locked)",
-        "Current governed all-malicious corpus",
-        "Current governed banker corpus",
-        "Test robustness / perturbations",
+        "Current Android malware — all samples",
+        "Major-family Android malware classification",
+        "Expanded Android malware — major + minor families",
+        "Type-level / coarse taxonomy classification",
+        "Robustness and perturbation suite",
         "Development / smoke checks",
     ]
     assert seen["Robustness / perturbations"] == [
         "Sensitivity: consensus threshold",
         "Sensitivity: family dominance cap",
     ]
+
+
+def test_type_taxonomy_profile_declares_type_slug_training_target() -> None:
+    profile = profile_manager.load_profile("android_malware_type_taxonomy")
+    assert profile["training_label_field"] == "type_slug"
 
 
 def test_select_profile_interactive_quick_resolves_development_submenu(monkeypatch) -> None:

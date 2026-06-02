@@ -360,6 +360,121 @@ def test_write_research_question_artifacts_ignores_global_latest_ablation_when_c
     assert ablation_summary.iloc[0]["status"] == "ablation_summary_unavailable_or_empty"
 
 
+def test_write_research_question_artifacts_uses_parity_contract_before_calling_headline_vs_fused_divergence(
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_parity_guard"
+
+    (diagnostics_dir / "cohort_foundation.json").write_text(
+        json.dumps(
+            {
+                "cohort_prepared_row_count": 4,
+                "family_type_summary": {
+                    "family_count": 2,
+                    "type_count": 1,
+                    "top_family": "fam_a",
+                    "top_family_count": 2,
+                    "top_family_share_pct": 50.0,
+                    "top3_share_pct": 100.0,
+                    "top5_share_pct": 100.0,
+                    "family_distribution": {"fam_a": 2, "fam_b": 2},
+                    "type_distribution": {"banker": 4},
+                },
+                "gate_stats": {
+                    "excluded_unmapped_family": 0,
+                    "excluded_missing_sha256": 0,
+                },
+                "missing_package_rate_pct": 0.0,
+                "missing_vt_timestamp_rate_pct": 0.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"feature_modality_coverage_summary_{run_id}.json").write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "permission_pi_signal_positive_n": 4,
+                "vendor_merge_n": 4,
+                "permission_feature_columns_in_fused_matrix": 3,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"ablation_summary_{run_id}.csv").write_text(
+        "\n".join(
+            [
+                "experiment,label_target,model,macro_f1_score,accuracy,weighted_f1_score,delta_vs_full_fused,feature_column_hash",
+                "full_fused,family_id,random_forest,0.60,0.70,0.72,0.0,ab_hash",
+                "permissions_grouped,family_id,logistic_regression,0.58,0.68,0.69,-0.02,perm_hash",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    feature_contract_path = diagnostics_dir / "feature_contract.json"
+    feature_contract_path.write_text(
+        json.dumps(
+            {
+                "feature_columns": [
+                    "parsed_family_vendor_x_fam_a",
+                    "perm__android.permission.INTERNET",
+                    "meta__vt_consensus_score",
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"evaluation_contract_{run_id}.json").write_text(
+        json.dumps(
+            {
+                "feature_contract": {
+                    "headline_feature_column_hash": "headline_hash",
+                    "headline_feature_contract_path": str(feature_contract_path),
+                },
+                "label_authority": {
+                    "display_label_field": "family_canonical",
+                    "training_label_field": "family_id",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    bundle = rtq.write_research_question_artifacts(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="unit_profile",
+        manifest_context={},
+        samples_df=pd.DataFrame(
+            {
+                "sample_id": [1, 2, 3, 4],
+                "family_canonical": ["fam_a", "fam_a", "fam_b", "fam_b"],
+                "family_id": [10, 10, 11, 11],
+                "type_slug": ["banker"] * 4,
+            }
+        ),
+        model_results={
+            "random_forest": {
+                "evaluation": {
+                    "macro_f1_score": 0.90,
+                    "f1_score": 0.91,
+                    "accuracy": 0.92,
+                }
+            }
+        },
+        top_model="random_forest",
+    )
+
+    notes = bundle["q2"]["interpretation_notes"]
+    assert any("not directly comparable" in note for note in notes)
+    assert not any("diverge materially" in note for note in notes)
+    assert bundle["q2"]["headline_vs_ablation_apples_to_apples"] is False
+    assert bundle["q2"]["headline_extra_non_vendor_permission_feature_count"] == 1
+
+
 def test_write_research_question_artifacts_exports_family_names_not_numeric_ids(
     monkeypatch,
     tmp_path: Path,
@@ -443,6 +558,79 @@ def test_write_research_question_artifacts_exports_family_names_not_numeric_ids(
     assert confusion_rows == [{"note": "insufficient_model_state"}]
 
 
+def test_write_research_question_artifacts_exports_balanced_accuracy_from_classification_report(
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_balanced_accuracy"
+    (diagnostics_dir / "cohort_foundation.json").write_text(
+        json.dumps(
+            {
+                "cohort_prepared_row_count": 2,
+                "family_type_summary": {
+                    "family_count": 2,
+                    "type_count": 1,
+                    "top_family": "Godfather",
+                    "top_family_count": 1,
+                    "top_family_share_pct": 50.0,
+                    "top3_share_pct": 100.0,
+                    "top5_share_pct": 100.0,
+                    "family_distribution": {"Godfather": 1, "Irata": 1},
+                    "type_distribution": {"banker": 2},
+                },
+                "gate_stats": {
+                    "excluded_unmapped_family": 0,
+                    "excluded_missing_sha256": 0,
+                },
+                "missing_package_rate_pct": 0.0,
+                "missing_vt_timestamp_rate_pct": 0.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"label_name_map_{run_id}.json").write_text(
+        json.dumps({"label_name_map": {"17": "Godfather", "44": "Irata"}}),
+        encoding="utf-8",
+    )
+
+    bundle = rtq.write_research_question_artifacts(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="unit_profile",
+        manifest_context={},
+        samples_df=pd.DataFrame(
+            {
+                "sample_id": [1, 2],
+                "family_canonical": ["Godfather", "Irata"],
+                "family_id": [17, 44],
+                "type_slug": ["banker", "banker"],
+            }
+        ),
+        model_results={
+            "random_forest": {
+                "metadata": {
+                    "classification_report": {
+                        "17": {"precision": 1.0, "recall": 0.5, "f1-score": 0.66, "support": 1},
+                        "44": {"precision": 1.0, "recall": 1.0, "f1-score": 1.0, "support": 1},
+                        "macro avg": {"precision": 1.0, "recall": 0.75, "f1-score": 0.83, "support": 2},
+                    }
+                },
+                "evaluation": {
+                    "macro_f1_score": 0.83,
+                    "f1_score": 0.9,
+                    "accuracy": 0.9,
+                },
+            }
+        },
+        top_model="random_forest",
+    )
+
+    assert bundle["q3"]["balanced_accuracy"] == 0.75
+    md_text = (diagnostics_dir / "model_and_family_failure_summary.md").read_text(encoding="utf-8")
+    assert "Balanced accuracy (macro recall)" in md_text
+
+
 def test_write_research_question_artifacts_writes_top_confusion_pairs_without_skeptic_audits(
     monkeypatch,
     tmp_path: Path,
@@ -518,6 +706,25 @@ def test_write_research_question_artifacts_writes_top_confusion_pairs_without_sk
     assert confusion_rows[0]["shared_type"] == "yes"
 
 
+def test_top_confusion_pairs_labeled_falls_back_to_samples_display_lookup() -> None:
+    rows = rtq._top_confusion_pairs_labeled(  # pylint: disable=protected-access
+        model_results={
+            "random_forest": {
+                "evaluation": {
+                    "confusion_matrix": [[0, 2], [1, 0]],
+                    "class_labels": ["17", "44"],
+                }
+            }
+        },
+        model_key="random_forest",
+        top_n=2,
+        type_lookup={"Godfather": "banker", "Irata": "banker"},
+        label_map={"17": "Godfather", "44": "Irata"},
+    )
+    assert rows[0]["true_label"] == "Godfather"
+    assert rows[0]["predicted_label"] == "Irata"
+
+
 def test_print_research_questions_terminal_labels_vendor_merge_coverage_honestly() -> None:
     """Run summary should not describe 100% vendor-merge coverage as sparse."""
     captured: list[str] = []
@@ -525,6 +732,18 @@ def test_print_research_questions_terminal_labels_vendor_merge_coverage_honestly
     class _DummyDisplay:
         @staticmethod
         def print_section(_title: str) -> None:
+            return None
+
+        @staticmethod
+        def print_table(*_args, **_kwargs) -> None:
+            return None
+
+        @staticmethod
+        def print_table(*_args, **_kwargs) -> None:
+            return None
+
+        @staticmethod
+        def print_table(*_args, **_kwargs) -> None:
             return None
 
         @staticmethod
@@ -760,6 +979,10 @@ def test_terminal_summary_surfaces_dominant_blockers_for_weak_run(monkeypatch) -
         def print_section(_title: str) -> None:
             return None
 
+        @staticmethod
+        def print_table(*_args, **_kwargs) -> None:
+            return None
+
     monkeypatch.setattr(
         rtq.app_config,
         "RUNTIME_TEMPORAL_SPLIT_SUMMARY",
@@ -817,3 +1040,96 @@ def test_terminal_summary_surfaces_dominant_blockers_for_weak_run(monkeypatch) -
     assert "temporal holdout dropped 219 future-only family row(s)" in text
     assert "weighted F1 exceeds Macro-F1 by +0.1662" in text
     assert "cross-type confusions appear in 1/2 top confusion pairs" in text
+
+
+def test_print_research_questions_terminal_formats_failure_structure_compact_and_decodes_unresolved_ids() -> None:
+    captured: list[str] = []
+    captured_tables: list[pd.DataFrame] = []
+
+    class _DummyDisplay:
+        @staticmethod
+        def print_section(_title: str) -> None:
+            return None
+
+        @staticmethod
+        def print_table(df, **_kwargs) -> None:  # type: ignore[no-untyped-def]
+            captured_tables.append(df.copy())
+
+    rtq.print_research_questions_terminal(
+        {
+            "q1": {
+                "governed_samples": 100,
+                "aligned_supervised_samples": 100,
+                "trainable_after_support_filter": 98,
+                "families_represented": 10,
+                "malware_types_represented": 3,
+                "concentration": {},
+                "supervised_family_claims_suitable": True,
+            },
+            "q2": {
+                "permission_signal_n": 90,
+                "permission_signal_pct": 90.0,
+                "permission_raw_observation_n": 90,
+                "permission_raw_observation_pct": 90.0,
+                "permission_feature_columns": 10,
+                "vendor_merge_n": 100,
+                "vendor_merge_pct": 100.0,
+                "av_engines_observed": 5,
+                "av_engines_included": 3,
+            },
+            "classification_df": pd.DataFrame(
+                [
+                    {"family": "22", "support": 5, "recall": 0.4, "precision": 0.667},
+                    {"family": "TgToxic", "support": 13, "recall": 0.231, "precision": 0.75},
+                    {"family": "10", "support": 2, "recall": 0.5, "precision": 0.25},
+                ]
+            ),
+            "confusion_rows": [
+                {"true_label": "22", "predicted_label": "Cerberus", "count": 3, "shared_malware_type": "yes"},
+                {"true_label": "BankBot", "predicted_label": "24", "count": 2, "shared_malware_type": "yes"},
+            ],
+            "skeptic_audits": {
+                "scope": {
+                    "trainable_family_classification_task": {
+                        "samples_dropped_before_training": 2,
+                        "families_dropped_before_training_est": 2,
+                    }
+                },
+                "split_contamination": {
+                    "sha_overlap_train_test": 0,
+                    "package_names_in_both_splits": 7,
+                    "family_package_pairs_in_both": 3,
+                },
+                "smote": {
+                    "smote_snapshot": {
+                        "original_train_n": 700,
+                        "post_resample_train_n": 1100,
+                        "method": "SMOTE",
+                    }
+                },
+                "leakage_comparison": {"note": "headline exceeds leakage-safe fused baseline by 0.08 Macro-F1."},
+            },
+            "type_easier": "Type-level Macro-F1 is markedly higher than family_id — family attribution remains harder.",
+            "model_key": "random_forest",
+            "macro_f1": 0.8688,
+            "balanced_accuracy": 0.81,
+            "wf1": 0.9280,
+            "acc": 0.9317,
+            "gap_w_m": 0.0592,
+            "concentration_warn": True,
+        },
+        pr=captured.append,
+        du=_DummyDisplay(),
+    )
+
+    text = "\n".join(captured)
+    assert "[MODEL] Best headline model: random_forest" in text
+    assert "[FAILURE] Class concentration warning: dominant families outperform tail families." in text
+    assert "family_id=22 (unresolved label)" in captured_tables[0]["family"].tolist()
+    assert "family_id=10 (unresolved label)" in captured_tables[0]["family"].tolist()
+    assert list(captured_tables[1].columns) == ["true_family", "pred_family", "n", "same_type"]
+    assert "[EXPORT] model_and_family_failure_summary.md, top_confusion_pairs.csv, family_vs_type_performance.csv" in text
+    assert "[SKEPTIC] Main skepticism checks:" in text
+    assert "Support filter narrowed the supervised task before training" in text
+    assert "Split audit: sha_overlap=0, package_overlap=7, family_package_overlap=3." in text
+    assert "SMOTE audit: original_train_n=700, post_resample_train_n=1100, method=SMOTE." in text

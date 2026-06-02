@@ -11,6 +11,11 @@ from imblearn.ensemble import BalancedRandomForestClassifier
 from sklearn.metrics import classification_report
 
 from config import app_config
+from obsidiandroid.modeling.training_console_policy import (
+    should_print_detailed_classification_report,
+    should_print_training_label_summary,
+)
+from obsidiandroid.modeling.parallel_layout import resolve_adaptive_job_count
 
 
 def train_balanced_random_forest(
@@ -32,7 +37,7 @@ def train_balanced_random_forest(
         "min_samples_leaf": getattr(app_config, "BRF_MIN_SAMPLES_LEAF", 1),
         "oob_score": getattr(app_config, "BRF_ENABLE_OOB_SCORE", False),
         "random_state": random_state,
-        "n_jobs": -1,
+        "n_jobs": resolve_adaptive_job_count(-1, kind="training"),
     }
     model_params = {**params, **kwargs}
 
@@ -104,13 +109,16 @@ def train_balanced_random_forest(
         )
 
         if verbose:
-            print("[BRF] Classification Report:")
-            print(classification_report(y_test, y_pred, zero_division=0))
+            if should_print_detailed_classification_report():
+                print("[BRF] Classification Report:")
+                print(classification_report(y_test, y_pred, zero_division=0))
 
     return model, result
 
 
 def _print_training_summary(model, y_train):
+    if not should_print_training_label_summary():
+        return
     label_dist = Counter(int(x) for x in y_train)
     top = [(cls, cnt) for cls, cnt in label_dist.most_common(5)]
     print(f"[BRF] Classes trained on: {len(label_dist)}")
@@ -127,7 +135,7 @@ def get_default_brf_params():
         "min_samples_leaf": getattr(app_config, "BRF_MIN_SAMPLES_LEAF", 1),
         "oob_score": getattr(app_config, "BRF_ENABLE_OOB_SCORE", False),
         "random_state": app_config.RANDOM_STATE,
-        "n_jobs": -1,
+        "n_jobs": resolve_adaptive_job_count(-1, kind="training"),
     }
 
 

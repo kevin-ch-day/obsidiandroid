@@ -52,6 +52,9 @@ def write_headline_vs_ablation_contract_reports(
         f"| ablation_summary_source | `{payload.get('ablation_summary_source') or '—'}` |",
         f"| split_hash | `{payload.get('split_hash') or '—'}` |",
         f"| label_target | `{payload.get('label_target') or '—'}` |",
+        f"| headline_permission_feature_count | `{payload.get('headline_permission_feature_count') or 0}` |",
+        f"| headline_vendor_semantic_feature_count | `{payload.get('headline_vendor_semantic_feature_count') or 0}` |",
+        f"| headline_extra_non_vendor_permission_feature_count | `{payload.get('headline_extra_non_vendor_permission_feature_count') or 0}` |",
         f"| apples_to_apples | **{apples_txt}** |",
         "",
         "## Interpretation",
@@ -59,6 +62,7 @@ def write_headline_vs_ablation_contract_reports(
         "- Headline leaderboard metrics use the **headline** training matrix (hash above).",
         "- Ablation row **`full_fused`** / **`family_canonical_default`** uses the **ablation harness** matrix.",
         "- Macro-F1 / accuracy between those two are comparable only when feature hashes match.",
+        "- If the headline contract reports extra non-vendor/non-permission columns, the mismatch is structural rather than incidental.",
         "",
     ]
     if apples is False:

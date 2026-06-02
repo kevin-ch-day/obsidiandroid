@@ -201,11 +201,26 @@ def export_analysis_snapshot(
     fam_df = work_df[["sample_id", "family_id"]].drop_duplicates("sample_id").copy()
     snapshot_df = snapshot_df.merge(fam_df, on="sample_id", how="left")
 
+    family_name_df = work_df[["sample_id", "family_name"]].drop_duplicates("sample_id").copy()
+    snapshot_df = snapshot_df.merge(family_name_df, on="sample_id", how="left")
+
     canonical_df = work_df[["sample_id", "family_canonical"]].drop_duplicates("sample_id").copy()
     snapshot_df = snapshot_df.merge(canonical_df, on="sample_id", how="left")
 
     type_df = work_df[["sample_id", "type_slug"]].drop_duplicates("sample_id").copy()
     snapshot_df = snapshot_df.merge(type_df, on="sample_id", how="left")
+    raw_taxonomy_df = work_df[
+        [
+            "sample_id",
+            "category_primary",
+            "category_subtype",
+            "sample_label_kind",
+            "family_label_raw",
+            "vt_family_token",
+            "source_batch_label",
+        ]
+    ].drop_duplicates("sample_id").copy()
+    snapshot_df = snapshot_df.merge(raw_taxonomy_df, on="sample_id", how="left")
     temporal_df = work_df[
         [
             "sample_id",
@@ -271,10 +286,16 @@ def export_analysis_snapshot(
         global_latest_name="analysis_snapshot.latest.meta.txt",
     )
 
-    du.print_info(f"[SNAPSHOT] Analysis snapshot exported: {snapshot_file}")
-    du.print_info(f"[SNAPSHOT] Analysis snapshot metadata: {meta_file}")
+    du.print_info(
+        f"[SNAPSHOT] Analysis snapshot exported:{du.format_console_path(snapshot_file)}"
+    )
+    du.print_info(
+        f"[SNAPSHOT] Analysis snapshot metadata:{du.format_console_path(meta_file)}"
+    )
     if conflict_file and os.path.exists(conflict_file):
-        du.print_info(f"[SNAPSHOT] Label conflict quarantine: {conflict_file}")
+        du.print_info(
+            f"[SNAPSHOT] Label conflict quarantine:{du.format_console_path(conflict_file)}"
+        )
 
 
 def apply_cohort_lock(samples_df: pd.DataFrame, lock_file: str) -> pd.DataFrame:
@@ -373,12 +394,30 @@ def _normalize_snapshot_fields(df: pd.DataFrame) -> pd.DataFrame:
         normalized["family_canonical"].fillna("").astype(str).str.strip()
     )
 
+    if "family_name" not in normalized.columns:
+        normalized["family_name"] = ""
+    normalized["family_name"] = normalized["family_name"].fillna("").astype(str).str.strip()
+
     if "type_slug" not in normalized.columns:
         normalized["type_slug"] = "unknown"
     normalized["type_slug"] = (
         normalized["type_slug"].fillna("").astype(str).str.strip().str.lower()
     )
     normalized.loc[normalized["type_slug"] == "", "type_slug"] = "unknown"
+
+    for column in (
+        "category_primary",
+        "category_subtype",
+        "sample_label_kind",
+        "family_label_raw",
+        "vt_family_token",
+        "source_batch_label",
+    ):
+        if column not in normalized.columns:
+            normalized[column] = ""
+        normalized[column] = normalized[column].fillna("").astype(str).str.strip()
+        if column != "source_batch_label":
+            normalized[column] = normalized[column].str.lower()
 
     if "vt_first_seen_itw_date" not in normalized.columns:
         normalized["vt_first_seen_itw_date"] = pd.NaT
@@ -452,6 +491,12 @@ def _compute_snapshot_feature_hash(row: pd.Series) -> str:
         str(family_id),
         str(row.get("family_canonical", "")).strip().lower(),
         str(row.get("type_slug", "")).strip().lower(),
+        str(row.get("category_primary", "")).strip().lower(),
+        str(row.get("category_subtype", "")).strip().lower(),
+        str(row.get("sample_label_kind", "")).strip().lower(),
+        str(row.get("family_label_raw", "")).strip().lower(),
+        str(row.get("vt_family_token", "")).strip().lower(),
+        str(row.get("source_batch_label", "")).strip(),
         str(row.get("effective_first_seen_at_utc", "")),
     ]
     encoded = "|".join(tokens).encode("utf-8")

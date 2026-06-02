@@ -86,7 +86,7 @@ def run_evidence_bundle_series_aggregator(*, read_json_object: Callable[[Path], 
     out_path = output_root / "diagnostics" / "macro_f1_comparison.csv"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_path, index=False)
-    du.print_success(f"[MENU] Strict reproducibility series comparison exported: {out_path}")
+    print(f"[DIAGNOSTICS] Strict reproducibility series comparison:{du.format_console_path(out_path)}")
     du.print_table(df, title="Strict Reproducibility Macro-F1 Comparison", show_index=False)
     return 0
 
@@ -112,7 +112,7 @@ def run_research_validity_review_menu(
     except Exception as exc:
         du.print_error(f"[MENU] Research validity review failed: {exc}")
         return 1
-    du.print_success(f"[MENU] Research validity review written to {md_path}")
+    print(f"[DIAGNOSTICS] Research validity review:{du.format_console_path(md_path)}")
     return 0
 
 
@@ -134,8 +134,8 @@ def launch_compare_runs_menu(
             run_ids=run_ids,
             print_fn=lambda line: print(line) if line else None,
         )
-        du.print_info(
-            "[MENU] Compare methodology too: cohort lock status, cohort membership mode, and rescued "
+        print(
+            "[ACTION] Compare methodology too: cohort lock status, cohort membership mode, and rescued "
             "missing-consensus malware rows can make runs non-equivalent even when headline metrics look similar."
         )
         return 0
@@ -184,7 +184,7 @@ def launch_compare_runs_menu(
                 continue
             if not query and latest_profile:
                 query = latest_profile
-                du.print_info(f"[MENU] Using latest run profile_id: {query}")
+                print(f"[PROFILE] Using latest run profile_id: {query}")
             elif not query:
                 du.print_warning("[MENU] No profile substring — enter text or rely on a latest run with profile_id.")
                 continue
@@ -202,8 +202,11 @@ def launch_compare_runs_menu(
             snap_path = output_root / "diagnostics" / "experiment_contract_snapshot.latest.json"
             payload = read_json_object(snap_path)
             if not payload:
-                du.print_info(f"[MENU] No experiment contract snapshot at {snap_path} (normal for many dev runs).")
-                du.print_info("[MENU] Falling back to latest-two-run comparison.")
+                print(
+                    f"[DIAGNOSTICS] No experiment contract snapshot:{du.format_console_path(snap_path)} "
+                    "(normal for many dev runs)."
+                )
+                print("[ACTION] Falling back to latest-two-run comparison.")
                 _compare_runs_write_summary(repro_workbench.list_run_ids_newest_first(limit=2))
                 continue
             series = payload.get("experiment_series") if isinstance(payload.get("experiment_series"), dict) else {}
@@ -254,7 +257,7 @@ def run_evidence_readiness_menu_action(
     du.print_stat("Publication exports (latest)", "Yes" if exports else "No")
     du.print_stat("Locked evidence run", locked or "(none)")
     print("")
-    du.print_info("[MENU] Strict bundle checks: Reproducibility › Evidence Readiness › Cohort Lock Checker.")
+    print("[DIAGNOSTICS] Strict bundle checks: Reproducibility › Evidence Readiness › Cohort Lock Checker")
     return 0
 
 
@@ -310,7 +313,7 @@ def launch_reproducibility_menu(
             or shared.get("locked_run_id", "")
             or ""
         ).strip()
-        du.print_info(f"[MENU] Locked evidence run: {locked_run_id if locked_run_id else '(none)'}")
+        print(f"[RUN] Locked evidence run: {locked_run_id if locked_run_id else '(none)'}")
         _print_availability_block(
             rows=[
                 ("Locked Evidence Run", locked_run_id if locked_run_id else "No"),
@@ -360,7 +363,7 @@ def show_research_report_key_artifact_paths(*, read_latest_run_id: Callable[[], 
     output_root = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
     rid = read_latest_run_id()
     if not rid:
-        du.print_warning("[MENU] No latest run.")
+        du.print_warning("[RUN] No latest run.")
         return
     rdiag = output_root / "runs" / rid / "diagnostics"
 
@@ -370,7 +373,7 @@ def show_research_report_key_artifact_paths(*, read_latest_run_id: Callable[[], 
         ("Operator dashboard pointers", "operator_dashboard_snapshot.md"),
     ):
         p = rdiag / name
-        du.print_stat(label, str(p.resolve()) if p.is_file() else "missing")
+        du.print_stat(label, du.format_console_path(p) if p.is_file() else "missing")
 
     du.print_subheader("Three-question summaries (Q1–Q3)")
     for label, name in (
@@ -379,7 +382,7 @@ def show_research_report_key_artifact_paths(*, read_latest_run_id: Callable[[], 
         ("Q3 Model / family failure", "model_and_family_failure_summary.md"),
     ):
         p = rdiag / name
-        du.print_stat(label, str(p.resolve()) if p.is_file() else "missing")
+        du.print_stat(label, du.format_console_path(p) if p.is_file() else "missing")
 
     du.print_subheader("Research validity & skeptic audits")
     for label, fname in (
@@ -391,9 +394,9 @@ def show_research_report_key_artifact_paths(*, read_latest_run_id: Callable[[], 
         ("Split contamination audit", "split_contamination_audit.md"),
     ):
         p = rdiag / fname
-        du.print_stat(label, str(p.resolve()) if p.is_file() else "missing")
+        du.print_stat(label, du.format_console_path(p) if p.is_file() else "missing")
 
-    du.print_info("[MENU] Prefer `diagnostics/index.md` under this run for the full artifact map.")
+    print("[DIAGNOSTICS] Full artifact map: diagnostics/index.md under this run")
     print("")
 
 

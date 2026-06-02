@@ -51,21 +51,22 @@ def runs_root() -> Path:
     return output_root() / str(getattr(app_config, "OUTPUT_RUNS_SUBDIR", "runs"))
 
 
+def run_archives_root() -> Path:
+    """Return output root for archived run instances kept outside active slots."""
+    return runs_root() / "_archived"
+
+
 def resolve_runtime_run_directory(run_id: str) -> Path:
     """Return the directory that holds run-scoped artifacts (e.g. ``conf_matrices/``).
 
-    Prefers :attr:`RUNTIME_RUN_ROOT` when its final segment matches ``run_id``
-    (including evidence mode where ``DEFAULT_OUTPUT_DIR`` points at the run folder).
-    Otherwise uses ``output_root() / runs / run_id`` (standard layout).
+    Prefers :attr:`RUNTIME_RUN_ROOT` when available. Otherwise uses
+    ``output_root() / runs / run_id`` for legacy compatibility lookups.
     """
-    rid = str(run_id).strip()
     runtime_root_raw = getattr(app_config, "RUNTIME_RUN_ROOT", None)
     if runtime_root_raw:
-        path = Path(str(runtime_root_raw)).expanduser().resolve()
-        if path.name == rid:
-            return path
+        return Path(str(runtime_root_raw)).expanduser().resolve()
     runs_sub = str(getattr(app_config, "OUTPUT_RUNS_SUBDIR", "runs"))
-    return output_root() / runs_sub / rid
+    return output_root() / runs_sub / str(run_id).strip()
 
 
 def bundles_root() -> Path:
@@ -103,6 +104,7 @@ def ensure_output_layout() -> dict[str, Path]:
     roots = {
         "output_root": output_root(),
         "runs_root": runs_root(),
+        "run_archives_root": run_archives_root(),
         "bundles_root": bundles_root(),
         "reports_root": reports_root(),
         "diagnostics_root": diagnostics_root(),

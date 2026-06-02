@@ -13,6 +13,11 @@ from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
+from obsidiandroid.governance.support_floor_policy import (
+    resolve_benchmark_min_samples_per_family,
+    resolve_diagnostic_min_samples_per_family,
+    resolve_support_floor_mode,
+)
 
 RUNTIME_OVERRIDE_KEYS = (
     "ENABLE_CROSS_VALIDATION",
@@ -112,13 +117,26 @@ def build_mutable_config_keys() -> set[str]:
         "RUNTIME_VENDOR_FALLBACK_USED",
         "RUNTIME_VENDOR_FALLBACK_ADDED_COUNT",
         "RUNTIME_MIN_FAMILY_SUPPORT",
+        "RUNTIME_SUPPORT_FLOOR_MODE",
+        "RUNTIME_BENCHMARK_MIN_FAMILY_SUPPORT",
+        "RUNTIME_BENCHMARK_SUPPORT_APPLIED",
+        "RUNTIME_BENCHMARK_SUPPORT_EXCLUDED_SAMPLE_COUNT",
+        "RUNTIME_BENCHMARK_SUPPORT_EXCLUDED_FAMILY_COUNT",
+        "RUNTIME_BENCHMARK_SUPPORT_EXCLUDED_FAMILY_DETAIL",
+        "RUNTIME_CLASS_IMBALANCE_NOTICE_EMITTED",
+        "RUNTIME_SPLIT_CACHE_NOTICE_EMITTED",
+        "RUNTIME_SPLIT_SIZE_NOTICE_EMITTED",
         "RUNTIME_K_REQUESTED",
         "RUNTIME_EFFECTIVE_TOP_K",
         "RUNTIME_INCLUDED_ENGINE_COUNT",
+        "RUNTIME_ENGINE_COUNT_OBSERVED",
+        "RUNTIME_ENGINE_COUNT_CANONICAL",
+        "RUNTIME_ENGINE_COUNT_NEAR_MISS",
         "RUNTIME_EVIDENCE_OVERRIDE_USED",
         "RUNTIME_NON_STANDARD_FEATURES",
         "RUNTIME_PERMISSION_ENRICHMENT_DEGRADED",
         "RUNTIME_EXCLUDE_UNKNOWN_FROM_MAIN_RESULTS",
+        "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD",
         "RUNTIME_ALLOW_GLOBAL_ARTIFACTS",
         "RUNTIME_OUTPUT_ROOT_BASE",
         "OUTPUT_HYGIENE_MODE",
@@ -154,10 +172,14 @@ def reset_runtime_markers() -> None:
     setattr(app_config, "RUNTIME_K_REQUESTED", 0)
     setattr(app_config, "RUNTIME_EFFECTIVE_TOP_K", 0)
     setattr(app_config, "RUNTIME_INCLUDED_ENGINE_COUNT", 0)
+    setattr(app_config, "RUNTIME_ENGINE_COUNT_OBSERVED", 0)
+    setattr(app_config, "RUNTIME_ENGINE_COUNT_CANONICAL", 0)
+    setattr(app_config, "RUNTIME_ENGINE_COUNT_NEAR_MISS", 0)
     setattr(app_config, "RUNTIME_EVIDENCE_OVERRIDE_USED", False)
     setattr(app_config, "RUNTIME_NON_STANDARD_FEATURES", False)
     setattr(app_config, "RUNTIME_PERMISSION_ENRICHMENT_DEGRADED", False)
     setattr(app_config, "RUNTIME_EXCLUDE_UNKNOWN_FROM_MAIN_RESULTS", False)
+    setattr(app_config, "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD", "")
     setattr(app_config, "RUNTIME_ALLOW_GLOBAL_ARTIFACTS", False)
     setattr(app_config, "RUNTIME_EVIDENCE_MODE", False)
     setattr(app_config, "ENABLE_SNAPSHOT_LOCK", bool(getattr(app_config, "ENABLE_COHORT_LOCK", False)))
@@ -171,6 +193,15 @@ def reset_runtime_markers() -> None:
         "RUNTIME_MIN_FAMILY_SUPPORT",
         safe_int_config_value(getattr(app_config, "MIN_FAMILY_SUPPORT", 3), default=3),
     )
+    setattr(app_config, "RUNTIME_SUPPORT_FLOOR_MODE", "membership_gate")
+    setattr(app_config, "RUNTIME_BENCHMARK_MIN_FAMILY_SUPPORT", None)
+    setattr(app_config, "RUNTIME_BENCHMARK_SUPPORT_APPLIED", False)
+    setattr(app_config, "RUNTIME_BENCHMARK_SUPPORT_EXCLUDED_SAMPLE_COUNT", 0)
+    setattr(app_config, "RUNTIME_BENCHMARK_SUPPORT_EXCLUDED_FAMILY_COUNT", 0)
+    setattr(app_config, "RUNTIME_BENCHMARK_SUPPORT_EXCLUDED_FAMILY_DETAIL", [])
+    setattr(app_config, "RUNTIME_CLASS_IMBALANCE_NOTICE_EMITTED", False)
+    setattr(app_config, "RUNTIME_SPLIT_CACHE_NOTICE_EMITTED", False)
+    setattr(app_config, "RUNTIME_SPLIT_SIZE_NOTICE_EMITTED", False)
 
 
 def enforce_paper_perturbation_axes(profile: dict[str, Any], paper_mode: bool) -> None:
@@ -259,6 +290,23 @@ def apply_profile_runtime_policy(
     setattr(app_config, "RUNTIME_IS_DEV_PROFILE", bool(is_dev_profile))
     setattr(app_config, "RUNTIME_EVIDENCE_MODE", bool(evidence_mode))
     setattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", bool(strict_evidence_mode))
+    setattr(
+        app_config,
+        "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD",
+        str(profile.get("training_label_field", "") or "").strip() or "family_id",
+    )
+    gates = profile.get("cohort_gates", {}) if isinstance(profile.get("cohort_gates"), dict) else {}
+    setattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", resolve_diagnostic_min_samples_per_family(gates))
+    setattr(app_config, "RUNTIME_SUPPORT_FLOOR_MODE", resolve_support_floor_mode(gates))
+    setattr(
+        app_config,
+        "RUNTIME_BENCHMARK_MIN_FAMILY_SUPPORT",
+        resolve_benchmark_min_samples_per_family(gates),
+    )
+    setattr(app_config, "RUNTIME_BENCHMARK_SUPPORT_APPLIED", False)
+    setattr(app_config, "RUNTIME_BENCHMARK_SUPPORT_EXCLUDED_SAMPLE_COUNT", 0)
+    setattr(app_config, "RUNTIME_BENCHMARK_SUPPORT_EXCLUDED_FAMILY_COUNT", 0)
+    setattr(app_config, "RUNTIME_BENCHMARK_SUPPORT_EXCLUDED_FAMILY_DETAIL", [])
     setattr(app_config, "RUNTIME_K_REQUESTED", int(requested_top_k))
     if is_dev_profile:
         du.print_warning(
@@ -340,10 +388,7 @@ def apply_profile_runtime_policy(
             if ml_console.is_debug():
                 du.print_info(f"[PROFILE] Runtime override applied: {key}={value}")
         if applied_overrides and not ml_console.is_debug():
-            du.print_info(
-                f"[PROFILE] Applied {len(applied_overrides)} runtime override(s). "
-                "Set ML_CONSOLE_MODE=debug for per-key detail."
-            )
+            du.print_info(f"[PROFILE] Applied {len(applied_overrides)} runtime override(s).")
 
     parser_overrides = profile.get("parser_overrides", {}) if isinstance(profile, dict) else {}
     if isinstance(parser_overrides, dict):
@@ -363,10 +408,7 @@ def apply_profile_runtime_policy(
             if ml_console.is_debug():
                 du.print_info(f"[PROFILE] Parser override applied: {key}={value}")
         if applied_parser_overrides and not ml_console.is_debug():
-            du.print_info(
-                f"[PROFILE] Applied {len(applied_parser_overrides)} parser override(s). "
-                "Set ML_CONSOLE_MODE=debug for per-key detail."
-            )
+            du.print_info(f"[PROFILE] Applied {len(applied_parser_overrides)} parser override(s).")
 
     if isinstance(profile, dict) and "ablation_model_list" in profile:
         raw_abl = profile.get("ablation_model_list")

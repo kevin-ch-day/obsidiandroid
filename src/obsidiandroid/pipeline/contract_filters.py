@@ -8,6 +8,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.diagnostics import family_label_confidence_audit
+from obsidiandroid.governance.support_floor_policy import resolve_diagnostic_min_samples_per_family
 from obsidiandroid.orchestration.profile_filters import malicious_signal_or_taxonomy_mask
 
 
@@ -85,8 +86,23 @@ def apply_contract_filters(
     if include_families and "family_canonical" in out.columns:
         before = len(out)
         fam = out["family_canonical"].fillna("").astype(str).str.strip().str.lower()
-        out = out[fam.isin(set(include_families))].copy()
-        _record("include_families", before, len(out), f"{len(include_families)} family filters")
+        sql_included = tuple(samples_df.attrs.get("sql_include_families_applied", ()))
+        requested = tuple(include_families)
+        if sql_included == requested:
+            residual = int((~fam.isin(set(include_families))).sum())
+            if residual > 0:
+                out = out[fam.isin(set(include_families))].copy()
+                _record(
+                    "include_families_assertion",
+                    before,
+                    len(out),
+                    f"sql filter mismatch fallback removed={residual}",
+                )
+            else:
+                _record("include_families", before, len(out), "already_applied_in_sql")
+        else:
+            out = out[fam.isin(set(include_families))].copy()
+            _record("include_families", before, len(out), f"{len(include_families)} family filters")
 
     exclude_families = gates.get("exclude_families", []) or []
     exclude_families = [str(f).strip().lower() for f in exclude_families if str(f).strip()]
@@ -200,7 +216,7 @@ def apply_contract_filters(
         before = len(out)
         payload = family_label_confidence_audit.build_family_label_confidence_payload(
             out,
-            min_support=int(gates.get("min_samples_per_family", 3) or 3),
+            min_support=resolve_diagnostic_min_samples_per_family(gates),
             top_n=max(len(out), 1),
         )
         sample_rows = payload.get("sample_rows", []) if isinstance(payload, dict) else []

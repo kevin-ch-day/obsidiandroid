@@ -341,10 +341,10 @@ def test_compact_review_summary_builds_ranked_backlog_debt_ledger(
     summary = startup_menu_review.build_review_latest_run_summary(output_root=out_root, latest_run_id=run_id)
 
     debt = summary["backlog_debt_summary"]
-    assert debt["focus_code"] == "missing_primary_labels"
-    assert debt["focus_label"] == "Missing primary labels"
-    assert debt["focus_count"] == 153
-    assert debt["focus_detail"] == "Active/actionable Android + PI missing-primary debt; raw_missing=153; actionable=4; suppressed=0; active_residual=149."
+    assert debt["focus_code"] == "android_missing_resolution"
+    assert debt["focus_label"] == "Android missing-resolution backlog"
+    assert debt["focus_count"] == 3
+    assert debt["focus_detail"] == "freshness=current; top_lane=blank_package_review"
     assert debt["missing_primary_label_lanes"][:2] == [
         {"lane": "public_package_identity_provenance_review", "sample_count": 70},
         {"lane": "unknown_family_low_consensus_review", "sample_count": 40},
@@ -356,8 +356,8 @@ def test_compact_review_summary_builds_ranked_backlog_debt_ledger(
     assert posture["dominant_issue"] == "type_mismatch"
     assert "high-priority conflicts=9/12" in str(posture["note"])
     rows = debt["rows"]
-    assert rows[0]["code"] == "missing_primary_labels"
-    assert rows[0]["label"] == "Missing primary labels"
+    assert rows[0]["code"] == "android_missing_resolution"
+    assert rows[0]["label"] == "Android missing-resolution backlog"
     assert rows[1]["code"] == "true_unresolved_family"
     assert rows[1]["label"] == "True unresolved family debt"
     assert any(row["code"] == "android_missing_resolution" and row["count"] == 3 for row in rows)
@@ -404,7 +404,7 @@ def test_compact_review_summary_marks_live_backlog_when_run_snapshot_differs(
 
     debt = summary["backlog_debt_summary"]
     assert debt["focus_count"] == 93
-    assert debt["source_note"] == "live DB now (reviewing an older run may differ)"
+    assert debt["source_note"] == "live DB current-state view, not frozen run snapshot"
     assert debt["snapshot_compare_note"] == (
         "missing primary labels were 153 at run time; live DB now shows 93"
     )
@@ -496,7 +496,7 @@ def test_compact_review_screen_prints_policy_held_token_risk(
     assert "Triage rows" in out
     assert "class_label_not_family=47" in out
     assert "behavior_class_token=47" in out
-    assert "hold-policy review, not safe family-authority promotion" in out
+    assert "Token classes:" in out
 
 
 def test_compact_review_screen_surfaces_policy_held_focus_detail(
@@ -516,6 +516,7 @@ def test_compact_review_screen_surfaces_policy_held_focus_detail(
             "warnings": [],
             "buckets": {},
             "taxonomy_signals": {
+                "unresolved_family_count": 0,
                 "policy_held_family_samples": 129,
                 "policy_held_family_token_kind_counts": {
                     "behavior_class_token": 45,
@@ -556,9 +557,86 @@ def test_compact_review_screen_surfaces_policy_held_focus_detail(
     startup_menu_review.print_compact_review_latest_run(output_root=out_root, latest_run_id=run_id)
     out = capsys.readouterr().out
 
-    assert "Focus area: Policy-held family noise (129 row(s))" in out
-    assert "top_lane=class_label_not_family (45); top_token_kind=behavior_class_token (45); top_token=banker (31); top_package=com.example.banker (12); high_or_strong=27; top_high_token=banker (10); top_high_package=com.example.banker (6); freshness=current." in out
-    assert "Open the policy-held token risk export and review the dominant high/strong hold lane plus token/package cluster" in out
+    assert "Debt status: No true unresolved family debt in this slice" in out
+    assert "Primary residue: Policy-held family noise" in out
+    assert "Rows: 129" in out
+    assert "Source: live DB current-state view, not frozen run snapshot" in out
+    assert "Freshness: current" in out
+    assert "Residue breakdown" in out
+    assert "behavior_class_token: 45" in out
+    assert "generic_family_token: 39" in out
+    assert "campaign_actor_token: 19" in out
+    assert "placeholder_token: 16" in out
+    assert "Dominant cluster" in out
+    assert "Top hold lane: class_label_not_family (45)" in out
+    assert "Top token: banker (31)" in out
+    assert "Top package: com.example.banker (12)" in out
+    assert "High/strong rows: 27" in out
+    assert "Interpretation" in out
+    assert "Policy-held rows are governance residue, not unresolved family authority debt." in out
+    assert "Next action" in out
+    assert "Review policy-held token risk export, focusing on:" in out
+    assert "Diagnostics" in out
+
+
+def test_compact_review_summary_prioritizes_actionable_family_type_conflicts_over_policy_held_residue(
+    monkeypatch,
+    make_run_diagnostics_layout,
+    write_text_file,
+) -> None:
+    run_id = "20260515T141956Z__58d84f"
+    out_root, rdiag, _ = make_run_diagnostics_layout(run_id)
+    _seed_review_run_artifacts(write_text_file, out_root, run_id, rdiag)
+    monkeypatch.setattr(
+        startup_menu_review,
+        "get_cohort_readiness_snapshot",
+        lambda: {
+            "status": "ok",
+            "warnings": [],
+            "buckets": {},
+            "taxonomy_signals": {
+                "unresolved_family_count": 0,
+                "policy_held_family_samples": 129,
+                "policy_held_family_count": 67,
+                "policy_held_family_token_kind_counts": {
+                    "behavior_class_token": 45,
+                    "generic_family_token": 39,
+                },
+                "family_type_conflict_count": 2,
+                "high_priority_conflict_count": 1,
+                "family_type_conflict_action_counts": {"review_db_type_mapping": 2},
+                "family_type_conflict_issue_counts": {"type_mismatch": 2},
+                "top_family_type_conflicts": [
+                    {
+                        "family": "arsinkrat",
+                        "db_type_slug": "rat",
+                        "dominant_label_semantic": "spyware",
+                        "sample_count": 470,
+                        "suggested_action": "review_db_type_mapping",
+                    },
+                    {
+                        "family": "fakecop",
+                        "db_type_slug": "trojan",
+                        "dominant_label_semantic": "spyware",
+                        "sample_count": 19,
+                        "suggested_action": "review_db_type_mapping",
+                    },
+                ],
+                "top_repair_candidates": [],
+            },
+        },
+    )
+    monkeypatch.setattr(startup_menu_review, "read_false_positive_triage_snapshot", lambda **_kwargs: {})
+    monkeypatch.setattr(startup_menu_review, "read_android_missing_resolution_snapshot", lambda **_kwargs: {})
+    monkeypatch.setattr(startup_menu_review, "read_policy_held_token_risk_snapshot", lambda **_kwargs: {})
+
+    summary = startup_menu_review.build_review_latest_run_summary(output_root=out_root, latest_run_id=run_id)
+
+    debt = summary["backlog_debt_summary"]
+    assert debt["focus_code"] == "family_type_conflict"
+    assert debt["focus_label"] == "Family/type conflict backlog"
+    assert "arsinkrat(rat->spyware, n=470, action=review_db_type_mapping)" in debt["focus_detail"]
+    assert "fakecop(trojan->spyware, n=19, action=review_db_type_mapping)" in debt["focus_detail"]
 
 
 def test_compact_review_screen_prints_live_backlog_source_and_run_snapshot_delta(
@@ -599,7 +677,7 @@ def test_compact_review_screen_prints_live_backlog_source_and_run_snapshot_delta
     startup_menu_review.print_compact_review_latest_run(output_root=out_root, latest_run_id=run_id)
     out = capsys.readouterr().out
 
-    assert "Source: live DB now (reviewing an older run may differ)" in out
+    assert "Source: live DB current-state view, not frozen run snapshot" in out
     assert "Run snapshot: missing primary labels were 153 at run time; live DB now shows 93" in out
 
 

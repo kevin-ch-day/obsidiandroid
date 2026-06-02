@@ -31,6 +31,38 @@ def test_artifact_path_from_manifest_resolves_relative_path(tmp_path: Path) -> N
     assert resolved == table_path.resolve()
 
 
+def test_artifact_path_from_manifest_uses_exact_id_not_behavior_safe_redirect(tmp_path: Path) -> None:
+    """Warehouse backfill should preserve exact artifact ids by default."""
+    bundle_dir = tmp_path / "permission_trends"
+    tables = bundle_dir / "tables"
+    tables.mkdir(parents=True, exist_ok=True)
+    mixed_path = tables / "permission_signal_prevalence_by_type.latest.csv"
+    safe_path = tables / "permission_signal_prevalence_by_type_behavior_safe.latest.csv"
+    mixed_path.write_text("a,b\n1,2\n", encoding="utf-8")
+    safe_path.write_text("a,b\n1,2\n", encoding="utf-8")
+    manifest = {
+        "artifacts": [
+            {
+                "artifact_id": "permission_signal_prevalence_by_type",
+                "relative_path": "tables/permission_signal_prevalence_by_type.latest.csv",
+                "preferred_behavior_claim_artifact_id": "permission_signal_prevalence_by_type_behavior_safe",
+            },
+            {
+                "artifact_id": "permission_signal_prevalence_by_type_behavior_safe",
+                "relative_path": "tables/permission_signal_prevalence_by_type_behavior_safe.latest.csv",
+                "preferred_behavior_claim_artifact_id": "permission_signal_prevalence_by_type_behavior_safe",
+            },
+        ]
+    }
+
+    resolved = backfill._artifact_path_from_manifest(  # pylint: disable=protected-access
+        bundle_dir,
+        manifest,
+        "permission_signal_prevalence_by_type",
+    )
+    assert resolved == mixed_path.resolve()
+
+
 def test_resolve_top_family_stem_from_manifest_detects_top_value() -> None:
     """Top-family stem resolver should detect top{N} ids from manifest entries."""
     manifest = {

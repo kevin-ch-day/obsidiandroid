@@ -1,7 +1,11 @@
 import os
+from pathlib import Path
 import pandas as pd
 from obsidiandroid.cli.ui.display import clear_console
+from obsidiandroid.cli.ui.display import format_console_path
 from obsidiandroid.cli.ui.display import print_table
+import obsidiandroid.cli.ui.display as du
+from obsidiandroid.cli.ui import console as cc
 
 
 def test_print_table_dataframe(capsys, monkeypatch):
@@ -38,3 +42,41 @@ def test_clear_console(monkeypatch):
     monkeypatch.setattr(os, "system", fake_system)
     clear_console()
     assert called['cmd'] in {"cls", "clear"}
+
+
+def test_console_wraps_long_tagged_messages(monkeypatch):
+    monkeypatch.setattr(cc, "USE_COLORS", False)
+    monkeypatch.setattr(cc, "get_console_width", lambda default=80: 60)
+    text = cc.print_note(
+        "[PROFILE] Live authority/taxonomy backlog: repair candidates=2, known unresolved families=0, policy-held tokens=67. "
+        "New Erebus-side authority fixes may still sit outside this cohort unless the selected profile/snapshot absorbs them.",
+        return_str=True,
+    )
+    assert "\n" in text
+    assert "repair candidates=2" in text
+
+
+def test_console_wraps_long_stat_values(monkeypatch):
+    monkeypatch.setattr(cc, "USE_COLORS", False)
+    monkeypatch.setattr(cc, "get_console_width", lambda default=80: 60)
+    text = cc.print_stat(
+        "Benchmark Eligibility",
+        "authority=1,231 | benchmark@3=1,229 | support-excluded=2 | non-family-target=0",
+        return_str=True,
+    )
+    assert "\n" in text
+    assert "support-excluded=2" in text
+
+
+def test_format_console_path_uses_repo_relative_path_inside_repo(monkeypatch):
+    repo = Path("/tmp/work/obsidiandroid").resolve()
+    target = repo / "output" / "runs" / "rid1" / "diagnostics" / "file.txt"
+    monkeypatch.setattr(du, "repo_root", lambda: repo)
+    assert format_console_path(target) == "obsidiandroid/output/runs/rid1/diagnostics/file.txt"
+
+
+def test_format_console_path_preserves_absolute_path_outside_repo(monkeypatch):
+    repo = Path("/tmp/work/obsidiandroid").resolve()
+    target = Path("/tmp/other/file.txt").resolve()
+    monkeypatch.setattr(du, "repo_root", lambda: repo)
+    assert format_console_path(target) == target.as_posix()

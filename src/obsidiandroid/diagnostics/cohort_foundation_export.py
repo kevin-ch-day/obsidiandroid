@@ -361,7 +361,9 @@ def build_cohort_foundation_payload(
     time_contract: dict[str, Any],
     type_slug: str | None,
     min_samples_per_family_sql: int | None,
-    configured_min_samples_per_family: int,
+    configured_min_samples_per_family: int | None,
+    diagnostic_min_samples_per_family: int,
+    support_floor_mode: str,
 ) -> dict[str, Any]:
     """Assemble JSON-serializable cohort foundation summary."""
     gates = profile.get("cohort_gates", {}) if isinstance(profile, dict) else {}
@@ -377,7 +379,7 @@ def build_cohort_foundation_payload(
     shares = _family_shares(samples_df)
     low_sup = _low_support_families_retained(
         samples_df,
-        min_support_configured=max(1, int(configured_min_samples_per_family)),
+        min_support_configured=max(1, int(diagnostic_min_samples_per_family)),
     )
     upstream_min = gates.get("upstream_expected_min_gate_total")
     env_min = os.environ.get("SCYTALEDROID_COHORT_EXPECTED_MIN_GATE_TOTAL", "").strip()
@@ -423,7 +425,13 @@ def build_cohort_foundation_payload(
             "require_effective_first_seen": time_contract.get("require_effective_first_seen"),
         },
         "type_slug_filter_effective": type_slug,
-        "min_samples_per_family_configured": int(configured_min_samples_per_family),
+        "support_floor_mode": str(support_floor_mode or ""),
+        "min_samples_per_family_configured": (
+            int(configured_min_samples_per_family)
+            if configured_min_samples_per_family not in (None, "")
+            else None
+        ),
+        "diagnostic_min_samples_per_family": int(diagnostic_min_samples_per_family),
         "min_samples_per_family_applied_in_sql": min_samples_per_family_sql is not None,
         "min_samples_per_family_sql_value": min_samples_per_family_sql,
         "exclude_families_deferred_by_snapshot_lock": bool(
@@ -476,7 +484,8 @@ def build_cohort_foundation_payload(
             "Prepared cohort: rows in samples_df after cohort SQL fetch plus in-Python dataset/time contract filters.",
             "gate_stats.total_candidates: SQL head count for the same profile scope (joins + time window + exclusions).",
             "Marginal exclusion buckets in gate_stats can overlap; trust governed_cohort_count_sql and loaded_dataframe.rows.",
-            "min_samples_per_family applies in SQL to both single-type and all-type cohorts when configured.",
+            "min_samples_per_family applies in SQL only when explicitly configured for membership gating.",
+            "Diagnostic support floors (20/10/5/3/1) do not imply sample admission gates.",
             "Catalog semantics fields are additive Erebus diagnostics only; they do not redefine Android cohort membership or type authority inside ObsidianDroid.",
             "Final research totals may change until upstream Erebus ingestion finishes rebuilding.",
         ],
@@ -500,7 +509,9 @@ def export_cohort_foundation_bundle(
     time_contract: dict[str, Any],
     type_slug: str | None,
     min_samples_per_family_sql: int | None,
-    configured_min_samples_per_family: int,
+    configured_min_samples_per_family: int | None,
+    diagnostic_min_samples_per_family: int,
+    support_floor_mode: str,
     artifact_list: list[str] | None = None,
 ) -> list[str]:
     """Write cohort_foundation.{json,md,csv} under diagnostics_dir. Returns written paths."""
@@ -516,6 +527,8 @@ def export_cohort_foundation_bundle(
         type_slug=type_slug,
         min_samples_per_family_sql=min_samples_per_family_sql,
         configured_min_samples_per_family=configured_min_samples_per_family,
+        diagnostic_min_samples_per_family=diagnostic_min_samples_per_family,
+        support_floor_mode=support_floor_mode,
     )
     paths: list[str] = []
 

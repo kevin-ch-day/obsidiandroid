@@ -15,7 +15,7 @@ def prepare_engine_metrics_for_ml(engine_df: pd.DataFrame, verbose: bool = True)
     # Export raw input for debugging
     try:
         engine_df.to_excel(EXPORT_DEBUG_INPUT_PATH, index=False)
-        du.print_info(f"[EXPORT] Raw engine DataFrame saved to: {EXPORT_DEBUG_INPUT_PATH}")
+        du.print_info(f"[EXPORT] Raw engine DataFrame:{du.format_console_path(EXPORT_DEBUG_INPUT_PATH)}")
     except Exception as e:
         du.print_warning(f"[EXPORT] Failed to export raw engine DataFrame: {e}")
 

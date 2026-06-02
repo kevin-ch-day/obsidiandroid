@@ -233,6 +233,46 @@ def _fetch_active_generic_token_facts() -> dict[str, str]:
     return out
 
 
+def _fetch_cross_family_alias_slug_overlaps() -> list[dict[str, Any]]:
+    """Load active accepted alias tokens that collide with a different active family slug."""
+    alias_columns = _primary_table_columns(_ANDROID_FAMILY_TABLE)
+    family_columns = _primary_table_columns("android_malware_family_alias")
+    family_active_clause = "AND f.is_active = 1" if "is_active" in alias_columns else ""
+    alias_active_clause = "AND a.is_active = 1" if "is_active" in family_columns else ""
+    alias_review_clause = "AND a.review_status = 'accepted'" if "review_status" in family_columns else ""
+    query = """
+        SELECT
+            a.alias_name,
+            a.family_id AS alias_family_id,
+            alias_family.family_slug AS alias_family_slug,
+            f.family_id AS slug_family_id,
+            f.family_slug,
+            f.family_name
+        FROM `{db}`.`android_malware_family_alias` AS a
+        JOIN `{db}`.`android_malware_family` AS alias_family
+          ON alias_family.family_id = a.family_id
+        JOIN `{db}`.`android_malware_family` AS f
+          ON LOWER(TRIM(f.family_slug)) = LOWER(TRIM(a.alias_name))
+        WHERE a.alias_name IS NOT NULL
+          AND TRIM(a.alias_name) <> ''
+          {alias_active_clause}
+          {alias_review_clause}
+          {family_active_clause}
+          AND alias_family.family_id <> f.family_id
+        ORDER BY a.alias_name, a.family_id, f.family_id
+    """.format(
+        db=DB_NAME,
+        alias_active_clause=alias_active_clause,
+        alias_review_clause=alias_review_clause,
+        family_active_clause=family_active_clause,
+    )
+    columns, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        out.append(dict(zip(columns, row)))
+    return out
+
+
 def _fetch_missing_primary_label_lane_counts() -> list[dict[str, Any]]:
     """Return lane counts for Android + PI rows that still lack a primary label."""
     if not (
@@ -668,6 +708,14 @@ def _build_family_type_conflict_signals(
     }
     permission_signal_index = _build_permission_signal_index(family_permission_signal_rows or [])
     meaningful_semantics = {"banker", "rat", "dropper", "stealer", "spyware", "sms-trojan", "adware"}
+
+    def _suppress_broad_spyware_type_mismatch(*, db_type_slug: str, dominant_semantic: str, operator_model: str) -> bool:
+        """Return True when broad raw spyware labeling should not override a stronger RAT family signal."""
+        db_type_norm = str(db_type_slug or "").strip().lower()
+        semantic_norm = str(dominant_semantic or "").strip().lower()
+        operator_norm = str(operator_model or "").strip().lower()
+        return semantic_norm == "spyware" and db_type_norm == "rat" and operator_norm == "rat"
+
     backlog: list[dict[str, Any]] = []
     for stats in family_stats.values():
         samples = int(stats["samples"])
@@ -685,6 +733,20 @@ def _build_family_type_conflict_signals(
         db_type_slug = str(stats["db_type_slug"])
         unlabeled_samples = int(stats["unlabeled_samples"])
         known_locally = bool(stats["known_locally"])
+        permission_signals = permission_signal_index.get(str(stats["family"]), {})
+        operator_model = _operator_model_candidate(
+            family=str(stats["family"]),
+            db_type_slug=db_type_slug,
+            dominant_semantic=dominant_semantic,
+            permission_signals=permission_signals,
+        )
+        fraud_posture = _fraud_posture_candidate(
+            family=str(stats["family"]),
+            operator_model=operator_model,
+            dominant_semantic=dominant_semantic,
+            permission_signals=permission_signals,
+        )
+        permission_signal_summary = str(permission_signals.get("summary", "none"))
         issue = ""
         if db_type_slug == "<unmapped>":
             issue = "db_family_missing"
@@ -695,26 +757,16 @@ def _build_family_type_conflict_signals(
             and dominant_semantic != db_type_slug
             and dominant_count >= max(5, int(math.ceil(samples * 0.60)))
         ):
-            issue = "type_mismatch"
+            if not _suppress_broad_spyware_type_mismatch(
+                db_type_slug=db_type_slug,
+                dominant_semantic=dominant_semantic,
+                operator_model=operator_model,
+            ):
+                issue = "type_mismatch"
         elif db_type_slug not in {"<unmapped>", "unknown"} and unlabeled_samples >= max(10, int(math.ceil(samples * 0.70))):
             issue = "label_sparse"
         if not issue:
             continue
-        operator_model = _operator_model_candidate(
-            family=str(stats["family"]),
-            db_type_slug=db_type_slug,
-            dominant_semantic=dominant_semantic,
-            permission_signals=permission_signal_index.get(str(stats["family"]), {}),
-        )
-        fraud_posture = _fraud_posture_candidate(
-            family=str(stats["family"]),
-            operator_model=operator_model,
-            dominant_semantic=dominant_semantic,
-            permission_signals=permission_signal_index.get(str(stats["family"]), {}),
-        )
-        permission_signal_summary = str(
-            permission_signal_index.get(str(stats["family"]), {}).get("summary", "none")
-        )
         priority, suggested_action = _conflict_priority_and_action(
             issue=issue,
             sample_count=samples,
@@ -831,6 +883,8 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
             "top_family_type_conflicts": [],
             "repair_candidate_count": None,
             "top_repair_candidates": [],
+            "alias_family_overlap_count": None,
+            "top_alias_family_overlaps": [],
         },
     }
 
@@ -1144,6 +1198,28 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
                 f"{conflict_signals['family_type_conflict_count']} family-level conflict candidate(s) "
                 "across type mismatch, sparse labels, or missing DB family rows."
             )
+        try:
+            alias_overlaps = _fetch_cross_family_alias_slug_overlaps()
+        except Exception as exc:
+            payload["warnings"].append(f"Alias/family overlap diagnostic unavailable: {exc}")
+        else:
+            payload["taxonomy_signals"]["alias_family_overlap_count"] = len(alias_overlaps)
+            payload["taxonomy_signals"]["top_alias_family_overlaps"] = [
+                {
+                    "alias_name": str(row.get("alias_name", "") or ""),
+                    "alias_family_id": int(row.get("alias_family_id", 0) or 0),
+                    "alias_family_slug": str(row.get("alias_family_slug", "") or ""),
+                    "slug_family_id": int(row.get("slug_family_id", 0) or 0),
+                    "family_slug": str(row.get("family_slug", "") or ""),
+                    "family_name": str(row.get("family_name", "") or ""),
+                }
+                for row in alias_overlaps[:8]
+            ]
+            if alias_overlaps:
+                payload["warnings"].append(
+                    "Alias/family authority overlap includes "
+                    f"{len(alias_overlaps)} accepted alias token(s) that collide with a different active family slug."
+                )
 
     family_counts: dict[str, int] = {}
     for row in android_with_pi_rows:

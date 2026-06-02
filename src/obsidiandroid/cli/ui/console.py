@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import textwrap
 from contextlib import contextmanager
 from typing import Optional
 
@@ -94,9 +95,20 @@ def format_message(
     fg, bg = style
     tag_text = f"[{tag.upper()}]"
     spacing = " " * max(1, 12 - len(tag_text))
-    line = " " * indent + f"{tag_text}{spacing} {msg}"
+    prefix = " " * indent + f"{tag_text}{spacing} "
+    width = get_console_width(DEFAULT_SECTION_WIDTH)
+    available = max(20, width - len(prefix))
+    wrapped = textwrap.wrap(
+        str(msg),
+        width=available,
+        break_long_words=False,
+        break_on_hyphens=False,
+    ) or [""]
+    plain_lines = [prefix + wrapped[0]]
+    continuation_prefix = " " * len(prefix)
+    plain_lines.extend(continuation_prefix + part for part in wrapped[1:])
     if not USE_COLORS:
-        return line
+        return "\n".join(plain_lines)
 
     tag_style = Style.BRIGHT + fg + bg
     message_style = THEME_TEXT
@@ -104,10 +116,15 @@ def format_message(
         message_style = Style.BRIGHT + message_style
     if underline:
         message_style = "\033[4m" + message_style
-    return (
-        f"{' ' * indent}{tag_style}{tag_text}{Style.RESET_ALL}"
-        f"{spacing} {message_style}{msg}{Style.RESET_ALL}"
+    rendered_lines = [
+        f"{' ' * indent}{tag_style}{tag_text}{Style.RESET_ALL}{spacing} "
+        f"{message_style}{wrapped[0]}{Style.RESET_ALL}"
+    ]
+    rendered_lines.extend(
+        f"{continuation_prefix}{message_style}{part}{Style.RESET_ALL}"
+        for part in wrapped[1:]
     )
+    return "\n".join(rendered_lines)
 
 
 def _colorize_status(value: object) -> str:
@@ -272,8 +289,19 @@ def print_stat(
         value_str = f"{value_str} {unit}"
 
     label_text = f"{str(label).strip():<{width}}"
+    console_width = get_console_width(DEFAULT_SECTION_WIDTH)
+    available = max(20, console_width - width - 2)
+    wrapped_value = textwrap.wrap(
+        value_str,
+        width=available,
+        break_long_words=False,
+        break_on_hyphens=False,
+    ) or [""]
     if not USE_COLORS:
-        out = f"{label_text}: {value_str}"
+        out = f"{label_text}: {wrapped_value[0]}"
+        if len(wrapped_value) > 1:
+            continuation = " " * (width + 2)
+            out += "\n" + "\n".join(f"{continuation}{part}" for part in wrapped_value[1:])
         if return_str:
             return out
         _safe_print(out)
@@ -283,17 +311,23 @@ def print_stat(
     separator = apply_color(":", fg=THEME_MUTED)
 
     if dim:
-        value_rendered = apply_color(value_str, fg=THEME_MUTED)
+        rendered_parts = [apply_color(part, fg=THEME_MUTED) for part in wrapped_value]
     else:
-        value_rendered = _colorize_status(value_str)
-        if value_rendered == value_str:
-            value_rendered = apply_color(
-                value_str,
-                fg=color or THEME_TEXT,
-                bold=bold,
-            )
+        rendered_parts = []
+        for part in wrapped_value:
+            value_rendered = _colorize_status(part)
+            if value_rendered == part:
+                value_rendered = apply_color(
+                    part,
+                    fg=color or THEME_TEXT,
+                    bold=bold,
+                )
+            rendered_parts.append(value_rendered)
 
-    out = f"{label_rendered}{separator} {value_rendered}"
+    out = f"{label_rendered}{separator} {rendered_parts[0]}"
+    if len(rendered_parts) > 1:
+        continuation = " " * (width + 2)
+        out += "\n" + "\n".join(f"{continuation}{part}" for part in rendered_parts[1:])
     if return_str:
         return out
     _safe_print(out)

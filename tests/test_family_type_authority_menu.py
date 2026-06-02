@@ -78,12 +78,14 @@ def test_launch_family_type_authority_coverage_menu_renders_sections(
 
     assert result == 0
     assert "Source mode" in out
-    assert "Authority bucket summary" in out
-    assert "Raw-vs-authority status summary" in out
-    assert "Authority coverage by year" in out
-    assert "Missing authority-family candidates" in out
-    assert "Authority families with unknown type" in out
-    assert "Top raw-vs-authority conflicts" in out
-    assert "Temporal / year-type concentration" in out
-    assert "Temporal split caveats:" in out
-
+    out_lower = out.lower()
+    assert "coverage summary" in out_lower
+    assert "raw vs authority" in out_lower
+    assert "review next" in out_lower
+    assert "top conflicts" in out_lower
+    assert "temporal concentration" in out_lower
+    assert "temporal split caveats:" in out_lower
+    assert "diagnostics" in out_lower
+    assert "Missing authority-family candidates:" in out
+    assert "Unknown-type families:" in out
+    assert "devixor" in out

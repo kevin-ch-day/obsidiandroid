@@ -504,6 +504,7 @@ def write_research_validity_review(
         },
         "high_score_caution": {
             "headline_macro_f1": q3.get("macro_f1"),
+            "headline_balanced_accuracy": q3.get("balanced_accuracy"),
             "headline_model": q3.get("headline_model"),
             "notes": (skeptical.get("interpretation") if isinstance(skeptical, dict) else None),
         },
@@ -537,7 +538,14 @@ def write_research_validity_review(
             ),
         },
         "claim_readiness": _build_claim_readiness(
-            q1, q2, q3, taxonomy, scope, feature_contract=feature_contract
+            q1,
+            q2,
+            q3,
+            taxonomy,
+            scope,
+            feature_contract=feature_contract,
+            support_floor_mode=str(summary.get("support_floor_mode") or manifest.get("support_floor_mode") or ""),
+            profile_id=str(summary.get("profile_id") or (manifest.get("profile_params") or {}).get("profile_id") or ""),
         ),
     }
 
@@ -561,11 +569,16 @@ def write_research_validity_review(
         f"- Parsed vendor weak-support coverage: **{payload['feature_signal'].get('vendor_merge_pct', '—')}**%",
         f"- permissions_raw Macro-F1 (ablation): **{payload['feature_signal'].get('permissions_raw_macro_f1', '—')}**",
         f"- full_fused Macro-F1 (ablation): **{payload['feature_signal'].get('full_fused_macro_f1', '—')}**",
+        "- Interpret permissions as declared static-capability signal, not proof of runtime behavior.",
         "",
         "## High-score caution",
         "",
         f"- Headline model Macro-F1 (Q3 summary): **{payload['high_score_caution'].get('headline_macro_f1', '—')}** "
         f"({payload['high_score_caution'].get('headline_model', '—')})",
+        (
+            f"- Headline balanced accuracy (macro recall): "
+            f"**{payload['high_score_caution'].get('headline_balanced_accuracy', '—')}**"
+        ),
         "- Applies to the **supported-family** benchmark when support filtering is active — see `headline_score_scope.json`.",
         "",
         "## Taxonomy consistency",
@@ -631,6 +644,8 @@ def _build_claim_readiness(
     scope: dict[str, Any],
     *,
     feature_contract: Mapping[str, Any] | None = None,
+    support_floor_mode: str = "",
+    profile_id: str = "",
 ) -> dict[str, list[str]]:
     strong: list[str] = []
     caution: list[str] = []
@@ -670,8 +685,15 @@ def _build_claim_readiness(
         strong.append(f"Label authority for headline training (from evaluation contract): {la_txt}.")
     tt = scope.get("trainable_family_classification_task") or {}
     if tt.get("families_after_support_filter") is not None:
+        support_floor_mode_norm = str(support_floor_mode or "").strip().lower()
+        if support_floor_mode_norm == "benchmark_eligibility":
+            run_surface_label = "major-family benchmark run"
+        elif str(profile_id or "").strip() == "android_malware_all_current":
+            run_surface_label = "broad current-corpus run"
+        else:
+            run_surface_label = "headline benchmark run"
         strong.append(
-            f"The current all-malicious headline run retains **{tt.get('families_after_support_filter')}** "
+            f"The current {run_surface_label} retains **{tt.get('families_after_support_filter')}** "
             "supported families for multiclass training after the support filter (see headline_score_scope)."
         )
 

@@ -60,6 +60,8 @@ def test_export_cohort_foundation_bundle_writes_four_artifacts(tmp_path: Path) -
         type_slug=None,
         min_samples_per_family_sql=None,
         configured_min_samples_per_family=3,
+        diagnostic_min_samples_per_family=3,
+        support_floor_mode="membership_gate",
     )
     assert len(paths) == 4
     assert (diagnostics_dir / "cohort_foundation.json").exists()
@@ -117,6 +119,8 @@ def test_interim_warning_when_upstream_expected_min_exceeded() -> None:
         type_slug=None,
         min_samples_per_family_sql=None,
         configured_min_samples_per_family=3,
+        diagnostic_min_samples_per_family=3,
+        support_floor_mode="membership_gate",
     )
     warns = payload.get("interim_rebuild_warnings") or []
     assert any("Erebus" in w for w in warns)
@@ -165,6 +169,8 @@ def test_counts_csv_includes_sql_scope_semantics_section(tmp_path: Path) -> None
         type_slug="trojan",
         min_samples_per_family_sql=3,
         configured_min_samples_per_family=3,
+        diagnostic_min_samples_per_family=3,
+        support_floor_mode="membership_gate",
     )
 
     csv_text = (diagnostics_dir / "cohort_foundation_counts.csv").read_text(encoding="utf-8")
@@ -200,6 +206,8 @@ def test_compact_mode_skips_cohort_foundation_sidecar_csvs(
         type_slug=None,
         min_samples_per_family_sql=None,
         configured_min_samples_per_family=3,
+        diagnostic_min_samples_per_family=3,
+        support_floor_mode="membership_gate",
     )
 
     assert (diagnostics_dir / "cohort_foundation.json").exists()
@@ -253,6 +261,8 @@ def test_cohort_foundation_payload_and_markdown_include_semantics_delta(tmp_path
         type_slug="trojan",
         min_samples_per_family_sql=3,
         configured_min_samples_per_family=3,
+        diagnostic_min_samples_per_family=3,
+        support_floor_mode="membership_gate",
     )
 
     blob = json.loads((diagnostics_dir / "cohort_foundation.json").read_text(encoding="utf-8"))
@@ -295,6 +305,8 @@ def test_cohort_foundation_reports_snapshot_lock_policy_deferral(tmp_path: Path)
         type_slug=None,
         min_samples_per_family_sql=None,
         configured_min_samples_per_family=20,
+        diagnostic_min_samples_per_family=20,
+        support_floor_mode="membership_gate",
     )
 
     blob = json.loads((diagnostics_dir / "cohort_foundation.json").read_text(encoding="utf-8"))

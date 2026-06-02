@@ -129,6 +129,7 @@ def test_build_diagnostics_overview_includes_traffic_lights_and_run_science_path
     (rdiag / "cohort_foundation.json").write_text("{}", encoding="utf-8")
     (rdiag / "run_science_index.md").write_text("# run science\n", encoding="utf-8")
     (rdiag / "diagnostic_provenance.json").write_text('{"entries":[]}', encoding="utf-8")
+    (rdiag / "feature_contract.json").write_text("{}", encoding="utf-8")
     (rdiag / f"taxonomy_authority_split_{run_id}.json").write_text(
         json.dumps(
             {
@@ -175,6 +176,11 @@ def test_build_diagnostics_overview_includes_traffic_lights_and_run_science_path
             "parser_summary": {"csv_ready": True, "workbook_ready": False},
         },
     )
+    monkeypatch.setattr(
+        diagnostics_banners,
+        "get_cohort_readiness_snapshot",
+        lambda: {"status": "ok", "warnings": [], "buckets": {}, "taxonomy_signals": {"policy_held_family_samples": 129, "policy_held_family_token_kind_counts": {"generic_family_token": 5}}},
+    )
 
     overview = diagnostics_banners.build_diagnostics_overview(output_root=out_root, latest_run_id=run_id)
     rows = {str(row["label"]): str(row["status"]) for row in overview["rows"]}
@@ -183,17 +189,17 @@ def test_build_diagnostics_overview_includes_traffic_lights_and_run_science_path
     assert rows["Android missing-resolution triage"] == "YELLOW"
     assert rows["VT false-positive triage"] == "YELLOW"
     assert rows["Vendor/parser coverage"] == "YELLOW"
-    assert rows["Publication readiness"] == "GREEN"
+    assert rows["Claim readiness"] == "GREEN"
     assert str(overview["run_science_index_path"]).endswith("run_science_index.md")
     taxonomy_row = next(row for row in overview["rows"] if str(row["label"]) == "Taxonomy consistency")
     android_triage_row = next(row for row in overview["rows"] if str(row["label"]) == "Android missing-resolution triage")
     fp_triage_row = next(row for row in overview["rows"] if str(row["label"]) == "VT false-positive triage")
-    priority_triage = overview["priority_triage"]
+    focus_item = overview["focus_item"]
     assert "authority split" in str(taxonomy_row["action"]).lower()
     assert str(android_triage_row["detail"]) == "2 queued row(s); top=blank_package_review (1); freshness=current"
     assert str(fp_triage_row["detail"]) == "3 review row(s); top=real_malware_family_or_class_review (1); freshness=current"
-    assert str(priority_triage["label"]) == "VT false-positive triage"
-    assert str(priority_triage["freshness"]) == "current"
+    assert str(focus_item["label"]) == "Taxonomy consistency"
+    assert "YELLOW" in str(focus_item["reason"])
 
 
 def test_print_compact_diagnostics_overview_shows_triage_backlog_counts(
@@ -206,7 +212,31 @@ def test_print_compact_diagnostics_overview_shows_triage_backlog_counts(
     rdiag = out_root / "runs" / run_id / "diagnostics"
     rdiag.mkdir(parents=True, exist_ok=True)
     (out_root / "diagnostics").mkdir(parents=True, exist_ok=True)
+    (rdiag / "cohort_foundation.json").write_text("{}", encoding="utf-8")
     (rdiag / "run_science_index.md").write_text("# run science\n", encoding="utf-8")
+    (rdiag / "feature_contract.json").write_text("{}", encoding="utf-8")
+    (rdiag / "diagnostic_provenance.json").write_text('{"entries":[]}', encoding="utf-8")
+    (rdiag / "modality_contribution_summary.json").write_text(
+        json.dumps({"permission_signal_pct": 81.4}),
+        encoding="utf-8",
+    )
+    (rdiag / f"taxonomy_authority_split_{run_id}.json").write_text(
+        json.dumps(
+            {
+                "taxonomy_split": {
+                    "type_authority_vs_rendering_mismatch": {
+                        "counts": {
+                            "type_mapping_mismatch": 1,
+                            "type_label_missing": 0,
+                            "type_label_noncanonical": 0,
+                            "label_family_mismatch": 0,
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
     (out_root / "diagnostics" / "android_missing_resolution_triage_latest.csv").write_text(
         "sample_id,review_lane\n1,blank_package_review\n2,vt_tail_review\n",
         encoding="utf-8",
@@ -226,16 +256,22 @@ def test_print_compact_diagnostics_overview_shows_triage_backlog_counts(
             "parser_summary": {"csv_ready": True, "workbook_ready": True},
         },
     )
+    monkeypatch.setattr(
+        diagnostics_banners,
+        "get_cohort_readiness_snapshot",
+        lambda: {"status": "ok", "warnings": [], "buckets": {}, "taxonomy_signals": {"policy_held_family_samples": 129, "policy_held_family_token_kind_counts": {"generic_family_token": 5}}},
+    )
 
     diagnostics_banners.print_compact_diagnostics_overview(output_root=out_root, latest_run_id=run_id)
     out = capsys.readouterr().out
 
     assert "Focus first" in out
-    assert "VT false-positive triage" in out
-    assert "3 row(s); top lane=real_malware_family_or_class_review (1); freshness=current" in out
+    assert "Taxonomy consistency" in out
+    assert "Reason: YELLOW; Review taxonomy authority split or post-run audit" in out
     assert "Android missing-resolution triage" in out
-    assert "Current backlog: 2 queued row(s); top=blank_package_review (1); freshness=current" in out
-    assert "Current backlog: 3 review row(s); top=real_malware_family_or_class_review (1); freshness=current" in out
+    assert "Backlog: 2 queued row(s); top=blank_package_review (1);" in out
+    assert "freshness=current" in out
+    assert "Backlog: 3 review row(s); top=real malware family/class…" in out
 
 
 def test_build_diagnostics_overview_marks_stale_triage_export_red(
@@ -248,6 +284,30 @@ def test_build_diagnostics_overview_marks_stale_triage_export_red(
     rdiag.mkdir(parents=True, exist_ok=True)
     gdiag = out_root / "diagnostics"
     gdiag.mkdir(parents=True, exist_ok=True)
+    (rdiag / "cohort_foundation.json").write_text("{}", encoding="utf-8")
+    (rdiag / "feature_contract.json").write_text("{}", encoding="utf-8")
+    (rdiag / "diagnostic_provenance.json").write_text('{"entries":[]}', encoding="utf-8")
+    (rdiag / "modality_contribution_summary.json").write_text(
+        json.dumps({"permission_signal_pct": 76.2}),
+        encoding="utf-8",
+    )
+    (rdiag / f"taxonomy_authority_split_{run_id}.json").write_text(
+        json.dumps(
+            {
+                "taxonomy_split": {
+                    "type_authority_vs_rendering_mismatch": {
+                        "counts": {
+                            "type_mapping_mismatch": 0,
+                            "type_label_missing": 0,
+                            "type_label_noncanonical": 0,
+                            "label_family_mismatch": 0,
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
     triage_path = gdiag / "android_missing_resolution_triage_latest.csv"
     triage_path.write_text(
         "sample_id,review_lane\n1,blank_package_review\n",
@@ -266,14 +326,19 @@ def test_build_diagnostics_overview_marks_stale_triage_export_red(
             "parser_summary": {"csv_ready": True, "workbook_ready": True},
         },
     )
+    monkeypatch.setattr(
+        diagnostics_banners,
+        "get_cohort_readiness_snapshot",
+        lambda: {"status": "ok", "warnings": [], "buckets": {}, "taxonomy_signals": {}},
+    )
 
     overview = diagnostics_banners.build_diagnostics_overview(output_root=out_root, latest_run_id=run_id)
     row = next(row for row in overview["rows"] if str(row["label"]) == "Android missing-resolution triage")
-    priority = overview["priority_triage"]
+    focus_item = overview["focus_item"]
     assert str(row["status"]) == "RED"
     assert "freshness=stale" in str(row["detail"])
-    assert str(priority["label"]) == "Android missing-resolution triage"
-    assert "Refresh android missing-resolution triage export first" in str(priority["action"])
+    assert str(focus_item["label"]) == "Android missing-resolution triage"
+    assert "Refresh Android missing-resolution triage export first" in str(focus_item["reason"])
 
 
 def test_build_diagnostics_overview_surfaces_cohort_contract_context(
@@ -302,3 +367,71 @@ def test_build_diagnostics_overview_surfaces_cohort_contract_context(
 
     assert overview["cohort_membership_mode"] == "paper_locked_snapshot_membership"
     assert overview["rescued_unknown_consensus"] == 4
+
+
+def test_build_diagnostics_overview_does_not_focus_green_zero_row_queue(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    out_root = tmp_path / "output"
+    run_id = "20260515T141956Z__58d84f"
+    rdiag = out_root / "runs" / run_id / "diagnostics"
+    rdiag.mkdir(parents=True, exist_ok=True)
+    gdiag = out_root / "diagnostics"
+    gdiag.mkdir(parents=True, exist_ok=True)
+    (rdiag / "run_science_index.md").write_text("# run science\n", encoding="utf-8")
+    (rdiag / "cohort_foundation.json").write_text("{}", encoding="utf-8")
+    (rdiag / "feature_contract.json").write_text("{}", encoding="utf-8")
+    (rdiag / "diagnostic_provenance.json").write_text('{"entries":[]}', encoding="utf-8")
+    (rdiag / "modality_contribution_summary.json").write_text(
+        json.dumps({"permission_signal_pct": 79.8}),
+        encoding="utf-8",
+    )
+    (rdiag / f"taxonomy_authority_split_{run_id}.json").write_text(
+        json.dumps(
+            {
+                "taxonomy_split": {
+                    "type_authority_vs_rendering_mismatch": {
+                        "counts": {
+                            "type_mapping_mismatch": 1,
+                            "type_label_missing": 0,
+                            "type_label_noncanonical": 0,
+                            "label_family_mismatch": 0,
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (gdiag / "android_missing_resolution_triage_latest.csv").write_text(
+        "sample_id,review_lane\n",
+        encoding="utf-8",
+    )
+    (gdiag / "vt_false_positive_review_triage_latest.csv").write_text(
+        "sample_id,review_lane\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        diagnostics_banners,
+        "build_operator_state",
+        lambda **_kwargs: {
+            "latest_run_id": run_id,
+            "best_run_index_path": rdiag / "run_science_index.md",
+            "has_canonical_run_science": True,
+            "publication_ready_status": "unknown",
+            "publication_ready_mode": False,
+            "evidence_mode": False,
+            "parser_summary": {"csv_ready": True, "workbook_ready": False},
+        },
+    )
+    monkeypatch.setattr(
+        diagnostics_banners,
+        "get_cohort_readiness_snapshot",
+        lambda: {"status": "ok", "warnings": [], "buckets": {}, "taxonomy_signals": {}},
+    )
+
+    overview = diagnostics_banners.build_diagnostics_overview(output_root=out_root, latest_run_id=run_id)
+
+    assert str(overview["focus_item"]["label"]) == "Taxonomy consistency"
+    assert "Android missing-resolution triage" != str(overview["focus_item"]["label"])

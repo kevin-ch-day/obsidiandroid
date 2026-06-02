@@ -24,7 +24,7 @@ from .vendor_parser_state import (
 def print_parser_diagnostics_state(*, mode: str | None = None) -> None:
     """Print a compact operator-facing state block for parser diagnostics."""
     state = get_parser_summary_state(mode=mode)
-    du.print_subheader("Parser Diagnostics State")
+    du.print_subheader("[ENGINES] Parser diagnostics")
     du.print_stat("Display mode", str(state.get("display_mode", "compact")))
     du.print_stat("Parser health", str(state.get("status", "unknown")))
     du.print_stat("CSV snapshots", "Available" if state["csv_ready"] else "Unavailable")
@@ -33,10 +33,16 @@ def print_parser_diagnostics_state(*, mode: str | None = None) -> None:
     if not state["workbook_ready"]:
         du.print_note("Workbook drill-down is optional unless you need single-vendor parser debugging.")
     if state["csv_ready"] and not state["workbook_ready"]:
-        du.print_info("CSV snapshots available; workbook drill-down unavailable.")
+        print("[ENGINES] CSV snapshots available; workbook drill-down unavailable.")
     if int(state.get("observed_engines", 0) or 0) > 0:
-        du.print_subheader("Vendor / engine context")
-        du.print_stat("Observed engines", state["observed_engines"])
+        du.print_subheader("[ENGINES] Vendor / engine context")
+        du.print_stat("Observed vendor columns", state["observed_engines"])
+        if state.get("cohort_engines_observed") is not None:
+            du.print_stat("Cohort engines observed", state["cohort_engines_observed"])
+        if state.get("cohort_engines_canonical") is not None:
+            du.print_stat("Cohort engines canonical", state["cohort_engines_canonical"])
+        if state.get("post_score_engines_included") is not None:
+            du.print_stat("Post-score included engines", state["post_score_engines_included"])
         du.print_stat("Parser mapped vendors", state["parser_mapped_vendors"])
         du.print_stat("Unmapped vendors", state["unmapped_vendors"])
         du.print_stat("Mapped coverage", f"{state.get('mapped_pct', 0.0)}%")
@@ -52,12 +58,44 @@ def print_parser_diagnostics_state(*, mode: str | None = None) -> None:
             state["selected_vendors"] if state["selected_vendors"] is not None else "n/a",
         )
         du.print_stat(
-            "DB engine scoring universe",
+            "DB verdict-table universe",
             state["engine_scoring_universe"] if state["engine_scoring_universe"] is not None else "n/a",
         )
-        du.print_info(
-            "Coverage reflects all observed engines; selected vendors are the narrower leakage-safe subset used by the latest run."
+        if state.get("engine_metadata_table_universe") is not None:
+            du.print_stat("Metadata table universe", state["engine_metadata_table_universe"])
+        if state.get("engine_metadata_only_count") is not None:
+            du.print_stat("Metadata-only engine keys", state["engine_metadata_only_count"])
+        if state.get("engine_verdict_only_count") is not None:
+            du.print_stat("Verdict-only engine keys", state["engine_verdict_only_count"])
+        if state.get("engine_metadata_alias_suggestion_count") is not None:
+            du.print_stat(
+                "Metadata legacy-alias suggestions",
+                state["engine_metadata_alias_suggestion_count"],
+            )
+        if state.get("engine_metadata_current_prefix_missing_verdict_count") is not None:
+            du.print_stat(
+                "Current VT prefixes missing verdicts",
+                state["engine_metadata_current_prefix_missing_verdict_count"],
+            )
+        if state.get("engine_metadata_unclear_count") is not None:
+            du.print_stat("Unclear metadata-only keys", state["engine_metadata_unclear_count"])
+        if state.get("engine_exclusion_audit_rows") is not None:
+            du.print_stat("Excluded engines audited", state["engine_exclusion_audit_rows"])
+        if state.get("engine_near_miss_count") is not None:
+            du.print_stat("Excluded near-miss engines", state["engine_near_miss_count"])
+        if state.get("requested_parser_top_k") is not None:
+            du.print_stat("Requested parser top-k", state["requested_parser_top_k"])
+        print(
+            "[ENGINES] Coverage reflects all observed vendor columns; post-score included engines are the gated engine subset; "
+            "selected vendors are the narrower parser-scored leakage-safe subset used by the latest run."
         )
+        if state.get("top_near_miss_preview"):
+            print("[ENGINES] Top near-miss engines: " + ", ".join(str(v) for v in state["top_near_miss_preview"]))
+        if state.get("top_metadata_alias_preview"):
+            print(
+                "[ENGINES] Top metadata alias suggestions: "
+                + ", ".join(str(v) for v in state["top_metadata_alias_preview"])
+            )
         if state.get("source_run_id"):
             du.print_stat("Source run id", str(state.get("source_run_id")))
         du.print_stat(
@@ -69,13 +107,13 @@ def print_parser_diagnostics_state(*, mode: str | None = None) -> None:
             "Present" if bool(state.get("selected_vendor_data_present", False)) else "Missing",
         )
     if state.get("explanation"):
-        du.print_info(str(state["explanation"]))
+        print("[ENGINES] " + str(state["explanation"]).strip())
     if state.get("recommended_open_first"):
-        du.print_info(f"Open first: {state['recommended_open_first']}")
+        print(f"[ACTION] Open first: {state['recommended_open_first']}")
     if state.get("needs_attention"):
-        du.print_note(f"Needs attention: {state['needs_attention']}")
+        print(f"[ACTION] Review: {state['needs_attention']}")
     if state.get("next_tuning_action"):
-        du.print_info(f"Tune next: {state['next_tuning_action']}")
+        print(f"[ACTION] Tune next: {state['next_tuning_action']}")
     print("")
 
 
@@ -84,9 +122,9 @@ def print_top_unmapped_vendors(*, limit: int | None = None, mode: str | None = N
     du.print_section("Top unmapped vendors")
     top_unmapped = build_parser_onboarding_queue(limit=None)
     if top_unmapped.empty:
-        du.print_info("[MENU] No unmapped vendors found in the latest CSV snapshot.")
+        print("[ENGINES] No unmapped vendors found in the latest CSV snapshot.")
         return 0
-    du.print_info("This is a drill-down of the onboarding queue sorted by coverage and priority.")
+    print("[ENGINES] This is a drill-down of the onboarding queue sorted by coverage and priority.")
     row_limit = limit or mode_max_rows(compact=10, detailed=15, debug=25, mode=mode)
     du.print_table(
         top_unmapped[["vendor_column", "coverage_pct", "selected_in_latest_run", "trusted_active"]].head(row_limit),
@@ -99,7 +137,7 @@ def print_top_unmapped_vendors(*, limit: int | None = None, mode: str | None = N
 def print_compact_vendor_coverage_snapshot(*, mode: str | None = None) -> int:
     """Print operator-first parser summary from latest coverage artifacts."""
     state = get_parser_summary_state(mode=mode)
-    du.print_section("PARSER SUMMARY")
+    du.print_section("[ENGINES] Parser summary")
     cov_path = resolve_vendor_parser_coverage_csv()
     if cov_path is None:
         du.print_warning("[MENU] Missing vendor_parser_coverage CSV. Run vendor metadata / pipeline diagnostics export first.")
@@ -121,30 +159,33 @@ def print_compact_vendor_coverage_snapshot(*, mode: str | None = None) -> int:
     du.print_stat("Unmapped columns", unmapped)
     du.print_stat("Mapped coverage", f"{state.get('mapped_pct', 0.0)}%")
     du.print_stat("Onboarding queue", int(state.get("onboarding_candidate_count", 0) or 0))
+    if state.get("post_score_engines_included") is not None:
+        du.print_stat("Post-score included engines", state["post_score_engines_included"])
+    if state.get("requested_parser_top_k") is not None:
+        du.print_stat("Requested parser top-k", state["requested_parser_top_k"])
     du.print_stat(
         "Selected vendors for latest run",
         state.get("selected_vendors") if state.get("selected_vendors") is not None else "n/a",
     )
     if state.get("explanation"):
-        du.print_info(str(state["explanation"]))
+        print("[ENGINES] " + str(state["explanation"]).strip())
     if state.get("recommended_open_first"):
-        du.print_info(f"Open first: {state['recommended_open_first']}")
+        print(f"[ACTION] Open first: {state['recommended_open_first']}")
     if state.get("needs_attention"):
-        du.print_note(f"Needs attention: {state['needs_attention']}")
+        print(f"[ACTION] Review: {state['needs_attention']}")
     if state.get("top_candidates_preview"):
-        du.print_info(
-            "Top onboarding candidates: " + ", ".join(str(v) for v in state["top_candidates_preview"])
-        )
+        print("[ENGINES] Top onboarding candidates: " + ", ".join(str(v) for v in state["top_candidates_preview"]))
     if state.get("top_unmapped_preview"):
-        du.print_info(
-            "Highest-coverage unmapped vendors: " + ", ".join(str(v) for v in state["top_unmapped_preview"])
+        print(
+            "[ENGINES] Highest-coverage unmapped vendors: "
+            + ", ".join(str(v) for v in state["top_unmapped_preview"])
         )
     if state.get("top_selected_vendor_preview"):
-        du.print_info(
-            "Top selected vendors: " + ", ".join(str(v) for v in state["top_selected_vendor_preview"])
-        )
+        print("[ENGINES] Top selected vendors: " + ", ".join(str(v) for v in state["top_selected_vendor_preview"]))
+    if state.get("top_near_miss_preview"):
+        print("[ENGINES] Top near-miss engines: " + ", ".join(str(v) for v in state["top_near_miss_preview"]))
     if state.get("next_tuning_action"):
-        du.print_info(f"Tune next: {state['next_tuning_action']}")
+        print(f"[ACTION] Tune next: {state['next_tuning_action']}")
     if str(state.get("display_mode", "compact")) != "compact":
         du.print_stat("Source file", str(cov_path.resolve()))
         stress_path = resolve_vendor_stress_test_csv()
@@ -155,8 +196,8 @@ def print_compact_vendor_coverage_snapshot(*, mode: str | None = None) -> int:
                 stress_df = pd.DataFrame()
             if not stress_df.empty:
                 top_row = stress_df.iloc[0].to_dict()
-                du.print_info(
-                    "[MENU] Best stress profile: "
+                print(
+                    "[ENGINES] Best stress profile: "
                     f"unknown_cut={top_row.get('unknown_cut')} "
                     f"mapped_cut={top_row.get('mapped_cut')} "
                     f"generic_cut={top_row.get('generic_cut')} "
@@ -170,15 +211,15 @@ def print_parser_onboarding_candidates(*, limit: int | None = None, mode: str | 
     candidates_df = build_parser_onboarding_queue(limit=None)
     du.print_section("Parser onboarding queue")
     if candidates_df.empty:
-        du.print_info("[MENU] No high-priority parser onboarding candidates in latest CSV snapshots.")
+        print("[ENGINES] No high-priority parser onboarding candidates in latest CSV snapshots.")
         return 0
     du.print_stat("Candidates in queue", int(len(candidates_df)))
     top_vendor = str(candidates_df.iloc[0].get("vendor_column", "") or "").strip()
     top_cov = candidates_df.iloc[0].get("coverage_pct", "—")
     if top_vendor:
-        du.print_info(f"Highest-priority candidate: {top_vendor} ({top_cov}% coverage)")
-    du.print_info(
-        "Prioritize selected or trusted vendors first, then high-coverage unmapped vendors with stable label behavior."
+        print(f"[ENGINES] Highest-priority candidate: {top_vendor} ({top_cov}% coverage)")
+    print(
+        "[ACTION] Prioritize selected or trusted vendors first, then high-coverage unmapped vendors with stable label behavior."
     )
     row_limit = limit or mode_max_rows(compact=10, detailed=15, debug=20, mode=mode)
     du.print_table(
@@ -187,8 +228,8 @@ def print_parser_onboarding_candidates(*, limit: int | None = None, mode: str | 
         show_index=False,
     )
     if row_limit < len(candidates_df):
-        du.print_info(
-            "Show all path: switch to detailed/debug mode for a larger default view, or use Top unmapped vendors for broader backlog context."
+        print(
+            "[ACTION] Show all path: switch to detailed/debug mode for a larger default view, or use Top unmapped vendors for broader backlog context."
         )
     return 0
 
@@ -201,17 +242,17 @@ def print_selected_vendors_for_latest_run(*, limit: int | None = None, mode: str
     scores_path = resolved if resolved is not None else Path()
     scores_df = read_csv(scores_path)
     if scores_df.empty:
-        du.print_info("[MENU] No selected-vendor CSV snapshot is available for the latest run.")
+        print("[ENGINES] No selected-vendor CSV snapshot is available for the latest run.")
         return 0
     if "Vendor" in scores_df.columns:
         preview = ", ".join(str(v) for v in scores_df.head(3)["Vendor"].tolist())
         if preview:
-            du.print_info(f"Start with these selected vendors: {preview}")
+            print(f"[ENGINES] Start with these selected vendors: {preview}")
     if "Vendor Category" in scores_df.columns:
         categories = scores_df["Vendor Category"].astype(str).value_counts().to_dict()
         preview = ", ".join(f"{k}={v}" for k, v in list(categories.items())[:4])
         if preview:
-            du.print_info(f"Selected-vendor signal mix: {preview}")
+            print(f"[ENGINES] Selected-vendor signal mix: {preview}")
     if "Family Match Accuracy (%)" in scores_df.columns:
         try:
             fam_match = pd.to_numeric(scores_df["Family Match Accuracy (%)"], errors="coerce")
@@ -222,8 +263,8 @@ def print_selected_vendors_for_latest_run(*, limit: int | None = None, mode: str
                 du.print_note("Action: treat selected-vendor family-level claims as provisional; prioritize parser onboarding and label-pattern validation first.")
         except Exception:
             pass
-    du.print_info(
-        "Why selected differs from parser-mapped: selected vendors are leakage-safe run inputs; parser-mapped is broader parser availability over observed vendors."
+    print(
+        "[ENGINES] Why selected differs from parser-mapped: selected vendors are leakage-safe run inputs; parser-mapped is broader parser availability over observed vendors."
     )
     row_limit = limit or mode_max_rows(compact=5, detailed=10, debug=20, mode=mode)
     du.print_table(
@@ -240,12 +281,12 @@ def print_workbook_requirements() -> int:
     du.print_section("Workbook requirements")
     _print_workbook_missing_guidance(csv_ready=bool(state.get("csv_ready")))
     if state.get("onboarding_candidate_count"):
-        du.print_info(
-            f"{int(state['onboarding_candidate_count'])} parser onboarding candidates are still reviewable from CSV snapshots."
+        print(
+            f"[ENGINES] {int(state['onboarding_candidate_count'])} parser onboarding candidates are still reviewable from CSV snapshots."
         )
     if bool(state.get("csv_ready")):
-        du.print_info("[MENU] CSV snapshots available.")
-    du.print_info("[MENU] Workbook drill-down is optional unless you need single-vendor parser debugging.")
+        print("[ENGINES] CSV snapshots available.")
+    print("[ENGINES] Workbook drill-down is optional unless you need single-vendor parser debugging.")
     return 0
 
 
@@ -301,7 +342,7 @@ def _print_manifest_vendor_context() -> None:
     du.print_stat("Vendor Constrained", constrained)
     if constrained:
         du.print_warning(
-            "[MENU] Last run is vendor-constrained; treat vendor-only findings as sensitivity/limitations."
+            "[ENGINES] Last run is vendor-constrained; treat vendor-only findings as sensitivity/limitations."
         )
 
 

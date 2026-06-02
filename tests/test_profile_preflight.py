@@ -224,7 +224,21 @@ def test_validate_profile_runnable_paper_locked_fails_when_lock_missing(monkeypa
     assert "missing an immutable cohort lock manifest/member list" in reason
 
 
-def test_resolve_and_validate_profile_prints_advisory_readiness_mapping(monkeypatch) -> None:
+def test_compact_live_gap_note_limits_operator_line_density() -> None:
+    headline, detail_lines = profile_preflight._compact_live_gap_lines(
+        [
+            "Live authority/taxonomy backlog: repair candidates=2, known unresolved families=0, policy-held tokens=67",
+            "Taxonomy curation discipline: high-priority conflicts=1/2; dominant action=review_db_type_mapping (2); dominant issue=type_mismatch (2)",
+            "Permission Intel observations include 1 sample_id(s) outside the current Android catalog cohort",
+        ]
+    )
+    assert headline.startswith("Live authority/taxonomy backlog:")
+    assert len(detail_lines) == 1
+    assert detail_lines[0].startswith("Permission Intel observations include")
+    assert "Taxonomy curation discipline" not in headline
+
+
+def test_resolve_and_validate_profile_prints_advisory_readiness_mapping(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         profile_preflight,
         "resolve_profile_for_run",
@@ -256,20 +270,18 @@ def test_resolve_and_validate_profile_prints_advisory_readiness_mapping(monkeypa
         "inventory_cohort_readiness_mappings",
         lambda **_kwargs: [{"profile_id": "banker", "status": "mapped"}],
     )
-    messages: list[str] = []
-    notes: list[str] = []
-    monkeypatch.setattr(profile_preflight.du, "print_info", lambda msg: messages.append(str(msg)))
-    monkeypatch.setattr(profile_preflight.du, "print_note", lambda msg: notes.append(str(msg)))
-
     selected = profile_preflight.resolve_and_validate_profile()
+    out = capsys.readouterr().out
 
     assert selected == "banker"
-    assert any("Best matching readiness bucket: android_banker_with_permission_obs" in msg for msg in messages)
-    assert any("does not enforce sample selection" in msg for msg in notes)
-    assert any("Observed readiness for `android_banker_with_permission_obs`: samples=790, families=12" in msg for msg in notes)
+    assert "[PROFILE] Best matching readiness bucket: android_banker_with_permission_obs" in out
+    assert "does not enforce sample selection" in out
+    assert "[PROFILE] Observed readiness for `android_banker_with_permission_obs`:" in out
+    assert "samples=790" in out
+    assert "families=12" in out
 
 
-def test_resolve_and_validate_profile_reports_ambiguous_inventory_advisory(monkeypatch) -> None:
+def test_resolve_and_validate_profile_reports_ambiguous_inventory_advisory(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         profile_preflight,
         "resolve_profile_for_run",
@@ -304,17 +316,14 @@ def test_resolve_and_validate_profile_reports_ambiguous_inventory_advisory(monke
             {"profile_id": "future_profile", "status": "ambiguous"},
         ],
     )
-    notes: list[str] = []
-    monkeypatch.setattr(profile_preflight.du, "print_info", lambda _msg: None)
-    monkeypatch.setattr(profile_preflight.du, "print_note", lambda msg: notes.append(str(msg)))
-
     selected = profile_preflight.resolve_and_validate_profile()
+    out = capsys.readouterr().out
 
     assert selected == "banker"
-    assert any("1 mapped, 1 ambiguous" in msg for msg in notes)
+    assert "1 mapped, 1 ambiguous" in out
 
 
-def test_resolve_and_validate_profile_surfaces_live_gap_notes(monkeypatch) -> None:
+def test_resolve_and_validate_profile_surfaces_live_gap_notes(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         profile_preflight,
         "resolve_profile_for_run",
@@ -373,19 +382,82 @@ def test_resolve_and_validate_profile_surfaces_live_gap_notes(monkeypatch) -> No
         "inventory_cohort_readiness_mappings",
         lambda **_kwargs: [{"profile_id": "malicious_temporal_stability_locked", "status": "mapped"}],
     )
-    notes: list[str] = []
-    monkeypatch.setattr(profile_preflight.du, "print_info", lambda _msg: None)
-    monkeypatch.setattr(profile_preflight.du, "print_note", lambda msg: notes.append(str(msg)))
-
     selected = profile_preflight.resolve_and_validate_profile()
+    out = capsys.readouterr().out
 
     assert selected == "malicious_temporal_stability_locked"
-    assert any("does not enforce sample selection" in msg and "current-corpus profiles" in msg for msg in notes)
-    assert any("repair candidates=7, known unresolved families=3, policy-held tokens=11" in msg for msg in notes)
-    assert any("high-priority conflicts=4/5; dominant action=review_db_type_mapping (2); dominant issue=type_unknown (2)" in msg for msg in notes)
-    assert any("may not change cohort membership until the lock is refreshed" in msg for msg in notes)
-    assert any("does not verify a matching PI-observed cohort" in msg for msg in notes)
-    assert not any("Observed readiness for `android_high_or_strong_vt_with_permission_obs` is unavailable" in msg for msg in notes)
+    assert "does not enforce sample selection" in out
+    assert "current-corpus profiles" in out
+    assert "repair candidates=7, known unresolved families=3, policy-held tokens=11" in out
+    assert "high-priority conflicts=4/5; dominant action=review_db_type_mapping (2); dominant issue=type_unknown (2)" in out
+    assert "may not change cohort membership until the lock is refreshed" in out
+    assert "Observed readiness for `android_high_or_strong_vt_with_permission_obs` is unavailable" not in out
+
+
+def test_resolve_and_validate_profile_uses_compact_profile_block(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        profile_preflight,
+        "resolve_profile_for_run",
+        lambda prefer_quick=False, **kwargs: "android_malware_major_families",
+    )
+    monkeypatch.setattr(
+        profile_preflight.profile_manager,
+        "infer_cohort_readiness_signal",
+        lambda _profile_id: {
+            "status": "mapped",
+            "bucket": "android_high_or_strong_vt_with_permission_obs",
+            "summary": "Best matching readiness bucket: android_high_or_strong_vt_with_permission_obs",
+            "detail": (
+                "Declared readiness bucket in profile contract: android_high_or_strong_vt_with_permission_obs. "
+                "Advisory only; this does not enforce sample selection. "
+                "Permission-observation wording is advisory here; bucket mapping does not verify or enforce PI observation materialization for the selected run."
+            ),
+        },
+    )
+    monkeypatch.setattr(
+        profile_preflight.profile_manager,
+        "load_profile",
+        lambda _profile_id: {"paper_locked": False},
+    )
+    monkeypatch.setattr(
+        profile_preflight,
+        "get_cohort_readiness_snapshot",
+        lambda: {
+            "buckets": {
+                "android_high_or_strong_vt_with_permission_obs": {"sample_count": 3285, "family_count": 220}
+            },
+            "taxonomy_signals": {
+                "repair_candidate_count": 0,
+                "known_unresolved_family_count": 0,
+                "policy_held_family_count": 67,
+            },
+            "warnings": [
+                "Permission Intel observations include 1 sample_id(s) outside the current Android catalog cohort."
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        profile_preflight.profile_manager,
+        "inventory_cohort_readiness_mappings",
+        lambda **_kwargs: [{"profile_id": "android_malware_major_families", "status": "mapped"}],
+    )
+    monkeypatch.setattr(profile_preflight, "validate_profile_runnable", lambda _profile_id: (True, ""))
+
+    selected = profile_preflight.resolve_and_validate_profile()
+    out = capsys.readouterr().out
+
+    assert selected == "android_malware_major_families"
+    assert "[INFO]" not in out
+    assert "[NOTE]" not in out
+    assert "[PROFILE] Best matching readiness bucket: android_high_or_strong_vt_with_permission_obs" in out
+    assert "[PROFILE] Declared readiness bucket in profile contract: android_high_or_strong_vt_with_permission_obs." in out
+    assert "Advisory only; sample selection is not enforced." in out
+    assert "[PROFILE] Observed readiness for `android_high_or_strong_vt_with_permission_obs`:" in out
+    assert "samples=3285" in out
+    assert "families=220" in out
+    assert "[PROFILE] Live authority/taxonomy backlog: repair candidates=0, known unresolved families=0, policy-held tokens=67." in out
+    assert "Permission Intel observations include 1 sample_id(s) outside the current Android catalog cohort." in out
+    assert "[PROFILE] Preflight: verifying cohort against the database (quick check)..." in out
 
 
 def test_compact_profile_detail_hardens_locked_cohort_wording() -> None:

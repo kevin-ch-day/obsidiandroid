@@ -14,11 +14,68 @@ TIER_LEVELS = {
     "Tier 5": {"min_coverage": 0,  "min_detection": 0}
 }
 
+NEAR_MISS_RELATIVE_MARGIN = 0.8
+
 def assign_detection_tier(coverage_pct, detection_pct):
     for tier, limits in TIER_LEVELS.items():
         if coverage_pct >= limits["min_coverage"] and detection_pct >= limits["min_detection"]:
             return tier
     return "Tier 5"
+
+
+def _check_threshold_failures(
+    *,
+    coverage: int,
+    coverage_pct: float,
+    detections: int,
+    detection_pct: float,
+    min_required: int,
+    min_coverage_pct: float,
+    min_positive_flags: int,
+    min_detection_pct: float,
+    exclude_zero_detection: bool,
+) -> list[str]:
+    failures: list[str] = []
+    if coverage < min_required:
+        failures.append("samples_scanned")
+    if coverage_pct < min_coverage_pct:
+        failures.append("coverage_pct")
+    if exclude_zero_detection and detections <= 0:
+        failures.append("zero_detections")
+    if detections < min_positive_flags:
+        failures.append("positive_flags")
+    if detection_pct < min_detection_pct:
+        failures.append("detection_pct")
+    return failures
+
+
+def _is_near_miss(
+    *,
+    threshold_failures: list[str],
+    coverage: int,
+    coverage_pct: float,
+    detections: int,
+    detection_pct: float,
+    min_required: int,
+    min_coverage_pct: float,
+    min_positive_flags: int,
+    min_detection_pct: float,
+    exclusion_reason: str,
+) -> bool:
+    if exclusion_reason in {"metadata_filter", "zero_detections"}:
+        return False
+    if len(threshold_failures) != 1:
+        return False
+    failure = threshold_failures[0]
+    if failure == "samples_scanned":
+        return min_required > 0 and coverage >= max(1, int(min_required * NEAR_MISS_RELATIVE_MARGIN))
+    if failure == "coverage_pct":
+        return min_coverage_pct > 0 and coverage_pct >= (min_coverage_pct * NEAR_MISS_RELATIVE_MARGIN)
+    if failure == "positive_flags":
+        return min_positive_flags > 0 and detections >= max(1, int(min_positive_flags * NEAR_MISS_RELATIVE_MARGIN))
+    if failure == "detection_pct":
+        return min_detection_pct > 0 and detection_pct >= (min_detection_pct * NEAR_MISS_RELATIVE_MARGIN)
+    return False
 
 # --------------------------------------------------------------------
 # Core Scoring Logic
@@ -51,6 +108,17 @@ def compute_engine_scores(binary_df: pd.DataFrame, config: dict = None) -> pd.Da
         is_active = metadata.get("is_engine_active", 1)
 
         skip = (trusted_only and not is_trusted) or (active_only and not is_active)
+        threshold_failures = _check_threshold_failures(
+            coverage=coverage,
+            coverage_pct=coverage_pct,
+            detections=detections,
+            detection_pct=detection_pct,
+            min_required=min_required,
+            min_coverage_pct=min_coverage_pct,
+            min_positive_flags=min_positive_flags,
+            min_detection_pct=min_detection_pct,
+            exclude_zero_detection=exclude_zero_detection,
+        )
         exclusion_reason = ""
         if skip:
             exclusion_reason = "metadata_filter"
@@ -68,6 +136,18 @@ def compute_engine_scores(binary_df: pd.DataFrame, config: dict = None) -> pd.Da
         included = exclusion_reason == ""
         ml_score = round((detection_pct / 100) * (coverage_pct / 100), 4) if included else 0.0
         tier = assign_detection_tier(coverage_pct, detection_pct) if included else "Excluded"
+        near_miss = _is_near_miss(
+            threshold_failures=threshold_failures,
+            coverage=coverage,
+            coverage_pct=coverage_pct,
+            detections=detections,
+            detection_pct=detection_pct,
+            min_required=min_required,
+            min_coverage_pct=min_coverage_pct,
+            min_positive_flags=min_positive_flags,
+            min_detection_pct=min_detection_pct,
+            exclusion_reason=exclusion_reason,
+        )
 
         stats.append({
             "Engine Name": engine,
@@ -81,6 +161,9 @@ def compute_engine_scores(binary_df: pd.DataFrame, config: dict = None) -> pd.Da
             "Trusted": is_trusted,
             "Active": is_active,
             "Exclusion Reason": exclusion_reason if exclusion_reason else "included",
+            "Threshold Fail Count": len(threshold_failures),
+            "Threshold Failed Checks": "|".join(threshold_failures) if threshold_failures else "",
+            "Near Miss": bool(near_miss),
         })
 
     df = pd.DataFrame(stats)

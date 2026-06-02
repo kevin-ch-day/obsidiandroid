@@ -1,18 +1,25 @@
-"""Compact terminal run health (Pass 5) built from observability + inventory payload."""
+"""Operator-facing terminal run health summary."""
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 from obsidiandroid.cli.ui import display as du
-from obsidiandroid.common import ml_console
 from obsidiandroid.common.publication_readiness import (
     coalesce_publication_ready_reasons,
     coalesce_publication_ready_status,
 )
 from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
+from obsidiandroid.labeling.malware_family_constants import canonicalize_family_label
+
+_BANKER_WARNING_RE = re.compile(r"banker share\s+([0-9.]+%)\s+exceeds\s+([0-9.]+%)", re.IGNORECASE)
+_RAW_CANONICAL_RE = re.compile(
+    r"raw family label differs from canonical family:\s*([0-9]+)",
+    re.IGNORECASE,
+)
 
 
 def print_unified_run_health(
@@ -22,211 +29,364 @@ def print_unified_run_health(
     evidence_index_path: Path | None,
     run_root: Path,
 ) -> None:
-    """Single terminal block: pipeline verdict, publication posture, cohort funnel string, top warnings, open-first list."""
-    if ml_console.is_minimal():
-        return
+    """Print a compact operator-facing run-health verdict block."""
+    del inventory_summary
 
     base = Path(observability_json_path).parent
     payload: dict[str, Any] = {}
     obs_resolved = Path(observability_json_path)
-    candidates: list[Path] = []
-    seen: set[str] = set()
-    for cand in (
-        base / "run_observability_summary.json",
-        obs_resolved,
-    ):
-        key = str(cand)
-        if key not in seen:
-            seen.add(key)
-            candidates.append(cand)
-    for cand in candidates:
-        if cand.exists():
-            try:
-                payload = json.loads(cand.read_text(encoding="utf-8"))
-                obs_resolved = cand
-                break
-            except Exception:
-                payload = {}
+    for cand in (base / "run_observability_summary.json", obs_resolved):
+        if not cand.exists():
+            continue
+        try:
+            payload = json.loads(cand.read_text(encoding="utf-8"))
+            obs_resolved = cand
+            break
+        except Exception:
+            payload = {}
 
     du.print_section("Run Health")
-    du.print_stat("Run ID", payload.get("run_id", "unknown"))
-    du.print_stat("Profile", payload.get("profile_id", "unknown"))
-    du.print_stat("Pipeline (aggregate)", payload.get("pipeline_status", "UNKNOWN"))
-    research_validity_status = str(payload.get("research_validity_status", "UNKNOWN") or "UNKNOWN")
-    research_validity_skip_reason = str(payload.get("research_validity_skip_reason", "") or "").strip()
-    if research_validity_skip_reason:
-        du.print_stat("Research validity bundle", f"{research_validity_status} ({research_validity_skip_reason})")
-    else:
-        du.print_stat("Research validity bundle", research_validity_status)
-    evidence_mode = bool(payload.get("evidence_mode"))
-    publication_ready_mode = coalesce_manifest_publication_mode(payload)
-    du.print_stat("Publication-ready mode", "ON" if publication_ready_mode else "OFF")
-    du.print_stat("Evidence mode", "ON" if evidence_mode else "OFF")
-    publication_ready_status = coalesce_publication_ready_status(payload)
-    du.print_stat("Publication-ready status", publication_ready_status)
+
+    _print_group(
+        "Run status",
+        [
+            ("Pipeline", payload.get("pipeline_status", "UNKNOWN")),
+            ("Research validity bundle", _format_status_with_reason(payload, "research_validity_status", "research_validity_skip_reason")),
+            ("Skeptic audit", _format_status_with_reason(payload, "hostile_audit_status", "hostile_audit_skip_reason")),
+            ("Scientific adequacy", _scientific_posture(payload)),
+            ("Profile", payload.get("profile_id", "unknown")),
+            ("Run mode", _run_mode_line(payload)),
+            ("Publication status", coalesce_publication_ready_status(payload)),
+            *(_run_identity_rows(payload, run_root)),
+        ],
+    )
+
+    _print_group(
+        "Benchmark surface",
+        [
+            ("Row authority", payload.get("main_training_row_authority") or payload.get("row_authority") or "n/a"),
+            ("Family target", _label_strategy_value(payload, "preferred_family_target")),
+            ("Type target", _label_strategy_value(payload, "preferred_type_target")),
+            ("Avoid primary claims on", _label_strategy_avoid(payload)),
+            ("Label resolution", "ENABLED" if payload.get("label_resolution_enabled", True) else "DISABLED"),
+            (
+                "Type-guard suppressions",
+                (
+                    "unavailable (label resolution disabled)"
+                    if payload.get("label_resolution_enabled") is False
+                    else str(payload.get("type_guard_family_suppressed_count", 0))
+                ),
+            ),
+        ],
+    )
+
+    support_gate = _support_gate_line(payload)
+    _print_group(
+        "Benchmark eligibility",
+        [
+            ("Prepared cohort", _safe_value(payload.get("cohort_rows") or payload.get("cohort_prepared_row_count"))),
+            ("Benchmark trainable", _safe_value(payload.get("post_low_support_training_rows") or payload.get("counts", {}).get("post_low_support_training_rows"))),
+            ("Support gate", support_gate[0]),
+            ("Support exclusions", support_gate[1]),
+            ("Excluded families", support_gate[2]),
+        ],
+    )
+
+    _print_group(
+        "Model summary",
+        [
+            ("Main model", _main_model_name(payload)),
+            ("Macro-F1", _main_macro_f1(payload)),
+            ("Test set", _safe_value(payload.get("test_sample_count") or payload.get("counts", {}).get("test_rows"))),
+            ("Feature columns", _feature_column_line(payload)),
+            ("Ablation", _ablation_line(payload)),
+        ],
+    )
+
+    warning_rows = _warning_rows(payload)
+    if warning_rows:
+        du.print_subheader("Warnings")
+        for severity, label, message in warning_rows:
+            print(f"[{severity}] {label}: {message}")
+
+    _print_group(
+        "Next artifacts",
+        [
+            ("Start here", _start_here_path(run_root, evidence_index_path)),
+            ("Cohort/taxonomy", _best_existing_rel(run_root, _artifact_candidates(run_root, obs_resolved.parent, "taxonomy"))),
+            ("Family/type coverage", _best_existing_rel(run_root, _artifact_candidates(run_root, obs_resolved.parent, "coverage"))),
+            ("Claim audit", _best_existing_rel(run_root, _artifact_candidates(run_root, obs_resolved.parent, "claim_audit"))),
+            ("Ablation summary", _ablation_summary_path(run_root, obs_resolved.parent, payload)),
+        ],
+    )
+
+    _print_group(
+        "Timing",
+        [
+            ("Manifest", _format_seconds(payload.get("manifest_finalize_duration_sec"))),
+        ],
+    )
+
     publication_ready_reasons = coalesce_publication_ready_reasons(payload)
     if publication_ready_reasons:
-        du.print_stat("Publication-ready reasons", ", ".join(str(x) for x in publication_ready_reasons))
+        du.print_note(f"Publication detail: {', '.join(str(x) for x in publication_ready_reasons)}")
+
+
+def _print_group(title: str, rows: list[tuple[str, Any]]) -> None:
+    du.print_subheader(title)
+    for label, value in rows:
+        if value in (None, "", "n/a"):
+            continue
+        du.print_stat(label, value)
+
+
+def _format_status_with_reason(payload: dict[str, Any], status_key: str, reason_key: str) -> str:
+    status = str(payload.get(status_key, "UNKNOWN") or "UNKNOWN").strip()
+    reason = str(payload.get(reason_key, "") or "").strip()
+    return f"{status} ({reason})" if reason else status
+
+
+def _scientific_posture(payload: dict[str, Any]) -> str:
     scientific = payload.get("scientific_adequacy") if isinstance(payload.get("scientific_adequacy"), dict) else {}
-    scientific_posture = str(scientific.get("posture", "") or "").strip()
-    if scientific_posture:
-        du.print_stat("Scientific adequacy", scientific_posture)
-        blockers = scientific.get("blockers")
-        if isinstance(blockers, list) and blockers:
-            du.print_stat("Scientific blockers", "; ".join(str(x) for x in blockers[:4]))
+    return str(scientific.get("posture", "") or "n/a")
 
-    row_auth = payload.get("main_training_row_authority") or payload.get("row_authority")
-    du.print_stat("Row authority", row_auth or "n/a")
-    if payload.get("label_resolution_enabled") is False:
-        du.print_stat("Label resolution", "DISABLED")
-        du.print_stat("Type-guard suppressions", "unavailable (label resolution disabled)")
-    else:
-        if payload.get("label_resolution_enabled") is True:
-            du.print_stat("Label resolution", "ENABLED")
-        if payload.get("type_guard_family_suppressed_count") is not None:
-            du.print_stat(
-                "Type-guard suppressions",
-                str(payload.get("type_guard_family_suppressed_count")),
-            )
-    alignment_drop = payload.get("alignment_non_authoritative_family_drop_count")
-    alignment_rescue = payload.get("alignment_live_authority_rescue_count")
-    if alignment_drop is not None or alignment_rescue is not None:
-        du.print_stat(
-            "Alignment authority filter",
-            f"dropped={alignment_drop or 0}; rescued={alignment_rescue or 0}",
-        )
-    rescue_top = str(payload.get("alignment_live_authority_rescue_families_top", "") or "").strip()
-    if rescue_top:
-        du.print_stat("Alignment rescue families", rescue_top)
-    dropped_top = str(payload.get("alignment_non_authoritative_family_drops_top", "") or "").strip()
-    if dropped_top:
-        du.print_stat("Alignment dropped families", dropped_top)
-    low_support_fams = payload.get("low_support_family_drop_count")
-    low_support_rows = payload.get("low_support_row_drop_count")
-    if low_support_fams is not None or low_support_rows is not None:
-        du.print_stat(
-            "Low-support drops",
-            f"rows={low_support_rows or 0}; families={low_support_fams or 0}",
-        )
-    low_support_top = str(payload.get("low_support_family_drops_top", "") or "").strip()
-    if low_support_top:
-        du.print_stat("Low-support families", low_support_top)
-    temporal_top = str(payload.get("temporal_future_only_family_drops_top", "") or "").strip()
-    if temporal_top:
-        du.print_stat("Temporal future-only families", temporal_top)
+
+def _run_mode_line(payload: dict[str, Any]) -> str:
+    run_mode = str(payload.get("run_mode", "") or "n/a")
+    evidence_mode = "ON" if bool(payload.get("evidence_mode")) else "OFF"
+    publication_mode = "ON" if coalesce_manifest_publication_mode(payload) else "OFF"
+    return f"{run_mode}; evidence {evidence_mode}; publication {publication_mode}"
+
+
+def _run_identity_rows(payload: dict[str, Any], run_root: Path) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    run_slot = str(payload.get("run_slot", "") or "").strip()
+    run_instance_id = str(payload.get("run_instance_id", "") or payload.get("run_id", "") or "").strip()
+    started = str(payload.get("run_started_at_utc", "") or "").strip()
+    if run_slot:
+        rows.append(("Run slot", run_slot))
+    if run_instance_id:
+        rows.append(("Run instance", run_instance_id))
+    if run_root:
+        rows.append(("Output path", du.format_console_path(run_root)))
+    if started:
+        rows.append(("Started UTC", started))
+    return rows
+
+
+def _label_strategy_value(payload: dict[str, Any], key: str) -> str:
     label_strategy = payload.get("label_strategy") if isinstance(payload.get("label_strategy"), dict) else {}
-    if label_strategy:
-        du.print_stat("Family target", label_strategy.get("preferred_family_target") or "n/a")
-        du.print_stat("Type target", label_strategy.get("preferred_type_target") or "n/a")
-        avoid = label_strategy.get("avoid_for_primary_claims")
-        if isinstance(avoid, list) and avoid:
-            du.print_stat("Avoid primary claims on", ", ".join(str(x) for x in avoid))
-    ab_line = ""
-    ab_obj = payload.get("ablation")
-    if isinstance(ab_obj, dict):
-        ab_line = str(ab_obj.get("status_line", "") or "")
-    du.print_stat("Ablation", ab_line or payload.get("ablation_status") or "n/a")
-
-    cohort_line = str(payload.get("cohort_funnel_plain") or "").strip() or _cohort_funnel_line(
-        payload,
-        inventory_summary,
-    )
-    du.print_stat("Cohort funnel (high level)", cohort_line)
-
-    model_line = _model_line(inventory_summary, payload)
-    if model_line:
-        du.print_stat("Main model", model_line)
-
-    counts = payload.get("counts") if isinstance(payload.get("counts"), dict) else {}
-    if counts:
-        du.print_stat(
-            "Row funnel (four-count + split)",
-            "sql_scope={gt}; governed_prepared_cohort={g}; fused_feature_rows={fm}; "
-            "aligned_supervised={al}; post_family_support_trainable={pool}; train={tr}; test={te}".format(
-                gt=counts.get("cohort_sql_scope_row_count")
-                or counts.get("gate_total_candidates")
-                or counts.get("raw_candidate_rows"),
-                g=counts.get("cohort_prepared_row_count") or counts.get("governed_cohort_rows"),
-                fm=counts.get("feature_matrix_rows"),
-                al=counts.get("aligned_supervised_rows") or counts.get("aligned_rows"),
-                pool=counts.get("post_low_support_training_rows") or counts.get("supervised_training_rows"),
-                tr=counts.get("train_rows"),
-                te=counts.get("test_rows"),
-            ),
-        )
-
-    feats = payload.get("features") if isinstance(payload.get("features"), dict) else {}
-    if feats.get("pre_prune") is not None or feats.get("post_prune") is not None:
-        du.print_stat(
-            "Feature columns pre/post prune",
-            f"{feats.get('feature_matrix_cols_pre_prune') or feats.get('pre_prune')} → "
-            f"{feats.get('feature_matrix_cols_post_prune') or feats.get('post_prune')}",
-        )
-
-    hostile_st = payload.get("hostile_audit_status")
-    hostile_skip_reason = str(payload.get("hostile_audit_skip_reason", "") or "").strip()
-    if hostile_st:
-        hostile_line = str(hostile_st)
-        if hostile_skip_reason:
-            hostile_line = f"{hostile_line} ({hostile_skip_reason})"
-        du.print_stat("Hostile audit", hostile_line)
-
-    blockers = payload.get("paper_blockers") or []
-    if isinstance(blockers, list) and blockers:
-        du.print_stat("Publication blockers", "; ".join(str(x) for x in blockers[:8]))
-
-    rw = payload.get("research_warnings_top") or payload.get("research_warnings") or []
-    if isinstance(rw, list) and rw:
-        du.print_info(f"[WARN] Top research/ops warnings: {_compact_list_line(rw, limit=3)}")
-
-    primed = payload.get("top_artifacts_to_open_first")
-    primary_hints: list[str] = []
-    if isinstance(primed, list):
-        primary_hints = [str(x) for x in primed[:8]]
-    open_hints = _merge_open_hints(
-        primary_hints,
-        _open_first_hints(
-            evidence_index_path,
-            Path(payload.get("paths", {}).get("logging_audit_md", "")),
-            verbose_run_artifacts=bool(payload.get("verbose_run_artifacts", True)),
-            research_validity_enabled=bool(payload.get("research_validity_bundle_enabled", True)),
-        ),
-    )
-    if open_hints:
-        du.print_info(
-            f"[OPEN] Suggested first artifacts: {_compact_list_line(open_hints, limit=4, base=run_root)}"
-        )
+    return str(label_strategy.get(key, "") or "n/a")
 
 
-def _cohort_funnel_line(payload: dict[str, Any], inventory_summary: dict[str, Any]) -> str:
-    del inventory_summary
-    cohort = str(payload.get("cohort_population_warning") or "").strip()
-    if cohort:
-        return cohort
-    # Pull from nested paths if future schema adds them
-    return "see diagnostics/cohort_funnel.md and cohort_population_audit.csv"
+def _label_strategy_avoid(payload: dict[str, Any]) -> str:
+    label_strategy = payload.get("label_strategy") if isinstance(payload.get("label_strategy"), dict) else {}
+    avoid = label_strategy.get("avoid_for_primary_claims")
+    if isinstance(avoid, list) and avoid:
+        return ", ".join(str(x) for x in avoid)
+    return "n/a"
 
 
-def _merge_open_hints(primary: list[str], fallback: list[str]) -> list[str]:
-    out: list[str] = []
-    seen: set[str] = set()
-    for seq in (primary, fallback):
-        for h in seq:
-            if h and h not in seen:
-                seen.add(h)
-                out.append(h)
-    return out[:8]
-
-
-def _compact_list_line(items: list[Any], *, limit: int, base: Path | None = None) -> str:
-    values = [_short_display_path(str(item), base=base) for item in items if str(item).strip()]
-    if not values:
+def _safe_value(value: Any) -> str:
+    if value in (None, "", "n/a"):
         return "n/a"
-    shown = values[: max(1, int(limit))]
-    suffix = ""
-    if len(values) > len(shown):
-        suffix = f" (+{len(values) - len(shown)} more in diagnostics)"
-    return " | ".join(shown) + suffix
+    return f"{int(value):,}" if isinstance(value, (int, float)) and not isinstance(value, bool) else str(value)
+
+
+def _support_gate_line(payload: dict[str, Any]) -> tuple[str, str, str]:
+    floor = payload.get("benchmark_support_floor")
+    floor_text = f"n>={int(floor)}" if floor not in (None, "") else "n/a"
+
+    benchmark_rows = int(payload.get("benchmark_support_excluded_sample_count", 0) or 0)
+    benchmark_fams = int(payload.get("benchmark_support_excluded_family_count", 0) or 0)
+    benchmark_top = _normalize_family_count_preview(str(payload.get("benchmark_support_excluded_families_top", "") or ""))
+    if benchmark_rows > 0 or benchmark_fams > 0 or benchmark_top:
+        return (
+            floor_text,
+            f"{benchmark_rows:,} rows / {benchmark_fams:,} families",
+            benchmark_top or "n/a",
+        )
+
+    low_rows = int(payload.get("low_support_row_drop_count", 0) or 0)
+    low_fams = int(payload.get("low_support_family_drop_count", 0) or 0)
+    low_top = _normalize_family_count_preview(str(payload.get("low_support_family_drops_top", "") or ""))
+    return (
+        floor_text,
+        f"{low_rows:,} rows / {low_fams:,} families",
+        low_top or "n/a",
+    )
+
+
+def _normalize_family_count_preview(value: str) -> str:
+    parts = []
+    for raw_part in str(value or "").split(","):
+        token = raw_part.strip()
+        if not token or "=" not in token:
+            continue
+        family, count = token.split("=", 1)
+        family_display = canonicalize_family_label(family.strip())
+        parts.append(f"{family_display}={count.strip()}")
+    return ", ".join(parts)
+
+
+def _main_model_name(payload: dict[str, Any]) -> str:
+    model_summary = payload.get("model_summary") if isinstance(payload.get("model_summary"), dict) else {}
+    if model_summary:
+        return str(model_summary.get("top_model", "") or "n/a")
+    model_block = payload.get("model") if isinstance(payload.get("model"), dict) else {}
+    return str(model_block.get("top_model", "") or "n/a")
+
+
+def _main_macro_f1(payload: dict[str, Any]) -> str:
+    model_summary = payload.get("model_summary") if isinstance(payload.get("model_summary"), dict) else {}
+    value = model_summary.get("top_macro_f1") if model_summary else None
+    if value in (None, ""):
+        model_block = payload.get("model") if isinstance(payload.get("model"), dict) else {}
+        value = model_block.get("top_macro_f1")
+    if value in (None, ""):
+        return "n/a"
+    return f"{float(value):.4f}"
+
+
+def _feature_column_line(payload: dict[str, Any]) -> str:
+    features = payload.get("features") if isinstance(payload.get("features"), dict) else {}
+    pre = features.get("feature_matrix_cols_pre_prune") or features.get("pre_prune")
+    post = features.get("feature_matrix_cols_post_prune") or features.get("post_prune")
+    if pre in (None, "") and post in (None, ""):
+        return "n/a"
+    return f"{_safe_value(pre)} → {_safe_value(post)}"
+
+
+def _ablation_line(payload: dict[str, Any]) -> str:
+    ablation = payload.get("ablation") if isinstance(payload.get("ablation"), dict) else {}
+    status_line = str(ablation.get("status_line", "") or payload.get("ablation_status", "") or "n/a").strip()
+    if not status_line:
+        return "n/a"
+    text = status_line.replace("artifact_paths=", "").replace("ablation_grid_status=", "")
+    text = text.replace("skipped_experiments=", "skipped=")
+    text = text.replace("summary=", "summary=")
+    text = text.replace(" | ", "; ")
+    return text
+
+
+def _warning_rows(payload: dict[str, Any]) -> list[tuple[str, str, str]]:
+    rows: list[tuple[str, str, str]] = []
+    warnings = payload.get("research_warnings_top") or payload.get("research_warnings") or []
+    if not isinstance(warnings, list):
+        warnings = []
+    seen: set[tuple[str, str]] = set()
+    for message in [str(item or "").strip() for item in warnings if str(item or "").strip()]:
+        banker_match = _BANKER_WARNING_RE.search(message)
+        if banker_match:
+            item = ("HIGH", "Banker share", f"{banker_match.group(1)} exceeds {banker_match.group(2)}")
+            if item[:2] not in seen:
+                seen.add(item[:2])
+                rows.append(item)
+            continue
+        family_match = _RAW_CANONICAL_RE.search(message)
+        if family_match:
+            item = ("MEDIUM", "Family conflicts", f"raw-vs-canonical conflicts={family_match.group(1)}")
+            if item[:2] not in seen:
+                seen.add(item[:2])
+                rows.append(item)
+            continue
+    if not rows:
+        family_conflicts = int(payload.get("family_conflict_count", 0) or 0)
+        if family_conflicts > 0:
+            rows.append(("MEDIUM", "Family conflicts", f"raw-vs-canonical conflicts={family_conflicts}"))
+    if not rows and warnings:
+        preview = " | ".join(str(item) for item in warnings[:3])
+        if len(warnings) > 3:
+            preview += f" (+{len(warnings) - 3} more in diagnostics)"
+        rows.append(("MEDIUM", "Research warnings", preview))
+    return rows[:4]
+
+
+def _artifact_candidates(run_root: Path, diagnostics_dir: Path, lane: str) -> list[Path]:
+    if lane == "taxonomy":
+        return [
+            diagnostics_dir / "index.md",
+            diagnostics_dir / "taxonomy_authority_split.latest.md",
+            *sorted(diagnostics_dir.glob("taxonomy_authority_split_*.md")),
+        ]
+    if lane == "coverage":
+        return [
+            *sorted(diagnostics_dir.glob("family_type_authority_coverage_*.md")),
+        ]
+    if lane == "claim_audit":
+        return [
+            diagnostics_dir / "publication_claim_audit.md",
+            diagnostics_dir / "paper_claim_audit.md",
+        ]
+    return []
+
+
+def _start_here_path(run_root: Path, evidence_index_path: Path | None) -> str:
+    diagnostics_dir = run_root / "diagnostics"
+    candidates = [
+        diagnostics_dir / "index.md",
+        diagnostics_dir / "run_science_index.md",
+        diagnostics_dir / "run_artifact_index.md",
+        evidence_index_path if evidence_index_path else None,
+    ]
+    return _best_existing_rel(run_root, candidates)
+
+
+def _ablation_summary_path(run_root: Path, diagnostics_dir: Path, payload: dict[str, Any]) -> str:
+    status_line = str((payload.get("ablation") or {}).get("status_line", "") or "").strip()
+    match = re.search(r"summary=([A-Za-z0-9_.-]+)", status_line)
+    candidates: list[Path] = []
+    if match:
+        candidates.append(diagnostics_dir / match.group(1))
+    candidates.extend(sorted(diagnostics_dir.glob("ablation_summary*.csv")))
+    return _best_existing_rel(run_root, candidates)
+
+
+def _best_existing_rel(run_root: Path, candidates: list[Path | None]) -> str:
+    for candidate in candidates:
+        if candidate and candidate.exists():
+            return _short_display_path(str(candidate), base=run_root)
+    return "n/a"
+
+
+def _open_first_hints(
+    evidence_index_path: Path | None,
+    logging_audit: Path,
+    *,
+    verbose_run_artifacts: bool,
+    research_validity_enabled: bool,
+) -> list[str]:
+    """Compatibility helper for existence-aware open-first artifact hints."""
+    hints: list[str] = []
+    if evidence_index_path and evidence_index_path.exists():
+        hints.append(str(evidence_index_path))
+    parent = evidence_index_path.parent if evidence_index_path else Path(".")
+    names = ["pipeline_stage_summary.md"]
+    if research_validity_enabled:
+        names = [
+            "cohort_funnel.md",
+            "publication_claim_audit.md",
+            "paper_claim_audit.md",
+            "recommended_findings.md",
+            "figure_validity_audit.md",
+            *names,
+        ]
+    for name in names:
+        candidate = parent / name
+        if candidate.exists():
+            hints.append(str(candidate))
+    ros = (parent / "diagnostics" / "run_observability_summary.json") if evidence_index_path else Path(".")
+    if ros.exists():
+        hints.append(str(ros))
+    if verbose_run_artifacts and logging_audit.exists():
+        hints.append(str(logging_audit))
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in hints:
+        if item not in seen:
+            seen.add(item)
+            deduped.append(item)
+    return deduped[:5]
 
 
 def _short_display_path(value: str, *, base: Path | None = None) -> str:
@@ -245,66 +405,13 @@ def _short_display_path(value: str, *, base: Path | None = None) -> str:
         return text
 
 
-def _model_line(inventory_summary: dict[str, Any], payload: dict[str, Any]) -> str:
-    del inventory_summary
-    ms = payload.get("model_summary") if isinstance(payload.get("model_summary"), dict) else {}
-    if not ms:
-        inner = payload.get("model") if isinstance(payload.get("model"), dict) else {}
-        if inner:
-            top = inner.get("top_model", "")
-            f1 = inner.get("top_macro_f1", "")
-            tn = payload.get("test_sample_count")
-            return f"{top} Macro-F1={f1}; test n={tn}" if tn not in (None, "") else f"{top} Macro-F1={f1}"
-        return ""
-    top = ms.get("top_model", "")
-    f1 = ms.get("top_macro_f1", "")
-    tn = payload.get("test_sample_count")
-    return f"{top} Macro-F1={f1}; test n={tn}" if tn not in (None, "") else f"{top} Macro-F1={f1}"
-
-
-def _open_first_hints(
-    evidence_index_path: Path | None,
-    logging_audit: Path,
-    *,
-    verbose_run_artifacts: bool,
-    research_validity_enabled: bool,
-) -> list[str]:
-    hints: list[str] = []
-    if evidence_index_path and evidence_index_path.exists():
-        hints.append(str(evidence_index_path))
-    diag_parent: Path | None = None
-    if evidence_index_path:
-        cand = evidence_index_path.parent / "diagnostics"
-        if cand.is_dir():
-            diag_parent = cand
-    names = ["pipeline_stage_summary.md"]
-    if research_validity_enabled:
-        names = [
-            "cohort_funnel.md",
-            "publication_claim_audit.md",
-            "paper_claim_audit.md",
-            "recommended_findings.md",
-            "figure_validity_audit.md",
-            *names,
-        ]
-    for name in names:
-        parent = (evidence_index_path.parent if evidence_index_path else Path("."))
-        p = parent / name
-        if p.exists():
-            hints.append(str(p))
-    ros = (diag_parent or Path(".")) / "run_observability_summary.json"
-    if ros.exists():
-        hints.append(str(ros))
-    if verbose_run_artifacts and logging_audit.exists():
-        hints.append(str(logging_audit))
-    # De-duplicate preserve order
-    seen: set[str] = set()
-    out: list[str] = []
-    for h in hints:
-        if h not in seen:
-            seen.add(h)
-            out.append(h)
-    return out[:5]
+def _format_seconds(value: Any) -> str:
+    if value in (None, ""):
+        return "n/a"
+    try:
+        return f"{float(value):.2f}s"
+    except (TypeError, ValueError):
+        return str(value)
 
 
 __all__ = ["print_unified_run_health"]

@@ -23,7 +23,10 @@ from .cohort_funnel import (
 )
 from .figures import write_validity_figures
 from .paper_claim_audit import write_paper_claim_audit_md
-from .permission_audit import write_permission_feature_audit_csv
+from .permission_audit import (
+    write_permission_feature_audit_csv,
+    write_permission_intel_audit_artifacts,
+)
 from .signal_export import write_signal_decomposition_artifacts
 from .type_permission_figures import (
     write_type_permission_figure_bundle,
@@ -80,6 +83,19 @@ def write_research_validity_bundle(
             manifest_context,
             perm_path,
             detail="research_validity:permission_feature_audit",
+        )
+
+    for pi_path in write_permission_intel_audit_artifacts(
+        diagnostics_dir=diagnostics_dir,
+        samples_df=samples_df,
+    ):
+        spi = str(pi_path)
+        if spi not in artifact_list:
+            artifact_list.append(spi)
+        obs_api.record_artifact_write(
+            manifest_context,
+            pi_path,
+            detail="research_validity:permission_intel_audit",
         )
 
     fig_paths = write_validity_figures(

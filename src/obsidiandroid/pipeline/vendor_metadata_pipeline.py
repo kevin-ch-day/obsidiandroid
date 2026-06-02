@@ -86,7 +86,8 @@ def extract_vendor_metadata(
     _inject_pipeline_state(pipeline_results, vendor_eval_df)
 
     if isinstance(scorecard_df, pd.DataFrame) and not scorecard_df.empty:
-        du.print_success(f"[OK] Scorecard shape: {scorecard_df.shape}")
+        if not ml_console.is_compact():
+            du.print_success(f"[OK] Scorecard shape: {scorecard_df.shape}")
         _export_parser_quality(scorecard_df)
     else:
         du.print_error("[FAIL] Scorecard is missing or invalid; ML scoring will fail.")
@@ -100,7 +101,13 @@ def extract_vendor_metadata(
         )
         return None, None, None, None
 
-    du.print_success("[DONE] Vendor metadata extraction complete.")
+    if ml_console.is_compact():
+        du.print_success(
+            f"[DONE] Vendor metadata ready: vendors={len(records_by_vendor):,}, "
+            f"scorecard_rows={int(scorecard_df.shape[0]) if isinstance(scorecard_df, pd.DataFrame) else 0:,}"
+        )
+    else:
+        du.print_success("[DONE] Vendor metadata extraction complete.")
     log_event(
         PIPELINE_LOGGER,
         "vendor_metadata_complete",

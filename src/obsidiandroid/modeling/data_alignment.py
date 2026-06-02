@@ -4,6 +4,7 @@ from typing import Any
 
 import pandas as pd
 
+from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.labeling.malware_family_constants import (
     GENERIC_TOKENS,
@@ -46,6 +47,22 @@ class SampleIdMismatchError(DataAlignmentError):
 
 class InsufficientLabelClassesError(DataAlignmentError):
     """Raised when alignment leaves fewer than two unique classes."""
+
+
+def _emit_live_authority_retention_note(rescued: int) -> None:
+    """Print the live-authority retention note once per ablation run."""
+    if rescued <= 0:
+        return
+    message = (
+        "Authority note: "
+        f"{rescued} live-authority-backed sample(s) retained despite local registry drift."
+    )
+    if bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)):
+        already_emitted = bool(getattr(app_config, "RUNTIME_ABLATION_AUTHORITY_NOTE_EMITTED", False))
+        if already_emitted:
+            return
+        setattr(app_config, "RUNTIME_ABLATION_AUTHORITY_NOTE_EMITTED", True)
+    du.print_info(message)
 
 
 def _normalize_authority_mask(
@@ -137,7 +154,8 @@ def _live_authority_family_mask(
             return False
         if canonical in placeholder or canonical in weak_tokens or canonical in {"metasploit", "unknown"}:
             return False
-        if label_kind != "family_or_common_name":
+        label_kind_ok = label_kind == "family_or_common_name" or family_name == canonical
+        if not label_kind_ok:
             return False
         if not type_value or type_value in placeholder or type_value == "unknown":
             return False
@@ -335,9 +353,7 @@ def extract_aligned_labels(
                 authority_mask = authority_mask | live_authority_mask
                 dropped = int((~authority_mask).sum())
                 if rescued:
-                    du.print_info(
-                        f"Retaining {rescued} sample(s) backed by live-authority family rows absent from the local known-family registry."
-                    )
+                    _emit_live_authority_retention_note(rescued)
                 if dropped:
                     du.print_warning(
                         f"Dropping {dropped} sample(s) with non-authoritative family_canonical labels before training alignment."

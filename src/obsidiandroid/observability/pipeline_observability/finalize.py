@@ -86,6 +86,18 @@ def _read_label_strategy_blob(diagnostics_dir: Path, run_id: str) -> dict[str, A
     return label_strategy if isinstance(label_strategy, dict) else {}
 
 
+def _read_taxonomy_target_surface_blob(diagnostics_dir: Path, run_id: str) -> dict[str, Any]:
+    """Load taxonomy target-surface summary when present."""
+    path = diagnostics_dir / f"taxonomy_target_surfaces_{run_id}.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def _top_artifacts_to_open(
     run_root: Path | None,
     diagnostics_dir: Path,
@@ -426,6 +438,7 @@ def finalize_pipeline_observability(
         or manifest_context.get("feature_matrix_row_authority")
     )
     label_strategy = _read_label_strategy_blob(diagnostics_dir, run_id)
+    taxonomy_target_surface = _read_taxonomy_target_surface_blob(diagnostics_dir, run_id)
     dataset_foundation_payload: dict[str, Any] = {}
     dataset_foundation_path = diagnostics_dir / "dataset_foundation_summary.json"
     if dataset_foundation_path.exists():
@@ -444,11 +457,15 @@ def finalize_pipeline_observability(
             if isinstance(split_blob.get("temporal_split_summary"), dict)
             else {}
         )
-    scientific_adequacy, scientific_blockers = classify_scientific_adequacy(
-        macro_f1=top_macro_f1,
-        supervised_family_claims_suitable=supervised_family_claims_suitable,
-        dropped_future_only_rows=temporal_split_summary.get("test_rows_dropped_unseen_train_classes", 0),
-    )
+    training_reached = completed_stage in {"training", "ablation", "permission_trends", "label_resolution", "manifest"}
+    if training_reached and top_macro_f1 is not None:
+        scientific_adequacy, scientific_blockers = classify_scientific_adequacy(
+            macro_f1=top_macro_f1,
+            supervised_family_claims_suitable=supervised_family_claims_suitable,
+            dropped_future_only_rows=temporal_split_summary.get("test_rows_dropped_unseen_train_classes", 0),
+        )
+    else:
+        scientific_adequacy, scientific_blockers = ("Not assessed", [])
     taxonomy_summary_payload: dict[str, Any] = {}
     taxonomy_summary_path = diagnostics_dir / f"taxonomy_consistency_summary_{run_id}.json"
     if taxonomy_summary_path.exists():
@@ -497,6 +514,38 @@ def finalize_pipeline_observability(
     )
     if len(low_support_top) > 5:
         low_support_top_preview += ", …"
+    benchmark_support_policy = (
+        taxonomy_target_surface.get("benchmark_support_policy")
+        if isinstance(taxonomy_target_surface.get("benchmark_support_policy"), dict)
+        else {}
+    )
+    benchmark_tier_counts = (
+        taxonomy_target_surface.get("tier_counts")
+        if isinstance(taxonomy_target_surface.get("tier_counts"), dict)
+        else {}
+    )
+    benchmark_support_excluded_rows = int(
+        benchmark_tier_counts.get("excluded_below_benchmark_support_samples", 0) or 0
+    )
+    benchmark_support_excluded_families = int(
+        benchmark_support_policy.get("excluded_below_support_family_count", 0) or 0
+    )
+    benchmark_support_top_rows: list[str] = []
+    for row in benchmark_support_policy.get("excluded_below_support_families", []) or []:
+        if not isinstance(row, dict):
+            continue
+        family = str(row.get("family_canonical", "") or "").strip()
+        if not family:
+            continue
+        try:
+            support = int(row.get("sample_count", 0) or 0)
+        except (TypeError, ValueError):
+            support = 0
+        benchmark_support_top_rows.append(f"{family}={support}")
+    benchmark_support_top_preview = ", ".join(benchmark_support_top_rows[:5])
+    if len(benchmark_support_top_rows) > 5:
+        benchmark_support_top_preview += ", …"
+    benchmark_support_floor = benchmark_support_policy.get("benchmark_min_support")
     temporal_dropped_family_counts = (
         temporal_split_summary.get("test_rows_dropped_unseen_train_class_families")
         if isinstance(temporal_split_summary.get("test_rows_dropped_unseen_train_class_families"), dict)
@@ -506,6 +555,11 @@ def finalize_pipeline_observability(
     status_blob = {
         "schema_version": "2.0",
         "run_id": run_id,
+        "run_instance_id": str(manifest.get("run_instance_id", "") or manifest_context.get("run_instance_id", "") or run_id),
+        "run_slot": str(manifest.get("run_slot", "") or manifest_context.get("run_slot", "") or ""),
+        "run_mode": str(manifest.get("run_mode", "") or manifest_context.get("run_mode", "") or ""),
+        "claim_surface": str(manifest.get("claim_surface", "") or manifest_context.get("claim_surface", "") or ""),
+        "run_started_at_utc": str(manifest.get("run_started_at_utc", "") or manifest_context.get("run_started_at_utc", "") or manifest.get("timestamp_utc", "") or ""),
         "profile_id": profile_id,
         "run_status": run_status_raw,
         "completed_stage": completed_stage,
@@ -540,6 +594,11 @@ def finalize_pipeline_observability(
         "low_support_family_drop_count": int(low_support_family_drop_count),
         "low_support_row_drop_count": int(low_support_row_drop_count),
         "low_support_family_drops_top": low_support_top_preview,
+        "benchmark_support_floor": _coerce_int(benchmark_support_floor),
+        "benchmark_support_excluded_sample_count": int(benchmark_support_excluded_rows),
+        "benchmark_support_excluded_family_count": int(benchmark_support_excluded_families),
+        "benchmark_support_excluded_families_top": benchmark_support_top_preview,
+        "family_conflict_count": int(taxonomy_summary_payload.get("taxonomy_mismatch_count", 0) or 0),
         "temporal_future_only_family_drops_top": _format_top_count_pairs(temporal_dropped_family_counts),
         "main_training_row_authority": row_authority,
         "cohort_rows": _coerce_int(gov),
@@ -583,6 +642,7 @@ def finalize_pipeline_observability(
                 "test_rows_dropped_unseen_train_classes", 0
             ),
         },
+        "manifest_finalize_duration_sec": float(manifest_context.get("_manifest_finalize_duration_sec", 0.0) or 0.0),
         "ablation": {
             "status_line": manifest_context.get("_ablation_run_status_summary", ""),
             "cohort_gap_summary": ablation_snap,

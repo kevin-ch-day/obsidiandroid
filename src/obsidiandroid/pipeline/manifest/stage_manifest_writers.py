@@ -493,6 +493,19 @@ def write_run_summary_onepager(
                         f"| {row.get('model', '')} | {row.get('macro_f1', '')} | "
                         f"{row.get('weighted_f1', '')} | {row.get('accuracy', '')} |"
                     )
+            tier_rows = model_summary.get("top_model_family_tier_rows", [])
+            if isinstance(tier_rows, list) and tier_rows:
+                lines.append("")
+                lines.append("### Top Model Family-Tier Evaluation")
+                lines.append("")
+                lines.append("| scope | samples | labels | macro_f1 | weighted_f1 | accuracy |")
+                lines.append("|---|---:|---:|---:|---:|---:|")
+                for row in tier_rows:
+                    lines.append(
+                        f"| {row.get('evaluation_scope', '')} | {row.get('sample_count', '')} | "
+                        f"{row.get('distinct_true_labels', '')} | {row.get('macro_f1', '')} | "
+                        f"{row.get('weighted_f1', '')} | {row.get('accuracy', '')} |"
+                    )
         else:
             lines.append("- model summary not available (run stopped before training).")
 
@@ -552,6 +565,16 @@ def write_experiment_contract_snapshot(
 
         cohort_contract = dict(manifest_context.get("paper_cohort_contract", {}) or {})
 
+        training_label_field = str(
+            getattr(app_config, "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD", "") or "family_id"
+        ).strip() or "family_id"
+        display_label_field = "type_slug" if training_label_field == "type_slug" else "family_canonical"
+        label_selection_policy = (
+            "type_slug_explicit"
+            if training_label_field == "type_slug"
+            else "family_id_first"
+        )
+
         contract = {
             "schema_version": "1.0",
             "run_id": run_id,
@@ -571,19 +594,17 @@ def write_experiment_contract_snapshot(
                 "source": str(paper_mode_data.get("source", "unknown")),
             },
             "target_task": {
-                "training_label_field": "family_id",
-                "display_label_field": "family_canonical",
-                "label_selection_policy": "family_id_first",
+                "training_label_field": training_label_field,
+                "display_label_field": display_label_field,
+                "label_selection_policy": label_selection_policy,
                 "label_field_legacy": "family_canonical",
                 "task_type": "multiclass_classification",
                 "primary_metric": "macro_f1_mean_cv5",
             },
             "label_authority_reporting": {
-                "training_label_field": str(
-                    getattr(app_config, "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD", "") or ""
-                ).strip(),
-                "display_label_field": "family_canonical",
-                "label_selection_policy": "family_id_first",
+                "training_label_field": training_label_field,
+                "display_label_field": display_label_field,
+                "label_selection_policy": label_selection_policy,
                 "active_training_classes": getattr(
                     app_config,
                     "RUNTIME_TRAINING_LABEL_CLASS_COUNT",
@@ -673,6 +694,10 @@ def write_evaluation_contract_json(
                 label_block = maybe
         predictions_path = diagnostics_dir / f"headline_test_predictions_{run_id}.csv"
         errors_path = diagnostics_dir / f"headline_test_errors_{run_id}.csv"
+        family_tier_csv = diagnostics_dir / f"family_tier_model_evaluation_{run_id}.csv"
+        family_tier_json = diagnostics_dir / f"family_tier_model_evaluation_{run_id}.json"
+        family_tier_md = diagnostics_dir / f"family_tier_model_evaluation_{run_id}.md"
+        model_summary = manifest.get("model_summary", {}) if isinstance(manifest.get("model_summary"), dict) else {}
         payload: dict[str, Any] = {
             "schema_version": "1.0",
             "run_id": str(run_id),
@@ -697,6 +722,15 @@ def write_evaluation_contract_json(
                 "predictions_csv_exists": bool(predictions_path.is_file()),
                 "errors_csv": str(errors_path),
                 "errors_csv_exists": bool(errors_path.is_file()),
+            },
+            "family_tier_evaluation": {
+                "csv_path": str(family_tier_csv),
+                "csv_exists": bool(family_tier_csv.is_file()),
+                "json_path": str(family_tier_json),
+                "json_exists": bool(family_tier_json.is_file()),
+                "md_path": str(family_tier_md),
+                "md_exists": bool(family_tier_md.is_file()),
+                "top_model_rows": list(model_summary.get("top_model_family_tier_rows", []) or []),
             },
             "promoted_paper_model": dict(
                 manifest.get("promoted_paper_model", {})

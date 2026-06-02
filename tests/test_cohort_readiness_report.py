@@ -9,7 +9,7 @@ from config import app_config
 
 
 def test_cohort_readiness_report_prints_percentages_and_concentration(capsys) -> None:
-    """Summary should include type percentages and family concentration metrics."""
+    """Summary should use the compact benchmark structure."""
     df = pd.DataFrame(
         {
             "sample_id": [1, 2, 3, 4, 5],
@@ -38,26 +38,23 @@ def test_cohort_readiness_report_prints_percentages_and_concentration(capsys) ->
     out = capsys.readouterr().out
     out_lower = out.lower()
 
-    assert "Cohort Readiness Summary" in out
-    assert "type distribution" in out_lower
-    assert "family concentration" in out_lower
-    assert "target surfaces" in out_lower
-    assert "catalog semantics" in out_lower
-    assert "top drift cohorts" in out_lower
-    assert "top family" in out_lower
-    assert "top 3 families" in out_lower
-    assert "top 5 families" in out_lower
-    assert "hash-like sample labels" in out_lower
+    assert "Cohort Benchmark Summary" in out
+    assert "cohort funnel" in out_lower
+    assert "benchmark targets" in out_lower
+    assert "cohort composition" in out_lower
+    assert "quality / risk flags" in out_lower
+    assert "top types" in out_lower
+    assert "top families" in out_lower
+    assert "concentration" in out_lower
+    assert "label readiness" in out_lower
     assert "(40.00%)" in out or "(40.0%)" in out
-    assert "Excluded Families" in out
-    assert "devixor, gigabud" in out
-    assert "Family Target" in out
-    assert "Type Target" in out
-    assert "Raw→Type Alignment" in out
+    assert "Family target" in out
+    assert "Type target" in out
+    assert "Excluded type_slug values" in out
 
 
 def test_cohort_readiness_report_notes_sql_vs_prepared_gap(capsys) -> None:
-    """When cohort_gate_stats is present, explain SQL governed count vs prepared rows."""
+    """When cohort_gate_stats is present, funnel should reflect SQL vs prepared counts."""
     df = pd.DataFrame(
         {
             "sample_id": list(range(1, 51)),
@@ -71,17 +68,11 @@ def test_cohort_readiness_report_notes_sql_vs_prepared_gap(capsys) -> None:
 
     cohort_readiness_report.print_cohort_readiness_report(df, gates={"max_missing_package_pct": 10.0})
     out = capsys.readouterr().out
-    out_lower = out.lower()
     warnings = df.attrs.get("cohort_operational_warnings")
-    assert "SQL governed cohort (reference)" in out
-    assert "SQL Profile Scope" in out
-    assert "cohort attrition" in out_lower
-    assert "SQL Scope → Governed" in out
-    assert "SQL Scope → Prepared" in out
-    assert "100" in out
-    assert "Final Samples" in out
-    assert "50" in out
-    assert "Prepared cohort is 50 rows" in out
+    assert "Cohort funnel" in out
+    assert "160 SQL" in out
+    assert "100 governed" in out
+    assert "50 prepared" in out
     assert isinstance(warnings, list)
     assert any("prepared cohort retains only" in msg for msg in warnings)
     assert any("SQL governed cohort retains only" in msg for msg in warnings)
@@ -111,7 +102,7 @@ def test_cohort_readiness_report_warns_for_concentration_or_missingness(capsys) 
 
 
 def test_cohort_readiness_report_warns_for_android_catalog_semantic_anomalies(capsys) -> None:
-    """Readiness should surface Android cohort contamination and weak-label signals."""
+    """Risk block should surface Android contamination and weak-label signals compactly."""
     df = pd.DataFrame(
         {
             "sample_id": [1, 2, 3],
@@ -135,14 +126,11 @@ def test_cohort_readiness_report_warns_for_android_catalog_semantic_anomalies(ca
     )
     out = capsys.readouterr().out.lower()
     warnings = df.attrs.get("cohort_operational_warnings")
-    assert "non-android lane rows" in out
-    assert "non-android target rows" in out
-    assert "rows with vt family token" in out
-    assert "weak labels with canonical family" in out
-    assert "raw-vs-canonical family conflicts" in out
-    assert "top drift cohorts" in out
-    assert "families:" in out
-    assert "source batches:" in out
+    assert "quality / risk flags" in out
+    assert "label readiness" in out
+    assert "family conflicts" in out
+    assert "top curation queue" in out
+    assert "families" in out
     assert isinstance(warnings, list)
     assert any("non-android analysis_lane rows present" in msg for msg in warnings)
     assert any("non-android payload_target_platform rows present" in msg for msg in warnings)
@@ -153,8 +141,39 @@ def test_cohort_readiness_report_warns_for_android_catalog_semantic_anomalies(ca
     assert any("raw family label differs from canonical family" in msg for msg in warnings)
 
 
+def test_compact_top_drift_groups_dedupes_same_sample_pocket(capsys, monkeypatch) -> None:
+    """Compact curation queue should not report the same sample pocket twice."""
+    monkeypatch.setattr(app_config, "ML_TERMINAL_COMPACT", True, raising=False)
+    monkeypatch.setattr(app_config, "ML_CONSOLE_MODE", "research", raising=False)
+    df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "family_canonical": ["SpyNote", "SpyNote", "SpyLoan", "Octo"],
+            "type_slug": ["rat", "rat", "spyware", "banker"],
+            "analysis_lane": ["android_artifact"] * 4,
+            "sample_label_kind": ["filename", "hash_like", "family_or_common_name", "family_or_common_name"],
+            "payload_target_platform": ["android"] * 4,
+            "vt_family_token": ["", "", "", ""],
+            "family_label_raw": ["SpyNote", "SpyNote", "BlackLoan", "ExobotCompact.D/Octo"],
+            "source_batch_label": ["", "", "", ""],
+            "android_package_name": ["pkg.a", "pkg.b", "pkg.c", "pkg.d"],
+            "vt_first_submission_date": ["2024-01-01"] * 4,
+        }
+    )
+
+    cohort_readiness_report.print_cohort_readiness_report(
+        df,
+        gates={"max_missing_package_pct": 10.0},
+    )
+    out = capsys.readouterr().out
+    assert "top curation queue" in out.lower()
+    assert "families" in out and "SpyNote" in out
+    assert "types rat" not in out.lower()
+    assert "source batches <blank>" not in out.lower()
+
+
 def test_cohort_readiness_report_includes_sql_scope_catalog_preview(capsys) -> None:
-    """Readiness should show SQL-scope semantics when the stage attached them."""
+    """Detailed SQL-scope preview stays out of terminal even when attached."""
     df = pd.DataFrame(
         {
             "sample_id": [1, 2],
@@ -186,20 +205,16 @@ def test_cohort_readiness_report_includes_sql_scope_catalog_preview(capsys) -> N
 
     cohort_readiness_report.print_cohort_readiness_report(df, gates={"max_missing_package_pct": 10.0})
     out = capsys.readouterr().out
-    out_lower = out.lower()
     warnings = df.attrs.get("cohort_operational_warnings")
-    assert "sql scope catalog preview" in out_lower
-    assert "SQL Top Analysis Lane" in out
-    assert "SQL Top Sample Label Kind" in out
-    assert "SQL Non-Android Lane Rows" in out
-    assert "SQL Hash-like Sample Labels" in out
+    assert "SQL Scope Catalog Preview" not in out
+    assert "Loader Slice Catalog Preview" not in out
     assert isinstance(warnings, list)
     assert any("SQL scope contains more non-android analysis_lane drift" in msg for msg in warnings)
     assert any("SQL scope contains more weak-label rows with canonical family authority" in msg for msg in warnings)
 
 
 def test_cohort_readiness_report_labels_limited_loader_preview(capsys) -> None:
-    """Limited loader slices should not be presented as full SQL-scope semantics."""
+    """Limited loader slice details should not appear in the compact terminal block."""
     df = pd.DataFrame(
         {
             "sample_id": [1],
@@ -232,14 +247,12 @@ def test_cohort_readiness_report_labels_limited_loader_preview(capsys) -> None:
 
     cohort_readiness_report.print_cohort_readiness_report(df, gates={"max_missing_package_pct": 10.0})
     out = capsys.readouterr().out
-    out_lower = out.lower()
-    assert "loader slice catalog preview" in out_lower
-    assert "loader top analysis lane" in out_lower
-    assert "loader raw-vs-canonical family conflicts" in out_lower
+    assert "Loader Slice Catalog Preview" not in out
+    assert "loader top analysis lane" not in out.lower()
 
 
 def test_cohort_readiness_report_marks_snapshot_lock_deferred_exclusions(capsys) -> None:
-    """Locked cohorts should show requested family exclusions even when SQL application is deferred."""
+    """Policy block should stay concise under snapshot-lock deferred exclusions."""
     df = pd.DataFrame(
         {
             "sample_id": [1, 2],
@@ -261,9 +274,9 @@ def test_cohort_readiness_report_marks_snapshot_lock_deferred_exclusions(capsys)
         gates={"exclude_unknown_type_slug": True, "min_samples_per_family": 20, "max_missing_package_pct": 5.0},
     )
     out = capsys.readouterr().out.lower()
-    assert "excluded families" in out
-    assert "devixor, gigabud (deferred by snapshot lock)" in out
-    assert "20 (deferred by snapshot lock)" in out
+    assert "policy" in out
+    assert "family support rule" in out
+    assert "excluded type_slug values" in out
 
 
 def test_cohort_sql_scope_gate_summary_marks_low_support_as_deferred(capsys) -> None:
@@ -282,11 +295,73 @@ def test_cohort_sql_scope_gate_summary_marks_low_support_as_deferred(capsys) -> 
     )
     out = capsys.readouterr().out.lower()
     assert "excluded low support" in out
-    assert "deferred by snapshot lock" in out
+    assert "diagnostic only / not applied" in out
+
+
+def test_cohort_readiness_report_marks_diagnostic_only_support_floor(capsys) -> None:
+    df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "type_slug": ["banker", "banker", "rat", "spyware"],
+            "family_canonical": ["fam_a", "fam_a", "fam_b", "fam_c"],
+            "android_package_name": ["pkg.a", "pkg.b", "pkg.c", "pkg.d"],
+            "vt_first_submission_date": ["2024-01-01"] * 4,
+        }
+    )
+    df.attrs["configured_min_samples_per_family"] = None
+    df.attrs["diagnostic_min_samples_per_family"] = 3
+    df.attrs["support_floor_mode"] = "diagnostic_only"
+    df.attrs["min_samples_per_family_applied_in_sql"] = False
+    df.attrs["min_samples_per_family_sql_value"] = None
+
+    cohort_readiness_report.print_cohort_readiness_report(
+        df,
+        gates={"support_floor_mode": "diagnostic_only", "max_missing_package_pct": 10.0},
+    )
+    out = capsys.readouterr().out
+    out_lower = out.lower()
+    assert "policy" in out_lower
+    assert "below-threshold families" in out_lower
+    assert "family support rule" not in out_lower
+    assert "trainable@20" not in out_lower
+
+
+def test_cohort_readiness_report_marks_benchmark_eligibility_support_floor(capsys) -> None:
+    df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4, 5],
+            "type_slug": ["banker", "banker", "banker", "rat", "spyware"],
+            "family_canonical": ["fam_a", "fam_a", "fam_a", "fam_b", ""],
+            "family_id": [1, 1, 1, 2, None],
+            "category_primary": ["trojan", "trojan", "trojan", "trojan", ""],
+            "category_subtype": ["banker", "banker", "banker", "rat", "trojan"],
+            "sample_label_kind": ["family_or_common_name"] * 5,
+            "android_package_name": ["pkg.a", "pkg.b", "pkg.c", "pkg.d", "pkg.e"],
+            "vt_first_submission_date": ["2024-01-01"] * 5,
+        }
+    )
+    df.attrs["configured_min_samples_per_family"] = 3
+    df.attrs["diagnostic_min_samples_per_family"] = 3
+    df.attrs["support_floor_mode"] = "benchmark_eligibility"
+    df.attrs["min_samples_per_family_applied_in_sql"] = False
+    df.attrs["min_samples_per_family_sql_value"] = None
+
+    cohort_readiness_report.print_cohort_readiness_report(
+        df,
+        gates={
+            "support_floor_mode": "benchmark_eligibility",
+            "min_samples_per_family": 3,
+            "max_missing_package_pct": 10.0,
+        },
+    )
+    out = capsys.readouterr().out.lower()
+    assert "family support rule" in out
+    assert "benchmark trainable" in out
+    assert "diagnostic-only rows" in out
 
 
 def test_cohort_readiness_report_compact_limits_terminal_lists(monkeypatch, capsys) -> None:
-    """Compact operator mode should trim long type/family terminal lists."""
+    """Compact benchmark summary should avoid verbose family ladder blocks."""
     monkeypatch.setattr(app_config, "ML_TERMINAL_COMPACT", True, raising=False)
     monkeypatch.setattr(app_config, "ML_CONSOLE_MODE", "research", raising=False)
     df = pd.DataFrame(
@@ -302,6 +377,42 @@ def test_cohort_readiness_report_compact_limits_terminal_lists(monkeypatch, caps
     cohort_readiness_report.print_cohort_readiness_report(df, gates={"max_missing_package_pct": 10.0})
     out = capsys.readouterr().out
     out_lower = out.lower()
-    assert "top families (top 5)" in out_lower
-    assert "additional families omitted from terminal output" in out_lower
-    assert "additional type bucket(s)" in out_lower
+    assert "top families (top 5)" not in out_lower
+    assert "additional families omitted from terminal output" not in out_lower
+    assert "additional type bucket(s)" not in out_lower
+    assert "cohort composition" in out_lower
+
+
+def test_cohort_readiness_report_compact_dedupes_overlapping_drift_groups(monkeypatch, capsys) -> None:
+    """Compact curation queue should avoid rendering the same row pocket twice."""
+    monkeypatch.setattr(app_config, "ML_TERMINAL_COMPACT", True, raising=False)
+    monkeypatch.setattr(app_config, "ML_CONSOLE_MODE", "research", raising=False)
+    df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4, 5],
+            "type_slug": ["rat", "rat", "rat", "banker", "banker"],
+            "family_canonical": ["SpyNote", "SpyNote", "SpyNote", "Octo", "Octo"],
+            "analysis_lane": ["android_artifact"] * 5,
+            "sample_label_kind": [
+                "opaque_string",
+                "opaque_string",
+                "filename",
+                "family_or_common_name",
+                "family_or_common_name",
+            ],
+            "payload_target_platform": ["android"] * 5,
+            "payload_target_source": ["artifact_platform"] * 5,
+            "vt_family_token": ["spy", "spy", "spy", "octo", "octo"],
+            "family_label_raw": ["spynote", "spynote", "spynote", "octo", "octo"],
+            "source_batch_label": ["", "", "", "batch_a", "batch_a"],
+            "android_package_name": [f"pkg.{i}" for i in range(5)],
+            "vt_first_submission_date": ["2024-01-01"] * 5,
+        }
+    )
+
+    cohort_readiness_report.print_cohort_readiness_report(df, gates={"max_missing_package_pct": 10.0})
+    out = capsys.readouterr().out
+    assert "1. families SpyNote" in out
+    assert out.count("families SpyNote") == 1
+    assert "types rat" not in out
+    assert "source batches <blank>" not in out

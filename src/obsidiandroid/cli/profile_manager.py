@@ -7,22 +7,32 @@ from typing import Any, Dict, List
 
 import yaml
 from obsidiandroid.common.repo_paths import repo_root
+from obsidiandroid.governance import family_tier_authority
 from obsidiandroid.governance.paper_cohort_contract import validate_profile_paper_lock
+from obsidiandroid.governance.support_floor_policy import (
+    SUPPORT_FLOOR_MODE_BENCHMARK_ELIGIBILITY,
+    SUPPORT_FLOOR_MODE_DIAGNOSTIC_ONLY,
+    SUPPORT_FLOOR_MODE_MEMBERSHIP_GATE,
+)
 from . import profile_selection
 
 PROFILES_DIR = repo_root() / "profiles"
 HIDDEN_PROFILE_IDS: set[str] = set()
 FINAL_OPERATOR_PROFILE_IDS = (
+    "android_malware_all_current",
+    "android_malware_major_families",
+    "android_malware_expanded_families",
+    "android_malware_type_taxonomy",
+    "malicious_temporal_consensus10",
+    "malicious_temporal_family300",
+    "dev_fast",
+    "dev_smoke",
     "malicious_temporal_stability_locked",
     "banker_locked",
     "malicious_temporal_stability",
     "malicious_temporal_stability_expanded",
     "malicious_temporal_stability_long_tail",
     "banker",
-    "malicious_temporal_consensus10",
-    "malicious_temporal_family300",
-    "dev_fast",
-    "dev_smoke",
 )
 REQUIRED_PROFILE_KEYS = {
     "profile_id",
@@ -38,6 +48,7 @@ ALLOWED_MODEL_KEYS = {
     "logistic_regression",
 }
 ALLOWED_COHORT_GATE_KEYS = {
+    "support_floor_mode",
     "min_samples_per_family",
     "min_family_label_confidence_score",
     "min_support_guard_mode",
@@ -56,6 +67,7 @@ ALLOWED_COHORT_GATE_KEYS = {
     "exclude_family_label_conflicts",
     "limit",
     "include_families",
+    "include_families_from_authority",
     "exclude_families",
     "time_window_start_utc",
     "time_window_end_utc",
@@ -183,6 +195,26 @@ def _validate_profile(profile: Dict[str, Any], profile_path: Path) -> None:
             f"Profile '{profile_path}' has unsupported cohort_gates keys: [{bad_keys}]. "
             f"Allowed keys: [{allowed_keys}]."
         )
+    include_families_from_authority = str(
+        cohort_gates.get("include_families_from_authority", "") or ""
+    ).strip()
+    if include_families_from_authority and include_families_from_authority not in {"major_families"}:
+        raise ValueError(
+            f"Profile '{profile_path}' has unsupported include_families_from_authority="
+            f"{include_families_from_authority!r}. Allowed values: ['major_families']."
+        )
+    support_floor_mode = str(cohort_gates.get("support_floor_mode", "") or "").strip().lower()
+    if support_floor_mode and support_floor_mode not in {
+        SUPPORT_FLOOR_MODE_BENCHMARK_ELIGIBILITY,
+        SUPPORT_FLOOR_MODE_MEMBERSHIP_GATE,
+        SUPPORT_FLOOR_MODE_DIAGNOSTIC_ONLY,
+    }:
+        raise ValueError(
+            f"Profile '{profile_path}' has unsupported support_floor_mode={support_floor_mode!r}. "
+            f"Allowed values: ['{SUPPORT_FLOOR_MODE_BENCHMARK_ELIGIBILITY}', "
+            f"'{SUPPORT_FLOOR_MODE_MEMBERSHIP_GATE}', "
+            f"'{SUPPORT_FLOOR_MODE_DIAGNOSTIC_ONLY}']."
+        )
     type_cap_by_slug = cohort_gates.get("type_cap_by_slug")
     if type_cap_by_slug is not None:
         if not isinstance(type_cap_by_slug, dict):
@@ -205,6 +237,12 @@ def _validate_profile(profile: Dict[str, Any], profile_path: Path) -> None:
             raise ValueError(
                 "Evidence-mode profile requires explicit time_window_start_utc and time_window_end_utc."
             )
+    training_label_field = str(profile.get("training_label_field", "") or "").strip()
+    if training_label_field and training_label_field not in {"family_id", "type_slug", "family_within_type"}:
+        raise ValueError(
+            f"Profile '{profile_path}' has unsupported training_label_field={training_label_field!r}. "
+            "Allowed values: ['family_id', 'type_slug', 'family_within_type']."
+        )
     validate_profile_paper_lock(profile, profile_path)
 
 
@@ -217,8 +255,20 @@ def _apply_policy_defaults(profile: Dict[str, Any]) -> Dict[str, Any]:
     out.setdefault("top_k_requested", 8)
     out.setdefault("exclude_unknown_from_main_results", False)
     out.setdefault("paper_locked", False)
+    out["cohort_gates"] = _resolve_authority_backed_cohort_gates(
+        out.get("cohort_gates") if isinstance(out.get("cohort_gates"), dict) else {}
+    )
     out["profile_status"] = _normalize_profile_status(out)
     return out
+
+
+def _resolve_authority_backed_cohort_gates(cohort_gates: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve symbolic authority references into concrete cohort gate lists."""
+    resolved = dict(cohort_gates)
+    authority_ref = str(resolved.get("include_families_from_authority", "") or "").strip()
+    if authority_ref == "major_families":
+        resolved["include_families"] = list(family_tier_authority.major_family_name_list())
+    return resolved
 
 
 def _normalize_profile_status(profile: Dict[str, Any]) -> Dict[str, str]:

@@ -153,6 +153,28 @@ def test_build_family_label_confidence_payload_ranks_conflicts_and_type_mismatch
     assert families["spynote"]["weak_label_rows"] == 1
 
 
+def test_build_family_label_confidence_payload_downgrades_publicly_corroborated_weak_labels() -> None:
+    df = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "family_canonical": ["SpyNote", "SpyNote"],
+            "family_label_raw": ["SpyNote", "SpyNote"],
+            "type_slug": ["rat", "rat"],
+            "category_primary": ["rat", "rat"],
+            "category_subtype": ["rat", "rat"],
+            "sample_label_kind": ["opaque_string", "opaque_string"],
+            "vt_family_token": ["", ""],
+            "package_name": ["yps.eton.application", "com.unknown.example"],
+            "android_package_name": ["yps.eton.application", "com.unknown.example"],
+        }
+    )
+
+    payload = family_label_confidence_audit.build_family_label_confidence_payload(df, min_support=2)
+    families = {row["family_canonical"]: row for row in payload["family_rows"]}
+    assert families["spynote"]["weak_label_rows"] == 1
+    assert families["spynote"]["weak_label_corroborated_rows"] == 1
+
+
 def test_export_family_label_confidence_reports_writes_expected_files(tmp_path: Path) -> None:
     df = pd.DataFrame(
         {
@@ -172,9 +194,94 @@ def test_export_family_label_confidence_reports_writes_expected_files(tmp_path: 
         samples_df=df,
         min_support=2,
     )
-    assert len(paths) == 4
+    assert len(paths) == 6
     for path in paths:
         assert tmp_path.joinpath(path.split("/")[-1]).is_file()
+
+
+def test_build_family_label_drift_remediation_rows_exports_expected_actions() -> None:
+    df = pd.DataFrame(
+        {
+            "sample_id": [101, 102, 103, 104],
+            "sha256": ["a" * 64, "b" * 64, "c" * 64, "d" * 64],
+            "family_canonical": ["SpyNote", "SpyLoan", "Octo", "Octo"],
+            "family_label_raw": ["", "BlackLoan", "ExobotCompact.D/Octo", "WrongFam"],
+            "type_slug": ["rat", "banker", "banker", "banker"],
+            "category_primary": ["rat", "trojan", "trojan", "trojan"],
+            "category_subtype": ["rat", "banker", "banker", "banker"],
+            "sample_label_kind": [
+                "opaque_string",
+                "family_or_common_name",
+                "family_or_common_name",
+                "family_or_common_name",
+            ],
+            "vt_family_token": ["spynote", "spyloan", "octo", "octo"],
+            "source_batch_label": ["", "", "campaign_alpha", "campaign_beta"],
+            "package_name": ["pkg.spy.note", "pkg.spy.loan", "pkg.octo", "pkg.octo.bad"],
+            "android_package_name": ["pkg.spy.note", "pkg.spy.loan", "pkg.octo", "pkg.octo.bad"],
+        }
+    )
+
+    out = family_label_confidence_audit.build_family_label_drift_remediation_rows(df)
+
+    assert list(out["family_canonical"]) == ["Octo", "SpyNote"]
+    assert "SpyLoan" not in set(out["family_canonical"])
+
+    octo = out[out["family_canonical"] == "Octo"].iloc[0]
+    assert octo["issue_kind"] == "family_conflict"
+    assert octo["proposed_action"] == "repair_alias_mapping"
+    assert octo["source_batch_label"] == "campaign_beta"
+
+    spynote = out[out["family_canonical"] == "SpyNote"].iloc[0]
+    assert spynote["issue_kind"] == "weak_label_corroborated"
+    assert spynote["proposed_action"] == "accept_public_campaign_corroboration"
+    assert spynote["sample_label_kind"] == "opaque_string"
+
+
+def test_build_family_label_drift_remediation_rows_marks_publicly_corroborated_weak_labels() -> None:
+    df = pd.DataFrame(
+        {
+            "sample_id": [1],
+            "sha256": ["a" * 64],
+            "family_canonical": ["SpyNote"],
+            "family_label_raw": ["SpyNote"],
+            "type_slug": ["rat"],
+            "category_primary": ["rat"],
+            "category_subtype": ["rat"],
+            "sample_label_kind": ["opaque_string"],
+            "vt_family_token": [""],
+            "source_batch_label": [""],
+            "package_name": ["yps.eton.application"],
+            "android_package_name": ["yps.eton.application"],
+        }
+    )
+    out = family_label_confidence_audit.build_family_label_drift_remediation_rows(df)
+    row = out.iloc[0]
+    assert row["issue_kind"] == "weak_label_corroborated"
+    assert row["proposed_action"] == "accept_public_campaign_corroboration"
+
+
+def test_build_family_label_confidence_payload_downgrades_public_ioc_hash_corroborated_weak_labels() -> None:
+    df = pd.DataFrame(
+        {
+            "sample_id": [1],
+            "sha256": ["46a3badfa5682d2d862618933155fa04cc64690d5588ea06089670e222ba36b4"],
+            "family_canonical": ["SpyNote"],
+            "family_label_raw": ["SpyNote"],
+            "type_slug": ["rat"],
+            "category_primary": ["rat"],
+            "category_subtype": ["rat"],
+            "sample_label_kind": ["opaque_string"],
+            "vt_family_token": [""],
+            "package_name": ["com.unrelated.example"],
+            "android_package_name": ["com.unrelated.example"],
+        }
+    )
+
+    payload = family_label_confidence_audit.build_family_label_confidence_payload(df, min_support=2)
+    family = payload["family_rows"][0]
+    assert family["weak_label_rows"] == 0
+    assert family["weak_label_corroborated_rows"] == 1
 
 
 def _locked_profile(lock_path: Path) -> dict:

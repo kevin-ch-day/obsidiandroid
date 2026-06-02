@@ -98,21 +98,60 @@ def test_print_parser_diagnostics_state_reports_csv_vs_workbook_context(
         run_diag / "engine_scoring_summary.csv",
         index=False,
     )
-    _write_latest_manifest(write_text_file, out_root, {"run_id": run_id, "selected_vendor_count": 1})
+    pd.DataFrame(
+        [
+            {"vendor_key": "a", "drift_status": "metadata_and_verdict", "in_metadata_table": 1, "likely_current_vendor_key": "", "suggestion_basis": ""},
+            {"vendor_key": "webrootd", "drift_status": "metadata_only", "in_metadata_table": 1, "likely_current_vendor_key": "webroot", "suggestion_basis": "legacy_metadata_alias_to_current_vt_prefix"},
+            {"vendor_key": "nod32", "drift_status": "metadata_only", "in_metadata_table": 1, "likely_current_vendor_key": "nod32", "suggestion_basis": "current_vt_documented_prefix_without_verdict_column"},
+            {"vendor_key": "mystery_only", "drift_status": "metadata_only", "in_metadata_table": 1, "likely_current_vendor_key": "", "suggestion_basis": ""},
+        ]
+    ).to_csv(run_diag / "engine_metadata_drift.csv", index=False)
+    pd.DataFrame(
+        [
+            {"engine_name_canonical": "elastic", "near_miss_flag": 1, "coverage_pct": 99.0},
+            {"engine_name_canonical": "gridinsoft", "near_miss_flag": 1, "coverage_pct": 95.0},
+        ]
+    ).to_csv(run_diag / f"engine_exclusion_audit_{run_id}.csv", index=False)
+    _write_latest_manifest(
+        write_text_file,
+        out_root,
+        {
+            "run_id": run_id,
+            "selected_vendor_count": 1,
+            "engine_count_observed": 2,
+            "engine_count_canonical": 2,
+            "engine_count_included_after_gating": 1,
+            "engine_count_requested_top_k": 8,
+        },
+    )
 
     monkeypatch.setattr(vendor_parser_state.run_locator, "read_latest_run_id", lambda: run_id)
     monkeypatch.setattr(vendor_diagnostics_actions, "load_enriched_matrix_for_menu", lambda **_kwargs: None)
 
     vendor_diagnostics.print_parser_diagnostics_state()
     out = capsys.readouterr().out
+    assert "[ENGINES] PARSER DIAGNOSTICS" in out
     assert "CSV snapshots" in out
     assert "Workbook drill-down" in out
-    assert "Workbook drill-down is optional unless you need single-vendor parser debugging." in out
-    assert "Observed engines" in out
+    assert "Workbook drill-down is optional" in out
+    assert "single-vendor" in out
+    assert "debugging" in out
+    assert "Observed vendor columns" in out
+    assert "Cohort engines observed" in out
+    assert "Post-score included engines" in out
     assert "Parser mapped vendors" in out
     assert "Onboarding queue" in out
     assert "Selected vendors for latest run" in out
-    assert "DB engine scoring universe" in out
+    assert "DB verdict-table universe" in out
+    assert "Metadata-only engine keys" in out
+    assert "Metadata legacy-alias suggestions" in out
+    assert "Current VT prefixes missing verdicts" in out
+    assert "Unclear metadata-only keys" in out
+    assert "Top metadata alias suggestions" in out
+    assert "Excluded near-miss engines" in out
+    assert "[ENGINES] Top near-miss engines" in out
+    assert "[ACTION] Open first:" in out
+    assert "[ACTION] Tune next:" in out
 
 
 def test_single_vendor_parser_check_compact_blocked_message_without_reprinting_full_state(
@@ -168,12 +207,13 @@ def test_parser_summary_compact_focuses_on_status_and_next_actions(
 
     vendor_diagnostics.print_compact_vendor_coverage_snapshot()
     out = capsys.readouterr().out
-    assert "PARSER SUMMARY" in out
+    assert "[ENGINES] Parser summary" in out
     assert "Parser health" in out
     assert "Onboarding queue" in out
-    assert "Observed engines are all active vendor columns in the latest run." in out
-    assert "Top onboarding candidates: crowdstrike, gdata" in out
-    assert "Top selected vendors: tencent, lionic, alibaba" in out
+    assert "Observed engines are all vendor columns" in out
+    assert "[ENGINES] Top onboarding candidates: crowdstrike, gdata" in out
+    assert "[ENGINES] Top selected vendors: tencent, lionic, alibaba" in out
+    assert "[ACTION] Open first:" in out
     assert "Source file" not in out
 
 

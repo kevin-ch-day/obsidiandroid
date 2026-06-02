@@ -45,6 +45,27 @@ def test_fetch_samples_by_type_uses_inner_hash_join_when_sha_required(monkeypatc
     assert "_artifact_hash_rn" in query
 
 
+def test_fetch_samples_by_type_avoids_rank_wrapper_when_uncapped(monkeypatch) -> None:
+    """Uncapped governed fetches should skip ranking columns and wrapper ordering."""
+    captured: dict[str, object] = {}
+
+    def _fake_execute_query(query, **kwargs):
+        captured["query"] = query
+        captured["kwargs"] = kwargs
+        return (["sample_id"], [(1,)])
+
+    monkeypatch.setattr(fetchers.db_engine, "execute_query", _fake_execute_query)
+    fetchers.fetch_samples_by_type(type_slug="banker", require_sha256=True)
+
+    query = str(captured["query"])
+    params = tuple(captured["kwargs"]["params"])
+    assert "CRC32(CONCAT" not in query
+    assert "_loader_order_key" not in query
+    assert "_family_loader_rn" not in query
+    assert "_type_loader_rn" not in query
+    assert len(params) == 1
+
+
 def test_gate_stats_accounts_for_missing_hash_registry_rows(monkeypatch) -> None:
     """Gate stats should include hash-registry exclusion in final estimate."""
     seen_queries: list[str] = []
@@ -213,6 +234,7 @@ def test_fetch_samples_by_type_can_exclude_weak_and_conflicted_labels_in_sql(mon
     query = str(captured["query"])
     assert "sample_label_kind" in query
     assert "NOT IN ('filename', 'hash_like', 'opaque_string', 'unclassified')" in query
+    assert "LOWER(TRIM(COALESCE(y.sample_label, ''))) = LOWER(TRIM(COALESCE(y.family_label, '')))" in query
     assert "LOWER(TRIM(COALESCE(y.family_label, ''))) <>" in query
 
 
@@ -284,6 +306,27 @@ def test_fetch_samples_by_type_excludes_unknown_type_slug_in_sql(monkeypatch) ->
     query = str(captured["query"])
     assert "COALESCE(LOWER(TRIM(t.type_slug)), '') <> 'unknown'" in query
     assert "COALESCE(TRIM(t.type_slug), '') <> ''" in query
+
+
+def test_fetch_samples_by_type_applies_include_family_canonical_in_sql(monkeypatch) -> None:
+    """Fetcher should be able to restrict the governed cohort to named families in SQL."""
+    captured: dict[str, object] = {}
+
+    def _fake_execute_query(query, **kwargs):
+        captured["query"] = query
+        captured["kwargs"] = kwargs
+        return (["sample_id"], [(1,)])
+
+    monkeypatch.setattr(fetchers.db_engine, "execute_query", _fake_execute_query)
+    fetchers.fetch_samples_by_type(
+        type_slug=None,
+        include_family_canonical=("trickmo", "spynote"),
+    )
+
+    query = str(captured["query"])
+    params = tuple(captured["kwargs"]["params"])
+    assert "LOWER(TRIM(COALESCE(f.family_name, ''))) IN (%s, %s)" in query
+    assert params[-2:] == ("trickmo", "spynote")
 
 
 def test_gate_stats_reports_unknown_type_exclusions_when_enabled(monkeypatch) -> None:

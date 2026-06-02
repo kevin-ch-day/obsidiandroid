@@ -121,6 +121,16 @@ def build_report() -> dict[str, pd.DataFrame]:
     }
 
 
+def _compact_counts(df: pd.DataFrame, *, key_col: str, count_col: str = "row_count") -> str:
+    """Render a compact ``key=count`` summary for a grouped frame."""
+    if df.empty:
+        return "none"
+    parts: list[str] = []
+    for _, row in df.head(5).iterrows():
+        parts.append(f"{row.get(key_col, '')}={int(row.get(count_col, 0) or 0)}")
+    return "; ".join(parts)
+
+
 def main() -> int:
     """Write the report to disk and print a compact operator summary."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -128,15 +138,29 @@ def main() -> int:
     detail_rows = report["detail_rows"]
     detail_rows.to_csv(CSV_OUT, index=False)
 
-    print(f"[OK] Exported: {CSV_OUT}")
-    for key in ("lane_counts", "action_counts", "top_clusters", "vt_tail_rows"):
-        df = report[key]
-        print(f"\n== {key} ==")
-        if df.empty:
-            print("[empty]")
-        else:
-            print(df.to_string(index=False))
-    print(f"\n[OK] detail_rows={len(detail_rows)}")
+    print(f"[EXPORT] Android missing-resolution triage: {CSV_OUT.as_posix()}")
+    print(f"Rows: {len(detail_rows)}")
+    if detail_rows.empty:
+        print("Status: no queued Android missing-resolution review rows.")
+        return 0
+
+    lane_counts = report["lane_counts"]
+    action_counts = report["action_counts"]
+    top_clusters = report["top_clusters"]
+    vt_tail_rows = report["vt_tail_rows"]
+
+    print(f"Lane counts: {_compact_counts(lane_counts, key_col='review_lane')}")
+    print(f"Action counts: {_compact_counts(action_counts, key_col='recommended_action')}")
+    print(f"VT tail rows: {len(vt_tail_rows)}")
+    if not top_clusters.empty:
+        cluster_parts: list[str] = []
+        for _, row in top_clusters.head(5).iterrows():
+            cluster_parts.append(
+                f"{row.get('package_cluster_key', '')}={int(row.get('row_count', 0) or 0)}"
+            )
+        print(f"Top clusters: {'; '.join(cluster_parts)}")
+    else:
+        print("Top clusters: none")
     return 0
 
 

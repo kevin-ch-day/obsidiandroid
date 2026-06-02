@@ -196,6 +196,62 @@ def test_smote_warning_is_emitted_once_per_run(monkeypatch):
     )
 
 
+def test_split_cache_notice_is_emitted_once_per_run(monkeypatch):
+    X, y = _imbalanced_data()
+    infos: list[str] = []
+
+    def capture_info(msg: str, *args, **kwargs) -> None:
+        infos.append(str(msg))
+
+    monkeypatch.setattr(app_config, "RUNTIME_SPLIT_CACHE_NOTICE_EMITTED", False, raising=False)
+    monkeypatch.setattr(model_trainer_factory.du, "print_info", capture_info)
+
+    model_trainer_factory.train_model_factory(
+        X,
+        y,
+        model_type="random_forest",
+        enable_grid_search=False,
+        random_state=0,
+    )
+    model_trainer_factory.train_model_factory(
+        X,
+        y,
+        model_type="xgboost",
+        enable_grid_search=False,
+        random_state=0,
+    )
+
+    assert sum("Reusing cached train/test partition" in m for m in infos) == 1
+
+
+def test_split_size_notice_is_emitted_once_per_run(monkeypatch):
+    X, y = _imbalanced_data()
+    infos: list[str] = []
+
+    def capture_info(msg: str, *args, **kwargs) -> None:
+        infos.append(str(msg))
+
+    monkeypatch.setattr(app_config, "RUNTIME_SPLIT_SIZE_NOTICE_EMITTED", False, raising=False)
+    monkeypatch.setattr(model_trainer_factory.du, "print_info", capture_info)
+
+    model_trainer_factory.train_model_factory(
+        X,
+        y,
+        model_type="random_forest",
+        enable_grid_search=False,
+        random_state=0,
+    )
+    model_trainer_factory.train_model_factory(
+        X,
+        y,
+        model_type="xgboost",
+        enable_grid_search=False,
+        random_state=0,
+    )
+
+    assert sum("[SPLIT] Train size:" in m for m in infos) == 1
+
+
 def test_smote_default_policy_skips_in_evidence_mode(monkeypatch):
     X, y = _imbalanced_data()
     call_tracker = {"called": False}

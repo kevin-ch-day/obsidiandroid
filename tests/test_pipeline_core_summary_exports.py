@@ -8,6 +8,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.orchestration.runtime_reporting import format_population_pipeline_summary_line
+from obsidiandroid.orchestration import runtime_reporting
 from obsidiandroid.modeling import pipeline_core
 
 
@@ -126,6 +127,207 @@ def test_summarize_models_paper_mode_filters_balanced_rf(
     summary_csv = output_root / "runs" / run_id / "diagnostics" / f"model_comparison_summary_{run_id}.csv"
     exported = pd.read_csv(summary_csv)
     assert set(exported["Model"].tolist()) == {"random_forest", "xgboost", "logistic_regression"}
+
+
+def test_summarize_models_exports_family_tier_evaluation_for_family_target(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Family-target runs should export major/minor tier-aware held-out metrics."""
+    run_id = "20260601T000000Z__familytiers"
+    output_root = tmp_path / "output"
+    diagnostics_dir = output_root / "runs" / run_id / "diagnostics"
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", run_id, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_MODEL_COMPARISON_CSV_EXPORT", True, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_MODEL_COMPARISON_EXCEL_EXPORT", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_RF_IMPURITY_IMPORTANCE_EXPORT", False, raising=False)
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD",
+        "family_id",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_SPLIT_SAMPLE_METADATA",
+        pd.DataFrame(
+            {
+                "sample_id": [101, 102, 103],
+                "family_id": [11, 22, None],
+                "family_canonical": ["SpyNote", "Gigabud", None],
+                "type_slug": ["rat", "rat", "banker"],
+                "category_primary": ["malware", "malware", ""],
+                "category_subtype": ["rat", "rat", ""],
+                "sample_label_kind": ["family_or_common_name", "family_or_common_name", ""],
+            }
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        pipeline_core.comparator,
+        "compare_model_performance",
+        lambda _results: pd.DataFrame([{"Model": "random_forest", "Macro F1-Score": 0.80}]),
+    )
+    monkeypatch.setattr(
+        pipeline_core.inspector,
+        "generate_classification_summary",
+        lambda **_kwargs: None,
+    )
+
+    results = {
+        "random_forest": {
+            "evaluation": {
+                "accuracy": 0.75,
+                "macro_f1_score": 0.80,
+                "confusion_matrix_path": "cm.png",
+                "y_true": ["spynote", "gigabud", "banker"],
+                "y_pred": ["spynote", "spynote", "banker"],
+            },
+            "X_test": pd.DataFrame(index=[101, 102, 103]),
+        }
+    }
+
+    top_model = pipeline_core.summarize_models(results)
+
+    assert top_model == "random_forest"
+    tier_csv = diagnostics_dir / f"family_tier_model_evaluation_{run_id}.csv"
+    assert tier_csv.exists()
+    tier_df = pd.read_csv(tier_csv)
+    assert set(tier_df["evaluation_scope"].tolist()) == {
+        "overall",
+        "major",
+        "minor",
+        "generic_or_coarse",
+        "unresolved",
+    }
+    major_row = tier_df[tier_df["evaluation_scope"] == "major"].iloc[0]
+    minor_row = tier_df[tier_df["evaluation_scope"] == "minor"].iloc[0]
+    unresolved_row = tier_df[tier_df["evaluation_scope"] == "unresolved"].iloc[0]
+    assert int(major_row["sample_count"]) == 1
+    assert int(minor_row["sample_count"]) == 1
+    assert int(unresolved_row["sample_count"]) == 1
+
+
+def test_summarize_models_skips_family_tier_evaluation_for_type_target(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Type-target runs should not emit family-tier held-out evaluation exports."""
+    run_id = "20260601T000000Z__typetiers"
+    output_root = tmp_path / "output"
+    diagnostics_dir = output_root / "runs" / run_id / "diagnostics"
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", run_id, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_MODEL_COMPARISON_CSV_EXPORT", True, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_MODEL_COMPARISON_EXCEL_EXPORT", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_RF_IMPURITY_IMPORTANCE_EXPORT", False, raising=False)
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD",
+        "type_slug",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_SPLIT_SAMPLE_METADATA",
+        pd.DataFrame({"sample_id": [101], "type_slug": ["banker"]}),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        pipeline_core.comparator,
+        "compare_model_performance",
+        lambda _results: pd.DataFrame([{"Model": "logistic_regression", "Macro F1-Score": 0.70}]),
+    )
+    monkeypatch.setattr(
+        pipeline_core.inspector,
+        "generate_classification_summary",
+        lambda **_kwargs: None,
+    )
+
+    results = {
+        "logistic_regression": {
+            "evaluation": {
+                "accuracy": 0.70,
+                "macro_f1_score": 0.70,
+                "confusion_matrix_path": "cm.png",
+                "y_true": ["banker"],
+                "y_pred": ["banker"],
+            },
+            "X_test": pd.DataFrame(index=[101]),
+        }
+    }
+
+    top_model = pipeline_core.summarize_models(results)
+
+    assert top_model == "logistic_regression"
+    tier_csv = diagnostics_dir / f"family_tier_model_evaluation_{run_id}.csv"
+    assert not tier_csv.exists()
+
+
+def test_extract_model_summary_includes_top_model_family_tier_rows(monkeypatch) -> None:
+    """Run-summary payload should carry family-tier rows for the promoted top model."""
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD",
+        "family_id",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_SPLIT_SAMPLE_METADATA",
+        pd.DataFrame(
+            {
+                "sample_id": [201, 202],
+                "family_id": [11, 22],
+                "family_canonical": ["SpyNote", "Gigabud"],
+                "type_slug": ["rat", "rat"],
+                "category_primary": ["malware", "malware"],
+                "category_subtype": ["rat", "rat"],
+                "sample_label_kind": ["family_or_common_name", "family_or_common_name"],
+            }
+        ),
+        raising=False,
+    )
+
+    summary = runtime_reporting.extract_model_summary(
+        {
+            "random_forest": {
+                "evaluation": {
+                    "accuracy": 0.8,
+                    "macro_f1_score": 0.8,
+                    "f1_score": 0.81,
+                    "y_true": ["spynote", "gigabud"],
+                    "y_pred": ["spynote", "spynote"],
+                },
+                "X_test": pd.DataFrame(index=[201, 202]),
+            },
+            "logistic_regression": {
+                "evaluation": {
+                    "accuracy": 0.7,
+                    "macro_f1_score": 0.7,
+                    "f1_score": 0.7,
+                    "y_true": ["spynote", "gigabud"],
+                    "y_pred": ["spynote", "gigabud"],
+                },
+                "X_test": pd.DataFrame(index=[201, 202]),
+            },
+        }
+    )
+
+    assert summary["top_model"] == "random_forest"
+    assert isinstance(summary.get("family_tier_model_rows"), list)
+    top_rows = summary.get("top_model_family_tier_rows", [])
+    assert {row["evaluation_scope"] for row in top_rows} == {
+        "overall",
+        "major",
+        "minor",
+        "generic_or_coarse",
+        "unresolved",
+    }
+    assert all(row["model"] == "random_forest" for row in top_rows)
 
 
 def test_run_classifier_pipeline_exports_leakage_pruning_audit(
@@ -340,3 +542,216 @@ def test_run_classifier_pipeline_drops_low_support_without_other_group(monkeypat
     assert captured["group_label"] is None
     runtime_meta = getattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", pd.DataFrame())
     assert "type_slug" in runtime_meta.columns
+
+
+def test_run_classifier_pipeline_keeps_low_support_when_support_floor_is_diagnostic_only(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Diagnostic-only support mode should not drop low-support families before training."""
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_FEATURE_CONTRACT_EXPORT", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_LEAKAGE_ASSESSMENT_EXPORT", False, raising=False)
+    monkeypatch.setattr(app_config, "GROUP_LOW_SUPPORT_LABELS", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", 3, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_SUPPORT_FLOOR_MODE", "diagnostic_only", raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_QUIET_TRAINING", False, raising=False)
+
+    captured: dict[str, object] = {}
+    warnings: list[str] = []
+
+    features = pd.DataFrame({"f1": [0.1, 0.2]}, index=[1, 2])
+    labels = pd.Series(["fam_a", "fam_b"], index=[1, 2], name="family")
+
+    monkeypatch.setattr(pipeline_core, "align_data", lambda *_args, **_kwargs: (features, labels))
+    monkeypatch.setattr(
+        pipeline_core.distribution_reporter,
+        "print_family_distribution",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def _should_not_run(**kwargs):
+        captured.update(kwargs)
+        raise AssertionError("apply_min_family_support should be skipped for diagnostic-only support mode")
+
+    monkeypatch.setattr(
+        pipeline_core.distribution_reporter,
+        "apply_min_family_support",
+        _should_not_run,
+    )
+    monkeypatch.setattr(
+        pipeline_core.du,
+        "print_warning",
+        lambda message: warnings.append(str(message)),
+    )
+    monkeypatch.setattr(pipeline_core, "_prune_low_information_features", lambda df: df)
+    monkeypatch.setattr(
+        pipeline_core,
+        "_prune_potential_leakage_features",
+        lambda feature_df, _labels_df: feature_df,
+    )
+    monkeypatch.setattr(
+        pipeline_core,
+        "train_models",
+        lambda *_args, **_kwargs: (
+            {"logistic_regression": {"evaluation": {"accuracy": 1.0}}},
+            [],
+        ),
+    )
+    monkeypatch.setattr(pipeline_core, "summarize_models", lambda _results: "logistic_regression")
+    monkeypatch.setattr(pipeline_core, "promote_default_model", lambda *_args, **_kwargs: None)
+
+    result = pipeline_core.run_classifier_pipeline(
+        features_df=features,
+        samples_df=pd.DataFrame(
+            {
+                "sample_id": [1, 2],
+                "type_slug": ["banker", "adware"],
+                "family_canonical": ["fam_a", "fam_b"],
+            }
+        ),
+        save_model=False,
+        models=["logistic_regression"],
+    )
+
+    assert "logistic_regression" in result
+    assert captured == {}
+    assert not any("Family support filtering failed" in message for message in warnings)
+
+
+def test_run_classifier_pipeline_applies_benchmark_eligibility_support_floor_for_family_targets(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_FEATURE_CONTRACT_EXPORT", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_LEAKAGE_ASSESSMENT_EXPORT", False, raising=False)
+    monkeypatch.setattr(app_config, "GROUP_LOW_SUPPORT_LABELS", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", 3, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_SUPPORT_FLOOR_MODE", "benchmark_eligibility", raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_QUIET_TRAINING", False, raising=False)
+
+    captured: dict[str, object] = {}
+
+    features = pd.DataFrame({"f1": [0.1, 0.2, 0.3]}, index=[1, 2, 3])
+    labels = pd.Series(["fam_a", "fam_a", "fam_b"], index=[1, 2, 3], name="family_id")
+
+    monkeypatch.setattr(pipeline_core, "align_data", lambda *_args, **_kwargs: (features, labels))
+    monkeypatch.setattr(
+        pipeline_core.distribution_reporter,
+        "print_family_distribution",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def _fake_apply_min_family_support(**kwargs):
+        captured.update(kwargs)
+        return kwargs["features_df"], kwargs["labels_df"], 1, 1, [{"family": "fam_b", "aligned_support": 1}]
+
+    monkeypatch.setattr(
+        pipeline_core.distribution_reporter,
+        "apply_min_family_support",
+        _fake_apply_min_family_support,
+    )
+    monkeypatch.setattr(pipeline_core, "_prune_low_information_features", lambda df: df)
+    monkeypatch.setattr(
+        pipeline_core,
+        "_prune_potential_leakage_features",
+        lambda feature_df, _labels_df: feature_df,
+    )
+    monkeypatch.setattr(
+        pipeline_core,
+        "train_models",
+        lambda *_args, **_kwargs: (
+            {"logistic_regression": {"evaluation": {"accuracy": 1.0}}},
+            [],
+        ),
+    )
+    monkeypatch.setattr(pipeline_core, "summarize_models", lambda _results: "logistic_regression")
+    monkeypatch.setattr(pipeline_core, "promote_default_model", lambda *_args, **_kwargs: None)
+
+    result = pipeline_core.run_classifier_pipeline(
+        features_df=features,
+        samples_df=pd.DataFrame(
+            {
+                "sample_id": [1, 2, 3],
+                "type_slug": ["banker", "banker", "rat"],
+                "family_canonical": ["fam_a", "fam_a", "fam_b"],
+            }
+        ),
+        save_model=False,
+        models=["logistic_regression"],
+    )
+
+    assert "logistic_regression" in result
+    assert int(captured["min_support"]) == 3
+    assert app_config.RUNTIME_BENCHMARK_SUPPORT_APPLIED is True
+    assert app_config.RUNTIME_BENCHMARK_SUPPORT_EXCLUDED_SAMPLE_COUNT == 1
+    assert app_config.RUNTIME_BENCHMARK_SUPPORT_EXCLUDED_FAMILY_COUNT == 1
+    assert app_config.RUNTIME_LOW_SUPPORT_FAMILY_DROP_DETAIL == [
+        {"family": "fam_b", "aligned_support": 1}
+    ]
+
+
+def test_run_classifier_pipeline_skips_benchmark_eligibility_support_floor_for_type_targets(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_FEATURE_CONTRACT_EXPORT", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_LEAKAGE_ASSESSMENT_EXPORT", False, raising=False)
+    monkeypatch.setattr(app_config, "GROUP_LOW_SUPPORT_LABELS", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", 3, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_SUPPORT_FLOOR_MODE", "benchmark_eligibility", raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_QUIET_TRAINING", False, raising=False)
+
+    captured: dict[str, object] = {}
+
+    features = pd.DataFrame({"f1": [0.1, 0.2]}, index=[1, 2])
+    labels = pd.Series(["banker", "rat"], index=[1, 2], name="type_slug")
+
+    monkeypatch.setattr(pipeline_core, "align_data", lambda *_args, **_kwargs: (features, labels))
+    monkeypatch.setattr(
+        pipeline_core.distribution_reporter,
+        "print_family_distribution",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def _should_not_run(**kwargs):
+        captured.update(kwargs)
+        raise AssertionError("apply_min_family_support should be skipped for type-level targets")
+
+    monkeypatch.setattr(
+        pipeline_core.distribution_reporter,
+        "apply_min_family_support",
+        _should_not_run,
+    )
+    monkeypatch.setattr(pipeline_core, "_prune_low_information_features", lambda df: df)
+    monkeypatch.setattr(
+        pipeline_core,
+        "_prune_potential_leakage_features",
+        lambda feature_df, _labels_df: feature_df,
+    )
+    monkeypatch.setattr(
+        pipeline_core,
+        "train_models",
+        lambda *_args, **_kwargs: (
+            {"logistic_regression": {"evaluation": {"accuracy": 1.0}}},
+            [],
+        ),
+    )
+    monkeypatch.setattr(pipeline_core, "summarize_models", lambda _results: "logistic_regression")
+    monkeypatch.setattr(pipeline_core, "promote_default_model", lambda *_args, **_kwargs: None)
+
+    result = pipeline_core.run_classifier_pipeline(
+        features_df=features,
+        samples_df=pd.DataFrame(
+            {
+                "sample_id": [1, 2],
+                "type_slug": ["banker", "rat"],
+                "family_canonical": ["fam_a", "fam_b"],
+            }
+        ),
+        save_model=False,
+        models=["logistic_regression"],
+    )
+
+    assert "logistic_regression" in result
+    assert captured == {}
+    assert app_config.RUNTIME_BENCHMARK_SUPPORT_APPLIED is False

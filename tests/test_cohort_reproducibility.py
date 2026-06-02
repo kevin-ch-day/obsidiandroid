@@ -1,8 +1,10 @@
 import pandas as pd
 import pytest
+from pathlib import Path
 
 from config import app_config
 import obsidiandroid.governance.cohort_reproducibility as cr
+from obsidiandroid.diagnostics import taxonomy_target_surface_report
 
 
 def test_apply_cohort_lock_filters_to_matching_ids(tmp_path):
@@ -123,3 +125,67 @@ def test_export_analysis_snapshot_mirrors_global_latest_when_under_runs(
     assert glob_latest.is_file()
     glob_meta = tmp_path / "output" / "diagnostics" / "analysis_snapshot.latest.meta.txt"
     assert glob_meta.is_file()
+
+
+def test_export_analysis_snapshot_preserves_taxonomy_fields_for_offline_tier_recompute(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(app_config, "SUPPRESS_LATEST_DUPLICATES_IN_RUN_DIRS", True, raising=False)
+
+    diag = tmp_path / "output" / "runs" / "rid2" / "diagnostics"
+    snap = diag / "analysis_snapshot_rid2.csv"
+    meta = diag / "analysis_snapshot_rid2.meta.txt"
+
+    df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "sha256": ["a" * 64, "b" * 64, "c" * 64],
+            "family_id": [pd.NA, pd.NA, 10],
+            "family_name": ["", "", "Gigabud"],
+            "family_canonical": ["", "", "Gigabud"],
+            "type_slug": ["banker", "banker", "spyware"],
+            "category_primary": ["", "trojan", "trojan"],
+            "category_subtype": ["", "trojan", "spyware"],
+            "sample_label_kind": ["family_or_common_name", "family_or_common_name", "family_or_common_name"],
+            "family_label_raw": ["", "", "Gigabud"],
+            "vt_family_token": ["", "", "Gigabud"],
+            "source_batch_label": ["BatchA", "BatchB", "BatchC"],
+            "vt_first_seen_itw_date": [pd.NaT, pd.NaT, pd.NaT],
+            "vt_first_submission_at_utc": ["2020-01-01T00:00:00Z", "2020-01-02T00:00:00Z", "2020-01-03T00:00:00Z"],
+        }
+    )
+
+    live_summary = taxonomy_target_surface_report.build_taxonomy_target_surface_summary(df, min_support=None)
+    live_tiers = live_summary["tier_counts"]
+
+    cr.export_analysis_snapshot(df, str(snap), str(meta), conflict_file=None, run_id="rid2")
+    exported = pd.read_csv(snap)
+    exported_summary = taxonomy_target_surface_report.build_taxonomy_target_surface_summary(exported, min_support=None)
+    exported_tiers = exported_summary["tier_counts"]
+
+    assert {"family_name", "category_primary", "category_subtype", "sample_label_kind", "family_label_raw", "vt_family_token", "source_batch_label"}.issubset(
+        exported.columns
+    )
+    assert live_tiers == exported_tiers
+    assert exported["sample_id"].tolist() == [1, 2, 3]
+
+
+def test_format_console_path_uses_repo_relative_path_inside_repo(monkeypatch) -> None:
+    repo = Path("/tmp/work/obsidiandroid").resolve()
+    target = repo / "output" / "runs" / "rid1" / "diagnostics" / "analysis_snapshot_rid1.meta.txt"
+
+    monkeypatch.setattr(cr.du, "format_console_path", lambda path: f"{repo.name}/{Path(path).resolve().relative_to(repo).as_posix()}")
+
+    formatted = cr.du.format_console_path(target)
+
+    assert formatted == "obsidiandroid/output/runs/rid1/diagnostics/analysis_snapshot_rid1.meta.txt"
+
+
+def test_format_console_path_preserves_absolute_path_outside_repo(monkeypatch) -> None:
+    outside = Path("/tmp/other/analysis_snapshot.meta.txt").resolve()
+    monkeypatch.setattr(cr.du, "format_console_path", lambda path: Path(path).resolve().as_posix())
+    formatted = cr.du.format_console_path(outside)
+
+    assert formatted == outside.as_posix()

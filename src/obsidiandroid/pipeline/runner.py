@@ -23,8 +23,9 @@ from obsidiandroid.modeling.model_trainer_factory import reset_runtime_training_
 # === Database + Utilities ===
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
+from obsidiandroid.common import run_slots
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
-from obsidiandroid.common.run_lifecycle import mark_run_lifecycle_running
+from obsidiandroid.common.run_lifecycle import find_active_profile_runs, mark_run_lifecycle_running
 from obsidiandroid.reporting import family_distribution_report
 import obsidiandroid.cli.profile_manager as profile_manager
 import obsidiandroid.governance.run_manifest as run_manifest
@@ -88,9 +89,11 @@ from obsidiandroid.orchestration.runtime_reporting import (
 from obsidiandroid.cli.main_override_bridge import resolve_main_override
 from obsidiandroid.database.db_sample_metadata_contracts import get_query_contract_metadata
 from obsidiandroid.pipeline.runner_support import (
+    emit_pipeline_failure_summary,
     PipelineStageFailure,
     ScopedArtifactList,
     sync_main_module_diagnostics,
+    write_pipeline_failure_summary,
 )
 from obsidiandroid.pipeline.runner_stage_control import PipelineRunStageControl
 from obsidiandroid.pipeline.run_bounds import (
@@ -165,6 +168,7 @@ def run_pipeline(
     model_list = list(selected_models) if selected_models else None
     profile: dict[str, Any] = {}
     run_id = run_manifest.generate_run_id()
+    run_started_at_utc = datetime.now(timezone.utc).isoformat()
     # Snapshot mutable config before setup_runtime_context mutates run-scoped paths
     # (RUNTIME_DIAGNOSTICS_DIR, ANALYSIS_SNAPSHOT_*, etc.); otherwise finally restores
     # stale run directories and leaks state across tests or sequential CLI runs.
@@ -181,22 +185,18 @@ def run_pipeline(
     }
     setattr(app_config, "RUNTIME_RUN_ID", run_id)
     strict_run_scoped = True
-    runtime_paths = setup_runtime_context(run_id=run_id, strict_run_scoped=True)
-    output_root_base = runtime_paths["output_root_base"]
-    runtime_run_root = runtime_paths["runtime_run_root"]
-    _set_diagnostics_dir(str(runtime_paths["runtime_diagnostics_dir"]))
-    artifact_list: ScopedArtifactList = ScopedArtifactList(
-        strict_run_scoped=strict_run_scoped,
-        run_root_getter=lambda: getattr(app_config, "RUNTIME_RUN_ROOT", runtime_run_root),
-        output_root_getter=lambda: output_root_base,
-        allow_global_getter=lambda: bool(getattr(app_config, "RUNTIME_ALLOW_GLOBAL_ARTIFACTS", False)),
-    )
+    output_root_base = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output"))).resolve()
+    runtime_run_root = output_root_base / "runs" / run_id
+    runtime_paths: dict[str, Any] = {}
+    artifact_list: list[str] | ScopedArtifactList = []
     samples_df: pd.DataFrame | None = None
     pipeline_results: dict[str, Any] = {}
     vendor_eval: pd.DataFrame | None = None
     manifest_context: dict[str, Any] = {
         "run_id": run_id,
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "run_instance_id": run_id,
+        "timestamp_utc": run_started_at_utc,
+        "run_started_at_utc": run_started_at_utc,
         "stop_after": stop_after,
     }
     runtime_log_context = None
@@ -205,41 +205,9 @@ def run_pipeline(
     # Reset run-scoped runtime markers up-front to avoid stale cross-run leakage.
     reset_runtime_markers()
     operator_dashboard.clear_operator_state()
-    st = PipelineRunStageControl(
-        run_id=run_id,
-        stop_after=stop_after,
-        manifest_context=manifest_context,
-        artifact_list=artifact_list,
-        pipeline_started_at=pipeline_started_at,
-        diagnostics_dir_getter=lambda: DIAGNOSTICS_DIR,
-        pipeline_logger=PIPELINE_MAIN_LOGGER,
-    )
+    st: PipelineRunStageControl | None = None
 
     try:
-        du.print_banner("Malware Classification Framework")
-        du.print_stat("Run ID", run_id)
-        du.print_info(
-            f"[PIPELINE] Scope: stop_after={stop_after} | profile_ref={profile_ref}"
-        )
-        du.print_info(
-            f"[PIPELINE] Paths: output_root={output_root_base} | "
-            f"run_root={runtime_run_root} | diagnostics={DIAGNOSTICS_DIR}"
-        )
-        if runtime_log_context is not None:
-            du.print_info(f"[LOG] Runtime stream log: {runtime_log_context.log_path}")
-
-        # Ensure diagnostics directory exists
-        os.makedirs(DIAGNOSTICS_DIR, exist_ok=True)
-
-        manifest_context["pipeline_observability"] = PipelineObservabilitySession(
-            diagnostics_dir=Path(DIAGNOSTICS_DIR),
-            run_id=run_id,
-        )
-        rr = str(runtime_run_root or "").strip()
-        if rr:
-            mark_run_lifecycle_running(Path(rr))
-            manifest_context["lifecycle_started_at_utc"] = datetime.now(timezone.utc).isoformat()
-
         # Load profile
         du.print_info("[PIPELINE] Loading profile YAML...")
         profile = resolve_main_override("profile_manager", profile_manager).load_profile(profile_ref)
@@ -303,6 +271,77 @@ def run_pipeline(
                 "evidence mode disabled for safety."
             )
         manifest_context["paper_mode"] = dict(manifest_context["evidence_mode"])
+        keep_run_output = bool(
+            profile.get("keep_run_output", False)
+            or getattr(app_config, "RUNTIME_KEEP_RUN_OUTPUT", False)
+        )
+        slot_plan = run_slots.resolve_run_slot_plan(
+            profile_id=str(profile.get("profile_id", "") or profile_ref or ""),
+            paper_locked=bool(profile.get("paper_locked", False)),
+            evidence_mode=bool(effective_evidence_mode),
+            keep_run_output=keep_run_output,
+        )
+        runtime_paths = setup_runtime_context(
+            run_id=run_id,
+            run_slot=slot_plan.run_slot,
+            strict_run_scoped=True,
+            archive_run=slot_plan.archive_run,
+            keep_last_failed_runs=int(getattr(app_config, "RUN_SLOT_KEEP_LAST_FAILED_RUNS", 1) or 1),
+        )
+        output_root_base = Path(runtime_paths["output_root_base"])
+        runtime_run_root = Path(runtime_paths["runtime_run_root"])
+        _set_diagnostics_dir(str(runtime_paths["runtime_diagnostics_dir"]))
+        artifact_list = ScopedArtifactList(
+            strict_run_scoped=strict_run_scoped,
+            run_root_getter=lambda: getattr(app_config, "RUNTIME_RUN_ROOT", runtime_run_root),
+            output_root_getter=lambda: output_root_base,
+            allow_global_getter=lambda: bool(getattr(app_config, "RUNTIME_ALLOW_GLOBAL_ARTIFACTS", False)),
+        )
+        manifest_context.update(
+            {
+                "run_slot": slot_plan.run_slot,
+                "run_mode": slot_plan.run_mode,
+                "claim_surface": slot_plan.claim_surface,
+                "run_root": str(runtime_run_root),
+                "keep_run_output": keep_run_output,
+                "run_cleanup_action": runtime_paths.get("cleanup_action", ""),
+            }
+        )
+        st = PipelineRunStageControl(
+            run_id=run_id,
+            stop_after=stop_after,
+            manifest_context=manifest_context,
+            artifact_list=artifact_list,
+            pipeline_started_at=pipeline_started_at,
+            diagnostics_dir_getter=lambda: DIAGNOSTICS_DIR,
+            pipeline_logger=PIPELINE_MAIN_LOGGER,
+        )
+
+        du.print_banner("Malware Classification Framework")
+        print(f"Run slot: {slot_plan.run_slot}")
+        print(f"Run instance: {run_id}")
+        print(f"Output path: {du.format_console_path(runtime_run_root)}")
+        print(f"Started UTC: {run_started_at_utc}")
+        du.print_info(
+            f"[PIPELINE] Scope: stop_after={stop_after} | profile_ref={profile_ref}"
+        )
+        du.print_info(f"[PIPELINE] Output root: {du.format_console_path(output_root_base)}")
+        du.print_info(f"[PIPELINE] Run root: {du.format_console_path(runtime_run_root)}")
+        du.print_info(f"[PIPELINE] Diagnostics dir: {du.format_console_path(DIAGNOSTICS_DIR)}")
+        os.makedirs(DIAGNOSTICS_DIR, exist_ok=True)
+
+        manifest_context["pipeline_observability"] = PipelineObservabilitySession(
+            diagnostics_dir=Path(DIAGNOSTICS_DIR),
+            run_id=run_id,
+        )
+        rr = str(runtime_run_root or "").strip()
+        if rr:
+            mark_run_lifecycle_running(
+                Path(rr),
+                run_id=run_id,
+                profile_id=str(profile.get("profile_id", "") or ""),
+            )
+            manifest_context["lifecycle_started_at_utc"] = run_started_at_utc
         # mode_effective: strict run-scoped / paper-style contract. resolution_source: cli|env|profile|default
         # (source=profile + mode_effective=False means the YAML set evidence_mode: false, not a bug.)
         du.print_info(
@@ -315,7 +354,7 @@ def run_pipeline(
             effective_evidence_mode=effective_evidence_mode,
         )
         if effective_evidence_mode:
-            run_root = output_root_base / "runs" / run_id
+            run_root = Path(str(getattr(app_config, "RUNTIME_RUN_ROOT", runtime_run_root)))
             run_root.mkdir(parents=True, exist_ok=True)
             setattr(app_config, "RUNTIME_RUN_ROOT", str(run_root))
             setattr(app_config, "DEFAULT_OUTPUT_DIR", str(run_root))
@@ -355,7 +394,7 @@ def run_pipeline(
                 "ALIGNED_LABEL_CACHE_FILE",
                 str(Path(DIAGNOSTICS_DIR) / f"aligned_labels_{run_id}.csv"),
             )
-            du.print_info(f"[EVIDENCE] Run root: {run_root}")
+            du.print_info(f"[EVIDENCE] Run root: {du.format_console_path(run_root)}")
         # Stable snapshot after evidence/paper path remapping (DEFAULT_OUTPUT_DIR / diagnostics).
         set_pipeline_run_bounds(
             PipelineRunBounds(
@@ -394,6 +433,28 @@ def run_pipeline(
         )
         type_slug = policy["type_slug"]
         profile_id = str(policy["profile_id"])
+        if rr:
+            mark_run_lifecycle_running(Path(rr), run_id=run_id, profile_id=profile_id)
+        if profile_id == "android_malware_all_current":
+            active_peer_runs = find_active_profile_runs(
+                output_root_base,
+                profile_id=profile_id,
+                exclude_run_id=run_id,
+            )
+            if active_peer_runs:
+                peer = active_peer_runs[0]
+                started = f" started={peer.started_at_utc}" if peer.started_at_utc else ""
+                pid_hint = f" pid={peer.pid}" if peer.pid is not None else ""
+                st.fail_pipeline(
+                    (
+                        "[PIPELINE] Another active broad current-corpus run is already in progress: "
+                        f"run_id={peer.run_id}{pid_hint}{started}. "
+                        "Refusing to start a second android_malware_all_current run because it is the "
+                        "highest-cost profile and duplicate concurrent runs were the main observed "
+                        "cause of machine thrash."
+                    ),
+                    stage_name="preflight",
+                )
         if bool(getattr(app_config, "EVIDENCE_MODE_ENABLED", getattr(app_config, "PAPER_MODE_ENABLED", False))):
             runtime_overrides = profile.get("runtime_overrides", {}) if isinstance(profile, dict) else {}
             if (
@@ -921,10 +982,34 @@ def run_pipeline(
                 feature_df.attrs["engine_excluded_count"] = excluded
                 feature_df.attrs["engine_observed_count"] = observed
                 feature_df.attrs["engine_canonical_count"] = canonical
+                exclusion_reason_counts: dict[str, int] = {}
+                near_miss_count = 0
+                if include_col in lifecycle_df.columns:
+                    excluded_df = lifecycle_df[~include_mask].copy()
+                else:
+                    excluded_df = pd.DataFrame()
+                if not excluded_df.empty and "exclusion_reason" in excluded_df.columns:
+                    reason_series = (
+                        excluded_df["exclusion_reason"]
+                        .fillna("")
+                        .astype(str)
+                        .str.strip()
+                    )
+                    reason_series = reason_series[reason_series != ""]
+                    exclusion_reason_counts = {
+                        str(key): int(value)
+                        for key, value in reason_series.value_counts().to_dict().items()
+                    }
+                if not excluded_df.empty and "near_miss_flag" in excluded_df.columns:
+                    near_miss_count = int(
+                        excluded_df["near_miss_flag"].fillna(False).astype(bool).sum()
+                    )
                 manifest_context["engine_count_observed"] = observed
                 manifest_context["engine_count_canonical"] = canonical
                 manifest_context["included_engine_count"] = included
                 manifest_context["excluded_engine_count"] = excluded
+                manifest_context["engine_exclusion_reason_counts"] = exclusion_reason_counts
+                manifest_context["engine_near_miss_count"] = near_miss_count
                 setattr(app_config, "RUNTIME_INCLUDED_ENGINE_COUNT", included)
             selected_vendors = list(feature_df.attrs.get("selected_vendors", []))
             min_selected = safe_int_config_value(
@@ -1197,12 +1282,19 @@ def run_pipeline(
                 split_audit_path_str = split_audit_path
                 if split_audit_path not in artifact_list:
                     artifact_list.append(split_audit_path)
+        training_label_field = str(
+            getattr(app_config, "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD", "") or "family_id"
+        )
+        display_label_field = "type_slug" if training_label_field == "type_slug" else "family_canonical"
+        label_selection_policy = (
+            "type_slug_explicit"
+            if training_label_field == "type_slug"
+            else "family_id_first"
+        )
         manifest_context["label_authority"] = {
-            "training_label_field": str(
-                getattr(app_config, "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD", "") or "family_id"
-            ),
-            "display_label_field": "family_canonical",
-            "label_selection_policy": "family_id_first",
+            "training_label_field": training_label_field,
+            "display_label_field": display_label_field,
+            "label_selection_policy": label_selection_policy,
             "active_training_classes": getattr(
                 app_config, "RUNTIME_TRAINING_LABEL_CLASS_COUNT", None
             ),
@@ -1593,7 +1685,7 @@ def run_pipeline(
             "[PIPELINE] KeyboardInterrupt — recording interrupted stage, then finalizing run manifest "
             "(partial ablation artifacts may exist under diagnostics/)."
         )
-        if st.current_stage_name and st.active_perf_stage_start is not None:
+        if st and st.current_stage_name and st.active_perf_stage_start is not None:
             st.record_stage_timing(
                 str(st.current_stage_name),
                 st.active_perf_stage_start,
@@ -1601,17 +1693,32 @@ def run_pipeline(
                 next_stage_allowed=False,
                 major_warnings="KeyboardInterrupt (operator or session)",
             )
-        st.mark_run_state(
-            "interrupted",
-            failure_reason="KeyboardInterrupt",
-            failed_stage=str(st.current_stage_name or "") or "unknown",
-        )
-        st.write_preflight(status="interrupted", reason="KeyboardInterrupt")
+        if st:
+            st.mark_run_state(
+                "interrupted",
+                failure_reason="KeyboardInterrupt",
+                failed_stage=str(st.current_stage_name or "") or "unknown",
+            )
+            st.write_preflight(status="interrupted", reason="KeyboardInterrupt")
         try:
-            st.attach_runtime_timing_context()
+            for path in write_pipeline_failure_summary(
+                diagnostics_dir=DIAGNOSTICS_DIR,
+                run_root=str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or ""),
+                run_id=run_id,
+                stage_name=(st.current_stage_name or st.last_completed_stage) if st else "startup",
+                error=KeyboardInterrupt("KeyboardInterrupt"),
+                preflight_path=str(st.preflight_path or "") if st else "",
+            ):
+                if path not in artifact_list:
+                    artifact_list.append(path)
         except Exception:
             pass
-        if manifest_context.get("run_id"):
+        try:
+            if st:
+                st.attach_runtime_timing_context()
+        except Exception:
+            pass
+        if manifest_context.get("run_id") and st:
             try:
                 st.finalize_with_manifest_timing(
                     profile=profile,
@@ -1629,14 +1736,19 @@ def run_pipeline(
         if isinstance(obs_ex, PipelineObservabilitySession):
             fatalish = isinstance(e, PipelineStageFailure)
             obs_ex.record_partial_failure(
-                stage=str(st.current_stage_name or manifest_context.get("current_stage") or "unknown"),
+                stage=str((st.current_stage_name if st else "") or manifest_context.get("current_stage") or "unknown"),
                 error=error_text,
                 recoverable=fatalish,
             )
             if not fatalish:
-                obs_ex.add_warning(error_text[:2000], severity=LogSeverity.ERROR, stage_hint=str(st.current_stage_name))
+                obs_ex.add_warning(
+                    error_text[:2000],
+                    severity=LogSeverity.ERROR,
+                    stage_hint=str(st.current_stage_name if st else ""),
+                )
         if (
-            st.current_stage_name == "ablation"
+            st
+            and st.current_stage_name == "ablation"
             and st.active_perf_stage_start is not None
             and st.last_completed_stage != "ablation"
         ):
@@ -1647,19 +1759,37 @@ def run_pipeline(
                 next_stage_allowed=False,
                 major_warnings=error_text[:900],
             )
-        if error_text.startswith("[INTEGRITY]"):
-            du.print_error("[INTEGRITY STOP]")
-        else:
-            du.print_error(f"[CRITICAL] Pipeline crashed: {e}")
-        st.mark_run_state(
-            "failed",
-            failure_reason=error_text,
-            failed_stage=st.current_stage_name or st.last_completed_stage,
-        )
-        if st.current_stage_name == "ablation":
+        if st:
+            st.mark_run_state(
+                "failed",
+                failure_reason=error_text,
+                failed_stage=st.current_stage_name or st.last_completed_stage,
+            )
+        if st and st.current_stage_name == "ablation":
             manifest_context["_ablation_run_status_summary"] = f"FAIL: {error_text[:400]}"
-        st.write_preflight(status="failed", reason=str(e))
+        if st:
+            st.write_preflight(status="failed", reason=str(e))
         manifest_context["integrity_error"] = error_text
+        emit_pipeline_failure_summary(
+            stage_name=(st.current_stage_name or st.last_completed_stage) if st else "startup",
+            error=e,
+            diagnostics_dir=DIAGNOSTICS_DIR,
+            run_root=str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or ""),
+            preflight_path=str(st.preflight_path or "") if st else "",
+        )
+        try:
+            for path in write_pipeline_failure_summary(
+                diagnostics_dir=DIAGNOSTICS_DIR,
+                run_root=str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or ""),
+                run_id=run_id,
+                stage_name=(st.current_stage_name or st.last_completed_stage) if st else "startup",
+                error=e,
+                preflight_path=str(st.preflight_path or "") if st else "",
+            ):
+                if path not in artifact_list:
+                    artifact_list.append(path)
+        except Exception:
+            pass
 
         # Avoid full tracebacks for expected profile/data failures
         if ml_console.is_debug() and not error_text.startswith("[PROFILE]") and not isinstance(e, PipelineStageFailure):
@@ -1673,7 +1803,7 @@ def run_pipeline(
                         "or clean package metadata for evidence runs."
                     )
 
-        if manifest_context.get("run_id"):
+        if manifest_context.get("run_id") and st:
             st.finalize_with_manifest_timing(
                 profile=profile,
                 samples_df=samples_df,

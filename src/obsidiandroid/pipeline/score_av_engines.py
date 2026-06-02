@@ -16,6 +16,7 @@ from obsidiandroid.common.cv_fold_config import (
     safe_float_config_value,
     safe_int_config_value,
 )
+from obsidiandroid.common import ml_console
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common import output_paths
 from obsidiandroid.database import db_engine
@@ -36,11 +37,11 @@ SCORE_LOGGER = get_logger(
 
 
 def _lifecycle_path() -> Path:
-    """Resolve engine lifecycle export path for current runtime context."""
+    """Return canonical write path for engine lifecycle export."""
     runtime_dir = str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "").strip()
     run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
     if runtime_dir:
-        return oh.resolve_engine_lifecycle_path(Path(runtime_dir), run_id)
+        return Path(runtime_dir) / f"engine_lifecycle_{oh.normalize_artifact_run_id(run_id)}.csv"
     return output_paths.diagnostics_root() / f"engine_lifecycle_{oh.normalize_artifact_run_id(run_id)}.csv"
 
 
@@ -206,8 +207,10 @@ def _build_lifecycle_table(
     score_df: pd.DataFrame,
     profile_context: str,
     run_id: str,
+    scoring_config: dict | None = None,
 ) -> pd.DataFrame:
     """Build per-engine lifecycle table."""
+    scoring_cfg = dict(scoring_config or {})
     rows = []
     score_lookup = {}
     if isinstance(score_df, pd.DataFrame) and not score_df.empty:
@@ -238,8 +241,22 @@ def _build_lifecycle_table(
                 "included_in_model_flag": bool(included),
                 "tier_label": score_row.get("Detection Tier", "Excluded") if selected else "Excluded",
                 "ml_readiness_score": float(score_row.get("ML Weight Score", 0.0)) if selected else 0.0,
+                "samples_scanned": int(score_row.get("Samples Scanned", 0) or 0) if selected else 0,
+                "malicious_flags": int(score_row.get("Malicious Flags", 0) or 0) if selected else 0,
+                "coverage_pct": float(score_row.get("Coverage %", 0.0) or 0.0) if selected else 0.0,
+                "detection_pct": float(score_row.get("Detection %", 0.0) or 0.0) if selected else 0.0,
+                "trusted_vendor_flag": int(score_row.get("Trusted", 0) or 0) if selected else 0,
+                "active_vendor_flag": int(score_row.get("Active", 0) or 0) if selected else 0,
+                "raw_exclusion_reason": str(score_row.get("Exclusion Reason", "") or "").strip() if selected else "",
+                "threshold_fail_count": int(score_row.get("Threshold Fail Count", 0) or 0) if selected else 0,
+                "threshold_failed_checks": str(score_row.get("Threshold Failed Checks", "") or "").strip() if selected else "",
+                "near_miss_flag": bool(score_row.get("Near Miss", False)) if selected else False,
                 "exclusion_reason": base_reason if not included else "NONE",
                 "exclusion_stage": exclusion_stage,
+                "min_samples_scanned_threshold": int(scoring_cfg.get("min_engine_detections", 0) or 0),
+                "min_coverage_pct_threshold": float(scoring_cfg.get("min_coverage_pct", 0.0) or 0.0),
+                "min_positive_flags_threshold": int(scoring_cfg.get("min_positive_flags", 0) or 0),
+                "min_detection_pct_threshold": float(scoring_cfg.get("min_detection_pct", 0.0) or 0.0),
                 "profile_context": profile_context,
                 "run_id": run_id,
                 "engine_hash": engine_normalization.compute_engine_hash(canonical) if canonical else "",
@@ -257,14 +274,46 @@ def _build_lifecycle_table(
                 "included_in_model_flag": False,
                 "tier_label": "Excluded",
                 "ml_readiness_score": 0.0,
+                "samples_scanned": 0,
+                "malicious_flags": 0,
+                "coverage_pct": 0.0,
+                "detection_pct": 0.0,
+                "trusted_vendor_flag": 0,
+                "active_vendor_flag": 0,
+                "raw_exclusion_reason": "",
+                "threshold_fail_count": 0,
+                "threshold_failed_checks": "",
+                "near_miss_flag": False,
                 "exclusion_reason": "DATA_INCONSISTENCY",
                 "exclusion_stage": "excluded_precanonical",
+                "min_samples_scanned_threshold": int(scoring_cfg.get("min_engine_detections", 0) or 0),
+                "min_coverage_pct_threshold": float(scoring_cfg.get("min_coverage_pct", 0.0) or 0.0),
+                "min_positive_flags_threshold": int(scoring_cfg.get("min_positive_flags", 0) or 0),
+                "min_detection_pct_threshold": float(scoring_cfg.get("min_detection_pct", 0.0) or 0.0),
                 "profile_context": profile_context,
                 "run_id": run_id,
                 "engine_hash": "",
             }
         )
     return pd.DataFrame(rows)
+
+
+def _export_engine_exclusion_audit(lifecycle_df: pd.DataFrame, lifecycle_path: Path) -> Path | None:
+    """Export excluded-engine audit rows with threshold context."""
+    if not isinstance(lifecycle_df, pd.DataFrame) or lifecycle_df.empty:
+        return None
+    exclusion_df = lifecycle_df[
+        lifecycle_df["included_in_model_flag"].fillna(False).astype(bool) == False  # noqa: E712
+    ].copy()
+    if exclusion_df.empty:
+        return None
+    sort_cols = [col for col in ("near_miss_flag", "coverage_pct", "detection_pct", "samples_scanned") if col in exclusion_df.columns]
+    ascending = [False, False, False, False][: len(sort_cols)]
+    if sort_cols:
+        exclusion_df = exclusion_df.sort_values(by=sort_cols, ascending=ascending)
+    audit_path = lifecycle_path.with_name(lifecycle_path.name.replace("engine_lifecycle_", "engine_exclusion_audit_"))
+    exclusion_df.to_csv(audit_path, index=False)
+    return audit_path
 
 
 def _validate_lifecycle_reconciliation(lifecycle_df: pd.DataFrame) -> None:
@@ -337,10 +386,16 @@ def _canonicalize_matrix(
     canonical_df = matrix_df[selected_cols].rename(columns=rename_map).copy()
     canonical_df.attrs["engine_scan_counts"] = new_scan_counts
     if verbose:
-        du.print_info(
-            f"[SCORE] Engine canonicalization: observed={len(raw_cols)}, "
-            f"canonical={len(selected_raw_by_canonical)}, duplicates={len(duplicate_losers)}"
-        )
+        if ml_console.is_compact():
+            du.print_stat(
+                "Engine Canonicalization",
+                f"observed={len(raw_cols)}, canonical={len(selected_raw_by_canonical)}, duplicates={len(duplicate_losers)}",
+            )
+        else:
+            du.print_info(
+                f"[SCORE] Engine canonicalization: observed={len(raw_cols)}, "
+                f"canonical={len(selected_raw_by_canonical)}, duplicates={len(duplicate_losers)}"
+            )
     return canonical_df, keep_map, duplicate_losers, invalid_raw, duplicate_detected
 
 
@@ -440,6 +495,7 @@ def run_av_engine_scoring(
             score_df=result,
             profile_context=profile_context,
             run_id=run_id,
+            scoring_config=config,
         )
         if not lifecycle_df.empty:
             _validate_lifecycle_reconciliation(lifecycle_df)
@@ -451,18 +507,33 @@ def run_av_engine_scoring(
                 csv_text=lifecycle_df.to_csv(index=False),
                 global_latest_name="engine_lifecycle.latest.csv",
             )
+            exclusion_audit_path = _export_engine_exclusion_audit(lifecycle_df, lifecycle_path)
             result.attrs["engine_lifecycle"] = lifecycle_df
+            result.attrs["engine_exclusion_audit_path"] = str(exclusion_audit_path) if exclusion_audit_path else ""
             result.attrs["engine_observed_count"] = int(len([c for c in matrix_df.columns if c != "sample_id"]))
-            result.attrs["engine_canonical_count"] = int(lifecycle_df["engine_name_canonical"].nunique())
+            canonical_mask = lifecycle_df["canonicalized_flag"].fillna(False).astype(bool)
+            result.attrs["engine_canonical_count"] = int(
+                lifecycle_df.loc[canonical_mask, "engine_name_canonical"]
+                .astype(str)
+                .str.strip()
+                .replace("", pd.NA)
+                .dropna()
+                .nunique()
+            )
             result.attrs["engine_included_count"] = int(lifecycle_df["included_in_model_flag"].sum())
             result.attrs["engine_excluded_count"] = int((~lifecycle_df["included_in_model_flag"]).sum())
+            result.attrs["engine_near_miss_count"] = int(
+                lifecycle_df["near_miss_flag"].fillna(False).astype(bool).sum()
+            )
             if int(result.attrs["engine_included_count"]) == 0:
                 raise ValueError("included_engines == 0")
 
         export_matrix(result, EXPORT_OUTPUT_PATH, "scoring results", verbose=verbose)
         validate_scoring_output(result, verbose=verbose)
-        if duplicate_detected:
-            raise ValueError("Duplicate canonical engine slugs detected.")
+        if duplicate_detected and verbose:
+            du.print_warning(
+                "[SCORE] Duplicate canonical engine slugs were resolved deterministically during canonicalization."
+            )
 
         log_event(
             SCORE_LOGGER,

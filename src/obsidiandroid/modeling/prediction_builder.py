@@ -121,7 +121,7 @@ def run_predictions_and_compile_result(
                 )
                 return {}
 
-        preds, trues, decoded_labels, confidences = (
+        preds, trues, decoded_labels, confidences, abstain_meta = (
             model_prediction.predict_all_samples(
                 model=model,
                 features_df=features_df,
@@ -142,6 +142,22 @@ def run_predictions_and_compile_result(
             }
             for i, sid in enumerate(sample_ids)
         }
+        for i, sid in enumerate(sample_ids):
+            if not isinstance(abstain_meta, list) or len(abstain_meta) <= i:
+                continue
+            sample_meta = abstain_meta[i]
+            if not isinstance(sample_meta, dict) or not sample_meta.get("abstained"):
+                continue
+            raw_pred = str(sample_meta.get("raw_prediction_label", "") or "").strip()
+            reasons = sample_meta.get("abstain_reasons") or []
+            if "low_margin" in reasons:
+                meta_dict[sid]["override_tag"] = "ambiguous_family_abstain"
+            else:
+                meta_dict[sid]["override_tag"] = "low_confidence_family_abstain"
+            if raw_pred and str(raw_pred).strip().lower() not in {"other", "unknown"}:
+                meta_dict[sid]["raw_predicted_family"] = str(raw_pred).strip()
+            if sample_meta.get("confidence_margin") is not None:
+                meta_dict[sid]["confidence_margin"] = round(float(sample_meta["confidence_margin"]), 4)
 
         if bool(getattr(app_config, "ML_SHOW_PREDICTION_PREVIEWS", False)):
             ml_result_analyzer.show_prediction_sample(

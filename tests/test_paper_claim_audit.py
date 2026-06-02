@@ -55,6 +55,8 @@ def test_write_paper_claim_audit_md_keeps_table_rows_single_line(tmp_path) -> No
 
     text = out.read_text(encoding="utf-8")
     lines = text.splitlines()
+    assert lines[0] == "# Publication claim audit (machine-assisted, strict)"
+    assert "Primary surface:** locked publication cohort" in text
 
     claim_row = next(
         line
@@ -109,3 +111,16 @@ def test_write_paper_claim_audit_md_can_use_global_latest_ablation_and_model_sum
     assert "full_fused=0.9; safer_vendor_baseline=0.8" in text
     assert "random_forest / Macro-F1≈0.9100" in text or "random_forest" in text
     assert "publication/evidence mode ON" in text
+
+
+def test_write_paper_claim_audit_md_uses_benchmark_heading_for_non_publication_surface(tmp_path) -> None:
+    out = write_paper_claim_audit_md(
+        diagnostics_dir=tmp_path,
+        manifest={},
+        manifest_context={"benchmark_support_floor": 3, "cohort_prepared_row_count": 1231},
+        run_id="run_bench",
+    )
+
+    text = out.read_text(encoding="utf-8")
+    assert text.startswith("# Benchmark claim audit (machine-assisted, strict)")
+    assert "Primary surface:** major-family benchmark surface" in text

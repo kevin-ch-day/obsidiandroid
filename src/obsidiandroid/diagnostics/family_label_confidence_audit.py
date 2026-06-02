@@ -9,6 +9,7 @@ from typing import Any
 import pandas as pd
 
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.labeling.taxonomy import normalize_family_name
 
 _WEAK_LABEL_KINDS = {"filename", "hash_like", "opaque_string", "unclassified"}
 _GENERIC_FAMILY_TOKENS = {"", "unknown", "generic", "unclassified", "unlabeled"}
@@ -24,6 +25,25 @@ _CANONICAL_TYPE_TOKENS = {
     "stealer",
 }
 
+_PUBLIC_PACKAGE_FAMILY_CORROBORATION: dict[str, str] = {
+    "cmf0.c3b5bm90zq.patch": "spynote",
+    "com.android.tester": "spynote",
+    "com.appser.verapp": "spynote",
+    "good.bye.google": "spynote",
+    "yps.eton.application": "spynote",
+}
+
+_PUBLIC_SHA256_FAMILY_CORROBORATION: dict[str, str] = {
+    "0ef96f5ce66266f55d4e17f9985c4c929633a972e587ced8b000b3910ffb3303": "spynote",
+    "115ee615a45d4645e805da20ba3ccb26c7383cc52f3df16506b522ca3a009235": "spynote",
+    "46a3badfa5682d2d862618933155fa04cc64690d5588ea06089670e222ba36b4": "spynote",
+    "72db4117f73c566a8a98fe27d00dc645e319a98217fa7fc5992138e70af8574a": "spynote",
+    "7e5d28e9663fc6d2c5badc7a660058e2bf69b410791f01709177590c65944db1": "spynote",
+    "ca310362727d0416ce6ec24a90409ad2c8d9cdaf95f6236a759ac31eb2a8cb0f": "spynote",
+    "cea371b7bdd44271b20194248431c45f03bd66c4b7f7abad8404ca611a27565c": "spynote",
+    "f815b1c1b51810bd331eb75d30fabbbad2237011c8cd242c5655bfca304c978a": "spynote",
+}
+
 
 def _norm_series(df: pd.DataFrame, column: str, *, generic_tokens: set[str] | None = None) -> pd.Series:
     if column not in df.columns:
@@ -31,6 +51,24 @@ def _norm_series(df: pd.DataFrame, column: str, *, generic_tokens: set[str] | No
     blocked = generic_tokens if generic_tokens is not None else {""}
     series = df[column].fillna("").astype(str).str.strip().str.lower()
     return series.replace({token: "" for token in blocked})
+
+
+def _norm_family_series(
+    df: pd.DataFrame,
+    column: str,
+    *,
+    generic_tokens: set[str],
+    blank_token: str = "",
+) -> pd.Series:
+    """Normalize family labels through the shared taxonomy alias layer."""
+    if column not in df.columns:
+        return pd.Series([blank_token] * len(df), index=df.index, dtype="object")
+    raw = df[column].fillna("").astype(str).str.strip()
+    normalized = raw.map(normalize_family_name).astype(str).str.strip().str.lower()
+    normalized = normalized.replace({token: "" for token in generic_tokens})
+    if blank_token:
+        normalized = normalized.replace("", blank_token)
+    return normalized
 
 
 def _infer_raw_type(primary: str, subtype: str) -> str:
@@ -41,6 +79,21 @@ def _infer_raw_type(primary: str, subtype: str) -> str:
     if primary == "trojan" and subtype in _CANONICAL_TYPE_TOKENS:
         return subtype
     return ""
+
+
+def _build_public_package_family_evidence(frame: pd.DataFrame) -> pd.Series:
+    """Map known public IOC package names to corroborating family tokens."""
+    package_name = _norm_series(frame, "package_name")
+    android_package_name = _norm_series(frame, "android_package_name")
+    package_family = package_name.map(_PUBLIC_PACKAGE_FAMILY_CORROBORATION).fillna("")
+    android_package_family = android_package_name.map(_PUBLIC_PACKAGE_FAMILY_CORROBORATION).fillna("")
+    return package_family.where(package_family.ne(""), android_package_family)
+
+
+def _build_public_hash_family_evidence(frame: pd.DataFrame) -> pd.Series:
+    """Map published IOC hashes to corroborating family tokens."""
+    sha256 = _norm_series(frame, "sha256")
+    return sha256.map(_PUBLIC_SHA256_FAMILY_CORROBORATION).fillna("")
 
 
 def build_family_label_confidence_payload(
@@ -59,14 +112,24 @@ def build_family_label_confidence_payload(
         }
 
     frame = samples_df.copy()
-    family = _norm_series(frame, "family_canonical", generic_tokens=_GENERIC_CANONICAL_TOKENS)
-    family = family.replace("", "<blank>")
-    family_raw = _norm_series(frame, "family_label_raw", generic_tokens=_GENERIC_FAMILY_TOKENS)
+    family = _norm_family_series(
+        frame,
+        "family_canonical",
+        generic_tokens=_GENERIC_CANONICAL_TOKENS,
+        blank_token="<blank>",
+    )
+    family_raw = _norm_family_series(
+        frame,
+        "family_label_raw",
+        generic_tokens=_GENERIC_FAMILY_TOKENS,
+    )
     label_kind = _norm_series(frame, "sample_label_kind")
     type_slug = _norm_series(frame, "type_slug", generic_tokens={"", "unknown", "none", "null"})
     primary = _norm_series(frame, "category_primary", generic_tokens=_GENERIC_PRIMARY_TOKENS)
     subtype = _norm_series(frame, "category_subtype", generic_tokens=_GENERIC_PRIMARY_TOKENS)
     vt_token = _norm_series(frame, "vt_family_token")
+    public_package_family = _build_public_package_family_evidence(frame)
+    public_hash_family = _build_public_hash_family_evidence(frame)
 
     frame["family_norm"] = family
     frame["type_slug_norm"] = type_slug.replace("", "unknown")
@@ -74,7 +137,16 @@ def build_family_label_confidence_payload(
         _infer_raw_type(p, s)
         for p, s in zip(primary.tolist(), subtype.tolist())
     ]
-    frame["issue_weak_label"] = label_kind.isin(_WEAK_LABEL_KINDS)
+    frame["issue_weak_label_kind"] = label_kind.isin(_WEAK_LABEL_KINDS)
+    frame["issue_weak_label_corroborated"] = (
+        frame["issue_weak_label_kind"]
+        & (
+            vt_token.eq(family)
+            | public_package_family.eq(family)
+            | public_hash_family.eq(family)
+        )
+    )
+    frame["issue_weak_label"] = frame["issue_weak_label_kind"] & ~frame["issue_weak_label_corroborated"]
     frame["issue_family_conflict"] = (
         ~family_raw.isin(_GENERIC_FAMILY_TOKENS)
         & ~family.isin(_GENERIC_CANONICAL_TOKENS)
@@ -144,6 +216,7 @@ def build_family_label_confidence_payload(
             sample_count=("family_norm", "size"),
             type_slug=("type_slug_norm", lambda s: str(s.mode().iloc[0]) if not s.mode().empty else "unknown"),
             weak_label_rows=("issue_weak_label", "sum"),
+            weak_label_corroborated_rows=("issue_weak_label_corroborated", "sum"),
             family_conflict_rows=("issue_family_conflict", "sum"),
             type_mismatch_rows=("issue_type_mismatch", "sum"),
             blank_family_with_vt_token_rows=("issue_blank_family_with_vt_token", "sum"),
@@ -185,6 +258,7 @@ def build_family_label_confidence_payload(
             "type_slug": str(row["type_slug"]),
             "sample_count": int(row["sample_count"]),
             "weak_label_rows": int(row["weak_label_rows"]),
+            "weak_label_corroborated_rows": int(row["weak_label_corroborated_rows"]),
             "family_conflict_rows": int(row["family_conflict_rows"]),
             "type_mismatch_rows": int(row["type_mismatch_rows"]),
             "blank_family_with_vt_token_rows": int(row["blank_family_with_vt_token_rows"]),
@@ -206,6 +280,94 @@ def build_family_label_confidence_payload(
     }
 
 
+def build_family_label_drift_remediation_rows(samples_df: pd.DataFrame) -> pd.DataFrame:
+    """Return a row-level remediation ledger for weak-label and family-conflict drift."""
+    if not isinstance(samples_df, pd.DataFrame) or samples_df.empty:
+        return pd.DataFrame()
+
+    frame = samples_df.copy()
+    family = _norm_family_series(
+        frame,
+        "family_canonical",
+        generic_tokens=_GENERIC_CANONICAL_TOKENS,
+        blank_token="<blank>",
+    )
+    family_raw = _norm_family_series(
+        frame,
+        "family_label_raw",
+        generic_tokens=_GENERIC_FAMILY_TOKENS,
+    )
+    label_kind = _norm_series(frame, "sample_label_kind")
+    public_package_family = _build_public_package_family_evidence(frame)
+    public_hash_family = _build_public_hash_family_evidence(frame)
+    vt_token = _norm_series(frame, "vt_family_token")
+    frame["issue_weak_label_kind"] = label_kind.isin(_WEAK_LABEL_KINDS)
+    frame["issue_weak_label_corroborated"] = (
+        frame["issue_weak_label_kind"]
+        & (
+            vt_token.eq(family)
+            | public_package_family.eq(family)
+            | public_hash_family.eq(family)
+        )
+    )
+    frame["issue_weak_label"] = frame["issue_weak_label_kind"] & ~frame["issue_weak_label_corroborated"]
+    frame["issue_family_conflict"] = (
+        ~family_raw.isin(_GENERIC_FAMILY_TOKENS)
+        & ~family.isin(_GENERIC_CANONICAL_TOKENS)
+        & family_raw.ne(family)
+    )
+    issue_frame = frame[
+        frame["issue_weak_label"] | frame["issue_weak_label_corroborated"] | frame["issue_family_conflict"]
+    ].copy()
+    if issue_frame.empty:
+        return pd.DataFrame()
+
+    if "source_batch_label" in issue_frame.columns:
+        source_batch = issue_frame["source_batch_label"].fillna("").astype(str).str.strip().replace("", "<blank>")
+    else:
+        source_batch = pd.Series(["<blank>"] * len(issue_frame), index=issue_frame.index, dtype="object")
+
+    issue_kind = issue_frame.apply(
+        lambda row: (
+            "family_conflict"
+            if bool(row["issue_family_conflict"])
+            else "weak_label_corroborated"
+            if bool(row["issue_weak_label_corroborated"])
+            else "weak_label"
+        ),
+        axis=1,
+    )
+    proposed_action = issue_kind.map(
+        {
+            "family_conflict": "repair_alias_mapping",
+            "weak_label_corroborated": "accept_public_campaign_corroboration",
+            "weak_label": "review_weak_label_evidence",
+        }
+    )
+
+    out = pd.DataFrame(
+        {
+            "sample_id": issue_frame["sample_id"] if "sample_id" in issue_frame.columns else pd.Series(dtype="Int64"),
+            "sha256": issue_frame["sha256"] if "sha256" in issue_frame.columns else "",
+            "family_canonical": issue_frame["family_canonical"] if "family_canonical" in issue_frame.columns else "",
+            "type_slug": issue_frame["type_slug"] if "type_slug" in issue_frame.columns else "",
+            "sample_label_kind": issue_frame["sample_label_kind"] if "sample_label_kind" in issue_frame.columns else "",
+            "family_label_raw": issue_frame["family_label_raw"] if "family_label_raw" in issue_frame.columns else "",
+            "vt_family_token": issue_frame["vt_family_token"] if "vt_family_token" in issue_frame.columns else "",
+            "source_batch_label": source_batch,
+            "package_name": issue_frame["package_name"] if "package_name" in issue_frame.columns else "",
+            "android_package_name": issue_frame["android_package_name"] if "android_package_name" in issue_frame.columns else "",
+            "issue_kind": issue_kind,
+            "proposed_action": proposed_action,
+        }
+    )
+    return out.sort_values(
+        by=["issue_kind", "family_canonical", "sample_id"],
+        ascending=[True, True, True],
+        kind="stable",
+    ).reset_index(drop=True)
+
+
 def export_family_label_confidence_reports(
     *,
     diagnostics_dir: Path,
@@ -224,7 +386,9 @@ def export_family_label_confidence_reports(
     json_path = diagnostics_dir / f"family_label_confidence_audit_{run_id}.json"
     family_csv_path = diagnostics_dir / f"family_label_confidence_families_{run_id}.csv"
     sample_csv_path = diagnostics_dir / f"family_label_confidence_samples_{run_id}.csv"
+    remediation_csv_path = diagnostics_dir / f"family_label_drift_remediation_{run_id}.csv"
     md_path = diagnostics_dir / f"family_label_confidence_audit_{run_id}.md"
+    remediation_md_path = diagnostics_dir / f"family_label_drift_remediation_{run_id}.md"
 
     json_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     oh.mirror_json_text_run_then_global(
@@ -252,6 +416,16 @@ def export_family_label_confidence_reports(
         run_filename=sample_csv_path.name,
         csv_text=sample_csv,
         global_latest_name="family_label_confidence_samples.latest.csv",
+    )
+
+    remediation_df = build_family_label_drift_remediation_rows(samples_df)
+    remediation_csv = remediation_df.to_csv(index=False)
+    remediation_csv_path.write_text(remediation_csv, encoding="utf-8")
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=remediation_csv_path.name,
+        csv_text=remediation_csv,
+        global_latest_name="family_label_drift_remediation.latest.csv",
     )
 
     lines = [
@@ -306,10 +480,47 @@ def export_family_label_confidence_reports(
         text=md_text,
         global_latest_name="family_label_confidence_audit.latest.md",
     )
-    return [str(json_path), str(family_csv_path), str(sample_csv_path), str(md_path)]
+
+    remediation_lines = [
+        "# Family Label Drift Remediation",
+        "",
+        f"Run ID: `{run_id}`",
+        "",
+        "This ledger is operational. It preserves weak-label and family-conflict rows for targeted repair.",
+        "",
+        "| sample_id | family | type | label_kind | raw_family | vt_family_token | source_batch | action |",
+        "| ---: | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    if remediation_df.empty:
+        remediation_lines.append("|  | _none_ |  |  |  |  |  |  |")
+    else:
+        for _, row in remediation_df.iterrows():
+            remediation_lines.append(
+                f"| {int(row['sample_id']) if pd.notna(row['sample_id']) else ''} | "
+                f"`{row['family_canonical']}` | `{row['type_slug']}` | `{row['sample_label_kind']}` | "
+                f"`{row['family_label_raw']}` | `{row['vt_family_token']}` | `{row['source_batch_label']}` | "
+                f"`{row['proposed_action']}` |"
+            )
+    remediation_md_text = "\n".join(remediation_lines).strip() + "\n"
+    remediation_md_path.write_text(remediation_md_text, encoding="utf-8")
+    oh.mirror_utf8_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=remediation_md_path.name,
+        text=remediation_md_text,
+        global_latest_name="family_label_drift_remediation.latest.md",
+    )
+    return [
+        str(json_path),
+        str(family_csv_path),
+        str(sample_csv_path),
+        str(remediation_csv_path),
+        str(md_path),
+        str(remediation_md_path),
+    ]
 
 
 __all__ = [
     "build_family_label_confidence_payload",
+    "build_family_label_drift_remediation_rows",
     "export_family_label_confidence_reports",
 ]

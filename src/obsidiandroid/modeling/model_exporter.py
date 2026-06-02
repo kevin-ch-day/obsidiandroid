@@ -47,14 +47,14 @@ def export_model_to_file(
         metadata_path = model_dir / f"{model_type_clean}_classifier_model_metadata.json"
 
         joblib.dump(model, model_path)
-        du.print_success(f"Model exported successfully to: {model_path.resolve()}")
+        du.print_success(f"[EXPORT] Model:{du.format_console_path(model_path)}")
 
         if metadata_dict:
             enriched_metadata = _inject_model_metadata(model, model_type_clean, metadata_dict)
             cleaned_meta = _clean_metadata_for_json(enriched_metadata)
             with open(metadata_path, "w", encoding="utf-8") as meta_file:
                 json.dump(cleaned_meta, meta_file, indent=2, allow_nan=False)
-            du.print_success(f"Model metadata saved to: {metadata_path.resolve()}")
+            du.print_success(f"[EXPORT] Model metadata:{du.format_console_path(metadata_path)}")
 
         return model_path
 

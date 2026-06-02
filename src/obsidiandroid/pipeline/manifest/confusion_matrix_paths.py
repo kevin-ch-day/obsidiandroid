@@ -12,6 +12,16 @@ def find_primary_confusion_matrix(
     cm_dir = run_root / "conf_matrices"
     if not cm_dir.exists():
         return None
+    if evidence_mode:
+        primary_display = cm_dir / "confusion_matrix_primary_display.png"
+        if primary_display.exists():
+            return primary_display
+        headline_display = cm_dir / "headline" / "random_forest_display.png"
+        if headline_display.exists():
+            return headline_display
+        rf_display = cm_dir / "confusion_matrix_random_forest_display.png"
+        if rf_display.exists():
+            return rf_display
     primary_stable = cm_dir / "confusion_matrix_primary.png"
     if primary_stable.exists():
         return primary_stable

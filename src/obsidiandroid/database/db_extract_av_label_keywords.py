@@ -236,7 +236,7 @@ def save_txt_report(counter, categories, entropies, engine_map, engine_scores, e
                 for label in samples[:10]:
                     f.write(f"  - {label}\n")
 
-        du.print_success(f"[TXT] Keyword summary written to: {path}")
+        du.print_success(f"[TXT] Keyword summary:{du.format_console_path(path)}")
     except Exception as e:
         du.print_error(f"[TXT ERROR] Failed to write keyword summary: {e}")
 
@@ -268,6 +268,6 @@ def save_training_excel(counter, categories, entropies, label_map, engine_scores
             df_keywords.to_excel(writer, sheet_name="Keyword_Metadata", index=False)
             df_engine_entropy.to_excel(writer, sheet_name="Engine_LabelEntropy", index=False)
 
-        du.print_success(f"[EXCEL] Training data exported: {path}")
+        du.print_success(f"[EXCEL] Training data:{du.format_console_path(path)}")
     except Exception as e:
         du.print_warning(f"[EXCEL ERROR] Failed to write Excel file: {e}")

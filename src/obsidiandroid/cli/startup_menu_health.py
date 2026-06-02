@@ -15,6 +15,7 @@ from .startup_menu_run_context import (
     read_run_summary,
     resolve_latest_manifest_payload,
     resolve_manifest_for_run_id,
+    resolve_run_root_for_manifest,
 )
 from obsidiandroid.diagnostics import reproducibility_workbench as repro_workbench
 
@@ -70,7 +71,7 @@ def run_health_check(*, run_id: str | None = None) -> int:
             title="Run health checks",
             show_index=False,
         )
-        du.print_error("[MENU] Health check failed (no manifest).")
+        du.print_error("[RUN] Health check failed (no manifest).")
         return 1
 
     effective_run_id = requested_run_id or resolved_run_id or str(canonical_manifest.get("run_id", "")).strip()
@@ -91,7 +92,11 @@ def run_health_check(*, run_id: str | None = None) -> int:
             "manifest_run_id_consistent", "PASS", canonical_run_id or effective_run_id or "n/a"
         )
 
-    run_root_dir = output_root / "runs" / (effective_run_id or "")
+    run_root_dir = resolve_run_root_for_manifest(
+        canonical_manifest if isinstance(canonical_manifest, dict) else {},
+        run_id=effective_run_id or None,
+        manifest_path=canonical_manifest_path,
+    ) if effective_run_id else Path()
     run_summary = read_run_summary(run_root_dir) if run_root_dir.exists() else {}
 
     timestamp_utc = str(
@@ -170,7 +175,7 @@ def run_health_check(*, run_id: str | None = None) -> int:
     du.print_stat("Run ID", report_run_id)
     du.print_stat("Status", run_status)
     du.print_stat("Profile", profile_id or "n/a")
-    du.print_stat("Run root", str(run_root_dir))
+    du.print_stat("Run root", du.format_console_path(run_root_dir))
     print("")
     du.print_stat("Health PASS", str(pass_count))
     du.print_stat("Health WARN", str(warn_count))
@@ -188,18 +193,18 @@ def run_health_check(*, run_id: str | None = None) -> int:
         for r in warn_plain:
             du.print_warning(f"{r['check']}: {r['plain_language']}")
     print("")
-    du.print_info(f"Artifacts: {json_path}")
-    du.print_info(f"           {md_path}")
-    du.print_info(f"[MENU] Legacy mirror: {report_run}")
+    print(f"[DIAGNOSTICS] {du.format_console_path(json_path)}")
+    print(f"[DIAGNOSTICS] {du.format_console_path(md_path)}")
+    print(f"[DIAGNOSTICS] Legacy mirror:{du.format_console_path(report_run)}")
     print("")
-    du.print_info(f"[MENU] Health summary: PASS={pass_count}, WARN={warn_count}, FAIL={fail_count}")
-    du.print_info(f"Interpretation: {interpretation}")
+    print(f"[RUN] Health summary: PASS={pass_count}, WARN={warn_count}, FAIL={fail_count}")
+    print(f"[RUN] Interpretation: {interpretation}")
 
     if fail_count:
-        du.print_error("[MENU] Health check failed.")
+        du.print_error("[RUN] Health check failed.")
         return 1
     if warn_count:
-        du.print_warning("[MENU] Health check passed with warnings.")
+        du.print_warning("[RUN] Health check passed with warnings.")
         return 0
-    du.print_success("[MENU] Health check passed.")
+    print("[RUN] Health check passed.")
     return 0

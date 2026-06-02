@@ -14,6 +14,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import ml_console
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
 
@@ -142,6 +143,14 @@ def _permission_fuse_terminal_summary(
 
     def pct(a: float | int, b: float | int) -> str:
         return f"{100.0 * float(a) / float(b):.1f}%" if b else "n/a"
+    if ml_console.is_compact():
+        du.print_info(
+            "[FEATURES] Permission fuse: "
+            f"cohort={cohort_n}, perm_rows={perm_rows or cohort_n}, "
+            f"perm_cols={perm_cols}, signal_rows={signal_n} ({pct(signal_n, cohort_n)})"
+        )
+        du.print_info(f"[FEATURES] INTERNET-positive rows: {inet_display}")
+        return
     du.print_info(f"  cohort rows                         : {cohort_n}")
     du.print_info(f"  permission frame rows               : {perm_rows or cohort_n}")
     du.print_info(

@@ -17,11 +17,13 @@ from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common import output_paths
+from obsidiandroid.common import run_slots
 from obsidiandroid.common.cv_fold_config import (
     coerce_stratified_cv_folds_config,
     safe_int_config_value,
 )
 from obsidiandroid.common.hash_utils import hash_payload
+from obsidiandroid.diagnostics import family_tier_model_evaluation
 
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -124,7 +126,9 @@ def export_aligned_training_cache(
         except Exception:
             pass
         du.print_info(
-            f"[CACHE] Aligned training cache exported: features={feature_path}, labels={label_path}"
+            "[CACHE] Aligned training cache:"
+            f"features={du.format_console_path(feature_path)} | "
+            f"labels={du.format_console_path(label_path)}"
         )
     except Exception as exc:
         du.print_warning(f"[CACHE] Failed to export aligned training cache: {exc}")
@@ -318,10 +322,17 @@ def extract_model_summary(model_results: dict[str, Any]) -> dict[str, Any]:
     if not rows:
         return {}
     rows = sorted(rows, key=lambda item: item["macro_f1"], reverse=True)
+    top_model = rows[0]["model"]
+    family_tier_rows = family_tier_model_evaluation.build_family_tier_model_evaluation_rows(model_results)
+    top_model_family_tier_rows = [
+        row for row in family_tier_rows if str(row.get("model", "") or "") == str(top_model)
+    ]
     return {
-        "top_model": rows[0]["model"],
+        "top_model": top_model,
         "top_macro_f1": rows[0]["macro_f1"],
         "model_rows": rows,
+        "family_tier_model_rows": family_tier_rows,
+        "top_model_family_tier_rows": top_model_family_tier_rows,
     }
 
 
@@ -406,9 +417,15 @@ def apply_confusion_matrix_policy(run_id: str, top_model: str | None) -> None:
     rf_stable = run_cm_dir / "confusion_matrix_random_forest.png"
     if rf_stable.exists():
         keep.add(rf_stable)
+    rf_stable_display = run_cm_dir / "confusion_matrix_random_forest_display.png"
+    if rf_stable_display.exists():
+        keep.add(rf_stable_display)
     headline_rf = run_cm_dir / "headline" / "random_forest.png"
     if headline_rf.exists():
         keep.add(headline_rf)
+    headline_rf_display = run_cm_dir / "headline" / "random_forest_display.png"
+    if headline_rf_display.exists():
+        keep.add(headline_rf_display)
 
     removed = 0
     for path in files:
@@ -427,6 +444,13 @@ def apply_confusion_matrix_policy(run_id: str, top_model: str | None) -> None:
             latest_root = Path(app_config.DEFAULT_OUTPUT_DIR) / "latest"
             latest_root.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(primary_candidate, latest_root / "confusion_matrix_primary.png")
+            display_candidate = primary_candidate.with_name(
+                f"{primary_candidate.stem}_display{primary_candidate.suffix}"
+            )
+            if display_candidate.exists():
+                primary_display_alias = run_cm_dir / "confusion_matrix_primary_display.png"
+                shutil.copyfile(display_candidate, primary_display_alias)
+                shutil.copyfile(display_candidate, latest_root / "confusion_matrix_primary_display.png")
     except Exception:
         pass
 
@@ -517,17 +541,30 @@ def export_model_config_snapshot(
     return str(out_path)
 
 
-def setup_runtime_context(run_id: str, strict_run_scoped: bool = True) -> dict[str, Path]:
+def setup_runtime_context(
+    run_id: str,
+    *,
+    run_slot: str,
+    strict_run_scoped: bool = True,
+    archive_run: bool = False,
+    keep_last_failed_runs: int = 0,
+) -> dict[str, Path | str]:
     """Initialize runtime output paths and route diagnostics for a run."""
     del strict_run_scoped
     layout = output_paths.ensure_output_layout()
     output_root_base = layout["output_root"]
-    runtime_run_root = layout["runs_root"] / run_id
-    runtime_run_root.mkdir(parents=True, exist_ok=True)
-    runtime_diagnostics = runtime_run_root / "diagnostics"
-    runtime_diagnostics.mkdir(parents=True, exist_ok=True)
+    prepared = run_slots.prepare_run_root(
+        runs_root=layout["runs_root"],
+        run_slot=run_slot,
+        run_instance_id=run_id,
+        archive_run=archive_run,
+        keep_last_failed_runs=keep_last_failed_runs,
+    )
+    runtime_run_root = Path(prepared["run_root"])
+    runtime_diagnostics = Path(prepared["diagnostics_dir"])
 
     setattr(app_config, "RUNTIME_RUN_ROOT", str(runtime_run_root))
+    setattr(app_config, "RUNTIME_RUN_SLOT", str(run_slot))
     setattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root_base))
     setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(runtime_diagnostics))
     rid = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "unknown")
@@ -546,6 +583,8 @@ def setup_runtime_context(run_id: str, strict_run_scoped: bool = True) -> dict[s
         "output_root_base": output_root_base,
         "runtime_run_root": runtime_run_root,
         "runtime_diagnostics_dir": runtime_diagnostics,
+        "run_slot": str(run_slot),
+        "cleanup_action": str(prepared["cleanup_action"]),
     }
 
 
@@ -613,6 +652,12 @@ def build_run_summary_payload(
     )
     engine_count_observed = int(manifest_context.get("engine_count_observed", 0) or 0)
     engine_count_canonical = int(manifest_context.get("engine_count_canonical", 0) or 0)
+    engine_count_near_miss = safe_int_config_value(
+        getattr(app_config, "RUNTIME_ENGINE_COUNT_NEAR_MISS", 0), default=0
+    )
+    engine_exclusion_reason_counts = dict(
+        manifest_context.get("engine_exclusion_reason_counts", {}) or {}
+    )
     non_standard_features = bool(getattr(app_config, "RUNTIME_NON_STANDARD_FEATURES", False))
 
     return {
@@ -621,6 +666,8 @@ def build_run_summary_payload(
         "engine_count_observed": engine_count_observed,
         "engine_count_canonical": engine_count_canonical,
         "engine_count_included_after_gating": included_engine_count,
+        "engine_count_near_miss": engine_count_near_miss,
+        "engine_exclusion_reason_counts": engine_exclusion_reason_counts,
         "engine_count_requested_top_k": k_requested,
         "effective_top_k": effective_top_k,
         "fallback_used": fallback_used,
@@ -662,10 +709,19 @@ def export_and_print_run_summary(
 
     if echo_terminal:
         du.print_section("Run Health Summary")
-        du.print_stat("Engine Count Observed", payload.get("engine_count_observed"))
-        du.print_stat("Engine Count Canonical", payload.get("engine_count_canonical"))
-        du.print_stat("Engine Count Included After Gating", payload.get("engine_count_included_after_gating"))
-        du.print_stat("Engine Count Requested Top-K", payload.get("engine_count_requested_top_k"))
+        du.print_stat("Cohort Engines Observed", payload.get("engine_count_observed"))
+        du.print_stat("Cohort Engines Canonical", payload.get("engine_count_canonical"))
+        du.print_stat("Post-Score Engines Included", payload.get("engine_count_included_after_gating"))
+        if payload.get("engine_count_near_miss") is not None:
+            du.print_stat("Excluded Near-Miss Engines", payload.get("engine_count_near_miss"))
+        exclusion_counts = payload.get("engine_exclusion_reason_counts", {}) or {}
+        if exclusion_counts:
+            preview = ", ".join(
+                f"{str(reason)}={int(count)}"
+                for reason, count in list(exclusion_counts.items())[:3]
+            )
+            du.print_stat("Top Exclusion Reasons", preview)
+        du.print_stat("Requested Parser Top-K", payload.get("engine_count_requested_top_k"))
         du.print_stat("Effective Top-K", payload.get("effective_top_k"))
         du.print_stat("Fallback Used", payload.get("fallback_used"))
         du.print_stat("Fallback Added Count", payload.get("fallback_added_count"))

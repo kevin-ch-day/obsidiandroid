@@ -73,6 +73,17 @@ def candidate_sort_key(
     return (1, timestamp, token)
 
 
+def _iter_run_manifest_candidates(runs_dir: Path) -> Iterable[tuple[Path, dict]]:
+    """Yield candidate run manifests from slot roots and archived run roots."""
+    if not runs_dir.exists():
+        return []
+    manifests: list[tuple[Path, dict]] = []
+    for manifest_path in runs_dir.rglob("run_manifest.json"):
+        payload = read_json_object(manifest_path)
+        manifests.append((manifest_path, payload))
+    return manifests
+
+
 def discover_latest_run_id_from_runs(
     *,
     required_markers: Iterable[str] | None = None,
@@ -84,15 +95,13 @@ def discover_latest_run_id_from_runs(
 
     markers = tuple(required_markers or ("run_manifest.json",))
     candidates: list[tuple[tuple[int, datetime, str] | None, str]] = []
-    for child in runs_dir.iterdir():
-        if not child.is_dir():
+    for manifest_path, manifest_payload in _iter_run_manifest_candidates(runs_dir):
+        run_dir = manifest_path.parent
+        if markers and not any((run_dir / marker).exists() for marker in markers):
             continue
-        if markers and not any((child / marker).exists() for marker in markers):
-            continue
-        run_id = child.name.strip()
+        run_id = str(manifest_payload.get("run_id", "") or run_dir.name).strip()
         if not run_id:
             continue
-        manifest_payload = read_json_object(child / "run_manifest.json")
         candidates.append((candidate_sort_key(run_id=run_id, manifest_payload=manifest_payload), run_id))
 
     if not candidates:
@@ -139,10 +148,19 @@ def read_latest_run_id() -> str | None:
     return max(candidates, key=lambda item: item[1])[1]
 
 
-def resolve_manifest_for_run_id(run_id: str) -> tuple[dict, Path]:
+def resolve_manifest_for_run_id(run_id: str, *, runs_dir: Path | None = None) -> tuple[dict, Path]:
     """Resolve canonical run-scoped manifest for a specific run ID."""
-    canonical_path = output_paths.runs_root() / str(run_id).strip() / "run_manifest.json"
-    return read_json_object(canonical_path), canonical_path
+    active_runs_dir = runs_dir or output_paths.runs_root()
+    canonical_path = active_runs_dir / str(run_id).strip() / "run_manifest.json"
+    payload = read_json_object(canonical_path)
+    if payload:
+        return payload, canonical_path
+    target = str(run_id).strip()
+    for manifest_path, manifest_payload in _iter_run_manifest_candidates(active_runs_dir):
+        manifest_run_id = str(manifest_payload.get("run_id", "") or "").strip()
+        if manifest_run_id == target:
+            return manifest_payload, manifest_path
+    return {}, canonical_path
 
 
 def resolve_latest_manifest_payload(*, output_base: Path | None = None) -> tuple[dict, str | None, Path]:
@@ -171,6 +189,23 @@ def resolve_latest_manifest_payload(*, output_base: Path | None = None) -> tuple
         run_root = Path(run_root_raw)
     elif run_id:
         if output_base is None:
+            lookup_runs_dir = output_paths.runs_root()
+        else:
+            base = Path(output_base).expanduser().resolve()
+            runs_sub = str(getattr(app_config, "OUTPUT_RUNS_SUBDIR", "runs"))
+            lookup_runs_dir = base / runs_sub
+        manifest_lookup, manifest_lookup_path = resolve_manifest_for_run_id(
+            run_id,
+            runs_dir=lookup_runs_dir,
+        )
+        if manifest_lookup:
+            canonical_run_root_raw = str(manifest_lookup.get("run_root", "")).strip()
+            run_root = (
+                Path(canonical_run_root_raw)
+                if canonical_run_root_raw
+                else manifest_lookup_path.parent
+            )
+        elif output_base is None:
             run_root = output_paths.runs_root() / run_id
         else:
             base = Path(output_base).expanduser().resolve()
@@ -205,8 +240,43 @@ def resolve_run_root_for_manifest(
     if manifest_path.name == "run_manifest.json":
         return manifest_path.parent
     if run_id:
+        resolved_payload, resolved_path = resolve_manifest_for_run_id(run_id)
+        if resolved_payload:
+            resolved_run_root = str(resolved_payload.get("run_root", "") or "").strip()
+            if resolved_run_root:
+                return Path(resolved_run_root)
+            return resolved_path.parent
         return output_paths.runs_root() / run_id
     return output_paths.runs_root()
+
+
+def resolve_run_root_for_run_id(
+    run_id: str,
+    *,
+    output_base: Path | None = None,
+) -> Path:
+    """Resolve the run root for an instance ID across slot and archive layouts."""
+    token = str(run_id or "").strip()
+    if not token:
+        if output_base is None:
+            return output_paths.runs_root()
+        base = Path(output_base).expanduser().resolve()
+        runs_sub = str(getattr(app_config, "OUTPUT_RUNS_SUBDIR", "runs"))
+        return base / runs_sub
+    if output_base is None:
+        payload, manifest_path = resolve_manifest_for_run_id(token)
+        fallback_runs_root = output_paths.runs_root()
+    else:
+        base = Path(output_base).expanduser().resolve()
+        runs_sub = str(getattr(app_config, "OUTPUT_RUNS_SUBDIR", "runs"))
+        fallback_runs_root = base / runs_sub
+        payload, manifest_path = resolve_manifest_for_run_id(token, runs_dir=fallback_runs_root)
+    if payload:
+        run_root_raw = str(payload.get("run_root", "") or "").strip()
+        if run_root_raw:
+            return Path(run_root_raw)
+        return manifest_path.parent
+    return fallback_runs_root / token
 
 
 def read_locked_publication_run_id() -> str | None:
@@ -235,7 +305,7 @@ def candidate_workbook_paths() -> list[Path]:
         required_markers=("run_manifest.json", filename)
     )
     if newest_run_id:
-        candidates.append(output_paths.runs_root() / newest_run_id / filename)
+        candidates.append(resolve_run_root_for_run_id(newest_run_id) / filename)
 
     promoted_pointer = output_paths.promoted_root() / "latest_run.txt"
     if promoted_pointer.exists():
@@ -244,7 +314,7 @@ def candidate_workbook_paths() -> list[Path]:
         except Exception:
             latest_run_id = ""
         if latest_run_id:
-            candidates.append(output_paths.runs_root() / latest_run_id / filename)
+            candidates.append(resolve_run_root_for_run_id(latest_run_id) / filename)
 
     candidates.extend(
         [

@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.cli.menu import run_locator
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.json_io import read_json_dict
 
@@ -218,14 +219,9 @@ def launch_taxonomy_support_tuning_compact_menu(
     authority_gap_global_count = int(split_summary.get("authority_gap_global_count", 0) or 0) if split_summary else 0
     taxonomy_ready = bool(split_json_path or taxonomy_path)
     du.print_stat("Taxonomy health", "YELLOW" if (tax_total > 0 or model_prediction_errors > 0) else ("GREEN" if taxonomy_ready else "RED"))
-    du.print_stat("Taxonomy mismatch total", tax_total if taxonomy_ready else "—")
-    du.print_stat("Claim-facing mismatch total", claim_facing_tax_total if taxonomy else "—")
-    du.print_stat("Type/rendering issue count", type_issues if taxonomy_ready else "—")
-    du.print_stat("Model prediction error count", model_prediction_errors if taxonomy_ready else "—")
-    du.print_stat(
-        "Authority gap rows (run/global)",
-        f"{authority_gap_run_count} / {authority_gap_global_count}" if split_json_path else "—",
-    )
+    du.print_stat("Model prediction errors", model_prediction_errors if taxonomy_ready else "—")
+    du.print_stat("Authority gap rows (run/global)", f"{authority_gap_run_count} / {authority_gap_global_count}" if split_json_path else "—")
+    du.print_stat("Rendering / claim mismatch", f"{type_issues} rendering | {claim_facing_tax_total if taxonomy else '—'} claim-facing")
     split_json_origin = str(split_summary.get("split_json_origin", "") or "")
     split_md_origin = str(split_summary.get("split_md_origin", "") or "")
     target_surfaces_origin = oh.classify_artifact_origin(target_surfaces_path, rdiag)
@@ -250,12 +246,10 @@ def launch_taxonomy_support_tuning_compact_menu(
             "[MENU] One or more taxonomy tuning artifacts came from the global latest mirror, not this run's diagnostics directory."
         )
     if label_strategy:
+        du.print_subheader("Target surface")
         du.print_stat("Preferred family target", str(label_strategy.get("preferred_family_target", "—") or "—"))
         du.print_stat("Preferred type target", str(label_strategy.get("preferred_type_target", "—") or "—"))
-        du.print_stat(
-            "Avoid for primary claims",
-            ", ".join(label_strategy.get("avoid_for_primary_claims", [])) or "—",
-        )
+        du.print_stat("Avoid for primary claims", ", ".join(label_strategy.get("avoid_for_primary_claims", [])) or "—")
 
     min_support = "—"
     families_before = retained = dropped = dropped_samples = near_threshold = "—"
@@ -273,42 +267,40 @@ def launch_taxonomy_support_tuning_compact_menu(
             if isinstance(min_support, int) and "aligned_rows" in fam_df.columns:
                 counts = pd.to_numeric(fam_df["aligned_rows"], errors="coerce").fillna(0)
                 near_threshold = int(((counts >= max(0, min_support - 2)) & (counts < min_support)).sum())
-    du.print_stat("min_samples_per_family", min_support)
-    du.print_stat("Families before threshold", families_before)
-    du.print_stat("Families retained", retained)
-    du.print_stat("Families dropped", dropped)
-    du.print_stat("Samples dropped (estimate)", dropped_samples)
-    du.print_stat("Families just below threshold", near_threshold)
+    du.print_subheader("Support gate")
+    du.print_stat("Support threshold", f"n>={min_support}" if min_support != "—" else "—")
+    du.print_stat("Families before / retained / dropped", f"{families_before} / {retained} / {dropped}")
+    du.print_stat("Dropped samples (estimate)", dropped_samples)
+    du.print_stat("Families near threshold", near_threshold)
 
     du.print_subheader("Tune next")
     if tax_total > 0:
-        du.print_info("1) Review taxonomy authority split first; keep rendering mismatches separate from model prediction errors.")
+        print("1. Review taxonomy authority split first; keep rendering mismatches separate from model prediction errors.")
     if authority_gap_run_count > 0 or authority_gap_global_count > 0:
-        du.print_info("2) Use authority-gap queues for DB/type curation; do not treat them as model-family errors.")
+        print("2. Use authority-gap queues for DB/type curation; do not treat them as model-family errors.")
     if isinstance(near_threshold, int) and near_threshold > 0:
-        du.print_info("3) Review families just below threshold before changing cohort/profile support settings.")
+        print("3. Review families just below threshold before changing cohort/profile support settings.")
     if label_strategy:
-        du.print_info("4) Train on authoritative family_id/type_slug surfaces; keep raw category_primary as audit-only.")
-    du.print_info("5) Cross-check retained/dropped families with trained_family_registry and support_threshold_preview.")
-    du.print_stat("taxonomy_authority_split", str(split_md_path.resolve()) if split_md_path else "missing")
-    du.print_stat("taxonomy_authority_split_json", str(split_json_path.resolve()) if split_json_path else "missing")
-    du.print_stat("taxonomy_rendering_mismatches", str(rendering_csv_path.resolve()) if rendering_csv_path else "missing")
-    du.print_stat("taxonomy_model_prediction_errors", str(model_error_csv_path.resolve()) if model_error_csv_path else "missing")
-    du.print_stat("taxonomy_authority_gap_summary", str(authority_gap_csv_path.resolve()) if authority_gap_csv_path else "missing")
-    du.print_stat("taxonomy_consistency_summary", str(taxonomy_path.resolve()) if taxonomy_path else "missing")
-    du.print_stat("taxonomy_type_authority_review", str(authority_review_path.resolve()) if authority_review_path else "missing")
-    du.print_stat("family_label_taxonomy_audit", str(fam_audit_path.resolve()) if fam_audit_path else "missing")
-    du.print_stat("support_threshold_preview", str(support_preview_path.resolve()) if support_preview_path else "missing")
+        print("4. Train on authoritative family_id/type_slug surfaces; keep raw category_primary as audit-only.")
+    print("5. Cross-check retained/dropped families with trained_family_registry and support_threshold_preview.")
+
+    du.print_subheader("Diagnostics")
+    du.print_stat("Start here", du.format_console_path(split_md_path) if split_md_path else "missing")
+    du.print_stat("Split JSON", du.format_console_path(split_json_path) if split_json_path else "missing")
+    du.print_stat("Model errors", du.format_console_path(model_error_csv_path) if model_error_csv_path else "missing")
+    du.print_stat("Authority gaps", du.format_console_path(authority_gap_csv_path) if authority_gap_csv_path else "missing")
+    du.print_stat("Support preview", du.format_console_path(support_preview_path) if support_preview_path else "missing")
+    du.print_stat("Family audit", du.format_console_path(fam_audit_path) if fam_audit_path else "missing")
     if resolve_display_mode_fn() != "compact":
-        du.print_stat("low_support_families", str(low_support_path.resolve()) if low_support_path else "missing")
-        du.print_stat("trained_family_registry", str(trained_registry_path.resolve()) if trained_registry_path else "missing")
-        du.print_stat("family_distribution", str(family_distribution_path.resolve()) if family_distribution_path else "missing")
+        du.print_stat("Low-support families", du.format_console_path(low_support_path) if low_support_path else "missing")
+        du.print_stat("Trained registry", du.format_console_path(trained_registry_path) if trained_registry_path else "missing")
+        du.print_stat("Family distribution", du.format_console_path(family_distribution_path) if family_distribution_path else "missing")
     print("")
 
 
 def build_taxonomy_support_tuning_snapshot(*, run_id: str, output_root: Path, first_existing_path_fn) -> dict[str, object]:
     """Build compact taxonomy/support tuning snapshot from existing diagnostics artifacts."""
-    rdiag = output_root / "runs" / run_id / "diagnostics"
+    rdiag = run_locator.resolve_run_root_for_run_id(run_id, output_base=output_root) / "diagnostics"
     split_summary, split_json_path, split_md_path = _taxonomy_split_summary(
         output_root=output_root,
         diagnostics_dir=rdiag,
@@ -437,7 +429,7 @@ def build_taxonomy_support_tuning_snapshot(*, run_id: str, output_root: Path, fi
 
 def build_permission_coverage_tuning_snapshot(*, run_id: str, output_root: Path, first_existing_path_fn) -> dict[str, object]:
     """Build compact permission-coverage tuning snapshot from existing artifacts."""
-    rdiag = output_root / "runs" / run_id / "diagnostics"
+    rdiag = run_locator.resolve_run_root_for_run_id(run_id, output_base=output_root) / "diagnostics"
     gdiag = output_root / "diagnostics"
     q2_path = first_existing_path_fn([rdiag / "modality_contribution_summary.json", gdiag / "modality_contribution_summary.json"])
     q2 = read_json_dict(q2_path) if q2_path else {}

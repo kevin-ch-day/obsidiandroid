@@ -179,3 +179,25 @@ def test_build_operator_state_exposes_display_mode_from_debug_flag(
     shared = operator_state.build_operator_state(output_base=tmp_path / "output")
 
     assert shared["display_mode"] == "debug"
+
+
+def test_build_operator_state_distinguishes_diagnostics_from_provenance(tmp_path: Path) -> None:
+    """Runs with diagnostics artifacts should not be reported as completely missing."""
+    out_root = tmp_path / "output"
+    run_id = "20260601T142735Z__2a924a"
+    run_root = out_root / "runs" / run_id
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text(
+        json.dumps({"run_id": run_id, "profile_params": {"profile_id": "android_malware_major_families"}}),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / "pipeline_stage_timings.latest.csv").write_text(
+        "stage,duration_sec\nsamples,49.3\n",
+        encoding="utf-8",
+    )
+
+    shared = operator_state.build_operator_state(output_base=out_root, run_id=run_id)
+
+    assert shared["latest_run_has_diagnostics"] is True
+    assert shared["latest_run_has_provenance"] is False

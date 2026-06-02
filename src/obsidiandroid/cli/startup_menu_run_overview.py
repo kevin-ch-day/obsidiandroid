@@ -53,6 +53,7 @@ def print_profile_tuning_from_manifest(manifest: dict[str, Any]) -> None:
         du.print_stat("Profile config hash", ch[:16] + ("…" if len(ch) > 16 else ""))
 
     manifest_publication_mode = coalesce_manifest_publication_mode(manifest)
+    profile_evidence_mode = bool(pp.get("evidence_mode"))
     du.print_stat("Evidence mode (manifest)", "Yes" if manifest_publication_mode else "No")
     du.print_stat("Publication-ready mode (manifest)", "Yes" if manifest_publication_mode else "No")
     pmd = (
@@ -63,6 +64,8 @@ def print_profile_tuning_from_manifest(manifest: dict[str, Any]) -> None:
     psrc = str(pmd.get("source") or "").strip()
     if psrc:
         du.print_stat("Publication-ready mode source", psrc)
+    if profile_evidence_mode != bool(manifest_publication_mode):
+        du.print_stat("Evidence mode (profile)", "Yes" if profile_evidence_mode else "No")
     kreq = manifest.get("k_requested")
     effk = manifest.get("effective_top_k")
     if kreq is not None or effk is not None:
@@ -72,68 +75,73 @@ def print_profile_tuning_from_manifest(manifest: dict[str, Any]) -> None:
         du.print_stat("Vendor width fallback used (run)", "Yes" if vf else "No")
 
     du.print_stat("Profile ID", str(pp.get("profile_id", "—")))
-    du.print_stat("Evidence mode (profile)", "Yes" if bool(pp.get("evidence_mode")) else "No")
     du.print_stat("Type slug filter", str(pp.get("type_slug_filter") if pp.get("type_slug_filter") is not None else "— (all)"))
 
     gates = pp.get("cohort_gates") if isinstance(pp.get("cohort_gates"), dict) else {}
     if gates:
-        du.print_stat("min_samples_per_family", str(gates.get("min_samples_per_family", "—")))
-        du.print_stat("require_mapped_family", "Yes" if gates.get("require_mapped_family", True) else "No")
-        du.print_stat("require_sha256", "Yes" if gates.get("require_sha256", True) else "No")
-        du.print_stat("allow_missing_package_name", "Yes" if gates.get("allow_missing_package_name", True) else "No")
-        du.print_stat("max_missing_package_pct", str(gates.get("max_missing_package_pct", "—")))
-        du.print_stat("exclude_unknown_type_slug", "Yes" if gates.get("exclude_unknown_type_slug") else "No")
+        gate_parts = [
+            f"n>={gates.get('min_samples_per_family', '—')}",
+            f"mapped_family={'yes' if gates.get('require_mapped_family', True) else 'no'}",
+            f"sha256={'yes' if gates.get('require_sha256', True) else 'no'}",
+            (
+                f"missing_package={'yes' if gates.get('allow_missing_package_name', True) else 'no'}"
+                f" <= {gates.get('max_missing_package_pct', '—')}%"
+            ),
+            f"exclude_unknown_type={'yes' if gates.get('exclude_unknown_type_slug') else 'no'}",
+        ]
+        du.print_stat("Cohort gates", "; ".join(gate_parts))
         excl = gates.get("exclude_families")
         if isinstance(excl, list):
-            du.print_stat("exclude_families", f"{len(excl)} family name(s)")
+            du.print_stat("Excluded families", f"{len(excl)} family name(s)")
         elif excl:
-            du.print_stat("exclude_families", str(excl))
+            du.print_stat("Excluded families", str(excl))
         tw0 = str(gates.get("time_window_start_utc") or "").strip()
         tw1 = str(gates.get("time_window_end_utc") or "").strip()
         if tw0 or tw1:
             du.print_stat("Cohort time window", f"{tw0 or '—'} → {tw1 or '—'}")
     else:
-        du.print_stat("cohort_gates", "— (none in profile)")
+        du.print_stat("Cohort gates", "— (none in profile)")
 
     df = pp.get("dataset_filters") if isinstance(pp.get("dataset_filters"), dict) else {}
     if df:
-        du.print_stat("dataset_filters.mode", str(df.get("mode", "—")))
+        du.print_stat("Dataset mode", str(df.get("mode", "—")))
 
-    du.print_stat("top_k_requested", str(pp.get("top_k_requested", "—")))
-    du.print_stat("allow_adaptive_top_k", "Yes" if bool(pp.get("allow_adaptive_top_k")) else "No")
-    du.print_stat("allow_vendor_fallback_for_width", "Yes" if bool(pp.get("allow_vendor_fallback_for_width")) else "No")
-    du.print_stat(
-        "exclude_unknown_from_main_results",
-        "Yes" if bool(pp.get("exclude_unknown_from_main_results")) else "No",
-    )
+    topk_policy_parts = [
+        f"requested={pp.get('top_k_requested', '—')}",
+        f"adaptive={'yes' if bool(pp.get('allow_adaptive_top_k')) else 'no'}",
+        f"vendor_width_fallback={'yes' if bool(pp.get('allow_vendor_fallback_for_width')) else 'no'}",
+        f"exclude_unknown_main={'yes' if bool(pp.get('exclude_unknown_from_main_results')) else 'no'}",
+    ]
+    du.print_stat("Top-k policy", "; ".join(topk_policy_parts))
 
     flags = pp.get("feature_flags") if isinstance(pp.get("feature_flags"), dict) else {}
     if flags:
         du.print_stat(
-            "feature_flags (subset)",
+            "Feature flags",
             _compact_kv_map(
                 {k: flags[k] for k in sorted(flags.keys()) if k.startswith(("enable_", "confusion_matrix"))},
                 max_keys=20,
             ),
         )
     else:
-        du.print_stat("feature_flags", "—")
+        du.print_stat("Feature flags", "—")
 
     po = pp.get("parser_overrides") if isinstance(pp.get("parser_overrides"), dict) else {}
-    du.print_stat("parser_overrides", _compact_kv_map(po))
+    du.print_stat("Parser overrides", _compact_kv_map(po))
 
     ro = pp.get("runtime_overrides") if isinstance(pp.get("runtime_overrides"), dict) else {}
-    du.print_stat("runtime_overrides", _compact_kv_map(ro))
+    du.print_stat("Runtime overrides", _compact_kv_map(ro))
 
     raw_models = pp.get("model_list")
     if isinstance(raw_models, list) and raw_models:
-        du.print_stat("model_list", ", ".join(str(m) for m in raw_models[:12]) + (" …" if len(raw_models) > 12 else ""))
+        du.print_stat("Models", ", ".join(str(m) for m in raw_models[:12]) + (" …" if len(raw_models) > 12 else ""))
     elif raw_models is not None:
-        du.print_stat("model_list", str(raw_models))
-    du.print_info(
-        "[MENU] Tunables live in profiles/*.yaml (cohort_gates, parser_overrides, runtime_overrides, "
-        "feature_flags); rerun the pipeline after edits."
+        du.print_stat("Models", str(raw_models))
+    print(
+        "[PROFILE] Tunables: profiles/*.yaml "
+        "(cohort_gates, parser_overrides, runtime_overrides, feature_flags)"
     )
+    print("[ACTION] Rerun the pipeline after profile edits.")
     print("")
 
 
@@ -145,14 +153,14 @@ def show_profile_tuning_snapshot() -> int:
     manifest_path = shared.get("manifest_path")
     canonical_manifest_path = shared.get("canonical_manifest_path")
     if not manifest:
-        du.print_warning("[MENU] Latest run manifest could not be resolved.")
+        du.print_warning("[RUN] Latest run manifest could not be resolved.")
         return 1
     run_id = str(resolved_run_id or manifest.get("run_id", "unknown"))
     if resolved_run_id and isinstance(canonical_manifest_path, Path):
         manifest_path = canonical_manifest_path
     du.print_section("Pipeline profile tuning")
     du.print_stat("Resolved run ID", run_id)
-    du.print_stat("Manifest path", str(manifest_path))
+    du.print_stat("Manifest path", du.format_console_path(manifest_path))
     print_profile_tuning_from_manifest(manifest)
     return 0
 
@@ -165,7 +173,7 @@ def show_latest_run_snapshot() -> int:
     resolved_run_id = str(shared.get("resolved_run_id", "") or "")
     manifest_path = shared.get("manifest_path")
     if not manifest:
-        du.print_warning("[MENU] Latest run manifest could not be resolved.")
+        du.print_warning("[RUN] Latest run manifest could not be resolved.")
         return 1
 
     run_id = str(resolved_run_id or manifest.get("run_id", "unknown"))
@@ -247,7 +255,7 @@ def show_latest_run_snapshot() -> int:
     du.print_stat("Top Macro F1", top_macro)
     du.print_stat(
         "Run Manifest",
-        str(canonical_manifest_path if canonical_manifest_path.exists() else manifest_path),
+        du.format_console_path(canonical_manifest_path if canonical_manifest_path.exists() else manifest_path),
     )
     print_profile_tuning_from_manifest(manifest)
     return 0
@@ -262,7 +270,7 @@ def show_recent_runs_overview(limit: int = 10, *, include_noncanonical: bool = F
     output_root = canonical_output_root()
     runs_root = output_root / "runs"
     if not runs_root.exists():
-        du.print_warning(f"[MENU] Runs directory not found: {runs_root}")
+        du.print_warning(f"[RUN] Runs directory not found: {du.format_console_path(runs_root)}")
         return 1
 
     rows: list[dict[str, object]] = []
@@ -323,7 +331,7 @@ def show_recent_runs_overview(limit: int = 10, *, include_noncanonical: bool = F
         )
 
     if not rows:
-        du.print_warning("[MENU] No run-scoped manifests found under output/runs.")
+        du.print_warning("[RUN] No run-scoped manifests found under output/runs.")
         return 1
 
     valid_rows = [row for row in rows if row.get("__sort_key") is not None]
@@ -349,10 +357,11 @@ def show_recent_runs_overview(limit: int = 10, *, include_noncanonical: bool = F
         show_index=False,
     )
     if hidden_noncanonical_count:
-        du.print_note(
-            f"[MENU] Hidden {hidden_noncanonical_count} non-canonical run folder(s); use Full Run Folder History to inspect them."
+        print(
+            f"[RUN] Hidden {hidden_noncanonical_count} non-canonical run folder(s); "
+            "use Full Run Folder History to inspect them."
         )
-    du.print_info("[MENU] Use Diagnostics > Run Health Check for Specific Run ID for deep validation.")
+    print("[DIAGNOSTICS] Deep validation: Diagnostics > Run Health Check for Specific Run ID")
     return 0
 
 
@@ -390,13 +399,14 @@ def show_session_and_output_details() -> int:
     du.print_stat("Publication-ready Status", str(shared.get("publication_ready_status", "") or "unknown"))
     du.print_stat("Cohort Lock Status", str(shared.get("cohort_lock_status", "") or "unknown"))
     du.print_stat("Cohort Methodology", cohort_methodology_summary(shared))
-    du.print_stat("Run Diagnostics Available", "Yes" if bool(shared.get("latest_run_has_provenance", False)) else "No")
+    du.print_stat("Run Diagnostics Available", "Yes" if bool(shared.get("latest_run_has_diagnostics", False)) else "No")
+    du.print_stat("Run-Scoped Provenance", "Yes" if bool(shared.get("latest_run_has_provenance", False)) else "No")
     best_index_path = shared.get("best_run_index_path")
     if isinstance(best_index_path, Path) and best_index_path:
-        du.print_stat("Best Run Index", str(best_index_path))
+        du.print_stat("Best Run Index", du.format_console_path(best_index_path))
     if manifest:
         du.print_stat(
             "Resolved Manifest",
-            str(canonical_manifest_path if canonical_manifest_path.exists() else manifest_path),
+            du.format_console_path(canonical_manifest_path if canonical_manifest_path.exists() else manifest_path),
         )
     return 0

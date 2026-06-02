@@ -110,7 +110,7 @@ def run_android_missing_resolution_triage_script(
         du.print_error(f"[MENU] Missing script: {script_path}")
         return 1
     cmd = [sys.executable, str(script_path)]
-    du.print_info(f"[MENU] Running: {' '.join(cmd)}")
+    print("[ACTION] Refresh Android missing-resolution triage export")
     proc = subprocess_run(cmd, check=False)
     return int(getattr(proc, "returncode", 0) or 0)
 
@@ -126,7 +126,7 @@ def run_vt_false_positive_review_triage_script(
         du.print_error(f"[MENU] Missing script: {script_path}")
         return 1
     cmd = [sys.executable, str(script_path)]
-    du.print_info(f"[MENU] Running: {' '.join(cmd)}")
+    print("[ACTION] Refresh VT false-positive triage export")
     proc = subprocess_run(cmd, check=False)
     return int(getattr(proc, "returncode", 0) or 0)
 
@@ -142,7 +142,7 @@ def run_policy_held_token_risk_script(
         du.print_error(f"[MENU] Missing script: {script_path}")
         return 1
     cmd = [sys.executable, str(script_path)]
-    du.print_info(f"[MENU] Running: {' '.join(cmd)}")
+    print("[ACTION] Refresh policy-held token risk export")
     proc = subprocess_run(cmd, check=False)
     return int(getattr(proc, "returncode", 0) or 0)
 
@@ -154,15 +154,15 @@ def refresh_backlog_triage_exports(
     run_policy_held_token_risk_action: Callable[[], int] | None = None,
 ) -> int:
     """Refresh backlog triage exports in one operator action."""
-    du.print_info("[MENU] Refreshing backlog triage exports...")
+    print("[DIAGNOSTICS] Refreshing backlog triage exports...")
     android_rc = int(run_android_missing_resolution_triage_action() or 0)
     vt_rc = int(run_vt_false_positive_review_triage_action() or 0)
     policy_rc = int(run_policy_held_token_risk_action() or 0) if run_policy_held_token_risk_action else 0
     if android_rc == 0 and vt_rc == 0 and policy_rc == 0:
-        du.print_success("[MENU] Backlog triage exports refreshed.")
+        print("[DIAGNOSTICS] Backlog triage exports refreshed.")
         return 0
     du.print_warning(
-        "[MENU] Backlog triage refresh completed with issues "
+        "[DIAGNOSTICS] Backlog triage refresh completed with issues "
         f"(android_missing_resolution={android_rc}, vt_false_positive={vt_rc}, policy_held_token_risk={policy_rc})."
     )
     return android_rc or vt_rc or policy_rc
@@ -375,25 +375,25 @@ def launch_data_diagnostics_menu(
             last_overview_signature = signature
         data_sections = [
             "Open run science index",
-            "Pipeline profile tuning (resolved manifest)",
-            "Profile readiness mapping inventory",
+            "Frozen profile config",
+            "Profile readiness summary",
             "Refresh backlog triage exports",
-            "Taxonomy & Support Tuning",
-            "Taxonomy Consistency Review",
-            "Family/Type Authority Coverage",
+            "Taxonomy / support tuning",
+            "Taxonomy consistency",
+            "Family/type authority",
             "Android Missing-Resolution Triage",
             "VT False-Positive Review Triage",
-            "Parser & Vendor Coverage",
-            "Permission Intelligence Coverage",
-            "Feature Matrix / Modality Coverage",
-            "Cohort / Family Label Audit",
+            "Vendor/parser coverage",
+            "Permission signal coverage",
+            "Feature matrix / modalities",
+            "Cohort / family labels",
         ]
         choice = mu.display_menu(
             data_sections,
             title="Data diagnostics",
             exit_label="Back",
             breadcrumb="Main menu › Data Diagnostics",
-            subtitle="View summaries first. Generate post-run audits only when needed.",
+            subtitle="Open summaries first. Refresh audit exports only when needed.",
         )
         if choice == 0:
             return

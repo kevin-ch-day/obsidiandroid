@@ -31,7 +31,7 @@ def global_diagnostics() -> Path:
 
 def run_diagnostics(run_id: str) -> Path:
     """Return the run-scoped diagnostics directory for one run id."""
-    return output_root() / "runs" / run_id.strip() / "diagnostics"
+    return run_locator.resolve_run_root_for_run_id(run_id, output_base=output_root()) / "diagnostics"
 
 
 def first_existing(paths: list[Path]) -> Path | None:
@@ -122,6 +122,39 @@ def read_latest_manifest() -> dict[str, Any]:
 
 def _normalize_vendor_name(value: object) -> str:
     return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _bool_series(series: pd.Series | object) -> pd.Series:
+    """Coerce a mixed-value series into stable booleans."""
+    if not isinstance(series, pd.Series):
+        series = pd.Series(series)
+    normalized = series.copy()
+    if normalized.dtype == object:
+        lowered = normalized.fillna("").astype(str).str.strip().str.lower()
+        mapping = {
+            "1": True,
+            "true": True,
+            "t": True,
+            "yes": True,
+            "y": True,
+            "0": False,
+            "false": False,
+            "f": False,
+            "no": False,
+            "n": False,
+            "": False,
+            "nan": False,
+            "none": False,
+        }
+        normalized = lowered.map(mapping).fillna(False)
+    return normalized.fillna(False).astype(bool)
+
+
+def _string_series(series: pd.Series | object) -> pd.Series:
+    """Coerce values into stripped strings with nulls normalized to empty."""
+    if not isinstance(series, pd.Series):
+        series = pd.Series(series)
+    return series.fillna("").astype(str).str.strip()
 
 
 def _selected_vendor_quality_map(scores_csv: Path | None) -> tuple[dict[str, dict[str, object]], list[str]]:
@@ -353,7 +386,45 @@ def build_parser_diagnostics_state(
         selected_vendors = int(selected_vendors) if selected_vendors is not None else None
     except (TypeError, ValueError):
         selected_vendors = None
+    try:
+        cohort_engines_observed = (
+            int(manifest.get("engine_count_observed")) if manifest.get("engine_count_observed") is not None else None
+        )
+    except (TypeError, ValueError):
+        cohort_engines_observed = None
+    try:
+        cohort_engines_canonical = (
+            int(manifest.get("engine_count_canonical")) if manifest.get("engine_count_canonical") is not None else None
+        )
+    except (TypeError, ValueError):
+        cohort_engines_canonical = None
+    try:
+        post_score_engines_included = (
+            int(manifest.get("engine_count_included_after_gating"))
+            if manifest.get("engine_count_included_after_gating") is not None
+            else None
+        )
+    except (TypeError, ValueError):
+        post_score_engines_included = None
+    try:
+        requested_parser_top_k = (
+            int(manifest.get("engine_count_requested_top_k"))
+            if manifest.get("engine_count_requested_top_k") is not None
+            else None
+        )
+    except (TypeError, ValueError):
+        requested_parser_top_k = None
     engine_scoring_universe = None
+    engine_metadata_table_universe = None
+    engine_metadata_only_count = None
+    engine_verdict_only_count = None
+    engine_metadata_alias_suggestion_count = None
+    engine_metadata_current_prefix_missing_verdict_count = None
+    engine_metadata_unclear_count = None
+    top_metadata_alias_preview: list[str] = []
+    engine_exclusion_audit_rows = None
+    engine_near_miss_count = None
+    top_near_miss_preview: list[str] = []
     engine_csv = Path()
     if rid:
         rd = run_diagnostics(rid)
@@ -365,6 +436,56 @@ def build_parser_diagnostics_state(
         engine_df = read_csv(engine_csv)
         if not engine_df.empty:
             engine_scoring_universe = int(len(engine_df))
+        drift_csv = engine_csv.with_name("engine_metadata_drift.csv")
+        drift_df = read_csv(drift_csv)
+        if not drift_df.empty and "drift_status" in drift_df.columns:
+            engine_metadata_table_universe = int(
+                pd.to_numeric(drift_df.get("in_metadata_table", 0), errors="coerce").fillna(0).astype(bool).sum()
+            )
+            drift_status = _string_series(drift_df["drift_status"])
+            engine_metadata_only_count = int((drift_status == "metadata_only").sum())
+            engine_verdict_only_count = int((drift_status == "verdict_only").sum())
+            if "suggestion_basis" in drift_df.columns and "likely_current_vendor_key" in drift_df.columns:
+                suggestion_basis = _string_series(drift_df["suggestion_basis"])
+                likely_current = _string_series(drift_df["likely_current_vendor_key"])
+                vendor_key = _string_series(drift_df.get("vendor_key", pd.Series(dtype="object")))
+                metadata_only_mask = drift_status == "metadata_only"
+                alias_mask = metadata_only_mask & (suggestion_basis == "legacy_metadata_alias_to_current_vt_prefix")
+                current_prefix_mask = metadata_only_mask & (
+                    suggestion_basis == "current_vt_documented_prefix_without_verdict_column"
+                )
+                unclear_mask = metadata_only_mask & (~alias_mask) & (~current_prefix_mask)
+                engine_metadata_alias_suggestion_count = int(alias_mask.sum())
+                engine_metadata_current_prefix_missing_verdict_count = int(current_prefix_mask.sum())
+                engine_metadata_unclear_count = int(unclear_mask.sum())
+                if int(alias_mask.sum()) > 0:
+                    alias_df = pd.DataFrame(
+                        {
+                            "vendor_key": vendor_key[alias_mask].tolist(),
+                            "likely_current_vendor_key": likely_current[alias_mask].tolist(),
+                        }
+                    )
+                    top_metadata_alias_preview = [
+                        f"{str(row.vendor_key)}->{str(row.likely_current_vendor_key)}"
+                        for row in alias_df.head(3).itertuples(index=False)
+                        if str(row.vendor_key).strip() and str(row.likely_current_vendor_key).strip()
+                    ]
+        exclusion_csv = run_diagnostics(rid) / f"engine_exclusion_audit_{rid}.csv"
+        exclusion_df = read_csv(exclusion_csv)
+        if not exclusion_df.empty:
+            engine_exclusion_audit_rows = int(len(exclusion_df))
+            near_miss_mask = _bool_series(exclusion_df.get("near_miss_flag", pd.Series(dtype="object")))
+            engine_near_miss_count = int(near_miss_mask.sum())
+            if engine_near_miss_count > 0:
+                near_df = exclusion_df[near_miss_mask].copy()
+                if "coverage_pct" in near_df.columns:
+                    near_df["coverage_pct"] = pd.to_numeric(near_df.get("coverage_pct"), errors="coerce").fillna(0.0)
+                    near_df = near_df.sort_values("coverage_pct", ascending=False)
+                top_near_miss_preview = [
+                    str(v).strip()
+                    for v in near_df.head(3).get("engine_name_canonical", pd.Series(dtype="object")).tolist()
+                    if str(v).strip()
+                ]
     top_selected_vendor_preview: list[str] = []
     selected_vendor_data_present = False
     if scores_csv is not None:
@@ -408,9 +529,9 @@ def build_parser_diagnostics_state(
     else:
         next_tuning_action = "Review selected vendors and parser quality drift."
     explanation = (
-        "Observed engines are all active vendor columns in the latest run. "
-        "Parser mapped vendors have a parser path today. "
-        "Selected vendors are the narrower leakage-safe subset used by the latest run."
+        "Observed engines are all vendor columns seen in the run coverage snapshot. "
+        "Post-score included engines are the narrower engine-gated subset. "
+        "Selected vendors are the parser-scored leakage-safe subset used by the latest run."
     )
     return {
         "display_mode": resolve_display_mode(mode),
@@ -433,6 +554,20 @@ def build_parser_diagnostics_state(
         "selected_vendors": selected_vendors,
         "top_selected_vendor_preview": top_selected_vendor_preview,
         "engine_scoring_universe": engine_scoring_universe,
+        "cohort_engines_observed": cohort_engines_observed,
+        "cohort_engines_canonical": cohort_engines_canonical,
+        "post_score_engines_included": post_score_engines_included,
+        "requested_parser_top_k": requested_parser_top_k,
+        "engine_metadata_table_universe": engine_metadata_table_universe,
+        "engine_metadata_only_count": engine_metadata_only_count,
+        "engine_verdict_only_count": engine_verdict_only_count,
+        "engine_metadata_alias_suggestion_count": engine_metadata_alias_suggestion_count,
+        "engine_metadata_current_prefix_missing_verdict_count": engine_metadata_current_prefix_missing_verdict_count,
+        "engine_metadata_unclear_count": engine_metadata_unclear_count,
+        "top_metadata_alias_preview": top_metadata_alias_preview,
+        "engine_exclusion_audit_rows": engine_exclusion_audit_rows,
+        "engine_near_miss_count": engine_near_miss_count,
+        "top_near_miss_preview": top_near_miss_preview,
         "needs_attention": needs_attention,
         "recommended_open_first": recommended_open_first,
         "next_tuning_action": next_tuning_action,

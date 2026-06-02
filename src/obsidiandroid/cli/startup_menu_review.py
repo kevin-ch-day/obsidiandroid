@@ -346,7 +346,7 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
     )
     backlog_snapshot_warning: dict[str, str] | None = None
     if isinstance(debt_summary, dict) and debt_summary:
-        debt_summary["source_note"] = "live DB now (reviewing an older run may differ)"
+        debt_summary["source_note"] = "live DB current-state view, not frozen run snapshot"
         run_backlog_counts = read_run_backlog_snapshot_counts(
             rdiag / f"backlog_debt_summary_{rid}.md"
         ) if rid else {}
@@ -772,19 +772,21 @@ def print_compact_review_latest_run(*, output_root: Path, latest_run_id: str | N
                 du.print_stat(f"  {name}", value)
         signal = summary.get("cohort_readiness_signal", {})
         if isinstance(signal, dict):
-            du.print_info(f"  {str(signal.get('summary', '') or '').strip()}")
+            signal_summary = str(signal.get("summary", "") or "").strip()
+            if signal_summary:
+                print(f"[PROFILE] {signal_summary}")
             detail = str(signal.get("detail", "") or "").strip()
             if detail:
-                du.print_note(f"  {detail}")
+                print(f"           {detail}")
         observed_note = str(summary.get("cohort_readiness_observed_note", "") or "").strip()
         if observed_note:
-            du.print_note(f"  {observed_note}")
+            print(f"           {observed_note}")
         for note in summary.get("cohort_readiness_gap_notes", [])[:3]:
-            du.print_note(f"  {note}")
+            print(f"           {str(note).strip()}")
         for note in summary.get("temporal_generalization_notes", [])[:3]:
-            du.print_note(f"  {note}")
+            print(f"           {str(note).strip()}")
         for note in readiness.get("warnings", [])[:3]:
-            du.print_note(f"  {note}")
+            print(f"           {str(note).strip()}")
     print("")
     print("Taxonomy & Support Tuning")
     tax = summary.get("taxonomy_support_summary", {})
@@ -872,16 +874,26 @@ def print_compact_review_latest_run(*, output_root: Path, latest_run_id: str | N
     debt_summary = summary.get("backlog_debt_summary", {})
     if isinstance(debt_summary, dict) and debt_summary:
         print("Backlog Debt")
-        lines = build_backlog_terminal_lines(debt_summary=debt_summary, max_rows=5)
+        policy_held_triage = summary.get("policy_held_token_risk_summary", {})
+        run_id = str(summary.get("run_id", "") or "").strip()
+        diagnostics_dir = output_root / "runs" / run_id / "diagnostics" if run_id else None
+        lines = build_backlog_terminal_lines(
+            debt_summary=debt_summary,
+            backlog_path=(
+                diagnostics_dir / f"backlog_debt_summary_{run_id}.md"
+                if diagnostics_dir is not None
+                else None
+            ),
+            policy_held_path=(
+                Path(str(policy_held_triage.get("path")))
+                if isinstance(policy_held_triage, dict) and policy_held_triage.get("path")
+                else None
+            ),
+            max_rows=5,
+        )
         if lines:
-            first = str(lines[0])
-            if first.startswith("Focus area: "):
-                du.print_info(f"  {first}")
-                for line in lines[1:]:
-                    if "Recommended next action:" in line:
-                        du.print_info(f"  {line}")
-                    else:
-                        du.print_note(f"  {line}")
+            for line in lines:
+                print(f"  {line}")
         print("")
     priority_backlog = summary.get("priority_backlog_summary", {})
     if isinstance(priority_backlog, dict) and priority_backlog:

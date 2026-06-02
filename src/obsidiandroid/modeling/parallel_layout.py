@@ -11,6 +11,8 @@ and :func:`stratified_kfold_for_grid_search` for a valid ``StratifiedKFold`` spl
 
 from __future__ import annotations
 
+import os
+
 from sklearn.model_selection import StratifiedKFold
 
 from config import app_config
@@ -19,6 +21,51 @@ from obsidiandroid.common.cv_fold_config import (
     coerce_stratified_cv_folds_config,
     safe_int_config_value,
 )
+
+
+def _profile_parallelism_scope() -> str:
+    """Return the active runtime scope for adaptive parallelism decisions."""
+    if bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)):
+        return "ablation"
+    profile_id = str(getattr(app_config, "RUNTIME_PROFILE_ID", "") or "").strip().lower()
+    if profile_id == "android_malware_all_current":
+        return "broad_corpus"
+    return "default"
+
+
+def _resolve_parallel_cap(scope: str, *, kind: str) -> int | None:
+    """Return an adaptive job cap for the current runtime scope, if any."""
+    if not bool(getattr(app_config, "ENABLE_ADAPTIVE_TRAINING_PARALLELISM", True)):
+        return None
+    key_map = {
+        ("broad_corpus", "training"): "BROAD_CORPUS_TRAINING_N_JOBS_CAP",
+        ("ablation", "training"): "ABLATION_TRAINING_N_JOBS_CAP",
+        ("broad_corpus", "cv"): "BROAD_CORPUS_CV_N_JOBS_CAP",
+        ("ablation", "cv"): "ABLATION_CV_N_JOBS_CAP",
+    }
+    key = key_map.get((scope, kind))
+    if not key:
+        return None
+    value = safe_int_config_value(getattr(app_config, key, 0), default=0)
+    if value <= 0:
+        return None
+    return value
+
+
+def resolve_adaptive_job_count(
+    requested_n_jobs: int,
+    *,
+    kind: str,
+) -> int:
+    """Return ``requested_n_jobs`` adjusted for broad-corpus/ablation runtime caps."""
+    scope = _profile_parallelism_scope()
+    cap = _resolve_parallel_cap(scope, kind=kind)
+    if cap is None:
+        return requested_n_jobs
+
+    cpu_count = max(1, int(os.cpu_count() or 1))
+    effective_requested = cpu_count if int(requested_n_jobs) == -1 else max(1, int(requested_n_jobs))
+    return max(1, min(effective_requested, int(cap)))
 
 
 def grid_search_job_counts() -> tuple[int, int]:
@@ -32,9 +79,10 @@ def grid_search_job_counts() -> tuple[int, int]:
     When the guard is false, both values default to ``-1`` (legacy aggressive nesting).
     """
     outer = safe_int_config_value(getattr(app_config, "CV_N_JOBS", -1), default=-1)
+    outer = resolve_adaptive_job_count(outer, kind="cv")
     if bool(getattr(app_config, "CV_AVOID_NESTED_PARALLELISM", True)):
         return 1, outer
-    return -1, -1
+    return resolve_adaptive_job_count(-1, kind="training"), outer
 
 
 def stratified_kfold_for_grid_search(

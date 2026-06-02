@@ -94,6 +94,7 @@ def load_samples_by_type(
     effective_time_start_utc: str | None = None,
     effective_time_end_utc: str | None = None,
     require_effective_first_seen: bool = True,
+    include_family_canonical: tuple[str, ...] | None = None,
     exclude_family_ids: tuple[int, ...] | None = None,
     exclude_family_canonical: tuple[str, ...] | None = None,
 ) -> pd.DataFrame:
@@ -147,6 +148,7 @@ def load_samples_by_type(
         effective_time_start_utc=effective_time_start_utc,
         effective_time_end_utc=effective_time_end_utc,
         require_effective_first_seen=require_effective_first_seen,
+        include_family_canonical=include_family_canonical,
         exclude_family_ids=exclude_family_ids,
         exclude_family_canonical=exclude_family_canonical,
         as_dataframe=False,
@@ -175,6 +177,7 @@ def load_sample_ids_by_type(
     effective_time_start_utc: str | None = None,
     effective_time_end_utc: str | None = None,
     require_effective_first_seen: bool = True,
+    include_family_canonical: tuple[str, ...] | None = None,
     exclude_family_ids: tuple[int, ...] | None = None,
     exclude_family_canonical: tuple[str, ...] | None = None,
 ) -> set[int]:
@@ -198,6 +201,7 @@ def load_sample_ids_by_type(
         effective_time_start_utc=effective_time_start_utc,
         effective_time_end_utc=effective_time_end_utc,
         require_effective_first_seen=require_effective_first_seen,
+        include_family_canonical=include_family_canonical,
         exclude_family_ids=exclude_family_ids,
         exclude_family_canonical=exclude_family_canonical,
     )

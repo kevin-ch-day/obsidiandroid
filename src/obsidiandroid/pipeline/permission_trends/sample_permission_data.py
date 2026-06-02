@@ -197,13 +197,19 @@ def fetch_permission_rows_for_samples(sample_ids: list[int]) -> pd.DataFrame:
                 UPPER(COALESCE(a.protection_level, o.protection_level, 'UNKNOWN')) AS protection_level,
                 UPPER(COALESCE(ops.classification, 'UNKNOWN')) AS permission_source,
                 CASE WHEN a.constant_value IS NOT NULL THEN 1 ELSE 0 END AS is_aosp_dict_match,
-                CASE WHEN o.permission_string IS NOT NULL THEN 1 ELSE 0 END AS is_oem_dict_match
+                CASE WHEN o.permission_string IS NOT NULL THEN 1 ELSE 0 END AS is_oem_dict_match,
+                gov.effective_source_family_key,
+                gov.candidate_source_family_key,
+                gov.effective_review_lane,
+                gov.effective_resolution_semantics
             FROM android_permission_obs_sample ops
             LEFT JOIN android_permission_dict_aosp a
               ON LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(a.constant_value))
             LEFT JOIN android_permission_dict_oem o
               ON LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(o.permission_string))
              AND (ops.vendor_id = o.vendor_id OR o.vendor_id IS NULL)
+            LEFT JOIN vw_permission_vt_current_governed gov
+              ON {permission_key_expr} = gov.raw_token_norm
             WHERE ops.sample_id IN ({placeholders})
               AND ops.permission_string IS NOT NULL
               AND TRIM(ops.permission_string) <> ''
@@ -222,6 +228,10 @@ def fetch_permission_rows_for_samples(sample_ids: list[int]) -> pd.DataFrame:
                 "permission_source",
                 "is_aosp_dict_match",
                 "is_oem_dict_match",
+                "effective_source_family_key",
+                "candidate_source_family_key",
+                "effective_review_lane",
+                "effective_resolution_semantics",
             ]
         )
     out = pd.concat(frames, ignore_index=True)
@@ -232,6 +242,14 @@ def fetch_permission_rows_for_samples(sample_ids: list[int]) -> pd.DataFrame:
     out["permission_string"] = out["permission_string"].replace(PERMISSION_ALIAS_MAP)
     out["protection_level"] = out["protection_level"].fillna("UNKNOWN").astype(str).str.upper()
     out["permission_source"] = out["permission_source"].fillna("UNKNOWN").astype(str).str.upper()
+    for col in (
+        "effective_source_family_key",
+        "candidate_source_family_key",
+        "effective_review_lane",
+        "effective_resolution_semantics",
+    ):
+        series = out[col] if col in out.columns else pd.Series("", index=out.index, dtype="object")
+        out[col] = series.fillna("").astype(str).str.strip().str.lower()
     out["is_aosp_dict_match"] = pd.to_numeric(out.get("is_aosp_dict_match", 0), errors="coerce").fillna(0).astype(int)
     out["is_oem_dict_match"] = pd.to_numeric(out.get("is_oem_dict_match", 0), errors="coerce").fillna(0).astype(int)
     out = out[out["permission_string"] != ""].drop_duplicates(subset=["sample_id", "permission_string"])

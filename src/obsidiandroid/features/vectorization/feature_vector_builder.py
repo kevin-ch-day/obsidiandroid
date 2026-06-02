@@ -151,7 +151,7 @@ def _export_pre_gate_vendor_scores(
             "vendor ranking signal before parser-gate zeroing."
         )
     if verbose or ml_console.is_debug():
-        du.print_info(f"[FEATURE BUILD] Vendor pre-gate scores exported: {out_path}")
+        du.print_info(f"[FEATURE BUILD] Vendor pre-gate scores:{du.format_console_path(out_path)}")
 
 
 def _prepare_vendor_features(parsed_vendor_data, vendor_list, fields):
@@ -743,6 +743,8 @@ def build_feature_vector(
     if isinstance(weights_df, pd.DataFrame):
         encoded.attrs["feature_score_field"] = str(score_preference or "")
 
+    if bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)) and not ml_console.is_debug():
+        return encoded
     if ml_console.is_compact():
         selected_count = len(top_vendors)
         du.print_success(

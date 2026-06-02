@@ -5,6 +5,9 @@ import pandas as pd
 import pytest
 
 from obsidiandroid.pipeline import stage_permission_trends_report as report_stage
+from obsidiandroid.pipeline.permission_trends import attack_mapping as perm_attack_mapping
+from obsidiandroid.pipeline.permission_trends import bundle_exports as perm_bundle_exports
+from obsidiandroid.pipeline.permission_trends import bundle_manifest as perm_bundle_manifest
 from obsidiandroid.pipeline.permission_trends import sample_permission_data as sample_perm_data
 from obsidiandroid.pipeline.permission_trends import reporting_support as perm_trends_reporting_support
 from obsidiandroid.pipeline.permission_trends import stats_core
@@ -119,6 +122,8 @@ def test_fetch_permission_rows_for_samples_prefers_permission_string_norm(monkey
     )
 
     out = sample_perm_data.fetch_permission_rows_for_samples([1])
+    assert "permission_string_norm" in str(captured.get("query", ""))
+    assert out["permission_string"].tolist() == ["android.permission.read_sms"]
 
     assert "permission_string_norm" in str(captured.get("query", ""))
     assert out["permission_string"].tolist() == ["android.permission.read_sms"]
@@ -179,10 +184,6 @@ def test_spearman_with_bootstrap_strong_correlation() -> None:
     y = pd.Series([1.1, 2.0, 3.2, 3.9, 5.1])
     rho, _p, _lo, _hi = stats_core.spearman_with_bootstrap_ci(x, y, bootstrap_resamples=30)
     assert rho > 0.99
-
-    assert "permission_string_norm" not in str(captured.get("query", ""))
-    assert "LOWER(TRIM(ops.permission_string)) AS permission_string" in str(captured.get("query", ""))
-    assert out["permission_string"].tolist() == ["android.permission.read_sms"]
 
 
 def test_fetch_permission_aggregates_prefers_permission_string_norm(monkeypatch) -> None:
@@ -348,6 +349,847 @@ def test_banker_family_pattern_clusters_produces_assignments():
     assert set(assignments_df["family_id"].tolist()) == {10, 20}
     assert "cluster_id" in assignments_df.columns
     assert not profiles_df.empty
+
+
+def test_build_family_permission_profiles_excludes_appendix_duplicates() -> None:
+    sample_core_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4, 5, 6],
+            "family_id": [10, 10, 20, 20, 30, 30],
+            "family_canonical": ["DoNot", "DoNot", "Gigabud", "Gigabud", "Copybara", "Copybara"],
+            "type_slug": ["spyware", "spyware", "banker", "banker", "banker", "banker"],
+        }
+    )
+    permission_matrix_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4, 5, 6],
+            "android.permission.internet": [1, 1, 1, 1, 1, 0],
+            "android.permission.read_sms": [0, 0, 1, 1, 0, 0],
+        }
+    )
+
+    original_selector = report_stage._select_visual_families
+    report_stage._select_visual_families = lambda **_kwargs: ["DoNot", "Gigabud"]
+    try:
+        profiles_df, _entropy_df = report_stage._build_family_permission_profiles(
+            sample_core_df=sample_core_df,
+            permission_matrix_df=permission_matrix_df,
+            run_id="r",
+        )
+    finally:
+        report_stage._select_visual_families = original_selector
+
+    scope_map = profiles_df.groupby("family_canonical")["profile_scope"].unique().to_dict()
+    assert set(scope_map["DoNot"]) == {"main"}
+    assert set(scope_map["Gigabud"]) == {"main"}
+
+
+def test_build_generic_vs_non_generic_summary_skips_effect_size_without_generic_group() -> None:
+    sample_core_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "type_slug": ["banker", "rat"],
+            "family_id": [10, 20],
+        }
+    )
+    permission_rows_df = pd.DataFrame(
+        {
+            "sample_id": [1, 1, 2],
+            "permission_string": ["a", "b", "a"],
+            "protection_level": ["DANGEROUS", "NORMAL", "DANGEROUS"],
+        }
+    )
+    permission_matrix_df = pd.DataFrame({"sample_id": [1, 2], "a": [1, 1], "b": [1, 0]})
+    consensus_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "vendor_count": [10, 10],
+            "consensus_score_all_vendors": [0.8, 0.6],
+        }
+    )
+
+    out = report_stage._build_generic_vs_non_generic_summary(
+        sample_core_df=sample_core_df,
+        permission_rows_df=permission_rows_df,
+        permission_matrix_df=permission_matrix_df,
+        consensus_df=consensus_df,
+        run_id="r",
+    )
+
+    assert set(out["group"].tolist()) == {"unresolved"}
+
+
+def test_build_generic_vs_non_generic_summary_uses_governed_tier_contract() -> None:
+    sample_core_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "family_id": [10, None, None, None],
+            "family_canonical": ["DoNot", "", "", ""],
+            "type_slug": ["spyware", "rat", "banker", "unknown"],
+            "category_primary": ["trojan", "", "", "malware"],
+            "category_subtype": ["spyware", "", "trojan", ""],
+            "sample_label_kind": [
+                "family_or_common_name",
+                "family_or_common_name",
+                "family_or_common_name",
+                "unclassified",
+            ],
+        }
+    )
+    permission_rows_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "permission_string": ["a", "a", "b", "c"],
+            "protection_level": ["DANGEROUS", "DANGEROUS", "NORMAL", "UNKNOWN"],
+        }
+    )
+    permission_matrix_df = pd.DataFrame(
+        {"sample_id": [1, 2, 3, 4], "a": [1, 1, 0, 0], "b": [0, 0, 1, 0], "c": [0, 0, 0, 1]}
+    )
+    consensus_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "vendor_count": [10, 10, 10, 10],
+            "consensus_score_all_vendors": [0.9, 0.7, 0.5, 0.2],
+        }
+    )
+
+    out = report_stage._build_generic_vs_non_generic_summary(
+        sample_core_df=sample_core_df,
+        permission_rows_df=permission_rows_df,
+        permission_matrix_df=permission_matrix_df,
+        consensus_df=consensus_df,
+        run_id="r",
+    )
+
+    assert set(out["group"].tolist()) == {"non_generic", "generic_or_coarse", "unresolved", "effect_size"}
+    counts = dict(zip(out["group"], out["sample_count"]))
+    assert counts["non_generic"] == 1
+    assert counts["generic_or_coarse"] == 2
+    assert counts["unresolved"] == 1
+
+
+def test_build_generic_definition_audit_uses_governed_tier_contract() -> None:
+    sample_core_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "family_id": [10, 11, None, None],
+            "family_canonical": ["DoNot", "Gigabud", "", ""],
+            "type_slug": ["spyware", "banker", "rat", "unknown"],
+            "category_primary": ["trojan", "trojan", "", "malware"],
+            "category_subtype": ["spyware", "banker", "", ""],
+            "sample_label_kind": [
+                "family_or_common_name",
+                "family_or_common_name",
+                "family_or_common_name",
+                "unclassified",
+            ],
+        }
+    )
+    family_support_df = pd.DataFrame({"family_id": [10, 11], "sample_count": [40, 5]})
+    consensus_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "consensus_score_all_vendors": [0.95, 0.70, 0.40, 0.10],
+            "consensus_entropy_all_vendors": [0.10, 0.20, 0.40, 0.80],
+            "vendor_count": [10, 10, 10, 10],
+        }
+    )
+
+    out = report_stage._build_generic_definition_audit(
+        sample_core_df=sample_core_df,
+        family_support_df=family_support_df,
+        consensus_df=consensus_df,
+        run_id="r",
+    )
+    metrics = dict(zip(out["metric"], out["value"]))
+
+    assert metrics["major_family_count"] == 1
+    assert metrics["minor_family_count"] == 1
+    assert metrics["generic_or_coarse_count"] == 1
+    assert metrics["unresolved_count"] == 1
+    assert metrics["generic_low_support_overlap_count"] == 1
+    assert metrics["unresolved_low_support_overlap_count"] == 1
+
+
+def test_export_run_summary_onepager_includes_permission_pattern_sections(tmp_path: Path) -> None:
+    coverage_df = pd.DataFrame([{"sample_count": 100, "pct_with_permission_rows": 0.97}])
+    dangerous_df = pd.DataFrame([{"unknown_protection_rate": 0.12}, {"unknown_protection_rate": 0.20}])
+    consensus_df = pd.DataFrame([{"low_vendor_count_flag": 0}, {"low_vendor_count_flag": 1}])
+    discriminability_df = pd.DataFrame(
+        [
+            {"permission": "android.permission.read_call_log", "cramers_v": 0.66, "global_support": 658},
+            {"permission": "android.permission.set_wallpaper", "cramers_v": 0.63, "global_support": 560},
+        ]
+    )
+    type_entropy_df = pd.DataFrame(
+        [
+            {"type_slug": "banker", "sample_count": 80, "permission_entropy": 3.9, "effective_diversity": 50.2},
+            {"type_slug": "rat", "sample_count": 20, "permission_entropy": 3.7, "effective_diversity": 43.3},
+        ]
+    )
+    family_profiles_df = pd.DataFrame(
+        [
+            {"family_canonical": "Devixor", "sample_count": 40, "profile_scope": "main", "permission": "android.permission.read_sms", "prevalence": 1.0},
+            {"family_canonical": "Devixor", "sample_count": 40, "profile_scope": "main", "permission": "android.permission.receive_sms", "prevalence": 0.95},
+            {"family_canonical": "Devixor", "sample_count": 40, "profile_scope": "main", "permission": "android.permission.internet", "prevalence": 0.90},
+        ]
+    )
+    type_capability_df = pd.DataFrame(
+        [
+            {"type_slug": "banker", "sample_count": 80, "capability_bundle": "sms_telephony", "prevalence": 0.88},
+            {"type_slug": "banker", "sample_count": 80, "capability_bundle": "account_contact", "prevalence": 0.73},
+            {"type_slug": "banker", "sample_count": 80, "capability_bundle": "network_c2", "prevalence": 0.95},
+        ]
+    )
+    family_capability_df = pd.DataFrame(
+        [
+            {"family_canonical": "Devixor", "sample_count": 40, "capability_bundle": "sms_telephony", "prevalence": 0.97},
+            {"family_canonical": "Devixor", "sample_count": 40, "capability_bundle": "network_c2", "prevalence": 0.94},
+            {"family_canonical": "Devixor", "sample_count": 40, "capability_bundle": "account_contact", "prevalence": 0.76},
+        ]
+    )
+    attack_hypotheses_df = pd.DataFrame(
+        [
+            {
+                "group_kind": "type",
+                "group_value": "banker",
+                "sample_count": 80,
+                "attack_id": "T1636.004",
+                "attack_name": "Protected User Data: SMS Messages",
+                "confidence": "strong_inference",
+                "evidence_permissions": "android.permission.read_sms, android.permission.receive_sms",
+                "matched_permission_count": 2,
+                "evidence_prevalence_mean": 0.8,
+            }
+        ]
+    )
+
+    out = perm_bundle_exports.export_run_summary_onepager(
+        run_id="r1",
+        profile_id="android_malware_all_current",
+        bundle_dir=tmp_path,
+        coverage_df=coverage_df,
+        dangerous_df=dangerous_df,
+        consensus_df=consensus_df,
+        bundle_metadata={"vendor_constrained_run_flag": False, "dataset_time_contract": {}},
+        banker_enrichment_df=pd.DataFrame(),
+        select_banker_summary_rows=lambda df, limit=5: df.head(limit),
+        discriminability_df=discriminability_df,
+        type_entropy_df=type_entropy_df,
+        family_profiles_df=family_profiles_df,
+        type_capability_df=type_capability_df,
+        family_capability_df=family_capability_df,
+        attack_hypotheses_df=attack_hypotheses_df,
+    )
+
+    text = Path(out).read_text(encoding="utf-8")
+    assert "Top permission discriminators:" in text
+    assert "Type permission patterns:" in text
+    assert "Type capability bundles:" in text
+    assert "Example family permission signatures:" in text
+    assert "Example family capability bundles:" in text
+    assert "Top ATT&CK-Mobile capability hypotheses:" in text
+    assert "T1636.004" in text
+
+
+def test_build_attack_mobile_hypotheses_finds_sms_and_discovery_signals() -> None:
+    prevalence_df = pd.DataFrame(
+        [
+            {"type_slug": "banker", "sample_count": 50, "permission": "android.permission.read_sms", "prevalence": 0.82},
+            {"type_slug": "banker", "sample_count": 50, "permission": "android.permission.receive_sms", "prevalence": 0.77},
+            {"type_slug": "banker", "sample_count": 50, "permission": "android.permission.read_contacts", "prevalence": 0.61},
+            {"type_slug": "banker", "sample_count": 50, "permission": "android.permission.query_all_packages", "prevalence": 0.22},
+        ]
+    )
+
+    out = perm_attack_mapping.build_attack_mobile_hypotheses(
+        prevalence_df=prevalence_df,
+        run_id="r",
+        group_field="type_slug",
+        group_kind="type",
+    )
+
+    assert not out.empty
+    got = {(row["group_value"], row["attack_id"]) for row in out.to_dict(orient="records")}
+    assert ("banker", "T1636.004") in got
+    assert ("banker", "T1636.003") in got
+    assert ("banker", "T1418") in got
+
+
+def test_build_type_capability_bundle_prevalence_reports_expected_bundles() -> None:
+    sample_core_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "type_slug": ["banker", "banker", "rat"],
+        }
+    )
+    permission_rows_df = pd.DataFrame(
+        {
+            "sample_id": [1, 1, 2, 3, 3],
+            "permission_string": [
+                "android.permission.read_sms",
+                "android.permission.internet",
+                "android.permission.receive_sms",
+                "android.permission.camera",
+                "android.permission.record_audio",
+            ],
+        }
+    )
+
+    out = report_stage._build_type_capability_bundle_prevalence(
+        sample_core_df=sample_core_df,
+        permission_rows_df=permission_rows_df,
+        run_id="r",
+    )
+
+    assert not out.empty
+    by_key = {(row["type_slug"], row["capability_bundle"]): row for row in out.to_dict(orient="records")}
+    assert ("banker", "sms_telephony") in by_key
+    assert by_key[("banker", "sms_telephony")]["prevalence"] == 1.0
+    assert ("banker", "network_c2") in by_key
+    assert by_key[("banker", "network_c2")]["prevalence"] == 0.5
+    assert ("rat", "surveillance_sensor") in by_key
+    assert by_key[("rat", "surveillance_sensor")]["prevalence"] == 1.0
+
+
+def test_build_permission_prevalence_by_type_outputs_expected_columns_and_counts() -> None:
+    sample_core_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "type_slug": ["banker", "banker", "rat"],
+        }
+    )
+    permission_matrix_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "android.permission.read_sms": [1, 0, 0],
+            "android.permission.camera": [0, 0, 1],
+        }
+    )
+
+    out = report_stage._build_permission_prevalence_by_type(
+        sample_core_df=sample_core_df,
+        permission_matrix_df=permission_matrix_df,
+    )
+
+    assert {
+        "type_slug",
+        "permission",
+        "n_samples",
+        "permission_positive_count",
+        "prevalence_pct",
+    }.issubset(out.columns)
+    banker_sms = out[
+        (out["type_slug"] == "banker")
+        & (out["permission"] == "android.permission.read_sms")
+    ].iloc[0]
+    assert int(banker_sms["n_samples"]) == 2
+    assert int(banker_sms["permission_positive_count"]) == 1
+    assert float(banker_sms["prevalence_pct"]) == 50.0
+
+
+def test_build_permission_prevalence_by_family_marks_benchmark_eligibility() -> None:
+    sample_core_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "family_id": [10, 10, 10, 20],
+            "family_canonical": ["Alpha", "Alpha", "Alpha", "Beta"],
+            "type_slug": ["banker", "banker", "banker", "rat"],
+            "category_primary": ["banker", "banker", "banker", "rat"],
+            "category_subtype": ["", "", "", ""],
+            "sample_label_kind": ["family_or_common_name"] * 4,
+            "family_label_raw": ["Alpha", "Alpha", "Alpha", "Beta"],
+            "vt_family_token": ["alpha", "alpha", "alpha", "beta"],
+        }
+    )
+    permission_matrix_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "android.permission.read_sms": [1, 1, 0, 1],
+        }
+    )
+
+    out = report_stage._build_permission_prevalence_by_family(
+        sample_core_df=sample_core_df,
+        permission_matrix_df=permission_matrix_df,
+        benchmark_min_support=3,
+    )
+
+    assert {
+        "family_canonical",
+        "type_slug",
+        "family_support",
+        "permission",
+        "positive_count",
+        "prevalence_pct",
+        "benchmark_eligible_n_ge_3",
+    }.issubset(out.columns)
+    alpha = out[out["family_canonical"] == "Alpha"].iloc[0]
+    beta = out[out["family_canonical"] == "Beta"].iloc[0]
+    assert bool(alpha["benchmark_eligible_n_ge_3"]) is True
+    assert bool(beta["benchmark_eligible_n_ge_3"]) is False
+
+
+def test_assign_permission_signal_keys_respects_behavior_and_scaffolding_lanes() -> None:
+    permission_rows_df = pd.DataFrame(
+        {
+            "sample_id": [1, 1, 2, 3, 4],
+            "permission_string": [
+                "android.permission.read_sms",
+                "android.permission.bind_accessibility_service",
+                "com.foo.dynamic_receiver_not_exported_permission",
+                "com.anddoes.launcher.permission.update_count",
+                "com.google.android.c2dm.permission.receive",
+            ],
+            "permission_source": ["AOSP", "AOSP", "APP_DEFINED", "APP_DEFINED", "GOOGLE"],
+        }
+    )
+    out = report_stage._assign_permission_signal_keys(permission_rows_df)
+    pairs = {(int(row["sample_id"]), str(row["signal_key"])) for _, row in out.iterrows()}
+    assert (1, "sms") in pairs
+    assert (1, "accessibility") in pairs
+    assert (2, "app_defined_scaffolding") in pairs
+    assert (3, "launcher_sdk_ecosystem_noise") in pairs
+    assert (4, "google_gms_ecosystem") in pairs
+
+
+def test_assign_permission_signal_keys_uses_governance_lane_mappings() -> None:
+    permission_rows_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "permission_string": [
+                "android.permission.allocate_aggressive",
+                "com.example.permission.safe_access",
+            ],
+            "permission_source": ["UNKNOWN", "UNKNOWN"],
+            "candidate_source_family_key": ["needs_source_validation", ""],
+            "effective_source_family_key": ["", "oem_vendor_permission"],
+            "effective_review_lane": ["source_validation_required", ""],
+        }
+    )
+    out = report_stage._assign_permission_signal_keys(permission_rows_df)
+    pairs = {(int(row["sample_id"]), str(row["signal_key"])) for _, row in out.iterrows()}
+
+    assert (1, "aosp_hidden_privileged") in pairs
+    assert (2, "oem_vendor_ecosystem") in pairs
+
+
+def test_build_signal_prevalence_by_type_separates_behavioral_and_model_only() -> None:
+    sample_core_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "type_slug": ["banker", "banker", "rat"],
+        }
+    )
+    signal_rows_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "signal_key": ["sms", "app_defined_scaffolding", "launcher_sdk_ecosystem_noise"],
+        }
+    )
+    out = report_stage._build_signal_prevalence_by_type(
+        sample_core_df=sample_core_df,
+        permission_signal_rows_df=signal_rows_df,
+    )
+    sms = out[(out["type_slug"] == "banker") & (out["signal_key"] == "sms")].iloc[0]
+    scaffold = out[
+        (out["type_slug"] == "banker")
+        & (out["signal_key"] == "app_defined_scaffolding")
+    ].iloc[0]
+    assert bool(sms["include_in_behavioral_claims"]) is True
+    assert bool(scaffold["include_in_model_features"]) is True
+    assert bool(scaffold["include_in_behavioral_claims"]) is False
+
+
+def test_build_signal_prevalence_by_family_marks_benchmark_eligibility() -> None:
+    sample_core_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "family_id": [10, 10, 10, 20],
+            "family_canonical": ["Alpha", "Alpha", "Alpha", "Beta"],
+            "type_slug": ["banker", "banker", "banker", "rat"],
+            "category_primary": ["banker", "banker", "banker", "rat"],
+            "category_subtype": ["", "", "", ""],
+            "sample_label_kind": ["family_or_common_name"] * 4,
+            "family_label_raw": ["Alpha", "Alpha", "Alpha", "Beta"],
+            "vt_family_token": ["alpha", "alpha", "alpha", "beta"],
+        }
+    )
+    signal_rows_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "signal_key": ["sms", "sms", "app_defined_scaffolding", "sms"],
+        }
+    )
+    out = report_stage._build_signal_prevalence_by_family(
+        sample_core_df=sample_core_df,
+        permission_signal_rows_df=signal_rows_df,
+        benchmark_min_support=3,
+    )
+    alpha = out[(out["family_canonical"] == "Alpha") & (out["signal_key"] == "sms")].iloc[0]
+    beta = out[(out["family_canonical"] == "Beta") & (out["signal_key"] == "sms")].iloc[0]
+    assert bool(alpha["benchmark_eligible_n_ge_3"]) is True
+    assert bool(beta["benchmark_eligible_n_ge_3"]) is False
+
+
+def test_filter_behavior_safe_signals_excludes_model_only_rows() -> None:
+    df = pd.DataFrame(
+        {
+            "signal_key": ["sms", "app_defined_scaffolding"],
+            "include_in_behavioral_claims": [True, False],
+            "prevalence_pct": [50.0, 75.0],
+        }
+    )
+    out = report_stage._filter_behavior_safe_signals(df)
+
+    assert out["signal_key"].tolist() == ["sms"]
+
+
+def test_build_permission_signal_governance_coverage_counts_lane_presence() -> None:
+    permission_rows_df = pd.DataFrame(
+        {
+            "sample_id": [1, 1, 2],
+            "permission_string": ["a", "b", "c"],
+            "effective_source_family_key": ["oem_vendor_permission", "", ""],
+            "candidate_source_family_key": ["", "needs_source_validation", ""],
+            "effective_review_lane": ["", "", "source_validation_required"],
+            "effective_resolution_semantics": ["x", "", ""],
+        }
+    )
+    signal_rows_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "signal_key": ["oem_vendor_ecosystem", "aosp_hidden_privileged"],
+        }
+    )
+
+    out = report_stage._build_permission_signal_governance_coverage(
+        permission_rows_df,
+        signal_rows_df,
+        run_id="r1",
+    )
+    metrics = dict(zip(out["metric"], out["value"]))
+
+    assert metrics["permission_row_count"] == 3
+    assert metrics["rows_with_effective_lane"] == 1
+    assert metrics["rows_with_candidate_lane"] == 1
+    assert metrics["rows_with_review_lane"] == 1
+    assert metrics["rows_with_any_governance_lane"] == 3
+    assert metrics["signal_assignment_pairs"] == 2
+
+
+def test_family_support_distribution_uses_family_target_surface_and_marks_benchmark_eligibility() -> None:
+    sample_core_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "family_id": [10, 10, 10, -1],
+            "family_canonical": ["Alpha", "Alpha", "Alpha", ""],
+            "type_slug": ["banker", "banker", "banker", ""],
+            "category_primary": ["banker", "banker", "banker", ""],
+            "category_subtype": ["", "", "", ""],
+            "sample_label_kind": ["family_or_common_name", "family_or_common_name", "family_or_common_name", "hash_like"],
+            "family_label_raw": ["Alpha", "Alpha", "Alpha", "unknown"],
+            "vt_family_token": ["alpha", "alpha", "alpha", ""],
+        }
+    )
+
+    out = report_stage._build_family_support_distribution(sample_core_df, run_id="r1")
+
+    assert len(out) == 1
+    row = out.iloc[0]
+    assert row["family_canonical"] == "Alpha"
+    assert bool(row["benchmark_eligible_n_ge_3"]) is True
+
+
+def test_family_permission_profiles_include_type_and_benchmark_context(monkeypatch) -> None:
+    sample_core_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "family_id": [10, 10, 10],
+            "family_canonical": ["Alpha", "Alpha", "Alpha"],
+            "type_slug": ["banker", "banker", "banker"],
+            "category_primary": ["banker", "banker", "banker"],
+            "category_subtype": ["", "", ""],
+            "sample_label_kind": ["family_or_common_name"] * 3,
+            "family_label_raw": ["Alpha", "Alpha", "Alpha"],
+            "vt_family_token": ["alpha", "alpha", "alpha"],
+        }
+    )
+    permission_matrix_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "android.permission.read_sms": [1, 1, 0],
+        }
+    )
+    monkeypatch.setattr(report_stage, "_select_visual_families", lambda sample_core_df: ["Alpha"])
+
+    profiles_df, entropy_df = report_stage._build_family_permission_profiles(
+        sample_core_df=sample_core_df,
+        permission_matrix_df=permission_matrix_df,
+        run_id="r1",
+    )
+
+    assert {"type_slug", "benchmark_eligible_n_ge_3"}.issubset(profiles_df.columns)
+    assert {"type_slug", "benchmark_eligible_n_ge_3"}.issubset(entropy_df.columns)
+    assert profiles_df["type_slug"].eq("banker").all()
+    assert profiles_df["benchmark_eligible_n_ge_3"].astype(bool).all()
+
+
+def test_build_permission_enrichment_outputs_expected_fields() -> None:
+    sample_core_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "family_id": [10, 10, 20, 20],
+            "family_canonical": ["Alpha", "Alpha", "Beta", "Beta"],
+            "type_slug": ["banker", "banker", "rat", "rat"],
+            "category_primary": ["banker", "banker", "rat", "rat"],
+            "category_subtype": ["", "", "", ""],
+            "sample_label_kind": ["family_or_common_name"] * 4,
+            "family_label_raw": ["Alpha", "Alpha", "Beta", "Beta"],
+            "vt_family_token": ["alpha", "alpha", "beta", "beta"],
+        }
+    )
+    permission_matrix_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "android.permission.read_sms": [1, 1, 0, 0],
+            "android.permission.camera": [0, 0, 1, 1],
+        }
+    )
+
+    type_out = report_stage._build_permission_type_enrichment(
+        sample_core_df=sample_core_df,
+        permission_matrix_df=permission_matrix_df,
+    )
+    family_out = report_stage._build_permission_family_enrichment(
+        sample_core_df=sample_core_df,
+        permission_matrix_df=permission_matrix_df,
+        benchmark_min_support=3,
+    )
+
+    assert {"q_value_fdr", "interpretation_bucket", "odds_ratio"}.issubset(type_out.columns)
+    assert {
+        "q_value_fdr",
+        "interpretation_bucket",
+        "odds_ratio",
+        "benchmark_eligible_n_ge_3",
+    }.issubset(family_out.columns)
+
+
+def test_export_permission_pattern_summary_mentions_required_sections(tmp_path: Path) -> None:
+    prevalence_by_type_df = pd.DataFrame(
+        [
+            {
+                "type_slug": "banker",
+                "permission": "android.permission.read_sms",
+                "n_samples": 5,
+                "permission_positive_count": 4,
+                "prevalence_pct": 80.0,
+            }
+        ]
+    )
+    prevalence_by_family_df = pd.DataFrame(
+        [
+            {
+                "family_canonical": "Alpha",
+                "type_slug": "banker",
+                "family_support": 5,
+                "permission": "android.permission.read_sms",
+                "positive_count": 4,
+                "prevalence_pct": 80.0,
+                "benchmark_eligible_n_ge_3": True,
+            },
+            {
+                "family_canonical": "Tiny",
+                "type_slug": "banker",
+                "family_support": 2,
+                "permission": "android.permission.read_sms",
+                "positive_count": 1,
+                "prevalence_pct": 50.0,
+                "benchmark_eligible_n_ge_3": False,
+            },
+        ]
+    )
+    signal_prevalence_by_type_df = pd.DataFrame(
+        [
+            {
+                "type_slug": "banker",
+                "signal_key": "sms",
+                "signal_label": "SMS",
+                "authority_lane": "behavior_safe_capability",
+                "include_in_model_features": True,
+                "include_in_behavioral_claims": True,
+                "type_sample_count": 5,
+                "positive_count": 4,
+                "prevalence_pct": 80.0,
+            },
+            {
+                "type_slug": "banker",
+                "signal_key": "app_defined_scaffolding",
+                "signal_label": "App-Defined Scaffolding",
+                "authority_lane": "app_scaffolding",
+                "include_in_model_features": True,
+                "include_in_behavioral_claims": False,
+                "type_sample_count": 5,
+                "positive_count": 2,
+                "prevalence_pct": 40.0,
+            },
+        ]
+    )
+    signal_prevalence_by_family_df = pd.DataFrame(
+        [
+            {
+                "family_canonical": "Alpha",
+                "type_slug": "banker",
+                "family_support": 5,
+                "benchmark_eligible_n_ge_3": True,
+                "signal_key": "sms",
+                "signal_label": "SMS",
+                "authority_lane": "behavior_safe_capability",
+                "include_in_model_features": True,
+                "include_in_behavioral_claims": True,
+                "positive_count": 4,
+                "prevalence_pct": 80.0,
+            }
+        ]
+    )
+    type_enrichment_df = pd.DataFrame(
+        [
+            {
+                "permission": "android.permission.read_sms",
+                "type_slug": "banker",
+                "type_prevalence_pct": 80.0,
+                "non_type_prevalence_pct": 10.0,
+                "odds_ratio": 5.0,
+                "p_value": 0.001,
+                "q_value_fdr": 0.005,
+                "interpretation_bucket": "strong_enriched",
+            }
+        ]
+    )
+    family_enrichment_df = pd.DataFrame(
+        [
+            {
+                "permission": "android.permission.read_sms",
+                "family_canonical": "Alpha",
+                "type_slug": "banker",
+                "family_support": 5,
+                "family_prevalence_pct": 80.0,
+                "non_family_prevalence_pct": 10.0,
+                "odds_ratio": 5.0,
+                "p_value": 0.001,
+                "q_value_fdr": 0.005,
+                "benchmark_eligible_n_ge_3": True,
+                "interpretation_bucket": "strong_enriched",
+            }
+        ]
+    )
+    family_similarity_df = pd.DataFrame(
+        [
+            {
+                "family_a": "Alpha",
+                "family_b": "Beta",
+                "type_a": "banker",
+                "type_b": "banker",
+                "support_a": 5,
+                "support_b": 4,
+                "jaccard_similarity": 0.8,
+                "cosine_similarity": 0.9,
+                "spearman_correlation": 0.7,
+                "same_type_flag": True,
+            }
+        ]
+    )
+    family_signal_similarity_df = pd.DataFrame(
+        [
+            {
+                "family_a": "Alpha",
+                "family_b": "Beta",
+                "type_a": "banker",
+                "type_b": "banker",
+                "support_a": 5,
+                "support_b": 4,
+                "jaccard_similarity": 1.0,
+                "cosine_similarity": 1.0,
+                "spearman_correlation": 1.0,
+                "same_type_flag": True,
+            }
+        ]
+    )
+    signal_governance_coverage_df = pd.DataFrame(
+        [
+            {"metric": "permission_row_count", "value": 25},
+            {"metric": "rows_with_any_governance_lane", "value": 24},
+            {"metric": "rows_with_effective_lane", "value": 22},
+            {"metric": "rows_with_candidate_lane", "value": 3},
+            {"metric": "signal_assignment_pairs", "value": 10},
+        ]
+    )
+    attack_hypotheses_df = pd.DataFrame(
+        [
+            {
+                "group_kind": "type",
+                "group_value": "banker",
+                "attack_id": "T1636.004",
+                "attack_name": "Protected User Data: SMS Messages",
+                "confidence": "direct",
+                "matched_permission_count": 2,
+            }
+        ]
+    )
+    generic_summary_df = pd.DataFrame(
+        [
+            {
+                "group": "generic_or_coarse",
+                "sample_count": 10,
+                "permission_entropy_mean": 1.2,
+                "dangerous_count_strict_mean": 2.5,
+            }
+        ]
+    )
+
+    out = perm_bundle_exports.export_permission_pattern_summary(
+        run_id="r1",
+        bundle_dir=tmp_path,
+        prevalence_by_type_df=prevalence_by_type_df,
+        prevalence_by_family_df=prevalence_by_family_df,
+        signal_prevalence_by_type_df=signal_prevalence_by_type_df,
+        signal_prevalence_by_type_behavior_safe_df=signal_prevalence_by_type_df[
+            signal_prevalence_by_type_df["include_in_behavioral_claims"].astype(bool)
+        ].copy(),
+        signal_prevalence_by_family_df=signal_prevalence_by_family_df,
+        signal_prevalence_by_family_behavior_safe_df=signal_prevalence_by_family_df[
+            signal_prevalence_by_family_df["include_in_behavioral_claims"].astype(bool)
+        ].copy(),
+        family_signal_similarity_df=family_signal_similarity_df,
+        family_signal_similarity_behavior_safe_df=family_signal_similarity_df.copy(),
+        signal_governance_coverage_df=signal_governance_coverage_df,
+        type_enrichment_df=type_enrichment_df,
+        family_enrichment_df=family_enrichment_df,
+        family_similarity_df=family_similarity_df,
+        attack_hypotheses_df=attack_hypotheses_df,
+        generic_summary_df=generic_summary_df,
+    )
+
+    text = Path(out).read_text(encoding="utf-8")
+    assert "Broad corpus signal" in text
+    assert "Type-level signal" in text
+    assert "Signal-group interpretation" in text
+    assert "Governance coverage" in text
+    assert "These counts describe how much of the permission surface carried live governance lane metadata" in text
+    assert "Benchmark-eligible family signal" in text
+    assert "Secondary mixed-signal family groups" in text
+    assert "Top benchmark-eligible behavior-safe family signal groups" in text
+    assert "Family-within-type clusters" in text
+    assert "Secondary mixed-signal family signal-group pairs" in text
+    assert "Closest same-type behavior-safe family signal-group pairs" in text
+    assert "Exclusions and caution lanes" in text
+    assert "Treat behavior-safe signal tables as the primary interpretation surface" in text
+    assert "Taxonomy anomalies" in text
+    assert "Candidate MITRE ATT&CK capability hypothesis mappings" in text
+    assert "permission-derived capability hypotheses only" in text.lower()
+    assert "static declared-capability signals" in text
 
 
 def test_export_banker_trends_line_plot_latest_only_when_run_scoped_disabled(
@@ -616,8 +1458,14 @@ def test_export_permission_trends_bundle_manifest_writes_contract_payload(tmp_pa
         path.mkdir(parents=True, exist_ok=True)
     fig_path = figures / "family_jsd_heatmap_top12.latest.png"
     tbl_path = tables / "dangerous_distribution_by_type.latest.csv"
+    capability_path = tables / "type_capability_bundle_prevalence.latest.csv"
     fig_path.write_bytes(b"png")
     tbl_path.write_text("a,b\n1,2\n", encoding="utf-8")
+    capability_path.write_text("a,b\n1,2\n", encoding="utf-8")
+    signal_path = tables / "permission_signal_prevalence_by_type.latest.csv"
+    signal_behavior_safe_path = tables / "permission_signal_prevalence_by_type_behavior_safe.latest.csv"
+    signal_path.write_text("a,b\n1,2\n", encoding="utf-8")
+    signal_behavior_safe_path.write_text("a,b\n1,2\n", encoding="utf-8")
 
     out = report_stage._export_permission_trends_bundle_manifest(  # pylint: disable=protected-access
         run_id="r1",
@@ -625,16 +1473,77 @@ def test_export_permission_trends_bundle_manifest_writes_contract_payload(tmp_pa
         top_families_visual=12,
         min_visual_family_support=20,
         top_permissions=16,
-        artifact_paths=[str(fig_path), str(tbl_path)],
+        artifact_paths=[
+            str(fig_path),
+            str(tbl_path),
+            str(capability_path),
+            str(signal_path),
+            str(signal_behavior_safe_path),
+        ],
     )
 
     payload = json.loads(Path(out).read_text(encoding="utf-8"))
     assert payload["bundle_contract_name"] == "permission_trends"
     assert payload["bundle_contract_version"] == "v1"
-    assert len(payload["artifacts"]) == 2
+    assert len(payload["artifacts"]) == 5
     ids = {row["artifact_id"] for row in payload["artifacts"]}
     assert "family_jsd_heatmap_top12" in ids
     assert "dangerous_permission_distribution_by_type" in ids
+    assert "type_capability_bundle_prevalence" in ids
+    mixed = next(row for row in payload["artifacts"] if row["artifact_id"] == "permission_signal_prevalence_by_type")
+    safe = next(
+        row for row in payload["artifacts"] if row["artifact_id"] == "permission_signal_prevalence_by_type_behavior_safe"
+    )
+    assert mixed["interpretation_surface"] == "mixed_signal_secondary"
+    assert mixed["preferred_behavior_claim_artifact_id"] == "permission_signal_prevalence_by_type_behavior_safe"
+    assert safe["interpretation_surface"] == "behavior_safe_primary"
+    assert safe["preferred_behavior_claim_artifact_id"] == "permission_signal_prevalence_by_type_behavior_safe"
+
+
+def test_build_bundle_metadata_includes_attack_mapping_and_capability_bundle_contract() -> None:
+    sample_core_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "vt_first_seen_itw_date": ["2025-01-01T00:00:00Z", "2025-03-01T00:00:00Z"],
+            "vt_first_submission_at_utc": ["2025-01-01T00:00:00Z", "2025-03-01T00:00:00Z"],
+        }
+    )
+    coverage_df = pd.DataFrame([{"sample_count": 2, "pct_with_permission_rows": 1.0}])
+    consensus_df = pd.DataFrame([{"low_vendor_count_flag": 0}, {"low_vendor_count_flag": 1}])
+    family_support_df = pd.DataFrame(
+        {
+            "support_ge_50_flag": [0, 1],
+            "support_ge_30_flag": [1, 1],
+        }
+    )
+
+    out = report_stage._build_bundle_metadata(
+        run_id="r1",
+        profile_id="android_malware_all_current",
+        sample_core_df=sample_core_df,
+        coverage_df=coverage_df,
+        consensus_df=consensus_df,
+        family_support_df=family_support_df,
+        selected_vendors=["vendor_a"],
+        engine_included_count=5,
+        engine_excluded_count=2,
+        permission_support_floor=50,
+        kept_permission_count=12,
+        kept_permissions_by_view={"inclusive": ["a", "b"], "aosp_only": ["a"], "ecosystem": ["a", "b", "c"]},
+        analysis_scope="all",
+        figure_mode="paper",
+        cohort_hash="cohort_hash",
+        permission_feature_hash="perm_hash",
+        type_heatmap_identity="heatmap_hash",
+        dataset_time_contract={},
+    )
+
+    policy = out["permission_pattern_policy"]
+    assert "capability_bundle_names" in policy
+    assert "sms_telephony" in policy["capability_bundle_names"]
+    assert int(policy["capability_bundle_rule_count"]) > 0
+    assert str(policy["attack_mobile_mapping_version"]).strip()
+    assert str(policy["attack_mobile_mapping_hash"]).strip()
 
 
 def test_export_permission_trends_table_inventory_from_manifest(tmp_path: Path):
@@ -654,6 +1563,8 @@ def test_export_permission_trends_table_inventory_from_manifest(tmp_path: Path):
                 "keep_in_permission_trends": "yes",
                 "target_location": "bundles/permission_trends/tables/csv/primary",
                 "needs_latex_export": "yes",
+                "interpretation_surface": "not_applicable",
+                "preferred_behavior_claim_artifact_id": "",
                 "notes": "Primary structural table.",
             }
         ]
@@ -669,6 +1580,8 @@ def test_export_permission_trends_table_inventory_from_manifest(tmp_path: Path):
     out_df = pd.read_csv(Path(out))
     assert out_df.iloc[0]["artifact_id"] == "dangerous_permission_distribution_by_type"
     assert out_df.iloc[0]["needs_latex_export"] == "yes"
+    assert out_df.iloc[0]["interpretation_surface"] == "not_applicable"
+    assert str(out_df.iloc[0]["preferred_behavior_claim_artifact_id"]) in {"", "nan"}
 
 
 def test_export_permission_trends_bundle_readme_writes_scope_notes(tmp_path: Path):
@@ -752,3 +1665,118 @@ def test_select_visual_families_breaks_ties_deterministically(monkeypatch):
     )
     out = report_stage._select_visual_families(sample_core_df)  # pylint: disable=protected-access
     assert out == ["a", "b"]
+
+
+def test_bundle_manifest_canonical_artifact_id_strips_run_stamp_for_signal_tables() -> None:
+    path = Path("permission_signal_prevalence_by_type_20260601T164351Z__fe432f.csv")
+
+    artifact_id = perm_bundle_manifest.canonical_bundle_artifact_id_from_path(
+        path,
+        category="table",
+    )
+    role, is_primary = perm_bundle_manifest.bundle_artifact_role(artifact_id, "table")
+    policy = perm_bundle_manifest.bundle_table_policy(artifact_id)
+
+    assert artifact_id == "permission_signal_prevalence_by_type"
+    assert role == "auxiliary_table"
+    assert is_primary is False
+    assert "should not be the default surface for behavior claims" in policy["notes"]
+
+
+def test_bundle_manifest_behavior_safe_signal_table_is_primary_structural() -> None:
+    path = Path("permission_signal_prevalence_by_type_behavior_safe_20260601T164351Z__fe432f.csv")
+
+    artifact_id = perm_bundle_manifest.canonical_bundle_artifact_id_from_path(
+        path,
+        category="table",
+    )
+    role, is_primary = perm_bundle_manifest.bundle_artifact_role(artifact_id, "table")
+    policy = perm_bundle_manifest.bundle_table_policy(artifact_id)
+
+    assert artifact_id == "permission_signal_prevalence_by_type_behavior_safe"
+    assert role == "primary_structural"
+    assert is_primary is True
+    assert policy["notes"] == "Primary structural table."
+
+
+def test_bundle_manifest_signal_tables_publish_behavior_claim_preference_metadata() -> None:
+    mixed_id = "family_signal_similarity"
+    safe_id = "family_signal_similarity_behavior_safe"
+
+    assert perm_bundle_manifest.interpretation_surface(mixed_id) == "mixed_signal_secondary"
+    assert perm_bundle_manifest.preferred_behavior_claim_artifact_id(mixed_id) == safe_id
+    assert perm_bundle_manifest.interpretation_surface(safe_id) == "behavior_safe_primary"
+    assert perm_bundle_manifest.preferred_behavior_claim_artifact_id(safe_id) == safe_id
+
+
+def test_bundle_artifact_entry_prefers_behavior_safe_replacement() -> None:
+    manifest = {
+        "artifacts": [
+            {
+                "artifact_id": "permission_signal_prevalence_by_type",
+                "relative_path": "tables/permission_signal_prevalence_by_type.latest.csv",
+                "preferred_behavior_claim_artifact_id": "permission_signal_prevalence_by_type_behavior_safe",
+            },
+            {
+                "artifact_id": "permission_signal_prevalence_by_type_behavior_safe",
+                "relative_path": "tables/permission_signal_prevalence_by_type_behavior_safe.latest.csv",
+                "preferred_behavior_claim_artifact_id": "permission_signal_prevalence_by_type_behavior_safe",
+            },
+        ]
+    }
+
+    direct = perm_bundle_manifest.bundle_artifact_entry(
+        manifest,
+        "permission_signal_prevalence_by_type",
+        prefer_behavior_claim_surface=False,
+    )
+    preferred = perm_bundle_manifest.bundle_artifact_entry(
+        manifest,
+        "permission_signal_prevalence_by_type",
+        prefer_behavior_claim_surface=True,
+    )
+
+    assert direct is not None
+    assert preferred is not None
+    assert direct["artifact_id"] == "permission_signal_prevalence_by_type"
+    assert preferred["artifact_id"] == "permission_signal_prevalence_by_type_behavior_safe"
+
+
+def test_resolve_bundle_artifact_path_prefers_behavior_safe_replacement(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "permission_trends"
+    tables = bundle_dir / "tables"
+    tables.mkdir(parents=True, exist_ok=True)
+    mixed_path = tables / "permission_signal_prevalence_by_type.latest.csv"
+    safe_path = tables / "permission_signal_prevalence_by_type_behavior_safe.latest.csv"
+    mixed_path.write_text("x\n", encoding="utf-8")
+    safe_path.write_text("x\n", encoding="utf-8")
+    manifest = {
+        "artifacts": [
+            {
+                "artifact_id": "permission_signal_prevalence_by_type",
+                "relative_path": "tables/permission_signal_prevalence_by_type.latest.csv",
+                "preferred_behavior_claim_artifact_id": "permission_signal_prevalence_by_type_behavior_safe",
+            },
+            {
+                "artifact_id": "permission_signal_prevalence_by_type_behavior_safe",
+                "relative_path": "tables/permission_signal_prevalence_by_type_behavior_safe.latest.csv",
+                "preferred_behavior_claim_artifact_id": "permission_signal_prevalence_by_type_behavior_safe",
+            },
+        ]
+    }
+
+    direct = perm_bundle_manifest.resolve_bundle_artifact_path(
+        bundle_dir=bundle_dir,
+        manifest=manifest,
+        artifact_id="permission_signal_prevalence_by_type",
+        prefer_behavior_claim_surface=False,
+    )
+    preferred = perm_bundle_manifest.resolve_bundle_artifact_path(
+        bundle_dir=bundle_dir,
+        manifest=manifest,
+        artifact_id="permission_signal_prevalence_by_type",
+        prefer_behavior_claim_surface=True,
+    )
+
+    assert direct == mixed_path.resolve()
+    assert preferred == safe_path.resolve()

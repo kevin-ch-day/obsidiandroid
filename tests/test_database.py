@@ -291,6 +291,7 @@ def test_load_family_alias_map_prefers_legacy_when_canonical_missing(monkeypatch
         "legacy_android_family_alias_present",
         lambda: True,
     )
+    monkeypatch.setattr(authority_contracts, "table_has_column", lambda *_args, **_kwargs: False)
 
     out = authority_contracts.load_family_alias_map()
 
@@ -327,6 +328,35 @@ def test_load_family_alias_map_merges_canonical_and_legacy_sources(monkeypatch) 
         "spymax": "spynote",
         "brats": "brata",
     }
+
+
+def test_fetch_legacy_alias_df_filters_nonaccepted_and_inactive_rows(monkeypatch) -> None:
+    seen_queries: list[str] = []
+
+    def _fake_query(query: str, **_kwargs):
+        seen_queries.append(query)
+        return pd.DataFrame([{"alias_token": "wroba", "canonical_family_slug": "roamingmantis"}])
+
+    def _fake_table_has_column(table_name: str, column_name: str) -> bool:
+        return (table_name, column_name) in {
+            ("android_malware_family_alias", "is_active"),
+            ("android_malware_family_alias", "review_status"),
+            ("android_malware_family", "is_active"),
+        }
+
+    monkeypatch.setattr(authority_contracts, "table_has_column", _fake_table_has_column)
+    monkeypatch.setattr(authority_contracts.db_engine, "execute_query", _fake_query)
+
+    out = authority_contracts._fetch_legacy_alias_df()
+
+    assert out.to_dict(orient="records") == [
+        {"alias_token": "wroba", "canonical_family_slug": "roamingmantis"}
+    ]
+    assert seen_queries
+    query = seen_queries[0]
+    assert "a.is_active = 1" in query
+    assert "a.review_status = 'accepted'" in query
+    assert "f.is_active = 1" in query
 
 
 def test_load_known_family_and_alias_tokens_includes_parser_aliases_for_active_families(monkeypatch) -> None:

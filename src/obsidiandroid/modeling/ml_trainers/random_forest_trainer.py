@@ -13,7 +13,14 @@ from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.modeling.parallel_layout import (
     grid_search_job_counts,
+    resolve_adaptive_job_count,
     stratified_kfold_for_grid_search,
+)
+from obsidiandroid.modeling.training_console_policy import (
+    emit_class_imbalance_notice,
+    should_print_detailed_classification_report,
+    should_print_training_analysis,
+    should_print_training_label_summary,
 )
 
 # Train a Random Forest model using sample-aligned output
@@ -37,7 +44,7 @@ def train_random_forest(
         "oob_score": getattr(app_config, "RF_ENABLE_OOB_SCORE", False),
         "class_weight": getattr(app_config, "RF_CLASS_WEIGHT", "balanced"),
         "random_state": random_state,
-        "n_jobs": -1,
+        "n_jobs": resolve_adaptive_job_count(-1, kind="training"),
     }
     model_params = {**params, **kwargs}
 
@@ -154,14 +161,17 @@ def train_random_forest(
         })
 
         if verbose:
-            print("[RANDOM_FOREST] Classification Report:")
-            print(classification_report(y_test, y_pred, zero_division=0))
+            if should_print_detailed_classification_report():
+                print("[RANDOM_FOREST] Classification Report:")
+                print(classification_report(y_test, y_pred, zero_division=0))
 
     return model, result
 
 
 # Print training summary
 def _print_training_summary(model, y_train):
+    if not should_print_training_label_summary():
+        return
     label_dist = Counter(int(x) for x in y_train)
     top = [(cls, cnt) for cls, cnt in label_dist.most_common(5)]
     print(f"[RANDOM_FOREST] Classes trained on: {len(label_dist)}")
@@ -175,13 +185,12 @@ def _debug_training_info(y_train, cv_folds=None):
     du.print_debug(f"Class distribution: {dict(label_dist)}")
     if cv_folds is not None:
         du.print_debug(f"Using {cv_folds} CV folds")
-    if label_dist:
-        min_ratio = min(label_dist.values()) / max(label_dist.values())
-        if min_ratio < 0.1:
-            du.print_warning("Significant class imbalance detected")
+    emit_class_imbalance_notice(y_train)
 
 
 def _analyze_training_setup(X_train, y_train, param_grid=None, cv_folds=None):
+    if not should_print_training_analysis(cv_folds=cv_folds):
+        return
     n_samples = len(X_train)
     n_features = X_train.shape[1]
     n_classes = len(set(y_train))
@@ -216,7 +225,7 @@ def get_default_rf_params():
         "oob_score": getattr(app_config, "RF_ENABLE_OOB_SCORE", False),
         "class_weight": getattr(app_config, "RF_CLASS_WEIGHT", "balanced"),
         "random_state": app_config.RANDOM_STATE,
-        "n_jobs": -1
+        "n_jobs": resolve_adaptive_job_count(-1, kind="training")
     }
 
 

@@ -19,7 +19,10 @@ from obsidiandroid.common import export_naming as naming
 from obsidiandroid.common import export_vendor_raw as vendor_raw
 from obsidiandroid.common import export_workbook as workbook
 from obsidiandroid.common.hash_utils import hash_payload, short_hash
-from obsidiandroid.reporting.confusion_matrix_exporter import export_confusion_matrix_image
+from obsidiandroid.reporting.confusion_matrix_exporter import (
+    display_variant_output_path,
+    export_confusion_matrix_image,
+)
 from obsidiandroid.reporting import confusion_matrix_layout as cm_layout
 from obsidiandroid.observability.logging import get_logger, log_event
 
@@ -89,6 +92,28 @@ def reset_runtime_export_state() -> None:
     """Clear module-level run-scoped export caches between runs."""
     global _CONSOLIDATED_RUNTIME_TARGET
     _CONSOLIDATED_RUNTIME_TARGET = None
+
+
+def _emit_export_success(
+    *,
+    filename: str,
+    path: Path,
+    sheet_count: int = 1,
+    consolidated: bool = False,
+) -> None:
+    """Emit compact-friendly success output for workbook/dataframe exports."""
+    if ml_console.is_compact():
+        target = path.name if path.name else str(path)
+        mode = "consolidated" if consolidated else "workbook"
+        sheet_label = "sheet" if int(sheet_count) == 1 else "sheets"
+        du.print_success(
+            f"[EXPORT] {mode}: {filename} -> {target} ({int(sheet_count)} {sheet_label})"
+        )
+        return
+    if consolidated:
+        du.print_success(f"[EXPORT] Consolidated workbook:{du.format_console_path(path)}")
+    else:
+        du.print_success(f"[EXPORT] Workbook:{du.format_console_path(path)}")
 
 # === Utility: Clean and shorten Excel sheet names ===
 def safe_sheet_name(name: str) -> str:
@@ -328,10 +353,11 @@ def export_dataframe_to_excel(
         if ENABLE_CONSOLIDATED_WORKBOOK:
             consolidated_path, logical_sheet, alias = _export_to_consolidated(df, filename, sheet_name)
             exported_path = consolidated_path if exported_path is None else exported_path
-            du.print_info(
-                f"[EXPORT] Added sheet alias='{alias}' logical='{logical_sheet}' "
-                f"to {consolidated_path}"
-            )
+            if not ml_console.is_compact():
+                du.print_info(
+                    f"[EXPORT] Added sheet alias='{alias}' logical='{logical_sheet}' "
+                    f"to {consolidated_path}"
+                )
             log_event(
                 EXPORT_LOGGER,
                 "export_sheet_added",
@@ -346,7 +372,12 @@ def export_dataframe_to_excel(
             exported_path = path
         if ENABLE_CONSOLIDATED_WORKBOOK and str(filename) == str(CONSOLIDATED_FILENAME):
             _copy_workbook_to_latest(source_path=Path(exported_path), filename=CONSOLIDATED_FILENAME)
-        du.print_success(f"Exported: {exported_path}")
+        _emit_export_success(
+            filename=filename,
+            path=Path(exported_path),
+            sheet_count=1,
+            consolidated=bool(ENABLE_CONSOLIDATED_WORKBOOK),
+        )
         log_event(
             EXPORT_LOGGER,
             "export_success",
@@ -523,7 +554,12 @@ def write_excel_file(dataframes: dict, filename: str):
                 if _should_emit_sheet_log(index, total_sheets):
                     du.print_info(f"[SHEET] {index}/{total_sheets} '{sheet}' ({df.shape[0]} rows)")
             writer.close()
-            du.print_success(f"Excel file saved: {path}")
+            _emit_export_success(
+                filename=filename,
+                path=path,
+                sheet_count=total_sheets,
+                consolidated=False,
+            )
             log_event(
                 EXPORT_LOGGER,
                 "export_workbook_saved",
@@ -550,7 +586,12 @@ def write_excel_file(dataframes: dict, filename: str):
                     f"[SHEET] Exported {total_sheets} sheet(s) to consolidated workbook "
                     f"(log interval={SHEET_LOG_EVERY_N})."
                 )
-            du.print_success(f"Consolidated workbook updated: {consolidated_path}")
+            _emit_export_success(
+                filename=filename,
+                path=consolidated_path,
+                sheet_count=total_sheets,
+                consolidated=True,
+            )
             if str(filename) == str(CONSOLIDATED_FILENAME):
                 _copy_workbook_to_latest(
                     source_path=Path(consolidated_path),
@@ -657,7 +698,12 @@ def write_excel_file(dataframes: dict, filename: str):
                                 f"[SHEET] {index}/{total_sheets} alias='{alias}' logical='{logical}' "
                                 f"({rows} rows)"
                             )
-                    du.print_success(f"Consolidated workbook updated: {consolidated_path}")
+                    _emit_export_success(
+                        filename=filename,
+                        path=consolidated_path,
+                        sheet_count=total_sheets,
+                        consolidated=True,
+                    )
                     log_event(
                         EXPORT_LOGGER,
                         "export_recovered_after_quarantine",
@@ -780,10 +826,13 @@ def export_confusion_matrix(
         dpi=300,
         verbose=bool(not quiet and not ml_console.is_minimal()),
     )
+    display_exported_path = display_variant_output_path(output_path)
     headline_ctx = not bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
     flat_cm = cm_dir
     canon_rf = flat_cm / "confusion_matrix_random_forest.png"
+    canon_rf_display = flat_cm / "confusion_matrix_random_forest_display.png"
     headline_rf = cm_dir / "headline" / "random_forest.png"
+    headline_rf_display = cm_dir / "headline" / "random_forest_display.png"
     # Paper-facing stable alias: only main (non-ablation) headline training may refresh these paths.
     # Ablation RF matrices must never overwrite ``confusion_matrix_random_forest.png``.
     if headline_ctx and model_token == "random_forest":
@@ -794,6 +843,15 @@ def export_confusion_matrix(
                 if dst.resolve() != src_path:
                     shutil.copyfile(src_path, dst)
             exported_path = str(canon_rf.resolve())
+        except Exception:
+            pass
+        try:
+            if display_exported_path.exists():
+                src_display_path = display_exported_path.resolve()
+                for dst in (headline_rf_display, canon_rf_display):
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    if dst.resolve() != src_display_path:
+                        shutil.copyfile(src_display_path, dst)
         except Exception:
             pass
     return exported_path
@@ -865,11 +923,20 @@ def export_vendor_results(parsed_data: dict, summary_df: pd.DataFrame):
     exported_path = write_excel_file(combined, FILE_VENDOR_RESULTS)
     raw_metrics = _export_vendor_raw_artifacts(non_empty_raw)
     if raw_metrics["vendors"] > 0:
-        du.print_info(
-            "[EXPORT] Vendor raw artifacts saved: "
-            f"vendors={raw_metrics['vendors']}, csv={raw_metrics['csv']}, "
-            f"parquet={raw_metrics['parquet']}, errors={raw_metrics['errors']}"
-        )
+        if ml_console.is_compact():
+            msg = (
+                f"[EXPORT] Vendor raw artifacts: vendors={raw_metrics['vendors']}, "
+                f"csv={raw_metrics['csv']}, parquet={raw_metrics['parquet']}"
+            )
+            if int(raw_metrics["errors"]) > 0:
+                msg += f", errors={raw_metrics['errors']}"
+            du.print_info(msg)
+        else:
+            du.print_info(
+                "[EXPORT] Vendor raw artifacts saved: "
+                f"vendors={raw_metrics['vendors']}, csv={raw_metrics['csv']}, "
+                f"parquet={raw_metrics['parquet']}, errors={raw_metrics['errors']}"
+            )
         log_event(
             EXPORT_LOGGER,
             "export_vendor_raw_complete",

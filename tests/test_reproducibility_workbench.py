@@ -178,6 +178,16 @@ def test_write_research_validity_review_uses_global_taxonomy_and_latest_mirrors(
         ),
         encoding="utf-8",
     )
+    (rdiag / "model_and_family_failure_summary.json").write_text(
+        json.dumps(
+            {
+                "headline_model": "random_forest",
+                "macro_f1": 0.81,
+                "balanced_accuracy": 0.79,
+            }
+        ),
+        encoding="utf-8",
+    )
     (gdiag / "headline_vs_ablation_contract_comparison.latest.md").write_text("ok", encoding="utf-8")
     (gdiag / "taxonomy_type_authority_review.latest.md").write_text("ok", encoding="utf-8")
 
@@ -187,6 +197,22 @@ def test_write_research_validity_review_uses_global_taxonomy_and_latest_mirrors(
     assert payload["taxonomy"]["paper_facing_taxonomy_mismatch_count"] == 2
     assert payload["artifacts_used"]["headline_vs_ablation_contract_comparison"] is True
     assert payload["artifacts_used"]["taxonomy_type_authority_review"] is True
+    assert payload["high_score_caution"]["headline_balanced_accuracy"] == 0.79
+
+
+def test_build_claim_readiness_uses_benchmark_surface_label() -> None:
+    got = rw._build_claim_readiness(  # pylint: disable=protected-access
+        q1={},
+        q2={"permission_signal_pct": 97.3},
+        q3={},
+        taxonomy={},
+        feature_contract={"label_target": "family_id"},
+        scope={"trainable_family_classification_task": {"families_after_support_filter": 34}},
+        support_floor_mode="benchmark_eligibility",
+        profile_id="android_malware_major_families",
+    )
+    joined = " ".join(got.get("strong", []))
+    assert "major-family benchmark run retains **34** supported families" in joined
 
 
 def test_build_filesystem_artifact_checks_can_find_global_latest_split_ledger(

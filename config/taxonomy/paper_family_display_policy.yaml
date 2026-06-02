@@ -1,0 +1,17 @@
+policy_id: android_paper_family_display_policy
+version: 20260601-v1
+source: curated_publication_policy
+review_status: provisional
+review_notes:
+  - Full family confusion matrices remain artifact-complete and ungrouped.
+  - Paper-facing family confusion matrices are display-optimized, not authority-defining.
+family_confusion_matrix:
+  top_k_major_families: 12
+  group_other_major: true
+  other_major_label: Other Major
+  group_minor_long_tail: true
+  minor_long_tail_label: Minor/Long-tail
+  group_generic_coarse: true
+  generic_coarse_label: Generic/Coarse
+  require_full_artifact_matrix: true
+  prefer_type_level_matrix_when_family_surface_exceeds: 25

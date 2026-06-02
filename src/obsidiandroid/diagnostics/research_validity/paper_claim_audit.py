@@ -167,6 +167,15 @@ def write_paper_claim_audit_md(
         or mctx.get("evidence_mode")
         or mctx.get("paper_mode", {}).get("resolved_value", False)
     )
+    benchmark_support_floor = mctx.get("benchmark_support_floor")
+    support_floor_mode = str(mctx.get("support_floor_mode", "") or "").strip().lower()
+    primary_surface = (
+        "locked_publication_surface"
+        if publication_ready_mode
+        else "major_family_benchmark"
+        if support_floor_mode == "benchmark_eligibility" or benchmark_support_floor not in (None, "", 0)
+        else "broad_current_corpus"
+    )
     compliance_path = man.get("paper_mode_compliance_report") or diagnostics_dir / f"paper_mode_compliance_report_{run_id}.json"
 
     population_line = _cohort_snapshot(man, mctx)
@@ -246,13 +255,13 @@ def write_paper_claim_audit_md(
             perm_reason = "Macro-F1 magnitude alone does not justify 'strong'; compare lift vs baselines."
 
     add(
-        claim="Permissions-only model is strong for family classification",
+        claim="Permissions-only model provides strong standalone family benchmark signal",
         status=perm_status,
         evidence_artifact=ablation_evidence,
         metric_value=perm_metric,
         population=population_line + "; label_target=family_id_or_fallback",
         rationale=perm_reason,
-        safer_wording="Permissions correlate with coarse capability/type structure; quantify lift vs stratified_random and vendor baselines.",
+        safer_wording="Permissions are static declared-capability signal; quantify lift vs stratified_random and vendor baselines before making family-strength claims.",
     )
 
     rf_status = "UNSUPPORTED"
@@ -361,8 +370,21 @@ def write_paper_claim_audit_md(
         safer_wording="Publication readiness is procedural — tie each figure to audited populations and forbid absent artifacts.",
     )
 
+    title = {
+        "locked_publication_surface": "Publication claim audit",
+        "major_family_benchmark": "Benchmark claim audit",
+        "broad_current_corpus": "Corpus diagnostic claim audit",
+    }.get(primary_surface, "Claim audit")
+    surface_label = {
+        "locked_publication_surface": "locked publication cohort",
+        "major_family_benchmark": "major-family benchmark surface",
+        "broad_current_corpus": "broad current-corpus diagnostic surface",
+    }.get(primary_surface, "current run surface")
+
     lines = [
-        "# Publication claim audit (machine-assisted, strict)",
+        f"# {title} (machine-assisted, strict)",
+        "",
+        f"**Primary surface:** {surface_label}",
         "",
         "Each row binds a conversational claim to an **evidence artifact**, **metric/value**, ",
         "**population string**, adjudication status, and **replacement wording**. ",

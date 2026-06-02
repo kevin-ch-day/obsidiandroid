@@ -235,7 +235,8 @@ class PipelineRunStageControl:
             )
         )
         samples_cohort_audit = str(self.stop_after).strip().lower() == "samples"
-        if not evidence_on and not samples_cohort_audit:
+        forced_terminal_failure = str(status).strip().lower() in {"failed", "interrupted"}
+        if not evidence_on and not samples_cohort_audit and not forced_terminal_failure:
             return
         run_root = Path(str(getattr(app_config, "RUNTIME_RUN_ROOT", app_config.DEFAULT_OUTPUT_DIR)))
         diagnostics_dir = run_root / "diagnostics"

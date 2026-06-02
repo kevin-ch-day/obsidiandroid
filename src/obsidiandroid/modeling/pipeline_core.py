@@ -26,6 +26,7 @@ from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.diagnostics import feature_build_coverage_export
 from obsidiandroid.diagnostics import feature_column_survival_export
+from obsidiandroid.diagnostics import family_tier_model_evaluation
 from obsidiandroid.diagnostics import headline_evaluation_export
 from obsidiandroid.diagnostics import rf_feature_importance_export
 from obsidiandroid.diagnostics import permission_training_survival_audit
@@ -59,6 +60,12 @@ _SKLEARN_PARALLEL_WARNING_MESSAGE = (
     r"`sklearn\.utils\.parallel\.Parallel`"
 )
 _SKLEARN_PARALLEL_WARNING_FILTER = "ignore::UserWarning:sklearn.utils.parallel"
+_FAMILY_BENCHMARK_LABEL_FIELDS = {
+    "family_id",
+    "family_canonical",
+    "family_name",
+    "family_within_type",
+}
 
 
 def _emit_feature_prune_warnings_to_terminal() -> bool:
@@ -236,6 +243,12 @@ def _index_to_int_sample_ids(index: Any) -> list[int]:
 def _perm_training_survival_bundle(features_df: pd.DataFrame) -> tuple[dict[str, int], int]:
     """Nonzero permission-bag counts and row count for survival auditing."""
     return (permission_training_survival_audit.perm_prefix_nonzero_stats(features_df), int(len(features_df)))
+
+
+def _is_family_benchmark_label_surface(labels_df: pd.Series) -> bool:
+    """True when the active supervised label surface is family-grained."""
+    label_name = str(getattr(labels_df, "name", "") or "").strip().lower()
+    return label_name in _FAMILY_BENCHMARK_LABEL_FIELDS
 
 
 def _export_label_name_map(labels_df: pd.Series, diagnostics_dir: Path) -> str | None:
@@ -506,6 +519,18 @@ def summarize_models(results: Dict[str, dict]) -> Optional[str]:
             bump_artifact_counter("diagnostics", 1)
             du.print_info(f"[SUMMARY] Model comparison leaderboard: {csv_path.name}")
 
+        try:
+            tier_artifacts = family_tier_model_evaluation.export_family_tier_model_evaluation_reports(
+                diagnostics_dir=diagnostics_dir,
+                run_id=run_id,
+                results=results,
+            )
+            if tier_artifacts:
+                bump_artifact_counter("diagnostics", len(tier_artifacts))
+                du.print_info("[SUMMARY] Family-tier evaluation summary exported (see diagnostics/).")
+        except Exception as exc:
+            du.print_warning(f"[SUMMARY] Family-tier evaluation summary skipped: {exc}")
+
         if bool(getattr(app_config, "ENABLE_RF_IMPURITY_IMPORTANCE_EXPORT", True)):
             rf_res = results.get("random_forest")
             rf_model = rf_res.get("model") if isinstance(rf_res, dict) else None
@@ -721,7 +746,14 @@ def run_classifier_pipeline(
             )
 
     try:
-        features_df, labels_df = align_data(features_df, samples_df)
+        forced_label_column = str(
+            getattr(app_config, "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD", "") or ""
+        ).strip() or None
+        features_df, labels_df = align_data(
+            features_df,
+            samples_df,
+            forced_label_column=forced_label_column,
+        )
         if isinstance(labels_df, pd.Series) and getattr(labels_df, "name", None):
             setattr(
                 app_config,
@@ -777,6 +809,14 @@ def run_classifier_pipeline(
 
     try:
         setattr(app_config, "RUNTIME_LOW_SUPPORT_FAMILY_DROP_DETAIL", [])
+        setattr(app_config, "RUNTIME_BENCHMARK_SUPPORT_APPLIED", False)
+        setattr(app_config, "RUNTIME_BENCHMARK_SUPPORT_EXCLUDED_SAMPLE_COUNT", 0)
+        setattr(app_config, "RUNTIME_BENCHMARK_SUPPORT_EXCLUDED_FAMILY_COUNT", 0)
+        setattr(app_config, "RUNTIME_BENCHMARK_SUPPORT_EXCLUDED_FAMILY_DETAIL", [])
+        quiet_train = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
+        support_floor_mode = str(
+            getattr(app_config, "RUNTIME_SUPPORT_FLOOR_MODE", "membership_gate") or "membership_gate"
+        ).strip().lower()
         du.print_info("[STEP 3] Filtering low-support families")
         label_name_map = dict(getattr(labels_df, "attrs", {}).get("label_name_map", {}))
         min_support = int(
@@ -790,13 +830,49 @@ def run_classifier_pipeline(
         group_label = (
             "other" if bool(getattr(app_config, "GROUP_LOW_SUPPORT_LABELS", False)) else None
         )
-        features_df, labels_df, affected, fams, low_fam_rows = distribution_reporter.apply_min_family_support(
-            features_df=features_df,
-            labels_df=labels_df,
-            min_support=min_support,
-            group_label=group_label,
-        )
+        if support_floor_mode == "diagnostic_only":
+            affected, fams, low_fam_rows = 0, 0, []
+            if not quiet_train:
+                du.print_info(
+                    f"[FILTER] Support floor is diagnostic-only; retaining all family classes for modeling "
+                    f"(runtime diagnostic floor={min_support})."
+                )
+        elif support_floor_mode == "benchmark_eligibility" and not _is_family_benchmark_label_surface(labels_df):
+            affected, fams, low_fam_rows = 0, 0, []
+            if not quiet_train:
+                du.print_info(
+                    f"[FILTER] Benchmark eligibility floor is configured, but label surface "
+                    f"`{getattr(labels_df, 'name', '') or 'unknown'}` is not family-grained; "
+                    "retaining all classes."
+                )
+        else:
+            features_df, labels_df, affected, fams, low_fam_rows = distribution_reporter.apply_min_family_support(
+                features_df=features_df,
+                labels_df=labels_df,
+                min_support=min_support,
+                group_label=group_label,
+            )
+            if support_floor_mode == "benchmark_eligibility":
+                setattr(app_config, "RUNTIME_BENCHMARK_SUPPORT_APPLIED", True)
+                setattr(app_config, "RUNTIME_BENCHMARK_SUPPORT_EXCLUDED_SAMPLE_COUNT", int(affected))
+                setattr(app_config, "RUNTIME_BENCHMARK_SUPPORT_EXCLUDED_FAMILY_COUNT", int(fams))
+                setattr(
+                    app_config,
+                    "RUNTIME_BENCHMARK_SUPPORT_EXCLUDED_FAMILY_DETAIL",
+                    list(low_fam_rows),
+                )
         setattr(app_config, "RUNTIME_LOW_SUPPORT_FAMILY_DROP_DETAIL", list(low_fam_rows))
+        if isinstance(label_name_map, dict) and low_fam_rows:
+            mapped_low_fam_rows: list[dict[str, Any]] = []
+            for row in low_fam_rows:
+                if not isinstance(row, dict):
+                    continue
+                normalized = dict(row)
+                raw_family = row.get("family")
+                if raw_family is not None:
+                    normalized["family"] = str(label_name_map.get(str(raw_family), raw_family))
+                mapped_low_fam_rows.append(normalized)
+            setattr(app_config, "RUNTIME_LOW_SUPPORT_FAMILY_DROP_DETAIL", mapped_low_fam_rows)
         if label_name_map:
             if group_label:
                 filtered_map = {
@@ -812,7 +888,10 @@ def run_classifier_pipeline(
                 }
             labels_df.attrs["label_name_map"] = filtered_map
         if fams:
-            action = "grouped as 'other'" if group_label else "dropped"
+            if support_floor_mode == "benchmark_eligibility":
+                action = "excluded from the supervised family benchmark"
+            else:
+                action = "grouped as 'other'" if group_label else "dropped"
             fam_preview = ", ".join(f"{r.get('family')}={r.get('aligned_support')}" for r in low_fam_rows[:12])
             if len(low_fam_rows) > 12:
                 fam_preview += ", …"

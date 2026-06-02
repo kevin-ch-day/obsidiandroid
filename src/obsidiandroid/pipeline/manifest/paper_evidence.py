@@ -9,6 +9,9 @@ from typing import Any
 import pandas as pd
 
 from obsidiandroid.pipeline.manifest.confusion_matrix_paths import find_primary_confusion_matrix
+from obsidiandroid.governance.paper_family_display_policy import (
+    paper_family_display_policy_payload,
+)
 
 
 _PERTURBATION_PROFILE_FAMILIES: dict[str, set[str]] = {
@@ -489,6 +492,7 @@ def build_promoted_paper_model_binding(
                 )
                 or ""
             ).strip()
+    display_policy = paper_family_display_policy_payload()
     return {
         "model": top_model,
         "label_target": "family_id",
@@ -504,6 +508,7 @@ def build_promoted_paper_model_binding(
         "model_config_hash": str(manifest.get("model_config_hash", "") or ""),
         "cohort_hash": str(sample_lock.get("cohort_hash", "") or ""),
         "taxonomy_hash": str(sample_lock.get("taxonomy_hash", "") or ""),
+        "paper_family_display_policy": display_policy,
     }
 
 

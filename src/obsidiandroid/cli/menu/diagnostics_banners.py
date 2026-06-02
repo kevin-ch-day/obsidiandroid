@@ -14,11 +14,14 @@ from obsidiandroid.common.backlog_semantics import (
 from obsidiandroid.common.cohort_presentation import cohort_methodology_notes
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.publication_readiness import publication_ready_status_light
+from obsidiandroid.cli.menu import run_locator
 from obsidiandroid.cli.menu.operator_state import build_operator_state
 from obsidiandroid.cli.menu.vendor_parser_state import resolve_vendor_parser_coverage_csv
 from obsidiandroid.cli.menu.run_locator import resolve_latest_manifest_payload
+from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common.json_io import read_json_dict
 from obsidiandroid.diagnostics.diagnostic_provenance import latest_post_run_enrichment_dir
+from obsidiandroid.database.db_cohort_readiness import get_cohort_readiness_snapshot
 
 
 def format_percent_for_menu(value: object, *, decimals: int = 2) -> str:
@@ -40,6 +43,17 @@ def _status_light(ok: bool | None, *, warn: bool = False) -> str:
     if ok is False:
         return "RED"
     return "YELLOW"
+
+
+def _severity_rank(status: str) -> int:
+    token = str(status or "").strip().upper()
+    if token == "RED":
+        return 0
+    if token == "YELLOW":
+        return 1
+    if token == "GREEN":
+        return 2
+    return 3
 
 
 def _taxonomy_split_warn_count(payload: dict[str, object]) -> int:
@@ -66,6 +80,80 @@ def _taxonomy_split_warn_count(payload: dict[str, object]) -> int:
     )
 
 
+def _select_focus_row(
+    *,
+    rows: list[dict[str, object]],
+    priority_triage: dict[str, object] | None,
+) -> dict[str, str]:
+    """Choose the highest-value operator focus item for diagnostics overview."""
+    diagnostics_priority = {
+        "Cohort / labels": 0,
+        "Taxonomy consistency": 1,
+        "Permission signal": 2,
+        "Feature matrix": 3,
+        "Evidence/provenance": 4,
+        "Vendor/parser coverage": 5,
+        "Claim readiness": 6,
+        "Benchmark / publication readiness": 6,
+        "Publication readiness": 6,
+        "Android missing-resolution triage": 7,
+        "VT false-positive triage": 8,
+        "Policy-held family noise": 9,
+    }
+    actionable: list[dict[str, object]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("label", "") or "").strip()
+        status = str(row.get("status", "") or "").strip().upper()
+        detail = str(row.get("detail", "") or "").strip()
+        row_count = row.get("row_count")
+        warning_flag = bool(row.get("warning", False))
+        is_actionable = False
+        if status in {"RED", "YELLOW"}:
+            is_actionable = True
+        elif isinstance(row_count, int) and row_count > 0:
+            is_actionable = True
+        elif warning_flag:
+            is_actionable = True
+        if not is_actionable:
+            continue
+        actionable.append(
+            {
+                "label": label,
+                "status": status,
+                "action": str(row.get("action", "") or "").strip(),
+                "detail": detail,
+                "_priority": diagnostics_priority.get(label, 99),
+            }
+        )
+    if actionable:
+        actionable.sort(
+            key=lambda row: (
+                _severity_rank(str(row.get("status", ""))),
+                int(row.get("_priority", 99)),
+                str(row.get("label", "")),
+            )
+        )
+        top = actionable[0]
+        return {
+            "label": str(top.get("label", "") or ""),
+            "reason": f"{str(top.get('status', '') or '').upper()}; {str(top.get('action', '') or '').strip()}",
+            "action": str(top.get("action", "") or "").strip(),
+        }
+    if isinstance(priority_triage, dict) and priority_triage:
+        return {
+            "label": str(priority_triage.get("label", "") or ""),
+            "reason": f"{str(priority_triage.get('freshness', '') or '').strip() or 'current'}; {str(priority_triage.get('action', '') or '').strip()}",
+            "action": str(priority_triage.get("action", "") or "").strip(),
+        }
+    return {
+        "label": "None — no actionable diagnostic backlog",
+        "reason": "All tracked queues are green or empty.",
+        "action": "Open run science index",
+    }
+
+
 def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) -> dict[str, object]:
     """Build compact traffic-light overview for the latest run diagnostics."""
     shared = build_operator_state(output_base=output_root, run_id=latest_run_id)
@@ -84,6 +172,8 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
     if not q2:
         q2 = read_json_dict(gdiag / "modality_contribution_summary.json")
     parser_state = shared.get("parser_summary") if isinstance(shared.get("parser_summary"), dict) else {}
+    evidence_mode = bool(shared.get("evidence_mode", False))
+    publication_mode = bool(shared.get("publication_ready_mode", False))
     fp_triage = read_false_positive_triage_snapshot(output_root=output_root)
     android_triage = read_android_missing_resolution_snapshot(output_root=output_root)
     fp_triage_count = int(fp_triage.get("row_count", 0)) if fp_triage else None
@@ -106,6 +196,24 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
         android_missing_triage=android_triage,
         fp_triage=fp_triage,
     )
+    readiness_payload: dict[str, object] = {}
+    try:
+        readiness_payload = get_cohort_readiness_snapshot()
+    except Exception:
+        readiness_payload = {}
+    taxonomy_signals = (
+        readiness_payload.get("taxonomy_signals", {})
+        if isinstance(readiness_payload, dict)
+        else {}
+    )
+    if not isinstance(taxonomy_signals, dict):
+        taxonomy_signals = {}
+    policy_held_family_samples = int(taxonomy_signals.get("policy_held_family_samples", 0) or 0)
+    policy_held_generic_count = 0
+    token_kind_counts = taxonomy_signals.get("policy_held_family_token_kind_counts", {})
+    if isinstance(token_kind_counts, dict):
+        policy_held_generic_count = int(token_kind_counts.get("generic_family_token", 0) or 0)
+    readiness_label = "Publication readiness" if (publication_mode or evidence_mode) else "Claim readiness"
 
     overview_rows = [
         {
@@ -134,7 +242,12 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
                     row_count=android_triage_count,
                     freshness=android_triage_freshness,
                 ),
-                "action": "Open Android missing-resolution triage",
+                "action": (
+                    "Refresh Android missing-resolution triage export first"
+                    if android_triage_freshness == "stale"
+                    else "Open Android missing-resolution triage"
+                ),
+                "row_count": android_triage_count if android_triage_count is not None else 0,
                 "detail": triage_detail(
                     android_triage_count,
                     noun="queued row(s)",
@@ -148,13 +261,30 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
                     row_count=fp_triage_count,
                     freshness=fp_triage_freshness,
                 ),
-                "action": "Open VT false-positive triage",
+                "action": (
+                    "Refresh VT false-positive triage export first"
+                    if fp_triage_freshness == "stale"
+                    else "Open VT false-positive triage"
+                ),
+                "row_count": fp_triage_count if fp_triage_count is not None else 0,
                 "detail": triage_detail(
                     fp_triage_count,
                     noun="review row(s)",
                     top_bucket=fp_triage_top_lane,
                     freshness=fp_triage_freshness,
                 ),
+        },
+        {
+            "label": "Policy-held family noise",
+            "status": "YELLOW" if policy_held_generic_count > 0 else "GREEN",
+            "action": "Review policy-held token risk export",
+            "row_count": policy_held_family_samples,
+            "warning": policy_held_generic_count > 0,
+            "detail": (
+                f"{policy_held_family_samples} rows, review only"
+                if policy_held_family_samples > 0
+                else "0 rows"
+            ),
         },
         {
             "label": "Vendor/parser coverage",
@@ -183,7 +313,7 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
             "action": "Open run science index",
         },
         {
-            "label": "Publication readiness",
+            "label": readiness_label,
             "status": publication_ready_status_light(publication_ready),
             "action": "Open evidence readiness summary",
         },
@@ -199,42 +329,49 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
         "cohort_membership_mode": cohort_membership_mode or "standard_contract_filters",
         "rescued_unknown_consensus": rescued_unknown_consensus,
         "priority_triage": priority_triage,
+        "focus_item": _select_focus_row(rows=overview_rows, priority_triage=priority_triage),
         "rows": overview_rows,
     }
 
 
 def print_compact_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) -> None:
     """Print compact traffic-light overview with next actions."""
-    from obsidiandroid.cli.ui import display as du
+
+    def _row_is_actionable(row: dict[str, object]) -> bool:
+        status = str(row.get("status", "") or "").strip().upper()
+        row_count = row.get("row_count")
+        warning_flag = bool(row.get("warning", False))
+        if status in {"RED", "YELLOW"}:
+            return True
+        if isinstance(row_count, int) and row_count > 0:
+            return True
+        return warning_flag
 
     overview = build_diagnostics_overview(output_root=output_root, latest_run_id=latest_run_id)
     du.print_subheader("Diagnostics overview")
     du.print_stat("Latest run", str(overview.get("latest_run_id") or "None yet"))
-    priority_triage = overview.get("priority_triage", {})
-    if isinstance(priority_triage, dict) and priority_triage:
-        du.print_stat("Focus first", str(priority_triage.get("label", "—")))
-        freshness = str(priority_triage.get("freshness", "") or "").strip()
-        top_lane = str(priority_triage.get("top_lane", "") or "").strip()
-        row_count = priority_triage.get("row_count", "—")
-        lane_count = priority_triage.get("top_lane_count", "—")
-        detail = f"{row_count} row(s)"
-        if top_lane:
-            detail += f"; top lane={top_lane} ({lane_count})"
-        if freshness:
-            detail += f"; freshness={freshness}"
-        du.print_note(f"  {detail}")
-        action = str(priority_triage.get("action", "") or "").strip()
+    focus_item = overview.get("focus_item", {})
+    if isinstance(focus_item, dict) and focus_item:
+        du.print_stat("Focus first", str(focus_item.get("label", "—")))
+        reason = str(focus_item.get("reason", "") or "").strip()
+        if reason:
+            print(f"  Reason: {reason}")
+        action = str(focus_item.get("action", "") or "").strip()
         if action:
-            du.print_info(f"  {action}")
+            label = "Suggested next" if str(focus_item.get("label", "")).startswith("None ") else "Next"
+            print(f"  {label}: {action}")
     rows = overview.get("rows") if isinstance(overview.get("rows"), list) else []
     for row in rows:
         if not isinstance(row, dict):
             continue
         du.print_stat(str(row.get("label", "")), str(row.get("status", "")))
         detail = str(row.get("detail", "") or "").strip()
+        detail = detail.replace("top=real_malware_family_or_class_review", "top=real malware family/class…")
         if detail:
-            du.print_note(f"  Current backlog: {detail}")
-        du.print_info(f"  Recommended next action: {row.get('action', '')}")
+            print(f"  Backlog: {detail}")
+        action = str(row.get("action", "") or "").strip()
+        if action and _row_is_actionable(row):
+            print(f"  Next: {action}")
     for note in cohort_methodology_notes(
         {
             "cohort_membership_mode": overview.get("cohort_membership_mode", ""),
@@ -243,7 +380,7 @@ def print_compact_diagnostics_overview(*, output_root: Path, latest_run_id: str 
     ):
         du.print_note(note)
     path = str(overview.get("run_science_index_path", "") or "")
-    du.print_stat("Run science index", path or "missing")
+    du.print_stat("Run science index", du.format_console_path(path) if path else "missing")
     if path and not bool(overview.get("run_science_index_canonical", False)):
         du.print_note("Canonical run_science_index.md is missing; showing the best available authoritative run index.")
     print("")
@@ -258,7 +395,7 @@ def print_data_diagnostics_banner(*, output_root: Path, latest_run_id: str | Non
     du.print_stat("Latest run", rid)
     provenance = False
     if latest_run_id:
-        diag = output_root / "runs" / latest_run_id / "diagnostics"
+        diag = run_locator.resolve_run_root_for_run_id(latest_run_id, output_base=output_root) / "diagnostics"
         provenance = (diag / f"split_freeze_headline_{latest_run_id}.csv").exists()
     du.print_stat("Diagnostics ready", "Yes" if provenance else "No")
 
@@ -274,7 +411,7 @@ def print_data_diagnostics_banner(*, output_root: Path, latest_run_id: str | Non
     vendor_pct: str | float = "—"
     frozen_profile = "—"
     if latest_run_id:
-        rdiag = output_root / "runs" / latest_run_id / "diagnostics"
+        rdiag = run_locator.resolve_run_root_for_run_id(latest_run_id, output_base=output_root) / "diagnostics"
         fam_audit = (rdiag / "family_label_taxonomy_audit.csv").is_file()
         sup_prev = (rdiag / "support_threshold_preview.md").is_file()
         latest_enrichment = latest_post_run_enrichment_dir(rdiag)

@@ -42,7 +42,8 @@ def test_print_profile_tuning_from_manifest_shows_cohort_and_flags(capsys) -> No
     print_profile_tuning_from_manifest(manifest)
     out = capsys.readouterr().out
     assert "test_prof" in out
-    assert "min_samples_per_family" in out
+    assert "Cohort gates" in out
+    assert "n>=5" in out
     assert "malicious_only" in out
     assert "enable_permission_features" in out
     assert "ENABLE_ABLATION_EXPERIMENTS" in out
@@ -51,6 +52,11 @@ def test_print_profile_tuning_from_manifest_shows_cohort_and_flags(capsys) -> No
     assert "Publication-ready mode (manifest)" in out
     assert "profile_default" in out
     assert "Top-k (requested / effective)" in out
+    assert "Top-k policy" in out
+    assert "Feature flags" in out
+    assert "Parser overrides" in out
+    assert "Runtime overrides" in out
+    assert "Models" in out
 
 
 def test_print_profile_tuning_from_manifest_missing_profile_params(capsys) -> None:

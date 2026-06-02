@@ -7,6 +7,7 @@ Canonical implementation (**Pass 70**): ``obsidiandroid.pipeline.stage_permissio
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 from typing import Any
 
 import numpy as np
@@ -85,6 +86,7 @@ from obsidiandroid.pipeline.permission_trends.bundle_io import (
     export_df_diagnostics_with_latest as _export_df_diagnostics_with_latest,
     export_df_with_latest as _export_df_with_latest,
     export_json_with_latest as _export_json_with_latest,
+    export_markdown_with_latest as _export_markdown_with_latest,
     export_permission_trends_bundle_readme as _export_permission_trends_bundle_readme,
     export_text_with_latest as _export_text_with_latest,
     resolve_permission_bundle_dir as _resolve_permission_bundle_dir,
@@ -104,6 +106,7 @@ from obsidiandroid.pipeline.permission_trends.bundle_exports import (
     build_permission_trends_layout_check as _build_permission_trends_layout_check,
     export_alias_map_csv as _export_alias_map_csv,
     export_paper_figures_index as _export_paper_figures_index,
+    export_permission_pattern_summary as _export_permission_pattern_summary,
     export_run_summary_onepager as _export_run_summary_onepager,
     export_safe_claims_report as _export_safe_claims_report,
 )
@@ -114,8 +117,24 @@ from obsidiandroid.pipeline.permission_trends.diagnostic_exports import (
 )
 from obsidiandroid.pipeline.permission_trends.consensus_audit import (
     build_consensus_distribution as _build_consensus_distribution,
+    compute_consensus_metrics as _compute_consensus_metrics,
     build_generic_definition_audit as _build_generic_definition_audit,
     extract_selected_vendors as _extract_selected_vendors,
+)
+from obsidiandroid.governance import family_tier_authority
+from obsidiandroid.orchestration.permission_features import PERMISSION_GROUP_DEFINITIONS
+from obsidiandroid.governance.mobile_attack_permission_mapping import (
+    mobile_attack_permission_mapping_payload as _mobile_attack_permission_mapping_payload,
+)
+from obsidiandroid.pipeline.permission_trends.attack_mapping import (
+    build_attack_mobile_hypotheses as _build_attack_mobile_hypotheses,
+    build_attack_mobile_hypotheses_markdown as _build_attack_mobile_hypotheses_markdown,
+)
+from obsidiandroid.diagnostics.research_validity.permission_signal_seed import (
+    SIGNAL_CATALOG_ROWS as _SIGNAL_CATALOG_ROWS,
+    SIGNAL_MAPPING_ROWS as _SIGNAL_MAPPING_ROWS,
+    load_permission_signal_catalog_rows as _load_permission_signal_catalog_rows,
+    load_permission_signal_mapping_rows as _load_permission_signal_mapping_rows,
 )
 
 def _spearman_with_bootstrap_ci(
@@ -343,6 +362,74 @@ def run_permission_trends_report_stage(
         file_stem="type_permission_prevalence",
         bundle_dir=bundle_dir,
     )
+    permission_prevalence_by_type_df = _build_permission_prevalence_by_type(
+        sample_core_df=sample_core_df,
+        permission_matrix_df=permission_matrix_df,
+    )
+    permission_prevalence_by_type_csv = _export_df_with_latest(
+        permission_prevalence_by_type_df,
+        run_id=run_id,
+        file_stem="permission_prevalence_by_type",
+        bundle_dir=bundle_dir,
+    )
+    permission_signal_rows_df = _assign_permission_signal_keys(permission_rows_df)
+    permission_signal_prevalence_by_type_df = _build_signal_prevalence_by_type(
+        sample_core_df=sample_core_df,
+        permission_signal_rows_df=permission_signal_rows_df,
+    )
+    permission_signal_prevalence_by_type_csv = _export_df_with_latest(
+        permission_signal_prevalence_by_type_df,
+        run_id=run_id,
+        file_stem="permission_signal_prevalence_by_type",
+        bundle_dir=bundle_dir,
+    )
+    permission_signal_prevalence_by_type_behavior_safe_df = _filter_behavior_safe_signals(
+        permission_signal_prevalence_by_type_df
+    )
+    permission_signal_prevalence_by_type_behavior_safe_csv = _export_df_with_latest(
+        permission_signal_prevalence_by_type_behavior_safe_df,
+        run_id=run_id,
+        file_stem="permission_signal_prevalence_by_type_behavior_safe",
+        bundle_dir=bundle_dir,
+    )
+    signal_catalog_snapshot_df = _signal_catalog_frame()
+    signal_catalog_snapshot_csv = _export_df_with_latest(
+        signal_catalog_snapshot_df,
+        run_id=run_id,
+        file_stem="permission_signal_catalog_snapshot",
+        bundle_dir=bundle_dir,
+        artifact_group="contracts",
+    )
+    signal_mapping_snapshot_df = _signal_mapping_frame()
+    signal_mapping_snapshot_csv = _export_df_with_latest(
+        signal_mapping_snapshot_df,
+        run_id=run_id,
+        file_stem="permission_signal_mapping_snapshot",
+        bundle_dir=bundle_dir,
+        artifact_group="contracts",
+    )
+    signal_governance_coverage_df = _build_permission_signal_governance_coverage(
+        permission_rows_df=permission_rows_df,
+        permission_signal_rows_df=permission_signal_rows_df,
+        run_id=run_id,
+    )
+    signal_governance_coverage_csv = _export_df_with_latest(
+        signal_governance_coverage_df,
+        run_id=run_id,
+        file_stem="permission_signal_governance_coverage",
+        bundle_dir=bundle_dir,
+    )
+    type_capability_df = _build_type_capability_bundle_prevalence(
+        sample_core_df=sample_core_df,
+        permission_rows_df=permission_rows_df,
+        run_id=run_id,
+    )
+    type_capability_csv = _export_df_with_latest(
+        type_capability_df,
+        run_id=run_id,
+        file_stem="type_capability_bundle_prevalence",
+        bundle_dir=bundle_dir,
+    )
     type_entropy_csv = _export_df_with_latest(
         type_entropy_df,
         run_id=run_id,
@@ -392,6 +479,46 @@ def run_permission_trends_report_stage(
         family_profiles_df,
         run_id=run_id,
         file_stem=f"family_permission_profiles_top{top_families_visual}",
+        bundle_dir=bundle_dir,
+    )
+    permission_prevalence_by_family_df = _build_permission_prevalence_by_family(
+        sample_core_df=sample_core_df,
+        permission_matrix_df=permission_matrix_df,
+    )
+    permission_prevalence_by_family_csv = _export_df_with_latest(
+        permission_prevalence_by_family_df,
+        run_id=run_id,
+        file_stem="permission_prevalence_by_family",
+        bundle_dir=bundle_dir,
+    )
+    permission_signal_prevalence_by_family_df = _build_signal_prevalence_by_family(
+        sample_core_df=sample_core_df,
+        permission_signal_rows_df=permission_signal_rows_df,
+    )
+    permission_signal_prevalence_by_family_csv = _export_df_with_latest(
+        permission_signal_prevalence_by_family_df,
+        run_id=run_id,
+        file_stem="permission_signal_prevalence_by_family",
+        bundle_dir=bundle_dir,
+    )
+    permission_signal_prevalence_by_family_behavior_safe_df = _filter_behavior_safe_signals(
+        permission_signal_prevalence_by_family_df
+    )
+    permission_signal_prevalence_by_family_behavior_safe_csv = _export_df_with_latest(
+        permission_signal_prevalence_by_family_behavior_safe_df,
+        run_id=run_id,
+        file_stem="permission_signal_prevalence_by_family_behavior_safe",
+        bundle_dir=bundle_dir,
+    )
+    family_capability_df = _build_family_capability_bundle_profiles(
+        sample_core_df=sample_core_df,
+        permission_rows_df=permission_rows_df,
+        run_id=run_id,
+    )
+    family_capability_csv = _export_df_with_latest(
+        family_capability_df,
+        run_id=run_id,
+        file_stem=f"family_capability_bundle_profiles_top{top_families_visual}",
         bundle_dir=bundle_dir,
     )
     family_entropy_csv = _export_df_with_latest(
@@ -710,6 +837,113 @@ def run_permission_trends_report_stage(
         file_stem="consensus_correlation_report",
         bundle_dir=bundle_dir,
     )
+    permission_type_enrichment_df = _build_permission_type_enrichment(
+        sample_core_df=sample_core_df,
+        permission_matrix_df=permission_matrix_df,
+    )
+    permission_type_enrichment_csv = _export_df_with_latest(
+        permission_type_enrichment_df,
+        run_id=run_id,
+        file_stem="permission_type_enrichment",
+        bundle_dir=bundle_dir,
+    )
+    permission_family_enrichment_df = _build_permission_family_enrichment(
+        sample_core_df=sample_core_df,
+        permission_matrix_df=permission_matrix_df,
+    )
+    permission_family_enrichment_csv = _export_df_with_latest(
+        permission_family_enrichment_df,
+        run_id=run_id,
+        file_stem="permission_family_enrichment",
+        bundle_dir=bundle_dir,
+    )
+    family_permission_similarity_df = _build_family_permission_similarity(
+        family_prevalence_df=permission_prevalence_by_family_df,
+    )
+    family_permission_similarity_csv = _export_df_with_latest(
+        family_permission_similarity_df,
+        run_id=run_id,
+        file_stem="family_permission_similarity",
+        bundle_dir=bundle_dir,
+    )
+    family_signal_similarity_df = _build_family_signal_similarity(
+        family_signal_prevalence_df=permission_signal_prevalence_by_family_df[
+            permission_signal_prevalence_by_family_df["benchmark_eligible_n_ge_3"].astype(bool)
+        ].copy(),
+    )
+    family_signal_similarity_csv = _export_df_with_latest(
+        family_signal_similarity_df,
+        run_id=run_id,
+        file_stem="family_signal_similarity",
+        bundle_dir=bundle_dir,
+    )
+    family_signal_similarity_behavior_safe_df = _build_family_signal_similarity(
+        family_signal_prevalence_df=permission_signal_prevalence_by_family_behavior_safe_df[
+            permission_signal_prevalence_by_family_behavior_safe_df["benchmark_eligible_n_ge_3"].astype(bool)
+        ].copy(),
+    )
+    family_signal_similarity_behavior_safe_csv = _export_df_with_latest(
+        family_signal_similarity_behavior_safe_df,
+        run_id=run_id,
+        file_stem="family_signal_similarity_behavior_safe",
+        bundle_dir=bundle_dir,
+    )
+    type_permission_similarity_df = _build_type_permission_similarity(
+        type_prevalence_df=permission_prevalence_by_type_df,
+    )
+    type_permission_similarity_csv = _export_df_with_latest(
+        type_permission_similarity_df,
+        run_id=run_id,
+        file_stem="type_permission_similarity",
+        bundle_dir=bundle_dir,
+    )
+    attack_hypotheses_type_df = _build_attack_mobile_hypotheses(
+        prevalence_df=permission_prevalence_by_type_df,
+        run_id=run_id,
+        group_field="type_slug",
+        group_kind="type",
+        sample_count_field="n_samples",
+        prevalence_field="prevalence_pct",
+    )
+    attack_hypotheses_family_df = _build_attack_mobile_hypotheses(
+        prevalence_df=permission_prevalence_by_family_df[
+            permission_prevalence_by_family_df["benchmark_eligible_n_ge_3"].astype(bool)
+        ].copy(),
+        run_id=run_id,
+        group_field="family_canonical",
+        group_kind="family",
+        sample_count_field="family_support",
+        prevalence_field="prevalence_pct",
+    )
+    attack_hypotheses_df = pd.concat(
+        [frame for frame in [attack_hypotheses_type_df, attack_hypotheses_family_df] if isinstance(frame, pd.DataFrame) and not frame.empty],
+        ignore_index=True,
+    ) if (not attack_hypotheses_type_df.empty or not attack_hypotheses_family_df.empty) else pd.DataFrame()
+    attack_hypotheses_csv = _export_df_with_latest(
+        attack_hypotheses_df,
+        run_id=run_id,
+        file_stem="attack_mobile_hypotheses",
+        bundle_dir=bundle_dir,
+    )
+    attack_hypotheses_json = _export_json_with_latest(
+        payload={
+            "run_id": run_id,
+            "mapping": _mobile_attack_permission_mapping_payload(),
+            "rows": attack_hypotheses_df.to_dict(orient="records") if isinstance(attack_hypotheses_df, pd.DataFrame) else [],
+        },
+        run_id=run_id,
+        file_stem="attack_mobile_hypotheses",
+        bundle_dir=bundle_dir,
+    )
+    attack_hypotheses_md = _export_markdown_with_latest(
+        text=_build_attack_mobile_hypotheses_markdown(
+            hypotheses_df=attack_hypotheses_df,
+            run_id=run_id,
+        ),
+        run_id=run_id,
+        file_stem="attack_mobile_hypotheses",
+        bundle_dir=bundle_dir,
+    )
     dangerous_stats_df = _build_dangerous_stats_tests(
         sample_core_df=sample_core_df,
         permission_rows_df=permission_rows_df,
@@ -824,6 +1058,30 @@ def run_permission_trends_report_stage(
         bundle_metadata=bundle_metadata,
         banker_enrichment_df=banker_enrichment_df,
         select_banker_summary_rows=_select_banker_summary_rows,
+        discriminability_df=discriminability_df,
+        type_entropy_df=type_entropy_df,
+        family_profiles_df=family_profiles_df,
+        type_capability_df=type_capability_df,
+        family_capability_df=family_capability_df,
+        attack_hypotheses_df=attack_hypotheses_df,
+    )
+    permission_pattern_summary_md = _export_permission_pattern_summary(
+        run_id=run_id,
+        bundle_dir=bundle_dir,
+        prevalence_by_type_df=permission_prevalence_by_type_df,
+        prevalence_by_family_df=permission_prevalence_by_family_df,
+        signal_prevalence_by_type_df=permission_signal_prevalence_by_type_df,
+        signal_prevalence_by_type_behavior_safe_df=permission_signal_prevalence_by_type_behavior_safe_df,
+        signal_prevalence_by_family_df=permission_signal_prevalence_by_family_df,
+        signal_prevalence_by_family_behavior_safe_df=permission_signal_prevalence_by_family_behavior_safe_df,
+        family_signal_similarity_df=family_signal_similarity_df,
+        family_signal_similarity_behavior_safe_df=family_signal_similarity_behavior_safe_df,
+        signal_governance_coverage_df=signal_governance_coverage_df,
+        type_enrichment_df=permission_type_enrichment_df,
+        family_enrichment_df=permission_family_enrichment_df,
+        family_similarity_df=family_permission_similarity_df,
+        attack_hypotheses_df=attack_hypotheses_df,
+        generic_summary_df=generic_summary_df,
     )
     bundle_readme_path = _export_permission_trends_bundle_readme(run_id=run_id, bundle_dir=bundle_dir)
 
@@ -861,24 +1119,42 @@ def run_permission_trends_report_stage(
             safe_claims_txt,
             figures_index_md,
             run_summary_md,
+            permission_pattern_summary_md,
         ]
     )
     for extra_path in [
         type_prevalence_csv,
+        permission_prevalence_by_type_csv,
+        permission_signal_prevalence_by_type_csv,
+        permission_signal_prevalence_by_type_behavior_safe_csv,
         type_entropy_csv,
         family_profiles_csv,
+        permission_prevalence_by_family_csv,
+        permission_signal_prevalence_by_family_csv,
+        permission_signal_prevalence_by_family_behavior_safe_csv,
+        family_capability_csv,
         family_entropy_csv,
         banker_enrichment_csv,
         banker_top15_csv,
         discriminability_csv,
+        type_capability_csv,
         generic_summary_csv,
         jsd_csv,
         consensus_corr_csv,
+        permission_type_enrichment_csv,
+        permission_family_enrichment_csv,
+        family_permission_similarity_csv,
+        family_signal_similarity_csv,
+        family_signal_similarity_behavior_safe_csv,
+        type_permission_similarity_csv,
+        signal_governance_coverage_csv,
         dangerous_stats_csv,
         banker_clusters_csv,
         banker_cluster_profiles_csv,
         selected_visual_families_csv,
         jsd_pair_verification_csv,
+        signal_catalog_snapshot_csv,
+        signal_mapping_snapshot_csv,
     ]:
         if isinstance(extra_path, str) and extra_path:
             paths.append(extra_path)
@@ -887,6 +1163,9 @@ def run_permission_trends_report_stage(
             paths.append(maybe_png)
     if isinstance(temporal_trends_png, str):
         paths.append(temporal_trends_png)
+    for extra_path in [attack_hypotheses_csv, attack_hypotheses_json, attack_hypotheses_md]:
+        if isinstance(extra_path, str) and extra_path:
+            paths.append(extra_path)
     paths.extend(paper_variant_paths)
     paths.extend(canonical_heatmap_paths)
     if isinstance(bundle_readme_path, str) and bundle_readme_path:
@@ -971,7 +1250,7 @@ def run_permission_trends_report_stage(
     setattr(app_config, "RUNTIME_PERMISSION_BUNDLE_ZIP", str(artifacts.bundle_zip))
     if latest_copy_dir is not None:
         setattr(app_config, "RUNTIME_PERMISSION_BUNDLE_LATEST_DIR", str(latest_copy_dir))
-    du.print_info(f"[REPORT] Permission trends artifacts exported: {bundle_dir}")
+    du.print_info(f"[REPORT] Permission trends artifacts:{du.format_console_path(bundle_dir)}")
     return paths
 
 
@@ -1050,11 +1329,21 @@ def _build_permission_anomalies(df: pd.DataFrame, run_id: str) -> pd.DataFrame:
 
 
 def _build_family_support_distribution(sample_core_df: pd.DataFrame, run_id: str) -> pd.DataFrame:
-    grouped = (
-        sample_core_df.groupby(["family_id", "family_canonical", "type_slug"], dropna=False)["sample_id"]
-        .nunique()
-        .reset_index(name="sample_count")
-    )
+    support_df = _family_support_frame(sample_core_df, benchmark_min_support=3)
+    if support_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "family_id",
+                "family_canonical",
+                "type_slug",
+                "sample_count",
+                "support_ge_30_flag",
+                "support_ge_50_flag",
+                "benchmark_eligible_n_ge_3",
+                "run_id",
+            ]
+        )
+    grouped = support_df.rename(columns={"family_support": "sample_count"}).copy()
     grouped["support_ge_30_flag"] = (grouped["sample_count"] >= 30).astype(int)
     grouped["support_ge_50_flag"] = (grouped["sample_count"] >= 50).astype(int)
     grouped["run_id"] = run_id
@@ -1463,16 +1752,827 @@ def _build_type_permission_prevalence(
     return pd.DataFrame(rows), pd.DataFrame(entropy_rows)
 
 
+def _family_support_frame(
+    sample_core_df: pd.DataFrame,
+    *,
+    benchmark_min_support: int = 3,
+) -> pd.DataFrame:
+    work = sample_core_df.copy()
+    masks = family_tier_authority.build_family_tier_masks(work)
+    work = work.assign(
+        __family_target_eligible=masks["family_target_eligible"],
+        __type_target_eligible=masks["type_target_eligible"],
+    )
+    work = work[work["__family_target_eligible"]].copy()
+    if work.empty:
+        return pd.DataFrame(
+            columns=[
+                "family_id",
+                "family_canonical",
+                "type_slug",
+                "family_support",
+                "benchmark_eligible_n_ge_3",
+            ]
+        )
+    grouped = (
+        work.groupby(["family_id", "family_canonical"], dropna=False)
+        .agg(
+            family_support=("sample_id", "nunique"),
+            type_slug=("type_slug", lambda values: next((str(v).strip() for v in values if str(v).strip()), "unknown")),
+        )
+        .reset_index()
+    )
+    grouped["benchmark_eligible_n_ge_3"] = (
+        pd.to_numeric(grouped["family_support"], errors="coerce").fillna(0).astype(int) >= int(benchmark_min_support)
+    )
+    return grouped.sort_values(
+        by=["family_support", "family_canonical"],
+        ascending=[False, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
+def _build_permission_prevalence_by_type(
+    sample_core_df: pd.DataFrame,
+    permission_matrix_df: pd.DataFrame,
+) -> pd.DataFrame:
+    merged = sample_core_df[["sample_id", "type_slug"]].merge(permission_matrix_df, on="sample_id", how="left").fillna(0)
+    permission_cols = [c for c in merged.columns if c not in {"sample_id", "type_slug"}]
+    rows: list[dict[str, Any]] = []
+    for type_slug, group in merged.groupby("type_slug", dropna=False):
+        n_samples = int(len(group))
+        for permission in permission_cols:
+            present = pd.to_numeric(group[permission], errors="coerce").fillna(0)
+            positive_count = int((present > 0).sum())
+            rows.append(
+                {
+                    "type_slug": str(type_slug),
+                    "permission": str(permission),
+                    "n_samples": n_samples,
+                    "permission_positive_count": positive_count,
+                    "prevalence_pct": round((float(positive_count) / float(max(n_samples, 1))) * 100.0, 6),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _build_permission_prevalence_by_family(
+    sample_core_df: pd.DataFrame,
+    permission_matrix_df: pd.DataFrame,
+    *,
+    benchmark_min_support: int = 3,
+) -> pd.DataFrame:
+    family_support_df = _family_support_frame(sample_core_df, benchmark_min_support=benchmark_min_support)
+    if family_support_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "family_canonical",
+                "type_slug",
+                "family_support",
+                "permission",
+                "positive_count",
+                "prevalence_pct",
+                "benchmark_eligible_n_ge_3",
+            ]
+        )
+    merged = (
+        sample_core_df[["sample_id", "family_id", "family_canonical"]]
+        .merge(family_support_df, on=["family_id", "family_canonical"], how="inner")
+        .merge(permission_matrix_df, on="sample_id", how="left")
+        .fillna(0)
+    )
+    permission_cols = [c for c in permission_matrix_df.columns if c != "sample_id"]
+    rows: list[dict[str, Any]] = []
+    for (family_name, type_slug, family_support, benchmark_eligible), group in merged.groupby(
+        ["family_canonical", "type_slug", "family_support", "benchmark_eligible_n_ge_3"],
+        dropna=False,
+    ):
+        for permission in permission_cols:
+            present = pd.to_numeric(group[permission], errors="coerce").fillna(0)
+            positive_count = int((present > 0).sum())
+            rows.append(
+                {
+                    "family_canonical": str(family_name),
+                    "type_slug": str(type_slug),
+                    "family_support": int(family_support),
+                    "permission": str(permission),
+                    "positive_count": positive_count,
+                    "prevalence_pct": round((float(positive_count) / float(max(int(family_support), 1))) * 100.0, 6),
+                    "benchmark_eligible_n_ge_3": bool(benchmark_eligible),
+                }
+            )
+    return pd.DataFrame(rows).sort_values(
+        by=["family_support", "family_canonical", "prevalence_pct", "permission"],
+        ascending=[False, True, False, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
+def _signal_catalog_frame() -> pd.DataFrame:
+    rows = _load_permission_signal_catalog_rows()
+    if not rows:
+        rows = _SIGNAL_CATALOG_ROWS
+    return pd.DataFrame(rows).copy()
+
+
+def _signal_mapping_frame() -> pd.DataFrame:
+    rows = _load_permission_signal_mapping_rows()
+    if not rows:
+        rows = _SIGNAL_MAPPING_ROWS
+    return pd.DataFrame(rows).copy()
+
+
+def _filter_behavior_safe_signals(signal_prevalence_df: pd.DataFrame) -> pd.DataFrame:
+    if not isinstance(signal_prevalence_df, pd.DataFrame) or signal_prevalence_df.empty:
+        return pd.DataFrame(columns=getattr(signal_prevalence_df, "columns", []))
+    return signal_prevalence_df[
+        pd.to_numeric(signal_prevalence_df["include_in_behavioral_claims"], errors="coerce")
+        .fillna(0)
+        .astype(bool)
+    ].copy()
+
+
+def _build_permission_signal_governance_coverage(
+    permission_rows_df: pd.DataFrame,
+    permission_signal_rows_df: pd.DataFrame,
+    *,
+    run_id: str,
+) -> pd.DataFrame:
+    columns = ["run_id", "metric", "value"]
+    if not isinstance(permission_rows_df, pd.DataFrame) or permission_rows_df.empty:
+        return pd.DataFrame(columns=columns)
+    work = permission_rows_df.copy()
+    for col in (
+        "effective_source_family_key",
+        "candidate_source_family_key",
+        "effective_review_lane",
+        "effective_resolution_semantics",
+    ):
+        series = work[col] if col in work.columns else pd.Series("", index=work.index, dtype="object")
+        work[col] = series.fillna("").astype(str).str.strip().str.lower()
+    work["has_effective_lane"] = work["effective_source_family_key"].ne("")
+    work["has_candidate_lane"] = work["candidate_source_family_key"].ne("")
+    work["has_review_lane"] = work["effective_review_lane"].ne("")
+    work["has_any_governance_lane"] = (
+        work["has_effective_lane"] | work["has_candidate_lane"] | work["has_review_lane"]
+    )
+    unique_pairs = work.drop_duplicates(subset=["sample_id", "permission_string"]).copy()
+    signal_pairs = (
+        permission_signal_rows_df.drop_duplicates(subset=["sample_id", "signal_key"])
+        if isinstance(permission_signal_rows_df, pd.DataFrame) and not permission_signal_rows_df.empty
+        else pd.DataFrame(columns=["sample_id", "signal_key"])
+    )
+    rows = [
+        {"run_id": run_id, "metric": "permission_row_count", "value": int(len(work))},
+        {"run_id": run_id, "metric": "unique_sample_permission_pairs", "value": int(len(unique_pairs))},
+        {"run_id": run_id, "metric": "rows_with_effective_lane", "value": int(work["has_effective_lane"].sum())},
+        {"run_id": run_id, "metric": "rows_with_candidate_lane", "value": int(work["has_candidate_lane"].sum())},
+        {"run_id": run_id, "metric": "rows_with_review_lane", "value": int(work["has_review_lane"].sum())},
+        {"run_id": run_id, "metric": "rows_with_any_governance_lane", "value": int(work["has_any_governance_lane"].sum())},
+        {"run_id": run_id, "metric": "unique_pairs_with_any_governance_lane", "value": int(unique_pairs["has_any_governance_lane"].sum())},
+        {"run_id": run_id, "metric": "signal_assignment_pairs", "value": int(len(signal_pairs))},
+    ]
+    return pd.DataFrame(rows, columns=columns)
+
+
+def _assign_permission_signal_keys(permission_rows_df: pd.DataFrame) -> pd.DataFrame:
+    if not isinstance(permission_rows_df, pd.DataFrame) or permission_rows_df.empty:
+        return pd.DataFrame(columns=["sample_id", "signal_key"])
+    work = permission_rows_df.copy()
+    if "sample_id" not in work.columns or "permission_string" not in work.columns:
+        return pd.DataFrame(columns=["sample_id", "signal_key"])
+    work["sample_id"] = pd.to_numeric(work["sample_id"], errors="coerce")
+    work = work.dropna(subset=["sample_id"]).copy()
+    work["sample_id"] = work["sample_id"].astype(int)
+    work["permission_string"] = work["permission_string"].fillna("").astype(str).str.strip().str.lower()
+    work["permission_source"] = work.get("permission_source", "").fillna("").astype(str).str.upper()
+    for col in ("effective_source_family_key", "candidate_source_family_key", "effective_review_lane"):
+        series = work[col] if col in work.columns else pd.Series("", index=work.index, dtype="object")
+        work[col] = series.fillna("").astype(str).str.strip().str.lower()
+    work = work[work["permission_string"] != ""].copy()
+    if work.empty:
+        return pd.DataFrame(columns=["sample_id", "signal_key"])
+
+    exact_map: dict[str, set[str]] = {}
+    prefix_map: list[tuple[str, str]] = []
+    remediation_lane_map: dict[str, set[str]] = {}
+    for row in _load_permission_signal_mapping_rows() or _SIGNAL_MAPPING_ROWS:
+        signal_key = str(row.get("signal_key", "")).strip()
+        perm_name = str(row.get("perm_name", "")).strip().lower()
+        basis = str(row.get("mapping_basis", "")).strip().lower()
+        if not signal_key or not perm_name:
+            continue
+        if basis == "exact_permission":
+            exact_map.setdefault(perm_name, set()).add(signal_key)
+        elif basis == "prefix_pattern":
+            prefix_map.append((perm_name, signal_key))
+        elif basis == "remediation_lane":
+            remediation_lane_map.setdefault(perm_name, set()).add(signal_key)
+
+    rows: list[dict[str, Any]] = []
+    dynamic_receiver_re = re.compile(r"\.dynamic_receiver_not_exported_permission[a-z0-9_]*$", re.IGNORECASE)
+    legacy_push_re = re.compile(r"(?:\.permission)?\.c2d_message[a-z0-9_]*$", re.IGNORECASE)
+    maps_receive_re = re.compile(r"\.permission\.maps_receive$", re.IGNORECASE)
+    adm_re = re.compile(r"\.permission\.receive_adm_message$", re.IGNORECASE)
+    apphub_re = re.compile(r"\.permission\.bind_apphub_service$", re.IGNORECASE)
+    push_sdk_patterns = [
+        re.compile(r"\.permission\.jpush_message$", re.IGNORECASE),
+        re.compile(r"\.permission\.mipush_receive$", re.IGNORECASE),
+        re.compile(r"\.permission\.push_provider$", re.IGNORECASE),
+        re.compile(r"\.permission\.process_push_msg$", re.IGNORECASE),
+        re.compile(r"getui\.permission\.getuiservice\.", re.IGNORECASE),
+        re.compile(r"\.permission\.kubi_message$", re.IGNORECASE),
+    ]
+    launcher_patterns = [
+        re.compile(r"com\.anddoes\.launcher\.permission\.update_count$", re.IGNORECASE),
+        re.compile(r"com\.majeur\.launcher\.permission\.update_badge$", re.IGNORECASE),
+        re.compile(r"me\.everything\.badger\.permission\.", re.IGNORECASE),
+        re.compile(r"com\.android\.launcher[23]\.permission\.", re.IGNORECASE),
+        re.compile(r"com\.google\.android\.launcher\.permission\.", re.IGNORECASE),
+        re.compile(r"\.permission\.(?:read_settings|write_settings|receive_first_load_broadcast|receive_launch_broadcasts)$", re.IGNORECASE),
+        re.compile(r"\.permission\.(?:install_shortcut|uninstall_shortcut)$", re.IGNORECASE),
+        re.compile(r"\.permission\.(?:read_theme|receive_theme_update)$", re.IGNORECASE),
+    ]
+    lane_columns = [
+        "sample_id",
+        "permission_string",
+        "permission_source",
+        "effective_source_family_key",
+        "candidate_source_family_key",
+        "effective_review_lane",
+    ]
+    for row in work[lane_columns].drop_duplicates().to_dict(orient="records"):
+        sample_id = int(row["sample_id"])
+        perm = str(row["permission_string"]).strip().lower()
+        source = str(row.get("permission_source", "")).strip().upper()
+        effective_lane = str(row.get("effective_source_family_key", "")).strip().lower()
+        candidate_lane = str(row.get("candidate_source_family_key", "")).strip().lower()
+        review_lane = str(row.get("effective_review_lane", "")).strip().lower()
+        signal_keys: set[str] = set()
+        signal_keys.update(exact_map.get(perm, set()))
+        for prefix, signal_key in prefix_map:
+            if perm.startswith(prefix):
+                signal_keys.add(signal_key)
+        for lane_value in {effective_lane, candidate_lane, review_lane}:
+            if lane_value:
+                signal_keys.update(remediation_lane_map.get(lane_value, set()))
+        if source == "GOOGLE":
+            signal_keys.add("google_gms_ecosystem")
+        elif source == "OEM":
+            signal_keys.add("oem_vendor_ecosystem")
+        elif source == "APP_DEFINED":
+            if dynamic_receiver_re.search(perm):
+                signal_keys.add("app_defined_scaffolding")
+            elif legacy_push_re.search(perm):
+                signal_keys.add("app_defined_scaffolding")
+            elif maps_receive_re.search(perm):
+                signal_keys.add("app_defined_scaffolding")
+            elif adm_re.search(perm):
+                signal_keys.add("app_defined_scaffolding")
+            elif apphub_re.search(perm):
+                signal_keys.add("app_defined_scaffolding")
+            elif any(pattern.search(perm) for pattern in push_sdk_patterns):
+                signal_keys.add("launcher_sdk_ecosystem_noise")
+            elif any(pattern.search(perm) for pattern in launcher_patterns):
+                signal_keys.add("launcher_sdk_ecosystem_noise")
+        if not signal_keys:
+            continue
+        for signal_key in sorted(signal_keys):
+            rows.append({"sample_id": sample_id, "signal_key": signal_key})
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return pd.DataFrame(columns=["sample_id", "signal_key"])
+    return out.drop_duplicates(subset=["sample_id", "signal_key"]).reset_index(drop=True)
+
+
+def _build_signal_prevalence_by_type(
+    sample_core_df: pd.DataFrame,
+    permission_signal_rows_df: pd.DataFrame,
+) -> pd.DataFrame:
+    catalog_df = _signal_catalog_frame()
+    merged = sample_core_df[["sample_id", "type_slug"]].copy()
+    merged = merged.merge(permission_signal_rows_df, on="sample_id", how="left")
+    rows: list[dict[str, Any]] = []
+    for type_slug, group in merged.groupby("type_slug", dropna=False):
+        n_samples = int(group["sample_id"].nunique())
+        present_keys = (
+            group.dropna(subset=["signal_key"])
+            .groupby("signal_key")["sample_id"]
+            .nunique()
+            .to_dict()
+        )
+        for _, signal_row in catalog_df.iterrows():
+            signal_key = str(signal_row["signal_key"])
+            positive_count = int(present_keys.get(signal_key, 0))
+            rows.append(
+                {
+                    "type_slug": str(type_slug),
+                    "signal_key": signal_key,
+                    "signal_label": str(signal_row["display_name"]),
+                    "authority_lane": str(signal_row["authority_lane"]),
+                    "include_in_model_features": bool(signal_row["include_in_model_features"]),
+                    "include_in_behavioral_claims": bool(signal_row["include_in_behavioral_claims"]),
+                    "type_sample_count": n_samples,
+                    "positive_count": positive_count,
+                    "prevalence_pct": round((float(positive_count) / float(max(n_samples, 1))) * 100.0, 6),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _build_signal_prevalence_by_family(
+    sample_core_df: pd.DataFrame,
+    permission_signal_rows_df: pd.DataFrame,
+    *,
+    benchmark_min_support: int = 3,
+) -> pd.DataFrame:
+    family_support_df = _family_support_frame(sample_core_df, benchmark_min_support=benchmark_min_support)
+    catalog_df = _signal_catalog_frame()
+    if family_support_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "family_canonical",
+                "type_slug",
+                "family_support",
+                "benchmark_eligible_n_ge_3",
+                "signal_key",
+                "signal_label",
+                "authority_lane",
+                "include_in_model_features",
+                "include_in_behavioral_claims",
+                "positive_count",
+                "prevalence_pct",
+            ]
+        )
+    merged = (
+        sample_core_df[["sample_id", "family_id", "family_canonical"]]
+        .merge(family_support_df, on=["family_id", "family_canonical"], how="inner")
+        .merge(permission_signal_rows_df, on="sample_id", how="left")
+    )
+    rows: list[dict[str, Any]] = []
+    for (family_name, type_slug, family_support, benchmark_eligible), group in merged.groupby(
+        ["family_canonical", "type_slug", "family_support", "benchmark_eligible_n_ge_3"],
+        dropna=False,
+    ):
+        present_keys = (
+            group.dropna(subset=["signal_key"])
+            .groupby("signal_key")["sample_id"]
+            .nunique()
+            .to_dict()
+        )
+        for _, signal_row in catalog_df.iterrows():
+            signal_key = str(signal_row["signal_key"])
+            positive_count = int(present_keys.get(signal_key, 0))
+            rows.append(
+                {
+                    "family_canonical": str(family_name),
+                    "type_slug": str(type_slug),
+                    "family_support": int(family_support),
+                    "benchmark_eligible_n_ge_3": bool(benchmark_eligible),
+                    "signal_key": signal_key,
+                    "signal_label": str(signal_row["display_name"]),
+                    "authority_lane": str(signal_row["authority_lane"]),
+                    "include_in_model_features": bool(signal_row["include_in_model_features"]),
+                    "include_in_behavioral_claims": bool(signal_row["include_in_behavioral_claims"]),
+                    "positive_count": positive_count,
+                    "prevalence_pct": round((float(positive_count) / float(max(int(family_support), 1))) * 100.0, 6),
+                }
+            )
+    return pd.DataFrame(rows).sort_values(
+        by=["family_support", "family_canonical", "signal_key"],
+        ascending=[False, True, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
+def _build_family_signal_similarity(
+    family_signal_prevalence_df: pd.DataFrame,
+) -> pd.DataFrame:
+    if family_signal_prevalence_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "family_a",
+                "family_b",
+                "type_a",
+                "type_b",
+                "support_a",
+                "support_b",
+                "jaccard_similarity",
+                "cosine_similarity",
+                "spearman_correlation",
+                "same_type_flag",
+            ]
+        )
+    pivot = family_signal_prevalence_df.pivot_table(
+        index=["family_canonical", "type_slug", "family_support"],
+        columns="signal_key",
+        values="prevalence_pct",
+        fill_value=0.0,
+    )
+    index_rows = pivot.index.tolist()
+    rows: list[dict[str, Any]] = []
+    for i, left_key in enumerate(index_rows):
+        left_vec = np.array(pivot.loc[left_key], dtype=float)
+        for j in range(i + 1, len(index_rows)):
+            right_key = index_rows[j]
+            right_vec = np.array(pivot.loc[right_key], dtype=float)
+            family_a, type_a, support_a = left_key
+            family_b, type_b, support_b = right_key
+            rows.append(
+                {
+                    "family_a": str(family_a),
+                    "family_b": str(family_b),
+                    "type_a": str(type_a),
+                    "type_b": str(type_b),
+                    "support_a": int(support_a),
+                    "support_b": int(support_b),
+                    "jaccard_similarity": round(_jaccard_similarity(left_vec, right_vec), 6),
+                    "cosine_similarity": round(_cosine_similarity(left_vec, right_vec), 6),
+                    "spearman_correlation": round(_spearman_similarity(left_vec, right_vec), 6),
+                    "same_type_flag": bool(str(type_a) == str(type_b)),
+                }
+            )
+    return pd.DataFrame(rows).sort_values(
+        by=["same_type_flag", "cosine_similarity", "jaccard_similarity", "family_a", "family_b"],
+        ascending=[False, False, False, True, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
+def _interpret_enrichment_bucket(odds_ratio: float, q_value: float) -> str:
+    if not np.isfinite(float(odds_ratio)) or not np.isfinite(float(q_value)):
+        return "no_signal"
+    q = float(q_value)
+    or_val = float(odds_ratio)
+    if q < 0.05 and or_val >= 2.0:
+        return "strong_enriched"
+    if q < 0.05 and or_val >= 1.5:
+        return "enriched"
+    if q < 0.05 and or_val <= 0.5:
+        return "strong_depleted"
+    if q < 0.05 and or_val <= (1.0 / 1.5):
+        return "depleted"
+    return "no_signal"
+
+
+def _build_permission_type_enrichment(
+    sample_core_df: pd.DataFrame,
+    permission_matrix_df: pd.DataFrame,
+) -> pd.DataFrame:
+    merged = sample_core_df[["sample_id", "type_slug"]].merge(permission_matrix_df, on="sample_id", how="left").fillna(0)
+    permission_cols = [c for c in merged.columns if c not in {"sample_id", "type_slug"}]
+    rows: list[dict[str, Any]] = []
+    for type_slug, group in merged.groupby("type_slug", dropna=False):
+        other = merged[merged["type_slug"] != type_slug]
+        if group.empty or other.empty:
+            continue
+        n_type = int(len(group))
+        n_other = int(len(other))
+        for permission in permission_cols:
+            present_type = pd.to_numeric(group[permission], errors="coerce").fillna(0).astype(int) > 0
+            present_other = pd.to_numeric(other[permission], errors="coerce").fillna(0).astype(int) > 0
+            a = int(present_type.sum())
+            b = int(n_type - a)
+            c = int(present_other.sum())
+            d = int(n_other - c)
+            odds_ratio = ((a + 0.5) * (d + 0.5)) / ((b + 0.5) * (c + 0.5))
+            p_value, _cramers_v = _chi2_2x2_p_and_v(a, b, c, d)
+            rows.append(
+                {
+                    "permission": str(permission),
+                    "type_slug": str(type_slug),
+                    "type_prevalence_pct": round((float(a) / float(max(n_type, 1))) * 100.0, 6),
+                    "non_type_prevalence_pct": round((float(c) / float(max(n_other, 1))) * 100.0, 6),
+                    "odds_ratio": round(float(odds_ratio), 6),
+                    "p_value": float(p_value),
+                }
+            )
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    out["q_value_fdr"] = _bh_fdr(out["p_value"].tolist())
+    out["interpretation_bucket"] = out.apply(
+        lambda row: _interpret_enrichment_bucket(
+            float(row.get("odds_ratio", 1.0)),
+            float(row.get("q_value_fdr", 1.0)),
+        ),
+        axis=1,
+    )
+    return out.sort_values(
+        by=["q_value_fdr", "odds_ratio", "type_slug", "permission"],
+        ascending=[True, False, True, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
+def _build_permission_family_enrichment(
+    sample_core_df: pd.DataFrame,
+    permission_matrix_df: pd.DataFrame,
+    *,
+    benchmark_min_support: int = 3,
+) -> pd.DataFrame:
+    family_support_df = _family_support_frame(sample_core_df, benchmark_min_support=benchmark_min_support)
+    if family_support_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "permission",
+                "family_canonical",
+                "type_slug",
+                "family_support",
+                "family_prevalence_pct",
+                "non_family_prevalence_pct",
+                "odds_ratio",
+                "p_value",
+                "q_value_fdr",
+                "benchmark_eligible_n_ge_3",
+            ]
+        )
+    merged = (
+        sample_core_df[["sample_id", "family_id", "family_canonical"]]
+        .merge(family_support_df, on=["family_id", "family_canonical"], how="inner")
+        .merge(permission_matrix_df, on="sample_id", how="left")
+        .fillna(0)
+    )
+    permission_cols = [c for c in permission_matrix_df.columns if c != "sample_id"]
+    rows: list[dict[str, Any]] = []
+    for family_name, group in merged.groupby("family_canonical", dropna=False):
+        other = merged[merged["family_canonical"] != family_name]
+        if group.empty or other.empty:
+            continue
+        family_support = int(pd.to_numeric(group["family_support"], errors="coerce").fillna(0).iloc[0])
+        type_slug = str(group["type_slug"].iloc[0])
+        benchmark_eligible = bool(group["benchmark_eligible_n_ge_3"].iloc[0])
+        for permission in permission_cols:
+            present_family = pd.to_numeric(group[permission], errors="coerce").fillna(0).astype(int) > 0
+            present_other = pd.to_numeric(other[permission], errors="coerce").fillna(0).astype(int) > 0
+            a = int(present_family.sum())
+            b = int(len(group) - a)
+            c = int(present_other.sum())
+            d = int(len(other) - c)
+            odds_ratio = ((a + 0.5) * (d + 0.5)) / ((b + 0.5) * (c + 0.5))
+            p_value, _cramers_v = _chi2_2x2_p_and_v(a, b, c, d)
+            rows.append(
+                {
+                    "permission": str(permission),
+                    "family_canonical": str(family_name),
+                    "type_slug": type_slug,
+                    "family_support": family_support,
+                    "family_prevalence_pct": round((float(a) / float(max(len(group), 1))) * 100.0, 6),
+                    "non_family_prevalence_pct": round((float(c) / float(max(len(other), 1))) * 100.0, 6),
+                    "odds_ratio": round(float(odds_ratio), 6),
+                    "p_value": float(p_value),
+                    "benchmark_eligible_n_ge_3": benchmark_eligible,
+                }
+            )
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    out["q_value_fdr"] = _bh_fdr(out["p_value"].tolist())
+    out["interpretation_bucket"] = out.apply(
+        lambda row: _interpret_enrichment_bucket(
+            float(row.get("odds_ratio", 1.0)),
+            float(row.get("q_value_fdr", 1.0)),
+        ),
+        axis=1,
+    )
+    return out.sort_values(
+        by=["q_value_fdr", "odds_ratio", "family_support", "family_canonical", "permission"],
+        ascending=[True, False, False, True, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
+def _cosine_similarity(left: np.ndarray, right: np.ndarray) -> float:
+    left_norm = float(np.linalg.norm(left))
+    right_norm = float(np.linalg.norm(right))
+    if left_norm <= 0.0 or right_norm <= 0.0:
+        return 0.0
+    return float(np.dot(left, right) / (left_norm * right_norm))
+
+
+def _spearman_similarity(left: np.ndarray, right: np.ndarray) -> float:
+    try:
+        corr = pd.Series(left).corr(pd.Series(right), method="spearman")
+        return float(corr) if pd.notna(corr) else 0.0
+    except Exception:
+        return 0.0
+
+
+def _jaccard_similarity(left: np.ndarray, right: np.ndarray) -> float:
+    left_set = set(np.flatnonzero(left > 0.0).tolist())
+    right_set = set(np.flatnonzero(right > 0.0).tolist())
+    union = left_set | right_set
+    if not union:
+        return 1.0
+    return float(len(left_set & right_set) / float(len(union)))
+
+
+def _build_family_permission_similarity(
+    family_prevalence_df: pd.DataFrame,
+) -> pd.DataFrame:
+    if family_prevalence_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "family_a",
+                "family_b",
+                "type_a",
+                "type_b",
+                "support_a",
+                "support_b",
+                "jaccard_similarity",
+                "cosine_similarity",
+                "spearman_correlation",
+                "same_type_flag",
+            ]
+        )
+    pivot = family_prevalence_df.pivot_table(
+        index=["family_canonical", "type_slug", "family_support"],
+        columns="permission",
+        values="prevalence_pct",
+        fill_value=0.0,
+    )
+    index_rows = pivot.index.tolist()
+    rows: list[dict[str, Any]] = []
+    for i, left_key in enumerate(index_rows):
+        left_vec = np.array(pivot.loc[left_key], dtype=float)
+        for j in range(i + 1, len(index_rows)):
+            right_key = index_rows[j]
+            right_vec = np.array(pivot.loc[right_key], dtype=float)
+            family_a, type_a, support_a = left_key
+            family_b, type_b, support_b = right_key
+            rows.append(
+                {
+                    "family_a": str(family_a),
+                    "family_b": str(family_b),
+                    "type_a": str(type_a),
+                    "type_b": str(type_b),
+                    "support_a": int(support_a),
+                    "support_b": int(support_b),
+                    "jaccard_similarity": round(_jaccard_similarity(left_vec, right_vec), 6),
+                    "cosine_similarity": round(_cosine_similarity(left_vec, right_vec), 6),
+                    "spearman_correlation": round(_spearman_similarity(left_vec, right_vec), 6),
+                    "same_type_flag": bool(str(type_a) == str(type_b)),
+                }
+            )
+    return pd.DataFrame(rows).sort_values(
+        by=["same_type_flag", "cosine_similarity", "jaccard_similarity", "family_a", "family_b"],
+        ascending=[False, False, False, True, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
+def _build_type_permission_similarity(
+    type_prevalence_df: pd.DataFrame,
+) -> pd.DataFrame:
+    if type_prevalence_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "type_a",
+                "type_b",
+                "jaccard_similarity",
+                "cosine_similarity",
+                "spearman_correlation",
+            ]
+        )
+    pivot = type_prevalence_df.pivot_table(
+        index="type_slug",
+        columns="permission",
+        values="prevalence_pct",
+        fill_value=0.0,
+    )
+    types = pivot.index.tolist()
+    rows: list[dict[str, Any]] = []
+    for i, type_a in enumerate(types):
+        left_vec = np.array(pivot.loc[type_a], dtype=float)
+        for j in range(i + 1, len(types)):
+            type_b = types[j]
+            right_vec = np.array(pivot.loc[type_b], dtype=float)
+            rows.append(
+                {
+                    "type_a": str(type_a),
+                    "type_b": str(type_b),
+                    "jaccard_similarity": round(_jaccard_similarity(left_vec, right_vec), 6),
+                    "cosine_similarity": round(_cosine_similarity(left_vec, right_vec), 6),
+                    "spearman_correlation": round(_spearman_similarity(left_vec, right_vec), 6),
+                }
+            )
+    return pd.DataFrame(rows).sort_values(
+        by=["cosine_similarity", "jaccard_similarity", "type_a", "type_b"],
+        ascending=[False, False, True, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
+def _build_type_capability_bundle_prevalence(
+    sample_core_df: pd.DataFrame,
+    permission_rows_df: pd.DataFrame,
+    run_id: str,
+) -> pd.DataFrame:
+    merged = sample_core_df[["sample_id", "type_slug"]].copy()
+    if permission_rows_df.empty:
+        return pd.DataFrame(
+            columns=["run_id", "type_slug", "capability_bundle", "prevalence", "sample_count"]
+        )
+    work = permission_rows_df[["sample_id", "permission_string"]].copy()
+    work["permission_string"] = work["permission_string"].fillna("").astype(str).str.strip().str.lower()
+    work = work[work["permission_string"] != ""]
+    if work.empty:
+        return pd.DataFrame(
+            columns=["run_id", "type_slug", "capability_bundle", "prevalence", "sample_count"]
+        )
+    rows: list[dict[str, Any]] = []
+    for bundle_name, pattern in PERMISSION_GROUP_DEFINITIONS:
+        matched = work[work["permission_string"].map(lambda value: bool(pattern.search(value)))]
+        if matched.empty:
+            continue
+        bundle_df = matched[["sample_id"]].drop_duplicates().assign(bundle_name=bundle_name)
+        bundle_merged = merged.merge(bundle_df, on="sample_id", how="left")
+        bundle_merged["present"] = bundle_merged["bundle_name"].notna().astype(int)
+        for type_slug, group in bundle_merged.groupby("type_slug", dropna=False):
+            rows.append(
+                {
+                    "run_id": run_id,
+                    "type_slug": str(type_slug),
+                    "capability_bundle": str(bundle_name).replace("_count", ""),
+                    "prevalence": round(float(group["present"].mean()), 6),
+                    "sample_count": int(len(group)),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _build_family_capability_bundle_profiles(
+    sample_core_df: pd.DataFrame,
+    permission_rows_df: pd.DataFrame,
+    run_id: str,
+) -> pd.DataFrame:
+    supports = _family_support_frame(sample_core_df, benchmark_min_support=3).rename(
+        columns={"family_support": "sample_count"}
+    )
+    visual_families = _select_visual_families(sample_core_df=sample_core_df)
+    visual_set = {str(name) for name in visual_families}
+    keep = supports[supports["family_canonical"].astype(str).isin(visual_set)].copy()
+    if keep.empty or permission_rows_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "run_id",
+                "family_id",
+                "family_canonical",
+                "type_slug",
+                "benchmark_eligible_n_ge_3",
+                "capability_bundle",
+                "prevalence",
+                "sample_count",
+            ]
+        )
+    merged = sample_core_df[["sample_id", "family_id", "family_canonical"]].merge(
+        keep[["family_id", "family_canonical", "type_slug", "sample_count", "benchmark_eligible_n_ge_3"]],
+        on=["family_id", "family_canonical"],
+        how="inner",
+    )[["sample_id", "family_id", "family_canonical", "type_slug", "sample_count", "benchmark_eligible_n_ge_3"]]
+    work = permission_rows_df[["sample_id", "permission_string"]].copy()
+    work["permission_string"] = work["permission_string"].fillna("").astype(str).str.strip().str.lower()
+    work = work[work["permission_string"] != ""]
+    rows: list[dict[str, Any]] = []
+    for bundle_name, pattern in PERMISSION_GROUP_DEFINITIONS:
+        matched = work[work["permission_string"].map(lambda value: bool(pattern.search(value)))]
+        if matched.empty:
+            continue
+        bundle_df = matched[["sample_id"]].drop_duplicates().assign(bundle_name=bundle_name)
+        bundle_merged = merged.merge(bundle_df, on="sample_id", how="left")
+        bundle_merged["present"] = bundle_merged["bundle_name"].notna().astype(int)
+        for (family_id, family_name, type_slug, sample_count, benchmark_eligible), group in bundle_merged.groupby(
+            ["family_id", "family_canonical", "type_slug", "sample_count", "benchmark_eligible_n_ge_3"], dropna=False
+        ):
+            rows.append(
+                {
+                    "run_id": run_id,
+                    "family_id": str(family_id),
+                    "family_canonical": str(family_name),
+                    "type_slug": str(type_slug),
+                    "benchmark_eligible_n_ge_3": bool(benchmark_eligible),
+                    "capability_bundle": str(bundle_name).replace("_count", ""),
+                    "prevalence": round(float(group["present"].mean()), 6),
+                    "sample_count": int(sample_count),
+                }
+            )
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    return out.sort_values(
+        by=["sample_count", "family_canonical", "prevalence", "capability_bundle"],
+        ascending=[False, True, False, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
 def _build_family_permission_profiles(
     sample_core_df: pd.DataFrame,
     permission_matrix_df: pd.DataFrame,
     run_id: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    supports = (
-        sample_core_df.groupby(["family_id", "family_canonical"], dropna=False)["sample_id"]
-        .nunique()
-        .reset_index(name="sample_count")
-        .sort_values("sample_count", ascending=False)
+    supports = _family_support_frame(sample_core_df, benchmark_min_support=3).rename(
+        columns={"family_support": "sample_count"}
     )
     visual_families = _select_visual_families(sample_core_df=sample_core_df)
     visual_set = {str(name) for name in visual_families}
@@ -1487,11 +2587,13 @@ def _build_family_permission_profiles(
         .sort_values(by=["sample_count", "family_canonical"], ascending=[False, True], kind="mergesort")
         .head(20)
     )
+    if not main.empty and not appendix.empty:
+        appendix = appendix[~appendix["family_canonical"].astype(str).isin(main["family_canonical"].astype(str))].copy()
     keep = pd.concat([main.assign(profile_scope="main"), appendix.assign(profile_scope="appendix")], ignore_index=True)
     if keep.empty:
         return pd.DataFrame(), pd.DataFrame()
-    merged = sample_core_df.merge(
-        keep[["family_id", "family_canonical", "profile_scope"]],
+    merged = sample_core_df[["sample_id", "family_id", "family_canonical"]].merge(
+        keep[["family_id", "family_canonical", "type_slug", "benchmark_eligible_n_ge_3", "profile_scope"]],
         on=["family_id", "family_canonical"],
         how="inner",
     ).merge(permission_matrix_df, on="sample_id", how="left")
@@ -1500,8 +2602,8 @@ def _build_family_permission_profiles(
         merged[permission_cols] = merged[permission_cols].fillna(0)
     rows: list[dict[str, Any]] = []
     entropy_rows: list[dict[str, Any]] = []
-    for (family_id, family_name, scope), group in merged.groupby(
-        ["family_id", "family_canonical", "profile_scope"], dropna=False
+    for (family_id, family_name, type_slug, benchmark_eligible, scope), group in merged.groupby(
+        ["family_id", "family_canonical", "type_slug", "benchmark_eligible_n_ge_3", "profile_scope"], dropna=False
     ):
         prevalences = []
         for permission in permission_cols:
@@ -1512,6 +2614,8 @@ def _build_family_permission_profiles(
                     "run_id": run_id,
                     "family_id": int(family_id),
                     "family_canonical": str(family_name),
+                    "type_slug": str(type_slug),
+                    "benchmark_eligible_n_ge_3": bool(benchmark_eligible),
                     "profile_scope": str(scope),
                     "permission": permission,
                     "prevalence": round(prev, 6),
@@ -1521,14 +2625,16 @@ def _build_family_permission_profiles(
         entropy, eff_div = _prevalence_entropy(prevalences)
         entropy_rows.append(
             {
-                "run_id": run_id,
-                "family_id": int(family_id),
-                "family_canonical": str(family_name),
-                "profile_scope": str(scope),
-                "sample_count": int(len(group)),
-                "permission_entropy": round(entropy, 6),
-                "effective_diversity": round(eff_div, 6),
-            }
+                    "run_id": run_id,
+                    "family_id": int(family_id),
+                    "family_canonical": str(family_name),
+                    "type_slug": str(type_slug),
+                    "benchmark_eligible_n_ge_3": bool(benchmark_eligible),
+                    "profile_scope": str(scope),
+                    "sample_count": int(len(group)),
+                    "permission_entropy": round(entropy, 6),
+                    "effective_diversity": round(eff_div, 6),
+                }
         )
     return pd.DataFrame(rows), pd.DataFrame(entropy_rows)
 
@@ -1612,9 +2718,22 @@ def _build_generic_vs_non_generic_summary(
     consensus_keep = consensus_df[consensus_df["vendor_count"] >= min_vendor_count][
         ["sample_id", "consensus_score_all_vendors"]
     ].copy()
-    merged = sample_core_df[["sample_id", "type_slug", "family_id"]].merge(metrics_df, on="sample_id", how="left")
+    base_cols = [
+        "sample_id",
+        "family_id",
+        "family_canonical",
+        "type_slug",
+        "category_primary",
+        "category_subtype",
+        "sample_label_kind",
+    ]
+    present_cols = [col for col in base_cols if col in sample_core_df.columns]
+    merged = sample_core_df[present_cols].merge(metrics_df, on="sample_id", how="left")
     merged = merged.merge(consensus_keep, on="sample_id", how="left")
-    merged["is_generic"] = ((merged["type_slug"] == "unknown") | (merged["family_id"] < 0)).astype(int)
+    tier_masks = family_tier_authority.build_family_tier_masks(merged)
+    merged["authority_tier"] = "non_generic"
+    merged.loc[tier_masks["generic_coarse"], "authority_tier"] = "generic_or_coarse"
+    merged.loc[tier_masks["unresolved"], "authority_tier"] = "unresolved"
     merged["permission_entropy"] = pd.to_numeric(merged.get("permission_entropy", 0.0), errors="coerce").fillna(0.0)
     merged["dangerous_count_strict"] = pd.to_numeric(merged.get("dangerous_count_strict", 0.0), errors="coerce").fillna(0.0)
     merged["dangerous_count_inclusive"] = pd.to_numeric(merged.get("dangerous_count_inclusive", 0.0), errors="coerce").fillna(0.0)
@@ -1623,12 +2742,11 @@ def _build_generic_vs_non_generic_summary(
     )
 
     rows: list[dict[str, Any]] = []
-    for generic_flag, group in merged.groupby("is_generic", dropna=False):
-        tag = "generic" if int(generic_flag) == 1 else "non_generic"
+    for tag, group in merged.groupby("authority_tier", dropna=False):
         rows.append(
             {
                 "run_id": run_id,
-                "group": tag,
+                "group": str(tag),
                 "sample_count": int(len(group)),
                 "permission_entropy_mean": round(float(group["permission_entropy"].mean()), 6),
                 "permission_entropy_median": round(float(group["permission_entropy"].median()), 6),
@@ -1640,35 +2758,36 @@ def _build_generic_vs_non_generic_summary(
                 "consensus_score_median": round(_safe_series_median(group["consensus_score_all_vendors"]), 6),
             }
         )
-    generic_values = merged[merged["is_generic"] == 1]
-    non_generic_values = merged[merged["is_generic"] == 0]
-    rows.append(
-        {
-            "run_id": run_id,
-            "group": "effect_size",
-            "sample_count": int(len(merged)),
-            "permission_entropy_mean": round(
-                _cliffs_delta(generic_values["permission_entropy"], non_generic_values["permission_entropy"]), 6
-            ),
-            "permission_entropy_median": np.nan,
-            "dangerous_count_strict_mean": round(
-                _cliffs_delta(generic_values["dangerous_count_strict"], non_generic_values["dangerous_count_strict"]), 6
-            ),
-            "dangerous_count_strict_median": np.nan,
-            "dangerous_count_inclusive_mean": round(
-                _cliffs_delta(generic_values["dangerous_count_inclusive"], non_generic_values["dangerous_count_inclusive"]), 6
-            ),
-            "dangerous_count_inclusive_median": np.nan,
-            "consensus_score_mean": round(
-                _cliffs_delta(
-                    generic_values["consensus_score_all_vendors"].dropna(),
-                    non_generic_values["consensus_score_all_vendors"].dropna(),
+    generic_values = merged[merged["authority_tier"] == "generic_or_coarse"]
+    non_generic_values = merged[merged["authority_tier"] == "non_generic"]
+    if not generic_values.empty and not non_generic_values.empty:
+        rows.append(
+            {
+                "run_id": run_id,
+                "group": "effect_size",
+                "sample_count": int(len(merged)),
+                "permission_entropy_mean": round(
+                    _cliffs_delta(generic_values["permission_entropy"], non_generic_values["permission_entropy"]), 6
                 ),
-                6,
-            ),
-            "consensus_score_median": np.nan,
-        }
-    )
+                "permission_entropy_median": np.nan,
+                "dangerous_count_strict_mean": round(
+                    _cliffs_delta(generic_values["dangerous_count_strict"], non_generic_values["dangerous_count_strict"]), 6
+                ),
+                "dangerous_count_strict_median": np.nan,
+                "dangerous_count_inclusive_mean": round(
+                    _cliffs_delta(generic_values["dangerous_count_inclusive"], non_generic_values["dangerous_count_inclusive"]), 6
+                ),
+                "dangerous_count_inclusive_median": np.nan,
+                "consensus_score_mean": round(
+                    _cliffs_delta(
+                        generic_values["consensus_score_all_vendors"].dropna(),
+                        non_generic_values["consensus_score_all_vendors"].dropna(),
+                    ),
+                    6,
+                ),
+                "consensus_score_median": np.nan,
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -1836,6 +2955,7 @@ def _build_bundle_metadata(
         pd.to_numeric(consensus_df.get("low_vendor_count_flag", 0), errors="coerce").fillna(0).sum()
     ) if isinstance(consensus_df, pd.DataFrame) and not consensus_df.empty else 0
     temporal_summary = _build_temporal_summary(sample_core_df)
+    attack_mapping = _mobile_attack_permission_mapping_payload()
     return {
         "run_id": run_id,
         "profile_id": profile_id,
@@ -1868,6 +2988,12 @@ def _build_bundle_metadata(
             "primary_view": PRIMARY_PERMISSION_VIEW,
             "views": ["inclusive", "aosp_only", "ecosystem"],
             "permission_alias_map_version": PERMISSION_ALIAS_MAP_VERSION,
+            "capability_bundle_names": [
+                str(name).replace("_count", "") for name, _pattern in PERMISSION_GROUP_DEFINITIONS
+            ],
+            "capability_bundle_rule_count": int(len(PERMISSION_GROUP_DEFINITIONS)),
+            "attack_mobile_mapping_version": str(attack_mapping.get("version", "") or "").strip(),
+            "attack_mobile_mapping_hash": str(attack_mapping.get("hash", "") or "").strip(),
         },
         "analysis_scope": str(analysis_scope),
         "figure_mode": str(figure_mode),

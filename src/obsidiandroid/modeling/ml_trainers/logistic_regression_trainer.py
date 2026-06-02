@@ -18,6 +18,12 @@ from obsidiandroid.modeling.parallel_layout import (
     grid_search_job_counts,
     stratified_kfold_for_grid_search,
 )
+from obsidiandroid.modeling.training_console_policy import (
+    emit_class_imbalance_notice,
+    should_print_detailed_classification_report,
+    should_print_training_analysis,
+    should_print_training_label_summary,
+)
 
 
 def _validate_inputs(X_train, y_train):
@@ -202,8 +208,9 @@ def train_logistic_regression(
             confidences = np.ones_like(y_pred)
 
         if verbose:
-            print("[LOGISTIC_REGRESSION] Classification Report:")
-            print(classification_report(y_test, y_pred, zero_division=0))
+            if should_print_detailed_classification_report():
+                print("[LOGISTIC_REGRESSION] Classification Report:")
+                print(classification_report(y_test, y_pred, zero_division=0))
 
         # Package predictions as dict if sample IDs and encoder available
         if sample_ids is not None and label_encoder is not None:
@@ -229,6 +236,8 @@ def train_logistic_regression(
 
 # Print training distribution
 def _print_training_summary(y_train):
+    if not should_print_training_label_summary():
+        return
     label_dist = Counter(int(x) for x in y_train)
     top_classes = [(cls, cnt) for cls, cnt in label_dist.most_common(5)]
     print(f"[LOGISTIC_REGRESSION] Classes trained on: {len(label_dist)}")
@@ -240,14 +249,13 @@ def _debug_training_info(y_train, cv_folds=None):
     du.print_debug(f"Class distribution: {dict(label_dist)}")
     if cv_folds is not None:
         du.print_debug(f"Using {cv_folds} CV folds")
-    if label_dist:
-        min_ratio = min(label_dist.values()) / max(label_dist.values())
-        if min_ratio < 0.1:
-            du.print_warning("Significant class imbalance detected")
+    emit_class_imbalance_notice(y_train)
 
 
 def _analyze_training_setup(X_train, y_train, param_grid=None, cv_folds=None):
     """Print higher level interpretation of the training configuration."""
+    if not should_print_training_analysis(cv_folds=cv_folds):
+        return
     n_samples = len(X_train)
     n_features = X_train.shape[1]
     n_classes = len(set(y_train))

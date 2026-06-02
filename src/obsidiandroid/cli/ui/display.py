@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pandas as pd
 from tabulate import tabulate
 
 from obsidiandroid.common import display_distribution
+from obsidiandroid.common.repo_paths import repo_root
 from . import console as cc
 from . import menu as mu
 
@@ -27,6 +29,17 @@ print_subheader = cc.print_subheader
 print_stat = cc.print_stat
 display_menu = mu.display_menu
 print_distribution = display_distribution.print_distribution
+
+
+def format_console_path(path_like: str | os.PathLike[str]) -> str:
+    """Return repo-relative console path text when the target is inside the repo."""
+    resolved = Path(path_like).resolve()
+    repo = repo_root().resolve()
+    try:
+        relative = resolved.relative_to(repo)
+    except ValueError:
+        return resolved.as_posix()
+    return f"{repo.name}/{relative.as_posix()}"
 
 
 def print_panel(

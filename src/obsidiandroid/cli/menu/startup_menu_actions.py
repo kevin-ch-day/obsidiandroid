@@ -46,7 +46,7 @@ def run_output_cleanup() -> int:
     cmd = [sys.executable, str(script_path), "--keep-latest-runs", "1", "--keep-runtime-logs", "5"]
     if apply_changes:
         cmd.append("--apply")
-    du.print_info(f"[MENU] Running: {' '.join(cmd)}")
+    print(f"[ACTION] Run: {' '.join(cmd)}")
     proc = subprocess.run(cmd, check=False)
     if proc.returncode != 0:
         du.print_error(f"[MENU] Cleanup script failed with exit code {proc.returncode}.")
@@ -123,8 +123,8 @@ def show_within_cross_type_error_snapshot() -> int:
     du.print_stat("  Cross-Type", f"{_bar(cross_ratio)} {cross_ratio:.0%}")
     print("")
     print("Interpretation")
-    du.print_info(f"  {interpretation}")
-    du.print_stat("Export", str(chosen_path).replace("\\", "/"))
+    print(f"[ACTION] Interpretation: {interpretation}")
+    du.print_stat("Export", du.format_console_path(chosen_path))
     return 0
 
 
@@ -141,7 +141,7 @@ def show_model_comparison_snapshot() -> int:
     except Exception as exc:
         du.print_error(f"[MENU] Failed to read model comparison summary: {exc}")
         return 1
-    du.print_stat("Source", str(chosen))
+    du.print_stat("Source", du.format_console_path(chosen))
     if df.empty:
         du.print_warning("[MENU] Model comparison summary is empty.")
         return 1
@@ -156,7 +156,7 @@ def handle_confusion_matrix_export() -> int:
     if not run_id:
         du.print_warning("[MENU] No latest run found. Run pipeline first.")
         return 1
-    run_root = output_root / "runs" / run_id
+    run_root = run_locator.resolve_run_root_for_run_id(run_id, output_base=output_root)
     conf_dir = run_root / "conf_matrices"
     if not conf_dir.exists():
         du.print_warning("[MENU] No confusion matrices found for latest run.")
@@ -202,7 +202,7 @@ def handle_confusion_matrix_export() -> int:
         print("Next Steps")
         print("  Option 1: Run a single-model experiment and export the confusion matrix.")
         print("  Option 2: Use 'Model Comparison Summary' to review results across models.")
-        du.print_info("[MENU] No confusion matrix exported.")
+        print("[DIAGNOSTICS] No confusion matrix exported.")
         return 0
 
     source_path = matrix_files[0]
@@ -217,8 +217,8 @@ def handle_confusion_matrix_export() -> int:
         du.print_error(f"[MENU] Failed to export confusion matrix: {exc}")
         return 1
 
-    du.print_success("[MENU] Confusion matrix exported successfully.")
-    du.print_stat("Output", str(target_path).replace("\\", "/"))
+    print("[EXPORT] Confusion matrix exported.")
+    du.print_stat("Output", du.format_console_path(target_path))
     return 0
 
 

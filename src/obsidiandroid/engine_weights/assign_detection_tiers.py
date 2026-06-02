@@ -47,7 +47,7 @@ def _export_debug(df: pd.DataFrame):
             "Detection Rate", "Coverage %", "Tier Score (Norm)",
             "Composite Detection Score", "Detection Tier"
         ]].to_excel(EXPORT_TIER_DEBUG_PATH, index=False)
-        du.print_info(f"[EXPORT] Detection tier debug matrix saved to: {EXPORT_TIER_DEBUG_PATH}")
+        du.print_info(f"[EXPORT] Detection tier debug matrix:{du.format_console_path(EXPORT_TIER_DEBUG_PATH)}")
     except Exception as e:
         du.print_warning(f"[EXPORT] Failed to export detection tier debug matrix: {e}")
 

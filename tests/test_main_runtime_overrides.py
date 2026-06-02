@@ -214,6 +214,54 @@ def test_stage_failure_finalizes_failed_run(monkeypatch, tmp_path: Path) -> None
     assert payload["status"] == "failed"
 
 
+def test_non_evidence_stage_failure_writes_preflight_and_failure_summary(monkeypatch, tmp_path: Path) -> None:
+    """Ordinary failed runs should persist failure diagnostics even outside evidence mode."""
+    output_root = tmp_path / "output"
+
+    monkeypatch.setattr(app_config, "ENABLE_DB_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ML_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_LOCKED_VALUE", None, raising=False)
+    monkeypatch.setattr(app_config, "EVIDENCE_MODE_LOCKED_VALUE", None, raising=False)
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(main, "DIAGNOSTICS_DIR", str(output_root / "diagnostics"))
+    monkeypatch.setattr(main.runtime_logging, "start_runtime_logging", lambda _run_id: None)
+    monkeypatch.setattr(main.runtime_logging, "stop_runtime_logging", lambda _ctx: None)
+    monkeypatch.setattr(main, "finalize_run_manifest_stage", lambda **_kwargs: 0)
+    monkeypatch.setattr(
+        main.profile_manager,
+        "load_profile",
+        lambda _ref: {
+            "profile_id": "unit_non_evidence_failure",
+            "type_slug_filter": None,
+            "cohort_gates": {},
+            "model_list": ["logistic_regression"],
+            "evidence_mode": False,
+            "feature_flags": {
+                "enable_dynamic_generic_vendor_parsers": False,
+                "enable_sample_metadata_features": False,
+                "enable_permission_features": False,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "load_and_prepare_samples",
+        lambda **_kwargs: pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
+    )
+    monkeypatch.setattr(main, "run_av_analysis_stage", lambda **_kwargs: {})
+
+    result = main.run_pipeline(profile_ref="unit_non_evidence_failure")
+
+    assert result == 1
+    preflight_paths = list(output_root.rglob("preflight_report.json"))
+    assert preflight_paths, "expected preflight_report.json under output tree for failed run"
+    failure_jsons = list(output_root.rglob("failure_summary.json"))
+    assert failure_jsons, "expected failure_summary.json under output tree for failed run"
+    payload = json.loads(failure_jsons[0].read_text(encoding="utf-8"))
+    assert payload["stage"] == "av_pipeline"
+    assert payload["recoverable_stage_failure"] is True
+
+
 def test_locked_cohort_mismatch_finalizes_without_reraising(monkeypatch, tmp_path: Path) -> None:
     """Locked cohort mismatches should finalize as controlled failures in evidence mode."""
     output_root = tmp_path / "output"
@@ -379,6 +427,81 @@ def test_exploratory_profile_is_not_blocked_by_publication_lock(
     result = main.run_pipeline(stop_after="samples", profile_ref="malicious_temporal_stability")
     assert result == 0
 
+
+def test_broad_current_profile_refuses_second_concurrent_run(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Broad current-corpus runs should fail early when another active peer run exists."""
+    output_root = tmp_path / "output"
+    captured: dict[str, object] = {}
+    existing_run_root = output_root / "runs" / "existing_peer"
+    existing_run_root.mkdir(parents=True, exist_ok=True)
+    (existing_run_root / ".RUNNING").write_text(
+        json.dumps(
+            {
+                "state": "running",
+                "started_at_utc": "2026-06-01T00:00:00+00:00",
+                "pid": 1,
+                "hostname": "other-host",
+                "run_id": "existing_peer",
+                "profile_id": "android_malware_all_current",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(app_config, "ENABLE_DB_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ML_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_LOCKED_VALUE", None, raising=False)
+    monkeypatch.setattr(app_config, "EVIDENCE_MODE_LOCKED_VALUE", None, raising=False)
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(main, "DIAGNOSTICS_DIR", str(output_root / "diagnostics"))
+    monkeypatch.setattr(main.runtime_logging, "start_runtime_logging", lambda _run_id: None)
+    monkeypatch.setattr(main.runtime_logging, "stop_runtime_logging", lambda _ctx: None)
+
+    def _capture_finalize(**kwargs):
+        captured["manifest_context"] = dict(kwargs["manifest_context"])
+        return 0
+
+    monkeypatch.setattr(main, "finalize_run_manifest_stage", _capture_finalize)
+    monkeypatch.setattr(
+        main.profile_manager,
+        "load_profile",
+        lambda _ref: {
+            "profile_id": "android_malware_all_current",
+            "type_slug_filter": None,
+            "cohort_gates": {},
+            "model_list": ["logistic_regression"],
+            "feature_flags": {
+                "enable_dynamic_generic_vendor_parsers": False,
+                "enable_sample_metadata_features": False,
+                "enable_permission_features": False,
+            },
+            "runtime_overrides": {
+                "ENABLE_CROSS_VALIDATION": False,
+                "ENABLE_ABLATION_EXPERIMENTS": False,
+            },
+        },
+    )
+
+    def _samples_should_not_run(**_kwargs):
+        raise AssertionError("samples stage should not run when active peer broad run exists")
+
+    monkeypatch.setattr(main, "load_and_prepare_samples", _samples_should_not_run)
+
+    result = main.run_pipeline(profile_ref="android_malware_all_current")
+
+    assert result == 1
+    manifest_context = captured["manifest_context"]
+    assert manifest_context["run_status"] == "failed"
+    assert manifest_context["failed_stage"] == "preflight"
+    assert "Another active broad current-corpus run is already in progress" in str(
+        manifest_context["failure_reason"]
+    )
 
 def test_enforce_paper_perturbation_axes_rejects_invalid_axis() -> None:
     """Evidence mode should fail when profile declares a non-approved perturbation axis."""

@@ -106,6 +106,34 @@ def test_permission_fuse_audit_run_scoped_uses_global_latest(monkeypatch, tmp_pa
     assert payload["rows"] == 2
 
 
+def test_permission_fuse_terminal_summary_compact(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(app_config, "ML_CONSOLE_MODE", "research", raising=False)
+    monkeypatch.setattr(app_config, "ML_TERMINAL_COMPACT", True, raising=False)
+    merged = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "perm__android_permission_internet": [1, 0, 1],
+            "perm_grp__network_c2": [1, 0, 1],
+        }
+    )
+    perm = pd.DataFrame({"sample_id": [1, 2, 3]})
+    audit = {
+        "post_fuse_enrichment_rows_with_any_perm_bag_column_positive": 2,
+        "post_fuse_enrichment_perm_bag_internet_nonzero_rows": 2,
+    }
+    stage_feature_enrichment._permission_fuse_terminal_summary(  # pylint: disable=protected-access
+        merged,
+        perm,
+        audit,
+        internet_col="perm__android_permission_internet",
+    )
+    out = capsys.readouterr().out
+    assert "[FEATURES] Permission fuse:" in out
+    assert "cohort=3" in out
+    assert "signal_rows=2 (66.7%)" in out
+    assert "[FEATURES] INTERNET-positive rows: 2" in out
+
+
 def test_duplicate_pre_fuse_report_run_scoped_uses_global_latest(monkeypatch, tmp_path) -> None:
     output_root = tmp_path / "output"
     diagnostics_dir = output_root / "runs" / "rid" / "diagnostics"

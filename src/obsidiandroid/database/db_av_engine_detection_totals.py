@@ -170,6 +170,6 @@ def _export_engine_stats_query(query: str):
         with open(EXPORT_QUERY_PATH, "w", encoding="utf-8") as f:
             f.write(query.strip())
 
-        du.print_info(f"[EXPORT] SQL query saved to: {EXPORT_QUERY_PATH}")
+        du.print_info(f"[EXPORT] SQL query:{du.format_console_path(EXPORT_QUERY_PATH)}")
     except Exception as e:
         du.print_warning(f"[EXPORT] Failed to write query file: {e}")

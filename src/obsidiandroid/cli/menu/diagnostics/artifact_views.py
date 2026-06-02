@@ -30,7 +30,7 @@ def _format_artifact_stat(*, label: str, path: Path | None, run_diag: Path) -> t
     if path is None:
         return label, "missing"
     origin = oh.classify_artifact_origin(path, run_diag)
-    return label, f"{path.resolve()} [{origin}]"
+    return label, f"{du.format_console_path(path)} [{origin}]"
 
 
 def launch_permission_intelligence_coverage_menu(
@@ -303,7 +303,7 @@ def launch_taxonomy_consistency_review_menu(
         )
         note = str(run_scope.get("note", "") or global_scope.get("note", "") or "").strip()
         if note:
-            du.print_note(note)
+            print(f"  Cohort source: {note}")
         if "global_latest_mirror" in {split_json_origin, split_md_origin, summary_origin}:
             du.print_warning(
                 "[MENU] Taxonomy consistency review is using at least one global latest mirror artifact rather than a run-scoped file."
@@ -326,42 +326,41 @@ def launch_taxonomy_consistency_review_menu(
         print("")
     rows: list[tuple[str, list[Path]]] = [
         (
-            "Taxonomy authority split (Markdown)",
+            "Start here",
             [rdiag / f"taxonomy_authority_split_{rid}.md", output_root / "diagnostics" / "taxonomy_authority_split.latest.md"],
         ),
         (
-            "Taxonomy authority split (JSON)",
+            "Split JSON",
             [rdiag / f"taxonomy_authority_split_{rid}.json", output_root / "diagnostics" / "taxonomy_authority_split.latest.json"],
         ),
         (
-            "Taxonomy rendering mismatches (CSV)",
+            "Rendering mismatches",
             [rdiag / f"taxonomy_rendering_mismatches_{rid}.csv", output_root / "diagnostics" / "taxonomy_rendering_mismatches.latest.csv"],
         ),
         (
-            "Taxonomy model prediction errors (CSV)",
+            "Model prediction errors",
             [rdiag / f"taxonomy_model_prediction_errors_{rid}.csv", output_root / "diagnostics" / "taxonomy_model_prediction_errors.latest.csv"],
         ),
         (
-            "Taxonomy authority gap summary (CSV)",
+            "Authority gap summary",
             [rdiag / f"taxonomy_authority_gap_summary_{rid}.csv", output_root / "diagnostics" / "taxonomy_authority_gap_summary.latest.csv"],
         ),
         (
-            "Taxonomy consistency summary (JSON)",
+            "Consistency summary",
             [oh.resolve_taxonomy_consistency_summary_path(rdiag, rid)],
         ),
         (
-            "Taxonomy mismatches (CSV)",
+            "Mismatch rows",
             [oh.resolve_taxonomy_consistency_mismatches_path(rdiag, rid)],
         ),
-        ("Prediction errors (CSV)", [oh.resolve_prediction_errors_path(rdiag, rid)]),
+        ("Prediction rows", [oh.resolve_prediction_errors_path(rdiag, rid)]),
     ]
+    du.print_subheader("Diagnostics")
     for label, candidates in rows:
         hit = first_existing_path_fn(candidates)
         stat_label, stat_value = _format_artifact_stat(label=label, path=hit, run_diag=rdiag)
         du.print_stat(stat_label, stat_value)
-    du.print_info(
-        "[MENU] Prefer run-scoped names; global `*.latest.*` under output/diagnostics/ mirrors when hygiene omits duplicates."
-    )
+    print("  Prefer run-scoped names; global *.latest.* under output/diagnostics/ are mirrors only.")
     print("")
 
 

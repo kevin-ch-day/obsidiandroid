@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Tuple
 
+import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
@@ -56,19 +57,53 @@ def balanced_train_test_split(
     required_test_size = max([test_size] + required_fractions)
     required_test_size = min(max_test_size, required_test_size)
 
-    min_support = min(counts.values()) if counts else 0
-    stratify_y = y if min_support >= 2 else None
-    if stratify_y is None and len(counts) > 1:
+    y_series = y if isinstance(y, pd.Series) else pd.Series(y, index=X.index)
+    singleton_classes = {cls for cls, count in counts.items() if count < 2}
+    singleton_mask = y_series.isin(singleton_classes)
+
+    if singleton_classes:
         du.print_warning(
-            "[SPLIT] balanced_train_test_split: stratification disabled because at least one "
-            "class has fewer than 2 samples."
+            "[SPLIT] balanced_train_test_split: forcing singleton classes into train and "
+            "stratifying the remaining classes."
         )
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
+    X_forced_train = X.loc[singleton_mask]
+    y_forced_train = y_series.loc[singleton_mask]
+    X_remaining = X.loc[~singleton_mask]
+    y_remaining = y_series.loc[~singleton_mask]
+
+    remaining_counts = Counter(y_remaining)
+    min_support = min(remaining_counts.values()) if remaining_counts else 0
+    stratify_y = y_remaining if min_support >= 2 else None
+    if stratify_y is None and len(remaining_counts) > 1:
+        du.print_warning(
+            "[SPLIT] balanced_train_test_split: stratification disabled on the non-singleton "
+            "subset because at least one remaining class has fewer than 2 samples."
+        )
+
+    if X_remaining.empty:
+        X_train = X_forced_train.copy()
+        X_test = X.iloc[0:0].copy()
+        y_train = y_forced_train.copy()
+        y_test = y_series.iloc[0:0].copy()
+        return X_train, X_test, y_train, y_test
+
+    X_train_core, X_test, y_train_core, y_test = train_test_split(
+        X_remaining,
+        y_remaining,
         test_size=required_test_size,
         stratify=stratify_y,
         random_state=random_state,
     )
+
+    if not X_forced_train.empty:
+        X_train = pd.concat([X_train_core, X_forced_train], axis=0)
+        y_train = pd.concat([y_train_core, y_forced_train], axis=0)
+        order = np.argsort(X_train.index.to_numpy())
+        X_train = X_train.iloc[order]
+        y_train = y_train.iloc[order]
+    else:
+        X_train = X_train_core
+        y_train = y_train_core
+
     return X_train, X_test, y_train, y_test

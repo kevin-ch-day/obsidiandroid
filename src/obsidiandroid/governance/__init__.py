@@ -19,6 +19,7 @@ _CANONICAL_SUBMODULE_NAMES = (
     "evidence_mode_resolver",
     "exceptions",
     "integrity",
+    "paper_family_display_policy",
     "policy",
     "readiness",
     "run_manifest",

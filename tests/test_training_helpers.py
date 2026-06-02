@@ -123,3 +123,110 @@ def test_perform_cross_validation_cv_folds_none_uses_default(monkeypatch) -> Non
     )
     assert scores is not None
     assert captured["cv_splits"] == 5
+
+
+def test_perform_cross_validation_singleton_class_warning_is_concise(monkeypatch) -> None:
+    """Singleton-class CV skips should explain rarity without dumping the full Counter."""
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        training_helpers.app_config,
+        "RUNTIME_SUPPORT_FLOOR_MODE",
+        "membership_gate",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        training_helpers.app_config,
+        "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD",
+        "family_id",
+        raising=False,
+    )
+    monkeypatch.setattr(training_helpers.du, "print_warning", lambda msg: warnings.append(str(msg)))
+
+    y = np.array([0] + [1] * 5 + [2] * 4)
+    X = pd.DataFrame({"f1": np.arange(len(y)), "f2": np.arange(len(y))[::-1]})
+
+    scores = training_helpers.perform_cross_validation(
+        X=X,
+        y=y,
+        model_type="random_forest",
+        random_state=42,
+    )
+
+    assert scores is None
+    assert warnings
+    message = warnings[-1]
+    assert "1 sample" in message
+    assert "classes<3=1" in message
+    assert "total_classes=3" in message
+    assert "Counter(" not in message
+
+
+def test_perform_cross_validation_diagnostic_family_surface_uses_note(monkeypatch) -> None:
+    """Broad diagnostic family runs should explain CV skips as expected long-tail behavior."""
+    notes: list[str] = []
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        training_helpers.app_config,
+        "RUNTIME_SUPPORT_FLOOR_MODE",
+        "diagnostic_only",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        training_helpers.app_config,
+        "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD",
+        "family_id",
+        raising=False,
+    )
+    monkeypatch.setattr(training_helpers.du, "print_note", lambda msg: notes.append(str(msg)))
+    monkeypatch.setattr(training_helpers.du, "print_warning", lambda msg: warnings.append(str(msg)))
+
+    y = np.array([0] + [1] * 5 + [2] * 4)
+    X = pd.DataFrame({"f1": np.arange(len(y)), "f2": np.arange(len(y))[::-1]})
+
+    scores = training_helpers.perform_cross_validation(
+        X=X,
+        y=y,
+        model_type="random_forest",
+        random_state=42,
+    )
+
+    assert scores is None
+    assert not warnings
+    assert notes
+    message = notes[-1]
+    assert "broad diagnostic family surface" in message
+    assert "use a benchmark family profile for stable cv" in message.lower()
+    assert "Counter(" not in message
+
+
+def test_perform_cross_validation_caps_outer_jobs_for_broad_corpus(monkeypatch) -> None:
+    """Broad current-corpus runs should cap CV outer parallelism."""
+    monkeypatch.setattr(app_config, "CV_FOLDS", 5, raising=False)
+    monkeypatch.setattr(app_config, "CV_REPEATS", 1, raising=False)
+    monkeypatch.setattr(app_config, "CV_N_JOBS", -1, raising=False)
+    monkeypatch.setattr(app_config, "CV_AVOID_NESTED_PARALLELISM", True, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_CV_REBALANCING", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_PROFILE_ID", "android_malware_all_current", raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_ABLATION_ACTIVE", False, raising=False)
+    monkeypatch.setattr(app_config, "BROAD_CORPUS_CV_N_JOBS_CAP", 2, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ADAPTIVE_TRAINING_PARALLELISM", True, raising=False)
+
+    captured: dict[str, object] = {}
+
+    def _fake_cross_val_score(estimator, X, y, cv, scoring, n_jobs):  # noqa: ANN001
+        del estimator, X, y, cv, scoring
+        captured["n_jobs"] = n_jobs
+        return np.array([0.7, 0.71, 0.72])
+
+    monkeypatch.setattr(training_helpers, "cross_val_score", _fake_cross_val_score)
+
+    y = np.array([0, 0, 0, 1, 1, 1, 2, 2, 2, 2])
+    X = pd.DataFrame({"f1": np.arange(len(y)), "f2": np.arange(len(y))[::-1]})
+    scores = training_helpers.perform_cross_validation(
+        X=X,
+        y=y,
+        model_type="random_forest",
+        random_state=42,
+    )
+    assert scores is not None
+    assert captured["n_jobs"] == 2

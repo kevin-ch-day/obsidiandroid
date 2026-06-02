@@ -52,6 +52,7 @@ from .ml_trainers.xgboost_trainer import (
     get_default_xgboost_params,
     train_xgboost,
 )
+from .parallel_layout import resolve_adaptive_job_count
 
 
 def _force_estimator_single_thread(estimator) -> tuple[object, dict[str, int]]:
@@ -139,6 +140,39 @@ def build_base_estimator(
     raise ValueError(f"Unsupported model type for estimator: {model_type}")
 
 
+def _emit_cross_validation_skip_message(label_counts: Counter) -> None:
+    """Emit a concise, profile-aware message when CV cannot run safely."""
+    singleton_classes = sum(1 for count in label_counts.values() if int(count) == 1)
+    lt3_classes = sum(1 for count in label_counts.values() if int(count) < 3)
+    top_counts = sorted((int(v) for v in label_counts.values()), reverse=True)[:5]
+    support_floor_mode = str(
+        getattr(app_config, "RUNTIME_SUPPORT_FLOOR_MODE", "membership_gate") or "membership_gate"
+    ).strip().lower()
+    training_label_field = str(
+        getattr(app_config, "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD", "family_id") or "family_id"
+    ).strip().lower()
+
+    if training_label_field == "type_slug":
+        surface_label = "type-level target surface"
+    elif support_floor_mode == "diagnostic_only":
+        surface_label = "broad diagnostic family surface"
+    elif support_floor_mode == "benchmark_eligibility":
+        surface_label = "benchmark family surface"
+    else:
+        surface_label = "family target surface"
+
+    message = (
+        f"[CROSS-VAL] Skipped for the {surface_label}; "
+        f"{singleton_classes} class(es) have only 1 sample "
+        f"(classes<3={lt3_classes}, total_classes={len(label_counts)}, top_supports={top_counts})."
+    )
+    if support_floor_mode == "diagnostic_only" and training_label_field == "family_id":
+        message += " This is expected on the all-current diagnostic run; use a benchmark family profile for stable CV."
+        du.print_note(message)
+        return
+    du.print_warning(message)
+
+
 def perform_cross_validation(
     X: pd.DataFrame,
     y: Union[list, pd.Series],
@@ -150,9 +184,7 @@ def perform_cross_validation(
     label_counts = Counter(y)
     min_count = min(label_counts.values())
     if min_count < 2:
-        du.print_warning(
-            f"[CROSS-VAL] Skipped; class counts {label_counts} contain <2 samples"
-        )
+        _emit_cross_validation_skip_message(label_counts)
         return None
 
     # ``StratifiedKFold`` / ``RepeatedStratifiedKFold`` require ``n_splits >= 2``; some
@@ -223,6 +255,7 @@ def perform_cross_validation(
         getattr(app_config, "CV_N_JOBS", _cv_n_jobs_default),
         default=_cv_n_jobs_default,
     )
+    cv_n_jobs = resolve_adaptive_job_count(cv_n_jobs, kind="cv")
     if bool(getattr(app_config, "CV_AVOID_NESTED_PARALLELISM", True)) and cv_n_jobs != 1:
         estimator, updated = _force_estimator_single_thread(estimator)
         if updated and not quiet:

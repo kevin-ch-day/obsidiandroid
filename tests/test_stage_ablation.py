@@ -132,8 +132,13 @@ def test_print_ablation_terminal_summary_compact_mode_reduces_grid(monkeypatch) 
         [
             {"label_target": "family_id", "experiment": "full_fused", "model": "xgboost", "macro_f1_score": 0.98, "delta_vs_full_fused": 0.0},
             {"label_target": "family_id", "experiment": "permissions_grouped", "model": "random_forest", "macro_f1_score": 0.93, "delta_vs_full_fused": -0.05},
+            {"label_target": "family_id", "experiment": "vendor_no_parsed_family", "model": "random_forest", "macro_f1_score": 0.81, "delta_vs_full_fused": -0.17},
+            {"label_target": "family_id", "experiment": "vendor_full", "model": "random_forest", "macro_f1_score": 0.91, "delta_vs_full_fused": -0.07},
             {"label_target": "type_slug", "experiment": "full_fused", "model": "xgboost", "macro_f1_score": 0.99, "delta_vs_full_fused": 0.0},
-            {"label_target": "type_slug", "experiment": "vendor_parsed_full", "model": "random_forest", "macro_f1_score": 0.97, "delta_vs_full_fused": -0.02},
+            {"label_target": "type_slug", "experiment": "vendor_full", "model": "random_forest", "macro_f1_score": 0.97, "delta_vs_full_fused": -0.02},
+            {"label_target": "type_slug", "experiment": "permissions_raw", "model": "random_forest", "macro_f1_score": 0.95, "delta_vs_full_fused": -0.04},
+            {"label_target": "type_slug", "experiment": "vendor_no_parsed_family", "model": "random_forest", "macro_f1_score": 0.88, "delta_vs_full_fused": -0.11},
+            {"label_target": "family_within_type", "experiment": "full_fused", "model": "xgboost", "macro_f1_score": 0.73, "delta_vs_full_fused": 0.0},
         ]
     )
 
@@ -145,17 +150,26 @@ def test_print_ablation_terminal_summary_compact_mode_reduces_grid(monkeypatch) 
         "label_target",
         "best_feature_set",
         "best_model",
-        "macro_f1",
-        "delta_vs_full_fused",
+        "best_macro_f1",
+        "permission_only",
+        "vendor_safe",
+        "full_fused",
+        "delta_permission_vs_full_fused",
+        "parsed_family_gap",
     ]
-    assert len(compact_df) == 2
-    assert compact_df["best_feature_set"].tolist() == ["full_fused", "full_fused"]
-    assert any("Compact terminal mode" in msg for msg in captured_info)
+    assert len(compact_df) == 3
+    assert compact_df["best_feature_set"].tolist() == ["full_fused", "full_fused", "full_fused"]
+    assert any("Permissions carry strong independent family/type signal" in msg for msg in captured_info)
+    assert any("Parsed vendor family strings are leakage-sensitive" in msg for msg in captured_info)
+    assert any("type_slug is easier than family_id" in msg for msg in captured_info)
+    assert any("family_within_type remains harder" in msg for msg in captured_info)
+    assert any("Full experiment grid remains in diagnostics CSV/Markdown summaries." in msg for msg in captured_info)
 
 
 def test_print_ablation_combo_summary_compacts_model_timings(monkeypatch) -> None:
     captured: list[str] = []
     monkeypatch.setattr(stage_ablation.du, "print_info", lambda msg, *_a, **_k: captured.append(str(msg)))
+    monkeypatch.setattr(stage_ablation.ml_console, "is_debug", lambda: True)
 
     stage_ablation._print_ablation_combo_summary(  # pylint: disable=protected-access
         "full_fused",
@@ -172,6 +186,67 @@ def test_print_ablation_combo_summary_compacts_model_timings(monkeypatch) -> Non
     assert "best=xgboost MacroF1=0.9400" in captured[0]
     assert "fit_total=13.50s" in captured[0]
     assert "slowest=xgboost 9.75s" in captured[0]
+
+
+def test_print_ablation_cohort_integrity_table_compacts_all_ok_rows(monkeypatch) -> None:
+    captured_info: list[str] = []
+    captured_tables: list[pd.DataFrame] = []
+    monkeypatch.setattr(stage_ablation.ml_console, "is_minimal", lambda: False)
+    monkeypatch.setattr(stage_ablation.ml_console, "is_debug", lambda: False)
+    monkeypatch.setattr(stage_ablation.du, "print_info", lambda msg, *_a, **_k: captured_info.append(str(msg)))
+    monkeypatch.setattr(stage_ablation.du, "print_table", lambda df, **_kwargs: captured_tables.append(df.copy()))
+
+    stage_ablation._print_ablation_cohort_integrity_table(  # pylint: disable=protected-access
+        [
+            {
+                "feature_set": "full_fused",
+                "expected_ids": 1247,
+                "raw_matrix_ids": 1247,
+                "missing_vs_expected": 0,
+                "final_aligned_ids": 1247,
+                "status": "OK",
+            },
+            {
+                "feature_set": "permissions_grouped",
+                "expected_ids": 1247,
+                "raw_matrix_ids": 1247,
+                "missing_vs_expected": 0,
+                "final_aligned_ids": 1247,
+                "status": "OK",
+            },
+        ]
+    )
+
+    assert captured_tables == []
+    assert captured_info == [
+        "[ABLATION] Cohort integrity: PASS — 2/2 feature sets aligned to 1,247 sample_ids; missing IDs=0."
+    ]
+
+
+def test_build_ablation_feature_set_summary_rows_uses_terminal_labels() -> None:
+    built = pd.DataFrame({"f1": [1.0], "f2": [2.0]}, index=[1])
+    built.attrs["selected_vendors"] = ["vendor_a", "vendor_b"]
+    built.attrs["feature_effective_top_k"] = 2
+
+    rows = stage_ablation._build_ablation_feature_set_summary_rows(  # pylint: disable=protected-access
+        experiment_order=["vendor_full", "permissions_grouped", "vendor_no_family_no_type"],
+        built_matrices={"vendor_full": built, "permissions_grouped": pd.DataFrame({"p": [1.0]}, index=[1])},
+        skipped_experiments=[
+            {
+                "feature_set": "vendor_no_family_no_type",
+                "reason": "empty_feature_matrix",
+                "detail": "Builder returned a non-DataFrame or empty feature matrix.",
+            }
+        ],
+    )
+
+    assert rows[0]["feature_set"] == "vendor_parsed_full"
+    assert rows[0]["selected_vendors"] == "2"
+    assert rows[0]["effective_top_k"] == "2"
+    assert rows[1]["feature_set"] == "permissions_grouped"
+    assert rows[1]["selected_vendors"] == "—"
+    assert rows[2]["feature_set"] == "vendor_without_family_or_type_strings"
+    assert rows[2]["status"] == "SKIPPED"
 
 
 def test_apply_leakage_delta_prefers_vendor_no_parsed_family_baseline() -> None:

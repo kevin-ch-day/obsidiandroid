@@ -187,6 +187,12 @@ def build_manifest_payload(
 
     return {
         "run_id": run_id,
+        "run_instance_id": str(manifest_context.get("run_instance_id", "") or run_id),
+        "run_slot": str(manifest_context.get("run_slot", "") or ""),
+        "run_root": str(manifest_context.get("run_root", "") or ""),
+        "run_started_at_utc": manifest_context.get("run_started_at_utc") or manifest_context.get("timestamp_utc"),
+        "run_mode": str(manifest_context.get("run_mode", "") or ""),
+        "claim_surface": str(manifest_context.get("claim_surface", "") or ""),
         "profile_id": str(profile.get("profile_id", "unknown")),
         "timestamp_utc": manifest_context.get("timestamp_utc"),
         "git_commit": run_manifest.get_git_commit(),
@@ -221,6 +227,8 @@ def build_manifest_payload(
         "engine_count_observed": int(manifest_context.get("engine_count_observed", 0) or 0),
         "engine_count_canonical": int(manifest_context.get("engine_count_canonical", 0) or 0),
         "engine_count_included_after_gating": included_engines,
+        "engine_count_near_miss": int(manifest_context.get("engine_near_miss_count", 0) or 0),
+        "engine_exclusion_reason_counts": dict(manifest_context.get("engine_exclusion_reason_counts", {}) or {}),
         "engine_count_requested_top_k": int(manifest_context.get("k_requested", 0) or 0),
         "k_requested": int(manifest_context.get("k_requested", 0) or 0),
         "effective_top_k": effective_top_k,

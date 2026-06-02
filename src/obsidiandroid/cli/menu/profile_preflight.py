@@ -18,6 +18,7 @@ from obsidiandroid.governance.cohort_lock_manifest import (
     read_member_list,
     validate_lock_manifest,
 )
+from obsidiandroid.governance.support_floor_policy import resolve_membership_min_samples_per_family
 from obsidiandroid.cli.menu.readiness_notes import (
     build_observed_readiness_note,
     build_permission_obs_gap_note,
@@ -30,6 +31,54 @@ MENU_LOGGER = get_logger(
     f"{getattr(app_config, 'APP_LOG_NAMESPACE', 'framework')}.menu.profile_preflight",
     "menu",
 )
+
+
+def _print_profile_block(headline: str, *detail_lines: str, blank_after: bool = False) -> None:
+    """Print compact profile-selection lines without generic log-level wrappers."""
+    print(f"[PROFILE] {str(headline).strip()}")
+    for line in detail_lines:
+        text = str(line or "").strip()
+        if text:
+            print(f"           {text}")
+    if blank_after:
+        print("")
+
+
+def _split_sentences(text: str) -> list[str]:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return []
+    parts = [part.strip() for part in cleaned.split(". ") if part.strip()]
+    out: list[str] = []
+    for idx, part in enumerate(parts):
+        if idx < len(parts) - 1 and not part.endswith("."):
+            out.append(part + ".")
+        else:
+            out.append(part)
+    return out
+
+
+def _profile_detail_lines(detail: str) -> list[str]:
+    return _split_sentences(detail)
+
+
+def _observed_note_lines(note: str) -> tuple[str, list[str]]:
+    text = " ".join(str(note or "").split()).strip()
+    if not text:
+        return "", []
+    marker = ": samples="
+    if marker in text and ", families=" in text:
+        prefix, rest = text.split(marker, 1)
+        sample_part, family_part = rest.split(", families=", 1)
+        return f"{prefix}:", [f"samples={sample_part.strip()}", f"families={family_part.strip()}"]
+    return text, []
+
+
+def _gap_note_lines(note: str) -> tuple[str, list[str]]:
+    parts = _split_sentences(note)
+    if not parts:
+        return "", []
+    return parts[0], parts[1:]
 
 
 def _summarize_live_readiness_gaps(
@@ -120,15 +169,15 @@ def _merge_advisory_notes(*notes: str | None) -> str | None:
     return " ".join(parts)
 
 
-def _compact_live_gap_note(notes: list[str]) -> str | None:
+def _compact_live_gap_lines(notes: list[str]) -> tuple[str, list[str]]:
     cleaned = [str(note).strip().rstrip(".") for note in notes if str(note).strip()]
     if not cleaned:
-        return None
+        return "", []
     preferred: list[str] = []
     for token in (
         "Live authority/taxonomy backlog",
-        "Taxonomy curation discipline",
         "Permission Intel observations include",
+        "Taxonomy curation discipline",
         "Primary labels are raw-missing",
         "Live readiness mismatch",
         "Live readiness shows no true unresolved family slugs",
@@ -138,9 +187,11 @@ def _compact_live_gap_note(notes: list[str]) -> str | None:
                 preferred.append(note)
     extras = [note for note in cleaned if note not in preferred]
     ordered = preferred + extras
-    if len(ordered) > 3:
-        ordered = ordered[:3]
-    return " | ".join(ordered) + "."
+    if len(ordered) > 2:
+        ordered = ordered[:2]
+    headline = ordered[0] + "."
+    detail_lines = [note + "." for note in ordered[1:]]
+    return headline, detail_lines
 
 
 def _observed_readiness_note(
@@ -192,7 +243,7 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
     paper_locked = bool(profile.get("paper_locked", False))
     mode = str(dataset_filters.get("mode", "none") or "none").strip().lower()
     type_slug = profile.get("type_slug_filter")
-    min_support = int(gates.get("min_samples_per_family", 3))
+    min_support = resolve_membership_min_samples_per_family(gates)
     family_cap = gates.get("family_cap", None)
     family_cap_seed = gates.get("family_cap_seed", None)
     type_cap = gates.get("type_cap", None)
@@ -207,6 +258,11 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
     exclude_families = tuple(
         str(family).strip().lower()
         for family in (gates.get("exclude_families", []) or [])
+        if str(family).strip()
+    )
+    include_families = tuple(
+        str(family).strip().lower()
+        for family in (gates.get("include_families", []) or [])
         if str(family).strip()
     )
     effective_time_start_utc = str(gates.get("time_window_start_utc", "") or "").strip() or None
@@ -253,6 +309,7 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
             effective_time_start_utc=effective_time_start_utc,
             effective_time_end_utc=effective_time_end_utc,
             require_effective_first_seen=require_effective_first_seen,
+            include_family_canonical=include_families,
             exclude_family_canonical=exclude_families,
         )
         governed_count = int(
@@ -274,6 +331,7 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
             effective_time_start_utc=effective_time_start_utc,
             effective_time_end_utc=effective_time_end_utc,
             require_effective_first_seen=require_effective_first_seen,
+            include_family_canonical=include_families,
             exclude_family_canonical=exclude_families,
             limit=1,
             family_cap=family_cap,
@@ -307,6 +365,7 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
         effective_time_start_utc=effective_time_start_utc,
         effective_time_end_utc=effective_time_end_utc,
         require_effective_first_seen=require_effective_first_seen,
+        include_family_canonical=include_families,
         exclude_family_canonical=exclude_families,
         as_dataframe=True,
     )
@@ -370,7 +429,9 @@ def resolve_and_validate_profile(
             return None
 
         readiness_signal = profile_manager.infer_cohort_readiness_signal(profile_id)
-        du.print_info(f"[PROFILE] {str(readiness_signal.get('summary', '') or '').strip()}")
+        summary_text = str(readiness_signal.get("summary", "") or "").strip()
+        if summary_text:
+            _print_profile_block(summary_text)
         readiness_snapshot = None
         paper_locked = False
         try:
@@ -389,16 +450,18 @@ def resolve_and_validate_profile(
         )
         advisory_note = _merge_advisory_notes(detail, locked_follow_up)
         if advisory_note:
-            du.print_note(f"[PROFILE] {advisory_note}")
+            detail_lines = _profile_detail_lines(advisory_note)
+            if detail_lines:
+                _print_profile_block(detail_lines[0], *detail_lines[1:], blank_after=True)
         try:
             readiness_snapshot = get_cohort_readiness_snapshot()
         except Exception:
             readiness_snapshot = None
-        gap_note = _compact_live_gap_note(
+        gap_headline, gap_lines = _compact_live_gap_lines(
             _summarize_live_readiness_gaps(
-            readiness=readiness_snapshot,
-            bucket=readiness_signal.get("bucket"),
-            paper_locked=paper_locked,
+                readiness=readiness_snapshot,
+                bucket=readiness_signal.get("bucket"),
+                paper_locked=paper_locked,
             )
         )
         observed_note = _observed_readiness_note(
@@ -406,15 +469,16 @@ def resolve_and_validate_profile(
             readiness_snapshot=readiness_snapshot,
         )
         if observed_note and not (
-            gap_note
+            gap_headline
             and (
                 "is unavailable in the live DB snapshot" in observed_note
                 or "counts unavailable" in observed_note
             )
         ):
-            du.print_note(f"[PROFILE] {observed_note}")
-        if gap_note:
-            du.print_note(f"[PROFILE] {gap_note}")
+            observed_headline, observed_lines = _observed_note_lines(observed_note)
+            _print_profile_block(observed_headline, *observed_lines)
+        if gap_headline:
+            _print_profile_block(gap_headline, *gap_lines, blank_after=True)
         try:
             inventory = profile_manager.inventory_cohort_readiness_mappings(
                 include_hidden=False,
@@ -426,12 +490,13 @@ def resolve_and_validate_profile(
             mapped = sum(1 for row in inventory if str(row.get("status", "")).strip() == "mapped")
             unresolved = len(inventory) - mapped
             if unresolved > 0:
-                du.print_note(
-                    f"[PROFILE] Readiness mapping inventory: {mapped} mapped, {unresolved} ambiguous. "
-                    "Readiness mapping is advisory only; it does not enforce sample selection."
+                _print_profile_block(
+                    f"Readiness mapping inventory: {mapped} mapped, {unresolved} ambiguous.",
+                    "Readiness mapping is advisory only; it does not enforce sample selection.",
+                    blank_after=True,
                 )
 
-        du.print_info("[PROFILE] Preflight: verifying cohort against the database (quick check)...")
+        _print_profile_block("Preflight: verifying cohort against the database (quick check)...")
         ok, reason = validate_profile_runnable(profile_id)
         if ok:
             log_event(
@@ -443,7 +508,7 @@ def resolve_and_validate_profile(
             return profile_id
 
         du.print_warning(reason)
-        du.print_info("[MENU] Select a different profile or adjust profile dataset filters.")
+        print("[ACTION] Select a different profile or adjust profile dataset filters.")
         log_event(
             MENU_LOGGER,
             "profile_preflight_failed",

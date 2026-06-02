@@ -104,6 +104,36 @@ ABLATION_EXPERIMENT_ORDER: tuple[str, ...] = (
     "full_fused",
 )
 
+ABLATION_TERMINAL_LABELS: dict[str, str] = {
+    "vendor_full": "vendor_parsed_full",
+    "vendor_no_parsed_family": "vendor_without_family_strings",
+    "vendor_no_family_no_type": "vendor_without_family_or_type_strings",
+    "vendor_detection_binary_only": "vendor_detection_binary_only",
+    "vendor_consensus_scores_only": "vendor_consensus_scores_only",
+    "permissions_raw": "permissions_raw",
+    "permissions_grouped": "permissions_grouped",
+    "permissions_grouped_plus_vendor_no_family": "permissions_grouped_plus_vendor_safe",
+    "full_fused": "full_fused",
+}
+
+_PERMISSION_ONLY_EXPERIMENTS = {"permissions_raw", "permissions_grouped"}
+_VENDOR_SAFE_EXPERIMENTS = {
+    "vendor_no_parsed_family",
+    "vendor_detection_binary_only",
+    "vendor_consensus_scores_only",
+}
+
+
+def _format_ablation_terminal_label(experiment: str) -> str:
+    return ABLATION_TERMINAL_LABELS.get(str(experiment), format_feature_set_label(str(experiment)))
+
+
+def _format_ablation_score_cell(experiment: str, model: str, macro_f1: float | None) -> str:
+    label = _format_ablation_terminal_label(experiment)
+    if macro_f1 is None or pd.isna(macro_f1):
+        return f"{label} / {model}"
+    return f"{label} / {model} ({float(macro_f1):.4f})"
+
 
 def _prepare_training_inputs(
     feature_df: pd.DataFrame,
@@ -189,8 +219,18 @@ def reindex_ablation_features_to_frozen_ids(
 
 
 def _print_ablation_cohort_integrity_table(rows: list[dict[str, Any]]) -> None:
-    """Compact terminal table: cohort vs raw matrix vs reindexed alignment."""
+    """Operator/debug ablation cohort integrity summary."""
     if not rows or ml_console.is_minimal():
+        return
+    all_ok = all(str(row.get("status", "")).strip().upper() == "OK" for row in rows)
+    aligned_ids = max(int(row.get("final_aligned_ids", 0) or 0) for row in rows)
+    missing_ids = 0 if all_ok else sum(int(row.get("missing_vs_expected", 0) or 0) for row in rows)
+    if all_ok and not ml_console.is_debug():
+        du.print_info(
+            "[ABLATION] Cohort integrity: PASS — "
+            f"{len(rows)}/{len(rows)} feature sets aligned to {aligned_ids:,} sample_ids; "
+            f"missing IDs={missing_ids}."
+        )
         return
     frame = pd.DataFrame(rows)
     rename_map = {
@@ -217,7 +257,7 @@ def _print_ablation_combo_summary(
     results: dict[str, dict],
 ) -> None:
     """Emit one compact progress line per ablation combo instead of per-model timing spam."""
-    if not results:
+    if not results or not ml_console.is_debug():
         return
 
     rows: list[dict[str, float | str]] = []
@@ -259,6 +299,77 @@ def _print_ablation_combo_summary(
         f"fit_total={total_fit_seconds:.2f}s | "
         f"slowest={slowest_row['model']} {slowest_row['train_time']:.2f}s"
     )
+
+
+def _build_ablation_feature_set_summary_rows(
+    *,
+    experiment_order: list[str],
+    built_matrices: dict[str, pd.DataFrame],
+    skipped_experiments: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    skipped_map = {str(row.get("feature_set", "")): dict(row) for row in skipped_experiments}
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for experiment_name in experiment_order:
+        seen.add(str(experiment_name))
+        matrix = built_matrices.get(experiment_name)
+        skipped = skipped_map.get(experiment_name)
+        selected_vendors = "—"
+        effective_top_k = "—"
+        columns = 0
+        status = "SKIPPED" if skipped is not None else "OK"
+        skip_reason = str(skipped.get("reason", "")) if skipped is not None else ""
+        if isinstance(matrix, pd.DataFrame) and not matrix.empty:
+            columns = int(matrix.shape[1])
+            selected_vendor_list = matrix.attrs.get("selected_vendors", [])
+            if isinstance(selected_vendor_list, list) and selected_vendor_list:
+                selected_vendors = str(len(selected_vendor_list))
+            eff_top_k = matrix.attrs.get("feature_effective_top_k")
+            if eff_top_k not in (None, "", 0):
+                effective_top_k = str(int(eff_top_k))
+        rows.append(
+            {
+                "feature_set": _format_ablation_terminal_label(experiment_name),
+                "columns": columns,
+                "selected_vendors": selected_vendors,
+                "effective_top_k": effective_top_k,
+                "status": status,
+                "skip_reason": skip_reason or "—",
+            }
+        )
+    for experiment_name, skipped in skipped_map.items():
+        if experiment_name in seen:
+            continue
+        rows.append(
+            {
+                "feature_set": _format_ablation_terminal_label(experiment_name),
+                "columns": 0,
+                "selected_vendors": "—",
+                "effective_top_k": "—",
+                "status": "SKIPPED",
+                "skip_reason": str(skipped.get("reason", "") or "—"),
+            }
+        )
+    return rows
+
+
+def _print_ablation_feature_set_build_summary(
+    *,
+    experiment_order: list[str],
+    built_matrices: dict[str, pd.DataFrame],
+    skipped_experiments: list[dict[str, str]],
+) -> None:
+    if ml_console.is_minimal():
+        return
+    rows = _build_ablation_feature_set_summary_rows(
+        experiment_order=experiment_order,
+        built_matrices=built_matrices,
+        skipped_experiments=skipped_experiments,
+    )
+    if not rows:
+        return
+    du.print_section("ABLATION FEATURE-SET BUILD SUMMARY")
+    du.print_table(pd.DataFrame(rows), show_index=False)
 
 
 def _load_paper_cohort_sample_ids(
@@ -510,7 +621,8 @@ def run_ablation_experiments(
                         "detail": "Builder returned a non-DataFrame or empty feature matrix.",
                     }
                 )
-                du.print_warning(f"[ABLATION] Skipping '{experiment_name}' due to empty feature matrix.")
+                if ml_console.is_debug():
+                    du.print_warning(f"[ABLATION] Skipping '{experiment_name}' due to empty feature matrix.")
                 continue
             experiment_matrices_raw[experiment_name] = feature_df
         except Exception as exc:
@@ -521,7 +633,8 @@ def run_ablation_experiments(
                     "detail": str(exc),
                 }
             )
-            du.print_warning(f"[ABLATION] '{experiment_name}' failed during build: {exc}")
+            if ml_console.is_debug():
+                du.print_warning(f"[ABLATION] '{experiment_name}' failed during build: {exc}")
 
     if not experiment_matrices_raw:
         return artifact_paths
@@ -548,10 +661,11 @@ def run_ablation_experiments(
 
     experiment_matrices: dict[str, pd.DataFrame] = {}
     if reindex_zero_fill:
-        du.print_info(
-            "[ABLATION] Reindexing all feature sets to frozen cohort with zero-fill "
-            f"({len(frozen_sorted)} sample_ids)."
-        )
+        if ml_console.is_debug():
+            du.print_info(
+                "[ABLATION] Reindexing all feature sets to frozen cohort with zero-fill "
+                f"({len(frozen_sorted)} sample_ids)."
+            )
         for exp_name, raw_df in experiment_matrices_raw.items():
             reindexed = reindex_ablation_features_to_frozen_ids(raw_df, frozen_sorted)
             if reindexed.shape[1] == 0:
@@ -562,7 +676,8 @@ def run_ablation_experiments(
                         "detail": "Feature matrix retained no columns after frozen-cohort reindex.",
                     }
                 )
-                du.print_warning(f"[ABLATION] '{exp_name}' has zero columns after reindex — skipping.")
+                if ml_console.is_debug():
+                    du.print_warning(f"[ABLATION] '{exp_name}' has zero columns after reindex — skipping.")
                 continue
             experiment_matrices[exp_name] = reindexed
         for exp_name, df in list(experiment_matrices.items()):
@@ -608,7 +723,11 @@ def run_ablation_experiments(
             du.print_warning("[ABLATION] No common sample_id universe across experiments.")
             return artifact_paths
 
-    du.print_info(f"[ABLATION] Training sample universe: {len(common_ids)} sample_ids")
+    _print_ablation_feature_set_build_summary(
+        experiment_order=list(ABLATION_EXPERIMENT_ORDER),
+        built_matrices=experiment_matrices,
+        skipped_experiments=skipped_experiments,
+    )
 
     for row in gap_table_rows:
         row["final_aligned_ids"] = len(common_ids)
@@ -687,6 +806,7 @@ def run_ablation_experiments(
     setattr(app_config, "RUNTIME_ABLATION_ACTIVE", True)
     setattr(app_config, "RUNTIME_ABLATION_PROGRESS_ROWS", [])
     setattr(app_config, "RUNTIME_ABLATION_SCHEMA_AUDIT_ROWS", [])
+    setattr(app_config, "RUNTIME_ABLATION_AUTHORITY_NOTE_EMITTED", False)
     setattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", {})
 
     audit_cols = [
@@ -733,10 +853,11 @@ def run_ablation_experiments(
                                     "detail": "Filtered feature matrix became empty before training.",
                                 }
                             )
-                            du.print_warning(
-                                f"[ABLATION] Skipping '{experiment_name}'/'{label_slug}' "
-                                "due to empty filtered feature matrix."
-                            )
+                            if ml_console.is_debug():
+                                du.print_warning(
+                                    f"[ABLATION] Skipping '{experiment_name}'/'{label_slug}' "
+                                    "due to empty filtered feature matrix."
+                                )
                             continue
                         x_train, y_train = _prepare_training_inputs(
                             work_df,
@@ -752,9 +873,10 @@ def run_ablation_experiments(
                                     "detail": "Feature/label alignment failed or produced an empty training matrix.",
                                 }
                             )
-                            du.print_warning(
-                                f"[ABLATION] Skipping '{experiment_name}'/'{label_slug}' due to alignment failure."
-                            )
+                            if ml_console.is_debug():
+                                du.print_warning(
+                                    f"[ABLATION] Skipping '{experiment_name}'/'{label_slug}' due to alignment failure."
+                                )
                             continue
                         results, _ = pipeline_core.train_models(
                             x_train,
@@ -780,7 +902,8 @@ def run_ablation_experiments(
                                 "detail": str(exc),
                             }
                         )
-                        du.print_warning(f"[ABLATION] '{experiment_name}'/'{label_slug}' failed: {exc}")
+                        if ml_console.is_debug():
+                            du.print_warning(f"[ABLATION] '{experiment_name}'/'{label_slug}' failed: {exc}")
                     finally:
                         setattr(app_config, "RUNTIME_EXPERIMENT_ID", "")
                         setattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", "")
@@ -803,6 +926,7 @@ def run_ablation_experiments(
         setattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)
         setattr(app_config, "RUNTIME_ABLATION_PROGRESS_ROWS", [])
         setattr(app_config, "RUNTIME_ABLATION_SCHEMA_AUDIT_ROWS", [])
+        setattr(app_config, "RUNTIME_ABLATION_AUTHORITY_NOTE_EMITTED", False)
         setattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", None)
         setattr(app_config, "RUNTIME_ABLATION_LABEL_TARGET_SLUG", "")
         setattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", "")
@@ -1025,54 +1149,10 @@ def _apply_full_fused_delta(summary_df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _ablation_terminal_interpretation(
-    experiment: str,
-    *,
-    delta_vs_full_fused: float | None,
-    macro_f1: float,
-    weighted_f1: float | None,
-) -> str:
-    """One-line science note for the compact ablation table."""
-    exp = str(experiment)
-    w = weighted_f1
-    imbalance_note = False
-    if w is not None and not pd.isna(w) and (float(w) - float(macro_f1)) >= 0.12:
-        imbalance_note = True
-
-    if exp == "full_fused":
-        msg = "Fused baseline (all modalities)."
-    elif delta_vs_full_fused is None or (isinstance(delta_vs_full_fused, float) and pd.isna(delta_vs_full_fused)):
-        msg = "No full_fused baseline for this model/label target (see CSV)."
-    else:
-        d = float(delta_vs_full_fused)
-        if d >= -0.01:
-            if "permission" in exp:
-                msg = "Near fused: permission slice explains most of fused Macro-F1."
-            elif exp.startswith("vendor_"):
-                msg = "Near fused: vendor slice lands close to the fused stack."
-            else:
-                msg = "Comparable to fused on Macro-F1."
-        elif d <= -0.15:
-            msg = "Large Macro-F1 gap vs fused — missing modalities hurt tail classes."
-        elif exp == "vendor_detection_binary_only":
-            msg = "Detection binaries only; expect gap vs fused (no PI / parsed labels)."
-        elif exp == "vendor_consensus_scores_only":
-            msg = "Consensus scores only; weaker semantic signal than parsed+fused."
-        elif exp in {"permissions_raw", "permissions_grouped"}:
-            msg = "Permission-only; gap quantifies incremental vendor+fuse value."
-        else:
-            msg = "Moderate gap vs fused — check per-family exports for tails."
-
-    if imbalance_note:
-        msg = f"{msg} Weighted F1 ≫ macro — label prior concentrates on majors."
-    return msg
-
-
 def _print_ablation_terminal_summary(summary_df: pd.DataFrame) -> None:
-    """Best Macro-F1 per (label target × feature set) with fused delta and plain-language notes."""
+    """Operator/research/debug terminal rendering for ablation results."""
     if summary_df.empty or ml_console.is_minimal():
         return
-    compact = bool(getattr(app_config, "ML_TERMINAL_COMPACT", True))
     work = summary_df.copy()
     for col in ("macro_f1_score", "accuracy", "weighted_f1_score", "delta_vs_full_fused"):
         if col in work.columns:
@@ -1081,73 +1161,119 @@ def _print_ablation_terminal_summary(summary_df: pd.DataFrame) -> None:
     if work.empty:
         return
 
-    group_cols = (
-        ["label_target", "experiment"]
+    label_targets = (
+        list(work["label_target"].dropna().astype(str).unique())
         if "label_target" in work.columns
-        else ["experiment"]
+        else ["family_canonical_default"]
     )
-    idx = work.groupby(group_cols, sort=False)["macro_f1_score"].idxmax()
-    best = work.loc[idx].copy()
+    leaderboard_rows: list[dict[str, Any]] = []
+    interpretation_lines: list[str] = []
 
-    rows_out: list[dict[str, Any]] = []
-    for _, r in best.iterrows():
-        exp = str(r.get("experiment", ""))
-        lt = str(r.get("label_target", "")) if "label_target" in r.index else ""
-        model = str(r.get("model", ""))
-        macro = float(r["macro_f1_score"])
-        wf1: float | None
-        if "weighted_f1_score" in r.index and pd.notna(r.get("weighted_f1_score")):
-            wf1 = float(r["weighted_f1_score"])
-        else:
-            wf1 = None
-        acc: float | None
-        if "accuracy" in r.index and pd.notna(r.get("accuracy")):
-            acc = float(r["accuracy"])
-        else:
-            acc = None
-        dff = r.get("delta_vs_full_fused")
-        dff_f: float | None
-        if dff is not None and pd.notna(dff):
-            dff_f = float(dff)
-        else:
-            dff_f = None
+    def _best_row(frame: pd.DataFrame) -> pd.Series | None:
+        if frame.empty:
+            return None
+        idx = frame["macro_f1_score"].idxmax()
+        return frame.loc[idx]
 
-        rows_out.append(
+    for label_target in label_targets:
+        target_df = (
+            work[work["label_target"].astype(str) == str(label_target)].copy()
+            if "label_target" in work.columns
+            else work.copy()
+        )
+        overall = _best_row(target_df)
+        if overall is None:
+            continue
+        permission_only = _best_row(target_df[target_df["experiment"].astype(str).isin(_PERMISSION_ONLY_EXPERIMENTS)])
+        vendor_safe = _best_row(target_df[target_df["experiment"].astype(str).isin(_VENDOR_SAFE_EXPERIMENTS)])
+        full_fused = _best_row(target_df[target_df["experiment"].astype(str) == "full_fused"])
+        vendor_parsed = _best_row(target_df[target_df["experiment"].astype(str) == "vendor_full"])
+        parsed_gap: float | None = None
+        if vendor_parsed is not None and vendor_safe is not None:
+            parsed_gap = round(
+                float(vendor_parsed["macro_f1_score"]) - float(vendor_safe["macro_f1_score"]),
+                4,
+            )
+        perm_delta: float | None = None
+        if permission_only is not None and full_fused is not None:
+            perm_delta = round(
+                float(permission_only["macro_f1_score"]) - float(full_fused["macro_f1_score"]),
+                4,
+            )
+        leaderboard_rows.append(
             {
-                "feature_set": format_feature_set_label(exp),
-                "label_target": lt,
-                "best_model": model,
-                "macro_f1": round(macro, 4),
-                "weighted_f1": round(wf1, 4) if wf1 is not None else None,
-                "accuracy": round(acc, 4) if acc is not None else None,
-                "delta_vs_full_fused": round(dff_f, 4) if dff_f is not None else None,
-                "interpretation": _ablation_terminal_interpretation(
-                    exp,
-                    delta_vs_full_fused=dff_f,
-                    macro_f1=macro,
-                    weighted_f1=wf1,
-                ),
+                "label_target": str(label_target),
+                "best_feature_set": _format_ablation_terminal_label(str(overall["experiment"])),
+                "best_model": str(overall.get("model", "")),
+                "best_macro_f1": round(float(overall["macro_f1_score"]), 4),
+                "permission_only": _format_ablation_score_cell(
+                    str(permission_only["experiment"]),
+                    str(permission_only.get("model", "")),
+                    float(permission_only["macro_f1_score"]),
+                )
+                if permission_only is not None
+                else "—",
+                "vendor_safe": _format_ablation_score_cell(
+                    str(vendor_safe["experiment"]),
+                    str(vendor_safe.get("model", "")),
+                    float(vendor_safe["macro_f1_score"]),
+                )
+                if vendor_safe is not None
+                else "—",
+                "full_fused": _format_ablation_score_cell(
+                    str(full_fused["experiment"]),
+                    str(full_fused.get("model", "")),
+                    float(full_fused["macro_f1_score"]),
+                )
+                if full_fused is not None
+                else "—",
+                "delta_permission_vs_full_fused": round(perm_delta, 4) if perm_delta is not None else None,
+                "parsed_family_gap": round(parsed_gap, 4) if parsed_gap is not None else None,
             }
         )
 
-    disp = pd.DataFrame(rows_out)
-    disp = disp.sort_values(
-        [c for c in ("label_target", "feature_set") if c in disp.columns],
-        kind="stable",
-    )
-    if compact:
-        compact_idx = disp.groupby("label_target", sort=False)["macro_f1"].idxmax()
-        compact_disp = (
-            disp.loc[compact_idx, ["label_target", "feature_set", "best_model", "macro_f1", "delta_vs_full_fused"]]
-            .rename(columns={"feature_set": "best_feature_set"})
-            .sort_values(["label_target"], kind="stable")
-        )
-        du.print_section("ABLATION SUMMARY (compact)")
-        du.print_table(compact_disp, show_index=False)
-        du.print_info(
-            "[ABLATION] Compact terminal mode: full experiment grid remains in diagnostics CSV/Markdown summaries."
-        )
+        lt = str(label_target)
+        if permission_only is not None:
+            interpretation_lines.append(
+                "[ABLATION] Permissions carry strong independent family/type signal: "
+                f"{lt} best permission-only={float(permission_only['macro_f1_score']):.4f} "
+                f"({_format_ablation_terminal_label(str(permission_only['experiment']))})."
+            )
+        if parsed_gap is not None and parsed_gap > 0:
+            interpretation_lines.append(
+                "[ABLATION] Parsed vendor family strings are leakage-sensitive: "
+                f"{lt} vendor_parsed_full exceeds vendor_without_family_strings by {parsed_gap:.4f} Macro-F1."
+            )
+
+    if not leaderboard_rows:
         return
 
-    du.print_section("ABLATION SUMMARY (best Macro-F1 per feature set × label target)")
-    du.print_table(disp, show_index=False)
+    leaderboard_df = pd.DataFrame(leaderboard_rows).sort_values(["label_target"], kind="stable")
+    du.print_section("ABLATION LEADERBOARD")
+    du.print_table(leaderboard_df, show_index=False)
+
+    by_target = {str(row["label_target"]): row for row in leaderboard_rows}
+    type_row = by_target.get("type_slug")
+    family_row = by_target.get("family_id") or by_target.get("family_canonical_default")
+    if type_row is not None and family_row is not None:
+        interpretation_lines.append(
+            "[ABLATION] type_slug is easier than family_id: "
+            f"type_slug best={float(type_row['best_macro_f1']):.4f} vs family best={float(family_row['best_macro_f1']):.4f}."
+        )
+    family_within_type_row = by_target.get("family_within_type")
+    if family_within_type_row is not None and type_row is not None:
+        interpretation_lines.append(
+            "[ABLATION] family_within_type remains harder: "
+            f"family_within_type best={float(family_within_type_row['best_macro_f1']):.4f} "
+            f"vs type_slug best={float(type_row['best_macro_f1']):.4f}."
+        )
+
+    seen_lines: set[str] = set()
+    for line in interpretation_lines:
+        if line in seen_lines:
+            continue
+        seen_lines.add(line)
+        du.print_info(line)
+
+    if not ml_console.is_debug():
+        du.print_info("[ABLATION] Full experiment grid remains in diagnostics CSV/Markdown summaries.")

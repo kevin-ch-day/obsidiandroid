@@ -677,11 +677,14 @@ def train_model_factory(
                         "[ABLATION] Split cache indices are missing from the current feature matrix; "
                         "cannot align cached train/test rows to this feature set."
                     ) from exc
-            if not quiet_train:
+            if not quiet_train and not bool(
+                getattr(app_config, "RUNTIME_SPLIT_CACHE_NOTICE_EMITTED", False)
+            ):
                 du.print_info(
                     "[SPLIT] Reusing cached train/test partition for model consistency "
                     "(cache key includes encoded labels; different label targets use independent splits)."
                 )
+                setattr(app_config, "RUNTIME_SPLIT_CACHE_NOTICE_EMITTED", True)
             cached_meta = getattr(app_config, "RUNTIME_SPLIT_METADATA", None)
             if isinstance(cached_meta, dict) and cached_meta.get("split_algorithm"):
                 setattr(
@@ -826,10 +829,13 @@ def train_model_factory(
     except Exception as e:
         raise RuntimeError(f"Train/test split failed: {e}")
 
-    if not quiet_train:
+    if not quiet_train and not bool(
+        getattr(app_config, "RUNTIME_SPLIT_SIZE_NOTICE_EMITTED", False)
+    ):
         du.print_info(
             f"[SPLIT] Train size: {len(X_train)} | Test size: {len(X_test)}"
         )
+        setattr(app_config, "RUNTIME_SPLIT_SIZE_NOTICE_EMITTED", True)
     train_dist = {int(k): int(v) for k, v in Counter(y_train).items()}
     test_dist = {int(k): int(v) for k, v in Counter(y_test).items()}
     du.print_debug(f"[SPLIT] Train dist: {train_dist}")

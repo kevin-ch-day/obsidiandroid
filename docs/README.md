@@ -24,6 +24,7 @@ ObsidianDroid is an end-to-end framework for Android malware analysis, AV engine
 | [`VENDOR_EVALUATION_BOUNDARY_PLAN.md`](VENDOR_EVALUATION_BOUNDARY_PLAN.md) | Boundary notes for vendor parsing, evaluation, and related contract cleanup. |
 | [`module_split_audit.md`](module_split_audit.md) | Audit of large modules/functions and candidates for decomposition. |
 | [`code_review.md`](code_review.md) | Historical engineering review notes that still inform migration and cleanup work. |
+| [`PERMISSION_PATTERN_REPORT_PLAN.md`](PERMISSION_PATTERN_REPORT_PLAN.md) | Design plan for making permission-pattern analysis a first-class reporting lane across broad corpus, family benchmark, and type-level surfaces. |
 
 ## Quick Facts
 

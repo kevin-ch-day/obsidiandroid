@@ -124,7 +124,7 @@ def test_print_unified_run_health_includes_skip_reasons(tmp_path: Path, capsys) 
     out = capsys.readouterr().out
     assert "Research validity bundle" in out
     assert "SKIPPED (stop_after_samples)" in out
-    assert "Hostile audit" in out
+    assert "Skeptic audit" in out
 
 
 def test_print_unified_run_health_avoids_repeating_artifact_counts_and_truncates_warning_list(
@@ -218,7 +218,61 @@ def test_print_unified_run_health_shows_label_strategy_targets(tmp_path: Path, c
     assert "family_id" in out
     assert "Type target" in out
     assert "type_slug" in out
-    assert "Avoid primary claims on" in out
+
+
+def test_print_unified_run_health_compact_shortens_labels(tmp_path: Path, capsys) -> None:
+    run_root = tmp_path / "output" / "runs" / "r_compact"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    obs_path = diagnostics_dir / "run_observability_summary.json"
+    obs_path.write_text(
+        json.dumps(
+            {
+                "run_id": "r_compact",
+                "profile_id": "p_compact",
+                "pipeline_status": "PASS_WITH_WARNINGS",
+                "research_validity_status": "PASS",
+                "paper_mode": False,
+                "evidence_mode": False,
+                "verbose_run_artifacts": False,
+                "research_validity_bundle_enabled": False,
+                "publication_ready_status": "NOT_APPLICABLE",
+                "publication_ready_reasons": [],
+                "counts": {
+                    "cohort_sql_scope_row_count": 100,
+                    "cohort_prepared_row_count": 80,
+                    "feature_matrix_rows": 80,
+                    "aligned_supervised_rows": 75,
+                    "post_low_support_training_rows": 70,
+                    "train_rows": 35,
+                    "test_rows": 35,
+                },
+                "features": {
+                    "pre_prune": 120,
+                    "post_prune": 90,
+                },
+                "research_warnings_top": ["warn 1", "warn 2"],
+                "top_artifacts_to_open_first": ["foo.md", "bar.json"],
+                "paths": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    from config import app_config
+    setattr(app_config, "ML_CONSOLE_MODE", "research")
+    setattr(app_config, "ML_TERMINAL_COMPACT", True)
+    run_health.print_unified_run_health(
+        inventory_summary={},
+        observability_json_path=obs_path,
+        evidence_index_path=None,
+        run_root=run_root,
+    )
+
+    out = capsys.readouterr().out
+    assert "Feature columns" in out
+    assert "120 → 90" in out
+    assert "NEXT ARTIFACTS" in out
 
 
 def test_print_unified_run_health_surfaces_scientific_adequacy(tmp_path: Path, capsys) -> None:
@@ -260,12 +314,10 @@ def test_print_unified_run_health_surfaces_scientific_adequacy(tmp_path: Path, c
     )
 
     out = capsys.readouterr().out
-    assert "Publication-ready status" in out
+    assert "Publication status" in out
     assert "PASS" in out
     assert "Scientific adequacy" in out
     assert "Weak" in out
-    assert "Scientific blockers" in out
-    assert "headline family Macro-F1 is weak (0.3261)" in out
 
 
 def test_print_unified_run_health_shows_disabled_label_resolution(tmp_path: Path, capsys) -> None:
@@ -384,18 +436,143 @@ def test_print_unified_run_health_shows_stage_loss_summaries(tmp_path: Path, cap
     )
 
     out = capsys.readouterr().out
-    assert "Alignment authority filter" in out
-    assert "dropped=4; rescued=179" in out
-    assert "Alignment rescue families" in out
-    assert "Applite=159, Wroba=15, Piom=5" in out
-    assert "Alignment dropped families" in out
-    assert "unknown_family=4" in out
-    assert "Low-support drops" in out
-    assert "rows=4; families=3" in out
-    assert "Low-support families" in out
-    assert "BrowBot=1, GINP=1, BRATA=2" in out
-    assert "Temporal future-only families" in out
-    assert "Zanubis=4, Alien=3" in out
+    assert "Support exclusions" in out
+    assert "4 rows / 3 families" in out
+    assert "Excluded families" in out
+    assert "GINP=1" in out
+    assert "BRATA=2" in out
+
+
+def test_print_unified_run_health_separates_benchmark_support_exclusions(tmp_path: Path, capsys) -> None:
+    run_root = tmp_path / "output" / "runs" / "r_benchmark_support"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    obs_path = diagnostics_dir / "run_observability_summary.json"
+    obs_path.write_text(
+        json.dumps(
+            {
+                "run_id": "r_benchmark_support",
+                "profile_id": "android_malware_major_families",
+                "pipeline_status": "PASS_WITH_WARNINGS",
+                "research_validity_status": "SKIPPED",
+                "paper_mode": False,
+                "evidence_mode": False,
+                "publication_ready_status": "NOT_APPLICABLE",
+                "publication_ready_reasons": [],
+                "benchmark_support_floor": 3,
+                "benchmark_support_excluded_sample_count": 2,
+                "benchmark_support_excluded_family_count": 2,
+                "benchmark_support_excluded_families_top": "ginp=1, marcher=1",
+                "top_artifacts_to_open_first": [],
+                "paths": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_health.print_unified_run_health(
+        inventory_summary={},
+        observability_json_path=obs_path,
+        evidence_index_path=None,
+        run_root=run_root,
+    )
+
+    out = capsys.readouterr().out
+    assert "Support gate" in out
+    assert "n>=3" in out
+    assert "Support exclusions" in out
+    assert "2 rows / 2 families" in out
+    assert "Excluded families" in out
+    assert "GINP=1, Marcher=1" in out
+
+
+def test_print_unified_run_health_sample_only_run_does_not_invent_macro_f1_blockers(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    run_root = tmp_path / "output" / "runs" / "r_samples_only"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    obs_path = diagnostics_dir / "run_observability_summary.json"
+    obs_path.write_text(
+        json.dumps(
+            {
+                "run_id": "r_samples_only",
+                "profile_id": "android_malware_major_families",
+                "run_status": "partial",
+                "completed_stage": "samples",
+                "pipeline_status": "PASS_WITH_WARNINGS",
+                "research_validity_status": "SKIPPED",
+                "paper_mode": False,
+                "evidence_mode": False,
+                "publication_ready_status": "NOT_APPLICABLE",
+                "publication_ready_reasons": [],
+                "scientific_adequacy": {
+                    "posture": "Not assessed",
+                    "blockers": [],
+                },
+                "top_artifacts_to_open_first": [],
+                "paths": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_health.print_unified_run_health(
+        inventory_summary={},
+        observability_json_path=obs_path,
+        evidence_index_path=None,
+        run_root=run_root,
+    )
+
+    out = capsys.readouterr().out
+    assert "Scientific adequacy" in out
+    assert "Not assessed" in out
+
+
+def test_print_unified_run_health_structures_warning_lines(tmp_path: Path, capsys) -> None:
+    run_root = tmp_path / "output" / "runs" / "r_warn_structured"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    obs_path = diagnostics_dir / "run_observability_summary.json"
+    obs_path.write_text(
+        json.dumps(
+            {
+                "run_id": "r_warn_structured",
+                "run_slot": "majorfam_benchmark",
+                "run_instance_id": "20260602T010627Z__33e5dd",
+                "run_mode": "benchmark",
+                "run_started_at_utc": "2026-06-02T01:06:27+00:00",
+                "profile_id": "android_malware_major_families",
+                "pipeline_status": "PASS",
+                "research_validity_status": "PASS",
+                "paper_mode": False,
+                "evidence_mode": False,
+                "publication_ready_status": "NOT_APPLICABLE",
+                "publication_ready_reasons": [],
+                "research_warnings_top": [
+                    "banker share 88.69% exceeds 60.00%",
+                    "raw family label differs from canonical family: 22",
+                ],
+                "top_artifacts_to_open_first": [],
+                "paths": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_health.print_unified_run_health(
+        inventory_summary={},
+        observability_json_path=obs_path,
+        evidence_index_path=None,
+        run_root=run_root,
+    )
+
+    out = capsys.readouterr().out
+    assert "[HIGH] Banker share: 88.69% exceeds 60.00%" in out
+    assert "[MEDIUM] Family conflicts: raw-vs-canonical conflicts=22" in out
+    assert "Run slot" in out
+    assert "majorfam_benchmark" in out
 
 
 def test_open_first_hints_respects_compact_tuning_flags(tmp_path: Path) -> None:

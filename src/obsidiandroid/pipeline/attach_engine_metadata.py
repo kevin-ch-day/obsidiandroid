@@ -86,7 +86,7 @@ def _write_engine_metadata_overlay_csv(meta_df: pd.DataFrame, *, verbose: bool) 
     setattr(app_config, "RUNTIME_ENGINE_METADATA_OVERLAY_CSV", str(path))
     if verbose:
         du.print_info(
-            f"[AV] Engine metadata overlay written to {path} "
+            f"[AV] Engine metadata overlay:{du.format_console_path(path)} "
             "(not concatenated onto the enriched matrix)."
         )
     return str(path)

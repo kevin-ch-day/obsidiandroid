@@ -47,7 +47,7 @@ def publication_exports_available(run_id: str | None, *, base: Path) -> bool:
     token = str(run_id or "").strip()
     if not token:
         return False
-    paper_dir = base / "runs" / token / "paper_exports"
+    paper_dir = run_locator.resolve_run_root_for_run_id(token, output_base=base) / "paper_exports"
     return paper_dir.exists() and paper_dir.is_dir()
 
 
@@ -55,7 +55,7 @@ def has_structural_bundle(run_id: str | None, *, base: Path) -> bool:
     token = str(run_id or "").strip()
     if not token:
         return False
-    bundle_dir = base / "runs" / token / "bundles" / "permission_trends"
+    bundle_dir = run_locator.resolve_run_root_for_run_id(token, output_base=base) / "bundles" / "permission_trends"
     return bundle_dir.exists() and bundle_dir.is_dir()
 
 
@@ -63,7 +63,7 @@ def latest_run_has_provenance(run_id: str | None, *, base: Path) -> bool:
     token = str(run_id or "").strip()
     if not token:
         return False
-    diagnostics = base / "runs" / token / "diagnostics"
+    diagnostics = run_locator.resolve_run_root_for_run_id(token, output_base=base) / "diagnostics"
     split_ledger = diagnostics / f"split_freeze_headline_{token}.csv"
     required = [
         split_ledger,
@@ -71,6 +71,20 @@ def latest_run_has_provenance(run_id: str | None, *, base: Path) -> bool:
         diagnostics / f"experiment_registry_{token}.json",
     ]
     return all(path.exists() for path in required)
+
+
+def latest_run_has_diagnostics(run_id: str | None, *, base: Path) -> bool:
+    """Return whether any run-scoped diagnostics artifacts exist for a given run."""
+    token = str(run_id or "").strip()
+    if not token:
+        return False
+    diagnostics = run_locator.resolve_run_root_for_run_id(token, output_base=base) / "diagnostics"
+    if not diagnostics.is_dir():
+        return False
+    try:
+        return any(diagnostics.iterdir())
+    except OSError:
+        return False
 
 
 def _resolve_cohort_contract_state(run_root: Path, run_id: str) -> dict[str, Any]:
@@ -89,7 +103,11 @@ def build_operator_state(*, output_base: Path | None = None, run_id: str | None 
     if effective_run_id and effective_run_id != str(resolved_run_id or "").strip():
         manifest, manifest_path = run_locator.resolve_manifest_for_run_id(effective_run_id)
         resolved_run_id = effective_run_id
-    run_root = base / "runs" / effective_run_id if effective_run_id else Path()
+    run_root = (
+        run_locator.resolve_run_root_for_run_id(effective_run_id, output_base=base)
+        if effective_run_id
+        else Path()
+    )
     diagnostics_dir = run_root / "diagnostics" if effective_run_id else Path()
     canonical_manifest_path = run_root / "run_manifest.json" if effective_run_id else Path()
     best_index_path, has_canonical_run_science = (
@@ -136,6 +154,7 @@ def build_operator_state(*, output_base: Path | None = None, run_id: str | None 
         "canonical_manifest_path": canonical_manifest_path,
         "profile_id": profile_id,
         "latest_run_has_provenance": latest_run_has_provenance(effective_run_id, base=base),
+        "latest_run_has_diagnostics": latest_run_has_diagnostics(effective_run_id, base=base),
         "has_publication_exports": publication_exports_available(effective_run_id, base=base),
         "has_structural_bundle": has_structural_bundle(effective_run_id, base=base),
         "publication_ready_status": publication_ready_status,
@@ -154,6 +173,7 @@ def build_operator_state(*, output_base: Path | None = None, run_id: str | None 
 __all__ = [
     "build_operator_state",
     "has_structural_bundle",
+    "latest_run_has_diagnostics",
     "latest_run_has_provenance",
     "output_root",
     "publication_exports_available",

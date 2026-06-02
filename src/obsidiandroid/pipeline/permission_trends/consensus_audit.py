@@ -10,6 +10,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
+from obsidiandroid.governance import family_tier_authority
 
 
 def extract_selected_vendors(feature_df: pd.DataFrame | None) -> list[str]:
@@ -178,14 +179,28 @@ def build_generic_definition_audit(
 ) -> pd.DataFrame:
     min_support = safe_int_config_value(getattr(app_config, "GENERIC_MIN_SUPPORT", 30), default=30)
     support_map = family_support_df.set_index("family_id")["sample_count"].to_dict()
-    merged = sample_core_df[["sample_id", "family_id", "type_slug"]].merge(
+    base_cols = [
+        "sample_id",
+        "family_id",
+        "family_canonical",
+        "type_slug",
+        "category_primary",
+        "category_subtype",
+        "sample_label_kind",
+    ]
+    present_cols = [col for col in base_cols if col in sample_core_df.columns]
+    merged = sample_core_df[present_cols].merge(
         consensus_df[["sample_id", "consensus_score_all_vendors", "consensus_entropy_all_vendors", "vendor_count"]],
         on="sample_id",
         how="left",
     )
     merged["family_support"] = merged["family_id"].map(support_map).fillna(0).astype(int)
     merged["is_low_support_family"] = (merged["family_support"] < min_support).astype(int)
-    merged["is_generic_primary"] = ((merged["type_slug"] == "unknown") | (merged["family_id"] < 0)).astype(int)
+    tier_masks = family_tier_authority.build_family_tier_masks(merged)
+    merged["is_major_family"] = tier_masks["major_family"].astype(int)
+    merged["is_minor_family"] = tier_masks["minor_family"].astype(int)
+    merged["is_generic_or_coarse"] = tier_masks["generic_coarse"].astype(int)
+    merged["is_unresolved"] = tier_masks["unresolved"].astype(int)
     min_vendor_count = safe_int_config_value(
         getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5),
         default=5,
@@ -195,21 +210,33 @@ def build_generic_definition_audit(
         low_consensus_threshold = 0.0
     else:
         low_consensus_threshold = float(valid["consensus_score_all_vendors"].quantile(0.10))
-    merged["is_generic_low_consensus"] = (merged["consensus_score_all_vendors"].fillna(0.0) <= low_consensus_threshold).astype(
-        int
-    )
+    merged["is_generic_low_consensus"] = (
+        (merged["is_generic_or_coarse"] == 1)
+        & (merged["consensus_score_all_vendors"].fillna(0.0) <= low_consensus_threshold)
+    ).astype(int)
     merged["generic_low_support_overlap"] = (
-        (merged["is_generic_primary"] == 1) & (merged["is_low_support_family"] == 1)
+        (merged["is_generic_or_coarse"] == 1) & (merged["is_low_support_family"] == 1)
+    ).astype(int)
+    merged["unresolved_low_support_overlap"] = (
+        (merged["is_unresolved"] == 1) & (merged["is_low_support_family"] == 1)
     ).astype(int)
 
     n = max(len(merged), 1)
     summary_rows = [
         {"run_id": run_id, "metric": "sample_count", "value": int(len(merged))},
-        {"run_id": run_id, "metric": "generic_primary_count", "value": int(merged["is_generic_primary"].sum())},
+        {"run_id": run_id, "metric": "major_family_count", "value": int(merged["is_major_family"].sum())},
+        {"run_id": run_id, "metric": "minor_family_count", "value": int(merged["is_minor_family"].sum())},
+        {"run_id": run_id, "metric": "generic_or_coarse_count", "value": int(merged["is_generic_or_coarse"].sum())},
+        {"run_id": run_id, "metric": "unresolved_count", "value": int(merged["is_unresolved"].sum())},
         {
             "run_id": run_id,
-            "metric": "generic_primary_pct",
-            "value": round(float(merged["is_generic_primary"].sum()) / n, 6),
+            "metric": "generic_or_coarse_pct",
+            "value": round(float(merged["is_generic_or_coarse"].sum()) / n, 6),
+        },
+        {
+            "run_id": run_id,
+            "metric": "unresolved_pct",
+            "value": round(float(merged["is_unresolved"].sum()) / n, 6),
         },
         {"run_id": run_id, "metric": "low_support_family_count", "value": int(merged["is_low_support_family"].sum())},
         {
@@ -230,6 +257,11 @@ def build_generic_definition_audit(
         },
         {
             "run_id": run_id,
+            "metric": "unresolved_low_support_overlap_count",
+            "value": int(merged["unresolved_low_support_overlap"].sum()),
+        },
+        {
+            "run_id": run_id,
             "metric": "generic_low_consensus_pct",
             "value": round(float(merged["is_generic_low_consensus"].sum()) / n, 6),
         },
@@ -245,4 +277,3 @@ __all__ = [
     "find_column",
     "build_vendor_votes",
 ]
-

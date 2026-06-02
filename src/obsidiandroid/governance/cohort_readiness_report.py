@@ -8,11 +8,19 @@ Operator vocabulary (see ``obsidiandroid.diagnostics.cohort_vocabulary``):
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.diagnostics import taxonomy_target_surface_report
+from obsidiandroid.governance.support_floor_policy import (
+    SUPPORT_DIAGNOSTIC_FLOORS,
+    resolve_configured_min_samples_per_family,
+    resolve_diagnostic_min_samples_per_family,
+    resolve_support_floor_mode,
+)
 
 
 def print_cohort_readiness_report(
@@ -40,92 +48,125 @@ def print_cohort_readiness_report(
     missing_pkg = _missing_ratio(samples_df, "android_package_name", fallback="package_name")
     missing_vt_time = _missing_vt_time_ratio(samples_df)
     unmapped = _unmapped_count(samples_df)
+    max_missing_pkg_pct = float(gates.get("max_missing_package_pct", 10.0))
     fam_col = _family_column(samples_df)
-
-    du.print_section("Cohort Readiness Summary")
-    du.print_stat("Final Samples", f"{total:,}")
     sql_scope_total = int(gate_stats.get("total_candidates") or 0)
     governed_ref = int(gate_stats.get("governed_cohort_count") or gate_stats.get("final_count_estimate") or 0)
-    if sql_scope_total > 0:
-        du.print_stat("SQL Profile Scope", f"{sql_scope_total:,}")
-    if governed_ref > 0 and governed_ref != total:
-        du.print_stat("SQL governed cohort (reference)", f"{governed_ref:,}")
-        pct = round(100.0 * float(total) / float(governed_ref), 2)
-        du.print_note(
-            f"Prepared cohort is {total:,} rows ({pct}% of the SQL-governed reference). "
-            "The difference is from Python-side preparation after the fetch "
-            "(profile dataset_filters, malware/cohort labeling, contract gates, snapshot locks)."
+    profile_id = str(
+        samples_df.attrs.get("profile_id")
+        or getattr(app_config, "RUNTIME_PROFILE_ID", "")
+        or ""
+    ).strip()
+    heading = _cohort_summary_heading(profile_id=profile_id, samples_df=samples_df)
+    du.print_section(heading)
+
+    target_summary = _build_target_surface_summary(samples_df, gates=gates)
+    composition = _build_composition_summary(samples_df=samples_df, fam_col=fam_col, total=total)
+    quality = _build_catalog_quality_metrics(
+        samples_df=samples_df,
+        total=total,
+        missing_pkg=missing_pkg,
+        missing_vt_time=missing_vt_time,
+        unmapped=unmapped,
+    )
+    drift_groups = _collect_top_drift_groups(samples_df)
+
+    funnel_sql = sql_scope_total if sql_scope_total > 0 else total
+    funnel_governed = governed_ref if governed_ref > 0 else total
+    funnel_trainable_rows = int(target_summary.get("benchmark_eligible_rows", total) or 0)
+    represented_types = _unique_count(samples_df, "type_slug")
+    represented_families = _unique_count(samples_df, fam_col)
+    benchmark_trainable_families = int(target_summary.get("family_trainable_classes", 0) or 0)
+    benchmark_floor = target_summary.get("benchmark_min_support")
+    conservative_families = int(target_summary.get("family_trainable_classes_at_20", 0) or 0)
+    support_excluded_rows = max(0, total - funnel_trainable_rows)
+    support_excluded_families = max(0, represented_families - benchmark_trainable_families)
+
+    surface_label = _profile_surface_label(profile_id=profile_id, samples_df=samples_df)
+    du.print_stat("Profile surface", surface_label)
+    du.print_stat(
+        "Cohort funnel",
+        f"{funnel_sql:,} SQL → {funnel_governed:,} governed → {total:,} prepared → {funnel_trainable_rows:,} benchmark-trainable",
+    )
+    if benchmark_floor not in (None, ""):
+        du.print_stat(
+            "Benchmark trainable",
+            f"{funnel_trainable_rows:,} rows | {benchmark_trainable_families:,} families after n>={int(benchmark_floor)} support gate",
         )
-    if sql_scope_total > 0:
-        du.print_subheader("Cohort Attrition")
-        if governed_ref > 0:
-            governed_pct = round(100.0 * float(governed_ref) / float(sql_scope_total), 2)
+        du.print_stat(
+            "Diagnostic-only rows",
+            f"{support_excluded_rows:,} rows | {support_excluded_families:,} families below support threshold",
+        )
+    du.print_stat(
+        "Represented taxonomy",
+        f"{represented_types:,} type_slug classes | {represented_families:,} visible families",
+    )
+
+    du.print_subheader("Benchmark Targets")
+    du.print_stat(
+        "Family target",
+        f"family_id | {benchmark_trainable_families:,} trainable classes",
+    )
+    du.print_stat(
+        "Type target",
+        f"type_slug | {int(target_summary.get('type_trainable_classes', 0) or 0):,} trainable classes",
+    )
+    du.print_stat(
+        "Family-within-type",
+        f"{int(target_summary.get('family_within_type_trainable_classes', 0) or 0):,} trainable classes",
+    )
+    du.print_stat("Raw label fields", "audit only; not primary scientific targets")
+
+    du.print_subheader("Cohort Composition")
+    if composition.get("top_types"):
+        du.print_stat("Top types", str(composition["top_types"]))
+    if composition.get("top_families"):
+        du.print_stat("Top families", str(composition["top_families"]))
+    if composition.get("concentration"):
+        du.print_stat("Concentration", str(composition["concentration"]))
+
+    du.print_subheader("Quality / Risk Flags")
+    du.print_stat(
+        "Label readiness",
+        (
+            f"unmapped={int(quality['unmapped'])} | "
+            f"weak labels={int(quality['weak_label_rows'])} | "
+            f"non-family-target={int(target_summary.get('non_family_target_rows', 0) or 0)}"
+        ),
+    )
+    du.print_stat(
+        "Missingness",
+        f"package_name missing={missing_pkg:.2f}% | VT timestamp missing={missing_vt_time:.2f}%",
+    )
+    if quality["all_zero_hygiene"]:
+        du.print_stat(
+            "Catalog hygiene",
+            "no non-Android rows, weak labels, filename/hash labels, or blank VT-token rows",
+        )
+    elif quality.get("catalog_drift_summary"):
+        du.print_stat("Catalog drift", str(quality["catalog_drift_summary"]))
+    if int(quality["family_conflict_rows"]) > 0:
+        du.print_stat("Family conflicts", f"raw-vs-canonical conflicts={int(quality['family_conflict_rows'])}")
+    if composition.get("dominance_warning"):
+        du.print_stat("Dominance warning", str(composition["dominance_warning"]))
+
+    if drift_groups:
+        du.print_subheader("Top Curation Queue")
+        for idx, row in enumerate(drift_groups[:3], start=1):
             du.print_stat(
-                "SQL Scope → Governed",
-                f"{governed_ref:,}/{sql_scope_total:,} ({governed_pct:.2f}%)",
-            )
-        prepared_pct = round(100.0 * float(total) / float(sql_scope_total), 2)
-        du.print_stat(
-            "SQL Scope → Prepared",
-            f"{total:,}/{sql_scope_total:,} ({prepared_pct:.2f}%)",
-        )
-    du.print_stat("Unique Families", _unique_count(samples_df, fam_col))
-    du.print_stat("Represented Types", _unique_count(samples_df, "type_slug"))
-    _print_taxonomy_target_surfaces(samples_df, gates=gates)
-
-    du.print_subheader("Quality Checks")
-    du.print_stat("Unmapped Labels", unmapped)
-    max_missing_pkg_pct = float(gates.get("max_missing_package_pct", 10.0))
-    pkg_label = f"{missing_pkg:.2f}%"
-    if missing_pkg > max_missing_pkg_pct:
-        pkg_label += f" (threshold {max_missing_pkg_pct:.2f}%)"
-    du.print_stat("Missing Package Name", pkg_label)
-    du.print_stat("Missing VT Timestamps", f"{missing_vt_time:.2f}%")
-
-    if "type_slug" in samples_df.columns:
-        counts = samples_df["type_slug"].fillna("unknown").value_counts()
-        du.print_subheader("Type Distribution")
-        max_type_rows = 3 if ml_console.is_compact() else len(counts)
-        for key, value in counts.head(max_type_rows).items():
-            pct = (float(value) / max(total, 1)) * 100.0
-            du.print_info(f"  - {key}: {value:,} ({pct:.2f}%)")
-        if len(counts) > max_type_rows:
-            du.print_info(
-                f"  - ... {len(counts) - max_type_rows} additional type bucket(s) in diagnostics / dataframe exports."
+                f"{idx}. {row['label']} {row['group_value']}",
+                f"{int(row['rows'])} rows",
             )
 
-    if fam_col:
-        fam_counts = samples_df[fam_col].fillna("unknown").value_counts()
-        top_family = str(fam_counts.index[0]) if len(fam_counts) else "n/a"
-        top_family_count = int(fam_counts.iloc[0]) if len(fam_counts) else 0
-        top_family_share = (float(top_family_count) / max(total, 1)) * 100.0
-        top3 = int(fam_counts.head(3).sum()) if len(fam_counts) else 0
-        top5 = int(fam_counts.head(5).sum()) if len(fam_counts) else 0
-        du.print_subheader("Family Concentration")
-        du.print_stat(
-            "Top Family",
-            f"{top_family} ({top_family_count:,}, {top_family_share:.2f}%)",
-        )
-        du.print_stat(
-            "Top 3 Families",
-            f"{top3:,} ({(float(top3) / max(total, 1)) * 100.0:.2f}%)",
-        )
-        du.print_stat(
-            "Top 5 Families",
-            f"{top5:,} ({(float(top5) / max(total, 1)) * 100.0:.2f}%)",
-        )
+    du.print_subheader("Policy")
+    if benchmark_floor not in (None, ""):
+        du.print_stat("Family support rule", f"n>={int(benchmark_floor)} for supervised family benchmarking")
+    if conservative_families > 0:
+        du.print_stat("Conservative threshold", f"n>=20 keeps {conservative_families:,} families")
+    du.print_stat("Below-threshold families", "retained in diagnostics, excluded from benchmark training")
+    du.print_stat("Excluded type_slug values", "unknown" if bool(gates.get("exclude_unknown_type_slug", False)) else "(none)")
+    du.print_stat("Full catalog/SQL audit", "see cohort_population_audit.csv and dataset_quality_gates.csv")
 
-        top_family_limit = 5 if ml_console.is_compact() else 10
-        du.print_subheader(f"Top Families (Top {top_family_limit})")
-        for key, value in fam_counts.head(top_family_limit).items():
-            du.print_info(f"  - {key}: {int(value):,}")
-        if len(fam_counts) > top_family_limit:
-            du.print_info(
-                f"  - ... {len(fam_counts) - top_family_limit} additional families omitted from terminal output."
-            )
-
-    _print_catalog_semantics(samples_df)
-    _print_cohort_policy(samples_df=samples_df, gates=gates)
     warning_messages = _print_cohort_verdict(
         total=total,
         missing_pkg=missing_pkg,
@@ -154,18 +195,261 @@ def print_cohort_sql_scope_gate_summary(stats: dict) -> None:
     if "excluded_family_label_conflict" in stats:
         du.print_stat("Excluded Family Conflict", int(stats.get("excluded_family_label_conflict", 0)))
     if not bool(stats.get("min_samples_per_family_applied_in_sql", True)):
-        low_support_txt = "(deferred by snapshot lock)"
+        low_support_txt = "diagnostic only / not applied"
     else:
         low_support_txt = str(int(stats.get("excluded_low_support", 0)))
     du.print_stat("Excluded Low Support", low_support_txt)
     governed = int(stats.get("governed_cohort_count", stats.get("final_count_estimate", 0)))
-    du.print_stat("Governed row count from SQL (authoritative)", governed)
+    du.print_stat("SQL governed rows", governed)
+    if str(stats.get("gate_stats_mode", "") or "").strip().lower() == "derived_from_loaded_governed_frame":
+        du.print_note(
+            "[COHORT] SQL gate summary reused the fetched governed cohort to avoid a duplicate prefetch scan."
+        )
     legacy = stats.get("final_count_estimate_sequential_legacy")
     if legacy is not None and int(legacy) != governed:
         du.print_info(
             f"[COHORT] Sequential marginal estimate was {int(legacy)} "
             f"(overlapping exclusion buckets — use governed SQL count above)."
         )
+
+
+def _cohort_summary_heading(*, profile_id: str, samples_df: pd.DataFrame) -> str:
+    publication_mode = bool(
+        samples_df.attrs.get("publication_ready_mode")
+        or samples_df.attrs.get("evidence_mode")
+        or getattr(app_config, "EVIDENCE_MODE_ENABLED", False)
+    )
+    if publication_mode:
+        return "Locked Publication Cohort Summary"
+    if profile_id == "android_malware_all_current":
+        return "Current-Corpus Cohort Summary"
+    return "Cohort Benchmark Summary"
+
+
+def _profile_surface_label(*, profile_id: str, samples_df: pd.DataFrame) -> str:
+    if bool(samples_df.attrs.get("publication_ready_mode") or samples_df.attrs.get("evidence_mode")):
+        return "Locked publication cohort"
+    if profile_id == "android_malware_all_current":
+        return "Current Android malware corpus"
+    return "Support-gated governed major-family benchmark"
+
+
+def _build_target_surface_summary(samples_df: pd.DataFrame, gates: dict) -> dict[str, Any]:
+    diagnostic_min_support = resolve_diagnostic_min_samples_per_family(gates)
+    summary = taxonomy_target_surface_report.build_taxonomy_target_surface_summary(
+        samples_df,
+        min_support=diagnostic_min_support,
+    )
+    targets = {
+        str(row.get("surface_name", "")): row
+        for row in summary.get("targets", [])
+        if isinstance(row, dict)
+    }
+    tier_counts = summary.get("tier_counts", {}) if isinstance(summary.get("tier_counts"), dict) else {}
+    benchmark_policy = (
+        summary.get("benchmark_support_policy")
+        if isinstance(summary.get("benchmark_support_policy"), dict)
+        else {}
+    )
+    family_row = targets.get("family_id", {})
+    type_row = targets.get("type_slug", {})
+    fwt_row = targets.get("family_within_type", {})
+    fam_col = _family_column(samples_df)
+    support_rows = [row for row in summary.get("support_diagnostics", []) if isinstance(row, dict)]
+    family_at_20 = next(
+        (int(row.get("family_target_family_count", 0) or 0) for row in support_rows if int(row.get("support_floor", 0)) == 20),
+        0,
+    )
+    benchmark_min_support = benchmark_policy.get("benchmark_min_support")
+    if benchmark_min_support in (None, ""):
+        benchmark_min_support = resolve_configured_min_samples_per_family(gates)
+    family_trainable = int(family_row.get("trainable_classes_at_min_support", 0) or 0)
+    if family_trainable == 0:
+        fam_col = _family_column(samples_df)
+        if fam_col and fam_col in samples_df.columns and benchmark_min_support not in (None, ""):
+            fam_counts = samples_df[fam_col].fillna("").astype(str).str.strip()
+            fam_counts = fam_counts[fam_counts != ""].value_counts()
+            family_trainable = int((fam_counts >= int(benchmark_min_support)).sum())
+            if family_at_20 == 0:
+                family_at_20 = int((fam_counts >= 20).sum())
+    type_trainable = int(type_row.get("trainable_classes_at_min_support", 0) or 0)
+    if type_trainable == 0 and "type_slug" in samples_df.columns:
+        type_counts = (
+            samples_df["type_slug"].fillna("").astype(str).str.strip()
+        )
+        type_counts = type_counts[type_counts != ""].value_counts()
+        if benchmark_min_support not in (None, ""):
+            type_trainable = int((type_counts >= int(benchmark_min_support)).sum())
+        else:
+            type_trainable = int(type_counts.nunique())
+    fwt_trainable = int(fwt_row.get("trainable_classes_at_min_support", 0) or 0)
+    if fwt_trainable == 0 and {"type_slug"}.issubset(samples_df.columns):
+        if fam_col and fam_col in samples_df.columns:
+            pairs = (
+                samples_df[["type_slug", fam_col]]
+                .fillna("")
+                .astype(str)
+                .apply(lambda col: col.str.strip())
+            )
+            pairs = pairs[(pairs["type_slug"] != "") & (pairs[fam_col] != "")]
+            if not pairs.empty:
+                pair_counts = pairs.value_counts()
+                if benchmark_min_support not in (None, ""):
+                    fwt_trainable = int((pair_counts >= int(benchmark_min_support)).sum())
+                else:
+                    fwt_trainable = int(pair_counts.shape[0])
+    non_family_target_rows = int(tier_counts.get("excluded_non_family_target_samples", 0) or 0)
+    if fam_col and fam_col in samples_df.columns:
+        family_present_rows = int(
+            (
+                samples_df[fam_col]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .ne("")
+            ).sum()
+        )
+        if family_present_rows > 0 and non_family_target_rows >= len(samples_df):
+            non_family_target_rows = 0
+    return {
+        "benchmark_min_support": benchmark_min_support,
+        "family_trainable_classes": family_trainable,
+        "type_trainable_classes": type_trainable,
+        "family_within_type_trainable_classes": fwt_trainable,
+        "benchmark_eligible_rows": int(tier_counts.get("benchmark_eligible_samples", len(samples_df)) or len(samples_df)),
+        "non_family_target_rows": non_family_target_rows,
+        "family_trainable_classes_at_20": family_at_20,
+    }
+
+
+def _build_composition_summary(*, samples_df: pd.DataFrame, fam_col: str | None, total: int) -> dict[str, str]:
+    result: dict[str, str] = {}
+    if "type_slug" in samples_df.columns:
+        counts = samples_df["type_slug"].fillna("unknown").astype(str).value_counts()
+        entries = [
+            f"{key}={int(value):,} ({(float(value) / max(total, 1)) * 100.0:.2f}%)"
+            for key, value in counts.head(3).items()
+        ]
+        if entries:
+            result["top_types"] = " | ".join(entries)
+        banker_share = (float(counts.get("banker", 0)) / max(total, 1)) * 100.0
+        if banker_share >= 60.0:
+            result["dominance_warning"] = "banker share is high; lead with Macro-F1 and recall tails"
+    if fam_col and fam_col in samples_df.columns:
+        fam_counts = samples_df[fam_col].fillna("unknown").value_counts()
+        top_families = [f"{key}={int(value):,}" for key, value in fam_counts.head(5).items()]
+        if top_families:
+            result["top_families"] = " | ".join(top_families)
+        if len(fam_counts):
+            top_family_count = int(fam_counts.iloc[0])
+            top3 = int(fam_counts.head(3).sum())
+            top5 = int(fam_counts.head(5).sum())
+            result["concentration"] = (
+                f"top family={(float(top_family_count) / max(total, 1)) * 100.0:.2f}% | "
+                f"top-3={(float(top3) / max(total, 1)) * 100.0:.2f}% | "
+                f"top-5={(float(top5) / max(total, 1)) * 100.0:.2f}%"
+            )
+    return result
+
+
+def _build_catalog_quality_metrics(
+    *,
+    samples_df: pd.DataFrame,
+    total: int,
+    missing_pkg: float,
+    missing_vt_time: float,
+    unmapped: int,
+) -> dict[str, Any]:
+    lane_norm = (
+        samples_df["analysis_lane"].fillna("").astype(str).str.strip().str.lower()
+        if "analysis_lane" in samples_df.columns
+        else pd.Series([""] * len(samples_df), index=samples_df.index, dtype="object")
+    )
+    target_norm = (
+        samples_df["payload_target_platform"].fillna("").astype(str).str.strip().str.lower()
+        if "payload_target_platform" in samples_df.columns
+        else pd.Series([""] * len(samples_df), index=samples_df.index, dtype="object")
+    )
+    label_kind_norm = (
+        samples_df["sample_label_kind"].fillna("").astype(str).str.strip().str.lower()
+        if "sample_label_kind" in samples_df.columns
+        else pd.Series([""] * len(samples_df), index=samples_df.index, dtype="object")
+    )
+    token_norm = (
+        samples_df["vt_family_token"].fillna("").astype(str).str.strip()
+        if "vt_family_token" in samples_df.columns
+        else pd.Series([""] * len(samples_df), index=samples_df.index, dtype="object")
+    )
+    family_raw = (
+        samples_df["family_label_raw"].fillna("").astype(str).str.strip().str.lower()
+        if "family_label_raw" in samples_df.columns
+        else pd.Series([""] * len(samples_df), index=samples_df.index, dtype="object")
+    )
+    family_canonical = (
+        samples_df["family_canonical"].fillna("").astype(str).str.strip().str.lower()
+        if "family_canonical" in samples_df.columns
+        else pd.Series([""] * len(samples_df), index=samples_df.index, dtype="object")
+    )
+    non_android_lane_rows = int((lane_norm != "android_artifact").sum()) if len(lane_norm) else 0
+    non_android_target_rows = int(((target_norm != "") & (target_norm != "android")).sum()) if len(target_norm) else 0
+    weak_label_rows = int(
+        (
+            label_kind_norm.isin({"filename", "hash_like", "opaque_string", "unclassified"})
+            & ~family_canonical.isin({"", "unknown", "other", "unmapped", "none", "null"})
+        ).sum()
+    ) if len(label_kind_norm) else 0
+    filename_rows = int((label_kind_norm == "filename").sum()) if len(label_kind_norm) else 0
+    hash_rows = int((label_kind_norm == "hash_like").sum()) if len(label_kind_norm) else 0
+    blank_family_with_token_rows = int(
+        (
+            (token_norm != "")
+            & family_raw.isin({"", "unknown", "generic", "unclassified", "unlabeled"})
+        ).sum()
+    ) if len(token_norm) else 0
+    family_conflict_rows = int(
+        (
+            ~family_raw.isin({"", "unknown", "generic", "unclassified", "unlabeled"})
+            & ~family_canonical.isin({"", "unknown", "other", "unmapped", "none", "null"})
+            & (family_raw != family_canonical)
+        ).sum()
+    ) if len(family_raw) else 0
+    drift_parts: list[str] = []
+    if non_android_lane_rows > 0:
+        drift_parts.append(f"non-Android lane={non_android_lane_rows}")
+    if non_android_target_rows > 0:
+        drift_parts.append(f"non-Android target={non_android_target_rows}")
+    if filename_rows > 0:
+        drift_parts.append(f"filename labels={filename_rows}")
+    if hash_rows > 0:
+        drift_parts.append(f"hash labels={hash_rows}")
+    if weak_label_rows > 0 and "weak labels=" + str(weak_label_rows) not in drift_parts:
+        drift_parts.append(f"weak labels={weak_label_rows}")
+    if blank_family_with_token_rows > 0:
+        drift_parts.append(f"blank raw + VT token={blank_family_with_token_rows}")
+    return {
+        "unmapped": unmapped,
+        "missing_pkg": missing_pkg,
+        "missing_vt_time": missing_vt_time,
+        "non_android_lane_rows": non_android_lane_rows,
+        "non_android_target_rows": non_android_target_rows,
+        "weak_label_rows": weak_label_rows,
+        "filename_rows": filename_rows,
+        "hash_rows": hash_rows,
+        "blank_family_with_token_rows": blank_family_with_token_rows,
+        "family_conflict_rows": family_conflict_rows,
+        "catalog_drift_summary": " | ".join(drift_parts),
+        "all_zero_hygiene": all(
+            value == 0
+            for value in (
+                non_android_lane_rows,
+                non_android_target_rows,
+                weak_label_rows,
+                filename_rows,
+                hash_rows,
+                blank_family_with_token_rows,
+            )
+        ),
+    }
 
 
 def _family_column(df: pd.DataFrame) -> str | None:
@@ -215,13 +499,11 @@ def _unique_count(df: pd.DataFrame, col: str | None) -> int:
 
 def _print_taxonomy_target_surfaces(samples_df: pd.DataFrame, *, gates: dict) -> None:
     """Print compact supervision-surface coverage for family/type/taxonomy targets."""
-    try:
-        min_support = int(gates.get("min_samples_per_family", 3))
-    except (TypeError, ValueError):
-        min_support = 3
+    configured_min_support = resolve_configured_min_samples_per_family(gates)
+    diagnostic_min_support = resolve_diagnostic_min_samples_per_family(gates)
     summary = taxonomy_target_surface_report.build_taxonomy_target_surface_summary(
         samples_df,
-        min_support=min_support,
+        min_support=diagnostic_min_support,
     )
     targets = {
         str(row.get("surface_name", "")): row
@@ -242,15 +524,40 @@ def _print_taxonomy_target_surfaces(samples_df: pd.DataFrame, *, gates: dict) ->
         row = targets.get(surface_name)
         if not isinstance(row, dict):
             continue
-        du.print_stat(
-            label,
-            (
-                f"rows={int(row.get('present_rows', 0)):,} | "
-                f"classes={int(row.get('unique_classes', 0)):,} | "
-                f"trainable@{int(row.get('min_support', min_support))}="
-                f"{int(row.get('trainable_classes_at_min_support', 0)):,}"
-            ),
+        value = (
+            f"rows={int(row.get('present_rows', 0)):,} | "
+            f"classes={int(row.get('unique_classes', 0)):,}"
         )
+        if configured_min_support is not None:
+            value += (
+                f" | trainable@{int(row.get('min_support', configured_min_support))}="
+                f"{int(row.get('trainable_classes_at_min_support', 0)):,}"
+            )
+        du.print_stat(label, value)
+
+    support_rows = [
+        row
+        for row in summary.get("support_diagnostics", [])
+        if isinstance(row, dict)
+    ]
+    benchmark_policy = (
+        summary.get("benchmark_support_policy")
+        if isinstance(summary.get("benchmark_support_policy"), dict)
+        else {}
+    )
+    if support_rows:
+        du.print_subheader("Support Diagnostics")
+        for floor in SUPPORT_DIAGNOSTIC_FLOORS:
+            row = next((item for item in support_rows if int(item.get("support_floor", 0)) == int(floor)), None)
+            if not isinstance(row, dict):
+                continue
+            du.print_stat(
+                f"trainable@{int(floor)}",
+                (
+                    f"family_classes={int(row.get('family_target_family_count', 0)):,} | "
+                    f"type_classes={int(row.get('type_target_class_count', 0)):,}"
+                ),
+            )
 
     alignment = summary.get("alignment", {})
     if isinstance(alignment, dict) and int(alignment.get("rows_with_authoritative_type", 0)) > 0:
@@ -262,6 +569,28 @@ def _print_taxonomy_target_surfaces(samples_df: pd.DataFrame, *, gates: dict) ->
                 f"inferred match={float(alignment.get('inferred_type_match_pct', 0.0)):.2f}%"
             ),
         )
+    tier_counts = summary.get("tier_counts", {})
+    if isinstance(tier_counts, dict) and tier_counts:
+        du.print_stat(
+            "Family Tiers",
+            (
+                f"major={int(tier_counts.get('major_family_samples', 0)):,} | "
+                f"minor={int(tier_counts.get('minor_family_samples', 0)):,} | "
+                f"generic/coarse={int(tier_counts.get('generic_coarse_label_samples', 0)):,} | "
+                f"unresolved={int(tier_counts.get('unresolved_samples', 0)):,}"
+            ),
+        )
+        if benchmark_policy.get("benchmark_min_support") not in (None, ""):
+            du.print_stat(
+                "Benchmark Eligibility",
+                (
+                    f"authority={int(tier_counts.get('authority_eligible_samples', 0)):,} | "
+                    f"benchmark@{int(benchmark_policy.get('benchmark_min_support', 0))}="
+                    f"{int(tier_counts.get('benchmark_eligible_samples', 0)):,} | "
+                    f"support-excluded={int(tier_counts.get('excluded_below_benchmark_support_samples', 0)):,} | "
+                    f"non-family-target={int(tier_counts.get('excluded_non_family_target_samples', 0)):,}"
+                ),
+            )
 
 
 def _print_catalog_semantics(samples_df: pd.DataFrame) -> None:
@@ -452,8 +781,23 @@ def _print_sql_scope_catalog_semantics_preview(samples_df: pd.DataFrame) -> None
 
 def _print_top_drift_groups(samples_df: pd.DataFrame) -> None:
     """Show the worst Android drift cohorts by family/type/source batch."""
-    if samples_df.empty:
+    drift_groups = _collect_top_drift_groups(samples_df)
+    if not drift_groups:
         return
+    du.print_subheader("Top Drift Cohorts")
+    for idx, row in enumerate(drift_groups[:3], start=1):
+        summary = (
+            f"{row['label']}: {row['group_value']} rows={int(row['rows'])}, "
+            f"issues={int(row['issue_events'])}, dominant={row['dominant_issue']}:{int(row['dominant_count'])}, "
+            f"weak={int(row['weak_label_rows'])}, conflicts={int(row['family_conflict_rows'])}"
+        )
+        du.print_stat(f"Drift Group {idx}", summary)
+
+
+def _collect_top_drift_groups(samples_df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Return the worst Android drift cohorts by family/type/source batch."""
+    if samples_df.empty:
+        return []
 
     frame = samples_df.copy()
     for col in ("family_canonical", "type_slug", "source_batch_label"):
@@ -514,9 +858,7 @@ def _print_top_drift_groups(samples_df: pd.DataFrame) -> None:
     frame["issue_rows"] = frame[issue_columns].any(axis=1)
     issue_frame = frame[frame["issue_rows"]].copy()
     if issue_frame.empty:
-        return
-
-    du.print_subheader("Top Drift Cohorts")
+        return []
     group_specs = []
     if "family_canonical" in issue_frame.columns:
         group_specs.append(("families", "family_canonical"))
@@ -524,19 +866,37 @@ def _print_top_drift_groups(samples_df: pd.DataFrame) -> None:
         group_specs.append(("types", "type_slug"))
     if "source_batch_label" in issue_frame.columns:
         group_specs.append(("source batches", "source_batch_label"))
+
+    def _normalize_sample_ids(value: Any) -> set[str]:
+        if value is None:
+            return set()
+        if isinstance(value, str):
+            token = value.strip()
+            return {token} if token else set()
+        if isinstance(value, (tuple, list, set, frozenset)):
+            return {str(v).strip() for v in value if str(v).strip()}
+        to_list = getattr(value, "tolist", None)
+        if callable(to_list):
+            try:
+                return {str(v).strip() for v in to_list() if str(v).strip()}
+            except Exception:
+                pass
+        token = str(value).strip()
+        return {token} if token else set()
+
+    compact_candidates: list[dict[str, Any]] = []
     for label, group_col in group_specs:
-        grouped = (
-            issue_frame.groupby(group_col, dropna=False)
-            .agg(
-                rows=("issue_rows", "size"),
-                non_android_lane_rows=("issue_non_android_lane", "sum"),
-                non_android_target_rows=("issue_non_android_target", "sum"),
-                weak_label_rows=("issue_weak_label", "sum"),
-                blank_family_with_token_rows=("issue_blank_family_with_token", "sum"),
-                family_conflict_rows=("issue_family_conflict", "sum"),
-            )
-            .reset_index()
-        )
+        agg_spec: dict[str, tuple[str, str]] = {
+            "rows": ("issue_rows", "size"),
+            "non_android_lane_rows": ("issue_non_android_lane", "sum"),
+            "non_android_target_rows": ("issue_non_android_target", "sum"),
+            "weak_label_rows": ("issue_weak_label", "sum"),
+            "blank_family_with_token_rows": ("issue_blank_family_with_token", "sum"),
+            "family_conflict_rows": ("issue_family_conflict", "sum"),
+        }
+        if "sample_id" in issue_frame.columns:
+            agg_spec["sample_ids"] = ("sample_id", lambda s: tuple(sorted({str(v).strip() for v in s.tolist() if str(v).strip()})))
+        grouped = issue_frame.groupby(group_col, dropna=False).agg(**agg_spec).reset_index()
         grouped["issue_events"] = (
             grouped["non_android_lane_rows"]
             + grouped["non_android_target_rows"]
@@ -551,15 +911,79 @@ def _print_top_drift_groups(samples_df: pd.DataFrame) -> None:
         ).head(3)
         if grouped.empty:
             continue
-        du.print_info(f"  {label}:")
-        for _, row in grouped.iterrows():
-            du.print_info(
-                "    - "
-                f"{row[group_col]}: rows={int(row['rows'])}, "
-                f"issue_events={int(row['issue_events'])}, "
-                f"weak_label_rows={int(row['weak_label_rows'])}, "
-                f"family_conflicts={int(row['family_conflict_rows'])}"
+        for _, top in grouped.iterrows():
+            issue_buckets = {
+                "weak_label": int(top["weak_label_rows"]),
+                "family_conflict": int(top["family_conflict_rows"]),
+                "blank_family_with_token": int(top["blank_family_with_token_rows"]),
+                "non_android_lane": int(top["non_android_lane_rows"]),
+                "non_android_target": int(top["non_android_target_rows"]),
+            }
+            dominant_issue, dominant_count = max(
+                issue_buckets.items(),
+                key=lambda item: (item[1], item[0]),
             )
+            compact_candidates.append(
+                {
+                    "label": label,
+                    "group_value": str(top[group_col]),
+                    "rows": int(top["rows"]),
+                    "issue_events": int(top["issue_events"]),
+                    "weak_label_rows": int(top["weak_label_rows"]),
+                    "family_conflict_rows": int(top["family_conflict_rows"]),
+                    "dominant_issue": dominant_issue,
+                    "dominant_count": int(dominant_count),
+                    "sample_ids": _normalize_sample_ids(top["sample_ids"]) if "sample_ids" in top else set(),
+                }
+            )
+    if not compact_candidates:
+        return []
+    compact_candidates.sort(
+        key=lambda row: (
+            -int(row["issue_events"]),
+            -int(row["rows"]),
+            str(row["label"]),
+            str(row["group_value"]),
+        )
+    )
+    selected: list[dict[str, Any]] = []
+    for candidate in compact_candidates:
+        candidate_ids = candidate.get("sample_ids") or set()
+        if (
+            str(candidate.get("label")) == "source batches"
+            and str(candidate.get("group_value")) == "<blank>"
+            and candidate_ids
+        ):
+            covered_by_specific_child = False
+            for other in compact_candidates:
+                if other is candidate:
+                    continue
+                if str(other.get("label")) == "source batches":
+                    continue
+                other_ids = other.get("sample_ids") or set()
+                if not other_ids or not other_ids.issubset(candidate_ids):
+                    continue
+                if float(len(other_ids)) / float(len(candidate_ids)) >= 0.50:
+                    covered_by_specific_child = True
+                    break
+            if covered_by_specific_child:
+                continue
+        duplicate = False
+        for prior in selected:
+            prior_ids = prior.get("sample_ids") or set()
+            if candidate_ids and prior_ids:
+                union = candidate_ids | prior_ids
+                if union:
+                    jaccard = float(len(candidate_ids & prior_ids)) / float(len(union))
+                    if jaccard >= 0.95:
+                        duplicate = True
+                        break
+        if duplicate:
+            continue
+        selected.append(candidate)
+        if len(selected) >= 3:
+            break
+    return selected
 
 
 def _print_cohort_policy(samples_df: pd.DataFrame, gates: dict) -> None:
@@ -567,16 +991,19 @@ def _print_cohort_policy(samples_df: pd.DataFrame, gates: dict) -> None:
     requested_excluded = samples_df.attrs.get("requested_exclude_families", ())
     sql_applied_excluded = samples_df.attrs.get("sql_exclude_families_applied", ())
     exclude_deferred = bool(samples_df.attrs.get("exclude_families_deferred_by_snapshot_lock", False))
-    configured_min_support = int(
-        samples_df.attrs.get(
-            "configured_min_samples_per_family",
-            gates.get(
-                "min_samples_per_family",
-                getattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", getattr(app_config, "MIN_FAMILY_SUPPORT", 3)),
-            ),
-        )
-        or 3
+    configured_min_support = samples_df.attrs.get(
+        "configured_min_samples_per_family",
+        resolve_configured_min_samples_per_family(gates),
     )
+    diagnostic_min_support = int(
+        samples_df.attrs.get(
+            "diagnostic_min_samples_per_family",
+            resolve_diagnostic_min_samples_per_family(gates),
+        )
+    )
+    support_floor_mode = str(
+        samples_df.attrs.get("support_floor_mode", resolve_support_floor_mode(gates)) or ""
+    ).strip().lower()
     min_support_applied_in_sql = bool(samples_df.attrs.get("min_samples_per_family_applied_in_sql", True))
     min_support_sql_value = samples_df.attrs.get("min_samples_per_family_sql_value")
     exclude_unknown = bool(gates.get("exclude_unknown_type_slug", False))
@@ -587,11 +1014,21 @@ def _print_cohort_policy(samples_df: pd.DataFrame, gates: dict) -> None:
         excluded_txt = f"{excluded_txt} (deferred by snapshot lock)"
     du.print_stat("Excluded Families", excluded_txt)
     du.print_stat("Excluded Types", "unknown" if exclude_unknown else "(none)")
-    min_support_txt = str(configured_min_support)
-    if not min_support_applied_in_sql:
-        min_support_txt = f"{min_support_txt} (deferred by snapshot lock)"
-    elif min_support_sql_value not in (None, "") and int(min_support_sql_value) != configured_min_support:
-        min_support_txt = f"{configured_min_support} (SQL applied {int(min_support_sql_value)})"
+    if configured_min_support in (None, ""):
+        min_support_txt = f"diagnostic only (no admission gate; trainability shown at 20/10/5/3/1, runtime={diagnostic_min_support})"
+    elif support_floor_mode == "benchmark_eligibility":
+        min_support_txt = (
+            f"benchmark only (n>={int(configured_min_support)} for supervised family benchmarking; "
+            "broad corpus, taxonomy, and permission diagnostics retain all rows)"
+        )
+    else:
+        min_support_txt = str(int(configured_min_support))
+        if not min_support_applied_in_sql:
+            min_support_txt = f"{min_support_txt} (deferred by snapshot lock)"
+        elif min_support_sql_value not in (None, "") and int(min_support_sql_value) != int(configured_min_support):
+            min_support_txt = f"{int(configured_min_support)} (SQL applied {int(min_support_sql_value)})"
+    if support_floor_mode == "diagnostic_only" and configured_min_support not in (None, ""):
+        min_support_txt += f" [{support_floor_mode}]"
     du.print_stat("Minimum Family Support", min_support_txt)
 
 

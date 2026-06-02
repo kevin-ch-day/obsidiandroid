@@ -158,9 +158,16 @@ def _missing_primary_detail(taxonomy: dict[str, object]) -> str:
 
 def _policy_held_family_detail(taxonomy: dict[str, object]) -> str:
     """Summarize policy-held token residue without implying family authority debt."""
+    unresolved_count = safe_int(taxonomy.get("unresolved_family_count", 0), 0)
     counts = taxonomy.get("policy_held_family_token_kind_counts", {})
     if not isinstance(counts, dict) or not counts:
-        return "Resolved-family rows intentionally held by generic/coarse token policy."
+        prefix = (
+            "No true unresolved family debt in this slice; remaining resolved-family rows are intentionally held "
+            "by generic/coarse token policy."
+            if unresolved_count == 0
+            else "Resolved-family rows intentionally held by generic/coarse token policy."
+        )
+        return prefix
     parts = [
         f"{str(token_kind)}={safe_int(count, 0)}"
         for token_kind, count in sorted(
@@ -171,10 +178,12 @@ def _policy_held_family_detail(taxonomy: dict[str, object]) -> str:
     ]
     if not parts:
         return "Resolved-family rows intentionally held by generic/coarse token policy."
-    return (
-        "Resolved-family rows intentionally held by generic/coarse token policy; "
-        f"token_classes={', '.join(parts[:6])}."
+    prefix = (
+        "No true unresolved family debt in this slice; remaining resolved-family rows are intentionally held by generic/coarse token policy"
+        if unresolved_count == 0
+        else "Resolved-family rows intentionally held by generic/coarse token policy"
     )
+    return f"{prefix}; token_classes={', '.join(parts[:6])}."
 
 
 def _policy_held_family_action(policy_held_triage: dict[str, object] | None) -> str:
@@ -188,6 +197,33 @@ def _policy_held_family_action(policy_held_triage: dict[str, object] | None) -> 
     if safe_int(triage.get("row_count", 0), 0) > 0:
         return "Open the policy-held token risk export and audit the dominant hold lane plus token/package cluster before creating more family authority rows."
     return "Audit generic/coarse token policy before creating more family authority rows."
+
+
+def _family_type_conflict_detail(taxonomy: dict[str, object]) -> str:
+    """Summarize actionable family/type conflict candidates."""
+    posture = build_taxonomy_curation_posture(readiness={"taxonomy_signals": taxonomy})
+    detail = str(posture.get("note", "") or "").strip()
+    top_conflicts = taxonomy.get("top_family_type_conflicts", [])
+    bits: list[str] = []
+    if isinstance(top_conflicts, list):
+        for entry in top_conflicts[:5]:
+            if not isinstance(entry, dict):
+                continue
+            family = str(entry.get("family", "") or "").strip()
+            db_type = str(entry.get("db_type_slug", "") or "").strip()
+            semantic = str(entry.get("dominant_label_semantic", "") or "").strip()
+            samples = safe_int(entry.get("sample_count", 0), 0)
+            action = str(entry.get("suggested_action", "") or "").strip()
+            if not family:
+                continue
+            rhs = semantic or "<none>"
+            lhs = db_type or "<unmapped>"
+            suffix = f", action={action}" if action else ""
+            bits.append(f"{family}({lhs}->{rhs}, n={samples}{suffix})")
+    if bits:
+        extra = f" top_candidates={'; '.join(bits)}."
+        return f"{detail} {extra}".strip() if detail else f"top_candidates={'; '.join(bits)}."
+    return detail or "Rows where DB type, label semantics, or authority mapping still disagree."
 
 
 def _augment_policy_held_family_detail(
@@ -442,6 +478,8 @@ def choose_priority_triage(
         row_count = safe_int(payload.get("row_count", 0), 0)
         top_lane = str(payload.get("top_lane", "") or "").strip()
         top_lane_count = safe_int(payload.get("top_lane_count", 0), 0)
+        if row_count <= 0 and freshness == "current":
+            continue
         if freshness == "stale":
             action = f"Refresh {label.lower()} export first, then reopen it."
         candidates.append(
@@ -528,6 +566,17 @@ def build_backlog_debt_summary(
     taxonomy = readiness.get("taxonomy_signals", {}) if isinstance(readiness, dict) else {}
     posture = build_taxonomy_curation_posture(readiness=readiness)
     missing_primary_lanes = _missing_primary_lane_rows(taxonomy if isinstance(taxonomy, dict) else {})
+    unresolved_count = safe_int(taxonomy.get("unresolved_family_count", 0), 0) if isinstance(taxonomy, dict) else 0
+    policy_held_kind_counts = (
+        taxonomy.get("policy_held_family_token_kind_counts", {})
+        if isinstance(taxonomy, dict)
+        else {}
+    )
+    policy_held_generic_samples = (
+        safe_int(policy_held_kind_counts.get("generic_family_token", 0), 0)
+        if isinstance(policy_held_kind_counts, dict)
+        else 0
+    )
 
     def _row(*, code: str, label: str, count: int, action: str, detail: str = "") -> dict[str, object] | None:
         if count <= 0:
@@ -586,7 +635,11 @@ def build_backlog_debt_summary(
         _row(
             code=BACKLOG_ROW_POLICY_HELD_FAMILY,
             label=POLICY_HELD_FAMILY_NOISE_LABEL,
-            count=safe_int(taxonomy.get("policy_held_family_samples", 0), 0),
+            count=(
+                safe_int(taxonomy.get("policy_held_family_samples", 0), 0)
+                if policy_held_generic_samples > 0
+                else 0
+            ),
             action=_policy_held_family_action(policy_held_triage),
             detail=_augment_policy_held_family_detail(
                 _policy_held_family_detail(taxonomy if isinstance(taxonomy, dict) else {}),
@@ -598,15 +651,51 @@ def build_backlog_debt_summary(
             label=FAMILY_TYPE_CONFLICT_BACKLOG_LABEL,
             count=safe_int(taxonomy.get("family_type_conflict_count", 0), 0),
             action="Open profile readiness mapping inventory and review family/type conflict candidates.",
-            detail=(
-                str(posture.get("note", "") or "").strip()
-                or "Rows where DB type, label semantics, or authority mapping still disagree."
-            ),
+            detail=_family_type_conflict_detail(taxonomy if isinstance(taxonomy, dict) else {}),
         ),
     ]
     ranked_rows = [row for row in rows if isinstance(row, dict)]
+    row_priority = {
+        BACKLOG_ROW_ANDROID_MISSING_RESOLUTION: 0,
+        BACKLOG_ROW_TRUE_UNRESOLVED_FAMILY: 1,
+        BACKLOG_ROW_MISSING_PRIMARY_LABELS: 2,
+        BACKLOG_ROW_FAMILY_TYPE_CONFLICT: 3,
+        BACKLOG_ROW_VT_FALSE_POSITIVE: 4,
+        BACKLOG_ROW_POLICY_HELD_FAMILY: 5,
+    }
     ranked_rows.sort(key=lambda row: (-safe_int(row.get("count", 0), 0), str(row.get("label", ""))))
+    ranked_rows.sort(
+        key=lambda row: (
+            row_priority.get(str(row.get("code", "") or ""), 99),
+            -safe_int(row.get("count", 0), 0),
+            str(row.get("label", "")),
+        )
+    )
     top = ranked_rows[0] if ranked_rows else {}
+    if str(top.get("code", "") or "") == BACKLOG_ROW_POLICY_HELD_FAMILY and unresolved_count == 0:
+        top = top.copy()
+        top["focus_note"] = "Policy-held rows are governance residue, not true unresolved family debt."
+    if str(top.get("code", "") or "") == BACKLOG_ROW_POLICY_HELD_FAMILY:
+        triage = policy_held_triage if isinstance(policy_held_triage, dict) else {}
+        token_kind_counts = (
+            taxonomy.get("policy_held_family_token_kind_counts", {})
+            if isinstance(taxonomy, dict)
+            else {}
+        )
+        top = top.copy()
+        top["focus_structured"] = {
+            "source": "live DB current-state view, not frozen run snapshot",
+            "freshness": str(triage.get("freshness", "") or "").strip() or "unknown",
+            "token_kind_counts": token_kind_counts if isinstance(token_kind_counts, dict) else {},
+            "top_lane": str(triage.get("top_lane", "") or "").strip(),
+            "top_lane_count": safe_int(triage.get("top_lane_count", 0), 0),
+            "top_policy_held_token": str(triage.get("top_policy_held_token", "") or "").strip(),
+            "top_policy_held_token_count": safe_int(triage.get("top_policy_held_token_count", 0), 0),
+            "top_android_package_name": str(triage.get("top_android_package_name", "") or "").strip(),
+            "top_android_package_name_count": safe_int(triage.get("top_android_package_name_count", 0), 0),
+            "high_or_strong_row_count": safe_int(triage.get("high_or_strong_row_count", 0), 0),
+            "missing_primary_lane_split": _format_missing_primary_lane_split(missing_primary_lanes),
+        }
     return {
         "rows": ranked_rows,
         "focus_code": str(top.get("code", "") or ""),
@@ -614,6 +703,8 @@ def build_backlog_debt_summary(
         "focus_count": safe_int(top.get("count", 0), 0),
         "focus_action": str(top.get("action", "") or ""),
         "focus_detail": str(top.get("detail", "") or ""),
+        "focus_note": str(top.get("focus_note", "") or ""),
+        "focus_structured": top.get("focus_structured", {}) if isinstance(top.get("focus_structured", {}), dict) else {},
         "missing_primary_label_lanes": missing_primary_lanes,
         "taxonomy_curation_posture": posture,
     }
@@ -661,6 +752,9 @@ def build_backlog_markdown_lines(
         focus_detail = str(debt_summary.get("focus_detail", "") or "").strip()
         if focus_detail:
             lines.append(f"- **Focus detail:** {focus_detail}")
+        focus_note = str(debt_summary.get("focus_note", "") or "").strip()
+        if focus_note:
+            lines.append(f"- **Focus note:** {focus_note}")
         lane_split = _format_missing_primary_lane_split(
             debt_summary.get("missing_primary_label_lanes", [])
             if isinstance(debt_summary.get("missing_primary_label_lanes", []), list)
@@ -730,11 +824,97 @@ def build_backlog_terminal_lines(
     debt_summary: dict[str, Any],
     priority_backlog: dict[str, Any] | None = None,
     backlog_path: Path | str | None = None,
+    policy_held_path: Path | str | None = None,
     max_rows: int = 5,
 ) -> list[str]:
     """Render a shared terminal-friendly backlog/debt block."""
     lines: list[str] = []
     if not isinstance(debt_summary, dict) or not debt_summary:
+        return lines
+    focus_code = str(debt_summary.get("focus_code", "") or "")
+    if focus_code == BACKLOG_ROW_POLICY_HELD_FAMILY:
+        structured = (
+            debt_summary.get("focus_structured", {})
+            if isinstance(debt_summary.get("focus_structured"), dict)
+            else {}
+        )
+        token_kind_counts = (
+            structured.get("token_kind_counts", {})
+            if isinstance(structured.get("token_kind_counts"), dict)
+            else {}
+        )
+        lines.append("Debt status: No true unresolved family debt in this slice")
+        lines.append(f"Primary residue: {str(debt_summary.get('focus_label', '—') or '—')}")
+        lines.append(f"Rows: {int(debt_summary.get('focus_count', 0) or 0)}")
+        source_note = str(structured.get("source", "") or "").strip()
+        if source_note:
+            lines.append(f"Source: {source_note}")
+        freshness = str(structured.get("freshness", "") or "").strip()
+        if freshness:
+            lines.append(f"Freshness: {freshness}")
+        if token_kind_counts:
+            lines.append("")
+            lines.append("Residue breakdown")
+            lines.append("-----------------")
+            for token_kind, count in sorted(
+                (
+                    (str(token_kind), safe_int(count, 0))
+                    for token_kind, count in token_kind_counts.items()
+                    if str(token_kind).strip() and safe_int(count, 0) > 0
+                ),
+                key=lambda item: (-item[1], item[0]),
+            ):
+                lines.append(f"{token_kind}: {count}")
+        lines.append("")
+        lines.append("Dominant cluster")
+        lines.append("----------------")
+        top_lane = str(structured.get("top_lane", "") or "").strip()
+        top_lane_count = safe_int(structured.get("top_lane_count", 0), 0)
+        if top_lane and top_lane_count > 0:
+            lines.append(f"Top hold lane: {top_lane} ({top_lane_count})")
+        top_token = str(structured.get("top_policy_held_token", "") or "").strip()
+        top_token_count = safe_int(structured.get("top_policy_held_token_count", 0), 0)
+        if top_token and top_token_count > 0:
+            lines.append(f"Top token: {top_token} ({top_token_count})")
+        top_package = str(structured.get("top_android_package_name", "") or "").strip()
+        top_package_count = safe_int(structured.get("top_android_package_name_count", 0), 0)
+        if top_package and top_package != "<blank>" and top_package_count > 0:
+            lines.append(f"Top package: {top_package} ({top_package_count})")
+        high_or_strong = safe_int(structured.get("high_or_strong_row_count", 0), 0)
+        if high_or_strong > 0:
+            lines.append(f"High/strong rows: {high_or_strong}")
+        lane_split = str(structured.get("missing_primary_lane_split", "") or "").strip()
+        if lane_split:
+            lines.append(f"Missing-primary split: {lane_split}")
+        lines.append("")
+        lines.append("Interpretation")
+        lines.append("--------------")
+        lines.append(
+            "Policy-held rows are governance residue, not unresolved family authority debt."
+        )
+        lines.append(
+            "Do not create new family authority rows from generic/coarse/class-label tokens without reviewing the policy-held token risk export."
+        )
+        lines.append("")
+        lines.append("Next action")
+        lines.append("-----------")
+        lines.append("Review policy-held token risk export, focusing on:")
+        if top_lane:
+            lines.append(f"1. {top_lane}")
+        behavior_count = safe_int(token_kind_counts.get("behavior_class_token", 0), 0)
+        if behavior_count > 0:
+            lines.append("2. behavior_class_token")
+        if top_token:
+            lines.append(f"3. {top_token} token cluster")
+        if top_package and top_package != "<blank>":
+            lines.append(f"4. {top_package} package cluster")
+        lines.append("")
+        lines.append("Diagnostics")
+        lines.append("-----------")
+        if backlog_path:
+            lines.append(Path(str(backlog_path)).name)
+        if policy_held_path:
+            lines.append(Path(str(policy_held_path)).name)
         return lines
     lines.append(
         f"Focus area: {str(debt_summary.get('focus_label', '—') or '—')} "
@@ -746,6 +926,9 @@ def build_backlog_terminal_lines(
     focus_detail = str(debt_summary.get("focus_detail", "") or "").strip()
     if focus_detail:
         lines.append(f"Focus detail: {focus_detail}")
+    focus_note = str(debt_summary.get("focus_note", "") or "").strip()
+    if focus_note:
+        lines.append(f"Focus note: {focus_note}")
     lane_split = _format_missing_primary_lane_split(
         debt_summary.get("missing_primary_label_lanes", [])
         if isinstance(debt_summary.get("missing_primary_label_lanes", []), list)

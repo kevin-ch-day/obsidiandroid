@@ -209,6 +209,13 @@ def _fetch_canonical_alias_df() -> pd.DataFrame:
 
 def _fetch_legacy_alias_df() -> pd.DataFrame:
     """Load alias-token -> canonical-family-slug rows from the legacy Android alias table."""
+    alias_active_clause = "AND a.is_active = 1" if table_has_column("android_malware_family_alias", "is_active") else ""
+    alias_review_clause = (
+        "AND a.review_status = 'accepted'"
+        if table_has_column("android_malware_family_alias", "review_status")
+        else ""
+    )
+    family_active_clause = "AND f.is_active = 1" if table_has_column("android_malware_family", "is_active") else ""
     return db_engine.execute_query(
         """
         SELECT
@@ -218,10 +225,17 @@ def _fetch_legacy_alias_df() -> pd.DataFrame:
         JOIN android_malware_family AS f
           ON f.family_id = a.family_id
         WHERE a.alias_name IS NOT NULL
+          {alias_active_clause}
+          {alias_review_clause}
           AND TRIM(a.alias_name) <> ''
           AND f.family_slug IS NOT NULL
+          {family_active_clause}
           AND TRIM(f.family_slug) <> ''
-        """,
+        """.format(
+            alias_active_clause=alias_active_clause,
+            alias_review_clause=alias_review_clause,
+            family_active_clause=family_active_clause,
+        ),
         fetch=True,
         as_dataframe=True,
     )

@@ -3,6 +3,7 @@
 import pandas as pd
 import pytest
 
+from obsidiandroid.pipeline import av_engine_pipeline
 from obsidiandroid.pipeline import stage_av_vendor
 from config import app_config
 
@@ -54,6 +55,10 @@ def test_run_av_analysis_stage_sets_runtime_engine_counts(monkeypatch) -> None:
     scores_df = pd.DataFrame({"engine_name": ["a", "b", "c"]})
     scores_df.attrs["engine_included_count"] = 2
     scores_df.attrs["engine_excluded_count"] = 1
+    scores_df.attrs["engine_observed_count"] = 3
+    scores_df.attrs["engine_canonical_count"] = 3
+    scores_df.attrs["engine_near_miss_count"] = 1
+    scores_df.attrs["engine_exclusion_audit_path"] = "obsidiandroid/output/runs/run123/diagnostics/engine_exclusion_audit_run123.csv"
 
     monkeypatch.setattr(
         stage_av_vendor.av_engine_pipeline,
@@ -72,3 +77,35 @@ def test_run_av_analysis_stage_sets_runtime_engine_counts(monkeypatch) -> None:
     assert out is not None
     assert int(getattr(app_config, "RUNTIME_ENGINE_COUNT_INCLUDED_AFTER_GATING", -1)) == 2
     assert int(getattr(app_config, "RUNTIME_ENGINE_COUNT_EXCLUDED_AFTER_GATING", -1)) == 1
+    assert int(getattr(app_config, "RUNTIME_ENGINE_COUNT_NEAR_MISS", -1)) == 1
+    assert any("engine_exclusion_audit_run123.csv" in path for path in artifact_list)
+
+
+def test_av_analysis_pipeline_preserves_engine_scoring_exception(monkeypatch) -> None:
+    """Engine scoring exceptions should surface as explicit stage errors, not empty score tables."""
+    samples_df = pd.DataFrame({"sample_id": [1, 2]})
+    monkeypatch.setattr(
+        av_engine_pipeline.av_binary_matrix_builder,
+        "generate_binary_detection_matrix",
+        lambda *_args, **_kwargs: pd.DataFrame({"sample_id": [1, 2], "EngineA": [1, 0]}),
+    )
+    monkeypatch.setattr(
+        av_engine_pipeline.enrich_scores,
+        "apply_score_enrichment",
+        lambda df, **_kwargs: df.copy(),
+    )
+    monkeypatch.setattr(
+        av_engine_pipeline,
+        "attach_engine_metadata",
+        lambda df, **_kwargs: df.copy(),
+    )
+
+    def boom(*_args, **_kwargs):
+        raise NameError("ml_console is not defined")
+
+    monkeypatch.setattr(av_engine_pipeline, "run_av_engine_scoring", boom)
+
+    result = av_engine_pipeline.run_av_analysis_pipeline(samples_df, verbose=False)
+
+    assert result["engine_scores"] is None
+    assert result["error"] == "Engine scoring error (NameError): ml_console is not defined"

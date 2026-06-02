@@ -54,6 +54,12 @@ def write_manifest_with_pointer(
     manifest_payload["manifest_schema_version"] = run_manifest.MANIFEST_SCHEMA_VERSION
     pointer_payload = {
         "run_id": run_id,
+        "run_instance_id": manifest_payload.get("run_instance_id", run_id),
+        "run_slot": manifest_payload.get("run_slot", ""),
+        "run_started_at_utc": manifest_payload.get("run_started_at_utc", manifest.get("timestamp_utc", "")),
+        "profile_id": manifest_payload.get("profile_id", ""),
+        "run_mode": manifest_payload.get("run_mode", ""),
+        "claim_surface": manifest_payload.get("claim_surface", ""),
         "created_at_utc": manifest.get("timestamp_utc", ""),
         "run_root": str(run_root).replace("\\", "/"),
     }
