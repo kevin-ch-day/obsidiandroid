@@ -432,6 +432,9 @@ def write_research_validity_review(
     pr = print_fn or (lambda _s: None)
     rdiag = run_scoped_diagnostics(output_root, run_id)
     gdiag = global_diagnostics(output_root)
+    run_root = Path(output_root) / "runs" / run_id
+    summary = read_json_dict(run_root / "run_summary.json")
+    manifest = read_json_dict(run_root / "run_manifest.json")
 
     def load_rel(names: list[str]) -> tuple[dict[str, Any], Path | None]:
         for name in names:

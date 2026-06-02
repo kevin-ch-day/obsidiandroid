@@ -78,11 +78,12 @@ def grid_search_job_counts() -> tuple[int, int]:
 
     When the guard is false, both values default to ``-1`` (legacy aggressive nesting).
     """
+    if not bool(getattr(app_config, "CV_AVOID_NESTED_PARALLELISM", True)):
+        return -1, -1
+
     outer = safe_int_config_value(getattr(app_config, "CV_N_JOBS", -1), default=-1)
     outer = resolve_adaptive_job_count(outer, kind="cv")
-    if bool(getattr(app_config, "CV_AVOID_NESTED_PARALLELISM", True)):
-        return 1, outer
-    return resolve_adaptive_job_count(-1, kind="training"), outer
+    return 1, outer
 
 
 def stratified_kfold_for_grid_search(

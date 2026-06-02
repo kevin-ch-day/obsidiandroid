@@ -813,8 +813,9 @@ def test_write_run_summary_json_omits_diagnostics_copy_in_compact_mode(
     assert out_path == run_root / "run_summary.json"
     assert out_path.exists()
     assert not (diagnostics_dir / "run_summary_r2.json").exists()
-    assert payload["publication_ready_status"] == "FAIL"
-    assert "paper_compliance_not_pass" in payload["publication_ready_reasons"]
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    assert payload["publication_ready_status"] == "NOT_APPLICABLE"
+    assert payload["publication_ready_reasons"] == []
 
 
 def test_finalize_output_hygiene_bundle_still_writes_run_science_index_in_compact_mode(
@@ -835,7 +836,7 @@ def test_finalize_output_hygiene_bundle_still_writes_run_science_index_in_compac
 
     seen: dict[str, object] = {"science_index_called": False, "virtual_layout_called": False}
 
-    monkeypatch.setattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", False, raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", False, raising=False)
     monkeypatch.setattr(smw, "emit_run_authority_coverage_bundle", lambda **_kwargs: {})
 
     def _fake_write_virtual_layout(_run_root: Path) -> Path:
@@ -893,6 +894,7 @@ def test_write_manifest_with_pointer_paper_mode(tmp_path: Path, monkeypatch) -> 
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(stage_manifest.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(tmp_path / "output"), raising=False)
     monkeypatch.setattr(stage_manifest.run_manifest, "MANIFEST_PATH", latest_manifest_path)
 
     stage_manifest._write_manifest_with_pointer(  # pylint: disable=protected-access

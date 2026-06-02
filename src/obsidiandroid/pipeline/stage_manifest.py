@@ -39,7 +39,9 @@ from obsidiandroid.pipeline.manifest.runtime_support import (
     validate_run_scoped_artifact_paths as _manifest_validate_run_scoped_artifact_paths,
 )
 from obsidiandroid.pipeline.manifest.paper2_strict_exports import (
+    build_family_temporal_scope_table as _build_family_temporal_scope_table,
     build_paper_ablation_table as _build_paper_ablation_table,
+    build_paper_cohort_summary_table as _build_paper_cohort_summary_table,
     build_strict_paper2_exports as _build_strict_paper2_exports,
 )
 from obsidiandroid.pipeline.manifest.paper_evidence import (
@@ -101,6 +103,37 @@ def _validate_run_scoped_artifact_paths(
         run_root=run_root,
         output_root=output_root,
     )
+
+
+def _populate_engine_lifecycle_manifest_context(
+    manifest_context: dict[str, Any],
+    pipeline_results: dict | None,
+) -> None:
+    """Backfill engine-gating manifest counters from a direct stage result frame."""
+    if not isinstance(pipeline_results, dict):
+        return
+    engine_lifecycle = pipeline_results.get("engine_lifecycle")
+    if not isinstance(engine_lifecycle, pd.DataFrame) or engine_lifecycle.empty:
+        return
+
+    has_near_miss_flag = "near_miss_flag" in engine_lifecycle.columns
+    if "engine_near_miss_count" not in manifest_context and has_near_miss_flag:
+        manifest_context["engine_near_miss_count"] = int(
+            engine_lifecycle["near_miss_flag"].fillna(False).astype(bool).sum()
+        )
+    if "engine_exclusion_reason_counts" in manifest_context:
+        return
+    if not {"included_in_model_flag", "exclusion_reason"}.issubset(engine_lifecycle.columns):
+        return
+
+    included_mask = engine_lifecycle["included_in_model_flag"].fillna(False).astype(bool)
+    excluded = engine_lifecycle[~included_mask]
+    reasons = excluded["exclusion_reason"].dropna().astype(str).str.strip()
+    reasons = reasons[reasons != ""]
+    manifest_context["engine_exclusion_reason_counts"] = {
+        str(reason): int(count)
+        for reason, count in reasons.value_counts().sort_index().items()
+    }
 
 
 def _merge_lifecycle_into_manifest(manifest: dict[str, Any], manifest_context: dict[str, Any]) -> None:
@@ -284,6 +317,7 @@ def finalize_run_manifest_stage(
         included_engines, excluded_engines, engine_names = _summarize_engine_lifecycle(
             pipeline_results
         )
+        _populate_engine_lifecycle_manifest_context(manifest_context, pipeline_results)
         parser_list = _extract_parser_list(vendor_eval_df)
         dataset_hash = _compute_dataset_hash(samples_df=samples_df)
         registry_payload = build_registry_payload(

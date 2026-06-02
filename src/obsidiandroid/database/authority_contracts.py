@@ -128,7 +128,10 @@ def table_has_column(table_name: str, column_name: str) -> bool:
           AND table_name = %s
           AND column_name = %s
     """
-    df = db_engine.execute_query(query, params=(table_name, column_name), fetch=True, as_dataframe=True)
+    try:
+        df = db_engine.execute_query(query, params=(table_name, column_name), fetch=True, as_dataframe=True)
+    except Exception:
+        return False
     return bool(
         isinstance(df, pd.DataFrame)
         and not df.empty

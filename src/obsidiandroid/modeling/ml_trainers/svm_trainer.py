@@ -45,6 +45,7 @@ def train_svm(
     y_test=None,
     sample_ids=None,
     label_encoder=None,
+    random_state=42,
     verbose=True,
     grid_search=False,
     **kwargs
@@ -54,7 +55,8 @@ def train_svm(
         "kernel": getattr(app_config, "SVM_KERNEL", "rbf"),
         "C": getattr(app_config, "SVM_C", 1.0),
         "class_weight": "balanced",
-        "probability": True
+        "probability": True,
+        "random_state": random_state,
     }
     model_params = {**params, **kwargs}
 
@@ -212,7 +214,8 @@ def get_default_svm_params():
         "kernel": "rbf",
         "C": 1.0,
         "class_weight": "balanced",
-        "probability": True
+        "probability": True,
+        "random_state": 42,
     }
 
 

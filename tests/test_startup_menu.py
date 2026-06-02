@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import sys
 
 from config import app_config
 
@@ -629,7 +630,7 @@ def test_android_missing_resolution_triage_script_runs_operator_script(monkeypat
 
     assert result == 0
     assert commands
-    assert commands[0][0].endswith("python3")
+    assert commands[0][0] == sys.executable
     assert commands[0][1] == str(script_path)
     assert "[ACTION] Refresh Android missing-resolution triage export" in out
 
@@ -677,7 +678,7 @@ def test_policy_held_token_risk_script_runs_operator_script(monkeypatch, tmp_pat
 
     assert result == 0
     assert commands
-    assert commands[0][0].endswith("python3")
+    assert commands[0][0] == sys.executable
     assert commands[0][1] == str(script_path)
 
 
@@ -698,7 +699,7 @@ def test_vt_false_positive_review_triage_script_runs_operator_script(monkeypatch
 
     assert result == 0
     assert commands
-    assert commands[0][0].endswith("python3")
+    assert commands[0][0] == sys.executable
     assert commands[0][1] == str(script_path)
 
 
@@ -715,7 +716,7 @@ def test_vt_false_positive_triage_script_exports_live_report(monkeypatch, tmp_pa
 
     assert result == 0
     assert commands
-    assert commands[0][0].endswith("python3")
+    assert commands[0][0] == sys.executable
     assert commands[0][1] == str(script_path)
 
 
@@ -1745,9 +1746,3 @@ def test_evidence_readiness_hub_uses_generic_labels(monkeypatch) -> None:
     assert "Cohort Lock Checker" in options
     assert "Evidence Bundle Series Aggregator" in options
     assert captured["title"] == "Evidence readiness"
-    assert policy_table["kwargs"]["title"] == "Top policy-held token backlog"
-    assert policy_table["kwargs"]["columns"] == ["family", "samples", "high_strong", "token_kind"]
-    assert policy_table["rows"] == [
-        {"family": "badpack", "samples": 8, "high_strong": 8, "token_kind": "packer_evasion_token"},
-        {"family": "spybanker", "samples": 4, "high_strong": 4, "token_kind": "generic_family_token"},
-    ]

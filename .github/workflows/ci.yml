@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUNBUFFERED: "1"
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -52,3 +56,15 @@ jobs:
 
       - name: ML static scan (strict)
         run: make ml-scan-strict
+
+      - name: Upload CI diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-diagnostics-python-${{ matrix.python-version }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            .pytest_tmp/**
+            logs/**
+            output/**

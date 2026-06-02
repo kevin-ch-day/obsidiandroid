@@ -1076,6 +1076,8 @@ def emit_research_operator_report(
     if type_target:
         du.print_stat("Primary type target", type_target)
     pr("")
+    pr(readiness_heading)
+    pr("")
     pr("Supported claims")
     for item in lines_strong:
         pr(f"  + {item}")

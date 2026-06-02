@@ -249,6 +249,20 @@ def _read_backlog_context(
         android_missing_triage=android_triage,
         policy_held_triage=policy_held_triage,
     )
+    if isinstance(debt_summary, dict):
+        focus_count = int(debt_summary.get("focus_count", 0) or 0)
+        for row in list(debt_summary.get("rows", [])):
+            if (
+                isinstance(row, dict)
+                and str(row.get("label", "") or "") == "Missing primary labels"
+                and int(row.get("count", 0) or 0) > focus_count
+            ):
+                debt_summary["focus_code"] = str(row.get("code", "") or "")
+                debt_summary["focus_label"] = str(row.get("label", "") or "")
+                debt_summary["focus_count"] = int(row.get("count", 0) or 0)
+                debt_summary["focus_action"] = str(row.get("action", "") or "")
+                debt_summary["focus_detail"] = str(row.get("detail", "") or "")
+                break
     priority_backlog = choose_priority_triage(
         fp_triage=fp_triage,
         android_missing_triage=android_triage,

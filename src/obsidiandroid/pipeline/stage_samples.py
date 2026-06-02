@@ -58,13 +58,20 @@ PIPELINE_LOGGER = get_logger(
 )
 
 
-def _locked_snapshot_membership_is_authoritative(profile: dict[str, Any], snapshot_lock_file: str) -> bool:
+def _locked_snapshot_membership_is_authoritative(
+    profile: dict[str, Any],
+    *,
+    enable_snapshot_lock: bool,
+    snapshot_lock_file: str,
+) -> bool:
     """Return whether a paper-locked sample-id snapshot should own cohort membership.
 
     Locked publication profiles preserve a historical governed cohort by exact ``sample_id``.
     Applying membership-shrinking gates before that lock can erase valid locked rows, so the
-    lock must be materialized first whenever an enforceable lock file is configured.
+    lock must be materialized first whenever an enforceable lock is enabled and configured.
     """
+    if not bool(enable_snapshot_lock):
+        return False
     if not bool(profile.get("paper_locked", False)):
         return False
     return bool(str(snapshot_lock_file or "").strip())
@@ -72,17 +79,41 @@ def _locked_snapshot_membership_is_authoritative(profile: dict[str, Any], snapsh
 
 def _can_reuse_gate_stats_from_loaded_frame(
     *,
+    gates: dict[str, Any],
     lock_membership_authoritative: bool,
     limit: int | None,
     family_cap: int | None,
     type_cap: int | None,
     type_cap_by_slug: dict[str, int] | None,
+    exclude_unknown_type_slug: bool,
+    exclude_weak_label_kinds: bool,
+    exclude_family_label_conflicts: bool,
 ) -> bool:
     """Return whether SQL gate stats can be derived from the loaded governed frame.
 
-    This is safe only when the loader is materializing the full governed cohort slice rather
-    than a SQL-limited/capped subset and no snapshot lock overrides membership after fetch.
+    This compatibility shortcut is safe only for the historical empty-gates path,
+    where the loaded frame itself defines the governed cohort snapshot.  Any
+    explicit cohort gate can affect pre/post exclusion counters, so those profiles
+    must use ``get_type_cohort_gate_stats`` instead of fabricating zero-drop
+    diagnostics from the already-filtered rows.
     """
+    def _gate_value_is_inactive(value: Any) -> bool:
+        return value is None or value is False or value in ([], {}, "")
+
+    significant_gate_keys = {
+        key
+        for key, value in gates.items()
+        if key not in {"require_mapped_family", "require_sha256", "allow_missing_package_name"}
+        and not _gate_value_is_inactive(value)
+    }
+    if significant_gate_keys:
+        return False
+    if gates.get("require_mapped_family") is False or gates.get("require_sha256") is False:
+        return False
+    if gates.get("allow_missing_package_name") is False:
+        return False
+    if exclude_unknown_type_slug or exclude_weak_label_kinds or exclude_family_label_conflicts:
+        return False
     if lock_membership_authoritative:
         return False
     if isinstance(limit, int) and limit > 0:
@@ -253,15 +284,23 @@ def load_and_prepare_samples(
             getattr(app_config, "COHORT_LOCK_FILE", ""),
         )
     )
-    lock_membership_authoritative = _locked_snapshot_membership_is_authoritative(profile, snapshot_lock_file)
+    lock_membership_authoritative = _locked_snapshot_membership_is_authoritative(
+        profile,
+        enable_snapshot_lock=enable_snapshot_lock,
+        snapshot_lock_file=snapshot_lock_file,
+    )
     sql_min_support = None if lock_membership_authoritative else min_support
     sql_exclude_families = tuple() if lock_membership_authoritative else exclude_families
     reuse_gate_stats_from_loaded_frame = _can_reuse_gate_stats_from_loaded_frame(
+        gates=gates if isinstance(gates, dict) else {},
         lock_membership_authoritative=lock_membership_authoritative,
         limit=limit,
         family_cap=family_cap,
         type_cap=type_cap,
         type_cap_by_slug=type_cap_by_slug,
+        exclude_unknown_type_slug=exclude_unknown_type_slug,
+        exclude_weak_label_kinds=exclude_weak_label_kinds,
+        exclude_family_label_conflicts=exclude_family_label_conflicts,
     )
     gate_stats_snapshot: dict[str, Any] = {}
     if not reuse_gate_stats_from_loaded_frame:
