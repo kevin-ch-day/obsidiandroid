@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.common import output_paths
 
 
 def export_model_to_file(
@@ -33,12 +34,19 @@ def export_model_to_file(
     try:
         model_type_clean = model_type.lower().replace(" ", "_")
         run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "").strip()
-        primary_root = output_dir
+        runtime_root_raw = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
+        output_dir_resolved = output_dir.resolve()
+        primary_root = output_dir_resolved
+        if runtime_root_raw:
+            runtime_root = Path(runtime_root_raw).resolve()
+            configured_output_root = output_paths.output_root().resolve()
+            configured_runs_root = output_paths.runs_root().resolve()
+            if output_dir_resolved in {configured_output_root, configured_runs_root, runtime_root}:
+                primary_root = runtime_root
         if run_id and run_id.lower() != "unknown":
-            output_dir_resolved = output_dir.resolve()
             if output_dir_resolved.name == run_id and output_dir_resolved.parent.name == "runs":
                 primary_root = output_dir_resolved
-            else:
+            elif not runtime_root_raw:
                 primary_root = output_dir_resolved / "runs" / run_id
         model_dir = primary_root / "models" / model_type_clean
         model_dir.mkdir(parents=True, exist_ok=True)

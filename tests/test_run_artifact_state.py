@@ -88,3 +88,23 @@ def test_resolve_latest_manifest_payload_follows_pointer_under_output_base(tmp_p
     assert rid == "rid2"
     assert path == runs / "run_manifest.json"
     assert (man.get("profile_params") or {}).get("profile_id") == "frozen"
+
+
+def test_resolve_run_root_for_run_id_prefers_active_slot_root(monkeypatch, tmp_path: Path) -> None:
+    out = tmp_path / "output"
+    run_id = "rid3"
+    slot_root = out / "runs" / "allcurrent_diagnostic"
+    slot_root.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "run_id": run_id,
+        "run_slot": "allcurrent_diagnostic",
+        "run_root": str(slot_root),
+    }
+    (slot_root / "run_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    monkeypatch.setattr(run_locator.app_config, "DEFAULT_OUTPUT_DIR", str(out), raising=False)
+    monkeypatch.setattr(run_locator.app_config, "RUNTIME_RUN_ID", run_id, raising=False)
+    monkeypatch.setattr(run_locator.app_config, "RUNTIME_RUN_ROOT", str(slot_root), raising=False)
+
+    resolved = run_locator.resolve_run_root_for_run_id(run_id, output_base=out)
+    assert resolved == slot_root

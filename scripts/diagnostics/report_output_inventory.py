@@ -23,6 +23,13 @@ from obsidiandroid.diagnostics import output_inventory  # noqa: E402
 from obsidiandroid.cli.menu import run_locator as rl  # noqa: E402
 
 
+def _resolve_run_id(run_root: Path) -> str:
+    """Resolve canonical run instance ID from manifest when available."""
+    manifest_payload = rl.read_json_object(run_root / "run_manifest.json")
+    manifest_run_id = str(manifest_payload.get("run_id", "")).strip()
+    return manifest_run_id or str(run_root.name or "").strip()
+
+
 def _resolve_run_root(*, repo_root: Path, run_root_arg: str, run_id: str, latest: bool) -> Path:
     """Resolve canonical run root from explicit path, run_id, or latest manifest."""
     output_root = repo_root / "output"
@@ -79,11 +86,7 @@ def main() -> int:
         latest=bool(args.latest),
     )
     out_dir = Path(args.output_dir).resolve() if args.output_dir else (run_root / "diagnostics")
-    run_id = run_root.name
-    manifest_payload = rl.read_json_object(run_root / "run_manifest.json")
-    manifest_run_id = str(manifest_payload.get("run_id", "")).strip()
-    if manifest_run_id:
-        run_id = manifest_run_id
+    run_id = _resolve_run_id(run_root)
 
     output_inventory.write_virtual_layout(run_root)
     paths, summary = output_inventory.write_artifact_inventory_bundle(

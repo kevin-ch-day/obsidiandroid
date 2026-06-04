@@ -121,9 +121,13 @@ def _build_summary(
         ascending=[True, False, False],
         kind="mergesort",
     )
-    banker = banker[banker["interpretation_bucket"].astype(str) != "no_signal"].head(10)
+    banker_pattern_rows = banker.copy()
+    banker = banker[banker["pattern_level"].fillna(3).astype(int) > 3].head(10)
     if banker.empty:
-        lines.append("- No banker-specific permission signals met the current thresholds.")
+        if (banker_pattern_rows["pattern_level"].fillna(0).astype(int) == 2).any():
+            lines.append("- Pattern result: Conflicting Evidence.")
+        else:
+            lines.append("- Pattern result: No Pattern Found.")
     else:
         for _, row in banker.iterrows():
             lines.append(
@@ -131,7 +135,7 @@ def _build_summary(
                 f"banker={float(row['type_prevalence_pct']):.1f}%, "
                 f"nonbanker={float(row['non_type_prevalence_pct']):.1f}%, "
                 f"OR={float(row['odds_ratio']):.2f}, q={float(row['fdr_q_value']):.3e}, "
-                f"bucket={row['interpretation_bucket']}"
+                f"pattern={row.get('pattern_label', 'Inconclusive')}"
             )
 
     lines.extend(["", "## Strongest RAT and spyware permission patterns"])
@@ -142,18 +146,23 @@ def _build_summary(
             ascending=[True, False, False],
             kind="mergesort",
         )
-        subset = subset[subset["interpretation_bucket"].astype(str) != "no_signal"].head(8)
+        subset_pattern_rows = subset.copy()
+        subset = subset[subset["pattern_level"].fillna(3).astype(int) > 3].head(8)
         lines.append("")
         lines.append(f"### {target_type}")
         if subset.empty:
-            lines.append("- No strong permission signals met the current thresholds.")
+            if (subset_pattern_rows["pattern_level"].fillna(0).astype(int) == 2).any():
+                lines.append("- Pattern result: Conflicting Evidence.")
+            else:
+                lines.append("- Pattern result: No Pattern Found.")
             continue
         for _, row in subset.iterrows():
             lines.append(
                 f"- `{_pretty_permission(row['permission'])}`: "
                 f"{target_type}={float(row['type_prevalence_pct']):.1f}%, "
                 f"non-{target_type}={float(row['non_type_prevalence_pct']):.1f}%, "
-                f"OR={float(row['odds_ratio']):.2f}, q={float(row['fdr_q_value']):.3e}"
+                f"OR={float(row['odds_ratio']):.2f}, q={float(row['fdr_q_value']):.3e}, "
+                f"pattern={row.get('pattern_label', 'Inconclusive')}"
             )
 
     lines.extend(["", "## Family clusters"])

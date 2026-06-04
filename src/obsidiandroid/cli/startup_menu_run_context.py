@@ -166,7 +166,8 @@ def format_stage_label(stage_name: str | None) -> str:
 
 def resolve_pipeline_timings_path(run_root: Path) -> Path | None:
     """Resolve stage timing export (run-scoped name preferred, then legacy .latest)."""
-    run_id = str(run_root.name or "").strip()
+    manifest_payload = read_json_object(run_root / "run_manifest.json")
+    run_id = str(manifest_payload.get("run_id", "") or run_root.name or "").strip()
     diag = run_root / "diagnostics"
     candidates = [
         diag / f"pipeline_stage_timings_{run_id}.csv",

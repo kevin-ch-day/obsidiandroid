@@ -413,11 +413,10 @@ def _resolve_summary_export_paths() -> tuple[Path, Path]:
     """
     run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "").strip()
     runtime_root = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
-    if run_id and run_id != "unknown":
-        if runtime_root and Path(runtime_root).resolve().name == run_id:
-            base_dir = Path(runtime_root).resolve() / "diagnostics"
-        else:
-            base_dir = output_paths.runs_root() / run_id / "diagnostics"
+    if runtime_root:
+        base_dir = Path(runtime_root).resolve() / "diagnostics"
+    elif run_id and run_id != "unknown":
+        base_dir = output_paths.runs_root() / run_id / "diagnostics"
     else:
         base_dir = output_paths.output_root() / "tools"
     base_dir.mkdir(parents=True, exist_ok=True)

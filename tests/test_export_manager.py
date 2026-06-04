@@ -306,6 +306,35 @@ def test_export_confusion_matrix_uses_dynamic_default_output_dir(monkeypatch, tm
     assert path.parent == tmp_path / "output" / "runs" / "20260304T003828Z__bcfc09" / "conf_matrices" / "headline"
 
 
+def test_export_confusion_matrix_uses_slot_run_root_when_active(monkeypatch, tmp_path):
+    run_id = "20260304T003828Z__bcfc09"
+    slot_root = tmp_path / "output" / "runs" / "allcurrent_diagnostic"
+    monkeypatch.setattr(export_manager.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(export_manager.app_config, "RUNTIME_RUN_ID", run_id, raising=False)
+    monkeypatch.setattr(export_manager.app_config, "RUNTIME_RUN_ROOT", str(slot_root), raising=False)
+    monkeypatch.setattr(export_manager.app_config, "RUNTIME_EXPERIMENT_ID", "", raising=False)
+    monkeypatch.setattr(export_manager.app_config, "RUNTIME_ABLATION_ACTIVE", False, raising=False)
+    monkeypatch.setattr(
+        export_manager,
+        "export_confusion_matrix_image",
+        lambda **kwargs: (
+            kwargs["output_path"].parent.mkdir(parents=True, exist_ok=True),
+            kwargs["output_path"].write_bytes(b"PNG"),
+            str(kwargs["output_path"]),
+        )[-1],
+    )
+
+    path = Path(
+        export_manager.export_confusion_matrix(
+            cm=np.array([[1, 0], [0, 1]]),
+            class_labels=["A", "B"],
+            model_name="xgboost",
+        )
+    )
+    assert path.parent == slot_root / "conf_matrices" / "headline"
+    assert not (tmp_path / "output" / "runs" / run_id / "conf_matrices").exists()
+
+
 def test_export_manager_shared_import_aliases_point_to_module() -> None:
     """Ensure major pipeline modules import the shared export manager module."""
     assert evaluate_av_classifications.em is export_manager

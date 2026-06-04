@@ -285,6 +285,43 @@ def test_export_cohort_filter_contract_run_scoped_uses_global_latest(
     assert (output_root / "diagnostics" / "cohort_gate_counts.latest.csv").exists()
 
 
+def test_export_cohort_filter_contract_slot_run_uses_runtime_diagnostics_dir(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Slot-based runs should keep the stamped contract under the active runtime diagnostics dir."""
+    output_root = tmp_path / "output"
+    diagnostics_dir = output_root / "runs" / "majorfam_benchmark" / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (output_root / "diagnostics").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "20260604T041505Z__fd0a06", raising=False)
+
+    contract_path, gate_path = stage_samples._export_cohort_filter_contract(  # pylint: disable=protected-access
+        run_id="20260604T041505Z__fd0a06",
+        profile_id="android_malware_major_families",
+        gates={"min_malicious_detections": 1},
+        gate_rows=[
+            {
+                "run_id": "20260604T041505Z__fd0a06",
+                "step": 1,
+                "gate_name": "test",
+                "count_before": 10,
+                "count_after": 10,
+                "dropped": 0,
+                "details": "",
+            }
+        ],
+    )
+
+    assert Path(contract_path).resolve().parent == diagnostics_dir.resolve()
+    assert Path(gate_path).resolve().parent == diagnostics_dir.resolve()
+    assert not (output_root / "diagnostics" / "cohort_filter_contract_20260604T041505Z__fd0a06.json").exists()
+    assert (output_root / "diagnostics" / "cohort_filter_contract.latest.json").exists()
+
+
 def test_export_time_window_family_distributions_skips_absent_legacy_families(
     monkeypatch, tmp_path: Path
 ) -> None:

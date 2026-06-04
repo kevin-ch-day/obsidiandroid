@@ -158,6 +158,11 @@ def _get_runtime_fallback_workbook_path() -> Path:
     """Return deterministic per-run fallback workbook path."""
     run_id = _safe_artifact_name(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
     fallback_name = f"{Path(CONSOLIDATED_FILENAME).stem}__{run_id}.xlsx"
+    runtime_root = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
+    if runtime_root:
+        path = Path(runtime_root).resolve() / fallback_name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
     run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "").strip()
     if run_id and run_id != "unknown":
         path = output_paths.runs_root() / run_id / fallback_name
@@ -172,13 +177,13 @@ def _get_consolidated_target_path() -> Path:
     """Return active consolidated workbook target for this process."""
     if _CONSOLIDATED_RUNTIME_TARGET is not None:
         return _CONSOLIDATED_RUNTIME_TARGET
-    run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "").strip()
     runtime_root = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
+    if runtime_root:
+        path = Path(runtime_root).resolve() / CONSOLIDATED_FILENAME
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+    run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "").strip()
     if run_id and run_id != "unknown":
-        if runtime_root and Path(runtime_root).resolve().name == run_id:
-            path = Path(runtime_root).resolve() / CONSOLIDATED_FILENAME
-            path.parent.mkdir(parents=True, exist_ok=True)
-            return path
         path = output_paths.runs_root() / run_id / CONSOLIDATED_FILENAME
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
@@ -792,20 +797,15 @@ def export_confusion_matrix(
         return ""
 
     run_scoped_root = _output_root()
-    if run_id and run_id != "unknown":
+    runtime_root = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
+    if runtime_root:
+        run_scoped_root = Path(runtime_root).resolve()
+    elif run_id and run_id != "unknown":
         if Path(OUTPUT_ROOT).resolve() != Path(_INITIAL_OUTPUT_ROOT).resolve():
             base_root = Path(OUTPUT_ROOT).resolve()
         else:
             base_root = output_paths.output_root()
-        runtime_root = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
-        if runtime_root:
-            runtime_root_path = Path(runtime_root).resolve()
-            if runtime_root_path.name == run_id:
-                run_scoped_root = runtime_root_path
-            else:
-                run_scoped_root = base_root / "runs" / run_id
-        else:
-            run_scoped_root = base_root / "runs" / run_id
+        run_scoped_root = base_root / "runs" / run_id
 
     cm_dir = run_scoped_root / "conf_matrices"
     output_path = cm_layout.resolve_confusion_matrix_png_path(

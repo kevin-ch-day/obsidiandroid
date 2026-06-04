@@ -130,6 +130,11 @@ from obsidiandroid.pipeline.permission_trends.attack_mapping import (
     build_attack_mobile_hypotheses as _build_attack_mobile_hypotheses,
     build_attack_mobile_hypotheses_markdown as _build_attack_mobile_hypotheses_markdown,
 )
+from obsidiandroid.pipeline.permission_trends.pattern_framework import (
+    annotate_enrichment_patterns as _annotate_enrichment_patterns,
+    annotate_prevalence_patterns as _annotate_prevalence_patterns,
+    annotate_similarity_patterns as _annotate_similarity_patterns,
+)
 from obsidiandroid.diagnostics.research_validity.permission_signal_seed import (
     SIGNAL_CATALOG_ROWS as _SIGNAL_CATALOG_ROWS,
     SIGNAL_MAPPING_ROWS as _SIGNAL_MAPPING_ROWS,
@@ -253,6 +258,8 @@ def run_permission_trends_report_stage(
     temporal_trends_df = pd.DataFrame()
     temporal_trends_csv = ""
     temporal_trends_png = None
+    temporal_pattern_df = pd.DataFrame()
+    temporal_pattern_csv = ""
     if include_banker_case_study:
         temporal_trends_df = _build_banker_permission_trends_over_time(
             sample_core_df=sample_core_df,
@@ -263,6 +270,16 @@ def run_permission_trends_report_stage(
             temporal_trends_df,
             run_id=run_id,
             file_stem="banker_permission_trends_over_time",
+            bundle_dir=bundle_dir,
+        )
+        temporal_pattern_df = _build_banker_temporal_pattern_rows(
+            temporal_trends_df=temporal_trends_df,
+            run_id=run_id,
+        )
+        temporal_pattern_csv = _export_df_with_latest(
+            temporal_pattern_df,
+            run_id=run_id,
+            file_stem="banker_permission_trend_patterns",
             bundle_dir=bundle_dir,
         )
         temporal_trends_png = (
@@ -1082,6 +1099,7 @@ def run_permission_trends_report_stage(
         family_similarity_df=family_permission_similarity_df,
         attack_hypotheses_df=attack_hypotheses_df,
         generic_summary_df=generic_summary_df,
+        temporal_pattern_df=temporal_pattern_df,
     )
     bundle_readme_path = _export_permission_trends_bundle_readme(run_id=run_id, bundle_dir=bundle_dir)
 
@@ -1155,6 +1173,7 @@ def run_permission_trends_report_stage(
         jsd_pair_verification_csv,
         signal_catalog_snapshot_csv,
         signal_mapping_snapshot_csv,
+        temporal_pattern_csv,
     ]:
         if isinstance(extra_path, str) and extra_path:
             paths.append(extra_path)
@@ -1558,6 +1577,89 @@ def _build_banker_permission_trends_over_time(
         out[col] = pd.to_numeric(out[col], errors="coerce").round(6)
     return out
 
+
+def _build_banker_temporal_pattern_rows(
+    temporal_trends_df: pd.DataFrame,
+    run_id: str,
+) -> pd.DataFrame:
+    """Build a long-form normalized pattern view from banker temporal trend rows."""
+    if not isinstance(temporal_trends_df, pd.DataFrame) or temporal_trends_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "run_id",
+                "period_quarter",
+                "year",
+                "quarter",
+                "type_slug",
+                "permission",
+                "banker_sample_count",
+                "positive_count",
+                "prevalence_pct",
+                "pattern_score",
+                "pattern_level",
+                "pattern_label",
+                "pattern_basis",
+                "pattern_confidence",
+                "pattern_reason",
+            ]
+        )
+    metric_map = {
+        "banker_bind_accessibility_service_prevalence": "android.permission.bind_accessibility_service",
+        "banker_system_alert_window_prevalence": "android.permission.system_alert_window",
+        "banker_request_install_packages_prevalence": "android.permission.request_install_packages",
+        "banker_read_sms_prevalence": "android.permission.read_sms",
+        "banker_receive_sms_prevalence": "android.permission.receive_sms",
+        "banker_send_sms_prevalence": "android.permission.send_sms",
+    }
+    rows: list[dict[str, Any]] = []
+    for _, row in temporal_trends_df.iterrows():
+        support = safe_int_config_value(row.get("banker_sample_count", 0), default=0)
+        for metric_col, permission_name in metric_map.items():
+            prevalence = pd.to_numeric(row.get(metric_col), errors="coerce")
+            if pd.isna(prevalence):
+                continue
+            prevalence_pct = float(prevalence) * 100.0
+            positive_count = int(round(float(prevalence) * float(max(support, 0))))
+            pattern_payload = _annotate_prevalence_patterns(
+                pd.DataFrame(
+                    [
+                        {
+                            "support": support,
+                            "positive_count": positive_count,
+                            "prevalence_pct": prevalence_pct,
+                        }
+                    ]
+                ),
+                support_col="support",
+                positive_count_col="positive_count",
+                prevalence_col="prevalence_pct",
+                basis="banker_temporal_permission_trend",
+            ).iloc[0].to_dict()
+            rows.append(
+                {
+                    "run_id": run_id,
+                    "period_quarter": str(row.get("period_quarter", "") or "").strip(),
+                    "year": safe_int_config_value(row.get("year", 0), default=0),
+                    "quarter": safe_int_config_value(row.get("quarter", 0), default=0),
+                    "type_slug": "banker",
+                    "permission": permission_name,
+                    "banker_sample_count": support,
+                    "positive_count": positive_count,
+                    "prevalence_pct": round(prevalence_pct, 6),
+                    "pattern_score": pattern_payload["pattern_score"],
+                    "pattern_level": pattern_payload["pattern_level"],
+                    "pattern_label": pattern_payload["pattern_label"],
+                    "pattern_basis": pattern_payload["pattern_basis"],
+                    "pattern_confidence": pattern_payload["pattern_confidence"],
+                    "pattern_reason": pattern_payload["pattern_reason"],
+                }
+            )
+    return pd.DataFrame(rows).sort_values(
+        by=["year", "quarter", "pattern_level", "prevalence_pct", "permission"],
+        ascending=[False, False, False, False, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
 def _build_type_confusion_summary(
     sample_core_df: pd.DataFrame,
     model_results: dict[str, Any],
@@ -1736,6 +1838,8 @@ def _build_type_permission_prevalence(
                     "type_slug": str(type_slug),
                     "permission": permission,
                     "prevalence": round(prev, 6),
+                    "prevalence_pct": round(prev * 100.0, 6),
+                    "positive_count": int(round(prev * float(len(group)))),
                     "sample_count": int(len(group)),
                 }
             )
@@ -1749,7 +1853,16 @@ def _build_type_permission_prevalence(
                 "effective_diversity": round(eff_div, 6),
             }
         )
-    return pd.DataFrame(rows), pd.DataFrame(entropy_rows)
+    out = pd.DataFrame(rows)
+    if not out.empty:
+        out = _annotate_prevalence_patterns(
+            out,
+            support_col="sample_count",
+            positive_count_col="positive_count",
+            prevalence_col="prevalence_pct",
+            basis="type_permission_profile",
+        )
+    return out, pd.DataFrame(entropy_rows)
 
 
 def _family_support_frame(
@@ -1813,7 +1926,12 @@ def _build_permission_prevalence_by_type(
                     "prevalence_pct": round((float(positive_count) / float(max(n_samples, 1))) * 100.0, 6),
                 }
             )
-    return pd.DataFrame(rows)
+    return _annotate_prevalence_patterns(
+        pd.DataFrame(rows),
+        support_col="n_samples",
+        positive_count_col="permission_positive_count",
+        basis="permission_prevalence_by_type",
+    )
 
 
 def _build_permission_prevalence_by_family(
@@ -1861,11 +1979,16 @@ def _build_permission_prevalence_by_family(
                     "benchmark_eligible_n_ge_3": bool(benchmark_eligible),
                 }
             )
-    return pd.DataFrame(rows).sort_values(
+    out = pd.DataFrame(rows).sort_values(
         by=["family_support", "family_canonical", "prevalence_pct", "permission"],
         ascending=[False, True, False, True],
         kind="mergesort",
     ).reset_index(drop=True)
+    return _annotate_prevalence_patterns(
+        out,
+        support_col="family_support",
+        basis="permission_prevalence_by_family",
+    )
 
 
 def _signal_catalog_frame() -> pd.DataFrame:
@@ -2077,7 +2200,11 @@ def _build_signal_prevalence_by_type(
                     "prevalence_pct": round((float(positive_count) / float(max(n_samples, 1))) * 100.0, 6),
                 }
             )
-    return pd.DataFrame(rows)
+    return _annotate_prevalence_patterns(
+        pd.DataFrame(rows),
+        support_col="type_sample_count",
+        basis="signal_prevalence_by_type",
+    )
 
 
 def _build_signal_prevalence_by_family(
@@ -2138,11 +2265,16 @@ def _build_signal_prevalence_by_family(
                     "prevalence_pct": round((float(positive_count) / float(max(int(family_support), 1))) * 100.0, 6),
                 }
             )
-    return pd.DataFrame(rows).sort_values(
+    out = pd.DataFrame(rows).sort_values(
         by=["family_support", "family_canonical", "signal_key"],
         ascending=[False, True, True],
         kind="mergesort",
     ).reset_index(drop=True)
+    return _annotate_prevalence_patterns(
+        out,
+        support_col="family_support",
+        basis="signal_prevalence_by_family",
+    )
 
 
 def _build_family_signal_similarity(
@@ -2192,11 +2324,18 @@ def _build_family_signal_similarity(
                     "same_type_flag": bool(str(type_a) == str(type_b)),
                 }
             )
-    return pd.DataFrame(rows).sort_values(
+    out = pd.DataFrame(rows).sort_values(
         by=["same_type_flag", "cosine_similarity", "jaccard_similarity", "family_a", "family_b"],
         ascending=[False, False, False, True, True],
         kind="mergesort",
     ).reset_index(drop=True)
+    return _annotate_similarity_patterns(
+        out,
+        support_a_col="support_a",
+        support_b_col="support_b",
+        same_type_col="same_type_flag",
+        basis="family_signal_similarity",
+    )
 
 
 def _interpret_enrichment_bucket(odds_ratio: float, q_value: float) -> str:
@@ -2241,6 +2380,8 @@ def _build_permission_type_enrichment(
                 {
                     "permission": str(permission),
                     "type_slug": str(type_slug),
+                    "type_sample_count": n_type,
+                    "background_sample_count": n_other,
                     "type_prevalence_pct": round((float(a) / float(max(n_type, 1))) * 100.0, 6),
                     "non_type_prevalence_pct": round((float(c) / float(max(n_other, 1))) * 100.0, 6),
                     "odds_ratio": round(float(odds_ratio), 6),
@@ -2258,11 +2399,18 @@ def _build_permission_type_enrichment(
         ),
         axis=1,
     )
-    return out.sort_values(
+    out = out.sort_values(
         by=["q_value_fdr", "odds_ratio", "type_slug", "permission"],
         ascending=[True, False, True, True],
         kind="mergesort",
     ).reset_index(drop=True)
+    return _annotate_enrichment_patterns(
+        out,
+        support_col="type_sample_count",
+        subject_prevalence_col="type_prevalence_pct",
+        background_prevalence_col="non_type_prevalence_pct",
+        basis="type_enrichment_vs_rest",
+    )
 
 
 def _build_permission_family_enrichment(
@@ -2335,11 +2483,18 @@ def _build_permission_family_enrichment(
         ),
         axis=1,
     )
-    return out.sort_values(
+    out = out.sort_values(
         by=["q_value_fdr", "odds_ratio", "family_support", "family_canonical", "permission"],
         ascending=[True, False, False, True, True],
         kind="mergesort",
     ).reset_index(drop=True)
+    return _annotate_enrichment_patterns(
+        out,
+        support_col="family_support",
+        subject_prevalence_col="family_prevalence_pct",
+        background_prevalence_col="non_family_prevalence_pct",
+        basis="family_enrichment_vs_rest",
+    )
 
 
 def _cosine_similarity(left: np.ndarray, right: np.ndarray) -> float:
@@ -2351,6 +2506,8 @@ def _cosine_similarity(left: np.ndarray, right: np.ndarray) -> float:
 
 
 def _spearman_similarity(left: np.ndarray, right: np.ndarray) -> float:
+    if left.shape == right.shape and np.allclose(left, right, equal_nan=True):
+        return 1.0
     try:
         corr = pd.Series(left).corr(pd.Series(right), method="spearman")
         return float(corr) if pd.notna(corr) else 0.0
@@ -2414,11 +2571,18 @@ def _build_family_permission_similarity(
                     "same_type_flag": bool(str(type_a) == str(type_b)),
                 }
             )
-    return pd.DataFrame(rows).sort_values(
+    out = pd.DataFrame(rows).sort_values(
         by=["same_type_flag", "cosine_similarity", "jaccard_similarity", "family_a", "family_b"],
         ascending=[False, False, False, True, True],
         kind="mergesort",
     ).reset_index(drop=True)
+    return _annotate_similarity_patterns(
+        out,
+        support_a_col="support_a",
+        support_b_col="support_b",
+        same_type_col="same_type_flag",
+        basis="family_permission_similarity",
+    )
 
 
 def _build_type_permission_similarity(
@@ -2429,38 +2593,50 @@ def _build_type_permission_similarity(
             columns=[
                 "type_a",
                 "type_b",
+                "support_a",
+                "support_b",
                 "jaccard_similarity",
                 "cosine_similarity",
                 "spearman_correlation",
             ]
         )
     pivot = type_prevalence_df.pivot_table(
-        index="type_slug",
+        index=["type_slug", "n_samples"],
         columns="permission",
         values="prevalence_pct",
         fill_value=0.0,
     )
     types = pivot.index.tolist()
     rows: list[dict[str, Any]] = []
-    for i, type_a in enumerate(types):
-        left_vec = np.array(pivot.loc[type_a], dtype=float)
+    for i, left_key in enumerate(types):
+        left_vec = np.array(pivot.loc[left_key], dtype=float)
         for j in range(i + 1, len(types)):
-            type_b = types[j]
-            right_vec = np.array(pivot.loc[type_b], dtype=float)
+            right_key = types[j]
+            right_vec = np.array(pivot.loc[right_key], dtype=float)
+            type_a, support_a = left_key
+            type_b, support_b = right_key
             rows.append(
                 {
                     "type_a": str(type_a),
                     "type_b": str(type_b),
+                    "support_a": int(support_a),
+                    "support_b": int(support_b),
                     "jaccard_similarity": round(_jaccard_similarity(left_vec, right_vec), 6),
                     "cosine_similarity": round(_cosine_similarity(left_vec, right_vec), 6),
                     "spearman_correlation": round(_spearman_similarity(left_vec, right_vec), 6),
                 }
             )
-    return pd.DataFrame(rows).sort_values(
+    out = pd.DataFrame(rows).sort_values(
         by=["cosine_similarity", "jaccard_similarity", "type_a", "type_b"],
         ascending=[False, False, True, True],
         kind="mergesort",
     ).reset_index(drop=True)
+    return _annotate_similarity_patterns(
+        out,
+        support_a_col="support_a",
+        support_b_col="support_b",
+        basis="type_permission_similarity",
+    )
 
 
 def _build_type_capability_bundle_prevalence(
@@ -2495,10 +2671,21 @@ def _build_type_capability_bundle_prevalence(
                     "type_slug": str(type_slug),
                     "capability_bundle": str(bundle_name).replace("_count", ""),
                     "prevalence": round(float(group["present"].mean()), 6),
+                    "prevalence_pct": round(float(group["present"].mean()) * 100.0, 6),
+                    "positive_count": int(pd.to_numeric(group["present"], errors="coerce").fillna(0).sum()),
                     "sample_count": int(len(group)),
                 }
             )
-    return pd.DataFrame(rows)
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    return _annotate_prevalence_patterns(
+        out,
+        support_col="sample_count",
+        positive_count_col="positive_count",
+        prevalence_col="prevalence_pct",
+        basis="capability_bundle_prevalence_by_type",
+    )
 
 
 def _build_family_capability_bundle_profiles(
@@ -2553,17 +2740,26 @@ def _build_family_capability_bundle_profiles(
                     "benchmark_eligible_n_ge_3": bool(benchmark_eligible),
                     "capability_bundle": str(bundle_name).replace("_count", ""),
                     "prevalence": round(float(group["present"].mean()), 6),
+                    "prevalence_pct": round(float(group["present"].mean()) * 100.0, 6),
+                    "positive_count": int(pd.to_numeric(group["present"], errors="coerce").fillna(0).sum()),
                     "sample_count": int(sample_count),
                 }
             )
     out = pd.DataFrame(rows)
     if out.empty:
         return out
-    return out.sort_values(
+    out = out.sort_values(
         by=["sample_count", "family_canonical", "prevalence", "capability_bundle"],
         ascending=[False, True, False, True],
         kind="mergesort",
     ).reset_index(drop=True)
+    return _annotate_prevalence_patterns(
+        out,
+        support_col="sample_count",
+        positive_count_col="positive_count",
+        prevalence_col="prevalence_pct",
+        basis="capability_bundle_prevalence_by_family",
+    )
 
 
 def _build_family_permission_profiles(
@@ -2619,6 +2815,8 @@ def _build_family_permission_profiles(
                     "profile_scope": str(scope),
                     "permission": permission,
                     "prevalence": round(prev, 6),
+                    "prevalence_pct": round(prev * 100.0, 6),
+                    "positive_count": int(round(prev * float(len(group)))),
                     "sample_count": int(len(group)),
                 }
             )
@@ -2636,7 +2834,16 @@ def _build_family_permission_profiles(
                     "effective_diversity": round(eff_div, 6),
                 }
         )
-    return pd.DataFrame(rows), pd.DataFrame(entropy_rows)
+    out = pd.DataFrame(rows)
+    if not out.empty:
+        out = _annotate_prevalence_patterns(
+            out,
+            support_col="sample_count",
+            positive_count_col="positive_count",
+            prevalence_col="prevalence_pct",
+            basis="family_permission_profile",
+        )
+    return out, pd.DataFrame(entropy_rows)
 
 
 

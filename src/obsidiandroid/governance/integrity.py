@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from config import app_config
 from obsidiandroid.common.output_paths import project_runtime_logs_dir
 
 from .exceptions import IntegrityStop
@@ -31,6 +32,7 @@ def validate_run_scoped_artifact_paths(
     run_root: Path,
     output_root: Path,
     allow_latest: bool = True,
+    run_id: str | None = None,
 ) -> IntegrityReport:
     """Validate that all artifact paths are run-scoped.
 
@@ -40,9 +42,8 @@ def validate_run_scoped_artifact_paths(
         output_root: Output root for optional latest pointer allowlist.
         allow_latest: Whether to permit ``output/latest`` descendants and operator mirrors.
 
-    Tee logs under :func:`obsidiandroid.common.output_paths.project_runtime_logs_dir` for the same
-    ``run_id`` as ``run_root.name`` are allowed (repo ``logs/runtime/<run_id>/``, not under
-    ``output/runs/``).
+    Tee logs under :func:`obsidiandroid.common.output_paths.project_runtime_logs_dir` for the
+    active run instance are allowed (repo ``logs/runtime/<run_id>/``, not under ``output/runs/``).
 
     Returns:
         Structured report with pass/fail details.
@@ -51,8 +52,13 @@ def validate_run_scoped_artifact_paths(
     latest_root = (output_root / "latest").resolve()
     diagnostics_root = (output_root / "diagnostics").resolve()
     promoted_root = (output_root / "promoted").resolve()
-    run_id = run_root_resolved.name.strip() or "unknown"
-    runtime_logs_resolved = project_runtime_logs_dir(run_id).resolve()
+    runtime_run_id = str(
+        run_id
+        or getattr(app_config, "RUNTIME_RUN_ID", "")
+        or run_root_resolved.name
+        or "unknown"
+    ).strip() or "unknown"
+    runtime_logs_resolved = project_runtime_logs_dir(runtime_run_id).resolve()
     invalid: list[str] = []
 
     for raw_path in artifact_paths:
@@ -87,6 +93,7 @@ def enforce_run_scoped_artifact_paths(
     run_root: Path,
     output_root: Path,
     allow_latest: bool = True,
+    run_id: str | None = None,
 ) -> None:
     """Enforce run-scoped path policy and raise on violations.
 
@@ -104,6 +111,7 @@ def enforce_run_scoped_artifact_paths(
         run_root=run_root,
         output_root=output_root,
         allow_latest=allow_latest,
+        run_id=run_id,
     )
     if not report.passed:
         raise IntegrityStop(f"[INTEGRITY] {report.reason}")

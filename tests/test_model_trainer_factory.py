@@ -614,6 +614,44 @@ def test_split_audit_cache_isolated_per_run_id(
     assert path_b.exists()
 
 
+def test_headline_split_audit_is_model_agnostic(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    features_df, labels = _split_audit_make_frame(36)
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_CROSS_VALIDATION", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "headline_shared", raising=False)
+    model_trainer_factory.reset_runtime_training_caches()
+    meta_df = pd.DataFrame(
+        {
+            "sample_id": features_df.index.tolist(),
+            "sha256": [f"{i:064x}"[-64:] for i in range(len(features_df))],
+            "family_id": [1] * len(features_df),
+            "family_name": ["fam"] * len(features_df),
+        }
+    )
+    monkeypatch.setattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", meta_df, raising=False)
+
+    model_trainer_factory.train_model_factory(
+        features_df=features_df,
+        labels=labels,
+        model_type="random_forest",
+        cross_validate=False,
+        enable_grid_search=False,
+        use_smote=False,
+    )
+
+    meta = getattr(app_config, "RUNTIME_HEADLINE_SPLIT_METADATA", None)
+    assert isinstance(meta, dict)
+    assert meta.get("split_model_written_for") == "headline_shared_split"
+    audit_path = Path(str(meta.get("split_audit_path", "")))
+    audit = pd.read_csv(audit_path)
+    assert audit["model"].nunique() == 1
+    assert str(audit["model"].iloc[0]) == "headline_shared_split"
+
+
 def test_temporal_holdout_summary_records_dropped_family_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

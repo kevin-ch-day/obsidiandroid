@@ -102,6 +102,20 @@ def test_report_output_inventory_latest_prefers_manifest_backed_run(monkeypatch,
     assert got == run_root.resolve()
 
 
+def test_report_output_inventory_uses_manifest_run_id_for_slot_root(tmp_path: Path) -> None:
+    run_id = "20260604T033648Z__d79069"
+    run_root = tmp_path / "output" / "runs" / "majorfam_benchmark"
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text(
+        json.dumps({"run_id": run_id, "run_root": str(run_root)}),
+        encoding="utf-8",
+    )
+
+    got = roi._resolve_run_id(run_root)  # pylint: disable=protected-access
+
+    assert got == run_id
+
+
 def test_write_artifact_inventory_bundle_separates_legacy_latest_compatibility(
     tmp_path: Path,
 ) -> None:

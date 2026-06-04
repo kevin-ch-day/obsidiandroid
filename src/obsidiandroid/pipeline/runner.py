@@ -1700,17 +1700,23 @@ def run_pipeline(
                 failed_stage=str(st.current_stage_name or "") or "unknown",
             )
             st.write_preflight(status="interrupted", reason="KeyboardInterrupt")
+        manifest_context["error_type"] = "KeyboardInterrupt"
         try:
-            for path in write_pipeline_failure_summary(
+            written_paths = write_pipeline_failure_summary(
                 diagnostics_dir=DIAGNOSTICS_DIR,
                 run_root=str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or ""),
                 run_id=run_id,
                 stage_name=(st.current_stage_name or st.last_completed_stage) if st else "startup",
                 error=KeyboardInterrupt("KeyboardInterrupt"),
                 preflight_path=str(st.preflight_path or "") if st else "",
-            ):
+            )
+            for path in written_paths:
                 if path not in artifact_list:
                     artifact_list.append(path)
+            manifest_context["failure_summary_path"] = next(
+                (str(path) for path in written_paths if str(path).endswith("failure_summary.json")),
+                "",
+            )
         except Exception:
             pass
         try:
@@ -1765,6 +1771,7 @@ def run_pipeline(
                 failure_reason=error_text,
                 failed_stage=st.current_stage_name or st.last_completed_stage,
             )
+        manifest_context["error_type"] = e.__class__.__name__
         if st and st.current_stage_name == "ablation":
             manifest_context["_ablation_run_status_summary"] = f"FAIL: {error_text[:400]}"
         if st:
@@ -1778,16 +1785,21 @@ def run_pipeline(
             preflight_path=str(st.preflight_path or "") if st else "",
         )
         try:
-            for path in write_pipeline_failure_summary(
+            written_paths = write_pipeline_failure_summary(
                 diagnostics_dir=DIAGNOSTICS_DIR,
                 run_root=str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or ""),
                 run_id=run_id,
                 stage_name=(st.current_stage_name or st.last_completed_stage) if st else "startup",
                 error=e,
                 preflight_path=str(st.preflight_path or "") if st else "",
-            ):
+            )
+            for path in written_paths:
                 if path not in artifact_list:
                     artifact_list.append(path)
+            manifest_context["failure_summary_path"] = next(
+                (str(path) for path in written_paths if str(path).endswith("failure_summary.json")),
+                "",
+            )
         except Exception:
             pass
 

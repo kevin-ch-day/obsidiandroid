@@ -607,3 +607,126 @@ def test_open_first_hints_respects_compact_tuning_flags(tmp_path: Path) -> None:
     assert str(run_root / "publication_claim_audit.md") not in hints
     assert str(run_root / "paper_claim_audit.md") not in hints
     assert str(run_root / "logging_audit.md") not in hints
+
+
+def test_print_unified_run_health_labels_manifest_finalize_timing(tmp_path: Path, capsys) -> None:
+    run_root = tmp_path / "output" / "runs" / "r_integrity"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    obs_path = diagnostics_dir / "run_observability_summary.json"
+    obs_path.write_text(
+        json.dumps(
+            {
+                "run_id": "r_integrity",
+                "profile_id": "android_malware_major_families",
+                "pipeline_status": "INTEGRITY_STOP",
+                "run_status": "failed",
+                "research_validity_status": "SKIPPED",
+                "paper_mode": False,
+                "evidence_mode": False,
+                "publication_ready_status": "NOT_APPLICABLE",
+                "publication_ready_reasons": [],
+                "manifest_finalize_duration_sec": 2.77,
+                "top_artifacts_to_open_first": [],
+                "paths": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_health.print_unified_run_health(
+        inventory_summary={},
+        observability_json_path=obs_path,
+        evidence_index_path=None,
+        run_root=run_root,
+    )
+
+    out = capsys.readouterr().out
+    assert "Manifest finalization" in out
+    assert "2.77s" in out
+
+
+def test_print_unified_run_health_marks_current_corpus_as_diagnostic_surface(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    run_root = tmp_path / "output" / "runs" / "allcurrent_diagnostic"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    obs_path = diagnostics_dir / "run_observability_summary.json"
+    obs_path.write_text(
+        json.dumps(
+            {
+                "run_id": "r_allcurrent",
+                "profile_id": "android_malware_all_current",
+                "pipeline_status": "PASS_WITH_WARNINGS",
+                "run_status": "complete",
+                "research_validity_status": "PASS",
+                "hostile_audit_status": "PASS",
+                "visible_family_count": 115,
+                "benchmark_trainable_family_count": 80,
+                "paper_mode": False,
+                "evidence_mode": False,
+                "publication_ready_status": "NOT_APPLICABLE",
+                "publication_ready_reasons": [],
+                "top_artifacts_to_open_first": [],
+                "paths": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_health.print_unified_run_health(
+        inventory_summary={},
+        observability_json_path=obs_path,
+        evidence_index_path=None,
+        run_root=run_root,
+    )
+
+    out = capsys.readouterr().out
+    assert "Current corpus" in out
+    assert "avoid benchmark-quality overclaims" in out
+    assert "Visible governed families" in out
+    assert "115" in out
+    assert "Active benchmark family classes" in out
+
+
+def test_print_unified_run_health_shows_partial_audit_status_on_interrupted_run(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    run_root = tmp_path / "output" / "runs" / "r_interrupted"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    obs_path = diagnostics_dir / "run_observability_summary.json"
+    obs_path.write_text(
+        json.dumps(
+            {
+                "run_id": "r_interrupted",
+                "profile_id": "android_malware_all_current",
+                "pipeline_status": "INTERRUPTED",
+                "run_status": "interrupted",
+                "research_validity_status": "PASS_PARTIAL",
+                "hostile_audit_status": "PASS_PARTIAL",
+                "paper_mode": False,
+                "evidence_mode": False,
+                "publication_ready_status": "NOT_APPLICABLE",
+                "publication_ready_reasons": [],
+                "top_artifacts_to_open_first": [],
+                "paths": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_health.print_unified_run_health(
+        inventory_summary={},
+        observability_json_path=obs_path,
+        evidence_index_path=None,
+        run_root=run_root,
+    )
+
+    out = capsys.readouterr().out
+    assert "Research validity bundle" in out
+    assert "PASS_PARTIAL" in out
+    assert "Skeptic audit" in out

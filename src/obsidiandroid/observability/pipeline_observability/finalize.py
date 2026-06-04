@@ -26,6 +26,10 @@ from obsidiandroid.diagnostics.cohort_vocabulary import (
     read_prepared_cohort_row_count,
     read_sql_scope_row_count,
 )
+from obsidiandroid.pipeline.manifest.runtime_support import (
+    derive_aggregate_pipeline_verdict,
+    derive_terminal_run_status,
+)
 from obsidiandroid.observability.pipeline_observability.logging_audit import write_logging_audit_artifacts
 from obsidiandroid.observability.pipeline_observability.session import PipelineObservabilitySession
 
@@ -184,9 +188,7 @@ def finalize_pipeline_observability(
     if stop_ix < 0:
         stop_ix = 0
 
-    run_status_raw = str(manifest_context.get("run_status", "")).strip().lower()
-    if not run_status_raw:
-        run_status_raw = "complete" if int(result_code) == 0 else "failed"
+    run_status_raw = derive_terminal_run_status(manifest_context, result_code=int(result_code))
     completed_stage = str(
         manifest_context.get("completed_stage", "") or manifest.get("completed_stage", "")
     ).strip()
@@ -241,6 +243,15 @@ def finalize_pipeline_observability(
                 recoverable=True,
             )
 
+    rv_status = _adjust_bundle_terminal_status(
+        rv_status,
+        run_status_raw=run_status_raw,
+    )
+    hostile_status = _adjust_bundle_terminal_status(
+        hostile_status,
+        run_status_raw=run_status_raw,
+    )
+
     if obs_session:
         wt = manifest_context.get("_research_bundle_wall_start_iso", "")
         extras_rv = {}
@@ -291,12 +302,17 @@ def finalize_pipeline_observability(
     # --- Aggregate pipeline verdict (explicit about audits) ---
     evidence_readiness_issues = manifest_context.get("_evidence_readiness_failed_checks") or []
 
-    verdict = _derive_aggregate_pipeline_verdict(
+    verdict = derive_aggregate_pipeline_verdict(
         run_status_raw=run_status_raw,
         result_code=int(result_code),
         rv_err=rv_err,
         hostile_failed=hostile_failed,
         readiness_issues=list(evidence_readiness_issues),
+        failure_reason=str(
+            manifest_context.get("failure_reason", "")
+            or manifest_context.get("integrity_error", "")
+            or ""
+        ),
     )
 
     publication_ready_terminal, reasons = evaluate_publication_ready_status(
@@ -530,6 +546,28 @@ def finalize_pipeline_observability(
     benchmark_support_excluded_families = int(
         benchmark_support_policy.get("excluded_below_support_family_count", 0) or 0
     )
+    target_rows = taxonomy_target_surface.get("targets", []) if isinstance(taxonomy_target_surface.get("targets"), list) else []
+    family_target_row = next(
+        (
+            row for row in target_rows
+            if isinstance(row, dict) and str(row.get("surface_name", "") or "").strip() == "family_id"
+        ),
+        {},
+    )
+    type_target_row = next(
+        (
+            row for row in target_rows
+            if isinstance(row, dict) and str(row.get("surface_name", "") or "").strip() == "type_slug"
+        ),
+        {},
+    )
+    visible_family_count = int(family_target_row.get("unique_classes", 0) or 0)
+    benchmark_trainable_family_count = int(
+        family_target_row.get("trainable_classes_at_min_support", 0)
+        or benchmark_support_policy.get("benchmark_eligible_family_count", 0)
+        or 0
+    )
+    visible_type_count = int(type_target_row.get("unique_classes", 0) or 0)
     benchmark_support_top_rows: list[str] = []
     for row in benchmark_support_policy.get("excluded_below_support_families", []) or []:
         if not isinstance(row, dict):
@@ -598,6 +636,9 @@ def finalize_pipeline_observability(
         "benchmark_support_excluded_sample_count": int(benchmark_support_excluded_rows),
         "benchmark_support_excluded_family_count": int(benchmark_support_excluded_families),
         "benchmark_support_excluded_families_top": benchmark_support_top_preview,
+        "visible_family_count": visible_family_count,
+        "benchmark_trainable_family_count": benchmark_trainable_family_count,
+        "visible_type_count": visible_type_count,
         "family_conflict_count": int(taxonomy_summary_payload.get("taxonomy_mismatch_count", 0) or 0),
         "temporal_future_only_family_drops_top": _format_top_count_pairs(temporal_dropped_family_counts),
         "main_training_row_authority": row_authority,
@@ -722,6 +763,21 @@ def finalize_pipeline_observability(
     return summary_path
 
 
+def _adjust_bundle_terminal_status(status: str, *, run_status_raw: str) -> str:
+    """Normalize bundle status labels for interrupted / partial runs."""
+    normalized = str(status or "").strip().upper() or "UNKNOWN"
+    terminal = str(run_status_raw or "").strip().lower()
+    if terminal not in {"interrupted", "partial"}:
+        return normalized
+    if normalized == "PASS":
+        return "PASS_PARTIAL"
+    if normalized == "PASS_WITH_WARNINGS":
+        return "PASS_PARTIAL"
+    if normalized == "SKIPPED":
+        return "SKIPPED_PARTIAL"
+    return normalized
+
+
 def diagnostic_status_path_fallback(diagnostics_dir: Path) -> Path:
     diagnostics_dir = Path(diagnostics_dir)
     primary = diagnostics_dir / AUTHORITATIVE_SUMMARY_FILENAME
@@ -736,29 +792,6 @@ def _coerce_nonneg_int(value: Any) -> int:
         return int(value or 0)
     except Exception:
         return 0
-
-
-def _derive_aggregate_pipeline_verdict(
-    *,
-    run_status_raw: str,
-    result_code: int,
-    rv_err: str,
-    hostile_failed: bool,
-    readiness_issues: list[Any],
-) -> str:
-    if result_code != 0 and run_status_raw == "failed":
-        return "FAIL"
-    if rv_err.strip():
-        return "FAIL_WITH_PARTIAL_AUDITS"
-    if hostile_failed:
-        return "PASS_WITH_WARNINGS"
-    if readiness_issues:
-        return "PASS_WITH_WARNINGS"
-    if run_status_raw == "partial":
-        return "PASS_WITH_WARNINGS"
-    if run_status_raw == "complete":
-        return "PASS"
-    return "PASS_WITH_WARNINGS"
 
 
 def _rewrite_stage_summary_md(diagnostics_dir: Path) -> None:
@@ -807,7 +840,7 @@ def _partial_failures_md(
     if rv_err:
         lines.extend(["## Research validity bundle", "", f"- {rv_err}", ""])
     if hostile_failed:
-        lines.extend(["## Hostile audit", "", "_See hostile_audit_partial_errors.txt for step-level faults._", ""])
+        lines.extend(["## Skeptic audit", "", "_See hostile_audit_partial_errors.txt for step-level faults._", ""])
     if snaps:
         lines.append("## Session partial-failure ledger")
         lines.append("")

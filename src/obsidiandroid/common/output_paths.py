@@ -59,12 +59,17 @@ def run_archives_root() -> Path:
 def resolve_runtime_run_directory(run_id: str) -> Path:
     """Return the directory that holds run-scoped artifacts (e.g. ``conf_matrices/``).
 
-    Prefers :attr:`RUNTIME_RUN_ROOT` when available. Otherwise uses
-    ``output_root() / runs / run_id`` for legacy compatibility lookups.
+    Prefers :attr:`RUNTIME_RUN_ROOT` for the active runtime run instance.
+    Otherwise uses ``output_root() / runs / run_id`` for legacy and historical
+    compatibility lookups.
     """
     runtime_root_raw = getattr(app_config, "RUNTIME_RUN_ROOT", None)
     if runtime_root_raw:
-        return Path(str(runtime_root_raw)).expanduser().resolve()
+        runtime_root = Path(str(runtime_root_raw)).expanduser().resolve()
+        active_run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "").strip()
+        token = str(run_id).strip()
+        if not token or not active_run_id or token == active_run_id:
+            return runtime_root
     runs_sub = str(getattr(app_config, "OUTPUT_RUNS_SUBDIR", "runs"))
     return output_root() / runs_sub / str(run_id).strip()
 

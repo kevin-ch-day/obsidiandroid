@@ -145,11 +145,11 @@ def enforce_publication_profile_lock(
     suggestion = _suggest_locked_profile_id(profile_id)
     if suggestion:
         raise ValueError(
-            f"[PROFILE] Publication-ready profile '{profile_id}' is unlocked and cannot run in evidence/publication mode. "
+            f"[PROFILE] Profile '{profile_id}' is unlocked and cannot run in evidence/publication mode. "
             f"Use '{suggestion}' instead."
         )
     raise ValueError(
-        f"[PROFILE] Publication-ready profile '{profile_id}' is unlocked and cannot run in evidence/publication mode. "
+        f"[PROFILE] Profile '{profile_id}' is unlocked and cannot run in evidence/publication mode. "
         "Create or use a profile with paper_locked: true and locked cohort metadata."
     )
 
@@ -162,10 +162,6 @@ def is_publication_intended_profile(*, profile: dict[str, Any], effective_eviden
     if profile_id.startswith("paper"):
         return True
     if profile_id.endswith("_locked"):
-        return True
-    if isinstance(profile.get("paper_perturbation_axes"), list) and profile.get("paper_perturbation_axes"):
-        return True
-    if isinstance(profile.get("evidence_perturbation_axes"), list) and profile.get("evidence_perturbation_axes"):
         return True
     return False
 

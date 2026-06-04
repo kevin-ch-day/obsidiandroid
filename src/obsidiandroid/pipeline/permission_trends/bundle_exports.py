@@ -268,7 +268,8 @@ def export_run_summary_onepager(
         for type_slug, group in cap_top.groupby("type_slug", sort=False):
             sample_count = int(pd.to_numeric(group["sample_count"], errors="coerce").fillna(0).iloc[0])
             bundles = ", ".join(
-                f"{row['capability_bundle']}={float(row['prevalence']):.2f}"
+                f"{row['capability_bundle']}={float(row['prevalence']):.2f} "
+                f"({row.get('pattern_label', 'Inconclusive')}, {row.get('pattern_confidence', 'low')})"
                 for _, row in group.iterrows()
             )
             lines.append(f"- {type_slug} (n={sample_count}): {bundles}")
@@ -292,7 +293,8 @@ def export_run_summary_onepager(
         for family_name, group in family_examples.groupby("family_canonical", sort=False):
             sample_count = int(pd.to_numeric(group["sample_count"], errors="coerce").fillna(0).iloc[0])
             permissions = ", ".join(
-                f"{str(row['permission']).replace('android.permission.', '')}={float(row['prevalence']):.2f}"
+                f"{str(row['permission']).replace('android.permission.', '')}={float(row['prevalence']):.2f} "
+                f"({row.get('pattern_label', 'Inconclusive')}, {row.get('pattern_confidence', 'low')})"
                 for _, row in group.iterrows()
             )
             lines.append(f"- {family_name} (n={sample_count}): {permissions}")
@@ -310,7 +312,8 @@ def export_run_summary_onepager(
         for family_name, group in cap_examples.groupby("family_canonical", sort=False):
             sample_count = int(pd.to_numeric(group["sample_count"], errors="coerce").fillna(0).iloc[0])
             bundles = ", ".join(
-                f"{row['capability_bundle']}={float(row['prevalence']):.2f}"
+                f"{row['capability_bundle']}={float(row['prevalence']):.2f} "
+                f"({row.get('pattern_label', 'Inconclusive')}, {row.get('pattern_confidence', 'low')})"
                 for _, row in group.iterrows()
             )
             lines.append(f"- {family_name} (n={sample_count}): {bundles}")
@@ -324,7 +327,8 @@ def export_run_summary_onepager(
         for _, row in ordered.head(6).iterrows():
             lines.append(
                 f"- {row['group_kind']} `{row['group_value']}` -> `{row['attack_id']}` {row['attack_name']} "
-                f"[{row['confidence']}] via {row['evidence_permissions']}"
+                f"[{row['confidence']}; {row.get('pattern_label', 'Inconclusive')}, "
+                f"{row.get('pattern_confidence', 'low')}] via {row['evidence_permissions']}"
             )
     text = "\n".join(lines) + "\n"
     return export_markdown_with_latest(text, run_id, "run_summary_onepager", bundle_dir)
@@ -348,6 +352,7 @@ def export_permission_pattern_summary(
     family_similarity_df: pd.DataFrame,
     attack_hypotheses_df: pd.DataFrame,
     generic_summary_df: pd.DataFrame,
+    temporal_pattern_df: pd.DataFrame | None = None,
 ) -> str:
     broad_family_df = (
         prevalence_by_family_df.copy()
@@ -399,7 +404,8 @@ def export_permission_pattern_summary(
                 lines.append(
                     f"- {row['type_slug']} :: {row['permission']}: "
                     f"OR={float(row['odds_ratio']):.2f}, q={float(row['q_value_fdr']):.3e}, "
-                    f"bucket={row['interpretation_bucket']}"
+                    f"bucket={row['interpretation_bucket']}, "
+                    f"pattern={row.get('pattern_label', 'Inconclusive')}"
                 )
     else:
         lines.append("")
@@ -425,14 +431,16 @@ def export_permission_pattern_summary(
         for _, row in behavior_safe.iterrows():
             lines.append(
                 f"- {row['type_slug']} :: {row['signal_key']}: "
-                f"prevalence={float(row['prevalence_pct']):.1f}%"
+                f"prevalence={float(row['prevalence_pct']):.1f}%, "
+                f"pattern={row.get('pattern_label', 'Inconclusive')}"
             )
         lines.append("")
         lines.append("Model-only / fingerprint signal groups:")
         for _, row in model_only.iterrows():
             lines.append(
                 f"- {row['type_slug']} :: {row['signal_key']} "
-                f"({row['authority_lane']}): prevalence={float(row['prevalence_pct']):.1f}%"
+                f"({row['authority_lane']}): prevalence={float(row['prevalence_pct']):.1f}%, "
+                f"pattern={row.get('pattern_label', 'Inconclusive')}"
             )
     else:
         lines.append("")
@@ -503,7 +511,8 @@ def export_permission_pattern_summary(
                 lines.append(
                     f"- {row['family_canonical']} ({row['type_slug']}, n={int(row['family_support'])}) :: {row['permission']}: "
                     f"OR={float(row['odds_ratio']):.2f}, q={float(row['q_value_fdr']):.3e}, "
-                    f"bucket={row['interpretation_bucket']}"
+                    f"bucket={row['interpretation_bucket']}, "
+                    f"pattern={row.get('pattern_label', 'Inconclusive')}"
                 )
         low_support = pd.DataFrame()
         if not broad_family_df.empty and {"benchmark_eligible_n_ge_3", "family_canonical", "family_support"}.issubset(
@@ -538,7 +547,8 @@ def export_permission_pattern_summary(
         for _, row in top_family_signals.iterrows():
             lines.append(
                 f"- {row['family_canonical']} ({row['type_slug']}, n={int(row['family_support'])}) :: "
-                f"{row['signal_key']} prevalence={float(row['prevalence_pct']):.1f}%"
+                f"{row['signal_key']} prevalence={float(row['prevalence_pct']):.1f}%, "
+                f"pattern={row.get('pattern_label', 'Inconclusive')}"
             )
     if isinstance(signal_prevalence_by_family_behavior_safe_df, pd.DataFrame) and not signal_prevalence_by_family_behavior_safe_df.empty:
         top_family_behavior_safe = signal_prevalence_by_family_behavior_safe_df[
@@ -553,8 +563,37 @@ def export_permission_pattern_summary(
         for _, row in top_family_behavior_safe.iterrows():
             lines.append(
                 f"- {row['family_canonical']} ({row['type_slug']}, n={int(row['family_support'])}) :: "
-                f"{row['signal_key']} prevalence={float(row['prevalence_pct']):.1f}%"
+                f"{row['signal_key']} prevalence={float(row['prevalence_pct']):.1f}%, "
+                f"pattern={row.get('pattern_label', 'Inconclusive')}"
             )
+
+    lines.extend(["", "## Temporal banker permission signals"])
+    if isinstance(temporal_pattern_df, pd.DataFrame) and not temporal_pattern_df.empty:
+        latest_period = str(temporal_pattern_df["period_quarter"].astype(str).max())
+        latest_rows = temporal_pattern_df[
+            temporal_pattern_df["period_quarter"].astype(str) == latest_period
+        ].copy()
+        if "pattern_level" not in latest_rows.columns:
+            latest_rows["pattern_level"] = 3
+        latest_rows = latest_rows.sort_values(
+            by=["pattern_level", "prevalence_pct", "permission"],
+            ascending=[False, False, True],
+            kind="mergesort",
+        ).head(6)
+        lines.append("")
+        lines.append(
+            "Latest-quarter banker permission patterns are still static manifest interpretation only; "
+            "they do not prove runtime behavior."
+        )
+        for _, row in latest_rows.iterrows():
+            lines.append(
+                f"- {row['period_quarter']} :: {row['permission']} prevalence={float(row['prevalence_pct']):.1f}% "
+                f"(n={int(row['banker_sample_count'])}, pattern={row.get('pattern_label', 'Inconclusive')}, "
+                f"{row.get('pattern_confidence', 'low')})"
+            )
+    else:
+        lines.append("")
+        lines.append("No temporal banker permission pattern rows available.")
 
     lines.extend(["", "## Family-within-type clusters"])
     if isinstance(family_similarity_df, pd.DataFrame) and not family_similarity_df.empty:
@@ -574,7 +613,8 @@ def export_permission_pattern_summary(
                     f"- {row['family_a']} vs {row['family_b']} ({row['type_a']}): "
                     f"cosine={float(row['cosine_similarity']):.3f}, "
                     f"jaccard={float(row['jaccard_similarity']):.3f}, "
-                    f"spearman={float(row['spearman_correlation']):.3f}"
+                    f"spearman={float(row['spearman_correlation']):.3f}, "
+                    f"pattern={row.get('pattern_label', 'Inconclusive')} ({row.get('pattern_confidence', 'low')})"
                 )
     else:
         lines.append("")
@@ -594,7 +634,8 @@ def export_permission_pattern_summary(
             lines.append(
                 f"- {row['family_a']} vs {row['family_b']} ({row['type_a']}): "
                 f"cosine={float(row['cosine_similarity']):.3f}, "
-                f"jaccard={float(row['jaccard_similarity']):.3f}"
+                f"jaccard={float(row['jaccard_similarity']):.3f}, "
+                f"pattern={row.get('pattern_label', 'Inconclusive')} ({row.get('pattern_confidence', 'low')})"
             )
     if isinstance(family_signal_similarity_behavior_safe_df, pd.DataFrame) and not family_signal_similarity_behavior_safe_df.empty:
         same_type_signal_behavior_safe = family_signal_similarity_behavior_safe_df[
@@ -610,7 +651,8 @@ def export_permission_pattern_summary(
             lines.append(
                 f"- {row['family_a']} vs {row['family_b']} ({row['type_a']}): "
                 f"cosine={float(row['cosine_similarity']):.3f}, "
-                f"jaccard={float(row['jaccard_similarity']):.3f}"
+                f"jaccard={float(row['jaccard_similarity']):.3f}, "
+                f"pattern={row.get('pattern_label', 'Inconclusive')} ({row.get('pattern_confidence', 'low')})"
             )
 
     lines.extend(["", "## Taxonomy anomalies"])
@@ -658,7 +700,8 @@ def export_permission_pattern_summary(
         for _, row in top_attack.iterrows():
             lines.append(
                 f"- {row['group_kind']} `{row['group_value']}` -> {row['attack_id']} {row['attack_name']} "
-                f"({row['confidence']}; matched_permissions={int(row['matched_permission_count'])})"
+                f"({row['confidence']}; {row.get('pattern_label', 'Inconclusive')}, "
+                f"{row.get('pattern_confidence', 'low')}; matched_permissions={int(row['matched_permission_count'])})"
             )
     else:
         lines.append("- No ATT&CK-Mobile hypotheses available.")

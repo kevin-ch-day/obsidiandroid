@@ -10,6 +10,7 @@ import pandas as pd
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from obsidiandroid.database import db_av_engine_detection_totals
 
 METADATA_FIELDS = [
@@ -60,11 +61,7 @@ def _build_metadata_overlay(
 
 
 def _overlay_diagnostics_dir() -> Path:
-    diag = str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "").strip()
-    if diag:
-        return Path(diag)
-    base = str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output") or "output")
-    return Path(base) / "diagnostics"
+    return resolve_diagnostics_dir()
 
 
 def _write_engine_metadata_overlay_csv(meta_df: pd.DataFrame, *, verbose: bool) -> str | None:

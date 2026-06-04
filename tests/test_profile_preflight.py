@@ -253,7 +253,7 @@ def test_compact_live_gap_note_limits_operator_line_density() -> None:
         ]
     )
     assert headline.startswith("Live authority/taxonomy backlog:")
-    assert len(detail_lines) == 1
+    assert len(detail_lines) == 2
     assert detail_lines[0].startswith("Permission Intel observations include")
     assert "Taxonomy curation discipline" not in headline
 
@@ -493,4 +493,4 @@ def test_compact_profile_detail_hardens_locked_cohort_wording() -> None:
 
     assert "Advisory only; sample selection is not enforced." in compact
     assert "Permission-observation wording is not verified/enforced for this run." in compact
-    assert "Paper-locked cohort; new DB curation will not change membership until the lock is refreshed." in compact
+    assert "Locked benchmark cohort; new DB curation will not change membership until the lock is refreshed." in compact

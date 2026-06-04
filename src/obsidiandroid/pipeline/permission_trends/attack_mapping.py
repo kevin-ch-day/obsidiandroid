@@ -9,9 +9,137 @@ import pandas as pd
 from obsidiandroid.governance.mobile_attack_permission_mapping import (
     mobile_attack_permission_mapping_payload,
 )
+from obsidiandroid.pipeline.permission_trends.pattern_framework import (
+    classify_prevalence_pattern,
+    normalize_pattern_basis,
+    pattern_label_for_level,
+)
 
 
 _CONFIDENCE_ORDER = {"direct": 0, "strong_inference": 1, "weak_inference": 2}
+_PATTERN_CONFIDENCE_ORDER = {
+    "none": 0,
+    "very_low": 1,
+    "low": 2,
+    "moderate": 3,
+    "high": 4,
+    "very_high": 5,
+}
+_PATTERN_CONFIDENCE_BY_ATTACK_CONFIDENCE = {
+    "direct": "high",
+    "strong_inference": "moderate",
+    "weak_inference": "low",
+}
+_HYPOTHESIS_LEVEL_CAP = {
+    "direct": 6,
+    "strong_inference": 5,
+    "weak_inference": 4,
+}
+
+
+def _aggregate_hypothesis_pattern(
+    *,
+    matched_rows: list[pd.Series],
+    group_kind: str,
+    mapping_confidence: str,
+    matched_permission_count: int,
+) -> dict[str, Any]:
+    evidence_levels = [
+        int(pd.to_numeric(row.get("pattern_level", 3), errors="coerce"))
+        for row in matched_rows
+    ]
+    evidence_scores = [
+        float(pd.to_numeric(row.get("pattern_score", 0.0), errors="coerce"))
+        for row in matched_rows
+    ]
+    evidence_confidences = [
+        str(row.get("pattern_confidence", "low") or "low").strip().lower()
+        for row in matched_rows
+    ]
+    level_cap = _HYPOTHESIS_LEVEL_CAP.get(str(mapping_confidence).strip().lower(), 4)
+    base_level = min(evidence_levels) if evidence_levels else 3
+    pattern_level = max(1, min(base_level, level_cap))
+    mean_score = round(sum(evidence_scores) / max(len(evidence_scores), 1), 2) if evidence_scores else 0.0
+    mapping_conf_cap = _PATTERN_CONFIDENCE_BY_ATTACK_CONFIDENCE.get(
+        str(mapping_confidence).strip().lower(),
+        "low",
+    )
+    confidence_rank = min(
+        [_PATTERN_CONFIDENCE_ORDER.get(mapping_conf_cap, 2)]
+        + [_PATTERN_CONFIDENCE_ORDER.get(value, 2) for value in evidence_confidences]
+    )
+    pattern_confidence = next(
+        key for key, value in _PATTERN_CONFIDENCE_ORDER.items() if value == confidence_rank
+    )
+    group_level = "TYPE_LEVEL" if str(group_kind).strip().lower() == "type" else "FAMILY_LEVEL"
+    evidence_labels = sorted({pattern_label_for_level(level) for level in evidence_levels})
+    evidence_label_text = ", ".join(evidence_labels) if evidence_labels else pattern_label_for_level(pattern_level)
+    evidence_bases = sorted(
+        {
+            str(row.get("pattern_basis", "") or "").strip()
+            for row in matched_rows
+            if str(row.get("pattern_basis", "") or "").strip()
+        }
+    )
+    if evidence_bases:
+        normalized_bases = {normalize_pattern_basis(value) for value in evidence_bases}
+        if len(normalized_bases) == 1:
+            base_basis = normalized_bases.pop()
+            if "+TYPE_LEVEL" in base_basis:
+                pattern_basis = "BEHAVIOR+TYPE_LEVEL+MIXED"
+            elif "+FAMILY_LEVEL" in base_basis:
+                pattern_basis = "BEHAVIOR+FAMILY_LEVEL+MIXED"
+            else:
+                pattern_basis = f"BEHAVIOR+{group_level}+MIXED"
+        else:
+            pattern_basis = f"BEHAVIOR+{group_level}+MIXED"
+    else:
+        pattern_basis = f"BEHAVIOR+{group_level}+MIXED"
+    return {
+        "pattern_score": mean_score,
+        "pattern_level": pattern_level,
+        "pattern_label": pattern_label_for_level(pattern_level),
+        "pattern_basis": pattern_basis,
+        "pattern_confidence": pattern_confidence,
+        "pattern_reason": (
+            f"permission-derived hypothesis from {matched_permission_count} matched permissions; "
+            f"upstream evidence={evidence_label_text}; mapping_confidence={mapping_confidence}"
+        ),
+    }
+
+
+def _permission_pattern_row(
+    *,
+    permission_rows: pd.DataFrame,
+    prevalence_field: str,
+    sample_count_field: str,
+    basis: str,
+) -> pd.Series | None:
+    if permission_rows.empty:
+        return None
+    top = permission_rows.sort_values(by=prevalence_field, ascending=False, kind="mergesort").iloc[0].copy()
+    missing_pattern_fields = {
+        "pattern_level",
+        "pattern_score",
+        "pattern_confidence",
+        "pattern_basis",
+        "pattern_reason",
+    } - set(permission_rows.columns)
+    if missing_pattern_fields:
+        fallback = classify_prevalence_pattern(
+            prevalence_pct=float(pd.to_numeric(top.get(prevalence_field), errors="coerce") or 0.0) * 100.0,
+            positive_count=int(
+                round(
+                    float(pd.to_numeric(top.get(prevalence_field), errors="coerce") or 0.0)
+                    * float(pd.to_numeric(top.get(sample_count_field), errors="coerce") or 0.0)
+                )
+            ),
+            group_support=int(pd.to_numeric(top.get(sample_count_field), errors="coerce") or 0),
+            basis=basis,
+        )
+        for key, value in fallback.items():
+            top[key] = value
+    return top
 
 
 def build_attack_mobile_hypotheses(
@@ -69,6 +197,25 @@ def build_attack_mobile_hypotheses(
             if len(matched) < required_count:
                 continue
             evidence_prevalence = [float(permission_prevalence.get(permission, 0.0)) for permission in matched]
+            matched_rows = []
+            for permission in matched:
+                permission_rows = group[group[permission_field] == permission]
+                basis = f"permission_prevalence_by_{'type' if str(group_kind).strip().lower() == 'type' else 'family'}"
+                top_row = _permission_pattern_row(
+                    permission_rows=permission_rows,
+                    prevalence_field=prevalence_field,
+                    sample_count_field=sample_count_field,
+                    basis=basis,
+                )
+                if top_row is not None:
+                    matched_rows.append(top_row)
+            attack_confidence = str(rule.get("confidence", "") or "").strip()
+            pattern_payload = _aggregate_hypothesis_pattern(
+                matched_rows=matched_rows,
+                group_kind=group_kind,
+                mapping_confidence=attack_confidence,
+                matched_permission_count=len(matched),
+            )
             rows.append(
                 {
                     "run_id": run_id,
@@ -79,7 +226,7 @@ def build_attack_mobile_hypotheses(
                     "attack_name": str(rule.get("attack_name", "") or "").strip(),
                     "attack_url": str(rule.get("attack_url", "") or "").strip(),
                     "tactic": str(rule.get("tactic", "") or "").strip(),
-                    "confidence": str(rule.get("confidence", "") or "").strip(),
+                    "confidence": attack_confidence,
                     "required_permission_count": int(len(required_any)),
                     "matched_permission_count": int(len(matched)),
                     "min_required_prevalence": float(min_prevalence),
@@ -88,6 +235,7 @@ def build_attack_mobile_hypotheses(
                     "evidence_prevalence_min": round(min(evidence_prevalence), 6),
                     "mapping_version": str(mapping.get("version", "") or "").strip(),
                     "mapping_hash": str(mapping.get("hash", "") or "").strip(),
+                    **pattern_payload,
                 }
             )
     if not rows:
@@ -138,7 +286,8 @@ def build_attack_mobile_hypotheses_markdown(
             lines.append(f"- `{group_value}` (n={sample_count})")
             for _, row in subgroup.head(4).iterrows():
                 lines.append(
-                    f"  - `{row['attack_id']}` {row['attack_name']} [{row['confidence']}] via "
+                    f"  - `{row['attack_id']}` {row['attack_name']} [{row['confidence']}; "
+                    f"{row.get('pattern_label', 'Inconclusive')}, {row.get('pattern_confidence', 'low')}] via "
                     f"`{row['evidence_permissions']}`"
                 )
     return "\n".join(lines) + "\n"

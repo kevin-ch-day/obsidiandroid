@@ -1136,3 +1136,58 @@ def test_print_research_questions_terminal_formats_failure_structure_compact_and
     assert "Support filter narrowed the supervised task before training" in text
     assert "Split audit: sha_overlap=0, package_overlap=7, family_package_overlap=3." in text
     assert "SMOTE audit: original_train_n=700, post_resample_train_n=1100, method=SMOTE." in text
+
+
+def test_print_research_questions_terminal_distinguishes_visible_vs_active_family_counts(
+    monkeypatch,
+) -> None:
+    captured: list[str] = []
+
+    class _DummyDisplay:
+        @staticmethod
+        def print_section(_title: str) -> None:
+            return None
+
+    monkeypatch.setattr(app_config, "ML_TERMINAL_COMPACT", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_TRAINING_LABEL_CLASS_COUNT", 8, raising=False)
+
+    rtq.print_research_questions_terminal(
+        {
+            "q1": {
+                "governed_samples": 100,
+                "aligned_supervised_samples": 100,
+                "trainable_after_support_filter": 98,
+                "families_represented": 10,
+                "malware_types_represented": 3,
+                "concentration": {"top5_share_pct": 70.0},
+                "supervised_family_claims_suitable": True,
+            },
+            "q2": {
+                "permission_signal_n": 90,
+                "permission_signal_pct": 90.0,
+                "permission_raw_observation_n": 90,
+                "permission_raw_observation_pct": 90.0,
+                "permission_feature_columns": 10,
+                "vendor_merge_n": 100,
+                "vendor_merge_pct": 100.0,
+                "av_engines_observed": 5,
+                "av_engines_included": 3,
+            },
+            "q3": {},
+            "model_key": "logistic_regression",
+            "macro_f1": 0.61,
+            "wf1": 0.79,
+            "acc": 0.81,
+            "gap_w_m": 0.18,
+            "concentration_warn": True,
+        },
+        pr=captured.append,
+        du=_DummyDisplay(),
+    )
+
+    text = "\n".join(captured)
+    assert "Governed cohort 100; 10 visible families, 3 types" in text
+    assert (
+        "Governed cohort ≈ 100 samples / 10 visible families; headline training applies to "
+        "≈ 98 samples / 8 active benchmark family classes"
+    ) in text

@@ -670,9 +670,13 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
     elif lock_status == "taxonomy-drift":
         drift_detail = taxonomy_count_drift_note(taxonomy_drift) if taxonomy_drift else ""
         if drift_detail:
-            tuning_actions.append(f"Review taxonomy-label drift inside the locked sample set before comparing family/type counts to the historical paper contract: {drift_detail}")
+            tuning_actions.append(
+                f"Review taxonomy-label drift inside the locked sample set before comparing family/type counts to the historical locked benchmark contract: {drift_detail}"
+            )
         else:
-            tuning_actions.append("Review taxonomy-label drift inside the locked sample set before comparing family/type counts to the historical paper contract.")
+            tuning_actions.append(
+                "Review taxonomy-label drift inside the locked sample set before comparing family/type counts to the historical locked benchmark contract."
+            )
     elif lock_status == "missing-lock":
         tuning_actions.append("Do not treat this run as publication-grade until the sample-id cohort lock is restored and revalidated.")
     if health_map.get("Figure validity") in {"YELLOW", "RED"}:

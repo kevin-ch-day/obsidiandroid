@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from config import app_config
 from obsidiandroid.governance.exceptions import IntegrityStop
 from obsidiandroid.governance.integrity import (
     enforce_run_scoped_artifact_paths,
@@ -34,8 +35,9 @@ def test_validate_run_scoped_artifact_paths_passes_for_run_root(tmp_path: Path) 
 def test_validate_run_scoped_artifact_paths_passes_for_repo_runtime_logs(tmp_path, monkeypatch) -> None:
     """Runtime tee logs live under repo logs/runtime/<run_id>/, not under output/runs/."""
     monkeypatch.setenv("OBSIDIANDROID_LOG_FILES_ROOT", str(tmp_path / "logs"))
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "r1", raising=False)
     output_root = tmp_path / "output"
-    run_root = output_root / "runs" / "r1"
+    run_root = output_root / "runs" / "majorfam_benchmark"
     run_root.mkdir(parents=True, exist_ok=True)
     tee = tmp_path / "logs" / "runtime" / "r1" / "pipeline_runtime_console_r1.log"
     tee.parent.mkdir(parents=True, exist_ok=True)
@@ -48,6 +50,29 @@ def test_validate_run_scoped_artifact_paths_passes_for_repo_runtime_logs(tmp_pat
     )
     assert report.passed is True
     assert report.invalid_paths == tuple()
+
+
+def test_validate_run_scoped_artifact_paths_rejects_repo_runtime_logs_for_other_run_id(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Repo runtime logs are only allowed when the directory run id matches the active run."""
+    monkeypatch.setenv("OBSIDIANDROID_LOG_FILES_ROOT", str(tmp_path / "logs"))
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "r1", raising=False)
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "majorfam_benchmark"
+    run_root.mkdir(parents=True, exist_ok=True)
+    wrong = tmp_path / "logs" / "runtime" / "r2" / "pipeline_runtime_console_r2.log"
+    wrong.parent.mkdir(parents=True, exist_ok=True)
+    wrong.write_text("log\n", encoding="utf-8")
+    report = validate_run_scoped_artifact_paths(
+        artifact_paths=[str(wrong)],
+        run_root=run_root,
+        output_root=output_root,
+        allow_latest=True,
+    )
+    assert report.passed is False
+    assert str(wrong) in report.invalid_paths
 
 
 def test_validate_run_scoped_artifact_paths_allows_pipeline_stage_timings_latest(tmp_path: Path) -> None:

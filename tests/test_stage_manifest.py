@@ -286,6 +286,8 @@ def test_finalize_run_manifest_stage_success(monkeypatch) -> None:
     assert captured["manifest"]["cohort_size"] == 3
     assert captured["manifest"]["profile_id"] == "test"
     assert captured["manifest"]["run_status"] == "complete"
+    assert captured["manifest"]["status"] == "complete"
+    assert captured["manifest"]["pipeline_verdict"] == "PASS"
     assert captured["manifest"]["publication_ready_status"] == "NOT_APPLICABLE"
     assert captured["manifest"]["integrity_status"] == "pass"
     assert captured["manifest"]["trained_models"] == ["xgboost"]
@@ -303,6 +305,7 @@ def test_finalize_run_manifest_stage_success(monkeypatch) -> None:
     assert run_summary_path.exists()
     run_summary = json.loads(run_summary_path.read_text(encoding="utf-8"))
     assert run_summary["run_status"] == "complete"
+    assert run_summary["pipeline_verdict"] == "PASS"
     assert run_summary["completed_stage"] == "manifest"
 
 
@@ -399,6 +402,8 @@ def test_finalize_run_manifest_stage_skips_strict_paper_exports_for_failed_run(
     assert result == 1
     manifest = captured["manifest"]
     assert manifest["run_status"] == "failed"
+    assert manifest["status"] == "failed"
+    assert manifest["pipeline_verdict"] == "FAILED"
     assert manifest["paper_export_status"]["enabled"] is False
     assert manifest["paper_export_status"]["reason"] == "run_failed"
 
@@ -724,6 +729,127 @@ def test_finalize_run_manifest_stage_keeps_evidence_samples_stop_nonfatal(
     assert captured["manifest"]["run_status"] == "partial"
 
 
+def test_finalize_run_manifest_stage_preserves_interrupted_manifest_state(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    run_root = tmp_path / "output" / "runs" / "allcurrent_diagnostic"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "output" / "diagnostics").mkdir(parents=True, exist_ok=True)
+    failure_summary = diagnostics_dir / "failure_summary.json"
+    failure_summary.write_text(
+        json.dumps({"run_id": "r_interrupt", "error_type": "KeyboardInterrupt", "stage": "permission_trends"}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(stage_manifest.run_manifest, "get_git_commit", lambda: "abc123")
+    monkeypatch.setattr(stage_manifest.run_manifest, "compute_taxonomy_version_hash", lambda: "taxhash")
+    monkeypatch.setattr(stage_manifest.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_RUN_ROOT", str(run_root), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_VENDOR_GATE_DEBUG_PATH", "", raising=False)
+    monkeypatch.setattr(stage_manifest, "_build_strict_paper2_exports", lambda **_kwargs: {})
+    monkeypatch.setattr(stage_manifest, "_build_evidence_bundle", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_manifest_with_pointer",
+        lambda **kwargs: captured.__setitem__("manifest", kwargs["manifest"]),
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_run_summary_json",
+        lambda **_kwargs: run_root / "run_summary.json",
+    )
+    monkeypatch.setattr(stage_manifest, "_finalize_output_hygiene_bundle", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_run_summary_onepager",
+        lambda **_kwargs: diagnostics_dir / "run_summary_onepager.md",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_experiment_contract_snapshot",
+        lambda **_kwargs: diagnostics_dir / "experiment_contract_snapshot_r_interrupt.json",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_evaluation_contract_json",
+        lambda **_kwargs: diagnostics_dir / "evaluation_contract_r_interrupt.json",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_taxonomy_authority_recommendation_md",
+        lambda **_kwargs: diagnostics_dir / "taxonomy_authority.md",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_write_run_artifact_index",
+        lambda **_kwargs: diagnostics_dir / "run_artifact_index.md",
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_export_trained_family_registry",
+        lambda **_kwargs: (diagnostics_dir / "trained_family_registry.csv", 0),
+    )
+    monkeypatch.setattr(
+        stage_manifest,
+        "_export_confusion_matrix_provenance",
+        lambda **_kwargs: diagnostics_dir / "confusion_matrix_provenance.json",
+    )
+    monkeypatch.setattr(
+        stage_manifest.compliance,
+        "build_compliance_report",
+        lambda **_kwargs: {"overall_status": "pass"},
+    )
+    monkeypatch.setattr(stage_manifest.compliance, "write_compliance_report", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_render_consensus_distribution_png", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_write_evidence_compliance_stub", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_build_family_temporal_scope_table", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_build_paper_ablation_table", lambda **_kwargs: None)
+    monkeypatch.setattr(stage_manifest, "_build_paper_cohort_summary_table", lambda **_kwargs: None)
+
+    result = stage_manifest.finalize_run_manifest_stage(
+        manifest_context={
+            "run_id": "r_interrupt",
+            "run_instance_id": "r_interrupt",
+            "run_slot": "allcurrent_diagnostic",
+            "run_root": str(run_root),
+            "run_mode": "diagnostic",
+            "timestamp_utc": "t1",
+            "config_hash": "cfg",
+            "run_status": "interrupted",
+            "completed_stage": "permission_trends",
+            "failed_stage": "permission_trends",
+            "failure_reason": "KeyboardInterrupt",
+            "error_type": "KeyboardInterrupt",
+            "failure_summary_path": str(failure_summary),
+            "model_summary": {"top_model": "logistic_regression", "top_macro_f1": 0.6928},
+            "trained_model_count": 3,
+        },
+        profile={"profile_id": "android_malware_all_current", "evidence_mode": False},
+        samples_df=pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
+        pipeline_results={"trained_models": ["random_forest", "xgboost", "logistic_regression"]},
+        vendor_eval_df=pd.DataFrame(),
+        artifact_list=[],
+    )
+
+    assert result == 0
+    manifest = captured["manifest"]
+    assert manifest["run_status"] == "interrupted"
+    assert manifest["status"] == "interrupted"
+    assert manifest["pipeline_verdict"] == "INTERRUPTED"
+    assert manifest["failed_stage"] == "permission_trends"
+    assert manifest["interrupted_stage"] == "permission_trends"
+    assert manifest["error_type"] == "KeyboardInterrupt"
+    assert manifest["top_model"] == "logistic_regression"
+    assert manifest["top_model_primary_metric_name"] == "macro_f1_score"
+    assert manifest["top_model_primary_metric_value"] == 0.6928
+    assert manifest["failure_summary_path"] == str(failure_summary)
+    assert manifest["training_completed_before_terminal"] is True
+
+
 def test_write_run_summary_json_creates_canonical_and_latest(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -772,7 +898,72 @@ def test_write_run_summary_json_creates_canonical_and_latest(
     assert not (diagnostics_dir / "run_summary.latest.json").exists()
     payload = json.loads(out_path.read_text(encoding="utf-8"))
     assert payload["run_status"] == "failed"
+    assert payload["pipeline_verdict"] == "FAILED"
     assert payload["failure_reason"] == "training crashed"
+
+
+def test_write_run_summary_json_preserves_interrupted_terminal_state(
+    tmp_path: Path, monkeypatch
+) -> None:
+    run_root = tmp_path / "output" / "runs" / "r_interrupt"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    failure_summary = diagnostics_dir / "failure_summary.json"
+    failure_summary.write_text(
+        json.dumps({"run_id": "r_interrupt", "error_type": "KeyboardInterrupt", "stage": "permission_trends"}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        stage_manifest.app_config,
+        "RUNTIME_OUTPUT_ROOT_BASE",
+        str(tmp_path / "output"),
+        raising=False,
+    )
+    out_path = stage_manifest._write_run_summary_json(  # pylint: disable=protected-access
+        run_root=run_root,
+        diagnostics_dir=diagnostics_dir,
+        manifest_context={
+            "run_id": "r_interrupt",
+            "timestamp_utc": "2026-03-21T00:00:00Z",
+            "run_status": "interrupted",
+            "completed_stage": "permission_trends",
+            "failed_stage": "permission_trends",
+            "failure_reason": "KeyboardInterrupt",
+            "error_type": "KeyboardInterrupt",
+            "run_mode": "diagnostic",
+            "failure_summary_path": str(failure_summary),
+        },
+        manifest={
+            "run_id": "r_interrupt",
+            "run_instance_id": "r_interrupt",
+            "run_slot": "allcurrent_diagnostic",
+            "run_mode": "diagnostic",
+            "timestamp_utc": "2026-03-21T00:00:00Z",
+            "profile_params": {"profile_id": "android_malware_all_current"},
+            "cohort_size": 1226,
+            "selected_vendor_count": 8,
+            "vendor_constrained_run_flag": False,
+            "model_summary": {"top_model": "logistic_regression", "top_macro_f1": 0.6928},
+            "trained_models": ["random_forest", "xgboost", "logistic_regression"],
+            "paper_mode": {"resolved_value": False},
+            "evidence_mode": False,
+        },
+        result_code=130,
+    )
+
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    assert payload["run_status"] == "interrupted"
+    assert payload["status"] == "interrupted"
+    assert payload["pipeline_verdict"] == "INTERRUPTED"
+    assert payload["failed_stage"] == "permission_trends"
+    assert payload["interrupted_stage"] == "permission_trends"
+    assert payload["error_type"] == "KeyboardInterrupt"
+    assert payload["top_model"] == "logistic_regression"
+    assert payload["top_model_primary_metric_name"] == "macro_f1_score"
+    assert payload["top_model_primary_metric_value"] == 0.6928
+    assert payload["training_completed_before_terminal"] is True
+    assert payload["failure_summary_path"] == str(failure_summary)
 
 
 def test_write_run_summary_json_omits_diagnostics_copy_in_compact_mode(
@@ -993,6 +1184,8 @@ def test_write_run_summary_onepager_creates_run_and_latest(tmp_path: Path) -> No
         profile={"profile_id": "malicious_temporal_stability"},
         manifest_context={
             "paper_mode": {"resolved_value": True, "source": "cli"},
+            "run_status": "complete",
+            "completed_stage": "manifest",
             "model_summary": {
                 "top_model": "logistic_regression",
                 "top_macro_f1": 0.79,
@@ -1005,6 +1198,8 @@ def test_write_run_summary_onepager_creates_run_and_latest(tmp_path: Path) -> No
         manifest={
             "cohort_size": 2447,
             "selected_vendor_count": 8,
+            "run_slot": "majorfam_benchmark",
+            "run_mode": "diagnostic",
             "vendor_set_hash": "abc123",
             "split": {"split_hash": "split123", "split_audit_path": "split.csv"},
             "duplicate_sha": {"duplicate_sha_groups": 0, "invalid_sha_count": 0},
@@ -1018,6 +1213,10 @@ def test_write_run_summary_onepager_creates_run_and_latest(tmp_path: Path) -> No
     assert latest.exists()
     text = out_path.read_text(encoding="utf-8")
     assert "Run Summary One-Pager (r1)" in text
+    assert "run_status: `complete`" in text
+    assert "pipeline_verdict: `PASS`" in text
+    assert "run_slot: `majorfam_benchmark`" in text
+    assert "run_mode: `diagnostic`" in text
     assert "top_model: `logistic_regression`" in text
 
 
@@ -1040,6 +1239,49 @@ def test_write_run_summary_onepager_run_scoped_uses_global_latest(
     assert out_path is not None and out_path.exists()
     assert not (diagnostics_dir / "run_summary_onepager.latest.md").exists()
     assert (output_root / "diagnostics" / "run_summary_onepager.latest.md").exists()
+
+
+def test_write_run_summary_onepager_marks_interrupted_terminal_state(tmp_path: Path) -> None:
+    diagnostics_dir = tmp_path / "output" / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    failure_summary = diagnostics_dir / "failure_summary.json"
+    failure_summary.write_text('{"error_type":"KeyboardInterrupt"}', encoding="utf-8")
+
+    out_path = stage_manifest._write_run_summary_onepager(  # pylint: disable=protected-access
+        run_id="r_interrupt",
+        diagnostics_dir=diagnostics_dir,
+        profile={"profile_id": "android_malware_all_current"},
+        manifest_context={
+            "paper_mode": {"resolved_value": False, "source": "profile"},
+            "run_status": "interrupted",
+            "completed_stage": "training",
+            "failed_stage": "permission_trends",
+            "error_type": "KeyboardInterrupt",
+            "_manifest_result_code": 130,
+            "model_summary": {
+                "top_model": "logistic_regression",
+                "top_macro_f1": 0.6928,
+            },
+        },
+        manifest={
+            "cohort_size": 3644,
+            "selected_vendor_count": 8,
+            "run_slot": "allcurrent_diagnostic",
+            "run_mode": "diagnostic",
+        },
+        compliance_path=diagnostics_dir / "paper_mode_compliance_report_r_interrupt.json",
+    )
+
+    assert out_path is not None
+    text = out_path.read_text(encoding="utf-8")
+    assert "run_status: `interrupted`" in text
+    assert "pipeline_verdict: `INTERRUPTED`" in text
+    assert "completed_stage: `training`" in text
+    assert "interrupted_stage: `permission_trends`" in text
+    assert "error_type: `KeyboardInterrupt`" in text
+    assert "training_completed_before_terminal: `True`" in text
+    assert "failure_summary_path:" in text
+    assert "top_model: `logistic_regression`" in text
 
 
 def test_write_experiment_contract_snapshot_creates_files(tmp_path: Path, monkeypatch) -> None:
@@ -1679,7 +1921,7 @@ def test_build_strict_paper2_exports_fails_on_paper_contract_mismatch(tmp_path: 
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="strict paper contract validation failed"):
+    with pytest.raises(ValueError, match="strict publication contract validation failed"):
         stage_manifest._build_strict_paper2_exports(  # pylint: disable=protected-access
             run_root=run_root,
             diagnostics_dir=diagnostics_dir,

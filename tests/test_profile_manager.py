@@ -70,8 +70,25 @@ def test_expanded_family_profile_uses_benchmark_eligibility_support_floor() -> N
     profile = profile_manager.load_profile("android_malware_expanded_families")
     gates = profile.get("cohort_gates", {})
 
+    assert profile.get("evidence_mode") is False
+    assert profile.get("paper_locked") is False
     assert gates.get("support_floor_mode") == "benchmark_eligibility"
     assert gates.get("min_samples_per_family") == 3
+
+
+def test_quick_menu_v3_profiles_default_to_non_publication_mode() -> None:
+    expected_non_evidence = (
+        "android_malware_all_current",
+        "android_malware_major_families",
+        "android_malware_expanded_families",
+        "android_malware_type_taxonomy",
+        "malicious_temporal_consensus10",
+        "malicious_temporal_family300",
+    )
+    for profile_id in expected_non_evidence:
+        profile = profile_manager.load_profile(profile_id)
+        assert profile.get("evidence_mode") is False, profile_id
+        assert profile.get("paper_locked") is False, profile_id
 
 
 def test_major_family_profile_yaml_references_authority_instead_of_copying_family_list() -> None:
@@ -340,7 +357,7 @@ def test_infer_cohort_readiness_signal_maps_temporal_and_current_all_malicious_p
     assert temporal["bucket"] == "android_high_or_strong_vt_with_permission_obs"
     assert "high/strong VT confidence" in str(temporal["detail"])
     assert "does not verify or enforce PI observation materialization" in str(temporal["detail"])
-    assert "paper-locked" in str(temporal["detail"])
+    assert "locked benchmark cohort" in str(temporal["detail"])
     assert current["bucket"] == "android_high_or_strong_vt_with_permission_obs"
     assert "high/strong VT confidence" in str(current["detail"])
     assert expanded["bucket"] == "android_high_or_strong_vt_with_permission_obs"

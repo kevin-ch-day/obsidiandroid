@@ -85,7 +85,9 @@ def print_unified_run_health(
         "Benchmark eligibility",
         [
             ("Prepared cohort", _safe_value(payload.get("cohort_rows") or payload.get("cohort_prepared_row_count"))),
+            ("Visible governed families", _safe_value(payload.get("visible_family_count"))),
             ("Benchmark trainable", _safe_value(payload.get("post_low_support_training_rows") or payload.get("counts", {}).get("post_low_support_training_rows"))),
+            ("Active benchmark family classes", _safe_value(payload.get("benchmark_trainable_family_count"))),
             ("Support gate", support_gate[0]),
             ("Support exclusions", support_gate[1]),
             ("Excluded families", support_gate[2]),
@@ -123,7 +125,7 @@ def print_unified_run_health(
     _print_group(
         "Timing",
         [
-            ("Manifest", _format_seconds(payload.get("manifest_finalize_duration_sec"))),
+            ("Manifest finalization", _format_seconds(payload.get("manifest_finalize_duration_sec"))),
         ],
     )
 
@@ -271,6 +273,7 @@ def _ablation_line(payload: dict[str, Any]) -> str:
 
 def _warning_rows(payload: dict[str, Any]) -> list[tuple[str, str, str]]:
     rows: list[tuple[str, str, str]] = []
+    profile_id = str(payload.get("profile_id", "") or "").strip()
     warnings = payload.get("research_warnings_top") or payload.get("research_warnings") or []
     if not isinstance(warnings, list):
         warnings = []
@@ -299,6 +302,14 @@ def _warning_rows(payload: dict[str, Any]) -> list[tuple[str, str, str]]:
         if len(warnings) > 3:
             preview += f" (+{len(warnings) - 3} more in diagnostics)"
         rows.append(("MEDIUM", "Research warnings", preview))
+    if profile_id == "android_malware_all_current":
+        rows.append(
+            (
+                "MEDIUM",
+                "Current corpus",
+                "diagnostic/research surface only; avoid benchmark-quality overclaims on long-tail family results",
+            )
+        )
     return rows[:4]
 
 

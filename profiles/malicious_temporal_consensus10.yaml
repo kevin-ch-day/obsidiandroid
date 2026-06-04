@@ -7,7 +7,9 @@ profile_status:
   support_tier: final
   status_label: Final canonical
   canonical_profile_id: malicious_temporal_consensus10
-evidence_mode: true
+# Quick-menu robustness / sensitivity profile only.
+# Strict publication/evidence use should come from a locked profile.
+evidence_mode: false
 allow_vendor_fallback_for_width: false
 allow_adaptive_top_k: false
 top_k_requested: 8

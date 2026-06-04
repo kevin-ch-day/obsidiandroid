@@ -229,3 +229,36 @@ def test_export_vendor_gate_debug_run_scoped_uses_global_latest_mirror_only(
     assert Path(out).is_file()
     assert not (diagnostics_dir / "vendor_gate_debug.latest.csv").exists()
     assert (output_root / "diagnostics" / "vendor_gate_debug.latest.csv").is_file()
+
+
+def test_export_vendor_gate_debug_slot_run_uses_runtime_diagnostics_dir(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "output"
+    diagnostics_dir = output_root / "runs" / "majorfam_benchmark" / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (output_root / "diagnostics").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "20260604T050000Z__slotcase", raising=False)
+
+    out = feature_vector_builder._export_vendor_gate_debug(  # pylint: disable=protected-access
+        weights_df=pd.DataFrame(
+            {
+                "Vendor": ["tencent", "lionic"],
+                "Leakage Safe Score Raw": [0.9, 0.8],
+                "Leakage Safe Score": [0.9, 0.8],
+                "Vendor Category": ["High Diversity", "High Diversity"],
+            }
+        ),
+        selected_vendors=["tencent"],
+        parsed_vendor_data={"tencent": {"x": 1}, "lionic": {"x": 1}},
+        top_vendors_initial=["tencent"],
+    )
+
+    assert out == str(diagnostics_dir / "vendor_gate_debug_20260604T050000Z__slotcase.csv")
+    assert Path(out).is_file()
+    assert not (output_root / "diagnostics" / "vendor_gate_debug_20260604T050000Z__slotcase.csv").exists()
+    assert (output_root / "diagnostics" / "vendor_gate_debug.latest.csv").is_file()

@@ -8,6 +8,7 @@ from obsidiandroid.pipeline import stage_permission_trends_report as report_stag
 from obsidiandroid.pipeline.permission_trends import attack_mapping as perm_attack_mapping
 from obsidiandroid.pipeline.permission_trends import bundle_exports as perm_bundle_exports
 from obsidiandroid.pipeline.permission_trends import bundle_manifest as perm_bundle_manifest
+from obsidiandroid.pipeline.permission_trends import pattern_framework as perm_pattern_framework
 from obsidiandroid.pipeline.permission_trends import sample_permission_data as sample_perm_data
 from obsidiandroid.pipeline.permission_trends import reporting_support as perm_trends_reporting_support
 from obsidiandroid.pipeline.permission_trends import stats_core
@@ -170,6 +171,138 @@ def test_fetch_permission_rows_for_samples_falls_back_without_norm(monkeypatch) 
 def test_js_distance_zero_for_identical() -> None:
     p = np.array([0.2, 0.3, 0.5], dtype=float)
     assert stats_core.js_distance(p, p) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_build_family_permission_similarity_annotates_pattern_fields() -> None:
+    family_prevalence_df = pd.DataFrame(
+        [
+            {
+                "family_canonical": "fam_a",
+                "type_slug": "banker",
+                "family_support": 12,
+                "permission": "android.permission.read_sms",
+                "prevalence_pct": 100.0,
+            },
+            {
+                "family_canonical": "fam_a",
+                "type_slug": "banker",
+                "family_support": 12,
+                "permission": "android.permission.receive_sms",
+                "prevalence_pct": 100.0,
+            },
+            {
+                "family_canonical": "fam_b",
+                "type_slug": "banker",
+                "family_support": 14,
+                "permission": "android.permission.read_sms",
+                "prevalence_pct": 100.0,
+            },
+            {
+                "family_canonical": "fam_b",
+                "type_slug": "banker",
+                "family_support": 14,
+                "permission": "android.permission.receive_sms",
+                "prevalence_pct": 100.0,
+            },
+        ]
+    )
+
+    out = report_stage._build_family_permission_similarity(family_prevalence_df)  # pylint: disable=protected-access
+
+    assert len(out) == 1
+    row = out.iloc[0]
+    assert row["pattern_basis"] == "RAW_PERMISSION+FAMILY_LEVEL+MIXED"
+    assert row["pattern_label"] == "Exceptional Pattern"
+    assert row["pattern_confidence"] == "high"
+    assert "shared-pattern similarity" in row["pattern_reason"]
+
+
+def test_annotate_similarity_patterns_marks_conflicting_metrics() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "support_a": 12,
+                "support_b": 15,
+                "cosine_similarity": 0.82,
+                "jaccard_similarity": 0.10,
+                "spearman_correlation": 0.90,
+                "same_type_flag": False,
+            }
+        ]
+    )
+
+    out = perm_pattern_framework.annotate_similarity_patterns(
+        df,
+        support_a_col="support_a",
+        support_b_col="support_b",
+        same_type_col="same_type_flag",
+        basis="type_permission_similarity",
+    )
+
+    row = out.iloc[0]
+    assert row["pattern_label"] == "Conflicting Evidence"
+    assert row["pattern_basis"] == "RAW_PERMISSION+TYPE_LEVEL+MIXED"
+    assert "similarity metrics disagree" in row["pattern_reason"]
+
+
+def test_annotate_similarity_patterns_marks_neutral_rank_agreement_as_conflicting() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "support_a": 12,
+                "support_b": 15,
+                "cosine_similarity": 0.82,
+                "jaccard_similarity": 0.82,
+                "spearman_correlation": 0.0,
+                "same_type_flag": True,
+            }
+        ]
+    )
+
+    out = perm_pattern_framework.annotate_similarity_patterns(
+        df,
+        support_a_col="support_a",
+        support_b_col="support_b",
+        same_type_col="same_type_flag",
+        basis="family_permission_similarity",
+    )
+
+    row = out.iloc[0]
+    assert row["pattern_label"] == "Conflicting Evidence"
+    assert "similarity metrics disagree" in row["pattern_reason"]
+
+
+def test_build_banker_temporal_pattern_rows_annotates_latest_quarter_patterns() -> None:
+    temporal_trends_df = pd.DataFrame(
+        [
+            {
+                "run_id": "r1",
+                "period_quarter": "2025-Q1",
+                "year": 2025,
+                "quarter": 1,
+                "sample_count": 12,
+                "banker_sample_count": 5,
+                "banker_read_sms_prevalence": 0.80,
+                "banker_receive_sms_prevalence": 0.60,
+                "banker_send_sms_prevalence": 0.20,
+                "banker_bind_accessibility_service_prevalence": 0.40,
+                "banker_system_alert_window_prevalence": 0.50,
+                "banker_request_install_packages_prevalence": 0.10,
+            }
+        ]
+    )
+
+    out = report_stage._build_banker_temporal_pattern_rows(  # pylint: disable=protected-access
+        temporal_trends_df=temporal_trends_df,
+        run_id="r1",
+    )
+
+    assert not out.empty
+    read_sms = out[out["permission"] == "android.permission.read_sms"].iloc[0]
+    assert read_sms["pattern_basis"] == "RAW_PERMISSION+TYPE_LEVEL+TEMPORAL"
+    assert read_sms["pattern_label"] == "Moderate Pattern"
+    assert int(read_sms["positive_count"]) == 4
+    assert "prevalence-only evidence is capped" in read_sms["pattern_reason"]
 
 
 def test_bh_fdr_monotone() -> None:
@@ -596,10 +729,54 @@ def test_export_run_summary_onepager_includes_permission_pattern_sections(tmp_pa
 def test_build_attack_mobile_hypotheses_finds_sms_and_discovery_signals() -> None:
     prevalence_df = pd.DataFrame(
         [
-            {"type_slug": "banker", "sample_count": 50, "permission": "android.permission.read_sms", "prevalence": 0.82},
-            {"type_slug": "banker", "sample_count": 50, "permission": "android.permission.receive_sms", "prevalence": 0.77},
-            {"type_slug": "banker", "sample_count": 50, "permission": "android.permission.read_contacts", "prevalence": 0.61},
-            {"type_slug": "banker", "sample_count": 50, "permission": "android.permission.query_all_packages", "prevalence": 0.22},
+            {
+                "type_slug": "banker",
+                "sample_count": 50,
+                "permission": "android.permission.read_sms",
+                "prevalence": 0.82,
+                "pattern_score": 82.0,
+                "pattern_level": 6,
+                "pattern_label": "Moderate Pattern",
+                "pattern_basis": "RAW_PERMISSION+TYPE_LEVEL",
+                "pattern_confidence": "high",
+                "pattern_reason": "prevalence-only evidence is capped",
+            },
+            {
+                "type_slug": "banker",
+                "sample_count": 50,
+                "permission": "android.permission.receive_sms",
+                "prevalence": 0.77,
+                "pattern_score": 77.0,
+                "pattern_level": 6,
+                "pattern_label": "Moderate Pattern",
+                "pattern_basis": "RAW_PERMISSION+TYPE_LEVEL",
+                "pattern_confidence": "high",
+                "pattern_reason": "prevalence-only evidence is capped",
+            },
+            {
+                "type_slug": "banker",
+                "sample_count": 50,
+                "permission": "android.permission.read_contacts",
+                "prevalence": 0.61,
+                "pattern_score": 61.0,
+                "pattern_level": 6,
+                "pattern_label": "Moderate Pattern",
+                "pattern_basis": "RAW_PERMISSION+TYPE_LEVEL",
+                "pattern_confidence": "high",
+                "pattern_reason": "prevalence-only evidence is capped",
+            },
+            {
+                "type_slug": "banker",
+                "sample_count": 50,
+                "permission": "android.permission.query_all_packages",
+                "prevalence": 0.22,
+                "pattern_score": 22.0,
+                "pattern_level": 4,
+                "pattern_label": "Very Weak Pattern",
+                "pattern_basis": "RAW_PERMISSION+TYPE_LEVEL",
+                "pattern_confidence": "moderate",
+                "pattern_reason": "low prevalence",
+            },
         ]
     )
 
@@ -615,6 +792,44 @@ def test_build_attack_mobile_hypotheses_finds_sms_and_discovery_signals() -> Non
     assert ("banker", "T1636.004") in got
     assert ("banker", "T1636.003") in got
     assert ("banker", "T1418") in got
+    sms_row = out[out["attack_id"] == "T1636.004"].iloc[0]
+    assert sms_row["pattern_basis"] == "BEHAVIOR+TYPE_LEVEL+MIXED"
+    assert sms_row["pattern_label"] == "Weak Pattern"
+    assert sms_row["pattern_confidence"] == "moderate"
+    assert "permission-derived hypothesis" in sms_row["pattern_reason"]
+    assert "mapping_confidence" in sms_row["pattern_reason"]
+
+
+def test_build_attack_mobile_hypotheses_falls_back_when_pattern_fields_are_missing() -> None:
+    prevalence_df = pd.DataFrame(
+        [
+            {
+                "type_slug": "banker",
+                "sample_count": 50,
+                "permission": "android.permission.read_sms",
+                "prevalence": 0.82,
+            },
+            {
+                "type_slug": "banker",
+                "sample_count": 50,
+                "permission": "android.permission.receive_sms",
+                "prevalence": 0.77,
+            },
+        ]
+    )
+
+    out = perm_attack_mapping.build_attack_mobile_hypotheses(
+        prevalence_df=prevalence_df,
+        run_id="r",
+        group_field="type_slug",
+        group_kind="type",
+    )
+
+    assert not out.empty
+    sms_row = out[out["attack_id"] == "T1636.004"].iloc[0]
+    assert sms_row["pattern_basis"] == "BEHAVIOR+TYPE_LEVEL+MIXED"
+    assert sms_row["pattern_label"] == "Weak Pattern"
+    assert sms_row["pattern_confidence"] == "moderate"
 
 
 def test_build_type_capability_bundle_prevalence_reports_expected_bundles() -> None:
@@ -800,6 +1015,7 @@ def test_build_signal_prevalence_by_type_separates_behavioral_and_model_only() -
     assert bool(sms["include_in_behavioral_claims"]) is True
     assert bool(scaffold["include_in_model_features"]) is True
     assert bool(scaffold["include_in_behavioral_claims"]) is False
+    assert {"pattern_level", "pattern_label", "pattern_basis", "pattern_reason"}.issubset(out.columns)
 
 
 def test_build_signal_prevalence_by_family_marks_benchmark_eligibility() -> None:
@@ -831,6 +1047,7 @@ def test_build_signal_prevalence_by_family_marks_benchmark_eligibility() -> None
     beta = out[(out["family_canonical"] == "Beta") & (out["signal_key"] == "sms")].iloc[0]
     assert bool(alpha["benchmark_eligible_n_ge_3"]) is True
     assert bool(beta["benchmark_eligible_n_ge_3"]) is False
+    assert beta["pattern_label"] == "Inconclusive"
 
 
 def test_filter_behavior_safe_signals_excludes_model_only_rows() -> None:
@@ -934,6 +1151,15 @@ def test_family_permission_profiles_include_type_and_benchmark_context(monkeypat
     assert {"type_slug", "benchmark_eligible_n_ge_3"}.issubset(entropy_df.columns)
     assert profiles_df["type_slug"].eq("banker").all()
     assert profiles_df["benchmark_eligible_n_ge_3"].astype(bool).all()
+    assert {
+        "pattern_score",
+        "pattern_level",
+        "pattern_label",
+        "pattern_basis",
+        "pattern_confidence",
+        "pattern_reason",
+    }.issubset(profiles_df.columns)
+    assert set(profiles_df["pattern_basis"]) == {"RAW_PERMISSION+FAMILY_LEVEL"}
 
 
 def test_build_permission_enrichment_outputs_expected_fields() -> None:
@@ -975,6 +1201,151 @@ def test_build_permission_enrichment_outputs_expected_fields() -> None:
         "odds_ratio",
         "benchmark_eligible_n_ge_3",
     }.issubset(family_out.columns)
+    assert {
+        "pattern_score",
+        "pattern_level",
+        "pattern_label",
+        "pattern_basis",
+        "pattern_confidence",
+        "pattern_reason",
+    }.issubset(type_out.columns)
+    assert {
+        "pattern_score",
+        "pattern_level",
+        "pattern_label",
+        "pattern_basis",
+        "pattern_confidence",
+        "pattern_reason",
+    }.issubset(family_out.columns)
+
+
+def test_permission_pattern_framework_emits_no_pattern_and_conflicting_evidence() -> None:
+    no_pattern = perm_pattern_framework.classify_enrichment_pattern(
+        subject_prevalence_pct=0.0,
+        background_prevalence_pct=0.0,
+        odds_ratio=1.0,
+        q_value=1.0,
+        support=12,
+        basis="type_enrichment_vs_rest",
+    )
+    conflicting = perm_pattern_framework.classify_enrichment_pattern(
+        subject_prevalence_pct=48.0,
+        background_prevalence_pct=44.0,
+        odds_ratio=1.08,
+        q_value=0.41,
+        support=12,
+        basis="type_enrichment_vs_rest",
+    )
+
+    assert no_pattern["pattern_level"] == 1
+    assert no_pattern["pattern_label"] == "No Pattern Found"
+    assert conflicting["pattern_level"] == 2
+    assert conflicting["pattern_label"] == "Conflicting Evidence"
+
+
+def test_permission_pattern_framework_caps_prevalence_only_strength_and_separates_confidence() -> None:
+    out = perm_pattern_framework.classify_prevalence_pattern(
+        prevalence_pct=100.0,
+        positive_count=12,
+        group_support=12,
+        basis="permission_prevalence_by_type",
+    )
+
+    assert out["pattern_level"] == 6
+    assert out["pattern_label"] == "Moderate Pattern"
+    assert out["pattern_score"] == 100.0
+    assert out["pattern_basis"] == "RAW_PERMISSION+TYPE_LEVEL"
+    assert out["pattern_confidence"] == "high"
+    assert "capped" in out["pattern_reason"]
+
+
+def test_permission_pattern_framework_keeps_small_support_prevalence_confidence_below_high() -> None:
+    out = perm_pattern_framework.classify_prevalence_pattern(
+        prevalence_pct=100.0,
+        positive_count=3,
+        group_support=3,
+        basis="signal_prevalence_by_family",
+    )
+
+    assert out["pattern_level"] == 6
+    assert out["pattern_basis"] == "PERMISSION_GROUP+FAMILY_LEVEL"
+    assert out["pattern_confidence"] in {"moderate", "low", "very_low"}
+
+
+def test_type_capability_bundle_prevalence_carries_pattern_contract() -> None:
+    sample_core_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "type_slug": ["banker", "banker", "rat"],
+        }
+    )
+    permission_rows_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "permission_string": [
+                "android.permission.read_sms",
+                "android.permission.receive_sms",
+                "android.permission.internet",
+            ],
+        }
+    )
+
+    out = report_stage._build_type_capability_bundle_prevalence(
+        sample_core_df=sample_core_df,
+        permission_rows_df=permission_rows_df,
+        run_id="r1",
+    )
+
+    assert {
+        "pattern_score",
+        "pattern_level",
+        "pattern_label",
+        "pattern_basis",
+        "pattern_confidence",
+        "pattern_reason",
+    }.issubset(out.columns)
+    assert set(out["pattern_basis"]) == {"CAPABILITY+TYPE_LEVEL"}
+
+
+def test_family_capability_bundle_profiles_carry_pattern_contract(monkeypatch) -> None:
+    sample_core_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "family_id": [10, 10, 10],
+            "family_canonical": ["Alpha", "Alpha", "Alpha"],
+            "type_slug": ["banker", "banker", "banker"],
+            "category_primary": ["banker", "banker", "banker"],
+            "category_subtype": ["", "", ""],
+            "sample_label_kind": ["family_or_common_name"] * 3,
+            "family_label_raw": ["Alpha", "Alpha", "Alpha"],
+            "vt_family_token": ["alpha", "alpha", "alpha"],
+        }
+    )
+    permission_rows_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "permission_string": [
+                "android.permission.read_sms",
+                "android.permission.receive_sms",
+            ],
+        }
+    )
+    monkeypatch.setattr(report_stage, "_select_visual_families", lambda sample_core_df: ["Alpha"])
+    out = report_stage._build_family_capability_bundle_profiles(
+        sample_core_df=sample_core_df,
+        permission_rows_df=permission_rows_df,
+        run_id="r1",
+    )
+
+    assert {
+        "pattern_score",
+        "pattern_level",
+        "pattern_label",
+        "pattern_basis",
+        "pattern_confidence",
+        "pattern_reason",
+    }.issubset(out.columns)
+    assert set(out["pattern_basis"]) == {"CAPABILITY+FAMILY_LEVEL"}
 
 
 def test_export_permission_pattern_summary_mentions_required_sections(tmp_path: Path) -> None:
@@ -1148,6 +1519,18 @@ def test_export_permission_pattern_summary_mentions_required_sections(tmp_path: 
             }
         ]
     )
+    temporal_pattern_df = pd.DataFrame(
+        [
+            {
+                "period_quarter": "2025-Q2",
+                "permission": "android.permission.read_sms",
+                "prevalence_pct": 80.0,
+                "banker_sample_count": 5,
+                "pattern_label": "Moderate Pattern",
+                "pattern_confidence": "moderate",
+            }
+        ]
+    )
 
     out = perm_bundle_exports.export_permission_pattern_summary(
         run_id="r1",
@@ -1170,6 +1553,7 @@ def test_export_permission_pattern_summary_mentions_required_sections(tmp_path: 
         family_similarity_df=family_similarity_df,
         attack_hypotheses_df=attack_hypotheses_df,
         generic_summary_df=generic_summary_df,
+        temporal_pattern_df=temporal_pattern_df,
     )
 
     text = Path(out).read_text(encoding="utf-8")
@@ -1181,6 +1565,8 @@ def test_export_permission_pattern_summary_mentions_required_sections(tmp_path: 
     assert "Benchmark-eligible family signal" in text
     assert "Secondary mixed-signal family groups" in text
     assert "Top benchmark-eligible behavior-safe family signal groups" in text
+    assert "Temporal banker permission signals" in text
+    assert "Latest-quarter banker permission patterns" in text
     assert "Family-within-type clusters" in text
     assert "Secondary mixed-signal family signal-group pairs" in text
     assert "Closest same-type behavior-safe family signal-group pairs" in text
@@ -1696,6 +2082,22 @@ def test_bundle_manifest_behavior_safe_signal_table_is_primary_structural() -> N
     policy = perm_bundle_manifest.bundle_table_policy(artifact_id)
 
     assert artifact_id == "permission_signal_prevalence_by_type_behavior_safe"
+    assert role == "primary_structural"
+    assert is_primary is True
+    assert policy["notes"] == "Primary structural table."
+
+
+def test_bundle_manifest_temporal_pattern_table_is_primary_structural() -> None:
+    path = Path("banker_permission_trend_patterns_20260601T164351Z__fe432f.csv")
+
+    artifact_id = perm_bundle_manifest.canonical_bundle_artifact_id_from_path(
+        path,
+        category="table",
+    )
+    role, is_primary = perm_bundle_manifest.bundle_artifact_role(artifact_id, "table")
+    policy = perm_bundle_manifest.bundle_table_policy(artifact_id)
+
+    assert artifact_id == "banker_permission_trend_patterns"
     assert role == "primary_structural"
     assert is_primary is True
     assert policy["notes"] == "Primary structural table."

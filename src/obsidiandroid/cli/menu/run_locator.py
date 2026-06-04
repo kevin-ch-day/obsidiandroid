@@ -151,11 +151,20 @@ def read_latest_run_id() -> str | None:
 def resolve_manifest_for_run_id(run_id: str, *, runs_dir: Path | None = None) -> tuple[dict, Path]:
     """Resolve canonical run-scoped manifest for a specific run ID."""
     active_runs_dir = runs_dir or output_paths.runs_root()
+    runtime_root_raw = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
+    active_run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "").strip()
+    target = str(run_id).strip()
+    if runtime_root_raw and target and active_run_id and target == active_run_id:
+        runtime_root = Path(runtime_root_raw)
+        runtime_manifest_path = runtime_root / "run_manifest.json"
+        runtime_payload = read_json_object(runtime_manifest_path)
+        if runtime_payload:
+            return runtime_payload, runtime_manifest_path
+
     canonical_path = active_runs_dir / str(run_id).strip() / "run_manifest.json"
     payload = read_json_object(canonical_path)
     if payload:
         return payload, canonical_path
-    target = str(run_id).strip()
     for manifest_path, manifest_payload in _iter_run_manifest_candidates(active_runs_dir):
         manifest_run_id = str(manifest_payload.get("run_id", "") or "").strip()
         if manifest_run_id == target:

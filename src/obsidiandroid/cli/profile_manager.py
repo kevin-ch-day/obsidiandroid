@@ -355,7 +355,7 @@ def infer_cohort_readiness_signal(profile_ref: str | Dict[str, Any] | None) -> D
             )
         if paper_locked:
             caveats.append(
-                "This profile is paper-locked; snapshot membership can prevent new DB curation or authority expansions from changing the cohort until the lock is refreshed."
+                "This profile uses a locked benchmark cohort; snapshot membership can prevent new DB curation or authority expansions from changing the cohort until the lock is refreshed."
             )
         caveat_text = f" {' '.join(caveats)}" if caveats else ""
         return {

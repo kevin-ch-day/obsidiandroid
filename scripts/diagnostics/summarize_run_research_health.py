@@ -163,6 +163,13 @@ def _read_json(path: Path) -> dict[str, Any] | None:
         return None
 
 
+def _resolve_run_id(run_root: Path) -> str:
+    """Resolve canonical run instance ID from the manifest when available."""
+    manifest_payload = _read_json(run_root / "run_manifest.json") or {}
+    manifest_run_id = str(manifest_payload.get("run_id", "")).strip()
+    return manifest_run_id or str(run_root.name or "").strip()
+
+
 def _read_text(path: Path) -> str | None:
     if not path.is_file():
         return None
@@ -446,7 +453,7 @@ def _gather_output_navigator(run_root: Path, diag: Path, *, heavy_tour: bool) ->
 
 
 def gather_report(repo: Path, run_root: Path, *, heavy_tour: bool = False) -> dict[str, Any]:
-    run_id = run_root.name
+    run_id = _resolve_run_id(run_root)
     diag = run_root / "diagnostics"
     report: dict[str, Any] = {"run_id": run_id, "run_root": str(run_root)}
 

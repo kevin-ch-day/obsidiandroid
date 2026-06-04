@@ -109,6 +109,141 @@ def test_finalize_pipeline_observability_records_skip_reasons(tmp_path: Path) ->
     assert blob.get("hostile_audit_skip_reason") == "stop_after_samples"
 
 
+def test_finalize_pipeline_observability_marks_integrity_stop_as_terminal_failure(
+    tmp_path: Path,
+) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    ctx = {
+        "run_id": "r_integrity",
+        "_observability_finalized_once": False,
+        "run_status": "failed",
+        "completed_stage": "unknown",
+        "failure_reason": "[INTEGRITY] non-run-scoped artifacts detected: logs/runtime/r1/pipeline_runtime_console_r1.log",
+        "integrity_error": "[INTEGRITY] non-run-scoped artifacts detected: logs/runtime/r1/pipeline_runtime_console_r1.log",
+    }
+    manifest = {"run_id": "r_integrity", "cohort_size": 5}
+
+    out_path = finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=[],
+        compliance_report={"overall_status": "not_applicable"},
+        paper_mode=False,
+        evidence_mode=False,
+        result_code=0,
+        profile_id="android_malware_major_families",
+    )
+
+    assert isinstance(out_path, Path)
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    assert blob.get("run_status") == "failed"
+    assert blob.get("pipeline_status") == "INTEGRITY_STOP"
+
+
+def test_finalize_pipeline_observability_preserves_interrupted_status(
+    tmp_path: Path,
+) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    ctx = {
+        "run_id": "r_interrupt",
+        "_observability_finalized_once": False,
+        "run_status": "interrupted",
+        "completed_stage": "permission_trends",
+        "failed_stage": "permission_trends",
+        "failure_reason": "KeyboardInterrupt",
+        "error_type": "KeyboardInterrupt",
+        "run_mode": "diagnostic",
+        "run_slot": "allcurrent_diagnostic",
+        "run_instance_id": "r_interrupt",
+    }
+    manifest = {"run_id": "r_interrupt", "cohort_size": 5}
+
+    out_path = finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=[],
+        compliance_report={"overall_status": "pass"},
+        paper_mode=False,
+        evidence_mode=False,
+        result_code=130,
+        profile_id="android_malware_all_current",
+    )
+
+    assert isinstance(out_path, Path)
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    assert blob.get("run_status") == "interrupted"
+    assert blob.get("pipeline_status") == "INTERRUPTED"
+
+
+def test_finalize_pipeline_observability_marks_audit_bundles_partial_on_interrupted_run(
+    tmp_path: Path,
+) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    ctx = {
+        "run_id": "r_interrupted_partial",
+        "_observability_finalized_once": False,
+        "run_status": "interrupted",
+        "completed_stage": "training",
+        "failed_stage": "permission_trends",
+        "error_type": "KeyboardInterrupt",
+    }
+    manifest = {"run_id": "r_interrupted_partial", "cohort_size": 5}
+
+    out_path = finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=[],
+        compliance_report={"overall_status": "pass"},
+        paper_mode=False,
+        evidence_mode=False,
+        result_code=130,
+        profile_id="android_malware_all_current",
+    )
+
+    assert isinstance(out_path, Path)
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    assert blob.get("pipeline_status") == "INTERRUPTED"
+    assert blob.get("research_validity_status") == "PASS_PARTIAL"
+    assert blob.get("hostile_audit_status") == "PASS_PARTIAL"
+    assert blob.get("completed_stage") == "training"
+
+
+def test_finalize_pipeline_observability_labels_skeptic_audit_in_partial_failures(
+    tmp_path: Path,
+) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    (diagnostic / "hostile_audit_partial_errors.txt").write_text("step failed\n", encoding="utf-8")
+    ctx = {"run_id": "r_skeptic", "_observability_finalized_once": False}
+    manifest = {"run_id": "r_skeptic", "cohort_size": 5}
+
+    finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=[],
+        compliance_report={"overall_status": "pass"},
+        paper_mode=False,
+        evidence_mode=False,
+        result_code=0,
+        profile_id="android_malware_major_families",
+    )
+
+    text = (diagnostic / "partial_failures.md").read_text(encoding="utf-8")
+    assert "## Skeptic audit" in text
+    assert "## Hostile audit" not in text
+
+
 def test_finalize_pipeline_observability_records_compact_artifact_flags(
     tmp_path: Path,
     monkeypatch,
@@ -355,6 +490,18 @@ def test_finalize_pipeline_observability_marks_sample_only_science_as_not_assess
     (diagnostic / f"taxonomy_target_surfaces_{run_id}.json").write_text(
         json.dumps(
             {
+                "targets": [
+                    {
+                        "surface_name": "family_id",
+                        "unique_classes": 115,
+                        "trainable_classes_at_min_support": 80,
+                    },
+                    {
+                        "surface_name": "type_slug",
+                        "unique_classes": 6,
+                        "trainable_classes_at_min_support": 6,
+                    },
+                ],
                 "benchmark_support_policy": {
                     "benchmark_min_support": 3,
                     "excluded_below_support_family_count": 2,
@@ -399,6 +546,9 @@ def test_finalize_pipeline_observability_marks_sample_only_science_as_not_assess
     assert blob.get("benchmark_support_excluded_sample_count") == 2
     assert blob.get("benchmark_support_excluded_family_count") == 2
     assert blob.get("benchmark_support_excluded_families_top") == "ginp=1, marcher=1"
+    assert blob.get("visible_family_count") == 115
+    assert blob.get("benchmark_trainable_family_count") == 80
+    assert blob.get("visible_type_count") == 6
 
 
 def test_finalize_pipeline_observability_adds_temporal_split_warning(

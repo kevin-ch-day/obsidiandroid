@@ -34,6 +34,8 @@ from obsidiandroid.common.publication_readiness import (
 from obsidiandroid.pipeline.manifest.runtime_support import (
     build_manifest_payload,
     build_registry_payload,
+    derive_aggregate_pipeline_verdict,
+    derive_terminal_run_status,
     resolve_run_root,
     runtime_diagnostics_dir as _manifest_runtime_diagnostics_dir,
     validate_run_scoped_artifact_paths as _manifest_validate_run_scoped_artifact_paths,
@@ -96,12 +98,14 @@ def _validate_run_scoped_artifact_paths(
     artifact_list: list[str],
     run_root: Path,
     output_root: Path,
+    run_id: str | None = None,
 ) -> None:
     """Enforce strict artifact path policy for run-scoped mode."""
     _manifest_validate_run_scoped_artifact_paths(
         artifact_list=artifact_list,
         run_root=run_root,
         output_root=output_root,
+        run_id=run_id,
     )
 
 
@@ -138,19 +142,12 @@ def _populate_engine_lifecycle_manifest_context(
 
 def _merge_lifecycle_into_manifest(manifest: dict[str, Any], manifest_context: dict[str, Any]) -> None:
     """Align ``run_manifest.json`` lifecycle keys with run-summary derivation."""
-    configured_status = str(manifest_context.get("run_status", "") or "").strip().lower()
-    failure_reason = str(
-        manifest_context.get("failure_reason", "") or manifest_context.get("integrity_error", "")
-    ).strip()
-    if configured_status in {"complete", "partial", "failed"}:
-        run_status = configured_status
-    elif failure_reason:
-        run_status = "failed"
-    elif str(manifest_context.get("completed_stage", "") or "").strip().lower() not in {"", "manifest"}:
-        run_status = "partial"
-    else:
-        run_status = "complete"
+    run_status = derive_terminal_run_status(
+        manifest_context,
+        result_code=int(manifest_context.get("_manifest_result_code", 0) or 0),
+    )
     manifest["run_status"] = run_status
+    manifest["status"] = run_status
 
     completed_stage = str(manifest_context.get("completed_stage", "") or "").strip()
     if not completed_stage:
@@ -165,6 +162,9 @@ def _merge_lifecycle_into_manifest(manifest: dict[str, Any], manifest_context: d
     else:
         manifest.pop("failed_stage", None)
 
+    failure_reason = str(
+        manifest_context.get("failure_reason", "") or manifest_context.get("integrity_error", "")
+    ).strip()
     if failure_reason:
         manifest["failure_reason"] = failure_reason
     else:
@@ -224,6 +224,51 @@ def _apply_terminal_manifest_status(
     else:
         manifest.pop("integrity_reason", None)
     _merge_lifecycle_into_manifest(manifest, manifest_context)
+
+    diagnostics_dir = _runtime_diagnostics_dir()
+    failure_summary_path = str(manifest_context.get("failure_summary_path", "") or "").strip()
+    if not failure_summary_path:
+        candidate = diagnostics_dir / "failure_summary.json"
+        if candidate.is_file():
+            failure_summary_path = str(candidate)
+    error_type = str(manifest_context.get("error_type", "") or "").strip()
+    if not error_type and manifest.get("run_status") == "interrupted":
+        error_type = "KeyboardInterrupt"
+
+    model_summary = manifest.get("model_summary") if isinstance(manifest.get("model_summary"), dict) else {}
+    top_model = str(model_summary.get("top_model", "") or "").strip()
+    top_macro_f1 = model_summary.get("top_macro_f1")
+    trained_models = list(manifest.get("trained_models") or [])
+    completed_stage = str(manifest.get("completed_stage", "") or "").strip().lower()
+    training_completed = bool(
+        trained_models
+        or top_model
+        or completed_stage in {"training", "ablation", "permission_trends", "label_resolution", "manifest"}
+    )
+    failure_reason = str(
+        manifest_context.get("failure_reason", "") or manifest_context.get("integrity_error", "") or ""
+    ).strip()
+
+    manifest["run_diagnostics_root"] = str(diagnostics_dir)
+    manifest["pipeline_verdict"] = derive_aggregate_pipeline_verdict(
+        run_status_raw=str(manifest.get("run_status", "") or "").strip().lower(),
+        result_code=int(manifest_context.get("_manifest_result_code", 0) or 0),
+        rv_err="",
+        hostile_failed=False,
+        readiness_issues=list(manifest_context.get("_evidence_readiness_failed_checks") or []),
+        failure_reason=failure_reason,
+    )
+    manifest["training_completed_before_terminal"] = training_completed
+    manifest["top_model"] = top_model or None
+    manifest["top_model_primary_metric_name"] = "macro_f1_score" if top_macro_f1 is not None else None
+    manifest["top_model_primary_metric_value"] = top_macro_f1
+    manifest["error_type"] = error_type or None
+    manifest["failure_summary_path"] = failure_summary_path or None
+    if str(manifest.get("run_status", "") or "").strip().lower() == "interrupted":
+        interrupted_stage = str(manifest.get("failed_stage", "") or manifest.get("completed_stage", "") or "").strip()
+        manifest["interrupted_stage"] = interrupted_stage or None
+    else:
+        manifest.pop("interrupted_stage", None)
 
 
 def _run_allows_strict_paper_exports(manifest_context: dict[str, Any]) -> tuple[bool, str]:
@@ -499,7 +544,7 @@ def finalize_run_manifest_stage(
                 "reason": skip_reason,
             }
             du.print_warning(
-                "[PAPER2] Strict paper export skipped because the run did not reach "
+                "[EXPORT] Strict publication export skipped because the run did not reach "
                 f"a complete publication-ready state ({skip_reason})."
             )
         else:
@@ -655,6 +700,7 @@ def finalize_run_manifest_stage(
             artifact_list=artifact_list,
             run_root=run_root,
             output_root=output_root,
+            run_id=run_id,
         )
         manifest_context["research_validity_bundle_error"] = ""
         allow_research_bundle, research_skip_reason = _run_allows_research_validity_bundle(manifest_context)
@@ -691,7 +737,7 @@ def finalize_run_manifest_stage(
             manifest_context["_research_bundle_duration_sec"] = 0.0
             manifest_context["_hostile_bundle_duration_sec"] = 0.0
             du.print_info(
-                "[AUDIT] Research validity and hostile audit bundles skipped "
+                "[AUDIT] Research validity and skeptic audit bundles skipped "
                 f"({research_skip_reason})."
             )
         manifest["model_summary"] = manifest_context.get("model_summary") or {}
@@ -786,6 +832,7 @@ def finalize_run_manifest_stage(
                     f"Failed checks: {', '.join(sorted(set(failed_checks)))}"
                 )
                 result_code = 0 if intentional_partial else 1
+                manifest_context["_manifest_result_code"] = int(result_code)
                 _apply_terminal_manifest_status(
                     manifest=manifest,
                     manifest_context=manifest_context,
@@ -826,6 +873,7 @@ def finalize_run_manifest_stage(
             if isinstance(fc, list):
                 fc.append("paper_mode_compliance_overall_fail")
             result_code = 0 if intentional_partial else 1
+            manifest_context["_manifest_result_code"] = int(result_code)
             _apply_terminal_manifest_status(
                 manifest=manifest,
                 manifest_context=manifest_context,
@@ -860,6 +908,14 @@ def finalize_run_manifest_stage(
                 result_code=result_code,
             )
             return result_code
+        derived_terminal_status = derive_terminal_run_status(manifest_context)
+        if derived_terminal_status == "interrupted":
+            terminal_result_code = 130
+        elif derived_terminal_status == "failed":
+            terminal_result_code = 1
+        else:
+            terminal_result_code = 0
+        manifest_context["_manifest_result_code"] = int(terminal_result_code)
         _apply_terminal_manifest_status(
             manifest=manifest,
             manifest_context=manifest_context,
@@ -878,7 +934,7 @@ def finalize_run_manifest_stage(
             diagnostics_dir=diagnostics_dir,
             manifest_context=manifest_context,
             manifest=manifest,
-            result_code=0,
+            result_code=terminal_result_code,
         )
         _finalize_output_hygiene_bundle(
             run_root=run_root,
@@ -891,7 +947,7 @@ def finalize_run_manifest_stage(
             compliance_report=compliance_report,
             paper_mode=paper_mode,
             evidence_mode=evidence_mode,
-            result_code=0,
+            result_code=terminal_result_code,
         )
         return 0
     except Exception as exc:

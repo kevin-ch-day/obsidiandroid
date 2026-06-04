@@ -53,6 +53,7 @@ def validate_run_scoped_artifact_paths(
     artifact_list: list[str],
     run_root: Path,
     output_root: Path,
+    run_id: str | None = None,
 ) -> None:
     """Enforce strict artifact-path policy for run-scoped mode."""
     try:
@@ -61,9 +62,69 @@ def validate_run_scoped_artifact_paths(
             run_root=run_root,
             output_root=output_root,
             allow_latest=True,
+            run_id=run_id,
         )
     except RuntimeError as exc:
         raise ValueError(str(exc)) from exc
+
+
+def derive_terminal_run_status(
+    manifest_context: dict[str, Any],
+    *,
+    result_code: int | None = None,
+) -> str:
+    """Derive the terminal run status for manifest/summary sinks.
+
+    The runner can mark ``interrupted`` explicitly for ``KeyboardInterrupt``;
+    manifest and run-summary writers should preserve that state rather than
+    collapsing it into ``failed`` just because a failure reason is present.
+    """
+    configured_status = str(manifest_context.get("run_status", "") or "").strip().lower()
+    if configured_status in {"complete", "partial", "failed", "interrupted"}:
+        return configured_status
+
+    failure_reason = str(
+        manifest_context.get("failure_reason", "") or manifest_context.get("integrity_error", "")
+    ).strip()
+    error_type = str(manifest_context.get("error_type", "") or "").strip()
+    if error_type == "KeyboardInterrupt" or failure_reason == "KeyboardInterrupt" or result_code == 130:
+        return "interrupted"
+    if failure_reason or (result_code not in (None, 0)):
+        return "failed"
+    if str(manifest_context.get("completed_stage", "") or "").strip().lower() not in {"", "manifest"}:
+        return "partial"
+    return "complete"
+
+
+def derive_aggregate_pipeline_verdict(
+    *,
+    run_status_raw: str,
+    result_code: int,
+    rv_err: str = "",
+    hostile_failed: bool = False,
+    readiness_issues: list[Any] | None = None,
+    failure_reason: str = "",
+) -> str:
+    """Return the canonical aggregate pipeline verdict."""
+    readiness_issues = list(readiness_issues or [])
+    reason = str(failure_reason or "").strip()
+    if run_status_raw == "interrupted":
+        return "INTERRUPTED"
+    if run_status_raw == "failed" and reason.startswith("[INTEGRITY]"):
+        return "INTEGRITY_STOP"
+    if run_status_raw == "failed":
+        return "FAILED"
+    if run_status_raw == "partial":
+        return "PARTIAL"
+    if rv_err:
+        return "PASS_WITH_WARNINGS"
+    if hostile_failed:
+        return "PASS_WITH_WARNINGS"
+    if readiness_issues:
+        return "PASS_WITH_WARNINGS"
+    if int(result_code) != 0:
+        return "FAILED"
+    return "PASS"
 
 
 def build_registry_payload(

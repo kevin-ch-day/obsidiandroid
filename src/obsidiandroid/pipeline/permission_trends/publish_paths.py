@@ -39,7 +39,10 @@ def resolve_run_root_for_run_id(run_id: str) -> Path:
     runtime_root_raw = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
     if runtime_root_raw:
         runtime_root = Path(runtime_root_raw)
-        if not run_id_clean or runtime_root.name == run_id_clean:
+        if not run_id_clean:
+            return runtime_root
+        active_run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "").strip()
+        if not active_run_id or run_id_clean == active_run_id:
             return runtime_root
     if run_id_clean:
         return output_paths.runs_root() / run_id_clean

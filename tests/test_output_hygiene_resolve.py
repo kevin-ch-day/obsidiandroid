@@ -40,8 +40,25 @@ def test_resolve_runtime_run_directory_prefers_runtime_run_root(
     run_root = tmp_path / "output" / "runs" / "majorfam_benchmark"
     run_root.mkdir(parents=True)
     monkeypatch.setattr(app_config, "RUNTIME_RUN_ROOT", str(run_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", rid, raising=False)
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(run_root), raising=False)
     assert output_paths.resolve_runtime_run_directory(rid) == run_root.resolve()
+
+
+def test_resolve_runtime_run_directory_falls_back_for_non_active_run_id(
+    monkeypatch, tmp_path: Path
+) -> None:
+    out = tmp_path / "output"
+    active_run_id = "run123"
+    other_run_id = "run999"
+    run_root = out / "runs" / "majorfam_benchmark"
+    run_root.mkdir(parents=True)
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ROOT", str(run_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", active_run_id, raising=False)
+
+    expected = out / "runs" / other_run_id
+    assert output_paths.resolve_runtime_run_directory(other_run_id) == expected.resolve()
 
 
 def test_read_json_dict_missing_returns_empty(tmp_path: Path) -> None:

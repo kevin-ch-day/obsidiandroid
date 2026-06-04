@@ -13,6 +13,7 @@ from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common import output_paths
+from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from obsidiandroid.pipeline.permission_trends.bundle_manifest import resolve_bundle_artifact_dir
 from obsidiandroid.pipeline.permission_trends.constants import (
     ARTIFACT_GROUP_CONTRACTS,
@@ -52,15 +53,7 @@ def export_df_diagnostics_with_latest(
     file_stem: str,
 ) -> str:
     """Export CSV to run diagnostics with run-scoped name and hygiene mirror for ``*.latest``."""
-    diagnostics_dir = Path(
-        str(
-            getattr(
-                app_config,
-                "RUNTIME_DIAGNOSTICS_DIR",
-                Path(app_config.DEFAULT_OUTPUT_DIR) / "diagnostics",
-            )
-        )
-    )
+    diagnostics_dir = resolve_diagnostics_dir()
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     rid = str(run_id).strip() or "unknown"
     csv_text = df.to_csv(index=False)

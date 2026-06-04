@@ -34,6 +34,14 @@ def resolve_run_diagnostics(run_root: Path | str) -> Path:
     return Path(run_root) / "diagnostics"
 
 
+def resolve_run_id(run_root: Path | str) -> str:
+    """Resolve canonical run instance ID from the manifest when available."""
+    root = Path(run_root)
+    manifest_payload = read_json_dict(root / "run_manifest.json")
+    manifest_run_id = str(manifest_payload.get("run_id", "")).strip() if isinstance(manifest_payload, dict) else ""
+    return manifest_run_id or str(root.name or "").strip()
+
+
 def analyze_training_column_mix(feature_contract: dict[str, Any]) -> dict[str, Any]:
     """Break down training-time columns by prefix (post pruning)."""
     cols = feature_contract.get("feature_columns") or []
@@ -225,7 +233,7 @@ def run_feature_matrix_gap_report(
     """Write gap lineage artifacts under ``run_root/diagnostics/``."""
     run_root = Path(run_root)
     diag = resolve_run_diagnostics(run_root)
-    run_id = run_root.name
+    run_id = resolve_run_id(run_root)
 
     cohort_path = diag / "cohort_membership.csv"
     unmatched_path = diag / "unmatched_label_ids.csv"

@@ -109,11 +109,15 @@ def _summarize_live_readiness_gaps(
             known_unresolved_count=known_unresolved_count,
             policy_held_count=policy_held_count,
         )
-        if paper_locked:
-            detail += " This profile is locked, so new Erebus-side authority fixes may not change cohort membership until the lock is refreshed."
-        else:
-            detail += " New Erebus-side authority fixes may still sit outside this cohort unless the selected profile/snapshot absorbs them."
         out.append(detail)
+        if paper_locked:
+            out.append(
+                "This profile is locked, so new Erebus-side authority fixes may not change cohort membership until the lock is refreshed."
+            )
+        else:
+            out.append(
+                "New Erebus-side authority fixes may still sit outside this cohort unless the selected profile/snapshot absorbs them."
+            )
     unresolved_family_count_value = taxonomy.get("unresolved_family_count")
     if unresolved_family_count_value is not None and unresolved_family_count == 0 and policy_held_count > 0:
         out.append(policy_held_only_note())
@@ -144,10 +148,12 @@ def _compact_profile_detail(detail: str, *, paper_locked: bool = False) -> str:
     )
     compact = compact.replace(
         "This profile is paper-locked; snapshot membership can prevent new DB curation or authority expansions from changing the cohort until the lock is refreshed.",
-        "Paper-locked cohort; new DB curation will not change membership until the lock is refreshed.",
+        "Locked benchmark cohort; new DB curation will not change membership until the lock is refreshed.",
     )
-    if paper_locked and "Paper-locked cohort" not in compact:
-        compact = f"{compact} Paper-locked cohort; new DB curation will not change membership until the lock is refreshed.".strip()
+    if paper_locked and "Locked benchmark cohort" not in compact:
+        compact = (
+            f"{compact} Locked benchmark cohort; new DB curation will not change membership until the lock is refreshed."
+        ).strip()
     return compact
 
 
@@ -176,6 +182,7 @@ def _compact_live_gap_lines(notes: list[str]) -> tuple[str, list[str]]:
     preferred: list[str] = []
     for token in (
         "Live authority/taxonomy backlog",
+        "This profile is locked",
         "Permission Intel observations include",
         "Taxonomy curation discipline",
         "Primary labels are raw-missing",
@@ -187,8 +194,8 @@ def _compact_live_gap_lines(notes: list[str]) -> tuple[str, list[str]]:
                 preferred.append(note)
     extras = [note for note in cleaned if note not in preferred]
     ordered = preferred + extras
-    if len(ordered) > 2:
-        ordered = ordered[:2]
+    if len(ordered) > 3:
+        ordered = ordered[:3]
     headline = ordered[0] + "."
     detail_lines = [note + "." for note in ordered[1:]]
     return headline, detail_lines

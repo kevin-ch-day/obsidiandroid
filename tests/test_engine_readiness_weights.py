@@ -206,3 +206,46 @@ def test_export_summary_log_writes_metadata_drift_csv(monkeypatch, tmp_path: Pat
     drift_path = tmp_path / "engine_metadata_drift.csv"
     assert drift_path.is_file()
     assert export_paths["metadata_drift_path"] == str(drift_path)
+
+
+def test_resolve_summary_export_paths_uses_slot_run_root(monkeypatch, tmp_path: Path):
+    run_id = "20260604T104155Z__2df6cf"
+    slot_root = tmp_path / "output" / "runs" / "allcurrent_diagnostic"
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", run_id, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ROOT", str(slot_root), raising=False)
+
+    log_path, csv_path = ess._resolve_summary_export_paths()
+
+    assert log_path == slot_root / "diagnostics" / "engine_scoring_summary_log.txt"
+
+
+def test_export_summary_log_does_not_create_sibling_run_id_tree_for_slot_root(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    run_id = "20260604T104155Z__2df6cf"
+    slot_root = tmp_path / "output" / "runs" / "allcurrent_diagnostic"
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path / "output"), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", run_id, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ROOT", str(slot_root), raising=False)
+    monkeypatch.setattr(app_config, "ML_TERMINAL_COMPACT", True, raising=False)
+    monkeypatch.setattr(app_config, "ML_CONSOLE_MODE", "research", raising=False)
+    monkeypatch.setattr(ess.du, "print_info", lambda *_a, **_k: None)
+    monkeypatch.setattr(ess.du, "print_table", lambda *_a, **_k: None)
+
+    df = pd.DataFrame(
+        {
+            "engine_name": ["a", "b"],
+            "ML Readiness Score": [99.0, 97.0],
+            "Tier Label": ["Tier 1 (High)", "Tier 1 (High)"],
+            "contributor_flag": [1, 1],
+        }
+    )
+
+    export_paths = ess._export_summary_log(df)
+
+    assert Path(export_paths["log_path"]).parent == slot_root / "diagnostics"
+    assert Path(export_paths["csv_path"]).parent == slot_root / "diagnostics"
+    assert not (tmp_path / "output" / "runs" / run_id / "diagnostics").exists()
+    assert not (tmp_path / "output" / "runs" / run_id / "diagnostics").exists()

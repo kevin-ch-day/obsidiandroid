@@ -125,6 +125,26 @@ def test_gather_report_taxonomy_type_mapping_breakdown(tmp_path: Path) -> None:
     assert pairs[0] == {"cohort_type_slug": "dropper", "label_type_slug": "banker", "count": 2}
 
 
+def test_gather_report_uses_manifest_run_id_for_slot_root(tmp_path: Path) -> None:
+    run_id = "20260604T033648Z__d79069"
+    run_root = tmp_path / "majorfam_benchmark"
+    diag = run_root / "diagnostics"
+    diag.mkdir(parents=True)
+    (run_root / "run_manifest.json").write_text(
+        json.dumps({"run_id": run_id, "run_root": str(run_root)}),
+        encoding="utf-8",
+    )
+    (diag / f"evaluation_contract_{run_id}.json").write_text(
+        json.dumps({"feature_contract": {"headline_feature_column_hash": "abc"}}),
+        encoding="utf-8",
+    )
+
+    report = gather_report(tmp_path, run_root)
+
+    assert report["run_id"] == run_id
+    assert report["metrics_comparison_parity"]["headline_feature_column_hash"] == "abc"
+
+
 @pytest.mark.parametrize(
     ("headline_missing", "ablation_missing", "expect_match"),
     [

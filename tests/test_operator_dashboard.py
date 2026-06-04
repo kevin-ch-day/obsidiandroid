@@ -732,6 +732,93 @@ def test_emit_research_operator_report_surfaces_label_strategy_guidance(
     assert payload["type_claim_surface"] == "type_slug"
 
 
+def test_emit_research_operator_report_marks_all_current_as_diagnostic_surface(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_all_current"
+
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_headline_vs_ablation_contract_reports",
+        lambda **_kwargs: (None, None, {}),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_taxonomy_type_authority_reports",
+        lambda *_args, **_kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "write_diagnostics_index_md",
+        lambda *_args, **_kwargs: diagnostics_dir / "index.md",
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.write_research_question_artifacts",
+        lambda **_kwargs: {
+            "_written_paths": [],
+            "benchmark_support_floor": 3,
+            "benchmark_support_excluded_sample_count": 0,
+            "benchmark_support_excluded_family_count": 0,
+            "q1": {
+                "governed_samples": 3644,
+                "aligned_supervised_samples": 3433,
+                "trainable_after_support_filter": 3433,
+                "families_represented": 115,
+                "malware_types_represented": 6,
+                "concentration": {
+                    "top_family": "BankBot",
+                    "top_family_count": 2400,
+                    "top_family_share_pct": 69.98,
+                    "top3_share_pct": 82.0,
+                    "top5_share_pct": 89.0,
+                },
+                "quality_gates": {},
+                "supervised_family_claims_suitable": False,
+                "label_strategy": {
+                    "preferred_family_target": "family_id",
+                    "preferred_type_target": "type_slug",
+                },
+            },
+            "q2": {},
+            "q3": {},
+            "concentration_warn": True,
+        },
+    )
+
+    captured: list[str] = []
+    monkeypatch.setattr(
+        "obsidiandroid.cli.ui.display.print_section",
+        lambda title, *_args, **_kwargs: captured.append(str(title)),
+    )
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_subheader", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "obsidiandroid.cli.ui.display.print_stat",
+        lambda key, value, *_args, **_kwargs: captured.append(f"{key}: {value}"),
+    )
+
+    samples_df = pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]})
+    operator_dashboard.clear_operator_state()
+    operator_dashboard.emit_research_operator_report(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="android_malware_all_current",
+        manifest_context={},
+        samples_df=samples_df,
+        model_results={},
+        top_model=None,
+        artifact_list=[],
+        print_fn=captured.append,
+    )
+
+    text = "\n".join(captured)
+    assert "CORPUS DIAGNOSTIC READINESS" in text
+    assert "Current Android malware — all samples" in text
+    assert "Broad current-corpus surface is suitable for diagnostics" in text
+    assert "diagnostic/research evidence" in text
+    assert "Visible governed families: 115" in text
+
+
 def test_emit_research_operator_report_surfaces_support_threshold_tracks(
     monkeypatch,
     tmp_path: Path,

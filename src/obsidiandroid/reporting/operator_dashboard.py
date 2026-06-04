@@ -1006,8 +1006,16 @@ def emit_research_operator_report(
     benchmark_support_excluded_family_count = int(bundle.get("benchmark_support_excluded_family_count", 0) or 0)
     family_target = str(label_strategy.get("preferred_family_target", "") or "").strip()
     type_target = str(label_strategy.get("preferred_type_target", "") or "").strip()
+    visible_family_count = q1.get("families_represented")
 
     lines_strong = []
+    caution = [
+        "Frame family-level results as benchmark-surface claims, not claims about every Android malware family in the broad corpus.",
+        "Lead interpretation with Macro-F1, balanced accuracy, per-family recall, confusion pairs, and benchmark support exclusions.",
+        "Do not use raw label fields as primary scientific targets; use authoritative `type_slug` for type claims.",
+        "Vendor-derived parsed family/type strings may echo labels; interpret them separately from detection binaries, consensus scores, and permission features.",
+        "Headline metrics and ablation metrics are comparable only when the feature-set contract and sample universe match.",
+    ]
     if readiness_surface == "major_family_benchmark":
         lines_strong.append(
             f"Major-family benchmark surface is suitable for supervised family reporting on **{active_cls or '—'}** active benchmark classes."
@@ -1015,6 +1023,9 @@ def emit_research_operator_report(
     elif readiness_surface == "broad_current_corpus":
         lines_strong.append(
             "Broad current-corpus surface is suitable for diagnostics, residue discovery, and permission-pattern analysis."
+        )
+        caution.append(
+            "Treat current-corpus results as diagnostic/research evidence, not as a benchmark-quality family leaderboard across the full long-tail family surface."
         )
     elif readiness_surface == "locked_publication_surface":
         lines_strong.append(
@@ -1027,13 +1038,6 @@ def emit_research_operator_report(
     lines_strong.append(
         "Permission features carry strong independent signal and should be treated as a first-class capability-analysis layer."
     )
-    caution = [
-        "Frame family-level results as benchmark-surface claims, not claims about every Android malware family in the broad corpus.",
-        "Lead interpretation with Macro-F1, balanced accuracy, per-family recall, confusion pairs, and benchmark support exclusions.",
-        "Do not use raw label fields as primary scientific targets; use authoritative `type_slug` for type claims.",
-        "Vendor-derived parsed family/type strings may echo labels; interpret them separately from detection binaries, consensus scores, and permission features.",
-        "Headline metrics and ablation metrics are comparable only when the feature-set contract and sample universe match.",
-    ]
     if label_strategy:
         avoid = label_strategy.get("avoid_for_primary_claims", [])
         alignment_note = str(label_strategy.get("alignment_interpretation", "") or "").strip()
@@ -1068,7 +1072,9 @@ def emit_research_operator_report(
     du.print_stat("Overall claim status", claim_status)
     du.print_stat("Primary surface", primary_surface_label)
     if active_cls:
-        du.print_stat("Benchmark family classes", active_cls)
+        du.print_stat("Active benchmark family classes", active_cls)
+    if visible_family_count not in (None, "", "—"):
+        du.print_stat("Visible governed families", visible_family_count)
     if benchmark_support_floor > 0:
         du.print_stat("Benchmark support rule", f"n >= {benchmark_support_floor} per family")
     if family_target:

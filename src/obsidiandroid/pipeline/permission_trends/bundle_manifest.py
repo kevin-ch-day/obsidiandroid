@@ -160,6 +160,7 @@ def bundle_artifact_role(artifact_id: str, category: str) -> tuple[str, bool]:
         "dangerous_stats_tests",
         "family_support_distribution",
         "permission_coverage_report",
+        "banker_permission_trend_patterns",
     }
     if artifact_id.startswith("family_permission_profiles_top"):
         return "primary_structural", True
@@ -241,6 +242,7 @@ def bundle_table_policy(artifact_id: str) -> dict[str, Any]:
         "dangerous_stats_tests",
         "family_support_distribution",
         "permission_coverage_report",
+        "banker_permission_trend_patterns",
     }
     auxiliary_structural = {
         "permission_signal_prevalence_by_type",

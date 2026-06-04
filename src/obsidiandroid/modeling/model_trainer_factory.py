@@ -396,6 +396,7 @@ def _export_split_audit(
         return
 
     paper_mode = bool(getattr(app_config, "PAPER_MODE_ENABLED", False))
+    headline_model_token = "headline_shared_split"
 
     split_rows = (
         [{"sample_id": int(sid), "split_role": "train"} for sid in sample_ids_train]
@@ -477,7 +478,7 @@ def _export_split_audit(
     split_df["label_target"] = str(label_target_slug)
     split_df["active_class_count"] = int(active_class_count)
     split_df["feature_set"] = str(feature_set_token)
-    split_df["model"] = str(model_type)
+    split_df["model"] = headline_model_token if ledger_kind == "headline" else str(model_type)
     split_df["split_key_hash"] = split_key_hash
     split_df["train_sample_hash"] = train_sample_hash
     split_df["test_sample_hash"] = test_sample_hash
@@ -573,7 +574,7 @@ def _export_split_audit(
         "label_target": str(label_target_slug),
         "active_class_count": int(active_class_count),
         "feature_set": str(feature_set_token),
-        "split_model_written_for": str(model_type),
+        "split_model_written_for": headline_model_token if ledger_kind == "headline" else str(model_type),
     }
     if isinstance(temporal_summary, dict):
         meta["temporal_split_summary"] = dict(temporal_summary)

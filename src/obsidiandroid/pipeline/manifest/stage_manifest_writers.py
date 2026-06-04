@@ -26,6 +26,10 @@ from obsidiandroid.common.cv_fold_config import (
     safe_int_config_value,
 )
 from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
+from obsidiandroid.pipeline.manifest.runtime_support import (
+    derive_aggregate_pipeline_verdict,
+    derive_terminal_run_status,
+)
 
 _AUTHORITY_VIEW_SQL_PATH = Path("database/sql/view_android_sample_family_type_authority.sql")
 
@@ -110,18 +114,10 @@ def write_run_summary_json(
         run_id = str(manifest.get("run_id", manifest_context.get("run_id", "unknown")))
         profile = manifest.get("profile_params", {}) if isinstance(manifest.get("profile_params"), dict) else {}
         model_summary = manifest.get("model_summary", {}) if isinstance(manifest.get("model_summary"), dict) else {}
-        configured_status = str(manifest_context.get("run_status", "") or "").strip().lower()
         failure_reason = str(
             manifest_context.get("failure_reason", "") or manifest_context.get("integrity_error", "")
         ).strip()
-        if configured_status in {"complete", "partial", "failed"}:
-            run_status = configured_status
-        elif failure_reason or int(result_code) != 0:
-            run_status = "failed"
-        elif str(manifest_context.get("completed_stage", "") or "").strip().lower() not in {"", "manifest"}:
-            run_status = "partial"
-        else:
-            run_status = "complete"
+        run_status = derive_terminal_run_status(manifest_context, result_code=int(result_code))
 
         completed_stage = str(manifest_context.get("completed_stage", "") or "").strip()
         if not completed_stage:
@@ -163,24 +159,62 @@ def write_run_summary_json(
             except (TypeError, ValueError):
                 feat_rows_resolved = None
 
+        error_type = str(manifest_context.get("error_type", "") or "").strip()
+        if not error_type and run_status == "interrupted":
+            error_type = "KeyboardInterrupt"
+        top_model = str(model_summary.get("top_model", "") or "").strip() or None
+        top_macro_f1 = model_summary.get("top_macro_f1")
+        diagnostics_root = str(diagnostics_dir)
+        failure_summary_path = str(manifest_context.get("failure_summary_path", "") or "").strip()
+        if not failure_summary_path:
+            candidate = diagnostics_dir / "failure_summary.json"
+            if candidate.is_file():
+                failure_summary_path = str(candidate)
+        pipeline_verdict = derive_aggregate_pipeline_verdict(
+            run_status_raw=run_status,
+            result_code=int(result_code),
+            rv_err="",
+            hostile_failed=False,
+            readiness_issues=[],
+            failure_reason=failure_reason,
+        )
+        training_completed = bool(
+            top_model
+            or list(manifest.get("trained_models") or [])
+            or completed_stage.lower() in {"training", "ablation", "permission_trends", "label_resolution", "manifest"}
+        )
+
         payload = {
             "schema_version": "1.0",
             "run_id": run_id,
+            "run_instance_id": str(manifest.get("run_instance_id", "") or run_id),
+            "run_slot": str(manifest.get("run_slot", "") or ""),
+            "run_mode": str(manifest.get("run_mode", "") or ""),
             "profile_id": str(profile.get("profile_id", "unknown")),
             "timestamp_utc": str(manifest.get("timestamp_utc", "") or manifest_context.get("timestamp_utc", "")),
             "run_status": run_status,
+            "status": run_status,
+            "pipeline_verdict": pipeline_verdict,
             "completed_stage": completed_stage,
             "failed_stage": str(manifest_context.get("failed_stage", "") or "").strip() or None,
+            "interrupted_stage": (
+                str(manifest_context.get("failed_stage", "") or completed_stage).strip() or None
+            ) if run_status == "interrupted" else None,
             "failure_reason": failure_reason or None,
+            "error_type": error_type or None,
+            "failure_summary_path": failure_summary_path or None,
             "cohort_size": int(manifest.get("cohort_size", 0) or 0),
             "selected_vendor_count": manifest.get("selected_vendor_count"),
             "vendor_constrained_run_flag": bool(manifest.get("vendor_constrained_run_flag", False)),
             "pipeline_runtime_sec": manifest_context.get("pipeline_runtime_sec"),
-            "top_model": str(model_summary.get("top_model", "") or "").strip() or None,
-            "top_macro_f1": model_summary.get("top_macro_f1"),
+            "top_model": top_model,
+            "top_macro_f1": top_macro_f1,
+            "top_model_primary_metric_name": "macro_f1_score" if top_macro_f1 is not None else None,
+            "top_model_primary_metric_value": top_macro_f1,
             "model_summary": model_summary,
             "trained_model_count": manifest.get("trained_model_count")
             or len(list(manifest.get("trained_models") or [])),
+            "training_completed_before_terminal": training_completed,
             "main_training_row_authority": manifest.get("main_training_row_authority"),
             "feature_matrix_cols_post_prune": feat_cols_resolved,
             "feature_matrix_rows": feat_rows_resolved,
@@ -191,6 +225,7 @@ def write_run_summary_json(
             "ablation_multi_label_targets": manifest.get("ablation_multi_label_targets"),
             "manifest_path": str(run_root / "run_manifest.json"),
             "run_root": str(run_root),
+            "diagnostics_root": diagnostics_root,
             "paper_mode": bool((manifest.get("paper_mode") or {}).get("resolved_value", False)),
             "evidence_mode": coalesce_manifest_publication_mode(manifest),
             "result_code": int(result_code),
@@ -455,6 +490,38 @@ def write_run_summary_onepager(
         stage_timings = manifest_context.get("stage_timings_sec", {})
         split_meta = manifest.get("split", {}) if isinstance(manifest, dict) else {}
         duplicate_meta = manifest.get("duplicate_sha", {}) if isinstance(manifest, dict) else {}
+        run_status = derive_terminal_run_status(manifest_context)
+        failure_reason = str(
+            manifest_context.get("failure_reason", "") or manifest_context.get("integrity_error", "")
+        ).strip()
+        error_type = str(manifest_context.get("error_type", "") or "").strip()
+        if not error_type and run_status == "interrupted":
+            error_type = "KeyboardInterrupt"
+        pipeline_verdict = derive_aggregate_pipeline_verdict(
+            run_status_raw=run_status,
+            result_code=int(manifest_context.get("_manifest_result_code", 0) or 0),
+            rv_err="",
+            hostile_failed=False,
+            readiness_issues=[],
+            failure_reason=failure_reason,
+        )
+        top_model = str(model_summary.get("top_model", "") or "").strip()
+        top_macro_f1 = model_summary.get("top_macro_f1")
+        completed_stage = str(
+            manifest_context.get("completed_stage", "") or manifest_context.get("current_stage", "") or ""
+        ).strip()
+        failed_stage = str(manifest_context.get("failed_stage", "") or "").strip()
+        interrupted_stage = failed_stage if run_status == "interrupted" else ""
+        failure_summary_path = str(manifest_context.get("failure_summary_path", "") or "").strip()
+        if not failure_summary_path:
+            candidate = diagnostics_dir / "failure_summary.json"
+            if candidate.is_file():
+                failure_summary_path = str(candidate)
+        training_completed = bool(
+            top_model
+            or list(manifest.get("trained_models") or [])
+            or completed_stage.lower() in {"training", "ablation", "permission_trends", "label_resolution", "manifest"}
+        )
 
         lines = [
             f"# Run Summary One-Pager ({run_id})",
@@ -462,9 +529,21 @@ def write_run_summary_onepager(
             "## Context",
             f"- run_id: `{run_id}`",
             f"- profile_id: `{profile.get('profile_id', 'unknown')}`",
+            f"- run_slot: `{manifest.get('run_slot', '')}`",
+            f"- run_mode: `{manifest.get('run_mode', '')}`",
             f"- publication_ready_mode: `{bool(paper_mode_data.get('resolved_value', False))}` (source=`{paper_mode_data.get('source', 'unknown')}`)",
             f"- cohort_size: `{manifest.get('cohort_size', 0)}`",
             f"- selected_vendor_count: `{manifest.get('selected_vendor_count', 0)}`",
+            "",
+            "## Run State",
+            f"- run_status: `{run_status}`",
+            f"- pipeline_verdict: `{pipeline_verdict}`",
+            f"- completed_stage: `{completed_stage or 'unknown'}`",
+            f"- failed_stage: `{failed_stage}`" if failed_stage else "- failed_stage: ``",
+            f"- interrupted_stage: `{interrupted_stage}`" if interrupted_stage else "- interrupted_stage: ``",
+            f"- error_type: `{error_type}`" if error_type else "- error_type: ``",
+            f"- training_completed_before_terminal: `{training_completed}`",
+            f"- failure_summary_path: `{failure_summary_path}`" if failure_summary_path else "- failure_summary_path: ``",
             "",
             "## Governance",
             f"- split_hash: `{split_meta.get('split_hash', '')}`",
@@ -479,8 +558,8 @@ def write_run_summary_onepager(
         if isinstance(model_summary, dict) and model_summary:
             lines.extend(
                 [
-                    f"- top_model: `{model_summary.get('top_model', '')}`",
-                    f"- top_macro_f1: `{model_summary.get('top_macro_f1', '')}`",
+                    f"- top_model: `{top_model}`",
+                    f"- top_macro_f1: `{top_macro_f1}`",
                 ]
             )
             model_rows = model_summary.get("model_rows", [])

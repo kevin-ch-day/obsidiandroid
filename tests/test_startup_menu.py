@@ -87,6 +87,20 @@ def test_display_menu_blank_without_default_reprompts(monkeypatch) -> None:
     assert menu.display_menu(["First", "Second"], title="T") == 2
 
 
+def test_resolve_pipeline_timings_path_prefers_manifest_run_id_for_slot_root(tmp_path: Path) -> None:
+    run_id = "20260604T033648Z__d79069"
+    run_root = tmp_path / "output" / "runs" / "majorfam_benchmark"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(run_root / "run_manifest.json", {"run_id": run_id, "run_root": str(run_root)})
+    tagged = diagnostics_dir / f"pipeline_stage_timings_{run_id}.csv"
+    tagged.write_text("stage,duration_sec\nmanifest,1.0\n", encoding="utf-8")
+
+    got = startup_menu_run_context.resolve_pipeline_timings_path(run_root)
+
+    assert got == tagged
+
+
 def test_display_menu_blank_returns_back_when_exit_label_back(monkeypatch) -> None:
     """Submenus with Back: blank Enter returns 0 without extra prompts."""
     monkeypatch.setattr("builtins.input", lambda _p="": "")

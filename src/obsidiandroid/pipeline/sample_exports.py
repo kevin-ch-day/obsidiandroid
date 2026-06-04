@@ -22,16 +22,19 @@ def diagnostics_dir(run_id: str | None = None) -> Path:
     runtime_dir = str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "").strip()
     if runtime_dir:
         runtime_path = Path(runtime_dir)
+        runtime_run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "").strip()
         if run_id:
             run_root = runtime_path.parent
-            if run_root.name == str(run_id):
+            requested_run_id = str(run_id).strip()
+            if runtime_run_id and runtime_run_id == requested_run_id:
+                return runtime_path
+            if run_root.name == requested_run_id:
                 return runtime_path
         else:
-            runtime_run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "").strip()
             if runtime_run_id and runtime_path.parent.name == runtime_run_id:
                 return runtime_path
             if not runtime_run_id:
-                return Path(app_config.DEFAULT_OUTPUT_DIR) / "diagnostics"
+                return runtime_path
             return runtime_path
     return Path(app_config.DEFAULT_OUTPUT_DIR) / "diagnostics"
 

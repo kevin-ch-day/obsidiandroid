@@ -137,3 +137,48 @@ def test_run_gap_report_cohort_rows_use_distinct_sample_id(tmp_path: Path) -> No
     assert sc["cohort_prepared_table_rows"] == 4
     assert sc["cohort_duplicate_surplus_rows"] == 1
     assert summary["row_loss"]["cohort_samples_locked"] == 3
+
+
+def test_run_gap_report_prefers_manifest_run_id_for_slot_root(tmp_path: Path) -> None:
+    run_id = "20260604T033648Z__d79069"
+    run_root = tmp_path / "majorfam_benchmark"
+    diag = run_root / "diagnostics"
+    diag.mkdir(parents=True)
+    (run_root / "run_manifest.json").write_text(
+        json.dumps({"run_id": run_id, "run_root": str(run_root)}),
+        encoding="utf-8",
+    )
+    cohort = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "sha256": ["a", "b"],
+            "family_canonical": ["F", "G"],
+        }
+    )
+    cohort.to_csv(diag / "cohort_membership.csv", index=False)
+    pd.DataFrame({"sample_id": [2]}).to_csv(diag / "unmatched_label_ids.csv", index=False)
+    (diag / f"feature_build_coverage_{run_id}.json").write_text(
+        json.dumps(
+            {
+                "feature_matrix_unique_row_count": 1,
+                "vendor_merge_authority_unique_count": 1,
+                "cohort_rows_missing_from_feature_matrix": 1,
+                "vendor_merge_equals_final_index": True,
+                "feature_rows_not_in_cohort": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diag / "cohort_missing_from_feature_matrix.latest.csv").write_text("sample_id\n2\n", encoding="utf-8")
+    (diag / "modality_method_contract.json").write_text(
+        json.dumps({"fusion_modality": {"feature_count_total": 2, "matrix_shape": {"columns": 2}}}),
+        encoding="utf-8",
+    )
+    (diag / "feature_contract.json").write_text(
+        json.dumps({"feature_columns": ["perm__x"], "feature_shape": {"rows": 1, "columns": 1}}),
+        encoding="utf-8",
+    )
+
+    _lineage_df, _gap_detail, summary = fmgl.run_feature_matrix_gap_report(run_root, skip_db_recompute=True)
+
+    assert summary["run_id"] == run_id

@@ -547,6 +547,47 @@ def test_exploratory_profile_is_not_mistaken_for_paper_locked() -> None:
     assert contract["validation"]["status"] == "not_paper_locked"
 
 
+def test_perturbation_axes_alone_do_not_force_publication_intent() -> None:
+    profile = {
+        "profile_id": "malicious_temporal_consensus10",
+        "paper_locked": False,
+        "evidence_mode": False,
+        "paper_perturbation_axes": ["min_malicious_detections", "family_cap"],
+    }
+
+    assert (
+        paper_cohort_contract.is_publication_intended_profile(
+            profile=profile,
+            effective_evidence_mode=False,
+        )
+        is False
+    )
+
+
+def test_unlocked_profile_still_fails_when_forced_into_evidence_mode() -> None:
+    profile = {
+        "profile_id": "android_malware_expanded_families",
+        "paper_locked": False,
+        "evidence_mode": False,
+        "paper_perturbation_axes": ["min_malicious_detections"],
+    }
+
+    with pytest.raises(ValueError, match="Profile 'android_malware_expanded_families' is unlocked"):
+        paper_cohort_contract.enforce_publication_profile_lock(
+            profile=profile,
+            effective_evidence_mode=True,
+        )
+
+
+def test_locked_profile_remains_valid_in_evidence_mode() -> None:
+    profile = profile_manager.load_profile("malicious_temporal_stability_locked")
+
+    paper_cohort_contract.enforce_publication_profile_lock(
+        profile=profile,
+        effective_evidence_mode=True,
+    )
+
+
 def test_banker_locked_profile_is_honestly_marked_count_only() -> None:
     """The 2025 banker contract must remain explicitly partial until sample IDs are recovered."""
     profile = profile_manager.load_profile("banker_locked")

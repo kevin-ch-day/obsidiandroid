@@ -279,7 +279,7 @@ def validate_paper_export_content(
             failures.append("selected_visual_family_count")
         if failures:
             raise ValueError(
-                "[PAPER2] Strict export content validation failed: "
+                "[EXPORT] Strict publication export content validation failed: "
                 + ", ".join(sorted(set(failures)))
             )
     return checks
@@ -510,8 +510,8 @@ def build_strict_paper2_exports(
     if not bool(paper_mode):
         if paper_exports_root.exists():
             shutil.rmtree(paper_exports_root)
-            du.print_info("[PAPER2] Removed stale paper_exports (paper mode OFF).")
-        du.print_info("[PAPER2] Strict paper export skipped (paper mode OFF).")
+            du.print_info("[EXPORT] Removed stale strict publication exports (evidence/publication mode OFF).")
+        du.print_info("[EXPORT] Strict publication export skipped (evidence/publication mode OFF).")
         return {
             "profile": {
                 "enabled": False,
@@ -549,7 +549,7 @@ def build_strict_paper2_exports(
     missing = missing_required_paper_sources(export_contract["required_sources"])
     if missing and strict_profile:
         raise ValueError(
-            "[PAPER2] Strict paper export failed; missing required artifacts: "
+            "[EXPORT] Strict publication export failed; missing required artifacts: "
             + ", ".join(sorted(missing))
         )
     exported_paths: list[str] = []
@@ -594,7 +594,7 @@ def build_strict_paper2_exports(
             if not src_path.exists():
                 continue
             if run_root.resolve() not in src_path.resolve().parents:
-                raise ValueError(f"[PAPER2] Non run-scoped source rejected: {src_path}")
+                raise ValueError(f"[EXPORT] Non run-scoped source rejected: {src_path}")
             dst = fig_dir / figure_filename_map[figure_id]
             shutil.copy2(src_path, dst)
             exported_paths.append(str(dst))
@@ -721,7 +721,7 @@ def build_strict_paper2_exports(
             if not src_path.exists():
                 continue
             if run_root.resolve() not in src_path.resolve().parents:
-                raise ValueError(f"[PAPER2] Non run-scoped source rejected: {src_path}")
+                raise ValueError(f"[EXPORT] Non run-scoped source rejected: {src_path}")
             dst = tab_dir / table_filename_map[table_id]
             if table_id == "table3_model_comparison_rf_xgb_lr_fused":
                 build_paper_model_comparison_table(source_path=src_path, output_path=dst)
@@ -753,7 +753,7 @@ def build_strict_paper2_exports(
             missing_tables = sorted(required_table_ids - seen_tables)
             extra_tables = sorted(seen_tables - required_table_ids)
             raise ValueError(
-                "[PAPER2] Strict export contract violation: "
+                "[EXPORT] Strict publication export contract violation: "
                 f"missing_figures={missing_figures}, extra_figures={extra_figures}, "
                 f"missing_tables={missing_tables}, extra_tables={extra_tables}"
             )
@@ -860,7 +860,7 @@ def build_strict_paper2_exports(
             )
             exported_paths.append(str(contract_validation_path))
             if strict_profile and not bool(contract_validation.get("passed", False)):
-                raise ValueError("[PAPER2] strict paper contract validation failed")
+                raise ValueError("[EXPORT] strict publication contract validation failed")
 
         figure_qc_path = docs_paths["paper_figure_qc_csv"]
         export_paper_figure_qc(fig_dir=fig_dir, output_path=figure_qc_path)

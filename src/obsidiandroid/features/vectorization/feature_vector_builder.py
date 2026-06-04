@@ -12,6 +12,7 @@ import hashlib
 from config import app_config
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.common import output_hygiene as output_hygiene_mod
+from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from .feature_engine_selection import get_top_engines_by_score
@@ -58,10 +59,7 @@ def _extra_column_is_numeric_permission_signal(col: str) -> bool:
 
 def _diagnostics_dir() -> Path:
     """Resolve diagnostics directory for current runtime context."""
-    runtime_dir = str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "").strip()
-    if runtime_dir:
-        return Path(runtime_dir)
-    return Path(app_config.DEFAULT_OUTPUT_DIR) / "diagnostics"
+    return resolve_diagnostics_dir()
 
 
 def _select_top_vendors(

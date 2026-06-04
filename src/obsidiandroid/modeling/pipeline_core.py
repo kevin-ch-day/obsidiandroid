@@ -19,6 +19,7 @@ from scripts.diagnostics import inspect_classification_results as inspector
 from obsidiandroid.evaluation import ml_comparator_summary as comparator
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console, output_hygiene as oh
+from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from obsidiandroid.reporting import export_manager as em
 from obsidiandroid.reporting.operator_dashboard import bump_artifact_counter
 from obsidiandroid.observability.logging import get_logger, log_event
@@ -225,15 +226,7 @@ def _prune_potential_leakage_features(
 
 def _diagnostics_dir() -> Path:
     """Resolve the diagnostics directory for the current runtime context."""
-    return Path(
-        str(
-            getattr(
-                app_config,
-                "RUNTIME_DIAGNOSTICS_DIR",
-                Path(app_config.DEFAULT_OUTPUT_DIR) / "diagnostics",
-            )
-        )
-    )
+    return resolve_diagnostics_dir()
 
 
 def _index_to_int_sample_ids(index: Any) -> list[int]:

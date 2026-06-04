@@ -1445,7 +1445,7 @@ def print_research_questions_terminal(
     if compact:
         pr("1. Interpretation:")
         pr(
-            f"   Governed cohort {gov_n}; {fam_n} families, {typ_n} types; "
+            f"   Governed cohort {gov_n}; {fam_n} visible families, {typ_n} types; "
             f"top-5 share ≈ {t5:.2f}% — Macro-F1 and recall tails are primary."
         )
         pr("2. Modality signal:")
@@ -1476,7 +1476,7 @@ def print_research_questions_terminal(
 
     pr("1. Dataset:")
     pr(
-        f"   Governed cohort {gov_n}; {fam_n} families, {typ_n} types; "
+        f"   Governed cohort {gov_n}; {fam_n} visible families, {typ_n} types; "
         f"top-5 share ≈ {t5:.2f}% — Macro-F1 is primary."
     )
     pr("2. Feature signal:")
@@ -1514,8 +1514,8 @@ def print_research_questions_terminal(
         drop_s = None
     pr("4. Headline task boundary:")
     pr(
-        f"   Governed cohort ≈ {gov_n} samples / {fam_gov} families; headline training applies to "
-        f"≈ {train_n} samples / {fam_tr} supported families"
+        f"   Governed cohort ≈ {gov_n} samples / {fam_gov} visible families; headline training applies to "
+        f"≈ {train_n} samples / {fam_tr} active benchmark family classes"
         + (f" after dropping ≈{drop_s} samples from low-support families." if drop_s else ".")
     )
     pr("")
