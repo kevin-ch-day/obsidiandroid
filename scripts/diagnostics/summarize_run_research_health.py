@@ -35,12 +35,101 @@ import argparse
 import csv
 import json
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
+
+
+def _parse_iso_utc(value: object) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    normalized = raw.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _parse_run_id_timestamp(run_id: str) -> datetime | None:
+    token = str(run_id or "").strip()
+    stamp = token.split("__", maxsplit=1)[0]
+    try:
+        parsed = datetime.strptime(stamp, "%Y%m%dT%H%M%SZ")
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=timezone.utc)
+
+
+def _iter_run_manifests(runs_dir: Path) -> list[tuple[Path, dict[str, Any]]]:
+    manifests: list[tuple[Path, dict[str, Any]]] = []
+    if not runs_dir.is_dir():
+        return manifests
+    for manifest_path in runs_dir.rglob("run_manifest.json"):
+        payload = _read_json(manifest_path)
+        if isinstance(payload, dict):
+            manifests.append((manifest_path, payload))
+    return manifests
+
+
+def _candidate_sort_key(run_id: str, manifest_payload: dict[str, Any]) -> tuple[int, datetime, str] | None:
+    ts = (
+        _parse_iso_utc(manifest_payload.get("timestamp_utc"))
+        or _parse_iso_utc(manifest_payload.get("run_started_at_utc"))
+        or _parse_iso_utc(manifest_payload.get("created_at_utc"))
+        or _parse_run_id_timestamp(run_id)
+    )
+    if ts is None:
+        return None
+    return (1, ts, run_id)
+
+
+def _resolve_run_root_from_run_id(runs_dir: Path, run_id: str) -> Path | None:
+    target = str(run_id or "").strip()
+    if not target:
+        return None
+    direct = runs_dir / target
+    if (direct / "run_manifest.json").is_file():
+        return direct.resolve()
+    for manifest_path, manifest_payload in _iter_run_manifests(runs_dir):
+        manifest_run_id = str(manifest_payload.get("run_id", "")).strip()
+        if manifest_run_id == target:
+            run_root_raw = str(manifest_payload.get("run_root", "")).strip()
+            if run_root_raw:
+                candidate = Path(run_root_raw)
+                if not candidate.is_absolute():
+                    candidate = (_repo_root() / candidate).resolve()
+                if candidate.is_dir():
+                    return candidate
+            return manifest_path.parent.resolve()
+    return None
+
+
+def _discover_latest_run_root(runs_dir: Path) -> Path | None:
+    scored: list[tuple[tuple[int, datetime, str], Path]] = []
+    for manifest_path, manifest_payload in _iter_run_manifests(runs_dir):
+        run_id = str(manifest_payload.get("run_id", "")).strip() or manifest_path.parent.name
+        key = _candidate_sort_key(run_id, manifest_payload)
+        if key is None:
+            continue
+        run_root_raw = str(manifest_payload.get("run_root", "")).strip()
+        if run_root_raw:
+            run_root = Path(run_root_raw)
+            if not run_root.is_absolute():
+                run_root = (_repo_root() / run_root).resolve()
+        else:
+            run_root = manifest_path.parent.resolve()
+        scored.append((key, run_root))
+    if not scored:
+        return None
+    return max(scored, key=lambda item: item[0])[1]
 
 
 def _resolve_run_root(repo: Path, run_id: str | None, run_root: Path | None, latest: bool) -> Path:
@@ -53,16 +142,16 @@ def _resolve_run_root(repo: Path, run_id: str | None, run_root: Path | None, lat
     if latest:
         if not runs.is_dir():
             raise SystemExit(f"missing runs directory: {runs}")
-        candidates = [p for p in runs.iterdir() if p.is_dir()]
-        if not candidates:
+        latest_root = _discover_latest_run_root(runs)
+        if latest_root is None:
             raise SystemExit(f"no runs under {runs}")
-        return max(candidates, key=lambda p: p.stat().st_mtime)
+        return latest_root
     if not run_id:
         raise SystemExit("provide --run-id, --run-root, or --latest")
-    p = runs / run_id
-    if not p.is_dir():
-        raise SystemExit(f"run directory not found: {p}")
-    return p.resolve()
+    resolved = _resolve_run_root_from_run_id(runs, run_id)
+    if resolved is None:
+        raise SystemExit(f"run directory not found for run_id: {run_id}")
+    return resolved
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:

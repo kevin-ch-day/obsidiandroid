@@ -20,7 +20,9 @@ from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path  # noqa:
 
 ensure_repo_src_on_sys_path()
 
-# Whole-module slow tier: keeps default `pytest` fast; run full suite with `-m "slow or not slow"`.
+# Whole-module slow tier: keeps default `pytest` fast; run the full suite with
+# `make test-full` / `scripts/dev/run_tests_full.sh`, or include marker lanes
+# explicitly (`slow`, `integration`, `heavy`) when profiling narrower surfaces.
 _SLOW_TEST_MODULES = frozenset(
     {
         "test_classification_label_resolver_taxonomy_audit.py",
@@ -37,7 +39,7 @@ _SLOW_TEST_MODULES = frozenset(
 
 
 def pytest_collection_modifyitems(config, items) -> None:  # noqa: ARG001
-    """Tag known slow integration modules so default `-m "not slow"` skips them."""
+    """Tag known slow modules so the default fast loop skips them."""
     for item in items:
         try:
             path = getattr(item, "path", None)

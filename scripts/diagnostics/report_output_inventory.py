@@ -20,14 +20,51 @@ from scripts._bootstrap import prepare_script_runtime  # noqa: E402
 prepare_script_runtime(__file__)
 
 from obsidiandroid.diagnostics import output_inventory  # noqa: E402
+from obsidiandroid.cli.menu import run_locator as rl  # noqa: E402
+
+
+def _resolve_run_root(*, repo_root: Path, run_root_arg: str, run_id: str, latest: bool) -> Path:
+    """Resolve canonical run root from explicit path, run_id, or latest manifest."""
+    output_root = repo_root / "output"
+    if run_root_arg:
+        return Path(run_root_arg).resolve()
+    if latest:
+        latest_run_id = rl.read_latest_run_id()
+        if not latest_run_id:
+            raise SystemExit("could not resolve latest run id from manifests/pointers")
+        run_id = latest_run_id
+    if not run_id:
+        raise SystemExit("provide --run-root, --run-id, or --latest")
+    manifest_payload, manifest_path = rl.resolve_manifest_for_run_id(
+        str(run_id).strip(),
+        runs_dir=output_root / "runs",
+    )
+    if not manifest_payload:
+        raise SystemExit(f"run directory not found for run_id: {run_id}")
+    return rl.resolve_run_root_for_manifest(
+        manifest_payload,
+        run_id=str(run_id).strip(),
+        manifest_path=manifest_path,
+    )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument(
         "--run-root",
-        required=True,
-        help="Path to output/runs/<run_id> (run-scoped root).",
+        default="",
+        help="Explicit canonical run root path.",
+    )
+    selection.add_argument(
+        "--run-id",
+        default="",
+        help="Run ID resolved through manifest-backed lookup.",
+    )
+    selection.add_argument(
+        "--latest",
+        action="store_true",
+        help="Use the latest manifest-backed run.",
     )
     parser.add_argument(
         "--output-dir",
@@ -35,9 +72,18 @@ def main() -> int:
         help="Optional directory for CSV/JSON/MD (default: <run-root>/diagnostics).",
     )
     args = parser.parse_args()
-    run_root = Path(args.run_root).resolve()
+    run_root = _resolve_run_root(
+        repo_root=ROOT,
+        run_root_arg=args.run_root,
+        run_id=args.run_id,
+        latest=bool(args.latest),
+    )
     out_dir = Path(args.output_dir).resolve() if args.output_dir else (run_root / "diagnostics")
     run_id = run_root.name
+    manifest_payload = rl.read_json_object(run_root / "run_manifest.json")
+    manifest_run_id = str(manifest_payload.get("run_id", "")).strip()
+    if manifest_run_id:
+        run_id = manifest_run_id
 
     output_inventory.write_virtual_layout(run_root)
     paths, summary = output_inventory.write_artifact_inventory_bundle(

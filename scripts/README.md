@@ -53,4 +53,8 @@ Top-level operator scripts that remain intentionally top-level for now include:
 
 Those are closer to run operations, warehouse maintenance, or cohort gating than pure diagnostics.
 
+Release-hygiene note:
+- `cleanup_output_artifacts.py` is the canonical on-disk cleanup tool for `output/` and repo-root runtime logs.
+- It now repairs stale latest-run pointer files from a real manifest-backed run before syncing promoted pointers, and prunes stale run-bound `output/diagnostics/*.latest.*` mirrors that no longer match the current latest run.
+
 For architecture context see [`docs/architecture.md`](../docs/architecture.md). Repository root layout during the src-package migration is summarized in [`docs/STRUCTURE_MIGRATION_PLAN.md`](../docs/STRUCTURE_MIGRATION_PLAN.md).

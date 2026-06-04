@@ -2,6 +2,14 @@
 
 `database/sql/` is the active SQL surface for this repo.
 
+For the production release, this directory is intentionally limited to:
+- live authority schema foundations and loaders
+- active authority views and smoke checks
+- queue-maintenance SQL still referenced by operator docs
+
+Legacy audit/worklist SQL that existed only as already-applied or test-only payloads
+should be deleted instead of kept here.
+
 Keep these in the top level:
 - shared schema foundations
 - active views

@@ -5,10 +5,79 @@ import json
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LogisticRegression
 
 from obsidiandroid.pipeline import stage_ablation
+from obsidiandroid.pipeline.ablation import registry
 from config import app_config
 from obsidiandroid.modeling import model_trainer_factory
+
+
+def test_resolve_vendor_include_fields_stays_full_under_evidence_controls(monkeypatch) -> None:
+    """Ablation registry keeps the risky lexical surface available for leakage comparison."""
+
+    monkeypatch.setattr(registry.app_config, "RUNTIME_EVIDENCE_STRICT_MODE", True, raising=False)
+    monkeypatch.setattr(registry.app_config, "RUNTIME_EVIDENCE_MODE", False, raising=False)
+    assert registry._resolve_vendor_include_fields() == [  # pylint: disable=protected-access
+        "Parsed Family",
+        "Threat Class",
+        "Malware Type",
+    ]
+
+    monkeypatch.setattr(registry.app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False, raising=False)
+    monkeypatch.setattr(registry.app_config, "RUNTIME_EVIDENCE_MODE", True, raising=False)
+    assert registry._resolve_vendor_include_fields() == [  # pylint: disable=protected-access
+        "Parsed Family",
+        "Threat Class",
+        "Malware Type",
+    ]
+
+    monkeypatch.setattr(registry.app_config, "RUNTIME_EVIDENCE_MODE", False, raising=False)
+    assert registry._resolve_vendor_include_fields() == [  # pylint: disable=protected-access
+        "Parsed Family",
+        "Threat Class",
+        "Malware Type",
+    ]
+
+
+def test_build_experiment_matrix_dict_keeps_vendor_experiments_semantically_distinct_in_evidence_mode(
+    monkeypatch,
+) -> None:
+    """vendor_full/full_fused should not collapse onto vendor_no_parsed_family in evidence mode."""
+    monkeypatch.setattr(registry.app_config, "RUNTIME_EVIDENCE_STRICT_MODE", True, raising=False)
+    monkeypatch.setattr(registry.app_config, "RUNTIME_EVIDENCE_MODE", True, raising=False)
+
+    captured: list[tuple[list[str], bool]] = []
+
+    def _fake_build_vendor_matrix(
+        _weights_df,
+        _parsed_data,
+        include_fields,
+        extra_features_df=None,
+        cohort_sample_ids=None,
+    ):
+        del cohort_sample_ids
+        captured.append((list(include_fields), extra_features_df is not None))
+        return pd.DataFrame({"f1": [1.0]}, index=[1])
+
+    monkeypatch.setattr(registry, "build_vendor_matrix", _fake_build_vendor_matrix)
+
+    builders = registry.build_experiment_matrix_dict(
+        weights_df=pd.DataFrame(),
+        parsed_data={},
+        permission_features_df=pd.DataFrame({"sample_id": [1], "perm_grp__sms_telephony_count": [1]}),
+        pipeline_results=None,
+        cohort_sample_ids=[1],
+        permissions_band_builder=lambda _df, _subset: pd.DataFrame({"perm_grp__sms_telephony_count": [1]}, index=[1]),
+    )
+
+    builders["vendor_full"]()
+    builders["vendor_no_parsed_family"]()
+    builders["full_fused"]()
+
+    assert captured[0] == (["Parsed Family", "Threat Class", "Malware Type"], False)
+    assert captured[1] == (["Threat Class", "Malware Type"], False)
+    assert captured[2] == (["Parsed Family", "Threat Class", "Malware Type"], True)
 
 
 def test_load_paper_cohort_sample_ids_missing_column_returns_empty_set() -> None:
@@ -112,6 +181,88 @@ def test_split_cache_key_varies_with_feature_count_when_not_ablation(monkeypatch
     k1 = model_trainer_factory._build_split_cache_key(small, y, 0.25, 42, group_aware_requested=False)
     k2 = model_trainer_factory._build_split_cache_key(large, y, 0.25, 42, group_aware_requested=False)
     assert k1 != k2
+
+
+def test_ablation_split_cache_reslices_current_feature_columns(monkeypatch) -> None:
+    """Second feature matrix must train with its own columns when split cache hits."""
+    monkeypatch.setattr(app_config, "RUNTIME_ABLATION_ACTIVE", True, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "ut_ablation_cols", raising=False)
+    monkeypatch.setattr(app_config, "TRAIN_TEST_SPLIT", 0.33)
+    monkeypatch.setattr(app_config, "RANDOM_STATE", 0)
+    monkeypatch.setattr(app_config, "ENABLE_SMOTE_OVERSAMPLING", False)
+    monkeypatch.setattr(model_trainer_factory, "_export_split_audit", lambda **_kw: None)
+    model_trainer_factory.reset_runtime_training_caches()
+
+    captured: list[list[str]] = []
+
+    def _fake_trainer(**kwargs):
+        captured.append(list(kwargs["X_train"].columns))
+        fit_cols = list(kwargs["X_train"].columns)
+
+        class _Dummy:
+            feature_names_in_ = np.array(fit_cols)
+
+            def predict(self, X):
+                return np.zeros(len(X))
+
+            def predict_proba(self, X):
+                return np.ones((len(X), 2)) * 0.5
+
+        return _Dummy(), {}
+
+    monkeypatch.setattr(model_trainer_factory, "get_model_trainer", lambda _mt: _fake_trainer)
+
+    idx = list(range(30))
+    labels = pd.Series((["a", "b", "c"] * 10)[:30], index=idx)
+    df_vendor = pd.DataFrame({f"v{i}": np.arange(30) + i for i in range(2)}, index=idx)
+    df_perm = pd.DataFrame({f"p{i}": np.arange(30) * i for i in range(3)}, index=idx)
+
+    model_trainer_factory.train_model_factory(
+        features_df=df_vendor,
+        labels=labels,
+        model_type="logistic_regression",
+    )
+    model_trainer_factory.train_model_factory(
+        features_df=df_perm,
+        labels=labels,
+        model_type="logistic_regression",
+    )
+
+    assert len(captured) == 2
+    assert all(c.startswith("v") for c in captured[0])
+    assert all(c.startswith("p") for c in captured[1])
+
+
+def test_schema_audit_ok_when_names_match(monkeypatch) -> None:
+    """Schema audit should pass when feature names are unchanged."""
+    monkeypatch.setattr(app_config, "RUNTIME_EXPERIMENT_ID", "vendor_only", raising=False)
+    X = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+    m = LogisticRegression()
+    m.fit(X, [0, 1])
+    from obsidiandroid.features import feature_schema_audit
+
+    row = feature_schema_audit.build_ablation_schema_audit_row(
+        model=m, model_type="logistic_regression", features_df=X
+    )
+    assert row["status"] == "OK"
+    assert row["missing_at_predict_count"] == 0
+    assert row["extra_at_predict_count"] == 0
+
+
+def test_schema_audit_detects_extra_columns(monkeypatch) -> None:
+    """Schema audit should report extras when prediction features differ."""
+    monkeypatch.setattr(app_config, "RUNTIME_EXPERIMENT_ID", "permissions_only", raising=False)
+    fit_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+    m = LogisticRegression()
+    m.fit(fit_df, [0, 1])
+    pred_df = pd.DataFrame({"a": [1, 2], "b": [3, 4], "c": [0, 0]})
+    from obsidiandroid.features import feature_schema_audit
+
+    row = feature_schema_audit.build_ablation_schema_audit_row(
+        model=m, model_type="logistic_regression", features_df=pred_df
+    )
+    assert row["status"] == "schema_mismatch"
+    assert row["extra_at_predict_count"] == 1
 
 
 def test_print_ablation_terminal_summary_compact_mode_reduces_grid(monkeypatch) -> None:

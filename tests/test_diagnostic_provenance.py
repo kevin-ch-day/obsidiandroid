@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import pytest
 
 from obsidiandroid.diagnostics.diagnostic_provenance import (
     record_diagnostic_provenance,
@@ -11,6 +12,8 @@ from obsidiandroid.diagnostics.diagnostic_provenance import (
 )
 from obsidiandroid.diagnostics.output_artifact_policy import classify_file
 from obsidiandroid.diagnostics.output_inventory import write_run_science_index_md
+
+pytestmark = pytest.mark.integration
 
 
 def test_record_pipeline_provenance_tracks_run_and_global_artifacts(tmp_path: Path) -> None:

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import pytest
 
 from obsidiandroid.cli import startup_menu_diagnostics
 from obsidiandroid.cli.menu.diagnostics import artifact_views
+
+pytestmark = pytest.mark.integration
 
 
 def test_taxonomy_support_tuning_compact_shows_status_and_tune_next(

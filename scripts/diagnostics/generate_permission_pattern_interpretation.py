@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from obsidiandroid.cli.menu import run_locator as rl
 from obsidiandroid.pipeline import stage_permission_trends_report as report_stage
 from obsidiandroid.pipeline.permission_trends.attack_mapping import (
     build_attack_mobile_hypotheses,
@@ -30,9 +31,32 @@ def _permission_feature_to_mapping_key(value: str) -> str:
     return raw
 
 
-def _load_artifacts(run_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def _resolve_run_root(*, repo_root: Path, run_id: str = "", run_root_arg: str = "", latest: bool = False) -> Path:
+    """Resolve canonical run root from explicit path, run_id, or latest manifest."""
+    if run_root_arg:
+        return Path(run_root_arg).resolve()
+    if latest:
+        latest_run_id = rl.read_latest_run_id()
+        if not latest_run_id:
+            raise SystemExit("could not resolve latest run id from manifests/pointers")
+        run_id = latest_run_id
+    if not run_id:
+        raise SystemExit("provide run_id, --run-root, or --latest")
+    manifest_payload, manifest_path = rl.resolve_manifest_for_run_id(
+        str(run_id).strip(),
+        runs_dir=repo_root / "output" / "runs",
+    )
+    if not manifest_payload:
+        raise SystemExit(f"run directory not found for run_id: {run_id}")
+    return rl.resolve_run_root_for_manifest(
+        manifest_payload,
+        run_id=str(run_id).strip(),
+        manifest_path=manifest_path,
+    )
+
+
+def _load_artifacts(run_dir: Path, run_id: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     diagnostics = run_dir / "diagnostics"
-    run_id = run_dir.name
     labels = pd.read_csv(diagnostics / f"aligned_labels_{run_id}.csv")
     features = pd.read_csv(diagnostics / f"aligned_features_{run_id}.csv.gz")
     survival = pd.read_csv(diagnostics / f"permission_training_survival_{run_id}.csv")
@@ -205,13 +229,16 @@ def _build_summary(
     (out_dir / "permission_pattern_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def generate(run_id: str, output_dir: Path | None = None) -> Path:
-    run_dir = Path("output") / "runs" / run_id
+def generate(run_id: str, output_dir: Path | None = None, *, run_root: Path | None = None) -> Path:
+    repo_root = Path(__file__).resolve().parents[2]
+    run_dir = run_root.resolve() if run_root is not None else _resolve_run_root(repo_root=repo_root, run_id=run_id)
     diagnostics = run_dir / "diagnostics"
+    manifest_payload = rl.read_json_object(run_dir / "run_manifest.json")
+    resolved_run_id = str(manifest_payload.get("run_id", "")).strip() or run_id or run_dir.name
     out_dir = output_dir or diagnostics / "permission_pattern_interpretation"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    labels, features, survival = _load_artifacts(run_dir)
+    labels, features, survival = _load_artifacts(run_dir, resolved_run_id)
     permission_matrix = _build_permission_matrix(features, survival)
 
     sample_core = labels.copy()
@@ -245,7 +272,7 @@ def generate(run_id: str, output_dir: Path | None = None) -> Path:
             permission=lambda df: df["permission"].map(_permission_feature_to_mapping_key),
             prevalence=lambda df: pd.to_numeric(df["prevalence"], errors="coerce").fillna(0.0) / 100.0,
         ),
-        run_id=run_id,
+        run_id=resolved_run_id,
         group_field="type_slug",
         group_kind="type",
         sample_count_field="sample_count",
@@ -258,7 +285,7 @@ def generate(run_id: str, output_dir: Path | None = None) -> Path:
             permission=lambda df: df["permission"].map(_permission_feature_to_mapping_key),
             prevalence=lambda df: pd.to_numeric(df["prevalence"], errors="coerce").fillna(0.0) / 100.0,
         ),
-        run_id=run_id,
+        run_id=resolved_run_id,
         group_field="group_value",
         group_kind="family",
         sample_count_field="sample_count",
@@ -273,7 +300,7 @@ def generate(run_id: str, output_dir: Path | None = None) -> Path:
     family_similarity.to_csv(out_dir / "family_permission_similarity.csv", index=False)
 
     _build_summary(
-        run_id=run_id,
+        run_id=resolved_run_id,
         out_dir=out_dir,
         type_prev=prevalence_by_type,
         family_prev=prevalence_by_family,
@@ -287,10 +314,21 @@ def generate(run_id: str, output_dir: Path | None = None) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("run_id", help="Run ID under output/runs/")
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument("run_id", nargs="?", default="", help="Run ID resolved through manifest-backed lookup.")
+    selection.add_argument("--run-root", default="", help="Explicit canonical run root path.")
+    selection.add_argument("--latest", action="store_true", help="Use the latest manifest-backed run.")
     parser.add_argument("--output-dir", type=Path, default=None, help="Optional custom output directory")
     args = parser.parse_args()
-    out_dir = generate(args.run_id, args.output_dir)
+    run_root = _resolve_run_root(
+        repo_root=Path(__file__).resolve().parents[2],
+        run_id=args.run_id,
+        run_root_arg=args.run_root,
+        latest=bool(args.latest),
+    )
+    manifest_payload = rl.read_json_object(run_root / "run_manifest.json")
+    resolved_run_id = str(manifest_payload.get("run_id", "")).strip() or run_root.name
+    out_dir = generate(resolved_run_id, args.output_dir, run_root=run_root)
     print(out_dir)
     return 0
 

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import pytest
 
 from obsidiandroid.observability.pipeline_observability import finalize as obs_finalize
 from obsidiandroid.observability.pipeline_observability import run_health
+
+pytestmark = pytest.mark.contract
 
 
 def test_top_artifacts_to_open_only_lists_existing_files(tmp_path: Path) -> None:

@@ -6,9 +6,12 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from config import app_config
 from obsidiandroid.reporting import operator_dashboard
+
+pytestmark = pytest.mark.integration
 
 
 def test_classification_report_family_insights_uses_label_name_map(

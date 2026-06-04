@@ -3,8 +3,106 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
+import pandas as pd
+import pytest
+
+from obsidiandroid.database import db_sample_metadata_queries
 from obsidiandroid.database import db_sample_metadata_fetchers as fetchers
+from obsidiandroid.database.db_sample_metadata_contracts import log_and_assert_loader_sample_grain
+from obsidiandroid.diagnostics import cohort_sample_id_audit
+
+
+def test_log_and_assert_loader_sample_grain_raises_on_duplicate_sample_ids() -> None:
+    df = pd.DataFrame({"sample_id": [1, 1, 2]})
+    with pytest.raises(ValueError, match="duplicate_surplus"):
+        log_and_assert_loader_sample_grain(df, label="unit")
+
+
+def test_load_samples_by_type_raises_when_fetch_returns_duplicate_sample_ids(monkeypatch) -> None:
+    """Guardrail if SQL regresses and multiplies rows per sample_id."""
+
+    def _fake_fetch(**kwargs):
+        del kwargs
+        return (
+            ["sample_id", "sha256"],
+            [
+                (1, "a" * 64),
+                (1, "b" * 64),
+            ],
+        )
+
+    monkeypatch.setattr(db_sample_metadata_queries, "_fetch_samples_by_type", _fake_fetch)
+    with pytest.raises(ValueError, match="duplicate_surplus"):
+        db_sample_metadata_queries.load_samples_by_type(type_slug=None)
+
+
+def test_load_samples_by_type_unique_sample_id_contract(monkeypatch) -> None:
+    def _fake_fetch(**kwargs):
+        del kwargs
+        return (
+            ["sample_id", "sha256"],
+            [(10, "c" * 64), (11, "d" * 64)],
+        )
+
+    monkeypatch.setattr(db_sample_metadata_queries, "_fetch_samples_by_type", _fake_fetch)
+    df = db_sample_metadata_queries.load_samples_by_type(type_slug=None)
+    assert bool(df["sample_id"].is_unique)
+
+
+def test_audit_reports_no_surplus_when_unique(tmp_path: Path) -> None:
+    df = pd.DataFrame({"sample_id": [1, 2, 3], "x": [1, 2, 3]})
+    out = cohort_sample_id_audit.audit_cohort_sample_id_uniqueness(
+        df,
+        diagnostics_dir=tmp_path,
+        run_id="u1",
+        artifact_list=[],
+    )
+    assert out["cohort_duplicate_surplus_rows"] == 0
+    assert not (tmp_path / "duplicate_sample_id_cohort_u1.csv").exists()
+
+
+def test_audit_exports_when_duplicates(tmp_path: Path) -> None:
+    df = pd.DataFrame({"sample_id": [1, 1, 2], "x": [1, 2, 3]})
+    arts: list[str] = []
+    out = cohort_sample_id_audit.audit_cohort_sample_id_uniqueness(
+        df,
+        diagnostics_dir=tmp_path,
+        run_id="d1",
+        artifact_list=arts,
+    )
+    assert out["cohort_prepared_rows"] == 3
+    assert out["cohort_distinct_sample_id"] == 2
+    assert out["cohort_duplicate_surplus_rows"] == 1
+    assert (tmp_path / "duplicate_sample_id_cohort_d1.csv").exists()
+    assert arts
+
+    ctx: dict = {}
+    cohort_sample_id_audit.merge_sample_id_audit_into_manifest(ctx, out)
+    assert ctx["cohort_distinct_sample_id"] == 2
+    assert ctx["cohort_duplicate_surplus_rows"] == 1
+
+
+def test_audit_uses_global_latest_for_run_scoped_dirs(
+    make_run_diagnostics_layout,
+) -> None:
+    output_root, diagnostics_dir, _global_diag = make_run_diagnostics_layout("d2")
+    df = pd.DataFrame({"sample_id": [1, 1, 2], "x": [1, 2, 3]})
+    arts: list[str] = []
+
+    out = cohort_sample_id_audit.audit_cohort_sample_id_uniqueness(
+        df,
+        diagnostics_dir=diagnostics_dir,
+        run_id="d2",
+        artifact_list=arts,
+    )
+
+    assert out["cohort_duplicate_surplus_rows"] == 1
+    assert (diagnostics_dir / "duplicate_sample_id_cohort_d2.csv").is_file()
+    assert not (diagnostics_dir / "duplicate_sample_id_cohort.latest.csv").exists()
+    assert (output_root / "diagnostics" / "duplicate_sample_id_cohort.latest.csv").is_file()
+    assert arts
 
 
 def test_fetch_samples_by_type_uses_left_hash_join_when_sha_not_required(monkeypatch) -> None:

@@ -85,13 +85,30 @@ def test_export_confusion_matrix_image_writes_display_variant_for_large_family_s
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """Large family-surface export should write both primary and display variant paths."""
     monkeypatch.setattr(app_config, "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD", "family_id", raising=False)
     major = list(major_family_name_list()[:13])
     minor = [f"MinorFam{i}" for i in range(11)]
     labels = [name.title() for name in major] + minor + ["banker", ""]
     size = len(labels)
     cm = np.eye(size, dtype=int)
-    output_path = tmp_path / "random_forest.png"
+    output_path = tmp_path / "output" / "random_forest.png"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _fake_savefig(path: Path | str, *args, **kwargs) -> None:  # noqa: ARG001
+        artifact_path = Path(path)
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        artifact_path.write_bytes(b"png")
+
+    def _fake_export_grouped_display_variant(**kwargs) -> Path:
+        display_path = cme.display_variant_output_path(Path(kwargs["output_path"]))
+        display_path.parent.mkdir(parents=True, exist_ok=True)
+        display_path.write_bytes(b"display")
+        return display_path
+
+    monkeypatch.setattr(cme, "_render_confusion_matrix_plot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cme.plt, "savefig", _fake_savefig)
+    monkeypatch.setattr(cme, "_export_grouped_display_variant", _fake_export_grouped_display_variant)
 
     rendered = cme.export_confusion_matrix_image(
         cm=cm,

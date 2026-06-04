@@ -11,6 +11,8 @@ import pytest
 
 from obsidiandroid.cli import startup_menu_review
 
+pytestmark = pytest.mark.integration
+
 
 def _seed_review_run_artifacts(
     write_text_file,

@@ -10,6 +10,7 @@ from config import app_config
 from obsidiandroid.diagnostics import output_artifact_policy
 from obsidiandroid.diagnostics import output_inventory
 from obsidiandroid.tools import output_retention_audit as ora
+from scripts.diagnostics import report_output_inventory as roi
 import pytest
 
 
@@ -60,6 +61,47 @@ def test_build_inventory_rows_counts_files(tmp_path: Path) -> None:
     assert kinds["run_manifest.json"] == "evidence_required"
 
 
+def test_report_output_inventory_resolves_archived_run_id(monkeypatch, tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    run_id = "20260303T000000Z__abc123"
+    run_root = repo_root / "output" / "runs" / "_archived" / "kept" / run_id
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text(
+        json.dumps({"run_id": run_id, "run_root": str(run_root), "created_at_utc": "2026-03-03T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
+
+    got = roi._resolve_run_root(  # pylint: disable=protected-access
+        repo_root=repo_root,
+        run_root_arg="",
+        run_id=run_id,
+        latest=False,
+    )
+
+    assert got == run_root.resolve()
+
+
+def test_report_output_inventory_latest_prefers_manifest_backed_run(monkeypatch, tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    run_id = "20260303T000000Z__abc123"
+    run_root = repo_root / "output" / "runs" / "_archived" / "kept" / run_id
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text(
+        json.dumps({"run_id": run_id, "run_root": str(run_root), "created_at_utc": "2026-03-03T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(roi.rl, "read_latest_run_id", lambda: run_id)
+
+    got = roi._resolve_run_root(  # pylint: disable=protected-access
+        repo_root=repo_root,
+        run_root_arg="",
+        run_id="",
+        latest=True,
+    )
+
+    assert got == run_root.resolve()
+
+
 def test_write_artifact_inventory_bundle_separates_legacy_latest_compatibility(
     tmp_path: Path,
 ) -> None:
@@ -90,6 +132,7 @@ def test_write_artifact_inventory_bundle_separates_legacy_latest_compatibility(
     assert summary["duplicate_latest_inside_run_policy_drift"] == 0
 
 
+@pytest.mark.integration
 def test_write_run_evidence_index_prefers_canonical_feature_build_coverage(
     tmp_path: Path,
     monkeypatch,
@@ -126,6 +169,7 @@ def test_write_run_evidence_index_prefers_canonical_feature_build_coverage(
     assert "Missing-from-feature-matrix count (coverage export):** 7" in text
 
 
+@pytest.mark.integration
 def test_write_run_evidence_index_includes_authority_coverage_pointer(
     tmp_path: Path,
     monkeypatch,
@@ -163,6 +207,7 @@ def test_write_run_evidence_index_includes_authority_coverage_pointer(
     assert f"family_type_authority_coverage_{run_id}.md" in text
 
 
+@pytest.mark.integration
 def test_write_run_evidence_index_includes_taxonomy_authority_split_pointer(
     tmp_path: Path,
     monkeypatch,
@@ -200,6 +245,7 @@ def test_write_run_evidence_index_includes_taxonomy_authority_split_pointer(
     assert f"taxonomy_authority_split_{run_id}.md" in text
 
 
+@pytest.mark.integration
 def test_write_run_evidence_index_surfaces_label_resolution_disabled_state(
     tmp_path: Path,
     monkeypatch,
@@ -244,6 +290,7 @@ def test_write_run_evidence_index_surfaces_label_resolution_disabled_state(
     assert "**type_guard_family_suppressions:** unavailable (label resolution disabled)" in text
 
 
+@pytest.mark.integration
 def test_write_run_science_index_surfaces_type_guard_suppression_count(
     tmp_path: Path,
 ) -> None:
@@ -284,6 +331,7 @@ def test_write_run_science_index_surfaces_type_guard_suppression_count(
     assert "**type_guard_family_suppressions:** 6" in text
 
 
+@pytest.mark.integration
 def test_write_run_evidence_index_includes_shared_backlog_summary(
     tmp_path: Path,
     monkeypatch,
@@ -404,6 +452,7 @@ def test_write_artifact_inventory_bundle_removes_stale_markdown_copy(tmp_path: P
     assert not stale_md.exists()
 
 
+@pytest.mark.integration
 def test_write_run_science_index_includes_backlog_authoritative_pointer(
     tmp_path: Path,
     monkeypatch,
@@ -498,6 +547,7 @@ def test_write_run_science_index_includes_backlog_authoritative_pointer(
     assert "Family taxonomy posture:** Taxonomy curation discipline: high-priority conflicts=2/3; dominant action=review_db_type_mapping (2); dominant issue=type_mismatch (2)." in text
 
 
+@pytest.mark.integration
 def test_write_run_science_index_surfaces_policy_held_focus_detail(
     tmp_path: Path,
     monkeypatch,

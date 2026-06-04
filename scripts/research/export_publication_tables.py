@@ -20,6 +20,7 @@ prepare_script_runtime(__file__)
 
 import pandas as pd
 
+from obsidiandroid.cli.menu import run_locator as rl
 from obsidiandroid.reporting.latex_tables import (
     LatexTableSpec,
     build_cohort_summary_table,
@@ -32,9 +33,19 @@ from obsidiandroid.reporting.latex_tables import (
 
 
 def _resolve_run_root(*, output_root: Path, run_id: str) -> Path:
-    """Resolve run root and ensure it is inside output root."""
+    """Resolve canonical run root and ensure it is inside output root."""
     root = output_root.resolve()
-    run_root = (root / "runs" / run_id).resolve()
+    manifest_payload, manifest_path = rl.resolve_manifest_for_run_id(
+        str(run_id).strip(),
+        runs_dir=root / "runs",
+    )
+    if not manifest_payload:
+        raise FileNotFoundError(f"Run manifest not found for run_id: {run_id}")
+    run_root = rl.resolve_run_root_for_manifest(
+        manifest_payload,
+        run_id=str(run_id).strip(),
+        manifest_path=manifest_path,
+    ).resolve()
     if root not in run_root.parents:
         raise ValueError(f"Run root {run_root} is outside output root {root}")
     if not run_root.exists():

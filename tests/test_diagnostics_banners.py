@@ -11,6 +11,8 @@ import pytest
 
 from obsidiandroid.cli.menu import diagnostics_banners
 
+pytestmark = pytest.mark.contract
+
 
 @pytest.mark.parametrize(
     ("value", "expected"),

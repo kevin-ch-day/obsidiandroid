@@ -128,6 +128,24 @@ def test_generate_claim_artifact_map_build_rows(tmp_path: Path, monkeypatch) -> 
     assert rows[0]["artifact_sha256"] in {"abc", "def"}
 
 
+def test_generate_claim_artifact_map_resolves_archived_run_root(tmp_path: Path) -> None:
+    run_id = "20260303T000000Z__abc123"
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "_archived" / "kept" / run_id
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text(
+        json.dumps({"run_id": run_id, "run_root": str(run_root), "created_at_utc": "2026-03-03T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
+
+    got = generate_claim_artifact_map._resolve_run_root(  # pylint: disable=protected-access
+        output_root=output_root,
+        run_id=run_id,
+    )
+
+    assert got == run_root.resolve()
+
+
 def test_check_paper2_freeze_reports_fail_when_missing(tmp_path: Path, monkeypatch) -> None:
     """Freeze checker should fail when required artifacts are absent."""
     run_id = "r2"
@@ -147,6 +165,24 @@ def test_check_paper2_freeze_reports_fail_when_missing(tmp_path: Path, monkeypat
     report = check_paper2_freeze.check_run(run_id)
     assert report["run_id"] == run_id
     assert report["passed"] is False
+
+
+def test_check_paper2_freeze_resolves_archived_run_root(tmp_path: Path) -> None:
+    run_id = "20260303T000000Z__abc123"
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "_archived" / "kept" / run_id
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text(
+        json.dumps({"run_id": run_id, "run_root": str(run_root), "created_at_utc": "2026-03-03T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
+
+    got = check_paper2_freeze._resolve_run_root(  # pylint: disable=protected-access
+        output_root=output_root,
+        run_id=run_id,
+    )
+
+    assert got == run_root.resolve()
 
 
 def test_check_paper2_freeze_reports_pass_when_complete(tmp_path: Path, monkeypatch) -> None:
@@ -222,6 +258,24 @@ def test_check_paper2_freeze_reports_pass_when_complete(tmp_path: Path, monkeypa
     report = check_paper2_freeze.check_run(run_id)
     assert report["run_id"] == run_id
     assert report["passed"] is True
+
+
+def test_export_publication_tables_resolves_archived_run_root(tmp_path: Path) -> None:
+    run_id = "20260303T000000Z__abc123"
+    output_root = tmp_path / "output"
+    run_root = output_root / "runs" / "_archived" / "kept" / run_id
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text(
+        json.dumps({"run_id": run_id, "run_root": str(run_root), "created_at_utc": "2026-03-03T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
+
+    got = export_manuscript_tables._resolve_run_root(  # pylint: disable=protected-access
+        output_root=output_root,
+        run_id=run_id,
+    )
+
+    assert got == run_root.resolve()
 
 
 def test_check_paper2_freeze_accepts_lowercase_model_column(tmp_path: Path, monkeypatch) -> None:

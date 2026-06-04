@@ -2,12 +2,15 @@ import time
 from pathlib import Path
 
 import pandas as pd
+import pytest
 from sklearn.datasets import make_classification
 
 from config import app_config
 from obsidiandroid.modeling.ml_trainers import random_forest_trainer
 from obsidiandroid.diagnostics import rf_feature_importance_export as rfexp
 from obsidiandroid.evaluation import random_forest_diagnostics as rfd
+
+pytestmark = pytest.mark.contract
 
 
 def _make_dataset(n_samples):

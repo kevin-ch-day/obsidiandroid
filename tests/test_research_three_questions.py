@@ -6,10 +6,13 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from config import app_config
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.reporting import research_three_questions as rtq
+
+pytestmark = pytest.mark.contract
 
 
 def test_modality_summary_falls_back_to_runtime_engine_counts_and_notes_raw_permissions(

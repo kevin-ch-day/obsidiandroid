@@ -1192,6 +1192,7 @@ def test_export_permission_pattern_summary_mentions_required_sections(tmp_path: 
     assert "static declared-capability signals" in text
 
 
+@pytest.mark.heavy
 def test_export_banker_trends_line_plot_latest_only_when_run_scoped_disabled(
     monkeypatch,
     tmp_path: Path,
@@ -1223,6 +1224,7 @@ def test_export_banker_trends_line_plot_latest_only_when_run_scoped_disabled(
     assert not (tmp_path / "figures" / "banker_permission_trends_over_time_r123.png").exists()
 
 
+@pytest.mark.heavy
 def test_export_banker_trends_line_plot_writes_run_scoped_when_enabled(
     monkeypatch,
     tmp_path: Path,

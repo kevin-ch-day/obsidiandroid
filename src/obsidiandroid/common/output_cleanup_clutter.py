@@ -41,6 +41,16 @@ DIAGNOSTICS_TIMESTAMP_GLOBS: tuple[str, ...] = (
     "classifier_summary_eval_20*.txt",
 )
 
+# Root-level ``output/diagnostics/*.latest.*`` mirrors that are bound to a single
+# run and are safe to prune when they no longer match the current latest run.
+RUN_BOUND_LATEST_MIRROR_FILES: tuple[str, ...] = (
+    "evaluation_contract.latest.json",
+    "experiment_contract_snapshot.latest.json",
+    "run_summary.latest.json",
+    "run_summary_onepager.latest.md",
+    "taxonomy_authority_recommendation.latest.md",
+)
+
 # Under ``output/runs/<run_id>/`` — legacy convenience mirrors or historical bad layout.
 # These are safe to prune from older runs because canonical artifacts already live at the
 # run root and global operator mirrors live under ``output/diagnostics`` / ``output/promoted``.
@@ -80,6 +90,7 @@ __all__ = [
     "LEGACY_SHORT_NAME_LOG_FILES",
     "PAPER_BUNDLE_ARCHIVE_GLOBS",
     "PAPER_BUNDLE_SMOKE_GLOBS",
+    "RUN_BOUND_LATEST_MIRROR_FILES",
     "RUN_DIAGNOSTICS_LOCAL_LATEST_GLOB",
     "RUN_DIAGNOSTICS_SPLIT_FREEZE_GLOB",
     "WORKBOOK_CORRUPT_GLOB",

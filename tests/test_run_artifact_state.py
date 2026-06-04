@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import pytest
 from obsidiandroid.cli.menu import run_locator
 
 from obsidiandroid.cli.menu import run_artifact_state
+
+pytestmark = pytest.mark.integration
 
 
 def test_resolve_model_comparison_summary_prefers_run_scoped_exact_match(tmp_path: Path) -> None:

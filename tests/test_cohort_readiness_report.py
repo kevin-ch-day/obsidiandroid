@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 import obsidiandroid.governance.cohort_readiness_report as cohort_readiness_report
 from config import app_config
+
+pytestmark = pytest.mark.contract
 
 
 def test_cohort_readiness_report_prints_percentages_and_concentration(capsys) -> None:

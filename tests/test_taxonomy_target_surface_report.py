@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from obsidiandroid.diagnostics import taxonomy_target_surface_report
+
+pytestmark = pytest.mark.contract
 
 
 def test_build_taxonomy_target_surface_summary_reports_authoritative_and_raw_surfaces() -> None:

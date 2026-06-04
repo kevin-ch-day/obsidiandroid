@@ -75,6 +75,7 @@ def test_load_banker_dataframe_routes_to_generic_type_loader(monkeypatch) -> Non
     assert captured["limit"] == 10
 
 
+@pytest.mark.integration
 def test_stage_samples_forwards_excluded_families_to_sql_layer(monkeypatch, tmp_path) -> None:
     """Stage sample loading should pass include/exclude family gates to SQL helpers."""
     profile = {
@@ -209,6 +210,7 @@ def test_stage_samples_forwards_excluded_families_to_sql_layer(monkeypatch, tmp_
     assert "family_label_confidence_audit.json" in artifacts
 
 
+@pytest.mark.integration
 def test_stage_samples_reuses_loaded_frame_for_gate_stats_when_sql_slice_is_unlimited(monkeypatch, tmp_path) -> None:
     """Unlimited governed cohort loads should skip the duplicate gate-stats SQL scan."""
     profile = {"cohort_gates": {"require_mapped_family": True, "require_sha256": True}}
@@ -317,6 +319,7 @@ def test_stage_samples_reuses_loaded_frame_for_gate_stats_when_sql_slice_is_unli
     assert captured["printed_gate_stats"]["total_candidates"] == 2
 
 
+@pytest.mark.integration
 def test_stage_samples_builds_sql_scope_semantics_from_loaded_dataframe(monkeypatch, tmp_path) -> None:
     """Samples stage should not launch a second DB semantics scan after loading the cohort."""
     profile = {"cohort_gates": {}}
@@ -401,6 +404,7 @@ def test_stage_samples_builds_sql_scope_semantics_from_loaded_dataframe(monkeypa
     assert semantics["vt_family_token_rows"] == 1
 
 
+@pytest.mark.integration
 def test_stage_samples_marks_limited_loader_semantics_scope(monkeypatch, tmp_path) -> None:
     """Limited profiles should not label loader-slice semantics as full governed SQL scope."""
     profile = {"cohort_gates": {"limit": 5}}
@@ -476,6 +480,7 @@ def test_stage_samples_marks_limited_loader_semantics_scope(monkeypatch, tmp_pat
     assert out.attrs["catalog_semantics_sql_scope"]["scope"] == "sql_limited_loader_slice"
 
 
+@pytest.mark.integration
 def test_stage_samples_sets_gate_stats_before_readiness_and_tracks_deferred_exclusions(monkeypatch, tmp_path) -> None:
     """Readiness should receive SQL-scope attrs, and locked runs should record deferred exclusions."""
     profile = {
@@ -584,6 +589,7 @@ def test_stage_samples_sets_gate_stats_before_readiness_and_tracks_deferred_excl
     assert captured["deferred"] is True
 
 
+@pytest.mark.integration
 def test_stage_samples_persists_cohort_counts_before_late_integrity_failure(monkeypatch, tmp_path) -> None:
     """Samples-stage manifest counts should survive even if a late integrity check fails."""
     profile = {
@@ -678,6 +684,7 @@ def test_stage_samples_persists_cohort_counts_before_late_integrity_failure(monk
     assert manifest_context["governed_cohort_rows"] == 1
 
 
+@pytest.mark.integration
 def test_stage_samples_locked_run_exports_sql_min_support_as_deferred(monkeypatch, tmp_path) -> None:
     """Locked runs should not claim SQL min-support enforcement in the foundation bundle."""
     profile = {
@@ -797,6 +804,7 @@ def test_stage_samples_locked_run_exports_sql_min_support_as_deferred(monkeypatc
     assert captured["deferred"] is True
 
 
+@pytest.mark.integration
 def test_stage_samples_tolerates_noncritical_diagnostics_export_failures(monkeypatch, tmp_path) -> None:
     """Cohort diagnostics export bugs should not crash an otherwise valid samples stage."""
     profile = {
@@ -888,6 +896,7 @@ def test_stage_samples_tolerates_noncritical_diagnostics_export_failures(monkeyp
     assert any("Family taxonomy/support diagnostics export skipped" in msg for msg in warnings)
 
 
+@pytest.mark.integration
 def test_stage_samples_forwards_exclude_unknown_type_slug_to_sql_layer(monkeypatch, tmp_path) -> None:
     """Stage sample loading should pass `exclude_unknown_type_slug` to stats and SQL fetchers."""
     profile = {
@@ -952,6 +961,7 @@ def test_stage_samples_forwards_exclude_unknown_type_slug_to_sql_layer(monkeypat
     assert load_calls[0]["exclude_unknown_type_slug"] is True
 
 
+@pytest.mark.integration
 def test_stage_samples_enforces_unknown_exclusion_for_evidence_mode(monkeypatch, tmp_path) -> None:
     """Evidence mode should force SQL unknown-type exclusion even without explicit gate."""
     profile = {
@@ -1082,6 +1092,7 @@ def test_validate_type_slug_static_accepts_current_taxonomy_slug(monkeypatch) ->
     db_sample_metadata_queries._validate_type_slug("ransomware")  # pylint: disable=protected-access
 
 
+@pytest.mark.integration
 def test_stage_samples_sets_runtime_min_family_support_from_profile_gates(monkeypatch, tmp_path) -> None:
     """Sample stage should expose profile min-family-support for downstream training."""
     profile = {
@@ -1141,6 +1152,7 @@ def test_stage_samples_sets_runtime_min_family_support_from_profile_gates(monkey
     assert int(getattr(stage_samples.app_config, "RUNTIME_MIN_FAMILY_SUPPORT", 0)) == 20
 
 
+@pytest.mark.integration
 def test_stage_samples_temporal_evidence_profiles_require_min_support_floor(
     monkeypatch,
     tmp_path,
@@ -1168,6 +1180,7 @@ def test_stage_samples_temporal_evidence_profiles_require_min_support_floor(
         )
 
 
+@pytest.mark.integration
 def test_stage_samples_direct_canonical_locked_profile_path_preserves_min_support_floor(
     monkeypatch,
     tmp_path,
@@ -1193,6 +1206,7 @@ def test_stage_samples_direct_canonical_locked_profile_path_preserves_min_suppor
         )
 
 
+@pytest.mark.integration
 def test_stage_samples_banker_locked_does_not_receive_temporal_min_support_floor(
     monkeypatch,
     tmp_path,
@@ -1258,6 +1272,7 @@ def test_stage_samples_banker_locked_does_not_receive_temporal_min_support_floor
     )
 
 
+@pytest.mark.integration
 def test_stage_samples_guard_uses_metadata_not_profile_name(
     monkeypatch,
     tmp_path,
@@ -1332,6 +1347,7 @@ def test_stage_samples_guard_uses_metadata_not_profile_name(
     )
 
 
+@pytest.mark.integration
 def test_stage_samples_locked_snapshot_defers_membership_shrinking_sql_gates(monkeypatch, tmp_path) -> None:
     """Paper-locked sample-id snapshots should own membership before support/exclusion gates."""
     profile = {
@@ -1430,6 +1446,7 @@ def test_stage_samples_locked_snapshot_defers_membership_shrinking_sql_gates(mon
     assert str(profile["paper_lock"]["sample_id_lock_file"]) == str(tmp_path / "lock.csv")
 
 
+@pytest.mark.integration
 def test_stage_samples_all_current_does_not_inject_hidden_support_floor(monkeypatch, tmp_path) -> None:
     """Broad all-current profile should not silently apply support>=3 in SQL membership."""
     profile = profile_manager.load_profile("android_malware_all_current")

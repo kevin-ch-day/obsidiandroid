@@ -21,6 +21,26 @@ def test_resolve_and_validate_profile_reprompts_until_valid(monkeypatch) -> None
         "resolve_profile_for_run",
         lambda prefer_quick=False, **kwargs: next(choices),
     )
+    monkeypatch.setattr(
+        profile_preflight.profile_manager,
+        "infer_cohort_readiness_signal",
+        lambda _profile_id: {},
+    )
+    monkeypatch.setattr(
+        profile_preflight.profile_manager,
+        "load_profile",
+        lambda _profile_id: {},
+    )
+    monkeypatch.setattr(
+        profile_preflight,
+        "get_cohort_readiness_snapshot",
+        lambda: {},
+    )
+    monkeypatch.setattr(
+        profile_preflight.profile_manager,
+        "inventory_cohort_readiness_mappings",
+        lambda **_kwargs: [],
+    )
 
     def _validate(profile_id: str) -> tuple[bool, str]:
         if profile_id == "mixed":

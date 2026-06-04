@@ -41,7 +41,10 @@ profiles = ["*.yaml"]
 
 [tool.pytest.ini_options]
 # Default: fast PR / local loop. Full suite: `make test-full` or `./scripts/dev/run_tests_full.sh`.
-addopts = ["--basetemp=.pytest_tmp", "-m", "not slow"]
+addopts = ["--basetemp=.pytest_tmp", "-m", "not (slow or integration or heavy or contract)"]
 markers = [
     "slow: Heavy integration or slow-import modules (manifest, menus, permission trends, ML trainers). Not selected by default.",
+    "contract: Broad deterministic report, manifest, or governance contract checks. Excluded from the default fast loop but expected in CI/full validation.",
+    "integration: Stage/menu/report contracts with notable fixture or orchestration cost. Excluded from the default fast loop.",
+    "heavy: Plotting/export or other especially expensive checks. Excluded from the default fast loop.",
 ]

@@ -29,9 +29,24 @@ from obsidiandroid.diagnostics.diagnostic_provenance import latest_post_run_enri
 from obsidiandroid.diagnostics.split_ledger_resolve import resolve_split_freeze_csv
 
 
+def resolve_run_root(output_root: Path, run_id: str) -> Path:
+    """Resolve canonical run root for a run ID, including archived/slot-based runs."""
+    from obsidiandroid.cli.menu import run_locator as rl
+
+    runs_dir = Path(output_root) / "runs"
+    manifest_payload, manifest_path = rl.resolve_manifest_for_run_id(str(run_id).strip(), runs_dir=runs_dir)
+    if manifest_payload:
+        return rl.resolve_run_root_for_manifest(
+            manifest_payload,
+            run_id=str(run_id).strip(),
+            manifest_path=manifest_path,
+        )
+    return runs_dir / str(run_id).strip()
+
+
 def run_scoped_diagnostics(output_root: Path, run_id: str) -> Path:
-    """Return ``runs/<run_id>/diagnostics`` (may not exist yet)."""
-    return Path(output_root) / "runs" / str(run_id).strip() / "diagnostics"
+    """Return canonical run-scoped diagnostics dir (may not exist yet)."""
+    return resolve_run_root(output_root, run_id) / "diagnostics"
 
 
 def global_diagnostics(output_root: Path) -> Path:
@@ -109,15 +124,11 @@ def list_run_ids_newest_first(*, limit: int | None = None) -> list[str]:
     if not runs_dir.exists():
         return []
     scored: list[tuple[tuple[int, datetime, str], str]] = []
-    for child in runs_dir.iterdir():
-        if not child.is_dir():
-            continue
-        if not (child / "run_manifest.json").is_file():
-            continue
-        rid = child.name.strip()
+    for manifest_path, manifest_payload in rl._iter_run_manifest_candidates(runs_dir):  # pylint: disable=protected-access
+        run_root = manifest_path.parent
+        rid = str(manifest_payload.get("run_id", "") or run_root.name).strip()
         if not rid:
             continue
-        manifest_payload = rl.read_json_object(child / "run_manifest.json")
         key = rl.candidate_sort_key(run_id=rid, manifest_payload=manifest_payload)
         if key is None:
             continue
@@ -432,7 +443,7 @@ def write_research_validity_review(
     pr = print_fn or (lambda _s: None)
     rdiag = run_scoped_diagnostics(output_root, run_id)
     gdiag = global_diagnostics(output_root)
-    run_root = Path(output_root) / "runs" / run_id
+    run_root = resolve_run_root(output_root, run_id)
     summary = read_json_dict(run_root / "run_summary.json")
     manifest = read_json_dict(run_root / "run_manifest.json")
 
@@ -753,7 +764,7 @@ def _build_claim_readiness(
 
 def collect_run_comparison_row(output_root: Path, run_id: str) -> dict[str, Any]:
     """One row of run-to-run comparison using run_summary + diagnostics JSON."""
-    run_root = Path(output_root) / "runs" / run_id
+    run_root = resolve_run_root(output_root, run_id)
     rdiag = run_scoped_diagnostics(output_root, run_id)
     gdiag = global_diagnostics(output_root)
     summary = read_json_dict(run_root / "run_summary.json")

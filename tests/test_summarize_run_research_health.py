@@ -8,7 +8,51 @@ from pathlib import Path
 
 import pytest
 
-from scripts.diagnostics.summarize_run_research_health import gather_report
+from scripts.diagnostics.summarize_run_research_health import _resolve_run_root, gather_report
+
+pytestmark = pytest.mark.contract
+
+
+def test_resolve_run_root_latest_prefers_manifest_newest_archived_run(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    runs = repo / "output" / "runs"
+    older = runs / "20260302T000000Z__older1"
+    newer = runs / "_archived" / "kept" / "20260303T000000Z__abc123"
+    older.mkdir(parents=True, exist_ok=True)
+    newer.mkdir(parents=True, exist_ok=True)
+    (older / "run_manifest.json").write_text(
+        json.dumps({"run_id": "20260302T000000Z__older1", "created_at_utc": "2026-03-02T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
+    (newer / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "20260303T000000Z__abc123",
+                "run_root": str(newer),
+                "created_at_utc": "2026-03-03T00:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    got = _resolve_run_root(repo, run_id=None, run_root=None, latest=True)
+
+    assert got == newer.resolve()
+
+
+def test_resolve_run_root_by_run_id_finds_archived_manifest_run(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    run_id = "20260303T000000Z__abc123"
+    run_root = repo / "output" / "runs" / "_archived" / "kept" / run_id
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text(
+        json.dumps({"run_id": run_id, "run_root": str(run_root), "created_at_utc": "2026-03-03T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
+
+    got = _resolve_run_root(repo, run_id=run_id, run_root=None, latest=False)
+
+    assert got == run_root.resolve()
 
 
 def test_gather_report_metrics_parity_hashes_match_when_equal(tmp_path: Path) -> None:

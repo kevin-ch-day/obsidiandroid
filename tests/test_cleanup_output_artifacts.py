@@ -90,6 +90,33 @@ def test_collect_targets_prunes_old_run_local_latest_and_split_freeze_exports(tm
     assert "runs/20260519T020202Z__bbbbbb/diagnostics/feature_build_coverage.latest.json" not in target_set
 
 
+def test_collect_targets_prunes_stale_run_bound_latest_mirrors(tmp_path: Path) -> None:
+    output_dir = tmp_path / "output"
+    diagnostics_dir = output_dir / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_root = output_dir / "runs" / "20260519T071502Z__c09270"
+    run_root.mkdir(parents=True, exist_ok=True)
+    manifest_payload = {
+        "run_id": "20260519T071502Z__c09270",
+        "run_root": str(run_root),
+        "timestamp_utc": "2026-05-19T07:15:02.442806+00:00",
+    }
+    (run_root / "run_manifest.json").write_text(json.dumps(manifest_payload), encoding="utf-8")
+    (diagnostics_dir / "run_manifest.latest.json").write_text(json.dumps(manifest_payload), encoding="utf-8")
+    (diagnostics_dir / "run_summary.latest.json").write_text(
+        json.dumps({"run_id": "r1", "run_root": "output/runs/r1"}),
+        encoding="utf-8",
+    )
+
+    targets = coa._collect_targets(  # pylint: disable=protected-access
+        output_dir,
+        keep_run_ids={"20260519T071502Z__c09270"},
+        keep_runtime_logs=0,
+    )
+
+    assert diagnostics_dir / "run_summary.latest.json" in set(targets)
+
+
 def test_collect_targets_prunes_repo_root_legacy_short_name_logs(tmp_path: Path, monkeypatch) -> None:
     output_dir = tmp_path / "output"
     logs_root = tmp_path / "logs"
@@ -139,6 +166,14 @@ def test_discover_recent_run_ids_preserves_mtime_order_not_lexicographic(tmp_pat
     runs_dir = output_dir / "runs"
     older = _make_run(output_dir, "20260519T090000Z__zzzzzz")
     newer = _make_run(output_dir, "20260519T080000Z__aaaaaa")
+    (older / "run_manifest.json").write_text(
+        json.dumps({"run_id": "20260519T090000Z__zzzzzz", "timestamp_utc": "2026-05-19T09:00:00+00:00"}),
+        encoding="utf-8",
+    )
+    (newer / "run_manifest.json").write_text(
+        json.dumps({"run_id": "20260519T080000Z__aaaaaa", "timestamp_utc": "2026-05-19T10:00:00+00:00"}),
+        encoding="utf-8",
+    )
 
     os.utime(older, (100, 100))
     os.utime(newer, (200, 200))
@@ -152,8 +187,16 @@ def test_discover_recent_run_ids_preserves_mtime_order_not_lexicographic(tmp_pat
 def test_discover_recent_run_ids_prefers_canonical_latest_run_pointer(tmp_path: Path) -> None:
     output_dir = tmp_path / "output"
     (output_dir / "diagnostics").mkdir(parents=True, exist_ok=True)
-    _make_run(output_dir, "20260519T071502Z__c09270")
-    _make_run(output_dir, "20260519T070012Z__0e798e")
+    newest = _make_run(output_dir, "20260519T071502Z__c09270")
+    older = _make_run(output_dir, "20260519T070012Z__0e798e")
+    (newest / "run_manifest.json").write_text(
+        json.dumps({"run_id": "20260519T071502Z__c09270", "timestamp_utc": "2026-05-19T07:15:02+00:00"}),
+        encoding="utf-8",
+    )
+    (older / "run_manifest.json").write_text(
+        json.dumps({"run_id": "20260519T070012Z__0e798e", "timestamp_utc": "2026-05-19T07:00:12+00:00"}),
+        encoding="utf-8",
+    )
     (output_dir / "diagnostics" / "latest_run_pointer.json").write_text(
         '{"run_id":"20260519T071502Z__c09270"}',
         encoding="utf-8",
@@ -164,16 +207,86 @@ def test_discover_recent_run_ids_prefers_canonical_latest_run_pointer(tmp_path: 
     assert keep == {"20260519T071502Z__c09270"}
 
 
+def test_discover_recent_run_ids_ignores_archived_container_and_uses_manifest_runs(tmp_path: Path) -> None:
+    output_dir = tmp_path / "output"
+    archived = output_dir / "runs" / "_archived" / "kept" / "20260519T071502Z__c09270"
+    archived.mkdir(parents=True, exist_ok=True)
+    (archived / "run_manifest.json").write_text(
+        json.dumps({"run_id": "20260519T071502Z__c09270", "timestamp_utc": "2026-05-19T07:15:02+00:00"}),
+        encoding="utf-8",
+    )
+
+    keep = coa._discover_recent_run_ids(output_dir, keep_latest_runs=2)  # pylint: disable=protected-access
+
+    assert keep == {"20260519T071502Z__c09270"}
+
+
+def test_discover_recent_run_ids_ignores_stale_pointer_and_uses_latest_manifest(tmp_path: Path) -> None:
+    output_dir = tmp_path / "output"
+    diagnostics_dir = output_dir / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+
+    stale_pointer = {
+        "created_at_utc": "t1",
+        "run_id": "r1",
+        "run_root": "output/runs/r1",
+    }
+    (diagnostics_dir / "latest_run_pointer.json").write_text(
+        json.dumps(stale_pointer),
+        encoding="utf-8",
+    )
+
+    archived_run = output_dir / "runs" / "_archived" / "kept" / "20260519T071502Z__c09270"
+    archived_run.mkdir(parents=True, exist_ok=True)
+    manifest_payload = {
+        "run_id": "20260519T071502Z__c09270",
+        "run_root": str(archived_run),
+        "timestamp_utc": "2026-05-19T07:15:02.442806+00:00",
+    }
+    (archived_run / "run_manifest.json").write_text(json.dumps(manifest_payload), encoding="utf-8")
+    (diagnostics_dir / "run_manifest.latest.json").write_text(json.dumps(manifest_payload), encoding="utf-8")
+
+    keep = coa._discover_recent_run_ids(output_dir, keep_latest_runs=1)  # pylint: disable=protected-access
+
+    assert keep == {"20260519T071502Z__c09270"}
+
+
+def test_collect_targets_skips_archived_container_dir(tmp_path: Path) -> None:
+    output_dir = tmp_path / "output"
+    archived_dir = output_dir / "runs" / "_archived"
+    (archived_dir / "latest").mkdir(parents=True, exist_ok=True)
+
+    targets = coa._collect_targets(  # pylint: disable=protected-access
+        output_dir,
+        keep_run_ids=set(),
+        keep_runtime_logs=0,
+    )
+
+    assert archived_dir / "latest" not in set(targets)
+
+
 def test_sync_promoted_latest_run_pointers_uses_canonical_pointer(tmp_path: Path) -> None:
     output_dir = tmp_path / "output"
     diagnostics_dir = output_dir / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_root = output_dir / "runs" / "20260519T071502Z__c09270"
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "20260519T071502Z__c09270",
+                "run_root": str(run_root),
+                "timestamp_utc": "2026-05-19T07:15:02.442806+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
     (diagnostics_dir / "latest_run_pointer.json").write_text(
         json.dumps(
             {
                 "created_at_utc": "2026-05-19T07:15:02.442806+00:00",
                 "run_id": "20260519T071502Z__c09270",
-                "run_root": "/tmp/output/runs/20260519T071502Z__c09270",
+                "run_root": str(run_root),
             }
         ),
         encoding="utf-8",
@@ -187,7 +300,44 @@ def test_sync_promoted_latest_run_pointers_uses_canonical_pointer(tmp_path: Path
     )
     payload = json.loads((output_dir / "promoted" / "latest_run_manifest.json").read_text(encoding="utf-8"))
     assert payload["run_id"] == "20260519T071502Z__c09270"
-    assert payload["run_root"] == "/tmp/output/runs/20260519T071502Z__c09270"
+    assert payload["run_root"] == str(run_root)
+
+
+def test_sync_promoted_latest_run_pointers_repairs_stale_pointer_from_manifest_latest(tmp_path: Path) -> None:
+    output_dir = tmp_path / "output"
+    diagnostics_dir = output_dir / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (diagnostics_dir / "latest_run_pointer.json").write_text(
+        json.dumps(
+            {
+                "created_at_utc": "t1",
+                "run_id": "r1",
+                "run_root": "output/runs/r1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_root = output_dir / "runs" / "_archived" / "kept" / "20260519T071502Z__c09270"
+    run_root.mkdir(parents=True, exist_ok=True)
+    manifest_payload = {
+        "run_id": "20260519T071502Z__c09270",
+        "run_root": str(run_root),
+        "timestamp_utc": "2026-05-19T07:15:02.442806+00:00",
+        "run_slot": "majorfam_benchmark",
+    }
+    (run_root / "run_manifest.json").write_text(json.dumps(manifest_payload), encoding="utf-8")
+    (diagnostics_dir / "run_manifest.latest.json").write_text(json.dumps(manifest_payload), encoding="utf-8")
+
+    changed = coa._sync_promoted_latest_run_pointers(output_dir)  # pylint: disable=protected-access
+
+    assert changed is True
+    canonical_pointer = json.loads((diagnostics_dir / "latest_run_pointer.json").read_text(encoding="utf-8"))
+    assert canonical_pointer["run_id"] == "20260519T071502Z__c09270"
+    assert canonical_pointer["run_root"] == str(run_root)
+    assert (output_dir / "promoted" / "latest_run.txt").read_text(encoding="utf-8").strip() == (
+        "20260519T071502Z__c09270"
+    )
 
 
 def test_cleanup_main_syncs_promoted_pointers_even_without_delete_targets(
@@ -200,12 +350,24 @@ def test_cleanup_main_syncs_promoted_pointers_even_without_delete_targets(
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     promoted_dir = output_dir / "promoted"
     promoted_dir.mkdir(parents=True, exist_ok=True)
+    run_root = output_dir / "runs" / "20260519T071502Z__c09270"
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "20260519T071502Z__c09270",
+                "run_root": str(run_root),
+                "timestamp_utc": "2026-05-19T07:15:02.442806+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
     (diagnostics_dir / "latest_run_pointer.json").write_text(
         json.dumps(
             {
                 "created_at_utc": "2026-05-19T07:15:02.442806+00:00",
                 "run_id": "20260519T071502Z__c09270",
-                "run_root": "/tmp/output/runs/20260519T071502Z__c09270",
+                "run_root": str(run_root),
             }
         ),
         encoding="utf-8",

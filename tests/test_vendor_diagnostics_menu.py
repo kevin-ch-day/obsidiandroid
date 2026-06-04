@@ -6,10 +6,13 @@ from pathlib import Path
 
 import json
 import pandas as pd
+import pytest
 
 from obsidiandroid.cli.menu import vendor_diagnostics
 from obsidiandroid.cli.menu import vendor_diagnostics_actions
 from obsidiandroid.cli.menu import vendor_parser_state
+
+pytestmark = pytest.mark.integration
 
 
 def _make_vendor_diag_run(make_run_diagnostics_layout, run_id: str) -> tuple[Path, Path]:

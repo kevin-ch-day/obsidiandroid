@@ -24,6 +24,22 @@ def test_pick_first_existing_prefers_run_scoped_run_paths_manifest(tmp_path: Pat
     assert tried and tried[0] == str(run_scoped)
 
 
+def test_run_scoped_diagnostics_resolves_archived_kept_run_root(tmp_path: Path) -> None:
+    """Archived kept runs should resolve through manifest-backed run-root lookup."""
+    run_id = "20260303T000000Z__abc123"
+    run_root = tmp_path / "output" / "runs" / "_archived" / "kept" / run_id
+    run_diag = run_root / "diagnostics"
+    run_diag.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text(
+        json.dumps({"run_id": run_id, "run_root": str(run_root), "created_at_utc": "2026-03-03T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
+
+    got = rw.run_scoped_diagnostics(tmp_path / "output", run_id)
+
+    assert got == run_diag
+
+
 def test_feature_contract_candidates_include_unsuffixed_run_scoped_json(tmp_path: Path) -> None:
     """Pipeline writes ``feature_contract.json`` under run diagnostics (not only suffixed names)."""
     run_id = "20260505T214806Z__911a64"
@@ -68,6 +84,29 @@ def test_ablation_macro_f1_can_fall_back_to_global_latest_feature_set_summary(
     got = rw._ablation_macro_f1_by_experiment(rdiag, "rid")
     assert abs((got.get("permissions_raw") or 0) - 0.81) < 1e-6
     assert abs((got.get("full_fused") or 0) - 0.82) < 1e-6
+
+
+def test_list_run_ids_newest_first_includes_archived_manifest_runs(monkeypatch, tmp_path: Path) -> None:
+    """Archived kept runs should still appear in newest-first run discovery."""
+    runs_root = tmp_path / "output" / "runs"
+    older_root = runs_root / "20260302T000000Z__older1"
+    newer_root = runs_root / "_archived" / "kept" / "20260303T000000Z__abc123"
+    older_root.mkdir(parents=True, exist_ok=True)
+    newer_root.mkdir(parents=True, exist_ok=True)
+    (older_root / "run_manifest.json").write_text(
+        json.dumps({"run_id": "20260302T000000Z__older1", "created_at_utc": "2026-03-02T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
+    (newer_root / "run_manifest.json").write_text(
+        json.dumps({"run_id": "20260303T000000Z__abc123", "created_at_utc": "2026-03-03T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(rw.output_paths, "runs_root", lambda: runs_root)
+
+    got = rw.list_run_ids_newest_first()
+
+    assert got[:2] == ["20260303T000000Z__abc123", "20260302T000000Z__older1"]
 
 
 def test_collect_run_comparison_row_includes_cohort_methodology(tmp_path: Path) -> None:
@@ -198,6 +237,30 @@ def test_write_research_validity_review_uses_global_taxonomy_and_latest_mirrors(
     assert payload["artifacts_used"]["headline_vs_ablation_contract_comparison"] is True
     assert payload["artifacts_used"]["taxonomy_type_authority_review"] is True
     assert payload["high_score_caution"]["headline_balanced_accuracy"] == 0.79
+
+
+def test_write_research_validity_review_resolves_archived_run_root(tmp_path: Path) -> None:
+    """Research validity review should load summaries from archived kept runs."""
+    out = tmp_path / "output"
+    run_id = "20260303T000000Z__abc123"
+    run_root = out / "runs" / "_archived" / "kept" / run_id
+    rdiag = run_root / "diagnostics"
+    rdiag.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text(
+        json.dumps({"run_id": run_id, "run_root": str(run_root), "created_at_utc": "2026-03-03T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
+    (run_root / "run_summary.json").write_text(json.dumps({"profile_id": "archived_demo"}), encoding="utf-8")
+    (rdiag / "dataset_foundation_summary.json").write_text(
+        json.dumps({"governed_samples": 10, "families_represented": 2, "malware_types_represented": 1}),
+        encoding="utf-8",
+    )
+
+    review_json, _review_md = rw.write_research_validity_review(output_root=out, run_id=run_id)
+
+    payload = json.loads(review_json.read_text(encoding="utf-8"))
+    assert payload["run_id"] == run_id
+    assert payload["dataset"]["governed_samples"] == 10
 
 
 def test_build_claim_readiness_uses_benchmark_surface_label() -> None:
