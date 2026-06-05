@@ -877,6 +877,7 @@ def finalize_run_manifest_stage(
                     paper_mode=paper_mode,
                     evidence_mode=evidence_mode,
                     result_code=result_code,
+                    samples_df=samples_df,
                 )
                 return result_code
         if paper_mode and str(compliance_report.get("overall_status")) != "pass":
@@ -918,6 +919,7 @@ def finalize_run_manifest_stage(
                 paper_mode=paper_mode,
                 evidence_mode=evidence_mode,
                 result_code=result_code,
+                samples_df=samples_df,
             )
             return result_code
         derived_terminal_status = derive_terminal_run_status(manifest_context)
@@ -960,6 +962,7 @@ def finalize_run_manifest_stage(
             paper_mode=paper_mode,
             evidence_mode=evidence_mode,
             result_code=terminal_result_code,
+            samples_df=samples_df,
         )
         return 0
     except Exception as exc:

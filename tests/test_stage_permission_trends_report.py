@@ -212,7 +212,7 @@ def test_build_family_permission_similarity_annotates_pattern_fields() -> None:
     assert len(out) == 1
     row = out.iloc[0]
     assert row["pattern_basis"] == "RAW_PERMISSION+FAMILY_LEVEL+MIXED"
-    assert row["pattern_label"] == "Exceptional Pattern"
+    assert row["pattern_label"] == "Certain Pattern"
     assert row["pattern_confidence"] == "high"
     assert "shared-pattern similarity" in row["pattern_reason"]
 
@@ -240,7 +240,7 @@ def test_annotate_similarity_patterns_marks_conflicting_metrics() -> None:
     )
 
     row = out.iloc[0]
-    assert row["pattern_label"] == "Conflicting Evidence"
+    assert row["pattern_label"] == "Very Weak Pattern"
     assert row["pattern_basis"] == "RAW_PERMISSION+TYPE_LEVEL+MIXED"
     assert "similarity metrics disagree" in row["pattern_reason"]
 
@@ -268,7 +268,7 @@ def test_annotate_similarity_patterns_marks_neutral_rank_agreement_as_conflictin
     )
 
     row = out.iloc[0]
-    assert row["pattern_label"] == "Conflicting Evidence"
+    assert row["pattern_label"] == "Very Weak Pattern"
     assert "similarity metrics disagree" in row["pattern_reason"]
 
 
@@ -300,7 +300,7 @@ def test_build_banker_temporal_pattern_rows_annotates_latest_quarter_patterns() 
     assert not out.empty
     read_sms = out[out["permission"] == "android.permission.read_sms"].iloc[0]
     assert read_sms["pattern_basis"] == "RAW_PERMISSION+TYPE_LEVEL+TEMPORAL"
-    assert read_sms["pattern_label"] == "Moderate Pattern"
+    assert read_sms["pattern_label"] == "Moderate-Strong Pattern"
     assert int(read_sms["positive_count"]) == 4
     assert "prevalence-only evidence is capped" in read_sms["pattern_reason"]
 
@@ -794,7 +794,7 @@ def test_build_attack_mobile_hypotheses_finds_sms_and_discovery_signals() -> Non
     assert ("banker", "T1418") in got
     sms_row = out[out["attack_id"] == "T1636.004"].iloc[0]
     assert sms_row["pattern_basis"] == "BEHAVIOR+TYPE_LEVEL+MIXED"
-    assert sms_row["pattern_label"] == "Weak Pattern"
+    assert sms_row["pattern_label"] == "Moderate Pattern"
     assert sms_row["pattern_confidence"] == "moderate"
     assert "permission-derived hypothesis" in sms_row["pattern_reason"]
     assert "mapping_confidence" in sms_row["pattern_reason"]
@@ -828,7 +828,7 @@ def test_build_attack_mobile_hypotheses_falls_back_when_pattern_fields_are_missi
     assert not out.empty
     sms_row = out[out["attack_id"] == "T1636.004"].iloc[0]
     assert sms_row["pattern_basis"] == "BEHAVIOR+TYPE_LEVEL+MIXED"
-    assert sms_row["pattern_label"] == "Weak Pattern"
+    assert sms_row["pattern_label"] == "Moderate Pattern"
     assert sms_row["pattern_confidence"] == "moderate"
 
 
@@ -1047,7 +1047,7 @@ def test_build_signal_prevalence_by_family_marks_benchmark_eligibility() -> None
     beta = out[(out["family_canonical"] == "Beta") & (out["signal_key"] == "sms")].iloc[0]
     assert bool(alpha["benchmark_eligible_n_ge_3"]) is True
     assert bool(beta["benchmark_eligible_n_ge_3"]) is False
-    assert beta["pattern_label"] == "Inconclusive"
+    assert beta["pattern_label"] == "Trace Pattern"
 
 
 def test_filter_behavior_safe_signals_excludes_model_only_rows() -> None:
@@ -1237,10 +1237,10 @@ def test_permission_pattern_framework_emits_no_pattern_and_conflicting_evidence(
         basis="type_enrichment_vs_rest",
     )
 
-    assert no_pattern["pattern_level"] == 1
-    assert no_pattern["pattern_label"] == "No Pattern Found"
+    assert no_pattern["pattern_level"] == 0
+    assert no_pattern["pattern_label"] == "Null / Absent Pattern"
     assert conflicting["pattern_level"] == 2
-    assert conflicting["pattern_label"] == "Conflicting Evidence"
+    assert conflicting["pattern_label"] == "Very Weak Pattern"
 
 
 def test_permission_pattern_framework_caps_prevalence_only_strength_and_separates_confidence() -> None:
@@ -1252,7 +1252,7 @@ def test_permission_pattern_framework_caps_prevalence_only_strength_and_separate
     )
 
     assert out["pattern_level"] == 6
-    assert out["pattern_label"] == "Moderate Pattern"
+    assert out["pattern_label"] == "Moderate-Strong Pattern"
     assert out["pattern_score"] == 100.0
     assert out["pattern_basis"] == "RAW_PERMISSION+TYPE_LEVEL"
     assert out["pattern_confidence"] == "high"

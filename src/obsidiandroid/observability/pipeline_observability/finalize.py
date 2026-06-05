@@ -146,9 +146,14 @@ def _top_artifacts_to_open(
     authority_md = diagnostics_dir / f"family_type_authority_coverage_{run_id}.md"
     taxonomy_split_md = diagnostics_dir / f"taxonomy_authority_split_{run_id}.md"
     ordered: list[Path] = [
+        diagnostics_dir / f"v3_label_contract_{run_id}.md",
+        diagnostics_dir / f"permission_pattern_contract_{run_id}.md",
         taxonomy_split_md,
         rr / "run_evidence_index.md",
         diagnostics_dir / AUTHORITATIVE_SUMMARY_FILENAME,
+        diagnostics_dir / f"v3_label_contract_{run_id}.json",
+        diagnostics_dir / f"permission_pattern_contract_{run_id}.json",
+        diagnostics_dir / f"ml_run_manifest_{run_id}.json",
         authority_md,
         diagnostics_dir / "pipeline_stage_summary.md",
         diagnostics_dir / "partial_failures.md",

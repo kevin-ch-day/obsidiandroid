@@ -1,7 +1,8 @@
 """Normalized permission-pattern scoring for ObsidianDroid V3.
 
-This module adds a lightweight, explicit pattern contract to the existing
-permission-trends outputs without redesigning the reporting pipeline.
+V3 uses a 0–9 structural association ladder. Levels describe declared-capability
+pattern strength across malware types/families — not proof of malware behavior,
+runtime causality, or dynamic-analysis findings.
 """
 
 from __future__ import annotations
@@ -11,17 +12,49 @@ from typing import Any
 
 import pandas as pd
 
+PATTERN_SCALE_NAME = "obsidiandroid_v3_structural_permission_pattern_0_9"
+PATTERN_SCALE_VERSION = "v3_structural_0_9"
+
 PATTERN_LEVEL_LABELS: dict[int, str] = {
-    9: "Exceptional Pattern",
+    9: "Certain Pattern",
     8: "Very Strong Pattern",
     7: "Strong Pattern",
-    6: "Moderate Pattern",
-    5: "Weak Pattern",
-    4: "Very Weak Pattern",
-    3: "Inconclusive",
-    2: "Conflicting Evidence",
-    1: "No Pattern Found",
+    6: "Moderate-Strong Pattern",
+    5: "Moderate Pattern",
+    4: "Weak-Moderate Pattern",
+    3: "Weak Pattern",
+    2: "Very Weak Pattern",
+    1: "Trace Pattern",
+    0: "Null / Absent Pattern",
 }
+
+PATTERN_LEVEL_DEFINITIONS: dict[int, str] = {
+    9: "Structural association is near-universal or overwhelmingly dominant on the focus surface.",
+    8: "Very strong recurring structural association with broad support.",
+    7: "Strong recurring structural association with adequate support.",
+    6: "Moderate-strong association; prevalence-only evidence is capped here without comparative support.",
+    5: "Moderate association visible but not dominant.",
+    4: "Weak-moderate association with limited comparative separation.",
+    3: "Weak association; contrast or support remains thin.",
+    2: "Very weak association or conflicting comparative evidence.",
+    1: "Trace association only; support or separation is below benchmark evidence floors.",
+    0: "No structural association detected on this surface.",
+}
+
+PATTERN_CLAIM_BOUNDARY = (
+    "Permission-pattern levels describe structural declared-capability associations across "
+    "malware types or families. They do not prove malware by themselves, do not establish "
+    "runtime behavior or causality, and do not substitute for dynamic analysis."
+)
+
+PATTERN_UNSUPPORTED_CLAIMS: tuple[str, ...] = (
+    "permission_alone_proves_malware",
+    "static_permission_implies_runtime_behavior",
+    "pattern_level_establishes_causality",
+    "mitre_attack_mapping_as_primary_claim",
+    "deep_learning_model_inference",
+    "dynamic_analysis_execution",
+)
 
 _BASIS_ALIASES: dict[str, str] = {
     "permission_prevalence_by_type": "RAW_PERMISSION+TYPE_LEVEL",
@@ -38,6 +71,15 @@ _BASIS_ALIASES: dict[str, str] = {
     "type_permission_similarity": "RAW_PERMISSION+TYPE_LEVEL+MIXED",
     "family_signal_similarity": "PERMISSION_GROUP+FAMILY_LEVEL+MIXED",
     "banker_temporal_permission_trend": "RAW_PERMISSION+TYPE_LEVEL+TEMPORAL",
+}
+
+COMPARISON_SCOPES: dict[str, str] = {
+    "type_vs_global": "Type-level enrichment or prevalence contrasted against the remaining corpus.",
+    "family_vs_global": "Family-level enrichment or prevalence contrasted against the remaining corpus.",
+    "family_vs_type": "Family-level similarity or profile contrasted within or across type contexts.",
+    "type_prevalence": "Type-level prevalence without mandatory background contrast.",
+    "family_prevalence": "Family-level prevalence without mandatory background contrast.",
+    "pairwise_similarity": "Pairwise permission-profile similarity between families or types.",
 }
 
 
@@ -58,7 +100,30 @@ def _safe_int(value: Any, default: int = 0) -> int:
 
 def pattern_label_for_level(level: int) -> str:
     """Return the canonical V3 pattern label for a normalized level."""
-    return PATTERN_LEVEL_LABELS.get(int(level), PATTERN_LEVEL_LABELS[3])
+    clamped = max(0, min(int(level), 9))
+    return PATTERN_LEVEL_LABELS.get(clamped, PATTERN_LEVEL_LABELS[3])
+
+
+def build_pattern_scale_contract() -> dict[str, Any]:
+    """Return the machine-readable V3 permission-pattern scale contract."""
+    return {
+        "scale_name": PATTERN_SCALE_NAME,
+        "scale_version": PATTERN_SCALE_VERSION,
+        "level_min": 0,
+        "level_max": 9,
+        "framing": "structural_association_strength",
+        "claim_boundary": PATTERN_CLAIM_BOUNDARY,
+        "unsupported_claims": list(PATTERN_UNSUPPORTED_CLAIMS),
+        "comparison_scopes": dict(COMPARISON_SCOPES),
+        "levels": [
+            {
+                "level": level,
+                "label": PATTERN_LEVEL_LABELS[level],
+                "definition": PATTERN_LEVEL_DEFINITIONS[level],
+            }
+            for level in sorted(PATTERN_LEVEL_LABELS)
+        ],
+    }
 
 
 def normalize_pattern_basis(basis: str) -> str:
@@ -79,10 +144,10 @@ def _has_comparative_evidence(basis: str) -> bool:
 
 def _default_confidence(level: int, *, support: int = 0, basis: str = "MIXED") -> str:
     comparative = _has_comparative_evidence(basis)
-    if level <= 1:
+    if level <= 0:
         return "none"
-    if level == 2:
-        return "low"
+    if level <= 2:
+        return "very_low" if support < 5 else "low"
     if level == 3:
         return "low" if support >= 3 else "very_low"
     if not comparative:
@@ -105,7 +170,7 @@ def _pattern_payload(
     support: int = 0,
     confidence: str | None = None,
 ) -> dict[str, Any]:
-    normalized = int(level)
+    normalized = max(0, min(int(level), 9))
     normalized_basis = normalize_pattern_basis(basis)
     return {
         "pattern_score": round(_safe_float(score), 2),
@@ -126,7 +191,7 @@ def classify_prevalence_pattern(
     group_support: int,
     basis: str,
 ) -> dict[str, Any]:
-    """Classify a prevalence-only signal into the V3 pattern ladder."""
+    """Classify a prevalence-only signal into the V3 structural pattern ladder."""
     support = max(_safe_int(group_support), 0)
     positive = max(_safe_int(positive_count), 0)
     prevalence = _safe_float(prevalence_pct)
@@ -134,15 +199,15 @@ def classify_prevalence_pattern(
     if support <= 0 or positive <= 0 or prevalence <= 0.0:
         return _pattern_payload(
             score=0.0,
-            level=1,
+            level=0,
             basis=basis,
             support=support,
-            reason="signal absent on this surface",
+            reason="structural association absent on this surface",
         )
     if support < 3:
         return _pattern_payload(
             score=score,
-            level=3,
+            level=1,
             basis=basis,
             support=support,
             reason=f"support {support} is below the benchmark evidence floor",
@@ -165,7 +230,7 @@ def classify_prevalence_pattern(
         capped = True
     reason = f"prevalence={prevalence:.1f}% across {positive}/{support} samples"
     if capped:
-        reason += "; prevalence-only evidence is capped until comparative support exists"
+        reason += "; prevalence-only evidence is capped at moderate-strong until comparative support exists"
     return _pattern_payload(
         score=score,
         level=level,
@@ -184,7 +249,7 @@ def classify_enrichment_pattern(
     support: int,
     basis: str,
 ) -> dict[str, Any]:
-    """Classify enrichment-vs-background evidence into the V3 pattern ladder."""
+    """Classify enrichment-vs-background evidence into the V3 structural pattern ladder."""
     subject = _safe_float(subject_prevalence_pct)
     background = _safe_float(background_prevalence_pct)
     support_n = max(_safe_int(support), 0)
@@ -197,7 +262,7 @@ def classify_enrichment_pattern(
     if support_n < 3:
         return _pattern_payload(
             score=score,
-            level=3,
+            level=1,
             basis=basis,
             support=support_n,
             reason=f"support {support_n} is below the benchmark evidence floor",
@@ -205,10 +270,10 @@ def classify_enrichment_pattern(
     if subject <= 0.0 and background <= 0.0:
         return _pattern_payload(
             score=0.0,
-            level=1,
+            level=0,
             basis=basis,
             support=support_n,
-            reason="signal absent in both the focus and background surfaces",
+            reason="structural association absent in both the focus and background surfaces",
         )
     if abs_gap < 5.0 and max(subject, background) >= 20.0:
         return _pattern_payload(
@@ -233,7 +298,7 @@ def classify_enrichment_pattern(
                 level=1,
                 basis=basis,
                 support=support_n,
-                reason="signal remains too sparse to support a pattern claim",
+                reason="signal remains too sparse to support a structural association",
             )
         if abs_gap < 10.0:
             return _pattern_payload(
@@ -285,7 +350,7 @@ def classify_similarity_pattern(
     basis: str,
     same_type: bool | None = None,
 ) -> dict[str, Any]:
-    """Classify pairwise similarity evidence into the V3 pattern ladder."""
+    """Classify pairwise similarity evidence into the V3 structural pattern ladder."""
     cosine = max(0.0, min(_safe_float(cosine_similarity), 1.0))
     jaccard = max(0.0, min(_safe_float(jaccard_similarity), 1.0))
     spearman = max(-1.0, min(_safe_float(spearman_correlation), 1.0))
@@ -297,7 +362,7 @@ def classify_similarity_pattern(
     if min_support < 3:
         return _pattern_payload(
             score=score,
-            level=3,
+            level=1,
             basis=basis,
             support=min_support,
             confidence="very_low",
@@ -308,12 +373,12 @@ def classify_similarity_pattern(
     if cosine < 0.15 and jaccard < 0.15 and spearman_norm < 0.35:
         return _pattern_payload(
             score=score,
-            level=1,
+            level=0,
             basis=basis,
             support=min_support,
             confidence="moderate" if min_support >= 10 else "low",
             reason=(
-                f"no shared pattern found; cosine={cosine:.2f}, "
+                f"no shared structural association; cosine={cosine:.2f}, "
                 f"jaccard={jaccard:.2f}, spearman={spearman:.2f}"
             ),
         )
@@ -359,7 +424,7 @@ def classify_similarity_pattern(
         f"jaccard={jaccard:.2f}, spearman={spearman:.2f}"
     )
     if capped_cross_type:
-        reason += "; cross-type pair is capped until stronger lineage support exists"
+        reason += "; cross-type pair is capped at moderate-strong until stronger lineage support exists"
     return _pattern_payload(
         score=score,
         level=level,

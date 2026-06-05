@@ -33,17 +33,23 @@ This keeps V3 production-safe while still allowing later persistence and audit.
 
 ## Permission-pattern contract
 
-V3 adopts a normalized 9-level permission-pattern ladder:
+V3 adopts a normalized **0–9 structural permission-pattern ladder** (association
+strength, not malware proof or causality):
 
-1. No Pattern Found
-2. Conflicting Evidence
-3. Inconclusive
-4. Very Weak Pattern
-5. Weak Pattern
-6. Moderate Pattern
-7. Strong Pattern
-8. Very Strong Pattern
-9. Exceptional Pattern
+| Level | Label |
+| ---: | --- |
+| 0 | Null / Absent Pattern |
+| 1 | Trace Pattern |
+| 2 | Very Weak Pattern |
+| 3 | Weak Pattern |
+| 4 | Weak-Moderate Pattern |
+| 5 | Moderate Pattern |
+| 6 | Moderate-Strong Pattern |
+| 7 | Strong Pattern |
+| 8 | Very Strong Pattern |
+| 9 | Certain Pattern |
+
+Standalone contract artifacts: `permission_pattern_contract_{run_id}.json/.md`.
 
 Existing permission-pattern outputs may now expose:
 

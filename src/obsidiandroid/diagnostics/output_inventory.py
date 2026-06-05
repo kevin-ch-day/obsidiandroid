@@ -539,8 +539,25 @@ def write_run_evidence_index_md(
         lines.append(f"- **reasons:** {', '.join(publication_ready_reasons)}")
     lines.append("")
     _extend_with_backlog_section(lines, backlog_context=backlog_context)
+    v3_label_contract_md = diagnostics_dir / f"v3_label_contract_{run_id}.md"
+    permission_pattern_contract_md = diagnostics_dir / f"permission_pattern_contract_{run_id}.md"
+    ml_run_manifest_json = diagnostics_dir / f"ml_run_manifest_{run_id}.json"
+
     lines.extend(
         [
+            "## V3 research contracts (open first)",
+            "",
+        ]
+    )
+    if v3_label_contract_md.exists():
+        lines.append(f"- **V3 label contract:** `{v3_label_contract_md}`")
+    if permission_pattern_contract_md.exists():
+        lines.append(f"- **Permission pattern contract:** `{permission_pattern_contract_md}`")
+    if ml_run_manifest_json.exists():
+        lines.append(f"- **ML run manifest (seed):** `{ml_run_manifest_json}`")
+    lines.extend(
+        [
+            "",
             "## Primary paths",
             "",
             f"- Run manifest: `{run_root / 'run_manifest.json'}`",

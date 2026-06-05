@@ -364,6 +364,7 @@ def finalize_output_hygiene_bundle(
     paper_mode: bool,
     evidence_mode: bool,
     result_code: int = 0,
+    samples_df: Any | None = None,
 ) -> None:
     """Artifact inventory, virtual layout, run evidence index, and terminal summary."""
     try:
@@ -379,6 +380,32 @@ def finalize_output_hygiene_bundle(
             artifact_list=artifact_list,
             manifest_context=manifest_context,
         )
+
+        from obsidiandroid.diagnostics import ml_seed_exports
+        from obsidiandroid.diagnostics import permission_pattern_contract
+
+        try:
+            contract_paths = permission_pattern_contract.export_permission_pattern_contract(
+                diagnostics_dir=diagnostics_dir,
+                run_id=run_id,
+                profile_id=str(profile.get("profile_id", "unknown")),
+            )
+            artifact_list.extend(contract_paths)
+        except Exception as exc:
+            du.print_warning(f"[MANIFEST] Permission pattern contract export skipped: {exc}")
+
+        try:
+            seed_paths = ml_seed_exports.export_ml_seed_artifacts(
+                diagnostics_dir=diagnostics_dir,
+                run_id=run_id,
+                profile=profile,
+                samples_df=samples_df,
+                manifest=manifest,
+                manifest_context=manifest_context,
+            )
+            artifact_list.extend(seed_paths)
+        except Exception as exc:
+            du.print_warning(f"[MANIFEST] ML seed export skipped: {exc}")
 
         verbose_run_artifacts = bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True))
 

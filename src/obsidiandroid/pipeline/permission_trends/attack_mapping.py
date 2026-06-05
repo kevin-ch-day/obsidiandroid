@@ -57,8 +57,8 @@ def _aggregate_hypothesis_pattern(
         for row in matched_rows
     ]
     level_cap = _HYPOTHESIS_LEVEL_CAP.get(str(mapping_confidence).strip().lower(), 4)
-    base_level = min(evidence_levels) if evidence_levels else 3
-    pattern_level = max(1, min(base_level, level_cap))
+    base_level = min(evidence_levels) if evidence_levels else 1
+    pattern_level = max(0, min(base_level, level_cap))
     mean_score = round(sum(evidence_scores) / max(len(evidence_scores), 1), 2) if evidence_scores else 0.0
     mapping_conf_cap = _PATTERN_CONFIDENCE_BY_ATTACK_CONFIDENCE.get(
         str(mapping_confidence).strip().lower(),
