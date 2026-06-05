@@ -10,6 +10,30 @@ from typing import Any
 from obsidiandroid.common import output_hygiene as oh
 
 
+def _primary_claim_surface(
+    *,
+    profile_id: str,
+    publication_ready_mode: bool,
+    support_floor_mode: str,
+    benchmark_support_floor: Any,
+) -> str:
+    """Resolve the primary claim surface for the claim-audit artifact."""
+    profile = str(profile_id or "").strip()
+    if publication_ready_mode:
+        return "locked_publication_surface"
+    if profile == "android_malware_all_current":
+        return "broad_current_corpus"
+    if profile == "android_malware_expanded_families":
+        return "expanded_family_exploratory"
+    if profile == "android_malware_type_taxonomy":
+        return "type_taxonomy_surface"
+    if profile == "android_malware_major_families":
+        return "major_family_benchmark"
+    if support_floor_mode == "benchmark_eligibility" or benchmark_support_floor not in (None, "", 0):
+        return "major_family_benchmark"
+    return "broad_current_corpus"
+
+
 def _read_csv_exists(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -141,6 +165,8 @@ def write_paper_claim_audit_md(
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     path = diagnostics_dir / "paper_claim_audit.md"
     alias_path = diagnostics_dir / "publication_claim_audit.md"
+    research_alias_path = diagnostics_dir / "research_claim_audit.md"
+    benchmark_alias_path = diagnostics_dir / "benchmark_claim_audit.md"
     mctx = manifest_context if isinstance(manifest_context, dict) else {}
     man = manifest if isinstance(manifest, dict) else {}
     model_summary = mctx.get("model_summary") or man.get("model_summary") or {}
@@ -167,14 +193,19 @@ def write_paper_claim_audit_md(
         or mctx.get("evidence_mode")
         or mctx.get("paper_mode", {}).get("resolved_value", False)
     )
+    profile_id = str(
+        mctx.get("profile_id")
+        or (man.get("profile_params") or {}).get("profile_id")
+        or man.get("profile_id")
+        or ""
+    ).strip()
     benchmark_support_floor = mctx.get("benchmark_support_floor")
     support_floor_mode = str(mctx.get("support_floor_mode", "") or "").strip().lower()
-    primary_surface = (
-        "locked_publication_surface"
-        if publication_ready_mode
-        else "major_family_benchmark"
-        if support_floor_mode == "benchmark_eligibility" or benchmark_support_floor not in (None, "", 0)
-        else "broad_current_corpus"
+    primary_surface = _primary_claim_surface(
+        profile_id=profile_id,
+        publication_ready_mode=publication_ready_mode,
+        support_floor_mode=support_floor_mode,
+        benchmark_support_floor=benchmark_support_floor,
     )
     compliance_path = man.get("paper_mode_compliance_report") or diagnostics_dir / f"paper_mode_compliance_report_{run_id}.json"
 
@@ -374,11 +405,15 @@ def write_paper_claim_audit_md(
         "locked_publication_surface": "Publication claim audit",
         "major_family_benchmark": "Benchmark claim audit",
         "broad_current_corpus": "Corpus diagnostic claim audit",
+        "expanded_family_exploratory": "Expanded-family exploratory claim audit",
+        "type_taxonomy_surface": "Type-taxonomy claim audit",
     }.get(primary_surface, "Claim audit")
     surface_label = {
         "locked_publication_surface": "locked publication cohort",
         "major_family_benchmark": "major-family benchmark surface",
         "broad_current_corpus": "broad current-corpus diagnostic surface",
+        "expanded_family_exploratory": "expanded-family exploratory surface",
+        "type_taxonomy_surface": "type-taxonomy benchmark surface",
     }.get(primary_surface, "current run surface")
 
     lines = [
@@ -420,4 +455,6 @@ def write_paper_claim_audit_md(
     body = "\n".join(lines)
     path.write_text(body, encoding="utf-8")
     alias_path.write_text(body, encoding="utf-8")
+    research_alias_path.write_text(body, encoding="utf-8")
+    benchmark_alias_path.write_text(body, encoding="utf-8")
     return path

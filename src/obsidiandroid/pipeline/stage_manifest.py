@@ -238,6 +238,11 @@ def _apply_terminal_manifest_status(
     model_summary = manifest.get("model_summary") if isinstance(manifest.get("model_summary"), dict) else {}
     top_model = str(model_summary.get("top_model", "") or "").strip()
     top_macro_f1 = model_summary.get("top_macro_f1")
+    top_model_primary_metric_name = model_summary.get("top_model_primary_metric_name")
+    top_model_primary_metric_value = model_summary.get("top_model_primary_metric_value")
+    top_model_primary_metric_tier = model_summary.get("top_model_primary_metric_tier")
+    top_model_weighted_f1_tier = model_summary.get("top_model_weighted_f1_tier")
+    top_model_accuracy_tier = model_summary.get("top_model_accuracy_tier")
     trained_models = list(manifest.get("trained_models") or [])
     completed_stage = str(manifest.get("completed_stage", "") or "").strip().lower()
     training_completed = bool(
@@ -260,8 +265,15 @@ def _apply_terminal_manifest_status(
     )
     manifest["training_completed_before_terminal"] = training_completed
     manifest["top_model"] = top_model or None
-    manifest["top_model_primary_metric_name"] = "macro_f1_score" if top_macro_f1 is not None else None
-    manifest["top_model_primary_metric_value"] = top_macro_f1
+    manifest["top_model_primary_metric_name"] = (
+        top_model_primary_metric_name or ("macro_f1_score" if top_macro_f1 is not None else None)
+    )
+    manifest["top_model_primary_metric_value"] = (
+        top_model_primary_metric_value if top_model_primary_metric_value is not None else top_macro_f1
+    )
+    manifest["top_model_primary_metric_tier"] = top_model_primary_metric_tier or None
+    manifest["top_model_weighted_f1_tier"] = top_model_weighted_f1_tier or None
+    manifest["top_model_accuracy_tier"] = top_model_accuracy_tier or None
     manifest["error_type"] = error_type or None
     manifest["failure_summary_path"] = failure_summary_path or None
     if str(manifest.get("run_status", "") or "").strip().lower() == "interrupted":

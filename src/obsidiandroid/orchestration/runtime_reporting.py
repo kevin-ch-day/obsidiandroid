@@ -24,6 +24,7 @@ from obsidiandroid.common.cv_fold_config import (
 )
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.diagnostics import family_tier_model_evaluation
+from obsidiandroid.evaluation import accuracy_band_utils
 
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -293,12 +294,27 @@ def format_population_pipeline_summary_line(manifest_context: dict[str, Any]) ->
     if te is not None and str(te) != "":
         parts.append(f"test_n={int(te)}")
     if cls_n is not None and str(cls_n) != "":
-        parts.append(f"distinct_family_labels_after_support={int(cls_n)}")
+        support_mode = str(getattr(app_config, "RUNTIME_SUPPORT_FLOOR_MODE", "") or "").strip().lower()
+        if support_mode == "diagnostic_only":
+            parts.append(f"actual_modeled_family_classes={int(cls_n)}")
+        else:
+            parts.append(f"distinct_family_labels_after_support={int(cls_n)}")
     return " | ".join(parts)
 
 
 def extract_model_summary(model_results: dict[str, Any]) -> dict[str, Any]:
     """Extract a compact model leaderboard summary for run reporting."""
+    rank_metric = str(
+        getattr(app_config, "MODEL_RANK_PRIMARY_METRIC", "macro_f1_score") or "macro_f1_score"
+    ).strip().lower()
+    if rank_metric == "f1_score":
+        primary_metric_key = "weighted_f1"
+    elif rank_metric == "accuracy":
+        primary_metric_key = "accuracy"
+    else:
+        rank_metric = "macro_f1_score"
+        primary_metric_key = "macro_f1"
+
     rows: list[dict[str, Any]] = []
     for model_name, payload in model_results.items():
         if not isinstance(payload, dict):
@@ -321,7 +337,30 @@ def extract_model_summary(model_results: dict[str, Any]) -> dict[str, Any]:
         )
     if not rows:
         return {}
-    rows = sorted(rows, key=lambda item: item["macro_f1"], reverse=True)
+    for row in rows:
+        primary_score = row.get(primary_metric_key)
+        row["primary_metric_name"] = rank_metric
+        row["primary_metric_value"] = primary_score
+        row["primary_metric_tier"] = (
+            accuracy_band_utils.evaluate_accuracy_band(float(primary_score))
+            if primary_score is not None
+            else None
+        )
+        row["weighted_f1_tier"] = (
+            accuracy_band_utils.evaluate_accuracy_band(float(row["weighted_f1"]))
+            if row.get("weighted_f1") is not None
+            else None
+        )
+        row["accuracy_tier"] = (
+            accuracy_band_utils.evaluate_accuracy_band(float(row["accuracy"]))
+            if row.get("accuracy") is not None
+            else None
+        )
+    rows = sorted(
+        rows,
+        key=lambda item: float(item.get(primary_metric_key) or float("-inf")),
+        reverse=True,
+    )
     top_model = rows[0]["model"]
     family_tier_rows = family_tier_model_evaluation.build_family_tier_model_evaluation_rows(model_results)
     top_model_family_tier_rows = [
@@ -330,6 +369,11 @@ def extract_model_summary(model_results: dict[str, Any]) -> dict[str, Any]:
     return {
         "top_model": top_model,
         "top_macro_f1": rows[0]["macro_f1"],
+        "top_model_primary_metric_name": rank_metric,
+        "top_model_primary_metric_value": rows[0].get("primary_metric_value"),
+        "top_model_primary_metric_tier": rows[0].get("primary_metric_tier"),
+        "top_model_weighted_f1_tier": rows[0].get("weighted_f1_tier"),
+        "top_model_accuracy_tier": rows[0].get("accuracy_tier"),
         "model_rows": rows,
         "family_tier_model_rows": family_tier_rows,
         "top_model_family_tier_rows": top_model_family_tier_rows,

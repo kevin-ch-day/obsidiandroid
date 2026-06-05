@@ -318,6 +318,11 @@ def test_extract_model_summary_includes_top_model_family_tier_rows(monkeypatch) 
     )
 
     assert summary["top_model"] == "random_forest"
+    assert summary["top_model_primary_metric_name"] == "macro_f1_score"
+    assert summary["top_model_primary_metric_value"] == 0.8
+    assert summary["top_model_primary_metric_tier"] == "T4 - Above Average (80-84%)"
+    assert summary["top_model_weighted_f1_tier"] == "T4 - Above Average (80-84%)"
+    assert summary["top_model_accuracy_tier"] == "T4 - Above Average (80-84%)"
     assert isinstance(summary.get("family_tier_model_rows"), list)
     top_rows = summary.get("top_model_family_tier_rows", [])
     assert {row["evaluation_scope"] for row in top_rows} == {
@@ -471,6 +476,24 @@ def test_format_population_pipeline_summary_line_includes_class_count(monkeypatc
     assert "train_n=534" in line
     assert "test_n=178" in line
     assert "distinct_family_labels_after_support=13" in line
+
+
+def test_format_population_pipeline_summary_line_uses_modeled_class_wording_for_diagnostic_only(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(app_config, "RUNTIME_TRAINING_LABEL_CLASS_COUNT", 115, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_SUPPORT_FLOOR_MODE", "diagnostic_only", raising=False)
+    mc = {
+        "cohort_prepared_row_count": 3644,
+        "fused_feature_rows": 3644,
+        "aligned_supervised_rows": 3433,
+        "post_low_support_training_rows": 3433,
+        "train_sample_count": 2574,
+        "test_sample_count": 859,
+    }
+    line = format_population_pipeline_summary_line(mc)
+    assert "actual_modeled_family_classes=115" in line
+    assert "distinct_family_labels_after_support" not in line
 
 
 def test_format_population_pipeline_summary_line_empty_without_core_counts() -> None:

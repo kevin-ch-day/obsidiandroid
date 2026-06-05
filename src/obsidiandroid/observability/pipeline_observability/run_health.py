@@ -56,6 +56,7 @@ def print_unified_run_health(
             ("Scientific adequacy", _scientific_posture(payload)),
             ("Profile", payload.get("profile_id", "unknown")),
             ("Run mode", _run_mode_line(payload)),
+            ("Claim surface", payload.get("claim_surface_label") or payload.get("claim_surface") or "n/a"),
             ("Publication status", coalesce_publication_ready_status(payload)),
             *(_run_identity_rows(payload, run_root)),
         ],
@@ -88,6 +89,7 @@ def print_unified_run_health(
             ("Visible governed families", _safe_value(payload.get("visible_family_count"))),
             ("Benchmark trainable", _safe_value(payload.get("post_low_support_training_rows") or payload.get("counts", {}).get("post_low_support_training_rows"))),
             ("Active benchmark family classes", _safe_value(payload.get("benchmark_trainable_family_count"))),
+            ("Actual modeled family classes", _safe_value(payload.get("modeled_family_class_count"))),
             ("Support gate", support_gate[0]),
             ("Support exclusions", support_gate[1]),
             ("Excluded families", support_gate[2]),
@@ -99,6 +101,10 @@ def print_unified_run_health(
         [
             ("Main model", _main_model_name(payload)),
             ("Macro-F1", _main_macro_f1(payload)),
+            ("Primary metric", _main_primary_metric_name(payload)),
+            ("Primary tier", _main_primary_tier(payload)),
+            ("Weighted-F1 tier", _main_weighted_tier(payload)),
+            ("Accuracy tier", _main_accuracy_tier(payload)),
             ("Test set", _safe_value(payload.get("test_sample_count") or payload.get("counts", {}).get("test_rows"))),
             ("Feature columns", _feature_column_line(payload)),
             ("Ablation", _ablation_line(payload)),
@@ -115,9 +121,9 @@ def print_unified_run_health(
         "Next artifacts",
         [
             ("Start here", _start_here_path(run_root, evidence_index_path)),
-            ("Cohort/taxonomy", _best_existing_rel(run_root, _artifact_candidates(run_root, obs_resolved.parent, "taxonomy"))),
-            ("Family/type coverage", _best_existing_rel(run_root, _artifact_candidates(run_root, obs_resolved.parent, "coverage"))),
-            ("Claim audit", _best_existing_rel(run_root, _artifact_candidates(run_root, obs_resolved.parent, "claim_audit"))),
+            ("Cohort/taxonomy", _best_existing_rel(run_root, _artifact_candidates(run_root, obs_resolved.parent, "taxonomy", payload=payload))),
+            ("Family/type coverage", _best_existing_rel(run_root, _artifact_candidates(run_root, obs_resolved.parent, "coverage", payload=payload))),
+            ("Claim audit", _best_existing_rel(run_root, _artifact_candidates(run_root, obs_resolved.parent, "claim_audit", payload=payload))),
             ("Ablation summary", _ablation_summary_path(run_root, obs_resolved.parent, payload)),
         ],
     )
@@ -250,6 +256,42 @@ def _main_macro_f1(payload: dict[str, Any]) -> str:
     return f"{float(value):.4f}"
 
 
+def _main_primary_metric_name(payload: dict[str, Any]) -> str:
+    model_summary = payload.get("model_summary") if isinstance(payload.get("model_summary"), dict) else {}
+    value = model_summary.get("top_model_primary_metric_name") if model_summary else None
+    if value in (None, ""):
+        model_block = payload.get("model") if isinstance(payload.get("model"), dict) else {}
+        value = model_block.get("top_model_primary_metric_name")
+    return str(value or "n/a")
+
+
+def _main_primary_tier(payload: dict[str, Any]) -> str:
+    model_summary = payload.get("model_summary") if isinstance(payload.get("model_summary"), dict) else {}
+    value = model_summary.get("top_model_primary_metric_tier") if model_summary else None
+    if value in (None, ""):
+        model_block = payload.get("model") if isinstance(payload.get("model"), dict) else {}
+        value = model_block.get("top_model_primary_metric_tier")
+    return str(value or "n/a")
+
+
+def _main_weighted_tier(payload: dict[str, Any]) -> str:
+    model_summary = payload.get("model_summary") if isinstance(payload.get("model_summary"), dict) else {}
+    value = model_summary.get("top_model_weighted_f1_tier") if model_summary else None
+    if value in (None, ""):
+        model_block = payload.get("model") if isinstance(payload.get("model"), dict) else {}
+        value = model_block.get("top_model_weighted_f1_tier")
+    return str(value or "n/a")
+
+
+def _main_accuracy_tier(payload: dict[str, Any]) -> str:
+    model_summary = payload.get("model_summary") if isinstance(payload.get("model_summary"), dict) else {}
+    value = model_summary.get("top_model_accuracy_tier") if model_summary else None
+    if value in (None, ""):
+        model_block = payload.get("model") if isinstance(payload.get("model"), dict) else {}
+        value = model_block.get("top_model_accuracy_tier")
+    return str(value or "n/a")
+
+
 def _feature_column_line(payload: dict[str, Any]) -> str:
     features = payload.get("features") if isinstance(payload.get("features"), dict) else {}
     pre = features.get("feature_matrix_cols_pre_prune") or features.get("pre_prune")
@@ -313,7 +355,13 @@ def _warning_rows(payload: dict[str, Any]) -> list[tuple[str, str, str]]:
     return rows[:4]
 
 
-def _artifact_candidates(run_root: Path, diagnostics_dir: Path, lane: str) -> list[Path]:
+def _artifact_candidates(
+    run_root: Path,
+    diagnostics_dir: Path,
+    lane: str,
+    *,
+    payload: dict[str, Any] | None = None,
+) -> list[Path]:
     if lane == "taxonomy":
         return [
             diagnostics_dir / "index.md",
@@ -325,9 +373,22 @@ def _artifact_candidates(run_root: Path, diagnostics_dir: Path, lane: str) -> li
             *sorted(diagnostics_dir.glob("family_type_authority_coverage_*.md")),
         ]
     if lane == "claim_audit":
+        resolved_claim_audit = None
+        if isinstance(payload, dict):
+            resolved_claim_audit = str(payload.get("claim_audit_summary", "") or "").strip()
+        candidates: list[Path] = []
+        if resolved_claim_audit:
+            candidates.append(Path(resolved_claim_audit))
+        candidates.extend(
+            [
+                diagnostics_dir / "benchmark_claim_audit.md",
+                diagnostics_dir / "research_claim_audit.md",
+                diagnostics_dir / "publication_claim_audit.md",
+                diagnostics_dir / "paper_claim_audit.md",
+            ]
+        )
         return [
-            diagnostics_dir / "publication_claim_audit.md",
-            diagnostics_dir / "paper_claim_audit.md",
+            *candidates,
         ]
     return []
 
@@ -366,6 +427,7 @@ def _open_first_hints(
     *,
     verbose_run_artifacts: bool,
     research_validity_enabled: bool,
+    claim_audit_summary: str | None = None,
 ) -> list[str]:
     """Compatibility helper for existence-aware open-first artifact hints."""
     hints: list[str] = []
@@ -374,10 +436,21 @@ def _open_first_hints(
     parent = evidence_index_path.parent if evidence_index_path else Path(".")
     names = ["pipeline_stage_summary.md"]
     if research_validity_enabled:
+        claim_audit_name = Path(str(claim_audit_summary or "")).name if str(claim_audit_summary or "").strip() else ""
+        ordered_claim_names = [
+            name
+            for name in (
+                claim_audit_name,
+                "benchmark_claim_audit.md",
+                "research_claim_audit.md",
+                "publication_claim_audit.md",
+                "paper_claim_audit.md",
+            )
+            if name
+        ]
         names = [
             "cohort_funnel.md",
-            "publication_claim_audit.md",
-            "paper_claim_audit.md",
+            *ordered_claim_names,
             "recommended_findings.md",
             "figure_validity_audit.md",
             *names,

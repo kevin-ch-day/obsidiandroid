@@ -39,6 +39,35 @@ def _safe_config_int(attr: str, *, default: int) -> int:
     return safe_int_config_value(getattr(app_config, attr, default), default=default)
 
 
+def _claim_surface_label(*, profile_id: str, evidence_mode: bool, paper_mode: bool) -> str:
+    """Return a human-readable claim surface label for persisted run summaries."""
+    profile = str(profile_id or "").strip()
+    if bool(evidence_mode or paper_mode):
+        return "Locked publication cohort"
+    if profile == "android_malware_all_current":
+        return "Current-corpus diagnostic surface"
+    if profile == "android_malware_major_families":
+        return "Support-gated benchmark cohort"
+    if profile == "android_malware_expanded_families":
+        return "Expanded-family exploratory cohort"
+    if profile == "android_malware_type_taxonomy":
+        return "Type taxonomy benchmark"
+    return "Benchmark research surface"
+
+
+def _claim_audit_alias_name(*, profile_id: str, evidence_mode: bool, paper_mode: bool) -> str:
+    """Return the profile-appropriate claim-audit alias name for summaries."""
+    if bool(evidence_mode or paper_mode):
+        return "publication_claim_audit.md"
+    profile = str(profile_id or "").strip()
+    if profile in {
+        "android_malware_major_families",
+        "android_malware_type_taxonomy",
+    }:
+        return "benchmark_claim_audit.md"
+    return "research_claim_audit.md"
+
+
 def emit_run_authority_coverage_bundle(
     *,
     diagnostics_dir: Path,
@@ -164,7 +193,26 @@ def write_run_summary_json(
             error_type = "KeyboardInterrupt"
         top_model = str(model_summary.get("top_model", "") or "").strip() or None
         top_macro_f1 = model_summary.get("top_macro_f1")
+        top_model_primary_metric_name = model_summary.get("top_model_primary_metric_name")
+        top_model_primary_metric_value = model_summary.get("top_model_primary_metric_value")
+        top_model_primary_metric_tier = model_summary.get("top_model_primary_metric_tier")
+        top_model_weighted_f1_tier = model_summary.get("top_model_weighted_f1_tier")
+        top_model_accuracy_tier = model_summary.get("top_model_accuracy_tier")
         diagnostics_root = str(diagnostics_dir)
+        profile_id = str(profile.get("profile_id", "unknown"))
+        claim_surface_label = _claim_surface_label(
+            profile_id=profile_id,
+            evidence_mode=coalesce_manifest_publication_mode(manifest),
+            paper_mode=bool((manifest.get("paper_mode") or {}).get("resolved_value", False)),
+        )
+        claim_audit_summary = str(
+            diagnostics_dir
+            / _claim_audit_alias_name(
+                profile_id=profile_id,
+                evidence_mode=coalesce_manifest_publication_mode(manifest),
+                paper_mode=bool((manifest.get("paper_mode") or {}).get("resolved_value", False)),
+            )
+        )
         failure_summary_path = str(manifest_context.get("failure_summary_path", "") or "").strip()
         if not failure_summary_path:
             candidate = diagnostics_dir / "failure_summary.json"
@@ -190,7 +238,8 @@ def write_run_summary_json(
             "run_instance_id": str(manifest.get("run_instance_id", "") or run_id),
             "run_slot": str(manifest.get("run_slot", "") or ""),
             "run_mode": str(manifest.get("run_mode", "") or ""),
-            "profile_id": str(profile.get("profile_id", "unknown")),
+            "claim_surface_label": claim_surface_label,
+            "profile_id": profile_id,
             "timestamp_utc": str(manifest.get("timestamp_utc", "") or manifest_context.get("timestamp_utc", "")),
             "run_status": run_status,
             "status": run_status,
@@ -209,8 +258,15 @@ def write_run_summary_json(
             "pipeline_runtime_sec": manifest_context.get("pipeline_runtime_sec"),
             "top_model": top_model,
             "top_macro_f1": top_macro_f1,
-            "top_model_primary_metric_name": "macro_f1_score" if top_macro_f1 is not None else None,
-            "top_model_primary_metric_value": top_macro_f1,
+            "top_model_primary_metric_name": (
+                top_model_primary_metric_name or ("macro_f1_score" if top_macro_f1 is not None else None)
+            ),
+            "top_model_primary_metric_value": (
+                top_model_primary_metric_value if top_model_primary_metric_value is not None else top_macro_f1
+            ),
+            "top_model_primary_metric_tier": top_model_primary_metric_tier,
+            "top_model_weighted_f1_tier": top_model_weighted_f1_tier,
+            "top_model_accuracy_tier": top_model_accuracy_tier,
             "model_summary": model_summary,
             "trained_model_count": manifest.get("trained_model_count")
             or len(list(manifest.get("trained_models") or [])),
@@ -226,6 +282,7 @@ def write_run_summary_json(
             "manifest_path": str(run_root / "run_manifest.json"),
             "run_root": str(run_root),
             "diagnostics_root": diagnostics_root,
+            "claim_audit_summary": claim_audit_summary,
             "paper_mode": bool((manifest.get("paper_mode") or {}).get("resolved_value", False)),
             "evidence_mode": coalesce_manifest_publication_mode(manifest),
             "result_code": int(result_code),
@@ -507,6 +564,17 @@ def write_run_summary_onepager(
         )
         top_model = str(model_summary.get("top_model", "") or "").strip()
         top_macro_f1 = model_summary.get("top_macro_f1")
+        profile_id = str(profile.get("profile_id", "unknown"))
+        claim_surface_label = _claim_surface_label(
+            profile_id=profile_id,
+            evidence_mode=bool(manifest.get("evidence_mode", False)),
+            paper_mode=bool(paper_mode_data.get("resolved_value", False)),
+        )
+        claim_audit_summary = _claim_audit_alias_name(
+            profile_id=profile_id,
+            evidence_mode=bool(manifest.get("evidence_mode", False)),
+            paper_mode=bool(paper_mode_data.get("resolved_value", False)),
+        )
         completed_stage = str(
             manifest_context.get("completed_stage", "") or manifest_context.get("current_stage", "") or ""
         ).strip()
@@ -528,9 +596,10 @@ def write_run_summary_onepager(
             "",
             "## Context",
             f"- run_id: `{run_id}`",
-            f"- profile_id: `{profile.get('profile_id', 'unknown')}`",
+            f"- profile_id: `{profile_id}`",
             f"- run_slot: `{manifest.get('run_slot', '')}`",
             f"- run_mode: `{manifest.get('run_mode', '')}`",
+            f"- claim_surface: `{claim_surface_label}`",
             f"- publication_ready_mode: `{bool(paper_mode_data.get('resolved_value', False))}` (source=`{paper_mode_data.get('source', 'unknown')}`)",
             f"- cohort_size: `{manifest.get('cohort_size', 0)}`",
             f"- selected_vendor_count: `{manifest.get('selected_vendor_count', 0)}`",
@@ -552,6 +621,7 @@ def write_run_summary_onepager(
             f"- invalid_sha_count: `{duplicate_meta.get('invalid_sha_count', 0)}`",
             f"- vendor_set_hash: `{manifest.get('vendor_set_hash', '')}`",
             f"- compliance_report: `{compliance_path}`",
+            f"- claim_audit_summary: `{diagnostics_dir / claim_audit_summary}`",
             "",
             "## Model Snapshot",
         ]
@@ -773,6 +843,8 @@ def write_evaluation_contract_json(
                 label_block = maybe
         predictions_path = diagnostics_dir / f"headline_test_predictions_{run_id}.csv"
         errors_path = diagnostics_dir / f"headline_test_errors_{run_id}.csv"
+        confidence_audit_path = diagnostics_dir / f"headline_confidence_audit_{run_id}.json"
+        confidence_bucket_path = diagnostics_dir / f"headline_confidence_buckets_{run_id}.csv"
         family_tier_csv = diagnostics_dir / f"family_tier_model_evaluation_{run_id}.csv"
         family_tier_json = diagnostics_dir / f"family_tier_model_evaluation_{run_id}.json"
         family_tier_md = diagnostics_dir / f"family_tier_model_evaluation_{run_id}.md"
@@ -801,6 +873,10 @@ def write_evaluation_contract_json(
                 "predictions_csv_exists": bool(predictions_path.is_file()),
                 "errors_csv": str(errors_path),
                 "errors_csv_exists": bool(errors_path.is_file()),
+                "confidence_audit_json": str(confidence_audit_path),
+                "confidence_audit_json_exists": bool(confidence_audit_path.is_file()),
+                "confidence_bucket_csv": str(confidence_bucket_path),
+                "confidence_bucket_csv_exists": bool(confidence_bucket_path.is_file()),
             },
             "family_tier_evaluation": {
                 "csv_path": str(family_tier_csv),

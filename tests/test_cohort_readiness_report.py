@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 import obsidiandroid.governance.cohort_readiness_report as cohort_readiness_report
+from obsidiandroid.governance.support_floor_policy import resolve_support_floor_mode
 from config import app_config
 
 pytestmark = pytest.mark.contract
@@ -142,6 +143,33 @@ def test_cohort_readiness_report_warns_for_android_catalog_semantic_anomalies(ca
     assert any("blank/generic family_label_raw despite vt_family_token" in msg for msg in warnings)
     assert any("weak sample labels despite canonical family authority" in msg for msg in warnings)
     assert any("raw family label differs from canonical family" in msg for msg in warnings)
+
+
+def test_cohort_readiness_report_distinguishes_visible_benchmark_and_modeled_family_counts(
+    capsys,
+) -> None:
+    df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4, 5],
+            "type_slug": ["banker", "banker", "adware", "rat", "rat"],
+            "family_canonical": ["A", "A", "B", "C", "D"],
+            "android_package_name": ["pkg.a", "pkg.b", "pkg.c", "pkg.d", "pkg.e"],
+            "vt_first_submission_date": ["2024-01-01"] * 5,
+        }
+    )
+    df.attrs["support_floor_mode"] = "diagnostic_only"
+
+    cohort_readiness_report.print_cohort_readiness_report(
+        df,
+        gates={"min_samples_per_family": 20, "max_missing_package_pct": 10.0},
+    )
+    out = capsys.readouterr().out
+    assert "Represented taxonomy" in out
+    assert "4 visible families" in out
+    assert "Family target" in out
+    assert "benchmark-eligible classes" in out
+    assert "Actual modeled family classes" in out
+    assert "4 diagnostic modeled classes" in out
 
 
 def test_compact_top_drift_groups_dedupes_same_sample_pocket(capsys, monkeypatch) -> None:
@@ -361,6 +389,47 @@ def test_cohort_readiness_report_marks_benchmark_eligibility_support_floor(capsy
     assert "family support rule" in out
     assert "benchmark trainable" in out
     assert "diagnostic-only rows" in out
+
+
+def test_resolve_support_floor_mode_accepts_samples_df_compatibility() -> None:
+    df = pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"]})
+    df.attrs["support_floor_mode"] = "benchmark_eligibility"
+
+    mode = resolve_support_floor_mode({}, samples_df=df)
+
+    assert mode == "benchmark_eligibility"
+
+
+def test_cohort_readiness_report_handles_samples_df_support_floor_compatibility(capsys) -> None:
+    df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4, 5, 6],
+            "type_slug": ["banker", "banker", "banker", "banker", "rat", "rat"],
+            "family_canonical": ["fam_a", "fam_a", "fam_a", "fam_b", "fam_c", "fam_d"],
+            "family_id": [1, 1, 1, 2, 3, 4],
+            "category_primary": ["trojan"] * 6,
+            "category_subtype": ["banker", "banker", "banker", "banker", "rat", "rat"],
+            "sample_label_kind": ["family_or_common_name"] * 6,
+            "android_package_name": ["pkg.a", "pkg.b", "pkg.c", "pkg.d", "pkg.e", "pkg.f"],
+            "vt_first_submission_date": ["2024-01-01"] * 6,
+        }
+    )
+    df.attrs["support_floor_mode"] = "benchmark_eligibility"
+    df.attrs["configured_min_samples_per_family"] = 3
+    df.attrs["diagnostic_min_samples_per_family"] = 3
+    df.attrs["min_samples_per_family_applied_in_sql"] = False
+    df.attrs["min_samples_per_family_sql_value"] = None
+    df.attrs["cohort_gate_stats"] = {"governed_cohort_count": 6, "total_candidates": 6}
+
+    cohort_readiness_report.print_cohort_readiness_report(
+        df,
+        gates={"min_samples_per_family": 3, "max_missing_package_pct": 10.0},
+    )
+    out = capsys.readouterr().out
+
+    assert "Cohort Benchmark Summary" in out
+    assert "Benchmark trainable" in out
+    assert "Family target" in out
 
 
 def test_cohort_readiness_report_compact_limits_terminal_lists(monkeypatch, capsys) -> None:

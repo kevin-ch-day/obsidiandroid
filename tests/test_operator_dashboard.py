@@ -714,15 +714,16 @@ def test_emit_research_operator_report_surfaces_label_strategy_guidance(
 
     text = "\n".join(captured)
     assert "BENCHMARK CLAIM READINESS" in text
-    assert "Overall claim status" in text
-    assert "Primary surface" in text
-    assert "Major-family Android malware classification" in text
-    assert "Benchmark support rule" in text
-    assert "n >= 3 per family" in text
-    assert "Train family models on family_id and coarse taxonomy on type_slug." in text
-    assert "Label policy is explicit: family benchmark target=`family_id`; coarse taxonomy target=`type_slug`." in text
+    assert "Claim status" in text
+    assert "Claim surface" in text
+    assert "Support-gated benchmark cohort" in text
+    assert "Benchmark support rule          : n >= 3 per family" in text
+    assert "SUPPORTED CLAIMS" in text
+    assert "NOT SUPPORTED BY THIS RUN" in text
+    assert "Family classification can be reported on the support-gated benchmark surface." in text
+    assert "Family/type targets are governed: `family_id` for family claims, `type_slug` for type claims." in text
     assert "Do not promote raw label surfaces such as `category_primary`" in text
-    assert "Raw subtype aligns materially better than raw primary." in text
+    assert "Details                         : diagnostics/benchmark_claim_audit.md" in text
     claim_path = diagnostics_dir / f"claim_readiness_summary_{run_id}.json"
     assert claim_path.is_file()
     payload = json.loads(claim_path.read_text(encoding="utf-8"))
@@ -730,6 +731,9 @@ def test_emit_research_operator_report_surfaces_label_strategy_guidance(
     assert payload["benchmark_family_support_floor"] == 3
     assert payload["family_claim_surface"] == "family_id"
     assert payload["type_claim_surface"] == "type_slug"
+    assert payload["details_artifact"] == "benchmark_claim_audit.md"
+    assert payload["supported_claims"]
+    assert payload["unsupported_claims"]
 
 
 def test_emit_research_operator_report_marks_all_current_as_diagnostic_surface(
@@ -759,7 +763,7 @@ def test_emit_research_operator_report_marks_all_current_as_diagnostic_surface(
             "_written_paths": [],
             "benchmark_support_floor": 3,
             "benchmark_support_excluded_sample_count": 0,
-            "benchmark_support_excluded_family_count": 0,
+            "benchmark_support_excluded_family_count": 1,
             "q1": {
                 "governed_samples": 3644,
                 "aligned_supervised_samples": 3433,
@@ -803,6 +807,226 @@ def test_emit_research_operator_report_marks_all_current_as_diagnostic_surface(
         diagnostics_dir=diagnostics_dir,
         run_id=run_id,
         profile_id="android_malware_all_current",
+        manifest_context={"label_authority": {"active_training_classes": 114}},
+        samples_df=samples_df,
+        model_results={},
+        top_model=None,
+        artifact_list=[],
+        print_fn=captured.append,
+    )
+
+    text = "\n".join(captured)
+    assert "RESEARCH CLAIM READINESS" in text
+    assert "Current-corpus diagnostic surface" in text
+    assert "This run describes current governed Android malware corpus health." in text
+    assert "Family/type models are diagnostic because the current corpus is concentration-heavy." in text
+    assert "Visible governed families       : 115" in text
+    assert "Modeled family classes          : 115" in text
+    assert "Excluded / non-claim families   : 1" in text
+    assert "Use benchmark profiles for stronger family-classification claims." in text
+    assert "NOT SUPPORTED BY THIS RUN" in text
+    assert "research_claim_audit.md" in text
+
+
+def test_emit_research_operator_report_uses_publication_heading_for_locked_profile(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_locked_pub"
+
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_headline_vs_ablation_contract_reports",
+        lambda **_kwargs: (None, None, {}),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_taxonomy_type_authority_reports",
+        lambda *_args, **_kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "write_diagnostics_index_md",
+        lambda *_args, **_kwargs: diagnostics_dir / "index.md",
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.write_research_question_artifacts",
+        lambda **_kwargs: {
+            "_written_paths": [],
+            "benchmark_support_floor": 20,
+            "benchmark_support_excluded_sample_count": 0,
+            "benchmark_support_excluded_family_count": 0,
+            "q1": {
+                "families_represented": 39,
+                "supervised_family_claims_suitable": True,
+                "label_strategy": {
+                    "preferred_family_target": "family_id",
+                    "preferred_type_target": "type_slug",
+                },
+            },
+            "q2": {},
+            "q3": {},
+        },
+    )
+
+    captured: list[str] = []
+    monkeypatch.setattr(
+        "obsidiandroid.cli.ui.display.print_section",
+        lambda title, *_args, **_kwargs: captured.append(str(title)),
+    )
+
+    samples_df = pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]})
+    samples_df.attrs["support_floor_mode"] = "benchmark_eligibility"
+    operator_dashboard.clear_operator_state()
+    operator_dashboard.emit_research_operator_report(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="malicious_temporal_stability_locked",
+        manifest_context={
+            "publication_ready_mode": True,
+            "evidence_mode": True,
+            "label_authority": {"active_training_classes": 39},
+        },
+        samples_df=samples_df,
+        model_results={},
+        top_model=None,
+        artifact_list=[],
+        print_fn=captured.append,
+    )
+
+    text = "\n".join(captured)
+    assert "PUBLICATION CLAIM READINESS" in text
+    assert "Locked publication cohort" in text
+    assert "diagnostics/publication_claim_audit.md" in text
+
+
+def test_emit_research_operator_report_major_family_benchmark_does_not_use_publication_heading(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_major_benchmark"
+
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_headline_vs_ablation_contract_reports",
+        lambda **_kwargs: (None, None, {}),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_taxonomy_type_authority_reports",
+        lambda *_args, **_kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "write_diagnostics_index_md",
+        lambda *_args, **_kwargs: diagnostics_dir / "index.md",
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.write_research_question_artifacts",
+        lambda **_kwargs: {
+            "_written_paths": [],
+            "benchmark_support_floor": 20,
+            "benchmark_support_excluded_sample_count": 14,
+            "benchmark_support_excluded_family_count": 2,
+            "q1": {
+                "families_represented": 36,
+                "supervised_family_claims_suitable": True,
+                "label_strategy": {
+                    "preferred_family_target": "family_id",
+                    "preferred_type_target": "type_slug",
+                },
+            },
+            "q2": {},
+            "q3": {},
+        },
+    )
+
+    captured: list[str] = []
+    monkeypatch.setattr(
+        "obsidiandroid.cli.ui.display.print_section",
+        lambda title, *_args, **_kwargs: captured.append(str(title)),
+    )
+
+    samples_df = pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]})
+    samples_df.attrs["support_floor_mode"] = "benchmark_eligibility"
+    operator_dashboard.clear_operator_state()
+    operator_dashboard.emit_research_operator_report(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="android_malware_major_families",
+        manifest_context={
+            "publication_ready_mode": True,
+            "evidence_mode": False,
+            "paper_mode": False,
+            "run_mode": "benchmark",
+            "label_authority": {"active_training_classes": 34},
+        },
+        samples_df=samples_df,
+        model_results={},
+        top_model=None,
+        artifact_list=[],
+        print_fn=captured.append,
+    )
+
+    text = "\n".join(captured)
+    assert "BENCHMARK CLAIM READINESS" in text
+    assert "Support-gated benchmark cohort" in text
+    assert "Family classification can be reported on the support-gated benchmark surface." in text
+    assert "PUBLICATION CLAIM READINESS" not in text
+    assert "Locked publication cohort" not in text
+    assert "diagnostics/benchmark_claim_audit.md" in text
+
+
+def test_emit_research_operator_report_uses_benchmark_heading_for_type_taxonomy(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_type_tax"
+
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_headline_vs_ablation_contract_reports",
+        lambda **_kwargs: (None, None, {}),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_taxonomy_type_authority_reports",
+        lambda *_args, **_kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "write_diagnostics_index_md",
+        lambda *_args, **_kwargs: diagnostics_dir / "index.md",
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.write_research_question_artifacts",
+        lambda **_kwargs: {
+            "_written_paths": [],
+            "q1": {
+                "families_represented": 20,
+                "supervised_family_claims_suitable": True,
+                "label_strategy": {
+                    "preferred_family_target": "family_id",
+                    "preferred_type_target": "type_slug",
+                },
+            },
+            "q2": {},
+            "q3": {},
+        },
+    )
+
+    captured: list[str] = []
+    monkeypatch.setattr(
+        "obsidiandroid.cli.ui.display.print_section",
+        lambda title, *_args, **_kwargs: captured.append(str(title)),
+    )
+
+    samples_df = pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]})
+    operator_dashboard.clear_operator_state()
+    operator_dashboard.emit_research_operator_report(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="android_malware_type_taxonomy",
         manifest_context={},
         samples_df=samples_df,
         model_results={},
@@ -812,11 +1036,178 @@ def test_emit_research_operator_report_marks_all_current_as_diagnostic_surface(
     )
 
     text = "\n".join(captured)
-    assert "CORPUS DIAGNOSTIC READINESS" in text
-    assert "Current Android malware — all samples" in text
-    assert "Broad current-corpus surface is suitable for diagnostics" in text
-    assert "diagnostic/research evidence" in text
-    assert "Visible governed families: 115" in text
+    assert "BENCHMARK CLAIM READINESS" in text
+    assert "Type taxonomy benchmark" in text
+    assert "diagnostics/benchmark_claim_audit.md" in text
+
+
+def test_emit_research_operator_report_marks_expanded_families_as_exploratory(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_expanded_exploratory"
+
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_headline_vs_ablation_contract_reports",
+        lambda **_kwargs: (None, None, {}),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_taxonomy_type_authority_reports",
+        lambda *_args, **_kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "write_diagnostics_index_md",
+        lambda *_args, **_kwargs: diagnostics_dir / "index.md",
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.write_research_question_artifacts",
+        lambda **_kwargs: {
+            "_written_paths": [],
+            "benchmark_support_floor": 3,
+            "q1": {
+                "families_represented": 48,
+                "supervised_family_claims_suitable": False,
+                "label_strategy": {
+                    "preferred_family_target": "family_id",
+                    "preferred_type_target": "type_slug",
+                },
+            },
+            "q2": {},
+            "q3": {},
+        },
+    )
+
+    captured: list[str] = []
+    monkeypatch.setattr(
+        "obsidiandroid.cli.ui.display.print_section",
+        lambda title, *_args, **_kwargs: captured.append(str(title)),
+    )
+
+    samples_df = pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]})
+    samples_df.attrs["support_floor_mode"] = "benchmark_eligibility"
+    operator_dashboard.clear_operator_state()
+    operator_dashboard.emit_research_operator_report(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="android_malware_expanded_families",
+        manifest_context={},
+        samples_df=samples_df,
+        model_results={},
+        top_model=None,
+        artifact_list=[],
+        print_fn=captured.append,
+    )
+
+    text = "\n".join(captured)
+    assert "RESEARCH CLAIM READINESS" in text
+    assert "Expanded-family exploratory cohort" in text
+    assert "diagnostics/research_claim_audit.md" in text
+
+
+def test_emit_research_operator_report_preserves_claim_readiness_line_breaks(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_pub_render"
+
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_headline_vs_ablation_contract_reports",
+        lambda **_kwargs: (None, None, {}),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_taxonomy_type_authority_reports",
+        lambda *_args, **_kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_taxonomy_authority_split_reports",
+        lambda *_args, **_kwargs: (None, None, None, None, None),
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "write_diagnostics_index_md",
+        lambda *_args, **_kwargs: diagnostics_dir / "index.md",
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.write_research_question_artifacts",
+        lambda **_kwargs: {
+            "_written_paths": [],
+            "benchmark_support_floor": 20,
+            "benchmark_support_excluded_sample_count": 2,
+            "benchmark_support_excluded_family_count": 2,
+            "q1": {
+                "families_represented": 36,
+                "supervised_family_claims_suitable": True,
+                "label_strategy": {
+                    "preferred_family_target": "family_id",
+                    "preferred_type_target": "type_slug",
+                },
+            },
+            "q2": {},
+            "q3": {},
+        },
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.print_research_questions_terminal",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.ml_tuning_recommendations.write_ml_tuning_recommendations",
+        lambda **_kwargs: (
+            diagnostics_dir / f"ml_tuning_recommendations_{run_id}.md",
+            diagnostics_dir / f"ml_tuning_recommendations_{run_id}.csv",
+            diagnostics_dir / f"ml_tuning_recommendations_{run_id}.json",
+            {"recommendations": []},
+        ),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.data_problem_quantification.write_data_problem_quantification",
+        lambda **_kwargs: (
+            diagnostics_dir / f"data_problem_quantification_{run_id}.md",
+            diagnostics_dir / f"data_problem_quantification_{run_id}.csv",
+            diagnostics_dir / f"data_problem_quantification_{run_id}.json",
+            {},
+        ),
+    )
+
+    samples_df = pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]})
+    samples_df.attrs["support_floor_mode"] = "benchmark_eligibility"
+    operator_dashboard.clear_operator_state()
+    operator_dashboard.emit_research_operator_report(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="malicious_temporal_stability_locked",
+        manifest_context={
+            "publication_ready_mode": True,
+            "evidence_mode": True,
+            "label_authority": {"active_training_classes": 34},
+        },
+        samples_df=samples_df,
+        model_results={},
+        top_model=None,
+        artifact_list=[],
+        print_fn=None,
+    )
+
+    out = capsys.readouterr().out
+    assert "PUBLICATION CLAIM READINESS" in out
+    assert "\nSUPPORTED CLAIMS\n" in out
+    assert "\nCLAIM LIMITS\n" in out
+    assert "\nNOT SUPPORTED BY THIS RUN\n" in out
+    assert "\nNEXT REVIEW\n" in out
+    assert "\nDetails                         : diagnostics/publication_claim_audit.md\n" in out
+    assert "[INFO] Claim status" not in out
+    assert "Claim status                    :" in out
+    assert "Claim surface                   : Locked publication cohort" in out
+    assert "Claim status                    :" in out.split("SUPPORTED CLAIMS", maxsplit=1)[0]
+    assert "SUPPORTED CLAIMS" not in next(
+        line for line in out.splitlines() if "Claim status                    :" in line
+    )
 
 
 def test_emit_research_operator_report_surfaces_support_threshold_tracks(

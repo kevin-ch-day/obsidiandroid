@@ -105,8 +105,14 @@ def print_cohort_readiness_report(
     du.print_subheader("Benchmark Targets")
     du.print_stat(
         "Family target",
-        f"family_id | {benchmark_trainable_families:,} trainable classes",
+        f"family_id | {benchmark_trainable_families:,} benchmark-eligible classes",
     )
+    support_floor_mode = resolve_support_floor_mode(gates=gates, samples_df=samples_df)
+    if support_floor_mode == "diagnostic_only":
+        du.print_stat(
+            "Actual modeled family classes",
+            f"family_id | {represented_families:,} diagnostic modeled classes",
+        )
     du.print_stat(
         "Type target",
         f"type_slug | {int(target_summary.get('type_trainable_classes', 0) or 0):,} trainable classes",

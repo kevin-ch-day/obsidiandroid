@@ -51,6 +51,34 @@ _RUNNER_CHAIN = [
 AUTHORITATIVE_SUMMARY_FILENAME = "run_observability_summary.json"
 
 
+def _claim_audit_alias_name(*, profile_id: str, evidence_mode: bool, paper_mode: bool) -> str:
+    """Return the profile-appropriate claim audit alias name."""
+    if bool(evidence_mode or paper_mode):
+        return "publication_claim_audit.md"
+    if str(profile_id or "").strip() in {
+        "android_malware_major_families",
+        "android_malware_type_taxonomy",
+    }:
+        return "benchmark_claim_audit.md"
+    return "research_claim_audit.md"
+
+
+def _claim_surface_label(*, profile_id: str, evidence_mode: bool, paper_mode: bool) -> str:
+    """Return a human-readable claim surface label for summaries."""
+    profile = str(profile_id or "").strip()
+    if bool(evidence_mode or paper_mode):
+        return "Locked publication cohort"
+    if profile == "android_malware_all_current":
+        return "Current-corpus diagnostic surface"
+    if profile == "android_malware_major_families":
+        return "Support-gated benchmark cohort"
+    if profile == "android_malware_expanded_families":
+        return "Expanded-family exploratory cohort"
+    if profile == "android_malware_type_taxonomy":
+        return "Type taxonomy benchmark"
+    return "Benchmark research surface"
+
+
 def _coerce_int(v: Any) -> int | None:
     """Best-effort int for dashboard fields."""
     try:
@@ -110,6 +138,8 @@ def _top_artifacts_to_open(
     verbose_run_artifacts: bool,
     research_validity_enabled: bool,
     paper_mode: bool,
+    profile_id: str,
+    evidence_mode: bool,
 ) -> list[str]:
     """Ordered open-first list constrained to artifacts that actually exist."""
     rr = run_root if run_root is not None else diagnostics_dir
@@ -126,9 +156,17 @@ def _top_artifacts_to_open(
     if paper_mode:
         ordered.append(diagnostics_dir / f"paper_mode_compliance_report_{run_id}.json")
     if research_validity_enabled:
+        claim_audit_alias = _claim_audit_alias_name(
+            profile_id=profile_id,
+            evidence_mode=bool(evidence_mode),
+            paper_mode=bool(paper_mode),
+        )
         ordered.extend(
             [
+                diagnostics_dir / claim_audit_alias,
                 diagnostics_dir / "publication_claim_audit.md",
+                diagnostics_dir / "benchmark_claim_audit.md",
+                diagnostics_dir / "research_claim_audit.md",
                 diagnostics_dir / "paper_claim_audit.md",
                 diagnostics_dir / "cohort_funnel.md",
                 diagnostics_dir / "recommended_findings.md",
@@ -445,6 +483,8 @@ def finalize_pipeline_observability(
         verbose_run_artifacts=verbose_run_artifacts,
         research_validity_enabled=research_validity_enabled,
         paper_mode=bool(paper_mode),
+        profile_id=profile_id,
+        evidence_mode=bool(evidence_mode),
     )
     obs_summary_path_str = str(diagnostics_dir / AUTHORITATIVE_SUMMARY_FILENAME)
 
@@ -568,6 +608,19 @@ def finalize_pipeline_observability(
         or 0
     )
     visible_type_count = int(type_target_row.get("unique_classes", 0) or 0)
+    modeled_family_class_count = int(
+        getattr(app_config, "RUNTIME_TRAINING_LABEL_CLASS_COUNT", 0) or 0
+    )
+    claim_audit_alias = _claim_audit_alias_name(
+        profile_id=str(profile_id or ""),
+        evidence_mode=bool(evidence_mode),
+        paper_mode=bool(paper_mode),
+    )
+    claim_surface_label = _claim_surface_label(
+        profile_id=str(profile_id or ""),
+        evidence_mode=bool(evidence_mode),
+        paper_mode=bool(paper_mode),
+    )
     benchmark_support_top_rows: list[str] = []
     for row in benchmark_support_policy.get("excluded_below_support_families", []) or []:
         if not isinstance(row, dict):
@@ -597,6 +650,7 @@ def finalize_pipeline_observability(
         "run_slot": str(manifest.get("run_slot", "") or manifest_context.get("run_slot", "") or ""),
         "run_mode": str(manifest.get("run_mode", "") or manifest_context.get("run_mode", "") or ""),
         "claim_surface": str(manifest.get("claim_surface", "") or manifest_context.get("claim_surface", "") or ""),
+        "claim_surface_label": claim_surface_label,
         "run_started_at_utc": str(manifest.get("run_started_at_utc", "") or manifest_context.get("run_started_at_utc", "") or manifest.get("timestamp_utc", "") or ""),
         "profile_id": profile_id,
         "run_status": run_status_raw,
@@ -638,6 +692,7 @@ def finalize_pipeline_observability(
         "benchmark_support_excluded_families_top": benchmark_support_top_preview,
         "visible_family_count": visible_family_count,
         "benchmark_trainable_family_count": benchmark_trainable_family_count,
+        "modeled_family_class_count": modeled_family_class_count,
         "visible_type_count": visible_type_count,
         "family_conflict_count": int(taxonomy_summary_payload.get("taxonomy_mismatch_count", 0) or 0),
         "temporal_future_only_family_drops_top": _format_top_count_pairs(temporal_dropped_family_counts),
@@ -673,7 +728,35 @@ def finalize_pipeline_observability(
             "feature_matrix_cols_post_prune": _coerce_int(feat_post),
             "post_prune": _coerce_int(feat_post),
         },
-        "model": {"top_model": top_model, "top_macro_f1": top_macro_f1},
+        "model": {
+            "top_model": top_model,
+            "top_macro_f1": top_macro_f1,
+            "top_model_primary_metric_name": (
+                model_summary.get("top_model_primary_metric_name")
+                if isinstance(model_summary, dict)
+                else None
+            ),
+            "top_model_primary_metric_value": (
+                model_summary.get("top_model_primary_metric_value")
+                if isinstance(model_summary, dict)
+                else None
+            ),
+            "top_model_primary_metric_tier": (
+                model_summary.get("top_model_primary_metric_tier")
+                if isinstance(model_summary, dict)
+                else None
+            ),
+            "top_model_weighted_f1_tier": (
+                model_summary.get("top_model_weighted_f1_tier")
+                if isinstance(model_summary, dict)
+                else None
+            ),
+            "top_model_accuracy_tier": (
+                model_summary.get("top_model_accuracy_tier")
+                if isinstance(model_summary, dict)
+                else None
+            ),
+        },
         "model_summary": model_summary,
         "scientific_adequacy": {
             "posture": scientific_adequacy,
@@ -693,7 +776,7 @@ def finalize_pipeline_observability(
         "research_warnings": research_warn_combined,
         "paper_blockers": paper_blockers_list,
         "top_artifacts_to_open_first": top_open,
-        "claim_audit_summary": str(diagnostics_dir / "paper_claim_audit.md"),
+        "claim_audit_summary": str(diagnostics_dir / claim_audit_alias),
         "figure_audit_summary": str(diagnostics_dir / "figure_validity_audit.md"),
         "cohort_population_warning": cohort_warn if cohort_warn is not None else "",
         "cohort_funnel_plain": cohort_funnel_plain,

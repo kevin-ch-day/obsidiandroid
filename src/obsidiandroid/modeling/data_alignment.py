@@ -433,7 +433,7 @@ def extract_aligned_labels(
     if verbose:
         du.print_info(f"Classification Label Summary ({label_col})")
         du.print_stat("Total Samples", len(labels))
-        du.print_stat("Unique label classes", labels.nunique())
+        du.print_stat("Unique modeled label classes", labels.nunique())
         top = labels.value_counts().head(5)
         du.print_stat("Top labels", ", ".join(f"{fam} ({cnt})" for fam, cnt in top.items()))
 

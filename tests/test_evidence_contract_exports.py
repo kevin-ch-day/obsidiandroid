@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -15,6 +16,7 @@ from obsidiandroid.diagnostics import headline_evaluation_export
 from obsidiandroid.modeling import model_trainer_factory
 from obsidiandroid.pipeline.manifest.confusion_matrix_paths import find_primary_confusion_matrix
 from obsidiandroid.pipeline import stage_manifest
+from obsidiandroid.pipeline.manifest import stage_manifest_writers
 
 
 def test_headline_split_ledger_unchanged_after_ablation_ledger_export(
@@ -244,3 +246,98 @@ def test_headline_test_predictions_prefer_runtime_label_name_map(
     pred_df = pd.read_csv(pred_p)
     assert pred_df.iloc[0]["true_label_name"] == "Irata"
     assert pred_df.iloc[0]["predicted_label_name"] == "RoamingMantis"
+
+
+def test_headline_test_predictions_export_confidence_audit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    X_test = pd.DataFrame({"perm__x": [1.0, 0.0, 1.0]}, index=[10, 11, 12])
+    y_true = np.array([0, 1, 0])
+    y_pred = np.array([0, 0, 1])
+    enc = MagicMock()
+    enc.classes_ = np.array([0, 1])
+    enc.inverse_transform.side_effect = lambda arr: np.array([f"cls_{int(x)}" for x in arr])
+
+    model = MagicMock()
+    model.predict_proba.return_value = np.array(
+        [
+            [0.999, 0.001],
+            [0.995, 0.005],
+            [0.60, 0.40],
+        ]
+    )
+    results = {
+        "random_forest": {
+            "model": model,
+            "X_test": X_test,
+            "y_test": y_true,
+            "label_encoder": enc,
+            "evaluation": {"y_true": y_true, "y_pred": y_pred},
+        }
+    }
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_HEADLINE_SPLIT_METADATA",
+        {"split_hash": "cc" * 32},
+        raising=False,
+    )
+    monkeypatch.setattr(app_config, "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH", "ff", raising=False)
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_SPLIT_SAMPLE_METADATA",
+        pd.DataFrame({"sample_id": [10, 11, 12]}),
+        raising=False,
+    )
+
+    pred_p, err_p = headline_evaluation_export.export_headline_test_tables(
+        results=results,
+        promoted_model_key="random_forest",
+        diagnostics_dir=tmp_path,
+        run_id="evidence_conf",
+        label_field="family_id",
+    )
+
+    assert pred_p is not None and err_p is not None
+    audit_path = tmp_path / "headline_confidence_audit_evidence_conf.json"
+    bucket_path = tmp_path / "headline_confidence_buckets_evidence_conf.csv"
+    assert audit_path.exists()
+    assert bucket_path.exists()
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert audit["confidence_available"] is True
+    assert audit["total_predictions"] == 3
+    assert audit["total_errors"] == 2
+    assert audit["high_confidence_error_count_0_95"] == 1
+    assert audit["high_confidence_error_count_0_99"] == 1
+    bucket_df = pd.read_csv(bucket_path)
+    assert set(bucket_df.columns) == {
+        "confidence_bucket",
+        "prediction_count",
+        "error_count",
+        "error_rate",
+    }
+
+
+def test_evaluation_contract_registers_headline_confidence_audit(tmp_path: Path) -> None:
+    diagnostics_dir = tmp_path / "diag"
+    diagnostics_dir.mkdir(parents=True)
+    run_id = "contract_conf"
+    (diagnostics_dir / f"headline_test_predictions_{run_id}.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+    (diagnostics_dir / f"headline_test_errors_{run_id}.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+    (diagnostics_dir / f"headline_confidence_audit_{run_id}.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / f"headline_confidence_buckets_{run_id}.csv").write_text(
+        "confidence_bucket,prediction_count,error_count,error_rate\n[0.95,0.99),1,1,1.0\n",
+        encoding="utf-8",
+    )
+
+    out = stage_manifest_writers.write_evaluation_contract_json(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        manifest={},
+        manifest_context={},
+    )
+
+    assert out is not None
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    tables = payload["headline_test_tables"]
+    assert tables["confidence_audit_json_exists"] is True
+    assert tables["confidence_bucket_csv_exists"] is True

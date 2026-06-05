@@ -143,6 +143,34 @@ def test_print_family_distribution_stats_prefers_family_canonical(monkeypatch) -
     assert any("family_canonical" in message for message in infos)
 
 
+def test_print_family_distribution_stats_explains_unknown_bucket(monkeypatch) -> None:
+    infos: list[str] = []
+
+    monkeypatch.setattr(app_config, "ML_TERMINAL_COMPACT", False, raising=False)
+    monkeypatch.setattr(app_config, "ML_CONSOLE_MODE", "debug", raising=False)
+    monkeypatch.setattr(family_distribution_report.du, "print_subheader", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(family_distribution_report.du, "print_warning", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(family_distribution_report.du, "print_success", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        family_distribution_report.du,
+        "print_info",
+        lambda message: infos.append(str(message)),
+    )
+    monkeypatch.setattr(family_distribution_report.du, "print_stat", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        family_distribution_report,
+        "_export_family_distribution_report",
+        lambda *_args, **_kwargs: None,
+    )
+
+    df = pd.DataFrame({"family_canonical": ["CanonA", None, "", "CanonB"]})
+
+    family_distribution_report.print_family_distribution_stats(df)
+
+    assert any("unique family labels on the pre-training reporting surface" in message for message in infos)
+    assert any("includes the `unknown` family bucket" in message for message in infos)
+
+
 def test_print_family_distribution_stats_compact_benchmark_mode_summarizes(monkeypatch) -> None:
     stats: list[tuple[str, object]] = []
     infos: list[str] = []

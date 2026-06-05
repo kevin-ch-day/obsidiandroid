@@ -89,18 +89,57 @@ def _reporting_output_root(*, diagnostics_dir: Path, run_id: str) -> Path:
 
 def _claim_readiness_context(profile_id: str, manifest_context: Mapping[str, Any], samples_df: pd.DataFrame) -> tuple[str, str]:
     """Return terminal heading and machine-readable primary surface label."""
-    publication_ready_mode = bool(
-        manifest_context.get("publication_ready_mode")
-        or manifest_context.get("evidence_mode")
+    profile = str(profile_id or "").strip()
+    publication_active = bool(
+        manifest_context.get("evidence_mode")
+        or manifest_context.get("paper_mode")
     )
-    if publication_ready_mode:
+    if publication_active:
         return "PUBLICATION CLAIM READINESS", "locked_publication_surface"
+    if profile == "android_malware_type_taxonomy":
+        return "BENCHMARK CLAIM READINESS", "type_taxonomy_surface"
+    if profile == "android_malware_expanded_families":
+        return "RESEARCH CLAIM READINESS", "expanded_family_exploratory"
     support_floor_mode = str(samples_df.attrs.get("support_floor_mode", "") or "").strip().lower()
     if support_floor_mode == "benchmark_eligibility":
         return "BENCHMARK CLAIM READINESS", "major_family_benchmark"
-    if str(profile_id or "").strip() == "android_malware_all_current":
-        return "CORPUS DIAGNOSTIC READINESS", "broad_current_corpus"
-    return "BENCHMARK CLAIM READINESS", "benchmark_surface"
+    if profile == "android_malware_all_current":
+        return "RESEARCH CLAIM READINESS", "broad_current_corpus"
+    return "RESEARCH CLAIM READINESS", "benchmark_surface"
+
+
+def _claim_status_code(
+    readiness_heading: str,
+    readiness_blockers: Sequence[str],
+) -> str:
+    """Return compact terminal claim-readiness status."""
+    heading = str(readiness_heading or "").strip().lower()
+    blockers = [str(item).strip() for item in readiness_blockers if str(item).strip()]
+    if heading == "strong":
+        return "STRONG_WITH_CAUTIONS" if blockers else "STRONG"
+    if heading == "mixed":
+        return "MIXED"
+    if heading == "weak":
+        return "LIMITED"
+    return "NOT_ASSESSED"
+
+
+def _claim_surface_label(*, profile_id: str, readiness_surface: str) -> str:
+    """Return concise operator wording for the active claim surface."""
+    profile = str(profile_id or "").strip()
+    if readiness_surface == "locked_publication_surface":
+        return "Locked publication cohort"
+    if profile == "android_malware_all_current":
+        return "Current-corpus diagnostic surface"
+    if profile == "android_malware_major_families":
+        return "Support-gated benchmark cohort"
+    if profile == "android_malware_expanded_families":
+        return "Expanded-family exploratory cohort"
+    if profile == "android_malware_type_taxonomy":
+        return "Type taxonomy benchmark"
+    if readiness_surface == "major_family_benchmark":
+        return "Support-gated benchmark cohort"
+    return "Benchmark research surface"
 
 
 def _write_claim_readiness_summary_json(
@@ -112,6 +151,13 @@ def _write_claim_readiness_summary_json(
     path = diagnostics_dir / f"claim_readiness_summary_{run_id}.json"
     path.write_text(json.dumps(dict(payload), indent=2, sort_keys=True), encoding="utf-8")
     return path
+
+
+def _emit_structured_block(lines: Sequence[str], print_fn: Callable[[str], None] | None) -> None:
+    """Render a multiline structured terminal block without collapsing it."""
+    emitter = print if print_fn is None else print_fn
+    for line in lines:
+        emitter(str(line))
 
 
 def _write_backlog_debt_summary_md(
@@ -1010,40 +1056,58 @@ def emit_research_operator_report(
 
     lines_strong = []
     caution = [
-        "Frame family-level results as benchmark-surface claims, not claims about every Android malware family in the broad corpus.",
-        "Lead interpretation with Macro-F1, balanced accuracy, per-family recall, confusion pairs, and benchmark support exclusions.",
-        "Do not use raw label fields as primary scientific targets; use authoritative `type_slug` for type claims.",
-        "Vendor-derived parsed family/type strings may echo labels; interpret them separately from detection binaries, consensus scores, and permission features.",
-        "Headline metrics and ablation metrics are comparable only when the feature-set contract and sample universe match.",
+        "Do not generalize benchmark-surface results to every Android malware family in the broad corpus.",
+        "Lead with Macro-F1, balanced accuracy, per-family recall, and top confusion pairs.",
+        "Treat raw vendor-parsed labels as audit evidence, not primary scientific targets.",
+        "Compare headline and ablation metrics only when the sample universe and feature contract match.",
+    ]
+    unsupported = [
+        "Broad claims about every Android malware family in the full corpus.",
+        "Runtime behavior or ATT&CK technique confirmation without runtime evidence.",
+        "Benign-app comparison claims.",
+        "Deep-learning or inference-mode claims.",
     ]
     if readiness_surface == "major_family_benchmark":
-        lines_strong.append(
-            f"Major-family benchmark surface is suitable for supervised family reporting on **{active_cls or '—'}** active benchmark classes."
-        )
+        lines_strong.append("Family classification can be reported on the support-gated benchmark surface.")
     elif readiness_surface == "broad_current_corpus":
-        lines_strong.append(
-            "Broad current-corpus surface is suitable for diagnostics, residue discovery, and permission-pattern analysis."
-        )
+        lines_strong.append("This run describes current governed Android malware corpus health.")
+        lines_strong.append("Family/type models are diagnostic because the current corpus is concentration-heavy.")
+        lines_strong.append("Use benchmark profiles for stronger family-classification claims.")
         caution.append(
             "Treat current-corpus results as diagnostic/research evidence, not as a benchmark-quality family leaderboard across the full long-tail family surface."
         )
     elif readiness_surface == "locked_publication_surface":
-        lines_strong.append(
-            f"Locked publication surface is the claim-bearing cohort for **{active_cls or '—'}** active benchmark classes."
-        )
+        lines_strong.append("Family classification can be reported on the locked publication/evidence cohort.")
+        unsupported = [
+            "Claims outside the locked cohort and frozen split.",
+            "Runtime behavior or ATT&CK technique confirmation without runtime evidence.",
+            "Benign-app comparison claims.",
+            "Deep-learning or inference-mode claims.",
+        ]
+    elif readiness_surface == "type_taxonomy_surface":
+        lines_strong.append("Type-level claims use `type_slug` as the authoritative target.")
+        lines_strong.append("Type-level patterns may be stronger and more stable than family-level patterns on this surface.")
+        unsupported = [
+            "Locked publication claims unless a locked evidence profile is used.",
+            "Runtime behavior or ATT&CK technique confirmation without runtime evidence.",
+            "Benign-app comparison claims.",
+            "Deep-learning or inference-mode claims.",
+        ]
     else:
-        lines_strong.append(
-            f"Current benchmark surface is suitable for supervised family reporting on **{active_cls or '—'}** active classes."
-        )
+        if str(profile_id or "").strip() == "android_malware_expanded_families":
+            lines_strong.append("Expanded family results include major and minor families and require stronger caveats.")
+            lines_strong.append("Do not compare directly against locked publication cohorts unless the sample universe matches.")
+        else:
+            lines_strong.append("Family classification can be reported on the active governed research surface.")
+        caution.append("Treat permission-to-behavior or ATT&CK statements as hypotheses unless runtime evidence exists.")
     lines_strong.append(
-        "Permission features carry strong independent signal and should be treated as a first-class capability-analysis layer."
+        "Permission features are available as a first-class capability-analysis layer; strength should be interpreted from the permission-pattern and ablation reports."
     )
     if label_strategy:
         avoid = label_strategy.get("avoid_for_primary_claims", [])
-        alignment_note = str(label_strategy.get("alignment_interpretation", "") or "").strip()
         if family_target and type_target:
             lines_strong.append(
-                f"Label policy is explicit: family benchmark target=`{family_target}`; coarse taxonomy target=`{type_target}`."
+                f"Family/type targets are governed: `{family_target}` for family claims, `{type_target}` for type claims."
             )
         if isinstance(avoid, list) and avoid:
             caution.append(
@@ -1051,65 +1115,121 @@ def emit_research_operator_report(
                 + ", ".join(f"`{str(item)}`" for item in avoid)
                 + " into primary scientific claim targets."
             )
-        if alignment_note:
-            caution.append(alignment_note)
     nxt = [
-        "Review top confusion pairs and lowest-recall families.",
-        "Compare permission-only, vendor-safe, and fused feature performance on the frozen split.",
-        "Generate permission-pattern reports by type_slug, family_canonical, and family-within-type.",
+        "Review lowest-recall families and top confusion pairs.",
+        "Compare permission-only, vendor-safe, and fused feature performance.",
+        "Review permission-pattern reports by type_slug, family, and family-within-type.",
     ]
     readiness_heading, readiness_blockers = _claim_readiness_posture(
         bundle=bundle,
         runtime_temporal_summary=getattr(app_config, "RUNTIME_TEMPORAL_SPLIT_SUMMARY", None),
     )
-    claim_status = readiness_heading.replace("Needs guarded language", "Guarded").replace("Strong", "Strong")
-    primary_surface_label = {
-        "major_family_benchmark": "Major-family Android malware classification",
-        "broad_current_corpus": "Current Android malware — all samples",
-        "locked_publication_surface": "Locked publication cohort",
-        "benchmark_surface": "Benchmark classification surface",
-    }.get(readiness_surface, "Benchmark classification surface")
-    du.print_stat("Overall claim status", claim_status)
-    du.print_stat("Primary surface", primary_surface_label)
-    if active_cls:
-        du.print_stat("Active benchmark family classes", active_cls)
-    if visible_family_count not in (None, "", "—"):
-        du.print_stat("Visible governed families", visible_family_count)
-    if benchmark_support_floor > 0:
-        du.print_stat("Benchmark support rule", f"n >= {benchmark_support_floor} per family")
+    claim_status = _claim_status_code(readiness_heading, readiness_blockers)
+    primary_surface_label = _claim_surface_label(
+        profile_id=str(profile_id or ""),
+        readiness_surface=readiness_surface,
+    )
+    eligible_family_classes = int(active_cls) if str(active_cls).isdigit() else None
+    visible_family_classes = int(visible_family_count) if str(visible_family_count).isdigit() else None
+    modeled_family_classes = None
+    if readiness_surface == "broad_current_corpus" and visible_family_classes is not None:
+        modeled_family_classes = visible_family_classes
+    excluded_family_classes = None
+    if visible_family_classes is not None and eligible_family_classes is not None:
+        excluded_family_classes = max(0, visible_family_classes - eligible_family_classes)
+    details_name = (
+        "publication_claim_audit.md"
+        if readiness_surface == "locked_publication_surface"
+        else "benchmark_claim_audit.md"
+        if readiness_surface in {"major_family_benchmark", "type_taxonomy_surface"}
+        else "research_claim_audit.md"
+    )
+
+    block_lines = [
+        "",
+        f"Claim status                    : {claim_status}",
+        f"Claim surface                   : {primary_surface_label}",
+    ]
+    if eligible_family_classes is not None:
+        block_lines.append(
+            f"Claim-eligible family classes   : {eligible_family_classes}"
+        )
+    if visible_family_classes is not None:
+        block_lines.append(
+            f"Visible governed families       : {visible_family_classes}"
+        )
+    if modeled_family_classes is not None:
+        block_lines.append(
+            f"Modeled family classes          : {modeled_family_classes}"
+        )
+    if excluded_family_classes not in (None, 0):
+        block_lines.append(
+            f"Excluded / non-claim families   : {excluded_family_classes}"
+        )
+        block_lines.append(
+            "Note                            : Difference reflects excluded or non-claim family buckets, such as `unknown`."
+        )
     if family_target:
-        du.print_stat("Primary family target", family_target)
+        block_lines.append(f"Primary family target           : {family_target}")
     if type_target:
-        du.print_stat("Primary type target", type_target)
-    pr("")
-    pr(readiness_heading)
-    pr("")
-    pr("Supported claims")
-    for item in lines_strong:
-        pr(f"  + {item}")
-    if readiness_heading != "Strong":
-        for blocker in readiness_blockers:
-            pr(f"  ! {blocker}.")
-    pr("")
-    pr("Caution required")
-    for item in caution:
-        pr(f"  ! {item}")
-    pr("")
-    pr("Next analysis")
-    for item in nxt:
-        pr(f"  → {item}")
+        block_lines.append(f"Primary type target             : {type_target}")
+    if benchmark_support_floor > 0:
+        block_lines.append(
+            f"Benchmark support rule          : n >= {benchmark_support_floor} per family"
+        )
+
+    block_lines.extend(
+        [
+            "",
+            "SUPPORTED CLAIMS",
+            "----------------",
+            *[f"✓ {item}" for item in lines_strong],
+            "",
+            "CLAIM LIMITS",
+            "------------",
+            *[f"! {item}" for item in caution[:4]],
+        ]
+    )
+    if readiness_blockers:
+        block_lines.extend(f"! {blocker}." for blocker in readiness_blockers[:3])
+    block_lines.extend(
+        [
+            "",
+            "NOT SUPPORTED BY THIS RUN",
+            "-------------------------",
+            *[f"× {item}" for item in unsupported[:4]],
+            "",
+            "NEXT REVIEW",
+            "-----------",
+            *[f"→ {item}" for item in nxt],
+            "",
+            f"Details                         : diagnostics/{details_name}",
+        ]
+    )
+    _emit_structured_block(block_lines, print_fn)
     claim_readiness_payload = {
-        "claim_status": str(claim_status).strip().lower().replace(" ", "_"),
+        "claim_status": claim_status,
+        "claim_surface": primary_surface_label,
         "primary_surface": readiness_surface,
         "benchmark_family_support_floor": benchmark_support_floor if benchmark_support_floor > 0 else None,
         "family_claim_surface": family_target or None,
         "type_claim_surface": type_target or None,
-        "permission_claim_status": "strong_independent_signal",
-        "publication_ready": bool(manifest_context.get("publication_ready_mode") or manifest_context.get("evidence_mode")),
+        "permission_claim_status": "capability_analysis_layer_available",
+        "publication_ready": bool(manifest_context.get("evidence_mode") or manifest_context.get("paper_mode")),
         "paper_locked": bool(manifest_context.get("paper_locked")),
-        "benchmark_family_classes": int(active_cls) if str(active_cls).isdigit() else None,
+        "claim_eligible_family_classes": eligible_family_classes,
+        "visible_governed_family_classes": visible_family_classes,
+        "modeled_family_classes": modeled_family_classes,
+        "excluded_non_claim_family_classes": excluded_family_classes,
         "benchmark_support_excluded_samples": benchmark_support_excluded_sample_count,
         "benchmark_support_excluded_families": benchmark_support_excluded_family_count,
+        "details_artifact": details_name,
+        "supported_claims": list(lines_strong),
+        "claim_limits": caution[:4],
+        "unsupported_claims": unsupported[:4],
+        "next_review": list(nxt),
+        "run_mode": str(manifest_context.get("run_mode", "") or getattr(app_config, "RUNTIME_RUN_MODE", "") or ""),
+        "profile_id": str(profile_id or ""),
     }
     claim_readiness_path = _write_claim_readiness_summary_json(
         diagnostics_dir=diagnostics_dir,

@@ -25,6 +25,35 @@ from obsidiandroid.common.publication_readiness import evaluate_publication_read
 from obsidiandroid.common import ml_console
 
 
+def _claim_surface_label(*, profile_id: str, evidence_mode: bool, paper_mode: bool) -> str:
+    """Return a human-readable claim surface label for index artifacts."""
+    profile = str(profile_id or "").strip()
+    if bool(evidence_mode or paper_mode):
+        return "Locked publication cohort"
+    if profile == "android_malware_all_current":
+        return "Current-corpus diagnostic surface"
+    if profile == "android_malware_major_families":
+        return "Support-gated benchmark cohort"
+    if profile == "android_malware_expanded_families":
+        return "Expanded-family exploratory cohort"
+    if profile == "android_malware_type_taxonomy":
+        return "Type taxonomy benchmark"
+    return "Benchmark research surface"
+
+
+def _claim_audit_alias_name(*, profile_id: str, evidence_mode: bool, paper_mode: bool) -> str:
+    """Return the profile-appropriate claim audit alias for index artifacts."""
+    if bool(evidence_mode or paper_mode):
+        return "publication_claim_audit.md"
+    profile = str(profile_id or "").strip()
+    if profile in {
+        "android_malware_major_families",
+        "android_malware_type_taxonomy",
+    }:
+        return "benchmark_claim_audit.md"
+    return "research_claim_audit.md"
+
+
 def _iter_files(root: Path) -> list[Path]:
     if not root.is_dir():
         return []
@@ -326,6 +355,27 @@ def write_run_evidence_index_md(
     """First-stop Markdown summary for researchers."""
     summary_obs = _load_json(diagnostics_dir / "run_observability_summary.json")
     counts_mirror = summary_obs.get("counts") if isinstance(summary_obs.get("counts"), dict) else {}
+    claim_surface_label = str(
+        summary_obs.get("claim_surface_label")
+        or _claim_surface_label(
+            profile_id=profile_id,
+            evidence_mode=bool(paper_mode),
+            paper_mode=bool(paper_mode),
+        )
+    )
+    claim_audit_name = str(
+        Path(
+            str(
+                summary_obs.get("claim_audit_summary")
+                or diagnostics_dir
+                / _claim_audit_alias_name(
+                    profile_id=profile_id,
+                    evidence_mode=bool(paper_mode),
+                    paper_mode=bool(paper_mode),
+                )
+            )
+        ).name
+    )
 
     cohort_display = cohort_size
     if counts_mirror.get("cohort_prepared_row_count") is not None:
@@ -394,7 +444,7 @@ def write_run_evidence_index_md(
     lines = [
         "# Run evidence index",
         "",
-        "**Open this file first.** It routes you to cohort definitions, audits, and publication-ready artifacts.",
+        "**Open this file first.** It routes you to cohort definitions, claim audits, and the authoritative run summaries.",
         "",
         "**Canonical rollup:** `run_observability_summary.json` in diagnostics (mirror of observability verdicts; aligns with terminal **Run Health**).",
         "",
@@ -402,7 +452,9 @@ def write_run_evidence_index_md(
         "",
         f"- **run_id:** `{run_id}`",
         f"- **profile:** `{profile_id}`",
+        f"- **claim_surface:** `{claim_surface_label}`",
         f"- **evidence / publication-ready mode:** `{'on' if paper_mode else 'off'}`",
+        f"- **claim_audit_summary:** `{diagnostics_dir / claim_audit_name}`",
         "",
         "## Observability mirror (from run_observability_summary.json when present)",
         "",
@@ -538,6 +590,27 @@ def write_run_science_index_md(
         for row in (provenance.get("entries") if isinstance(provenance.get("entries"), list) else [])
         if not bool(row.get("generated_during_pipeline", False))
     ]
+    claim_surface_label = str(
+        summary_obs.get("claim_surface_label")
+        or _claim_surface_label(
+            profile_id=profile_id,
+            evidence_mode=bool(evidence_mode),
+            paper_mode=bool(evidence_mode),
+        )
+    )
+    claim_audit_name = str(
+        Path(
+            str(
+                summary_obs.get("claim_audit_summary")
+                or diagnostics_dir
+                / _claim_audit_alias_name(
+                    profile_id=profile_id,
+                    evidence_mode=bool(evidence_mode),
+                    paper_mode=bool(evidence_mode),
+                )
+            )
+        ).name
+    )
 
     mode_tags: list[str] = ["evidence" if evidence_mode else "exploratory"]
     if cohort_locked:
@@ -574,6 +647,8 @@ def write_run_science_index_md(
         "",
         f"- run_id: `{run_id}`",
         f"- profile_id: `{profile_id}`",
+        f"- claim_surface: `{claim_surface_label}`",
+        f"- claim_audit_summary: `{diagnostics_dir / claim_audit_name}`",
         f"- mode: `{', '.join(mode_tags)}`",
         "",
         "## Authoritative files",

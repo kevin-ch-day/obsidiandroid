@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pandas as pd
+
 
 SUPPORT_FLOOR_MODE_MEMBERSHIP_GATE = "membership_gate"
 SUPPORT_FLOOR_MODE_DIAGNOSTIC_ONLY = "diagnostic_only"
@@ -11,10 +13,21 @@ SUPPORT_FLOOR_MODE_BENCHMARK_ELIGIBILITY = "benchmark_eligibility"
 SUPPORT_DIAGNOSTIC_FLOORS: tuple[int, ...] = (20, 10, 5, 3, 1)
 
 
-def resolve_support_floor_mode(gates: dict[str, Any] | None) -> str:
-    """Return normalized support-floor mode for the cohort gates."""
+def resolve_support_floor_mode(
+    gates: dict[str, Any] | None,
+    *,
+    samples_df: pd.DataFrame | None = None,
+) -> str:
+    """Return normalized support-floor mode for the cohort gates.
+
+    ``samples_df`` is accepted for backward compatibility with reporting callers
+    that resolve the active support-floor mode from dataframe attrs after
+    preparation. Explicit gate configuration still takes precedence.
+    """
     payload = gates if isinstance(gates, dict) else {}
     token = str(payload.get("support_floor_mode", "") or "").strip().lower()
+    if not token and isinstance(samples_df, pd.DataFrame):
+        token = str(samples_df.attrs.get("support_floor_mode", "") or "").strip().lower()
     if token == SUPPORT_FLOOR_MODE_DIAGNOSTIC_ONLY:
         return SUPPORT_FLOOR_MODE_DIAGNOSTIC_ONLY
     if token == SUPPORT_FLOOR_MODE_BENCHMARK_ELIGIBILITY:

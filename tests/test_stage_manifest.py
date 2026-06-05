@@ -825,7 +825,15 @@ def test_finalize_run_manifest_stage_preserves_interrupted_manifest_state(
             "failure_reason": "KeyboardInterrupt",
             "error_type": "KeyboardInterrupt",
             "failure_summary_path": str(failure_summary),
-            "model_summary": {"top_model": "logistic_regression", "top_macro_f1": 0.6928},
+            "model_summary": {
+                "top_model": "logistic_regression",
+                "top_macro_f1": 0.6928,
+                "top_model_primary_metric_name": "macro_f1_score",
+                "top_model_primary_metric_value": 0.6928,
+                "top_model_primary_metric_tier": "T7 - Weak but Functional (65-69%)",
+                "top_model_weighted_f1_tier": "T2 - Very Strong (90-94%)",
+                "top_model_accuracy_tier": "T2 - Very Strong (90-94%)",
+            },
             "trained_model_count": 3,
         },
         profile={"profile_id": "android_malware_all_current", "evidence_mode": False},
@@ -846,6 +854,7 @@ def test_finalize_run_manifest_stage_preserves_interrupted_manifest_state(
     assert manifest["top_model"] == "logistic_regression"
     assert manifest["top_model_primary_metric_name"] == "macro_f1_score"
     assert manifest["top_model_primary_metric_value"] == 0.6928
+    assert manifest["top_model_primary_metric_tier"] == "T7 - Weak but Functional (65-69%)"
     assert manifest["failure_summary_path"] == str(failure_summary)
     assert manifest["training_completed_before_terminal"] is True
 
@@ -883,7 +892,13 @@ def test_write_run_summary_json_creates_canonical_and_latest(
             "cohort_size": 1226,
             "selected_vendor_count": 8,
             "vendor_constrained_run_flag": False,
-            "model_summary": {"top_model": "xgboost", "top_macro_f1": 0.91},
+            "model_summary": {
+                "top_model": "xgboost",
+                "top_macro_f1": 0.91,
+                "top_model_primary_metric_name": "macro_f1_score",
+                "top_model_primary_metric_value": 0.91,
+                "top_model_primary_metric_tier": "T2 - Very Strong (90-94%)",
+            },
             "paper_mode": {"resolved_value": True},
             "evidence_mode": True,
         },
@@ -900,6 +915,8 @@ def test_write_run_summary_json_creates_canonical_and_latest(
     assert payload["run_status"] == "failed"
     assert payload["pipeline_verdict"] == "FAILED"
     assert payload["failure_reason"] == "training crashed"
+    assert payload["claim_surface_label"] == "Locked publication cohort"
+    assert payload["claim_audit_summary"].endswith("publication_claim_audit.md")
 
 
 def test_write_run_summary_json_preserves_interrupted_terminal_state(
@@ -944,7 +961,15 @@ def test_write_run_summary_json_preserves_interrupted_terminal_state(
             "cohort_size": 1226,
             "selected_vendor_count": 8,
             "vendor_constrained_run_flag": False,
-            "model_summary": {"top_model": "logistic_regression", "top_macro_f1": 0.6928},
+            "model_summary": {
+                "top_model": "logistic_regression",
+                "top_macro_f1": 0.6928,
+                "top_model_primary_metric_name": "macro_f1_score",
+                "top_model_primary_metric_value": 0.6928,
+                "top_model_primary_metric_tier": "T7 - Weak but Functional (65-69%)",
+                "top_model_weighted_f1_tier": "T2 - Very Strong (90-94%)",
+                "top_model_accuracy_tier": "T2 - Very Strong (90-94%)",
+            },
             "trained_models": ["random_forest", "xgboost", "logistic_regression"],
             "paper_mode": {"resolved_value": False},
             "evidence_mode": False,
@@ -964,6 +989,43 @@ def test_write_run_summary_json_preserves_interrupted_terminal_state(
     assert payload["top_model_primary_metric_value"] == 0.6928
     assert payload["training_completed_before_terminal"] is True
     assert payload["failure_summary_path"] == str(failure_summary)
+    assert payload["claim_surface_label"] == "Current-corpus diagnostic surface"
+    assert payload["claim_audit_summary"].endswith("research_claim_audit.md")
+
+
+def test_write_run_summary_json_marks_expanded_profile_as_exploratory(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_root = tmp_path / "output" / "runs" / "r_expanded"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(
+        stage_manifest.app_config,
+        "RUNTIME_OUTPUT_ROOT_BASE",
+        str(tmp_path / "output"),
+        raising=False,
+    )
+    out_path = stage_manifest._write_run_summary_json(  # pylint: disable=protected-access
+        run_root=run_root,
+        diagnostics_dir=diagnostics_dir,
+        manifest_context={"run_id": "r_expanded", "timestamp_utc": "2026-03-21T00:00:00Z"},
+        manifest={
+            "run_id": "r_expanded",
+            "timestamp_utc": "2026-03-21T00:00:00Z",
+            "profile_params": {"profile_id": "android_malware_expanded_families"},
+            "cohort_size": 640,
+            "model_summary": {},
+            "paper_mode": {"resolved_value": False},
+            "evidence_mode": False,
+        },
+        result_code=0,
+    )
+
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    assert payload["claim_surface_label"] == "Expanded-family exploratory cohort"
+    assert payload["claim_audit_summary"].endswith("research_claim_audit.md")
 
 
 def test_write_run_summary_json_omits_diagnostics_copy_in_compact_mode(
@@ -1217,6 +1279,9 @@ def test_write_run_summary_onepager_creates_run_and_latest(tmp_path: Path) -> No
     assert "pipeline_verdict: `PASS`" in text
     assert "run_slot: `majorfam_benchmark`" in text
     assert "run_mode: `diagnostic`" in text
+    assert "claim_surface: `Locked publication cohort`" in text
+    assert "claim_audit_summary:" in text
+    assert "publication_claim_audit.md" in text
     assert "top_model: `logistic_regression`" in text
 
 
@@ -1281,6 +1346,8 @@ def test_write_run_summary_onepager_marks_interrupted_terminal_state(tmp_path: P
     assert "error_type: `KeyboardInterrupt`" in text
     assert "training_completed_before_terminal: `True`" in text
     assert "failure_summary_path:" in text
+    assert "claim_surface: `Current-corpus diagnostic surface`" in text
+    assert "research_claim_audit.md" in text
     assert "top_model: `logistic_regression`" in text
 
 

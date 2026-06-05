@@ -609,6 +609,36 @@ def test_open_first_hints_respects_compact_tuning_flags(tmp_path: Path) -> None:
     assert str(run_root / "logging_audit.md") not in hints
 
 
+def test_open_first_hints_prefers_resolved_claim_audit_summary(tmp_path: Path) -> None:
+    run_root = tmp_path / "output" / "runs" / "r_claim_hint"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    evidence = run_root / "run_evidence_index.md"
+    evidence.write_text("# evidence\n", encoding="utf-8")
+    for name in (
+        "benchmark_claim_audit.md",
+        "research_claim_audit.md",
+        "publication_claim_audit.md",
+        "paper_claim_audit.md",
+        "cohort_funnel.md",
+        "pipeline_stage_summary.md",
+    ):
+        (run_root / name).write_text("x\n", encoding="utf-8")
+
+    hints = run_health._open_first_hints(  # pylint: disable=protected-access
+        evidence,
+        run_root / "logging_audit.md",
+        verbose_run_artifacts=False,
+        research_validity_enabled=True,
+        claim_audit_summary=str(run_root / "research_claim_audit.md"),
+    )
+
+    assert str(run_root / "research_claim_audit.md") in hints
+    research_ix = hints.index(str(run_root / "research_claim_audit.md"))
+    benchmark_ix = hints.index(str(run_root / "benchmark_claim_audit.md"))
+    assert research_ix < benchmark_ix
+
+
 def test_print_unified_run_health_labels_manifest_finalize_timing(tmp_path: Path, capsys) -> None:
     run_root = tmp_path / "output" / "runs" / "r_integrity"
     diagnostics_dir = run_root / "diagnostics"
@@ -663,8 +693,18 @@ def test_print_unified_run_health_marks_current_corpus_as_diagnostic_surface(
                 "run_status": "complete",
                 "research_validity_status": "PASS",
                 "hostile_audit_status": "PASS",
+                "claim_surface_label": "Current-corpus diagnostic surface",
                 "visible_family_count": 115,
                 "benchmark_trainable_family_count": 80,
+                "modeled_family_class_count": 115,
+                "model_summary": {
+                    "top_model": "logistic_regression",
+                    "top_macro_f1": 0.6928,
+                    "top_model_primary_metric_name": "macro_f1_score",
+                    "top_model_primary_metric_tier": "T7 - Weak but Functional (65-69%)",
+                    "top_model_weighted_f1_tier": "T2 - Very Strong (90-94%)",
+                    "top_model_accuracy_tier": "T2 - Very Strong (90-94%)",
+                },
                 "paper_mode": False,
                 "evidence_mode": False,
                 "publication_ready_status": "NOT_APPLICABLE",
@@ -685,10 +725,53 @@ def test_print_unified_run_health_marks_current_corpus_as_diagnostic_surface(
 
     out = capsys.readouterr().out
     assert "Current corpus" in out
+    assert "Claim surface" in out
+    assert "Current-corpus diagnostic surface" in out
     assert "avoid benchmark-quality overclaims" in out
-    assert "Visible governed families" in out
-    assert "115" in out
-    assert "Active benchmark family classes" in out
+
+
+def test_print_unified_run_health_prefers_resolved_claim_audit_path(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    run_root = tmp_path / "output" / "runs" / "expandedfam_exploratory"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (diagnostics_dir / "benchmark_claim_audit.md").write_text("benchmark\n", encoding="utf-8")
+    (diagnostics_dir / "research_claim_audit.md").write_text("research\n", encoding="utf-8")
+    obs_path = diagnostics_dir / "run_observability_summary.json"
+    obs_path.write_text(
+        json.dumps(
+            {
+                "run_id": "r_expanded_health",
+                "profile_id": "android_malware_expanded_families",
+                "pipeline_status": "PASS",
+                "run_status": "complete",
+                "research_validity_status": "PASS",
+                "hostile_audit_status": "PASS",
+                "claim_surface_label": "Expanded-family exploratory cohort",
+                "claim_audit_summary": str(diagnostics_dir / "research_claim_audit.md"),
+                "paper_mode": False,
+                "evidence_mode": False,
+                "publication_ready_status": "NOT_APPLICABLE",
+                "publication_ready_reasons": [],
+                "top_artifacts_to_open_first": [],
+                "paths": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_health.print_unified_run_health(
+        inventory_summary={},
+        observability_json_path=obs_path,
+        evidence_index_path=None,
+        run_root=run_root,
+    )
+
+    out = capsys.readouterr().out
+    assert "Claim audit" in out
+    assert "research_claim_audit.md" in out
 
 
 def test_print_unified_run_health_shows_partial_audit_status_on_interrupted_run(

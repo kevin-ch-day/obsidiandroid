@@ -295,6 +295,36 @@ def test_compare_model_performance_ranks_by_macro_f1(monkeypatch) -> None:
     assert summary_df.iloc[0]["Model"] == "model_b"
 
 
+def test_compare_model_performance_uses_primary_metric_for_headline_tier(monkeypatch) -> None:
+    monkeypatch.setattr(app_config, "MODEL_RANK_PRIMARY_METRIC", "macro_f1_score")
+
+    results = {
+        "logistic_regression": {
+            "evaluation": {
+                "accuracy": 0.9209,
+                "precision": 0.9190,
+                "recall": 0.9209,
+                "f1_score": 0.9186,
+                "macro_f1_score": 0.6928,
+                "samples_tested": 100,
+                "num_classes": 80,
+                "accuracy_band": "T2 - Very Strong (90-94%)",
+            }
+        }
+    }
+
+    messages: list[str] = []
+    monkeypatch.setattr(ml_comparator_summary.du, "print_success", lambda msg: messages.append(str(msg)))
+
+    summary_df = ml_comparator_summary.compare_model_performance(results)
+
+    assert summary_df.iloc[0]["Primary Tier"] == "T7 - Weak but Functional (65-69%)"
+    assert summary_df.iloc[0]["Weighted Tier"] == "T2 - Very Strong (90-94%)"
+    assert summary_df.iloc[0]["Accuracy Tier"] == "T2 - Very Strong (90-94%)"
+    assert any("Primary tier: T7 - Weak but Functional (65-69%)" in msg for msg in messages)
+    assert not any("Primary tier: T2 - Very Strong (90-94%)" in msg for msg in messages)
+
+
 def test_model_display_name_aliases() -> None:
     assert ml_comparator_summary._model_display_name("logistic_regression") == "log_reg"  # pylint: disable=protected-access
     assert ml_comparator_summary._model_display_name("balanced_random_forest") == "bal_rf"  # pylint: disable=protected-access

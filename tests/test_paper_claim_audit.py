@@ -67,6 +67,8 @@ def test_write_paper_claim_audit_md_keeps_table_rows_single_line(tmp_path) -> No
     assert "overall_status=pass; checks_pass=2/2" in claim_row
     assert len(claim_row.split("|")) >= 8
     assert (diagnostics_dir / "publication_claim_audit.md").exists()
+    assert (diagnostics_dir / "benchmark_claim_audit.md").exists()
+    assert (diagnostics_dir / "research_claim_audit.md").exists()
 
 
 def test_write_paper_claim_audit_md_can_use_global_latest_ablation_and_model_summary(
@@ -124,3 +126,29 @@ def test_write_paper_claim_audit_md_uses_benchmark_heading_for_non_publication_s
     text = out.read_text(encoding="utf-8")
     assert text.startswith("# Benchmark claim audit (machine-assisted, strict)")
     assert "Primary surface:** major-family benchmark surface" in text
+
+
+def test_write_paper_claim_audit_md_marks_expanded_profile_as_exploratory(tmp_path) -> None:
+    out = write_paper_claim_audit_md(
+        diagnostics_dir=tmp_path,
+        manifest={"profile_params": {"profile_id": "android_malware_expanded_families"}},
+        manifest_context={"benchmark_support_floor": 3, "cohort_prepared_row_count": 640},
+        run_id="run_expanded",
+    )
+
+    text = out.read_text(encoding="utf-8")
+    assert text.startswith("# Expanded-family exploratory claim audit (machine-assisted, strict)")
+    assert "Primary surface:** expanded-family exploratory surface" in text
+
+
+def test_write_paper_claim_audit_md_marks_type_taxonomy_surface(tmp_path) -> None:
+    out = write_paper_claim_audit_md(
+        diagnostics_dir=tmp_path,
+        manifest={"profile_params": {"profile_id": "android_malware_type_taxonomy"}},
+        manifest_context={"benchmark_support_floor": 3, "cohort_prepared_row_count": 640},
+        run_id="run_type_taxonomy",
+    )
+
+    text = out.read_text(encoding="utf-8")
+    assert text.startswith("# Type-taxonomy claim audit (machine-assisted, strict)")
+    assert "Primary surface:** type-taxonomy benchmark surface" in text

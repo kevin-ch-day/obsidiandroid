@@ -80,7 +80,14 @@ def _display_family_distribution_console(
     if ml_console.is_compact():
         max_rows = min(max_rows, 10)
 
-    du.print_info(f"Detected {len(fam_counts)} unique families.")
+    du.print_info(
+        f"Detected {len(fam_counts)} unique family labels on the pre-training reporting surface."
+    )
+    unknown_count = int(fam_counts.get("unknown", 0) or 0)
+    if unknown_count > 0:
+        du.print_info(
+            f"[DISTRIBUTION] Count includes the `unknown` family bucket ({unknown_count:,} sample(s))."
+        )
     if low_support:
         if benchmark_mode:
             du.print_warning(

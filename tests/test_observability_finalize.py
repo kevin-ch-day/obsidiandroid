@@ -181,6 +181,100 @@ def test_finalize_pipeline_observability_preserves_interrupted_status(
     assert blob.get("pipeline_status") == "INTERRUPTED"
 
 
+def test_finalize_pipeline_observability_uses_benchmark_claim_audit_for_benchmark_profile(
+    tmp_path: Path,
+) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    ctx = {
+        "run_id": "r_bench_claim",
+        "_observability_finalized_once": False,
+    }
+    manifest = {"run_id": "r_bench_claim", "cohort_size": 5}
+
+    finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=[],
+        compliance_report={"overall_status": "pass"},
+        paper_mode=False,
+        evidence_mode=False,
+        result_code=0,
+        profile_id="android_malware_major_families",
+    )
+
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    assert blob.get("claim_audit_summary", "").endswith("benchmark_claim_audit.md")
+    assert blob.get("claim_surface_label") == "Support-gated benchmark cohort"
+
+
+def test_finalize_pipeline_observability_uses_publication_claim_audit_for_publication_mode(
+    tmp_path: Path,
+) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    ctx = {
+        "run_id": "r_pub_claim",
+        "_observability_finalized_once": False,
+    }
+    manifest = {"run_id": "r_pub_claim", "cohort_size": 5}
+
+    finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=[],
+        compliance_report={"overall_status": "pass"},
+        paper_mode=True,
+        evidence_mode=True,
+        result_code=0,
+        profile_id="malicious_temporal_stability_locked",
+    )
+
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    assert blob.get("claim_audit_summary", "").endswith("publication_claim_audit.md")
+    assert blob.get("claim_surface_label") == "Locked publication cohort"
+
+
+def test_finalize_pipeline_observability_uses_research_claim_audit_for_expanded_profile(
+    tmp_path: Path,
+) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    (diagnostic / "benchmark_claim_audit.md").write_text("benchmark\n", encoding="utf-8")
+    (diagnostic / "research_claim_audit.md").write_text("research\n", encoding="utf-8")
+    ctx = {
+        "run_id": "r_expanded_claim",
+        "_observability_finalized_once": False,
+    }
+    manifest = {"run_id": "r_expanded_claim", "cohort_size": 5}
+
+    finalize_pipeline_observability(
+        diagnostics_dir=diagnostic,
+        run_root=None,
+        manifest_context=ctx,
+        manifest=manifest,
+        artifact_list=[],
+        compliance_report={"overall_status": "pass"},
+        paper_mode=False,
+        evidence_mode=False,
+        result_code=0,
+        profile_id="android_malware_expanded_families",
+    )
+
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    assert blob.get("claim_audit_summary", "").endswith("research_claim_audit.md")
+    assert blob.get("claim_surface_label") == "Expanded-family exploratory cohort"
+    top_open = list(blob.get("top_artifacts_to_open_first") or [])
+    assert any(path.endswith("research_claim_audit.md") for path in top_open)
+    research_ix = next(ix for ix, path in enumerate(top_open) if path.endswith("research_claim_audit.md"))
+    benchmark_ix = next(ix for ix, path in enumerate(top_open) if path.endswith("benchmark_claim_audit.md"))
+    assert research_ix < benchmark_ix
+
+
 def test_finalize_pipeline_observability_marks_audit_bundles_partial_on_interrupted_run(
     tmp_path: Path,
 ) -> None:

@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import json
 
 from config import app_config
 
@@ -184,7 +185,126 @@ def export_headline_test_tables(
     err_path = diagnostics_dir / f"headline_test_errors_{run_id}.csv"
     pred_df.to_csv(pred_path, index=False)
     err_df.to_csv(err_path, index=False)
+    _write_headline_confidence_audit(
+        pred_df=pred_df,
+        err_df=err_df,
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        promoted_model_key=promoted_model_key,
+    )
     return pred_path, err_path
+
+
+def _write_headline_confidence_audit(
+    *,
+    pred_df: pd.DataFrame,
+    err_df: pd.DataFrame,
+    diagnostics_dir: Path,
+    run_id: str,
+    promoted_model_key: str,
+) -> None:
+    """Write compact held-out confidence calibration risk summaries."""
+    payload: dict[str, Any] = {
+        "schema_version": "1.0",
+        "run_id": str(run_id),
+        "model": str(promoted_model_key),
+        "confidence_available": False,
+        "total_predictions": int(len(pred_df)),
+        "total_errors": int(len(err_df)),
+        "overall_error_rate": (float(len(err_df)) / float(len(pred_df))) if len(pred_df) else 0.0,
+        "high_confidence_error_count_0_95": 0,
+        "high_confidence_error_count_0_99": 0,
+    }
+
+    if "confidence" not in pred_df.columns:
+        audit_path = diagnostics_dir / f"headline_confidence_audit_{run_id}.json"
+        audit_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return
+
+    conf_series = pd.to_numeric(pred_df["confidence"], errors="coerce")
+    valid_conf = conf_series.dropna()
+    if valid_conf.empty:
+        audit_path = diagnostics_dir / f"headline_confidence_audit_{run_id}.json"
+        audit_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return
+
+    payload["confidence_available"] = True
+    payload["median_confidence"] = float(valid_conf.median())
+    payload["p95_confidence"] = float(valid_conf.quantile(0.95))
+    payload["p99_confidence"] = float(valid_conf.quantile(0.99))
+    payload["max_confidence"] = float(valid_conf.max())
+
+    err_conf = pd.to_numeric(err_df.get("confidence"), errors="coerce").dropna()
+    payload["high_confidence_error_count_0_95"] = int((err_conf >= 0.95).sum())
+    payload["high_confidence_error_count_0_99"] = int((err_conf >= 0.99).sum())
+    if not err_conf.empty:
+        payload["median_error_confidence"] = float(err_conf.median())
+        payload["max_error_confidence"] = float(err_conf.max())
+
+    bucket_edges = [0.0, 0.5, 0.7, 0.9, 0.95, 0.99, 1.000001]
+    bucket_labels = [
+        "[0.00,0.50)",
+        "[0.50,0.70)",
+        "[0.70,0.90)",
+        "[0.90,0.95)",
+        "[0.95,0.99)",
+        "[0.99,1.00]",
+    ]
+    audit_df = pred_df.copy()
+    audit_df["confidence_num"] = conf_series
+    audit_df["is_error"] = (
+        audit_df["true_label_id"].astype(str) != audit_df["predicted_label_id"].astype(str)
+    ).astype(int)
+    audit_df = audit_df.dropna(subset=["confidence_num"]).copy()
+    audit_df["confidence_bucket"] = pd.cut(
+        audit_df["confidence_num"],
+        bins=bucket_edges,
+        labels=bucket_labels,
+        include_lowest=True,
+        right=False,
+    ).astype(str)
+    bucket_rows: list[dict[str, Any]] = []
+    for bucket in bucket_labels:
+        bucket_df = audit_df[audit_df["confidence_bucket"] == bucket]
+        pred_n = int(len(bucket_df))
+        err_n = int(bucket_df["is_error"].sum()) if pred_n else 0
+        bucket_rows.append(
+            {
+                "confidence_bucket": bucket,
+                "prediction_count": pred_n,
+                "error_count": err_n,
+                "error_rate": (float(err_n) / float(pred_n)) if pred_n else 0.0,
+            }
+        )
+    bucket_path = diagnostics_dir / f"headline_confidence_buckets_{run_id}.csv"
+    pd.DataFrame(bucket_rows).to_csv(bucket_path, index=False)
+    payload["confidence_bucket_csv"] = str(bucket_path)
+
+    top_err_rows: list[dict[str, Any]] = []
+    if not err_df.empty and "confidence" in err_df.columns:
+        err_sorted = err_df.copy()
+        err_sorted["confidence_num"] = pd.to_numeric(err_sorted["confidence"], errors="coerce")
+        err_sorted = err_sorted.dropna(subset=["confidence_num"]).sort_values(
+            by="confidence_num", ascending=False
+        )
+        for _, row in err_sorted.head(5).iterrows():
+            top_err_rows.append(
+                {
+                    "sample_id": int(row["sample_id"]),
+                    "true_label_name": str(row.get("true_label_name", "") or ""),
+                    "predicted_label_name": str(row.get("predicted_label_name", "") or ""),
+                    "confidence": float(row["confidence_num"]),
+                    "second_best_confidence": (
+                        float(row["second_best_confidence"])
+                        if pd.notna(row.get("second_best_confidence"))
+                        else None
+                    ),
+                }
+            )
+    payload["top_high_confidence_errors"] = top_err_rows
+
+    audit_path = diagnostics_dir / f"headline_confidence_audit_{run_id}.json"
+    audit_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 __all__ = ["export_headline_test_tables"]

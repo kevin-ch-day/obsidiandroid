@@ -36,7 +36,7 @@ def print_family_distribution(
     low_support = [str(fam) for fam, cnt in counts.items() if cnt <= LOW_SUPPORT_THRESHOLD]
     very_low_support = [str(fam) for fam, cnt in counts.items() if cnt <= VERY_LOW_SUPPORT_THRESHOLD]
 
-    du.print_info(f"[DISTRIBUTION] {len(counts)} unique families detected.")
+    du.print_info(f"[DISTRIBUTION] {len(counts)} unique modeled family labels detected.")
     du.print_info(f"[DISTRIBUTION] {len(low_support)} families flagged as LOW support (<= {LOW_SUPPORT_THRESHOLD} samples).")
 
     if warn and very_low_support:

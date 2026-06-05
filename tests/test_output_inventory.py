@@ -346,6 +346,86 @@ def test_write_run_science_index_surfaces_type_guard_suppression_count(
 
 
 @pytest.mark.integration
+def test_write_run_evidence_index_surfaces_claim_surface_and_claim_audit(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    output_root = tmp_path / "output"
+    run_id = "r_claim_index"
+    run_root = output_root / "runs" / run_id
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+
+    (diagnostics_dir / "run_observability_summary.json").write_text(
+        json.dumps(
+            {
+                "claim_surface_label": "Current-corpus diagnostic surface",
+                "claim_audit_summary": str(diagnostics_dir / "research_claim_audit.md"),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    out_path = output_inventory.write_run_evidence_index_md(
+        run_root=run_root,
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="android_malware_all_current",
+        paper_mode=False,
+        cohort_size=10,
+        manifest={},
+        manifest_context={},
+        trained_models=[],
+        publication_ready_status="NOT_APPLICABLE",
+        publication_ready_reasons=[],
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "**claim_surface:** `Current-corpus diagnostic surface`" in text
+    assert "research_claim_audit.md" in text
+
+
+@pytest.mark.integration
+def test_write_run_science_index_surfaces_claim_surface_and_claim_audit(
+    tmp_path: Path,
+) -> None:
+    run_id = "r_claim_science"
+    run_root = tmp_path / "output" / "runs" / run_id
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
+    (run_root / "run_summary.json").write_text("{}", encoding="utf-8")
+    (run_root / "run_evidence_index.md").write_text("# evidence\n", encoding="utf-8")
+    (diagnostics_dir / "artifact_inventory.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / "run_observability_summary.json").write_text(
+        json.dumps(
+            {
+                "claim_surface_label": "Support-gated benchmark cohort",
+                "claim_audit_summary": str(diagnostics_dir / "benchmark_claim_audit.md"),
+                "publication_ready_status": "NOT_APPLICABLE",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    out_path = output_inventory.write_run_science_index_md(
+        run_root=run_root,
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="android_malware_major_families",
+        evidence_mode=False,
+        cohort_locked=False,
+        publication_ready_status="NOT_APPLICABLE",
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "claim_surface: `Support-gated benchmark cohort`" in text
+    assert "benchmark_claim_audit.md" in text
+
+
+@pytest.mark.integration
 def test_write_run_evidence_index_includes_shared_backlog_summary(
     tmp_path: Path,
     monkeypatch,
