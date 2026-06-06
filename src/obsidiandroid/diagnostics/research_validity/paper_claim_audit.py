@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
 
 
 def _primary_claim_surface(
@@ -188,11 +189,9 @@ def write_paper_claim_audit_md(
     nf = cohort_summary.get("n_families")
     active_train = mctx.get("trained_model_count") or man.get("trained_model_count")
 
-    publication_ready_mode = bool(
-        mctx.get("publication_ready_mode")
-        or mctx.get("evidence_mode")
-        or mctx.get("paper_mode", {}).get("resolved_value", False)
-    )
+    publication_ready_mode = bool(mctx.get("publication_ready_mode")) or coalesce_manifest_publication_mode(
+        mctx
+    ) or coalesce_manifest_publication_mode(man)
     profile_id = str(
         mctx.get("profile_id")
         or (man.get("profile_params") or {}).get("profile_id")

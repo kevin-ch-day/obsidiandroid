@@ -104,6 +104,7 @@ def derive_aggregate_pipeline_verdict(
     hostile_failed: bool = False,
     readiness_issues: list[Any] | None = None,
     failure_reason: str = "",
+    canonical_v3: bool = False,
 ) -> str:
     """Return the canonical aggregate pipeline verdict."""
     readiness_issues = list(readiness_issues or [])
@@ -117,9 +118,9 @@ def derive_aggregate_pipeline_verdict(
     if run_status_raw == "partial":
         return "PARTIAL"
     if rv_err:
-        return "PASS_WITH_WARNINGS"
+        return "FAILED" if canonical_v3 else "PASS_WITH_WARNINGS"
     if hostile_failed:
-        return "PASS_WITH_WARNINGS"
+        return "FAILED" if canonical_v3 else "PASS_WITH_WARNINGS"
     if readiness_issues:
         return "PASS_WITH_WARNINGS"
     if int(result_code) != 0:

@@ -87,25 +87,73 @@ def _reporting_output_root(*, diagnostics_dir: Path, run_id: str) -> Path:
     return canonical_output_root()
 
 
-def _claim_readiness_context(profile_id: str, manifest_context: Mapping[str, Any], samples_df: pd.DataFrame) -> tuple[str, str]:
+def _publication_mode_active(manifest_context: Mapping[str, Any]) -> bool:
+    """Resolve evidence/publication mode from manifest_context metadata dicts or bools."""
+    from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_evidence_mode
+
+    return coalesce_manifest_evidence_mode(manifest_context.get("evidence_mode")) or coalesce_manifest_evidence_mode(
+        manifest_context.get("paper_mode")
+    )
+
+
+def _claim_readiness_context(
+    profile_id: str,
+    manifest_context: Mapping[str, Any],
+    samples_df: pd.DataFrame | None,
+) -> tuple[str, str]:
     """Return terminal heading and machine-readable primary surface label."""
     profile = str(profile_id or "").strip()
-    publication_active = bool(
-        manifest_context.get("evidence_mode")
-        or manifest_context.get("paper_mode")
-    )
+    publication_active = _publication_mode_active(manifest_context)
     if publication_active:
         return "PUBLICATION CLAIM READINESS", "locked_publication_surface"
     if profile == "android_malware_type_taxonomy":
         return "BENCHMARK CLAIM READINESS", "type_taxonomy_surface"
     if profile == "android_malware_expanded_families":
         return "RESEARCH CLAIM READINESS", "expanded_family_exploratory"
-    support_floor_mode = str(samples_df.attrs.get("support_floor_mode", "") or "").strip().lower()
+    support_floor_mode = ""
+    if isinstance(samples_df, pd.DataFrame):
+        support_floor_mode = str(samples_df.attrs.get("support_floor_mode", "") or "").strip().lower()
     if support_floor_mode == "benchmark_eligibility":
         return "BENCHMARK CLAIM READINESS", "major_family_benchmark"
     if profile == "android_malware_all_current":
         return "RESEARCH CLAIM READINESS", "broad_current_corpus"
     return "RESEARCH CLAIM READINESS", "benchmark_surface"
+
+
+def _dl_seed_readiness_context(
+    *,
+    diagnostics_dir: Path,
+    run_id: str,
+    profile_id: str,
+    manifest_context: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Summarize Neptune/Iapetus seed-chain readiness for operator claim surfaces."""
+    from obsidiandroid.diagnostics.v3_dl_handoff import build_v3_dl_handoff_summary_payload
+
+    run_root = diagnostics_dir.parent if diagnostics_dir.name == "diagnostics" else diagnostics_dir
+    manifest = read_json_dict(run_root / "run_manifest.json")
+    handoff_path = diagnostics_dir / f"v3_dl_handoff_summary_{run_id}.json"
+    if handoff_path.is_file():
+        handoff = read_json_dict(handoff_path)
+    else:
+        handoff = build_v3_dl_handoff_summary_payload(
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            profile={"profile_id": profile_id},
+            manifest=manifest,
+            manifest_context=dict(manifest_context),
+        )
+    return {
+        "dl_seed_status": handoff.get("dl_seed_status", "incomplete"),
+        "dl_seed_missing_refs": list(handoff.get("missing_seed_refs") or []),
+        "dataset_hash": handoff.get("dataset_hash"),
+        "cohort_persistence_source": handoff.get("cohort_persistence_source")
+        or manifest_context.get("cohort_persistence_source"),
+        "ml_vocabulary_entry_count": int(handoff.get("vocabulary_entry_count", 0) or 0),
+        "split_hash": handoff.get("split_hash"),
+        "split_export_present": bool(handoff.get("split_export_present")),
+        "dl_seed_caveats": list(handoff.get("caveats") or []),
+    }
 
 
 def _claim_status_code(
@@ -1120,10 +1168,21 @@ def emit_research_operator_report(
         "Compare permission-only, vendor-safe, and fused feature performance.",
         "Review permission-pattern reports by type_slug, family, and family-within-type.",
     ]
+    dl_seed = _dl_seed_readiness_context(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id=str(profile_id or ""),
+        manifest_context=manifest_context,
+    )
     readiness_heading, readiness_blockers = _claim_readiness_posture(
         bundle=bundle,
         runtime_temporal_summary=getattr(app_config, "RUNTIME_TEMPORAL_SPLIT_SUMMARY", None),
     )
+    from obsidiandroid.common.run_slots import is_canonical_v3_profile
+
+    if is_canonical_v3_profile(str(profile_id or "")) and dl_seed.get("dl_seed_status") != "ready":
+        readiness_blockers = list(readiness_blockers)
+        readiness_blockers.append("DL seed handoff incomplete for canonical V3 profile")
     claim_status = _claim_status_code(readiness_heading, readiness_blockers)
     primary_surface_label = _claim_surface_label(
         profile_id=str(profile_id or ""),
@@ -1149,7 +1208,31 @@ def emit_research_operator_report(
         "",
         f"Claim status                    : {claim_status}",
         f"Claim surface                   : {primary_surface_label}",
+        f"DL seed handoff                 : {dl_seed.get('dl_seed_status', 'unknown')}",
     ]
+    if dl_seed.get("dataset_hash"):
+        block_lines.append(f"Dataset hash                    : {dl_seed.get('dataset_hash')}")
+    if dl_seed.get("cohort_persistence_source"):
+        block_lines.append(
+            f"Cohort persistence source       : {dl_seed.get('cohort_persistence_source')}"
+        )
+    if dl_seed.get("split_hash"):
+        split_ready = "present" if dl_seed.get("split_export_present") else "missing"
+        block_lines.append(f"Split export ({dl_seed.get('split_hash')}) : {split_ready}")
+    if dl_seed.get("ml_vocabulary_entry_count"):
+        block_lines.append(
+            f"ML permission vocabulary        : {dl_seed.get('ml_vocabulary_entry_count')} entries"
+        )
+    if dl_seed.get("dl_seed_missing_refs"):
+        block_lines.append(
+            "DL seed missing refs            : "
+            + ", ".join(str(item) for item in dl_seed.get("dl_seed_missing_refs", []))
+        )
+    dl_seed_caveats = dl_seed.get("dl_seed_caveats") or []
+    if dl_seed_caveats:
+        block_lines.append(
+            "DL seed caveats                 : " + "; ".join(str(item) for item in dl_seed_caveats[:3])
+        )
     if eligible_family_classes is not None:
         block_lines.append(
             f"Claim-eligible family classes   : {eligible_family_classes}"
@@ -1211,11 +1294,18 @@ def emit_research_operator_report(
         "claim_status": claim_status,
         "claim_surface": primary_surface_label,
         "primary_surface": readiness_surface,
+        "dl_seed_status": dl_seed.get("dl_seed_status"),
+        "dl_seed_missing_refs": dl_seed.get("dl_seed_missing_refs"),
+        "dl_seed_caveats": dl_seed.get("dl_seed_caveats"),
+        "v3_dl_handoff_summary": f"v3_dl_handoff_summary_{run_id}.json",
+        "dataset_hash": dl_seed.get("dataset_hash"),
+        "cohort_persistence_source": dl_seed.get("cohort_persistence_source"),
+        "ml_vocabulary_entry_count": dl_seed.get("ml_vocabulary_entry_count"),
         "benchmark_family_support_floor": benchmark_support_floor if benchmark_support_floor > 0 else None,
         "family_claim_surface": family_target or None,
         "type_claim_surface": type_target or None,
         "permission_claim_status": "capability_analysis_layer_available",
-        "publication_ready": bool(manifest_context.get("evidence_mode") or manifest_context.get("paper_mode")),
+        "publication_ready": _publication_mode_active(manifest_context),
         "paper_locked": bool(manifest_context.get("paper_locked")),
         "claim_eligible_family_classes": eligible_family_classes,
         "visible_governed_family_classes": visible_family_classes,
@@ -1249,19 +1339,26 @@ def emit_research_operator_report(
         else:
             print_fn(f"[Run] {du.format_console_path(rr)}")
     diag_base = diagnostics_dir
-    pr(
-        "Start here        : "
-        + " | ".join(
-            [
-                f"`{_artifact_label(diagnostics_dir / 'dataset_foundation_summary.md', base=diag_base)}`",
-                f"`{_artifact_label(diagnostics_dir / 'modality_contribution_summary.md', base=diag_base)}`",
-                f"`{_artifact_label(diagnostics_dir / 'model_and_family_failure_summary.md', base=diag_base)}`",
-                f"`{_artifact_label(diagnostics_dir / f'backlog_debt_summary_{run_id}.md', base=diag_base)}`",
-                f"`{_artifact_label(diagnostics_dir / f'taxonomy_authority_split_{run_id}.md', base=diag_base)}`",
-                f"`{_artifact_label(diagnostics_dir / f'taxonomy_type_authority_review_{run_id}.md', base=diag_base)}`",
-            ]
-        )
-    )
+    start_candidates = [
+        diagnostics_dir / f"v3_label_contract_{run_id}.md",
+        diagnostics_dir / f"permission_pattern_contract_{run_id}.md",
+        diagnostics_dir / f"ml_run_manifest_{run_id}.json",
+        diagnostics_dir / f"ml_permission_vocabulary_{run_id}.json",
+        diagnostics_dir / f"ml_sample_label_fact_{run_id}.csv",
+        diagnostics_dir / f"v3_dl_handoff_summary_{run_id}.json",
+        diagnostics_dir / "dataset_foundation_summary.md",
+        diagnostics_dir / "modality_contribution_summary.md",
+        diagnostics_dir / "model_and_family_failure_summary.md",
+        diagnostics_dir / f"backlog_debt_summary_{run_id}.md",
+        diagnostics_dir / f"taxonomy_authority_split_{run_id}.md",
+        diagnostics_dir / f"taxonomy_type_authority_review_{run_id}.md",
+    ]
+    start_here = [
+        f"`{_artifact_label(path, base=diag_base)}`"
+        for path in start_candidates
+        if path.is_file()
+    ]
+    pr("Start here        : " + " | ".join(start_here))
     pr(
         "Operator debt    : "
         + f"`{_artifact_label(diagnostics_dir / f'backlog_debt_summary_{run_id}.md', base=diag_base)}`"
@@ -1276,4 +1373,12 @@ def emit_research_operator_report(
                 f"`{_artifact_label(diagnostics_dir / 'recommended_validation_plan.md', base=diag_base)}`",
             ]
         )
+    )
+    from obsidiandroid.observability.pipeline_observability.finalize import (
+        patch_observability_post_operator_artifacts,
+    )
+
+    patch_observability_post_operator_artifacts(
+        diagnostics_dir=diagnostics_dir,
+        manifest=read_json_dict(diagnostics_dir.parent / "run_manifest.json"),
     )

@@ -26,10 +26,19 @@ from obsidiandroid.diagnostics.cohort_vocabulary import (
     read_prepared_cohort_row_count,
     read_sql_scope_row_count,
 )
+from obsidiandroid.diagnostics.research_validity.cohort_funnel import (
+    build_cohort_funnel_plain,
+    describe_trainable_pool_funnel_segment,
+)
+from obsidiandroid.governance.evidence_mode_resolver import (
+    coalesce_manifest_evidence_mode,
+    coalesce_manifest_publication_mode,
+)
 from obsidiandroid.pipeline.manifest.runtime_support import (
     derive_aggregate_pipeline_verdict,
     derive_terminal_run_status,
 )
+from obsidiandroid.diagnostics.v3_dl_handoff import build_v3_dl_handoff_observability_block as _build_v3_dl_handoff_observability_block
 from obsidiandroid.observability.pipeline_observability.logging_audit import write_logging_audit_artifacts
 from obsidiandroid.observability.pipeline_observability.session import PipelineObservabilitySession
 
@@ -154,6 +163,9 @@ def _top_artifacts_to_open(
         diagnostics_dir / f"v3_label_contract_{run_id}.json",
         diagnostics_dir / f"permission_pattern_contract_{run_id}.json",
         diagnostics_dir / f"ml_run_manifest_{run_id}.json",
+        diagnostics_dir / f"ml_sample_label_fact_{run_id}.csv",
+        diagnostics_dir / f"ml_permission_vocabulary_{run_id}.json",
+        diagnostics_dir / f"v3_dl_handoff_summary_{run_id}.json",
         authority_md,
         diagnostics_dir / "pipeline_stage_summary.md",
         diagnostics_dir / "partial_failures.md",
@@ -218,6 +230,24 @@ def finalize_pipeline_observability(
     if manifest_context.get("_observability_finalized_once"):
         return diagnostic_status_path_fallback(diagnostics_dir)
     diagnostics_dir = Path(diagnostics_dir)
+    caller_evidence_mode = bool(evidence_mode)
+    caller_paper_mode = bool(paper_mode)
+    evidence_mode = coalesce_manifest_evidence_mode(
+        manifest_context.get("evidence_mode")
+        if isinstance(manifest_context, dict)
+        else None
+    )
+    if not evidence_mode and isinstance(manifest, dict):
+        evidence_mode = coalesce_manifest_publication_mode(manifest)
+    if not evidence_mode:
+        evidence_mode = caller_evidence_mode
+    paper_mode = coalesce_manifest_evidence_mode(
+        manifest_context.get("paper_mode")
+        if isinstance(manifest_context, dict)
+        else None
+    )
+    if not paper_mode:
+        paper_mode = evidence_mode or caller_paper_mode
     verbose_run_artifacts = bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True))
     resolved_run_root = Path(run_root).resolve() if run_root is not None else None
     run_id = str(manifest_context.get("run_id", manifest.get("run_id", "unknown")))
@@ -345,6 +375,8 @@ def finalize_pipeline_observability(
     # --- Aggregate pipeline verdict (explicit about audits) ---
     evidence_readiness_issues = manifest_context.get("_evidence_readiness_failed_checks") or []
 
+    from obsidiandroid.common.run_slots import is_canonical_v3_profile
+
     verdict = derive_aggregate_pipeline_verdict(
         run_status_raw=run_status_raw,
         result_code=int(result_code),
@@ -356,6 +388,7 @@ def finalize_pipeline_observability(
             or manifest_context.get("integrity_error", "")
             or ""
         ),
+        canonical_v3=is_canonical_v3_profile(str(profile_id or "")),
     )
 
     publication_ready_terminal, reasons = evaluate_publication_ready_status(
@@ -433,21 +466,19 @@ def finalize_pipeline_observability(
         or manifest_context.get("feature_matrix_cols_post_prune")
     )
 
-    parts: list[str] = []
-    if gov not in (None, ""):
-        parts.append(f"{gov} prepared-cohort rows")
-    if fused not in (None, ""):
-        parts.append(f"{fused} feature_matrix_rows (fused)")
-    if aligned not in (None, ""):
-        parts.append(f"{aligned} aligned supervised")
-    if post not in (None, ""):
-        parts.append(
-            f"{post} post-family-support trainable rows "
-            "(training pool after min-family filter; not cohort size)"
-        )
-    if tr_ct not in (None, "") or te_ct not in (None, ""):
-        parts.append(f"train={tr_ct}/test={te_ct}")
-    cohort_funnel_plain = " → ".join(parts)
+    funnel_context = dict(manifest_context)
+    if not funnel_context.get("support_floor_mode"):
+        funnel_context["support_floor_mode"] = str(
+            getattr(app_config, "RUNTIME_SUPPORT_FLOOR_MODE", "") or ""
+        ).strip().lower()
+    if tr_ct not in (None, ""):
+        funnel_context.setdefault("train_sample_count", tr_ct)
+    if te_ct not in (None, ""):
+        funnel_context.setdefault("test_sample_count", te_ct)
+    cohort_funnel_plain = build_cohort_funnel_plain(
+        manifest=manifest if isinstance(manifest, dict) else {},
+        manifest_context=funnel_context,
+    )
 
     cohort_warn = manifest_context.get("cohort_population_warning")
     if cohort_warn is None and fused and gov and abs(int(_coerce_nonneg_int(gov)) - int(fused)) > 10:
@@ -672,6 +703,10 @@ def finalize_pipeline_observability(
         "hostile_audit_degraded": bool(hostile_failed),
         "label_resolution_enabled": label_resolution_enabled,
         "type_guard_family_suppressed_count": type_guard_family_suppressed_count,
+        "coarse_aligned_supervised_rows": _coerce_int(manifest_context.get("coarse_aligned_supervised_rows")),
+        "training_authority_aligned_rows": _coerce_int(
+            manifest_context.get("training_authority_aligned_rows")
+        ),
         "alignment_non_authoritative_family_drop_count": int(
             alignment_attrition.get("alignment_non_authoritative_family_drop_count", 0) or 0
         ),
@@ -791,6 +826,17 @@ def finalize_pipeline_observability(
         "feature_matrix_rows": fused,
         "aligned_supervised_rows": aligned,
         "research_validity_error": rv_err or None,
+        "research_validity_partial_failures": list(
+            manifest_context.get("research_validity_partial_failures", []) or []
+        ),
+        "cohort_persistence_source": str(manifest_context.get("cohort_persistence_source", "") or "") or None,
+        "dataset_hash": str(manifest.get("dataset_hash", "") or manifest_context.get("dataset_hash", "") or "") or None,
+        "v3_dl_handoff": _build_v3_dl_handoff_observability_block(
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            manifest=manifest if isinstance(manifest, dict) else {},
+            manifest_context=manifest_context if isinstance(manifest_context, dict) else {},
+        ),
         "manifest_result_code": int(result_code),
         "row_authority": row_authority,
         "label_strategy": {
@@ -849,6 +895,166 @@ def finalize_pipeline_observability(
 
     manifest_context["_observability_finalized_once"] = True
     return summary_path
+
+
+def _observability_funnel_manifest_context(
+    *,
+    observability: dict[str, Any],
+    manifest: dict[str, Any],
+    manifest_context: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Merge observability rollup counts into a funnel manifest_context."""
+    ctx = dict(manifest_context) if isinstance(manifest_context, dict) else {}
+    for key in (
+        "aligned_supervised_rows",
+        "post_low_support_training_rows",
+        "cohort_prepared_row_count",
+        "support_floor_mode",
+        "alignment_attrition_stats",
+        "alignment_attrition_details",
+        "low_support_family_drop_detail",
+        "train_sample_count",
+        "test_sample_count",
+    ):
+        if key not in ctx or ctx.get(key) in (None, ""):
+            if key in observability and observability.get(key) not in (None, ""):
+                ctx[key] = observability.get(key)
+    fused = observability.get("feature_matrix_rows")
+    if fused not in (None, "") and ctx.get("fused_feature_rows") in (None, ""):
+        ctx["fused_feature_rows"] = fused
+    if ctx.get("cohort_prepared_row_count") in (None, ""):
+        prepared = manifest.get("cohort_prepared_row_count") or manifest.get("cohort_size")
+        if prepared not in (None, ""):
+            ctx["cohort_prepared_row_count"] = prepared
+    return ctx
+
+
+def patch_observability_funnel_fields(
+    *,
+    diagnostics_dir: Path,
+    manifest: dict[str, Any] | None = None,
+    manifest_context: dict[str, Any] | None = None,
+) -> bool:
+    """Rewrite cohort funnel plain text and attrition fields on observability JSON."""
+    obs_path = diagnostics_dir / AUTHORITATIVE_SUMMARY_FILENAME
+    if not obs_path.is_file():
+        return False
+    try:
+        obs = json.loads(obs_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return False
+    if not isinstance(obs, dict):
+        return False
+    manifest_payload = manifest if isinstance(manifest, dict) else {}
+    funnel_context = _observability_funnel_manifest_context(
+        observability=obs,
+        manifest=manifest_payload,
+        manifest_context=manifest_context,
+    )
+    obs["cohort_funnel_plain"] = build_cohort_funnel_plain(
+        manifest=manifest_payload,
+        manifest_context=funnel_context,
+    )
+    attrition = (
+        funnel_context.get("alignment_attrition_stats")
+        if isinstance(funnel_context.get("alignment_attrition_stats"), dict)
+        else {}
+    )
+    obs["alignment_non_authoritative_family_drop_count"] = int(
+        attrition.get("alignment_non_authoritative_family_drop_count", 0) or 0
+    )
+    obs_path.write_text(json.dumps(obs, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return True
+
+
+def patch_observability_post_operator_artifacts(
+    *,
+    diagnostics_dir: Path,
+    manifest: dict[str, Any] | None = None,
+    manifest_context: dict[str, Any] | None = None,
+) -> bool:
+    """Refresh operator-derived observability fields after post-finalize artifacts exist.
+
+    ``finalize_pipeline_observability`` runs inside the hygiene bundle before
+    ``emit_research_operator_report`` materializes ``dataset_foundation_summary.json``.
+    Without this patch, scientific adequacy and claim-surface labels can disagree with
+    the refreshed dataset foundation and resolved publication/evidence mode.
+    """
+    from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
+
+    obs_path = diagnostics_dir / AUTHORITATIVE_SUMMARY_FILENAME
+    foundation_path = diagnostics_dir / "dataset_foundation_summary.json"
+    if not obs_path.is_file() or not foundation_path.is_file():
+        return False
+    try:
+        obs = json.loads(obs_path.read_text(encoding="utf-8"))
+        foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return False
+    if not isinstance(obs, dict) or not isinstance(foundation, dict):
+        return False
+
+    supervised = bool(foundation.get("supervised_family_claims_suitable", False))
+    model_blob = obs.get("model") if isinstance(obs.get("model"), dict) else {}
+    macro = model_blob.get("top_model_primary_metric_value")
+    if macro is None:
+        macro = model_blob.get("top_macro_f1")
+    sci_existing = obs.get("scientific_adequacy") if isinstance(obs.get("scientific_adequacy"), dict) else {}
+    temporal_dropped = int(sci_existing.get("temporal_future_only_rows_dropped", 0) or 0)
+    adequacy, blockers = classify_scientific_adequacy(
+        macro_f1=macro,
+        supervised_family_claims_suitable=supervised,
+        dropped_future_only_rows=temporal_dropped,
+    )
+    obs["scientific_adequacy"] = {
+        "posture": adequacy,
+        "blockers": blockers,
+        "supervised_family_claims_suitable": supervised,
+        "temporal_future_only_rows_dropped": temporal_dropped,
+    }
+
+    manifest_payload = manifest if isinstance(manifest, dict) else {}
+    profile_id = str(
+        manifest_payload.get("profile_id")
+        or obs.get("profile_id")
+        or ""
+    ).strip()
+    publication_active = coalesce_manifest_publication_mode(manifest_payload)
+    if not publication_active and isinstance(manifest_payload.get("paper_mode"), dict):
+        publication_active = coalesce_manifest_publication_mode(
+            {"evidence_mode": manifest_payload.get("paper_mode")}
+        )
+    obs["evidence_mode"] = publication_active
+    obs["paper_mode"] = publication_active
+    obs["claim_surface_label"] = _claim_surface_label(
+        profile_id=profile_id,
+        evidence_mode=publication_active,
+        paper_mode=publication_active,
+    )
+    obs["claim_audit_summary"] = str(
+        diagnostics_dir
+        / _claim_audit_alias_name(
+            profile_id=profile_id,
+            evidence_mode=publication_active,
+            paper_mode=publication_active,
+        )
+    )
+
+    obs_path.write_text(json.dumps(obs, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    patch_observability_funnel_fields(
+        diagnostics_dir=diagnostics_dir,
+        manifest=manifest_payload,
+        manifest_context=manifest_context,
+    )
+    return True
+
+
+def patch_observability_scientific_adequacy_from_dataset_foundation(
+    *,
+    diagnostics_dir: Path,
+) -> bool:
+    """Backward-compatible alias for the expanded post-operator observability patch."""
+    return patch_observability_post_operator_artifacts(diagnostics_dir=diagnostics_dir)
 
 
 def _adjust_bundle_terminal_status(status: str, *, run_status_raw: str) -> str:

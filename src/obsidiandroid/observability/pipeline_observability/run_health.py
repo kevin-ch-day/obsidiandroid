@@ -12,7 +12,10 @@ from obsidiandroid.common.publication_readiness import (
     coalesce_publication_ready_reasons,
     coalesce_publication_ready_status,
 )
-from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
+from obsidiandroid.governance.evidence_mode_resolver import (
+    coalesce_manifest_evidence_mode,
+    coalesce_manifest_publication_mode,
+)
 from obsidiandroid.labeling.malware_family_constants import canonicalize_family_label
 
 _BANKER_WARNING_RE = re.compile(r"banker share\s+([0-9.]+%)\s+exceeds\s+([0-9.]+%)", re.IGNORECASE)
@@ -161,7 +164,7 @@ def _scientific_posture(payload: dict[str, Any]) -> str:
 
 def _run_mode_line(payload: dict[str, Any]) -> str:
     run_mode = str(payload.get("run_mode", "") or "n/a")
-    evidence_mode = "ON" if bool(payload.get("evidence_mode")) else "OFF"
+    evidence_mode = "ON" if coalesce_manifest_evidence_mode(payload.get("evidence_mode")) else "OFF"
     publication_mode = "ON" if coalesce_manifest_publication_mode(payload) else "OFF"
     return f"{run_mode}; evidence {evidence_mode}; publication {publication_mode}"
 

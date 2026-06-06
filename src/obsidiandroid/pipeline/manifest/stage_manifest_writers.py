@@ -367,6 +367,9 @@ def finalize_output_hygiene_bundle(
     samples_df: Any | None = None,
 ) -> None:
     """Artifact inventory, virtual layout, run evidence index, and terminal summary."""
+    from obsidiandroid.common.run_slots import is_canonical_v3_profile
+
+    profile_id = str(profile.get("profile_id", "") or "unknown")
     try:
         from obsidiandroid.diagnostics import output_inventory
         from obsidiandroid.diagnostics.diagnostic_provenance import record_diagnostic_provenance
@@ -383,15 +386,46 @@ def finalize_output_hygiene_bundle(
 
         from obsidiandroid.diagnostics import ml_seed_exports
         from obsidiandroid.diagnostics import permission_pattern_contract
+        from obsidiandroid.diagnostics import v3_label_contract
+        from obsidiandroid.diagnostics.cohort_persistence import resolve_effective_samples_df
+
+        effective_samples = resolve_effective_samples_df(
+            diagnostics_dir,
+            run_id,
+            samples_df if isinstance(samples_df, pd.DataFrame) else None,
+        )
+        if isinstance(effective_samples, pd.DataFrame) and not effective_samples.empty:
+            min_support = int(getattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", 1) or 1)
+            try:
+                label_contract_paths = v3_label_contract.export_v3_label_contract(
+                    diagnostics_dir=diagnostics_dir,
+                    run_id=run_id,
+                    profile=profile,
+                    samples_df=effective_samples,
+                    min_support=min_support,
+                )
+                artifact_list.extend(label_contract_paths)
+            except Exception as exc:
+                if is_canonical_v3_profile(profile_id):
+                    du.print_error(
+                        f"[MANIFEST] V3 label contract refresh failed for canonical profile `{profile_id}`: {exc}"
+                    )
+                    raise
+                du.print_warning(f"[MANIFEST] V3 label contract refresh skipped: {exc}")
 
         try:
             contract_paths = permission_pattern_contract.export_permission_pattern_contract(
                 diagnostics_dir=diagnostics_dir,
                 run_id=run_id,
-                profile_id=str(profile.get("profile_id", "unknown")),
+                profile_id=profile_id,
             )
             artifact_list.extend(contract_paths)
         except Exception as exc:
+            if is_canonical_v3_profile(profile_id):
+                du.print_error(
+                    f"[MANIFEST] Permission pattern contract export failed for canonical profile `{profile_id}`: {exc}"
+                )
+                raise
             du.print_warning(f"[MANIFEST] Permission pattern contract export skipped: {exc}")
 
         try:
@@ -405,6 +439,9 @@ def finalize_output_hygiene_bundle(
             )
             artifact_list.extend(seed_paths)
         except Exception as exc:
+            if is_canonical_v3_profile(profile_id):
+                du.print_error(f"[MANIFEST] ML seed export failed for canonical profile `{profile_id}`: {exc}")
+                raise
             du.print_warning(f"[MANIFEST] ML seed export skipped: {exc}")
 
         verbose_run_artifacts = bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True))
@@ -497,6 +534,7 @@ def finalize_output_hygiene_bundle(
             run_id=run_id,
             profile_id=str(profile.get("profile_id", "unknown")),
             evidence_mode=bool(evidence_mode),
+            paper_mode=bool(paper_mode),
             cohort_locked=cohort_locked,
             publication_ready_status=publication_ready_status,
         )
@@ -555,6 +593,11 @@ def finalize_output_hygiene_bundle(
             run_root=run_root,
         )
     except Exception as exc:
+        if is_canonical_v3_profile(profile_id):
+            du.print_error(
+                f"[OUTPUT] Hygiene bundle failed for canonical profile `{profile_id}`: {exc}"
+            )
+            raise
         du.print_warning(f"[OUTPUT] Hygiene bundle skipped: {exc}")
 
 
@@ -594,12 +637,12 @@ def write_run_summary_onepager(
         profile_id = str(profile.get("profile_id", "unknown"))
         claim_surface_label = _claim_surface_label(
             profile_id=profile_id,
-            evidence_mode=bool(manifest.get("evidence_mode", False)),
+            evidence_mode=coalesce_manifest_publication_mode(manifest),
             paper_mode=bool(paper_mode_data.get("resolved_value", False)),
         )
         claim_audit_summary = _claim_audit_alias_name(
             profile_id=profile_id,
-            evidence_mode=bool(manifest.get("evidence_mode", False)),
+            evidence_mode=coalesce_manifest_publication_mode(manifest),
             paper_mode=bool(paper_mode_data.get("resolved_value", False)),
         )
         completed_stage = str(

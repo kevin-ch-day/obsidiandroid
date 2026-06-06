@@ -172,6 +172,10 @@ def run_permission_trends_report_stage(
 
     bundle_dir = _resolve_permission_bundle_dir(run_id)
     bundle_dir.mkdir(parents=True, exist_ok=True)
+    du.print_info(
+        f"[REPORT] Permission trends stage started for {len(samples_df)} samples "
+        f"(bundle: {du.format_console_path(bundle_dir)})"
+    )
     removed_pngs = _prune_run_stamped_pngs_in_latest_bundle(bundle_dir)
     if removed_pngs:
         du.print_info(f"[CLEANUP] Pruned {len(removed_pngs)} legacy run-stamped PNG(s) from latest bundle.")
@@ -1083,13 +1087,6 @@ def run_permission_trends_report_stage(
         family_capability_df=family_capability_df,
         attack_hypotheses_df=attack_hypotheses_df,
     )
-    from obsidiandroid.diagnostics import permission_pattern_contract as _permission_pattern_contract
-
-    permission_pattern_contract_paths = _permission_pattern_contract.export_permission_pattern_contract(
-        diagnostics_dir=Path(str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or bundle_dir.parent)),
-        run_id=run_id,
-        profile_id=profile_id,
-    )
     permission_pattern_summary_md = _export_permission_pattern_summary(
         run_id=run_id,
         bundle_dir=bundle_dir,
@@ -1146,7 +1143,6 @@ def run_permission_trends_report_stage(
             figures_index_md,
             run_summary_md,
             permission_pattern_summary_md,
-            *permission_pattern_contract_paths,
         ]
     )
     for extra_path in [

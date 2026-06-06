@@ -25,6 +25,59 @@ from obsidiandroid.reporting.high_score_skeptic_helpers import (
 from obsidiandroid.reporting import operator_dashboard
 
 
+def _describe_aligned_to_trainable_loss(
+    *,
+    aligned: int,
+    trainable: int,
+    manifest_context: Mapping[str, Any] | None,
+    low_support_drop_detail: list[dict[str, Any]] | None,
+) -> str:
+    """Explain aligned→trainable row loss using attrition metadata when available."""
+    if trainable >= aligned:
+        return ""
+    drop = int(aligned) - int(trainable)
+    attrition = (
+        manifest_context.get("alignment_attrition_stats")
+        if isinstance(manifest_context, Mapping)
+        and isinstance(manifest_context.get("alignment_attrition_stats"), dict)
+        else {}
+    )
+    authority_drop = int(attrition.get("alignment_non_authoritative_family_drop_count", 0) or 0)
+    missing_drop = int(attrition.get("alignment_missing_label_drop_count", 0) or 0)
+    low_support_rows = 0
+    for row in low_support_drop_detail or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            low_support_rows += int(row.get("aligned_support"))
+        except (TypeError, ValueError):
+            continue
+    support_floor_mode = str(
+        (manifest_context or {}).get("support_floor_mode")
+        if isinstance(manifest_context, Mapping)
+        else getattr(app_config, "RUNTIME_SUPPORT_FLOOR_MODE", "")
+        or ""
+    ).strip().lower()
+    if low_support_rows > 0:
+        return (
+            f"aligned→trainable: −{drop} (min-family-support filter; "
+            f"{low_support_rows} row(s) from {len(low_support_drop_detail or [])} families)."
+        )
+    if authority_drop > 0 or missing_drop > 0:
+        parts = [f"aligned→trainable: −{drop} (classifier family-authority filter"]
+        if authority_drop > 0:
+            parts.append(f"{authority_drop} non-authoritative")
+        if missing_drop > 0:
+            parts.append(f"{missing_drop} missing-label")
+        return "; ".join(parts) + ")."
+    if support_floor_mode == "diagnostic_only":
+        return (
+            f"aligned→trainable: −{drop} (classifier trainable-pool filter; "
+            "support floor is diagnostic-only so this is not a min-support drop)."
+        )
+    return f"aligned→trainable: −{drop} (classifier trainable-pool filter)."
+
+
 def _safe_pct(num: float, den: float) -> float:
     if den <= 0:
         return 0.0
@@ -124,7 +177,7 @@ def _research_run_summary_blockers(bundle: dict[str, Any]) -> list[str]:
     """Return the dominant compact-summary blockers for weak or mixed runs."""
     blockers: list[str] = []
     q1 = bundle.get("q1") if isinstance(bundle.get("q1"), dict) else {}
-    if q1 and not bool(q1.get("supervised_family_claims_suitable", True)):
+    if q1 and not bool(q1.get("supervised_family_claims_suitable", False)):
         blockers.append("supervised family claims are not yet suitable")
 
     temporal = getattr(app_config, "RUNTIME_TEMPORAL_SPLIT_SUMMARY", None)
@@ -609,13 +662,21 @@ def write_research_question_artifacts(
         and int(aligned) > 0
         and trainable is not None
         and int(trainable) > 0
+        and not concentration_warn
     )
     lineage_loss = ""
-    if gov and trainable is not None and aligned is not None:
-        if int(aligned) < int(gov):
-            lineage_loss += f"governed→aligned: −{int(gov) - int(aligned)}. "
-        if int(trainable) < int(aligned):
-            lineage_loss += f"aligned→trainable: −{int(aligned) - int(trainable)} (family support filter)."
+    coarse_aligned = manifest_context.get("coarse_aligned_supervised_rows", aligned)
+    compare_aligned = coarse_aligned if coarse_aligned not in (None, "") else aligned
+    if gov and trainable is not None and compare_aligned is not None:
+        if int(compare_aligned) < int(gov):
+            lineage_loss += f"governed→aligned: −{int(gov) - int(compare_aligned)}. "
+        if int(trainable) < int(compare_aligned):
+            lineage_loss += _describe_aligned_to_trainable_loss(
+                aligned=int(compare_aligned),
+                trainable=int(trainable),
+                manifest_context=manifest_context,
+                low_support_drop_detail=drop_detail if isinstance(drop_detail, list) else [],
+            )
 
     q1_payload = {
         "run_id": run_id,

@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.diagnostics.run_artifact_resolve import (
+    resolve_related_artifact_ref,
+    run_artifact_exists,
+)
 from obsidiandroid.pipeline.permission_trends.pattern_framework import (
     COMPARISON_SCOPES,
     PATTERN_CLAIM_BOUNDARY,
@@ -16,13 +20,7 @@ from obsidiandroid.pipeline.permission_trends.pattern_framework import (
 
 
 def _artifact_exists(diagnostics_dir: Path, stem: str, run_id: str) -> bool:
-    for suffix in (".csv", ".json", ".md"):
-        if (diagnostics_dir / f"{stem}_{run_id}{suffix}").exists():
-            return True
-        latest = diagnostics_dir / f"{stem}.latest{suffix}"
-        if latest.exists():
-            return True
-    return False
+    return run_artifact_exists(diagnostics_dir, stem, run_id)
 
 
 def build_permission_pattern_contract_payload(
@@ -55,7 +53,9 @@ def build_permission_pattern_contract_payload(
         "available_comparison_scopes": available_scopes,
         "pattern_claim_boundary": PATTERN_CLAIM_BOUNDARY,
         "unsupported_claims": list(PATTERN_UNSUPPORTED_CLAIMS),
-        "related_artifacts": {
+        "related_artifacts": _resolved_related_artifacts(diagnostics_dir=diag, run_id=run_id)
+        if diag is not None
+        else {
             "permission_pattern_summary": f"permission_pattern_summary_{run_id}.md",
             "permission_prevalence_by_type": f"permission_prevalence_by_type_{run_id}.csv",
             "permission_prevalence_by_family": f"permission_prevalence_by_family_{run_id}.csv",
@@ -64,6 +64,22 @@ def build_permission_pattern_contract_payload(
             "family_permission_similarity": f"family_permission_similarity_{run_id}.csv",
             "type_permission_similarity": f"type_permission_similarity_{run_id}.csv",
         },
+    }
+
+
+def _resolved_related_artifacts(*, diagnostics_dir: Path, run_id: str) -> dict[str, str]:
+    specs = {
+        "permission_pattern_summary": f"permission_pattern_summary_{run_id}.md",
+        "permission_prevalence_by_type": f"permission_prevalence_by_type_{run_id}.csv",
+        "permission_prevalence_by_family": f"permission_prevalence_by_family_{run_id}.csv",
+        "permission_type_enrichment": f"permission_type_enrichment_{run_id}.csv",
+        "permission_family_enrichment": f"permission_family_enrichment_{run_id}.csv",
+        "family_permission_similarity": f"family_permission_similarity_{run_id}.csv",
+        "type_permission_similarity": f"type_permission_similarity_{run_id}.csv",
+    }
+    return {
+        key: resolve_related_artifact_ref(diagnostics_dir, run_id=run_id, filename=filename)
+        for key, filename in specs.items()
     }
 
 

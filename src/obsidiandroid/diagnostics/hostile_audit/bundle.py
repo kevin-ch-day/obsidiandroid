@@ -18,6 +18,7 @@ from .taxonomy_label_quality_audit import (
 from .temporal_validity_audit import write_temporal_validity_audit
 from .target_validity_audit import write_target_validity_audit
 from .vendor_label_leakage_audit import write_vendor_label_leakage_audit
+from obsidiandroid.common.run_slots import is_canonical_v3_profile
 
 
 def write_hostile_audit_bundle(
@@ -152,11 +153,20 @@ def write_hostile_audit_bundle(
 
     _safe(_rec, "recommended_findings")
 
+    partial_error_count = 0
     if partial_log.exists() and partial_log.stat().st_size > 0:
+        partial_error_count = sum(1 for line in partial_log.read_text(encoding="utf-8").splitlines() if line.strip())
         sp = str(partial_log)
         if sp not in artifact_list:
             artifact_list.append(sp)
         emitted.append(sp)
+        mctx["hostile_audit_partial_error_count"] = int(partial_error_count)
+        profile_id = str(man.get("profile_id", "") or mctx.get("profile_id", "") or "")
+        if is_canonical_v3_profile(profile_id):
+            raise RuntimeError(
+                "hostile_audit_partial_errors for canonical V3 profile "
+                f"`{profile_id}` ({partial_error_count} step failures); see {partial_log.name}"
+            )
 
     from obsidiandroid.observability.pipeline_observability import api as obs_api
 

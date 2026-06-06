@@ -826,29 +826,6 @@ def load_and_prepare_samples(
         )
         if isinstance(artifact_list, list):
             artifact_list.extend(taxonomy_target_artifacts)
-        try:
-            label_contract_artifacts = v3_label_contract.export_v3_label_contract(
-                diagnostics_dir=_diagnostics_dir(),
-                run_id=str(run_id or "unknown"),
-                profile=profile,
-                samples_df=samples_df,
-                min_support=int(diagnostic_min_support),
-            )
-            if isinstance(artifact_list, list):
-                artifact_list.extend(label_contract_artifacts)
-        except Exception as contract_exc:  # pylint: disable=broad-except
-            du.print_warning(
-                f"[COHORT] V3 label contract export skipped: {type(contract_exc).__name__}."
-            )
-            log_event(
-                PIPELINE_LOGGER,
-                "samples_v3_label_contract_export_failed",
-                event_id="SAMPLES_326",
-                level="WARNING",
-                run_id=str(run_id or "unknown"),
-                profile_id=profile_id,
-                reason=type(contract_exc).__name__,
-            )
     except Exception as exc:  # pylint: disable=broad-except
         du.print_warning(
             f"[COHORT] Taxonomy target-surface diagnostics export skipped: {type(exc).__name__}."
@@ -861,6 +838,37 @@ def load_and_prepare_samples(
             run_id=str(run_id or "unknown"),
             profile_id=profile_id,
             reason=type(exc).__name__,
+        )
+
+    try:
+        label_contract_artifacts = v3_label_contract.export_v3_label_contract(
+            diagnostics_dir=_diagnostics_dir(),
+            run_id=str(run_id or "unknown"),
+            profile=profile,
+            samples_df=samples_df,
+            min_support=int(diagnostic_min_support),
+        )
+        if isinstance(artifact_list, list):
+            artifact_list.extend(label_contract_artifacts)
+    except Exception as contract_exc:  # pylint: disable=broad-except
+        from obsidiandroid.common.run_slots import is_canonical_v3_profile
+
+        if is_canonical_v3_profile(profile_id):
+            du.print_error(
+                f"[COHORT] V3 label contract export failed for canonical profile `{profile_id}`: {contract_exc}"
+            )
+            raise
+        du.print_warning(
+            f"[COHORT] V3 label contract export skipped: {type(contract_exc).__name__}."
+        )
+        log_event(
+            PIPELINE_LOGGER,
+            "samples_v3_label_contract_export_failed",
+            event_id="SAMPLES_326",
+            level="WARNING",
+            run_id=str(run_id or "unknown"),
+            profile_id=profile_id,
+            reason=type(contract_exc).__name__,
         )
 
     try:
@@ -948,27 +956,23 @@ def _export_cohort_lock_artifacts(
     cohort_ids_path: str,
 ) -> tuple[str, str]:
     """Export canonical cohort lock summary and membership artifacts."""
+    from obsidiandroid.diagnostics.cohort_persistence import (
+        DEFAULT_COHORT_MEMBERSHIP_COLUMNS,
+        export_cohort_membership_snapshot,
+        normalize_membership_df,
+    )
+
     diagnostics_dir = _diagnostics_dir()
-    membership_path = diagnostics_dir / "cohort_membership.csv"
     summary_path = diagnostics_dir / "cohort_lock_summary.json"
     manifest_path = diagnostics_dir / "cohort_lock_manifest.json"
 
-    export_columns = [
-        "sample_id",
-        "sha256",
-        "family_id",
-        "family_canonical",
-        "type_slug",
-        "android_package_name",
-        "effective_first_seen_at_utc",
-        "vt_first_submission_at_utc",
-    ]
-    available_columns = [column for column in export_columns if column in samples_df.columns]
-    membership_df = samples_df[available_columns].copy() if available_columns else samples_df.copy()
-    if "sample_id" in membership_df.columns:
-        membership_df["sample_id"] = pd.to_numeric(membership_df["sample_id"], errors="coerce")
-        membership_df = membership_df.sort_values("sample_id", kind="mergesort")
-    membership_df.to_csv(membership_path, index=False)
+    membership_df = normalize_membership_df(samples_df, DEFAULT_COHORT_MEMBERSHIP_COLUMNS)
+    membership_paths = export_cohort_membership_snapshot(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        samples_df=samples_df,
+    )
+    membership_path = membership_paths[0]
     member_ids = (
         pd.to_numeric(membership_df.get("sample_id"), errors="coerce")
         .dropna()

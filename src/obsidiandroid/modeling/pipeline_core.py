@@ -754,6 +754,23 @@ def run_classifier_pipeline(
                 "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD",
                 str(labels_df.name),
             )
+        setattr(app_config, "RUNTIME_TRAINING_ALIGNMENT_ATTRITION_STATS", {})
+        setattr(app_config, "RUNTIME_TRAINING_ALIGNMENT_ATTRITION_DETAILS", {})
+        if isinstance(labels_df, pd.Series):
+            training_attrition_stats = getattr(labels_df, "attrs", {}).get("alignment_attrition_stats")
+            training_attrition_details = getattr(labels_df, "attrs", {}).get("alignment_attrition_details")
+            if isinstance(training_attrition_stats, dict):
+                setattr(
+                    app_config,
+                    "RUNTIME_TRAINING_ALIGNMENT_ATTRITION_STATS",
+                    dict(training_attrition_stats),
+                )
+            if isinstance(training_attrition_details, dict):
+                setattr(
+                    app_config,
+                    "RUNTIME_TRAINING_ALIGNMENT_ATTRITION_DETAILS",
+                    dict(training_attrition_details),
+                )
         setattr(
             app_config,
             "RUNTIME_FEATURE_NONZERO_AFTER_ALIGN",

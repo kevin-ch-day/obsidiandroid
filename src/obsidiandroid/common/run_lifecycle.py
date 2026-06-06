@@ -82,6 +82,30 @@ def mark_run_lifecycle_running(
     )
 
 
+def touch_run_lifecycle_running(
+    run_root: Path,
+    *,
+    stage: str | None = None,
+) -> None:
+    """Refresh ``.RUNNING`` with a stage hint during long manifest finalization."""
+    marker = run_root / _MARKER_RUNNING
+    if not marker.is_file():
+        return
+    payload = _load_marker_json(marker)
+    if not payload:
+        payload = {"state": "running"}
+    payload["last_touch_at_utc"] = datetime.now(timezone.utc).isoformat()
+    if stage:
+        payload["current_stage"] = str(stage).strip()
+    try:
+        marker.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
 def find_active_profile_runs(
     output_root: Path,
     *,
@@ -194,4 +218,5 @@ __all__ = [
     "find_active_profile_runs",
     "finalize_run_lifecycle_terminal",
     "mark_run_lifecycle_running",
+    "touch_run_lifecycle_running",
 ]

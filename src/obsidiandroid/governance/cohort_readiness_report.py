@@ -15,12 +15,23 @@ from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.diagnostics import taxonomy_target_surface_report
+from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_evidence_mode
 from obsidiandroid.governance.support_floor_policy import (
     SUPPORT_DIAGNOSTIC_FLOORS,
     resolve_configured_min_samples_per_family,
     resolve_diagnostic_min_samples_per_family,
     resolve_support_floor_mode,
 )
+
+
+def _coalesce_attrs_publication_mode(samples_df: pd.DataFrame) -> bool:
+    """Resolve publication/evidence mode from ``samples_df.attrs`` without dict truthiness bugs."""
+    attrs = samples_df.attrs if hasattr(samples_df, "attrs") else {}
+    for key in ("publication_ready_mode", "evidence_mode"):
+        payload = attrs.get(key)
+        if coalesce_manifest_evidence_mode(payload):
+            return True
+    return bool(getattr(app_config, "EVIDENCE_MODE_ENABLED", False))
 
 
 def print_cohort_readiness_report(
@@ -73,6 +84,7 @@ def print_cohort_readiness_report(
 
     funnel_sql = sql_scope_total if sql_scope_total > 0 else total
     funnel_governed = governed_ref if governed_ref > 0 else total
+    support_floor_mode = resolve_support_floor_mode(gates, samples_df=samples_df)
     funnel_trainable_rows = int(target_summary.get("benchmark_eligible_rows", total) or 0)
     represented_types = _unique_count(samples_df, "type_slug")
     represented_families = _unique_count(samples_df, fam_col)
@@ -84,9 +96,15 @@ def print_cohort_readiness_report(
 
     surface_label = _profile_surface_label(profile_id=profile_id, samples_df=samples_df)
     du.print_stat("Profile surface", surface_label)
+    if support_floor_mode == "diagnostic_only":
+        funnel_tail = f"{total:,} prepared (diagnostic; classifier pool may be smaller after family-authority filter)"
+    elif support_floor_mode == "benchmark_eligibility":
+        funnel_tail = f"{funnel_trainable_rows:,} benchmark-trainable"
+    else:
+        funnel_tail = f"{funnel_trainable_rows:,} trainable"
     du.print_stat(
         "Cohort funnel",
-        f"{funnel_sql:,} SQL → {funnel_governed:,} governed → {total:,} prepared → {funnel_trainable_rows:,} benchmark-trainable",
+        f"{funnel_sql:,} SQL → {funnel_governed:,} governed → {total:,} prepared → {funnel_tail}",
     )
     if benchmark_floor not in (None, ""):
         du.print_stat(
@@ -107,7 +125,6 @@ def print_cohort_readiness_report(
         "Family target",
         f"family_id | {benchmark_trainable_families:,} benchmark-eligible classes",
     )
-    support_floor_mode = resolve_support_floor_mode(gates=gates, samples_df=samples_df)
     if support_floor_mode == "diagnostic_only":
         du.print_stat(
             "Actual modeled family classes",
@@ -220,11 +237,7 @@ def print_cohort_sql_scope_gate_summary(stats: dict) -> None:
 
 
 def _cohort_summary_heading(*, profile_id: str, samples_df: pd.DataFrame) -> str:
-    publication_mode = bool(
-        samples_df.attrs.get("publication_ready_mode")
-        or samples_df.attrs.get("evidence_mode")
-        or getattr(app_config, "EVIDENCE_MODE_ENABLED", False)
-    )
+    publication_mode = _coalesce_attrs_publication_mode(samples_df)
     if publication_mode:
         return "Locked Publication Cohort Summary"
     if profile_id == "android_malware_all_current":
@@ -233,7 +246,7 @@ def _cohort_summary_heading(*, profile_id: str, samples_df: pd.DataFrame) -> str
 
 
 def _profile_surface_label(*, profile_id: str, samples_df: pd.DataFrame) -> str:
-    if bool(samples_df.attrs.get("publication_ready_mode") or samples_df.attrs.get("evidence_mode")):
+    if _coalesce_attrs_publication_mode(samples_df):
         return "Locked publication cohort"
     if profile_id == "android_malware_all_current":
         return "Current Android malware corpus"

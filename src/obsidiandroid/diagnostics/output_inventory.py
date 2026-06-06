@@ -23,6 +23,32 @@ from . import output_artifact_policy
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common.publication_readiness import evaluate_publication_ready_status
 from obsidiandroid.common import ml_console
+from obsidiandroid.governance.evidence_mode_resolver import (
+    coalesce_manifest_evidence_mode,
+    coalesce_manifest_publication_mode,
+)
+
+
+def _resolve_publication_mode_flags(
+    *,
+    paper_mode_param: bool,
+    manifest: dict[str, Any] | None,
+    manifest_context: dict[str, Any] | None,
+) -> tuple[bool, bool]:
+    """Resolve evidence/publication flags from manifest blobs or caller fallbacks."""
+    if isinstance(manifest_context, dict):
+        evidence_mode = coalesce_manifest_evidence_mode(manifest_context.get("evidence_mode"))
+        paper_mode = coalesce_manifest_evidence_mode(manifest_context.get("paper_mode"))
+        if not evidence_mode and not paper_mode:
+            resolved = coalesce_manifest_publication_mode(manifest_context)
+            return resolved, resolved
+        return evidence_mode, paper_mode
+    if isinstance(manifest, dict):
+        evidence_mode = coalesce_manifest_publication_mode(manifest)
+        paper_mode = coalesce_manifest_evidence_mode(manifest.get("paper_mode"))
+        return evidence_mode, paper_mode
+    resolved = bool(paper_mode_param)
+    return resolved, resolved
 
 
 def _claim_surface_label(*, profile_id: str, evidence_mode: bool, paper_mode: bool) -> str:
@@ -355,12 +381,17 @@ def write_run_evidence_index_md(
     """First-stop Markdown summary for researchers."""
     summary_obs = _load_json(diagnostics_dir / "run_observability_summary.json")
     counts_mirror = summary_obs.get("counts") if isinstance(summary_obs.get("counts"), dict) else {}
+    evidence_mode_flag, paper_mode_flag = _resolve_publication_mode_flags(
+        paper_mode_param=paper_mode,
+        manifest=manifest,
+        manifest_context=manifest_context if isinstance(manifest_context, dict) else None,
+    )
     claim_surface_label = str(
         summary_obs.get("claim_surface_label")
         or _claim_surface_label(
             profile_id=profile_id,
-            evidence_mode=bool(paper_mode),
-            paper_mode=bool(paper_mode),
+            evidence_mode=evidence_mode_flag,
+            paper_mode=paper_mode_flag,
         )
     )
     claim_audit_name = str(
@@ -370,8 +401,8 @@ def write_run_evidence_index_md(
                 or diagnostics_dir
                 / _claim_audit_alias_name(
                     profile_id=profile_id,
-                    evidence_mode=bool(paper_mode),
-                    paper_mode=bool(paper_mode),
+                    evidence_mode=evidence_mode_flag,
+                    paper_mode=paper_mode_flag,
                 )
             )
         ).name
@@ -542,6 +573,19 @@ def write_run_evidence_index_md(
     v3_label_contract_md = diagnostics_dir / f"v3_label_contract_{run_id}.md"
     permission_pattern_contract_md = diagnostics_dir / f"permission_pattern_contract_{run_id}.md"
     ml_run_manifest_json = diagnostics_dir / f"ml_run_manifest_{run_id}.json"
+    ml_sample_label_fact_csv = diagnostics_dir / f"ml_sample_label_fact_{run_id}.csv"
+    ml_permission_vocabulary_json = diagnostics_dir / f"ml_permission_vocabulary_{run_id}.json"
+    ml_permission_pattern_fact_csv = diagnostics_dir / f"ml_permission_pattern_fact_{run_id}.csv"
+    ml_split_csv = diagnostics_dir / f"ml_train_validation_test_split_{run_id}.csv"
+    v3_dl_handoff_summary_json = diagnostics_dir / f"v3_dl_handoff_summary_{run_id}.json"
+    dl_seed_status = ""
+    if v3_dl_handoff_summary_json.is_file():
+        try:
+            handoff_payload = json.loads(v3_dl_handoff_summary_json.read_text(encoding="utf-8"))
+            if isinstance(handoff_payload, dict):
+                dl_seed_status = str(handoff_payload.get("dl_seed_status", "") or "").strip()
+        except Exception:
+            dl_seed_status = ""
 
     lines.extend(
         [
@@ -549,12 +593,24 @@ def write_run_evidence_index_md(
             "",
         ]
     )
+    if dl_seed_status:
+        lines.append(f"- **DL seed handoff status:** `{dl_seed_status}`")
     if v3_label_contract_md.exists():
         lines.append(f"- **V3 label contract:** `{v3_label_contract_md}`")
     if permission_pattern_contract_md.exists():
         lines.append(f"- **Permission pattern contract:** `{permission_pattern_contract_md}`")
     if ml_run_manifest_json.exists():
         lines.append(f"- **ML run manifest (seed):** `{ml_run_manifest_json}`")
+    if ml_sample_label_fact_csv.exists():
+        lines.append(f"- **ML sample label fact:** `{ml_sample_label_fact_csv}`")
+    if ml_permission_vocabulary_json.exists():
+        lines.append(f"- **ML permission vocabulary:** `{ml_permission_vocabulary_json}`")
+    if ml_permission_pattern_fact_csv.exists():
+        lines.append(f"- **ML permission pattern fact:** `{ml_permission_pattern_fact_csv}`")
+    if ml_split_csv.exists():
+        lines.append(f"- **ML train/validation/test split:** `{ml_split_csv}`")
+    if v3_dl_handoff_summary_json.exists():
+        lines.append(f"- **V3 DL handoff summary:** `{v3_dl_handoff_summary_json}`")
     lines.extend(
         [
             "",
@@ -588,6 +644,7 @@ def write_run_science_index_md(
     run_id: str,
     profile_id: str,
     evidence_mode: bool,
+    paper_mode: bool | None = None,
     cohort_locked: bool,
     publication_ready_status: str,
 ) -> Path | None:
@@ -607,12 +664,13 @@ def write_run_science_index_md(
         for row in (provenance.get("entries") if isinstance(provenance.get("entries"), list) else [])
         if not bool(row.get("generated_during_pipeline", False))
     ]
+    paper_mode_flag = bool(paper_mode) if paper_mode is not None else bool(evidence_mode)
     claim_surface_label = str(
         summary_obs.get("claim_surface_label")
         or _claim_surface_label(
             profile_id=profile_id,
             evidence_mode=bool(evidence_mode),
-            paper_mode=bool(evidence_mode),
+            paper_mode=paper_mode_flag,
         )
     )
     claim_audit_name = str(
@@ -623,7 +681,7 @@ def write_run_science_index_md(
                 / _claim_audit_alias_name(
                     profile_id=profile_id,
                     evidence_mode=bool(evidence_mode),
-                    paper_mode=bool(evidence_mode),
+                    paper_mode=paper_mode_flag,
                 )
             )
         ).name

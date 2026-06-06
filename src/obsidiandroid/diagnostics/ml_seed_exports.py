@@ -10,6 +10,17 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.diagnostics.cohort_persistence import resolve_effective_samples_df
+from obsidiandroid.diagnostics.run_artifact_resolve import resolve_run_artifact_path
+from obsidiandroid.common.run_slots import is_canonical_v3_profile
+from obsidiandroid.diagnostics.v3_dl_handoff import (
+    build_v3_dl_handoff_summary_payload,
+    export_v3_dl_handoff_summary,
+)
+
+
+class MlSeedExportError(RuntimeError):
+    """Raised when required ML seed exports cannot be produced."""
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -31,14 +42,34 @@ def _read_csv_if_exists(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def _resolve_existing_path(diagnostics_dir: Path, stem: str, run_id: str, suffix: str) -> Path | None:
-    run_path = diagnostics_dir / f"{stem}_{run_id}{suffix}"
-    if run_path.is_file():
-        return run_path
-    latest = diagnostics_dir / f"{stem}.latest{suffix}"
-    if latest.is_file():
-        return latest
-    return None
+def _resolve_existing_path(
+    diagnostics_dir: Path,
+    stem: str,
+    run_id: str,
+    suffix: str,
+) -> Path | None:
+    return resolve_run_artifact_path(
+        diagnostics_dir,
+        stem=stem,
+        run_id=run_id,
+        suffix=suffix,
+    )
+
+
+def _entries_from_alias_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = payload.get("aliases")
+    if isinstance(rows, list):
+        return [row for row in rows if isinstance(row, dict)]
+    rows = payload.get("rows")
+    if isinstance(rows, list):
+        return [row for row in rows if isinstance(row, dict)]
+    alias_map = payload.get("alias_map")
+    if isinstance(alias_map, dict):
+        return [
+            {"alias_from": str(key), "alias_to": str(value)}
+            for key, value in sorted(alias_map.items(), key=lambda item: item[0])
+        ]
+    return []
 
 
 def _build_sample_label_fact(
@@ -80,23 +111,112 @@ def _build_sample_label_fact(
     return out
 
 
+def _alias_lookup_from_entries(entries: list[dict[str, Any]]) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    for row in entries:
+        alias_from = str(row.get("alias_from", "") or "").strip()
+        alias_to = str(row.get("alias_to", "") or "").strip()
+        if alias_from and alias_to:
+            lookup[alias_from] = alias_to
+    return lookup
+
+
+def _permission_column_name(df: pd.DataFrame) -> str | None:
+    for column in ("permission", "permission_string"):
+        if column in df.columns:
+            return column
+    return None
+
+
+def _collect_prevalence_permission_entries(
+    diagnostics_dir: Path,
+    run_id: str,
+    *,
+    alias_lookup: dict[str, str],
+    alias_from: set[str],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Derive supervised permission tokens from prevalence tables when alias map is thin."""
+    permission_stats: dict[str, dict[str, Any]] = {}
+    source_artifacts: list[str] = []
+    specs = (
+        ("permission_prevalence_by_type", "type_level"),
+        ("permission_prevalence_by_family", "family_level"),
+    )
+    for stem, scope in specs:
+        path = _resolve_existing_path(diagnostics_dir, stem, run_id, ".csv")
+        if path is None:
+            continue
+        df = _read_csv_if_exists(path)
+        permission_column = _permission_column_name(df)
+        if permission_column is None or df.empty:
+            continue
+        source_artifacts.append(str(path))
+        prevalence_column = "prevalence_pct" if "prevalence_pct" in df.columns else None
+        for _, row in df.iterrows():
+            permission = str(row.get(permission_column, "") or "").strip()
+            if not permission or permission in alias_from:
+                continue
+            canonical = alias_lookup.get(permission, permission)
+            stats = permission_stats.setdefault(
+                canonical,
+                {
+                    "permission": permission,
+                    "canonical_permission": canonical,
+                    "source_scope": set(),
+                    "max_prevalence_pct": 0.0,
+                },
+            )
+            stats["source_scope"].add(scope)
+            if prevalence_column is not None:
+                try:
+                    prevalence = float(row.get(prevalence_column, 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    prevalence = 0.0
+                stats["max_prevalence_pct"] = max(float(stats["max_prevalence_pct"]), prevalence)
+
+    entries: list[dict[str, Any]] = []
+    for canonical in sorted(permission_stats):
+        stats = permission_stats[canonical]
+        entries.append(
+            {
+                "entry_kind": "permission",
+                "permission": stats["permission"],
+                "canonical_permission": canonical,
+                "source_scope": sorted(stats["source_scope"]),
+                "max_prevalence_pct": round(float(stats["max_prevalence_pct"]), 4),
+            }
+        )
+    return entries, source_artifacts
+
+
 def _build_permission_vocabulary(diagnostics_dir: Path, run_id: str) -> dict[str, Any]:
     alias_json = _resolve_existing_path(diagnostics_dir, "permission_alias_map", run_id, ".json")
     alias_csv = _resolve_existing_path(diagnostics_dir, "permission_alias_map", run_id, ".csv")
-    entries: list[dict[str, Any]] = []
+    alias_entries: list[dict[str, Any]] = []
     if alias_json is not None:
-        payload = _read_json(alias_json)
-        rows = payload.get("aliases") if isinstance(payload.get("aliases"), list) else payload.get("rows", [])
-        if isinstance(rows, list):
-            entries = [row for row in rows if isinstance(row, dict)]
+        alias_entries = _entries_from_alias_payload(_read_json(alias_json))
     elif alias_csv is not None:
         df = _read_csv_if_exists(alias_csv)
         if not df.empty:
-            entries = df.to_dict(orient="records")
+            alias_entries = df.to_dict(orient="records")
+    for row in alias_entries:
+        row["entry_kind"] = "alias"
+
+    alias_lookup = _alias_lookup_from_entries(alias_entries)
+    permission_entries, prevalence_sources = _collect_prevalence_permission_entries(
+        diagnostics_dir,
+        run_id,
+        alias_lookup=alias_lookup,
+        alias_from=set(alias_lookup),
+    )
+    entries = alias_entries + permission_entries
     return {
-        "vocabulary_version": "ml_permission_vocabulary_v1",
+        "vocabulary_version": "ml_permission_vocabulary_v2",
         "run_id": run_id,
         "source_artifact": str(alias_json or alias_csv or ""),
+        "prevalence_source_artifacts": prevalence_sources,
+        "alias_entry_count": len(alias_entries),
+        "permission_entry_count": len(permission_entries),
         "entry_count": len(entries),
         "entries": entries,
     }
@@ -145,12 +265,36 @@ def _build_split_export(diagnostics_dir: Path, run_id: str, manifest: dict[str, 
     return _read_csv_if_exists(headline)
 
 
+def _run_root_for_diagnostics(diagnostics_dir: Path) -> Path:
+    return diagnostics_dir.parent if diagnostics_dir.name == "diagnostics" else diagnostics_dir
+
+
+def _ref_if_exists(
+    diagnostics_dir: Path,
+    *,
+    key: str,
+    filename: str,
+) -> tuple[str, str] | None:
+    run_root = _run_root_for_diagnostics(diagnostics_dir)
+    candidates = [diagnostics_dir / filename]
+    if filename == "run_manifest.json":
+        candidates = [run_root / filename, diagnostics_dir / filename]
+    for path in candidates:
+        if path.is_file():
+            return key, filename
+    return None
+
+
 def _build_ml_run_manifest(
     *,
     run_id: str,
     profile: dict[str, Any],
     manifest: dict[str, Any],
     manifest_context: dict[str, Any] | None,
+    seed_artifact_refs: dict[str, str],
+    optional_seed_artifact_refs: dict[str, str],
+    sample_label_rows: int,
+    vocabulary_entry_count: int,
 ) -> dict[str, Any]:
     ctx = manifest_context if isinstance(manifest_context, dict) else {}
     return {
@@ -162,20 +306,129 @@ def _build_ml_run_manifest(
         "train_sample_count": manifest.get("train_sample_count"),
         "test_sample_count": manifest.get("test_sample_count"),
         "split_hash": (manifest.get("split") or {}).get("split_hash") if isinstance(manifest.get("split"), dict) else None,
-        "dataset_hash": manifest.get("dataset_hash"),
+        "dataset_hash": manifest.get("dataset_hash") or ctx.get("dataset_hash"),
         "feature_matrix_cols_post_prune": manifest.get("feature_matrix_cols_post_prune"),
         "trained_models": list(manifest.get("trained_models", []) or []),
         "claim_surface": str(ctx.get("claim_surface", "") or manifest.get("claim_surface_label", "")),
         "run_mode": str(ctx.get("run_mode", "") or getattr(app_config, "RUNTIME_RUN_MODE", "")),
-        "seed_artifact_refs": {
-            "v3_label_contract": f"v3_label_contract_{run_id}.json",
-            "permission_pattern_contract": f"permission_pattern_contract_{run_id}.json",
-            "taxonomy_target_surfaces": f"taxonomy_target_surfaces_{run_id}.json",
-            "run_manifest": "run_manifest.json",
-        },
+        "seed_artifact_refs": dict(seed_artifact_refs),
+        "optional_seed_artifact_refs": dict(optional_seed_artifact_refs),
+        "sample_label_rows": int(sample_label_rows),
+        "vocabulary_entry_count": int(vocabulary_entry_count),
         "downstream_phase": "neptune_iapetus_deep_learning_prep",
         "notes": "Curated seed export only; does not train or run deep-learning models.",
     }
+
+
+def refresh_persisted_permission_vocabulary(
+    *,
+    diagnostics_dir: Path,
+    run_id: str,
+) -> Path:
+    """Rewrite on-disk ml_permission_vocabulary from current alias + prevalence sources."""
+    diagnostics_dir = Path(diagnostics_dir)
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    vocab_payload = _build_permission_vocabulary(diagnostics_dir, run_id)
+    vocab_path = diagnostics_dir / f"ml_permission_vocabulary_{run_id}.json"
+    vocab_path.write_text(json.dumps(vocab_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    oh.mirror_json_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=vocab_path.name,
+        payload=vocab_payload,
+        global_latest_name="ml_permission_vocabulary.latest.json",
+    )
+    sync_ml_run_manifest_seed_counters(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        vocabulary_entry_count=int(vocab_payload.get("entry_count", 0) or 0),
+    )
+    return vocab_path
+
+
+def sync_ml_run_manifest_seed_counters(
+    *,
+    diagnostics_dir: Path,
+    run_id: str,
+    vocabulary_entry_count: int | None = None,
+    sample_label_rows: int | None = None,
+) -> Path | None:
+    """Patch persisted ml_run_manifest seed counters from on-disk or live rebuild sources."""
+    diagnostics_dir = Path(diagnostics_dir)
+    manifest_path = diagnostics_dir / f"ml_run_manifest_{run_id}.json"
+    if not manifest_path.is_file():
+        return None
+    payload = _read_json(manifest_path)
+    if not payload:
+        return None
+
+    if vocabulary_entry_count is None:
+        vocab_payload = _build_permission_vocabulary(diagnostics_dir, run_id)
+        vocabulary_entry_count = int(vocab_payload.get("entry_count", 0) or 0)
+    payload["vocabulary_entry_count"] = int(vocabulary_entry_count)
+
+    if sample_label_rows is None:
+        label_path = _resolve_existing_path(diagnostics_dir, "ml_sample_label_fact", run_id, ".csv")
+        if label_path is not None:
+            label_df = _read_csv_if_exists(label_path)
+            sample_label_rows = int(len(label_df))
+    if sample_label_rows is not None:
+        payload["sample_label_rows"] = int(sample_label_rows)
+
+    run_root = diagnostics_dir.parent if diagnostics_dir.name == "diagnostics" else diagnostics_dir
+    run_manifest_path = run_root / "run_manifest.json"
+    if run_manifest_path.is_file():
+        run_manifest = _read_json(run_manifest_path)
+        dataset_hash = str(run_manifest.get("dataset_hash", "") or "").strip()
+        if dataset_hash:
+            payload["dataset_hash"] = dataset_hash
+
+    manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    oh.mirror_json_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=manifest_path.name,
+        payload=payload,
+        global_latest_name="ml_run_manifest.latest.json",
+    )
+    return manifest_path
+
+
+def ensure_ml_split_export(
+    *,
+    diagnostics_dir: Path,
+    run_id: str,
+    manifest: dict[str, Any],
+) -> Path | None:
+    """Write ml_train_validation_test_split when split source exists but export is missing."""
+    diagnostics_dir = Path(diagnostics_dir)
+    split_path = diagnostics_dir / f"ml_train_validation_test_split_{run_id}.csv"
+    if split_path.is_file():
+        return split_path
+    split_df = _build_split_export(diagnostics_dir, run_id, manifest)
+    if split_df.empty:
+        return None
+    split_df.to_csv(split_path, index=False)
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=split_path.name,
+        csv_text=split_path.read_text(encoding="utf-8"),
+        global_latest_name="ml_train_validation_test_split.latest.csv",
+    )
+    manifest_path = diagnostics_dir / f"ml_run_manifest_{run_id}.json"
+    if manifest_path.is_file():
+        payload = _read_json(manifest_path)
+        optional_refs = payload.get("optional_seed_artifact_refs")
+        if not isinstance(optional_refs, dict):
+            optional_refs = {}
+        optional_refs["ml_train_validation_test_split"] = split_path.name
+        payload["optional_seed_artifact_refs"] = optional_refs
+        manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        oh.mirror_json_text_run_then_global(
+            diagnostics_dir=diagnostics_dir,
+            run_filename=manifest_path.name,
+            payload=payload,
+            global_latest_name="ml_run_manifest.latest.json",
+        )
+    return split_path
 
 
 def export_ml_seed_artifacts(
@@ -190,9 +443,20 @@ def export_ml_seed_artifacts(
     """Write minimum ML seed artifacts from existing run outputs."""
     diagnostics_dir = Path(diagnostics_dir)
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    ctx = manifest_context if isinstance(manifest_context, dict) else {}
+    if not str(manifest.get("dataset_hash", "") or "").strip() and str(ctx.get("dataset_hash", "") or "").strip():
+        manifest = dict(manifest)
+        manifest["dataset_hash"] = str(ctx.get("dataset_hash", "") or "").strip()
     paths: list[str] = []
+    seed_refs: dict[str, str] = {}
+    optional_refs: dict[str, str] = {}
 
-    label_df = _build_sample_label_fact(samples_df, profile=profile)
+    effective_samples = resolve_effective_samples_df(diagnostics_dir, run_id, samples_df)
+    label_df = _build_sample_label_fact(effective_samples, profile=profile)
+    if label_df.empty:
+        raise MlSeedExportError(
+            "ml_sample_label_fact requires a non-empty samples_df or aligned_labels export"
+        )
     label_path = diagnostics_dir / f"ml_sample_label_fact_{run_id}.csv"
     label_df.to_csv(label_path, index=False)
     oh.mirror_csv_text_run_then_global(
@@ -202,6 +466,7 @@ def export_ml_seed_artifacts(
         global_latest_name="ml_sample_label_fact.latest.csv",
     )
     paths.append(str(label_path))
+    seed_refs["ml_sample_label_fact"] = label_path.name
 
     vocab_payload = _build_permission_vocabulary(diagnostics_dir, run_id)
     vocab_path = diagnostics_dir / f"ml_permission_vocabulary_{run_id}.json"
@@ -213,22 +478,7 @@ def export_ml_seed_artifacts(
         global_latest_name="ml_permission_vocabulary.latest.json",
     )
     paths.append(str(vocab_path))
-
-    ml_manifest = _build_ml_run_manifest(
-        run_id=run_id,
-        profile=profile,
-        manifest=manifest,
-        manifest_context=manifest_context,
-    )
-    ml_manifest_path = diagnostics_dir / f"ml_run_manifest_{run_id}.json"
-    ml_manifest_path.write_text(json.dumps(ml_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    oh.mirror_json_text_run_then_global(
-        diagnostics_dir=diagnostics_dir,
-        run_filename=ml_manifest_path.name,
-        payload=ml_manifest,
-        global_latest_name="ml_run_manifest.latest.json",
-    )
-    paths.append(str(ml_manifest_path))
+    seed_refs["ml_permission_vocabulary"] = vocab_path.name
 
     pattern_df = _build_permission_pattern_fact(diagnostics_dir, run_id)
     if not pattern_df.empty:
@@ -241,6 +491,7 @@ def export_ml_seed_artifacts(
             global_latest_name="ml_permission_pattern_fact.latest.csv",
         )
         paths.append(str(pattern_path))
+        optional_refs["ml_permission_pattern_fact"] = pattern_path.name
 
     split_df = _build_split_export(diagnostics_dir, run_id, manifest)
     if not split_df.empty:
@@ -253,5 +504,58 @@ def export_ml_seed_artifacts(
             global_latest_name="ml_train_validation_test_split.latest.csv",
         )
         paths.append(str(split_path))
+        optional_refs["ml_train_validation_test_split"] = split_path.name
+
+    for key, filename in (
+        ("v3_label_contract", f"v3_label_contract_{run_id}.json"),
+        ("permission_pattern_contract", f"permission_pattern_contract_{run_id}.json"),
+        ("taxonomy_target_surfaces", f"taxonomy_target_surfaces_{run_id}.json"),
+        ("run_manifest", "run_manifest.json"),
+    ):
+        ref = _ref_if_exists(diagnostics_dir, key=key, filename=filename)
+        if ref is not None:
+            seed_refs[ref[0]] = ref[1]
+
+    ml_manifest = _build_ml_run_manifest(
+        run_id=run_id,
+        profile=profile,
+        manifest=manifest,
+        manifest_context=manifest_context,
+        seed_artifact_refs=seed_refs,
+        optional_seed_artifact_refs=optional_refs,
+        sample_label_rows=len(label_df),
+        vocabulary_entry_count=int(vocab_payload.get("entry_count", 0) or 0),
+    )
+    ml_manifest_path = diagnostics_dir / f"ml_run_manifest_{run_id}.json"
+    ml_manifest_path.write_text(json.dumps(ml_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    oh.mirror_json_text_run_then_global(
+        diagnostics_dir=diagnostics_dir,
+        run_filename=ml_manifest_path.name,
+        payload=ml_manifest,
+        global_latest_name="ml_run_manifest.latest.json",
+    )
+    paths.append(str(ml_manifest_path))
+
+    handoff_path = export_v3_dl_handoff_summary(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile=profile,
+        manifest=manifest,
+        manifest_context=manifest_context,
+    )
+    paths.append(str(handoff_path))
+    if is_canonical_v3_profile(str(profile.get("profile_id", "") or "")):
+        handoff_payload = build_v3_dl_handoff_summary_payload(
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            profile=profile,
+            manifest=manifest,
+            manifest_context=manifest_context,
+        )
+        if handoff_payload.get("dl_seed_status") != "ready":
+            caveats = handoff_payload.get("caveats") or []
+            raise MlSeedExportError(
+                "canonical V3 DL handoff incomplete: " + "; ".join(str(item) for item in caveats)
+            )
 
     return paths

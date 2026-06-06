@@ -125,6 +125,38 @@ def _set_diagnostics_dir(path: str) -> None:
     sync_main_module_diagnostics(path)
 
 
+def _emit_post_finalize_operator_report(
+    *,
+    st: PipelineRunStageControl | None,
+    diagnostics_dir: Path,
+    run_id: str,
+    profile_id: str,
+    manifest_context: dict[str, Any],
+    samples_df: pd.DataFrame | None,
+    model_results: dict[str, Any] | None,
+    top_model: str | None,
+) -> None:
+    """Emit operator dashboard after manifest finalize so V3/seed artifacts exist."""
+    try:
+        operator_dashboard.emit_research_operator_report(
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            profile_id=profile_id,
+            manifest_context=manifest_context,
+            samples_df=samples_df if isinstance(samples_df, pd.DataFrame) else None,
+            model_results=model_results if isinstance(model_results, dict) else {},
+            top_model=top_model,
+            artifact_list=list(st.artifact_list) if st is not None else [],
+        )
+    except Exception as exc:
+        from obsidiandroid.common.run_slots import is_canonical_v3_profile
+
+        if is_canonical_v3_profile(str(profile_id or "")):
+            du.print_error(f"[OPERATOR] Post-finalize report failed for canonical profile `{profile_id}`: {exc}")
+            raise
+        du.print_warning(f"[OPERATOR] Post-finalize report skipped: {exc}")
+
+
 def run_pipeline(
     selected_models: Optional[Sequence[str]] = None,
     stop_after: str = "full",
@@ -192,6 +224,8 @@ def run_pipeline(
     samples_df: pd.DataFrame | None = None
     pipeline_results: dict[str, Any] = {}
     vendor_eval: pd.DataFrame | None = None
+    model_results: dict[str, Any] = {}
+    top_model_for_policy: str | None = None
     manifest_context: dict[str, Any] = {
         "run_id": run_id,
         "run_instance_id": run_id,
@@ -1303,6 +1337,11 @@ def run_pipeline(
                 default=0,
             )
         }
+        from obsidiandroid.modeling.training_alignment_attrition import (
+            apply_training_alignment_attrition_to_manifest,
+        )
+
+        apply_training_alignment_attrition_to_manifest(manifest_context)
         manifest_context["post_low_support_training_rows"] = getattr(
             app_config, "RUNTIME_POST_LOW_SUPPORT_TRAINING_ROWS", None
         )
@@ -1370,11 +1409,48 @@ def run_pipeline(
         if isinstance(obs_tr, PipelineObservabilitySession):
             try:
                 if aligned_n_obs is not None and post_ls_obs is not None:
+                    attrition = (
+                        manifest_context.get("alignment_attrition_stats")
+                        if isinstance(manifest_context.get("alignment_attrition_stats"), dict)
+                        else {}
+                    )
+                    authority_drop = int(
+                        attrition.get("alignment_non_authoritative_family_drop_count", 0) or 0
+                    )
+                    low_support_detail = (
+                        manifest_context.get("low_support_family_drop_detail")
+                        if isinstance(manifest_context.get("low_support_family_drop_detail"), list)
+                        else []
+                    )
+                    low_support_rows = 0
+                    for row in low_support_detail:
+                        if not isinstance(row, dict):
+                            continue
+                        try:
+                            low_support_rows += int(row.get("aligned_support"))
+                        except (TypeError, ValueError):
+                            continue
+                    if authority_drop > 0 and low_support_rows == 0:
+                        drop_reason = (
+                            "classifier training authority filter "
+                            f"(excluded {authority_drop} non-authoritative family row(s))"
+                        )
+                    elif low_support_rows > 0:
+                        drop_reason = (
+                            "min-family-support filter "
+                            f"(excluded {low_support_rows} row(s))"
+                        )
+                    else:
+                        drop_reason = "classifier trainable pool after alignment/support filters"
+                    prev_count = int(
+                        manifest_context.get("coarse_aligned_supervised_rows")
+                        or aligned_n_obs
+                    )
                     obs_tr.log_population_transition(
                         transition="aligned_supervised_to_post_low_support_training",
-                        previous_count=int(aligned_n_obs),
+                        previous_count=prev_count,
                         new_count=int(post_ls_obs),
-                        reason="RUNTIME_POST_LOW_SUPPORT_TRAINING_ROWS min-family/support mask",
+                        reason=drop_reason,
                         artifact_path=str(Path(DIAGNOSTICS_DIR) / f"split_freeze_headline_{run_id}.csv"),
                     )
             except Exception:
@@ -1660,25 +1736,26 @@ def run_pipeline(
             artifact_list=artifact_list,
             echo_terminal=False,
         )
-        operator_dashboard.emit_research_operator_report(
-            diagnostics_dir=diag_path,
-            run_id=run_id,
-            profile_id=profile_id,
-            manifest_context=manifest_context,
-            samples_df=samples_df if isinstance(samples_df, pd.DataFrame) else None,
-            model_results=model_results if isinstance(model_results, dict) else {},
-            top_model=top_model_for_policy,
-            artifact_list=list(artifact_list),
-        )
-        du.print_success("Classification pipeline executed successfully.")
         st.mark_run_state("complete", completed_stage="manifest")
         st.write_preflight(status="pass")
-        return st.finalize_with_manifest_timing(
+        manifest_result = st.finalize_with_manifest_timing(
             profile=profile,
             samples_df=samples_df,
             pipeline_results=pipeline_results,
             vendor_eval=vendor_eval,
         )
+        _emit_post_finalize_operator_report(
+            st=st,
+            diagnostics_dir=diag_path,
+            run_id=run_id,
+            profile_id=profile_id,
+            manifest_context=manifest_context,
+            samples_df=samples_df,
+            model_results=model_results,
+            top_model=top_model_for_policy,
+        )
+        du.print_success("Classification pipeline executed successfully.")
+        return manifest_result
 
     except KeyboardInterrupt:
         du.print_warning(
@@ -1731,6 +1808,18 @@ def run_pipeline(
                     samples_df=samples_df,
                     pipeline_results=pipeline_results,
                     vendor_eval=vendor_eval,
+                )
+                _emit_post_finalize_operator_report(
+                    st=st,
+                    diagnostics_dir=Path(
+                        str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", DIAGNOSTICS_DIR) or DIAGNOSTICS_DIR)
+                    ),
+                    run_id=run_id,
+                    profile_id=str(profile.get("profile_id", "") or manifest_context.get("profile_id", "")),
+                    manifest_context=manifest_context,
+                    samples_df=samples_df,
+                    model_results=model_results,
+                    top_model=top_model_for_policy,
                 )
             except Exception as fin_exc:
                 du.print_warning(f"[PIPELINE] Manifest finalization after interrupt failed: {fin_exc}")
@@ -1821,6 +1910,18 @@ def run_pipeline(
                 samples_df=samples_df,
                 pipeline_results=pipeline_results,
                 vendor_eval=vendor_eval,
+            )
+            _emit_post_finalize_operator_report(
+                st=st,
+                diagnostics_dir=Path(
+                    str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", DIAGNOSTICS_DIR) or DIAGNOSTICS_DIR)
+                ),
+                run_id=run_id,
+                profile_id=str(profile.get("profile_id", "") or manifest_context.get("profile_id", "")),
+                manifest_context=manifest_context,
+                samples_df=samples_df,
+                model_results=model_results,
+                top_model=top_model_for_policy,
             )
         if bool(getattr(app_config, "EVIDENCE_MODE_ENABLED", getattr(app_config, "PAPER_MODE_ENABLED", False))) and bool(
             getattr(

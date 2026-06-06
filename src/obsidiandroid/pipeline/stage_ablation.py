@@ -1256,17 +1256,42 @@ def _print_ablation_terminal_summary(summary_df: pd.DataFrame) -> None:
     type_row = by_target.get("type_slug")
     family_row = by_target.get("family_id") or by_target.get("family_canonical_default")
     if type_row is not None and family_row is not None:
-        interpretation_lines.append(
-            "[ABLATION] type_slug is easier than family_id: "
-            f"type_slug best={float(type_row['best_macro_f1']):.4f} vs family best={float(family_row['best_macro_f1']):.4f}."
-        )
+        type_best = float(type_row["best_macro_f1"])
+        family_best = float(family_row["best_macro_f1"])
+        if type_best > family_best + 1e-4:
+            interpretation_lines.append(
+                "[ABLATION] type_slug is easier than family_id: "
+                f"type_slug best={type_best:.4f} vs family best={family_best:.4f}."
+            )
+        elif type_best < family_best - 1e-4:
+            interpretation_lines.append(
+                "[ABLATION] family_id is easier than type_slug: "
+                f"family best={family_best:.4f} vs type_slug best={type_best:.4f}."
+            )
+        else:
+            interpretation_lines.append(
+                "[ABLATION] type_slug and family_id are comparable on best Macro-F1: "
+                f"type_slug best={type_best:.4f}; family best={family_best:.4f}."
+            )
     family_within_type_row = by_target.get("family_within_type")
     if family_within_type_row is not None and type_row is not None:
-        interpretation_lines.append(
-            "[ABLATION] family_within_type remains harder: "
-            f"family_within_type best={float(family_within_type_row['best_macro_f1']):.4f} "
-            f"vs type_slug best={float(type_row['best_macro_f1']):.4f}."
-        )
+        fwt_best = float(family_within_type_row["best_macro_f1"])
+        type_best = float(type_row["best_macro_f1"])
+        if fwt_best < type_best - 1e-4:
+            interpretation_lines.append(
+                "[ABLATION] family_within_type remains harder than type_slug: "
+                f"family_within_type best={fwt_best:.4f} vs type_slug best={type_best:.4f}."
+            )
+        elif fwt_best > type_best + 1e-4:
+            interpretation_lines.append(
+                "[ABLATION] family_within_type exceeds type_slug on best Macro-F1: "
+                f"family_within_type best={fwt_best:.4f} vs type_slug best={type_best:.4f}."
+            )
+        else:
+            interpretation_lines.append(
+                "[ABLATION] family_within_type and type_slug are comparable on best Macro-F1: "
+                f"family_within_type best={fwt_best:.4f}; type_slug best={type_best:.4f}."
+            )
 
     seen_lines: set[str] = set()
     for line in interpretation_lines:

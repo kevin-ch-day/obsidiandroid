@@ -27,6 +27,7 @@ from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.common.repo_paths import repo_root
+from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
 from obsidiandroid.common.publication_readiness import (
     evaluate_publication_ready_status,
     publication_ready_payload,
@@ -254,14 +255,18 @@ def _apply_terminal_manifest_status(
         manifest_context.get("failure_reason", "") or manifest_context.get("integrity_error", "") or ""
     ).strip()
 
+    from obsidiandroid.common.run_slots import is_canonical_v3_profile
+
+    profile_id = str(profile.get("profile_id", "") or "unknown")
     manifest["run_diagnostics_root"] = str(diagnostics_dir)
     manifest["pipeline_verdict"] = derive_aggregate_pipeline_verdict(
         run_status_raw=str(manifest.get("run_status", "") or "").strip().lower(),
         result_code=int(manifest_context.get("_manifest_result_code", 0) or 0),
-        rv_err="",
-        hostile_failed=False,
+        rv_err=str(manifest_context.get("research_validity_bundle_error", "") or "").strip(),
+        hostile_failed=bool(manifest_context.get("hostile_audit_failed")),
         readiness_issues=list(manifest_context.get("_evidence_readiness_failed_checks") or []),
         failure_reason=failure_reason,
+        canonical_v3=is_canonical_v3_profile(profile_id),
     )
     manifest["training_completed_before_terminal"] = training_completed
     manifest["top_model"] = top_model or None
@@ -365,11 +370,37 @@ def finalize_run_manifest_stage(
         manifest_context["_manifest_finalize_perf_start"] = time.perf_counter()
         manifest_context["_manifest_finalize_wall_start_iso"] = datetime.now(timezone.utc).isoformat()
         run_id = str(manifest_context.get("run_id", "unknown"))
-        paper_mode = bool(manifest_context.get("paper_mode", {}).get("resolved_value", False))
-        evidence_mode = bool(profile.get("evidence_mode", False))
+        evidence_mode = coalesce_manifest_publication_mode(manifest_context)
+        paper_mode = evidence_mode
         output_root = oh.resolve_stable_output_root_for_mirrors()
         diagnostics_dir = _runtime_diagnostics_dir()
         run_root = resolve_run_root(run_id=run_id, output_root=output_root)
+        try:
+            from obsidiandroid.common.run_lifecycle import touch_run_lifecycle_running
+
+            touch_run_lifecycle_running(run_root, stage="manifest_finalization")
+        except Exception:
+            pass
+
+        from obsidiandroid.common.run_slots import is_canonical_v3_profile
+        from obsidiandroid.diagnostics.cohort_persistence import resolve_effective_samples_df
+
+        profile_id = str(profile.get("profile_id", "") or "unknown")
+        if isinstance(samples_df, pd.DataFrame) and not samples_df.empty:
+            manifest_context["cohort_persistence_source"] = "runtime_frame"
+        else:
+            resolved_samples_df = resolve_effective_samples_df(diagnostics_dir, run_id, samples_df)
+            if resolved_samples_df is not None:
+                samples_df = resolved_samples_df
+                manifest_context["cohort_persistence_source"] = "diagnostics_export"
+            else:
+                manifest_context["cohort_persistence_source"] = "unavailable"
+
+        if is_canonical_v3_profile(profile_id) and manifest_context.get("cohort_persistence_source") == "unavailable":
+            du.print_error(
+                f"[MANIFEST] Canonical profile `{profile_id}` cannot finalize without persisted cohort membership."
+            )
+            raise RuntimeError("canonical_v3_cohort_persistence_unavailable")
 
         included_engines, excluded_engines, engine_names = _summarize_engine_lifecycle(
             pipeline_results
@@ -377,6 +408,12 @@ def finalize_run_manifest_stage(
         _populate_engine_lifecycle_manifest_context(manifest_context, pipeline_results)
         parser_list = _extract_parser_list(vendor_eval_df)
         dataset_hash = _compute_dataset_hash(samples_df=samples_df)
+        manifest_context["dataset_hash"] = dataset_hash
+        if is_canonical_v3_profile(profile_id) and not str(dataset_hash or "").strip():
+            du.print_error(
+                f"[MANIFEST] Canonical profile `{profile_id}` requires a non-empty dataset_hash."
+            )
+            raise RuntimeError("canonical_v3_dataset_hash_missing")
         registry_payload = build_registry_payload(
             manifest_context=manifest_context,
             samples_df=samples_df,
@@ -726,6 +763,12 @@ def finalize_run_manifest_stage(
             manifest_context["_research_bundle_wall_start_iso"] = _rv_wall
             _rv_t0 = time.perf_counter()
             try:
+                from obsidiandroid.common.run_lifecycle import touch_run_lifecycle_running
+
+                touch_run_lifecycle_running(run_root, stage="research_validity_bundle")
+            except Exception:
+                pass
+            try:
                 from obsidiandroid.diagnostics import research_validity
 
                 research_validity.write_research_validity_bundle(
@@ -740,6 +783,11 @@ def finalize_run_manifest_stage(
                 )
             except Exception as exc:
                 manifest_context["research_validity_bundle_error"] = str(exc)
+                if is_canonical_v3_profile(profile_id):
+                    du.print_error(
+                        f"[AUDIT] Research validity bundle failed for canonical profile `{profile_id}`: {exc}"
+                    )
+                    raise
                 du.print_warning(f"[AUDIT] Research validity bundle degraded: {exc}")
             finally:
                 manifest_context["_research_bundle_duration_sec"] = max(0.0, time.perf_counter() - _rv_t0)
@@ -971,7 +1019,7 @@ def finalize_run_manifest_stage(
             output_root = oh.resolve_stable_output_root_for_mirrors()
             runtime_root_raw = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
             run_root = Path(runtime_root_raw) if runtime_root_raw else (output_root / "runs" / run_id)
-            evidence_mode = bool(profile.get("evidence_mode", False))
+            evidence_mode = coalesce_manifest_publication_mode(manifest_context)
             diagnostics_dir = _runtime_diagnostics_dir()
             _write_evidence_readiness(
                 run_root=run_root,

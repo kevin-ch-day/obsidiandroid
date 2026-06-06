@@ -11,6 +11,152 @@ from config import app_config
 from ..cohort_vocabulary import read_prepared_cohort_row_count, read_sql_scope_row_count
 
 
+def describe_trainable_pool_stage_notes(
+    *,
+    alignment_attrition: dict[str, Any] | None,
+    low_support_row_drop_count: int,
+    low_support_family_drop_count: int,
+    support_floor_mode: str = "",
+    aligned_row_count: int | None = None,
+    trainable_row_count: int | None = None,
+) -> str:
+    """Return funnel notes for the post-alignment trainable pool stage."""
+    attrition = alignment_attrition if isinstance(alignment_attrition, dict) else {}
+    authority_drop = int(attrition.get("alignment_non_authoritative_family_drop_count", 0) or 0)
+    missing_label_drop = int(attrition.get("alignment_missing_label_drop_count", 0) or 0)
+    low_support_rows = int(low_support_row_drop_count or 0)
+    low_support_families = int(low_support_family_drop_count or 0)
+    mode = str(support_floor_mode or "").strip().lower()
+    try:
+        aligned_n = int(aligned_row_count) if aligned_row_count is not None else None
+    except (TypeError, ValueError):
+        aligned_n = None
+    try:
+        trainable_n = int(trainable_row_count) if trainable_row_count is not None else None
+    except (TypeError, ValueError):
+        trainable_n = None
+    aligned_to_trainable_gap = 0
+    if aligned_n is not None and trainable_n is not None and aligned_n > trainable_n:
+        aligned_to_trainable_gap = aligned_n - trainable_n
+    explained_drop = authority_drop + missing_label_drop + low_support_rows
+    unexplained_drop = max(0, aligned_to_trainable_gap - explained_drop)
+
+    parts: list[str] = ["Supervised trainable pool after classifier alignment"]
+    if authority_drop > 0:
+        parts.append(f"excluded {authority_drop} non-authoritative family row(s)")
+    if missing_label_drop > 0:
+        parts.append(f"excluded {missing_label_drop} missing-label row(s)")
+    if low_support_rows > 0:
+        parts.append(
+            f"excluded {low_support_rows} row(s) from {low_support_families} below-min-support familie(s)"
+        )
+    if unexplained_drop > 0:
+        parts.append(f"excluded {unexplained_drop} row(s) via classifier trainable-pool filter")
+    elif mode == "diagnostic_only" and aligned_to_trainable_gap == 0:
+        parts.append("min-family-support filter diagnostic-only (no row drops)")
+    elif explained_drop == 0 and aligned_to_trainable_gap == 0:
+        parts.append("no family-authority or min-support row drops recorded")
+    parts.append("(column pruning does not drop rows)")
+    return "; ".join(parts) + "."
+
+
+def describe_trainable_pool_funnel_segment(
+    *,
+    post_row_count: Any,
+    alignment_attrition: dict[str, Any] | None,
+    low_support_row_drop_count: int,
+    low_support_family_drop_count: int,
+    support_floor_mode: str = "",
+    aligned_row_count: int | None = None,
+) -> str:
+    """Return the plain-text funnel segment for the trainable pool row count."""
+    notes = describe_trainable_pool_stage_notes(
+        alignment_attrition=alignment_attrition,
+        low_support_row_drop_count=low_support_row_drop_count,
+        low_support_family_drop_count=low_support_family_drop_count,
+        support_floor_mode=support_floor_mode,
+        aligned_row_count=aligned_row_count,
+        trainable_row_count=post_row_count,
+    )
+    return f"{post_row_count} post-alignment trainable rows ({notes})"
+
+
+def _low_support_drop_counts(low_support_detail: list[dict[str, Any]] | None) -> tuple[int, int]:
+    """Return (row_drop_count, family_drop_count) from low-support drop detail rows."""
+    low_support_row_drop_count = 0
+    low_support_family_drop_count = 0
+    for row in low_support_detail or []:
+        if not isinstance(row, dict):
+            continue
+        family = str(row.get("family", "")).strip()
+        if not family:
+            continue
+        try:
+            support = int(row.get("aligned_support"))
+        except (TypeError, ValueError):
+            continue
+        low_support_family_drop_count += 1
+        low_support_row_drop_count += support
+    return low_support_row_drop_count, low_support_family_drop_count
+
+
+def build_cohort_funnel_plain(
+    *,
+    manifest: dict[str, Any],
+    manifest_context: dict[str, Any],
+) -> str:
+    """Build the plain-text cohort funnel line used in observability rollups."""
+    split_blob = manifest.get("split") if isinstance(manifest.get("split"), dict) else {}
+    gov = manifest.get("cohort_size") or read_prepared_cohort_row_count(manifest_context)
+    fused = manifest_context.get("fused_feature_rows")
+    aligned = manifest_context.get("aligned_supervised_rows")
+    post = manifest_context.get("post_low_support_training_rows")
+    tr_ct = split_blob.get("train_sample_count") or manifest.get("train_sample_count")
+    te_ct = split_blob.get("test_sample_count") or manifest.get("test_sample_count")
+    if tr_ct is None:
+        tr_ct = manifest_context.get("train_sample_count")
+    if te_ct is None:
+        te_ct = manifest_context.get("test_sample_count")
+
+    parts: list[str] = []
+    if gov not in (None, ""):
+        parts.append(f"{gov} prepared-cohort rows")
+    if fused not in (None, ""):
+        parts.append(f"{fused} feature_matrix_rows (fused)")
+    if aligned not in (None, ""):
+        parts.append(f"{aligned} aligned supervised")
+    if post not in (None, ""):
+        support_floor_mode = str(manifest_context.get("support_floor_mode", "") or "").strip().lower()
+        low_support_detail = (
+            manifest_context.get("low_support_family_drop_detail")
+            if isinstance(manifest_context.get("low_support_family_drop_detail"), list)
+            else []
+        )
+        low_support_row_drop_count, low_support_family_drop_count = _low_support_drop_counts(low_support_detail)
+        alignment_attrition = (
+            manifest_context.get("alignment_attrition_stats")
+            if isinstance(manifest_context.get("alignment_attrition_stats"), dict)
+            else {}
+        )
+        try:
+            aligned_n = int(aligned) if aligned not in (None, "") else None
+        except (TypeError, ValueError):
+            aligned_n = None
+        parts.append(
+            describe_trainable_pool_funnel_segment(
+                post_row_count=post,
+                alignment_attrition=alignment_attrition,
+                low_support_row_drop_count=low_support_row_drop_count,
+                low_support_family_drop_count=low_support_family_drop_count,
+                support_floor_mode=support_floor_mode,
+                aligned_row_count=aligned_n,
+            )
+        )
+    if tr_ct not in (None, "") or te_ct not in (None, ""):
+        parts.append(f"train={tr_ct}/test={te_ct}")
+    return " → ".join(parts)
+
+
 def _format_top_family_counts(counts: dict[str, Any], *, limit: int = 8) -> str:
     """Render top family count pairs for compact markdown notes."""
     if not isinstance(counts, dict) or not counts:
@@ -205,13 +351,39 @@ def finalize_cohort_funnel_dict(manifest_context: dict[str, Any]) -> None:
                 ),
             }
         )
+    low_support_detail = (
+        manifest_context.get("low_support_family_drop_detail")
+        if isinstance(manifest_context.get("low_support_family_drop_detail"), list)
+        else []
+    )
+    low_support_row_drop_count = 0
+    low_support_family_drop_count = 0
+    for row in low_support_detail:
+        if not isinstance(row, dict):
+            continue
+        family = str(row.get("family", "")).strip()
+        if not family:
+            continue
+        try:
+            support = int(row.get("aligned_support"))
+        except (TypeError, ValueError):
+            continue
+        low_support_family_drop_count += 1
+        low_support_row_drop_count += support
+    support_floor_mode = str(
+        manifest_context.get("support_floor_mode")
+        or getattr(app_config, "RUNTIME_SUPPORT_FLOOR_MODE", "")
+        or ""
+    ).strip().lower()
     stages.append(
         {
             "stage": "post_low_support_training_rows",
             "row_count": post_ls if post_ls is not None else "",
-            "notes": (
-                "Post-family-support trainable pool: rows after min-family-support filtering "
-                "(not cohort size; column pruning does not drop rows)"
+            "notes": describe_trainable_pool_stage_notes(
+                alignment_attrition=alignment_attrition,
+                low_support_row_drop_count=low_support_row_drop_count,
+                low_support_family_drop_count=low_support_family_drop_count,
+                support_floor_mode=support_floor_mode,
             ),
         }
     )
