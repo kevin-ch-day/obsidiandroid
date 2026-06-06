@@ -174,3 +174,20 @@ def test_evidence_mode_resolver_public_symbols() -> None:
     assert evidence_mode_resolver.EvidenceModeConfigError is not None
     assert evidence_mode_resolver.EvidenceModeImmutableError is not None
     assert evidence_mode_resolver.EvidenceModeResolution is not None
+
+
+def test_coalesce_manifest_evidence_mode_resolves_metadata_dict_not_truthiness() -> None:
+    assert evidence_mode_resolver.coalesce_manifest_evidence_mode(
+        {"resolved_value": False, "source": "profile"}
+    ) is False
+    assert evidence_mode_resolver.coalesce_manifest_evidence_mode(
+        {"resolved_value": True, "source": "cli"}
+    ) is True
+
+
+def test_coalesce_manifest_publication_mode_prefers_evidence_metadata() -> None:
+    manifest = {
+        "evidence_mode": {"resolved_value": False, "source": "profile"},
+        "paper_mode": {"resolved_value": True, "source": "stale"},
+    }
+    assert evidence_mode_resolver.coalesce_manifest_publication_mode(manifest) is False

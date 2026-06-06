@@ -6,7 +6,10 @@ import json
 from pathlib import Path
 
 from config import app_config
-from obsidiandroid.observability.pipeline_observability.finalize import finalize_pipeline_observability
+from obsidiandroid.observability.pipeline_observability.finalize import (
+    finalize_pipeline_observability,
+    patch_observability_scientific_adequacy_from_dataset_foundation,
+)
 from obsidiandroid.observability.pipeline_observability.logging_audit import write_logging_audit_artifacts
 from obsidiandroid.observability.pipeline_observability.session import PipelineObservabilitySession
 from obsidiandroid.observability.pipeline_observability.taxonomy import LogCategory
@@ -765,3 +768,33 @@ def test_finalize_pipeline_observability_carries_degraded_cohort_contract_warnin
     blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
     warnings = blob.get("research_warnings_top") or []
     assert warning in warnings
+
+
+def test_patch_observability_scientific_adequacy_from_dataset_foundation(tmp_path: Path) -> None:
+    diagnostic = tmp_path / "diag"
+    diagnostic.mkdir(parents=True, exist_ok=True)
+    (diagnostic / "run_observability_summary.json").write_text(
+        json.dumps(
+            {
+                "model": {"top_macro_f1": 0.684, "top_model_primary_metric_value": 0.684},
+                "scientific_adequacy": {
+                    "posture": "Mixed",
+                    "blockers": ["dataset foundation does not mark supervised family claims as suitable"],
+                    "supervised_family_claims_suitable": False,
+                    "temporal_future_only_rows_dropped": 0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diagnostic / "dataset_foundation_summary.json").write_text(
+        json.dumps({"supervised_family_claims_suitable": True}),
+        encoding="utf-8",
+    )
+
+    assert patch_observability_scientific_adequacy_from_dataset_foundation(diagnostics_dir=diagnostic) is True
+    blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
+    sci = blob.get("scientific_adequacy") or {}
+    assert sci.get("supervised_family_claims_suitable") is True
+    assert sci.get("posture") == "Strong"
+    assert sci.get("blockers") == []

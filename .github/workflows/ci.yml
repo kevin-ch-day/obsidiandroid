@@ -54,6 +54,9 @@ jobs:
       - name: make verify
         run: make verify
 
+      - name: V3 closure contract tests
+        run: make verify-v3
+
       - name: ML static scan (strict)
         run: make ml-scan-strict
 

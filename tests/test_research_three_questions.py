@@ -95,6 +95,55 @@ def test_modality_summary_falls_back_to_runtime_engine_counts_and_notes_raw_perm
     assert summary_payload["av_engines_observed"] == 10
 
 
+def test_write_research_question_artifacts_marks_family_claims_unsuitable_when_concentrated(
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_concentrated"
+
+    (diagnostics_dir / "cohort_foundation.json").write_text(
+        json.dumps(
+            {
+                "cohort_prepared_row_count": 1000,
+                "family_type_summary": {
+                    "family_count": 40,
+                    "type_count": 6,
+                    "top_family": "SpyNote",
+                    "top_family_count": 300,
+                    "top_family_share_pct": 30.0,
+                    "top3_share_pct": 55.0,
+                    "top5_share_pct": 65.0,
+                    "family_distribution": {"SpyNote": 300},
+                    "type_distribution": {"banker": 400},
+                },
+                "gate_stats": {"excluded_unmapped_family": 0, "excluded_missing_sha256": 0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"taxonomy_target_surfaces_{run_id}.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / f"feature_modality_coverage_summary_{run_id}.json").write_text(
+        json.dumps({"permission_pi_signal_positive_n": 900, "vendor_merge_n": 1000}),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / "feature_contract.json").write_text("{}", encoding="utf-8")
+
+    rtq.write_research_question_artifacts(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="android_malware_all_current",
+        manifest_context={"aligned_supervised_rows": 1000, "post_low_support_training_rows": 980},
+        samples_df=pd.DataFrame({"sample_id": [1], "family_canonical": ["SpyNote"], "type_slug": ["banker"]}),
+        model_results={},
+        top_model=None,
+    )
+
+    payload = json.loads((diagnostics_dir / "dataset_foundation_summary.json").read_text(encoding="utf-8"))
+    assert payload["concentration_warning"] is True
+    assert payload["supervised_family_claims_suitable"] is False
+
+
 def test_dataset_foundation_summary_emits_compatibility_fields(
     tmp_path: Path,
 ) -> None:

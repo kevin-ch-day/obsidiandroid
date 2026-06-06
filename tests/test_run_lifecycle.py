@@ -9,6 +9,7 @@ from obsidiandroid.common.run_lifecycle import (
     find_active_profile_runs,
     finalize_run_lifecycle_terminal,
     mark_run_lifecycle_running,
+    touch_run_lifecycle_running,
 )
 from obsidiandroid.pipeline import run_bounds
 
@@ -117,6 +118,15 @@ def test_merge_lifecycle_into_run_summaries(tmp_path: Path, monkeypatch) -> None
     disk = json.loads((run_capsule / "run_summary.json").read_text(encoding="utf-8"))
     assert disk["lifecycle_state"] == "complete"
     assert "lifecycle_finished_at_utc" in disk
+
+
+def test_touch_run_lifecycle_running_updates_stage_hint(tmp_path: Path) -> None:
+    run_root = tmp_path / "output" / "runs" / "rid_touch"
+    mark_run_lifecycle_running(run_root, run_id="rid_touch", profile_id="android_malware_all_current")
+    touch_run_lifecycle_running(run_root, stage="manifest_finalization")
+    payload = json.loads((run_root / ".RUNNING").read_text(encoding="utf-8"))
+    assert payload.get("current_stage") == "manifest_finalization"
+    assert str(payload.get("last_touch_at_utc", "")).strip()
 
 
 def test_run_bounds_lifecycle() -> None:

@@ -388,6 +388,58 @@ def test_write_run_evidence_index_surfaces_claim_surface_and_claim_audit(
 
 
 @pytest.mark.integration
+def test_write_run_evidence_index_lists_v3_seed_exports(tmp_path: Path, monkeypatch) -> None:
+    output_root = tmp_path / "output"
+    run_id = "r_v3_seed"
+    run_root = output_root / "runs" / run_id
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
+
+    for name in (
+        f"v3_label_contract_{run_id}.md",
+        f"permission_pattern_contract_{run_id}.md",
+        f"ml_run_manifest_{run_id}.json",
+        f"ml_sample_label_fact_{run_id}.csv",
+        f"ml_permission_vocabulary_{run_id}.json",
+        f"ml_permission_pattern_fact_{run_id}.csv",
+        f"ml_train_validation_test_split_{run_id}.csv",
+        f"v3_dl_handoff_summary_{run_id}.json",
+    ):
+        if name.endswith(".json"):
+            (diagnostics_dir / name).write_text(
+                json.dumps({"dl_seed_status": "ready"}),
+                encoding="utf-8",
+            )
+        else:
+            (diagnostics_dir / name).write_text("x\n", encoding="utf-8")
+
+    out_path = output_inventory.write_run_evidence_index_md(
+        run_root=run_root,
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="android_malware_major_families",
+        paper_mode=False,
+        cohort_size=10,
+        manifest={},
+        manifest_context={},
+        trained_models=[],
+        publication_ready_status="NOT_APPLICABLE",
+        publication_ready_reasons=[],
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "## V3 research contracts (open first)" in text
+    assert "ML sample label fact" in text
+    assert "ML permission vocabulary" in text
+    assert "ML permission pattern fact" in text
+    assert "DL seed handoff status" in text
+    assert "V3 DL handoff summary" in text
+    assert "ML train/validation/test split" in text
+
+
+@pytest.mark.integration
 def test_write_run_science_index_surfaces_claim_surface_and_claim_audit(
     tmp_path: Path,
 ) -> None:

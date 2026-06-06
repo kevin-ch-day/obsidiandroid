@@ -3,7 +3,7 @@
 # Shared ignore pattern for `tree` (noise / generated paths).
 _TREE_IGNORE := .git|.venv|__pycache__|*.pyc|output|logs|.pytest_cache|.pytest_tmp|*.egg-info|build|dist|.mypy_cache|.ruff_cache|.hypothesis|htmlcov|coverage.xml|wandb|mlruns
 
-.PHONY: clean clean-bytecode tree-source tree-obsidiandroid tree-utils tree-exporting-shims test test-full setup menu install-editable doc-check verify ci ml-scan ml-scan-strict preflight-db check-run-integrity dev-import-check output-writer-audit help
+.PHONY: clean clean-bytecode tree-source tree-obsidiandroid tree-utils tree-exporting-shims test test-full setup menu install-editable doc-check verify verify-v3 ci ml-scan ml-scan-strict preflight-db check-run-integrity dev-import-check output-writer-audit help
 
 help:
 	@echo "Targets:"
@@ -26,6 +26,7 @@ help:
 	@echo "  make dev-import-check  - verify obsidiandroid import paths (scripts/dev/check_import_surface.py)"
 	@echo "  make output-writer-audit  - CSV audit of output-related write call-sites (scripts/dev/output_writer_audit.py)"
 	@echo "  make verify          - import smoke (check_import_surface) + fast pytest; use before PRs"
+	@echo "  make verify-v3       - V3 closure contract tests (validate script + ML seed exports)"
 	@echo "  make check-run-integrity RUN_ROOT=<path>  - manifest vs observability rollup (Tier A)"
 
 clean: clean-bytecode
@@ -81,11 +82,26 @@ doc-check:
 	python scripts/dev/check_doc_hygiene.py
 
 # Same gates as .github/workflows/ci.yml (run before pushing if you lack Actions feedback).
-ci: doc-check verify ml-scan-strict
+ci: doc-check verify verify-v3 ml-scan-strict
 
 # Import surface + default fast test selection (CI-friendly local gate).
 verify:
 	python scripts/dev/check_import_surface.py && ./scripts/dev/run_tests.sh
+
+# V3 closure contract lane (pytest fixtures; offline slot check when output/runs exists).
+refresh-v3-handoff:
+	python scripts/dev/refresh_v3_canonical_handoff.py --skip-missing-slots
+
+validate-v3-live:
+	python scripts/dev/validate_v3_canonical_runs.py --verify-only --strict --skip-missing-slots
+
+wait-validate-majorfam:
+	python scripts/dev/wait_validate_v3_slot.py --profile-id android_malware_major_families --refresh-handoff --validate-all
+
+verify-v3:
+	python -m pytest -q tests/test_validate_v3_canonical_runs.py tests/test_ml_seed_exports.py tests/test_v3_label_contract.py tests/test_permission_pattern_contract.py tests/test_v3_canonical_hard_fail.py tests/test_v3_samples_label_contract.py tests/test_cohort_persistence.py tests/test_run_artifact_resolve.py tests/test_runtime_support_v3.py tests/test_research_validity_bundle_v3.py tests/test_hostile_audit_bundle_v3.py tests/test_v3_dl_handoff.py -m "not slow"
+	python scripts/dev/validate_v3_canonical_runs.py --verify-only --strict --runs-root artifacts/baselines/v3_canonical_slots
+	@if [ -d output/runs/allcurrent_diagnostic ]; then python scripts/dev/validate_v3_canonical_runs.py --verify-only --strict --skip-missing-slots; fi
 
 # Quick smoke: obsidiandroid package and pipeline facade (editable install or PYTHONPATH=src).
 dev-import-check:

@@ -488,3 +488,26 @@ def test_cohort_readiness_report_compact_dedupes_overlapping_drift_groups(monkey
     assert out.count("families SpyNote") == 1
     assert "types rat" not in out
     assert "source batches <blank>" not in out
+
+
+def test_cohort_readiness_report_attrs_metadata_dict_not_truthy(capsys) -> None:
+    """Evidence-mode metadata dicts with resolved_value=False must not enable publication labels."""
+    df = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "family_canonical": ["Godfather", "FluBot"],
+            "type_slug": ["banker", "banker"],
+            "android_package_name": ["a", "b"],
+            "vt_first_submission_date": ["2024-01-01", "2024-01-02"],
+        }
+    )
+    df.attrs["evidence_mode"] = {"resolved_value": False, "source": "profile"}
+    df.attrs["publication_ready_mode"] = {"resolved_value": False, "source": "profile"}
+
+    cohort_readiness_report.print_cohort_readiness_report(
+        df,
+        gates={"max_missing_package_pct": 10.0},
+    )
+    out = capsys.readouterr().out
+    assert "Locked Publication Cohort Summary" not in out
+    assert "Locked publication cohort" not in out

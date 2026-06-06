@@ -88,3 +88,107 @@ The following work is intentionally outside V3 closure:
 
 V3 should close with truthful reporting, bounded operator surfaces, and stable
 reproducibility, not a platform redesign.
+
+## Minimum artifact checklist
+
+Each canonical profile run should emit:
+
+- `v3_label_contract_{run_id}.json/.md` — profile role, label namespace, claim surface
+- `permission_pattern_contract_{run_id}.json/.md` — 0–9 structural pattern ladder
+- `ml_sample_label_fact_{run_id}.csv` — supervised label fact for DL seeding
+- `ml_permission_vocabulary_{run_id}.json` — alias normalization plus prevalence-derived
+  permission tokens from permission-trends tables (v2 export)
+- `ml_run_manifest_{run_id}.json` — curated seed manifest for Neptune/Iapetus prep
+  (references label contract, pattern contract, sample label fact, vocabulary, pattern
+  fact, and split export when present)
+- `ml_permission_pattern_fact_{run_id}.csv` (when enrichment tables exist)
+- `ml_train_validation_test_split_{run_id}.csv` (when split audit exists)
+- `run_observability_summary.json` with `pipeline_status: PASS`
+
+Canonical profiles and run slots:
+
+| Profile | Run slot |
+| --- | --- |
+| `android_malware_all_current` | `allcurrent_diagnostic` |
+| `android_malware_major_families` | `majorfam_benchmark` |
+| `android_malware_type_taxonomy` | `typelevel_benchmark` |
+| `android_malware_expanded_families` | `expandedfam_exploratory` |
+
+Offline validation (no pipeline rerun):
+
+```bash
+python scripts/dev/validate_v3_canonical_runs.py --verify-only --strict --runs-root artifacts/baselines/v3_canonical_slots
+```
+
+CI always validates the checked-in fixture tree above. Local live slots under `output/runs/` are
+validated additionally when present. Regenerate fixtures with
+`python scripts/dev/build_v3_canonical_slot_fixtures.py`.
+
+Refresh live canonical slot handoff artifacts without rerunning the pipeline:
+
+```bash
+make refresh-v3-handoff
+```
+
+`refresh-v3-handoff` rewrites vocabulary counters, ensures `ml_train_validation_test_split`
+when split audit exists, exports `v3_dl_handoff_summary`, and backfills
+`run_observability_summary.json` `v3_dl_handoff` (including `dl_seed_status`). Slots without
+`run_manifest.json` are skipped locally via `--skip-missing-slots`.
+
+Validate live canonical slots (strict, skips absent slots):
+
+```bash
+make validate-v3-live
+```
+
+Wait for an in-flight canonical slot to finalize, refresh handoff, and validate:
+
+```bash
+make wait-validate-majorfam
+```
+
+Manifest finalize **re-exports** `v3_label_contract` from the effective cohort frame so
+samples-stage contracts do not drift from benchmark-gated training pools.
+
+## Release notes
+
+Operator-facing caveat wording and canonical run IDs:
+[`docs/V3_RELEASE_NOTES.md`](V3_RELEASE_NOTES.md).
+
+## Tag readiness (2026-06-06)
+
+Four canonical slot runs validated **TAG_READY** offline (`make verify-v3` + strict
+live-slot check): differentiated profile roles, 0–9 permission-pattern contract, DL
+seed exports present, observability PASS with complete artifacts.
+
+Canonical live run IDs (after `make refresh-v3-handoff`):
+
+| Profile | Slot | Run ID |
+| --- | --- | --- |
+| `android_malware_all_current` | `allcurrent_diagnostic` | `20260606T034155Z__46cd0b` |
+| `android_malware_major_families` | `majorfam_benchmark` | `20260606T023207Z__4e3734` |
+| `android_malware_type_taxonomy` | `typelevel_benchmark` | `20260606T002313Z__df1048` |
+| `android_malware_expanded_families` | `expandedfam_exploratory` | `20260606T160145Z__014ac4` |
+
+`make refresh-v3-handoff` also backfills `cohort_funnel_plain` and operator claim
+surfaces on completed runs without a pipeline rerun.
+
+`ml_run_manifest_{run_id}.json` lists only seed files that exist; optional exports
+live in `optional_seed_artifact_refs`. After vocabulary refresh, call
+`sync_ml_run_manifest_seed_counters()` so `vocabulary_entry_count` and `dataset_hash`
+match the v2 vocabulary export and run manifest.
+
+Canonical profiles **hard-fail** when cohort persistence, dataset hash, research-validity
+bundle export, ML seed export, or hygiene-bundle steps fail. Research-validity contract
+report failures are no longer swallowed silently on canonical runs. `run_observability_summary.json`
+now records `cohort_persistence_source`, `dataset_hash`, and `v3_dl_handoff` paths.
+(`ml_permission_pattern_fact`, `ml_train_validation_test_split`) are recorded under
+`optional_seed_artifact_refs`. When runtime `samples_df` is unavailable at manifest
+finalize, `ml_sample_label_fact` rebuilds from `aligned_labels_{run_id}.csv` or
+`cohort_membership.csv` / `cohort_membership_{run_id}.csv` when the in-memory cohort
+frame is unavailable. The samples stage persists both legacy and run-scoped membership
+via `obsidiandroid.diagnostics.cohort_persistence`; manifest finalize reloads through
+`resolve_effective_samples_df()` before dataset hash, research validity, and ML seeds.
+
+Remaining deferrals stay in V4+ (deep learning, ScytaleDroid, frozen-model
+inference UX).

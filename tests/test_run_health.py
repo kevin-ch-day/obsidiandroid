@@ -19,8 +19,12 @@ def test_top_artifacts_to_open_only_lists_existing_files(tmp_path: Path) -> None
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
     existing = [
+        diagnostics_dir / "v3_label_contract_r1.md",
+        diagnostics_dir / "permission_pattern_contract_r1.md",
         run_root / "run_evidence_index.md",
         diagnostics_dir / "run_observability_summary.json",
+        diagnostics_dir / "v3_label_contract_r1.json",
+        diagnostics_dir / "permission_pattern_contract_r1.json",
         diagnostics_dir / "pipeline_stage_summary.md",
     ]
     for path in existing:
@@ -33,6 +37,8 @@ def test_top_artifacts_to_open_only_lists_existing_files(tmp_path: Path) -> None
         verbose_run_artifacts=True,
         research_validity_enabled=True,
         paper_mode=False,
+        profile_id="android_malware_all_current",
+        evidence_mode=False,
     )
 
     assert hints == [str(path) for path in existing]
@@ -44,8 +50,12 @@ def test_top_artifacts_to_open_includes_authority_coverage_when_present(tmp_path
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
     existing = [
+        diagnostics_dir / "v3_label_contract_r_auth.md",
+        diagnostics_dir / "permission_pattern_contract_r_auth.md",
         run_root / "run_evidence_index.md",
         diagnostics_dir / "run_observability_summary.json",
+        diagnostics_dir / "v3_label_contract_r_auth.json",
+        diagnostics_dir / "permission_pattern_contract_r_auth.json",
         diagnostics_dir / "family_type_authority_coverage_r_auth.md",
     ]
     for path in existing:
@@ -58,6 +68,8 @@ def test_top_artifacts_to_open_includes_authority_coverage_when_present(tmp_path
         verbose_run_artifacts=True,
         research_validity_enabled=True,
         paper_mode=False,
+        profile_id="android_malware_major_families",
+        evidence_mode=False,
     )
 
     assert hints == [str(path) for path in existing]
@@ -69,9 +81,13 @@ def test_top_artifacts_to_open_includes_taxonomy_authority_split_when_present(tm
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
     existing = [
+        diagnostics_dir / "v3_label_contract_r_tax.md",
+        diagnostics_dir / "permission_pattern_contract_r_tax.md",
         diagnostics_dir / "taxonomy_authority_split_r_tax.md",
         run_root / "run_evidence_index.md",
         diagnostics_dir / "run_observability_summary.json",
+        diagnostics_dir / "v3_label_contract_r_tax.json",
+        diagnostics_dir / "permission_pattern_contract_r_tax.json",
     ]
     for path in existing:
         path.write_text("x\n", encoding="utf-8")
@@ -83,6 +99,8 @@ def test_top_artifacts_to_open_includes_taxonomy_authority_split_when_present(tm
         verbose_run_artifacts=True,
         research_validity_enabled=True,
         paper_mode=False,
+        profile_id="android_malware_type_taxonomy",
+        evidence_mode=False,
     )
 
     assert hints == [str(path) for path in existing]
@@ -813,3 +831,42 @@ def test_print_unified_run_health_shows_partial_audit_status_on_interrupted_run(
     assert "Research validity bundle" in out
     assert "PASS_PARTIAL" in out
     assert "Skeptic audit" in out
+
+
+def test_print_unified_run_health_treats_resolved_false_evidence_metadata_as_off(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    run_root = tmp_path / "output" / "runs" / "r_evidence_meta"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    obs_path = diagnostics_dir / "run_observability_summary.json"
+    obs_path.write_text(
+        json.dumps(
+            {
+                "run_id": "r_evidence_meta",
+                "profile_id": "android_malware_all_current",
+                "run_mode": "full",
+                "pipeline_status": "PASS",
+                "run_status": "complete",
+                "evidence_mode": {"resolved_value": False, "source": "profile"},
+                "paper_mode": {"resolved_value": False, "source": "profile"},
+                "publication_ready_status": "NOT_APPLICABLE",
+                "publication_ready_reasons": [],
+                "top_artifacts_to_open_first": [],
+                "paths": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_health.print_unified_run_health(
+        inventory_summary={},
+        observability_json_path=obs_path,
+        evidence_index_path=None,
+        run_root=run_root,
+    )
+
+    out = capsys.readouterr().out
+    assert "evidence OFF" in out
+    assert "publication OFF" in out

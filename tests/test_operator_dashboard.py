@@ -295,6 +295,166 @@ def test_emit_research_operator_report_prints_compact_diagnostics_pointer(
     assert "[Run] obsidiandroid/output/runs/run_diag_ptr" in captured
 
 
+def test_emit_research_operator_report_surfaces_dl_seed_handoff_for_canonical_profile(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_dl_seed"
+    dataset_hash = "abc123deadbeefcafe00"
+    for filename in (
+        f"v3_label_contract_{run_id}.json",
+        f"permission_pattern_contract_{run_id}.json",
+        f"ml_sample_label_fact_{run_id}.csv",
+        f"ml_permission_vocabulary_{run_id}.json",
+    ):
+        (diagnostics_dir / filename).write_text("{}" if filename.endswith(".json") else "sample_id\n1\n", encoding="utf-8")
+    (diagnostics_dir / f"ml_run_manifest_{run_id}.json").write_text(
+        json.dumps(
+            {
+                "dataset_hash": dataset_hash,
+                "vocabulary_entry_count": 42,
+                "sample_label_rows": 1,
+                "seed_artifact_refs": {
+                    "v3_label_contract": f"v3_label_contract_{run_id}.json",
+                    "permission_pattern_contract": f"permission_pattern_contract_{run_id}.json",
+                    "ml_sample_label_fact": f"ml_sample_label_fact_{run_id}.csv",
+                    "ml_permission_vocabulary": f"ml_permission_vocabulary_{run_id}.json",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diagnostics_dir / f"v3_dl_handoff_summary_{run_id}.json").write_text(
+        json.dumps(
+            {
+                "dl_seed_status": "ready",
+                "dataset_hash": dataset_hash,
+                "vocabulary_entry_count": 42,
+                "sample_label_rows": 1,
+                "missing_seed_refs": [],
+                "caveats": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_headline_vs_ablation_contract_reports",
+        lambda **_kwargs: (None, None, {}),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_taxonomy_type_authority_reports",
+        lambda *_args, **_kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.write_research_question_artifacts",
+        lambda **_kwargs: {"_written_paths": []},
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.print_research_questions_terminal",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "write_diagnostics_index_md",
+        lambda *_args, **_kwargs: diagnostics_dir / "index.md",
+    )
+    monkeypatch.setattr(operator_dashboard, "_read_run_taxonomy_summary", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(operator_dashboard, "get_cohort_readiness_snapshot", lambda: {"status": "ok", "warnings": [], "buckets": {}, "taxonomy_signals": {}})
+    monkeypatch.setattr(operator_dashboard, "read_false_positive_triage_snapshot", lambda **_kwargs: {})
+    monkeypatch.setattr(operator_dashboard, "read_android_missing_resolution_snapshot", lambda **_kwargs: {})
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_subheader", lambda *_args, **_kwargs: None)
+
+    captured: list[str] = []
+    operator_dashboard.emit_research_operator_report(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="android_malware_major_families",
+        manifest_context={"cohort_persistence_source": "runtime_frame", "dataset_hash": dataset_hash},
+        samples_df=pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
+        model_results={},
+        top_model=None,
+        artifact_list=[],
+        print_fn=captured.append,
+    )
+
+    joined = "\n".join(captured)
+    assert "DL seed handoff                 : ready" in joined
+    assert dataset_hash in joined
+    assert "Cohort persistence source       : runtime_frame" in joined
+    assert "ML permission vocabulary        : 42 entries" in joined
+    assert f"v3_dl_handoff_summary_{run_id}.json" in joined
+
+
+def test_emit_research_operator_report_surfaces_dl_seed_caveats_when_incomplete(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "run_dl_caveats"
+    (diagnostics_dir / f"v3_dl_handoff_summary_{run_id}.json").write_text(
+        json.dumps(
+            {
+                "dl_seed_status": "incomplete",
+                "dataset_hash": None,
+                "vocabulary_entry_count": 0,
+                "sample_label_rows": 0,
+                "missing_seed_refs": ["ml_permission_vocabulary"],
+                "caveats": ["dataset_hash missing", "ml_permission_vocabulary entry_count is zero"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_headline_vs_ablation_contract_reports",
+        lambda **_kwargs: (None, None, {}),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.diagnostics.contract_and_taxonomy_reports.write_taxonomy_type_authority_reports",
+        lambda *_args, **_kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.write_research_question_artifacts",
+        lambda **_kwargs: {"_written_paths": []},
+    )
+    monkeypatch.setattr(
+        "obsidiandroid.reporting.research_three_questions.print_research_questions_terminal",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        operator_dashboard,
+        "write_diagnostics_index_md",
+        lambda *_args, **_kwargs: diagnostics_dir / "index.md",
+    )
+    monkeypatch.setattr(operator_dashboard, "_read_run_taxonomy_summary", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(operator_dashboard, "get_cohort_readiness_snapshot", lambda: {"status": "ok", "warnings": [], "buckets": {}, "taxonomy_signals": {}})
+    monkeypatch.setattr(operator_dashboard, "read_false_positive_triage_snapshot", lambda **_kwargs: {})
+    monkeypatch.setattr(operator_dashboard, "read_android_missing_resolution_snapshot", lambda **_kwargs: {})
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("obsidiandroid.cli.ui.display.print_subheader", lambda *_args, **_kwargs: None)
+
+    captured: list[str] = []
+    operator_dashboard.emit_research_operator_report(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="android_malware_major_families",
+        manifest_context={},
+        samples_df=pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
+        model_results={},
+        top_model=None,
+        artifact_list=[],
+        print_fn=captured.append,
+    )
+
+    joined = "\n".join(captured)
+    assert "DL seed handoff                 : incomplete" in joined
+    assert "DL seed caveats                 : dataset_hash missing" in joined
+
+
 def test_emit_research_operator_report_flags_disabled_label_resolution(
     monkeypatch,
     tmp_path: Path,
@@ -722,7 +882,7 @@ def test_emit_research_operator_report_surfaces_label_strategy_guidance(
     assert "NOT SUPPORTED BY THIS RUN" in text
     assert "Family classification can be reported on the support-gated benchmark surface." in text
     assert "Family/type targets are governed: `family_id` for family claims, `type_slug` for type claims." in text
-    assert "Do not promote raw label surfaces such as `category_primary`" in text
+    assert "Avoid primary scientific claims on raw surfaces: category_primary." in text
     assert "Details                         : diagnostics/benchmark_claim_audit.md" in text
     claim_path = diagnostics_dir / f"claim_readiness_summary_{run_id}.json"
     assert claim_path.is_file()
@@ -1442,8 +1602,40 @@ def test_emit_research_operator_report_downgrades_claim_readiness_for_weak_famil
     )
 
     text = "\n".join(captured)
-    assert "\nWeak\n" in text
+    assert "Claim status                    : LIMITED" in text
     assert "headline family Macro-F1 is weak (0.3261)." in text
     assert "dataset foundation does not mark supervised family claims as suitable." in text
     assert "temporal holdout dropped 219 future-only family row(s)." in text
-    assert "\nStrong\n" not in text
+    assert "Claim status                    : STRONG" not in text
+    assert "Claim status                    : STRONG_WITH_CAUTIONS" not in text
+
+
+def test_claim_readiness_context_resolves_evidence_mode_metadata_dict() -> None:
+    """Non-empty evidence_mode dicts must not imply publication-active when resolved_value is false."""
+    manifest_context = {
+        "evidence_mode": {
+            "resolved_value": False,
+            "source": "profile",
+            "raw_inputs": {"profile": False},
+        },
+        "paper_mode": {
+            "resolved_value": False,
+            "source": "profile",
+            "raw_inputs": {"profile": False},
+        },
+    }
+    title, surface = operator_dashboard._claim_readiness_context(  # pylint: disable=protected-access
+        profile_id="android_malware_all_current",
+        manifest_context=manifest_context,
+        samples_df=None,
+    )
+    assert title == "RESEARCH CLAIM READINESS"
+    assert surface == "broad_current_corpus"
+
+
+def test_publication_mode_active_treats_resolved_false_metadata_as_off() -> None:
+    manifest_context = {
+        "evidence_mode": {"resolved_value": False, "source": "profile"},
+        "paper_mode": {"resolved_value": False, "source": "profile"},
+    }
+    assert operator_dashboard._publication_mode_active(manifest_context) is False  # pylint: disable=protected-access

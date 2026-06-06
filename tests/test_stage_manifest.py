@@ -309,6 +309,51 @@ def test_finalize_run_manifest_stage_success(monkeypatch) -> None:
     assert run_summary["completed_stage"] == "manifest"
 
 
+def test_finalize_run_manifest_stage_reloads_cohort_from_diagnostics_export(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Manifest finalize should rebuild dataset hash from persisted cohort membership."""
+    captured: dict[str, object] = {}
+
+    def _fake_write_run_manifest(manifest: dict) -> None:
+        captured["manifest"] = manifest
+
+    run_root = tmp_path / "output" / "runs" / "r_reload"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (diagnostics_dir / "cohort_membership_r_reload.csv").write_text(
+        "sample_id,family_id,family_canonical,type_slug\n7,11,Beta,rat\n",
+        encoding="utf-8",
+    )
+    (diagnostics_dir / "taxonomy_consistency_summary_r_reload.json").write_text(
+        json.dumps({"type_rows_evaluated": 1, "taxonomy_mismatch_count": 0}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(stage_manifest.run_manifest, "write_run_manifest", _fake_write_run_manifest)
+    monkeypatch.setattr(stage_manifest.run_manifest, "get_git_commit", lambda: "abc123")
+    monkeypatch.setattr(stage_manifest.run_manifest, "compute_taxonomy_version_hash", lambda: "taxhash")
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_RUN_ROOT", str(run_root), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_VENDOR_GATE_DEBUG_PATH", "", raising=False)
+    monkeypatch.setattr(stage_manifest, "_finalize_output_hygiene_bundle", lambda **_kwargs: None)
+
+    manifest_context = {"run_id": "r_reload", "timestamp_utc": "t1", "config_hash": "cfg"}
+    result = stage_manifest.finalize_run_manifest_stage(
+        manifest_context=manifest_context,
+        profile={"profile_id": "test"},
+        samples_df=None,
+        pipeline_results={},
+        vendor_eval_df=pd.DataFrame(),
+        artifact_list=[],
+    )
+
+    assert result == 0
+    assert manifest_context["cohort_persistence_source"] == "diagnostics_export"
+    assert captured["manifest"]["cohort_size"] == 1
+
+
 def test_finalize_run_manifest_stage_uses_stable_output_root_for_global_latest_artifacts(
     monkeypatch,
     tmp_path: Path,

@@ -313,8 +313,32 @@ def test_print_ablation_terminal_summary_compact_mode_reduces_grid(monkeypatch) 
     assert any("Permissions carry strong independent family/type signal" in msg for msg in captured_info)
     assert any("Parsed vendor family strings are leakage-sensitive" in msg for msg in captured_info)
     assert any("type_slug is easier than family_id" in msg for msg in captured_info)
-    assert any("family_within_type remains harder" in msg for msg in captured_info)
+    assert any("family_within_type remains harder than type_slug" in msg for msg in captured_info)
     assert any("Full experiment grid remains in diagnostics CSV/Markdown summaries." in msg for msg in captured_info)
+
+
+def test_print_ablation_terminal_summary_family_easier_than_type(monkeypatch) -> None:
+    captured_info: list[str] = []
+
+    monkeypatch.setattr(app_config, "ML_TERMINAL_COMPACT", True, raising=False)
+    monkeypatch.setattr(stage_ablation.ml_console, "is_minimal", lambda: False)
+    monkeypatch.setattr(stage_ablation.du, "print_section", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(stage_ablation.du, "print_table", lambda *_df, **_kwargs: None)
+    monkeypatch.setattr(stage_ablation.du, "print_info", lambda msg, *_args, **_kwargs: captured_info.append(str(msg)))
+
+    summary_df = pd.DataFrame(
+        [
+            {"label_target": "family_id", "experiment": "full_fused", "model": "logistic_regression", "macro_f1_score": 0.7184, "delta_vs_full_fused": 0.0},
+            {"label_target": "type_slug", "experiment": "full_fused", "model": "xgboost", "macro_f1_score": 0.6111, "delta_vs_full_fused": 0.0},
+            {"label_target": "family_within_type", "experiment": "full_fused", "model": "logistic_regression", "macro_f1_score": 0.7237, "delta_vs_full_fused": 0.0},
+        ]
+    )
+
+    stage_ablation._print_ablation_terminal_summary(summary_df)  # pylint: disable=protected-access
+
+    assert any("family_id is easier than type_slug" in msg for msg in captured_info)
+    assert any("family_within_type exceeds type_slug on best Macro-F1" in msg for msg in captured_info)
+    assert not any("type_slug is easier than family_id" in msg for msg in captured_info)
 
 
 def test_print_ablation_combo_summary_compacts_model_timings(monkeypatch) -> None:

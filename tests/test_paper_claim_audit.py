@@ -141,6 +141,23 @@ def test_write_paper_claim_audit_md_marks_expanded_profile_as_exploratory(tmp_pa
     assert "Primary surface:** expanded-family exploratory surface" in text
 
 
+def test_write_paper_claim_audit_md_treats_resolved_false_evidence_metadata_as_off(tmp_path) -> None:
+    out = write_paper_claim_audit_md(
+        diagnostics_dir=tmp_path,
+        manifest={"profile_params": {"profile_id": "android_malware_all_current"}},
+        manifest_context={
+            "evidence_mode": {"resolved_value": False, "source": "profile"},
+            "paper_mode": {"resolved_value": False, "source": "profile"},
+            "cohort_prepared_row_count": 4563,
+        },
+        run_id="run_diag",
+    )
+
+    text = out.read_text(encoding="utf-8")
+    assert "Primary surface:** broad current-corpus diagnostic surface" in text
+    assert "locked publication surface" not in text.lower()
+
+
 def test_write_paper_claim_audit_md_marks_type_taxonomy_surface(tmp_path) -> None:
     out = write_paper_claim_audit_md(
         diagnostics_dir=tmp_path,
