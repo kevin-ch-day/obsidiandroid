@@ -576,6 +576,7 @@ def write_run_evidence_index_md(
     ml_sample_label_fact_csv = diagnostics_dir / f"ml_sample_label_fact_{run_id}.csv"
     ml_permission_vocabulary_json = diagnostics_dir / f"ml_permission_vocabulary_{run_id}.json"
     ml_permission_pattern_fact_csv = diagnostics_dir / f"ml_permission_pattern_fact_{run_id}.csv"
+    ml_sample_permission_feature_csv = diagnostics_dir / f"ml_sample_permission_feature_{run_id}.csv"
     ml_split_csv = diagnostics_dir / f"ml_train_validation_test_split_{run_id}.csv"
     v3_dl_handoff_summary_json = diagnostics_dir / f"v3_dl_handoff_summary_{run_id}.json"
     dl_seed_status = ""
@@ -607,6 +608,8 @@ def write_run_evidence_index_md(
         lines.append(f"- **ML permission vocabulary:** `{ml_permission_vocabulary_json}`")
     if ml_permission_pattern_fact_csv.exists():
         lines.append(f"- **ML permission pattern fact:** `{ml_permission_pattern_fact_csv}`")
+    if ml_sample_permission_feature_csv.exists():
+        lines.append(f"- **ML sample permission feature:** `{ml_sample_permission_feature_csv}`")
     if ml_split_csv.exists():
         lines.append(f"- **ML train/validation/test split:** `{ml_split_csv}`")
     if v3_dl_handoff_summary_json.exists():

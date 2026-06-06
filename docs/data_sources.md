@@ -75,7 +75,7 @@ Configure with:
 | Permission research | `permission_vocabulary`, `sample_permission_facts`, `permission_pattern_facts` | Run-frozen permission vocabulary and sparse long-form facts |
 | Model & audit | `model_metrics`, `prediction_facts`, `quality_flags` | Metrics, predictions, taxonomy/claim audit flags |
 
-**V3.1.0 status:** DDL draft under `database/sql/obsidiandroid/` and dry-run importer (`scripts/import_v3_run_to_db.py`) only — **no live writes** from the pipeline yet. The research DB is downstream from Erebus and Permission Intel; it does not replace either upstream store.
+**V3.1.1 status:** DDL draft + dry-run importer + sparse `ml_sample_permission_feature_{run_id}.csv` export. **No live writes** from the pipeline or importer yet. The research DB is downstream from Erebus and Permission Intel; it does not replace either upstream store.
 
 ### Contributor rules (split database)
 

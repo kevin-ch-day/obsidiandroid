@@ -306,6 +306,8 @@ The importer prints (or emits `--json`):
 
 ## 5. `ml_sample_permission_feature_{run_id}.csv` export spec
 
+Full standalone copy: [`docs/ML_SAMPLE_PERMISSION_FEATURE_EXPORT.md`](ML_SAMPLE_PERMISSION_FEATURE_EXPORT.md).
+
 ### Why it is needed
 
 V3 already exports wide feature matrices (`aligned_features_{run_id}.csv.gz`) and permission vocabulary, but Neptune/Iapetus and `sample_permission_facts` need a **stable, sparse long-form, run-scoped** permission table without loading 1000+ `perm__*` columns. **Dense wide matrices are not the database source of truth**; they may be generated later for ML workloads.
@@ -408,6 +410,7 @@ Database-first slice — **plan + DDL draft + dry-run importer + export spec**; 
 | `scripts/import_v3_run_to_db.py` | Dry-run skeleton — single slot (`--run-root`) or batch (`--runs-root`) |
 | `tests/test_import_v3_run_to_db.py` | Contract tests for fixture slots and blocking gates |
 | `make dry-run-v3-db-import` | Batch dry-run on `artifacts/baselines/v3_canonical_slots` |
+| `docs/ML_SAMPLE_PERMISSION_FEATURE_EXPORT.md` | Standalone sparse export spec (implemented V3.1.1) |
 | `artifacts/baselines/v3_db_import_dry_run_fixture_slots.json` | Frozen batch dry-run baseline for fixture slots |
 
 **Environment contract:** `OBSIDIANDROID_RESEARCH_DB_NAME` (default `obsidiandroid_research`), documented in [`docs/data_sources.md`](data_sources.md).
@@ -415,7 +418,7 @@ Database-first slice — **plan + DDL draft + dry-run importer + export spec**; 
 ### Explicitly deferred past V3.1.0
 
 - Live importer `--apply` and runtime pipeline DB writes during `stage_manifest`
-- `ml_sample_permission_feature` pipeline export implementation
+- `ml_sample_permission_feature` pipeline export implementation (delivered V3.1.1)
 - Web UI / Quasar
 - ScytaleDroid integration
 - Deep-learning training jobs
@@ -425,9 +428,43 @@ Database-first slice — **plan + DDL draft + dry-run importer + export spec**; 
 
 1. Apply DDL to a dev MySQL instance
 2. Dry-run all four v3.0.0 canonical slots with `--release-tag v3.0.0`
-3. Implement `ml_sample_permission_feature` sparse export (V3.1.1)
+3. ~~Implement `ml_sample_permission_feature` sparse export (V3.1.1)~~ **delivered in V3.1.1**
 4. Add importer `--apply` behind explicit flag + DB preflight
 5. Backfill `release_manifests` for `v3.0.0`
+
+---
+
+## 8. V3.1.1 milestone (delivered)
+
+Sparse permission feature export + dry-run importer wiring. **Still no live DB writes.**
+
+| Deliverable | Status |
+| --- | --- |
+| `ml_sample_permission_feature_{run_id}.csv` export | Present-only sparse rows from `aligned_features_{run_id}.csv.gz` |
+| `src/obsidiandroid/diagnostics/ml_seed_exports.py` | `_build_sample_permission_feature()` wired into `export_ml_seed_artifacts()` |
+| `scripts/import_v3_run_to_db.py` | Counts `sample_permission_facts` when export exists; missing export = warning only |
+| `tests/test_ml_seed_exports.py` | Export columns, present-only rule |
+| `tests/test_import_v3_run_to_db.py` | Dry-run row counts + legacy-run warning behavior |
+| `OBSIDIANDROID_RESEARCH_DB_*` env tuple | Documented; defaults mirror Erebus host/port/user/password |
+
+### Locked design defaults (V3.1.1)
+
+| Default | Value |
+| --- | --- |
+| DB name | `obsidiandroid_research` |
+| Connection env | `OBSIDIANDROID_RESEARCH_DB_HOST/PORT/NAME/USER/PASSWORD` |
+| `samples` registry | Lazy |
+| Permission rows | Present-only sparse (`permission_present=1` only) |
+| `prediction_facts` | Recommended, not required for v3.0.0 backfill |
+| Missing export on older runs | Warning only, not blocking |
+| PI enrichment at export | Offline defaults (`unknown` / `aligned_features`) until V3.1.2+ |
+
+### Explicitly deferred past V3.1.1
+
+- Importer `--apply` and runtime pipeline DB writes
+- DDL apply to MySQL
+- Live Permission Intel enrichment at export time
+- Web UI / Quasar / ScytaleDroid / DL training
 
 ---
 
@@ -463,6 +500,6 @@ Scientific posture remains **MIXED** on all profiles; the database stores that t
 2. **`profile_membership` derivation** — exact rules when `ml_train_validation_test_split` is missing (provisional: label-fact row count with `needs_review` default?).
 3. **`sha256` enrichment** — lazy registry: require Erebus lookup at import time vs allow NULL until enriched.
 4. **`prediction_facts` requirement** — recommended vs required for v3.0.0 canonical backfill.
-5. **Sparse export boundary** — emit `permission_present=0` rows for declared-absent permissions, or only present=1 rows?
-6. **Live importer connection settings** — whether research DB reuses `OBSIDIAN_DB_*` host/credentials with a different schema name or gets its own `OBSIDIANDROID_RESEARCH_DB_*` tuple.
-4. **`prediction_facts` requirement** — recommended vs required for v3.0.0 canonical backfill.
+5. ~~**Sparse export boundary**~~ — **resolved:** present-only rows (`permission_present=1`).
+6. ~~**Live importer connection settings**~~ — **resolved:** separate `OBSIDIANDROID_RESEARCH_DB_*` tuple (defaults mirror Erebus).
+4. ~~**`prediction_facts` requirement**~~ — **resolved:** recommended, not required for v3.0.0 backfill.

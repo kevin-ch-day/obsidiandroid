@@ -2,7 +2,9 @@
   "cohort_size": 1,
   "dataset_hash": "fixture_dataset_hash_03",
   "export_version": "ml_run_manifest_v1",
-  "optional_seed_artifact_refs": {},
+  "optional_seed_artifact_refs": {
+    "ml_sample_permission_feature": "ml_sample_permission_feature_20260606T900003Z__fixture3.csv"
+  },
   "profile_id": "android_malware_all_current",
   "run_id": "20260606T900003Z__fixture3",
   "sample_label_rows": 1,

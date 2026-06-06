@@ -12,6 +12,34 @@ from obsidiandroid.pipeline.permission_trends.constants import PERMISSION_ALIAS_
 pytestmark = pytest.mark.contract
 
 
+def _write_aligned_features_fixture(
+    diagnostics_dir: Path,
+    run_id: str,
+    *,
+    rows: list[dict[str, object]] | None = None,
+) -> None:
+    default_rows = [
+        {
+            "sample_id": 1,
+            "perm__android_permission_internet": 1,
+            "perm__android_permission_read_sms": 0,
+            "perm__dangerous_count": 1,
+        },
+        {
+            "sample_id": 2,
+            "perm__android_permission_internet": 0,
+            "perm__android_permission_read_sms": 1,
+            "perm__dangerous_count": 1,
+        },
+    ]
+    frame = pd.DataFrame(rows or default_rows)
+    frame.to_csv(
+        diagnostics_dir / f"aligned_features_{run_id}.csv.gz",
+        index=False,
+        compression="gzip",
+    )
+
+
 def _write_canonical_handoff_fixtures(
     diagnostics_dir: Path,
     run_id: str,
@@ -53,6 +81,7 @@ def test_export_ml_seed_artifacts_writes_minimum_tables(tmp_path: Path) -> None:
     (tmp_path / "v3_label_contract_run_seed.json").write_text("{}", encoding="utf-8")
     (tmp_path / "permission_pattern_contract_run_seed.json").write_text("{}", encoding="utf-8")
     _write_canonical_handoff_fixtures(tmp_path, "run_seed", with_split=True)
+    _write_aligned_features_fixture(tmp_path, "run_seed")
     paths = ml_seed_exports.export_ml_seed_artifacts(
         diagnostics_dir=tmp_path,
         run_id="run_seed",
@@ -78,7 +107,15 @@ def test_export_ml_seed_artifacts_writes_minimum_tables(tmp_path: Path) -> None:
     assert ml_manifest["optional_seed_artifact_refs"]["ml_train_validation_test_split"] == (
         "ml_train_validation_test_split_run_seed.csv"
     )
+    assert ml_manifest["optional_seed_artifact_refs"]["ml_sample_permission_feature"] == (
+        "ml_sample_permission_feature_run_seed.csv"
+    )
     assert ml_manifest["sample_label_rows"] == 2
+    permission_df = pd.read_csv(tmp_path / "ml_sample_permission_feature_run_seed.csv")
+    assert list(permission_df.columns) == list(ml_seed_exports.ML_SAMPLE_PERMISSION_FEATURE_COLUMNS)
+    assert set(permission_df["permission_present"].tolist()) == {1}
+    assert len(permission_df) == 2
+    assert "perm__dangerous_count" not in permission_df["permission_name"].astype(str).tolist()
     handoff = json.loads((tmp_path / "v3_dl_handoff_summary_run_seed.json").read_text(encoding="utf-8"))
     assert handoff["dl_seed_status"] == "ready"
 
@@ -281,6 +318,54 @@ def test_permission_vocabulary_reads_bundle_contracts_alias_map(tmp_path: Path) 
     assert vocab["entry_count"] == len(PERMISSION_ALIAS_MAP)
     assert vocab["entries"][0]["alias_from"] in PERMISSION_ALIAS_MAP
     assert vocab["entries"][0]["entry_kind"] == "alias"
+
+
+def test_build_sample_permission_feature_is_present_only_sparse(tmp_path: Path) -> None:
+    run_id = "run_perm_sparse"
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir(parents=True)
+    _write_aligned_features_fixture(diagnostics_dir, run_id)
+    (diagnostics_dir.parent / "bundles" / "permission_trends" / "tables").mkdir(parents=True, exist_ok=True)
+    tables_dir = diagnostics_dir.parent / "bundles" / "permission_trends" / "tables"
+    (tables_dir / f"permission_prevalence_by_type_{run_id}.csv").write_text(
+        "type_slug,permission,n_samples,permission_positive_count,prevalence_pct\n"
+        "banker,android.permission.internet,10,8,80.0\n"
+        "banker,android.permission.read_sms,10,3,30.0\n",
+        encoding="utf-8",
+    )
+    label_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "sha256": ["a" * 64, "b" * 64],
+        }
+    )
+
+    permission_df = ml_seed_exports._build_sample_permission_feature(
+        diagnostics_dir,
+        run_id,
+        profile={"profile_id": "android_malware_major_families"},
+        label_df=label_df,
+    )
+
+    assert list(permission_df.columns) == list(ml_seed_exports.ML_SAMPLE_PERMISSION_FEATURE_COLUMNS)
+    assert len(permission_df) == 2
+    assert set(permission_df["permission_present"].tolist()) == {1}
+    assert set(permission_df["permission_name"].tolist()) == {
+        "android.permission.internet",
+        "android.permission.read_sms",
+    }
+    assert permission_df.loc[permission_df["sample_id"] == 1, "sha256"].iloc[0] == "a" * 64
+
+
+def test_build_sample_permission_feature_returns_empty_without_aligned_features(tmp_path: Path) -> None:
+    permission_df = ml_seed_exports._build_sample_permission_feature(
+        tmp_path,
+        "run_missing",
+        profile={"profile_id": "android_malware_major_families"},
+        label_df=pd.DataFrame({"sample_id": [1], "sha256": ["c" * 64]}),
+    )
+
+    assert permission_df.empty
 
 
 def test_permission_vocabulary_reads_bundle_tables_enrichment_for_pattern_fact(tmp_path: Path) -> None:

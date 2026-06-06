@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
+
+import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src"
@@ -91,8 +94,10 @@ def _write_slot(*, profile_id: str, idx: int) -> None:
         json.dumps({"pattern_scale": {"levels": [{"level": i} for i in range(10)]}}),
         encoding="utf-8",
     )
+    fixture_sha256 = ("a" * (idx + 1)) + ("b" * (63 - idx))
     (diagnostics_dir / f"ml_sample_label_fact_{run_id}.csv").write_text(
-        "sample_id,supervised_label,supervised_label_namespace\n1,alpha,malware_family\n",
+        "sample_id,supervised_label,supervised_label_namespace,sha256\n"
+        f"1,alpha,malware_family,{fixture_sha256}\n",
         encoding="utf-8",
     )
     (contracts_dir / f"permission_alias_map_{run_id}.json").write_text(
@@ -129,11 +134,46 @@ def _write_slot(*, profile_id: str, idx: int) -> None:
         encoding="utf-8",
     )
 
+    first_permission = ""
+    for row in rows:
+        parts = str(row).split(",")
+        if len(parts) >= 2:
+            first_permission = parts[1].strip()
+            break
+    perm_column = "perm__unknown"
+    if first_permission:
+        sanitized = re.sub(r"[^a-z0-9]+", "_", first_permission.lower()).strip("_") or "unknown"
+        perm_column = f"perm__{sanitized}"
+    aligned_df = pd.DataFrame(
+        {
+            "sample_id": [1],
+            perm_column: [1],
+            "perm__dangerous_count": [1],
+        }
+    )
+    aligned_df.to_csv(
+        diagnostics_dir / f"aligned_features_{run_id}.csv.gz",
+        index=False,
+        compression="gzip",
+    )
+
     vocab_path = ml_seed_exports.refresh_persisted_permission_vocabulary(
         diagnostics_dir=diagnostics_dir,
         run_id=run_id,
     )
     vocab_payload = json.loads(vocab_path.read_text(encoding="utf-8"))
+    label_df = pd.read_csv(diagnostics_dir / f"ml_sample_label_fact_{run_id}.csv")
+    permission_feature_df = ml_seed_exports._build_sample_permission_feature(
+        diagnostics_dir,
+        run_id,
+        profile={"profile_id": profile_id},
+        label_df=label_df,
+    )
+    optional_refs: dict[str, str] = {}
+    if not permission_feature_df.empty:
+        permission_feature_path = diagnostics_dir / f"ml_sample_permission_feature_{run_id}.csv"
+        permission_feature_df.to_csv(permission_feature_path, index=False)
+        optional_refs["ml_sample_permission_feature"] = permission_feature_path.name
     ml_manifest = {
         "export_version": "ml_run_manifest_v1",
         "run_id": run_id,
@@ -148,7 +188,7 @@ def _write_slot(*, profile_id: str, idx: int) -> None:
             "ml_sample_label_fact": f"ml_sample_label_fact_{run_id}.csv",
             "ml_permission_vocabulary": f"ml_permission_vocabulary_{run_id}.json",
         },
-        "optional_seed_artifact_refs": {},
+        "optional_seed_artifact_refs": optional_refs,
     }
     (diagnostics_dir / f"ml_run_manifest_{run_id}.json").write_text(
         json.dumps(ml_manifest, indent=2, sort_keys=True) + "\n",

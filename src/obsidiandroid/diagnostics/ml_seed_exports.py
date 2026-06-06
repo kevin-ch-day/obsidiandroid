@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,28 @@ from obsidiandroid.diagnostics.v3_dl_handoff import (
 
 class MlSeedExportError(RuntimeError):
     """Raised when required ML seed exports cannot be produced."""
+
+
+ML_SAMPLE_PERMISSION_FEATURE_COLUMNS = (
+    "run_id",
+    "profile_id",
+    "sample_id",
+    "sha256",
+    "permission_name",
+    "permission_present",
+    "permission_authority_bucket",
+    "permission_risk_tier",
+    "permission_source",
+)
+
+_PERMISSION_AGGREGATE_COLUMN_NAMES = frozenset(
+    {
+        "perm__dangerous_count",
+        "perm__normal_count",
+        "perm__oem_count",
+        "perm__total_count",
+    }
+)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -244,6 +267,118 @@ def _build_permission_pattern_fact(diagnostics_dir: Path, run_id: str) -> pd.Dat
     if not frames:
         return pd.DataFrame()
     return pd.concat(frames, ignore_index=True, sort=False)
+
+
+def _permission_column_name_from_token(permission: str) -> str:
+    sanitized = re.sub(r"[^a-z0-9]+", "_", str(permission or "").strip().lower()).strip("_") or "unknown"
+    return f"perm__{sanitized}"
+
+
+def _is_permission_feature_column(column: str) -> bool:
+    name = str(column or "").strip()
+    if not name.startswith("perm__") or name.startswith("perm_grp__"):
+        return False
+    if name in _PERMISSION_AGGREGATE_COLUMN_NAMES:
+        return False
+    if name.endswith("_count"):
+        return False
+    return True
+
+
+def _permission_column_lookup(vocab_payload: dict[str, Any]) -> dict[str, str]:
+    entries = vocab_payload.get("entries")
+    if not isinstance(entries, list):
+        return {}
+    alias_lookup = _alias_lookup_from_entries([row for row in entries if isinstance(row, dict)])
+    lookup: dict[str, str] = {}
+    for row in entries:
+        if not isinstance(row, dict):
+            continue
+        permission = str(row.get("permission", "") or row.get("canonical_permission", "") or "").strip()
+        if not permission:
+            continue
+        column = _permission_column_name_from_token(permission)
+        canonical = str(row.get("canonical_permission", "") or permission).strip()
+        lookup[column] = alias_lookup.get(canonical, alias_lookup.get(permission, canonical or permission))
+    return lookup
+
+
+def _permission_name_from_column(column: str, column_lookup: dict[str, str]) -> str:
+    token = str(column or "").strip()
+    if token in column_lookup:
+        return column_lookup[token]
+    if token.startswith("perm__"):
+        return token[len("perm__") :].replace("_", ".")
+    return token
+
+
+def _read_aligned_features(diagnostics_dir: Path, run_id: str) -> pd.DataFrame:
+    path = oh.resolve_aligned_features_cache_path(diagnostics_dir, run_id)
+    if not path.is_file():
+        return pd.DataFrame()
+    try:
+        if str(path).endswith(".gz"):
+            return pd.read_csv(path, compression="gzip")
+        return pd.read_csv(path)
+    except Exception:
+        return pd.DataFrame()
+
+
+def _build_sample_permission_feature(
+    diagnostics_dir: Path,
+    run_id: str,
+    *,
+    profile: dict[str, Any],
+    label_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Build present-only sparse long-form permission rows from aligned feature matrix."""
+    features = _read_aligned_features(diagnostics_dir, run_id)
+    if features.empty or "sample_id" not in features.columns:
+        return pd.DataFrame(columns=list(ML_SAMPLE_PERMISSION_FEATURE_COLUMNS))
+
+    perm_columns = [column for column in features.columns if _is_permission_feature_column(column)]
+    if not perm_columns:
+        return pd.DataFrame(columns=list(ML_SAMPLE_PERMISSION_FEATURE_COLUMNS))
+
+    vocab_payload = _build_permission_vocabulary(diagnostics_dir, run_id)
+    column_lookup = _permission_column_lookup(vocab_payload)
+    profile_id = str(profile.get("profile_id", "") or "").strip()
+
+    sha256_by_sample: dict[int, str] = {}
+    if isinstance(label_df, pd.DataFrame) and not label_df.empty and "sample_id" in label_df.columns:
+        if "sha256" in label_df.columns:
+            for sample_id, sha256 in zip(label_df["sample_id"], label_df["sha256"]):
+                if pd.isna(sha256):
+                    continue
+                token = str(sha256).strip()
+                if str(sample_id).strip().isdigit() and token:
+                    sha256_by_sample[int(sample_id)] = token
+
+    melted = features[["sample_id", *perm_columns]].melt(
+        id_vars=["sample_id"],
+        value_vars=perm_columns,
+        var_name="feature_column",
+        value_name="feature_value",
+    )
+    melted["feature_value"] = pd.to_numeric(melted["feature_value"], errors="coerce").fillna(0)
+    melted = melted[melted["feature_value"] > 0]
+    if melted.empty:
+        return pd.DataFrame(columns=list(ML_SAMPLE_PERMISSION_FEATURE_COLUMNS))
+
+    melted["run_id"] = run_id
+    melted["profile_id"] = profile_id
+    melted["permission_name"] = melted["feature_column"].map(lambda col: _permission_name_from_column(col, column_lookup))
+    melted["permission_present"] = 1
+    melted["permission_authority_bucket"] = "unknown"
+    melted["permission_risk_tier"] = "unknown"
+    melted["permission_source"] = "aligned_features"
+    melted["sample_id"] = pd.to_numeric(melted["sample_id"], errors="coerce")
+    melted = melted[melted["sample_id"].notna()].copy()
+    melted["sample_id"] = melted["sample_id"].astype(int)
+    melted["sha256"] = melted["sample_id"].map(sha256_by_sample).fillna("")
+
+    out = melted[list(ML_SAMPLE_PERMISSION_FEATURE_COLUMNS)].copy()
+    return out.sort_values(["sample_id", "permission_name"]).reset_index(drop=True)
 
 
 def _build_split_export(diagnostics_dir: Path, run_id: str, manifest: dict[str, Any]) -> pd.DataFrame:
@@ -505,6 +640,24 @@ def export_ml_seed_artifacts(
         )
         paths.append(str(split_path))
         optional_refs["ml_train_validation_test_split"] = split_path.name
+
+    permission_feature_df = _build_sample_permission_feature(
+        diagnostics_dir,
+        run_id,
+        profile=profile,
+        label_df=label_df,
+    )
+    if not permission_feature_df.empty:
+        permission_feature_path = diagnostics_dir / f"ml_sample_permission_feature_{run_id}.csv"
+        permission_feature_df.to_csv(permission_feature_path, index=False)
+        oh.mirror_csv_text_run_then_global(
+            diagnostics_dir=diagnostics_dir,
+            run_filename=permission_feature_path.name,
+            csv_text=permission_feature_path.read_text(encoding="utf-8"),
+            global_latest_name="ml_sample_permission_feature.latest.csv",
+        )
+        paths.append(str(permission_feature_path))
+        optional_refs["ml_sample_permission_feature"] = permission_feature_path.name
 
     for key, filename in (
         ("v3_label_contract", f"v3_label_contract_{run_id}.json"),

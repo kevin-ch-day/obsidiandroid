@@ -1,2 +1,2 @@
-sample_id,supervised_label,supervised_label_namespace
-1,alpha,malware_family
+sample_id,supervised_label,supervised_label_namespace,sha256
+1,alpha,malware_family,abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

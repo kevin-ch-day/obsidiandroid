@@ -205,6 +205,45 @@ def test_fixture_baseline_json_matches_live_dry_run() -> None:
         assert live_entry.get("blocked") is expected_entry.get("blocked")
 
 
+def test_dry_run_counts_sample_permission_facts_when_export_present(tmp_path: Path) -> None:
+    slot_root = _write_minimal_slot(
+        tmp_path,
+        profile_id="android_malware_major_families",
+        run_id="20260606T700000Z__perm",
+    )
+    diagnostics_dir = slot_root / "diagnostics"
+    permission_path = diagnostics_dir / "ml_sample_permission_feature_20260606T700000Z__perm.csv"
+    permission_path.write_text(
+        "run_id,profile_id,sample_id,sha256,permission_name,permission_present,"
+        "permission_authority_bucket,permission_risk_tier,permission_source\n"
+        "20260606T700000Z__perm,android_malware_major_families,1,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,"
+        "android.permission.internet,1,unknown,unknown,aligned_features\n"
+        "20260606T700000Z__perm,android_malware_major_families,1,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,"
+        "android.permission.read_sms,1,unknown,unknown,aligned_features\n",
+        encoding="utf-8",
+    )
+
+    plan = importer.build_import_plan(slot_root)
+
+    assert not plan.blocked
+    assert plan.planned_rows["sample_permission_facts"] == 2
+    assert "ml_sample_permission_feature" in plan.artifacts_optional_present
+
+
+def test_missing_permission_export_stays_warning_not_blocker(tmp_path: Path) -> None:
+    slot_root = _write_minimal_slot(
+        tmp_path,
+        profile_id="android_malware_major_families",
+        run_id="20260606T700001Z__legacy",
+    )
+
+    plan = importer.build_import_plan(slot_root)
+
+    assert not plan.blocked
+    assert plan.planned_rows["sample_permission_facts"] == 0
+    assert any("ml_sample_permission_feature missing" in item for item in plan.warnings)
+
+
 def test_import_plan_to_dict_round_trip_fields(tmp_path: Path) -> None:
     slot_root = _write_minimal_slot(
         tmp_path,

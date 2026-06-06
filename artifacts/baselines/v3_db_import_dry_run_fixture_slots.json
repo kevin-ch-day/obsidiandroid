@@ -6,7 +6,6 @@
       "artifacts_optional_missing": [
         "ml_permission_pattern_fact",
         "ml_train_validation_test_split",
-        "ml_sample_permission_feature",
         "model_comparison_summary",
         "ablation_summary",
         "prediction_errors",
@@ -14,7 +13,8 @@
         "taxonomy_consistency_mismatches"
       ],
       "artifacts_optional_present": [
-        "ml_permission_vocabulary"
+        "ml_permission_vocabulary",
+        "ml_sample_permission_feature"
       ],
       "artifacts_present": [
         "v3_label_contract",
@@ -39,7 +39,7 @@
         "release_manifests": 1,
         "runs": 1,
         "sample_label_facts": 1,
-        "sample_permission_facts": 0,
+        "sample_permission_facts": 1,
         "samples": 1,
         "split_assignments": 0
       },
@@ -56,8 +56,7 @@
         "ablation_summary missing run-local but a global diagnostics mirror exists; import plan ignores global mirrors",
         "prediction_errors missing run-local but a global diagnostics mirror exists; import plan ignores global mirrors",
         "taxonomy_consistency_mismatches missing run-local but a global diagnostics mirror exists; import plan ignores global mirrors",
-        "ml_train_validation_test_split missing; profile_membership and split_assignments counts are provisional",
-        "ml_sample_permission_feature missing; sample_permission_facts import deferred until export exists"
+        "ml_train_validation_test_split missing; profile_membership and split_assignments counts are provisional"
       ]
     },
     {
@@ -65,7 +64,6 @@
       "artifacts_optional_missing": [
         "ml_permission_pattern_fact",
         "ml_train_validation_test_split",
-        "ml_sample_permission_feature",
         "model_comparison_summary",
         "ablation_summary",
         "prediction_errors",
@@ -73,7 +71,8 @@
         "taxonomy_consistency_mismatches"
       ],
       "artifacts_optional_present": [
-        "ml_permission_vocabulary"
+        "ml_permission_vocabulary",
+        "ml_sample_permission_feature"
       ],
       "artifacts_present": [
         "v3_label_contract",
@@ -98,7 +97,7 @@
         "release_manifests": 1,
         "runs": 1,
         "sample_label_facts": 1,
-        "sample_permission_facts": 0,
+        "sample_permission_facts": 1,
         "samples": 1,
         "split_assignments": 0
       },
@@ -115,8 +114,7 @@
         "ablation_summary missing run-local but a global diagnostics mirror exists; import plan ignores global mirrors",
         "prediction_errors missing run-local but a global diagnostics mirror exists; import plan ignores global mirrors",
         "taxonomy_consistency_mismatches missing run-local but a global diagnostics mirror exists; import plan ignores global mirrors",
-        "ml_train_validation_test_split missing; profile_membership and split_assignments counts are provisional",
-        "ml_sample_permission_feature missing; sample_permission_facts import deferred until export exists"
+        "ml_train_validation_test_split missing; profile_membership and split_assignments counts are provisional"
       ]
     },
     {
@@ -124,7 +122,6 @@
       "artifacts_optional_missing": [
         "ml_permission_pattern_fact",
         "ml_train_validation_test_split",
-        "ml_sample_permission_feature",
         "model_comparison_summary",
         "ablation_summary",
         "prediction_errors",
@@ -132,7 +129,8 @@
         "taxonomy_consistency_mismatches"
       ],
       "artifacts_optional_present": [
-        "ml_permission_vocabulary"
+        "ml_permission_vocabulary",
+        "ml_sample_permission_feature"
       ],
       "artifacts_present": [
         "v3_label_contract",
@@ -157,7 +155,7 @@
         "release_manifests": 1,
         "runs": 1,
         "sample_label_facts": 1,
-        "sample_permission_facts": 0,
+        "sample_permission_facts": 1,
         "samples": 1,
         "split_assignments": 0
       },
@@ -174,8 +172,7 @@
         "ablation_summary missing run-local but a global diagnostics mirror exists; import plan ignores global mirrors",
         "prediction_errors missing run-local but a global diagnostics mirror exists; import plan ignores global mirrors",
         "taxonomy_consistency_mismatches missing run-local but a global diagnostics mirror exists; import plan ignores global mirrors",
-        "ml_train_validation_test_split missing; profile_membership and split_assignments counts are provisional",
-        "ml_sample_permission_feature missing; sample_permission_facts import deferred until export exists"
+        "ml_train_validation_test_split missing; profile_membership and split_assignments counts are provisional"
       ]
     },
     {
@@ -183,7 +180,6 @@
       "artifacts_optional_missing": [
         "ml_permission_pattern_fact",
         "ml_train_validation_test_split",
-        "ml_sample_permission_feature",
         "model_comparison_summary",
         "ablation_summary",
         "prediction_errors",
@@ -191,7 +187,8 @@
         "taxonomy_consistency_mismatches"
       ],
       "artifacts_optional_present": [
-        "ml_permission_vocabulary"
+        "ml_permission_vocabulary",
+        "ml_sample_permission_feature"
       ],
       "artifacts_present": [
         "v3_label_contract",
@@ -216,7 +213,7 @@
         "release_manifests": 1,
         "runs": 1,
         "sample_label_facts": 1,
-        "sample_permission_facts": 0,
+        "sample_permission_facts": 1,
         "samples": 1,
         "split_assignments": 0
       },
@@ -233,8 +230,7 @@
         "ablation_summary missing run-local but a global diagnostics mirror exists; import plan ignores global mirrors",
         "prediction_errors missing run-local but a global diagnostics mirror exists; import plan ignores global mirrors",
         "taxonomy_consistency_mismatches missing run-local but a global diagnostics mirror exists; import plan ignores global mirrors",
-        "ml_train_validation_test_split missing; profile_membership and split_assignments counts are provisional",
-        "ml_sample_permission_feature missing; sample_permission_facts import deferred until export exists"
+        "ml_train_validation_test_split missing; profile_membership and split_assignments counts are provisional"
       ]
     }
   ],
