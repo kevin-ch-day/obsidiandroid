@@ -192,3 +192,13 @@ via `obsidiandroid.diagnostics.cohort_persistence`; manifest finalize reloads th
 
 Remaining deferrals stay in V4+ (deep learning, ScytaleDroid, frozen-model
 inference UX).
+
+## V3.1 research database (next milestone)
+
+V3.1 adds a **dedicated curated research ledger** (`obsidiandroid_research`,
+`OBSIDIANDROID_RESEARCH_DB_NAME`) separate from Erebus raw storage. V3.1.0 delivers
+DDL drafts, a dry-run importer, and the sparse `ml_sample_permission_feature` export
+spec — no live DB writes, web UI, Quasar, ScytaleDroid, or deep-learning training.
+
+See [`docs/OBSIDIANDROID_DB_PLAN.md`](OBSIDIANDROID_DB_PLAN.md). Dry-run all canonical
+fixture slots with `make dry-run-v3-db-import`.

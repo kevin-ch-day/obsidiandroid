@@ -17,6 +17,7 @@ import obsidiandroid.database.db_errors as db_errors
 import obsidiandroid.database.db_permission_analysis_queries as db_permission_analysis_queries
 from obsidiandroid.database import cohort_sql_fragments
 import obsidiandroid.database.db_extract_av_label_keywords as db_extract_av_label_keywords
+from obsidiandroid.database import db_config
 from obsidiandroid.database.db_config import DB_NAME, PERMISSION_INTEL_DB_NAME
 from obsidiandroid.database.db_permission_analysis_queries import (
     fetch_android_banking_trojans_with_permissions_count,
@@ -189,6 +190,12 @@ def test_load_connection_settings_matches_dataclass_fields() -> None:
     assert isinstance(s.port, int)
     assert isinstance(s.database, str)
     assert isinstance(s.permission_intel_database, str)
+    assert isinstance(s.research_database, str)
+    assert s.research_database == db_config.RESEARCH_DB_NAME
+    assert s.research_database_host == db_config.RESEARCH_DB_HOST
+    assert s.research_database_port == db_config.RESEARCH_DB_PORT
+    assert s.research_database_user == db_config.RESEARCH_DB_USER
+    assert s.research_database_password == db_config.RESEARCH_DB_PASSWORD
 
 
 def test_schema_table_resolution():

@@ -16,6 +16,9 @@ Keep these in the top level:
 - audits and worklists that code, tests, or docs reference directly
 - reusable SQL that operators are expected to run by name
 
+Subdirectories:
+- `obsidiandroid/` — **DDL draft** for the curated ObsidianDroid research database (`obsidiandroid_research`). See [`obsidiandroid/README.md`](obsidiandroid/README.md) and [`docs/OBSIDIANDROID_DB_PLAN.md`](../../docs/OBSIDIANDROID_DB_PLAN.md).
+
 Delete these instead of retaining them after use:
 - one-off applied tranche files
 - generated ingest batches that have already been loaded

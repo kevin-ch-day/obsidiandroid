@@ -99,9 +99,15 @@ wait-validate-majorfam:
 	python scripts/dev/wait_validate_v3_slot.py --profile-id android_malware_major_families --refresh-handoff --validate-all
 
 verify-v3:
-	python -m pytest -q tests/test_validate_v3_canonical_runs.py tests/test_ml_seed_exports.py tests/test_v3_label_contract.py tests/test_permission_pattern_contract.py tests/test_v3_canonical_hard_fail.py tests/test_v3_samples_label_contract.py tests/test_cohort_persistence.py tests/test_run_artifact_resolve.py tests/test_runtime_support_v3.py tests/test_research_validity_bundle_v3.py tests/test_hostile_audit_bundle_v3.py tests/test_v3_dl_handoff.py -m "not slow"
+	python -m pytest -q tests/test_validate_v3_canonical_runs.py tests/test_import_v3_run_to_db.py tests/test_obsidiandroid_research_ddl.py tests/test_ml_seed_exports.py tests/test_v3_label_contract.py tests/test_permission_pattern_contract.py tests/test_v3_canonical_hard_fail.py tests/test_v3_samples_label_contract.py tests/test_cohort_persistence.py tests/test_run_artifact_resolve.py tests/test_runtime_support_v3.py tests/test_research_validity_bundle_v3.py tests/test_hostile_audit_bundle_v3.py tests/test_v3_dl_handoff.py -m "not slow"
 	python scripts/dev/validate_v3_canonical_runs.py --verify-only --strict --runs-root artifacts/baselines/v3_canonical_slots
+	python scripts/import_v3_run_to_db.py --runs-root artifacts/baselines/v3_canonical_slots --release-tag v3.0.0
 	@if [ -d output/runs/allcurrent_diagnostic ]; then python scripts/dev/validate_v3_canonical_runs.py --verify-only --strict --skip-missing-slots; fi
+	@if [ -d output/runs/allcurrent_diagnostic ]; then python scripts/import_v3_run_to_db.py --runs-root output/runs --release-tag v3.0.0 --skip-missing-slots; fi
+
+# Dry-run ObsidianDroid research DB import plans for canonical fixture slots.
+dry-run-v3-db-import:
+	python scripts/import_v3_run_to_db.py --runs-root artifacts/baselines/v3_canonical_slots --release-tag v3.0.0
 
 # Quick smoke: obsidiandroid package and pipeline facade (editable install or PYTHONPATH=src).
 dev-import-check:

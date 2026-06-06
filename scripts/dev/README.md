@@ -11,6 +11,8 @@ Scripts here support **package layout, import hygiene, and local repo maintenanc
 | [`data_fuzzer.py`](data_fuzzer.py) | Synthetic classification data for stress tests (`sklearn` + pandas). |
 | [`run_ml_static_scan.py`](run_ml_static_scan.py) | Argparse driver for the ML predict misuse scan (`python -m scripts.dev.run_ml_static_scan` or `make ml-scan`). |
 | [`scan_ml_predict_misuse.py`](scan_ml_predict_misuse.py) | Core walker used by `run_ml_static_scan`. |
+| [`validate_v3_canonical_runs.py`](validate_v3_canonical_runs.py) | Offline/live V3 closure artifact validation (`make verify-v3`). |
+| Repo-root [`../import_v3_run_to_db.py`](../import_v3_run_to_db.py) | V3.1 dry-run research DB import planner (`make dry-run-v3-db-import`). |
 
 ### Shell entrypoints (Fedora venv, pytest)
 

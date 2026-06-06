@@ -12,7 +12,7 @@ ObsidianDroid does **not** call live VirusTotal APIs during execution. Instead, 
 
 ## Database Layout (split model)
 
-ObsidianDroid uses two logical databases on the same MySQL/MariaDB instance in typical deployments. Configure schema names with `OBSIDIAN_DB_NAME` (primary) and `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (Permission Intel); see `database/db_config.py`.
+ObsidianDroid uses two **upstream read-only** logical databases on the same MySQL/MariaDB instance in typical deployments, plus a **planned curated research ledger** (V3.1+). Configure schema names with `OBSIDIAN_DB_NAME` (primary), `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (Permission Intel), and **`OBSIDIANDROID_RESEARCH_DB_NAME`** (ObsidianDroid research, default `obsidiandroid_research`); see `database/db_config.py` for Erebus/PI and [`OBSIDIANDROID_DB_PLAN.md`](OBSIDIANDROID_DB_PLAN.md) for the research schema.
 
 ### Primary Erebus database (`OBSIDIAN_DB_NAME`, default `erebus_threat_intel_prod`)
 
@@ -58,6 +58,25 @@ On `android_permission_obs_sample`, the observation timestamp column is **`obser
 
 Cross-schema reporting joins (for example banking trojan permission extracts) qualify both databases in SQL (e.g. ``primary.malware_sample_catalog`` joined to ``android_permission_intel.android_permission_obs_sample``). ObsidianDroid does **not** assume live `android_permission_*` tables exist in the primary database.
 
+### ObsidianDroid research database (`OBSIDIANDROID_RESEARCH_DB_*`, default schema `obsidiandroid_research`)
+
+Configure with:
+
+- `OBSIDIANDROID_RESEARCH_DB_HOST` (defaults to `OBSIDIAN_DB_HOST`)
+- `OBSIDIANDROID_RESEARCH_DB_PORT` (defaults to `OBSIDIAN_DB_PORT`)
+- `OBSIDIANDROID_RESEARCH_DB_NAME` (default `obsidiandroid_research`)
+- `OBSIDIANDROID_RESEARCH_DB_USER` (defaults to `OBSIDIAN_DB_USER`)
+- `OBSIDIANDROID_RESEARCH_DB_PASSWORD` (defaults to `OBSIDIAN_DB_PASSWORD`)
+
+| Schema area | Key tables | Purpose |
+| --- | --- | --- |
+| Run governance | `profiles`, `runs`, `release_manifests` | Curated run manifests, git/release provenance, claim posture |
+| Labels & membership | `samples`, `sample_label_facts`, `profile_membership`, `split_assignments` | Lazy sample registry, governed labels, curation states |
+| Permission research | `permission_vocabulary`, `sample_permission_facts`, `permission_pattern_facts` | Run-frozen permission vocabulary and sparse long-form facts |
+| Model & audit | `model_metrics`, `prediction_facts`, `quality_flags` | Metrics, predictions, taxonomy/claim audit flags |
+
+**V3.1.0 status:** DDL draft under `database/sql/obsidiandroid/` and dry-run importer (`scripts/import_v3_run_to_db.py`) only — **no live writes** from the pipeline yet. The research DB is downstream from Erebus and Permission Intel; it does not replace either upstream store.
+
 ### Contributor rules (split database)
 
 - **Primary database:** sample catalog, VT/vendor mirrors, engine verdicts, family/type taxonomy, and other non-permission operational tables.
@@ -91,3 +110,5 @@ Access to replicated VirusTotal data must comply with [VirusTotal’s Terms of S
 - [`operations_playbook.md`](operations_playbook.md) provides incident response and restore workflows for the replication jobs.
 - [`LABEL_AUTHORITY_SCHEMA_PLAN.md`](LABEL_AUTHORITY_SCHEMA_PLAN.md) defines the proposed
   family/type authority and vendor-label evidence layer for Erebus.
+- [`OBSIDIANDROID_DB_PLAN.md`](OBSIDIANDROID_DB_PLAN.md) defines the curated ObsidianDroid
+  research database (V3.1 direction).
