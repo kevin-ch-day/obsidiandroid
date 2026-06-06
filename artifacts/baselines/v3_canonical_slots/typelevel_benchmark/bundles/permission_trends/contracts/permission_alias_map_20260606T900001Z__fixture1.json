@@ -1,0 +1,1 @@
+{"permission_alias_map_version": "perm_alias_v1", "alias_map": {"android.permission.install_packages": "android.permission.request_install_packages"}}

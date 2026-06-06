@@ -1,0 +1,4 @@
+type_slug,permission,n_samples,permission_positive_count,prevalence_pct
+adware,android.permission.internet,20,18,90.0
+banker,android.permission.read_contacts,15,4,26.6
+rat,android.permission.system_alert_window,9,2,22.2

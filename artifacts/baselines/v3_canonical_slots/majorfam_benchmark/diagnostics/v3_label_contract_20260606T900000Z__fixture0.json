@@ -1,0 +1,1 @@
+{"contract_version": "v3_label_contract_v1", "run_id": "20260606T900000Z__fixture0", "profile_id": "android_malware_major_families", "profile_role": "support-gated major-family benchmark surface", "target_label_namespace": "malware_family", "claim_surface_label": "Support-gated benchmark cohort", "training_label_field": "family_id"}

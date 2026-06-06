@@ -1,0 +1,4 @@
+type_slug,permission,n_samples,permission_positive_count,prevalence_pct
+rat,android.permission.camera,8,4,50.0
+spyware,android.permission.record_audio,6,2,33.3
+banker,android.permission.internet,10,9,90.0

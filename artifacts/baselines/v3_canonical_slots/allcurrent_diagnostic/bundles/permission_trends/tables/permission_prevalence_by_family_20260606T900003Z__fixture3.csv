@@ -1,0 +1,2 @@
+family_canonical,permission,n_samples,permission_positive_count,prevalence_pct
+Alpha,android.permission.internet,4,4,100.0

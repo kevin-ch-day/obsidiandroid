@@ -1,0 +1,22 @@
+{
+  "caveats": [],
+  "cohort_persistence_source": "diagnostics_export",
+  "cohort_size": 1,
+  "dataset_hash": "fixture_dataset_hash_01",
+  "dl_seed_status": "ready",
+  "missing_seed_refs": [],
+  "optional_seed_refs": {},
+  "profile_id": "android_malware_type_taxonomy",
+  "run_id": "20260606T900001Z__fixture1",
+  "sample_label_rows": 1,
+  "seed_refs_present": {
+    "ml_permission_vocabulary": "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/baselines/v3_canonical_slots/typelevel_benchmark/diagnostics/ml_permission_vocabulary_20260606T900001Z__fixture1.json",
+    "ml_sample_label_fact": "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/baselines/v3_canonical_slots/typelevel_benchmark/diagnostics/ml_sample_label_fact_20260606T900001Z__fixture1.csv",
+    "permission_pattern_contract": "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/baselines/v3_canonical_slots/typelevel_benchmark/diagnostics/permission_pattern_contract_20260606T900001Z__fixture1.json",
+    "v3_label_contract": "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/baselines/v3_canonical_slots/typelevel_benchmark/diagnostics/v3_label_contract_20260606T900001Z__fixture1.json"
+  },
+  "split_export_present": false,
+  "split_hash": null,
+  "summary_version": "v3_dl_handoff_summary_v1",
+  "vocabulary_entry_count": 4
+}

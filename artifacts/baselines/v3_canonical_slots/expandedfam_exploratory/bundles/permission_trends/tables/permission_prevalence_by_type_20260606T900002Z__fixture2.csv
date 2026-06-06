@@ -1,0 +1,3 @@
+type_slug,permission,n_samples,permission_positive_count,prevalence_pct
+banker,android.permission.send_sms,12,5,41.6
+rat,android.permission.access_fine_location,7,1,14.2
