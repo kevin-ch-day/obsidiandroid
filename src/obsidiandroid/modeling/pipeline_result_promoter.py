@@ -2,6 +2,7 @@
 # Purpose  : Promote selected fields from the best/default ML model to top-level results for downstream access
 
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.evaluation.ml_terminal_presentation import should_defer_headline_training_terminal
 
 # Default model key used to select which model's results to promote
 DEFAULT_MODEL_KEY = "xgboost"
@@ -31,7 +32,8 @@ def promote_model_outputs_to_top_level(results: dict, model_key: str = DEFAULT_M
         du.print_warning(f"[PROMOTER] Model result block is missing or malformed for key: '{model_key}'")
         return results
 
-    du.print_info(f"[PROMOTER] Promoting fields from model: {model_key}")
+    if not should_defer_headline_training_terminal():
+        du.print_info(f"[PROMOTER] Promoting fields from model: {model_key}")
 
     # Extract promotable fields from the model result
     promoted_fields = _extract_promotable_fields(model_result)
@@ -41,7 +43,8 @@ def promote_model_outputs_to_top_level(results: dict, model_key: str = DEFAULT_M
 
     # Update top-level dictionary with promoted fields
     results.update(promoted_fields)
-    du.print_success(f"[PROMOTER] Promoted {len(promoted_fields)} field(s) to top-level from '{model_key}'")
+    if not should_defer_headline_training_terminal():
+        du.print_success(f"[PROMOTER] Promoted {len(promoted_fields)} field(s) to top-level from '{model_key}'")
     return results
 
 # Extract and return promotable fields that are non-null

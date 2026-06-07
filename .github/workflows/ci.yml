@@ -19,10 +19,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: test (ubuntu, python ${{ matrix.python-version }})
+  test-fast:
+    name: fast (python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -54,9 +54,6 @@ jobs:
       - name: make verify
         run: make verify
 
-      - name: V3 closure contract tests
-        run: make verify-v3
-
       - name: ML static scan (strict)
         run: make ml-scan-strict
 
@@ -64,10 +61,72 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: ci-diagnostics-python-${{ matrix.python-version }}
+          name: ci-fast-diagnostics-python-${{ matrix.python-version }}
           if-no-files-found: ignore
           retention-days: 7
           path: |
             .pytest_tmp/**
             logs/**
             output/**
+
+  test-integration:
+    name: integration (python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Integration pytest lane
+        run: make verify-integration
+
+      - name: Upload CI diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-integration-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            .pytest_tmp/**
+            logs/**
+            output/**
+
+  verify-v3:
+    name: v3 closure (python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: V3 closure contract tests
+        run: make verify-v3

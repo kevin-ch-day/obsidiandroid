@@ -761,11 +761,39 @@ def test_refresh_backlog_triage_exports_runs_all_triage_scripts(monkeypatch) -> 
         "_run_policy_held_token_risk_script",
         lambda: calls.append("policy") or 0,
     )
+    monkeypatch.setattr(
+        startup_menu,
+        "_run_missing_primary_label_triage_script",
+        lambda: calls.append("missing_primary") or 0,
+    )
+    monkeypatch.setattr(
+        startup_menu,
+        "_run_profile_family_mapping_debt_script",
+        lambda: calls.append("profile_mapping") or 0,
+    )
+    monkeypatch.setattr(
+        startup_menu,
+        "_run_blank_resolved_family_triage_script",
+        lambda: calls.append("blank_resolved") or 0,
+    )
+    monkeypatch.setattr(
+        startup_menu,
+        "_run_backlog_debt_operator_summary_script",
+        lambda: calls.append("operator_summary") or 0,
+    )
 
     result = startup_menu._refresh_backlog_triage_exports()  # pylint: disable=protected-access
 
     assert result == 0
-    assert calls == ["android", "vt", "policy"]
+    assert calls == [
+        "missing_primary",
+        "android",
+        "vt",
+        "policy",
+        "profile_mapping",
+        "blank_resolved",
+        "operator_summary",
+    ]
 
 
 def test_policy_held_token_risk_script_runs_operator_script(monkeypatch, tmp_path: Path) -> None:

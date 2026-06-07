@@ -815,6 +815,8 @@ def export_confusion_matrix(
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    from obsidiandroid.evaluation.ml_terminal_presentation import should_defer_headline_training_terminal
+
     quiet = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
     exported_path = export_confusion_matrix_image(
         cm=cm,
@@ -824,7 +826,9 @@ def export_confusion_matrix(
         color_mode=mode,
         title=f"Confusion Matrix - {model_name.upper()}",
         dpi=300,
-        verbose=bool(not quiet and not ml_console.is_minimal()),
+        verbose=bool(
+            not quiet and not ml_console.is_minimal() and not should_defer_headline_training_terminal()
+        ),
     )
     display_exported_path = display_variant_output_path(output_path)
     headline_ctx = not bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))

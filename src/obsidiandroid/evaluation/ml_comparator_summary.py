@@ -7,6 +7,7 @@ from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.evaluation import accuracy_band_utils
+from obsidiandroid.evaluation import ml_terminal_presentation as ml_term
 
 TARGET_F1_THRESHOLD = 0.80
 
@@ -37,7 +38,11 @@ def _resolve_primary_metric_spec(rank_metric: str) -> tuple[str, str]:
     return _RANK_METRIC_SPECS.get(rank_metric, _RANK_METRIC_SPECS["macro_f1_score"])
 
 
-def compare_model_performance(results: dict) -> pd.DataFrame:
+def compare_model_performance(
+    results: dict,
+    *,
+    manifest_context: dict | None = None,
+) -> pd.DataFrame:
     """Build and print a ranked model comparison summary."""
     if not results or not isinstance(results, dict):
         du.print_error("No valid results dictionary provided. Aborting model comparison.")
@@ -110,43 +115,44 @@ def compare_model_performance(results: dict) -> pd.DataFrame:
     df["Primary Tier"] = df["Primary Metric Score"].map(accuracy_band_utils.evaluate_accuracy_band)
     df["Weighted Tier"] = df["F1-Score"].map(accuracy_band_utils.evaluate_accuracy_band)
     df["Accuracy Tier"] = df["Accuracy"].map(accuracy_band_utils.evaluate_accuracy_band)
-    compact = bool(getattr(app_config, "ML_TERMINAL_COMPACT", True))
     show_guide = bool(getattr(app_config, "ML_SHOW_METRIC_GUIDE", False))
+    resolved_manifest = ml_term.build_terminal_manifest_context(manifest_context)
 
-    du.print_section("Model Performance Summary (Ranked by Primary Metric)")
-    display_df = df.copy()
-    display_df["Model Label"] = display_df["Model"].astype(str).map(_model_display_name)
-    display_df.rename(
-        columns={
-            "Macro F1-Score": "MacroF1",
-            "F1-Score": "F1",
-            "Accuracy": "Acc",
-            "Primary Metric Label": "Metric",
-            "Primary Tier": "Primary Tier",
-            "Weighted Tier": "Weighted Tier",
-            "Accuracy Tier": "Accuracy Tier",
-        },
-        inplace=True,
-    )
-    for col in ("Primary Tier", "Weighted Tier", "Accuracy Tier"):
-        display_df[col] = (
-            display_df[col].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
+    if ml_term.should_defer_headline_training_terminal():
+        ml_term.print_model_evaluation_terminal_summary(
+            results,
+            df,
+            manifest_context=resolved_manifest,
         )
-    display_df["PrimaryTierCode"] = display_df["Primary Tier"].str.split(" - ", n=1).str[0]
-    display_df["WeightedTierCode"] = display_df["Weighted Tier"].str.split(" - ", n=1).str[0]
-    display_df["AccuracyTierCode"] = display_df["Accuracy Tier"].str.split(" - ", n=1).str[0]
-
-    if compact:
+    else:
+        du.print_section("Model Performance Summary (Ranked by Primary Metric)")
+        display_df = df.copy()
+        display_df["Model Label"] = display_df["Model"].astype(str).map(_model_display_name)
+        display_df.rename(
+            columns={
+                "Macro F1-Score": "Macro F1",
+                "F1-Score": "Weighted F1",
+                "Accuracy": "Accuracy",
+                "Precision": "Weighted Precision",
+                "Recall": "Weighted Recall",
+                "Primary Metric Label": "Metric",
+            },
+            inplace=True,
+        )
+        for col in ("Primary Tier", "Weighted Tier", "Accuracy Tier"):
+            display_df[col] = (
+                display_df[col].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
+            )
         du.print_table(
             display_df[
                 [
                     "Rank",
                     "Model Label",
                     "Metric",
-                    "MacroF1",
-                    "F1",
-                    "Acc",
-                    "PrimaryTierCode",
+                    "Macro F1",
+                    "Weighted F1",
+                    "Accuracy",
+                    "Primary Tier",
                     "Top",
                 ]
             ],
@@ -154,58 +160,30 @@ def compare_model_performance(results: dict) -> pd.DataFrame:
             max_col_width=None,
             tablefmt="github",
         )
-    else:
-        du.print_table(
-            display_df[["Rank", "Model Label", "MacroF1", "F1", "Top"]],
-            show_index=False,
-            max_col_width=18,
-            tablefmt="github",
+        top = df.iloc[0]
+        runner_up_delta = None
+        if len(df) > 1:
+            runner_up_delta = float(top["Macro F1-Score"]) - float(df.iloc[1]["Macro F1-Score"])
+        delta_txt = (
+            f"  |  Gap(Macro-F1 vs #2): {runner_up_delta:.4f}"
+            if runner_up_delta is not None
+            else ""
         )
-        du.print_table(
-            display_df[
-                [
-                    "Model Label",
-                    "Metric",
-                    "Acc",
-                    "Precision",
-                    "Recall",
-                    "Primary Tier",
-                    "Weighted Tier",
-                    "Accuracy Tier",
-                ]
-            ],
-            show_index=False,
-            max_col_width=None,
-            tablefmt="github",
+        du.print_success(
+            f"Top: {top['Model']}  |  "
+            f"Primary metric: {rank_label}={float(top[rank_col]):.4f}  |  "
+            f"Primary tier: {ml_term.tier_code_only(str(top['Primary Tier']))} — "
+            f"{ml_term.tier_readable(str(top['Primary Tier']))}  |  "
+            f"Weighted F1={top['F1-Score']:.4f}  |  "
+            f"Accuracy={top['Accuracy']:.4f}"
+            f"{delta_txt}"
         )
 
     if show_guide:
         du.print_info("Metric Guide:")
         du.print_info(" - Accuracy: Correct predictions across all labels.")
-        du.print_info(" - Precision: Reliability of positive predictions.")
-        du.print_info(" - Recall   : Sensitivity to true labels.")
-        du.print_info(" - Macro F1 : Class-balanced F1 (recommended for imbalanced datasets).")
-        du.print_info(
-            " - F1-Score : Balance between Precision and Recall (preferred when class imbalance exists)."
-        )
-
-    top = df.iloc[0]
-    runner_up_delta = None
-    if len(df) > 1:
-        runner_up_delta = float(top["Macro F1-Score"]) - float(df.iloc[1]["Macro F1-Score"])
-    delta_txt = (
-        f"  |  Gap(MacroF1 vs #2): {runner_up_delta:.4f}"
-        if runner_up_delta is not None
-        else ""
-    )
-    du.print_success(
-        f"Top: {top['Model']}  |  "
-        f"Primary metric: {rank_label}={float(top[rank_col]):.4f}  |  "
-        f"Primary tier: {' '.join(str(top['Primary Tier']).split())}  |  "
-        f"Weighted F1={top['F1-Score']:.4f} ({' '.join(str(top['Weighted Tier']).split())})  |  "
-        f"Acc={top['Accuracy']:.4f} ({' '.join(str(top['Accuracy Tier']).split())})"
-        f"{delta_txt}"
-    )
+        du.print_info(" - Weighted Precision / Recall / F1: Head-class dominated summary metrics.")
+        du.print_info(" - Macro F1: Class-balanced F1 (primary claim metric for family imbalance).")
 
     if bool(getattr(app_config, "ML_SHOW_IMPROVEMENT_OUTLOOK", False)):
         _print_improvement_outlook(df)

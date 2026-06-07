@@ -519,12 +519,92 @@ def _run_policy_held_token_risk_script() -> int:
     )
 
 
+def _run_backlog_debt_operator_summary_script() -> int:
+    """Invoke the consolidated backlog/debt operator summary script."""
+    return _diagnostics_menu.run_backlog_debt_operator_summary_script(
+        operator_script_resolver=repo_operator_script,
+        subprocess_run=subprocess.run,
+    )
+
+
+def _run_blank_resolved_family_triage_script() -> int:
+    """Invoke the blank-resolved family triage diagnostics script."""
+    return _diagnostics_menu.run_blank_resolved_family_triage_script(
+        operator_script_resolver=repo_operator_script,
+        subprocess_run=subprocess.run,
+    )
+
+
+def _run_profile_family_mapping_debt_script() -> int:
+    """Invoke the profile family-mapping debt diagnostics script."""
+    return _diagnostics_menu.run_profile_family_mapping_debt_script(
+        operator_script_resolver=repo_operator_script,
+        subprocess_run=subprocess.run,
+    )
+
+
+def _run_missing_primary_label_triage_script() -> int:
+    """Invoke the missing-primary label triage diagnostics script."""
+    return _diagnostics_menu.run_missing_primary_label_triage_script(
+        operator_script_resolver=repo_operator_script,
+        subprocess_run=subprocess.run,
+    )
+
+
+def _assess_backlog_triage_health() -> dict[str, object]:
+    """Assess backlog triage export freshness against live debt signals."""
+    from obsidiandroid.common.backlog_semantics import (
+        assess_backlog_triage_health,
+        read_android_missing_resolution_snapshot,
+        read_blank_resolved_triage_snapshot,
+        read_false_positive_triage_snapshot,
+        read_missing_primary_triage_snapshot,
+        read_policy_held_token_risk_snapshot,
+        read_profile_family_mapping_debt_snapshot,
+    )
+    from obsidiandroid.common.output_paths import output_root as canonical_output_root
+    from obsidiandroid.database.db_cohort_readiness import get_cohort_readiness_snapshot
+
+    output_root = canonical_output_root()
+    try:
+        readiness = get_cohort_readiness_snapshot()
+    except Exception:
+        readiness = {"taxonomy_signals": {}}
+    return assess_backlog_triage_health(
+        readiness=readiness,
+        android_missing_triage=read_android_missing_resolution_snapshot(output_root=output_root),
+        fp_triage=read_false_positive_triage_snapshot(output_root=output_root),
+        missing_primary_triage=read_missing_primary_triage_snapshot(output_root=output_root),
+        policy_held_triage=read_policy_held_token_risk_snapshot(output_root=output_root),
+        profile_mapping_debt=read_profile_family_mapping_debt_snapshot(output_root=output_root),
+        blank_resolved_triage=read_blank_resolved_triage_snapshot(output_root=output_root),
+    )
+
+
 def _refresh_backlog_triage_exports() -> int:
     """Refresh backlog triage exports in one operator action."""
     return _diagnostics_menu.refresh_backlog_triage_exports(
         run_android_missing_resolution_triage_action=_run_android_missing_resolution_triage_script,
         run_vt_false_positive_review_triage_action=_run_vt_false_positive_review_triage_script,
         run_policy_held_token_risk_action=_run_policy_held_token_risk_script,
+        run_missing_primary_label_triage_action=_run_missing_primary_label_triage_script,
+        run_profile_family_mapping_debt_action=_run_profile_family_mapping_debt_script,
+        run_blank_resolved_family_triage_action=_run_blank_resolved_family_triage_script,
+        run_backlog_debt_operator_summary_action=_run_backlog_debt_operator_summary_script,
+    )
+
+
+def _refresh_stale_backlog_triage_exports() -> int:
+    """Refresh only stale or mismatched backlog triage exports."""
+    return _diagnostics_menu.refresh_stale_backlog_triage_exports(
+        assess_backlog_triage_health_action=_assess_backlog_triage_health,
+        run_android_missing_resolution_triage_action=_run_android_missing_resolution_triage_script,
+        run_vt_false_positive_review_triage_action=_run_vt_false_positive_review_triage_script,
+        run_policy_held_token_risk_action=_run_policy_held_token_risk_script,
+        run_missing_primary_label_triage_action=_run_missing_primary_label_triage_script,
+        run_profile_family_mapping_debt_action=_run_profile_family_mapping_debt_script,
+        run_blank_resolved_family_triage_action=_run_blank_resolved_family_triage_script,
+        run_backlog_debt_operator_summary_action=_run_backlog_debt_operator_summary_script,
     )
 
 
@@ -601,6 +681,7 @@ def _launch_review_latest_run_menu() -> None:
         launch_compare_runs_action=_launch_compare_runs_menu,
         launch_data_diagnostics_action=_launch_data_diagnostics_menu,
         launch_reproducibility_action=_launch_reproducibility_menu,
+        refresh_stale_backlog_triage_exports_action=_refresh_stale_backlog_triage_exports,
     )
 
 

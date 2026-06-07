@@ -9,6 +9,7 @@ from obsidiandroid.modeling import ml_result_analyzer
 from obsidiandroid.modeling import model_prediction
 from obsidiandroid.features import feature_schema_audit
 from config import app_config
+from obsidiandroid.evaluation.ml_terminal_presentation import should_defer_headline_training_terminal
 
 
 def export_model(
@@ -58,6 +59,13 @@ def export_model(
             model_type=model_type,
             metadata_dict=metadata,
         )
+        if model_path:
+            model_type_clean = model_type.lower().replace(" ", "_")
+            metadata_path = model_path.parent / f"{model_type_clean}_classifier_model_metadata.json"
+            result["export_paths"] = {
+                "model_path": str(model_path),
+                "metadata_path": str(metadata_path) if metadata_path.is_file() else "",
+            }
         if not model_path:
             du.print_warning(f"[EXPORT] Model '{model_type}' export did not return a path.")
     except Exception as e:
@@ -177,7 +185,7 @@ def run_predictions_and_compile_result(
             f"[{model_type.upper()}] Confidence shape: {len(confidences)}"
         )
 
-        if not bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False)):
+        if not bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False)) and not should_defer_headline_training_terminal():
             model_prediction.report_prediction_stats(decoded_labels, confidences)
 
         label_name_map = {}
@@ -204,6 +212,7 @@ def run_predictions_and_compile_result(
             "prediction_metadata": meta_dict,
             "confidences": confidences,
             "label_name_map": label_name_map,
+            "export_paths": dict(result.get("export_paths", {}) or {}),
         }
 
         du.print_debug(

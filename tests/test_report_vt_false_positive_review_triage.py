@@ -33,6 +33,7 @@ def test_main_exports_empty_triage_csv_with_compact_empty_summary(monkeypatch, t
     monkeypatch.setattr(missing_mod, "build_report", _fake_build_report)
     monkeypatch.setattr(missing_mod, "OUTPUT_DIR", out_dir)
     monkeypatch.setattr(missing_mod, "CSV_OUT", csv_out)
+    monkeypatch.setattr(missing_mod, "VT_TAIL_CSV_OUT", out_dir / "android_missing_resolution_vt_tail_latest.csv")
 
     exit_code = missing_mod.main()
     out = capsys.readouterr().out

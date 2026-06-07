@@ -37,8 +37,11 @@ def train_and_evaluate_model(
     """Train, evaluate and optionally export a model."""
 
     announce_training(model_type)
+    from obsidiandroid.evaluation.ml_terminal_presentation import should_defer_headline_training_terminal
+
     quiet = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
-    if not quiet and not ml_console.is_minimal():
+    defer_terminal = should_defer_headline_training_terminal()
+    if not quiet and not ml_console.is_minimal() and not defer_terminal:
         du.print_stat("Training Samples", len(features_df))
         du.print_stat("Feature Count", features_df.shape[1])
     start_time = time()

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import pandas as pd
+
+pytestmark = pytest.mark.integration
 
 from config import app_config
 import obsidiandroid.pipeline.runner as pipeline_runner

@@ -13,10 +13,12 @@ from obsidiandroid.common.authority_taxonomy_terms import (
     ANDROID_MISSING_RESOLUTION_BACKLOG_LABEL,
     FAMILY_TYPE_CONFLICT_BACKLOG_LABEL,
     POLICY_HELD_FAMILY_NOISE_LABEL,
+    PROFILE_FAMILY_MAPPING_DEBT_LABEL,
     TRUE_UNRESOLVED_FAMILY_DEBT_LABEL,
     VT_FALSE_POSITIVE_REVIEW_RESIDUE_LABEL,
     taxonomy_curation_discipline_note,
 )
+from obsidiandroid.common.json_io import read_json_dict
 from obsidiandroid.common.cohort_methodology import safe_int
 
 
@@ -26,6 +28,7 @@ BACKLOG_ROW_MISSING_PRIMARY_LABELS = "missing_primary_labels"
 BACKLOG_ROW_TRUE_UNRESOLVED_FAMILY = "true_unresolved_family"
 BACKLOG_ROW_POLICY_HELD_FAMILY = "policy_held_family"
 BACKLOG_ROW_FAMILY_TYPE_CONFLICT = "family_type_conflict"
+BACKLOG_ROW_BLANK_RESOLVED_FAMILY = "blank_resolved_family"
 
 _RUN_BACKLOG_LABELS = (
     "Missing primary labels",
@@ -124,7 +127,17 @@ def _format_missing_primary_lane_split(rows: list[dict[str, object]], *, limit: 
     return ", ".join(parts)
 
 
-def _missing_primary_action(taxonomy: dict[str, object]) -> str:
+def _missing_primary_action(
+    taxonomy: dict[str, object],
+    *,
+    missing_primary_triage: dict[str, object] | None = None,
+) -> str:
+    triage = missing_primary_triage if isinstance(missing_primary_triage, dict) else {}
+    freshness = str(triage.get("freshness", "") or "").strip()
+    if freshness == "stale":
+        return "Refresh the missing-primary label triage export first."
+    if safe_int(triage.get("row_count", 0), 0) > 0:
+        return "Open the missing-primary label triage export and work the dominant review lane first."
     if safe_int(taxonomy.get("missing_primary_label_actionable_samples", 0), 0) > 0:
         return "Work high/strong missing-primary label-review rows first."
     if taxonomy.get("missing_primary_label_active_residual_samples") is not None:
@@ -224,6 +237,107 @@ def _family_type_conflict_detail(taxonomy: dict[str, object]) -> str:
         extra = f" top_candidates={'; '.join(bits)}."
         return f"{detail} {extra}".strip() if detail else f"top_candidates={'; '.join(bits)}."
     return detail or "Rows where DB type, label semantics, or authority mapping still disagree."
+
+
+def read_profile_family_mapping_debt_snapshot(*, output_root: Path) -> dict[str, object]:
+    """Load the latest profile family-mapping debt summary export."""
+    path = output_root / "diagnostics" / "profile_family_mapping_debt_latest.json"
+    if not path.is_file():
+        return {}
+    payload = read_json_dict(path)
+    profiles = payload.get("profiles", [])
+    if not isinstance(profiles, list):
+        return {}
+    allcurrent = next(
+        (
+            row
+            for row in profiles
+            if isinstance(row, dict) and str(row.get("profile_id", "") or "") == "android_malware_all_current"
+        ),
+        None,
+    )
+    focus = allcurrent if isinstance(allcurrent, dict) else (profiles[0] if profiles else {})
+    if not isinstance(focus, dict):
+        return {}
+    return {
+        "path": path,
+        "freshness": file_freshness_label(path),
+        "profile_id": str(focus.get("profile_id", "") or ""),
+        "governed_sql_rows": safe_int(focus.get("governed_sql_rows", 0), 0),
+        "excluded_unmapped_family_rows": safe_int(focus.get("excluded_unmapped_family_rows", 0), 0),
+        "blank_resolved_slug_rows": safe_int(focus.get("blank_resolved_slug_rows", 0), 0),
+        "policy_held_resolved_slug_rows": safe_int(focus.get("policy_held_resolved_slug_rows", 0), 0),
+        "true_unmapped_resolved_slug_rows": safe_int(focus.get("true_unmapped_resolved_slug_rows", 0), 0),
+        "profiles": profiles,
+    }
+
+
+def _android_missing_resolution_action(
+    *,
+    android_missing_triage: dict[str, object],
+    taxonomy: dict[str, object],
+) -> str:
+    triage = android_missing_triage if isinstance(android_missing_triage, dict) else {}
+    freshness = str(triage.get("freshness", "") or "").strip()
+    row_count = safe_int(triage.get("row_count", 0), 0)
+    blank_resolved = safe_int(taxonomy.get("blank_resolved_family_samples", 0), 0)
+    if freshness == "stale":
+        return "Refresh the Android missing-resolution triage export first."
+    if row_count <= 0 and blank_resolved > 0:
+        return (
+            "Refresh the Android missing-resolution triage export first; "
+            "live blank-resolved family debt exists."
+        )
+    return "Open Android missing-resolution triage and work the dominant package/lane cluster."
+
+
+def _android_missing_resolution_detail(
+    *,
+    android_missing_triage: dict[str, object],
+    taxonomy: dict[str, object],
+) -> str:
+    triage = android_missing_triage if isinstance(android_missing_triage, dict) else {}
+    blank_resolved = safe_int(taxonomy.get("blank_resolved_family_samples", 0), 0)
+    parts = [
+        f"freshness={str(triage.get('freshness', '') or '').strip() or 'unknown'}",
+        f"top_lane={str(triage.get('top_lane', '') or '').strip() or 'none'}",
+    ]
+    if blank_resolved > 0:
+        parts.append(f"live_blank_resolved={blank_resolved}")
+    return "; ".join(parts) + "."
+
+
+def _profile_family_mapping_detail(snapshot: dict[str, object] | None) -> str:
+    triage = snapshot if isinstance(snapshot, dict) else {}
+    if not triage:
+        return ""
+    return (
+        f"allcurrent governed_sql={safe_int(triage.get('governed_sql_rows', 0), 0)}; "
+        f"excluded_unmapped={safe_int(triage.get('excluded_unmapped_family_rows', 0), 0)} "
+        f"(blank_resolved={safe_int(triage.get('blank_resolved_slug_rows', 0), 0)}, "
+        f"policy_held={safe_int(triage.get('policy_held_resolved_slug_rows', 0), 0)}, "
+        f"true_unmapped={safe_int(triage.get('true_unmapped_resolved_slug_rows', 0), 0)}); "
+        f"freshness={str(triage.get('freshness', '') or '').strip() or 'unknown'}."
+    )
+
+
+def _augment_missing_primary_detail(
+    detail: str,
+    missing_primary_triage: dict[str, object] | None,
+) -> str:
+    """Append live missing-primary triage context to the generic summary detail."""
+    triage = missing_primary_triage if isinstance(missing_primary_triage, dict) else {}
+    suffix: list[str] = []
+    top_lane = str(triage.get("top_lane", "") or "").strip()
+    top_lane_count = safe_int(triage.get("top_lane_count", 0), 0)
+    if top_lane and top_lane_count > 0:
+        suffix.append(f"top_lane={top_lane} ({top_lane_count})")
+    freshness = str(triage.get("freshness", "") or "").strip()
+    if freshness:
+        suffix.append(f"freshness={freshness}")
+    if not suffix:
+        return detail
+    return f"{detail} {'; '.join(suffix)}."
 
 
 def _augment_policy_held_family_detail(
@@ -358,6 +472,29 @@ def read_android_missing_resolution_snapshot(*, output_root: Path) -> dict[str, 
     return snapshot
 
 
+def read_blank_resolved_triage_snapshot(*, output_root: Path) -> dict[str, object]:
+    """Load the latest blank-resolved family triage export."""
+    return read_triage_snapshot(
+        path=output_root / "diagnostics" / "blank_resolved_family_triage_latest.csv",
+        lane_column="review_lane",
+        action_column="recommended_triage_action",
+        extra_count_columns={"authority_bucket_counts": "authority_bucket"},
+    )
+
+
+def read_missing_primary_triage_snapshot(*, output_root: Path) -> dict[str, object]:
+    """Load the latest missing-primary label triage export."""
+    return read_triage_snapshot(
+        path=output_root / "diagnostics" / "missing_primary_label_triage_latest.csv",
+        lane_column="residual_lane",
+        action_column="recommended_triage_action",
+        extra_count_columns={
+            "authority_bucket_counts": "authority_bucket",
+            "confidence_bucket_counts": "confidence_bucket",
+        },
+    )
+
+
 def read_policy_held_token_risk_snapshot(*, output_root: Path) -> dict[str, object]:
     """Load the latest policy-held family-token risk export."""
     snapshot = read_triage_snapshot(
@@ -453,10 +590,89 @@ def triage_detail(
     return detail
 
 
+def assess_backlog_triage_health(
+    *,
+    readiness: dict[str, object] | None = None,
+    android_missing_triage: dict[str, object],
+    fp_triage: dict[str, object],
+    missing_primary_triage: dict[str, object] | None = None,
+    policy_held_triage: dict[str, object] | None = None,
+    profile_mapping_debt: dict[str, object] | None = None,
+    blank_resolved_triage: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Classify stale or mismatched backlog triage exports for selective refresh."""
+    taxonomy = readiness.get("taxonomy_signals", {}) if isinstance(readiness, dict) else {}
+    if not isinstance(taxonomy, dict):
+        taxonomy = {}
+    blank_live = safe_int(taxonomy.get("blank_resolved_family_samples", 0), 0)
+    missing_active = safe_int(taxonomy.get("missing_primary_label_active_residual_samples", 0), 0)
+    policy_live = safe_int(taxonomy.get("policy_held_family_samples", 0), 0)
+
+    def _append_issue(
+        issues: list[dict[str, object]],
+        *,
+        code: str,
+        export_key: str,
+        detail: str,
+    ) -> None:
+        issues.append(
+            {
+                "code": code,
+                "export_key": export_key,
+                "detail": detail,
+            }
+        )
+
+    issues: list[dict[str, object]] = []
+    checks: list[tuple[str, dict[str, object] | None, int | None]] = [
+        ("android_missing_resolution", android_missing_triage, blank_live),
+        ("missing_primary_label", missing_primary_triage, missing_active),
+        ("vt_false_positive_review", fp_triage, None),
+        ("policy_held_token_risk", policy_held_triage, policy_live),
+        ("profile_family_mapping_debt", profile_mapping_debt, None),
+        ("blank_resolved_family", blank_resolved_triage, blank_live),
+    ]
+    for export_key, payload, live_count in checks:
+        triage = payload if isinstance(payload, dict) else {}
+        freshness = str(triage.get("freshness", "") or "").strip() or "missing"
+        row_count = safe_int(triage.get("row_count", 0), 0)
+        if freshness in {"stale", "missing"}:
+            _append_issue(
+                issues,
+                code=f"{export_key}_stale",
+                export_key=export_key,
+                detail=f"{export_key} export freshness={freshness}.",
+            )
+        if live_count is not None and live_count > 0 and row_count <= 0 and freshness != "missing":
+            _append_issue(
+                issues,
+                code=f"{export_key}_empty_mismatch",
+                export_key=export_key,
+                detail=f"{export_key} export has 0 rows while live debt={live_count}.",
+            )
+    if blank_live > 0 and safe_int((android_missing_triage or {}).get("row_count", 0), 0) <= 0:
+        if not any(issue.get("export_key") == "android_missing_resolution" for issue in issues):
+            _append_issue(
+                issues,
+                code="android_missing_resolution_empty_mismatch",
+                export_key="android_missing_resolution",
+                detail=(
+                    f"android_missing_resolution export has 0 rows while live blank_resolved={blank_live}."
+                ),
+            )
+    refresh_exports = sorted({str(issue.get("export_key", "") or "") for issue in issues if issue.get("export_key")})
+    return {
+        "issues": issues,
+        "needs_refresh": bool(issues),
+        "refresh_exports": refresh_exports,
+    }
+
+
 def choose_priority_triage(
     *,
     android_missing_triage: dict[str, object],
     fp_triage: dict[str, object],
+    missing_primary_triage: dict[str, object] | None = None,
 ) -> dict[str, str | int]:
     """Choose the first triage queue the operator should open."""
     candidates: list[dict[str, str | int]] = []
@@ -467,12 +683,19 @@ def choose_priority_triage(
             "Open Android missing-resolution triage first.",
         ),
         (
+            "Missing-primary label triage",
+            missing_primary_triage or {},
+            "Open missing-primary label triage first.",
+        ),
+        (
             "VT false-positive triage",
             fp_triage,
             "Open VT false-positive triage first.",
         ),
     ):
         if not isinstance(payload, dict) or not payload:
+            continue
+        if label == "Missing-primary label triage" and not payload:
             continue
         freshness = str(payload.get("freshness", "") or "").strip()
         row_count = safe_int(payload.get("row_count", 0), 0)
@@ -561,6 +784,9 @@ def build_backlog_debt_summary(
     fp_triage: dict[str, object],
     android_missing_triage: dict[str, object],
     policy_held_triage: dict[str, object] | None = None,
+    missing_primary_triage: dict[str, object] | None = None,
+    profile_mapping_debt: dict[str, object] | None = None,
+    blank_resolved_triage: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Build one ranked cross-surface debt ledger for operator cleanup."""
     taxonomy = readiness.get("taxonomy_signals", {}) if isinstance(readiness, dict) else {}
@@ -594,14 +820,13 @@ def build_backlog_debt_summary(
             code=BACKLOG_ROW_ANDROID_MISSING_RESOLUTION,
             label=ANDROID_MISSING_RESOLUTION_BACKLOG_LABEL,
             count=safe_int(android_missing_triage.get("row_count", 0), 0),
-            action=(
-                "Refresh the Android missing-resolution triage export first."
-                if str(android_missing_triage.get("freshness", "") or "").strip() == "stale"
-                else "Open Android missing-resolution triage and work the dominant package/lane cluster."
+            action=_android_missing_resolution_action(
+                android_missing_triage=android_missing_triage if isinstance(android_missing_triage, dict) else {},
+                taxonomy=taxonomy if isinstance(taxonomy, dict) else {},
             ),
-            detail=(
-                f"freshness={str(android_missing_triage.get('freshness', '') or '').strip()}; "
-                f"top_lane={str(android_missing_triage.get('top_lane', '') or '').strip() or 'none'}"
+            detail=_android_missing_resolution_detail(
+                android_missing_triage=android_missing_triage if isinstance(android_missing_triage, dict) else {},
+                taxonomy=taxonomy if isinstance(taxonomy, dict) else {},
             ),
         ),
         _row(
@@ -619,11 +844,32 @@ def build_backlog_debt_summary(
             ),
         ),
         _row(
+            code=BACKLOG_ROW_BLANK_RESOLVED_FAMILY,
+            label="Blank resolved-family residue",
+            count=safe_int((blank_resolved_triage or {}).get("row_count", 0), 0),
+            action=(
+                "Refresh the blank-resolved family triage export first."
+                if str((blank_resolved_triage or {}).get("freshness", "") or "").strip() == "stale"
+                else "Open blank-resolved family triage for provenance/policy lanes outside missing-resolution view."
+            ),
+            detail=(
+                f"freshness={str((blank_resolved_triage or {}).get('freshness', '') or '').strip() or 'unknown'}; "
+                f"live_blank_resolved={safe_int(taxonomy.get('blank_resolved_family_samples', 0), 0)}; "
+                f"top_lane={str((blank_resolved_triage or {}).get('top_lane', '') or '').strip() or 'none'}"
+            ),
+        ),
+        _row(
             code=BACKLOG_ROW_MISSING_PRIMARY_LABELS,
             label="Missing primary labels",
             count=safe_int(taxonomy.get("missing_primary_label_samples", 0), 0),
-            action=_missing_primary_action(taxonomy if isinstance(taxonomy, dict) else {}),
-            detail=_missing_primary_detail(taxonomy if isinstance(taxonomy, dict) else {}),
+            action=_missing_primary_action(
+                taxonomy if isinstance(taxonomy, dict) else {},
+                missing_primary_triage=missing_primary_triage,
+            ),
+            detail=_augment_missing_primary_detail(
+                _missing_primary_detail(taxonomy if isinstance(taxonomy, dict) else {}),
+                missing_primary_triage,
+            ),
         ),
         _row(
             code=BACKLOG_ROW_TRUE_UNRESOLVED_FAMILY,
@@ -659,9 +905,10 @@ def build_backlog_debt_summary(
         BACKLOG_ROW_ANDROID_MISSING_RESOLUTION: 0,
         BACKLOG_ROW_TRUE_UNRESOLVED_FAMILY: 1,
         BACKLOG_ROW_MISSING_PRIMARY_LABELS: 2,
-        BACKLOG_ROW_FAMILY_TYPE_CONFLICT: 3,
-        BACKLOG_ROW_VT_FALSE_POSITIVE: 4,
-        BACKLOG_ROW_POLICY_HELD_FAMILY: 5,
+        BACKLOG_ROW_BLANK_RESOLVED_FAMILY: 3,
+        BACKLOG_ROW_FAMILY_TYPE_CONFLICT: 4,
+        BACKLOG_ROW_VT_FALSE_POSITIVE: 5,
+        BACKLOG_ROW_POLICY_HELD_FAMILY: 6,
     }
     ranked_rows.sort(key=lambda row: (-safe_int(row.get("count", 0), 0), str(row.get("label", ""))))
     ranked_rows.sort(
@@ -675,6 +922,51 @@ def build_backlog_debt_summary(
     if str(top.get("code", "") or "") == BACKLOG_ROW_POLICY_HELD_FAMILY and unresolved_count == 0:
         top = top.copy()
         top["focus_note"] = "Policy-held rows are governance residue, not true unresolved family debt."
+    profile_mapping_detail = _profile_family_mapping_detail(profile_mapping_debt)
+    true_unmapped_rows = safe_int(
+        (profile_mapping_debt or {}).get("true_unmapped_resolved_slug_rows", 0)
+        if isinstance(profile_mapping_debt, dict)
+        else 0,
+        0,
+    )
+    if true_unmapped_rows > 0:
+        ranked_rows.append(
+            {
+                "code": "profile_true_unmapped_slug",
+                "label": PROFILE_FAMILY_MAPPING_DEBT_LABEL,
+                "count": true_unmapped_rows,
+                "action": "Open profile family-mapping debt export and repair true catalog-lag slugs first.",
+                "detail": profile_mapping_detail,
+            }
+        )
+    return_payload = {
+        "rows": ranked_rows,
+        "focus_code": str(top.get("code", "") or ""),
+        "focus_label": str(top.get("label", "") or ""),
+        "focus_count": safe_int(top.get("count", 0), 0),
+        "focus_action": str(top.get("action", "") or ""),
+        "focus_detail": str(top.get("detail", "") or ""),
+        "focus_note": str(top.get("focus_note", "") or ""),
+        "focus_structured": top.get("focus_structured", {}) if isinstance(top.get("focus_structured", {}), dict) else {},
+        "missing_primary_label_lanes": missing_primary_lanes,
+        "taxonomy_curation_posture": posture,
+    }
+    if profile_mapping_detail:
+        return_payload["profile_mapping_note"] = profile_mapping_detail
+    if str(top.get("code", "") or "") == BACKLOG_ROW_ANDROID_MISSING_RESOLUTION:
+        triage = android_missing_triage if isinstance(android_missing_triage, dict) else {}
+        lane_counts = (
+            triage.get("lane_counts", {}) if isinstance(triage.get("lane_counts"), dict) else {}
+        )
+        return_payload["focus_structured"] = {
+            "source": "live DB current-state view, not frozen run snapshot",
+            "freshness": str(triage.get("freshness", "") or "").strip() or "unknown",
+            "lane_counts": lane_counts,
+            "top_lane": str(triage.get("top_lane", "") or "").strip(),
+            "top_lane_count": safe_int(triage.get("top_lane_count", 0), 0),
+            "vt_tail_review_count": safe_int(lane_counts.get("vt_tail_review", 0), 0),
+            "vt_tail_export": "output/diagnostics/android_missing_resolution_vt_tail_latest.csv",
+        }
     if str(top.get("code", "") or "") == BACKLOG_ROW_POLICY_HELD_FAMILY:
         triage = policy_held_triage if isinstance(policy_held_triage, dict) else {}
         token_kind_counts = (
@@ -682,8 +974,7 @@ def build_backlog_debt_summary(
             if isinstance(taxonomy, dict)
             else {}
         )
-        top = top.copy()
-        top["focus_structured"] = {
+        return_payload["focus_structured"] = {
             "source": "live DB current-state view, not frozen run snapshot",
             "freshness": str(triage.get("freshness", "") or "").strip() or "unknown",
             "token_kind_counts": token_kind_counts if isinstance(token_kind_counts, dict) else {},
@@ -696,18 +987,7 @@ def build_backlog_debt_summary(
             "high_or_strong_row_count": safe_int(triage.get("high_or_strong_row_count", 0), 0),
             "missing_primary_lane_split": _format_missing_primary_lane_split(missing_primary_lanes),
         }
-    return {
-        "rows": ranked_rows,
-        "focus_code": str(top.get("code", "") or ""),
-        "focus_label": str(top.get("label", "") or ""),
-        "focus_count": safe_int(top.get("count", 0), 0),
-        "focus_action": str(top.get("action", "") or ""),
-        "focus_detail": str(top.get("detail", "") or ""),
-        "focus_note": str(top.get("focus_note", "") or ""),
-        "focus_structured": top.get("focus_structured", {}) if isinstance(top.get("focus_structured", {}), dict) else {},
-        "missing_primary_label_lanes": missing_primary_lanes,
-        "taxonomy_curation_posture": posture,
-    }
+    return return_payload
 
 
 def read_run_backlog_snapshot_counts(path: Path) -> dict[str, int]:
@@ -735,6 +1015,7 @@ def build_backlog_markdown_lines(
     android_path: Path | str | None = None,
     fp_path: Path | str | None = None,
     policy_held_path: Path | str | None = None,
+    missing_primary_path: Path | str | None = None,
     heading: str = "## Backlog and operator queues",
     ranked_style: str = "bullets",
     max_rows: int = 5,
@@ -755,6 +1036,9 @@ def build_backlog_markdown_lines(
         focus_note = str(debt_summary.get("focus_note", "") or "").strip()
         if focus_note:
             lines.append(f"- **Focus note:** {focus_note}")
+        profile_mapping_note = str(debt_summary.get("profile_mapping_note", "") or "").strip()
+        if profile_mapping_note:
+            lines.append(f"- **Profile mapping split:** {profile_mapping_note}")
         lane_split = _format_missing_primary_lane_split(
             debt_summary.get("missing_primary_label_lanes", [])
             if isinstance(debt_summary.get("missing_primary_label_lanes", []), list)
@@ -805,10 +1089,12 @@ def build_backlog_markdown_lines(
     else:
         lines.append("- No ranked backlog debt rows surfaced.")
 
-    if backlog_md is not None or android_path or fp_path or policy_held_path:
+    if backlog_md is not None or android_path or fp_path or policy_held_path or missing_primary_path:
         lines.append("- **Related queue artifacts:**")
         if backlog_md is not None:
             lines.append(f"  - backlog debt summary: `{backlog_md}`")
+        if missing_primary_path:
+            lines.append(f"  - missing-primary label triage: `{missing_primary_path}`")
         if android_path:
             lines.append(f"  - android missing-resolution triage: `{android_path}`")
         if fp_path:
@@ -825,6 +1111,8 @@ def build_backlog_terminal_lines(
     priority_backlog: dict[str, Any] | None = None,
     backlog_path: Path | str | None = None,
     policy_held_path: Path | str | None = None,
+    missing_primary_path: Path | str | None = None,
+    blank_resolved_path: Path | str | None = None,
     max_rows: int = 5,
 ) -> list[str]:
     """Render a shared terminal-friendly backlog/debt block."""
@@ -939,9 +1227,21 @@ def build_backlog_terminal_lines(
     snapshot_note = str(debt_summary.get("snapshot_compare_note", "") or "").strip()
     if snapshot_note:
         lines.append(f"Run snapshot: {snapshot_note}")
+    profile_mapping_note = str(debt_summary.get("profile_mapping_note", "") or "").strip()
+    if profile_mapping_note:
+        lines.append(f"Profile mapping split: {profile_mapping_note}")
     focus_action = str(debt_summary.get("focus_action", "") or "").strip()
     if focus_action:
         lines.append(f"Recommended next action: {focus_action}")
+    focus_structured = (
+        debt_summary.get("focus_structured", {})
+        if isinstance(debt_summary.get("focus_structured"), dict)
+        else {}
+    )
+    vt_tail_count = safe_int(focus_structured.get("vt_tail_review_count", 0), 0)
+    vt_tail_export = str(focus_structured.get("vt_tail_export", "") or "").strip()
+    if vt_tail_count > 0 and vt_tail_export:
+        lines.append(f"VT-tail drill-down: `{vt_tail_export}` ({vt_tail_count} row(s))")
     for row in list(debt_summary.get("rows", []))[:max_rows]:
         if not isinstance(row, dict):
             continue
@@ -961,4 +1261,8 @@ def build_backlog_terminal_lines(
         lines.append(curation_note)
     if backlog_path:
         lines.append(f"File: `{backlog_path}`")
+    if missing_primary_path:
+        lines.append(f"Missing-primary triage: `{missing_primary_path}`")
+    if blank_resolved_path:
+        lines.append(f"Blank-resolved triage: `{blank_resolved_path}`")
     return lines

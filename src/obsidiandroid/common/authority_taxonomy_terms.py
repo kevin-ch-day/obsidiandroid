@@ -16,6 +16,7 @@ TAXONOMY_CURATION_DISCIPLINE_TITLE = "Taxonomy curation discipline"
 ANDROID_MISSING_RESOLUTION_BACKLOG_LABEL = "Android missing-resolution backlog"
 VT_FALSE_POSITIVE_REVIEW_RESIDUE_LABEL = "False-positive review residue"
 AUTHORITY_TAXONOMY_SPLIT_PROBLEM_LABEL = "Live readiness / authority-taxonomy split"
+PROFILE_FAMILY_MAPPING_DEBT_LABEL = "Profile family-mapping debt"
 
 
 def live_taxonomy_backlog_detail(

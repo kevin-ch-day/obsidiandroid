@@ -13,7 +13,10 @@ from obsidiandroid.common.backlog_semantics import (
     choose_priority_triage,
     read_android_missing_resolution_snapshot,
     read_false_positive_triage_snapshot,
+    read_missing_primary_triage_snapshot,
     read_policy_held_token_risk_snapshot,
+    read_profile_family_mapping_debt_snapshot,
+    read_blank_resolved_triage_snapshot,
 )
 from obsidiandroid.common.cohort_artifacts import load_cohort_contract_state
 from obsidiandroid.common.cohort_presentation import cohort_filter_highlight_lines
@@ -298,11 +301,17 @@ def _read_backlog_context(
     fp_triage = read_false_positive_triage_snapshot(output_root=output_root)
     android_triage = read_android_missing_resolution_snapshot(output_root=output_root)
     policy_held_triage = read_policy_held_token_risk_snapshot(output_root=output_root)
+    missing_primary_triage = read_missing_primary_triage_snapshot(output_root=output_root)
+    profile_mapping_debt = read_profile_family_mapping_debt_snapshot(output_root=output_root)
+    blank_resolved_triage = read_blank_resolved_triage_snapshot(output_root=output_root)
     debt_summary = build_backlog_debt_summary(
         readiness=readiness,
         fp_triage=fp_triage,
         android_missing_triage=android_triage,
         policy_held_triage=policy_held_triage,
+        missing_primary_triage=missing_primary_triage,
+        profile_mapping_debt=profile_mapping_debt,
+        blank_resolved_triage=blank_resolved_triage,
     )
     if isinstance(debt_summary, dict):
         focus_count = int(debt_summary.get("focus_count", 0) or 0)
@@ -321,6 +330,7 @@ def _read_backlog_context(
     priority_backlog = choose_priority_triage(
         fp_triage=fp_triage,
         android_missing_triage=android_triage,
+        missing_primary_triage=missing_primary_triage,
     )
     backlog_md = diagnostics_dir / f"backlog_debt_summary_{run_id}.md"
     return {
@@ -330,6 +340,7 @@ def _read_backlog_context(
         "fp_triage": fp_triage,
         "android_triage": android_triage,
         "policy_held_triage": policy_held_triage,
+        "missing_primary_triage": missing_primary_triage,
         "backlog_md": backlog_md if backlog_md.exists() else None,
     }
 
@@ -345,10 +356,16 @@ def _extend_with_backlog_section(
     fp_triage = backlog_context.get("fp_triage") if isinstance(backlog_context, dict) else {}
     android_triage = backlog_context.get("android_triage") if isinstance(backlog_context, dict) else {}
     policy_held_triage = backlog_context.get("policy_held_triage") if isinstance(backlog_context, dict) else {}
+    missing_primary_triage = (
+        backlog_context.get("missing_primary_triage") if isinstance(backlog_context, dict) else {}
+    )
     backlog_md = backlog_context.get("backlog_md") if isinstance(backlog_context, dict) else None
     fp_path = fp_triage.get("path") if isinstance(fp_triage, dict) else None
     android_path = android_triage.get("path") if isinstance(android_triage, dict) else None
     policy_held_path = policy_held_triage.get("path") if isinstance(policy_held_triage, dict) else None
+    missing_primary_path = (
+        missing_primary_triage.get("path") if isinstance(missing_primary_triage, dict) else None
+    )
     lines.extend(
         build_backlog_markdown_lines(
             debt_summary=debt_summary if isinstance(debt_summary, dict) else {},
@@ -357,6 +374,7 @@ def _extend_with_backlog_section(
             android_path=android_path,
             fp_path=fp_path,
             policy_held_path=policy_held_path,
+            missing_primary_path=missing_primary_path,
             heading="## Backlog and operator queues",
             ranked_style="bullets",
             max_rows=5,

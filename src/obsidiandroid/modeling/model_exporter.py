@@ -12,6 +12,10 @@ import pandas as pd
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_paths
+from obsidiandroid.evaluation.ml_terminal_presentation import (
+    format_run_relative_path,
+    should_defer_headline_training_terminal,
+)
 
 
 def export_model_to_file(
@@ -55,14 +59,17 @@ def export_model_to_file(
         metadata_path = model_dir / f"{model_type_clean}_classifier_model_metadata.json"
 
         joblib.dump(model, model_path)
-        du.print_success(f"[EXPORT] Model:{du.format_console_path(model_path)}")
+        quiet_export = should_defer_headline_training_terminal()
+        if not quiet_export:
+            du.print_success(f"[EXPORT] Model:{format_run_relative_path(model_path)}")
 
         if metadata_dict:
             enriched_metadata = _inject_model_metadata(model, model_type_clean, metadata_dict)
             cleaned_meta = _clean_metadata_for_json(enriched_metadata)
             with open(metadata_path, "w", encoding="utf-8") as meta_file:
                 json.dump(cleaned_meta, meta_file, indent=2, allow_nan=False)
-            du.print_success(f"[EXPORT] Model metadata:{du.format_console_path(metadata_path)}")
+            if not quiet_export:
+                du.print_success(f"[EXPORT] Model metadata:{format_run_relative_path(metadata_path)}")
 
         return model_path
 

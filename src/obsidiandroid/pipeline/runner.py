@@ -42,6 +42,12 @@ from obsidiandroid.diagnostics import cohort_vocabulary
 from obsidiandroid.diagnostics import feature_build_coverage_export
 from obsidiandroid.diagnostics import fused_permission_matrix_audit
 from obsidiandroid.diagnostics import permission_training_survival_audit
+from obsidiandroid.diagnostics.backlog_triage_context import (
+    format_pipeline_preflight_backlog_lines,
+    load_backlog_triage_context_with_refresh,
+    preflight_auto_refresh_backlog_enabled,
+    preflight_backlog_snapshot_enabled,
+)
 
 # === Analysis Pipelines (staged pipeline) ===
 from obsidiandroid.pipeline.stage_av_vendor import (
@@ -506,6 +512,19 @@ def run_pipeline(
 
         preflight_perf = perf_counter()
         st.begin_stage("preflight")
+        if preflight_backlog_snapshot_enabled():
+            try:
+                output_root_raw = str(
+                    getattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", app_config.DEFAULT_OUTPUT_DIR) or ""
+                ).strip()
+                backlog_context = load_backlog_triage_context_with_refresh(
+                    output_root=Path(output_root_raw),
+                    auto_refresh_stale=preflight_auto_refresh_backlog_enabled(),
+                )
+                for line in format_pipeline_preflight_backlog_lines(backlog_context):
+                    du.print_info(line)
+            except Exception as exc:
+                du.print_warning(f"[PREFLIGHT] Live backlog/debt snapshot unavailable: {exc}")
 
         # Step 1: Load and prepare sample metadata
         wall_pf = manifest_context.pop("_active_stage_wall_start_iso", "")
@@ -1279,6 +1298,13 @@ def run_pipeline(
             stop_after=stop_after,
             selected_models=model_list,
         )
+        from obsidiandroid.evaluation.ml_terminal_presentation import claim_surface_label_for_profile
+
+        manifest_context.setdefault(
+            "claim_surface_label",
+            claim_surface_label_for_profile(str(profile_id or "")),
+        )
+        setattr(app_config, "RUNTIME_MANIFEST_CONTEXT", manifest_context)
         model_results = run_training_stage(
             aligned_feature_df=aligned_feature_df,
             aligned_labels_df=aligned_labels_df,
@@ -1490,10 +1516,22 @@ def run_pipeline(
             output_features=feats_after_obs,
             major_warnings="; ".join(mw_train) if mw_train else "",
         )
+        from obsidiandroid.evaluation.ml_terminal_presentation import (
+            format_population_terminal_lines,
+            should_defer_headline_training_terminal,
+        )
+
         pop_line = _format_population_pipeline_summary_line(manifest_context)
         if pop_line:
             manifest_context["population_pipeline_summary_line"] = pop_line
-            du.print_info(f"[POPULATION] {pop_line}")
+        if not should_defer_headline_training_terminal():
+            pop_lines = format_population_terminal_lines(manifest_context)
+            if pop_lines:
+                du.print_subheader("COHORT / SPLIT SUMMARY")
+                for line in pop_lines:
+                    print(line)
+            elif pop_line:
+                du.print_info(f"[POPULATION] {pop_line}")
 
         if stop_after == "training":
             st.mark_run_state("partial", completed_stage="training")

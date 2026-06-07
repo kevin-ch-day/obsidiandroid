@@ -226,10 +226,13 @@ def _print_ablation_cohort_integrity_table(rows: list[dict[str, Any]]) -> None:
     aligned_ids = max(int(row.get("final_aligned_ids", 0) or 0) for row in rows)
     missing_ids = 0 if all_ok else sum(int(row.get("missing_vs_expected", 0) or 0) for row in rows)
     if all_ok and not ml_console.is_debug():
-        du.print_info(
-            "[ABLATION] Cohort integrity: PASS — "
-            f"{len(rows)}/{len(rows)} feature sets aligned to {aligned_ids:,} sample_ids; "
-            f"missing IDs={missing_ids}."
+        from obsidiandroid.evaluation.ml_terminal_presentation import print_ablation_cohort_integrity_summary
+
+        print_ablation_cohort_integrity_summary(
+            aligned_feature_sets=len(rows),
+            total_feature_sets=len(rows),
+            aligned_samples=aligned_ids,
+            missing_ids=missing_ids,
         )
         return
     frame = pd.DataFrame(rows)
@@ -577,9 +580,6 @@ def run_ablation_experiments(
     skipped_experiments: list[dict[str, str]] = []
     skipped_label_target_runs: list[dict[str, str]] = []
 
-    if not ml_console.is_minimal():
-        du.print_subheader("Ablation Experiments")
-
     reindex_zero_fill = bool(getattr(app_config, "ABLATION_COHORT_REINDEX_ZERO_FILL", True))
     strict_evidence = bool(getattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False))
     paper_mode = bool(getattr(app_config, "PAPER_MODE_ENABLED", False))
@@ -596,6 +596,19 @@ def run_ablation_experiments(
         return artifact_paths
 
     frozen_sorted = sorted(base_ids)
+
+    if not ml_console.is_minimal():
+        from obsidiandroid.evaluation.ml_terminal_presentation import print_ablation_experiments_header
+
+        vendor_k = getattr(app_config, "RUNTIME_EFFECTIVE_TOP_K", getattr(app_config, "RUNTIME_K_REQUESTED", "—"))
+        print_ablation_experiments_header(
+            cohort_n=len(base_ids),
+            selected_vendors=vendor_k,
+            effective_top_k=vendor_k,
+        )
+
+    if not ml_console.is_minimal() and ml_console.is_compact() and not ml_console.is_debug():
+        du.print_info("Building ablation feature sets...")
 
     builders = _build_experiment_matrix_dict(
         weights_df,
@@ -723,10 +736,20 @@ def run_ablation_experiments(
             du.print_warning("[ABLATION] No common sample_id universe across experiments.")
             return artifact_paths
 
-    _print_ablation_feature_set_build_summary(
+    from obsidiandroid.evaluation.ml_terminal_presentation import print_ablation_feature_sets_built
+
+    summary_rows = _build_ablation_feature_set_summary_rows(
         experiment_order=list(ABLATION_EXPERIMENT_ORDER),
         built_matrices=experiment_matrices,
         skipped_experiments=skipped_experiments,
+    )
+    built_ok = sum(1 for row in summary_rows if str(row.get("status", "")).upper() == "OK")
+    skipped_count = sum(1 for row in summary_rows if str(row.get("status", "")).upper() == "SKIPPED")
+    print_ablation_feature_sets_built(
+        rows=summary_rows,
+        built_ok=built_ok,
+        built_total=len(summary_rows),
+        skipped_count=skipped_count,
     )
 
     for row in gap_table_rows:
@@ -1248,9 +1271,19 @@ def _print_ablation_terminal_summary(summary_df: pd.DataFrame) -> None:
     if not leaderboard_rows:
         return
 
+    from obsidiandroid.evaluation.ml_terminal_presentation import (
+        print_ablation_interpretation_summary,
+        print_ablation_leaderboard_compact,
+    )
+
     leaderboard_df = pd.DataFrame(leaderboard_rows).sort_values(["label_target"], kind="stable")
     du.print_section("ABLATION LEADERBOARD")
-    du.print_table(leaderboard_df, show_index=False)
+    if ml_console.is_compact() and not ml_console.is_debug():
+        print_ablation_leaderboard_compact(leaderboard_rows)
+    else:
+        du.print_table(leaderboard_df, show_index=False)
+
+    print_ablation_interpretation_summary(summary_df)
 
     by_target = {str(row["label_target"]): row for row in leaderboard_rows}
     type_row = by_target.get("type_slug")
@@ -1293,12 +1326,13 @@ def _print_ablation_terminal_summary(summary_df: pd.DataFrame) -> None:
                 f"family_within_type best={fwt_best:.4f}; type_slug best={type_best:.4f}."
             )
 
-    seen_lines: set[str] = set()
-    for line in interpretation_lines:
-        if line in seen_lines:
-            continue
-        seen_lines.add(line)
-        du.print_info(line)
+    if ml_console.is_debug():
+        seen_lines: set[str] = set()
+        for line in interpretation_lines:
+            if line in seen_lines:
+                continue
+            seen_lines.add(line)
+            du.print_info(line)
 
-    if not ml_console.is_debug():
+    if not ml_console.is_debug() and not ml_console.is_minimal():
         du.print_info("[ABLATION] Full experiment grid remains in diagnostics CSV/Markdown summaries.")

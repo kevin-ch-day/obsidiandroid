@@ -23,7 +23,10 @@ from obsidiandroid.common.backlog_semantics import (
     choose_priority_triage,
     read_android_missing_resolution_snapshot,
     read_false_positive_triage_snapshot,
+    read_missing_primary_triage_snapshot,
     read_policy_held_token_risk_snapshot,
+    read_profile_family_mapping_debt_snapshot,
+    read_blank_resolved_triage_snapshot,
 )
 from obsidiandroid.common.json_io import read_json_dict
 from obsidiandroid.common import output_hygiene as oh
@@ -266,17 +269,24 @@ def _build_reporting_backlog_summary(
     fp_triage = read_false_positive_triage_snapshot(output_root=out_root)
     android_triage = read_android_missing_resolution_snapshot(output_root=out_root)
     policy_held_triage = read_policy_held_token_risk_snapshot(output_root=out_root)
+    missing_primary_triage = read_missing_primary_triage_snapshot(output_root=out_root)
+    profile_mapping_debt = read_profile_family_mapping_debt_snapshot(output_root=out_root)
+    blank_resolved_triage = read_blank_resolved_triage_snapshot(output_root=out_root)
     debt_summary = build_backlog_debt_summary(
         readiness=readiness,
         fp_triage=fp_triage,
         android_missing_triage=android_triage,
         policy_held_triage=policy_held_triage,
+        missing_primary_triage=missing_primary_triage,
+        profile_mapping_debt=profile_mapping_debt,
+        blank_resolved_triage=blank_resolved_triage,
     )
     if isinstance(debt_summary, dict):
         debt_summary["source_note"] = "live DB current-state view, not frozen run snapshot"
     priority_backlog = choose_priority_triage(
         fp_triage=fp_triage,
         android_missing_triage=android_triage,
+        missing_primary_triage=missing_primary_triage,
     )
     if not debt_summary.get("rows") and not priority_backlog:
         return debt_summary, priority_backlog, None, readiness

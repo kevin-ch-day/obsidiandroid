@@ -22,6 +22,7 @@ from obsidiandroid.database import db_engine
 
 OUTPUT_DIR = Path("output") / "diagnostics"
 CSV_OUT = OUTPUT_DIR / "android_missing_resolution_triage_latest.csv"
+VT_TAIL_CSV_OUT = OUTPUT_DIR / "android_missing_resolution_vt_tail_latest.csv"
 
 
 def _fetch_dataframe(query: str) -> pd.DataFrame:
@@ -137,8 +138,11 @@ def main() -> int:
     report = build_report()
     detail_rows = report["detail_rows"]
     detail_rows.to_csv(CSV_OUT, index=False)
+    vt_tail_rows = report["vt_tail_rows"]
+    vt_tail_rows.to_csv(VT_TAIL_CSV_OUT, index=False)
 
     print(f"[EXPORT] Android missing-resolution triage: {CSV_OUT.as_posix()}")
+    print(f"[EXPORT] Android VT-tail review lane: {VT_TAIL_CSV_OUT.as_posix()}")
     print(f"Rows: {len(detail_rows)}")
     if detail_rows.empty:
         print("Status: no queued Android missing-resolution review rows.")
@@ -147,8 +151,6 @@ def main() -> int:
     lane_counts = report["lane_counts"]
     action_counts = report["action_counts"]
     top_clusters = report["top_clusters"]
-    vt_tail_rows = report["vt_tail_rows"]
-
     print(f"Lane counts: {_compact_counts(lane_counts, key_col='review_lane')}")
     print(f"Action counts: {_compact_counts(action_counts, key_col='recommended_action')}")
     print(f"VT tail rows: {len(vt_tail_rows)}")

@@ -18,6 +18,7 @@ from obsidiandroid.reporting import export_manager
 from obsidiandroid.common import ml_console
 from . import accuracy_band_utils
 from . import ml_report_builder
+from .ml_terminal_presentation import should_defer_headline_training_terminal
 
 
 def evaluate_model_performance(
@@ -29,7 +30,8 @@ def evaluate_model_performance(
     verbose=True,
 ) -> dict:
     quiet = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
-    if not quiet and (ml_console.is_debug() or not ml_console.is_minimal()):
+    defer_terminal = should_defer_headline_training_terminal()
+    if not quiet and not defer_terminal and (ml_console.is_debug() or not ml_console.is_minimal()):
         du.print_section("[EVAL] Starting Evaluation Process")
 
     if model is None or X_test is None or y_test is None or len(X_test) != len(y_test):

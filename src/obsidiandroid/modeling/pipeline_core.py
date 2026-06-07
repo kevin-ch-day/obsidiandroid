@@ -357,7 +357,9 @@ def align_data(
     """Align AV feature matrix with supervised labels by sample ID."""
     try:
         log_event(PIPELINE_LOGGER, "align_data_start", event_id="ML_ALIGN_001")
-        verbose_align = not bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
+        from obsidiandroid.evaluation.ml_terminal_presentation import should_quiet_headline_training_preamble
+
+        verbose_align = not bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False)) and not should_quiet_headline_training_preamble()
         aligned_features, labels = data_alignment.extract_aligned_labels(
             features_df=features_df,
             samples_df=samples_df,
@@ -407,9 +409,12 @@ def train_models(
     )
     setattr(app_config, "RUNTIME_TRAINING_PROVENANCE_SUMMARY", {})
 
+    from obsidiandroid.evaluation.ml_terminal_presentation import should_defer_headline_training_terminal
+
+    defer_terminal = should_defer_headline_training_terminal()
     for model_name in models:
         quiet = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
-        if not quiet and not ml_console.is_minimal():
+        if not quiet and not ml_console.is_minimal() and not defer_terminal:
             du.print_subheader(f"[TRAINING] {model_name.upper()}")
 
         try:
@@ -497,7 +502,11 @@ def summarize_models(results: Dict[str, dict]) -> Optional[str]:
 
     try:
         log_event(PIPELINE_LOGGER, "summarize_models_start", event_id="ML_SUMMARY_001")
-        summary_df = comparator.compare_model_performance(results)
+        manifest_context = getattr(app_config, "RUNTIME_MANIFEST_CONTEXT", None)
+        summary_df = comparator.compare_model_performance(
+            results,
+            manifest_context=manifest_context if isinstance(manifest_context, dict) else None,
+        )
         summary_df = _apply_paper_model_summary_policy(summary_df)
         run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
         runtime_diag = str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "").strip()
@@ -507,11 +516,15 @@ def summarize_models(results: Dict[str, dict]) -> Optional[str]:
             diagnostics_dir = Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output"))) / "diagnostics"
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
+        from obsidiandroid.evaluation.ml_terminal_presentation import should_defer_headline_training_terminal
+
+        defer_terminal = should_defer_headline_training_terminal()
         if bool(getattr(app_config, "ENABLE_MODEL_COMPARISON_CSV_EXPORT", True)):
             csv_path = diagnostics_dir / f"model_comparison_summary_{run_id}.csv"
             summary_df.to_csv(csv_path, index=False)
             bump_artifact_counter("diagnostics", 1)
-            du.print_info(f"[SUMMARY] Model comparison leaderboard: {csv_path.name}")
+            if not defer_terminal:
+                du.print_info(f"[SUMMARY] Model comparison leaderboard: {csv_path.name}")
 
         try:
             tier_artifacts = family_tier_model_evaluation.export_family_tier_model_evaluation_reports(
@@ -521,7 +534,8 @@ def summarize_models(results: Dict[str, dict]) -> Optional[str]:
             )
             if tier_artifacts:
                 bump_artifact_counter("diagnostics", len(tier_artifacts))
-                du.print_info("[SUMMARY] Family-tier evaluation summary exported (see diagnostics/).")
+                if not defer_terminal:
+                    du.print_info("[SUMMARY] Family-tier evaluation summary exported (see diagnostics/).")
         except Exception as exc:
             du.print_warning(f"[SUMMARY] Family-tier evaluation summary skipped: {exc}")
 
@@ -550,7 +564,8 @@ def summarize_models(results: Dict[str, dict]) -> Optional[str]:
                     )
                     if rf_out is not None:
                         bump_artifact_counter("diagnostics", 1)
-                        du.print_info("[SUMMARY] RF impurity importances CSV (see diagnostics/).")
+                        if not defer_terminal:
+                            du.print_info("[SUMMARY] RF impurity importances CSV (see diagnostics/).")
                 except Exception as exc:
                     du.print_warning(f"[RF_IMPORTANCE] Export skipped: {exc}")
 
@@ -589,9 +604,10 @@ def summarize_models(results: Dict[str, dict]) -> Optional[str]:
                         metadata=active_eval,
                         model_name=active_model_key,
                     )
-                du.print_info(
-                    "[SUMMARY] Classification inspector report written (terminal narrative suppressed)."
-                )
+                if not defer_terminal:
+                    du.print_info(
+                        "[SUMMARY] Classification inspector report written (terminal narrative suppressed)."
+                    )
 
         log_event(
             PIPELINE_LOGGER,
@@ -631,6 +647,8 @@ def _apply_paper_model_summary_policy(summary_df: pd.DataFrame) -> pd.DataFrame:
 
 def promote_default_model(results: Dict[str, dict], model_key: str = DEFAULT_MODEL_KEY) -> None:
     """Promote one model's outputs for top-level consumption."""
+    from obsidiandroid.evaluation.ml_terminal_presentation import should_defer_headline_training_terminal
+
     try:
         log_event(
             PIPELINE_LOGGER,
@@ -654,7 +672,8 @@ def promote_default_model(results: Dict[str, dict], model_key: str = DEFAULT_MOD
             results,
             model_key=model_key,
         )
-        du.print_success(f"[PROMOTION] Promoted outputs from model: {model_key}")
+        if not should_defer_headline_training_terminal():
+            du.print_success(f"[PROMOTION] Promoted outputs from model: {model_key}")
         log_event(
             PIPELINE_LOGGER,
             "promotion_complete",
@@ -680,7 +699,13 @@ def run_classifier_pipeline(
     models: Optional[List[str]] = None,
 ) -> Dict[str, dict]:
     """Run full classifier pipeline: align, filter, train, summarize, promote."""
-    du.print_section("ML CLASSIFICATION PIPELINE")
+    from obsidiandroid.evaluation.ml_terminal_presentation import should_quiet_headline_training_preamble
+
+    quiet_preamble = should_quiet_headline_training_preamble()
+    if quiet_preamble:
+        du.print_subheader("HEADLINE MODEL TRAINING")
+    else:
+        du.print_section("ML CLASSIFICATION PIPELINE")
     log_event(
         PIPELINE_LOGGER,
         "classifier_pipeline_start",
@@ -713,7 +738,8 @@ def run_classifier_pipeline(
         feature_column_survival_export.nonzero_counts_for_columns(features_df),
     )
 
-    du.print_info("[STEP 1] Aligning features and labels")
+    if not quiet_preamble:
+        du.print_info("[STEP 1] Aligning features and labels")
     if isinstance(samples_df, pd.DataFrame) and not samples_df.empty:
         split_meta_cols = [
             col
@@ -803,12 +829,13 @@ def run_classifier_pipeline(
     perm_surv_after_family = perm_surv_after_align
 
     try:
-        du.print_info("[STEP 2] Family label distribution (pre-training)")
-        distribution_reporter.print_family_distribution(
-            labels_df,
-            label_type="All",
-            verbose=app_config.DEBUG_MODE,
-        )
+        if not quiet_preamble:
+            du.print_info("[STEP 2] Family label distribution (pre-training)")
+            distribution_reporter.print_family_distribution(
+                labels_df,
+                label_type="All",
+                verbose=app_config.DEBUG_MODE,
+            )
     except Exception as exc:
         du.print_warning(f"[PIPELINE] Skipped family distribution report: {exc}")
         log_event(
@@ -828,7 +855,8 @@ def run_classifier_pipeline(
         support_floor_mode = str(
             getattr(app_config, "RUNTIME_SUPPORT_FLOOR_MODE", "membership_gate") or "membership_gate"
         ).strip().lower()
-        du.print_info("[STEP 3] Filtering low-support families")
+        if not quiet_preamble:
+            du.print_info("[STEP 3] Filtering low-support families")
         label_name_map = dict(getattr(labels_df, "attrs", {}).get("label_name_map", {}))
         min_support = int(
             getattr(
@@ -899,19 +927,28 @@ def run_classifier_pipeline(
                 }
             labels_df.attrs["label_name_map"] = filtered_map
         if fams:
-            if support_floor_mode == "benchmark_eligibility":
-                action = "excluded from the supervised family benchmark"
-            else:
-                action = "grouped as 'other'" if group_label else "dropped"
-            fam_preview = ", ".join(f"{r.get('family')}={r.get('aligned_support')}" for r in low_fam_rows[:12])
-            if len(low_fam_rows) > 12:
-                fam_preview += ", …"
-            du.print_info(f"[FILTER] {affected} samples {action} from {fams} families: {fam_preview}")
-        distribution_reporter.print_family_distribution(
-            labels_df,
-            label_type="Filtered",
-            verbose=app_config.DEBUG_MODE,
-        )
+            if quiet_preamble and support_floor_mode == "benchmark_eligibility":
+                du.print_info(
+                    f"[FILTER] {affected} samples excluded from supervised family benchmark "
+                    f"({fams} families below n>={min_support})"
+                )
+            elif not quiet_preamble:
+                if support_floor_mode == "benchmark_eligibility":
+                    action = "excluded from the supervised family benchmark"
+                else:
+                    action = "grouped as 'other'" if group_label else "dropped"
+                fam_preview = ", ".join(
+                    f"{r.get('family')}={r.get('aligned_support')}" for r in low_fam_rows[:12]
+                )
+                if len(low_fam_rows) > 12:
+                    fam_preview += ", …"
+                du.print_info(f"[FILTER] {affected} samples {action} from {fams} families: {fam_preview}")
+        if not quiet_preamble:
+            distribution_reporter.print_family_distribution(
+                labels_df,
+                label_type="Filtered",
+                verbose=app_config.DEBUG_MODE,
+            )
         setattr(
             app_config,
             "RUNTIME_POST_LOW_SUPPORT_TRAINING_ROWS",
@@ -1031,10 +1068,11 @@ def run_classifier_pipeline(
             bump_artifact_counter("diagnostics", 1)
 
     if governance_writes and not bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False)):
-        du.print_info(
-            "[ARTIFACTS] Training governance CSV/JSON: "
-            + ", ".join(sorted(set(governance_writes)))
-        )
+        if not should_quiet_headline_training_preamble():
+            du.print_info(
+                "[ARTIFACTS] Training governance CSV/JSON: "
+                + ", ".join(sorted(set(governance_writes)))
+            )
 
     setattr(
         app_config,
@@ -1051,6 +1089,19 @@ def run_classifier_pipeline(
             "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH",
             hash_payload(sorted(headline_cols)),
         )
+
+    runtime_manifest = getattr(app_config, "RUNTIME_MANIFEST_CONTEXT", None)
+    if isinstance(runtime_manifest, dict):
+        runtime_manifest["aligned_supervised_rows"] = getattr(
+            app_config, "RUNTIME_ALIGNED_ROWS_BEFORE_LOW_SUPPORT_FILTER", None
+        )
+        runtime_manifest["post_low_support_training_rows"] = getattr(
+            app_config, "RUNTIME_POST_LOW_SUPPORT_TRAINING_ROWS", None
+        )
+        split_meta = getattr(app_config, "RUNTIME_HEADLINE_SPLIT_METADATA", None)
+        if isinstance(split_meta, dict):
+            runtime_manifest["train_sample_count"] = split_meta.get("train_sample_count")
+            runtime_manifest["test_sample_count"] = split_meta.get("test_sample_count")
 
     results, skipped = train_models(features_df, labels_df, models=models)
     promoted_model_key = summarize_models(results)
@@ -1095,7 +1146,10 @@ def train_all_models(
             ``run_classifier_pipeline`` as ``samples_df`` (name matches legacy callers).
         models: Optional model subset.
     """
-    du.print_section("Train Malware Classification Models")
+    from obsidiandroid.evaluation.ml_terminal_presentation import should_quiet_headline_training_preamble
+
+    if not should_quiet_headline_training_preamble():
+        du.print_section("Train Malware Classification Models")
     log_event(
         PIPELINE_LOGGER,
         "train_all_models_start",

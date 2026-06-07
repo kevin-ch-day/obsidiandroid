@@ -21,7 +21,11 @@ from obsidiandroid.common.backlog_semantics import (
     read_run_backlog_snapshot_counts,
     read_android_missing_resolution_snapshot,
     read_false_positive_triage_snapshot,
+    read_missing_primary_triage_snapshot,
     read_policy_held_token_risk_snapshot,
+    read_profile_family_mapping_debt_snapshot,
+    read_blank_resolved_triage_snapshot,
+    assess_backlog_triage_health,
 )
 from obsidiandroid.common.cohort_methodology import resolve_cohort_lock_status, safe_int
 from obsidiandroid.common.publication_readiness import publication_ready_display
@@ -324,9 +328,13 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
     fp_triage = read_false_positive_triage_snapshot(output_root=output_root)
     android_missing_triage = read_android_missing_resolution_snapshot(output_root=output_root)
     policy_held_triage = read_policy_held_token_risk_snapshot(output_root=output_root)
+    missing_primary_triage = read_missing_primary_triage_snapshot(output_root=output_root)
+    profile_mapping_debt = read_profile_family_mapping_debt_snapshot(output_root=output_root)
+    blank_resolved_triage = read_blank_resolved_triage_snapshot(output_root=output_root)
     backlog_priority = choose_priority_triage(
         fp_triage=fp_triage,
         android_missing_triage=android_missing_triage,
+        missing_primary_triage=missing_primary_triage,
     )
     taxonomy_support = diagnostics_menu.build_taxonomy_support_tuning_snapshot(run_id=rid, output_root=output_root) if rid else {}
     permission_tuning = diagnostics_menu.build_permission_coverage_tuning_snapshot(run_id=rid, output_root=output_root) if rid else {}
@@ -338,11 +346,23 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
             "warnings": [f"Cohort readiness unavailable: {exc}"],
             "buckets": {},
         }
+    backlog_triage_health = assess_backlog_triage_health(
+        readiness=cohort_readiness,
+        android_missing_triage=android_missing_triage,
+        fp_triage=fp_triage,
+        missing_primary_triage=missing_primary_triage,
+        policy_held_triage=policy_held_triage,
+        profile_mapping_debt=profile_mapping_debt,
+        blank_resolved_triage=blank_resolved_triage,
+    )
     debt_summary = build_backlog_debt_summary(
         readiness=cohort_readiness,
         fp_triage=fp_triage,
         android_missing_triage=android_missing_triage,
         policy_held_triage=policy_held_triage,
+        missing_primary_triage=missing_primary_triage,
+        profile_mapping_debt=profile_mapping_debt,
+        blank_resolved_triage=blank_resolved_triage,
     )
     backlog_snapshot_warning: dict[str, str] | None = None
     if isinstance(debt_summary, dict) and debt_summary:
@@ -726,8 +746,12 @@ def build_review_latest_run_summary(*, output_root: Path, latest_run_id: str | N
         "false_positive_triage_summary": fp_triage,
         "android_missing_resolution_summary": android_missing_triage,
         "policy_held_token_risk_summary": policy_held_triage,
+        "missing_primary_label_triage_summary": missing_primary_triage,
         "priority_backlog_summary": backlog_priority,
+        "backlog_triage_health": backlog_triage_health,
         "backlog_debt_summary": debt_summary,
+        "blank_resolved_triage_summary": blank_resolved_triage,
+        "global_backlog_operator_summary": output_root / "diagnostics" / "backlog_debt_operator_summary_latest.md",
         "cohort_readiness_summary": cohort_readiness,
         "cohort_readiness_signal": readiness_signal,
         "cohort_readiness_observed_note": readiness_observed_note,
@@ -887,6 +911,9 @@ def print_compact_review_latest_run(*, output_root: Path, latest_run_id: str | N
     if isinstance(debt_summary, dict) and debt_summary:
         print("Backlog Debt")
         policy_held_triage = summary.get("policy_held_token_risk_summary", {})
+        missing_primary_triage = summary.get("missing_primary_label_triage_summary", {})
+        blank_resolved_triage = summary.get("blank_resolved_triage_summary", {})
+        backlog_triage_health = summary.get("backlog_triage_health", {})
         run_id = str(summary.get("run_id", "") or "").strip()
         diagnostics_dir = output_root / "runs" / run_id / "diagnostics" if run_id else None
         lines = build_backlog_terminal_lines(
@@ -901,11 +928,31 @@ def print_compact_review_latest_run(*, output_root: Path, latest_run_id: str | N
                 if isinstance(policy_held_triage, dict) and policy_held_triage.get("path")
                 else None
             ),
+            missing_primary_path=(
+                Path(str(missing_primary_triage.get("path")))
+                if isinstance(missing_primary_triage, dict) and missing_primary_triage.get("path")
+                else None
+            ),
+            blank_resolved_path=(
+                Path(str(blank_resolved_triage.get("path")))
+                if isinstance(blank_resolved_triage, dict) and blank_resolved_triage.get("path")
+                else None
+            ),
             max_rows=5,
         )
         if lines:
             for line in lines:
                 print(f"  {line}")
+        if isinstance(backlog_triage_health, dict) and backlog_triage_health.get("needs_refresh"):
+            exports = backlog_triage_health.get("refresh_exports", [])
+            if isinstance(exports, list) and exports:
+                du.print_warning(
+                    "  Stale backlog triage export(s): "
+                    + ", ".join(str(key) for key in exports)
+                )
+        global_summary = summary.get("global_backlog_operator_summary")
+        if isinstance(global_summary, Path) and global_summary.is_file():
+            du.print_info(f"  Global operator summary: {global_summary}")
         print("")
     priority_backlog = summary.get("priority_backlog_summary", {})
     if isinstance(priority_backlog, dict) and priority_backlog:
@@ -1026,6 +1073,7 @@ def launch_review_latest_run_menu(
     launch_compare_runs_action: Callable[[], None],
     launch_data_diagnostics_action: Callable[[], None],
     launch_reproducibility_action: Callable[[], None],
+    refresh_stale_backlog_triage_exports_action: Callable[[], int] | None = None,
 ) -> None:
     """Primary operator decision flow for the latest run."""
     def _launch_review_history_compare_menu() -> None:
@@ -1050,6 +1098,8 @@ def launch_review_latest_run_menu(
             du.print_warning("[MENU] Invalid choice received.")
 
     output_root = canonical_output_root()
+    if refresh_stale_backlog_triage_exports_action is not None:
+        refresh_stale_backlog_triage_exports_action()
     last_signature: tuple[object, ...] | None = None
     while True:
         latest_run_id = read_latest_run_id()

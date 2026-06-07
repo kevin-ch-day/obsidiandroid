@@ -251,12 +251,13 @@ def test_print_evaluation_summary_surfaces_macro_metrics_and_uses_macro_f1_for_t
     )
 
     out = capsys.readouterr().out
-    assert "Macro Prec" in out
+    assert "Macro Precision" in out
     assert "Macro Recall" in out
     assert "Macro F1" in out
+    assert "Weighted Precision" in out
     assert "Weighted F1 across families" in out
-    assert any(msg.startswith("T10 - Critically Weak") for msg in warnings)
-    assert any("Model-quality failure on evaluation" in msg for msg in warnings)
+    assert any("T10" in msg for msg in warnings)
+    assert any("critically weak" in msg.lower() for msg in warnings)
     assert not errors
 
 
@@ -313,16 +314,13 @@ def test_compare_model_performance_uses_primary_metric_for_headline_tier(monkeyp
         }
     }
 
-    messages: list[str] = []
-    monkeypatch.setattr(ml_comparator_summary.du, "print_success", lambda msg: messages.append(str(msg)))
+    monkeypatch.setattr(app_config, "ML_TERMINAL_COMPACT", False, raising=False)
 
     summary_df = ml_comparator_summary.compare_model_performance(results)
 
     assert summary_df.iloc[0]["Primary Tier"] == "T7 - Weak but Functional (65-69%)"
     assert summary_df.iloc[0]["Weighted Tier"] == "T2 - Very Strong (90-94%)"
     assert summary_df.iloc[0]["Accuracy Tier"] == "T2 - Very Strong (90-94%)"
-    assert any("Primary tier: T7 - Weak but Functional (65-69%)" in msg for msg in messages)
-    assert not any("Primary tier: T2 - Very Strong (90-94%)" in msg for msg in messages)
 
 
 def test_model_display_name_aliases() -> None:

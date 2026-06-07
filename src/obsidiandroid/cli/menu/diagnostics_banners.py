@@ -5,9 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from obsidiandroid.common.backlog_semantics import (
+    assess_backlog_triage_health,
     choose_priority_triage,
     read_android_missing_resolution_snapshot,
+    read_blank_resolved_triage_snapshot,
     read_false_positive_triage_snapshot,
+    read_missing_primary_triage_snapshot,
+    read_profile_family_mapping_debt_snapshot,
     triage_detail,
     triage_status,
 )
@@ -96,9 +100,12 @@ def _select_focus_row(
         "Claim readiness": 6,
         "Benchmark / publication readiness": 6,
         "Publication readiness": 6,
-        "Android missing-resolution triage": 7,
-        "VT false-positive triage": 8,
-        "Policy-held family noise": 9,
+        "Missing-primary label triage": 6,
+        "Blank resolved-family residue": 7,
+        "Android missing-resolution triage": 8,
+        "VT false-positive triage": 9,
+        "Policy-held family noise": 10,
+        "Profile family-mapping split": 11,
     }
     actionable: list[dict[str, object]] = []
     for row in rows:
@@ -176,6 +183,9 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
     publication_mode = bool(shared.get("publication_ready_mode", False))
     fp_triage = read_false_positive_triage_snapshot(output_root=output_root)
     android_triage = read_android_missing_resolution_snapshot(output_root=output_root)
+    missing_primary_triage = read_missing_primary_triage_snapshot(output_root=output_root)
+    blank_resolved_triage = read_blank_resolved_triage_snapshot(output_root=output_root)
+    profile_mapping_debt = read_profile_family_mapping_debt_snapshot(output_root=output_root)
     fp_triage_count = int(fp_triage.get("row_count", 0)) if fp_triage else None
     android_triage_count = int(android_triage.get("row_count", 0)) if android_triage else None
     fp_triage_top_lane = (
@@ -195,6 +205,7 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
     priority_triage = choose_priority_triage(
         android_missing_triage=android_triage,
         fp_triage=fp_triage,
+        missing_primary_triage=missing_primary_triage,
     )
     readiness_payload: dict[str, object] = {}
     try:
@@ -209,6 +220,16 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
     if not isinstance(taxonomy_signals, dict):
         taxonomy_signals = {}
     policy_held_family_samples = int(taxonomy_signals.get("policy_held_family_samples", 0) or 0)
+    blank_resolved_family_samples = int(taxonomy_signals.get("blank_resolved_family_samples", 0) or 0)
+    missing_primary_samples = int(taxonomy_signals.get("missing_primary_label_samples", 0) or 0)
+    backlog_triage_health = assess_backlog_triage_health(
+        readiness=readiness_payload,
+        android_missing_triage=android_triage,
+        fp_triage=fp_triage,
+        missing_primary_triage=missing_primary_triage,
+        profile_mapping_debt=profile_mapping_debt,
+        blank_resolved_triage=blank_resolved_triage,
+    )
     policy_held_generic_count = 0
     token_kind_counts = taxonomy_signals.get("policy_held_family_token_kind_counts", {})
     if isinstance(token_kind_counts, dict):
@@ -235,6 +256,44 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
             "label": "Permission signal",
             "status": _status_light(bool(q2) and q2.get("permission_signal_pct") not in (None, "", "—")),
             "action": "View profile tuning snapshot",
+        },
+        {
+            "label": "Missing-primary label triage",
+            "status": triage_status(
+                row_count=int(missing_primary_triage.get("row_count", 0) or 0) if missing_primary_triage else None,
+                freshness=str(missing_primary_triage.get("freshness", "") or "").strip() if missing_primary_triage else "missing",
+            ),
+            "action": (
+                "Refresh missing-primary label triage export first"
+                if str(missing_primary_triage.get("freshness", "") or "").strip() == "stale"
+                else "Open missing-primary label triage"
+            ),
+            "row_count": int(missing_primary_triage.get("row_count", 0) or 0) if missing_primary_triage else 0,
+            "detail": triage_detail(
+                int(missing_primary_triage.get("row_count", 0) or 0) if missing_primary_triage else None,
+                noun="active residual row(s)",
+                top_bucket=(
+                    (str(missing_primary_triage.get("top_lane", "") or ""), int(missing_primary_triage.get("top_lane_count", 0)))
+                    if missing_primary_triage and str(missing_primary_triage.get("top_lane", "") or "").strip()
+                    else None
+                ),
+                freshness=str(missing_primary_triage.get("freshness", "") or "").strip() if missing_primary_triage else "missing",
+            ),
+        },
+        {
+            "label": "Blank resolved-family residue",
+            "status": triage_status(
+                row_count=int(blank_resolved_triage.get("row_count", 0) or 0) if blank_resolved_triage else None,
+                freshness=str(blank_resolved_triage.get("freshness", "") or "").strip() if blank_resolved_triage else "missing",
+            ),
+            "action": "Open blank-resolved family triage",
+            "row_count": int(blank_resolved_triage.get("row_count", 0) or 0) if blank_resolved_triage else 0,
+            "detail": (
+                f"{int(blank_resolved_triage.get('row_count', 0) or 0)} outside missing-resolution view; "
+                f"live blank_resolved={blank_resolved_family_samples}"
+                if blank_resolved_triage
+                else f"live blank_resolved={blank_resolved_family_samples}"
+            ),
         },
         {
             "label": "Android missing-resolution triage",
@@ -273,6 +332,19 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
                     top_bucket=fp_triage_top_lane,
                     freshness=fp_triage_freshness,
                 ),
+        },
+        {
+            "label": "Profile family-mapping split",
+            "status": "YELLOW" if int(profile_mapping_debt.get("excluded_unmapped_family_rows", 0) or 0) > 0 else "GREEN",
+            "action": "Open profile family-mapping debt export",
+            "row_count": int(profile_mapping_debt.get("excluded_unmapped_family_rows", 0) or 0),
+            "detail": (
+                f"blank={int(profile_mapping_debt.get('blank_resolved_slug_rows', 0) or 0)}; "
+                f"policy_held={int(profile_mapping_debt.get('policy_held_resolved_slug_rows', 0) or 0)}; "
+                f"true_unmapped={int(profile_mapping_debt.get('true_unmapped_resolved_slug_rows', 0) or 0)}"
+                if profile_mapping_debt
+                else "export missing"
+            ),
         },
         {
             "label": "Policy-held family noise",
@@ -329,6 +401,7 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
         "cohort_membership_mode": cohort_membership_mode or "standard_contract_filters",
         "rescued_unknown_consensus": rescued_unknown_consensus,
         "priority_triage": priority_triage,
+        "backlog_triage_health": backlog_triage_health,
         "focus_item": _select_focus_row(rows=overview_rows, priority_triage=priority_triage),
         "rows": overview_rows,
     }

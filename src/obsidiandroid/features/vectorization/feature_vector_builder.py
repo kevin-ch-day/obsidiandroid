@@ -534,7 +534,12 @@ def build_feature_vector(
       3. Encoding categorical features
       4. Optionally enriching with external features
     """
-    if verbose or ml_console.is_debug():
+    from obsidiandroid.evaluation.ml_terminal_presentation import should_suppress_ablation_feature_build_terminal
+
+    suppress_build_terminal = should_suppress_ablation_feature_build_terminal()
+    if suppress_build_terminal:
+        verbose = False
+    elif verbose or ml_console.is_debug():
         du.print_section("[FEATURE BUILD] Constructing AV-based ML Feature Matrix")
     elif ml_console.is_compact():
         du.print_info("[FEATURE BUILD] Building AV feature matrix...")

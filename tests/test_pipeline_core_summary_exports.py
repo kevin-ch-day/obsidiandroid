@@ -32,7 +32,7 @@ def test_summarize_models_exports_csv_and_skips_excel_by_default(
     monkeypatch.setattr(
         pipeline_core.comparator,
         "compare_model_performance",
-        lambda _results: pd.DataFrame(
+        lambda _results, **_kwargs: pd.DataFrame(
             [
                 {"Model": "logistic_regression", "Macro F1-Score": 0.80},
                 {"Model": "random_forest", "Macro F1-Score": 0.75},
@@ -99,7 +99,7 @@ def test_summarize_models_paper_mode_filters_balanced_rf(
     monkeypatch.setattr(
         pipeline_core.comparator,
         "compare_model_performance",
-        lambda _results: pd.DataFrame(
+        lambda _results, **_kwargs: pd.DataFrame(
             [
                 {"Model": "balanced_random_forest", "Macro F1-Score": 0.95},
                 {"Model": "random_forest", "Macro F1-Score": 0.90},
@@ -168,7 +168,7 @@ def test_summarize_models_exports_family_tier_evaluation_for_family_target(
     monkeypatch.setattr(
         pipeline_core.comparator,
         "compare_model_performance",
-        lambda _results: pd.DataFrame([{"Model": "random_forest", "Macro F1-Score": 0.80}]),
+        lambda _results, **_kwargs: pd.DataFrame([{"Model": "random_forest", "Macro F1-Score": 0.80}]),
     )
     monkeypatch.setattr(
         pipeline_core.inspector,
@@ -239,7 +239,7 @@ def test_summarize_models_skips_family_tier_evaluation_for_type_target(
     monkeypatch.setattr(
         pipeline_core.comparator,
         "compare_model_performance",
-        lambda _results: pd.DataFrame([{"Model": "logistic_regression", "Macro F1-Score": 0.70}]),
+        lambda _results, **_kwargs: pd.DataFrame([{"Model": "logistic_regression", "Macro F1-Score": 0.70}]),
     )
     monkeypatch.setattr(
         pipeline_core.inspector,

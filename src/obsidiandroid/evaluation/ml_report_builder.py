@@ -125,18 +125,18 @@ def print_evaluation_summary(
             )
 
     print("\nGlobal Classification Metrics")
-    print(f"{'Metric':<12}{'Score':<10} Description")
-    print(f"{'-' * 12} {'-' * 10} {'-' * 45}")
-    print(f"{'Accuracy':<12}{acc:.4f}   Overall correctness of predictions")
-    print(f"{'Precision':<12}{prec:.4f}   Weighted precision across families")
-    print(f"{'Recall':<12}{recall:.4f}   Weighted recall across families")
-    print(f"{'F1 Score':<12}{f1:.4f}   Weighted F1 across families")
+    print(f"{'Metric':<20}{'Score':<10} Description")
+    print(f"{'-' * 20} {'-' * 10} {'-' * 45}")
+    print(f"{'Accuracy':<20}{acc:.4f}   Overall correctness of predictions")
+    print(f"{'Weighted Precision':<20}{prec:.4f}   Weighted precision across families")
+    print(f"{'Weighted Recall':<20}{recall:.4f}   Weighted recall across families")
+    print(f"{'Weighted F1':<20}{f1:.4f}   Weighted F1 across families")
     if macro_prec is not None:
-        print(f"{'Macro Prec':<12}{macro_prec:.4f}   Macro precision across families")
+        print(f"{'Macro Precision':<20}{macro_prec:.4f}   Macro precision across families")
     if macro_recall is not None:
-        print(f"{'Macro Recall':<12}{macro_recall:.4f}   Macro recall across families")
+        print(f"{'Macro Recall':<20}{macro_recall:.4f}   Macro recall across families")
     if macro_f1 is not None:
-        print(f"{'Macro F1':<12}{macro_f1:.4f}   Primary multiclass family-balance signal")
+        print(f"{'Macro F1':<20}{macro_f1:.4f}   Primary multiclass family-balance signal")
 
     _print_interpretation(macro_f1 if macro_f1 is not None else f1)
 
@@ -175,17 +175,14 @@ def export_classification_summary(df: pd.DataFrame, output_path: str, file_forma
 
 def _print_interpretation(f1: float):
     """Print overall F1 interpretation tier."""
-    print("\nInterpretation Summary:")
-    description = accuracy_band_utils.get_accuracy_band_description(f1)
-    tier_code = accuracy_band_utils.get_accuracy_tier_code(f1)
+    from obsidiandroid.evaluation.ml_terminal_presentation import tier_code_only, tier_readable
 
-    if f1 >= 0.90:
-        du.print_success(f"{tier_code} - {description}. High deployment and publication readiness.")
-    elif f1 >= 0.75:
-        du.print_success(f"{tier_code} - {description}. Suitable for research or testbed use.")
+    print("\nInterpretation Summary:")
+    tier_code = tier_code_only(accuracy_band_utils.evaluate_accuracy_band(f1))
+    readable = tier_readable(accuracy_band_utils.evaluate_accuracy_band(f1))
+    if f1 >= 0.75:
+        du.print_success(f"{tier_code} — {readable}.")
     elif f1 >= 0.60:
-        du.print_warning(f"{tier_code} - {description}. Review features and AV trust sources.")
+        du.print_warning(f"{tier_code} — {readable}.")
     else:
-        du.print_warning(
-            f"{tier_code} - {description}. Model-quality failure on evaluation; consider retraining or rebalancing data."
-        )
+        du.print_warning(f"{tier_code} — {readable}; review features and label balance.")

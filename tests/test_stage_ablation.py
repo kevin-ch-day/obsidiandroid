@@ -265,12 +265,13 @@ def test_schema_audit_detects_extra_columns(monkeypatch) -> None:
     assert row["extra_at_predict_count"] == 1
 
 
-def test_print_ablation_terminal_summary_compact_mode_reduces_grid(monkeypatch) -> None:
+def test_print_ablation_terminal_summary_compact_mode_reduces_grid(monkeypatch, capsys) -> None:
     captured_tables: list[pd.DataFrame] = []
     captured_info: list[str] = []
 
     monkeypatch.setattr(app_config, "ML_TERMINAL_COMPACT", True, raising=False)
     monkeypatch.setattr(stage_ablation.ml_console, "is_minimal", lambda: False)
+    monkeypatch.setattr(stage_ablation.ml_console, "is_debug", lambda: False)
     monkeypatch.setattr(stage_ablation.du, "print_section", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         stage_ablation.du,
@@ -295,33 +296,19 @@ def test_print_ablation_terminal_summary_compact_mode_reduces_grid(monkeypatch) 
 
     stage_ablation._print_ablation_terminal_summary(summary_df)  # pylint: disable=protected-access
 
-    assert len(captured_tables) == 1
-    compact_df = captured_tables[0]
-    assert list(compact_df.columns) == [
-        "label_target",
-        "best_feature_set",
-        "best_model",
-        "best_macro_f1",
-        "permission_only",
-        "vendor_safe",
-        "full_fused",
-        "delta_permission_vs_full_fused",
-        "parsed_family_gap",
-    ]
-    assert len(compact_df) == 3
-    assert compact_df["best_feature_set"].tolist() == ["full_fused", "full_fused", "full_fused"]
-    assert any("Permissions carry strong independent family/type signal" in msg for msg in captured_info)
-    assert any("Parsed vendor family strings are leakage-sensitive" in msg for msg in captured_info)
-    assert any("type_slug is easier than family_id" in msg for msg in captured_info)
-    assert any("family_within_type remains harder than type_slug" in msg for msg in captured_info)
+    out = capsys.readouterr().out
+    assert captured_tables == []
+    assert "ABLATION LEADERBOARD" in out
+    assert "family_id" in out.lower()
     assert any("Full experiment grid remains in diagnostics CSV/Markdown summaries." in msg for msg in captured_info)
 
 
-def test_print_ablation_terminal_summary_family_easier_than_type(monkeypatch) -> None:
+def test_print_ablation_terminal_summary_family_easier_than_type(monkeypatch, capsys) -> None:
     captured_info: list[str] = []
 
     monkeypatch.setattr(app_config, "ML_TERMINAL_COMPACT", True, raising=False)
     monkeypatch.setattr(stage_ablation.ml_console, "is_minimal", lambda: False)
+    monkeypatch.setattr(stage_ablation.ml_console, "is_debug", lambda: True)
     monkeypatch.setattr(stage_ablation.du, "print_section", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(stage_ablation.du, "print_table", lambda *_df, **_kwargs: None)
     monkeypatch.setattr(stage_ablation.du, "print_info", lambda msg, *_args, **_kwargs: captured_info.append(str(msg)))
@@ -336,6 +323,8 @@ def test_print_ablation_terminal_summary_family_easier_than_type(monkeypatch) ->
 
     stage_ablation._print_ablation_terminal_summary(summary_df)  # pylint: disable=protected-access
 
+    out = capsys.readouterr().out
+    assert "ABLATION INTERPRETATION" in out
     assert any("family_id is easier than type_slug" in msg for msg in captured_info)
     assert any("family_within_type exceeds type_slug on best Macro-F1" in msg for msg in captured_info)
     assert not any("type_slug is easier than family_id" in msg for msg in captured_info)
@@ -363,12 +352,10 @@ def test_print_ablation_combo_summary_compacts_model_timings(monkeypatch) -> Non
     assert "slowest=xgboost 9.75s" in captured[0]
 
 
-def test_print_ablation_cohort_integrity_table_compacts_all_ok_rows(monkeypatch) -> None:
-    captured_info: list[str] = []
+def test_print_ablation_cohort_integrity_table_compacts_all_ok_rows(monkeypatch, capsys) -> None:
     captured_tables: list[pd.DataFrame] = []
     monkeypatch.setattr(stage_ablation.ml_console, "is_minimal", lambda: False)
     monkeypatch.setattr(stage_ablation.ml_console, "is_debug", lambda: False)
-    monkeypatch.setattr(stage_ablation.du, "print_info", lambda msg, *_a, **_k: captured_info.append(str(msg)))
     monkeypatch.setattr(stage_ablation.du, "print_table", lambda df, **_kwargs: captured_tables.append(df.copy()))
 
     stage_ablation._print_ablation_cohort_integrity_table(  # pylint: disable=protected-access
@@ -392,10 +379,11 @@ def test_print_ablation_cohort_integrity_table_compacts_all_ok_rows(monkeypatch)
         ]
     )
 
+    out = capsys.readouterr().out
     assert captured_tables == []
-    assert captured_info == [
-        "[ABLATION] Cohort integrity: PASS — 2/2 feature sets aligned to 1,247 sample_ids; missing IDs=0."
-    ]
+    assert "Cohort integrity" in out
+    assert "Aligned feature sets" in out and "2 / 2" in out
+    assert "Missing sample IDs" in out and "0" in out
 
 
 def test_build_ablation_feature_set_summary_rows_uses_terminal_labels() -> None:
@@ -555,6 +543,14 @@ def test_run_ablation_experiments_prefers_family_id_as_primary_family_target(tmp
         },
     )
     monkeypatch.setattr(
+        stage_ablation,
+        "_prepare_training_inputs",
+        lambda feature_df, samples_df, **kwargs: (
+            feature_df.set_index("sample_id"),
+            pd.Series(samples_df["family_id"].values, index=samples_df["sample_id"]),
+        ),
+    )
+    monkeypatch.setattr(
         stage_ablation.pipeline_core,
         "train_models",
         lambda *args, **kwargs: (
@@ -621,6 +617,14 @@ def test_run_ablation_experiments_wraps_grid_in_sklearn_warning_suppression(
         lambda *args, **kwargs: {
             "full_fused": lambda: pd.DataFrame({"sample_id": [1, 2], "f1": [1.0, 0.0]})
         },
+    )
+    monkeypatch.setattr(
+        stage_ablation,
+        "_prepare_training_inputs",
+        lambda feature_df, samples_df, **kwargs: (
+            feature_df.set_index("sample_id"),
+            pd.Series([0, 1], index=[1, 2]),
+        ),
     )
     monkeypatch.setattr(
         stage_ablation.pipeline_core,

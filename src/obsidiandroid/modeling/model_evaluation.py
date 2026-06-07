@@ -2,6 +2,7 @@ import traceback
 from obsidiandroid.cli.ui import display as du
 from config import app_config
 from obsidiandroid.common import ml_console
+from obsidiandroid.evaluation.ml_terminal_presentation import should_defer_headline_training_terminal
 from obsidiandroid.modeling import distribution_reporter
 from obsidiandroid.modeling import ml_result_analyzer
 
@@ -11,8 +12,12 @@ def evaluate_model(model, X_test, y_test, label_encoder, model_name: str | None 
     from obsidiandroid.evaluation import ml_eval_engine
 
     quiet = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
-    verbose_eval = ml_console.is_debug() or (not quiet and not ml_console.is_minimal())
-    if not quiet:
+    defer_terminal = should_defer_headline_training_terminal()
+    verbose_eval = (
+        ml_console.is_debug()
+        or (not quiet and not ml_console.is_minimal() and not defer_terminal)
+    )
+    if not quiet and not defer_terminal:
         du.print_section("[EVALUATION] Executing evaluation module")
         du.print_stat("Evaluation Samples", len(X_test))
     try:
@@ -33,6 +38,7 @@ def evaluate_model(model, X_test, y_test, label_encoder, model_name: str | None 
 def display_post_training_metrics(model_type, result, evaluation, features_df):
     """Display stats, label class info, and prediction preview."""
     quiet = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
+    defer_terminal = should_defer_headline_training_terminal()
     if quiet:
         if bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)):
             rows = getattr(app_config, "RUNTIME_ABLATION_PROGRESS_ROWS", None)
@@ -63,6 +69,12 @@ def display_post_training_metrics(model_type, result, evaluation, features_df):
             f"{evaluation.get('train_time', 0.0):.2f}s"
         )
         du.print_info(line)
+        return
+    if defer_terminal:
+        du.print_info(
+            f"[{model_type.upper()}] trained in {evaluation.get('train_time', 0.0):.2f}s "
+            f"| Macro-F1={evaluation.get('macro_f1_score', 0.0):.4f}"
+        )
         return
     du.print_success(
         (
@@ -102,12 +114,12 @@ def display_post_training_metrics(model_type, result, evaluation, features_df):
     }
     if metrics:
         metric_labels = {
-            "accuracy": "Acc",
-            "precision": "Prec",
-            "recall": "Rec",
-            "f1_score": "F1",
-            "macro_precision": "Macro Prec",
-            "macro_recall": "Macro Rec",
+            "accuracy": "Accuracy",
+            "precision": "Weighted Precision",
+            "recall": "Weighted Recall",
+            "f1_score": "Weighted F1",
+            "macro_precision": "Macro Precision",
+            "macro_recall": "Macro Recall",
             "macro_f1_score": "Macro F1",
         }
         display_metrics = {

@@ -3,20 +3,23 @@
 # Shared ignore pattern for `tree` (noise / generated paths).
 _TREE_IGNORE := .git|.venv|__pycache__|*.pyc|output|logs|.pytest_cache|.pytest_tmp|*.egg-info|build|dist|.mypy_cache|.ruff_cache|.hypothesis|htmlcov|coverage.xml|wandb|mlruns
 
-.PHONY: clean clean-bytecode tree-source tree-obsidiandroid tree-utils tree-exporting-shims test test-full setup menu install-editable doc-check verify verify-v3 ci ml-scan ml-scan-strict preflight-db check-run-integrity dev-import-check output-writer-audit help
+.PHONY: clean clean-bytecode tree-source tree-obsidiandroid tree-utils tree-exporting-shims test test-changed test-integration test-full setup menu install-editable doc-check verify verify-integration verify-v3 ci ci-fast ml-scan ml-scan-strict preflight-db check-run-integrity dev-import-check output-writer-audit help
 
 help:
 	@echo "Targets:"
 	@echo "  make setup         - create/refresh .venv and pip install -r requirements.txt (./setup.sh)"
 	@echo "  make menu          - launch interactive startup menu (./run.sh; sets PYTHONPATH=src)"
 	@echo "  make install-editable  - pip install -e . (use project venv: source .venv/bin/activate)"
-	@echo "  make test          - fast pytest (excludes slow-marked tests; see pyproject.toml [tool.pytest.ini_options])"
+	@echo "  make test          - fast pytest (excludes slow/integration/heavy/contract markers)"
+	@echo "  make test-changed  - pytest for modules touched vs origin/main (or BASE=ref)"
+	@echo "  make test-integration - partial pipeline/subprocess integration lane only"
 	@echo "  make test-full     - full pytest including slow integration modules"
 	@echo "  make preflight-db  - MySQL/MariaDB connectivity check (split_db_health)"
 	@echo "  make ml-scan       - static scan for suspicious .predict() / .predict_proba() sites"
 	@echo "  make ml-scan-strict  - same scan; exit 1 if any warning (matches CI)"
 	@echo "  make doc-check     - block reintroduced phantom paths in README + key docs"
-	@echo "  make ci            - doc-check + verify + ml-scan-strict (parity with GitHub Actions)"
+	@echo "  make ci-fast       - doc-check + verify + ml-scan-strict (daily local gate, no V3)"
+	@echo "  make ci            - ci-fast + verify-v3 (full pre-push gate)"
 	@echo "  make clean         - alias for clean-bytecode (bytecode + stray logs under .)"
 	@echo "  make clean-bytecode  - run scripts/dev/clean_bytecode_cache.py on the repo root"
 	@echo "  make tree-source     - repo-root layout (excludes .venv, output, caches; needs \`tree\`)"
@@ -25,7 +28,8 @@ help:
 	@echo "  make tree-exporting-shims  - (removed) use src/obsidiandroid/common/export_*"
 	@echo "  make dev-import-check  - verify obsidiandroid import paths (scripts/dev/check_import_surface.py)"
 	@echo "  make output-writer-audit  - CSV audit of output-related write call-sites (scripts/dev/output_writer_audit.py)"
-	@echo "  make verify          - import smoke (check_import_surface) + fast pytest; use before PRs"
+	@echo "  make verify          - import smoke + fast pytest; use before PRs"
+	@echo "  make verify-integration - integration pytest lane (pipeline partial-run smoke)"
 	@echo "  make verify-v3       - V3 closure contract tests (validate script + ML seed exports)"
 	@echo "  make check-run-integrity RUN_ROOT=<path>  - manifest vs observability rollup (Tier A)"
 
@@ -63,6 +67,14 @@ install-editable:
 test:
 	./scripts/dev/run_tests.sh
 
+# Diff-scoped loop for everyday development (BASE=origin/main by default).
+test-changed:
+	./scripts/dev/run_tests_changed.sh $(BASE)
+
+# Partial run_pipeline / subprocess smoke lane excluded from make test.
+test-integration:
+	./scripts/dev/run_tests_integration.sh
+
 # Complete suite (CI / pre-release).
 test-full:
 	./scripts/dev/run_tests_full.sh
@@ -81,12 +93,19 @@ ml-scan-strict:
 doc-check:
 	python scripts/dev/check_doc_hygiene.py
 
-# Same gates as .github/workflows/ci.yml (run before pushing if you lack Actions feedback).
-ci: doc-check verify verify-v3 ml-scan-strict
+# Daily local gate: matches the GitHub fast job (no V3 closure scripts).
+ci-fast: doc-check verify ml-scan-strict
+
+# Full pre-push gate: fast job + offline V3 closure lane.
+ci: ci-fast verify-v3
 
 # Import surface + default fast test selection (CI-friendly local gate).
 verify:
 	python scripts/dev/check_import_surface.py && ./scripts/dev/run_tests.sh
+
+# Pipeline/menu integration lane (run before merge when touching runner or main entry).
+verify-integration:
+	./scripts/dev/run_tests_integration.sh
 
 # V3 closure contract lane (pytest fixtures; offline slot check when output/runs exists).
 refresh-v3-handoff:

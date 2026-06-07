@@ -57,7 +57,10 @@ def merge_vendor_features(frames):
 
     try:
         merged = reduce(lambda left, right: pd.merge(left, right, on="sample_id", how="outer"), frames)
-        du.print_stat("Merged Feature Shape", f"{merged.shape[0]} samples x {merged.shape[1]} features")
+        from obsidiandroid.evaluation.ml_terminal_presentation import should_suppress_ablation_feature_build_terminal
+
+        if not should_suppress_ablation_feature_build_terminal():
+            du.print_stat("Merged Feature Shape", f"{merged.shape[0]} samples x {merged.shape[1]} features")
         return merged
     except Exception as e:
         du.print_error(f"[MERGE] Merge failed: {e}")

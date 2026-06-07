@@ -82,6 +82,13 @@ def isolate_output_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 
     monkeypatch.setattr(builtins, "open", _guarded_open)
 
+    initial_handler_counts = {
+        name: len(getattr(logger_obj, "handlers", []))
+        for name, logger_obj in logging.Logger.manager.loggerDict.items()
+        if isinstance(logger_obj, logging.Logger)
+    }
+    initial_root_handlers = len(logging.getLogger().handlers)
+
     try:
         from config import app_config
 
@@ -115,13 +122,14 @@ def isolate_output_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 
     yield
 
-    # Windows can hold open file handles from cached loggers; force-close handlers
-    # after each test to keep tmp cleanup deterministic.
+    # Close only handlers added during this test to avoid O(tests * loggers) teardown cost.
     manager = logging.Logger.manager
-    for logger_obj in list(manager.loggerDict.values()):
+    for name, logger_obj in list(manager.loggerDict.items()):
         if not isinstance(logger_obj, logging.Logger):
             continue
-        for handler in list(logger_obj.handlers):
+        baseline = int(initial_handler_counts.get(name, 0))
+        handlers = list(logger_obj.handlers)
+        for handler in handlers[baseline:]:
             try:
                 handler.flush()
                 handler.close()
@@ -131,14 +139,15 @@ def isolate_output_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
                 logger_obj.removeHandler(handler)
             except (OSError, RuntimeError, TypeError, ValueError):
                 pass
-    for handler in list(logging.getLogger().handlers):
+    root_logger = logging.getLogger()
+    for handler in list(root_logger.handlers)[initial_root_handlers:]:
         try:
             handler.flush()
             handler.close()
         except (OSError, RuntimeError, TypeError, ValueError):
             pass
         try:
-            logging.getLogger().removeHandler(handler)
+            root_logger.removeHandler(handler)
         except (OSError, RuntimeError, TypeError, ValueError):
             pass
 

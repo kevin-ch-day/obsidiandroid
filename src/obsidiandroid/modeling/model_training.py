@@ -8,8 +8,10 @@ from . import model_trainer_factory
 
 def announce_training(model_type: str):
     """Print a training header for the model."""
+    from obsidiandroid.evaluation.ml_terminal_presentation import should_defer_headline_training_terminal
+
     quiet = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
-    if quiet:
+    if quiet or should_defer_headline_training_terminal():
         return
     du.print_section(f"[TRAINING] Initializing model fit for: {model_type.upper()}")
 
@@ -19,8 +21,11 @@ def train_model(
 ) -> dict:
     """Call the model trainer factory with optional grid search."""
     try:
+        from obsidiandroid.evaluation.ml_terminal_presentation import should_defer_headline_training_terminal
+
         quiet = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
-        if not quiet and not ml_console.is_minimal():
+        defer_terminal = should_defer_headline_training_terminal()
+        if not quiet and not ml_console.is_minimal() and not defer_terminal:
             du.print_stat("Sample Count", len(features_df))
             du.print_stat("Feature Columns", features_df.shape[1])
         grid_flag = False

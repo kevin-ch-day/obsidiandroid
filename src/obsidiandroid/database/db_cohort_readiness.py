@@ -10,6 +10,8 @@ from . import schema_map
 from .db_config import DB_NAME, PERMISSION_INTEL_DB_NAME
 from obsidiandroid.labeling.taxonomy import is_known_family_name
 
+from .db_family_mapping_debt import fetch_blank_resolved_family_lane_counts
+
 _PRIMARY_CATALOG_TABLE = "malware_sample_catalog"
 _VT_CONFIDENCE_TABLE = "vt_sample_verdict_confidence_current"
 _PERMISSION_OBS_TABLE = "android_permission_obs_sample"
@@ -273,17 +275,76 @@ def _fetch_cross_family_alias_slug_overlaps() -> list[dict[str, Any]]:
     return out
 
 
-def _fetch_missing_primary_label_lane_counts() -> list[dict[str, Any]]:
-    """Return lane counts for Android + PI rows that still lack a primary label."""
-    if not (
+_MISSING_PRIMARY_RESIDUAL_LANE_CASE_SQL = """
+                CASE
+                    WHEN sample_suppression_weight > 0 THEN 'already_sample_suppressed'
+                    WHEN keylogger_hits > 0 THEN 'high_risk_keylogger_signal_review'
+                    WHEN fake_app_hits > 0 THEN 'fake_app_or_impersonation_signal_review'
+                    WHEN adware_hits > 0 OR pua_testkey_hits > 0 THEN 'pua_adware_or_testkey_signal_review'
+                    WHEN authority_bucket = 'missing_resolved_family'
+                         AND android_package_name IN (
+                            'com.ubnt.easyunifi',
+                            'net.telewebion',
+                            'by.lsdsl.hdrezka',
+                            'com.learn.toppr'
+                         )
+                         THEN 'public_package_identity_provenance_review'
+                    WHEN confidence_bucket IN ('high', 'strong')
+                         THEN 'high_strong_primary_backfill_review'
+                    WHEN authority_bucket = 'missing_resolved_family'
+                         AND vt_malicious_count = 0
+                         THEN 'zero_detection_blank_family_provenance_review'
+                    WHEN authority_bucket = 'missing_resolved_family'
+                         THEN 'blank_family_low_consensus_manual_review'
+                    WHEN authority_bucket = 'resolved_unknown'
+                         AND confidence_bucket IN ('none', '')
+                         THEN 'unknown_family_zero_signal_review'
+                    WHEN authority_bucket = 'resolved_unknown'
+                         AND confidence_bucket IN ('review', 'moderate')
+                         THEN 'unknown_family_low_consensus_review'
+                    ELSE 'manual_review'
+                END
+"""
+
+_MISSING_PRIMARY_RECOMMENDED_ACTION_CASE_SQL = """
+                CASE residual_lane
+                    WHEN 'already_sample_suppressed'
+                        THEN 'Closed: sample already under FP suppression; no primary backfill.'
+                    WHEN 'high_strong_primary_backfill_review'
+                        THEN 'Backfill classification_primary from high/strong VT consensus.'
+                    WHEN 'high_risk_keylogger_signal_review'
+                        THEN 'Review keylogger vendor signals before assigning classification_primary.'
+                    WHEN 'fake_app_or_impersonation_signal_review'
+                        THEN 'Review impersonation/fake-app vendor signals before primary assignment.'
+                    WHEN 'pua_adware_or_testkey_signal_review'
+                        THEN 'Review PUA/adware/test-key vendor signals before primary assignment.'
+                    WHEN 'public_package_identity_provenance_review'
+                        THEN 'Review public-package provenance before primary backfill.'
+                    WHEN 'zero_detection_blank_family_provenance_review'
+                        THEN 'Review zero-detection provenance before primary backfill.'
+                    WHEN 'blank_family_low_consensus_manual_review'
+                        THEN 'Manual review: blank family with low consensus.'
+                    WHEN 'unknown_family_zero_signal_review'
+                        THEN 'Manual review: unknown family with zero VT signal.'
+                    WHEN 'unknown_family_low_consensus_review'
+                        THEN 'Manual review: unknown family with low/moderate consensus.'
+                    ELSE 'Manual review before classification_primary backfill.'
+                END
+"""
+
+
+def _missing_primary_label_prerequisites_met() -> bool:
+    return bool(
         _table_exists_primary(_PRIMARY_CATALOG_TABLE)
         and _table_exists_primary(_ANDROID_AUTHORITY_VIEW)
         and _table_exists_primary(_VT_CONFIDENCE_TABLE)
         and _table_exists_primary(_FP_SUPPRESSION_TABLE)
         and _table_exists_permission(_PERMISSION_OBS_TABLE)
-    ):
-        return []
-    query = f"""
+    )
+
+
+def _missing_primary_label_lane_rows_cte_sql() -> str:
+    return f"""
         WITH
         pi AS (
             SELECT DISTINCT sample_id
@@ -322,6 +383,7 @@ def _fetch_missing_primary_label_lane_counts() -> list[dict[str, Any]]:
                 msc.sample_id,
                 msc.android_package_name,
                 COALESCE(a.authority_bucket, '<none>') AS authority_bucket,
+                COALESCE(a.resolved_family_lc, '') AS resolved_family_lc,
                 COALESCE(vs.confidence_bucket, 'none') AS confidence_bucket,
                 COALESCE(vs.vt_malicious_count, 0) AS vt_malicious_count,
                 COALESCE(s.max_suppression_weight, 0) AS sample_suppression_weight,
@@ -346,39 +408,67 @@ def _fetch_missing_primary_label_lane_counts() -> list[dict[str, Any]]:
         lane_rows AS (
             SELECT
                 sample_id,
+                android_package_name,
+                authority_bucket,
+                resolved_family_lc,
                 confidence_bucket,
                 vt_malicious_count,
                 sample_suppression_weight,
-                CASE
-                    WHEN sample_suppression_weight > 0 THEN 'already_sample_suppressed'
-                    WHEN keylogger_hits > 0 THEN 'high_risk_keylogger_signal_review'
-                    WHEN fake_app_hits > 0 THEN 'fake_app_or_impersonation_signal_review'
-                    WHEN adware_hits > 0 OR pua_testkey_hits > 0 THEN 'pua_adware_or_testkey_signal_review'
-                    WHEN authority_bucket = 'missing_resolved_family'
-                         AND android_package_name IN (
-                            'com.ubnt.easyunifi',
-                            'net.telewebion',
-                            'by.lsdsl.hdrezka',
-                            'com.learn.toppr'
-                         )
-                         THEN 'public_package_identity_provenance_review'
-                    WHEN confidence_bucket IN ('high', 'strong')
-                         THEN 'high_strong_primary_backfill_review'
-                    WHEN authority_bucket = 'missing_resolved_family'
-                         AND vt_malicious_count = 0
-                         THEN 'zero_detection_blank_family_provenance_review'
-                    WHEN authority_bucket = 'missing_resolved_family'
-                         THEN 'blank_family_low_consensus_manual_review'
-                    WHEN authority_bucket = 'resolved_unknown'
-                         AND confidence_bucket IN ('none', '')
-                         THEN 'unknown_family_zero_signal_review'
-                    WHEN authority_bucket = 'resolved_unknown'
-                         AND confidence_bucket IN ('review', 'moderate')
-                         THEN 'unknown_family_low_consensus_review'
-                    ELSE 'manual_review'
-                END AS residual_lane
+                {_MISSING_PRIMARY_RESIDUAL_LANE_CASE_SQL} AS residual_lane
             FROM base
         )
+    """
+
+
+def fetch_missing_primary_label_triage_rows(*, include_suppressed: bool = False) -> list[dict[str, Any]]:
+    """Return row-level missing-primary triage rows for Android + PI samples."""
+    if not _missing_primary_label_prerequisites_met():
+        return []
+    suppressed_filter = "" if include_suppressed else "WHERE residual_lane <> 'already_sample_suppressed'"
+    query = (
+        _missing_primary_label_lane_rows_cte_sql()
+        + f"""
+        SELECT
+            sample_id,
+            android_package_name,
+            authority_bucket,
+            resolved_family_lc,
+            confidence_bucket,
+            vt_malicious_count,
+            sample_suppression_weight,
+            residual_lane,
+            {_MISSING_PRIMARY_RECOMMENDED_ACTION_CASE_SQL} AS recommended_triage_action
+        FROM lane_rows
+        {suppressed_filter}
+        ORDER BY
+            CASE residual_lane
+                WHEN 'high_strong_primary_backfill_review' THEN 0
+                WHEN 'high_risk_keylogger_signal_review' THEN 1
+                WHEN 'fake_app_or_impersonation_signal_review' THEN 2
+                WHEN 'pua_adware_or_testkey_signal_review' THEN 3
+                WHEN 'public_package_identity_provenance_review' THEN 4
+                WHEN 'zero_detection_blank_family_provenance_review' THEN 5
+                WHEN 'blank_family_low_consensus_manual_review' THEN 6
+                WHEN 'unknown_family_zero_signal_review' THEN 7
+                WHEN 'unknown_family_low_consensus_review' THEN 8
+                WHEN 'manual_review' THEN 9
+                ELSE 10
+            END,
+            vt_malicious_count DESC,
+            sample_id
+        """
+    )
+    columns, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
+    return [dict(zip(columns, row)) for row in rows]
+
+
+def _fetch_missing_primary_label_lane_counts() -> list[dict[str, Any]]:
+    """Return lane counts for Android + PI rows that still lack a primary label."""
+    if not _missing_primary_label_prerequisites_met():
+        return []
+    query = (
+        _missing_primary_label_lane_rows_cte_sql()
+        + """
         SELECT
             residual_lane,
             COUNT(*) AS sample_count,
@@ -388,7 +478,8 @@ def _fetch_missing_primary_label_lane_counts() -> list[dict[str, Any]]:
         FROM lane_rows
         GROUP BY residual_lane
         ORDER BY sample_count DESC, residual_lane
-    """
+        """
+    )
     columns, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
     return [dict(zip(columns, row)) for row in rows]
 
@@ -885,6 +976,9 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
             "top_repair_candidates": [],
             "alias_family_overlap_count": None,
             "top_alias_family_overlaps": [],
+            "blank_resolved_family_samples": None,
+            "blank_resolved_family_bucket_counts": {},
+            "top_blank_resolved_family_buckets": [],
         },
     }
 
@@ -1221,6 +1315,35 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
                     f"{len(alias_overlaps)} accepted alias token(s) that collide with a different active family slug."
                 )
 
+    if payload["permission_obs_available"] and _table_exists_primary(_ANDROID_AUTHORITY_VIEW):
+        try:
+            blank_resolved_rows = fetch_blank_resolved_family_lane_counts()
+        except Exception as exc:
+            payload["warnings"].append(f"Blank resolved-family lane split unavailable: {exc}")
+        else:
+            if blank_resolved_rows:
+                bucket_counts = {
+                    str(row.get("authority_bucket", "") or "<none>"): int(row.get("sample_count", 0) or 0)
+                    for row in blank_resolved_rows
+                }
+                blank_count = int(sum(bucket_counts.values()))
+                payload["taxonomy_signals"]["blank_resolved_family_samples"] = blank_count
+                payload["taxonomy_signals"]["blank_resolved_family_bucket_counts"] = bucket_counts
+                payload["taxonomy_signals"]["top_blank_resolved_family_buckets"] = [
+                    {
+                        "authority_bucket": str(row.get("authority_bucket", "") or "<none>"),
+                        "sample_count": int(row.get("sample_count", 0) or 0),
+                        "high_or_strong_sample_count": int(row.get("high_or_strong_sample_count", 0) or 0),
+                    }
+                    for row in blank_resolved_rows[:6]
+                ]
+                if blank_count > 0:
+                    payload["warnings"].append(
+                        "Resolved-family slugs are blank for "
+                        f"{blank_count} Android + PI-observed sample(s); "
+                        "use Android missing-resolution triage for package/VT-tail provenance review."
+                    )
+
     family_counts: dict[str, int] = {}
     for row in android_with_pi_rows:
         family = _family_key(row.get("family_label"))
@@ -1240,4 +1363,7 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
     return payload
 
 
-__all__ = ["get_cohort_readiness_snapshot"]
+__all__ = [
+    "fetch_missing_primary_label_triage_rows",
+    "get_cohort_readiness_snapshot",
+]

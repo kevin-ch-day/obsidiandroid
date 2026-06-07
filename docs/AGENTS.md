@@ -52,13 +52,16 @@ pip install -r requirements.txt
 
 ### Default (fast loop)
 
-Runs pytest with **`-m "not slow"`** (configured in **`pyproject.toml`** → `[tool.pytest.ini_options]`). Suitable for everyday development and tight feedback.
+Runs pytest with **`-m "not (slow or integration or heavy or contract)"`** (configured in **`pyproject.toml`** → `[tool.pytest.ini_options]`). Suitable for everyday development and tight feedback.
 
 Use **one** of:
 
 - `./scripts/dev/run_tests.sh`
 - `make test`
+- `make test-changed` (diff-scoped modules vs `origin/main`)
 - `pytest -q` (honours `addopts` in `[tool.pytest.ini_options]`)
+
+Partial **`run_pipeline()`** integration tests live in the **`integration`** marker lane (`make test-integration`). Pipeline preflight backlog auto-refresh can be disabled with **`OBSIDIANDROID_PREFLIGHT_REFRESH_BACKLOG=0`** during fast iteration.
 
 ### Package / layout validation (src package + shims)
 
@@ -74,7 +77,7 @@ pytest -q -m "not slow"
 
 **`make verify`** runs **`scripts/dev/check_import_surface.py`** and then the same fast pytest selection as **`make test`** (import paths + default **`slow`** exclusion).
 
-**CI:** Pushes to **`main`** and pull requests run **`make doc-check`**, **`make verify`**, and **`make ml-scan-strict`** in GitHub Actions. Locally, **`make ci`** matches that pipeline (doc guardrails + import smoke + fast tests + strict ML scan).
+**CI:** GitHub Actions runs three parallel jobs: **fast** (`make doc-check` + `make verify` + `make ml-scan-strict` on Python 3.10/3.12), **integration** (`make verify-integration` on 3.12), and **V3 closure** (`make verify-v3` on 3.12). Locally, use **`make ci-fast`** for the daily gate (~30–40s) and **`make ci`** only before push when V3 closure matters.
 
 Whole test **files** listed in `_SLOW_TEST_MODULES` inside `tests/conftest.py` are auto-marked `slow` at collection time so they stay out of the default run.
 

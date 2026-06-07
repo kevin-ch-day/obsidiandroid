@@ -131,6 +131,70 @@ def run_vt_false_positive_review_triage_script(
     return int(getattr(proc, "returncode", 0) or 0)
 
 
+def run_backlog_debt_operator_summary_script(
+    *,
+    operator_script_resolver: Callable[[str], Path] = repo_operator_script,
+    subprocess_run: Callable[..., object] = subprocess.run,
+) -> int:
+    """Invoke the consolidated backlog/debt operator summary script."""
+    script_path = operator_script_resolver("diagnostics", "report_backlog_debt_operator_summary.py")
+    if not script_path.exists():
+        du.print_error(f"[MENU] Missing script: {script_path}")
+        return 1
+    cmd = [sys.executable, str(script_path)]
+    print("[ACTION] Refresh backlog debt operator summary export")
+    proc = subprocess_run(cmd, check=False)
+    return int(getattr(proc, "returncode", 0) or 0)
+
+
+def run_blank_resolved_family_triage_script(
+    *,
+    operator_script_resolver: Callable[[str], Path] = repo_operator_script,
+    subprocess_run: Callable[..., object] = subprocess.run,
+) -> int:
+    """Invoke the blank-resolved family triage diagnostics script."""
+    script_path = operator_script_resolver("diagnostics", "report_blank_resolved_family_triage.py")
+    if not script_path.exists():
+        du.print_error(f"[MENU] Missing script: {script_path}")
+        return 1
+    cmd = [sys.executable, str(script_path)]
+    print("[ACTION] Refresh blank-resolved family triage export")
+    proc = subprocess_run(cmd, check=False)
+    return int(getattr(proc, "returncode", 0) or 0)
+
+
+def run_profile_family_mapping_debt_script(
+    *,
+    operator_script_resolver: Callable[[str], Path] = repo_operator_script,
+    subprocess_run: Callable[..., object] = subprocess.run,
+) -> int:
+    """Invoke the profile family-mapping debt diagnostics script."""
+    script_path = operator_script_resolver("diagnostics", "report_profile_family_mapping_debt.py")
+    if not script_path.exists():
+        du.print_error(f"[MENU] Missing script: {script_path}")
+        return 1
+    cmd = [sys.executable, str(script_path)]
+    print("[ACTION] Refresh profile family-mapping debt export")
+    proc = subprocess_run(cmd, check=False)
+    return int(getattr(proc, "returncode", 0) or 0)
+
+
+def run_missing_primary_label_triage_script(
+    *,
+    operator_script_resolver: Callable[[str], Path] = repo_operator_script,
+    subprocess_run: Callable[..., object] = subprocess.run,
+) -> int:
+    """Invoke the missing-primary label triage diagnostics script."""
+    script_path = operator_script_resolver("diagnostics", "report_missing_primary_label_triage.py")
+    if not script_path.exists():
+        du.print_error(f"[MENU] Missing script: {script_path}")
+        return 1
+    cmd = [sys.executable, str(script_path)]
+    print("[ACTION] Refresh missing-primary label triage export")
+    proc = subprocess_run(cmd, check=False)
+    return int(getattr(proc, "returncode", 0) or 0)
+
+
 def run_policy_held_token_risk_script(
     *,
     operator_script_resolver: Callable[[str], Path] = repo_operator_script,
@@ -152,20 +216,106 @@ def refresh_backlog_triage_exports(
     run_android_missing_resolution_triage_action: Callable[[], int],
     run_vt_false_positive_review_triage_action: Callable[[], int],
     run_policy_held_token_risk_action: Callable[[], int] | None = None,
+    run_missing_primary_label_triage_action: Callable[[], int] | None = None,
+    run_profile_family_mapping_debt_action: Callable[[], int] | None = None,
+    run_blank_resolved_family_triage_action: Callable[[], int] | None = None,
+    run_backlog_debt_operator_summary_action: Callable[[], int] | None = None,
 ) -> int:
     """Refresh backlog triage exports in one operator action."""
     print("[DIAGNOSTICS] Refreshing backlog triage exports...")
+    missing_primary_rc = (
+        int(run_missing_primary_label_triage_action() or 0)
+        if run_missing_primary_label_triage_action
+        else 0
+    )
     android_rc = int(run_android_missing_resolution_triage_action() or 0)
     vt_rc = int(run_vt_false_positive_review_triage_action() or 0)
     policy_rc = int(run_policy_held_token_risk_action() or 0) if run_policy_held_token_risk_action else 0
-    if android_rc == 0 and vt_rc == 0 and policy_rc == 0:
+    profile_mapping_rc = (
+        int(run_profile_family_mapping_debt_action() or 0)
+        if run_profile_family_mapping_debt_action
+        else 0
+    )
+    blank_resolved_rc = (
+        int(run_blank_resolved_family_triage_action() or 0)
+        if run_blank_resolved_family_triage_action
+        else 0
+    )
+    summary_rc = (
+        int(run_backlog_debt_operator_summary_action() or 0)
+        if run_backlog_debt_operator_summary_action
+        else 0
+    )
+    if (
+        missing_primary_rc == 0
+        and android_rc == 0
+        and vt_rc == 0
+        and policy_rc == 0
+        and profile_mapping_rc == 0
+        and blank_resolved_rc == 0
+        and summary_rc == 0
+    ):
         print("[DIAGNOSTICS] Backlog triage exports refreshed.")
         return 0
     du.print_warning(
         "[DIAGNOSTICS] Backlog triage refresh completed with issues "
-        f"(android_missing_resolution={android_rc}, vt_false_positive={vt_rc}, policy_held_token_risk={policy_rc})."
+        f"(missing_primary_label={missing_primary_rc}, android_missing_resolution={android_rc}, "
+        f"vt_false_positive={vt_rc}, policy_held_token_risk={policy_rc}, "
+        f"profile_family_mapping_debt={profile_mapping_rc}, blank_resolved_family={blank_resolved_rc}, "
+        f"operator_summary={summary_rc})."
     )
-    return android_rc or vt_rc or policy_rc
+    return (
+        missing_primary_rc
+        or android_rc
+        or vt_rc
+        or policy_rc
+        or profile_mapping_rc
+        or blank_resolved_rc
+        or summary_rc
+    )
+
+
+def refresh_stale_backlog_triage_exports(
+    *,
+    assess_backlog_triage_health_action: Callable[[], dict[str, object]],
+    run_android_missing_resolution_triage_action: Callable[[], int],
+    run_vt_false_positive_review_triage_action: Callable[[], int],
+    run_policy_held_token_risk_action: Callable[[], int] | None = None,
+    run_missing_primary_label_triage_action: Callable[[], int] | None = None,
+    run_profile_family_mapping_debt_action: Callable[[], int] | None = None,
+    run_blank_resolved_family_triage_action: Callable[[], int] | None = None,
+    run_backlog_debt_operator_summary_action: Callable[[], int] | None = None,
+) -> int:
+    """Refresh only backlog triage exports that are stale or mismatched."""
+    health = assess_backlog_triage_health_action()
+    refresh_exports = (
+        health.get("refresh_exports", [])
+        if isinstance(health, dict) and isinstance(health.get("refresh_exports"), list)
+        else []
+    )
+    if not refresh_exports:
+        return 0
+    print(
+        "[DIAGNOSTICS] Refreshing stale backlog triage exports: "
+        + ", ".join(str(key) for key in refresh_exports)
+    )
+    runners: dict[str, Callable[[], int] | None] = {
+        "android_missing_resolution": run_android_missing_resolution_triage_action,
+        "missing_primary_label": run_missing_primary_label_triage_action,
+        "vt_false_positive_review": run_vt_false_positive_review_triage_action,
+        "policy_held_token_risk": run_policy_held_token_risk_action,
+        "profile_family_mapping_debt": run_profile_family_mapping_debt_action,
+        "blank_resolved_family": run_blank_resolved_family_triage_action,
+    }
+    rc = 0
+    for export_key in refresh_exports:
+        runner = runners.get(str(export_key))
+        if runner is None:
+            continue
+        rc = rc or int(runner() or 0)
+    if run_backlog_debt_operator_summary_action is not None:
+        rc = rc or int(run_backlog_debt_operator_summary_action() or 0)
+    return rc
 
 
 def open_run_science_index(
@@ -456,6 +606,11 @@ __all__ = [
     "print_cohort_family_artifact_paths",
     "refresh_backlog_triage_exports",
     "run_android_missing_resolution_triage_script",
+    "run_missing_primary_label_triage_script",
+    "run_profile_family_mapping_debt_script",
+    "run_blank_resolved_family_triage_script",
+    "run_backlog_debt_operator_summary_script",
+    "refresh_stale_backlog_triage_exports",
     "run_policy_held_token_risk_script",
     "run_family_label_taxonomy_audit_script",
     "run_vt_false_positive_review_triage_script",
