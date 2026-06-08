@@ -27,7 +27,7 @@ Work proceeded in **documented passes** (see **`STRUCTURE_MIGRATION_PLAN.md`**).
 | **Pass 12** | Internal imports → **`scripts.diagnostics`** / **`scripts.dev`**; shim parity tests for **`devtools`**; **`data_inspect`** / **`devtools`** kept in setuptools discovery for **`pip install -e .`**. |
 | **Pass 13** | **`pytest.ini`** merged into **`pyproject.toml`**; full **`AGENTS.md`** → **`docs/AGENTS.md`**; root **`AGENTS.md`** stub. |
 | **Pass 14 (shim sunset)** | Remove **`data_inspect/`** and **`devtools/`**; drop setuptools **`include`** entries; document migration to **`scripts.diagnostics`** / **`scripts.dev`**. |
-| **Pass 15–19** | Makefile as operator default (**`make verify`**, **`make ci`**, **`make setup/menu/install-editable`**); **`.editorconfig`** / **`.gitattributes`**; **`make verify`** + CI; strict ML scan; Dependabot (Actions + pip); Python **3.10/3.12** CI matrix; **`.python-version`**; **`.DEFAULT_GOAL := help`**. |
+| **Pass 15–19** | Makefile as operator default (**`make verify`**, **`make ci`**, **`make setup/menu/install-editable`**); **`.editorconfig`** / **`.gitattributes`**; **`make verify`** + CI; strict ML scan; Dependabot (Actions + pip); Python **3.11/3.12** CI matrix; **`.python-version`**; **`.DEFAULT_GOAL := help`**. |
 
 **When “moving files” became systematic:** starting around **Pass 10–11** (YAML, docs, dev scripts, shell canonical paths). **Large directories** (`analysis/`, `database/`, etc.) were explicitly **not** bulk-moved—policy is migration passes with tests, not drive-by refactors.
 

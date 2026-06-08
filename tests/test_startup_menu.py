@@ -279,6 +279,11 @@ def test_data_diagnostics_menu_uses_compact_view_first_order(monkeypatch) -> Non
         "Family/type authority",
         "Android Missing-Resolution Triage",
         "VT False-Positive Review Triage",
+        "Missing-Primary Label Triage",
+        "Blank-Resolved Family Triage",
+        "Policy-Held Token Risk",
+        "Profile Family-Mapping Debt",
+        "Vendor Verdict Debt",
         "Vendor/parser coverage",
         "Permission signal coverage",
         "Feature matrix / modalities",
@@ -794,6 +799,43 @@ def test_refresh_backlog_triage_exports_runs_all_triage_scripts(monkeypatch) -> 
         "blank_resolved",
         "operator_summary",
     ]
+
+
+def test_data_diagnostics_menu_routes_missing_primary_triage(monkeypatch) -> None:
+    calls: list[str] = []
+    choices = iter([10, 0])
+
+    monkeypatch.setattr(startup_menu.diagnostics_banners, "print_compact_diagnostics_overview", lambda **_: None)
+    monkeypatch.setattr(startup_menu, "_read_latest_run_id", lambda: "r1")
+    monkeypatch.setattr(
+        startup_menu,
+        "_run_missing_primary_label_triage_script",
+        lambda: calls.append("missing_primary") or 0,
+    )
+    monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: next(choices))
+
+    startup_menu._launch_data_diagnostics_menu()  # pylint: disable=protected-access
+
+    assert calls == ["missing_primary"]
+
+
+def test_vendor_verdict_debt_script_runs_operator_script(monkeypatch, tmp_path: Path) -> None:
+    script_path = tmp_path / "report_vendor_verdict_debt.py"
+    script_path.write_text("print('ok')\n", encoding="utf-8")
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(startup_menu, "repo_operator_script", lambda *parts: script_path)
+    monkeypatch.setattr(
+        startup_menu,
+        "subprocess",
+        type("SubprocessStub", (), {"run": staticmethod(lambda cmd, check=False: commands.append(list(cmd)) or type("P", (), {"returncode": 0})())}),
+    )
+
+    result = startup_menu._run_vendor_verdict_debt_script()  # pylint: disable=protected-access
+
+    assert result == 0
+    assert commands
+    assert commands[0][1] == str(script_path)
 
 
 def test_policy_held_token_risk_script_runs_operator_script(monkeypatch, tmp_path: Path) -> None:

@@ -248,3 +248,20 @@ def test_verify_only_skip_missing_slots_treats_absent_run_manifest_as_skipped(tm
     code = v3_validate.verify_only_cli(runs_root=runs_root, skip_missing_slots=True)
 
     assert code == 0
+
+
+def test_resolve_reference_path_accepts_repo_relative_and_embedded_artifact_paths(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    artifact = repo_root / "artifacts" / "baselines" / "seed.json"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("{}", encoding="utf-8")
+
+    assert v3_validate._resolve_reference_path("artifacts/baselines/seed.json", repo_root=repo_root) == artifact
+    assert (
+        v3_validate._resolve_reference_path(
+            "/tmp/elsewhere/artifacts/baselines/seed.json",
+            repo_root=repo_root,
+        )
+        == artifact
+    )
+    assert v3_validate._resolve_reference_path("missing/seed.json", repo_root=repo_root) is None

@@ -23,6 +23,7 @@ Scripts here support **package layout, import hygiene, and local repo maintenanc
 | [`run_tests.sh`](run_tests.sh) | Fast pytest (`-m "not (slow or integration or heavy or contract)"`); **`make test`** invokes this path. |
 | [`run_tests_changed.sh`](run_tests_changed.sh) | Diff-scoped pytest for touched modules; **`make test-changed`** (`BASE=origin/main` by default). |
 | [`run_tests_integration.sh`](run_tests_integration.sh) | Integration lane only; **`make test-integration`** / **`make verify-integration`**. |
+| [`run_tests_pipeline_integration.sh`](run_tests_pipeline_integration.sh) | Full partial `run_pipeline` lane (`pipeline_heavy` marker); **`make verify-pipeline-integration`**. |
 | [`run_tests_full.sh`](run_tests_full.sh) | Full pytest including `slow` modules; **`make test-full`** invokes this path. |
 
 **`make test`**, **`make test-changed`**, **`make test-integration`**, and **`make test-full`** invoke these scripts directly (no repo-root wrappers).

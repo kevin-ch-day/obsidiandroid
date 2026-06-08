@@ -88,3 +88,5 @@ artifacts/baselines/output_writer_audit.csv
 *.sqlite
 *.sqlite3
 database/db_config.local.py
+database/local_applied/
+database/sql/android_permission_intel_semantic_repair_*.sql

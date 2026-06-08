@@ -6,6 +6,14 @@ This playbook equips site reliability engineers and operators with procedures fo
 
 - **Pipeline health:** Verify the latest scheduled `main.py` run completed successfully. Review orchestrator dashboards (e.g., Airflow, Prefect) for failed tasks.
 - **Data freshness:** Confirm replication jobs populated the expected **primary** and **Permission Intel** tables (canonical names include `malware_sample_catalog`, `virustotal_sample_vendor_engine_verdicts`, `android_permission_obs_sample`; legacy `vt_*` aliases may appear in older notes). Reference [`data_sources.md`](data_sources.md) for schema specifics and validation steps.
+- **Backlog/debt triage exports:** Refresh live curation queues before review sessions. From the startup menu use **Data Diagnostics → Refresh backlog triage exports**, or run individual scripts under `scripts/diagnostics/`:
+  - `report_android_missing_resolution_triage.py` → `output/diagnostics/android_missing_resolution_triage_latest.csv` plus VT-tail and per-lane worklists
+  - `report_missing_primary_label_triage.py` → `missing_primary_label_triage_latest.csv`
+  - `report_blank_resolved_family_triage.py` → `blank_resolved_family_triage_latest.csv` plus singleton provenance drill-downs
+  - `report_android_policy_held_token_risk.py` → `android_policy_held_token_risk_latest.csv`
+  - `report_profile_family_mapping_debt.py` → `profile_family_mapping_debt_latest.{json,csv}`
+  - `report_vt_false_positive_review_triage.py` → `vt_false_positive_review_triage_latest.csv`
+  - `report_backlog_debt_operator_summary.py` → consolidated `backlog_debt_operator_summary_latest.{json,md}`
 - **Queue buffer hygiene:** Treat `malware_artifact_ingest_queue` as a transient buffer. Successful `DONE` + `OK` rows that already exist in `malware_sample_catalog` should be pruned instead of retained. Use `python scripts/diagnostics/prune_malware_artifact_ingest_queue.py` for a dry run, then rerun with `--commit` when the summary looks correct. During live backlog waves, prefer `--workload-lane <lane>` so cleanup stays scoped to the buffer you are reviewing. For direct SQL operator fallback, use `database/sql/malware_artifact_ingest_queue_buffer_audit.sql` to inspect queue shape and `database/sql/malware_artifact_ingest_queue_prune_materialized_nonprocessing_rows.sql` to remove non-processing rows that are already materialized.
 - **Storage usage:** Monitor `output/` for growth. Inspection CLIs live under `scripts/diagnostics/`. Archive or prune artifacts older than retention targets.
 - **Model drift signals:** Check monitoring alerts for sudden drops in precision/recall or shifts in feature distributions. Trigger retraining if thresholds are crossed.

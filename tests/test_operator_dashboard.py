@@ -1492,8 +1492,14 @@ def test_write_diagnostics_index_surfaces_backlog_section(tmp_path: Path) -> Non
     for name in (
         f"backlog_debt_summary_{run_id}.md",
         "android_missing_resolution_triage_latest.csv",
+        "android_missing_resolution_vt_tail_latest.csv",
+        "missing_primary_label_triage_latest.csv",
+        "blank_resolved_family_triage_latest.csv",
+        "blank_resolved_singleton_provenance_latest.csv",
+        "profile_family_mapping_debt_latest.csv",
         "vt_false_positive_review_triage_latest.csv",
         "android_policy_held_token_risk_latest.csv",
+        "vendor_verdict_debt_summary_latest.csv",
     ):
         (diagnostics_dir / name).write_text("placeholder\n", encoding="utf-8")
 
@@ -1508,8 +1514,14 @@ def test_write_diagnostics_index_surfaces_backlog_section(tmp_path: Path) -> Non
     assert "Backlog and review queues" in text
     assert f"`backlog_debt_summary_{run_id}.md`" in text
     assert "`android_missing_resolution_triage_latest.csv`" in text
+    assert "`android_missing_resolution_vt_tail_latest.csv`" in text
+    assert "`missing_primary_label_triage_latest.csv`" in text
+    assert "`blank_resolved_family_triage_latest.csv`" in text
+    assert "`blank_resolved_singleton_provenance_latest.csv`" in text
+    assert "`profile_family_mapping_debt_latest.csv`" in text
     assert "`vt_false_positive_review_triage_latest.csv`" in text
     assert "`android_policy_held_token_risk_latest.csv`" in text
+    assert "`vendor_verdict_debt_summary_latest.csv`" in text
 
 
 def test_emit_research_operator_report_downgrades_claim_readiness_for_weak_family_evidence(

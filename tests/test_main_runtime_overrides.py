@@ -154,6 +154,7 @@ def test_confusion_matrix_policy_keeps_random_forest_in_paper_mode(
     assert xgb_path.exists()
 
 
+@pytest.mark.pipeline_heavy
 def test_stage_failure_finalizes_failed_run(monkeypatch, tmp_path: Path) -> None:
     """Expected stage failures should still finalize manifest context and preflight."""
     output_root = tmp_path / "output"
@@ -216,6 +217,7 @@ def test_stage_failure_finalizes_failed_run(monkeypatch, tmp_path: Path) -> None
     assert payload["status"] == "failed"
 
 
+@pytest.mark.pipeline_heavy
 def test_non_evidence_stage_failure_writes_preflight_and_failure_summary(monkeypatch, tmp_path: Path) -> None:
     """Ordinary failed runs should persist failure diagnostics even outside evidence mode."""
     output_root = tmp_path / "output"
@@ -264,6 +266,7 @@ def test_non_evidence_stage_failure_writes_preflight_and_failure_summary(monkeyp
     assert payload["recoverable_stage_failure"] is True
 
 
+@pytest.mark.pipeline_heavy
 def test_locked_cohort_mismatch_finalizes_without_reraising(monkeypatch, tmp_path: Path) -> None:
     """Locked cohort mismatches should finalize as controlled failures in evidence mode."""
     output_root = tmp_path / "output"
@@ -332,6 +335,7 @@ def test_locked_cohort_mismatch_finalizes_without_reraising(monkeypatch, tmp_pat
     assert "sample_count observed=2 expected=3" in contract["validation"]["mismatches"]
 
 
+@pytest.mark.pipeline_heavy
 def test_unlocked_paper_profile_fails_early_with_locked_guidance(
     monkeypatch,
     tmp_path: Path,
@@ -430,6 +434,7 @@ def test_exploratory_profile_is_not_blocked_by_publication_lock(
     assert result == 0
 
 
+@pytest.mark.pipeline_heavy
 def test_broad_current_profile_refuses_second_concurrent_run(
     monkeypatch,
     tmp_path: Path,

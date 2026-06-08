@@ -130,8 +130,16 @@ def load_local_indexes() -> tuple[
     )
 
 
-def main() -> None:
+def main() -> int:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    if not REPO_ROOT.is_dir():
+        print(
+            f"[SKIP] Zimperium IOC repo not present at {REPO_ROOT.as_posix()}. "
+            "Clone it under research/external_iocs/ or set up the external tree before running coverage."
+        )
+        SUMMARY_CSV.write_text("", encoding="utf-8")
+        NEW_HASHES_CSV.write_text("repo_file,source_label,hash_type,hash_value\n", encoding="utf-8")
+        return 0
     (
         catalog_sha256,
         queue_md5,
@@ -251,7 +259,8 @@ def main() -> None:
     print(f"Wrote {NEW_HASHES_CSV}")
     print(f"Summary rows: {len(summary_rows)}")
     print(f"New hashes: {len(new_hash_rows)}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

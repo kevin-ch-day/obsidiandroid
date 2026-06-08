@@ -3,7 +3,7 @@
 # Shared ignore pattern for `tree` (noise / generated paths).
 _TREE_IGNORE := .git|.venv|__pycache__|*.pyc|output|logs|.pytest_cache|.pytest_tmp|*.egg-info|build|dist|.mypy_cache|.ruff_cache|.hypothesis|htmlcov|coverage.xml|wandb|mlruns
 
-.PHONY: clean clean-bytecode tree-source tree-obsidiandroid tree-utils tree-exporting-shims test test-changed test-integration test-full setup menu install-editable doc-check verify verify-integration verify-v3 ci ci-fast ml-scan ml-scan-strict preflight-db check-run-integrity dev-import-check output-writer-audit help
+.PHONY: clean clean-bytecode tree-source tree-obsidiandroid tree-utils tree-exporting-shims test test-changed test-integration test-pipeline-integration test-full setup menu install-editable doc-check verify verify-integration verify-pipeline-integration verify-v3 ci ci-fast ml-scan ml-scan-strict preflight-db check-run-integrity dev-import-check output-writer-audit help
 
 help:
 	@echo "Targets:"
@@ -13,6 +13,7 @@ help:
 	@echo "  make test          - fast pytest (excludes slow/integration/heavy/contract markers)"
 	@echo "  make test-changed  - pytest for modules touched vs origin/main (or BASE=ref)"
 	@echo "  make test-integration - partial pipeline/subprocess integration lane only"
+	@echo "  make test-pipeline-integration - full partial run_pipeline integration lane only"
 	@echo "  make test-full     - full pytest including slow integration modules"
 	@echo "  make preflight-db  - MySQL/MariaDB connectivity check (split_db_health)"
 	@echo "  make ml-scan       - static scan for suspicious .predict() / .predict_proba() sites"
@@ -75,6 +76,10 @@ test-changed:
 test-integration:
 	./scripts/dev/run_tests_integration.sh
 
+# Full partial run_pipeline orchestration lane (slowest integration tests).
+test-pipeline-integration:
+	./scripts/dev/run_tests_pipeline_integration.sh
+
 # Complete suite (CI / pre-release).
 test-full:
 	./scripts/dev/run_tests_full.sh
@@ -106,6 +111,10 @@ verify:
 # Pipeline/menu integration lane (run before merge when touching runner or main entry).
 verify-integration:
 	./scripts/dev/run_tests_integration.sh
+
+# Full partial run_pipeline lane (run when touching runner/main failure paths).
+verify-pipeline-integration:
+	./scripts/dev/run_tests_pipeline_integration.sh
 
 # V3 closure contract lane (pytest fixtures; offline slot check when output/runs exists).
 refresh-v3-handoff:

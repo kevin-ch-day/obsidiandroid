@@ -5,7 +5,7 @@ This guide walks operators through setting up their environment, executing the m
 ## 1. Prerequisites
 
 - **Operating system:** Fedora Linux is the supported operator environment.
-- **Python:** Version 3.10 or later is required.
+- **Python:** Version 3.11 or later is required.
 - **System packages:** Fedora Python tooling plus compiler/runtime libraries needed by scientific Python packages.
 - **Database access:** Credentials for the MariaDB/MySQL instance that stores antivirus detections and sample metadata. This is required for full pipeline runs, but not just to launch the CLI.
 - **Hardware:** At least 16 GB RAM for large feature matrices; GPU is optional but can accelerate certain models.

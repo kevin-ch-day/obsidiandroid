@@ -19,6 +19,9 @@ Keep these in the top level:
 Subdirectories:
 - `obsidiandroid/` — **DDL draft** for the curated ObsidianDroid research database (`obsidiandroid_research`). See [`obsidiandroid/README.md`](obsidiandroid/README.md) and [`docs/OBSIDIANDROID_DB_PLAN.md`](../../docs/OBSIDIANDROID_DB_PLAN.md).
 
+Applied one-off repair scripts that you still want locally should live under
+`database/local_applied/` (gitignored), not in this top-level contract surface.
+
 Delete these instead of retaining them after use:
 - one-off applied tranche files
 - generated ingest batches that have already been loaded

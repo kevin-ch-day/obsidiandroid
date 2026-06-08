@@ -218,3 +218,20 @@ def test_build_sql_only_blocks_active_queue_rows() -> None:
     )
 
     assert "existing.queue_status IN ('PENDING', 'PROCESSING')" in sql
+
+
+def test_main_exits_cleanly_when_zimperium_repo_is_missing(monkeypatch, tmp_path: Path, capsys) -> None:
+    missing_root = tmp_path / "missing-zimperium"
+    out_dir = tmp_path / "diagnostics"
+    monkeypatch.setattr(coverage, "REPO_ROOT", missing_root)
+    monkeypatch.setattr(coverage, "OUTPUT_DIR", out_dir)
+    monkeypatch.setattr(coverage, "SUMMARY_CSV", out_dir / "summary.csv")
+    monkeypatch.setattr(coverage, "NEW_HASHES_CSV", out_dir / "new_hashes.csv")
+
+    exit_code = coverage.main()
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "[SKIP] Zimperium IOC repo not present" in out
+    assert (out_dir / "summary.csv").exists()
+    assert (out_dir / "new_hashes.csv").exists()

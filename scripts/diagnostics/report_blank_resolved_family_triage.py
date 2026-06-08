@@ -28,6 +28,31 @@ from obsidiandroid.database.db_family_mapping_debt import (
 
 OUTPUT_DIR = Path("output") / "diagnostics"
 CSV_OUT = OUTPUT_DIR / "blank_resolved_family_triage_latest.csv"
+SINGLETON_CSV_OUT = OUTPUT_DIR / "blank_resolved_singleton_provenance_latest.csv"
+SINGLETON_CLUSTER_CSV_OUT = OUTPUT_DIR / "blank_resolved_singleton_package_clusters_latest.csv"
+SINGLETON_REVIEW_LANE = "singleton_provenance_review"
+
+
+def _export_singleton_worklists(detail_rows: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Filter singleton-provenance rows and aggregate package clusters for operators."""
+    if detail_rows.empty or "review_lane" not in detail_rows.columns:
+        return pd.DataFrame(), pd.DataFrame()
+    singleton_rows = detail_rows.loc[detail_rows["review_lane"] == SINGLETON_REVIEW_LANE].copy()
+    if singleton_rows.empty:
+        return singleton_rows, pd.DataFrame()
+    if "android_package_name" not in singleton_rows.columns:
+        return singleton_rows, pd.DataFrame()
+    cluster_rows = (
+        singleton_rows.groupby("android_package_name", dropna=False)
+        .agg(
+            sample_count=("sample_id", "count"),
+            first_sample_id=("sample_id", "min"),
+            last_sample_id=("sample_id", "max"),
+        )
+        .reset_index()
+        .sort_values(["sample_count", "android_package_name"], ascending=[False, True])
+    )
+    return singleton_rows, cluster_rows
 
 
 def build_report() -> dict[str, pd.DataFrame]:
@@ -65,8 +90,13 @@ def main() -> int:
     report = build_report()
     detail_rows = report["detail_rows"]
     detail_rows.to_csv(CSV_OUT, index=False)
+    singleton_rows, singleton_clusters = _export_singleton_worklists(detail_rows)
+    singleton_rows.to_csv(SINGLETON_CSV_OUT, index=False)
+    singleton_clusters.to_csv(SINGLETON_CLUSTER_CSV_OUT, index=False)
 
     print(f"[EXPORT] Blank-resolved family triage: {CSV_OUT.as_posix()}")
+    print(f"[EXPORT] Blank-resolved singleton provenance lane: {SINGLETON_CSV_OUT.as_posix()}")
+    print(f"[EXPORT] Blank-resolved singleton package clusters: {SINGLETON_CLUSTER_CSV_OUT.as_posix()}")
     print(f"Rows outside missing-resolution view: {len(detail_rows)}")
     if detail_rows.empty:
         print("Status: no supplemental blank-resolved review rows.")
@@ -75,6 +105,14 @@ def main() -> int:
     blank_total = int(report["authority_bucket_counts"]["sample_count"].sum()) if not report["authority_bucket_counts"].empty else 0
     print(f"Live blank-resolved Android + PI rows: {blank_total}")
     print(f"Lane counts: {_compact_counts(report['lane_counts'], key_col='review_lane')}")
+    print(f"Singleton provenance rows: {len(singleton_rows)}")
+    if not singleton_clusters.empty:
+        parts: list[str] = []
+        for _, row in singleton_clusters.head(5).iterrows():
+            parts.append(
+                f"{row.get('android_package_name', '')}={int(row.get('sample_count', 0) or 0)}"
+            )
+        print(f"Singleton package clusters: {'; '.join(parts)}")
     package_clusters = report.get("package_clusters")
     if isinstance(package_clusters, pd.DataFrame) and not package_clusters.empty:
         parts: list[str] = []

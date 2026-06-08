@@ -35,6 +35,7 @@ def _minimal_pipeline_fixture(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(pipeline_runner, "DIAGNOSTICS_DIR", str(diag))
 
 
+@pytest.mark.pipeline_heavy
 def test_ablation_keyboard_interrupt_records_interrupted_stage_and_finalizes(
     monkeypatch,
     tmp_path: Path,
@@ -153,6 +154,7 @@ def test_ablation_keyboard_interrupt_records_interrupted_stage_and_finalizes(
     assert "INTERRUPTED" in body
 
 
+@pytest.mark.pipeline_heavy
 def test_ablation_runtime_error_emits_failed_stage_timing(
     monkeypatch,
     tmp_path: Path,

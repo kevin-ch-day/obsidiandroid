@@ -60,6 +60,12 @@ def build_report(*, output_root: Path) -> dict[str, object]:
                 "android_vt_tail_review": str(
                     output_root / "diagnostics" / "android_missing_resolution_vt_tail_latest.csv"
                 ),
+                "blank_resolved_singleton_provenance": str(
+                    output_root / "diagnostics" / "blank_resolved_singleton_provenance_latest.csv"
+                ),
+                "blank_resolved_singleton_package_clusters": str(
+                    output_root / "diagnostics" / "blank_resolved_singleton_package_clusters_latest.csv"
+                ),
                 "profile_policy_held_slug_worklist": str(
                     output_root / "diagnostics" / "profile_policy_held_slug_worklist_latest.csv"
                 ),
@@ -113,6 +119,16 @@ def main() -> int:
         vt_tail_export = str(focus_structured.get("vt_tail_export", "") or "").strip()
         if vt_tail_count > 0 and vt_tail_export:
             md_lines.append(f"- VT-tail drill-down export: `{vt_tail_export}` ({vt_tail_count} row(s))")
+        lane_worklist_pattern = str(focus_structured.get("lane_worklist_export_pattern", "") or "").strip()
+        if lane_worklist_pattern:
+            md_lines.append(f"- Per-lane worklists: `{lane_worklist_pattern}`")
+        singleton_count = int(focus_structured.get("singleton_provenance_count", 0) or 0)
+        singleton_export = str(focus_structured.get("singleton_export", "") or "").strip()
+        singleton_cluster_export = str(focus_structured.get("singleton_cluster_export", "") or "").strip()
+        if singleton_count > 0 and singleton_export:
+            md_lines.append(f"- Singleton provenance drill-down: `{singleton_export}` ({singleton_count} row(s))")
+        if singleton_count > 0 and singleton_cluster_export:
+            md_lines.append(f"- Singleton package clusters: `{singleton_cluster_export}`")
         md_lines.append("")
     md_lines.extend(
         build_backlog_markdown_lines(

@@ -211,6 +211,22 @@ def run_policy_held_token_risk_script(
     return int(getattr(proc, "returncode", 0) or 0)
 
 
+def run_vendor_verdict_debt_script(
+    *,
+    operator_script_resolver: Callable[[str], Path] = repo_operator_script,
+    subprocess_run: Callable[..., object] = subprocess.run,
+) -> int:
+    """Invoke the vendor verdict debt diagnostics script."""
+    script_path = operator_script_resolver("diagnostics", "report_vendor_verdict_debt.py")
+    if not script_path.exists():
+        du.print_error(f"[MENU] Missing script: {script_path}")
+        return 1
+    cmd = [sys.executable, str(script_path)]
+    print("[ACTION] Refresh vendor verdict debt export")
+    proc = subprocess_run(cmd, check=False)
+    return int(getattr(proc, "returncode", 0) or 0)
+
+
 def refresh_backlog_triage_exports(
     *,
     run_android_missing_resolution_triage_action: Callable[[], int],
@@ -497,6 +513,11 @@ def launch_data_diagnostics_menu(
     refresh_backlog_triage_exports_action: Callable[[], int],
     launch_android_missing_resolution_triage_action: Callable[[], int],
     launch_vt_false_positive_review_triage_action: Callable[[], int],
+    launch_missing_primary_label_triage_action: Callable[[], int],
+    launch_blank_resolved_family_triage_action: Callable[[], int],
+    launch_policy_held_token_risk_action: Callable[[], int],
+    launch_profile_family_mapping_debt_action: Callable[[], int],
+    launch_vendor_verdict_debt_action: Callable[[], int],
 ) -> None:
     """Launch the top-level Data Diagnostics submenu."""
     output_root = canonical_output_root()
@@ -533,6 +554,11 @@ def launch_data_diagnostics_menu(
             "Family/type authority",
             "Android Missing-Resolution Triage",
             "VT False-Positive Review Triage",
+            "Missing-Primary Label Triage",
+            "Blank-Resolved Family Triage",
+            "Policy-Held Token Risk",
+            "Profile Family-Mapping Debt",
+            "Vendor Verdict Debt",
             "Vendor/parser coverage",
             "Permission signal coverage",
             "Feature matrix / modalities",
@@ -575,15 +601,30 @@ def launch_data_diagnostics_menu(
             launch_vt_false_positive_review_triage_action()
             continue
         if choice == 10:
-            launch_parser_vendor_coverage_action()
+            launch_missing_primary_label_triage_action()
             continue
         if choice == 11:
-            launch_permission_intelligence_coverage_action()
+            launch_blank_resolved_family_triage_action()
             continue
         if choice == 12:
-            launch_feature_matrix_modality_action()
+            launch_policy_held_token_risk_action()
             continue
         if choice == 13:
+            launch_profile_family_mapping_debt_action()
+            continue
+        if choice == 14:
+            launch_vendor_verdict_debt_action()
+            continue
+        if choice == 15:
+            launch_parser_vendor_coverage_action()
+            continue
+        if choice == 16:
+            launch_permission_intelligence_coverage_action()
+            continue
+        if choice == 17:
+            launch_feature_matrix_modality_action()
+            continue
+        if choice == 18:
             launch_cohort_family_audit_action()
             continue
         du.print_warning("[MENU] Invalid choice received.")
@@ -612,6 +653,7 @@ __all__ = [
     "run_backlog_debt_operator_summary_script",
     "refresh_stale_backlog_triage_exports",
     "run_policy_held_token_risk_script",
+    "run_vendor_verdict_debt_script",
     "run_family_label_taxonomy_audit_script",
     "run_vt_false_positive_review_triage_script",
     "show_profile_readiness_mapping_inventory",

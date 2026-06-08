@@ -8,6 +8,34 @@ import scripts.diagnostics.report_android_missing_resolution_triage as missing_m
 import scripts.diagnostics.report_vt_false_positive_review_triage as report_mod
 
 
+def test_export_lane_worklists_skips_vt_tail_and_writes_other_lanes(tmp_path: Path) -> None:
+    detail_rows = pd.DataFrame(
+        [
+            {"sample_id": 1, "review_lane": "vt_tail_review", "sha256": "a"},
+            {"sample_id": 2, "review_lane": "package_cluster_review", "sha256": "b"},
+            {"sample_id": 3, "review_lane": "package_cluster_review", "sha256": "c"},
+        ]
+    )
+    lane_counts = pd.DataFrame(
+        [
+            {"review_lane": "vt_tail_review", "row_count": 1},
+            {"review_lane": "package_cluster_review", "row_count": 2},
+        ]
+    )
+    out_dir = tmp_path / "diagnostics"
+    out_dir.mkdir(parents=True)
+    missing_mod.OUTPUT_DIR = out_dir
+
+    exports = missing_mod._export_lane_worklists(detail_rows, lane_counts)
+
+    assert set(exports) == {"package_cluster_review"}
+    export_path = exports["package_cluster_review"]
+    assert export_path.name == "android_missing_resolution_lane_package_cluster_review_latest.csv"
+    exported = pd.read_csv(export_path)
+    assert len(exported) == 2
+    assert "vt_tail_review" not in set(exported["review_lane"])
+
+
 def test_main_exports_empty_triage_csv_with_compact_empty_summary(monkeypatch, tmp_path: Path, capsys) -> None:
     csv_out = tmp_path / "triage.csv"
     out_dir = tmp_path / "diagnostics"
@@ -34,6 +62,7 @@ def test_main_exports_empty_triage_csv_with_compact_empty_summary(monkeypatch, t
     monkeypatch.setattr(missing_mod, "OUTPUT_DIR", out_dir)
     monkeypatch.setattr(missing_mod, "CSV_OUT", csv_out)
     monkeypatch.setattr(missing_mod, "VT_TAIL_CSV_OUT", out_dir / "android_missing_resolution_vt_tail_latest.csv")
+    monkeypatch.setattr(missing_mod, "_export_lane_worklists", lambda *_args, **_kwargs: {})
 
     exit_code = missing_mod.main()
     out = capsys.readouterr().out

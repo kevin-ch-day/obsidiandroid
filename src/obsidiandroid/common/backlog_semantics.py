@@ -966,6 +966,7 @@ def build_backlog_debt_summary(
             "top_lane_count": safe_int(triage.get("top_lane_count", 0), 0),
             "vt_tail_review_count": safe_int(lane_counts.get("vt_tail_review", 0), 0),
             "vt_tail_export": "output/diagnostics/android_missing_resolution_vt_tail_latest.csv",
+            "lane_worklist_export_pattern": "output/diagnostics/android_missing_resolution_lane_*_latest.csv",
         }
     if str(top.get("code", "") or "") == BACKLOG_ROW_POLICY_HELD_FAMILY:
         triage = policy_held_triage if isinstance(policy_held_triage, dict) else {}
@@ -986,6 +987,21 @@ def build_backlog_debt_summary(
             "top_android_package_name_count": safe_int(triage.get("top_android_package_name_count", 0), 0),
             "high_or_strong_row_count": safe_int(triage.get("high_or_strong_row_count", 0), 0),
             "missing_primary_lane_split": _format_missing_primary_lane_split(missing_primary_lanes),
+        }
+    if str(top.get("code", "") or "") == BACKLOG_ROW_BLANK_RESOLVED_FAMILY:
+        triage = blank_resolved_triage if isinstance(blank_resolved_triage, dict) else {}
+        lane_counts = (
+            triage.get("lane_counts", {}) if isinstance(triage.get("lane_counts"), dict) else {}
+        )
+        return_payload["focus_structured"] = {
+            "source": "live DB current-state view, not frozen run snapshot",
+            "freshness": str(triage.get("freshness", "") or "").strip() or "unknown",
+            "lane_counts": lane_counts,
+            "top_lane": str(triage.get("top_lane", "") or "").strip(),
+            "top_lane_count": safe_int(triage.get("top_lane_count", 0), 0),
+            "singleton_provenance_count": safe_int(lane_counts.get("singleton_provenance_review", 0), 0),
+            "singleton_export": "output/diagnostics/blank_resolved_singleton_provenance_latest.csv",
+            "singleton_cluster_export": "output/diagnostics/blank_resolved_singleton_package_clusters_latest.csv",
         }
     return return_payload
 

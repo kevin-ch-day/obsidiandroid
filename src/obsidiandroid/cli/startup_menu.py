@@ -551,6 +551,14 @@ def _run_missing_primary_label_triage_script() -> int:
     )
 
 
+def _run_vendor_verdict_debt_script() -> int:
+    """Invoke the vendor verdict debt diagnostics script."""
+    return _diagnostics_menu.run_vendor_verdict_debt_script(
+        operator_script_resolver=repo_operator_script,
+        subprocess_run=subprocess.run,
+    )
+
+
 def _assess_backlog_triage_health() -> dict[str, object]:
     """Assess backlog triage export freshness against live debt signals."""
     from obsidiandroid.common.backlog_semantics import (
@@ -664,6 +672,11 @@ def _launch_data_diagnostics_menu() -> None:
         refresh_backlog_triage_exports_action=_refresh_backlog_triage_exports,
         launch_android_missing_resolution_triage_action=_run_android_missing_resolution_triage_script,
         launch_vt_false_positive_review_triage_action=_run_vt_false_positive_review_triage_script,
+        launch_missing_primary_label_triage_action=_run_missing_primary_label_triage_script,
+        launch_blank_resolved_family_triage_action=_run_blank_resolved_family_triage_script,
+        launch_policy_held_token_risk_action=_run_policy_held_token_risk_script,
+        launch_profile_family_mapping_debt_action=_run_profile_family_mapping_debt_script,
+        launch_vendor_verdict_debt_action=_run_vendor_verdict_debt_script,
     )
 
 

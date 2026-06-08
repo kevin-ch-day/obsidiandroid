@@ -619,7 +619,7 @@ This section is historical only. See **Snapshot — current truth** for the acti
 
 | Item | Notes |
 |------|-------|
-| **CI workflow** | **`workflow_dispatch`** (manual runs); **`permissions: contents: read`**; **pip cache** keys on **`requirements.txt`** + **`pyproject.toml`**; **`pip check`** after install; **Python 3.10 and 3.12** matrix (**`fail-fast: false`**). |
+| **CI workflow** | **`workflow_dispatch`** (manual runs); **`permissions: contents: read`**; **pip cache** keys on **`requirements.txt`** + **`pyproject.toml`**; **`pip check`** after install; **Python 3.11 and 3.12** fast matrix (**`fail-fast: false`**); integration jobs path-filtered on PRs. |
 | **Dependabot** | **`pip`** ecosystem weekly on repo root **`requirements.txt`** (**`increase-if-necessary`**). |
 | **Makefile** | **`.DEFAULT_GOAL := help`** — bare **`make`** prints targets. |
 | **`.python-version`** | **`3.12`** — optional hint for **pyenv**/asdf (matches primary CI version). |

@@ -23,6 +23,35 @@ from obsidiandroid.database import db_engine
 OUTPUT_DIR = Path("output") / "diagnostics"
 CSV_OUT = OUTPUT_DIR / "android_missing_resolution_triage_latest.csv"
 VT_TAIL_CSV_OUT = OUTPUT_DIR / "android_missing_resolution_vt_tail_latest.csv"
+SKIP_LANE_WORKLIST_EXPORTS = frozenset({"vt_tail_review"})
+
+
+def _lane_worklist_path(review_lane: str) -> Path:
+    """Return the stable per-lane worklist export path for ``review_lane``."""
+    safe_lane = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in str(review_lane or "").strip())
+    return OUTPUT_DIR / f"android_missing_resolution_lane_{safe_lane}_latest.csv"
+
+
+def _export_lane_worklists(
+    detail_rows: pd.DataFrame,
+    lane_counts: pd.DataFrame,
+) -> dict[str, Path]:
+    """Write one CSV per non-VT-tail review lane that still has queued rows."""
+    exports: dict[str, Path] = {}
+    if detail_rows.empty or lane_counts.empty or "review_lane" not in detail_rows.columns:
+        return exports
+    for _, lane_row in lane_counts.iterrows():
+        review_lane = str(lane_row.get("review_lane", "") or "").strip()
+        row_count = int(lane_row.get("row_count", 0) or 0)
+        if not review_lane or row_count <= 0 or review_lane in SKIP_LANE_WORKLIST_EXPORTS:
+            continue
+        lane_rows = detail_rows.loc[detail_rows["review_lane"] == review_lane]
+        if lane_rows.empty:
+            continue
+        export_path = _lane_worklist_path(review_lane)
+        lane_rows.to_csv(export_path, index=False)
+        exports[review_lane] = export_path
+    return exports
 
 
 def _fetch_dataframe(query: str) -> pd.DataFrame:
@@ -140,9 +169,13 @@ def main() -> int:
     detail_rows.to_csv(CSV_OUT, index=False)
     vt_tail_rows = report["vt_tail_rows"]
     vt_tail_rows.to_csv(VT_TAIL_CSV_OUT, index=False)
+    lane_worklists = _export_lane_worklists(detail_rows, report["lane_counts"])
 
     print(f"[EXPORT] Android missing-resolution triage: {CSV_OUT.as_posix()}")
     print(f"[EXPORT] Android VT-tail review lane: {VT_TAIL_CSV_OUT.as_posix()}")
+    for review_lane, export_path in sorted(lane_worklists.items()):
+        lane_count = len(detail_rows.loc[detail_rows["review_lane"] == review_lane])
+        print(f"[EXPORT] Android lane worklist ({review_lane}): {export_path.as_posix()} ({lane_count} row(s))")
     print(f"Rows: {len(detail_rows)}")
     if detail_rows.empty:
         print("Status: no queued Android missing-resolution review rows.")

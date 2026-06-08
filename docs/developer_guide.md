@@ -28,11 +28,11 @@ This guide documents the day-to-day workflow for engineers extending ObsidianDro
 
 ### Continuous integration
 
-GitHub Actions runs **`make verify`** and **`make ml-scan-strict`** on pushes to **`main`**, on pull requests, and on **workflow dispatch** (see **`.github/workflows/ci.yml`**). The job uses a **Python 3.10 / 3.12** matrix, **`pip check`** after install, and **`contents: read`** permissions. Run **`make ci`** locally for the same gates. Dependabot bumps **GitHub Actions** monthly and **`requirements.txt`** weekly (see **`.github/dependabot.yml`**).
+GitHub Actions runs **`make verify`** and **`make ml-scan-strict`** on pushes to **`main`**, on pull requests, and on **workflow dispatch** (see **`.github/workflows/ci.yml`**). The fast job uses a **Python 3.11 / 3.12** matrix, **`pip check`** after install, and **`contents: read`** permissions. Integration jobs run only when pipeline-related paths change on pull requests (always on **`main`** pushes). Run **`make ci`** locally for the same gates. Dependabot bumps **GitHub Actions** monthly and **`requirements.txt`** weekly (see **`.github/dependabot.yml`**).
 
 ### Importing the `obsidiandroid` package (`src/` layout)
 
-Optional: if you use **pyenv** or **asdf**, see repo-root **`.python-version`** (**`3.12`**, aligned with CI). Supported interpreters follow **`pyproject.toml`** **`requires-python`** (currently **≥ 3.10**).
+Optional: if you use **pyenv** or **asdf**, see repo-root **`.python-version`** (**`3.12`**, aligned with CI). Supported interpreters follow **`pyproject.toml`** **`requires-python`** (currently **≥ 3.11**).
 
 Canonical library code under **`src/obsidiandroid/`** should be importable as **`obsidiandroid`**. Recommended setups:
 
