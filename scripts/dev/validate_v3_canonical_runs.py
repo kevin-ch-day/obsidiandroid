@@ -48,6 +48,28 @@ REQUIRED_ML_MANIFEST_REFS = (
 TAG_READY_PIPELINE_STATUSES = frozenset({"PASS", "PASS_WITH_WARNINGS"})
 
 
+def _resolve_reference_path(ref: str, *, repo_root: Path) -> Path | None:
+    """Resolve artifact references stored as absolute or repo-relative paths."""
+    token = str(ref or "").strip()
+    if not token:
+        return None
+    candidate = Path(token)
+    if candidate.is_file():
+        return candidate
+    if not candidate.is_absolute():
+        repo_relative = repo_root / candidate
+        if repo_relative.is_file():
+            return repo_relative
+    text = token.replace("\\", "/")
+    for marker in ("artifacts/baselines/", "artifacts/"):
+        idx = text.find(marker)
+        if idx >= 0:
+            repo_relative = repo_root / text[idx:]
+            if repo_relative.is_file():
+                return repo_relative
+    return None
+
+
 def _default_runs_root() -> Path:
     output_root = str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output") or "output").strip()
     return Path(output_root) / "runs"
@@ -252,7 +274,7 @@ def _verify_run(
             "v3_dl_handoff_summary",
         ):
             ref = str(v3_dl_handoff.get(key, "") or "").strip()
-            if ref and not Path(ref).is_file():
+            if ref and _resolve_reference_path(ref, repo_root=REPO_ROOT) is None:
                 caveats.append(f"v3_dl_handoff path missing on disk: {key}")
         if strict and v3_dl_handoff.get("dl_seed_status") != "ready":
             caveats.append(

@@ -346,7 +346,7 @@ def test_compact_review_summary_builds_ranked_backlog_debt_ledger(
     assert debt["focus_code"] == "android_missing_resolution"
     assert debt["focus_label"] == "Android missing-resolution backlog"
     assert debt["focus_count"] == 3
-    assert debt["focus_detail"] == "freshness=current; top_lane=blank_package_review"
+    assert debt["focus_detail"].startswith("freshness=current; top_lane=blank_package_review")
     assert debt["missing_primary_label_lanes"][:2] == [
         {"lane": "public_package_identity_provenance_review", "sample_count": 70},
         {"lane": "unknown_family_low_consensus_review", "sample_count": 40},

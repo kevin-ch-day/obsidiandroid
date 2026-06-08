@@ -8,7 +8,24 @@ from typing import Any
 
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.json_io import read_json_dict
+from obsidiandroid.common.repo_paths import repo_root
 from obsidiandroid.diagnostics.run_artifact_resolve import resolve_run_artifact_path
+
+
+def portable_repo_path(path: Path | str) -> str:
+    """Serialize artifact paths relative to the repository root when possible."""
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        return str(candidate).replace("\\", "/")
+    try:
+        return str(candidate.resolve().relative_to(repo_root().resolve())).replace("\\", "/")
+    except ValueError:
+        text = str(candidate).replace("\\", "/")
+        for marker in ("artifacts/baselines/", "artifacts/"):
+            idx = text.find(marker)
+            if idx >= 0:
+                return text[idx:]
+        return text
 
 
 def build_v3_dl_handoff_summary_payload(
@@ -53,7 +70,7 @@ def build_v3_dl_handoff_summary_payload(
                 missing_refs.append(key)
                 continue
             path = resolved
-        present_refs[key] = str(path)
+        present_refs[key] = portable_repo_path(path)
     split_hash = None
     split_meta = manifest.get("split") if isinstance(manifest.get("split"), dict) else {}
     if isinstance(split_meta, dict):
@@ -146,10 +163,12 @@ def build_v3_dl_handoff_observability_block(
         "sample_label_rows": int(handoff.get("sample_label_rows", 0) or 0) or None,
         "split_hash": handoff.get("split_hash"),
         "split_export_present": bool(handoff.get("split_export_present")),
-        "ml_run_manifest": str(diagnostics_dir / f"ml_run_manifest_{run_id}.json"),
-        "ml_sample_label_fact": str(diagnostics_dir / f"ml_sample_label_fact_{run_id}.csv"),
-        "ml_permission_vocabulary": str(diagnostics_dir / f"ml_permission_vocabulary_{run_id}.json"),
-        "v3_dl_handoff_summary": str(handoff_path),
+        "ml_run_manifest": portable_repo_path(diagnostics_dir / f"ml_run_manifest_{run_id}.json"),
+        "ml_sample_label_fact": portable_repo_path(diagnostics_dir / f"ml_sample_label_fact_{run_id}.csv"),
+        "ml_permission_vocabulary": portable_repo_path(
+            diagnostics_dir / f"ml_permission_vocabulary_{run_id}.json"
+        ),
+        "v3_dl_handoff_summary": portable_repo_path(handoff_path),
     }
 
 

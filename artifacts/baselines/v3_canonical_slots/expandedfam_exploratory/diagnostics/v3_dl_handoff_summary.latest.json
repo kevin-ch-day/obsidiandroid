@@ -12,10 +12,10 @@
   "run_id": "20260606T900002Z__fixture2",
   "sample_label_rows": 1,
   "seed_refs_present": {
-    "ml_permission_vocabulary": "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/baselines/v3_canonical_slots/expandedfam_exploratory/diagnostics/ml_permission_vocabulary_20260606T900002Z__fixture2.json",
-    "ml_sample_label_fact": "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/baselines/v3_canonical_slots/expandedfam_exploratory/diagnostics/ml_sample_label_fact_20260606T900002Z__fixture2.csv",
-    "permission_pattern_contract": "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/baselines/v3_canonical_slots/expandedfam_exploratory/diagnostics/permission_pattern_contract_20260606T900002Z__fixture2.json",
-    "v3_label_contract": "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/baselines/v3_canonical_slots/expandedfam_exploratory/diagnostics/v3_label_contract_20260606T900002Z__fixture2.json"
+    "ml_permission_vocabulary": "artifacts/baselines/v3_canonical_slots/expandedfam_exploratory/diagnostics/ml_permission_vocabulary_20260606T900002Z__fixture2.json",
+    "ml_sample_label_fact": "artifacts/baselines/v3_canonical_slots/expandedfam_exploratory/diagnostics/ml_sample_label_fact_20260606T900002Z__fixture2.csv",
+    "permission_pattern_contract": "artifacts/baselines/v3_canonical_slots/expandedfam_exploratory/diagnostics/permission_pattern_contract_20260606T900002Z__fixture2.json",
+    "v3_label_contract": "artifacts/baselines/v3_canonical_slots/expandedfam_exploratory/diagnostics/v3_label_contract_20260606T900002Z__fixture2.json"
   },
   "split_export_present": false,
   "split_hash": null,

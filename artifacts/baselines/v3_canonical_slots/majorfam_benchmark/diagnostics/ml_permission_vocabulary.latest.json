@@ -29,10 +29,10 @@
   "entry_count": 3,
   "permission_entry_count": 2,
   "prevalence_source_artifacts": [
-    "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/baselines/v3_canonical_slots/majorfam_benchmark/bundles/permission_trends/tables/permission_prevalence_by_type_20260606T900000Z__fixture0.csv",
-    "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/baselines/v3_canonical_slots/majorfam_benchmark/bundles/permission_trends/tables/permission_prevalence_by_family_20260606T900000Z__fixture0.csv"
+    "artifacts/baselines/v3_canonical_slots/majorfam_benchmark/bundles/permission_trends/tables/permission_prevalence_by_type_20260606T900000Z__fixture0.csv",
+    "artifacts/baselines/v3_canonical_slots/majorfam_benchmark/bundles/permission_trends/tables/permission_prevalence_by_family_20260606T900000Z__fixture0.csv"
   ],
   "run_id": "20260606T900000Z__fixture0",
-  "source_artifact": "/home/secadmin/Laughlin/GitHub/obsidiandroid/artifacts/baselines/v3_canonical_slots/majorfam_benchmark/bundles/permission_trends/contracts/permission_alias_map_20260606T900000Z__fixture0.json",
+  "source_artifact": "artifacts/baselines/v3_canonical_slots/majorfam_benchmark/bundles/permission_trends/contracts/permission_alias_map_20260606T900000Z__fixture0.json",
   "vocabulary_version": "ml_permission_vocabulary_v2"
 }

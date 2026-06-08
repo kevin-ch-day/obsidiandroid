@@ -7,7 +7,7 @@ name = "obsidiandroid"
 version = "2.1.0"
 description = "ObsidianDroid"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dynamic = ["dependencies"]
 
 [project.optional-dependencies]
