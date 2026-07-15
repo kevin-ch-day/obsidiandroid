@@ -2315,6 +2315,7 @@ def _build_family_signal_similarity(
             right_vec = np.array(pivot.loc[right_key], dtype=float)
             family_a, type_a, support_a = left_key
             family_b, type_b, support_b = right_key
+            spearman = _spearman_similarity_details(left_vec, right_vec)
             rows.append(
                 {
                     "family_a": str(family_a),
@@ -2325,7 +2326,13 @@ def _build_family_signal_similarity(
                     "support_b": int(support_b),
                     "jaccard_similarity": round(_jaccard_similarity(left_vec, right_vec), 6),
                     "cosine_similarity": round(_cosine_similarity(left_vec, right_vec), 6),
-                    "spearman_correlation": round(_spearman_similarity(left_vec, right_vec), 6),
+                    "spearman_correlation": (
+                        round(float(spearman["spearman_correlation"]), 6)
+                        if spearman["spearman_correlation"] is not None else None
+                    ),
+                    "correlation_status": spearman["correlation_status"],
+                    "left_profile_constant": spearman["left_profile_constant"],
+                    "right_profile_constant": spearman["right_profile_constant"],
                     "same_type_flag": bool(str(type_a) == str(type_b)),
                 }
             )
@@ -2510,14 +2517,27 @@ def _cosine_similarity(left: np.ndarray, right: np.ndarray) -> float:
     return float(np.dot(left, right) / (left_norm * right_norm))
 
 
-def _spearman_similarity(left: np.ndarray, right: np.ndarray) -> float:
+def _spearman_similarity_details(left: np.ndarray, right: np.ndarray) -> dict[str, Any]:
+    """Return Spearman value plus explicit undefined-input provenance."""
+    left_constant = bool(left.size and np.allclose(left, left[0], equal_nan=True))
+    right_constant = bool(right.size and np.allclose(right, right[0], equal_nan=True))
     if left.shape == right.shape and np.allclose(left, right, equal_nan=True):
-        return 1.0
+        return {"spearman_correlation": 1.0, "correlation_status": "identical_profile", "left_profile_constant": left_constant, "right_profile_constant": right_constant}
+    if left_constant or right_constant:
+        return {"spearman_correlation": None, "correlation_status": "constant_input", "left_profile_constant": left_constant, "right_profile_constant": right_constant}
     try:
         corr = pd.Series(left).corr(pd.Series(right), method="spearman")
-        return float(corr) if pd.notna(corr) else 0.0
+        if pd.notna(corr):
+            return {"spearman_correlation": float(corr), "correlation_status": "defined", "left_profile_constant": False, "right_profile_constant": False}
+        return {"spearman_correlation": None, "correlation_status": "undefined", "left_profile_constant": left_constant, "right_profile_constant": right_constant}
     except Exception:
-        return 0.0
+        return {"spearman_correlation": None, "correlation_status": "error", "left_profile_constant": left_constant, "right_profile_constant": right_constant}
+
+
+def _spearman_similarity(left: np.ndarray, right: np.ndarray) -> float:
+    """Compatibility wrapper; new report builders should retain details."""
+    value = _spearman_similarity_details(left, right)["spearman_correlation"]
+    return float(value) if value is not None else float("nan")
 
 
 def _jaccard_similarity(left: np.ndarray, right: np.ndarray) -> float:
@@ -2562,6 +2582,7 @@ def _build_family_permission_similarity(
             right_vec = np.array(pivot.loc[right_key], dtype=float)
             family_a, type_a, support_a = left_key
             family_b, type_b, support_b = right_key
+            spearman = _spearman_similarity_details(left_vec, right_vec)
             rows.append(
                 {
                     "family_a": str(family_a),
@@ -2572,7 +2593,13 @@ def _build_family_permission_similarity(
                     "support_b": int(support_b),
                     "jaccard_similarity": round(_jaccard_similarity(left_vec, right_vec), 6),
                     "cosine_similarity": round(_cosine_similarity(left_vec, right_vec), 6),
-                    "spearman_correlation": round(_spearman_similarity(left_vec, right_vec), 6),
+                    "spearman_correlation": (
+                        round(float(spearman["spearman_correlation"]), 6)
+                        if spearman["spearman_correlation"] is not None else None
+                    ),
+                    "correlation_status": spearman["correlation_status"],
+                    "left_profile_constant": spearman["left_profile_constant"],
+                    "right_profile_constant": spearman["right_profile_constant"],
                     "same_type_flag": bool(str(type_a) == str(type_b)),
                 }
             )
@@ -2620,6 +2647,7 @@ def _build_type_permission_similarity(
             right_vec = np.array(pivot.loc[right_key], dtype=float)
             type_a, support_a = left_key
             type_b, support_b = right_key
+            spearman = _spearman_similarity_details(left_vec, right_vec)
             rows.append(
                 {
                     "type_a": str(type_a),
@@ -2628,7 +2656,13 @@ def _build_type_permission_similarity(
                     "support_b": int(support_b),
                     "jaccard_similarity": round(_jaccard_similarity(left_vec, right_vec), 6),
                     "cosine_similarity": round(_cosine_similarity(left_vec, right_vec), 6),
-                    "spearman_correlation": round(_spearman_similarity(left_vec, right_vec), 6),
+                    "spearman_correlation": (
+                        round(float(spearman["spearman_correlation"]), 6)
+                        if spearman["spearman_correlation"] is not None else None
+                    ),
+                    "correlation_status": spearman["correlation_status"],
+                    "left_profile_constant": spearman["left_profile_constant"],
+                    "right_profile_constant": spearman["right_profile_constant"],
                 }
             )
     out = pd.DataFrame(rows).sort_values(

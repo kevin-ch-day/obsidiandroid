@@ -50,8 +50,12 @@ def compare_model_performance(
 
     headline_split_meta = getattr(app_config, "RUNTIME_HEADLINE_SPLIT_METADATA", None)
     split_hash_contract = ""
+    train_sample_hash_contract = ""
+    test_sample_hash_contract = ""
     if isinstance(headline_split_meta, dict):
         split_hash_contract = str(headline_split_meta.get("split_hash", "") or "")
+        train_sample_hash_contract = str(headline_split_meta.get("train_sample_hash", "") or "")
+        test_sample_hash_contract = str(headline_split_meta.get("test_sample_hash", "") or "")
     feature_hash_headline = str(getattr(app_config, "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH", "") or "")
 
     summary_rows = []
@@ -69,7 +73,11 @@ def compare_model_performance(
             mdl = result.get("model") if isinstance(result, dict) else None
             fit_h = ""
             if mdl is not None and hasattr(mdl, "feature_names_in_"):
-                fit_h = hash_payload(sorted(str(x) for x in mdl.feature_names_in_))
+                # The final feature contract is ordered.  Sorting here would
+                # make a reordered training matrix appear equivalent and would
+                # produce a different hash from the contract even when a model
+                # was trained on its exact ordered column sequence.
+                fit_h = hash_payload([str(x) for x in mdl.feature_names_in_])
             summary_rows.append(
                 {
                     "Model": model_name,
@@ -81,8 +89,12 @@ def compare_model_performance(
                     "Samples": eval_data.get("samples_tested", 0),
                     "Classes": eval_data.get("num_classes", "-"),
                     "split_hash": split_hash_contract,
+                    "train_sample_hash": train_sample_hash_contract,
+                    "test_sample_hash": test_sample_hash_contract,
                     "headline_feature_column_hash": feature_hash_headline,
                     "fit_feature_column_hash": fit_h,
+                    "evaluation_label_count": eval_data.get("num_confusion_labels", eval_data.get("num_classes", "-")),
+                    "evaluation_label_hash": str(eval_data.get("evaluation_label_hash", "") or ""),
                 }
             )
         except Exception as exc:

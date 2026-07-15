@@ -71,7 +71,7 @@ def test_write_paper_claim_audit_md_keeps_table_rows_single_line(tmp_path) -> No
     assert (diagnostics_dir / "research_claim_audit.md").exists()
 
 
-def test_write_paper_claim_audit_md_can_use_global_latest_ablation_and_model_summary(
+def test_write_paper_claim_audit_md_rejects_global_latest_ablation_without_run_identity(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -110,9 +110,54 @@ def test_write_paper_claim_audit_md_can_use_global_latest_ablation_and_model_sum
     )
 
     text = out.read_text(encoding="utf-8")
-    assert "full_fused=0.9; safer_vendor_baseline=0.8" in text
+    assert "full_fused=0.9; safer_vendor_baseline=0.8" not in text
+    assert "missing_run_scoped_ablation_artifact" in text
     assert "random_forest / Macro-F1≈0.9100" in text or "random_forest" in text
     assert "publication/evidence mode ON" in text
+
+
+def test_write_paper_claim_audit_rejects_stale_ablation_when_current_run_disabled(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    diagnostics_dir = tmp_path / "output" / "runs" / "run123" / "diagnostics"
+    global_diag = tmp_path / "output" / "diagnostics"
+    diagnostics_dir.mkdir(parents=True)
+    global_diag.mkdir(parents=True, exist_ok=True)
+    from config import app_config
+
+    monkeypatch.setattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(tmp_path / "output"), raising=False)
+    (diagnostics_dir / "feature_set_ablation_summary.csv").write_text(
+        "status,run_id\nablation_summary_unavailable_or_empty,run123\n",
+        encoding="utf-8",
+    )
+    (global_diag / "ablation_summary.latest.csv").write_text(
+        "label_target,experiment,macro_f1_score\nfamily_id,full_fused,0.90\n",
+        encoding="utf-8",
+    )
+
+    out = write_paper_claim_audit_md(
+        diagnostics_dir=diagnostics_dir,
+        manifest={},
+        manifest_context={},
+        run_id="run123",
+    )
+
+    text = out.read_text(encoding="utf-8")
+    assert "full_fused=0.9" not in text
+    assert "Ablation evidence unavailable for this run (ablation_disabled)." in text
+
+
+def test_claim_audit_requires_annual_permission_artifact_for_temporal_claim(tmp_path) -> None:
+    out = write_paper_claim_audit_md(
+        diagnostics_dir=tmp_path,
+        manifest={},
+        manifest_context={},
+        run_id="run_temporal",
+    )
+    text = out.read_text(encoding="utf-8")
+    assert "annual_permission_trend_status=NOT_AVAILABLE" in text
+    assert "signal_decomposition_summary.csv" not in text
 
 
 def test_write_paper_claim_audit_md_uses_benchmark_heading_for_non_publication_surface(tmp_path) -> None:

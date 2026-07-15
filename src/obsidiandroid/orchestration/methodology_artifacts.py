@@ -40,6 +40,28 @@ def export_feature_contract(
     encoder_mappings = feature_df.attrs.get("encoder_mappings", {})
     selected_vendors = feature_df.attrs.get("selected_vendors", [])
 
+    # Encoder/source prefixes are not stable.  Match target-adjacent semantic
+    # tokens anywhere in the final feature name so aliases cannot bypass the
+    # publication gate.
+    prohibited_tokens = (
+        "parsed_family", "suggested_family", "family_token", "threat_class",
+        "malware_type", "type_slug", "suggested_threat_label",
+    )
+    prohibited_exact = {
+        "meta__has_vt_suggested_threat_label", "suggested_threat_label",
+        "vt_suggested_threat_label",
+    }
+    prohibited = [
+        col for col in feature_columns
+        if col.lower() in prohibited_exact
+        or any(token in col.lower() for token in prohibited_tokens)
+    ]
+    av_assisted = bool(getattr(app_config, "ENABLE_LABEL_DERIVED_VENDOR_FEATURES", False))
+    if bool(getattr(app_config, "PAPER_MODE_ENABLED", False)) and prohibited:
+        raise ValueError(
+            "publication feature gate failed: label-derived AV semantics remain in final feature list: "
+            + ", ".join(prohibited[:12])
+        )
     payload: dict[str, Any] = {
         "run_id": str(run_id),
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -47,6 +69,17 @@ def export_feature_contract(
         "selected_vendor_count": int(len(selected_vendors)),
         "feature_columns": feature_columns,
         "feature_column_hash": hash_payload(feature_columns),
+        "ordered_feature_columns_artifact": f"feature_columns_{run_id}.csv",
+        "feature_contract_id": str(getattr(
+            app_config,
+            "AV_ASSISTED_FEATURE_CONTRACT_ID" if av_assisted else "PRIMARY_FEATURE_CONTRACT_ID",
+            "av_assisted_family_attribution_v1" if av_assisted else "family_classification_label_independent_v1",
+        )),
+        "classification_surface": "av_assisted" if av_assisted else "label_independent",
+        "direct_target_proxies": int(len(prohibited)),
+        "target_adjacent_semantic_fields": int(len(prohibited)),
+        "prohibited_semantic_columns": prohibited,
+        "publication_gate": "PASS" if not prohibited else "NOT_APPLICABLE_AV_ASSISTED",
         "encoder_mappings": encoder_mappings if isinstance(encoder_mappings, dict) else {},
         "top_k": int(feature_df.attrs.get("feature_top_k", getattr(app_config, "FEATURE_TOP_K", 8))),
         "feature_score_field": str(feature_df.attrs.get("feature_score_field", "")),
@@ -64,6 +97,19 @@ def export_feature_contract(
         run_filename=stamped,
         payload=payload,
         global_latest_name="feature_contract.latest.json",
+    )
+    ordered_columns_csv = pd.DataFrame(
+        {
+            "run_id": str(run_id),
+            "column_order": range(len(feature_columns)),
+            "feature_column": feature_columns,
+        }
+    ).to_csv(index=False)
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=output_root,
+        run_filename=f"feature_columns_{run_id}.csv",
+        csv_text=ordered_columns_csv,
+        global_latest_name="feature_columns.latest.csv",
     )
     if not bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True)):
         stamped_path = output_root / stamped
@@ -93,14 +139,26 @@ def export_leakage_assessment(
         Path to run-scoped leakage assessment text artifact.
     """
     columns = [str(col).lower() for col in feature_df.columns.tolist()] if isinstance(feature_df, pd.DataFrame) else []
-    has_parsed_family = any(col.startswith("parsed_family_") for col in columns)
-    has_threat_class = any(col.startswith("threat_class_") for col in columns)
-    has_malware_type = any(col.startswith("malware_type_") for col in columns)
-
-    if has_parsed_family or has_threat_class or has_malware_type:
+    has_parsed_family = any("parsed_family" in col or "suggested_family" in col or "family_token" in col for col in columns)
+    has_threat_class = any("threat_class" in col for col in columns)
+    has_malware_type = any("malware_type" in col or "type_slug" in col for col in columns)
+    has_suggested_threat = any("suggested_threat_label" in col for col in columns)
+    semantic_column_count = sum(
+        int(
+            "parsed_family" in col
+            or "suggested_family" in col
+            or "family_token" in col
+            or "threat_class" in col
+            or "malware_type" in col
+            or "type_slug" in col
+            or "suggested_threat_label" in col
+        )
+        for col in columns
+    )
+    if semantic_column_count:
         leakage_class = "AV-label-informed classification"
     else:
-        leakage_class = "Lower AV-label coupling"
+        leakage_class = "label_independent"
 
     lines = [
         f"Run ID: {run_id}",
@@ -108,8 +166,13 @@ def export_leakage_assessment(
         f"Parsed Family used in features (weak vendor support only): {'Yes' if has_parsed_family else 'No'}",
         f"Threat Class used (weak vendor support only): {'Yes' if has_threat_class else 'No'}",
         f"Malware Type used (weak vendor support only): {'Yes' if has_malware_type else 'No'}",
+        f"Suggested Threat Label indicator used: {'Yes' if has_suggested_threat else 'No'}",
         "Ground truth label source: family_id",
         f"Leakage risk classification: {leakage_class}",
+        f"classification_surface={'av_assisted' if leakage_class != 'label_independent' else 'label_independent'}",
+        f"direct_target_proxies={semantic_column_count}",
+        f"target_adjacent_semantic_fields={semantic_column_count}",
+        f"publication_gate={'PASS' if leakage_class == 'label_independent' else 'FAIL'}",
     ]
 
     body = "\n".join(lines) + "\n"
@@ -167,6 +230,15 @@ def export_modality_method_contract(
 
     av_prefixes = ("parsed_family_", "threat_class_", "malware_type_")
     av_cols = [col for col in fusion_cols if col.startswith(av_prefixes)]
+    label_derived_fields = [
+        field
+        for field, prefix in (
+            ("Parsed Family", "parsed_family_"),
+            ("Threat Class", "threat_class_"),
+            ("Malware Type", "malware_type_"),
+        )
+        if any(col.startswith(prefix) for col in av_cols)
+    ]
     perm_cols_in_fusion = [col for col in fusion_cols if col.startswith("perm__")]
     other_cols = [
         col for col in fusion_cols
@@ -189,8 +261,12 @@ def export_modality_method_contract(
             "features_coupled_to_consensus_threshold": False,
         },
         "av_modality": {
-            "representation": "categorical_vendor_parsed_labels_encoded_as_integers",
-            "fields": ["Parsed Family", "Threat Class", "Malware Type"],
+            "representation": (
+                "categorical_vendor_parsed_labels_encoded_as_integers"
+                if av_cols
+                else "no_label_derived_vendor_fields_in_fusion"
+            ),
+            "fields": label_derived_fields,
             "feature_count_in_fusion": int(len(av_cols)),
             "feature_columns_hash": hash_payload(av_cols),
             "coupled_to_vendor_gating": True,

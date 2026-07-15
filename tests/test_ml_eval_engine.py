@@ -160,6 +160,31 @@ def test_evaluation_remaps_model_local_prediction_indices_before_scoring(monkeyp
     assert list(result["y_pred"]) == [10, 12, 13, 10]
 
 
+def test_evaluation_scores_macro_f1_on_fixed_true_label_universe(monkeypatch):
+    """Prediction-only classes must not change a shared test partition's Macro-F1 denominator."""
+    y_test = np.array([0, 1])
+    x_test = np.zeros((2, 1))
+    monkeypatch.setattr(
+        ml_eval_engine.export_manager,
+        "export_confusion_matrix",
+        lambda **kwargs: "cm.png",
+    )
+
+    result = ml_eval_engine.evaluate_model_performance(
+        model=_DummyModel(np.array([0, 2])),
+        X_test=x_test,
+        y_test=y_test,
+        verbose=False,
+    )
+
+    assert result["num_classes"] == 2
+    assert result["num_confusion_labels"] == 2
+    assert result["prediction_only_class_count"] == 1
+    assert result["macro_f1_score"] == 0.5
+    assert result["evaluation_labels"] == [0, 1]
+    assert result["evaluation_label_hash"]
+
+
 def test_display_post_training_metrics_ablation_quiet_mode_accumulates_rows(monkeypatch) -> None:
     monkeypatch.setattr(app_config, "RUNTIME_QUIET_TRAINING", True, raising=False)
     monkeypatch.setattr(app_config, "RUNTIME_ABLATION_ACTIVE", True, raising=False)

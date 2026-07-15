@@ -151,6 +151,19 @@ def _collect_leakage_pruning_audit(
         "classification_label",
         "family_name",
     }
+    # Match semantic tokens anywhere in an encoded column name.  Feature
+    # encoders may prefix the source field (for example
+    # ``vendor_parsed_threat_class_*``), so prefix-only matching leaves aliases
+    # of target-adjacent AV semantics in a supposedly label-independent run.
+    semantic_tokens = (
+        "parsed_family", "suggested_family", "family_token", "threat_class",
+        "malware_type", "type_slug", "suggested_threat_label",
+    )
+    semantic_exact = {
+        "meta__has_vt_suggested_threat_label", "suggested_threat_label",
+        "vt_suggested_threat_label",
+    }
+    allow_av_assisted = bool(getattr(app_config, "ENABLE_LABEL_DERIVED_VENDOR_FEATURES", False))
     idx_as_str = features_df.index.map(str)
 
     for col in features_df.columns:
@@ -158,9 +171,15 @@ def _collect_leakage_pruning_audit(
         reason = None
         details = ""
 
-        if col_name.lower() in blocked_exact:
+        normalized_col = col_name.lower()
+        if normalized_col in blocked_exact:
             reason = "blocked_exact_name"
             details = "column name matches known identifier or label field"
+        elif not allow_av_assisted and (
+            normalized_col in semantic_exact or any(token in normalized_col for token in semantic_tokens)
+        ):
+            reason = "label_independent_contract_block"
+            details = "direct or target-adjacent AV naming semantic prohibited in primary family benchmark"
         else:
             try:
                 if features_df[col].map(str).equals(idx_as_str):

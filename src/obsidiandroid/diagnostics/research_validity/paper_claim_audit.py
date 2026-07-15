@@ -43,8 +43,35 @@ def _read_csv_exists(path: Path) -> list[dict[str, Any]]:
     return pd.read_csv(path).to_dict(orient="records")
 
 
+def _ablation_status(diagnostics_dir: Path, run_id: str) -> tuple[str, str]:
+    """Return a fail-closed status for ablation evidence in this run."""
+    status_path = diagnostics_dir / "feature_set_ablation_summary.csv"
+    for row in _read_csv_exists(status_path):
+        if str(row.get("run_id", run_id)).strip() == str(run_id) and str(
+            row.get("status", "")
+        ).strip() in {"ablation_summary_unavailable_or_empty", "unavailable"}:
+            return "unavailable", "ablation_disabled"
+    scoped = diagnostics_dir / f"ablation_summary_{run_id}.csv"
+    if not scoped.is_file():
+        return "unavailable", "missing_run_scoped_ablation_artifact"
+    return "available", ""
+
+
 def _ablation_rows(diagnostics_dir: Path, run_id: str) -> list[dict[str, Any]]:
-    return _read_csv_exists(oh.resolve_ablation_summary_path(diagnostics_dir, run_id))
+    # A diagnostic run writes this sentinel when ablations are disabled.  Do not
+    # silently substitute an older global ``latest`` file, which would attach
+    # another run's rows to the present claim audit.
+    status, _reason = _ablation_status(diagnostics_dir, run_id)
+    if status != "available":
+        return []
+    # Claim-generating reports must never consume a global/latest fallback.
+    # A filename is insufficient provenance, so rows also require this run ID.
+    rows = _read_csv_exists(diagnostics_dir / f"ablation_summary_{run_id}.csv")
+    explicit_run_ids = {str(row.get("run_id", "")).strip() for row in rows}
+    explicit_run_ids.discard("")
+    if explicit_run_ids != {str(run_id)}:
+        return []
+    return rows
 
 
 def _max_f1_by_experiment(
@@ -77,7 +104,14 @@ def _model_top_macro_f1(diagnostics_dir: Path, run_id: str) -> tuple[str, float 
         try:
             mcdf = pd.read_csv(path)
             if not mcdf.empty and "Model" in mcdf.columns:
-                col = "Macro-F1 Score" if "Macro-F1 Score" in mcdf.columns else None
+                col = next(
+                    (
+                        candidate
+                        for candidate in ("Macro-F1 Score", "Macro F1-Score", "MacroF1")
+                        if candidate in mcdf.columns
+                    ),
+                    None,
+                )
                 if col is not None:
                     mcdf = mcdf.dropna(subset=[col])
                     if not mcdf.empty:
@@ -173,6 +207,7 @@ def write_paper_claim_audit_md(
     model_summary = mctx.get("model_summary") or man.get("model_summary") or {}
     top_model = str(model_summary.get("top_model", "") or "")
 
+    ablation_status, ablation_reason = _ablation_status(diagnostics_dir, run_id)
     ablation_rows = _ablation_rows(diagnostics_dir, run_id)
     max_by_exp = _max_f1_by_experiment(ablation_rows)
     fused = max_by_exp.get("full_fused")
@@ -209,14 +244,23 @@ def write_paper_claim_audit_md(
     compliance_path = man.get("paper_mode_compliance_report") or diagnostics_dir / f"paper_mode_compliance_report_{run_id}.json"
 
     population_line = _cohort_snapshot(man, mctx)
-    ablation_evidence = f"ablation_summary_{run_id}.csv or ablation_summary.latest.csv"
+    ablation_evidence = (
+        f"status=unavailable; reason={ablation_reason}; run_id={run_id}"
+        if ablation_status != "available"
+        else f"ablation_summary_{run_id}.csv"
+    )
     model_evidence = f"model_comparison_summary_{run_id}.csv or model_comparison_summary.latest.csv"
 
-    # Permission trends: bundle paths differ; look for run-scoped or latest under diagnostics/bundles is out of scope here.
-    trend_paths = list(diagnostics_dir.glob("permission_trends*.md")) + list(
-        diagnostics_dir.glob("**/generic_consensus_vs_entropy*.png")
+    # A cross-sectional heatmap is not temporal evidence. Only an artifact with
+    # a year dimension and annual prevalence is eligible to support a temporal
+    # permission claim.
+    annual_paths = list(diagnostics_dir.glob(f"**/permission_prevalence_by_year*{run_id}*.csv"))
+    annual_paths += list(diagnostics_dir.glob(f"**/annual_permission_prevalence*{run_id}*.csv"))
+    trend_evidence = (
+        annual_paths[0].name
+        if annual_paths
+        else "annual_permission_trend_status=NOT_AVAILABLE"
     )
-    trend_evidence = trend_paths[0].name if trend_paths else "MISSING — permission trends bundle not copied to diagnostics"
 
     claim_rows: list[dict[str, str]] = []
 
@@ -260,7 +304,11 @@ def write_paper_claim_audit_md(
     else:
         fused_status = "UNSUPPORTED"
         fused_metric = "n/a"
-        fused_rationale = "Missing fused or safer vendor-baseline rows for preferred family target in ablation summary."
+        fused_rationale = (
+            "Ablation evidence unavailable for this run (ablation_disabled)."
+            if ablation_status != "available"
+            else "Missing fused or safer vendor-baseline rows for preferred family target in ablation summary."
+        )
 
     add(
         claim="Fused multimodal features are strictly best overall",
@@ -273,7 +321,11 @@ def write_paper_claim_audit_md(
     )
 
     if perm_raw is None:
-        perm_status, perm_metric, perm_reason = ("UNSUPPORTED", "n/a", "No permissions_raw ablation rows.")
+        perm_status, perm_metric, perm_reason = (
+            "UNSUPPORTED", "n/a",
+            "Ablation evidence unavailable for this run (ablation_disabled)."
+            if ablation_status != "available" else "No permissions_raw ablation rows.",
+        )
     else:
         if perm_raw >= 0.35:
             perm_status = "NEEDS_REVISION"
@@ -349,11 +401,8 @@ def write_paper_claim_audit_md(
     temporal_status = "UNSUPPORTED"
     temporal_metric = trend_evidence
     temporal_reason = "Random split evaluations do not imply 2026 outlook; require temporal holdouts (train≤year vs test≥year)."
-    sig_path = diagnostics_dir / "signal_decomposition_summary.csv"
-    if sig_path.exists():
-        temporal_metric += f"; descriptive tables may exist near {sig_path.name}"
-    else:
-        temporal_metric += "; signal_decomposition_summary.csv missing"
+    if not annual_paths:
+        temporal_metric += "; annual permission prevalence artifact absent"
 
     add(
         claim="Permission prevalence trends demonstrate temporal evolution 2020–2025 predictive of future years",
@@ -419,6 +468,7 @@ def write_paper_claim_audit_md(
         f"# {title} (machine-assisted, strict)",
         "",
         f"**Primary surface:** {surface_label}",
+        f"**Ablation evidence:** status={ablation_status}; reason={ablation_reason or 'n/a'}; run_id={run_id}",
         "",
         "Each row binds a conversational claim to an **evidence artifact**, **metric/value**, ",
         "**population string**, adjudication status, and **replacement wording**. ",

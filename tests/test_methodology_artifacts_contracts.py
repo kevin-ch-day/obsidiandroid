@@ -41,6 +41,29 @@ def test_export_feature_contract_suppresses_local_latest_json(run_diagnostics_di
     assert not (run_diagnostics_dir / "feature_contract.latest.json").exists()
     g_latest = _global_diagnostics(run_diagnostics_dir) / "feature_contract.latest.json"
     assert g_latest.is_file()
+    ordered = run_diagnostics_dir / "feature_columns_rid_methodology.csv"
+    assert ordered.is_file()
+    assert pd.read_csv(ordered)["feature_column"].tolist() == ["a", "b"]
+
+
+def test_publication_feature_contract_rejects_av_label_semantics(run_diagnostics_dir: Path, monkeypatch) -> None:
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", True, raising=False)
+    with pytest.raises(ValueError, match="publication feature gate failed"):
+        methodology_artifacts.export_feature_contract(
+            feature_df=pd.DataFrame({"parsed_family_vendor": [1, 2]}),
+            run_id="rid_methodology",
+            output_dir=str(run_diagnostics_dir),
+        )
+
+
+def test_publication_feature_contract_rejects_aliased_av_label_semantics(run_diagnostics_dir: Path, monkeypatch) -> None:
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", True, raising=False)
+    with pytest.raises(ValueError, match="publication feature gate failed"):
+        methodology_artifacts.export_feature_contract(
+            feature_df=pd.DataFrame({"vendor_parsed_threat_class_engine": [1, 2]}),
+            run_id="rid_methodology",
+            output_dir=str(run_diagnostics_dir),
+        )
 
 
 def test_export_leakage_assessment_suppresses_local_latest_txt(run_diagnostics_dir: Path) -> None:
@@ -108,6 +131,21 @@ def test_export_modality_method_contract_writes_expected_fields(run_diagnostics_
     assert payload["fusion_modality"]["feature_count_total"] == 6
     assert payload["fusion_modality"]["feature_count_permission"] == 2
     assert payload["fusion_modality"]["feature_count_other"] == 1
+
+
+def test_export_modality_contract_marks_safe_fusion_without_label_derived_vendor_fields(
+    run_diagnostics_dir: Path,
+) -> None:
+    out = methodology_artifacts.export_modality_method_contract(
+        permission_df=None,
+        fusion_feature_df=pd.DataFrame({"perm__internet": [1], "malicious_ratio": [0.5]}),
+        run_id="safe_fusion",
+        output_dir=str(run_diagnostics_dir),
+    )
+    payload = json.loads(Path(out).read_text(encoding="utf-8"))
+    assert payload["av_modality"]["representation"] == "no_label_derived_vendor_fields_in_fusion"
+    assert payload["av_modality"]["fields"] == []
+    assert payload["av_modality"]["feature_count_in_fusion"] == 0
 
 
 def test_methodology_exports_omit_stamped_run_duplicates_in_compact_mode(

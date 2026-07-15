@@ -544,7 +544,10 @@ def build_feature_vector(
     elif ml_console.is_compact():
         du.print_info("[FEATURE BUILD] Building AV feature matrix...")
 
-    fields = include_fields or ["Parsed Family", "Threat Class", "Malware Type"]
+    # An omitted field list is a safe contract: retain binary/consensus
+    # enrichment but do not add lexical vendor labels.  Label-derived fields
+    # must be supplied explicitly by a scoped ablation or experiment.
+    fields = list(include_fields or [])
     requested_top_k = int(top_k)
     min_selected_vendors = safe_int_config_value(
         getattr(app_config, "FEATURE_MIN_SELECTED_VENDORS", 1), default=1
@@ -664,9 +667,17 @@ def build_feature_vector(
     if merged.empty:
         return pd.DataFrame()
 
-    # Step 3: Feature Encoding
-    encoded = encode_features(merged, encoding=encoding, verbose=verbose, skip_numeric=True)
-    if encoded.empty:
+    # Step 3: Feature Encoding.  A safe headline contract may intentionally
+    # contain no lexical vendor fields; keep its sample index so permission and
+    # numeric AV-consensus enrichment can form the final matrix.
+    if fields:
+        encoded = encode_features(merged, encoding=encoding, verbose=verbose, skip_numeric=True)
+    else:
+        sample_ids = pd.to_numeric(merged["sample_id"], errors="coerce")
+        sample_ids = sample_ids[sample_ids.notna()].round().astype("int64")
+        encoded = pd.DataFrame(index=pd.Index(sample_ids, name="sample_id"))
+        encoded.attrs["encoder_mappings"] = {}
+    if len(encoded.index) == 0:
         du.print_error("[BUILD] Final encoded matrix is empty.")
         return pd.DataFrame()
 

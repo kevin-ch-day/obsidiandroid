@@ -217,6 +217,15 @@ def test_build_family_permission_similarity_annotates_pattern_fields() -> None:
     assert "shared-pattern similarity" in row["pattern_reason"]
 
 
+def test_spearman_similarity_preserves_constant_input_as_undefined() -> None:
+    details = report_stage._spearman_similarity_details(  # pylint: disable=protected-access
+        np.array([0.0, 0.0]), np.array([0.0, 1.0])
+    )
+    assert details["spearman_correlation"] is None
+    assert details["correlation_status"] == "constant_input"
+    assert details["left_profile_constant"] is True
+
+
 def test_annotate_similarity_patterns_marks_conflicting_metrics() -> None:
     df = pd.DataFrame(
         [

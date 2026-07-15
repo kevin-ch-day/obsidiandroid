@@ -19,6 +19,7 @@ from obsidiandroid.common import ml_console
 from . import accuracy_band_utils
 from . import ml_report_builder
 from .ml_terminal_presentation import should_defer_headline_training_terminal
+from obsidiandroid.common.hash_utils import hash_payload
 
 
 def evaluate_model_performance(
@@ -41,22 +42,29 @@ def evaluate_model_performance(
     try:
         y_pred = model.predict(X_test)
         y_pred = _remap_prediction_indices(y_pred, model)
+        # Scores must use the same true-label universe for every model sharing a
+        # test partition.  ``sklearn`` otherwise includes prediction-only labels
+        # in macro averages, making the reported class count and Macro-F1 vary by
+        # model even when ``y_test`` is identical.
+        evaluated_labels = sorted(set(y_test))
+        # Keep confusion-matrix axes identical to the fixed metric universe.
+        confusion_labels = evaluated_labels
+        metric_kwargs = {"labels": evaluated_labels, "zero_division": 0}
         acc = accuracy_score(y_test, y_pred)
-        prec = precision_score(y_test, y_pred, average="weighted", zero_division=0)
-        rec = recall_score(y_test, y_pred, average="weighted", zero_division=0)
-        f1 = f1_score(y_test, y_pred, average="weighted", zero_division=0)
-        macro_prec = precision_score(y_test, y_pred, average="macro", zero_division=0)
-        macro_rec = recall_score(y_test, y_pred, average="macro", zero_division=0)
-        macro_f1 = f1_score(y_test, y_pred, average="macro", zero_division=0)
+        prec = precision_score(y_test, y_pred, average="weighted", **metric_kwargs)
+        rec = recall_score(y_test, y_pred, average="weighted", **metric_kwargs)
+        f1 = f1_score(y_test, y_pred, average="weighted", **metric_kwargs)
+        macro_prec = precision_score(y_test, y_pred, average="macro", **metric_kwargs)
+        macro_rec = recall_score(y_test, y_pred, average="macro", **metric_kwargs)
+        macro_f1 = f1_score(y_test, y_pred, average="macro", **metric_kwargs)
 
-        unique_labels = sorted(set(y_test).union(set(y_pred)))
         report_dict = classification_report(
-            y_test, y_pred, output_dict=True, labels=unique_labels, zero_division=0
+            y_test, y_pred, output_dict=True, labels=evaluated_labels, zero_division=0
         )
-        conf_matrix = confusion_matrix(y_test, y_pred, labels=unique_labels)
+        conf_matrix = confusion_matrix(y_test, y_pred, labels=confusion_labels)
 
         y_true_dec, y_pred_dec, class_labels = _decode_labels(
-            y_test, y_pred, unique_labels, label_encoder
+            y_test, y_pred, confusion_labels, label_encoder
         )
         class_labels = _project_class_labels(class_labels)
 
@@ -67,7 +75,7 @@ def evaluate_model_performance(
             mode="color",
         )
 
-        label_key_map = {str(lbl): name for lbl, name in zip(unique_labels, class_labels)}
+        label_key_map = {str(lbl): name for lbl, name in zip(confusion_labels, class_labels)}
         summary_df = ml_report_builder.build_classification_summary(
             report_dict, label_key_map, include_rank=True
         )
@@ -86,6 +94,10 @@ def evaluate_model_performance(
             )
             _display_confidence_stats(model, X_test)
 
+        serializable_evaluation_labels = [
+            value.item() if isinstance(value, np.generic) else value
+            for value in evaluated_labels
+        ]
         return {
             "accuracy": acc,
             "precision": prec,
@@ -101,7 +113,11 @@ def evaluate_model_performance(
             "y_true": y_true_dec,
             "y_pred": y_pred_dec,
             "accuracy_band": accuracy_band_utils.evaluate_accuracy_band(acc),
-            "num_classes": len(class_labels),
+            "num_classes": len(evaluated_labels),
+            "num_confusion_labels": len(confusion_labels),
+            "prediction_only_class_count": len(set(y_pred).difference(set(y_test))),
+            "evaluation_labels": serializable_evaluation_labels,
+            "evaluation_label_hash": hash_payload(serializable_evaluation_labels),
             "class_labels": list(class_labels),
             "samples_tested": len(X_test),
             "label_encoder": label_encoder,

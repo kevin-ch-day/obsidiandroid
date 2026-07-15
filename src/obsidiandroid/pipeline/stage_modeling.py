@@ -161,16 +161,14 @@ def _enrich_vendor_trust_flags(
 def _resolve_vendor_include_fields() -> list[str]:
     """Return vendor semantic fields for feature construction.
 
-    Evidence mode keeps the modeling pipeline lean by dropping parsed family to avoid
-    leakage through label-like features.
+    Parsed family, threat-class, and malware-type strings are all label-derived
+    vendor outputs.  Exclude them from headline family classification by default;
+    an explicitly scoped experimental profile may opt in for a labelled-vendor
+    analysis, which will be surfaced by the leakage contract.
     """
-
-    if bool(
-        getattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False)
-        or getattr(app_config, "RUNTIME_EVIDENCE_MODE", False)
-    ):
-        return ["Threat Class", "Malware Type"]
-    return ["Parsed Family", "Threat Class", "Malware Type"]
+    if bool(getattr(app_config, "ENABLE_LABEL_DERIVED_VENDOR_FEATURES", False)):
+        return ["Parsed Family", "Threat Class", "Malware Type"]
+    return []
 
 
 def build_feature_matrix_stage(

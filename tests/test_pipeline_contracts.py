@@ -70,6 +70,24 @@ def test_prune_low_information_verbose_emits_warning(monkeypatch):
     assert "low-information" in captured[0]
 
 
+def test_primary_feature_contract_blocks_target_adjacent_av_semantics(monkeypatch):
+    monkeypatch.setattr(app_config, "ENABLE_LABEL_DERIVED_VENDOR_FEATURES", False, raising=False)
+    frame = pd.DataFrame(
+        {
+            "perm__internet": [1, 0],
+            "parsed_family_vendor": [3, 4],
+            "vendor_parsed_threat_class_vendor": [1, 2],
+            "meta__has_vt_suggested_threat_label": [1, 0],
+        }
+    )
+    out = pipeline_core._prune_potential_leakage_features(frame, pd.Series([10, 11]))
+    assert list(out.columns) == ["perm__internet"]
+    reasons = {row["column_name"]: row["reason_code"] for row in app_config.RUNTIME_LEAKAGE_PRUNING_AUDIT}
+    assert reasons["parsed_family_vendor"] == "label_independent_contract_block"
+    assert reasons["vendor_parsed_threat_class_vendor"] == "label_independent_contract_block"
+    assert reasons["meta__has_vt_suggested_threat_label"] == "label_independent_contract_block"
+
+
 def test_low_confidence_abstain_routes_to_other(monkeypatch):
     monkeypatch.setattr(app_config, "ENABLE_LOW_CONFIDENCE_ABSTAIN", True, raising=False)
     monkeypatch.setattr(app_config, "LOW_CONFIDENCE_THRESHOLD", 0.30, raising=False)

@@ -109,6 +109,7 @@ def test_build_feature_vector_recovers_when_parser_gating_selects_zero(monkeypat
         parsed_vendor_data={"lionic": {"dummy": "x"}},
         top_k=8,
         score_preference="Leakage Safe Score",
+        include_fields=["Parsed Family"],
         verbose=False,
     )
 
@@ -138,6 +139,40 @@ def test_merge_extra_features_joins_on_sample_id_column_with_range_index() -> No
     assert out["feat_a"].tolist() == [1, 2, 3]
     assert out["perm__android_permission_internet"].tolist() == [1, 0, 1]
     assert out["perm__total_count"].tolist() == [2, 1, 2]
+
+
+def test_build_feature_vector_default_excludes_label_derived_vendor_fields(monkeypatch) -> None:
+    """An omitted field list must not silently add parsed vendor labels."""
+    monkeypatch.setattr(
+        feature_vector_builder,
+        "_select_top_vendors",
+        lambda *_args, **_kwargs: ["lionic"],
+    )
+    monkeypatch.setattr(feature_vector_builder, "_export_pre_gate_vendor_scores", lambda **_kwargs: None)
+    monkeypatch.setattr(feature_vector_builder, "_export_vendor_gate_debug", lambda **_kwargs: "")
+
+    out = feature_vector_builder.build_feature_vector(
+        weights_df=pd.DataFrame({"Vendor": ["lionic"], "Leakage Safe Score": [0.9]}),
+        parsed_vendor_data={
+            "lionic": pd.DataFrame(
+                {
+                    "sample_id": [1, 2],
+                    "Parsed Family": ["alpha", "beta"],
+                    "Threat Class": ["trojan", "trojan"],
+                    "Malware Type": ["banker", "banker"],
+                }
+            )
+        },
+        extra_features_df=pd.DataFrame(
+            {"sample_id": [1, 2], "perm__internet": [1, 0], "malicious_ratio": [0.8, 0.7]}
+        ),
+        top_k=1,
+        verbose=False,
+    )
+
+    assert out.attrs["include_fields"] == []
+    assert not any(str(col).startswith(("parsed_family_", "threat_class_", "malware_type_")) for col in out.columns)
+    assert {"perm__internet", "malicious_ratio"}.issubset(out.columns)
 
 
 def test_merge_extra_features_coerces_object_perm_columns_numeric() -> None:
