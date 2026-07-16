@@ -170,8 +170,9 @@ def run_pipeline(
     paper_mode_override: Optional[bool] = None,
     allow_evidence_override: bool = False,
     allow_global_artifacts: bool = False,
+    experiment_id: Optional[str] = None,
 ) -> int:
-    """Execute the malware classification workflow with optional stage/model controls.
+    """Execute the legacy malware-classification workflow with optional controls.
 
     Args:
         selected_models: Optional list of model keys to train (for targeted runs).
@@ -181,6 +182,8 @@ def run_pipeline(
             "ablation", "permission_trends", "label_resolution".
         profile_ref: Required profile id/path from `profiles/`.
     """
+    if str(experiment_id or "").strip() == "android_family_av_abc_v1" or str(profile_ref or "").strip() == "android_family_av_abc_v1":
+        raise RuntimeError("android_family_av_abc_v1 must use run_frozen_android_family_av_benchmark; legacy run_pipeline is prohibited.")
     valid_stages = {
         "full",
         "samples",
