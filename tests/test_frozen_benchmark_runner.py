@@ -16,7 +16,9 @@ def _provider():
     return SyntheticFrozenBenchmarkSourceProvider(pd.DataFrame(cohort), pd.DataFrame(metadata), pd.DataFrame(permissions), pd.DataFrame(verdicts), pd.DataFrame({"engine_name": ["alpha", "beta"], "readiness_eligible_flag": [1, 1]}), pd.DataFrame({"family": ["family_0"], "alias": ["f0"]}))
 
 
-def test_dedicated_runner_locks_contracts_without_legacy_pipeline(tmp_path):
+def test_dedicated_runner_locks_contracts_without_legacy_pipeline(tmp_path, monkeypatch):
+    from obsidiandroid.features.vectorization import feature_vector_builder
+    monkeypatch.setattr(feature_vector_builder, "build_feature_vector", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("parser path called")))
     context = run_frozen_android_family_av_benchmark(_provider(), run_root=tmp_path)
     assert context.lifecycle.payload["state"] == "MODELS_LOCKED"
     assert set(context.features) == {"A", "B", "C"}
