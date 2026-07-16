@@ -1,9 +1,22 @@
 import pandas as pd
 
 from obsidiandroid.features.permission_contract import (
+    freeze_permission_knowledge_snapshot,
     fit_permission_vocabulary,
     transform_permission_features,
 )
+
+
+def test_permission_knowledge_snapshot_hashes_all_feature_knowledge_inputs() -> None:
+    snapshot = freeze_permission_knowledge_snapshot(
+        permission_dictionary=pd.DataFrame({"token": ["android.permission.INTERNET"]}),
+        authority_classification=pd.DataFrame({"token": ["android.permission.INTERNET"], "authority": ["AOSP"]}),
+        protection_level_classification=pd.DataFrame({"token": ["android.permission.INTERNET"], "protection": ["normal"]}),
+        approved_oem_google_tokens=["com.google.android.c2dm.permission.RECEIVE"],
+        alias_map={"android.permission.old": "android.permission.new"},
+    )
+    assert len(snapshot["permission_knowledge_snapshot_hash"]) == 64
+    assert snapshot["known_missing_protection_policy"].startswith("retain_known")
 
 
 def _rows() -> pd.DataFrame:

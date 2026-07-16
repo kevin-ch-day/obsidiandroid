@@ -11,7 +11,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Mapping
 
 import pandas as pd
 import yaml
@@ -187,3 +187,34 @@ def transform_permission_features(
         "allowed_observation_count": int(len(prepared)),
     }
     return output, audit
+
+
+def freeze_permission_knowledge_snapshot(
+    *,
+    permission_dictionary: pd.DataFrame,
+    authority_classification: pd.DataFrame,
+    protection_level_classification: pd.DataFrame,
+    approved_oem_google_tokens: Iterable[str],
+    alias_map: Mapping[str, str],
+    known_missing_protection_policy: str = "retain_known_token_in_known_count_exclude_from_protection_group",
+) -> dict[str, object]:
+    """Hash every knowledge input required to reproduce permission features."""
+    def _records(frame: pd.DataFrame) -> list[dict[str, object]]:
+        if frame.empty:
+            return []
+        columns = sorted(frame.columns)
+        return frame[columns].fillna("").sort_values(columns, kind="stable").to_dict("records")
+
+    payload = {
+        "contract_id": CONTRACT_ID,
+        "normalization_version": NORMALIZATION_VERSION,
+        "permission_dictionary_hash": hash_payload(_records(permission_dictionary)),
+        "authority_classification_hash": hash_payload(_records(authority_classification)),
+        "protection_level_classification_hash": hash_payload(_records(protection_level_classification)),
+        "approved_oem_google_tokens_hash": hash_payload(sorted(normalize_permission_token(token) for token in approved_oem_google_tokens)),
+        "alias_map_hash": hash_payload(dict(sorted((normalize_permission_token(k), normalize_permission_token(v)) for k, v in alias_map.items()))),
+        "known_missing_protection_policy": known_missing_protection_policy,
+        "group_definitions": group_definition_payload(),
+    }
+    payload["permission_knowledge_snapshot_hash"] = hash_payload(payload)
+    return payload
