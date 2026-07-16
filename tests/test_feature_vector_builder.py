@@ -148,7 +148,7 @@ def test_build_feature_vector_default_excludes_label_derived_vendor_fields(monke
     monkeypatch.setattr(
         feature_vector_builder,
         "_select_top_vendors",
-        lambda *_args, **_kwargs: ["lionic"],
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("parser selection must be disabled")),
     )
     monkeypatch.setattr(feature_vector_builder, "_export_pre_gate_vendor_scores", lambda **_kwargs: None)
     monkeypatch.setattr(feature_vector_builder, "_export_vendor_gate_debug", lambda **_kwargs: "")
@@ -173,6 +173,8 @@ def test_build_feature_vector_default_excludes_label_derived_vendor_fields(monke
     )
 
     assert out.attrs["include_fields"] == []
+    assert out.attrs["vendor_selection_policy"] == "parser_disabled_no_predictive_fields"
+    assert out.attrs["selected_vendors"] == []
     assert not any(str(col).startswith(("parsed_family_", "threat_class_", "malware_type_")) for col in out.columns)
     assert {"perm__internet", "malicious_ratio"}.issubset(out.columns)
 

@@ -550,6 +550,42 @@ def build_feature_vector(
     # must be supplied explicitly by a scoped ablation or experiment.
     fields = list(include_fields or [])
     requested_top_k = int(top_k)
+    # A safe binary/permission contract does not consume parsed vendor output.
+    # Do this before ranking, parser-gate diagnostics, or fallback selection so
+    # a parser shortfall cannot affect a model with zero parsed vendor columns.
+    if not fields:
+        cohort_list = _sorted_int_cohort_ids(cohort_sample_ids) if cohort_sample_ids is not None else []
+        if not cohort_list and isinstance(extra_features_df, pd.DataFrame):
+            cohort_list = _sorted_int_cohort_ids(extra_features_df.get("sample_id", []))
+        if not cohort_list:
+            du.print_error("[BUILD] Safe feature contract requires cohort sample IDs or extra features.")
+            return pd.DataFrame()
+        encoded = pd.DataFrame(index=pd.Index(cohort_list, dtype="int64", name="sample_id"))
+        encoded.attrs["encoder_mappings"] = {}
+        encoded, extra_encoder_mappings = _merge_extra_features(encoded, extra_features_df, verbose)
+        encoded.attrs["encoder_mappings"] = extra_encoder_mappings
+        encoded.attrs.update(
+            {
+                "selected_vendors": [],
+                "include_fields": [],
+                "selected_vendor_predictive_field_count": 0,
+                "feature_build_encoding": str(encoding),
+                "feature_top_k": int(requested_top_k),
+                "feature_effective_top_k": 0,
+                "vendor_fallback_used": False,
+                "vendor_fallback_added_count": 0,
+                "vendor_selection_policy": "parser_disabled_no_predictive_fields",
+                "feature_matrix_row_authority": "governed_cohort",
+                "cohort_governed_sample_id_count": int(len(cohort_list)),
+                "cohort_authoritative_row_count": int(len(encoded)),
+            }
+        )
+        setattr(app_config, "RUNTIME_VENDOR_SELECTION_POLICY", "parser_disabled_no_predictive_fields")
+        setattr(app_config, "RUNTIME_K_REQUESTED", int(requested_top_k))
+        setattr(app_config, "RUNTIME_EFFECTIVE_TOP_K", 0)
+        setattr(app_config, "RUNTIME_NON_STANDARD_FEATURES", False)
+        return encoded
+
     min_selected_vendors = safe_int_config_value(
         getattr(app_config, "FEATURE_MIN_SELECTED_VENDORS", 1), default=1
     )

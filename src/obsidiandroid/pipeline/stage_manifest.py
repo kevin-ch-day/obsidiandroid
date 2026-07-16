@@ -27,6 +27,7 @@ from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.common.repo_paths import repo_root
+from obsidiandroid.pipeline.engine_lifecycle_schema import readiness_mask
 from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
 from obsidiandroid.common.publication_readiness import (
     evaluate_publication_ready_status,
@@ -128,10 +129,10 @@ def _populate_engine_lifecycle_manifest_context(
         )
     if "engine_exclusion_reason_counts" in manifest_context:
         return
-    if not {"included_in_model_flag", "exclusion_reason"}.issubset(engine_lifecycle.columns):
+    if "exclusion_reason" not in engine_lifecycle.columns:
         return
 
-    included_mask = engine_lifecycle["included_in_model_flag"].fillna(False).astype(bool)
+    included_mask = readiness_mask(engine_lifecycle)
     excluded = engine_lifecycle[~included_mask]
     reasons = excluded["exclusion_reason"].dropna().astype(str).str.strip()
     reasons = reasons[reasons != ""]

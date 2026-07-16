@@ -1,0 +1,34 @@
+experiment_id: android_family_av_abc_v1
+schema_version: 1
+cohort_profile_id: android_malware_major_families_frozen_n20_v1
+parser_policy: disabled
+permission_contract_id: android_permissions_governed_known_v1
+av_contract_id: av_detection_observation_frozen_v1
+feature_contracts:
+  A: android_family_av_abc_a_v1
+  B: android_family_av_abc_b_v1
+  C: android_family_av_abc_c_v1
+allowed_sdk_columns: [meta__target_min_version, meta__target_sdk_version]
+prohibited_feature_prefixes: [meta__vt_, parsed_, threat_, malware_type_, family_, package_, av_consensus_, av_risk_]
+prohibited_feature_tokens: [ratio, reputation, votes, submissions, tags, sources, collection]
+vt_aggregate_features: prohibited
+av_status_policy: avdet_avobs_v1
+readiness_policy: frozen_vendor_engine_metadata_snapshot_not_historical_observation_time
+models:
+  random_forest: {n_estimators: 180, max_depth: 12, min_samples_leaf: 2, class_weight: balanced, random_state: 42, n_jobs: 1}
+  logistic_regression: {C: 1.0, max_iter: 2000, class_weight: balanced, solver: lbfgs, random_state: 42, scaler: standard_with_mean_false}
+  xgboost: {n_estimators: 180, max_depth: 6, learning_rate: 0.05, subsample: 0.85, colsample_bytree: 0.85, reg_lambda: 1.0, objective: multi:softprob, eval_metric: mlogloss, random_state: 42, n_jobs: 1, early_stopping: disabled, calibration: disabled}
+resampling: prohibited
+tuning: prohibited
+holdout:
+  lifecycle: [DRAFT, COHORT_LOCKED, SPLIT_LOCKED, FEATURE_CONTRACTS_LOCKED, MODELS_LOCKED, HELDOUT_AUTHORIZED, HELDOUT_EVALUATED]
+  clean_tree_required: true
+  single_atomic_execution: true
+  global_latest_evidence: prohibited
+evaluation_plan:
+  arms: [A, B, C]
+  models: [random_forest, logistic_regression, xgboost]
+  sensitivity_contrasts: [[B, detection_only], [B, detection_plus_mask], [C, detection_only], [C, detection_plus_mask]]
+  paired_comparisons: [B-A, C-A, C-B]
+  metrics: [macro_f1, accuracy, weighted_f1]
+bootstrap: {method: paired_family_stratified_lineage_component_percentile_bootstrap, draws: 1000, confidence_level: 0.95, seed: 20260716, max_undefined_draws: 0}

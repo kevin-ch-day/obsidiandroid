@@ -22,6 +22,7 @@ from obsidiandroid.pipeline.manifest.hashing import (
     sha256_hex,
 )
 from obsidiandroid.pipeline.manifest.writer import write_manifest_atomic
+from obsidiandroid.pipeline.engine_lifecycle_schema import readiness_mask
 
 
 def try_add_artifact(
@@ -157,12 +158,9 @@ def summarize_engine_lifecycle(
     if not isinstance(engine_lifecycle, pd.DataFrame) or engine_lifecycle.empty:
         return 0, 0, []
 
-    included_engines = int(
-        engine_lifecycle["included_in_model_flag"].fillna(False).astype(bool).sum()
-    )
-    excluded_engines = int(
-        (~engine_lifecycle["included_in_model_flag"].fillna(False).astype(bool)).sum()
-    )
+    mask = readiness_mask(engine_lifecycle)
+    included_engines = int(mask.sum())
+    excluded_engines = int((~mask).sum())
     engine_names = sorted(
         engine_lifecycle["engine_name_canonical"].dropna().astype(str).unique().tolist()
     )
