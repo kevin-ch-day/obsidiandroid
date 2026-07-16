@@ -17,7 +17,7 @@ from sklearn.metrics import f1_score
 BOOTSTRAP_DRAWS = 1000
 BOOTSTRAP_SEED = 20260716
 CONFIDENCE_LEVEL = 0.95
-_REQUIRED = {"sample_id", "lineage_component_id", "model", "arm", "y_true", "y_pred"}
+_REQUIRED = {"sample_id", "lineage_component_id", "family_id", "model", "arm", "y_true", "y_pred"}
 
 
 def validate_paired_prediction_ledger(predictions: pd.DataFrame) -> None:
@@ -37,6 +37,8 @@ def validate_paired_prediction_ledger(predictions: pd.DataFrame) -> None:
                 raise ValueError(f"Paired split/label mismatch for model={model}, arm={arm}.")
         if reference is None or reference.empty:
             raise ValueError(f"No held-out predictions for model={model}.")
+    if predictions.groupby("lineage_component_id")["family_id"].nunique().gt(1).any():
+        raise ValueError("A lineage component must belong to one canonical family.")
 
 
 def _macro_f1(rows: pd.DataFrame, labels: Iterable[Any]) -> float:
@@ -78,10 +80,20 @@ def paired_lineage_component_bootstrap(
     if set(left_groups) != set(right_groups):
         raise ValueError("Paired component mismatch between compared arms.")
     point_left, point_right = _macro_f1(left, labels), _macro_f1(right, labels)
+    component_families = left.drop_duplicates("lineage_component_id").set_index("lineage_component_id")["family_id"].to_dict()
+    family_components: dict[Any, list[str]] = {}
+    for component in components:
+        family_components.setdefault(component_families[component], []).append(component)
+    if any(len(items) < 2 for items in family_components.values()):
+        raise ValueError("Undefined bootstrap comparison: a family has fewer than two held-out components.")
     rng = np.random.default_rng(seed)
     differences: list[float] = []
     for _ in range(draws):
-        sampled = rng.choice(components, size=len(components), replace=True)
+        sampled = [
+            component
+            for family in sorted(family_components, key=str)
+            for component in rng.choice(family_components[family], size=len(family_components[family]), replace=True)
+        ]
         try:
             left_draw = pd.concat([left_groups[component] for component in sampled], ignore_index=True)
             right_draw = pd.concat([right_groups[component] for component in sampled], ignore_index=True)
@@ -90,7 +102,7 @@ def paired_lineage_component_bootstrap(
             raise ValueError(f"Undefined bootstrap draw; fail closed: {exc}") from exc
     alpha = (1.0 - CONFIDENCE_LEVEL) / 2.0
     return {
-        "method": "paired_lineage_component_percentile_bootstrap",
+        "method": "paired_family_stratified_lineage_component_percentile_bootstrap",
         "draws": BOOTSTRAP_DRAWS,
         "seed": BOOTSTRAP_SEED,
         "confidence_level": CONFIDENCE_LEVEL,
