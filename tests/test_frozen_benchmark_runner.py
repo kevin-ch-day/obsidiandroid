@@ -34,4 +34,5 @@ def test_synthetic_runner_executes_only_the_complete_atomic_plan(tmp_path):
     result = evaluate_synthetic_frozen_benchmark(context, provider)
     assert result["state"] == "HELDOUT_EVALUATED"
     assert len(result["results"]) == 15
-    assert len(result["comparisons"]) == 9
+    assert len(result["comparisons"]) == 15
+    assert {entry["comparison"] for entry in result["comparisons"]} == set(context.experiment["evaluation_plan"]["paired_comparisons"])

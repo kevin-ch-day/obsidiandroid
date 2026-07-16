@@ -206,10 +206,19 @@ def evaluate_synthetic_frozen_benchmark(context: FrozenBenchmarkContext, provide
                     ledgers.append(row)
     ledger = pd.DataFrame(ledgers)
     comparisons = []
+    comparison_specs = (
+        ("B_detection_plus_mask-B_detection_only", "B", "B", ("detection_only", "detection_plus_mask")),
+        ("C_detection_plus_mask-C_detection_only", "C", "C", ("detection_only", "detection_plus_mask")),
+        ("B-A", "A", "B", ("base", "detection_plus_mask")),
+        ("C-A", "A", "C", ("base", "detection_plus_mask")),
+        ("C-B", "B", "C", ("detection_plus_mask", "detection_plus_mask")),
+    )
     for model in plan["models"]:
-        for left, right, variants in (("B", "B", ("detection_only", "detection_plus_mask")), ("C", "C", ("detection_only", "detection_plus_mask")), ("A", "B", ("base", "detection_plus_mask")), ("A", "C", ("base", "detection_plus_mask")), ("B", "C", ("detection_plus_mask", "detection_plus_mask"))):
+        for comparison_name, left, right, variants in comparison_specs:
             part = pd.concat([ledger[(ledger.arm == left) & (ledger.variant == variants[0])].assign(arm="left"), ledger[(ledger.arm == right) & (ledger.variant == variants[1])].assign(arm="right")])
-            comparisons.append(paired_lineage_component_bootstrap(part, model=model, left_arm="left", right_arm="right", label_universe=context.label_mapping.table["family_id"].tolist()))
+            comparison = paired_lineage_component_bootstrap(part, model=model, left_arm="left", right_arm="right", label_universe=context.label_mapping.table["family_id"].tolist())
+            comparison["comparison"] = comparison_name
+            comparisons.append(comparison)
     prediction_path, comparison_path, metrics_path = _write(context.lifecycle.root, "heldout_predictions.csv", ledger), _write(context.lifecycle.root, "heldout_comparisons.json", comparisons), _write(context.lifecycle.root, "heldout_metrics.json", results)
     context.lifecycle.complete_evaluation(execution_cells=executed, prediction_path=prediction_path, comparison_path=comparison_path, metrics_path=metrics_path)
     return {"results": results, "comparisons": comparisons, "state": context.lifecycle.payload["state"]}
