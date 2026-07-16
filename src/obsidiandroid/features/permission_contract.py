@@ -71,7 +71,12 @@ def _prepare_rows(rows: pd.DataFrame, *, allowlist: dict[str, dict[str, str]], a
     out = rows.copy()
     raw = out.get("permission_string_norm", out["permission_string"])
     out["permission_token"] = raw.map(lambda value: normalize_permission_token(value, aliases))
-    out["permission_source"] = out.get("permission_source", "UNKNOWN").fillna("UNKNOWN").astype(str).str.upper()
+    permission_source = (
+        out["permission_source"]
+        if "permission_source" in out
+        else pd.Series("UNKNOWN", index=out.index, dtype="object")
+    )
+    out["permission_source"] = permission_source.fillna("UNKNOWN").astype(str).str.upper()
     aosp = pd.to_numeric(out.get("is_aosp_dict_match", 0), errors="coerce").fillna(0).astype(int).gt(0)
     explicit = out["permission_token"].isin(allowlist)
     allowed_source = out["permission_source"].isin({"AOSP", "GOOGLE", "OEM"})
