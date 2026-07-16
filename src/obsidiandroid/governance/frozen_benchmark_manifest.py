@@ -20,8 +20,8 @@ from obsidiandroid.common.hash_utils import hash_payload, sha256_hex
 ARMS = ("A", "B", "C")
 MODELS = ("random_forest", "logistic_regression", "xgboost")
 SENSITIVITIES = ("detection_only", "detection_plus_mask")
-COMPARISONS = ("B-A", "C-A", "C-B")
-REQUIRED_SNAPSHOT_NAMES = frozenset({"cohort_labels", "permissions", "vt_engine_rows", "engine_metadata", "taxonomy_aliases"})
+COMPARISONS = ("B_detection_plus_mask-B_detection_only", "C_detection_plus_mask-C_detection_only", "B-A", "C-A", "C-B")
+REQUIRED_SNAPSHOT_NAMES = frozenset({"cohort_labels", "android_metadata", "permissions", "vt_engine_rows", "engine_metadata", "taxonomy_aliases", "permission_knowledge"})
 
 
 @dataclass(frozen=True)
@@ -81,23 +81,28 @@ def validate_atomic_evaluation_plan(plan: dict[str, Any]) -> None:
     expected_sensitivities = {(arm, sensitivity) for arm in ("B", "C") for sensitivity in SENSITIVITIES}
     if {tuple(value) for value in plan.get("sensitivity_contrasts", ())} != expected_sensitivities:
         raise ValueError("Atomic heldout plan must declare B/C detection-only and detection-plus-mask sensitivity contrasts.")
-    if tuple(plan.get("paired_comparisons", ())) != COMPARISONS or not plan.get("metrics"):
+    if tuple(plan.get("paired_comparisons", ())) != COMPARISONS or tuple(plan.get("metrics", ())) != ("macro_f1", "weighted_f1", "accuracy", "balanced_accuracy"):
         raise ValueError("Atomic heldout plan must declare comparisons and metrics before authorization.")
 
 
-def validate_estimator_protocol() -> dict[str, dict[str, Any]]:
+def validate_estimator_protocol(model_config: dict[str, dict[str, Any]] | None = None) -> dict[str, dict[str, Any]]:
     """Build estimators in the installed environment and reject ignored params."""
     from sklearn.ensemble import RandomForestClassifier
     from sklearn.linear_model import LogisticRegression
     from xgboost import XGBClassifier
 
     lr_supports_multi_class = "multi_class" in inspect.signature(LogisticRegression).parameters
-    expected = {
+    expected = model_config or {
         "random_forest": {"n_estimators": 180, "max_depth": 12, "min_samples_leaf": 2, "class_weight": "balanced", "random_state": 42, "n_jobs": 1},
         "logistic_regression": {"C": 1.0, "max_iter": 2000, "class_weight": "balanced", "solver": "lbfgs", "random_state": 42},
         "xgboost": {"n_estimators": 180, "max_depth": 6, "learning_rate": 0.05, "subsample": 0.85, "colsample_bytree": 0.85, "reg_lambda": 1.0, "objective": "multi:softprob", "eval_metric": "mlogloss", "random_state": 42, "n_jobs": 1},
     }
-    if lr_supports_multi_class:
+    expected = {name: dict(values) for name, values in expected.items()}
+    # YAML uses execution-policy keys that are not estimator parameters.
+    for name in expected:
+        for key in ("scaler", "early_stopping", "calibration"):
+            expected[name].pop(key, None)
+    if lr_supports_multi_class and "multi_class" not in expected["logistic_regression"]:
         expected["logistic_regression"]["multi_class"] = "auto"
     estimators = {
         "random_forest": RandomForestClassifier(**expected["random_forest"]),

@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+from obsidiandroid.common.hash_utils import hash_payload
+
 
 _ROOT = Path(__file__).resolve().parents[3]
 PROFILE_REQUIRED = {"profile_id", "schema_version", "cohort_contract_id", "label_policy", "cohort_policy"}
@@ -42,3 +44,12 @@ def load_frozen_experiment(experiment_id: str = "android_family_av_abc_v1") -> d
     if payload["resampling"] != "prohibited" or payload["tuning"] != "prohibited":
         raise ValueError("Frozen experiment must prohibit tuning and resampling.")
     return payload
+
+
+def resolve_frozen_configuration(profile: dict[str, Any], experiment: dict[str, Any]) -> dict[str, Any]:
+    """Create the single run configuration and reject cross-file drift."""
+    if experiment["cohort_profile_id"] != profile["profile_id"]:
+        raise ValueError("Frozen experiment/profile identity drift.")
+    resolved = {"profile": profile, "experiment": experiment}
+    resolved["resolved_configuration_hash"] = hash_payload(resolved)
+    return resolved

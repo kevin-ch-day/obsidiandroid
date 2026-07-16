@@ -39,6 +39,8 @@ def validate_paired_prediction_ledger(predictions: pd.DataFrame) -> None:
             raise ValueError(f"No held-out predictions for model={model}.")
     if predictions.groupby("lineage_component_id")["family_id"].nunique().gt(1).any():
         raise ValueError("A lineage component must belong to one canonical family.")
+    if not predictions["family_id"].eq(predictions["y_true"]).all():
+        raise ValueError("Prediction ledger family_id must equal canonical y_true.")
 
 
 def _macro_f1(rows: pd.DataFrame, labels: Iterable[Any]) -> float:
@@ -55,6 +57,7 @@ def paired_lineage_component_bootstrap(
     right_arm: str,
     draws: int = BOOTSTRAP_DRAWS,
     seed: int = BOOTSTRAP_SEED,
+    label_universe: Iterable[Any] | None = None,
 ) -> dict[str, object]:
     """Compute original point estimates and a paired component bootstrap CI.
 
@@ -69,7 +72,7 @@ def paired_lineage_component_bootstrap(
     rows = rows[rows["arm"].isin(arms)]
     if set(rows["arm"].unique()) != arms:
         raise ValueError("Undefined bootstrap comparison: required arm predictions are absent.")
-    labels = sorted(rows["y_true"].drop_duplicates().tolist())
+    labels = list(label_universe) if label_universe is not None else sorted(rows["y_true"].drop_duplicates().tolist())
     left = rows[rows["arm"] == left_arm].set_index("sample_id", drop=False)
     right = rows[rows["arm"] == right_arm].set_index("sample_id", drop=False)
     components = sorted(left["lineage_component_id"].drop_duplicates().tolist())
