@@ -42,6 +42,15 @@ def build_report(*, output_root: Path) -> dict[str, object]:
                 "missing_primary_label": str(
                     output_root / "diagnostics" / "missing_primary_label_triage_latest.csv"
                 ),
+                "missing_primary_authority_backfill_proposals": str(
+                    output_root / "diagnostics" / "missing_primary_label_authority_backfill_proposals_latest.csv"
+                ),
+                "missing_primary_backfill_review_template": str(
+                    output_root / "diagnostics" / "missing_primary_label_authority_backfill_review_template_latest.csv"
+                ),
+                "missing_primary_backfill_review_validation": str(
+                    output_root / "diagnostics" / "missing_primary_label_authority_backfill_review_validation_latest.json"
+                ),
                 "blank_resolved_family": str(
                     output_root / "diagnostics" / "blank_resolved_family_triage_latest.csv"
                 ),

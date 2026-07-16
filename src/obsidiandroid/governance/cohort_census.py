@@ -17,6 +17,8 @@ from obsidiandroid.database import db_engine
 from obsidiandroid.database import db_sample_metadata_queries
 from obsidiandroid.governance import paper_cohort_contract
 from obsidiandroid.governance.cohort_lock_manifest import read_member_list
+from obsidiandroid.governance import family_tier_authority
+from obsidiandroid.common.family_label_semantics import family_label_conflict_mask
 from obsidiandroid.governance.label_snapshot_contract import label_snapshot_hash
 from obsidiandroid.governance.cohort_reproducibility import apply_analysis_snapshot_lock
 from obsidiandroid.orchestration.profile_filters import (
@@ -42,7 +44,7 @@ TARGET_PROFILE_IDS: tuple[str, ...] = (
 )
 
 SUPPORT_FLOOR_REFERENCE_VALUES: tuple[int, ...] = (20, 10, 5, 1)
-UNKNOWN_FAMILY_VALUES = {"", "unknown", "other", "unmapped", "none", "null"}
+UNKNOWN_FAMILY_VALUES = {"", "unknown", "other", "unmapped", "none", "null", "nan", "n/a"}
 UNKNOWN_TYPE_VALUES = {"", "unknown"}
 WEAK_LABEL_KINDS = {"filename", "hash_like", "opaque_string", "unclassified"}
 
@@ -125,22 +127,16 @@ def _effective_ts(df: pd.DataFrame) -> pd.Series:
 
 
 def _mapped_family_mask(df: pd.DataFrame) -> pd.Series:
-    family_norm = df["family_canonical"].fillna("").astype(str).str.strip().str.lower()
-    family_id_present = (
-        pd.to_numeric(df["family_id"], errors="coerce").notna()
-        if "family_id" in df.columns
-        else pd.Series(False, index=df.index)
-    )
-    return family_id_present | (~family_norm.isin(UNKNOWN_FAMILY_VALUES))
+    """Use the shared target-eligibility mapping semantics for census counts."""
+    return family_tier_authority.build_family_tier_masks(df)["mapped_family"]
 
 
 def _family_label_conflict_mask(df: pd.DataFrame) -> pd.Series:
-    raw = df["family_label"].fillna("").astype(str).str.strip().str.lower()
-    canonical = df["family_canonical"].fillna("").astype(str).str.strip().str.lower()
-    return (
-        ~raw.isin({"", "unknown", "generic", "unclassified", "unlabeled"})
-        & ~canonical.isin(UNKNOWN_FAMILY_VALUES)
-        & (raw != canonical)
+    """Return shared alias-aware conflict semantics for census diagnostics."""
+    return family_label_conflict_mask(
+        df,
+        raw_column="family_label",
+        canonical_column="family_canonical",
     )
 
 

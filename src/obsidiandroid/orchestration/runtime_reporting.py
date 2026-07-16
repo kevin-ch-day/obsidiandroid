@@ -380,6 +380,38 @@ def extract_model_summary(model_results: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def count_evaluated_models(
+    model_results: dict[str, Any] | None,
+    model_summary: dict[str, Any] | None = None,
+) -> int:
+    """Count fitted/evaluated classifiers, not auxiliary evaluation rows.
+
+    Run summaries must represent the number of classifier estimators actually
+    evaluated.  Some downstream summaries contain per-model rows for several
+    evaluation scopes (for example, overall, major, minor, and unresolved),
+    which must never be counted as additional trained models.
+    """
+    rows = model_summary.get("model_rows") if isinstance(model_summary, dict) else None
+    if isinstance(rows, list):
+        names = {
+            str(row.get("model", "")).strip()
+            for row in rows
+            if isinstance(row, dict) and str(row.get("model", "")).strip()
+        }
+        if names:
+            return len(names)
+
+    if not isinstance(model_results, dict):
+        return 0
+    return sum(
+        1
+        for payload in model_results.values()
+        if isinstance(payload, dict)
+        and isinstance(payload.get("evaluation"), dict)
+        and payload["evaluation"].get("macro_f1_score") is not None
+    )
+
+
 def apply_confusion_matrix_policy(run_id: str, top_model: str | None) -> None:
     """Apply confusion-matrix retention policy for run-scoped outputs."""
     mode = str(getattr(app_config, "CONFUSION_MATRIX_MODE", "all")).strip().lower()
@@ -592,6 +624,7 @@ def setup_runtime_context(
     strict_run_scoped: bool = True,
     archive_run: bool = False,
     keep_last_failed_runs: int = 0,
+    keep_last_completed_runs: int = 1,
 ) -> dict[str, Path | str]:
     """Initialize runtime output paths and route diagnostics for a run."""
     del strict_run_scoped
@@ -603,6 +636,7 @@ def setup_runtime_context(
         run_instance_id=run_id,
         archive_run=archive_run,
         keep_last_failed_runs=keep_last_failed_runs,
+        keep_last_completed_runs=keep_last_completed_runs,
     )
     runtime_run_root = Path(prepared["run_root"])
     runtime_diagnostics = Path(prepared["diagnostics_dir"])

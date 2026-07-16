@@ -444,6 +444,7 @@ def build_cohort_foundation_payload(
             "total_candidates": int(gate_stats.get("total_candidates", 0) or 0),
             "excluded_unmapped_family": int(gate_stats.get("excluded_unmapped_family", 0) or 0),
             "excluded_unknown_type_slug": int(gate_stats.get("excluded_unknown_type_slug", 0) or 0),
+            "excluded_inactive_type_slug": int(gate_stats.get("excluded_inactive_type_slug", 0) or 0),
             "excluded_missing_sha256": int(gate_stats.get("excluded_missing_sha256", 0) or 0),
             "excluded_missing_hash_registry": int(gate_stats.get("excluded_missing_hash_registry", 0) or 0),
             "excluded_missing_package_name": int(gate_stats.get("excluded_missing_package_name", 0) or 0),
@@ -657,6 +658,7 @@ def export_cohort_foundation_bundle(
         f"- SQL governed row count (``governed_cohort_count_sql``): **{payload['gate_stats']['governed_cohort_count_sql']}**",
         f"- excluded_unmapped_family: {payload['gate_stats']['excluded_unmapped_family']}",
         f"- excluded_unknown_type_slug: {payload['gate_stats']['excluded_unknown_type_slug']}",
+        f"- excluded_inactive_type_slug: {payload['gate_stats']['excluded_inactive_type_slug']}",
         f"- excluded_missing_sha256 / hash_registry: {payload['gate_stats']['excluded_missing_sha256']} / "
         f"{payload['gate_stats']['excluded_missing_hash_registry']}",
         "",

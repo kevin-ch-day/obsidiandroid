@@ -737,12 +737,67 @@ def run_permission_trends_report_stage(
         for maybe_path in [paper_discrim_png, paper_dangerous_png]:
             if isinstance(maybe_path, str):
                 paper_variant_paths.append(maybe_path)
-    type_prevalence_view_frames: list[pd.DataFrame] = []
-    family_profiles_view_frames: list[pd.DataFrame] = []
+    # The primary view was already computed above for the main report. Reuse
+    # those frames for warehouse/view comparisons instead of recomputing the
+    # same group-by, JSD, and discriminability work a second time.
+    type_prevalence_view_frames: list[pd.DataFrame] = (
+        [type_prevalence_df.assign(view_mode=PRIMARY_PERMISSION_VIEW)]
+        if not type_prevalence_df.empty
+        else []
+    )
+    family_profiles_view_frames: list[pd.DataFrame] = (
+        [family_profiles_df.assign(view_mode=PRIMARY_PERMISSION_VIEW)]
+        if not family_profiles_df.empty
+        else []
+    )
     group_entropy_view_frames: list[pd.DataFrame] = []
-    family_jsd_view_frames: list[pd.DataFrame] = []
-    discriminability_view_frames: list[pd.DataFrame] = []
+    if not type_entropy_df.empty:
+        type_entropy_primary = type_entropy_df.copy()
+        type_entropy_primary["group_type"] = "type"
+        type_entropy_primary["group_key"] = type_entropy_primary["type_slug"].astype(str)
+        type_entropy_primary["view_mode"] = PRIMARY_PERMISSION_VIEW
+        group_entropy_view_frames.append(
+            type_entropy_primary[
+                [
+                    "run_id",
+                    "group_type",
+                    "group_key",
+                    "view_mode",
+                    "sample_count",
+                    "permission_entropy",
+                    "effective_diversity",
+                ]
+            ]
+        )
+    if not family_entropy_df.empty:
+        family_entropy_primary = family_entropy_df.copy()
+        family_entropy_primary["group_type"] = "family"
+        family_entropy_primary["group_key"] = family_entropy_primary["family_id"].astype(str)
+        family_entropy_primary["view_mode"] = PRIMARY_PERMISSION_VIEW
+        group_entropy_view_frames.append(
+            family_entropy_primary[
+                [
+                    "run_id",
+                    "group_type",
+                    "group_key",
+                    "view_mode",
+                    "sample_count",
+                    "permission_entropy",
+                    "effective_diversity",
+                ]
+            ]
+        )
+    family_jsd_view_frames: list[pd.DataFrame] = (
+        [jsd_df.assign(view_mode=PRIMARY_PERMISSION_VIEW)] if not jsd_df.empty else []
+    )
+    discriminability_view_frames: list[pd.DataFrame] = (
+        [discriminability_df.assign(view_mode=PRIMARY_PERMISSION_VIEW)]
+        if not discriminability_df.empty
+        else []
+    )
     for view_name, matrix_df in permission_matrix_by_view.items():
+        if view_name == PRIMARY_PERMISSION_VIEW:
+            continue
         view_prev_df, view_type_entropy_df = _build_type_permission_prevalence(
             sample_core_df=sample_core_df,
             permission_matrix_df=matrix_df,

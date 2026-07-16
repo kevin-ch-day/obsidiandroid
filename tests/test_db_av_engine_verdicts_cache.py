@@ -66,3 +66,9 @@ def test_verdict_query_cache_disabled_in_paper_mode(monkeypatch) -> None:
     db_av_engine_verdicts.fetch_verdicts_simple_ids([100, 200], verbose=False)
 
     assert calls["count"] == 2
+
+
+def test_verdict_cache_key_is_exact_sample_id_universe() -> None:
+    """Distinct universes must not rely on a compact/hash-only cache identity."""
+    assert db_av_engine_verdicts._build_cache_key([100, 200, 100]) == (100, 200)  # pylint: disable=protected-access
+    assert db_av_engine_verdicts._build_cache_key([100, 201]) != (100, 200)  # pylint: disable=protected-access

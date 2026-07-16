@@ -106,7 +106,7 @@ def test_export_taxonomy_consistency_audit_writes_mismatch_report(monkeypatch, t
     prediction_path = diagnostics_dir / f"prediction_errors_{run_id}.csv"
     assert prediction_path.exists()
     noncanonical_path = diagnostics_dir / f"taxonomy_noncanonical_type_tokens_{run_id}.csv"
-    assert noncanonical_path.exists()
+    assert not noncanonical_path.exists()
 
     summary_path = diagnostics_dir / f"taxonomy_consistency_summary_{run_id}.json"
     assert summary_path.exists()
@@ -117,6 +117,7 @@ def test_export_taxonomy_consistency_audit_writes_mismatch_report(monkeypatch, t
     assert len(payload["mismatch_examples"]) == 1
     assert payload["mismatch_examples"][0]["type_slug_expected"] == "adware"
     assert payload["mismatch_examples"][0]["label_type_slug"] == "dropper"
+    assert payload["noncanonical_type_tokens_csv_path"] == ""
 
 
 def test_export_taxonomy_consistency_audit_omits_run_local_latest_duplicates(
@@ -165,7 +166,45 @@ def test_export_taxonomy_consistency_audit_omits_run_local_latest_duplicates(
     assert (global_diag / "taxonomy_consistency_summary.latest.json").exists()
     assert (global_diag / "taxonomy_consistency_mismatches.latest.csv").exists()
     assert (global_diag / "prediction_errors.latest.csv").exists()
-    assert (global_diag / "taxonomy_noncanonical_type_tokens.latest.csv").exists()
+    assert not (global_diag / "taxonomy_noncanonical_type_tokens.latest.csv").exists()
+
+
+def test_taxonomy_audit_writes_noncanonical_token_artifact_only_when_needed(
+    monkeypatch, tmp_path: Path
+) -> None:
+    run_id = "run_noncanonical_token"
+    diagnostics_dir = tmp_path / "output" / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(
+        resolver.app_config,
+        "RUNTIME_SPLIT_SAMPLE_METADATA",
+        pd.DataFrame(
+            [{"sample_id": 1002, "type_slug": "banker", "family_canonical": "Applite"}]
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_RUN_ID", run_id, raising=False)
+    monkeypatch.setattr(resolver.app_config, "CANONICAL_TYPE_SLUGS", ("banker",), raising=False)
+
+    _, _, summary = resolver._export_taxonomy_consistency_audit(  # pylint: disable=protected-access
+        pd.DataFrame(
+            [
+                {
+                    "sample_id": 1002,
+                    "predicted_family": "Applite",
+                    "classification_label": "trojan/android.unrecognized.applite",
+                }
+            ]
+        )
+    )
+
+    artifact = Path(str(summary["noncanonical_type_tokens_csv_path"]))
+    assert artifact.is_file()
+    rows = pd.read_csv(artifact)
+    assert rows.to_dict(orient="records") == [
+        {"run_id": run_id, "label_type_slug": "unrecognized", "count": 1}
+    ]
 
 
 def test_taxonomy_lineage_unknown_when_runtime_sets_not_attached(monkeypatch, tmp_path: Path) -> None:
@@ -576,6 +615,43 @@ def test_taxonomy_audit_handles_missing_label_and_prediction_tokens(
     mismatch_df = pd.read_csv(str(mismatch_path))
     assert int(mismatch_df.shape[0]) == 1
     assert str(mismatch_df.loc[0, "mismatch_reason"]) == "type_label_missing"
+
+
+def test_taxonomy_audit_separates_raw_model_and_postprocessed_predictions(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """A display guard must not obscure the raw model prediction in audit evidence."""
+    run_id = "run_raw_model_prediction"
+    diagnostics_dir = tmp_path / "output" / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    runtime_meta = pd.DataFrame(
+        [{"sample_id": 4011, "type_slug_expected": "banker", "family_canonical": "SpyNote"}]
+    )
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", runtime_meta, raising=False)
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
+    monkeypatch.setattr(resolver.app_config, "RUNTIME_RUN_ID", run_id, raising=False)
+
+    labels_df = pd.DataFrame(
+        [
+            {
+                "sample_id": 4011,
+                "predicted_family": "other",
+                "raw_model_predicted_family": "SpyNote",
+                "classification_label": "trojan/android.banker.other",
+            }
+        ]
+    )
+    _, _, summary = resolver._export_taxonomy_consistency_audit(  # pylint: disable=protected-access
+        labels_df
+    )
+
+    assert int(summary["prediction_error_count"]) == 1
+    assert int(summary["raw_model_prediction_error_count"]) == 0
+    assert int(summary["postprocessed_prediction_count"]) == 1
+    exported = pd.read_csv(str(summary["prediction_errors_csv_path"]))
+    assert str(exported.loc[0, "raw_model_predicted_family"]) == "SpyNote"
+    assert bool(exported.loc[0, "prediction_postprocessed"])
 
 
 def test_taxonomy_audit_normalizes_alias_map_keys_and_values(

@@ -99,6 +99,27 @@ def test_export_model_backfills_named_feature_importances_into_result_metadata(
     assert named[1]["feature_name"] == "perm__internet"
 
 
+def test_full_prediction_rejects_incomplete_model_output(monkeypatch) -> None:
+    """A model-prediction failure must not become a later indexing error."""
+    monkeypatch.setattr(
+        prediction_builder.model_prediction,
+        "predict_all_samples",
+        lambda **_kwargs: ([], [], [], pd.Series(dtype=float).to_numpy(), []),
+    )
+
+    class _Model:
+        feature_names_in_ = ["feature"]
+
+    result = prediction_builder.run_predictions_and_compile_result(
+        "random_forest",
+        {"model": _Model(), "label_encoder": object()},
+        pd.DataFrame({"feature": [1, 0]}, index=[10, 11]),
+        pd.Series([0, 1], index=[10, 11]),
+    )
+
+    assert result == {}
+
+
 def test_builder_accepts_nested_prediction_metadata(monkeypatch):
     results = {
         'predictions': {'s1': 0},

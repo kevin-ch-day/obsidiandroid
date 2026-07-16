@@ -406,11 +406,14 @@ def _merge_extra_features(
         du.print_warning("[BUILD] Extra feature DataFrame missing 'sample_id' column. Skipping merge.")
         return encoded, {}
 
-    extras_work = extra_df.drop_duplicates("sample_id", keep="first").copy()
-    sid_extra = pd.to_numeric(extras_work["sample_id"], errors="coerce")
-    extras_work = extras_work.loc[sid_extra.notna()].copy()
-    extras_work["sample_id"] = sid_extra.loc[sid_extra.notna()].round().astype("int64")
-    extras = extras_work.set_index("sample_id")
+    # Reuse the canonical extra-frame preparation used by cohort expansion.
+    # It selects and copies once, instead of materializing several nearly
+    # identical full enrichment frames during feature alignment.
+    extras = _prep_extra_indexed(extra_df)
+    # Preserve the historical zero-filled feature columns when every extra
+    # row is invalid, but skip the no-op case with no extra columns at all.
+    if not len(extras.columns):
+        return encoded, {}
 
     extra_encoder_mappings: dict[str, dict[str, int]] = {}
     for col in extras.columns:
@@ -427,9 +430,7 @@ def _merge_extra_features(
             }
 
     join_keys = pd.to_numeric(_resolve_merge_sample_ids(encoded), errors="coerce")
-    extras_aligned = extras.copy()
-    extras_aligned.index = pd.to_numeric(extras_aligned.index, errors="coerce")
-    aligned = extras_aligned.reindex(join_keys.to_numpy())
+    aligned = extras.reindex(join_keys.to_numpy())
     aligned = aligned.reset_index(drop=True)
 
     overlap_cols = [c for c in extras.columns if c in encoded.columns]

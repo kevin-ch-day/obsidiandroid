@@ -18,6 +18,7 @@ from .cohort_sql_fragments import (
     latest_family_resolution_subquery,
     latest_vt_scan_summary_subquery,
 )
+from obsidiandroid.common.family_label_semantics import family_identity_sql
 
 
 def _cohort_loader_sql_parts(
@@ -36,6 +37,7 @@ def _cohort_loader_sql_parts(
     include_family_canonical: tuple[str, ...] | None,
     exclude_family_ids: tuple[int, ...] | None,
     exclude_family_canonical: tuple[str, ...] | None,
+    require_active_type_slug: bool = False,
 ) -> dict[str, Any]:
     """Build join clauses and WHERE fragments shared by fetch and gate-stat COUNT.
 
@@ -65,6 +67,8 @@ def _cohort_loader_sql_parts(
     elif exclude_unknown_type_slug:
         where_clauses.append("COALESCE(LOWER(TRIM(t.type_slug)), '') <> 'unknown'")
         where_clauses.append("COALESCE(TRIM(t.type_slug), '') <> ''")
+    if require_active_type_slug:
+        where_clauses.append("COALESCE(t.is_active, 0) = 1")
 
     if require_mapped_family:
         where_clauses.append("f.family_id IS NOT NULL")
@@ -91,12 +95,14 @@ def _cohort_loader_sql_parts(
             )"""
         )
     if exclude_family_label_conflicts:
+        raw_family_identity = family_identity_sql("y.family_label")
+        canonical_family_identity = family_identity_sql("f.family_name")
         where_clauses.append(
-            """
+            f"""
             NOT (
-                LOWER(TRIM(COALESCE(y.family_label, ''))) NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled')
-                AND LOWER(TRIM(COALESCE(f.family_name, ''))) NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null')
-                AND LOWER(TRIM(COALESCE(y.family_label, ''))) <> LOWER(TRIM(COALESCE(f.family_name, '')))
+                {raw_family_identity} NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled', 'n_a')
+                AND {canonical_family_identity} NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null', 'nan', 'n_a')
+                AND {raw_family_identity} <> {canonical_family_identity}
             )
             """
         )
@@ -148,6 +154,8 @@ def _cohort_loader_sql_parts(
         elif exclude_unknown_type_slug:
             inner_where_clauses.append("COALESCE(LOWER(TRIM(t_inner.type_slug)), '') <> 'unknown'")
             inner_where_clauses.append("COALESCE(TRIM(t_inner.type_slug), '') <> ''")
+        if require_active_type_slug:
+            inner_where_clauses.append("COALESCE(t_inner.is_active, 0) = 1")
         if require_mapped_family:
             inner_where_clauses.append("f_inner.family_id IS NOT NULL")
         if require_sha256:
@@ -160,12 +168,14 @@ def _cohort_loader_sql_parts(
                 "COALESCE(LOWER(TRIM(y_inner.sample_label_kind)), '') NOT IN ('filename', 'hash_like', 'opaque_string', 'unclassified')"
             )
         if exclude_family_label_conflicts:
+            raw_family_identity_inner = family_identity_sql("y_inner.family_label")
+            canonical_family_identity_inner = family_identity_sql("f_inner.family_name")
             inner_where_clauses.append(
-                """
+                f"""
                 NOT (
-                    LOWER(TRIM(COALESCE(y_inner.family_label, ''))) NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled')
-                    AND LOWER(TRIM(COALESCE(f_inner.family_name, ''))) NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null')
-                    AND LOWER(TRIM(COALESCE(y_inner.family_label, ''))) <> LOWER(TRIM(COALESCE(f_inner.family_name, '')))
+                    {raw_family_identity_inner} NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled', 'n_a')
+                    AND {canonical_family_identity_inner} NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null', 'nan', 'n_a')
+                    AND {raw_family_identity_inner} <> {canonical_family_identity_inner}
                 )
                 """
             )
@@ -273,6 +283,8 @@ def _scalar_semantics_count(base_sql: str, params: tuple[Any, ...], predicate_sq
 
 def _semantics_aggregate_counts(base_sql: str, params: tuple[Any, ...]) -> dict[str, int]:
     """Return all scalar semantics counters from one governed-cohort scan."""
+    raw_family_identity = family_identity_sql("family_label_raw")
+    canonical_family_identity = family_identity_sql("family_canonical")
     query = f"""
         SELECT
             SUM(CASE WHEN LOWER(TRIM(analysis_lane)) <> 'android_artifact' THEN 1 ELSE 0 END) AS non_android_lane_rows,
@@ -310,9 +322,9 @@ def _semantics_aggregate_counts(base_sql: str, params: tuple[Any, ...]) -> dict[
             ) AS weak_label_with_canonical_family_rows,
             SUM(
                 CASE
-                    WHEN LOWER(TRIM(family_label_raw)) NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled')
-                     AND LOWER(TRIM(family_canonical)) NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null')
-                     AND LOWER(TRIM(family_label_raw)) <> LOWER(TRIM(family_canonical))
+                    WHEN {raw_family_identity} NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled', 'n_a')
+                     AND {canonical_family_identity} NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null', 'nan', 'n_a')
+                     AND {raw_family_identity} <> {canonical_family_identity}
                     THEN 1 ELSE 0
                 END
             ) AS raw_family_vs_canonical_conflict_rows
@@ -365,6 +377,8 @@ def _top_semantics_drift_groups(
     *,
     top_n: int = 10,
 ) -> list[dict[str, Any]]:
+    raw_family_identity = family_identity_sql("family_label_raw")
+    canonical_family_identity = family_identity_sql("family_canonical")
     query = f"""
         SELECT
             COALESCE(NULLIF(TRIM({group_column}), ''), '<blank>') AS group_label,
@@ -387,9 +401,9 @@ def _top_semantics_drift_groups(
             ) AS blank_family_raw_with_vt_token_rows,
             SUM(
                 CASE
-                    WHEN LOWER(TRIM(family_label_raw)) NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled')
-                     AND LOWER(TRIM(family_canonical)) NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null')
-                     AND LOWER(TRIM(family_label_raw)) <> LOWER(TRIM(family_canonical))
+                    WHEN {raw_family_identity} NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled', 'n_a')
+                     AND {canonical_family_identity} NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null', 'nan', 'n_a')
+                     AND {raw_family_identity} <> {canonical_family_identity}
                     THEN 1 ELSE 0
                 END
             ) AS raw_family_vs_canonical_conflict_rows,
@@ -412,9 +426,9 @@ def _top_semantics_drift_groups(
                 )
                 + SUM(
                     CASE
-                        WHEN LOWER(TRIM(family_label_raw)) NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled')
-                         AND LOWER(TRIM(family_canonical)) NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null')
-                         AND LOWER(TRIM(family_label_raw)) <> LOWER(TRIM(family_canonical))
+                        WHEN {raw_family_identity} NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled', 'n_a')
+                         AND {canonical_family_identity} NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null', 'nan', 'n_a')
+                         AND {raw_family_identity} <> {canonical_family_identity}
                         THEN 1 ELSE 0
                     END
                 )
@@ -471,6 +485,7 @@ def fetch_samples_by_type(
     include_family_canonical: tuple[str, ...] | None = None,
     exclude_family_ids: tuple[int, ...] | None = None,
     exclude_family_canonical: tuple[str, ...] | None = None,
+    require_active_type_slug: bool = False,
     as_dataframe: bool = False,
 ):
     """Fetch Android APK samples joined to canonical family/type taxonomy."""
@@ -545,6 +560,7 @@ def fetch_samples_by_type(
         include_family_canonical=include_family_canonical,
         exclude_family_ids=exclude_family_ids,
         exclude_family_canonical=exclude_family_canonical,
+        require_active_type_slug=require_active_type_slug,
         as_dataframe=as_dataframe,
     )
 
@@ -570,6 +586,7 @@ def fetch_sample_ids_by_type(
     include_family_canonical: tuple[str, ...] | None = None,
     exclude_family_ids: tuple[int, ...] | None = None,
     exclude_family_canonical: tuple[str, ...] | None = None,
+    require_active_type_slug: bool = False,
 ) -> set[int]:
     """Fetch only governed ``sample_id`` values for a cohort loader query."""
     columns, rows = _execute_samples_by_type_query(
@@ -594,6 +611,7 @@ def fetch_sample_ids_by_type(
         include_family_canonical=include_family_canonical,
         exclude_family_ids=exclude_family_ids,
         exclude_family_canonical=exclude_family_canonical,
+        require_active_type_slug=require_active_type_slug,
         as_dataframe=False,
         id_only_projection=True,
     )
@@ -633,6 +651,7 @@ def _execute_samples_by_type_query(
     include_family_canonical: tuple[str, ...] | None = None,
     exclude_family_ids: tuple[int, ...] | None = None,
     exclude_family_canonical: tuple[str, ...] | None = None,
+    require_active_type_slug: bool = False,
     as_dataframe: bool = False,
     id_only_projection: bool = False,
 ):
@@ -652,12 +671,15 @@ def _execute_samples_by_type_query(
         include_family_canonical=include_family_canonical,
         exclude_family_ids=exclude_family_ids,
         exclude_family_canonical=exclude_family_canonical,
+        require_active_type_slug=require_active_type_slug,
     )
     params = list(parts["params"])
     where_sql = " AND ".join(parts["where_clauses"])
     scan_one = parts["scan_one"]
     fam_one = parts["fam_one"]
     hash_join_clause = parts["hash_join_clause"]
+    raw_family_identity = family_identity_sql("y.family_label")
+    canonical_family_identity = family_identity_sql("f.family_name")
 
     limit_value = int(limit) if isinstance(limit, int) and limit > 0 else None
     family_cap_value = int(family_cap) if isinstance(family_cap, int) and family_cap > 0 else None
@@ -708,9 +730,9 @@ def _execute_samples_by_type_query(
                     WHEN f.family_id IS NULL THEN 1 ELSE 0
                 END AS _family_mapping_rank,
                 CASE
-                    WHEN LOWER(TRIM(COALESCE(y.family_label, ''))) NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled')
-                     AND LOWER(TRIM(COALESCE(f.family_name, ''))) NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null')
-                     AND LOWER(TRIM(COALESCE(y.family_label, ''))) <> LOWER(TRIM(COALESCE(f.family_name, '')))
+                    WHEN {raw_family_identity} NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled', 'n_a')
+                     AND {canonical_family_identity} NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null', 'nan', 'n_a')
+                     AND {raw_family_identity} <> {canonical_family_identity}
                     THEN 1 ELSE 0
                 END AS _family_conflict_rank,
                 CASE
@@ -843,9 +865,9 @@ def _execute_samples_by_type_query(
                     WHEN f.family_id IS NULL THEN 1 ELSE 0
                 END AS _family_mapping_rank,
                 CASE
-                    WHEN LOWER(TRIM(COALESCE(y.family_label, ''))) NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled')
-                     AND LOWER(TRIM(COALESCE(f.family_name, ''))) NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null')
-                     AND LOWER(TRIM(COALESCE(y.family_label, ''))) <> LOWER(TRIM(COALESCE(f.family_name, '')))
+                    WHEN {raw_family_identity} NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled', 'n_a')
+                     AND {canonical_family_identity} NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null', 'nan', 'n_a')
+                     AND {raw_family_identity} <> {canonical_family_identity}
                     THEN 1 ELSE 0
                 END AS _family_conflict_rank,
                 CASE
@@ -972,6 +994,7 @@ def get_type_cohort_gate_stats(
     include_family_canonical: tuple[str, ...] | None = None,
     exclude_family_ids: tuple[int, ...] | None = None,
     exclude_family_canonical: tuple[str, ...] | None = None,
+    require_active_type_slug: bool = False,
 ) -> dict:
     """Return SQL-scope diagnostic counts for the cohort loader (pre-``samples_df``).
 
@@ -995,6 +1018,8 @@ def get_type_cohort_gate_stats(
 
     scan_one = latest_vt_scan_summary_subquery()
     fam_one = latest_family_resolution_subquery()
+    raw_family_identity = family_identity_sql("base.family_label")
+    canonical_family_identity = family_identity_sql("base.family_name")
 
     base_query = f"""
         FROM malware_sample_catalog y
@@ -1090,6 +1115,7 @@ def get_type_cohort_gate_stats(
                 f.family_name,
                 y.android_package_name,
                 t.type_slug,
+                t.is_active AS type_is_active,
                 y.sample_label_kind,
                 y.family_label
             {base_query}
@@ -1109,6 +1135,7 @@ def get_type_cohort_gate_stats(
             SUM(CASE WHEN base.family_id IS NULL THEN 1 ELSE 0 END) AS unmapped_family,
             SUM(CASE WHEN COALESCE(TRIM(base.android_package_name), '') = '' THEN 1 ELSE 0 END) AS missing_package,
             SUM(CASE WHEN COALESCE(LOWER(TRIM(base.type_slug)), '') = 'unknown' THEN 1 ELSE 0 END) AS unknown_type_slug,
+            SUM(CASE WHEN COALESCE(base.type_is_active, 0) <> 1 THEN 1 ELSE 0 END) AS inactive_type_slug,
             SUM(
                 CASE
                     WHEN COALESCE(LOWER(TRIM(base.sample_label_kind)), '') IN ('filename', 'hash_like', 'opaque_string', 'unclassified')
@@ -1117,9 +1144,9 @@ def get_type_cohort_gate_stats(
             ) AS weak_label_kind_rows,
             SUM(
                 CASE
-                    WHEN LOWER(TRIM(COALESCE(base.family_label, ''))) NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled')
-                     AND LOWER(TRIM(COALESCE(base.family_name, ''))) NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null')
-                     AND LOWER(TRIM(COALESCE(base.family_label, ''))) <> LOWER(TRIM(COALESCE(base.family_name, '')))
+                    WHEN {raw_family_identity} NOT IN ('', 'unknown', 'generic', 'unclassified', 'unlabeled', 'n_a')
+                     AND {canonical_family_identity} NOT IN ('', 'unknown', 'other', 'unmapped', 'none', 'null', 'nan', 'n_a')
+                     AND {raw_family_identity} <> {canonical_family_identity}
                     THEN 1 ELSE 0
                 END
             ) AS family_label_conflict_rows,
@@ -1143,6 +1170,7 @@ def get_type_cohort_gate_stats(
     unmapped_family = int(aggregate_map.get("unmapped_family", 0))
     missing_package = int(aggregate_map.get("missing_package", 0))
     unknown_type_slug = int(aggregate_map.get("unknown_type_slug", 0))
+    inactive_type_slug = int(aggregate_map.get("inactive_type_slug", 0))
     weak_label_kind_rows = int(aggregate_map.get("weak_label_kind_rows", 0))
     family_label_conflict_rows = int(aggregate_map.get("family_label_conflict_rows", 0))
 
@@ -1164,6 +1192,7 @@ def get_type_cohort_gate_stats(
         include_family_canonical=include_family_canonical,
         exclude_family_ids=exclude_family_ids,
         exclude_family_canonical=exclude_family_canonical,
+        require_active_type_slug=require_active_type_slug,
     )
     governed_where = " AND ".join(loader_parts["where_clauses"])
     governed_params = tuple(loader_parts["params"])
@@ -1211,6 +1240,7 @@ def get_type_cohort_gate_stats(
         "excluded_missing_package_name": missing_package if not allow_missing_package_name else 0,
         "excluded_low_support": low_support_excluded if min_samples_per_family is not None else 0,
         "excluded_unknown_type_slug": unknown_type_slug if exclude_unknown_type_slug else 0,
+        "excluded_inactive_type_slug": inactive_type_slug if require_active_type_slug else 0,
         "excluded_weak_label_kind": weak_label_kind_rows if exclude_weak_label_kinds else 0,
         "excluded_family_label_conflict": family_label_conflict_rows if exclude_family_label_conflicts else 0,
         "excluded_family_ids": list(normalized_exclude_ids),
@@ -1281,11 +1311,13 @@ def get_type_cohort_catalog_semantics_profile(
 
 
 def fetch_available_android_type_slugs() -> tuple[str, ...]:
-    """Fetch canonical Android malware type slugs from DB taxonomy table."""
+    """Fetch active canonical Android malware type slugs from DB taxonomy."""
     query = """
         SELECT type_slug
         FROM android_malware_type
-        WHERE type_slug IS NOT NULL AND TRIM(type_slug) <> ''
+        WHERE is_active = 1
+          AND type_slug IS NOT NULL
+          AND TRIM(type_slug) <> ''
         ORDER BY type_slug ASC
     """
     _columns, rows = db_engine.execute_query(query, fetch=True, return_columns=True)

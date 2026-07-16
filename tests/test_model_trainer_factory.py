@@ -68,6 +68,54 @@ def test_factory_inf_input():
         model_trainer_factory.train_model_factory(X, y)
 
 
+def test_factory_rejects_duplicate_sample_indices() -> None:
+    X, y = _imbalanced_data()
+    X.index = [0, 0] + list(range(2, len(X)))
+    with pytest.raises(ValueError, match="duplicate sample IDs"):
+        model_trainer_factory.train_model_factory(X, y)
+
+
+def test_split_cache_key_changes_when_label_order_changes(monkeypatch) -> None:
+    """A cache hit must represent the exact ordered sample/label pairing."""
+    monkeypatch.setattr(app_config, "RUNTIME_ABLATION_ACTIVE", True, raising=False)
+    features = pd.DataFrame({"f": [1.0, 2.0, 3.0, 4.0]}, index=[10, 20, 30, 40])
+    first = model_trainer_factory._build_split_cache_key(
+        features, np.array([0, 1, 0, 1]), 0.25, 42, group_aware_requested=False
+    )
+    changed_labels = model_trainer_factory._build_split_cache_key(
+        features, np.array([1, 0, 0, 1]), 0.25, 42, group_aware_requested=False
+    )
+    reordered_ids = model_trainer_factory._build_split_cache_key(
+        features.reindex([20, 10, 30, 40]), np.array([0, 1, 0, 1]), 0.25, 42,
+        group_aware_requested=False,
+    )
+    assert first != changed_labels
+    assert first != reordered_ids
+
+
+def test_lineage_groups_keep_package_sha_then_sample_id_precedence(monkeypatch) -> None:
+    monkeypatch.setattr(
+        app_config,
+        "RUNTIME_SPLIT_SAMPLE_METADATA",
+        pd.DataFrame(
+            {
+                "sample_id": [10, 20, 30, 40],
+                "package_name": ["com.example", "com.example", "", ""],
+                "sha256": ["a", "b", "same", ""],
+            }
+        ),
+        raising=False,
+    )
+    groups, note = model_trainer_factory._build_lineage_groups_for_split(  # pylint: disable=protected-access
+        pd.DataFrame({"f": [1, 2, 3, 4]}, index=[10, 20, 30, 40])
+    )
+    assert note == "ok"
+    assert groups is not None
+    assert groups[0] == groups[1]
+    assert groups[2] != groups[0]
+    assert groups[3] != groups[2]
+
+
 def test_factory_balanced_random_forest_runs():
     X, y = _imbalanced_data()
     result = model_trainer_factory.train_model_factory(
@@ -222,6 +270,42 @@ def test_split_cache_notice_is_emitted_once_per_run(monkeypatch):
     )
 
     assert sum("Reusing cached train/test partition" in m for m in infos) == 1
+
+
+def test_split_cache_stores_compact_indices_and_rebuilds_current_features(monkeypatch):
+    X, y = _imbalanced_data()
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "compact_split_cache", raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_ABLATION_ACTIVE", True, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_SMOTE_OVERSAMPLING", False, raising=False)
+    monkeypatch.setattr(model_trainer_factory, "_export_split_audit", lambda **_kwargs: None)
+    model_trainer_factory.reset_runtime_training_caches()
+
+    first = model_trainer_factory.train_model_factory(
+        X,
+        y,
+        model_type="random_forest",
+        enable_grid_search=False,
+        random_state=0,
+    )
+    cache_entries = model_trainer_factory._runtime_training_state()["split_cache"]
+    cached = next(iter(cache_entries.values()))
+
+    assert set(cached) == {"train_index", "test_index", "split_algorithm"}
+    assert len(cached["train_index"]) == len(first["sample_ids_train"])
+    assert len(cached["test_index"]) == len(first["sample_ids_test"])
+
+    X_with_new_column = X.copy()
+    X_with_new_column[6] = np.arange(len(X))
+    second = model_trainer_factory.train_model_factory(
+        X_with_new_column,
+        y,
+        model_type="random_forest",
+        enable_grid_search=False,
+        random_state=0,
+    )
+
+    assert second["sample_ids_train"] == first["sample_ids_train"]
+    assert second["sample_ids_test"] == first["sample_ids_test"]
 
 
 def test_split_size_notice_is_emitted_once_per_run(monkeypatch):
@@ -472,6 +556,10 @@ def test_split_audit_exported_in_paper_mode(monkeypatch: pytest.MonkeyPatch, tmp
     assert "sha256_overlap_across_split_flag" in audit_df.columns
     assert int(audit_df["sha256_overlap_count"].iloc[0]) == 0
     assert int(audit_df["sha256_overlap_across_split_flag"].iloc[0]) == 0
+    # No package-name metadata is supplied.  The lineage ledger must therefore
+    # fall back to the distinct SHA-256 values, rather than grouping every
+    # missing package under a literal ``None``/``nan`` token.
+    assert audit_df["split_lineage_group_id"].nunique() == len(audit_df)
 
 
 def test_split_audit_invalid_sha_fails_in_paper_mode(
@@ -650,6 +738,48 @@ def test_headline_split_audit_is_model_agnostic(
     audit = pd.read_csv(audit_path)
     assert audit["model"].nunique() == 1
     assert str(audit["model"].iloc[0]) == "headline_shared_split"
+
+
+def test_ablation_split_audit_is_shared_across_models(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Equivalent ablation fits should reference one persisted split ledger."""
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_ABLATION_ACTIVE", True, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "ablation_shared", raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(tmp_path), raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", {}, raising=False)
+    model_trainer_factory.reset_runtime_training_caches()
+    metadata = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "sha256": [f"{value:064x}"[-64:] for value in range(1, 5)],
+        }
+    )
+    monkeypatch.setattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", metadata, raising=False)
+
+    common = {
+        "split_cache_key": ("same-cohort",),
+        "sample_ids_train": [1, 2, 3],
+        "sample_ids_test": [4],
+        "random_state": 42,
+        "active_class_count": 2,
+        "label_field": "family_id",
+        "label_target_slug": "family_id",
+        "feature_set_token": "vendor_no_parsed_family",
+    }
+    model_trainer_factory._export_split_audit(model_type="random_forest", **common)  # pylint: disable=protected-access
+    model_trainer_factory._export_split_audit(model_type="xgboost", **common)  # pylint: disable=protected-access
+
+    ledgers = list(tmp_path.glob("split_freeze_ablation__*.csv"))
+    assert len(ledgers) == 1
+    assert "__shared__" in ledgers[0].name
+    index = getattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX")
+    assert isinstance(index, dict)
+    rf = index[("ablation_shared", "vendor_no_parsed_family", "family_id", "random_forest")]
+    xgb = index[("ablation_shared", "vendor_no_parsed_family", "family_id", "xgboost")]
+    assert rf["split_audit_path"] == xgb["split_audit_path"]
 
 
 def test_temporal_holdout_summary_records_dropped_family_names(

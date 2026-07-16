@@ -12,17 +12,29 @@ from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.labeling.taxonomy import normalize_family_name
 
 _WEAK_LABEL_KINDS = {"filename", "hash_like", "opaque_string", "unclassified"}
-_GENERIC_FAMILY_TOKENS = {"", "unknown", "generic", "unclassified", "unlabeled"}
-_GENERIC_CANONICAL_TOKENS = {"", "unknown", "other", "unmapped", "none", "null"}
+_GENERIC_FAMILY_TOKENS = {
+    "", "unknown", "generic", "unclassified", "unlabeled", "none", "null", "nan", "n/a"
+}
+_GENERIC_CANONICAL_TOKENS = {"", "unknown", "other", "unmapped", "none", "null", "nan", "n/a"}
 _GENERIC_PRIMARY_TOKENS = {"", "unknown", "none", "null", "nan", "n/a", "malware"}
 _CANONICAL_TYPE_TOKENS = {
     "adware",
+    "backdoor",
     "banker",
+    "cryptojacking",
+    "downloader",
     "dropper",
+    "miner",
+    "ransomware",
     "rat",
+    "riskware",
+    "rootkit",
     "sms-trojan",
     "spyware",
+    "stalkerware",
     "stealer",
+    "subscription-fraud",
+    "trojan",
 }
 
 _PUBLIC_PACKAGE_FAMILY_CORROBORATION: dict[str, str] = {
@@ -65,7 +77,15 @@ def _norm_family_series(
         return pd.Series([blank_token] * len(df), index=df.index, dtype="object")
     raw = df[column].fillna("").astype(str).str.strip()
     normalized = raw.map(normalize_family_name).astype(str).str.strip().str.lower()
-    normalized = normalized.replace({token: "" for token in generic_tokens})
+    # Check both the source spelling and its canonicalized form.  For example,
+    # ``n/a`` becomes ``n_a`` under the general token normalizer and must still
+    # be treated as absent data rather than a malware family.
+    normalized_generic_tokens = {
+        str(normalize_family_name(token)).strip().lower()
+        for token in generic_tokens
+    }
+    blocked_tokens = set(generic_tokens) | normalized_generic_tokens
+    normalized = normalized.replace({token: "" for token in blocked_tokens})
     if blank_token:
         normalized = normalized.replace("", blank_token)
     return normalized
@@ -149,7 +169,7 @@ def build_family_label_confidence_payload(
     frame["issue_weak_label"] = frame["issue_weak_label_kind"] & ~frame["issue_weak_label_corroborated"]
     frame["issue_family_conflict"] = (
         ~family_raw.isin(_GENERIC_FAMILY_TOKENS)
-        & ~family.isin(_GENERIC_CANONICAL_TOKENS)
+        & family.ne("<blank>")
         & family_raw.ne(family)
     )
     frame["issue_blank_family_with_vt_token"] = vt_token.ne("") & family_raw.isin(_GENERIC_FAMILY_TOKENS)
@@ -273,7 +293,7 @@ def build_family_label_confidence_payload(
 
     return {
         "row_count": int(len(frame)),
-        "family_count": int(frame["family_norm"].nunique()),
+        "family_count": int(frame.loc[frame["family_norm"].ne("<blank>"), "family_norm"].nunique()),
         "min_support": int(min_support),
         "sample_rows": sample_rows,
         "family_rows": family_rows,
@@ -313,7 +333,7 @@ def build_family_label_drift_remediation_rows(samples_df: pd.DataFrame) -> pd.Da
     frame["issue_weak_label"] = frame["issue_weak_label_kind"] & ~frame["issue_weak_label_corroborated"]
     frame["issue_family_conflict"] = (
         ~family_raw.isin(_GENERIC_FAMILY_TOKENS)
-        & ~family.isin(_GENERIC_CANONICAL_TOKENS)
+        & family.ne("<blank>")
         & family_raw.ne(family)
     )
     issue_frame = frame[

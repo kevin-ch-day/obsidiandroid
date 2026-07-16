@@ -9,6 +9,7 @@ import json
 import os
 import traceback
 import warnings
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -24,21 +25,17 @@ from obsidiandroid.reporting import export_manager as em
 from obsidiandroid.reporting.operator_dashboard import bump_artifact_counter
 from obsidiandroid.observability.logging import get_logger, log_event
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
-from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.diagnostics import feature_build_coverage_export
 from obsidiandroid.diagnostics import feature_column_survival_export
 from obsidiandroid.diagnostics import family_tier_model_evaluation
 from obsidiandroid.diagnostics import headline_evaluation_export
 from obsidiandroid.diagnostics import rf_feature_importance_export
 from obsidiandroid.diagnostics import permission_training_survival_audit
-from obsidiandroid.orchestration.methodology_artifacts import (
-    export_feature_contract,
-    export_leakage_assessment,
-)
 
 from obsidiandroid.modeling import data_alignment
 from obsidiandroid.modeling import distribution_reporter
 from obsidiandroid.modeling import ml_result_validator
+from obsidiandroid.modeling.feature_selection_contract import collect_leakage_pruning_audit
 from . import pipeline_result_promoter
 from . import train_model_executor
 
@@ -70,13 +67,88 @@ _FAMILY_BENCHMARK_LABEL_FIELDS = {
 }
 
 
-def _emit_feature_prune_warnings_to_terminal() -> bool:
-    """Headline training shows prune warnings; ablation/quiet repeats them too often."""
-    if bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False)):
-        return False
-    if bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)):
-        return False
-    return True
+def _training_fail_fast_enabled() -> bool:
+    """Return whether a headline model failure must halt the training stage."""
+    return bool(getattr(app_config, "FAIL_FAST_TRAINING_MODEL_FAILURES", True)) and not bool(
+        getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)
+    )
+
+
+def _write_training_checkpoint(
+    *,
+    state: str,
+    requested_models: list[str],
+    completed_models: list[str],
+    skipped_models: list[str],
+    model: str = "",
+    reason: str = "",
+) -> Path | None:
+    """Persist an inspectable boundary after every headline model attempt."""
+    run_id = oh.normalize_artifact_run_id(getattr(app_config, "RUNTIME_RUN_ID", ""))
+    try:
+        path = _diagnostics_dir() / f"training_checkpoint_{run_id}.json"
+        payload = {
+            "run_id": run_id,
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "state": state,
+            "current_model": str(model),
+            "requested_models": list(requested_models),
+            "completed_models": list(completed_models),
+            "skipped_models": list(skipped_models),
+            "next_model": next(
+                (name for name in requested_models if name not in set(completed_models) | set(skipped_models)),
+                None,
+            ),
+            "failure_reason": str(reason),
+            "next_action": (
+                "Training stopped at a model-integrity checkpoint; inspect the run logs and this file before rerunning."
+                if state == "halted"
+                else "Model checkpoint passed; the next configured model may begin."
+            ),
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return path
+    except OSError:
+        return None
+
+
+def _halt_training_at_checkpoint(
+    *,
+    requested_models: list[str],
+    completed_models: list[str],
+    skipped_models: list[str],
+    model: str,
+    reason: str,
+) -> tuple[Dict[str, dict], List[str]]:
+    """Record a failed model checkpoint and return no promotable results."""
+    checkpoint = _write_training_checkpoint(
+        state="halted",
+        requested_models=requested_models,
+        completed_models=completed_models,
+        skipped_models=skipped_models,
+        model=model,
+        reason=reason,
+    )
+    summary = {
+        "failed_model": str(model),
+        "reason": str(reason),
+        "checkpoint_path": str(checkpoint) if checkpoint else "",
+    }
+    setattr(app_config, "RUNTIME_TRAINING_FAILURE_SUMMARY", summary)
+    du.print_error(
+        f"[CHECKPOINT] {model} failed model-integrity validation; halting remaining headline models."
+    )
+    log_event(
+        PIPELINE_LOGGER,
+        "training_checkpoint_halted",
+        event_id="ML_TRAIN_490",
+        level="ERROR",
+        model=model,
+        reason=str(reason),
+        checkpoint_path=str(checkpoint) if checkpoint else "",
+    )
+    return {}, skipped_models
 
 
 @contextlib.contextmanager
@@ -110,137 +182,6 @@ def _suppress_known_sklearn_parallel_warning():
             os.environ.pop("PYTHONWARNINGS", None)
         else:
             os.environ["PYTHONWARNINGS"] = previous_pythonwarnings
-
-
-def _prune_low_information_features(features_df: pd.DataFrame) -> pd.DataFrame:
-    """Drop no-variance columns to reduce noise and model complexity."""
-    if features_df is None or features_df.empty:
-        setattr(app_config, "RUNTIME_LOW_INFORMATION_PRUNED_COLUMNS", [])
-        return features_df
-
-    low_info_cols = [
-        col for col in features_df.columns if features_df[col].nunique(dropna=False) <= 1
-    ]
-    if not low_info_cols:
-        setattr(app_config, "RUNTIME_LOW_INFORMATION_PRUNED_COLUMNS", [])
-        return features_df
-
-    setattr(app_config, "RUNTIME_LOW_INFORMATION_PRUNED_COLUMNS", list(low_info_cols))
-    msg = f"[FEATURES] Dropping {len(low_info_cols)} low-information column(s) before training."
-    if _emit_feature_prune_warnings_to_terminal():
-        du.print_warning(msg)
-    else:
-        du.print_debug(msg)
-    du.print_debug(f"[FEATURES] Dropped columns: {low_info_cols}")
-    return features_df.drop(columns=low_info_cols, errors="ignore")
-
-
-def _collect_leakage_pruning_audit(
-    features_df: pd.DataFrame,
-    labels_df: pd.Series,
-) -> list[dict[str, Any]]:
-    """Inspect features for likely leakage and return audit rows with reason codes."""
-    if features_df is None or features_df.empty:
-        return []
-
-    audit_rows: list[dict[str, Any]] = []
-    blocked_exact = {
-        "sample_id",
-        "true_family",
-        "predicted_family",
-        "classification_label",
-        "family_name",
-    }
-    # Match semantic tokens anywhere in an encoded column name.  Feature
-    # encoders may prefix the source field (for example
-    # ``vendor_parsed_threat_class_*``), so prefix-only matching leaves aliases
-    # of target-adjacent AV semantics in a supposedly label-independent run.
-    semantic_tokens = (
-        "parsed_family", "suggested_family", "family_token", "threat_class",
-        "malware_type", "type_slug", "suggested_threat_label",
-    )
-    semantic_exact = {
-        "meta__has_vt_suggested_threat_label", "suggested_threat_label",
-        "vt_suggested_threat_label",
-    }
-    allow_av_assisted = bool(getattr(app_config, "ENABLE_LABEL_DERIVED_VENDOR_FEATURES", False))
-    idx_as_str = features_df.index.map(str)
-
-    for col in features_df.columns:
-        col_name = str(col)
-        reason = None
-        details = ""
-
-        normalized_col = col_name.lower()
-        if normalized_col in blocked_exact:
-            reason = "blocked_exact_name"
-            details = "column name matches known identifier or label field"
-        elif not allow_av_assisted and (
-            normalized_col in semantic_exact or any(token in normalized_col for token in semantic_tokens)
-        ):
-            reason = "label_independent_contract_block"
-            details = "direct or target-adjacent AV naming semantic prohibited in primary family benchmark"
-        else:
-            try:
-                if features_df[col].map(str).equals(idx_as_str):
-                    reason = "matches_sample_id_index"
-                    details = "column values match normalized feature index exactly"
-            except Exception:
-                continue
-
-        if reason is None and bool(
-            getattr(app_config, "ENABLE_AGGRESSIVE_LEAKAGE_PRUNING", False)
-        ):
-            try:
-                pairs = pd.DataFrame({"feature_value": features_df[col], "label": labels_df})
-                mapping_conflicts = pairs.groupby("feature_value")["label"].nunique(dropna=False)
-                if (
-                    not mapping_conflicts.empty
-                    and mapping_conflicts.max() == 1
-                    and pairs["feature_value"].nunique() >= 10
-                ):
-                    reason = "unique_feature_to_label_mapping"
-                    details = (
-                        "feature values map to exactly one label across observed rows "
-                        f"(unique_values={int(pairs['feature_value'].nunique())})"
-                    )
-            except Exception:
-                continue
-
-        if reason is not None:
-            audit_rows.append(
-                {
-                    "column_name": col_name,
-                    "reason_code": reason,
-                    "details": details,
-                }
-            )
-
-    return audit_rows
-
-
-def _prune_potential_leakage_features(
-    features_df: pd.DataFrame,
-    labels_df: pd.Series,
-) -> pd.DataFrame:
-    """Drop columns likely to leak labels or sample identity."""
-    if features_df is None or features_df.empty:
-        return features_df
-
-    audit_rows = _collect_leakage_pruning_audit(features_df, labels_df)
-    setattr(app_config, "RUNTIME_LEAKAGE_PRUNING_AUDIT", list(audit_rows))
-    drop_cols = [row["column_name"] for row in audit_rows]
-    if not drop_cols:
-        return features_df
-
-    drop_cols = sorted(set(drop_cols))
-    msg = f"[FEATURES] Dropping {len(drop_cols)} potential leakage column(s)."
-    if _emit_feature_prune_warnings_to_terminal():
-        du.print_warning(msg)
-    else:
-        du.print_debug(msg)
-    du.print_debug(f"[FEATURES] Leakage columns: {drop_cols}")
-    return features_df.drop(columns=drop_cols, errors="ignore")
 
 
 def _diagnostics_dir() -> Path:
@@ -427,14 +368,35 @@ def train_models(
         feature_count=int(features_df.shape[1]) if isinstance(features_df, pd.DataFrame) else 0,
     )
     setattr(app_config, "RUNTIME_TRAINING_PROVENANCE_SUMMARY", {})
+    setattr(app_config, "RUNTIME_TRAINING_FAILURE_SUMMARY", {})
+    _write_training_checkpoint(
+        state="started",
+        requested_models=models,
+        completed_models=[],
+        skipped_models=[],
+    )
 
     from obsidiandroid.evaluation.ml_terminal_presentation import should_defer_headline_training_terminal
 
     defer_terminal = should_defer_headline_training_terminal()
     for model_name in models:
+        # Write before invoking the estimator: XGBoost or a large forest can
+        # legitimately run for a long time, and the checkpoint is the
+        # operator-visible proof of which model currently owns that time.
+        _write_training_checkpoint(
+            state="model_started",
+            requested_models=models,
+            completed_models=sorted(results.keys()),
+            skipped_models=skipped,
+            model=model_name,
+        )
         quiet = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
         if not quiet and not ml_console.is_minimal() and not defer_terminal:
             du.print_subheader(f"[TRAINING] {model_name.upper()}")
+            du.print_info(
+                f"[CHECKPOINT] {model_name} started; progress is recorded in "
+                f"training_checkpoint_{oh.normalize_artifact_run_id(getattr(app_config, 'RUNTIME_RUN_ID', ''))}.json."
+            )
 
         try:
             with _suppress_known_sklearn_parallel_warning():
@@ -454,6 +416,14 @@ def train_models(
                     event_id="ML_TRAIN_410",
                     model=model_name,
                 )
+                if _training_fail_fast_enabled():
+                    return _halt_training_at_checkpoint(
+                        requested_models=models,
+                        completed_models=sorted(results.keys()),
+                        skipped_models=skipped,
+                        model=model_name,
+                        reason="trainer returned a non-dictionary result",
+                    )
                 continue
 
             if not ml_result_validator.validate_result_structure(result):
@@ -467,6 +437,14 @@ def train_models(
                     event_id="ML_TRAIN_411",
                     model=model_name,
                 )
+                if _training_fail_fast_enabled():
+                    return _halt_training_at_checkpoint(
+                        requested_models=models,
+                        completed_models=sorted(results.keys()),
+                        skipped_models=skipped,
+                        model=model_name,
+                        reason="full prediction/result structure validation failed",
+                    )
                 continue
 
             if result.get("label_encoder") is None:
@@ -478,6 +456,14 @@ def train_models(
                     event_id="ML_TRAIN_412",
                     model=model_name,
                 )
+                if _training_fail_fast_enabled():
+                    return _halt_training_at_checkpoint(
+                        requested_models=models,
+                        completed_models=sorted(results.keys()),
+                        skipped_models=skipped,
+                        model=model_name,
+                        reason="result is missing label_encoder",
+                    )
                 continue
 
             results[model_name] = result
@@ -485,6 +471,13 @@ def train_models(
                 PIPELINE_LOGGER,
                 "train_model_complete",
                 event_id="ML_TRAIN_200",
+                model=model_name,
+            )
+            _write_training_checkpoint(
+                state="model_completed",
+                requested_models=models,
+                completed_models=sorted(results.keys()),
+                skipped_models=skipped,
                 model=model_name,
             )
 
@@ -501,12 +494,26 @@ def train_models(
                 model=model_name,
                 error=str(exc),
             )
+            if _training_fail_fast_enabled():
+                return _halt_training_at_checkpoint(
+                    requested_models=models,
+                    completed_models=sorted(results.keys()),
+                    skipped_models=skipped,
+                    model=model_name,
+                    reason=f"{type(exc).__name__}: {exc}",
+                )
 
     log_event(
         PIPELINE_LOGGER,
         "train_models_complete",
         event_id="ML_TRAIN_002",
         succeeded_models=sorted(results.keys()),
+        skipped_models=skipped,
+    )
+    _write_training_checkpoint(
+        state="complete",
+        requested_models=models,
+        completed_models=sorted(results.keys()),
         skipped_models=skipped,
     )
     return results, skipped
@@ -1004,14 +1011,18 @@ def run_classifier_pipeline(
         governance_writes.append(Path(label_map_path).name)
         bump_artifact_counter("diagnostics", 1)
 
-    features_df = _prune_low_information_features(features_df)
+    # Data-dependent feature selection is fitted after the train/test split by
+    # ``model_trainer_factory``.  Keeping this full aligned matrix intact here
+    # prevents test-partition values from deciding which columns are retained.
+    setattr(app_config, "RUNTIME_LOW_INFORMATION_PRUNED_COLUMNS", [])
+    setattr(app_config, "RUNTIME_LEAKAGE_PRUNING_AUDIT", [])
+    setattr(app_config, "RUNTIME_FEATURE_SELECTION_SCOPE", "train_partition_only")
     setattr(
         app_config,
         "RUNTIME_FEATURE_NONZERO_AFTER_LOW_INFORMATION",
         feature_column_survival_export.nonzero_counts_for_columns(features_df),
     )
     perm_surv_after_low_info = _perm_training_survival_bundle(features_df)
-    features_df = _prune_potential_leakage_features(features_df, labels_df)
     setattr(
         app_config,
         "RUNTIME_FEATURE_NONZERO_FINAL_TRAINING",
@@ -1050,41 +1061,8 @@ def run_classifier_pipeline(
             bump_artifact_counter("diagnostics", 1)
     except Exception as exc:
         du.print_warning(f"[FEATURE_SURVIVAL] Export skipped: {exc}")
-    try:
-        leakage_audit_path = _export_leakage_pruning_audit(
-            diagnostics_dir,
-            final_column_count=(
-                int(features_df.shape[1]) if isinstance(features_df, pd.DataFrame) else 0
-            ),
-        )
-    except Exception as exc:
-        du.print_warning(f"[LEAKAGE_AUDIT] Export skipped: {exc}")
-        leakage_audit_path = None
-    if leakage_audit_path:
-        governance_writes.append(Path(leakage_audit_path).name)
-        bump_artifact_counter("diagnostics", 1)
-
-    if bool(getattr(app_config, "ENABLE_FEATURE_CONTRACT_EXPORT", True)):
-        run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
-        contract_path = export_feature_contract(
-            feature_df=features_df,
-            run_id=run_id,
-            output_dir=str(diagnostics_dir),
-        )
-        if contract_path:
-            setattr(app_config, "RUNTIME_HEADLINE_FEATURE_CONTRACT_PATH", str(contract_path))
-            governance_writes.append(Path(contract_path).name)
-            bump_artifact_counter("diagnostics", 1)
-    if bool(getattr(app_config, "ENABLE_LEAKAGE_ASSESSMENT_EXPORT", True)):
-        run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
-        leakage_path = export_leakage_assessment(
-            feature_df=features_df,
-            run_id=run_id,
-            output_dir=str(diagnostics_dir),
-        )
-        if leakage_path:
-            governance_writes.append(Path(leakage_path).name)
-            bump_artifact_counter("diagnostics", 1)
+    # Feature-contract and leakage artifacts are emitted by the model factory
+    # after fitting its train-only selection contract.
 
     if governance_writes and not bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False)):
         if not should_quiet_headline_training_preamble():
@@ -1098,17 +1076,6 @@ def run_classifier_pipeline(
         "RUNTIME_TRAINING_FINAL_FEATURE_COLUMNS",
         int(features_df.shape[1]) if isinstance(features_df, pd.DataFrame) else 0,
     )
-    if isinstance(features_df, pd.DataFrame) and not bool(
-        getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)
-    ):
-        headline_cols = [str(c) for c in features_df.columns]
-        setattr(app_config, "RUNTIME_HEADLINE_FIT_COLUMN_NAMES", headline_cols)
-        setattr(
-            app_config,
-            "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH",
-            hash_payload(sorted(headline_cols)),
-        )
-
     runtime_manifest = getattr(app_config, "RUNTIME_MANIFEST_CONTEXT", None)
     if isinstance(runtime_manifest, dict):
         runtime_manifest["aligned_supervised_rows"] = getattr(
@@ -1123,6 +1090,32 @@ def run_classifier_pipeline(
             runtime_manifest["test_sample_count"] = split_meta.get("test_sample_count")
 
     results, skipped = train_models(features_df, labels_df, models=models)
+    # Normal execution writes this from the factory's train-fitted contract.
+    # Retain a clearly limited fallback for dry-run/test executors that return
+    # no model fit, so the run still records that selection was deferred.
+    expected_audit = diagnostics_dir / (
+        f"leakage_pruning_audit_{oh.normalize_artifact_run_id(getattr(app_config, 'RUNTIME_RUN_ID', 'unknown'))}.csv"
+    )
+    if not expected_audit.is_file():
+        try:
+            # No trainer ran (for example, a dry-run executor in a test), so
+            # record the prospective guard findings without mutating columns.
+            setattr(
+                app_config,
+                "RUNTIME_LEAKAGE_PRUNING_AUDIT",
+                collect_leakage_pruning_audit(features_df, labels_df),
+            )
+            leakage_audit_path = _export_leakage_pruning_audit(
+                diagnostics_dir,
+                final_column_count=(
+                    int(features_df.shape[1]) if isinstance(features_df, pd.DataFrame) else 0
+                ),
+            )
+            if leakage_audit_path:
+                governance_writes.append(Path(leakage_audit_path).name)
+                bump_artifact_counter("diagnostics", 1)
+        except Exception as exc:
+            du.print_warning(f"[LEAKAGE_AUDIT] Fallback export skipped: {exc}")
     promoted_model_key = summarize_models(results)
     promote_default_model(results, model_key=promoted_model_key or DEFAULT_MODEL_KEY)
     if not bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)):

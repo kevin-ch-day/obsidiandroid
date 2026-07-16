@@ -9,6 +9,22 @@ import pytest
 from obsidiandroid.observability.pipeline_observability import finalize as obs_finalize
 from obsidiandroid.observability.pipeline_observability import run_health
 
+
+def test_ablation_line_keeps_artifact_count_distinct_from_experiment_count() -> None:
+    payload = {
+        "ablation": {
+            "status_line": (
+                "status=complete trainable_experiments=8 skipped_experiments=1 "
+                "summary_rows=96 artifacts=6 summary=ablation_summary.csv"
+            )
+        }
+    }
+
+    assert run_health._ablation_line(payload) == (  # pylint: disable=protected-access
+        "status=complete trainable_experiments=8 skipped=1 summary_rows=96 "
+        "artifacts=6 summary=ablation_summary.csv"
+    )
+
 pytestmark = pytest.mark.contract
 
 

@@ -12,9 +12,6 @@ from .cohort_population_audit import write_cohort_population_audit
 from .figure_validity_audit import write_figure_validity_audit
 from .permission_signal_quality import write_permission_signal_quality
 from .recommended_findings import write_recommended_findings
-from .taxonomy_label_quality_audit import (
-    write_taxonomy_label_quality_audit,
-)
 from .temporal_validity_audit import write_temporal_validity_audit
 from .target_validity_audit import write_target_validity_audit
 from .vendor_label_leakage_audit import write_vendor_label_leakage_audit
@@ -142,10 +139,14 @@ def write_hostile_audit_bundle(
     _safe(_figures, "figure_validity")
 
     def _taxonomy() -> None:
-        tax_md = write_taxonomy_label_quality_audit(diagnostics_dir=diagnostics_dir, run_id=run_id)
-        _add(tax_md)
+        # `taxonomy_type_authority_review` is already materialized by the
+        # research-validity contract report and contains the same counts, policy,
+        # and row examples. Do not generate a second narrative Markdown file.
+        tax_md = diagnostics_dir / f"taxonomy_type_authority_review_{run_id}.md"
+        if tax_md.is_file():
+            _add(tax_md)
 
-    _safe(_taxonomy, "taxonomy_label_quality")
+    _safe(_taxonomy, "taxonomy_authority_review")
 
     def _rec() -> None:
         rec_md = write_recommended_findings(diagnostics_dir=diagnostics_dir, run_id=run_id)

@@ -238,8 +238,8 @@ def run_feature_matrix_gap_report(
     cohort_path = diag / "cohort_membership.csv"
     unmatched_path = diag / "unmatched_label_ids.csv"
     coverage_path = oh.resolve_feature_build_coverage_path(diag, run_id)
-    modality_path = diag / "modality_method_contract.json"
-    contract_path = diag / "feature_contract.json"
+    modality_path = oh.resolve_modality_method_contract_path(diag, run_id)
+    contract_path = oh.resolve_feature_contract_path(diag, run_id)
 
     cohort_df = pd.read_csv(cohort_path)
     unmatched_df = pd.read_csv(unmatched_path)
@@ -373,7 +373,7 @@ def run_feature_matrix_gap_report(
         },
         "column_loss": {
             "description": (
-                "Training applies _prune_low_information_features (nunique<=1) after alignment, "
+                "Training fits no-variance and leakage guards on the train partition only, "
                 "separate from cohort/preprocessing joins."
             ),
             "fusion_columns_before_alignment_training_slice": fusion_vs_train.get("fusion_matrix_columns_total"),

@@ -119,12 +119,15 @@ def generate_label(
     recorded_family: str,
     record: VendorClassificationRecord,
     format: str = "structured",
-    verbose: bool = False
+    verbose: bool = False,
+    structured_fields: dict | None = None,
 ) -> str:
     """
     Dispatches label formatting based on specified format.
     """
-    fields = label_field_normalizer.generate_structured_fields(recorded_family, record, debug=verbose)
+    fields = structured_fields or label_field_normalizer.generate_structured_fields(
+        recorded_family, record, debug=verbose
+    )
 
     format_map = {
         "structured": generate_structured_label,

@@ -89,6 +89,29 @@ def test_build_android_authority_drift_payload_handles_clean_cohort() -> None:
     assert payload["grouped_rows"] == []
 
 
+def test_authority_drift_does_not_count_alias_or_textual_null_as_family_conflict() -> None:
+    df = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "family_canonical": ["SpyLoan", "nan"],
+            "type_slug": ["banker", "banker"],
+            "source_batch_label": ["batch_a", "batch_b"],
+            "analysis_lane": ["android_artifact", "android_artifact"],
+            "payload_target_platform": ["android", "android"],
+            "sample_label_kind": ["family_or_common_name", "family_or_common_name"],
+            "vt_family_token": ["blackloan", "possiblefamily"],
+            "family_label_raw": ["BlackLoan", "n/a"],
+        }
+    )
+
+    payload = android_authority_drift_report.build_android_authority_drift_payload(df, top_n=10)
+
+    assert payload["issue_rows"] == 1
+    family_rows = [row for row in payload["grouped_rows"] if row["scope"] == "family_canonical"]
+    assert family_rows[0]["group_value"] == "<blank>"
+    assert family_rows[0]["raw_family_vs_canonical_conflict_rows"] == 0
+
+
 def test_export_android_authority_drift_reports_skips_empty_csv_in_compact_mode(
     monkeypatch,
     tmp_path: Path,

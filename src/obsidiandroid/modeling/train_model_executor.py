@@ -14,6 +14,7 @@ from obsidiandroid.modeling import ml_result_validator
 from obsidiandroid.observability.logging import get_logger, log_event
 
 from .model_evaluation import evaluate_model, display_post_training_metrics
+from .feature_selection_contract import apply_feature_selection_contract
 from .model_training import announce_training, train_model
 from .prediction_builder import export_model, run_predictions_and_compile_result
 
@@ -26,6 +27,21 @@ ML_LOGGER = get_logger(
 def _model_output_root() -> Path:
     """Return canonical global output root for model exports."""
     return output_paths.output_root()
+
+
+def _prediction_feature_matrix(features_df: pd.DataFrame, result: dict) -> pd.DataFrame:
+    """Apply the train-fitted column contract before full-cohort prediction.
+
+    ``train_model_factory`` fits feature selection on the training partition
+    and returns the frozen contract. The full-cohort prediction/export path
+    must apply that ordered column list; otherwise scikit-learn rejects the
+    prediction schema and feature-importance names can be wrong. Older trainer
+    results without a contract retain their original behavior.
+    """
+    contract = result.get("feature_selection_contract")
+    if not isinstance(contract, dict):
+        return features_df
+    return apply_feature_selection_contract(features_df, contract)
 
 
 def train_and_evaluate_model(
@@ -76,6 +92,23 @@ def train_and_evaluate_model(
             )
         return {}
 
+    try:
+        prediction_features = _prediction_feature_matrix(features_df, result)
+    except (TypeError, ValueError) as exc:
+        du.print_error(
+            f"[{model_type.upper()}] Frozen feature contract could not be applied for full prediction: {exc}"
+        )
+        if getattr(app_config, "ENABLE_ML_LOGGING", True):
+            log_event(
+                ML_LOGGER,
+                "train_eval_failed",
+                event_id="ML_EXEC_409",
+                level="ERROR",
+                model=model_type,
+                reason="prediction_feature_contract_unavailable",
+            )
+        return {}
+
     # Evaluate the model on test data
     evaluation = evaluate_model(
         model=result.get("model"),
@@ -118,17 +151,35 @@ def train_and_evaluate_model(
             )
         return {}
 
-    display_post_training_metrics(model_type, result, evaluation, features_df)
-
-    if save_model:
-        export_model(result, model_type, features_df, evaluation, _model_output_root())
+    display_post_training_metrics(model_type, result, evaluation, prediction_features)
 
     final_result = run_predictions_and_compile_result(
         model_type,
         result,
-        features_df,
+        prediction_features,
         labels,
     )
+    if not isinstance(final_result, dict) or not final_result:
+        du.print_error(
+            f"[{model_type.upper()}] Full prediction/report failed; model export is withheld."
+        )
+        if getattr(app_config, "ENABLE_ML_LOGGING", True):
+            log_event(
+                ML_LOGGER,
+                "train_eval_failed",
+                event_id="ML_EXEC_424",
+                level="ERROR",
+                model=model_type,
+                reason="full_prediction_or_result_compilation_failed",
+            )
+        return {}
+
+    if save_model:
+        export_model(result, model_type, prediction_features, evaluation, _model_output_root())
+        export_paths = dict(result.get("export_paths", {}) or {})
+        if export_paths:
+            final_result["export_paths"] = export_paths
+
     if getattr(app_config, "ENABLE_ML_LOGGING", True):
         log_event(
             ML_LOGGER,

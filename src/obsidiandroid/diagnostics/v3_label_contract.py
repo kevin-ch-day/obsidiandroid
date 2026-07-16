@@ -15,6 +15,7 @@ import pandas as pd
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.run_slots import resolve_run_slot_plan
 from obsidiandroid.diagnostics import taxonomy_target_surface_report
+from obsidiandroid.governance.family_tier_authority import CANONICAL_TYPE_TOKENS
 from obsidiandroid.governance.support_floor_policy import resolve_support_floor_mode
 
 
@@ -162,18 +163,28 @@ def _build_type_label_summary(samples_df: pd.DataFrame, *, min_support: int) -> 
     rows: list[dict[str, Any]] = []
     for type_slug, sample_count in counts.items():
         count = int(sample_count)
+        token = str(type_slug).strip().lower()
+        eligible = token in CANONICAL_TYPE_TOKENS
         rows.append(
             {
-                "type_slug": str(type_slug).strip().lower(),
+                "type_slug": token,
                 "type_display_name": str(type_slug).strip(),
                 "sample_count": count,
                 "type_support_tier": (
-                    "benchmark_trainable" if count >= max(1, int(min_support)) else "below_min_support"
+                    "benchmark_trainable"
+                    if eligible and count >= max(1, int(min_support))
+                    else ("retired_or_noncanonical" if not eligible else "below_min_support")
                 ),
                 "type_claim_readiness": (
-                    "type_target_eligible" if count >= max(1, int(min_support)) else "below_min_support"
+                    "type_target_eligible"
+                    if eligible and count >= max(1, int(min_support))
+                    else ("not_type_target" if not eligible else "below_min_support")
                 ),
-                "exclusion_reason": None if count >= max(1, int(min_support)) else f"support_below_{int(min_support)}",
+                "exclusion_reason": (
+                    None
+                    if eligible and count >= max(1, int(min_support))
+                    else ("retired_or_noncanonical_type" if not eligible else f"support_below_{int(min_support)}")
+                ),
             }
         )
     rows.sort(key=lambda item: (-int(item.get("sample_count", 0)), str(item.get("type_slug", ""))))

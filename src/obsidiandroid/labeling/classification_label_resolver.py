@@ -114,7 +114,7 @@ def _resolve_family_id_name_map(
             return candidate
 
     numeric_family_present = False
-    for col in ("true_family", "predicted_family"):
+    for col in ("true_family", "predicted_family", "raw_model_predicted_family"):
         if col not in df.columns:
             continue
         series = df[col].dropna().astype(str).str.strip()
@@ -415,6 +415,12 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
     )
     audit["predicted_family"] = _series_or_default(audit, "predicted_family").fillna("").astype(str)
     audit["predicted_family_norm"] = _series_or_default(audit, "predicted_family").map(_normalize_text)
+    audit["raw_model_predicted_family"] = _series_or_default(
+        audit, "raw_model_predicted_family"
+    ).fillna("").astype(str)
+    audit["raw_model_predicted_family_norm"] = _series_or_default(
+        audit, "raw_model_predicted_family"
+    ).map(_normalize_text)
     audit["override_tag"] = _series_or_default(audit, "override_tag").fillna("").astype(str).str.strip()
     audit["raw_predicted_family"] = _series_or_default(audit, "raw_predicted_family").fillna("").astype(str).str.strip()
     # Keep match flags nullable when no expected taxonomy value is available.
@@ -461,6 +467,21 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
         audit.loc[family_prediction_expected_mask, "predicted_family_norm"]
         == audit.loc[family_prediction_expected_mask, "family_canonical_expected"]
     ).astype("boolean")
+    audit["raw_model_family_prediction_match"] = pd.Series(
+        pd.NA, index=audit.index, dtype="boolean"
+    )
+    raw_model_prediction_expected_mask = (
+        family_expected_mask
+        & (audit["raw_model_predicted_family_norm"].astype(str).str.strip() != "")
+    )
+    audit.loc[raw_model_prediction_expected_mask, "raw_model_family_prediction_match"] = (
+        audit.loc[raw_model_prediction_expected_mask, "raw_model_predicted_family_norm"]
+        == audit.loc[raw_model_prediction_expected_mask, "family_canonical_expected"]
+    ).astype("boolean")
+    audit["prediction_postprocessed"] = (
+        (audit["raw_model_predicted_family_norm"].astype(str).str.strip() != "")
+        & (audit["raw_model_predicted_family_norm"] != audit["predicted_family_norm"])
+    )
 
     label_type_nonempty_mask = audit["label_type_slug"].astype(str).str.strip() != ""
     type_noncanonical_mask = (
@@ -531,11 +552,15 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
         "type_match",
         "label_family_slug",
         "predicted_family",
+        "raw_model_predicted_family",
         "raw_predicted_family",
         "predicted_family_norm",
         "override_tag",
         "family_canonical_expected",
         "label_family_match",
+        "family_prediction_match",
+        "raw_model_family_prediction_match",
+        "prediction_postprocessed",
         "cohort_raw_type_slug",
         "cohort_raw_family_canonical",
         "cohort_raw_family_name",
@@ -550,9 +575,12 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
         "sample_id",
         "family_canonical_expected",
         "predicted_family",
+        "raw_model_predicted_family",
         "raw_predicted_family",
         "override_tag",
         "family_prediction_match",
+        "raw_model_family_prediction_match",
+        "prediction_postprocessed",
         "type_slug_expected",
         "label_type_slug",
         "classification_label",
@@ -605,17 +633,18 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
         .rename_axis("label_type_slug")
         .reset_index(name="count")
     )
-    if noncanonical_counts.empty:
-        noncanonical_counts = pd.DataFrame(columns=["label_type_slug", "count"])
-    noncanonical_counts["run_id"] = run_id
-    noncanonical_counts = noncanonical_counts[["run_id", "label_type_slug", "count"]]
-    noncanonical_counts.to_csv(noncanonical_path, index=False)
-    oh.mirror_csv_text_run_then_global(
-        diagnostics_dir=diagnostics_dir,
-        run_filename=noncanonical_path.name,
-        csv_text=noncanonical_counts.to_csv(index=False),
-        global_latest_name=noncanonical_latest.name,
-    )
+    noncanonical_path_text = ""
+    if not noncanonical_counts.empty:
+        noncanonical_counts["run_id"] = run_id
+        noncanonical_counts = noncanonical_counts[["run_id", "label_type_slug", "count"]]
+        noncanonical_counts.to_csv(noncanonical_path, index=False)
+        oh.mirror_csv_text_run_then_global(
+            diagnostics_dir=diagnostics_dir,
+            run_filename=noncanonical_path.name,
+            csv_text=noncanonical_counts.to_csv(index=False),
+            global_latest_name=noncanonical_latest.name,
+        )
+        noncanonical_path_text = str(noncanonical_path)
 
     type_eval_count = int(type_expected_mask.sum())
     family_eval_count = int(family_expected_mask.sum())
@@ -750,6 +779,13 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
         "taxonomy_mismatch_count": taxonomy_mismatch_count,
         "paper_facing_taxonomy_mismatch_count": paper_facing_taxonomy_mismatch_count,
         "prediction_error_count": int(prediction_mismatch_mask.sum()),
+        "raw_model_prediction_error_count": int(
+            raw_model_prediction_expected_mask.sum()
+            - audit.loc[raw_model_prediction_expected_mask, "raw_model_family_prediction_match"]
+            .eq(True)
+            .sum()
+        ),
+        "postprocessed_prediction_count": int(audit["prediction_postprocessed"].sum()),
         "prediction_missing_count": int(family_prediction_missing_mask.sum()),
         "family_mismatch_count": int(prediction_mismatch_mask.sum()),
         "type_guard_family_suppressed_count": type_guard_suppressed_count,
@@ -757,7 +793,7 @@ def _export_taxonomy_consistency_audit(df: pd.DataFrame) -> tuple[str | None, in
         "total_issue_count": taxonomy_mismatch_count + int(prediction_mismatch_mask.sum()),
         "mismatch_csv_path": str(mismatch_path),
         "prediction_errors_csv_path": str(prediction_path),
-        "noncanonical_type_tokens_csv_path": str(noncanonical_path),
+        "noncanonical_type_tokens_csv_path": noncanonical_path_text,
         "type_expected_source": type_source_mode,
         "paper_taxonomy_excluded_sample_ids_path": paper_excl_path,
         "override_tag_counts": override_tag_counts,
@@ -784,6 +820,19 @@ def _run_summary_and_export(
     Summarizes predictions and optionally exports the structured classification results.
     """
     df = _apply_family_name_projection(df, model_output=model_output)
+    failed_count = int(df.attrs.get("label_resolution_failed_sample_count", 0) or 0)
+    input_count = int(df.attrs.get("label_resolution_input_prediction_count", len(df)) or len(df))
+    if failed_count:
+        failed_ids = list(df.attrs.get("label_resolution_failed_sample_ids", ()) or ())[:5]
+        message = (
+            "[LABELS] Label resolution omitted "
+            f"{failed_count}/{input_count} prediction row(s); first IDs: {failed_ids}"
+        )
+        if bool(getattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False)) or bool(
+            getattr(app_config, "PAPER_MODE_ENABLED", False)
+        ):
+            raise RuntimeError(message)
+        du.print_warning(message)
     summarize_prediction_results(df)
 
     if getattr(app_config, "ENABLE_EXCEL_EXPORT", False):
@@ -944,7 +993,7 @@ def resolve_structured_classification_labels(
     Main entry point to resolve structured malware classification labels using vendor metadata
     and ML model output. Supports consensus logic, validation, export, and diagnostics.
     """
-    du.print_subheader("Step 7: Resolve Final Classification Labels")
+    du.print_subheader("Resolve Final Classification Labels")
 
     if not validate_label_resolution_inputs(vendor_records, model_output):
         du.print_error("[LABEL RESOLVER] Validation failed — check model output and vendor inputs.")

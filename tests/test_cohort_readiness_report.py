@@ -12,6 +12,20 @@ from config import app_config
 pytestmark = pytest.mark.contract
 
 
+def test_catalog_quality_metrics_do_not_count_known_aliases_as_conflicts() -> None:
+    """Readiness surfaces must use the same alias semantics as cohort gates."""
+    df = pd.DataFrame(
+        {
+            "family_label_raw": ["Wroba", "BlackLoan", "SpyC23"],
+            "family_canonical": ["RoamingMantis", "SpyLoan", "HiddenAd"],
+        }
+    )
+
+    quality = cohort_readiness_report._build_catalog_quality_metrics(df)  # pylint: disable=protected-access
+
+    assert quality["family_conflict_rows"] == 1
+
+
 def test_cohort_readiness_report_prints_percentages_and_concentration(capsys) -> None:
     """Summary should use the compact benchmark structure."""
     df = pd.DataFrame(

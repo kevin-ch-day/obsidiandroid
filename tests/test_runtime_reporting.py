@@ -87,3 +87,21 @@ def test_export_and_print_run_summary_emits_top_exclusion_reasons(
     stat_map = dict(captured_stats)
     assert stat_map["Excluded Near-Miss Engines"] == 2
     assert stat_map["Top Exclusion Reasons"] == "BELOW_THRESHOLD=25, LOW_COVERAGE=12"
+
+def test_count_evaluated_models_ignores_family_tier_scope_rows() -> None:
+    model_results = {
+        "random_forest": {"evaluation": {"macro_f1_score": 0.9}},
+        "xgboost": {"evaluation": {"macro_f1_score": 0.8}},
+        "logistic_regression": {"evaluation": {"macro_f1_score": 0.7}},
+        "family_tier_rows": [{"model": "random_forest"}] * 9,
+    }
+    model_summary = {
+        "model_rows": [
+            {"model": "random_forest"},
+            {"model": "xgboost"},
+            {"model": "logistic_regression"},
+        ],
+        "family_tier_model_rows": [{"model": "random_forest"}] * 5,
+    }
+
+    assert runtime_reporting.count_evaluated_models(model_results, model_summary) == 3

@@ -8,7 +8,6 @@ from typing import Any, Mapping
 import pandas as pd
 
 from obsidiandroid.common.json_io import read_json_dict
-from obsidiandroid.common.scientific_adequacy import classify_scientific_adequacy
 from obsidiandroid.diagnostics.cohort_persistence import resolve_effective_samples_df
 from obsidiandroid.governance.evidence_mode_resolver import coalesce_manifest_publication_mode
 from obsidiandroid.observability.pipeline_observability.finalize import (
@@ -232,7 +231,11 @@ def _write_claim_readiness_summary_from_refreshed_artifacts(
         readiness_blockers = list(readiness_blockers)
         readiness_blockers.append("DL seed handoff incomplete for canonical V3 profile")
 
-    claim_status = operator_dashboard._claim_status_code(readiness_heading, readiness_blockers)  # pylint: disable=protected-access
+    claim_status = operator_dashboard._claim_status_for_surface(  # pylint: disable=protected-access
+        readiness_heading,
+        readiness_blockers,
+        readiness_surface=readiness_surface,
+    )
     primary_surface_label = operator_dashboard._claim_surface_label(  # pylint: disable=protected-access
         profile_id=str(profile_id or ""),
         readiness_surface=readiness_surface,
@@ -243,7 +246,7 @@ def _write_claim_readiness_summary_from_refreshed_artifacts(
         active_cls = str(mc_la.get("active_training_classes"))
     eligible_family_classes = int(active_cls) if str(active_cls).isdigit() else None
     visible_family_classes = int(q1.get("families_represented", 0) or 0) or None
-    modeled_family_classes = visible_family_classes if readiness_surface == "broad_current_corpus" else None
+    modeled_family_classes = eligible_family_classes
     excluded_family_classes = None
     if visible_family_classes is not None and eligible_family_classes is not None:
         excluded_family_classes = max(0, visible_family_classes - eligible_family_classes)

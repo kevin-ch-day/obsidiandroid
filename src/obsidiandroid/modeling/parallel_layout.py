@@ -86,6 +86,55 @@ def grid_search_job_counts() -> tuple[int, int]:
     return 1, outer
 
 
+def minimum_grid_search_class_support() -> int:
+    """Return the per-class support floor required for hyperparameter search.
+
+    This is intentionally separate from cohort inclusion: retaining rare
+    families can be useful diagnostically, but selecting hyperparameters with
+    one observation per validation fold produces unstable Macro-F1 rankings.
+    """
+    return max(
+        2,
+        safe_int_config_value(
+            getattr(app_config, "GRID_SEARCH_MIN_CLASS_SUPPORT", 20), default=20
+        ),
+    )
+
+
+def grid_search_pre_dispatch() -> int | str:
+    """Return a bounded GridSearchCV pre-dispatch setting.
+
+    Queuing all candidates can multiply the resident feature matrix.  Accept a
+    positive integer or sklearn's documented ``"n_jobs"`` expression; reject
+    malformed settings in favor of the conservative default.
+    """
+    configured = getattr(app_config, "GRID_SEARCH_PRE_DISPATCH", 2)
+    if isinstance(configured, int) and configured > 0:
+        return configured
+    if isinstance(configured, str) and configured.strip() in {"n_jobs", "2*n_jobs"}:
+        return configured.strip()
+    return 2
+
+
+def tuning_grid_splitter(
+    min_class_support: int,
+    *,
+    random_state: int,
+) -> tuple[StratifiedKFold | None, int]:
+    """Return a stable grid-search splitter and its required class support.
+
+    Keeping this decision here ensures every model family applies the same
+    minimum-support rule before it enters a potentially costly grid search.
+    """
+    required_support = minimum_grid_search_class_support()
+    if int(min_class_support) < required_support:
+        return None, required_support
+    return (
+        stratified_kfold_for_grid_search(min_class_support, random_state=random_state),
+        required_support,
+    )
+
+
 def stratified_kfold_for_grid_search(
     min_class_support: int,
     *,

@@ -18,6 +18,7 @@ import numpy as np
 
 from config import app_config
 from obsidiandroid.common import canonicalization, output_hygiene as oh
+from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.observability.logging import get_logger, log_event
 from obsidiandroid.common.cv_fold_config import (
     safe_float_config_value,
@@ -29,6 +30,16 @@ from .training_helpers import (
     perform_cross_validation,
     apply_smote,
 )
+from .feature_selection_contract import (
+    apply_feature_selection_contract,
+    fit_feature_selection_contract,
+    normalize_feature_column_names,
+)
+from obsidiandroid.orchestration.methodology_artifacts import (
+    export_feature_contract,
+    export_leakage_assessment,
+)
+from obsidiandroid.diagnostics import feature_column_survival_export
 
 
 ML_LOGGER = get_logger(
@@ -56,6 +67,7 @@ def _runtime_training_state() -> dict[str, dict]:
         {
             "split_cache": {},
             "split_audit_cache": {},
+            "feature_selection_cache": {},
         },
     )
     return run_state
@@ -82,10 +94,20 @@ def _build_split_cache_key(
     group_aware_requested: bool,
 ) -> tuple:
     """Build a deterministic cache key for train/test split reuse."""
-    index_hash = int(
-        pd.util.hash_pandas_object(pd.Index(features_df.index).to_series(), index=False).sum()
-    )
-    label_hash = int(pd.util.hash_pandas_object(pd.Series(encoded_labels), index=False).sum())
+    # Preserve order.  Summing pandas hashes is permutation-invariant, which
+    # can wrongly reuse a cached split if the same IDs or labels arrive in a
+    # different order (and therefore represent different sample/label pairs).
+    # A run-scoped cache must bind the complete ordered training universe.
+    index_hash = hashlib.sha256(
+        pd.util.hash_pandas_object(pd.Index(features_df.index).to_series(), index=False)
+        .to_numpy(dtype="uint64")
+        .tobytes()
+    ).hexdigest()
+    label_hash = hashlib.sha256(
+        pd.util.hash_pandas_object(pd.Series(encoded_labels), index=False)
+        .to_numpy(dtype="uint64")
+        .tobytes()
+    ).hexdigest()
     # Ablation feature sets differ in column count; use n_features_key=0 so the **same**
     # stratified train/test indices apply across vendor / permission / fused matrices.
     # Cached ``X_train`` / ``X_test`` DataFrames must not be reused directly — only their
@@ -315,14 +337,23 @@ def _build_lineage_groups_for_split(features_df: pd.DataFrame) -> tuple[np.ndarr
     else:
         merged["package_name"] = pkg_col.fillna("").astype(str).str.strip().str.lower()
 
-    def _gid(row: pd.Series) -> str:
-        if str(row["package_name"]).strip():
-            return f"pkg:{row['package_name']}"
-        if str(row["sha256"]).strip():
-            return f"sha:{row['sha256']}"
-        return f"sid:{int(row['sample_id'])}"
-
-    g_series = merged.apply(_gid, axis=1)
+    # This path is used on the full corpus when group-aware splitting is
+    # enabled.  Vectorized token construction avoids a Python callback for
+    # every sample while retaining package -> SHA-256 -> sample-ID precedence.
+    sample_ids = (
+        pd.to_numeric(merged["sample_id"], errors="coerce")
+        .fillna(-1)
+        .astype(int)
+        .astype(str)
+    )
+    g_series = pd.Series(
+        np.where(
+            merged["package_name"].ne(""),
+            "pkg:" + merged["package_name"],
+            np.where(merged["sha256"].ne(""), "sha:" + merged["sha256"], "sid:" + sample_ids),
+        ),
+        index=merged.index,
+    )
     if g_series.nunique() < 2:
         return None, "degenerate_lineage_groups"
     codes, _ = pd.factorize(g_series)
@@ -362,7 +393,7 @@ def _export_split_audit(
     ablation = bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
     ledger_kind = "ablation" if ablation else "headline"
     ledger_scope: tuple[Any, ...] = (
-        ("ablation", str(feature_set_token), str(label_target_slug), str(model_type))
+        ("ablation", str(feature_set_token), str(label_target_slug))
         if ablation
         else ("headline",)
     )
@@ -389,7 +420,7 @@ def _export_split_audit(
                     run_id,
                     str(meta_copy.get("feature_set", "")),
                     str(meta_copy.get("label_target", "")),
-                    str(meta_copy.get("split_model_written_for", "")),
+                    str(model_type),
                 )
             ] = dict(meta_copy)
             setattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", idx)
@@ -453,16 +484,21 @@ def _export_split_audit(
     for required_col in ("family_id", "family_name", "family_canonical", "package_name"):
         if required_col not in split_df.columns:
             split_df[required_col] = None
-    def _lineage_gid_row(row: pd.Series) -> str:
-        pk = str(row.get("package_name", "")).strip().lower()
-        if pk:
-            return f"pkg:{pk}"
-        sha = str(row.get("sha256", "")).strip().lower()
-        if sha:
-            return f"sha:{sha}"
-        return f"sid:{int(row['sample_id'])}"
-
-    lineage_tokens = split_df.apply(_lineage_gid_row, axis=1)
+    # Build the audit lineage with the same package -> SHA-256 -> sample-ID
+    # precedence used for group-aware splitting.  This ledger can cover the
+    # whole cohort, so avoid a row-wise callback and treat missing metadata as
+    # absent rather than as the literal strings ``"nan"`` or ``"none"``.
+    package_names = split_df["package_name"].fillna("").astype(str).str.strip().str.lower()
+    sha_values = split_df["sha256"].fillna("").astype(str).str.strip().str.lower()
+    sample_tokens = pd.to_numeric(split_df["sample_id"], errors="raise").astype(int).astype(str)
+    lineage_tokens = pd.Series(
+        np.where(
+            package_names.ne(""),
+            "pkg:" + package_names,
+            np.where(sha_values.ne(""), "sha:" + sha_values, "sid:" + sample_tokens),
+        ),
+        index=split_df.index,
+    )
     split_df["split_lineage_group_id"] = lineage_tokens.map(
         lambda tok: hashlib.sha256(str(tok).encode("utf-8")).hexdigest()[:16]
     )
@@ -515,6 +551,7 @@ def _export_split_audit(
         "split_seed",
         "split_algorithm",
         "split_algorithm_version",
+        "split_lineage_group_id",
         "overlap_flag",
         "duplicate_sha_group_across_splits",
         "sha256_overlap_count",
@@ -553,7 +590,7 @@ def _export_split_audit(
         ablation_name = (
             "split_freeze_ablation__"
             f"{_filename_slug(feature_set_token)}__{_filename_slug(label_target_slug)}__"
-            f"{_filename_slug(model_type)}__{run_id}.csv"
+            f"shared__{run_id}.csv"
         )
         primary_path = out_dir / ablation_name
         primary_path.write_text(audit_csv, encoding="utf-8")
@@ -574,7 +611,7 @@ def _export_split_audit(
         "label_target": str(label_target_slug),
         "active_class_count": int(active_class_count),
         "feature_set": str(feature_set_token),
-        "split_model_written_for": headline_model_token if ledger_kind == "headline" else str(model_type),
+        "split_model_written_for": headline_model_token if ledger_kind == "headline" else "ablation_shared_split",
     }
     if isinstance(temporal_summary, dict):
         meta["temporal_split_summary"] = dict(temporal_summary)
@@ -593,6 +630,47 @@ def _export_split_audit(
         setattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", idx)
 
 
+def _export_train_selection_audit(
+    *,
+    diagnostics_dir: str,
+    run_id: str,
+    selection_contract: dict[str, Any],
+) -> str:
+    """Write the train-fitted pruning ledger used by the frozen contract."""
+    out_dir = Path(diagnostics_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    audit_rows = list(selection_contract.get("leakage_pruning_audit", []) or [])
+    audit_df = pd.DataFrame(audit_rows)
+    if audit_df.empty:
+        audit_df = pd.DataFrame(columns=["column_name", "reason_code", "details"])
+    summary = pd.DataFrame(
+        [
+            {
+                "column_name": "__summary__",
+                "reason_code": "train_partition_selection_completed",
+                "details": (
+                    f"selection_scope=train_partition_only; "
+                    f"fit_sample_count={int(selection_contract.get('fit_sample_count', 0) or 0)}; "
+                    f"low_information_drops={len(selection_contract.get('dropped_low_information_columns', []) or [])}; "
+                    f"leakage_drops={len(selection_contract.get('dropped_leakage_columns', []) or [])}; "
+                    f"retained_columns={len(selection_contract.get('retained_feature_columns', []) or [])}"
+                ),
+            }
+        ]
+    )
+    csv_text = pd.concat([audit_df, summary], ignore_index=True).to_csv(index=False)
+    filename = f"leakage_pruning_audit_{run_id}.csv"
+    oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=out_dir,
+        run_filename=filename,
+        csv_text=csv_text,
+        global_latest_name="leakage_pruning_audit.latest.csv",
+    )
+    primary = out_dir / filename
+    setattr(app_config, "RUNTIME_LEAKAGE_PRUNING_AUDIT_PATH", str(primary))
+    return str(primary)
+
+
 def train_model_factory(
     features_df: pd.DataFrame,
     labels: Union[list, pd.Series],
@@ -608,7 +686,14 @@ def train_model_factory(
     Trains an ML classifier using a unified interface.
     Returns model, test splits, encoders, and metadata.
     """
+    features_df = normalize_feature_column_names(features_df)
     validate_training_inputs(features_df, labels)
+    if not features_df.index.is_unique:
+        duplicate_count = int(features_df.index.duplicated(keep=False).sum())
+        raise ValueError(
+            "Feature matrix index contains duplicate sample IDs "
+            f"({duplicate_count} duplicate row(s)); split ledgers require one row per sample."
+        )
     test_size, random_state = _resolve_training_runtime_defaults(test_size, random_state)
     quiet_train = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
 
@@ -635,13 +720,6 @@ def train_model_factory(
     label_classes = list(label_encoder.classes_)
 
     cv_scores = None
-    if cross_validate or getattr(app_config, "ENABLE_CROSS_VALIDATION", False):
-        cv_scores = perform_cross_validation(
-            features_df,
-            encoded_labels,
-            model_type,
-            random_state,
-        )
 
     group_aware_cfg = bool(getattr(app_config, "ENABLE_GROUP_AWARE_TRAIN_TEST_SPLIT", False))
     ablation_lock = bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
@@ -668,16 +746,29 @@ def train_model_factory(
         )
         cached_split = split_cache.get(split_cache_key)
         if cached_split is not None:
-            X_train, X_test, y_train, y_test = cached_split
-            if ablation_lock:
-                try:
-                    X_train = features_df.loc[X_train.index]
-                    X_test = features_df.loc[X_test.index]
-                except KeyError as exc:
-                    raise RuntimeError(
-                        "[ABLATION] Split cache indices are missing from the current feature matrix; "
-                        "cannot align cached train/test rows to this feature set."
-                    ) from exc
+            if not isinstance(cached_split, dict):
+                raise RuntimeError(
+                    "[SPLIT] Unsupported legacy split-cache entry; reset the runtime training cache "
+                    "before continuing."
+                )
+            try:
+                train_index = pd.Index(cached_split["train_index"])
+                test_index = pd.Index(cached_split["test_index"])
+                encoded_by_sample_id = pd.Series(encoded_labels, index=features_df.index)
+                X_train = features_df.loc[train_index]
+                X_test = features_df.loc[test_index]
+                y_train = encoded_by_sample_id.loc[train_index].to_numpy()
+                y_test = encoded_by_sample_id.loc[test_index].to_numpy()
+            except KeyError as exc:
+                raise RuntimeError(
+                    "[SPLIT] Cached train/test IDs are missing from the current feature matrix; "
+                    "cannot restore the frozen partition."
+                ) from exc
+            setattr(
+                app_config,
+                "RUNTIME_LAST_SPLIT_ALGORITHM",
+                str(cached_split.get("split_algorithm", "stratified_seeded")),
+            )
             if not quiet_train and not bool(
                 getattr(app_config, "RUNTIME_SPLIT_CACHE_NOTICE_EMITTED", False)
             ):
@@ -686,15 +777,6 @@ def train_model_factory(
                     "(cache key includes encoded labels; different label targets use independent splits)."
                 )
                 setattr(app_config, "RUNTIME_SPLIT_CACHE_NOTICE_EMITTED", True)
-            cached_meta = getattr(app_config, "RUNTIME_SPLIT_METADATA", None)
-            if isinstance(cached_meta, dict) and cached_meta.get("split_algorithm"):
-                setattr(
-                    app_config,
-                    "RUNTIME_LAST_SPLIT_ALGORITHM",
-                    str(cached_meta.get("split_algorithm")),
-                )
-            else:
-                setattr(app_config, "RUNTIME_LAST_SPLIT_ALGORITHM", "stratified_seeded")
         else:
             split_algo = "stratified_seeded"
             if _temporal_holdout_requested():
@@ -826,7 +908,11 @@ def train_model_factory(
                 )
             if len(split_cache) >= 8:
                 split_cache.clear()
-            split_cache[split_cache_key] = (X_train, X_test, y_train, y_test)
+            split_cache[split_cache_key] = {
+                "train_index": X_train.index.tolist(),
+                "test_index": X_test.index.tolist(),
+                "split_algorithm": split_algo,
+            }
     except Exception as e:
         raise RuntimeError(f"Train/test split failed: {e}")
 
@@ -841,6 +927,94 @@ def train_model_factory(
     test_dist = {int(k): int(v) for k, v in Counter(y_test).items()}
     du.print_debug(f"[SPLIT] Train dist: {train_dist}")
     du.print_debug(f"[SPLIT] Test dist: {test_dist}")
+
+    # Fit data-dependent column selection on the training partition only.
+    # Comparisons sharing the same split and raw ordered columns reuse this
+    # immutable contract, so model choice cannot change the feature surface.
+    selection_cache = _runtime_training_state().setdefault("feature_selection_cache", {})
+    selection_key = (
+        split_cache_key,
+        hash_payload([str(column) for column in X_train.columns]),
+    )
+    selection_contract = selection_cache.get(selection_key)
+    if not isinstance(selection_contract, dict):
+        y_train_series = pd.Series(y_train, index=X_train.index, name="encoded_label")
+        selection_contract = fit_feature_selection_contract(X_train, y_train_series)
+        selection_cache[selection_key] = dict(selection_contract)
+    X_train_before_selection = X_train
+    low_information_columns = list(
+        selection_contract.get("dropped_low_information_columns", []) or []
+    )
+    X_train_after_low_information = X_train_before_selection.drop(
+        columns=low_information_columns, errors="ignore"
+    )
+    X_train = apply_feature_selection_contract(X_train, selection_contract)
+    X_test = apply_feature_selection_contract(X_test, selection_contract)
+    setattr(
+        app_config,
+        "RUNTIME_LOW_INFORMATION_PRUNED_COLUMNS",
+        list(selection_contract.get("dropped_low_information_columns", []) or []),
+    )
+    setattr(
+        app_config,
+        "RUNTIME_LEAKAGE_PRUNING_AUDIT",
+        list(selection_contract.get("leakage_pruning_audit", []) or []),
+    )
+    setattr(app_config, "RUNTIME_FEATURE_SELECTION_CONTRACT", dict(selection_contract))
+    setattr(
+        app_config,
+        "RUNTIME_FEATURE_NONZERO_AFTER_LOW_INFORMATION",
+        feature_column_survival_export.nonzero_counts_for_columns(X_train_after_low_information),
+    )
+    setattr(
+        app_config,
+        "RUNTIME_FEATURE_NONZERO_FINAL_TRAINING",
+        feature_column_survival_export.nonzero_counts_for_columns(X_train),
+    )
+    setattr(app_config, "RUNTIME_TRAINING_FINAL_FEATURE_COLUMNS", int(X_train.shape[1]))
+    if not _ablation_gate:
+        selected_columns = [str(column) for column in X_train.columns]
+        setattr(app_config, "RUNTIME_HEADLINE_FIT_COLUMN_NAMES", selected_columns)
+        setattr(
+            app_config,
+            "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH",
+            hash_payload(selected_columns),
+        )
+        diagnostics_dir = str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "").strip()
+        if not diagnostics_dir:
+            diagnostics_dir = str(Path(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")) / "diagnostics")
+        run_id = _runtime_training_run_id()
+        if bool(getattr(app_config, "ENABLE_FEATURE_CONTRACT_EXPORT", True)):
+            contract_path = export_feature_contract(
+                feature_df=X_train,
+                run_id=run_id,
+                output_dir=diagnostics_dir,
+                selection_contract=selection_contract,
+            )
+            if contract_path:
+                setattr(app_config, "RUNTIME_HEADLINE_FEATURE_CONTRACT_PATH", str(contract_path))
+        _export_train_selection_audit(
+            diagnostics_dir=diagnostics_dir,
+            run_id=run_id,
+            selection_contract=selection_contract,
+        )
+        feature_column_survival_export.export_feature_column_survival_matrix(
+            diagnostics_dir=Path(diagnostics_dir),
+            run_id=run_id,
+            feature_attrs=dict(X_train.attrs),
+            final_features_df=X_train,
+        )
+        if bool(getattr(app_config, "ENABLE_LEAKAGE_ASSESSMENT_EXPORT", True)):
+            export_leakage_assessment(
+                feature_df=X_train,
+                run_id=run_id,
+                output_dir=diagnostics_dir,
+            )
+    if not quiet_train:
+        du.print_info(
+            "[FEATURES] Train-only feature contract retained "
+            f"{X_train.shape[1]}/{len(selection_contract.get('retained_feature_columns', [])) + len(selection_contract.get('dropped_low_information_columns', [])) + len(selection_contract.get('dropped_leakage_columns', []))} column(s)."
+        )
 
     # Split audit must be computed on the original deterministic split universe
     # before any synthetic resampling (e.g., SMOTE) mutates the training index.
@@ -857,6 +1031,14 @@ def train_model_factory(
         label_target_slug=str(label_target_slug),
         feature_set_token=str(feature_set_token),
     )
+
+    # Keep the real train partition for diagnostic CV.  The subsequent
+    # holdout-training resample is valid for fitting the final estimator, but
+    # passing its synthetic rows into CV would allow synthetic neighbours to
+    # cross validation folds and overstate the diagnostic score.  CV's own
+    # optional resampling remains isolated inside each fold.
+    X_train_for_cv = X_train.copy()
+    y_train_for_cv = np.asarray(y_train).copy()
 
     use_smote_effective = (
         bool(getattr(app_config, "ENABLE_SMOTE_OVERSAMPLING", True))
@@ -919,6 +1101,17 @@ def train_model_factory(
             by_model[str(model_type)] = dict(snap)
             setattr(app_config, "RUNTIME_SMOTE_AUDIT_BY_MODEL", by_model)
 
+    if cross_validate or getattr(app_config, "ENABLE_CROSS_VALIDATION", False):
+        # The external test partition remains untouched.  CV is performed on
+        # the train-fitted feature contract only; a later enhancement can nest
+        # the selector per CV fold if CV itself becomes a headline metric.
+        cv_scores = perform_cross_validation(
+            X_train_for_cv,
+            y_train_for_cv,
+            model_type,
+            random_state,
+        )
+
     prov = getattr(app_config, "RUNTIME_TRAINING_PROVENANCE_SUMMARY", None)
     if not isinstance(prov, dict):
         prov = {}
@@ -937,6 +1130,13 @@ def train_model_factory(
                 getattr(app_config, "ENABLE_SMOTE_OVERSAMPLING", True)
             ),
             "cross_validate_eval_enabled": cv_active,
+            "cross_validate_input_population": (
+                "pre_resample_train_partition" if cv_active else None
+            ),
+            "cross_validate_input_sample_count": (
+                int(len(y_train_for_cv)) if cv_active else None
+            ),
+            "cross_validate_input_contains_synthetic_rows": False,
             "model_trainer_model_type": str(model_type),
         }
     )
@@ -984,7 +1184,10 @@ def train_model_factory(
         "label_encoder": label_encoder,
         "sample_ids_train": sample_ids_train,
         "sample_ids_test": sample_ids_test,
+        "feature_selection_contract": dict(selection_contract),
         "cv_scores": cv_scores,
         "cv_score_mean": float(np.mean(cv_scores)) if cv_scores is not None else None,
+        "cv_input_population": "pre_resample_train_partition" if cv_active else None,
+        "cv_input_sample_count": int(len(y_train_for_cv)) if cv_active else None,
         **result,
     }

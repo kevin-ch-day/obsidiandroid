@@ -22,18 +22,33 @@ from obsidiandroid.diagnostics.backlog_triage_refresh import refresh_stale_backl
 
 
 def preflight_backlog_snapshot_enabled() -> bool:
-    """Return whether pipeline preflight should load live backlog/debt context."""
+    """Return whether pipeline preflight should load live backlog/debt context.
+
+    The context expands several live catalog and authority views. It is useful
+    for operator review, but it must not delay every training run before sample
+    loading. Enable it with ``OBSIDIANDROID_PREFLIGHT_BACKLOG=1``; the
+    diagnostics menu remains the normal place to inspect backlog worklists.
+    """
     if os.environ.get("OBSIDIANDROID_TEST_OUTPUT_ROOT", "").strip():
         return False
-    raw = os.environ.get("OBSIDIANDROID_PREFLIGHT_SKIP_BACKLOG", "").strip().lower()
-    return raw not in {"1", "true", "yes", "on"}
+    skip = os.environ.get("OBSIDIANDROID_PREFLIGHT_SKIP_BACKLOG", "").strip().lower()
+    if skip in {"1", "true", "yes", "on"}:
+        return False
+    raw = os.environ.get("OBSIDIANDROID_PREFLIGHT_BACKLOG", "0").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
 
 def preflight_auto_refresh_backlog_enabled() -> bool:
-    """Return whether pipeline preflight should refresh stale backlog triage exports."""
+    """Return whether preflight should refresh stale backlog triage exports.
+
+    Refreshing can invoke several large read-only database reports. Keep it
+    opt-in so normal runs reach the sample stage promptly; stale queues remain
+    visible with an explicit operator action. Set
+    ``OBSIDIANDROID_PREFLIGHT_REFRESH_BACKLOG=1`` to refresh before a run.
+    """
     if not preflight_backlog_snapshot_enabled():
         return False
-    raw = os.environ.get("OBSIDIANDROID_PREFLIGHT_REFRESH_BACKLOG", "1").strip().lower()
+    raw = os.environ.get("OBSIDIANDROID_PREFLIGHT_REFRESH_BACKLOG", "0").strip().lower()
     return raw not in {"0", "false", "no", "off"}
 
 

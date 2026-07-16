@@ -186,12 +186,14 @@ def launch_taxonomy_support_tuning_compact_menu(
     authority_review_path = first_existing_path_fn([oh.resolve_taxonomy_type_authority_review_path(rdiag, rid)])
     rendering_csv_path = first_existing_path_fn(
         [
+            oh.resolve_taxonomy_consistency_mismatches_path(rdiag, rid),
             rdiag / f"taxonomy_rendering_mismatches_{rid}.csv",
             output_root / "diagnostics" / "taxonomy_rendering_mismatches.latest.csv",
         ]
     )
     model_error_csv_path = first_existing_path_fn(
         [
+            oh.resolve_prediction_errors_path(rdiag, rid),
             rdiag / f"taxonomy_model_prediction_errors_{rid}.csv",
             output_root / "diagnostics" / "taxonomy_model_prediction_errors.latest.csv",
         ]

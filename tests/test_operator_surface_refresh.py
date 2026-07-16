@@ -127,6 +127,7 @@ def test_refresh_operator_surfaces_from_disk_rewrites_claim_and_foundation(tmp_p
     assert claim["publication_ready"] is False
     assert claim["primary_surface"] == "broad_current_corpus"
     assert claim["supervised_family_claims_suitable"] is False
+    assert claim["modeled_family_classes"] == claim["claim_eligible_family_classes"]
 
 
 def test_patch_observability_post_operator_artifacts_syncs_claim_surface(tmp_path: Path) -> None:

@@ -19,6 +19,7 @@ from obsidiandroid.governance.cohort_lock_manifest import (
     validate_lock_manifest,
 )
 from obsidiandroid.governance.support_floor_policy import resolve_membership_min_samples_per_family
+from obsidiandroid.pipeline.sample_exports import resolve_dataset_time_contract
 from obsidiandroid.cli.menu.readiness_notes import (
     build_observed_readiness_note,
     build_permission_obs_gap_note,
@@ -258,6 +259,7 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
     type_cap_by_slug = gates.get("type_cap_by_slug", None)
     evidence_mode = bool(profile.get("evidence_mode", False))
     exclude_unknown_type_slug = bool(gates.get("exclude_unknown_type_slug", False))
+    require_active_type_slug = bool(gates.get("require_active_type_slug", False))
     exclude_weak_label_kinds = bool(gates.get("exclude_weak_label_kinds", False))
     exclude_family_label_conflicts = bool(gates.get("exclude_family_label_conflicts", False))
     if not exclude_unknown_type_slug:
@@ -272,11 +274,16 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
         for family in (gates.get("include_families", []) or [])
         if str(family).strip()
     )
-    effective_time_start_utc = str(gates.get("time_window_start_utc", "") or "").strip() or None
-    effective_time_end_utc = str(gates.get("time_window_end_utc", "") or "").strip() or None
-    require_effective_first_seen = bool(
-        effective_time_start_utc or effective_time_end_utc or evidence_mode
+    # Keep readiness counts on exactly the same temporal contract as the
+    # samples stage. Non-evidence profiles without explicit bounds still
+    # inherit the global reproducibility window.
+    time_contract = resolve_dataset_time_contract(
+        gates=gates,
+        run_id=f"profile_preflight_{profile_id}",
     )
+    effective_time_start_utc = time_contract.get("start_utc")
+    effective_time_end_utc = time_contract.get("end_utc")
+    require_effective_first_seen = bool(time_contract.get("require_effective_first_seen", True))
     if paper_locked:
         try:
             manifest = load_lock_manifest(raw_lock)
@@ -311,6 +318,7 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
             require_sha256=bool(gates.get("require_sha256", True)),
             allow_missing_package_name=bool(gates.get("allow_missing_package_name", True)),
             exclude_unknown_type_slug=exclude_unknown_type_slug,
+            require_active_type_slug=require_active_type_slug,
             exclude_weak_label_kinds=exclude_weak_label_kinds,
             exclude_family_label_conflicts=exclude_family_label_conflicts,
             effective_time_start_utc=effective_time_start_utc,
@@ -333,6 +341,7 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
             require_sha256=bool(gates.get("require_sha256", True)),
             allow_missing_package_name=bool(gates.get("allow_missing_package_name", True)),
             exclude_unknown_type_slug=exclude_unknown_type_slug,
+            require_active_type_slug=require_active_type_slug,
             exclude_weak_label_kinds=exclude_weak_label_kinds,
             exclude_family_label_conflicts=exclude_family_label_conflicts,
             effective_time_start_utc=effective_time_start_utc,
@@ -361,6 +370,7 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
         require_sha256=bool(gates.get("require_sha256", True)),
         allow_missing_package_name=bool(gates.get("allow_missing_package_name", True)),
         exclude_unknown_type_slug=exclude_unknown_type_slug,
+        require_active_type_slug=require_active_type_slug,
         exclude_weak_label_kinds=exclude_weak_label_kinds,
         exclude_family_label_conflicts=exclude_family_label_conflicts,
         limit=gates.get("limit", None),

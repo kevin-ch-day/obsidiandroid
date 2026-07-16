@@ -143,6 +143,27 @@ def test_fetch_samples_by_type_uses_inner_hash_join_when_sha_required(monkeypatc
     assert "_artifact_hash_rn" in query
 
 
+def test_conflict_gate_uses_alias_aware_family_identity_sql(monkeypatch) -> None:
+    """The SQL gate must not discard known raw/canonical family aliases."""
+    captured: dict[str, object] = {}
+
+    def _fake_execute_query(query, **kwargs):
+        captured["query"] = query
+        captured["kwargs"] = kwargs
+        return (["sample_id"], [(1,)])
+
+    monkeypatch.setattr(fetchers.db_engine, "execute_query", _fake_execute_query)
+    fetchers.fetch_samples_by_type(
+        type_slug="banker",
+        exclude_family_label_conflicts=True,
+    )
+
+    query = str(captured["query"])
+    assert "WHEN 'wroba' THEN 'roamingmantis'" in query
+    assert "WHEN 'blackloan' THEN 'spyloan'" in query
+    assert "CASE REPLACE(REPLACE(REPLACE(REPLACE(LOWER(TRIM(COALESCE(y.family_label, '')))" in query
+
+
 def test_fetch_samples_by_type_avoids_rank_wrapper_when_uncapped(monkeypatch) -> None:
     """Uncapped governed fetches should skip ranking columns and wrapper ordering."""
     captured: dict[str, object] = {}
@@ -333,7 +354,8 @@ def test_fetch_samples_by_type_can_exclude_weak_and_conflicted_labels_in_sql(mon
     assert "sample_label_kind" in query
     assert "NOT IN ('filename', 'hash_like', 'opaque_string', 'unclassified')" in query
     assert "LOWER(TRIM(COALESCE(y.sample_label, ''))) = LOWER(TRIM(COALESCE(y.family_label, '')))" in query
-    assert "LOWER(TRIM(COALESCE(y.family_label, ''))) <>" in query
+    assert "CASE REPLACE(REPLACE(REPLACE(REPLACE(LOWER(TRIM(COALESCE(y.family_label, '')))" in query
+    assert "WHEN 'wroba' THEN 'roamingmantis'" in query
 
 
 def test_gate_stats_reports_quality_exclusions_when_enabled(monkeypatch) -> None:

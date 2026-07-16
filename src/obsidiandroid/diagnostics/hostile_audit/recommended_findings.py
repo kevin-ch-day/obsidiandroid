@@ -31,7 +31,10 @@ def write_recommended_findings(*, diagnostics_dir: Path, run_id: str) -> Path:
     vendor = diagnostics_dir / "vendor_label_leakage_audit.csv"
     perm = diagnostics_dir / "permission_signal_quality.csv"
     temporal = diagnostics_dir / "temporal_validity_audit.md"
-    taxonomy = diagnostics_dir / "taxonomy_label_quality_audit.md"
+    taxonomy = diagnostics_dir / f"taxonomy_type_authority_review_{run_id}.md"
+    if not taxonomy.exists():
+        # Older completed runs retain the former generated narrative file.
+        taxonomy = diagnostics_dir / "taxonomy_label_quality_audit.md"
 
     lines: list[str] = [
         "# Recommended findings (artifact-bound)",
@@ -47,7 +50,7 @@ def write_recommended_findings(*, diagnostics_dir: Path, run_id: str) -> Path:
         "3. **Permission features:** expect stronger utility for **type / capability profiling** than for **39-way family** targets unless ",
         "within-type labels are used — consult `target_validity_audit.csv`.",
         "4. **Random splits** do not establish temporal generalization — see `temporal_validity_audit.md` and request explicit year holdouts.",
-        "5. **Taxonomy pipeline health** gates any claim about “ground truth” type/family — see `taxonomy_label_quality_audit.md`.",
+        "5. **Taxonomy pipeline health** gates any claim about “ground truth” type/family — see `taxonomy_type_authority_review_<run_id>.md`.",
         "",
         "## Evidence snapshots (last rows)",
         "",
@@ -101,7 +104,7 @@ def write_recommended_findings(*, diagnostics_dir: Path, run_id: str) -> Path:
         text = taxonomy.read_text(encoding="utf-8", errors="replace")
         lines.append(text[:4000] + ("\n\n_…truncated…_" if len(text) > 4000 else ""))
     else:
-        lines.append("_missing taxonomy_label_quality_audit.md_")
+        lines.append("_missing taxonomy authority review_")
 
     lines.extend(
         [

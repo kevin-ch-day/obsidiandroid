@@ -7,42 +7,41 @@ from typing import Iterable
 
 import pandas as pd
 
-# Grouped permission bundles (coarse capability families; counts are per observed permission row).
-PERMISSION_GROUP_DEFINITIONS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("sms_telephony_count", re.compile(r"(sms|telephon|mms|send_sms|receive_sms|read_sms|write_sms)", re.I)),
-    ("network_c2_count", re.compile(r"(internet|network_state|access_network|change_network|vpn|wifi|c2|socket)", re.I)),
-    (
-        "persistence_autostart_count",
-        re.compile(
-            r"(boot_completed|device_admin|foreground_service|persist|install_shortcut|receive_boot|scheduled|alarm)",
-            re.I,
-        ),
-    ),
-    (
-        "overlay_accessibility_count",
-        re.compile(r"(system_alert_window|draw_overlay|accessibility|bind_accessibility)", re.I),
-    ),
-    (
-        "storage_file_access_count",
-        re.compile(
-            r"(external_storage|manage_external|read_external|write_external|media_|documents|downloads|storage)",
-            re.I,
-        ),
-    ),
-    (
-        "surveillance_sensor_count",
-        re.compile(r"(camera|microphone|audio|record_audio|video|fine_location|access_fine|body_sensors)", re.I),
-    ),
-    ("account_contact_count", re.compile(r"(account|contacts|read_contacts|write_contacts|call_log|phone_state)", re.I)),
-    ("package_inventory_count", re.compile(r"(package|query_all_packages|install_packages|request_install)", re.I)),
-    ("oem_vendor_specific_count", re.compile(r"^com\.[a-z0-9_.]+\.permission\.", re.I)),
-)
-
 from config import app_config
 from obsidiandroid.database import db_engine
 from obsidiandroid.database import permission_contracts
 from obsidiandroid.cli.ui import display as du
 
+# Grouped permission bundles (coarse capability families; counts are per observed permission row).
+PERMISSION_GROUP_DEFINITIONS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("sms_telephony_count", re.compile(r"(?:sms|telephon|mms|send_sms|receive_sms|read_sms|write_sms)", re.I)),
+    ("network_c2_count", re.compile(r"(?:internet|network_state|access_network|change_network|vpn|wifi|c2|socket)", re.I)),
+    (
+        "persistence_autostart_count",
+        re.compile(
+            r"(?:boot_completed|device_admin|foreground_service|persist|install_shortcut|receive_boot|scheduled|alarm)",
+            re.I,
+        ),
+    ),
+    (
+        "overlay_accessibility_count",
+        re.compile(r"(?:system_alert_window|draw_overlay|accessibility|bind_accessibility)", re.I),
+    ),
+    (
+        "storage_file_access_count",
+        re.compile(
+            r"(?:external_storage|manage_external|read_external|write_external|media_|documents|downloads|storage)",
+            re.I,
+        ),
+    ),
+    (
+        "surveillance_sensor_count",
+        re.compile(r"(?:camera|microphone|audio|record_audio|video|fine_location|access_fine|body_sensors)", re.I),
+    ),
+    ("account_contact_count", re.compile(r"(?:account|contacts|read_contacts|write_contacts|call_log|phone_state)", re.I)),
+    ("package_inventory_count", re.compile(r"(?:package|query_all_packages|install_packages|request_install)", re.I)),
+    ("oem_vendor_specific_count", re.compile(r"^com\.[a-z0-9_.]+\.permission\.", re.I)),
+)
 
 _TOKEN_PATTERN = re.compile(r"[^a-z0-9]+")
 def _permission_obs_key_expr() -> str:
@@ -56,7 +55,13 @@ def _permission_obs_key_expr() -> str:
 
 
 def augment_grouped_permission_counts(permission_df: pd.DataFrame, feature_df: pd.DataFrame) -> pd.DataFrame:
-    """Attach ``perm_grp__*`` aggregate counts derived from raw permission rows."""
+    """Attach ``perm_grp__*`` aggregate counts derived from raw permission rows.
+
+    The previous implementation iterated every sample and every regular
+    expression in Python.  A current-corpus run has thousands of samples, so
+    this vectorized form keeps the same per-row count semantics while grouping
+    only the rows that match each capability pattern.
+    """
     if permission_df.empty or feature_df.empty:
         return feature_df
     if "sample_id" not in permission_df.columns or "permission_string" not in permission_df.columns:
@@ -69,23 +74,27 @@ def augment_grouped_permission_counts(permission_df: pd.DataFrame, feature_df: p
         return feature_df
 
     wide = feature_df.copy()
+    if "sample_id" not in wide.columns:
+        return feature_df
     sample_ids = sorted({int(x) for x in wide["sample_id"].tolist() if pd.notna(x)})
     base_idx = pd.Index(sample_ids, name="sample_id")
-    agg = pd.DataFrame(0, index=base_idx, columns=[f"perm_grp__{name}" for name, _ in PERMISSION_GROUP_DEFINITIONS])
-    agg.index = agg.index.astype(int)
+    if base_idx.empty:
+        return wide
+    work["_sample_id_int"] = pd.to_numeric(work["sample_id"], errors="coerce")
+    work = work[work["_sample_id_int"].notna()].copy()
+    work["_sample_id_int"] = work["_sample_id_int"].astype(int)
+    work = work[work["_sample_id_int"].isin(base_idx)]
+    if work.empty:
+        return wide
 
-    for sid, chunk in work.groupby("sample_id"):
-        try:
-            key = int(float(sid))
-        except (TypeError, ValueError):
-            continue
-        if key not in agg.index:
-            continue
-        texts = chunk["permission_string"].tolist()
-        for col_name, pattern in PERMISSION_GROUP_DEFINITIONS:
-            col = f"perm_grp__{col_name}"
-            hits = sum(1 for text in texts if pattern.search(str(text)))
-            agg.at[key, col] = int(hits)
+    agg = pd.DataFrame(index=base_idx)
+    permission_text = work["permission_string"]
+    for group_name, pattern in PERMISSION_GROUP_DEFINITIONS:
+        matched_ids = work.loc[
+            permission_text.str.contains(pattern, na=False), "_sample_id_int"
+        ]
+        counts = matched_ids.value_counts().reindex(base_idx, fill_value=0)
+        agg[f"perm_grp__{group_name}"] = counts.to_numpy(dtype=int)
 
     agg = agg.reset_index()
     merged = wide.merge(agg, on="sample_id", how="left")

@@ -1,6 +1,7 @@
 # Filename: classification_row_builder.py
 # Purpose  : Build structured classification output rows from selected vendor records and model predictions
 
+from dataclasses import dataclass
 from typing import Any, Dict, Optional, Set
 
 import pandas as pd
@@ -23,6 +24,14 @@ from config import app_config
 UNKNOWN_TYPE_TOKENS = {"", "unknown", "none", "null", "nan"}
 
 
+@dataclass(frozen=True)
+class LabelResolutionContext:
+    """Run-scoped lookups shared by every structured-label row."""
+
+    runtime_type_by_sample_id: Dict[str, str]
+    family_type_profile: Dict[str, frozenset[str]]
+
+
 def _normalize_family_id_token(value: Any) -> str:
     """Normalize family-id-like values into stable string keys."""
     try:
@@ -35,17 +44,67 @@ def _normalize_family_id_token(value: Any) -> str:
     return str(value).strip()
 
 
+def _clean_type_slug(value: Any) -> str:
+    """Normalize a type token, treating unknown-like values as absent."""
+    token = str(value or "").strip().lower()
+    return "" if token in UNKNOWN_TYPE_TOKENS else token
+
+
+def build_label_resolution_context(metadata: Dict[str, Any]) -> LabelResolutionContext:
+    """Precompute immutable runtime lookups used during label resolution.
+
+    The former per-row implementation repeatedly scanned the complete runtime metadata
+    frame for each prediction.  Building these maps once keeps label rendering and the
+    type-consistency guard deterministic while making large cohorts scale linearly.
+    """
+    runtime_type_by_sample_id: Dict[str, str] = {}
+    if isinstance(metadata, dict):
+        for sample_id, sample_meta in metadata.items():
+            if not isinstance(sample_meta, dict):
+                continue
+            type_slug = _clean_type_slug(sample_meta.get("type_slug"))
+            if type_slug:
+                runtime_type_by_sample_id[_normalize_family_id_token(sample_id)] = type_slug
+
+    family_type_profile: Dict[str, set[str]] = {}
+    runtime_meta = getattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", None)
+    if isinstance(runtime_meta, pd.DataFrame) and not runtime_meta.empty:
+        if {"sample_id", "type_slug"} <= set(runtime_meta.columns):
+            for sample_id, type_slug in runtime_meta[["sample_id", "type_slug"]].itertuples(
+                index=False, name=None
+            ):
+                normalized_type = _clean_type_slug(type_slug)
+                if normalized_type:
+                    # Model-output metadata has precedence when both are available.
+                    runtime_type_by_sample_id.setdefault(
+                        _normalize_family_id_token(sample_id), normalized_type
+                    )
+
+        family_column = next(
+            (column for column in ("family_canonical", "family_name") if column in runtime_meta.columns),
+            None,
+        )
+        if family_column is not None and "type_slug" in runtime_meta.columns:
+            for family_value, type_value in runtime_meta[[family_column, "type_slug"]].dropna().itertuples(
+                index=False, name=None
+            ):
+                family_token = normalize_family_name(family_value)
+                type_token = _clean_type_slug(type_value)
+                if family_token and type_token:
+                    family_type_profile.setdefault(family_token, set()).add(type_token)
+
+    return LabelResolutionContext(
+        runtime_type_by_sample_id=runtime_type_by_sample_id,
+        family_type_profile={key: frozenset(value) for key, value in family_type_profile.items()},
+    )
+
+
 def _resolve_runtime_type_slug(
     metadata: Dict[str, Any],
     sample_id: str,
+    context: Optional[LabelResolutionContext] = None,
 ) -> str:
     """Return authoritative runtime type slug for a sample when present."""
-    def _clean_type_slug(value: Any) -> str:
-        token = str(value or "").strip().lower()
-        if token in {"", "unknown", "none", "null", "nan"}:
-            return ""
-        return token
-
     if isinstance(metadata, dict):
         meta = metadata.get(sample_id)
         if meta is None:
@@ -63,17 +122,13 @@ def _resolve_runtime_type_slug(
             if direct:
                 return direct
 
-    runtime_meta = getattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", None)
-    if isinstance(runtime_meta, pd.DataFrame) and not runtime_meta.empty:
-        if {"sample_id", "type_slug"} <= set(runtime_meta.columns):
-            sample_key = _normalize_family_id_token(sample_id)
-            series = runtime_meta["sample_id"].map(_normalize_family_id_token)
-            matches = runtime_meta.loc[series == sample_key, "type_slug"]
-            if not matches.empty:
-                fallback = _clean_type_slug(matches.iloc[-1])
-                if fallback:
-                    return fallback
-    return ""
+    if context is not None:
+        return context.runtime_type_by_sample_id.get(_normalize_family_id_token(sample_id), "")
+    # Direct callers retain the pre-context behavior; pipeline callers always pass
+    # a shared context and therefore never rebuild this lookup per row.
+    return build_label_resolution_context(metadata).runtime_type_by_sample_id.get(
+        _normalize_family_id_token(sample_id), ""
+    )
 
 
 def _normalize_type_token(value: Any) -> str:
@@ -83,27 +138,11 @@ def _normalize_type_token(value: Any) -> str:
 
 
 def _build_runtime_family_type_profile() -> Dict[str, Set[str]]:
-    """Build observed family-to-type mappings from runtime cohort metadata."""
-    runtime_meta = getattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", None)
-    if not isinstance(runtime_meta, pd.DataFrame) or runtime_meta.empty:
-        return {}
-
-    family_column = next(
-        (column for column in ("family_canonical", "family_name") if column in runtime_meta.columns),
-        None,
-    )
-    if family_column is None or "type_slug" not in runtime_meta.columns:
-        return {}
-
-    profile: Dict[str, Set[str]] = {}
-    rows = runtime_meta[[family_column, "type_slug"]].dropna()
-    for family_value, type_value in rows.itertuples(index=False, name=None):
-        family_token = normalize_family_name(family_value)
-        type_token = _normalize_type_token(type_value)
-        if not family_token or not type_token:
-            continue
-        profile.setdefault(family_token, set()).add(type_token)
-    return profile
+    """Compatibility wrapper for the shared label-resolution context builder."""
+    return {
+        family: set(type_tokens)
+        for family, type_tokens in build_label_resolution_context({}).family_type_profile.items()
+    }
 
 
 def _resolve_metadata_entry(metadata: Dict[str, Any], sample_id: str) -> Dict[str, Any]:
@@ -134,6 +173,7 @@ def _apply_type_consistent_family_guard(
     predicted_family_id: str,
     metadata: Dict[str, Any],
     sample_type_slug: str,
+    context: Optional[LabelResolutionContext] = None,
 ) -> tuple[str, str]:
     """
     Suppress impossible family labels when they conflict with authoritative sample type.
@@ -152,7 +192,9 @@ def _apply_type_consistent_family_guard(
     if not sample_type:
         return predicted_family, predicted_family_id
 
-    family_type_profile = _build_runtime_family_type_profile()
+    family_type_profile = (
+        context.family_type_profile if context is not None else _build_runtime_family_type_profile()
+    )
     observed_types = family_type_profile.get(normalized_family, set())
     if not observed_types or sample_type in observed_types:
         return predicted_family, predicted_family_id
@@ -199,7 +241,8 @@ def build_classification_row(
     label_format: str = "structured",
     include_confidence: bool = True,
     debug: bool = False,
-    consensus_data: Optional[Dict[str, Any]] = None
+    consensus_data: Optional[Dict[str, Any]] = None,
+    resolution_context: Optional[LabelResolutionContext] = None,
 ) -> dict:
     """
     Constructs a structured classification row for a malware sample based on ML prediction
@@ -222,6 +265,7 @@ def build_classification_row(
     predicted_family_id = prediction_utils.decode_prediction(pred_index, label_decoder)
     true_family_id = true_labels.get(sample_id, "unknown")
     predicted_family = label_name_map.get(str(predicted_family_id), predicted_family_id)
+    raw_model_predicted_family = str(predicted_family)
     true_family = label_name_map.get(str(true_family_id), true_family_id)
 
     selected_record = vendor_record_selector.select_best_vendor_record(
@@ -272,7 +316,7 @@ def build_classification_row(
     # type authority instead of letting parser/vendor semantics silently override it.
     type_slug = ""
     try:
-        type_slug = _resolve_runtime_type_slug(metadata, sample_id)
+        type_slug = _resolve_runtime_type_slug(metadata, sample_id, context=resolution_context)
         if type_slug:
             selected_record.threat_class = type_slug
     except Exception:
@@ -284,6 +328,7 @@ def build_classification_row(
         predicted_family_id=_normalize_family_id_token(predicted_family_id),
         metadata=metadata,
         sample_type_slug=type_slug,
+        context=resolution_context,
     )
 
     normalized_fields: Dict[str, Any] = {}
@@ -311,7 +356,8 @@ def build_classification_row(
         recorded_family=predicted_family,
         record=selected_record,
         format=label_format,
-        verbose=debug
+        verbose=debug,
+        structured_fields=normalized_fields or None,
     )
 
     setattr(selected_record, "_predicted_family_fallback", predicted_family)
@@ -349,6 +395,7 @@ def build_classification_row(
         variant=selected_record.variant,
         true_family_id=_normalize_family_id_token(true_family_id),
         predicted_family_id=_normalize_family_id_token(predicted_family_id),
+        raw_model_predicted_family=raw_model_predicted_family,
         sample_metadata=_resolve_metadata_entry(metadata, sample_id),
     )
 
@@ -384,6 +431,7 @@ def _build_output_row(
     high_confidence: bool,
     true_family_id: str,
     predicted_family_id: str,
+    raw_model_predicted_family: str,
     sample_metadata: Optional[Dict[str, Any]] = None,
 ) -> dict:
     """
@@ -394,6 +442,7 @@ def _build_output_row(
         "sample_id": sample_id,
         "true_family": true_family,
         "predicted_family": predicted_family,
+        "raw_model_predicted_family": raw_model_predicted_family,
         "classification_label": label,
         "platform": record.platform or "android",
         "malware_type": record.malware_type or "trojan",

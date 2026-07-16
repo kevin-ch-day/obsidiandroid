@@ -131,6 +131,7 @@ def prepare_run_root(
     run_instance_id: str,
     archive_run: bool,
     keep_last_failed_runs: int = 0,
+    keep_last_completed_runs: int = 1,
 ) -> dict[str, Path | str]:
     """Prepare and return runtime output roots for the requested run contract."""
 
@@ -139,6 +140,7 @@ def prepare_run_root(
     kept_root = archives_root / "kept"
     failed_root = archives_root / "failed"
     slot_root = runs_root / run_slot
+    completed_root = archives_root / "completed" / run_slot
 
     if archive_run:
         run_root = kept_root / run_instance_id
@@ -156,7 +158,9 @@ def prepare_run_root(
         slot_root=slot_root,
         kept_root=kept_root,
         failed_root=failed_root,
+        completed_root=completed_root,
         keep_last_failed_runs=keep_last_failed_runs,
+        keep_last_completed_runs=keep_last_completed_runs,
     )
     slot_root.mkdir(parents=True, exist_ok=True)
     diagnostics_dir = slot_root / "diagnostics"
@@ -174,7 +178,9 @@ def _replace_slot_root(
     slot_root: Path,
     kept_root: Path,
     failed_root: Path,
+    completed_root: Path,
     keep_last_failed_runs: int,
+    keep_last_completed_runs: int,
 ) -> str:
     if not slot_root.exists():
         return "fresh_slot"
@@ -189,6 +195,14 @@ def _replace_slot_root(
         _archive_slot(slot_root=slot_root, archive_parent=failed_root, run_instance_id=run_instance_id)
         _prune_failed_archives(failed_root=failed_root, keep_last_failed_runs=keep_last_failed_runs)
         return "archived_failed_slot"
+
+    if keep_last_completed_runs > 0 and _slot_manifest_completed(manifest):
+        _archive_slot(slot_root=slot_root, archive_parent=completed_root, run_instance_id=run_instance_id)
+        _prune_completed_archives(
+            completed_root=completed_root,
+            keep_last_completed_runs=keep_last_completed_runs,
+        )
+        return "archived_completed_slot"
 
     shutil.rmtree(slot_root, ignore_errors=True)
     return "cleared_slot"
@@ -212,6 +226,11 @@ def _should_keep_existing_slot(*, slot_root: Path, manifest: dict[str, Any]) -> 
 def _slot_manifest_failed(manifest: dict[str, Any]) -> bool:
     status = str(manifest.get("run_status", "") or "").strip().lower()
     return status in {"failed", "interrupted"}
+
+
+def _slot_manifest_completed(manifest: dict[str, Any]) -> bool:
+    """Return whether a reusable slot contains a completed run worth retaining."""
+    return str(manifest.get("run_status", "") or "").strip().lower() == "complete"
 
 
 def _archive_slot(*, slot_root: Path, archive_parent: Path, run_instance_id: str) -> None:
@@ -239,6 +258,27 @@ def _prune_failed_archives(*, failed_root: Path, keep_last_failed_runs: int) -> 
         stamp = _parse_utc(raw) or datetime.fromtimestamp(child.stat().st_mtime, tz=UTC)
         candidates.append((stamp, child))
     for _, stale_dir in sorted(candidates, key=lambda item: item[0], reverse=True)[keep_last_failed_runs:]:
+        shutil.rmtree(stale_dir, ignore_errors=True)
+
+
+def _prune_completed_archives(*, completed_root: Path, keep_last_completed_runs: int) -> None:
+    """Retain only the newest bounded set of automatically archived slot runs."""
+    if keep_last_completed_runs <= 0 or not completed_root.exists():
+        return
+    candidates: list[tuple[datetime, Path]] = []
+    for child in completed_root.iterdir():
+        if not child.is_dir():
+            continue
+        manifest = read_json_dict(child / "run_manifest.json")
+        raw = str(
+            manifest.get("run_started_at_utc")
+            or manifest.get("timestamp_utc")
+            or manifest.get("created_at_utc")
+            or ""
+        ).strip()
+        stamp = _parse_utc(raw) or datetime.fromtimestamp(child.stat().st_mtime, tz=UTC)
+        candidates.append((stamp, child))
+    for _, stale_dir in sorted(candidates, key=lambda item: item[0], reverse=True)[keep_last_completed_runs:]:
         shutil.rmtree(stale_dir, ignore_errors=True)
 
 

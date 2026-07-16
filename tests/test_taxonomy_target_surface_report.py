@@ -84,6 +84,48 @@ def test_build_taxonomy_target_surface_summary_keeps_clean_type_only_rows_unreso
     assert summary["tier_counts"]["family_target_eligible_samples"] == 0
 
 
+def test_numeric_or_id_shaped_family_display_tokens_are_not_supervised_targets() -> None:
+    """Readable canonical family names are required in addition to numeric IDs."""
+    df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "family_id": [30, 31, 32],
+            "family_canonical": ["30", "family_id=31", "unresolved family id 32"],
+            "type_slug": ["banker", "banker", "rat"],
+            "category_primary": ["", "", ""],
+            "category_subtype": ["", "", ""],
+            "sample_label_kind": ["family_or_common_name"] * 3,
+        }
+    )
+
+    summary = taxonomy_target_surface_report.build_taxonomy_target_surface_summary(
+        df,
+        min_support=1,
+    )
+
+    assert summary["tier_counts"]["mapped_family_samples"] == 0
+    assert summary["tier_counts"]["unresolved_samples"] == 3
+    assert summary["tier_counts"]["family_target_eligible_samples"] == 0
+
+
+def test_type_target_eligibility_excludes_retired_and_unknown_type_tokens() -> None:
+    df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "family_id": [None, None, None, None],
+            "family_canonical": ["", "", "", ""],
+            "type_slug": ["banker", "worm", "pua", "unknown"],
+            "category_primary": ["", "", "", ""],
+            "category_subtype": ["", "", "", ""],
+            "sample_label_kind": ["family_or_common_name"] * 4,
+        }
+    )
+
+    summary = taxonomy_target_surface_report.build_taxonomy_target_surface_summary(df, min_support=1)
+
+    assert summary["tier_counts"]["type_target_eligible_samples"] == 1
+
+
 def test_build_family_tier_audit_rows_reports_major_minor_and_unresolved_reasons() -> None:
     df = pd.DataFrame(
         {

@@ -57,6 +57,7 @@ ALLOWED_COHORT_GATE_KEYS = {
     "allow_missing_package_name",
     "max_missing_package_pct",
     "exclude_unknown_type_slug",
+    "require_active_type_slug",
     "min_malicious_detections",
     "family_cap",
     "family_cap_seed",
@@ -194,6 +195,11 @@ def _validate_profile(profile: Dict[str, Any], profile_path: Path) -> None:
         raise ValueError(
             f"Profile '{profile_path}' has unsupported cohort_gates keys: [{bad_keys}]. "
             f"Allowed keys: [{allowed_keys}]."
+        )
+    require_active_type_slug = cohort_gates.get("require_active_type_slug")
+    if require_active_type_slug is not None and not isinstance(require_active_type_slug, bool):
+        raise ValueError(
+            f"Profile '{profile_path}' requires require_active_type_slug to be a boolean."
         )
     include_families_from_authority = str(
         cohort_gates.get("include_families_from_authority", "") or ""

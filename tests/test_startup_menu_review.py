@@ -297,7 +297,7 @@ def test_compact_review_summary_builds_ranked_backlog_debt_ledger(
                     "missing_primary_label_lane_counts": {
                         "public_package_identity_provenance_review": 70,
                         "unknown_family_low_consensus_review": 40,
-                        "high_strong_primary_backfill_review": 4,
+                        "authority_backed_primary_backfill_review": 4,
                     },
                     "unresolved_family_samples": 76,
                     "policy_held_family_samples": 44,

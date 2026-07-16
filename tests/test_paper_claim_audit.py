@@ -112,7 +112,7 @@ def test_write_paper_claim_audit_md_rejects_global_latest_ablation_without_run_i
     text = out.read_text(encoding="utf-8")
     assert "full_fused=0.9; safer_vendor_baseline=0.8" not in text
     assert "missing_run_scoped_ablation_artifact" in text
-    assert "random_forest / Macro-F1≈0.9100" in text or "random_forest" in text
+    assert "random_forest / Macro-F1≈0.9100" not in text
     assert "publication/evidence mode ON" in text
 
 

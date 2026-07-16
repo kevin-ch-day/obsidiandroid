@@ -8,7 +8,7 @@ import pandas as pd
 
 from obsidiandroid.cli.ui import display as du
 from .prediction_utils import extract_prediction_components
-from .classification_row_builder import build_classification_row
+from .classification_row_builder import build_classification_row, build_label_resolution_context
 from obsidiandroid.inference.label_consensus_engine import resolve_consensus_label
 from config import app_config
 
@@ -36,6 +36,7 @@ def build_sample_classification_records(
 
     # Build sample-level index once to avoid repeated full vendor scans.
     records_by_sample_id = _build_records_by_sample_id(records_by_vendor)
+    resolution_context = build_label_resolution_context(metadata)
 
     # Build structured rows
     output_rows, failed_samples = _build_all_classification_rows(
@@ -49,13 +50,21 @@ def build_sample_classification_records(
         label_format=label_format,
         include_confidence=include_confidence,
         use_consensus=use_consensus,
-        consensus_function=consensus_function
+        consensus_function=consensus_function,
+        resolution_context=resolution_context,
     )
 
     df = pd.DataFrame(output_rows)
     if not df.empty and "sample_id" in df.columns:
         df.sort_values("sample_id", inplace=True)
         df.reset_index(drop=True, inplace=True)
+
+    # Preserve completion evidence without changing the public DataFrame return type.
+    # The resolver can make failures visible or block evidence-strict runs rather than
+    # allowing a partial label export to look complete.
+    df.attrs["label_resolution_input_prediction_count"] = int(len(predictions))
+    df.attrs["label_resolution_failed_sample_count"] = int(len(failed_samples))
+    df.attrs["label_resolution_failed_sample_ids"] = tuple(failed_samples)
 
     _report_classification_summary(df, failed_samples, label_format, include_confidence, verbose)
     return df
@@ -95,7 +104,8 @@ def _build_all_classification_rows(
     label_format: str,
     include_confidence: bool,
     use_consensus: bool,
-    consensus_function
+    consensus_function,
+    resolution_context,
 ) -> Tuple[List[dict], List[str]]:
     output_rows = []
     failed_samples = []
@@ -137,7 +147,8 @@ def _build_all_classification_rows(
                     label_format=label_format,
                     include_confidence=include_confidence,
                     debug=False,
-                    consensus_data=consensus_data
+                    consensus_data=consensus_data,
+                    resolution_context=resolution_context,
                 )
             except TypeError as type_error:
                 # Backward-compat: allow patched/legacy builders that do not

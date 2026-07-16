@@ -15,8 +15,9 @@ from sklearn.model_selection import GridSearchCV
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.modeling.parallel_layout import (
+    grid_search_pre_dispatch,
     grid_search_job_counts,
-    stratified_kfold_for_grid_search,
+    tuning_grid_splitter,
 )
 from obsidiandroid.modeling.training_console_policy import (
     emit_class_imbalance_notice,
@@ -83,6 +84,7 @@ def train_logistic_regression(
     want_lr_grid = bool(
         grid_search or getattr(app_config, "ENABLE_LR_GRID_SEARCH", False)
     )
+    grid_search_status = "disabled"
     model = None
     if want_lr_grid:
         param_grid = getattr(app_config, "LR_PARAM_GRID", {
@@ -96,13 +98,15 @@ def train_logistic_regression(
             param_grid.pop("logisticregression__penalty", None)
         label_counts = Counter(y_train)
         min_class_size = min(label_counts.values())
-        cv_splitter = stratified_kfold_for_grid_search(
+        cv_splitter, minimum_tuning_support = tuning_grid_splitter(
             min_class_size, random_state=lr_cv_rs
         )
         if cv_splitter is None:
+            grid_search_status = "skipped_insufficient_class_support"
             if verbose:
                 du.print_warning(
-                    "[LOGISTIC_REGRESSION] Grid search skipped: need ≥2 samples per class "
+                    "[LOGISTIC_REGRESSION] Grid search skipped: need "
+                    f"≥{minimum_tuning_support} samples per class "
                     f"(minimum count was {min_class_size}). Fitting default pipeline."
                 )
         else:
@@ -110,11 +114,12 @@ def train_logistic_regression(
             if verbose:
                 _debug_training_info(y_train, n_splits)
                 _analyze_training_setup(X_train, y_train, param_grid, n_splits)
-            inner_jobs, grid_jobs = grid_search_job_counts()
-            lr_fit_params = {**params, "n_jobs": inner_jobs}
+            # GridSearchCV owns parallelism; sklearn 1.8 ignores (and warns
+            # about) LogisticRegression.n_jobs for this solver family.
+            _, grid_jobs = grid_search_job_counts()
             base_pipeline = make_pipeline(
                 StandardScaler(),
-                LogisticRegression(**lr_fit_params)
+                LogisticRegression(**model_params)
             )
             grid = GridSearchCV(
                 estimator=base_pipeline,
@@ -122,12 +127,14 @@ def train_logistic_regression(
                 cv=cv_splitter,
                 scoring="f1_macro",
                 n_jobs=grid_jobs,
+                pre_dispatch=grid_search_pre_dispatch(),
             )
             try:
                 grid.fit(X_train, y_train)
                 model = grid.best_estimator_
                 lr_params = model.named_steps["logisticregression"].get_params()
                 model_params.update(lr_params)
+                grid_search_status = "completed"
             except ValueError as exc:
                 error_msg = str(exc).lower()
                 has_liblinear = "liblinear" in error_msg or _grid_contains_solver(param_grid, "liblinear")
@@ -144,11 +151,7 @@ def train_logistic_regression(
                 ovr_pipeline = make_pipeline(
                     StandardScaler(),
                     OneVsRestClassifier(
-                        LogisticRegression(
-                            max_iter=getattr(app_config, "LR_MAX_ITER", 2000),
-                            class_weight="balanced",
-                            n_jobs=inner_jobs,
-                        )
+                        LogisticRegression(**model_params)
                     ),
                 )
                 ovr_param_grid = _transform_grid_for_ovr(param_grid)
@@ -158,12 +161,14 @@ def train_logistic_regression(
                     cv=cv_splitter,
                     scoring="f1_macro",
                     n_jobs=grid_jobs,
+                    pre_dispatch=grid_search_pre_dispatch(),
                 )
                 ovr_grid.fit(X_train, y_train)
                 model = ovr_grid.best_estimator_
                 ovr_params = model.named_steps["onevsrestclassifier"].estimator.get_params()
                 model_params.update(ovr_params)
                 model_params["solver"] = ovr_params.get("solver", "liblinear")
+                grid_search_status = "completed"
 
     if model is None:
         model = make_pipeline(
@@ -185,7 +190,10 @@ def train_logistic_regression(
     results = {
         "metadata": {
             "duration": duration,
-            "params": model_params
+            "params": model_params,
+            "grid_search_requested": want_lr_grid,
+            "grid_search_active": grid_search_status == "completed",
+            "grid_search_status": grid_search_status,
         }
     }
 
@@ -194,17 +202,10 @@ def train_logistic_regression(
         y_pred = model.predict(X_test)
         y_pred = np.array(y_pred)
 
-        try:
-            if "logisticregression" in model.named_steps:
-                clf = model.named_steps["logisticregression"]
-            else:
-                clf = model.named_steps["onevsrestclassifier"]
-            if hasattr(clf, "predict_proba"):
-                y_prob = model.predict_proba(X_test)
-                confidences = np.max(y_prob, axis=1)
-            else:
-                confidences = np.ones_like(y_pred)
-        except Exception:
+        if hasattr(model, "predict_proba"):
+            y_prob = model.predict_proba(X_test)
+            confidences = np.max(y_prob, axis=1)
+        else:
             confidences = np.ones_like(y_pred)
 
         if verbose:
@@ -213,10 +214,15 @@ def train_logistic_regression(
                 print(classification_report(y_test, y_pred, zero_division=0))
 
         # Package predictions as dict if sample IDs and encoder available
-        if sample_ids is not None and label_encoder is not None:
+        if sample_ids is not None and len(sample_ids) == len(y_pred):
             predictions = dict(zip(sample_ids, y_pred))
             true_labels = dict(zip(sample_ids, y_test))
-            metadata = dict(zip(sample_ids, [label_encoder.classes_[i] for i in y_pred]))
+            metadata = {
+                sample_id: label_encoder.classes_[prediction]
+                if label_encoder is not None
+                else str(prediction)
+                for sample_id, prediction in predictions.items()
+            }
         else:
             predictions = y_pred
             true_labels = y_test

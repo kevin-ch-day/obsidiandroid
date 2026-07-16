@@ -139,6 +139,17 @@ def run_predictions_and_compile_result(
         )
 
         sample_ids = features_df.index.tolist()
+        expected_count = len(sample_ids)
+        if not (
+            len(preds) == expected_count
+            and len(trues) == expected_count
+            and len(decoded_labels) == expected_count
+        ):
+            du.print_error(
+                f"[{model_type.upper()}] Incomplete prediction output; expected {expected_count} row(s), "
+                f"got predictions={len(preds)}, truths={len(trues)}, decoded_labels={len(decoded_labels)}."
+            )
+            return {}
         pred_dict = dict(zip(sample_ids, preds))
         true_dict = dict(zip(sample_ids, trues))
         meta_dict = {

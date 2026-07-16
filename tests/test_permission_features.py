@@ -8,6 +8,32 @@ import pytest
 from obsidiandroid.orchestration import permission_features
 
 
+def test_grouped_permission_counts_preserve_per_observation_pattern_counts() -> None:
+    permissions = pd.DataFrame(
+        {
+            "sample_id": [1, 1, 1, 2, 2, 99],
+            "permission_string": [
+                "android.permission.SEND_SMS",
+                "android.permission.READ_SMS",
+                "android.permission.INTERNET",
+                "android.permission.CAMERA",
+                "com.vendor.permission.SPECIAL",
+                "android.permission.SEND_SMS",
+            ],
+        }
+    )
+    features = pd.DataFrame({"sample_id": [1, 2, 3], "signal": [1, 2, 3]})
+
+    result = permission_features.augment_grouped_permission_counts(permissions, features)
+
+    by_id = result.set_index("sample_id")
+    assert by_id.loc[1, "perm_grp__sms_telephony_count"] == 2
+    assert by_id.loc[1, "perm_grp__network_c2_count"] == 1
+    assert by_id.loc[2, "perm_grp__surveillance_sensor_count"] == 1
+    assert by_id.loc[2, "perm_grp__oem_vendor_specific_count"] == 1
+    assert by_id.loc[3, "perm_grp__sms_telephony_count"] == 0
+
+
 def test_permission_fetch_sets_degraded_flag_on_db_error(monkeypatch) -> None:
     """DB fetch failures should set degraded flag and return baseline frame."""
     monkeypatch.setattr(permission_features.app_config, "RUNTIME_EVIDENCE_MODE", False, raising=False)

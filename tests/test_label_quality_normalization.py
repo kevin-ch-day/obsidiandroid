@@ -34,6 +34,8 @@ def test_family_alias_normalization():
     assert normalize_family_name("Droid Lock") == "droidlock"
     assert normalize_family_name("AlienBot") == "alien"
     assert normalize_family_name("BlackLoan") == "spyloan"
+    assert normalize_family_name("Black Rock") == "blackrock"
+    assert normalize_family_name("Gold Digger") == "golddigger"
     assert normalize_family_name("StealJob") == "donot"
     assert normalize_family_name("ExobotCompact.D/Octo") == "octo"
     assert normalize_family_name("Wroba") == "roamingmantis"

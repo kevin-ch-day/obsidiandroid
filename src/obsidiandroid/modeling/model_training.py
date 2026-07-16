@@ -35,6 +35,8 @@ def train_model(
             grid_flag = app_config.ENABLE_SVM_GRID_SEARCH
         elif model_type == "logistic_regression":
             grid_flag = app_config.ENABLE_LR_GRID_SEARCH
+        elif model_type == "xgboost":
+            grid_flag = app_config.ENABLE_XGB_GRID_SEARCH
 
         if grid_flag:
             du.print_info(

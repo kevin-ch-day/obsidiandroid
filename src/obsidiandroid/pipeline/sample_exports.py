@@ -7,7 +7,7 @@ Canonical implementation (**Pass 69**): ``obsidiandroid.pipeline.sample_exports`
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -112,7 +112,10 @@ def resolve_dataset_time_contract(gates: dict[str, Any], run_id: str) -> dict[st
         end_mode = str(getattr(app_config, "PAPER_TIME_WINDOW_END_MODE", "run_date_eod_utc"))
         if end_mode == "run_date_eod_utc":
             now = datetime.now(timezone.utc)
-            end_utc = now.strftime("%Y-%m-%dT23:59:59Z")
+            # The SQL predicate is end-exclusive. Use the following midnight so
+            # the complete current UTC day is included rather than silently
+            # omitting rows timestamped at 23:59:59 (or later fractions).
+            end_utc = (now.date() + timedelta(days=1)).isoformat() + "T00:00:00Z"
         else:
             end_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {

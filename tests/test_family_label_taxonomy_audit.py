@@ -175,6 +175,29 @@ def test_build_family_label_confidence_payload_downgrades_publicly_corroborated_
     assert families["spynote"]["weak_label_corroborated_rows"] == 1
 
 
+def test_textual_null_family_tokens_remain_unresolved_not_phantom_families() -> None:
+    """CSV-style textual nulls must not create a named family in curation reports."""
+    df = pd.DataFrame(
+        {
+            "sample_id": [1],
+            "family_canonical": ["nan"],
+            "family_label_raw": ["n/a"],
+            "type_slug": ["banker"],
+            "category_primary": ["trojan"],
+            "category_subtype": ["banker"],
+            "sample_label_kind": ["family_or_common_name"],
+            "vt_family_token": ["possiblefamily"],
+        }
+    )
+
+    payload = family_label_confidence_audit.build_family_label_confidence_payload(df, min_support=2)
+
+    assert payload["family_count"] == 0
+    assert payload["sample_rows"][0]["family_canonical"] == "<blank>"
+    assert "blank_family_with_vt_token" in payload["sample_rows"][0]["reasons"]
+    assert "family_conflict" not in payload["sample_rows"][0]["reasons"]
+
+
 def test_export_family_label_confidence_reports_writes_expected_files(tmp_path: Path) -> None:
     df = pd.DataFrame(
         {

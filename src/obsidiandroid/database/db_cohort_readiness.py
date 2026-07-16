@@ -162,6 +162,60 @@ def _fetch_android_authority_rows() -> list[dict[str, Any]]:
     return out
 
 
+def fetch_active_family_inactive_type_gaps(
+    *,
+    include_authority_sample_count: bool = True,
+) -> list[dict[str, Any]]:
+    """Return active family mappings whose primary type has been retired.
+
+    This is deliberately a read-only lifecycle check. A family can remain
+    active while its type is retired during a taxonomy migration, but treating
+    that type as current authority would make the training and label audits
+    internally inconsistent. The result is an operator review queue, not an
+    automatic type reactivation or family reassignment.
+    """
+    authority_projection = "COUNT(a.sample_id) AS authority_sample_count"
+    authority_join = f"""
+        LEFT JOIN `{DB_NAME}`.`{_ANDROID_AUTHORITY_VIEW}` AS a
+          ON a.family_slug = f.family_slug
+    """
+    grouping = """
+        GROUP BY
+            f.family_id,
+            f.family_slug,
+            f.family_status,
+            f.primary_type_id,
+            t.type_slug
+    """
+    if not include_authority_sample_count:
+        # Readiness needs a quick lifecycle warning. Avoid expanding the
+        # authority view unless the operator explicitly requests the
+        # sample-impact count via the detailed diagnostic report.
+        authority_projection = "0 AS authority_sample_count"
+        authority_join = ""
+        grouping = ""
+
+    query = f"""
+        SELECT
+            f.family_id,
+            f.family_slug,
+            f.family_status,
+            f.primary_type_id,
+            t.type_slug,
+            {authority_projection}
+        FROM `{DB_NAME}`.`{_ANDROID_FAMILY_TABLE}` AS f
+        JOIN `{DB_NAME}`.`{_ANDROID_TYPE_TABLE}` AS t
+          ON t.type_id = f.primary_type_id
+        {authority_join}
+        WHERE f.is_active = 1
+          AND t.is_active = 0
+        {grouping}
+        ORDER BY authority_sample_count DESC, f.family_slug
+    """
+    columns, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
+    return [dict(zip(columns, row)) for row in rows]
+
+
 def _fetch_android_family_resolution_rows() -> list[dict[str, Any]]:
     query = f"""
         SELECT
@@ -289,8 +343,12 @@ _MISSING_PRIMARY_RESIDUAL_LANE_CASE_SQL = """
                             'com.learn.toppr'
                          )
                          THEN 'public_package_identity_provenance_review'
+                    WHEN authority_bucket = 'authority_family_typed'
+                         AND COALESCE(TRIM(authority_type_slug), '') NOT IN ('', 'unknown')
+                         AND confidence_bucket IN ('high', 'strong')
+                         THEN 'authority_backed_primary_backfill_review'
                     WHEN confidence_bucket IN ('high', 'strong')
-                         THEN 'high_strong_primary_backfill_review'
+                         THEN 'high_strong_primary_no_authority_review'
                     WHEN authority_bucket = 'missing_resolved_family'
                          AND vt_malicious_count = 0
                          THEN 'zero_detection_blank_family_provenance_review'
@@ -310,8 +368,10 @@ _MISSING_PRIMARY_RECOMMENDED_ACTION_CASE_SQL = """
                 CASE residual_lane
                     WHEN 'already_sample_suppressed'
                         THEN 'Closed: sample already under FP suppression; no primary backfill.'
-                    WHEN 'high_strong_primary_backfill_review'
-                        THEN 'Backfill classification_primary from high/strong VT consensus.'
+                    WHEN 'authority_backed_primary_backfill_review'
+                        THEN 'Review authority-derived primary-label proposal; no automatic write.'
+                    WHEN 'high_strong_primary_no_authority_review'
+                        THEN 'Manual review: high/strong VT consensus lacks governed family/type authority.'
                     WHEN 'high_risk_keylogger_signal_review'
                         THEN 'Review keylogger vendor signals before assigning classification_primary.'
                     WHEN 'fake_app_or_impersonation_signal_review'
@@ -384,6 +444,9 @@ def _missing_primary_label_lane_rows_cte_sql() -> str:
                 msc.android_package_name,
                 COALESCE(a.authority_bucket, '<none>') AS authority_bucket,
                 COALESCE(a.resolved_family_lc, '') AS resolved_family_lc,
+                COALESCE(a.family_slug, '') AS authority_family_slug,
+                COALESCE(a.type_slug, '') AS authority_type_slug,
+                COALESCE(a.parent_type_slug, '') AS authority_parent_type_slug,
                 COALESCE(vs.confidence_bucket, 'none') AS confidence_bucket,
                 COALESCE(vs.vt_malicious_count, 0) AS vt_malicious_count,
                 COALESCE(s.max_suppression_weight, 0) AS sample_suppression_weight,
@@ -411,6 +474,18 @@ def _missing_primary_label_lane_rows_cte_sql() -> str:
                 android_package_name,
                 authority_bucket,
                 resolved_family_lc,
+                authority_family_slug,
+                authority_type_slug,
+                authority_parent_type_slug,
+                CASE
+                    WHEN authority_bucket = 'authority_family_typed'
+                         AND COALESCE(TRIM(authority_type_slug), '') NOT IN ('', 'unknown')
+                        THEN COALESCE(
+                            NULLIF(TRIM(authority_parent_type_slug), ''),
+                            NULLIF(TRIM(authority_type_slug), '')
+                        )
+                    ELSE ''
+                END AS proposed_classification_primary,
                 confidence_bucket,
                 vt_malicious_count,
                 sample_suppression_weight,
@@ -433,6 +508,10 @@ def fetch_missing_primary_label_triage_rows(*, include_suppressed: bool = False)
             android_package_name,
             authority_bucket,
             resolved_family_lc,
+            authority_family_slug,
+            authority_type_slug,
+            authority_parent_type_slug,
+            proposed_classification_primary,
             confidence_bucket,
             vt_malicious_count,
             sample_suppression_weight,
@@ -442,17 +521,18 @@ def fetch_missing_primary_label_triage_rows(*, include_suppressed: bool = False)
         {suppressed_filter}
         ORDER BY
             CASE residual_lane
-                WHEN 'high_strong_primary_backfill_review' THEN 0
-                WHEN 'high_risk_keylogger_signal_review' THEN 1
-                WHEN 'fake_app_or_impersonation_signal_review' THEN 2
-                WHEN 'pua_adware_or_testkey_signal_review' THEN 3
-                WHEN 'public_package_identity_provenance_review' THEN 4
-                WHEN 'zero_detection_blank_family_provenance_review' THEN 5
-                WHEN 'blank_family_low_consensus_manual_review' THEN 6
-                WHEN 'unknown_family_zero_signal_review' THEN 7
-                WHEN 'unknown_family_low_consensus_review' THEN 8
-                WHEN 'manual_review' THEN 9
-                ELSE 10
+                WHEN 'authority_backed_primary_backfill_review' THEN 0
+                WHEN 'high_strong_primary_no_authority_review' THEN 1
+                WHEN 'high_risk_keylogger_signal_review' THEN 2
+                WHEN 'fake_app_or_impersonation_signal_review' THEN 3
+                WHEN 'pua_adware_or_testkey_signal_review' THEN 4
+                WHEN 'public_package_identity_provenance_review' THEN 5
+                WHEN 'zero_detection_blank_family_provenance_review' THEN 6
+                WHEN 'blank_family_low_consensus_manual_review' THEN 7
+                WHEN 'unknown_family_zero_signal_review' THEN 8
+                WHEN 'unknown_family_low_consensus_review' THEN 9
+                WHEN 'manual_review' THEN 10
+                ELSE 11
             END,
             vt_malicious_count DESC,
             sample_id
@@ -979,6 +1059,8 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
             "blank_resolved_family_samples": None,
             "blank_resolved_family_bucket_counts": {},
             "top_blank_resolved_family_buckets": [],
+            "active_family_retired_type_mapping_count": None,
+            "top_active_family_retired_type_mappings": [],
         },
     }
 
@@ -1006,6 +1088,28 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
         for row in android_rows
         if row.get("sample_id") is not None
     }
+
+    if _table_exists_primary(_ANDROID_FAMILY_TABLE) and _table_exists_primary(_ANDROID_TYPE_TABLE):
+        try:
+            lifecycle_gaps = fetch_active_family_inactive_type_gaps(
+                include_authority_sample_count=False,
+            )
+            payload["taxonomy_signals"]["active_family_retired_type_mapping_count"] = len(lifecycle_gaps)
+            payload["taxonomy_signals"]["top_active_family_retired_type_mappings"] = lifecycle_gaps[:8]
+            if lifecycle_gaps:
+                brief = ", ".join(
+                    f"{row.get('family_slug')}→{row.get('type_slug')}"
+                    for row in lifecycle_gaps[:4]
+                )
+                payload["warnings"].append(
+                    "Active family mappings reference retired taxonomy types "
+                    f"({brief}). They remain in broad cohorts; run "
+                    "report_taxonomy_type_lifecycle_gaps.py before using them for type-level claims."
+                )
+        except Exception:
+            # This is additive readiness intelligence. A legacy or partially
+            # migrated schema should not block baseline cohort availability.
+            pass
 
     if not _table_exists_permission(_PERMISSION_OBS_TABLE):
         payload["status"] = "degraded"
@@ -1079,7 +1183,7 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
             str(row.get("residual_lane", "") or "manual_review"): int(row.get("sample_count", 0) or 0)
             for row in missing_primary_lane_rows
         }
-        actionable_count = lane_counts.get("high_strong_primary_backfill_review", 0)
+        actionable_count = lane_counts.get("authority_backed_primary_backfill_review", 0)
         suppressed_count = lane_counts.get("already_sample_suppressed", 0)
         residual_count = max(sum(lane_counts.values()) - actionable_count, 0)
         active_residual_count = max(residual_count - suppressed_count, 0)

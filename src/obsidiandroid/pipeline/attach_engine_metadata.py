@@ -20,9 +20,12 @@ METADATA_FIELDS = [
     "coverage_pct", "malicious_pct", "suspicious_pct", "threat_signal_score"
 ]
 
-def fetch_engine_metadata(verbose: bool = True) -> pd.DataFrame:
+def fetch_engine_metadata(sample_ids=None, verbose: bool = True) -> pd.DataFrame:
     try:
-        engine_df = db_av_engine_detection_totals.get_engine_detection_totals(as_dataframe=True)
+        engine_df = db_av_engine_detection_totals.get_engine_detection_totals(
+            as_dataframe=True,
+            sample_ids=sample_ids,
+        )
 
         if not isinstance(engine_df, pd.DataFrame) or engine_df.empty:
             raise ValueError("Engine metadata is empty or invalid.")
@@ -91,7 +94,7 @@ def _write_engine_metadata_overlay_csv(meta_df: pd.DataFrame, *, verbose: bool) 
 
 def attach_engine_metadata(matrix_df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     setattr(app_config, "RUNTIME_ENGINE_METADATA_OVERLAY_CSV", "")
-    engine_df = fetch_engine_metadata(verbose=verbose)
+    engine_df = fetch_engine_metadata(sample_ids=matrix_df["sample_id"].tolist(), verbose=verbose)
     if engine_df.empty:
         return matrix_df
 

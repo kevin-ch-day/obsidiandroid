@@ -12,6 +12,10 @@ import pandas as pd
 import yaml
 
 from obsidiandroid.common.repo_paths import repo_root
+from obsidiandroid.common.family_label_semantics import (
+    is_family_placeholder_token as _is_family_placeholder_token,
+    normalize_family_identity_token,
+)
 from obsidiandroid.labeling.malware_family_constants import GENERIC_TOKENS
 
 AUTHORITY_ARTIFACT_PATH = Path("config") / "taxonomy" / "android_family_tier_authority.yaml"
@@ -26,15 +30,24 @@ GENERIC_PRIMARY_TOKENS: frozenset[str] = EMPTY_TOKENS | {"malware"}
 CANONICAL_TYPE_TOKENS: frozenset[str] = frozenset(
     {
         "adware",
+        "backdoor",
         "banker",
+        "cryptojacking",
+        "downloader",
         "dropper",
+        "miner",
+        "ransomware",
         "rat",
+        "riskware",
+        "rootkit",
         "sms-trojan",
         "spyware",
+        "stalkerware",
         "stealer",
+        "subscription-fraud",
+        "trojan",
     }
 )
-
 
 def _stable_hash(payload: dict[str, Any]) -> str:
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -184,12 +197,21 @@ def build_family_tier_masks(df: pd.DataFrame) -> dict[str, pd.Series]:
     generic_tokens = generic_coarse_token_set()
     major_families = major_family_name_set()
 
-    mapped_family = family_canonical.ne("") & family_ids.notna() & (family_ids >= 0)
+    family_placeholder = family_canonical.map(_is_family_placeholder_token)
+    mapped_family = (
+        family_canonical.ne("")
+        & ~family_placeholder
+        & family_ids.notna()
+        & (family_ids >= 0)
+    )
     family_generic_token = family_canonical.isin(generic_tokens)
     primary_generic_token = category_primary.isin(generic_tokens | set(CANONICAL_TYPE_TOKENS))
     subtype_generic_token = category_subtype.isin(generic_tokens | set(CANONICAL_TYPE_TOKENS))
     weak_label = sample_label_kind.isin(set(WEAK_LABEL_KINDS))
-    type_eligible = type_slug.ne("")
+    # A non-empty historical taxonomy label is useful audit context, but it is
+    # not automatically a valid supervised type target. Keep the target mask
+    # aligned with the live semantic canonical vocabulary.
+    type_eligible = type_slug.isin(CANONICAL_TYPE_TOKENS)
 
     major_mask = mapped_family & family_canonical.isin(major_families)
     minor_mask = mapped_family & ~major_mask
@@ -226,4 +248,5 @@ __all__ = [
     "major_family_authority_payload",
     "major_family_name_list",
     "major_family_name_set",
+    "normalize_family_identity_token",
 ]

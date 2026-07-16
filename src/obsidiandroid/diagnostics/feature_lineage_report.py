@@ -8,9 +8,10 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
+from typing import Any
 
 from obsidiandroid.common import output_hygiene as oh
-from typing import Any
+from obsidiandroid.common.json_io import read_json_dict
 
 # Columns produced by ``enrich_score_features.add_derived_score_features`` (primary AV DB path).
 ENRICH_SCORE_COLUMNS = frozenset(
@@ -112,15 +113,31 @@ def load_json_if_present(path: Path) -> dict[str, Any] | None:
         return None
 
 
-def build_feature_lineage_report(run_diagnostics_dir: Path | str) -> dict[str, Any]:
-    """Assemble lineage JSON + tabular rows from artifacts under ``.../diagnostics``."""
+def _resolve_run_id(diag: Path, run_id: str | None) -> str:
+    """Resolve a run ID without consulting ambiguous ``*.latest`` artifacts."""
+    if run_id:
+        return str(run_id).strip()
+    manifest = read_json_dict(diag.parent / "run_manifest.json")
+    return str(manifest.get("run_id") or "").strip()
+
+
+def build_feature_lineage_report(
+    run_diagnostics_dir: Path | str,
+    *,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    """Assemble lineage JSON + tabular rows from one run's stamped artifacts.
+
+    A lineage report is scientific evidence, so it intentionally refuses to
+    select an arbitrary local or global ``*.latest`` file. Callers either
+    supply ``run_id`` or provide a run directory with ``run_manifest.json``.
+    """
     diag = Path(run_diagnostics_dir)
-    modality_path = diag / "modality_method_contract.json"
-    contract_path = diag / "feature_contract.json"
-    leakage_txt = diag / "leakage_assessment.txt"
-    leakage_audit_latest = diag / "leakage_pruning_audit.latest.csv"
-    if not leakage_audit_latest.is_file():
-        leakage_audit_latest = oh.global_diagnostics_root() / "leakage_pruning_audit.latest.csv"
+    resolved_run_id = _resolve_run_id(diag, run_id)
+    modality_path = oh.resolve_modality_method_contract_path(diag, resolved_run_id)
+    contract_path = oh.resolve_feature_contract_path(diag, resolved_run_id)
+    leakage_txt = oh.resolve_leakage_assessment_path(diag, resolved_run_id)
+    leakage_audit_path = diag / f"leakage_pruning_audit_{resolved_run_id}.csv"
 
     modality = load_json_if_present(modality_path) or {}
     contract = load_json_if_present(contract_path) or {}
@@ -149,11 +166,11 @@ def build_feature_lineage_report(run_diagnostics_dir: Path | str) -> dict[str, A
     permission_mod = modality.get("permission_modality") or {}
 
     audit_rows = 0
-    if leakage_audit_latest.is_file():
+    if leakage_audit_path.is_file():
         try:
             import pandas as pd
 
-            audit_df = pd.read_csv(leakage_audit_latest)
+            audit_df = pd.read_csv(leakage_audit_path)
             audit_rows = int(len(audit_df))
         except Exception:
             audit_rows = 0
@@ -191,8 +208,8 @@ def build_feature_lineage_report(run_diagnostics_dir: Path | str) -> dict[str, A
             "encoded vendor fields with extras."
         ),
         "modules_training_pruning": (
-            "src/obsidiandroid/modeling/pipeline_core.py: _prune_low_information_features (nunique<=1), "
-            "then _prune_potential_leakage_features; leakage audit CSV optional."
+            "src/obsidiandroid/modeling/feature_selection_contract.py: train-partition no-variance "
+            "and leakage guards; frozen ordered columns are applied to test rows; leakage audit CSV is emitted."
         ),
     }
 
@@ -200,14 +217,14 @@ def build_feature_lineage_report(run_diagnostics_dir: Path | str) -> dict[str, A
         "family_label_leakage": (
             "Training labels use family_id; features must not include canonical family_name/family_id columns. "
             "parsed_family_* columns are **vendor-reported** strings, not Obsidian ground-truth labels — "
-            "see leakage_assessment.txt for qualitative coupling classification."
+            "see leakage_assessment_<run_id>.txt for qualitative coupling classification."
         ),
         "parsed_vendor_vs_pure_detection": (
             "Vendor parsed strings use prefixes parsed_family_, threat_class_, malware_type_; "
             "wide binary detections use engine-name stems from the verdict pivot (distinct representations)."
         ),
         "feature_contract_modality_labels": (
-            "feature_contract.json lists columns + encoder_mappings for categoricals; "
+            "feature_contract_<run_id>.json lists columns + encoder_mappings for categoricals; "
             "perm__/meta__/parsed prefixes give deterministic modality without extra tags per column."
         ),
         "permission_intel_vs_primary_metadata": (
@@ -226,7 +243,7 @@ def build_feature_lineage_report(run_diagnostics_dir: Path | str) -> dict[str, A
             "modality_method_contract": str(modality_path),
             "feature_contract": str(contract_path),
             "leakage_assessment_txt": str(leakage_txt) if leakage_txt.is_file() else None,
-            "leakage_pruning_audit": str(leakage_audit_latest) if leakage_audit_latest.is_file() else None,
+            "leakage_pruning_audit": str(leakage_audit_path) if leakage_audit_path.is_file() else None,
         },
         "fusion_stage_counts": {
             "matrix_rows": fusion.get("matrix_shape", {}).get("rows"),
@@ -259,7 +276,9 @@ def build_feature_lineage_report(run_diagnostics_dir: Path | str) -> dict[str, A
             )
 
     if not feature_columns:
-        payload["warnings"].append("feature_contract.json missing or empty — run full pipeline or pass diagnostics dir.")
+        payload["warnings"].append(
+            "Stamped feature contract missing or empty — supply run_id or a diagnostics directory under a run manifest."
+        )
 
     return {
         "summary": payload,
@@ -267,13 +286,20 @@ def build_feature_lineage_report(run_diagnostics_dir: Path | str) -> dict[str, A
     }
 
 
-def write_feature_lineage_artifacts(run_diagnostics_dir: Path | str) -> tuple[Path, Path]:
-    """Write ``feature_lineage_summary.json`` and ``feature_lineage_summary.csv``."""
+def write_feature_lineage_artifacts(
+    run_diagnostics_dir: Path | str,
+    *,
+    run_id: str | None = None,
+) -> tuple[Path, Path]:
+    """Write run-stamped feature-lineage summary JSON and CSV artifacts."""
     diag = Path(run_diagnostics_dir)
     diag.mkdir(parents=True, exist_ok=True)
-    built = build_feature_lineage_report(diag)
-    json_path = diag / "feature_lineage_summary.json"
-    csv_path = diag / "feature_lineage_summary.csv"
+    resolved_run_id = _resolve_run_id(diag, run_id)
+    if not resolved_run_id:
+        raise ValueError("run_id is required when run_manifest.json is unavailable")
+    built = build_feature_lineage_report(diag, run_id=resolved_run_id)
+    json_path = diag / f"feature_lineage_summary_{resolved_run_id}.json"
+    csv_path = diag / f"feature_lineage_summary_{resolved_run_id}.csv"
 
     export_payload = dict(built["summary"])
     export_payload["column_lineage"] = built["column_rows"]

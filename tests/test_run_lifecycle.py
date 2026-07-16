@@ -129,6 +129,39 @@ def test_touch_run_lifecycle_running_updates_stage_hint(tmp_path: Path) -> None:
     assert str(payload.get("last_touch_at_utc", "")).strip()
 
 
+def test_stage_control_updates_live_marker_with_current_stage(tmp_path: Path, monkeypatch) -> None:
+    """Long-running stages must be visible through the run capsule."""
+    from time import perf_counter
+
+    from config import app_config
+    from obsidiandroid.pipeline.runner_stage_control import PipelineRunStageControl
+    from obsidiandroid.pipeline.runner_support import ScopedArtifactList
+
+    run_root = tmp_path / "output" / "runs" / "rid_stage"
+    mark_run_lifecycle_running(run_root, run_id="rid_stage", profile_id="android_malware_all_current")
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ROOT", str(run_root), raising=False)
+
+    control = PipelineRunStageControl(
+        run_id="rid_stage",
+        stop_after="full",
+        manifest_context={},
+        artifact_list=ScopedArtifactList(
+            strict_run_scoped=False,
+            run_root_getter=lambda: str(run_root),
+            output_root_getter=lambda: str(tmp_path / "output"),
+            allow_global_getter=lambda: False,
+        ),
+        pipeline_started_at=perf_counter(),
+        diagnostics_dir_getter=lambda: str(run_root / "diagnostics"),
+        pipeline_logger=None,
+    )
+    control.begin_stage("training")
+
+    payload = json.loads((run_root / ".RUNNING").read_text(encoding="utf-8"))
+    assert payload["current_stage"] == "training"
+    assert str(payload.get("last_touch_at_utc", "")).strip()
+
+
 def test_run_bounds_lifecycle() -> None:
     """run_bounds module should preserve lifecycle capsules through set/get/clear."""
     assert run_bounds.get_pipeline_run_bounds() is None

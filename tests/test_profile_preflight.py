@@ -131,6 +131,48 @@ def test_validate_profile_runnable_uses_sql_gate_stats_and_lightweight_probe_for
     assert fetch_calls[0]["exclude_family_canonical"] == ("devixor", "gigabud")
 
 
+def test_validate_profile_runnable_uses_resolved_default_time_contract(monkeypatch) -> None:
+    """Preflight and samples stage must share the implicit global time window."""
+    monkeypatch.setattr(
+        profile_preflight.profile_manager,
+        "load_profile",
+        lambda _profile_id: {
+            "profile_id": "all_current",
+            "type_slug_filter": None,
+            "cohort_gates": {},
+            "dataset_filters": {"mode": "none"},
+        },
+    )
+    monkeypatch.setattr(
+        profile_preflight,
+        "resolve_dataset_time_contract",
+        lambda **_kwargs: {
+            "start_utc": "2020-01-01T00:00:00Z",
+            "end_utc": "2026-07-16T00:00:00Z",
+            "require_effective_first_seen": True,
+        },
+    )
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        sample_metadata_fetchers,
+        "get_type_cohort_gate_stats",
+        lambda **kwargs: calls.append(kwargs) or {"governed_cohort_count": 1},
+    )
+    monkeypatch.setattr(
+        sample_metadata_fetchers,
+        "fetch_samples_by_type",
+        lambda **_kwargs: pd.DataFrame([{"sample_id": 1}]),
+    )
+
+    ok, reason = profile_preflight.validate_profile_runnable("all_current")
+
+    assert ok is True
+    assert reason == ""
+    assert calls[0]["effective_time_start_utc"] == "2020-01-01T00:00:00Z"
+    assert calls[0]["effective_time_end_utc"] == "2026-07-16T00:00:00Z"
+    assert calls[0]["require_effective_first_seen"] is True
+
+
 def test_validate_profile_runnable_fails_fast_when_sql_governed_count_is_zero(monkeypatch) -> None:
     """Preflight should fail before materialization when the governed SQL cohort is empty."""
     monkeypatch.setattr(

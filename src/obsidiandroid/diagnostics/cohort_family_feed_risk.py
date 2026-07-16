@@ -8,9 +8,10 @@ from typing import Any
 
 import pandas as pd
 
+from obsidiandroid.governance.family_tier_authority import normalize_family_identity_token
 
-_GENERIC_FAMILY_TOKENS = {"", "unknown", "generic", "unclassified", "unlabeled"}
-_GENERIC_CANONICAL_TOKENS = {"", "unknown", "other", "unmapped", "none", "null"}
+_GENERIC_FAMILY_TOKENS = {"", "unknown", "generic", "unclassified", "unlabeled", "none", "null", "nan", "n/a"}
+_GENERIC_CANONICAL_TOKENS = {"", "unknown", "other", "unmapped", "none", "null", "nan", "n/a"}
 _WEAK_LABEL_KINDS = {"filename", "hash_like", "opaque_string", "unclassified"}
 
 
@@ -39,21 +40,20 @@ def build_family_feed_risk_payload(
     frame = samples_df.copy()
     total_rows = int(len(frame))
 
-    family = _norm_series(frame, "family_canonical")
-    family = family.replace("", "<blank>")
+    family_display = _norm_series(frame, "family_canonical")
+    family_identity = family_display.map(normalize_family_identity_token)
+    family = family_display.where(family_identity.ne(""), "<blank>")
     label_kind = _norm_series(frame, "sample_label_kind", lower=True)
-    family_raw = _norm_series(frame, "family_label_raw", lower=True)
+    family_raw = _norm_series(frame, "family_label_raw").map(normalize_family_identity_token)
     vt_token = _norm_series(frame, "vt_family_token")
     type_slug = _norm_series(frame, "type_slug")
 
     frame["family_canonical"] = family
-    frame["issue_weak_label"] = label_kind.isin(_WEAK_LABEL_KINDS) & ~family.str.lower().isin(
-        _GENERIC_CANONICAL_TOKENS
-    )
+    frame["issue_weak_label"] = label_kind.isin(_WEAK_LABEL_KINDS) & family_identity.ne("")
     frame["issue_family_conflict"] = (
         ~family_raw.isin(_GENERIC_FAMILY_TOKENS)
-        & ~family.str.lower().isin(_GENERIC_CANONICAL_TOKENS)
-        & (family_raw != family.str.lower())
+        & family_identity.ne("")
+        & (family_raw != family_identity)
     )
     frame["issue_opaque_label"] = label_kind.eq("opaque_string")
     frame["issue_blank_family_with_token"] = (vt_token != "") & family_raw.isin(_GENERIC_FAMILY_TOKENS)
@@ -153,7 +153,7 @@ def build_family_feed_risk_payload(
 
     return {
         "total_rows": total_rows,
-        "family_count": int(frame["family_canonical"].nunique()),
+        "family_count": int(frame.loc[frame["family_canonical"].ne("<blank>"), "family_canonical"].nunique()),
         "ranked_families": ranked_rows,
     }
 

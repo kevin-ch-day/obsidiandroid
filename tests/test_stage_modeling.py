@@ -70,34 +70,68 @@ def test_enrich_vendor_trust_flags_merges_engine_scores() -> None:
     assert int(unknown["trusted_vendor_flag"]) == 0
 
 
-def test_resolve_vendor_include_fields_respects_evidence_controls(monkeypatch) -> None:
-    """Evidence controls should drop Parsed Family from headline feature fields."""
+def test_engine_weight_stage_skips_db_summary_when_primary_scores_exist(monkeypatch) -> None:
+    monkeypatch.setattr(app_config, "ENABLE_ENGINE_WEIGHT_DB_SUMMARY", True, raising=False)
+    called = {"db_summary": False}
 
-    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", True, raising=False)
-    assert stage_modeling._resolve_vendor_include_fields() == [
-        "Threat Class",
-        "Malware Type",
-    ]
+    def unexpected_db_summary():
+        called["db_summary"] = True
+        raise AssertionError("DB fallback must not run when primary scores are available")
 
-    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False, raising=False)
-    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_MODE", True, raising=False)
-    assert stage_modeling._resolve_vendor_include_fields() == [
-        "Threat Class",
-        "Malware Type",
-    ]
+    monkeypatch.setattr(
+        stage_modeling.engine_scoring_summary,
+        "build_av_engine_scoring_summary_from_db",
+        unexpected_db_summary,
+    )
+    monkeypatch.setattr(
+        stage_modeling.compute_vendor_scores,
+        "run_score_analysis",
+        lambda _df, verbose: pd.DataFrame({"Vendor": ["lionic"], "Final ML Score": [0.2]}),
+    )
 
-    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_MODE", False, raising=False)
-    assert stage_modeling._resolve_vendor_include_fields() == [
-        "Parsed Family",
-        "Threat Class",
-        "Malware Type",
-    ]
+    out = stage_modeling.compute_engine_weights_from_pipeline(
+        {
+            "vendor_eval_df": pd.DataFrame({"Vendor": ["lionic"]}),
+            "engine_scores": pd.DataFrame(
+                {"Engine Name": ["lionic"], "Trusted": [1], "Active": [1]}
+            ),
+        }
+    )
+
+    assert out is not None
+    assert called["db_summary"] is False
+    assert int(out.loc[0, "trusted_vendor_flag"]) == 1
 
 
-def test_resolve_vendor_include_fields_defaults_in_normal_mode(monkeypatch) -> None:
-    """Parsed family should be included when evidence controls are not enabled."""
-    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False, raising=False)
-    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_MODE", False, raising=False)
+def test_engine_weight_stage_uses_db_summary_as_missing_primary_score_fallback(monkeypatch) -> None:
+    monkeypatch.setattr(app_config, "ENABLE_ENGINE_WEIGHT_DB_SUMMARY", True, raising=False)
+    monkeypatch.setattr(
+        stage_modeling.engine_scoring_summary,
+        "build_av_engine_scoring_summary_from_db",
+        lambda: pd.DataFrame({"engine_name": ["lionic"]}),
+    )
+    monkeypatch.setattr(
+        stage_modeling.compute_vendor_scores,
+        "run_score_analysis",
+        lambda _df, verbose: pd.DataFrame({"Vendor": ["lionic"], "Final ML Score": [0.2]}),
+    )
+    pipeline_results = {"vendor_eval_df": pd.DataFrame({"Vendor": ["lionic"]})}
+
+    out = stage_modeling.compute_engine_weights_from_pipeline(pipeline_results)
+
+    assert out is not None
+    assert "engine_summary" in pipeline_results
+
+
+def test_resolve_vendor_include_fields_defaults_to_no_label_derived_vendor_fields(monkeypatch) -> None:
+    """Headline family classification must not receive parsed vendor labels by default."""
+    monkeypatch.setattr(app_config, "ENABLE_LABEL_DERIVED_VENDOR_FEATURES", False, raising=False)
+    assert stage_modeling._resolve_vendor_include_fields() == []
+
+
+def test_resolve_vendor_include_fields_requires_explicit_opt_in(monkeypatch) -> None:
+    """Label-derived vendor fields remain available only for a scoped experiment."""
+    monkeypatch.setattr(app_config, "ENABLE_LABEL_DERIVED_VENDOR_FEATURES", True, raising=False)
     assert stage_modeling._resolve_vendor_include_fields() == [
         "Parsed Family",
         "Threat Class",

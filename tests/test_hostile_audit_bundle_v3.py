@@ -30,7 +30,6 @@ def test_canonical_profile_reraises_when_hostile_steps_fail(
     monkeypatch.setattr(hostile_bundle, "write_permission_signal_quality", lambda **_kwargs: (None, None))
     monkeypatch.setattr(hostile_bundle, "write_temporal_validity_audit", lambda **_kwargs: (None, None))
     monkeypatch.setattr(hostile_bundle, "write_figure_validity_audit", lambda **_kwargs: None)
-    monkeypatch.setattr(hostile_bundle, "write_taxonomy_label_quality_audit", lambda **_kwargs: None)
     monkeypatch.setattr(hostile_bundle, "write_recommended_findings", lambda **_kwargs: None)
 
     with pytest.raises(RuntimeError, match="hostile_audit_partial_errors"):
@@ -64,7 +63,6 @@ def test_non_canonical_profile_records_hostile_partial_errors_without_raise(
     monkeypatch.setattr(hostile_bundle, "write_permission_signal_quality", lambda **_kwargs: (None, None))
     monkeypatch.setattr(hostile_bundle, "write_temporal_validity_audit", lambda **_kwargs: (None, None))
     monkeypatch.setattr(hostile_bundle, "write_figure_validity_audit", lambda **_kwargs: None)
-    monkeypatch.setattr(hostile_bundle, "write_taxonomy_label_quality_audit", lambda **_kwargs: None)
     monkeypatch.setattr(hostile_bundle, "write_recommended_findings", lambda **_kwargs: None)
 
     hostile_bundle.write_hostile_audit_bundle(

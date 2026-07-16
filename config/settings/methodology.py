@@ -33,6 +33,11 @@ PAPER_HEATMAP_TOP_K = 35
 PAPER_DANGEROUS_HEATMAP_TOP_K = 25
 FAIL_FAST_PIPELINE_EXCEPTIONS_IN_PAPER_MODE = True
 FAIL_FAST_TRAINING_EXCEPTIONS_IN_PAPER_MODE = True
+# A failed full-prediction/result checkpoint invalidates a model run.  Stop the
+# headline training stage before spending time on remaining models or reports.
+# Ablation cells deliberately bypass this guard so their resilience policy can
+# record individual unavailable cells.
+FAIL_FAST_TRAINING_MODEL_FAILURES = True
 EVIDENCE_HARD_FAIL_MISSING_PACKAGE = True
 ALLOW_VENDOR_FALLBACK_FOR_WIDTH = False
 ANALYSIS_SCOPE = "all"  # one of: all, type, family, banker
@@ -48,11 +53,21 @@ WRITE_RUN_SCOPED_PERMISSION_TREND_ARTIFACTS = False
 CANONICAL_TYPE_SLUGS = (
     "banker",
     "adware",
-    "stealer",
-    "sms-trojan",
-    "rat",
-    "spyware",
+    "backdoor",
+    "cryptojacking",
+    "downloader",
+    "dropper",
+    "miner",
     "ransomware",
+    "rat",
+    "riskware",
+    "rootkit",
+    "sms-trojan",
+    "spyware",
+    "stalkerware",
+    "stealer",
+    "subscription-fraud",
+    "trojan",
 )
 TYPE_LABEL_ALIAS_MAP = {
     "spy": "spyware",
@@ -63,14 +78,9 @@ TYPE_LABEL_ALIAS_MAP = {
     "remote_access_trojan": "rat",
     "remote-access-trojan": "rat",
     "ransom": "ransomware",
-    # Data-driven aliases from taxonomy_noncanonical_type_tokens diagnostics.
-    "trojan": "banker",
-    "dropper": "adware",
-    "generic": "banker",
-    "backdoor": "banker",
-    "pup": "banker",
-    "botnet": "banker",
-    "spoof": "banker",
+    # Do not coerce broad labels such as ``trojan`` or ``dropper`` into banker
+    # or adware.  Those are distinct taxonomy types; generic tokens remain
+    # auditable rather than becoming fabricated type evidence.
 }
 TAXONOMY_NONCANONICAL_DOMINANCE_WARN_THRESHOLD = 0.60
 TAXONOMY_NONCANONICAL_DOMINANCE_MIN_COUNT = 50

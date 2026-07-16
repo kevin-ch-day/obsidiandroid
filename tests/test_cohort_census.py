@@ -13,6 +13,8 @@ from obsidiandroid.governance.cohort_census import (
     _report_lines,
     write_cohort_census_exports,
 )
+from obsidiandroid.governance import cohort_census
+from obsidiandroid.governance import cohort_gap_audit
 from obsidiandroid.governance.cohort_gap_audit import (
     CohortGatePolicy,
     build_cohort_gap_audit,
@@ -393,3 +395,32 @@ def test_locked_member_excluded_by_live_gates_is_reported(tmp_path: Path) -> Non
     paths = write_cohort_gap_artifacts(output_dir=tmp_path, audit=audit)
     summary = json.loads(Path(paths["cohort_gap_summary"]).read_text(encoding="utf-8"))
     assert summary["locked_rows_now_failing_time_window_count"] == 1
+
+
+def test_known_family_aliases_are_not_reported_as_family_label_conflicts() -> None:
+    """Alias drift is curation context, not contradictory family evidence."""
+    frame = pd.DataFrame(
+        {
+            "family_label": ["Wroba", "BlackLoan", "WrongFamily"],
+            "family_canonical": ["RoamingMantis", "SpyLoan", "SpyLoan"],
+        }
+    )
+
+    expected = [False, False, True]
+    assert cohort_census._family_label_conflict_mask(frame).tolist() == expected  # pylint: disable=protected-access
+    assert cohort_gap_audit._family_label_conflict_mask(frame).tolist() == expected  # pylint: disable=protected-access
+
+
+def test_textual_null_or_identifier_shaped_family_values_are_not_mapped() -> None:
+    """Readiness and gap reports must match the target-surface eligibility guard."""
+    frame = pd.DataFrame(
+        {
+            "family_id": [1, 2, 3],
+            "family_canonical": ["nan", "family_id=2", "NamedFamily"],
+            "type_slug": ["banker", "banker", "banker"],
+        }
+    )
+
+    expected = [False, False, True]
+    assert cohort_census._mapped_family_mask(frame).tolist() == expected  # pylint: disable=protected-access
+    assert cohort_gap_audit._mapped_family_mask(frame).tolist() == expected  # pylint: disable=protected-access

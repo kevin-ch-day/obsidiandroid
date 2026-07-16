@@ -1,11 +1,13 @@
 import numpy as np
 import pandas as pd
 import os
+import json
 import warnings
 
 from config import app_config
 from obsidiandroid.modeling import model_prediction
 from obsidiandroid.modeling import pipeline_core
+from obsidiandroid.modeling import feature_selection_contract as selection
 
 
 class _DummyEncoder:
@@ -39,35 +41,39 @@ def test_configured_models_uses_benchmark_set(monkeypatch):
     assert models == ["xgboost", "random_forest"]
 
 
-def test_prune_low_information_quiet_skips_terminal_warning(monkeypatch):
-    """Ablations set RUNTIME_QUIET_TRAINING; prune should not spam warnings."""
-    captured: list[str] = []
-    monkeypatch.setattr(app_config, "RUNTIME_QUIET_TRAINING", True, raising=False)
+def test_training_checkpoint_halts_remaining_headline_models_after_failure(monkeypatch, tmp_path) -> None:
+    """An invalid first model must not spend time training the remaining models."""
+    attempted: list[str] = []
+    observed_checkpoint: dict[str, object] = {}
+    monkeypatch.setattr(app_config, "FAIL_FAST_TRAINING_MODEL_FAILURES", True, raising=False)
     monkeypatch.setattr(app_config, "RUNTIME_ABLATION_ACTIVE", False, raising=False)
-    monkeypatch.setattr(
-        pipeline_core.du,
-        "print_warning",
-        lambda msg, *a, **k: captured.append(str(msg)),
-    )
-    df = pd.DataFrame({"flat": [1, 1], "varying": [1, 2]})
-    out = pipeline_core._prune_low_information_features(df)
-    assert "flat" not in out.columns
-    assert captured == []
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "checkpoint_run", raising=False)
+    monkeypatch.setattr(pipeline_core, "_diagnostics_dir", lambda: tmp_path)
+    def invalid_result(model_type, **_kwargs):
+        attempted.append(model_type)
+        observed_checkpoint.update(
+            json.loads((tmp_path / "training_checkpoint_checkpoint_run.json").read_text(encoding="utf-8"))
+        )
+        return {}
 
+    monkeypatch.setattr(pipeline_core.train_model_executor, "train_and_evaluate_model", invalid_result)
+    monkeypatch.setattr(pipeline_core.ml_result_validator, "validate_result_structure", lambda _result: False)
 
-def test_prune_low_information_verbose_emits_warning(monkeypatch):
-    captured: list[str] = []
-    monkeypatch.setattr(app_config, "RUNTIME_QUIET_TRAINING", False, raising=False)
-    monkeypatch.setattr(app_config, "RUNTIME_ABLATION_ACTIVE", False, raising=False)
-    monkeypatch.setattr(
-        pipeline_core.du,
-        "print_warning",
-        lambda msg, *a, **k: captured.append(str(msg)),
+    results, skipped = pipeline_core.train_models(
+        pd.DataFrame({"feature": [0, 1]}),
+        pd.Series([0, 1]),
+        models=["random_forest", "xgboost"],
+        save_model=False,
     )
-    df = pd.DataFrame({"flat": [1, 1], "varying": [1, 2]})
-    pipeline_core._prune_low_information_features(df)
-    assert len(captured) == 1
-    assert "low-information" in captured[0]
+
+    checkpoint = json.loads((tmp_path / "training_checkpoint_checkpoint_run.json").read_text(encoding="utf-8"))
+    assert results == {}
+    assert skipped == ["random_forest"]
+    assert attempted == ["random_forest"]
+    assert observed_checkpoint["state"] == "model_started"
+    assert observed_checkpoint["current_model"] == "random_forest"
+    assert checkpoint["state"] == "halted"
+    assert checkpoint["next_model"] == "xgboost"
 
 
 def test_primary_feature_contract_blocks_target_adjacent_av_semantics(monkeypatch):
@@ -80,9 +86,10 @@ def test_primary_feature_contract_blocks_target_adjacent_av_semantics(monkeypatc
             "meta__has_vt_suggested_threat_label": [1, 0],
         }
     )
-    out = pipeline_core._prune_potential_leakage_features(frame, pd.Series([10, 11]))
+    contract = selection.fit_feature_selection_contract(frame, pd.Series([10, 11]))
+    out = selection.apply_feature_selection_contract(frame, contract)
     assert list(out.columns) == ["perm__internet"]
-    reasons = {row["column_name"]: row["reason_code"] for row in app_config.RUNTIME_LEAKAGE_PRUNING_AUDIT}
+    reasons = {row["column_name"]: row["reason_code"] for row in contract["leakage_pruning_audit"]}
     assert reasons["parsed_family_vendor"] == "label_independent_contract_block"
     assert reasons["vendor_parsed_threat_class_vendor"] == "label_independent_contract_block"
     assert reasons["meta__has_vt_suggested_threat_label"] == "label_independent_contract_block"

@@ -71,6 +71,20 @@ def test_build_v3_label_contract_uses_type_namespace_for_type_taxonomy_profile()
     assert payload["family_label_summary"]
 
 
+def test_v3_label_contract_marks_retired_type_rows_non_targetable() -> None:
+    df = _sample_df()
+    df.loc[0, "type_slug"] = "worm"
+    payload = v3_label_contract.build_v3_label_contract(
+        profile={"profile_id": "android_malware_all_current", "cohort_gates": {"min_samples_per_family": 1}},
+        samples_df=df,
+        run_id="run_retired_type",
+    )
+
+    by_slug = {row["type_slug"]: row for row in payload["type_label_summary"]}
+    assert by_slug["worm"]["type_claim_readiness"] == "not_type_target"
+    assert by_slug["worm"]["exclusion_reason"] == "retired_or_noncanonical_type"
+
+
 def test_export_v3_label_contract_writes_json_and_markdown(tmp_path: Path) -> None:
     paths = v3_label_contract.export_v3_label_contract(
         diagnostics_dir=tmp_path,

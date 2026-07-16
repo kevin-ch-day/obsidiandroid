@@ -38,6 +38,35 @@ def _resolve_primary_metric_spec(rank_metric: str) -> tuple[str, str]:
     return _RANK_METRIC_SPECS.get(rank_metric, _RANK_METRIC_SPECS["macro_f1_score"])
 
 
+def _comparison_contract_status(df: pd.DataFrame) -> tuple[str, str]:
+    """State whether ranked models share a verifiable evaluation universe.
+
+    A shared split hash alone is insufficient: Macro-F1 is comparable only
+    when every model is scored over the same test-label universe.  Historical
+    rows without the newer label hash remain readable but are explicitly
+    unverified rather than silently treated as comparable evidence.
+    """
+    if df.empty or len(df) <= 1:
+        return "single_model", "one model row"
+    label_counts = {
+        str(value)
+        for value in df.get("evaluation_label_count", pd.Series(dtype=object)).tolist()
+        if str(value) not in {"", "-", "None", "nan"}
+    }
+    label_hashes = {
+        str(value)
+        for value in df.get("evaluation_label_hash", pd.Series(dtype=object)).tolist()
+        if str(value) not in {"", "-", "None", "nan"}
+    }
+    if len(label_counts) > 1:
+        return "invalid", "models use different evaluation-label counts"
+    if len(label_hashes) > 1:
+        return "invalid", "models use different evaluation-label hashes"
+    if not label_counts or not label_hashes:
+        return "unverified", "evaluation-label contract missing from one or more model rows"
+    return "verified", "shared evaluation-label count and hash"
+
+
 def compare_model_performance(
     results: dict,
     *,
@@ -105,6 +134,23 @@ def compare_model_performance(
         return pd.DataFrame()
 
     df = pd.DataFrame(summary_rows)
+    contract_status, contract_reason = _comparison_contract_status(df)
+    df["comparison_contract_status"] = contract_status
+    df["comparison_contract_reason"] = contract_reason
+    setattr(app_config, "RUNTIME_MODEL_COMPARISON_CONTRACT_STATUS", contract_status)
+    setattr(app_config, "RUNTIME_MODEL_COMPARISON_CONTRACT_REASON", contract_reason)
+    if contract_status == "invalid":
+        message = "[MODEL COMPARISON] Ranking is diagnostic only: " + contract_reason + "."
+        if bool(getattr(app_config, "PAPER_MODE_ENABLED", False)) or bool(
+            getattr(app_config, "RUNTIME_EVIDENCE_MODE", False)
+        ):
+            raise RuntimeError(message + " Evidence/publication runs require one frozen metric universe.")
+        du.print_warning(message)
+    elif contract_status == "unverified":
+        du.print_warning(
+            "[MODEL COMPARISON] Evaluation-label contract is unverified; do not use this "
+            "leaderboard as evidence until per-model label hashes are available."
+        )
     rank_metric = str(
         getattr(app_config, "MODEL_RANK_PRIMARY_METRIC", "macro_f1_score")
     ).strip().lower()

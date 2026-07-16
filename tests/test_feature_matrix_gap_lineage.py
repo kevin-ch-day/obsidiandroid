@@ -33,6 +33,7 @@ def test_analyze_fusion_vs_training_columns() -> None:
 
 
 def test_run_gap_report_filesystem_only(tmp_path: Path) -> None:
+    run_id = tmp_path.name
     diag = tmp_path / "diagnostics"
     diag.mkdir(parents=True)
     cohort = pd.DataFrame(
@@ -60,7 +61,7 @@ def test_run_gap_report_filesystem_only(tmp_path: Path) -> None:
     (diag / "cohort_missing_from_feature_matrix.latest.csv").write_text(
         "sample_id\n3\n", encoding="utf-8"
     )
-    (diag / "modality_method_contract.json").write_text(
+    (diag / f"modality_method_contract_{run_id}.json").write_text(
         json.dumps(
             {
                 "fusion_modality": {"feature_count_total": 829, "matrix_shape": {"columns": 829}},
@@ -69,7 +70,7 @@ def test_run_gap_report_filesystem_only(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    (diag / "feature_contract.json").write_text(
+    (diag / f"feature_contract_{run_id}.json").write_text(
         json.dumps(
             {
                 "feature_columns": ["perm__x", "meta__y"],
@@ -116,16 +117,17 @@ def test_run_gap_report_cohort_rows_use_distinct_sample_id(tmp_path: Path) -> No
     (diag / "cohort_missing_from_feature_matrix.latest.csv").write_text(
         "sample_id\n3\n", encoding="utf-8"
     )
+    run_id = tmp_path.name
     for name, payload in (
         (
-            "modality_method_contract.json",
+            f"modality_method_contract_{run_id}.json",
             {
                 "fusion_modality": {"feature_count_total": 10, "matrix_shape": {"columns": 10}},
                 "permission_modality": {"feature_count_raw": 5},
             },
         ),
         (
-            "feature_contract.json",
+            f"feature_contract_{run_id}.json",
             {"feature_columns": ["c0"], "feature_shape": {"rows": 2, "columns": 1}},
         ),
     ):
@@ -170,11 +172,11 @@ def test_run_gap_report_prefers_manifest_run_id_for_slot_root(tmp_path: Path) ->
         encoding="utf-8",
     )
     (diag / "cohort_missing_from_feature_matrix.latest.csv").write_text("sample_id\n2\n", encoding="utf-8")
-    (diag / "modality_method_contract.json").write_text(
+    (diag / f"modality_method_contract_{run_id}.json").write_text(
         json.dumps({"fusion_modality": {"feature_count_total": 2, "matrix_shape": {"columns": 2}}}),
         encoding="utf-8",
     )
-    (diag / "feature_contract.json").write_text(
+    (diag / f"feature_contract_{run_id}.json").write_text(
         json.dumps({"feature_columns": ["perm__x"], "feature_shape": {"rows": 1, "columns": 1}}),
         encoding="utf-8",
     )

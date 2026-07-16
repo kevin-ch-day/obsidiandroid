@@ -790,18 +790,6 @@ def test_print_research_questions_terminal_labels_vendor_merge_coverage_honestly
         def print_table(*_args, **_kwargs) -> None:
             return None
 
-        @staticmethod
-        def print_table(*_args, **_kwargs) -> None:
-            return None
-
-        @staticmethod
-        def print_table(*_args, **_kwargs) -> None:
-            return None
-
-        @staticmethod
-        def print_table(*_args, **_kwargs) -> None:
-            return None
-
     rtq.print_research_questions_terminal(
         {
             "q1": {
@@ -909,9 +897,9 @@ def test_print_research_questions_terminal_compact_summary_omits_headline_task_b
     assert "Headline task boundary:" not in text
 
 
-def test_modality_summary_uses_global_feature_column_survival_mirror(make_run_diagnostics_layout) -> None:
-    """Q2 feature-group export should still work when run-local `.latest` is intentionally omitted."""
-    output_root, diagnostics_dir, global_diag = make_run_diagnostics_layout("run3")
+def test_modality_summary_uses_run_scoped_feature_column_survival(make_run_diagnostics_layout) -> None:
+    """Q2 feature-group export must bind feature survival evidence to its run."""
+    _output_root, diagnostics_dir, _global_diag = make_run_diagnostics_layout("run3")
 
     (diagnostics_dir / "cohort_foundation.json").write_text(
         json.dumps(
@@ -948,7 +936,7 @@ def test_modality_summary_uses_global_feature_column_survival_mirror(make_run_di
         ),
         encoding="utf-8",
     )
-    (diagnostics_dir / "modality_method_contract.json").write_text(
+    (diagnostics_dir / "modality_method_contract_run3.json").write_text(
         json.dumps(
             {
                 "fusion_modality": {"feature_count_permission": 1},
@@ -957,7 +945,7 @@ def test_modality_summary_uses_global_feature_column_survival_mirror(make_run_di
         ),
         encoding="utf-8",
     )
-    (global_diag / "feature_column_survival.latest.csv").write_text(
+    (diagnostics_dir / "feature_column_survival_run3.csv").write_text(
         "feature_name,nonzero_count_final_training,modality\n"
         "perm__android_CAMERA,2,permission\n",
         encoding="utf-8",

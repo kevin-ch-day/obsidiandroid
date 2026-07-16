@@ -20,13 +20,17 @@ from .verdict_semantics import VERDICT_METADATA_COLUMNS
 # metadata fields, so keep them in the tolerated exclude set for compatibility.
 METADATA_COLS = VERDICT_METADATA_COLUMNS
 
-_VERDICT_QUERY_CACHE: OrderedDict[tuple[int, int], pd.DataFrame] = OrderedDict()
+_VERDICT_QUERY_CACHE: OrderedDict[tuple[int, ...], pd.DataFrame] = OrderedDict()
 
 
-def _build_cache_key(sample_ids: list[int]) -> tuple[int, int]:
-    """Create deterministic cache key for a sample ID universe."""
-    canonical_ids = tuple(sorted(int(value) for value in sample_ids))
-    return (len(canonical_ids), hash(canonical_ids))
+def _build_cache_key(sample_ids: list[int]) -> tuple[int, ...]:
+    """Return the exact deterministic sample-ID universe for the LRU cache.
+
+    A ``(length, hash(...))`` key is compact but admits collisions.  This cache
+    controls model inputs, so an exact tuple is preferable; at the configured
+    two-entry limit its memory cost is negligible beside the cached dataframes.
+    """
+    return tuple(sorted({int(value) for value in sample_ids}))
 
 
 def _cache_enabled() -> bool:
@@ -36,7 +40,7 @@ def _cache_enabled() -> bool:
     return bool(getattr(app_config, "ENABLE_AV_VERDICT_QUERY_CACHE", True))
 
 
-def _cache_get(cache_key: tuple[int, int]) -> pd.DataFrame | None:
+def _cache_get(cache_key: tuple[int, ...]) -> pd.DataFrame | None:
     """Return cached verdict DataFrame copy when available."""
     cached = _VERDICT_QUERY_CACHE.get(cache_key)
     if cached is None:
@@ -45,7 +49,7 @@ def _cache_get(cache_key: tuple[int, int]) -> pd.DataFrame | None:
     return cached.copy(deep=True)
 
 
-def _cache_set(cache_key: tuple[int, int], df: pd.DataFrame) -> None:
+def _cache_set(cache_key: tuple[int, ...], df: pd.DataFrame) -> None:
     """Store verdict DataFrame in bounded LRU cache."""
     cache_limit = max(
         1,

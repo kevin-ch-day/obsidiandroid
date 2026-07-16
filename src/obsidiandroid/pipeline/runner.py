@@ -74,8 +74,6 @@ from obsidiandroid.pipeline.runtime_policy import (
     reset_runtime_markers,
 )
 from obsidiandroid.orchestration.methodology_artifacts import (
-    export_feature_contract,
-    export_leakage_assessment,
     export_modality_method_contract,
 )
 from obsidiandroid.orchestration.runtime_reporting import (
@@ -86,6 +84,7 @@ from obsidiandroid.orchestration.runtime_reporting import (
     export_aligned_training_cache as _export_aligned_training_cache,
     export_and_print_run_summary as _export_and_print_run_summary,
     export_model_config_snapshot as _export_model_config_snapshot,
+    count_evaluated_models as _count_evaluated_models,
     extract_model_summary as _extract_model_summary,
     format_population_pipeline_summary_line as _format_population_pipeline_summary_line,
     parse_key_value_meta as _parse_key_value_meta,
@@ -327,6 +326,9 @@ def run_pipeline(
             strict_run_scoped=True,
             archive_run=slot_plan.archive_run,
             keep_last_failed_runs=int(getattr(app_config, "RUN_SLOT_KEEP_LAST_FAILED_RUNS", 1) or 1),
+            keep_last_completed_runs=int(
+                getattr(app_config, "RUN_SLOT_KEEP_LAST_COMPLETED_RUNS", 1) or 1
+            ),
         )
         output_root_base = Path(runtime_paths["output_root_base"])
         runtime_run_root = Path(runtime_paths["runtime_run_root"])
@@ -1169,28 +1171,11 @@ def run_pipeline(
                 if _gate_path:
                     artifact_list.append(str(_gate_path))
 
+        # The pre-model matrix is intentionally not exported as a final feature
+        # or leakage contract.  Those artifacts must be emitted by the trainer
+        # after train-partition-only selection, otherwise a run has two
+        # contradictory ``feature_contract`` / ``leakage_assessment`` surfaces.
         gov_notes: list[str] = []
-        if bool(getattr(app_config, "ENABLE_FEATURE_CONTRACT_EXPORT", True)):
-            feature_contract_path = export_feature_contract(
-                feature_df=feature_df,
-                run_id=run_id,
-                output_dir=DIAGNOSTICS_DIR,
-            )
-            if feature_contract_path:
-                artifact_list.append(feature_contract_path)
-                operator_dashboard.bump_artifact_counter("diagnostics", 1)
-                gov_notes.append(f"feature_contract={Path(feature_contract_path).name}")
-
-        if bool(getattr(app_config, "ENABLE_LEAKAGE_ASSESSMENT_EXPORT", True)):
-            leakage_path = export_leakage_assessment(
-                feature_df=feature_df,
-                run_id=run_id,
-                output_dir=DIAGNOSTICS_DIR,
-            )
-            if leakage_path:
-                artifact_list.append(leakage_path)
-                operator_dashboard.bump_artifact_counter("diagnostics", 1)
-                gov_notes.append(f"leakage={Path(leakage_path).name}")
         modality_contract_path = export_modality_method_contract(
             permission_df=permission_features_df,
             fusion_feature_df=feature_df,
@@ -1311,6 +1296,12 @@ def run_pipeline(
             model_list=model_list,
         )
         if not model_results:
+            training_failure = getattr(app_config, "RUNTIME_TRAINING_FAILURE_SUMMARY", None)
+            reason = ""
+            if isinstance(training_failure, dict):
+                reason = str(training_failure.get("reason") or "").strip()
+            if reason:
+                st.fail_pipeline(f"[PIPELINE] Model training stopped at checkpoint: {reason}")
             st.fail_pipeline("[PIPELINE] Model training returned no results.")
         if isinstance(model_results, dict) and model_results:
             pipeline_results.update(model_results)
@@ -1400,8 +1391,12 @@ def run_pipeline(
             du.print_warning(f"[LINEAGE] Sample stage lineage export skipped: {exc}")
         feat_cols_post = getattr(app_config, "RUNTIME_TRAINING_FINAL_FEATURE_COLUMNS", None)
         manifest_context["feature_matrix_cols_post_prune"] = feat_cols_post
-        manifest_context["trained_model_count"] = int(
-            len(model_results) if isinstance(model_results, dict) else 0
+        # Count classifier estimators, rather than any auxiliary rows that a
+        # reporting payload may carry (for example, per-scope family-tier
+        # evaluation rows).  The run manifest also records the model names.
+        manifest_context["trained_model_count"] = _count_evaluated_models(
+            model_results,
+            model_summary,
         )
 
         aligned_n_obs = manifest_context.get("aligned_supervised_rows")
@@ -1566,20 +1561,32 @@ def run_pipeline(
             )
             outcome_path = Path(DIAGNOSTICS_DIR) / f"ablation_run_outcome_{run_id}.json"
             outcome_status = "complete"
+            trainable_experiment_count = None
+            summary_row_count = None
             if outcome_path.is_file():
                 try:
                     oc_payload = json.loads(outcome_path.read_text(encoding="utf-8"))
                     outcome_status = str(oc_payload.get("ablation_grid_status") or "complete").strip().lower()
                     skipped_experiment_count = int(oc_payload.get("skipped_experiment_count", 0) or 0)
+                    trainable_experiment_count = int(oc_payload.get("trainable_experiments", 0) or 0)
+                    summary_row_count = int(oc_payload.get("summary_row_count", 0) or 0)
                 except Exception:
                     outcome_status = "complete"
                     skipped_experiment_count = 0
             else:
                 skipped_experiment_count = 0
             summ = oh.resolve_ablation_summary_path(Path(DIAGNOSTICS_DIR), run_id, allow_partial=True)
+            ablation_parts = [f"status={outcome_status}"]
+            if trainable_experiment_count is not None:
+                ablation_parts.append(f"trainable_experiments={trainable_experiment_count}")
+            ablation_parts.append(f"skipped_experiments={skipped_experiment_count}")
+            if summary_row_count is not None:
+                ablation_parts.append(f"summary_rows={summary_row_count}")
+            ablation_parts.extend(
+                [f"artifacts={len(ablation_artifacts)}", f"summary={summ.name}"]
+            )
             manifest_context["_ablation_run_status_summary"] = (
-                f"artifact_paths={len(ablation_artifacts)} ablation_grid_status={outcome_status} "
-                f"skipped_experiments={skipped_experiment_count} summary={summ.name}"
+                " ".join(ablation_parts)
             )
             obs_ab = manifest_context.get("pipeline_observability")
             if isinstance(obs_ab, PipelineObservabilitySession):
@@ -1689,7 +1696,7 @@ def run_pipeline(
                     vendor_eval=vendor_eval,
                 )
 
-        # Step 9: Final label resolution
+        # Final label resolution
         label_resolution_enabled = bool(getattr(app_config, "ENABLE_LABEL_RESOLUTION_STAGE", True))
         manifest_context["label_resolution_enabled"] = label_resolution_enabled
         if label_resolution_enabled:

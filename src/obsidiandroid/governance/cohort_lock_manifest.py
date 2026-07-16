@@ -16,6 +16,7 @@ import pandas as pd
 
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.common.repo_paths import repo_root
+from obsidiandroid.governance.label_snapshot_contract import label_snapshot_hash
 
 
 DEFAULT_LOCK_MANIFEST_FILENAME = "cohort_lock_manifest.json"
@@ -55,6 +56,12 @@ def load_lock_manifest(raw_lock: dict[str, Any]) -> dict[str, Any] | None:
         if not member_obj.is_absolute():
             member_obj = path.parent / member_obj
         normalized["member_list_path"] = str(member_obj.resolve())
+    label_snapshot_path = str(normalized.get("label_snapshot_path", "") or "").strip()
+    if label_snapshot_path:
+        snapshot_obj = Path(label_snapshot_path)
+        if not snapshot_obj.is_absolute():
+            snapshot_obj = path.parent / snapshot_obj
+        normalized["label_snapshot_path"] = str(snapshot_obj.resolve())
     return normalized
 
 
@@ -83,6 +90,8 @@ def validate_lock_manifest(*, manifest: dict[str, Any], manifest_path: Path) -> 
             raise ValueError(f"Lock manifest '{manifest_path}' key '{key}' must be a positive integer.")
 
     member_path = Path(str(manifest.get("member_list_path", "") or ""))
+    if not member_path.is_absolute():
+        member_path = manifest_path.parent / member_path
     if not member_path.exists():
         raise ValueError(
             f"Lock manifest '{manifest_path}' member_list_path does not exist: {member_path}"
@@ -104,6 +113,46 @@ def validate_lock_manifest(*, manifest: dict[str, Any], manifest_path: Path) -> 
             f"Lock manifest '{manifest_path}' cohort_hash mismatch: "
             f"manifest={manifest.get('cohort_hash')} member_list={observed_hash}"
         )
+
+    # Older locks may not have retained a row-level label snapshot.  Once a
+    # lock declares one, however, validate it as an immutable component of the
+    # cohort rather than merely recording its path for operator convenience.
+    snapshot_path_raw = str(manifest.get("label_snapshot_path", "") or "").strip()
+    snapshot_hash_declared = str(manifest.get("label_snapshot_hash", "") or "").strip()
+    # The accepted historical manifest predates snapshot-path retention: it
+    # carries a recorded label hash but no file pointer. Preserve that artifact
+    # as legacy evidence. New manifests exported by this code always include
+    # both fields and therefore receive the strict verification below.
+    if snapshot_path_raw and not snapshot_hash_declared:
+        raise ValueError(
+            f"Lock manifest '{manifest_path}' declares label_snapshot_path without "
+            "the required label_snapshot_hash."
+        )
+    if snapshot_path_raw:
+        snapshot_path = Path(snapshot_path_raw)
+        if not snapshot_path.is_absolute():
+            snapshot_path = manifest_path.parent / snapshot_path
+        if not snapshot_path.exists():
+            raise ValueError(
+                f"Lock manifest '{manifest_path}' label_snapshot_path does not exist: "
+                f"{snapshot_path}"
+            )
+        observed_snapshot_hash = label_snapshot_hash(pd.read_csv(snapshot_path))
+        if not observed_snapshot_hash:
+            raise ValueError(
+                f"Lock manifest '{manifest_path}' label snapshot is missing the required "
+                "row-level label fields."
+            )
+        if observed_snapshot_hash != snapshot_hash_declared:
+            raise ValueError(
+                f"Lock manifest '{manifest_path}' label_snapshot_hash mismatch: "
+                f"manifest={snapshot_hash_declared} observed={observed_snapshot_hash}"
+            )
+        if str(manifest.get("taxonomy_hash", "") or "") != observed_snapshot_hash:
+            raise ValueError(
+                f"Lock manifest '{manifest_path}' taxonomy_hash must equal the validated "
+                "row-level label snapshot hash."
+            )
 
 
 def compute_cohort_hash_from_member_list(member_df: pd.DataFrame) -> str:
@@ -150,6 +199,8 @@ def build_lock_manifest_payload(
     sql_profile_version: str,
     profile_version: str,
     time_window: dict[str, Any],
+    label_snapshot_path: str | None = None,
+    label_snapshot_hash: str | None = None,
     top_family_support: int | None = None,
     top_family_share: float | None = None,
     label_target_class_stats: list[dict[str, Any]] | None = None,
@@ -169,6 +220,8 @@ def build_lock_manifest_payload(
         "type_count": int(type_count),
         "cohort_hash": str(cohort_hash),
         "taxonomy_hash": str(taxonomy_hash),
+        "label_snapshot_path": str(label_snapshot_path or ""),
+        "label_snapshot_hash": str(label_snapshot_hash or ""),
         "sql_profile_version": str(sql_profile_version),
         "profile_version": str(profile_version),
         "time_window": dict(time_window),

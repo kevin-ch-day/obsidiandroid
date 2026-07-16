@@ -39,13 +39,13 @@ def extract_vendor_fields(parsed_vendor_data, vendor_list, fields):
         if missing:
             du.print_warning(f"[WARN] Vendor '{vendor}' missing fields: {missing} - will fill as 'unknown'.")
 
-        for f in fields:
-            if f not in df.columns:
-                df[f] = "unknown"
-
         normalized_suffix = _normalize_vendor_key(vendor) or _normalize_vendor_key(resolved_key)
         rename_map = {f: f"{f.lower().replace(' ', '_')}_{normalized_suffix}" for f in fields}
-        renamed_df = df[["sample_id"] + fields].copy().rename(columns=rename_map)
+        # ``reindex`` supplies absent parser fields without mutating the
+        # shared vendor frame, which may be reused by diagnostics or a later
+        # feature configuration in the same run.
+        renamed_df = df.reindex(columns=["sample_id", *fields], fill_value="unknown").copy()
+        renamed_df = renamed_df.rename(columns=rename_map)
         extracted.append(renamed_df)
 
     return extracted
@@ -60,7 +60,22 @@ def merge_vendor_features(frames):
         from obsidiandroid.evaluation.ml_terminal_presentation import should_suppress_ablation_feature_build_terminal
 
         if not should_suppress_ablation_feature_build_terminal():
-            du.print_stat("Merged Feature Shape", f"{merged.shape[0]} samples x {merged.shape[1]} features")
+            # ``sample_id`` is the join key, not a predictive feature.  In the
+            # leakage-safe headline contract there may deliberately be no
+            # lexical vendor columns at this point; enrichment is added later
+            # by the vector builder.  Reporting the key as one feature made a
+            # healthy zero-column pre-enrichment matrix look malformed.
+            feature_count = max(0, len(merged.columns) - int("sample_id" in merged.columns))
+            if feature_count:
+                du.print_stat(
+                    "Merged Vendor Features",
+                    f"{len(merged)} samples x {feature_count} lexical feature columns",
+                )
+            else:
+                du.print_info(
+                    "[FEATURE BUILD] Vendor lexical columns: 0 (policy-disabled); "
+                    "continuing to enrichment."
+                )
         return merged
     except Exception as e:
         du.print_error(f"[MERGE] Merge failed: {e}")
@@ -85,5 +100,3 @@ def extract_enriched_features(enriched_df: pd.DataFrame, columns=None) -> pd.Dat
         return pd.DataFrame()
 
     return enriched_df[["sample_id"] + keep].copy()
-
-

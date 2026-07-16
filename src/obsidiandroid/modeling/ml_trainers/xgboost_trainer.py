@@ -9,12 +9,19 @@ from collections import Counter
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
+
+try:  # sklearn >=1.6 replaces the deprecated ``cv='prefit'`` path.
+    from sklearn.frozen import FrozenEstimator
+except ImportError:  # pragma: no cover - retained for older supported environments.
+    FrozenEstimator = None
 from config import app_config
 from obsidiandroid.common.cv_fold_config import safe_float_config_value, safe_int_config_value
 from obsidiandroid.modeling.parallel_layout import (
+    grid_search_pre_dispatch,
     grid_search_job_counts,
+    minimum_grid_search_class_support,
     resolve_adaptive_job_count,
-    stratified_kfold_for_grid_search,
+    tuning_grid_splitter,
 )
 
 
@@ -153,47 +160,6 @@ def train_xgboost(
     else:
         num_classes = 0
 
-    def _global_to_supervised(ys) -> pd.Series:
-        if ys is None:
-            return ys
-        raw = ys if isinstance(ys, pd.Series) else pd.Series(np.asarray(ys).ravel())
-        if present_encoded_lookup is None:
-            return raw.astype(np.int64, copy=False)
-        lut = {int(c): i for i, c in enumerate(present_encoded_lookup.tolist())}
-        return pd.Series(
-            [lut[int(v)] for v in raw.to_numpy(dtype=np.int64, copy=False)],
-            index=raw.index,
-        )
-
-    def _filter_supervised_eval_rows(eval_x, eval_y):
-        """Return eval rows whose labels are present in the current train fold.
-
-        XGBoost multiclass requires eval labels to live in the same contiguous label
-        space as the fitted model. Broad sparse-tail splits can put globally valid
-        classes into the holdout that are absent from the train fold. We still want
-        to score those rows in the final global-space evaluation, but they cannot be
-        used in the early-stopping eval_set.
-        """
-        if eval_x is None or eval_y is None:
-            return eval_x, eval_y, 0
-        if present_encoded_lookup is None:
-            return eval_x, eval_y, 0
-
-        raw = eval_y if isinstance(eval_y, pd.Series) else pd.Series(np.asarray(eval_y).ravel())
-        present_set = {int(v) for v in present_encoded_lookup.tolist()}
-        keep_mask = raw.astype(np.int64).isin(present_set)
-        excluded = int((~keep_mask).sum())
-        if excluded == 0:
-            return eval_x, _global_to_supervised(raw), 0
-        if not bool(keep_mask.any()):
-            return None, None, excluded
-        if isinstance(eval_x, pd.DataFrame):
-            filtered_x = eval_x.loc[keep_mask.to_numpy(dtype=bool)]
-        else:
-            filtered_x = eval_x[keep_mask.to_numpy(dtype=bool)]
-        filtered_y = _global_to_supervised(raw.loc[keep_mask.to_numpy(dtype=bool)])
-        return filtered_x, filtered_y, excluded
-
     class_counts = Counter(y_supervised)
 
     train_cardinality = int(len(present_encoded_order))
@@ -243,9 +209,14 @@ def train_xgboost(
     start = time.time()
     fit_kwargs = {}
     calibration_enabled = bool(getattr(app_config, "ENABLE_PROBABILITY_CALIBRATION", False))
+    calibration_status = "disabled"
     calibration_method = getattr(app_config, "CALIBRATION_METHOD", "sigmoid")
     calibration_holdout = safe_float_config_value(
         getattr(app_config, "CALIBRATION_HOLDOUT", 0.15), default=0.15
+    )
+    early_stopping_validation_fraction = safe_float_config_value(
+        getattr(app_config, "XGB_EARLY_STOPPING_VALIDATION_FRACTION", 0.15),
+        default=0.15,
     )
     X_fit, y_fit = X_train, y_supervised
     X_cal, y_cal = None, None
@@ -267,12 +238,57 @@ def train_xgboost(
                     )
             else:
                 calibration_enabled = False
-        except Exception:
+                calibration_status = "unavailable_insufficient_training_support"
+        except ValueError:
             calibration_enabled = False
+            calibration_status = "unavailable_insufficient_training_support"
+
+    grid_requested = bool(grid_search or getattr(app_config, "ENABLE_XGB_GRID_SEARCH", False))
+    grid_splitter = None
+    minimum_tuning_support = minimum_grid_search_class_support()
+    grid_search_status = "disabled"
+    if grid_requested:
+        grid_splitter, minimum_tuning_support = tuning_grid_splitter(
+            min(class_counts.values()), random_state=random_state
+        )
+        if grid_splitter is None:
+            grid_search_status = "skipped_insufficient_class_support"
+            if verbose:
+                print(
+                    "[XGBOOST] Grid search skipped: need "
+                    f"≥{minimum_tuning_support} samples per class "
+                    f"(minimum count was {min(class_counts.values())}). "
+                    "Fitting default parameters."
+                )
+        else:
+            grid_search_status = "completed"
+    grid_active = grid_splitter is not None
+    grid_candidate_count = None
+    X_early_stop, y_early_stop = None, None
+    early_stopping_validation_source = "disabled"
+    if early_stopping_rounds and not grid_active:
+        try:
+            # The final test partition is strictly evaluation-only.  Reserve a
+            # deterministic, stratified validation partition from the training
+            # rows for early stopping; calibration, if enabled, keeps its own
+            # separate holdout.
+            min_fit_class_size = min(Counter(y_fit).values())
+            if min_fit_class_size >= 2 and 0.0 < early_stopping_validation_fraction < 1.0:
+                X_fit, X_early_stop, y_fit, y_early_stop = train_test_split(
+                    X_fit,
+                    y_fit,
+                    test_size=early_stopping_validation_fraction,
+                    stratify=y_fit,
+                    random_state=random_state,
+                )
+                early_stopping_validation_source = "training_validation_holdout"
+            else:
+                early_stopping_validation_source = "unavailable_insufficient_training_support"
+        except ValueError:
+            early_stopping_validation_source = "unavailable_insufficient_training_support"
 
     model = None
-    eval_excluded_unseen_label_rows = 0
-    if grid_search or getattr(app_config, "ENABLE_XGB_GRID_SEARCH", False):
+    if grid_active:
         from sklearn.model_selection import GridSearchCV
 
         param_grid = getattr(
@@ -291,56 +307,34 @@ def train_xgboost(
             )
             if capped_estimators:
                 param_grid = {**param_grid, "n_estimators": capped_estimators}
-
-        min_class_size = min(class_counts.values())
-        cv_splitter = stratified_kfold_for_grid_search(
-            min_class_size, random_state=random_state
+        grid_candidate_count = int(
+            np.prod([len(values) for values in param_grid.values()], dtype=np.int64)
         )
-        if cv_splitter is None:
-            if verbose:
-                print(
-                    "[XGBOOST] Grid search skipped: need ≥2 samples per class "
-                    f"(minimum count was {min_class_size}). Fitting default parameters."
-                )
-        else:
-            inner_jobs, grid_jobs = grid_search_job_counts()
-            base_params = {k: v for k, v in model_params.items() if k not in param_grid}
-            base_params["n_jobs"] = inner_jobs
-            estimator = xgb.XGBClassifier(**base_params)
 
-            grid = GridSearchCV(
-                estimator=estimator,
-                param_grid=param_grid,
-                cv=cv_splitter,
-                scoring="f1_macro",
-                n_jobs=grid_jobs,
-            )
-            grid.fit(X_fit, y_fit)
-            model = grid.best_estimator_
-            model_params.update(grid.best_params_)
+        inner_jobs, grid_jobs = grid_search_job_counts()
+        base_params = {k: v for k, v in model_params.items() if k not in param_grid}
+        base_params["n_jobs"] = inner_jobs
+        estimator = xgb.XGBClassifier(**base_params)
+
+        grid = GridSearchCV(
+            estimator=estimator,
+            param_grid=param_grid,
+            cv=grid_splitter,
+            scoring="f1_macro",
+            n_jobs=grid_jobs,
+            pre_dispatch=grid_search_pre_dispatch(),
+        )
+        grid.fit(X_fit, y_fit)
+        model = grid.best_estimator_
+        model_params.update(grid.best_params_)
 
     if model is None:
         model = xgb.XGBClassifier(**model_params)
 
-        eval_x = X_test
-        eval_y = y_test
-        if X_cal is not None and y_cal is not None:
-            eval_x, eval_y = X_cal, y_cal
-        elif y_test is not None:
-            eval_x, eval_y, eval_excluded_unseen_label_rows = _filter_supervised_eval_rows(
-                X_test,
-                y_test,
-            )
-        else:
-            eval_x, eval_y, eval_excluded_unseen_label_rows = _filter_supervised_eval_rows(
-                eval_x,
-                eval_y,
-            )
-
-        if early_stopping_rounds and eval_x is not None and eval_y is not None:
+        if early_stopping_rounds and X_early_stop is not None and y_early_stop is not None:
             fit_verbose = bool(verbose and getattr(app_config, "DEBUG_MODE", False))
             fit_kwargs = {
-                "eval_set": [(eval_x, eval_y)],
+                "eval_set": [(X_early_stop, y_early_stop)],
                 "early_stopping_rounds": early_stopping_rounds,
                 "verbose": fit_verbose,
             }
@@ -354,11 +348,16 @@ def train_xgboost(
 
     if calibration_enabled and X_cal is not None and y_cal is not None:
         try:
-            calibrated = CalibratedClassifierCV(model, method=calibration_method, cv="prefit")
+            if FrozenEstimator is None:
+                calibrated = CalibratedClassifierCV(model, method=calibration_method, cv="prefit")
+            else:
+                calibrated = CalibratedClassifierCV(FrozenEstimator(model), method=calibration_method)
             calibrated.fit(X_cal, y_cal)
             model = calibrated
-        except Exception:
+            calibration_status = "fitted"
+        except (TypeError, ValueError):
             calibration_enabled = False
+            calibration_status = "failed"
 
     duration = time.time() - start
 
@@ -386,8 +385,16 @@ def train_xgboost(
             "xgb_effective_estimators": model_params.get("n_estimators"),
             "xgb_base_early_stopping_rounds": guardrails["base_early_stopping_rounds"],
             "xgb_effective_early_stopping_rounds": early_stopping_rounds,
-            "xgb_eval_rows_excluded_for_unseen_labels": int(eval_excluded_unseen_label_rows),
+            "xgb_grid_search_requested": grid_requested,
+            "xgb_grid_search_active": grid_active,
+            "xgb_grid_search_status": grid_search_status,
+            "xgb_grid_search_min_class_support": minimum_tuning_support,
+            "xgb_grid_candidate_count": grid_candidate_count,
+            "xgb_early_stopping_validation_source": early_stopping_validation_source,
+            "xgb_early_stopping_validation_size": len(y_early_stop) if y_early_stop is not None else 0,
+            "xgb_test_partition_used_for_early_stopping": False,
             "calibrated": bool(calibration_enabled),
+            "calibration_status": calibration_status,
             "calibration_method": calibration_method if calibration_enabled else None,
             "calibration_holdout_size": len(X_cal) if X_cal is not None else 0,
         }
@@ -410,7 +417,7 @@ def train_xgboost(
                 else str(encoded_idx)
             )
 
-        if sample_ids and len(sample_ids) == len(y_pred_global_idx):
+        if sample_ids is not None and len(sample_ids) == len(y_pred_global_idx):
             predictions_dict = {sid: int(pred) for sid, pred in zip(sample_ids, y_pred_global_idx)}
             labels_dict = {sid: int(label) for sid, label in zip(sample_ids, y_test)}
             meta_dict = {sid: _decoded_row(pred) for sid, pred in predictions_dict.items()}

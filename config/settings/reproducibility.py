@@ -27,3 +27,8 @@ COHORT_SNAPSHOT_META_FILE = ANALYSIS_SNAPSHOT_META_FILE
 EXPORT_ALIGNED_TRAINING_CACHE = True
 ALIGNED_FEATURE_CACHE_FILE = "output/diagnostics/aligned_features.latest.csv.gz"
 ALIGNED_LABEL_CACHE_FILE = "output/diagnostics/aligned_labels.latest.csv"
+
+# Reusable benchmark slots are working directories. Before a completed slot is
+# replaced, retain this bounded number of completed instances under
+# ``output/runs/_archived/completed/<slot>`` for artifact review and recovery.
+RUN_SLOT_KEEP_LAST_COMPLETED_RUNS = 1

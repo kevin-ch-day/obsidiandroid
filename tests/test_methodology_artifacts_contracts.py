@@ -29,21 +29,33 @@ def _global_diagnostics(run_diagnostics_dir: Path) -> Path:
     return output_root / "diagnostics"
 
 
-def test_export_feature_contract_suppresses_local_latest_json(run_diagnostics_dir: Path) -> None:
+def test_export_feature_contract_writes_only_stamped_run_evidence(run_diagnostics_dir: Path) -> None:
     df = pd.DataFrame({"a": [1], "b": [2]})
     out = methodology_artifacts.export_feature_contract(
         feature_df=df,
         run_id="rid_methodology",
         output_dir=str(run_diagnostics_dir),
     )
-    assert Path(out).name == "feature_contract.json"
+    assert Path(out).name == "feature_contract_rid_methodology.json"
     assert (run_diagnostics_dir / "feature_contract_rid_methodology.json").is_file()
     assert not (run_diagnostics_dir / "feature_contract.latest.json").exists()
+    assert not (run_diagnostics_dir / "feature_contract.json").exists()
     g_latest = _global_diagnostics(run_diagnostics_dir) / "feature_contract.latest.json"
     assert g_latest.is_file()
     ordered = run_diagnostics_dir / "feature_columns_rid_methodology.csv"
     assert ordered.is_file()
     assert pd.read_csv(ordered)["feature_column"].tolist() == ["a", "b"]
+
+
+def test_export_feature_contract_includes_train_selection_metadata(run_diagnostics_dir: Path) -> None:
+    out = methodology_artifacts.export_feature_contract(
+        feature_df=pd.DataFrame({"a": [1, 2]}),
+        run_id="rid_methodology",
+        output_dir=str(run_diagnostics_dir),
+        selection_contract={"selection_scope": "train_partition_only", "fit_sample_count": 2},
+    )
+    payload = json.loads(Path(out).read_text(encoding="utf-8"))
+    assert payload["feature_selection"]["selection_scope"] == "train_partition_only"
 
 
 def test_publication_feature_contract_rejects_av_label_semantics(run_diagnostics_dir: Path, monkeypatch) -> None:
@@ -66,21 +78,22 @@ def test_publication_feature_contract_rejects_aliased_av_label_semantics(run_dia
         )
 
 
-def test_export_leakage_assessment_suppresses_local_latest_txt(run_diagnostics_dir: Path) -> None:
+def test_export_leakage_assessment_writes_only_stamped_run_evidence(run_diagnostics_dir: Path) -> None:
     df = pd.DataFrame({"parsed_family_x": [1]})
     out = methodology_artifacts.export_leakage_assessment(
         feature_df=df,
         run_id="rid_methodology",
         output_dir=str(run_diagnostics_dir),
     )
-    assert Path(out).name == "leakage_assessment.txt"
+    assert Path(out).name == "leakage_assessment_rid_methodology.txt"
     assert (run_diagnostics_dir / "leakage_assessment_rid_methodology.txt").is_file()
     assert not (run_diagnostics_dir / "leakage_assessment.latest.txt").exists()
+    assert not (run_diagnostics_dir / "leakage_assessment.txt").exists()
     g_latest = _global_diagnostics(run_diagnostics_dir) / "leakage_assessment.latest.txt"
     assert g_latest.is_file()
 
 
-def test_export_modality_contract_stamped_and_compat(run_diagnostics_dir: Path) -> None:
+def test_export_modality_contract_writes_only_stamped_run_evidence(run_diagnostics_dir: Path) -> None:
     fusion_df = pd.DataFrame({"perm__a": [1], "parsed_family_v": [0]})
     out = methodology_artifacts.export_modality_method_contract(
         permission_df=None,
@@ -88,11 +101,12 @@ def test_export_modality_contract_stamped_and_compat(run_diagnostics_dir: Path) 
         run_id="rid_methodology",
         output_dir=str(run_diagnostics_dir),
     )
-    assert Path(out).name == "modality_method_contract.json"
+    assert Path(out).name == "modality_method_contract_rid_methodology.json"
     stamped = run_diagnostics_dir / "modality_method_contract_rid_methodology.json"
     assert stamped.is_file()
     assert json.loads(stamped.read_text(encoding="utf-8"))["run_id"] == "rid_methodology"
     assert not (run_diagnostics_dir / "modality_method_contract.latest.json").exists()
+    assert not (run_diagnostics_dir / "modality_method_contract.json").exists()
 
 
 def test_export_modality_method_contract_writes_expected_fields(run_diagnostics_dir: Path) -> None:
@@ -148,7 +162,7 @@ def test_export_modality_contract_marks_safe_fusion_without_label_derived_vendor
     assert payload["av_modality"]["feature_count_in_fusion"] == 0
 
 
-def test_methodology_exports_omit_stamped_run_duplicates_in_compact_mode(
+def test_methodology_exports_keep_required_stamped_evidence_in_compact_mode(
     run_diagnostics_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -174,12 +188,12 @@ def test_methodology_exports_omit_stamped_run_duplicates_in_compact_mode(
         output_dir=str(run_diagnostics_dir),
     )
 
-    assert (run_diagnostics_dir / "feature_contract.json").is_file()
-    assert (run_diagnostics_dir / "leakage_assessment.txt").is_file()
-    assert (run_diagnostics_dir / "modality_method_contract.json").is_file()
-    assert not (run_diagnostics_dir / "feature_contract_rid_methodology.json").exists()
-    assert not (run_diagnostics_dir / "leakage_assessment_rid_methodology.txt").exists()
-    assert not (run_diagnostics_dir / "modality_method_contract_rid_methodology.json").exists()
+    assert not (run_diagnostics_dir / "feature_contract.json").exists()
+    assert not (run_diagnostics_dir / "leakage_assessment.txt").exists()
+    assert not (run_diagnostics_dir / "modality_method_contract.json").exists()
+    assert (run_diagnostics_dir / "feature_contract_rid_methodology.json").is_file()
+    assert (run_diagnostics_dir / "leakage_assessment_rid_methodology.txt").is_file()
+    assert (run_diagnostics_dir / "modality_method_contract_rid_methodology.json").is_file()
 
 
 def test_export_paper_cohort_sample_ids_skips_compact_non_paper_runs(

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import pandas as pd
-import pytest
 
 from obsidiandroid.database import db_fetch_av_engine_raw_results as raw_fetcher
 from obsidiandroid.database import db_sample_malicious_scoring as scoring
 from obsidiandroid.database import db_av_engine_detection_totals as detection_totals
+from obsidiandroid.matrix import enrich_malicious_scores
 
 
 def test_build_union_sql_treats_non_detection_tokens_as_undetected() -> None:
@@ -26,6 +26,77 @@ def test_build_malicious_score_query_counts_only_malicious_rows() -> None:
     assert "SUM(CASE WHEN verdict = 'malicious' THEN 1 ELSE 0 END) AS malicious_engines" in sql
     assert "HAVING total_engines >= 5" in sql
     assert "ELSE 'No Consensus'" in sql
+
+
+def test_scoped_malicious_score_query_uses_one_selected_sample_cte() -> None:
+    sql = scoring._build_malicious_score_query(  # pylint: disable=protected-access
+        ["avast", "alibaba"],
+        5,
+        sample_ids=[9, 2, 9],
+    )
+
+    assert "WITH selected_samples AS" in sql
+    assert "WHERE sample_id IN (%s, %s)" in sql
+    assert sql.count("INNER JOIN selected_samples AS selected") == 2
+    assert "verdict_row.sample_id AS sample_id" in sql
+
+
+def test_scoped_score_fetch_binds_unique_sorted_cohort_ids(monkeypatch) -> None:
+    monkeypatch.setattr(scoring, "_get_normalized_trusted_engines", lambda: ["avast"])
+    monkeypatch.setattr(scoring, "_filter_valid_engine_columns", lambda _engines: ["avast"])
+    captured: dict[str, object] = {}
+
+    def fake_execute_query(query, **kwargs):
+        captured["query"] = query
+        captured["params"] = kwargs.get("params")
+        return ["sample_id"], [(2,)]
+
+    monkeypatch.setattr(scoring.db_engine, "execute_query", fake_execute_query)
+
+    rows, columns = scoring.get_sample_malicious_score(sample_ids=[9, 2, 9])
+
+    assert columns == ["sample_id"]
+    assert rows == [(2,)]
+    assert captured["params"] == [2, 9]
+    assert "WITH selected_samples AS" in str(captured["query"])
+
+
+def test_score_enrichment_scopes_fetch_to_matrix_sample_ids(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_fetch(sample_ids=None):
+        captured["sample_ids"] = sample_ids
+        return pd.DataFrame()
+
+    monkeypatch.setattr(enrich_malicious_scores, "fetch_malicious_score_table", fake_fetch)
+    matrix = pd.DataFrame({"sample_id": [4, 2], "engine_a": [1, 0]})
+
+    out = enrich_malicious_scores.apply_score_enrichment(matrix)
+
+    assert out is matrix
+    assert captured["sample_ids"] == [4, 2]
+
+
+def test_score_enrichment_merges_scores_without_mutating_matrix(monkeypatch) -> None:
+    matrix = pd.DataFrame({"sample_id": [4, 2], "engine_a": [1, 0]})
+    score_df = pd.DataFrame({"sample_id": [2, 4], "malicious_count": [3, 7]})
+    monkeypatch.setattr(
+        enrich_malicious_scores,
+        "fetch_malicious_score_table",
+        lambda sample_ids: score_df,
+    )
+    monkeypatch.setattr(
+        enrich_malicious_scores.enrich_score_features,
+        "add_derived_score_features",
+        lambda frame: frame,
+    )
+
+    out = enrich_malicious_scores.apply_score_enrichment(matrix)
+
+    assert out is not matrix
+    assert out["malicious_count"].tolist() == [7, 3]
+    assert "malicious_count" not in matrix.columns
+    assert "_merge" not in out.columns
 
 
 def test_fetch_av_results_drops_legacy_optional_metadata_columns() -> None:
@@ -127,6 +198,34 @@ def test_engine_stats_query_counts_positive_non_benign_detections() -> None:
     assert "AS malicious_count" in sql
     assert "AS threat_signal_score" in sql
     assert "AS unknown_count" in sql
+
+
+def test_scoped_engine_totals_query_joins_selected_samples() -> None:
+    union_sql = detection_totals._build_union_sql(  # pylint: disable=protected-access
+        ["google", "avast"],
+        restrict_to_selected_samples=True,
+    )
+
+    assert union_sql.count("INNER JOIN selected_samples AS selected") == 2
+    assert "verdict_row.`google`" in union_sql
+
+
+def test_scoped_engine_totals_binds_unique_sorted_cohort_ids(monkeypatch) -> None:
+    monkeypatch.setattr(detection_totals, "_get_valid_engine_list", lambda: ["google"])
+    captured: dict[str, object] = {}
+
+    def fake_execute_query(query, **kwargs):
+        captured["query"] = query
+        captured["params"] = kwargs.get("params")
+        return pd.DataFrame({"engine_name": ["google"]})
+
+    monkeypatch.setattr(detection_totals.db_engine, "execute_query", fake_execute_query)
+
+    out = detection_totals.get_engine_detection_totals(sample_ids=[9, 2, 9])
+
+    assert out["engine_name"].tolist() == ["google"]
+    assert captured["params"] == [2, 9]
+    assert "WITH selected_samples AS" in str(captured["query"])
 
 
 def test_family_name_hits_regex_uses_current_family_taxonomy_and_aliases() -> None:

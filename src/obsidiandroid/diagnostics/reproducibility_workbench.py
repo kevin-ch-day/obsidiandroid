@@ -81,7 +81,12 @@ def _ablation_macro_f1_by_experiment(diagnostics_dir: Path, run_id: str) -> dict
         "permissions_raw": None,
         "full_fused": None,
     }
-    path = oh.resolve_feature_set_ablation_summary_path(diagnostics_dir, run_id)
+    path = oh.resolve_feature_set_ablation_summary_path(
+        diagnostics_dir,
+        run_id,
+        allow_legacy_compat=True,
+        allow_global_latest=True,
+    )
     if not path.is_file():
         return out
     try:
@@ -352,12 +357,26 @@ def build_filesystem_artifact_checks(
         ),
         (
             "feature_contract_json",
-            [oh.resolve_feature_contract_path(rdiag, effective_run_id)],
+            [
+                oh.resolve_feature_contract_path(
+                    rdiag,
+                    effective_run_id,
+                    allow_legacy_compat=True,
+                    allow_global_latest=True,
+                )
+            ],
             "Feature contract",
         ),
         (
             "leakage_assessment_txt",
-            [oh.resolve_leakage_assessment_path(rdiag, effective_run_id)],
+            [
+                oh.resolve_leakage_assessment_path(
+                    rdiag,
+                    effective_run_id,
+                    allow_legacy_compat=True,
+                    allow_global_latest=True,
+                )
+            ],
             "Leakage assessment",
         ),
         (

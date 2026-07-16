@@ -38,9 +38,13 @@ def test_random_forest_grid_search(monkeypatch):
         y,
         grid_search=True,
         verbose=False,
+        criterion="entropy",
+        max_features=1.0,
     )
     assert result["metadata"]["params"]["n_estimators"] == 5
     assert model.get_params()["max_depth"] == 2
+    assert model.get_params()["criterion"] == "entropy"
+    assert model.get_params()["max_features"] == 1.0
 
 
 def test_xgboost_early_stopping(monkeypatch):
@@ -60,6 +64,29 @@ def test_xgboost_early_stopping(monkeypatch):
     assert result["metadata"]["best_iteration"] == model.best_iteration
 
 
+def test_xgboost_calibration_and_early_stopping_use_separate_training_holdouts(monkeypatch):
+    X, y = _create_dataset()
+    monkeypatch.setattr(app_config, "XGB_NUM_ESTIMATORS", 10, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_PROBABILITY_CALIBRATION", True, raising=False)
+    monkeypatch.setattr(app_config, "CALIBRATION_HOLDOUT", 0.15, raising=False)
+    model, result = xgboost_trainer.train_xgboost(
+        X,
+        y,
+        X_test=X,
+        y_test=y,
+        early_stopping_rounds=3,
+        verbose=False,
+    )
+
+    assert result["metadata"]["calibrated"] is True
+    assert result["metadata"]["calibration_status"] == "fitted"
+    assert result["metadata"]["calibration_holdout_size"] > 0
+    assert result["metadata"]["xgb_early_stopping_validation_source"] == "training_validation_holdout"
+    assert result["metadata"]["xgb_early_stopping_validation_size"] > 0
+    assert result["metadata"]["xgb_test_partition_used_for_early_stopping"] is False
+    assert model is not None
+
+
 def test_xgboost_grid_search(monkeypatch):
     X, y = _create_dataset()
     monkeypatch.setattr(app_config, "XGB_PARAM_GRID", {"n_estimators": [50], "max_depth": [3]}, raising=False)
@@ -72,6 +99,34 @@ def test_xgboost_grid_search(monkeypatch):
     )
     assert result["metadata"]["params"]["n_estimators"] == 50
     assert model.get_params()["max_depth"] == 3
+    assert result["metadata"]["xgb_grid_search_requested"] is True
+    assert result["metadata"]["xgb_grid_search_active"] is True
+    assert result["metadata"]["xgb_grid_search_status"] == "completed"
+    assert result["metadata"]["xgb_grid_candidate_count"] == 1
+
+
+def test_xgboost_unsupported_grid_request_keeps_training_early_stopping(monkeypatch):
+    X, y = _create_dataset(n_samples=24)
+    monkeypatch.setattr(app_config, "XGB_NUM_ESTIMATORS", 10, raising=False)
+    monkeypatch.setattr(app_config, "GRID_SEARCH_MIN_CLASS_SUPPORT", 9, raising=False)
+    monkeypatch.setattr(app_config, "XGB_PARAM_GRID", {"n_estimators": [5]}, raising=False)
+
+    model, result = xgboost_trainer.train_xgboost(
+        X,
+        y,
+        X_test=X,
+        y_test=y,
+        grid_search=True,
+        early_stopping_rounds=3,
+        verbose=False,
+    )
+
+    assert result["metadata"]["xgb_grid_search_requested"] is True
+    assert result["metadata"]["xgb_grid_search_active"] is False
+    assert result["metadata"]["xgb_grid_search_status"] == "skipped_insufficient_class_support"
+    assert result["metadata"]["xgb_grid_candidate_count"] is None
+    assert result["metadata"]["xgb_early_stopping_validation_source"] == "training_validation_holdout"
+    assert model is not None
 
 
 def test_xgboost_bad_data(monkeypatch):
@@ -127,9 +182,13 @@ def test_logistic_regression_grid_search(monkeypatch):
         y,
         grid_search=True,
         verbose=False,
+        max_iter=77,
+        random_state=7,
     )
     assert result["metadata"]["params"]["C"] == 0.5
     assert model.named_steps["logisticregression"].C == 0.5
+    assert model.named_steps["logisticregression"].max_iter == 77
+    assert model.named_steps["logisticregression"].random_state == 7
 
 
 def test_svm_grid_search(monkeypatch):
@@ -141,9 +200,48 @@ def test_svm_grid_search(monkeypatch):
         y,
         grid_search=True,
         verbose=False,
+        random_state=7,
+        gamma="auto",
     )
     assert result["metadata"]["params"]["C"] == 0.5
     assert model.get_params()["kernel"] == "linear"
+    assert model.get_params()["gamma"] == "auto"
+    assert model.get_params()["random_state"] == 7
+
+
+def test_numpy_sample_ids_are_packaged_without_ambiguous_truth_checks(monkeypatch):
+    X, y = _create_dataset(n_samples=60)
+    monkeypatch.setattr(app_config, "RF_NUM_TREES", 5, raising=False)
+    sample_ids = np.arange(1000, 1010)
+
+    _, result = random_forest_trainer.train_random_forest(
+        X,
+        y,
+        X_test=X.iloc[:10],
+        y_test=y.iloc[:10],
+        sample_ids=sample_ids,
+        verbose=False,
+    )
+
+    assert isinstance(result["predictions"], dict)
+    assert set(result["predictions"]) == set(sample_ids.tolist())
+
+
+def test_misaligned_sample_ids_fall_back_without_truncating_lr_results(monkeypatch):
+    X, y = _create_dataset(n_samples=60)
+    monkeypatch.setattr(app_config, "LR_MAX_ITER", 100, raising=False)
+
+    _, result = logistic_regression_trainer.train_logistic_regression(
+        X,
+        y,
+        X_test=X.iloc[:10],
+        y_test=y.iloc[:10],
+        sample_ids=[1, 2],
+        verbose=False,
+    )
+
+    assert not isinstance(result["predictions"], dict)
+    assert len(result["predictions"]) == 10
 
 
 def test_logistic_regression_grid_search_large_dataset(monkeypatch):
@@ -212,6 +310,7 @@ def test_svm_grid_search_config(monkeypatch):
 def test_grid_search_small_class_counts(monkeypatch):
     X, y = _create_dataset(n_samples=9)
     monkeypatch.setattr(app_config, "CV_FOLDS", 5, raising=False)
+    monkeypatch.setattr(app_config, "GRID_SEARCH_MIN_CLASS_SUPPORT", 2, raising=False)
 
     monkeypatch.setattr(app_config, "LR_PARAM_GRID", {"logisticregression__C": [0.3]}, raising=False)
     lr_model, lr_result = logistic_regression_trainer.train_logistic_regression(
@@ -239,6 +338,26 @@ def test_grid_search_small_class_counts(monkeypatch):
         verbose=False,
     )
     assert rf_result["metadata"]["params"]["n_estimators"] == 5
+    assert rf_result["metadata"]["grid_search_status"] == "completed"
+
+
+def test_grid_search_uses_stable_per_class_support_floor(monkeypatch, capfd):
+    X, y = _create_dataset(n_samples=9)
+    monkeypatch.setattr(app_config, "GRID_SEARCH_MIN_CLASS_SUPPORT", 5, raising=False)
+    monkeypatch.setattr(app_config, "RF_PARAM_GRID", {"n_estimators": [5]}, raising=False)
+    monkeypatch.setattr(app_config, "RF_NUM_TREES", 7, raising=False)
+
+    model, result = random_forest_trainer.train_random_forest(
+        X,
+        y,
+        grid_search=True,
+        verbose=True,
+    )
+
+    assert model.get_params()["n_estimators"] == 7
+    assert result["metadata"]["params"]["n_estimators"] == 7
+    assert result["metadata"]["grid_search_status"] == "skipped_insufficient_class_support"
+    assert "need ≥5 samples per class" in capfd.readouterr().out
 
 
 def test_logistic_regression_bad_data_nan(monkeypatch):
@@ -324,6 +443,108 @@ def test_train_and_evaluate_model_uses_configured_output_root_for_exports(
     assert captured["output_dir"] == (tmp_path / "output").resolve()
 
 
+def test_train_and_evaluate_model_uses_frozen_schema_for_full_predictions(
+    monkeypatch,
+) -> None:
+    """Full-cohort prediction must not reintroduce train-pruned columns."""
+    monkeypatch.setattr(app_config, "ENABLE_ML_LOGGING", False, raising=False)
+    monkeypatch.setattr(train_model_executor, "announce_training", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(train_model_executor.ml_console, "is_minimal", lambda: True)
+    monkeypatch.setattr(
+        train_model_executor,
+        "train_model",
+        lambda *_args, **_kwargs: {
+            "model": object(),
+            "X_test": pd.DataFrame({"keep": [0.1]}),
+            "y_test": pd.Series([0]),
+            "label_encoder": object(),
+            "metadata": {},
+            "label_classes": [0],
+            "feature_selection_contract": {"retained_feature_columns": ["keep"]},
+        },
+    )
+    monkeypatch.setattr(
+        train_model_executor,
+        "evaluate_model",
+        lambda **_kwargs: {"accuracy": 1.0, "f1_score": 1.0},
+    )
+    monkeypatch.setattr(
+        train_model_executor.ml_result_validator,
+        "validate_result_structure",
+        lambda _result: True,
+    )
+    monkeypatch.setattr(train_model_executor, "display_post_training_metrics", lambda *_args, **_kwargs: None)
+    captured: dict[str, list[str]] = {}
+
+    def fake_compile(_model_type, _result, features, _labels):
+        captured["columns"] = list(features.columns)
+        return {"ok": True}
+
+    monkeypatch.setattr(train_model_executor, "run_predictions_and_compile_result", fake_compile)
+    monkeypatch.setattr(
+        train_model_executor,
+        "export_model",
+        lambda _result, _model_type, features, _evaluation, _output_dir: captured.setdefault(
+            "export_columns", list(features.columns)
+        ),
+    )
+
+    result = train_model_executor.train_and_evaluate_model(
+        model_type="random_forest",
+        features_df=pd.DataFrame({"keep": [0.1, 0.2], "pruned": [0, 0]}),
+        labels=pd.Series([0, 1]),
+        save_model=True,
+    )
+
+    assert result == {"ok": True}
+    assert captured["columns"] == ["keep"]
+    assert captured["export_columns"] == ["keep"]
+
+
+def test_train_and_evaluate_model_withholds_export_when_full_prediction_fails(monkeypatch) -> None:
+    monkeypatch.setattr(app_config, "ENABLE_ML_LOGGING", False, raising=False)
+    monkeypatch.setattr(train_model_executor, "announce_training", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(train_model_executor.ml_console, "is_minimal", lambda: True)
+    monkeypatch.setattr(
+        train_model_executor,
+        "train_model",
+        lambda *_args, **_kwargs: {
+            "model": object(),
+            "X_test": pd.DataFrame({"feature": [0.1]}),
+            "y_test": pd.Series([0]),
+            "label_encoder": object(),
+        },
+    )
+    monkeypatch.setattr(
+        train_model_executor,
+        "evaluate_model",
+        lambda **_kwargs: {"accuracy": 1.0, "f1_score": 1.0},
+    )
+    monkeypatch.setattr(
+        train_model_executor.ml_result_validator,
+        "validate_result_structure",
+        lambda _result: True,
+    )
+    monkeypatch.setattr(train_model_executor, "display_post_training_metrics", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(train_model_executor, "run_predictions_and_compile_result", lambda *_args, **_kwargs: {})
+    exported: list[bool] = []
+    monkeypatch.setattr(
+        train_model_executor,
+        "export_model",
+        lambda *_args, **_kwargs: exported.append(True),
+    )
+
+    result = train_model_executor.train_and_evaluate_model(
+        model_type="random_forest",
+        features_df=pd.DataFrame({"feature": [0.1, 0.2]}),
+        labels=pd.Series([0, 1]),
+        save_model=True,
+    )
+
+    assert result == {}
+    assert not exported
+
+
 def test_factory_cross_validation(monkeypatch):
     X, y = _create_dataset()
     monkeypatch.setattr(app_config, "CV_FOLDS", 2, raising=False)
@@ -338,6 +559,50 @@ def test_factory_cross_validation(monkeypatch):
     assert result["cv_scores"] is not None
     assert len(result["cv_scores"]) == 2
     assert pytest.approx(np.mean(result["cv_scores"])) == result["cv_score_mean"]
+
+
+def test_factory_cross_validation_uses_pre_resample_train_partition(monkeypatch):
+    """CV must not receive synthetic rows created for the final holdout fit."""
+    X, y = _create_dataset(n_samples=90, n_features=5, n_classes=3)
+    model_trainer_factory.reset_runtime_training_caches()
+    monkeypatch.setattr(app_config, "ENABLE_SMOTE_OVERSAMPLING", True, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_CROSS_VALIDATION", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_FEATURE_CONTRACT_EXPORT", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_LEAKAGE_ASSESSMENT_EXPORT", False, raising=False)
+
+    observed: dict[str, int] = {}
+
+    def fake_smote(X_train, y_train, _random_state):
+        observed["pre_resample_fit_rows"] = len(X_train)
+        return pd.concat([X_train, X_train], ignore_index=True), np.concatenate([y_train, y_train])
+
+    def fake_cv(X_train, y_train, _model_type, _random_state):
+        observed["cv_rows"] = len(X_train)
+        observed["cv_labels"] = len(y_train)
+        return np.asarray([0.5, 0.6])
+
+    def fake_trainer(**kwargs):
+        observed["fit_rows"] = len(kwargs["X_train"])
+        return object(), {"evaluation": {"macro_f1_score": 0.5}}
+
+    monkeypatch.setattr(model_trainer_factory, "apply_smote", fake_smote)
+    monkeypatch.setattr(model_trainer_factory, "perform_cross_validation", fake_cv)
+    monkeypatch.setattr(model_trainer_factory, "get_model_trainer", lambda _model: fake_trainer)
+
+    result = model_trainer_factory.train_model_factory(
+        features_df=X,
+        labels=y,
+        model_type="random_forest",
+        cross_validate=True,
+        test_size=0.25,
+        enable_grid_search=False,
+    )
+
+    assert observed["cv_rows"] == observed["pre_resample_fit_rows"]
+    assert observed["cv_labels"] == observed["pre_resample_fit_rows"]
+    assert observed["fit_rows"] == observed["pre_resample_fit_rows"] * 2
+    assert result["cv_input_population"] == "pre_resample_train_partition"
+    assert result["cv_input_sample_count"] == observed["cv_rows"]
 
 
 def test_random_forest_class_weight(monkeypatch):
@@ -384,6 +649,7 @@ def test_verbose_analysis_output(monkeypatch, capfd):
     X, y = _create_dataset(n_samples=12)
     monkeypatch.setattr(app_config, "LR_PARAM_GRID", {"logisticregression__C": [0.2]}, raising=False)
     monkeypatch.setattr(app_config, "CV_FOLDS", 2, raising=False)
+    monkeypatch.setattr(app_config, "GRID_SEARCH_MIN_CLASS_SUPPORT", 2, raising=False)
     logistic_regression_trainer.train_logistic_regression(
         X,
         y,
@@ -473,8 +739,8 @@ def test_xgboost_num_class_uses_label_encoder_when_train_omits_label(monkeypatch
     assert int(model.get_params().get("num_class", 0)) == 3
 
 
-def test_xgboost_early_stopping_tolerates_unseen_test_labels(monkeypatch):
-    """Eval-set remap should exclude unseen train-absent labels instead of crashing."""
+def test_xgboost_early_stopping_does_not_use_unseen_test_labels(monkeypatch):
+    """The held-out test partition must not supply XGBoost early-stopping rows."""
     le = LabelEncoder()
     le.fit(["a", "b", "c", "d"])
     rng = np.random.default_rng(1)
@@ -497,7 +763,9 @@ def test_xgboost_early_stopping_tolerates_unseen_test_labels(monkeypatch):
     )
 
     assert result["metadata"]["xgb_encoded_label_remap"] == [0, 2, 3]
-    assert result["metadata"]["xgb_eval_rows_excluded_for_unseen_labels"] == 2
+    assert result["metadata"]["xgb_early_stopping_validation_source"] == "training_validation_holdout"
+    assert result["metadata"]["xgb_early_stopping_validation_size"] > 0
+    assert result["metadata"]["xgb_test_partition_used_for_early_stopping"] is False
     assert len(result["predictions"]) == len(y_test)
     assert hasattr(model, "best_iteration")
 

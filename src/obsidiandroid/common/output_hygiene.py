@@ -222,13 +222,22 @@ def _resolve_stamped_then_compat_then_global_path(
     run_filename_template: str,
     compatibility_filenames: tuple[str, ...] = (),
     global_latest_name: str,
+    allow_legacy_compat: bool = False,
+    allow_global_latest: bool = False,
 ) -> Path:
-    """Resolve one stamped run artifact, then run-scoped compat names, then global latest."""
+    """Resolve a stamped artifact, with legacy fallbacks only by explicit opt-in.
+
+    Scientific reports must bind to one run.  A global ``*.latest`` mirror can
+    belong to a different run, so it is an operator convenience only and must
+    never silently satisfy a run-specific evidence request.
+    """
     rid = normalize_artifact_run_id(run_id)
     diag = Path(diagnostics_dir)
     candidates = [diag / run_filename_template.format(run_id=rid)]
-    candidates.extend(diag / name for name in compatibility_filenames)
-    candidates.append(global_diagnostics_root() / global_latest_name)
+    if allow_legacy_compat:
+        candidates.extend(diag / name for name in compatibility_filenames)
+    if allow_global_latest:
+        candidates.append(global_diagnostics_root() / global_latest_name)
     for candidate in candidates:
         if candidate.is_file():
             return candidate
@@ -377,14 +386,22 @@ def resolve_feature_modality_coverage_summary_path(diagnostics_dir: Path, run_id
     )
 
 
-def resolve_feature_contract_path(diagnostics_dir: Path, run_id: str) -> Path:
-    """Resolve feature-contract JSON across canonical compat and global-latest locations."""
+def resolve_feature_contract_path(
+    diagnostics_dir: Path,
+    run_id: str,
+    *,
+    allow_legacy_compat: bool = False,
+    allow_global_latest: bool = False,
+) -> Path:
+    """Resolve a run-bound feature contract; legacy locations require opt-in."""
     return _resolve_stamped_then_compat_then_global_path(
         diagnostics_dir,
         run_id,
         run_filename_template="feature_contract_{run_id}.json",
         compatibility_filenames=("feature_contract.json",),
         global_latest_name="feature_contract.latest.json",
+        allow_legacy_compat=allow_legacy_compat,
+        allow_global_latest=allow_global_latest,
     )
 
 
@@ -393,52 +410,79 @@ def resolve_ablation_summary_path(
     run_id: str,
     *,
     allow_partial: bool = False,
+    allow_legacy_compat: bool = False,
+    allow_global_latest: bool = False,
 ) -> Path:
-    """Resolve ablation-summary CSV across run-scoped and global-latest locations."""
+    """Resolve a run-bound ablation summary; global mirrors require opt-in."""
     rid = normalize_artifact_run_id(run_id)
     diag = Path(diagnostics_dir)
-    candidates = [
-        diag / f"ablation_summary_{rid}.csv",
-        diag / "ablation_summary.latest.csv",
-        global_diagnostics_root() / "ablation_summary.latest.csv",
-    ]
+    candidates = [diag / f"ablation_summary_{rid}.csv"]
     if allow_partial:
         candidates.append(diag / f"ablation_summary_partial_{rid}.csv")
+    if allow_legacy_compat:
+        candidates.append(diag / "ablation_summary.latest.csv")
+    if allow_global_latest:
+        candidates.append(global_diagnostics_root() / "ablation_summary.latest.csv")
     for candidate in candidates:
         if candidate.is_file():
             return candidate
     return candidates[0]
 
 
-def resolve_model_comparison_summary_path(diagnostics_dir: Path, run_id: str) -> Path:
-    """Resolve model-comparison summary CSV across run-scoped and global-latest locations."""
-    return _resolve_stamped_run_or_global_artifact_path(
+def resolve_model_comparison_summary_path(
+    diagnostics_dir: Path,
+    run_id: str,
+    *,
+    allow_legacy_compat: bool = False,
+    allow_global_latest: bool = False,
+) -> Path:
+    """Resolve a run-bound model comparison; legacy locations require opt-in."""
+    return _resolve_stamped_then_compat_then_global_path(
         diagnostics_dir,
         run_id,
         run_filename_template="model_comparison_summary_{run_id}.csv",
+        compatibility_filenames=("model_comparison_summary.latest.csv",),
         global_latest_name="model_comparison_summary.latest.csv",
+        allow_legacy_compat=allow_legacy_compat,
+        allow_global_latest=allow_global_latest,
     )
 
 
-def resolve_modality_method_contract_path(diagnostics_dir: Path, run_id: str) -> Path:
-    """Resolve modality-method contract JSON across canonical compat and global-latest locations."""
+def resolve_modality_method_contract_path(
+    diagnostics_dir: Path,
+    run_id: str,
+    *,
+    allow_legacy_compat: bool = False,
+    allow_global_latest: bool = False,
+) -> Path:
+    """Resolve a run-bound modality contract; legacy locations require opt-in."""
     return _resolve_stamped_then_compat_then_global_path(
         diagnostics_dir,
         run_id,
         run_filename_template="modality_method_contract_{run_id}.json",
         compatibility_filenames=("modality_method_contract.json",),
         global_latest_name="modality_method_contract.latest.json",
+        allow_legacy_compat=allow_legacy_compat,
+        allow_global_latest=allow_global_latest,
     )
 
 
-def resolve_leakage_assessment_path(diagnostics_dir: Path, run_id: str) -> Path:
-    """Resolve leakage-assessment text across canonical compat and global-latest locations."""
+def resolve_leakage_assessment_path(
+    diagnostics_dir: Path,
+    run_id: str,
+    *,
+    allow_legacy_compat: bool = False,
+    allow_global_latest: bool = False,
+) -> Path:
+    """Resolve a run-bound leakage assessment; legacy locations require opt-in."""
     return _resolve_stamped_then_compat_then_global_path(
         diagnostics_dir,
         run_id,
         run_filename_template="leakage_assessment_{run_id}.txt",
         compatibility_filenames=("leakage_assessment.txt",),
         global_latest_name="leakage_assessment.latest.txt",
+        allow_legacy_compat=allow_legacy_compat,
+        allow_global_latest=allow_global_latest,
     )
 
 
@@ -562,24 +606,38 @@ def resolve_vendor_parser_strengths_weaknesses_path(diagnostics_dir: Path, run_i
     )
 
 
-def resolve_feature_column_survival_path(diagnostics_dir: Path, run_id: str) -> Path:
-    """Resolve feature-column survival CSV across run-scoped and global-latest locations."""
-    return _resolve_stamped_run_or_global_artifact_path(
+def resolve_feature_column_survival_path(
+    diagnostics_dir: Path,
+    run_id: str,
+    *,
+    allow_global_latest: bool = False,
+) -> Path:
+    """Resolve run-bound feature survival; the global mirror requires opt-in."""
+    return _resolve_stamped_then_compat_then_global_path(
         diagnostics_dir,
         run_id,
         run_filename_template="feature_column_survival_{run_id}.csv",
         global_latest_name="feature_column_survival.latest.csv",
+        allow_global_latest=allow_global_latest,
     )
 
 
-def resolve_feature_set_ablation_summary_path(diagnostics_dir: Path, run_id: str) -> Path:
-    """Resolve feature-set ablation summary CSV across compat and global-latest locations."""
+def resolve_feature_set_ablation_summary_path(
+    diagnostics_dir: Path,
+    run_id: str,
+    *,
+    allow_legacy_compat: bool = False,
+    allow_global_latest: bool = False,
+) -> Path:
+    """Resolve a run-bound feature-set ablation summary; fallbacks require opt-in."""
     return _resolve_stamped_then_compat_then_global_path(
         diagnostics_dir,
         run_id,
         run_filename_template="feature_set_ablation_summary_{run_id}.csv",
         compatibility_filenames=("feature_set_ablation_summary.csv",),
         global_latest_name="feature_set_ablation_summary.latest.csv",
+        allow_legacy_compat=allow_legacy_compat,
+        allow_global_latest=allow_global_latest,
     )
 
 

@@ -13,7 +13,8 @@ from config import app_config
 from obsidiandroid.diagnostics.research_validity.paper_claim_audit import write_paper_claim_audit_md
 from obsidiandroid.evaluation import ml_comparator_summary, ml_eval_engine
 from obsidiandroid.features.vectorization import feature_vector_builder
-from obsidiandroid.modeling import model_trainer_factory, pipeline_core
+from obsidiandroid.modeling import model_trainer_factory
+from obsidiandroid.modeling import feature_selection_contract as selection
 from obsidiandroid.orchestration import methodology_artifacts
 from obsidiandroid.pipeline import stage_permission_trends_report
 
@@ -69,10 +70,11 @@ def test_publication_integrity_smoke_exports_consistent_evidence(
         top_k=1,
         verbose=False,
     )
-    final_features = pipeline_core._prune_potential_leakage_features(
+    selection_contract = selection.fit_feature_selection_contract(
         raw_features,
         pd.Series([0, 0, 1, 1], index=raw_features.index),
     )
+    final_features = selection.apply_feature_selection_contract(raw_features, selection_contract)
     assert final_features.shape[1] > 0
     assert not any(
         token in str(column).lower()

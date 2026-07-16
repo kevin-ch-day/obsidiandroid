@@ -30,6 +30,33 @@ BACKLOG_ROW_POLICY_HELD_FAMILY = "policy_held_family"
 BACKLOG_ROW_FAMILY_TYPE_CONFLICT = "family_type_conflict"
 BACKLOG_ROW_BLANK_RESOLVED_FAMILY = "blank_resolved_family"
 
+# These lanes have an authority-derived primary-label target and can be worked
+# as a bounded review/backfill queue.  All other residual lanes remain
+# provenance, policy, or manual-candidate work; their volume must not drown
+# out closure-ready work in the operator priority surface.
+MISSING_PRIMARY_CLOSURE_READY_LANES: frozenset[str] = frozenset(
+    {
+        "authority_backed_primary_backfill_review",
+        # Kept only to classify older exports until the schema guard requests a
+        # refresh.  The current query emits the authority_backed name above.
+        "high_strong_primary_backfill_review",
+    }
+)
+MISSING_PRIMARY_REQUIRED_COLUMNS: frozenset[str] = frozenset(
+    {
+        "sample_id",
+        "authority_bucket",
+        "resolved_family_lc",
+        "authority_family_slug",
+        "authority_type_slug",
+        "authority_parent_type_slug",
+        "proposed_classification_primary",
+        "confidence_bucket",
+        "residual_lane",
+        "recommended_triage_action",
+    }
+)
+
 _RUN_BACKLOG_LABELS = (
     "Missing primary labels",
     TRUE_UNRESOLVED_FAMILY_DEBT_LABEL,
@@ -134,10 +161,18 @@ def _missing_primary_action(
 ) -> str:
     triage = missing_primary_triage if isinstance(missing_primary_triage, dict) else {}
     freshness = str(triage.get("freshness", "") or "").strip()
+    if str(triage.get("schema_status", "") or "").strip() == "incompatible":
+        return "Refresh the missing-primary label triage export; its schema is older than the authority-backed backfill contract."
     if freshness == "stale":
         return "Refresh the missing-primary label triage export first."
+    closure_ready = safe_int(triage.get("closure_ready_row_count", 0), 0)
+    if closure_ready > 0:
+        return (
+            "Open the authority-backed missing-primary backfill proposals first; "
+            "review and close that bounded queue before provenance/policy lanes."
+        )
     if safe_int(triage.get("row_count", 0), 0) > 0:
-        return "Open the missing-primary label triage export and work the dominant review lane first."
+        return "Open the missing-primary label triage export; the remaining rows are provenance/policy/manual review, not automatic backfill candidates."
     if safe_int(taxonomy.get("missing_primary_label_actionable_samples", 0), 0) > 0:
         return "Work high/strong missing-primary label-review rows first."
     if taxonomy.get("missing_primary_label_active_residual_samples") is not None:
@@ -328,6 +363,22 @@ def _augment_missing_primary_detail(
     """Append live missing-primary triage context to the generic summary detail."""
     triage = missing_primary_triage if isinstance(missing_primary_triage, dict) else {}
     suffix: list[str] = []
+    schema_status = str(triage.get("schema_status", "") or "").strip()
+    if schema_status and schema_status != "compatible":
+        missing_columns = triage.get("missing_required_columns", [])
+        missing_text = ",".join(str(value) for value in missing_columns[:3]) if isinstance(missing_columns, list) else ""
+        suffix.append(f"schema={schema_status}" + (f" ({missing_text})" if missing_text else ""))
+    closure_ready = safe_int(triage.get("closure_ready_row_count", 0), 0)
+    if closure_ready > 0:
+        suffix.append(f"closure_ready={closure_ready}")
+    proposal_status = str(triage.get("proposal_status", "") or "").strip()
+    if proposal_status:
+        proposal_groups = safe_int(triage.get("proposal_group_count", 0), 0)
+        proposal_samples = safe_int(triage.get("proposal_sample_count", 0), 0)
+        suffix.append(
+            f"proposals={proposal_status}"
+            + (f" ({proposal_groups} groups/{proposal_samples} samples)" if proposal_status == "available" else "")
+        )
     top_lane = str(triage.get("top_lane", "") or "").strip()
     top_lane_count = safe_int(triage.get("top_lane_count", 0), 0)
     if top_lane and top_lane_count > 0:
@@ -403,6 +454,7 @@ def read_triage_snapshot(
     lane_column: str,
     action_column: str,
     extra_count_columns: dict[str, str] | None = None,
+    required_columns: frozenset[str] | None = None,
 ) -> dict[str, object]:
     """Read a triage CSV export into a shared operator snapshot shape."""
     if not path.is_file():
@@ -411,6 +463,9 @@ def read_triage_snapshot(
         df = pd.read_csv(path)
     except Exception:
         return {}
+    available_columns = {str(column).strip() for column in df.columns}
+    missing_columns = sorted(set(required_columns or frozenset()) - available_columns)
+    schema_status = "compatible" if not missing_columns else "incompatible"
     if df.empty:
         snapshot: dict[str, object] = {
             "path": path,
@@ -427,6 +482,8 @@ def read_triage_snapshot(
             "action_counts": _count_map(df, action_column),
             "freshness": file_freshness_label(path),
         }
+    snapshot["schema_status"] = schema_status
+    snapshot["missing_required_columns"] = missing_columns
     for key, column in (extra_count_columns or {}).items():
         snapshot[key] = _count_map(df, column) if not df.empty else {}
     top_lane = _top_bucket(snapshot.get("lane_counts"))
@@ -484,7 +541,7 @@ def read_blank_resolved_triage_snapshot(*, output_root: Path) -> dict[str, objec
 
 def read_missing_primary_triage_snapshot(*, output_root: Path) -> dict[str, object]:
     """Load the latest missing-primary label triage export."""
-    return read_triage_snapshot(
+    snapshot = read_triage_snapshot(
         path=output_root / "diagnostics" / "missing_primary_label_triage_latest.csv",
         lane_column="residual_lane",
         action_column="recommended_triage_action",
@@ -492,7 +549,48 @@ def read_missing_primary_triage_snapshot(*, output_root: Path) -> dict[str, obje
             "authority_bucket_counts": "authority_bucket",
             "confidence_bucket_counts": "confidence_bucket",
         },
+        required_columns=MISSING_PRIMARY_REQUIRED_COLUMNS,
     )
+    lane_counts = snapshot.get("lane_counts", {})
+    if not isinstance(lane_counts, dict):
+        lane_counts = {}
+    closure_ready_count = sum(
+        safe_int(lane_counts.get(lane, 0), 0)
+        for lane in MISSING_PRIMARY_CLOSURE_READY_LANES
+    )
+    snapshot["closure_ready_row_count"] = closure_ready_count
+    snapshot["closure_ready_lane_counts"] = {
+        lane: safe_int(lane_counts.get(lane, 0), 0)
+        for lane in sorted(MISSING_PRIMARY_CLOSURE_READY_LANES)
+        if safe_int(lane_counts.get(lane, 0), 0) > 0
+    }
+    residual_count = safe_int(snapshot.get("row_count", 0), 0)
+    snapshot["non_closure_ready_row_count"] = max(residual_count - closure_ready_count, 0)
+    proposal_path = output_root / "diagnostics" / "missing_primary_label_authority_backfill_proposals_latest.csv"
+    snapshot["proposal_path"] = proposal_path
+    snapshot["proposal_status"] = "missing"
+    snapshot["proposal_group_count"] = 0
+    snapshot["proposal_sample_count"] = 0
+    if proposal_path.is_file():
+        try:
+            proposals = pd.read_csv(proposal_path)
+        except Exception:
+            proposals = pd.DataFrame()
+        snapshot["proposal_status"] = "available"
+        snapshot["proposal_group_count"] = int(len(proposals))
+        if "sample_count" in proposals.columns:
+            snapshot["proposal_sample_count"] = safe_int(
+                pd.to_numeric(proposals["sample_count"], errors="coerce").fillna(0).sum(),
+                0,
+            )
+    summary_path = output_root / "diagnostics" / "missing_primary_label_triage_summary_latest.json"
+    snapshot["summary_path"] = summary_path
+    if summary_path.is_file():
+        summary_payload = read_json_dict(summary_path)
+        snapshot["summary_schema_version"] = safe_int(summary_payload.get("schema_version", 0), 0)
+    else:
+        snapshot["summary_schema_version"] = 0
+    return snapshot
 
 
 def read_policy_held_token_risk_snapshot(*, output_root: Path) -> dict[str, object]:
@@ -643,6 +741,24 @@ def assess_backlog_triage_health(
                 export_key=export_key,
                 detail=f"{export_key} export freshness={freshness}.",
             )
+        if str(triage.get("schema_status", "") or "").strip() == "incompatible":
+            missing_columns = triage.get("missing_required_columns", [])
+            detail = f"{export_key} export schema is incompatible"
+            if isinstance(missing_columns, list) and missing_columns:
+                detail += "; missing=" + ",".join(str(value) for value in missing_columns[:5])
+            _append_issue(
+                issues,
+                code=f"{export_key}_schema_incompatible",
+                export_key=export_key,
+                detail=detail + ".",
+            )
+        if export_key == "missing_primary_label" and str(triage.get("proposal_status", "") or "") != "available":
+            _append_issue(
+                issues,
+                code="missing_primary_label_proposal_missing",
+                export_key=export_key,
+                detail="missing-primary authority-backed proposal export is missing.",
+            )
         if live_count is not None and live_count > 0 and row_count <= 0 and freshness != "missing":
             _append_issue(
                 issues,
@@ -695,12 +811,28 @@ def choose_priority_triage(
     ):
         if not isinstance(payload, dict) or not payload:
             continue
-        if label == "Missing-primary label triage" and not payload:
-            continue
         freshness = str(payload.get("freshness", "") or "").strip()
         row_count = safe_int(payload.get("row_count", 0), 0)
         top_lane = str(payload.get("top_lane", "") or "").strip()
         top_lane_count = safe_int(payload.get("top_lane_count", 0), 0)
+        if label == "Missing-primary label triage":
+            if str(payload.get("schema_status", "") or "").strip() == "incompatible":
+                action = "Refresh missing-primary triage: the current export predates the authority-backed backfill schema."
+            elif str(payload.get("proposal_status", "") or "") != "available":
+                action = "Refresh missing-primary triage: the authority-backed proposal export is missing."
+            else:
+                closure_ready = safe_int(payload.get("closure_ready_row_count", 0), 0)
+                if closure_ready <= 0:
+                    # Residual provenance/policy work remains visible in the
+                    # debt ledger, but it should not eclipse a bounded queue
+                    # that can actually close primary-label debt.
+                    continue
+                label = "Authority-backed primary backfill review"
+                row_count = closure_ready
+                closure_lanes = payload.get("closure_ready_lane_counts", {})
+                if isinstance(closure_lanes, dict) and closure_lanes:
+                    top_lane, top_lane_count = _top_bucket(closure_lanes) or ("", 0)
+                action = "Open authority-backed primary backfill proposals first; review before applying any catalog update."
         if row_count <= 0 and freshness == "current":
             continue
         if freshness == "stale":

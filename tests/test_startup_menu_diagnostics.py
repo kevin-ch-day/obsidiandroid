@@ -97,7 +97,7 @@ def test_taxonomy_support_tuning_compact_shows_status_and_tune_next(
     assert "Model errors" in out
     assert "Authority gaps" in out
     assert f"taxonomy_authority_split_{run_id}.md" in out
-    assert f"taxonomy_model_prediction_errors_{run_id}.csv" in out or "missing" in out
+    assert f"prediction_errors_{run_id}.csv" in out or "missing" in out
 
 
 def test_taxonomy_support_snapshot_includes_threshold_sensitivity(

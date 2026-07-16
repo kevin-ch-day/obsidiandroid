@@ -17,6 +17,10 @@ from obsidiandroid.database import db_sample_metadata_queries
 import obsidiandroid.governance.cohort_readiness_report as cohort_readiness_report
 import obsidiandroid.governance.cohort_reproducibility as cohort_reproducibility
 from obsidiandroid.governance.cohort_lock_manifest import build_lock_manifest_payload
+from obsidiandroid.governance.label_snapshot_contract import (
+    label_snapshot_hash,
+    normalize_label_snapshot_frame,
+)
 from obsidiandroid.governance.locked_paper_materialization import materialize_locked_paper_cohort
 from obsidiandroid.governance.support_floor_policy import (
     resolve_configured_min_samples_per_family,
@@ -236,6 +240,7 @@ def load_and_prepare_samples(
     # Enforce unknown-type exclusion early for evidence/paper runs, even when
     # profiles omit the explicit gate key.
     exclude_unknown_type_slug = bool(gates.get("exclude_unknown_type_slug", False))
+    require_active_type_slug = bool(gates.get("require_active_type_slug", False))
     exclude_weak_label_kinds = bool(gates.get("exclude_weak_label_kinds", False))
     exclude_family_label_conflicts = bool(gates.get("exclude_family_label_conflicts", False))
     if not exclude_unknown_type_slug:
@@ -312,6 +317,7 @@ def load_and_prepare_samples(
             require_sha256=require_sha256,
             allow_missing_package_name=allow_missing_pkg,
             exclude_unknown_type_slug=exclude_unknown_type_slug,
+            require_active_type_slug=require_active_type_slug,
             exclude_weak_label_kinds=exclude_weak_label_kinds,
             exclude_family_label_conflicts=exclude_family_label_conflicts,
             effective_time_start_utc=time_start_utc,
@@ -341,6 +347,7 @@ def load_and_prepare_samples(
             require_sha256=require_sha256,
             allow_missing_package_name=allow_missing_pkg,
             exclude_unknown_type_slug=exclude_unknown_type_slug,
+            require_active_type_slug=require_active_type_slug,
             exclude_weak_label_kinds=exclude_weak_label_kinds,
             exclude_family_label_conflicts=exclude_family_label_conflicts,
             limit=limit,
@@ -364,6 +371,7 @@ def load_and_prepare_samples(
             require_sha256=require_sha256,
             allow_missing_package_name=allow_missing_pkg,
             exclude_unknown_type_slug=exclude_unknown_type_slug,
+            require_active_type_slug=require_active_type_slug,
             exclude_weak_label_kinds=exclude_weak_label_kinds,
             exclude_family_label_conflicts=exclude_family_label_conflicts,
             limit=limit,
@@ -1029,7 +1037,19 @@ def _export_cohort_lock_artifacts(
     type_count = int(samples_df["type_slug"].nunique()) if "type_slug" in samples_df.columns else 0
     top_family_support = int(max(family_counts.values()) if family_counts else 0)
     top_family_share = float(top_family_support / len(samples_df)) if len(samples_df) else 0.0
-    taxonomy_hash = hash_payload(
+    # A lock must bind the row-level family/type labels, not merely aggregate
+    # counts.  The aggregate fallback is retained only for broad diagnostic
+    # frames that lack the minimal label snapshot columns.
+    label_snapshot_df = normalize_label_snapshot_frame(samples_df)
+    label_snapshot_path: Path | None = diagnostics_dir / f"cohort_label_snapshot_{run_id}.csv"
+    label_hash = ""
+    if label_snapshot_df is not None:
+        label_snapshot_df.to_csv(label_snapshot_path, index=False)
+        label_hash = label_snapshot_hash(label_snapshot_df)
+    else:
+        label_snapshot_path = None
+
+    aggregate_taxonomy_hash = hash_payload(
         {
             "family_count": family_count,
             "type_count": type_count,
@@ -1049,18 +1069,25 @@ def _export_cohort_lock_artifacts(
             },
         }
     )
+    taxonomy_hash = label_hash or aggregate_taxonomy_hash
     lock_manifest = build_lock_manifest_payload(
         lock_version=str(run_id),
         profile_id=profile_id,
         contract_id=f"{profile_id}_contract",
         created_at_utc=str(run_id),
         canonical_historical_run_id=str(run_id),
-        member_list_path=str(cohort_ids_path or membership_path),
+        # The manifest must point at the membership file written in this run.
+        # ``paper_cohort_sample_ids.csv`` remains a convenience export for
+        # downstream reports; it is not necessarily present in isolated runs
+        # and therefore cannot be the immutable lock's source of membership.
+        member_list_path=str(membership_path),
         sample_count=int(len(samples_df)),
         family_count=family_count,
         type_count=type_count,
         cohort_hash=hash_payload(member_ids),
         taxonomy_hash=taxonomy_hash,
+        label_snapshot_path=str(label_snapshot_path or ""),
+        label_snapshot_hash=label_hash,
         sql_profile_version="live_stage_samples_v1",
         profile_version=str(profile_id),
         time_window={
@@ -1108,6 +1135,7 @@ def _export_cohort_lock_artifacts(
             "cohort_membership_csv": str(membership_path),
             "dataset_time_contract_json": str(dataset_time_contract_path),
             "paper_cohort_sample_ids_csv": str(cohort_ids_path),
+            "label_snapshot_csv": str(label_snapshot_path or ""),
             "missing_locked_members_csv": str(locked_paper_meta.get("missing_locked_members_csv", "") or ""),
             "locked_paper_label_drift_csv": str(locked_paper_meta.get("label_drift_csv", "") or ""),
             "locked_paper_label_drift_summary_json": str(locked_paper_meta.get("label_drift_summary_json", "") or ""),
@@ -1115,6 +1143,12 @@ def _export_cohort_lock_artifacts(
         },
         "locked_paper_materialization": dict(locked_paper_meta),
         "locked_paper_label_snapshot": dict(locked_label_snapshot),
+        "label_snapshot": {
+            "available": bool(label_hash),
+            "path": str(label_snapshot_path or ""),
+            "hash": label_hash,
+            "taxonomy_hash_source": "row_level_label_snapshot" if label_hash else "aggregate_fallback",
+        },
     }
     summary_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return str(summary_path), str(membership_path)

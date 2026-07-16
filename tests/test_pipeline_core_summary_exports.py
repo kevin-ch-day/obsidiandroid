@@ -530,12 +530,6 @@ def test_run_classifier_pipeline_drops_low_support_without_other_group(monkeypat
         "apply_min_family_support",
         _fake_apply_min_family_support,
     )
-    monkeypatch.setattr(pipeline_core, "_prune_low_information_features", lambda df: df)
-    monkeypatch.setattr(
-        pipeline_core,
-        "_prune_potential_leakage_features",
-        lambda feature_df, _labels_df: feature_df,
-    )
     monkeypatch.setattr(
         pipeline_core,
         "train_models",
@@ -606,12 +600,6 @@ def test_run_classifier_pipeline_keeps_low_support_when_support_floor_is_diagnos
         "print_warning",
         lambda message: warnings.append(str(message)),
     )
-    monkeypatch.setattr(pipeline_core, "_prune_low_information_features", lambda df: df)
-    monkeypatch.setattr(
-        pipeline_core,
-        "_prune_potential_leakage_features",
-        lambda feature_df, _labels_df: feature_df,
-    )
     monkeypatch.setattr(
         pipeline_core,
         "train_models",
@@ -672,12 +660,6 @@ def test_run_classifier_pipeline_applies_benchmark_eligibility_support_floor_for
         pipeline_core.distribution_reporter,
         "apply_min_family_support",
         _fake_apply_min_family_support,
-    )
-    monkeypatch.setattr(pipeline_core, "_prune_low_information_features", lambda df: df)
-    monkeypatch.setattr(
-        pipeline_core,
-        "_prune_potential_leakage_features",
-        lambda feature_df, _labels_df: feature_df,
     )
     monkeypatch.setattr(
         pipeline_core,
@@ -744,12 +726,6 @@ def test_run_classifier_pipeline_skips_benchmark_eligibility_support_floor_for_t
         pipeline_core.distribution_reporter,
         "apply_min_family_support",
         _should_not_run,
-    )
-    monkeypatch.setattr(pipeline_core, "_prune_low_information_features", lambda df: df)
-    monkeypatch.setattr(
-        pipeline_core,
-        "_prune_potential_leakage_features",
-        lambda feature_df, _labels_df: feature_df,
     )
     monkeypatch.setattr(
         pipeline_core,

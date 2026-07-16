@@ -5,7 +5,7 @@
 # ``database.db_av_engine_detection_totals`` shim has been retired.
 
 import pandas as pd
-from . import db_engine, db_sample_malicious_scoring
+from . import db_engine, db_sample_malicious_scoring, schema_map
 from .verdict_semantics import sql_non_detection_predicate
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.labeling.malware_family_constants import FAMILY_ALIASES, KNOWN_FAMILIES
@@ -39,22 +39,33 @@ def _get_valid_engine_list() -> list:
     all_engines = db_sample_malicious_scoring.get_existing_result_columns()
     return [e.replace("-", "_") for e in all_engines if e not in EXCLUDE_COLUMNS]
 
-def _build_union_sql(engine_list: list) -> str:
+def _build_union_sql(engine_list: list, *, restrict_to_selected_samples: bool = False) -> str:
     """
     Builds a UNION ALL SQL block that melts the wide verdict table into
     (engine_name, result) rows while filtering out junk entries like NULL, '', 'None', etc.
     """
     cleaned_selects = []
+    verdicts_table = schema_map.table("vendor_verdicts")
 
     for engine in engine_list:
+        if restrict_to_selected_samples:
+            source_sql = (
+                f"{verdicts_table} AS verdict_row "
+                "INNER JOIN selected_samples AS selected "
+                "ON selected.sample_id = verdict_row.sample_id"
+            )
+            engine_ref = f"verdict_row.`{engine}`"
+        else:
+            source_sql = verdicts_table
+            engine_ref = f"`{engine}`"
         select_stmt = f"""
         SELECT 
             '{engine}' AS engine_name,
             CASE 
-                WHEN {sql_non_detection_predicate(f'`{engine}`')} THEN NULL
-                ELSE `{engine}`
+                WHEN {sql_non_detection_predicate(engine_ref)} THEN NULL
+                ELSE {engine_ref}
             END AS result
-        FROM virustotal_sample_vendor_engine_verdicts
+        FROM {source_sql}
         """
         cleaned_selects.append(select_stmt.strip())
 
@@ -141,19 +152,45 @@ def _build_engine_stats_query(union_sql: str) -> str:
 # Step 4: Main Entry Point
 # ----------------------------------------------------------------------
 
-def get_engine_detection_totals(as_dataframe: bool = True) -> pd.DataFrame:
+def get_engine_detection_totals(as_dataframe: bool = True, sample_ids=None) -> pd.DataFrame:
+    """Aggregate engine metadata, optionally scoped to the active cohort."""
     try:
         engine_list = _get_valid_engine_list()
         if not engine_list:
             du.print_warning("[WARN] No valid engine columns found in virustotal_sample_vendor_engine_verdicts.")
             return pd.DataFrame()
 
-        union_sql = _build_union_sql(engine_list)
-        full_query = _build_engine_stats_query(union_sql)
+        selected_ids = None
+        if sample_ids is not None:
+            selected_ids = sorted({int(sample_id) for sample_id in sample_ids})
+            if not selected_ids:
+                return pd.DataFrame()
+
+        if selected_ids:
+            verdicts_table = schema_map.table("vendor_verdicts")
+            placeholders = ", ".join(["%s"] * len(selected_ids))
+            scope_sql = f"""
+                WITH selected_samples AS (
+                    SELECT DISTINCT sample_id
+                    FROM {verdicts_table}
+                    WHERE sample_id IN ({placeholders})
+                )
+            """
+            union_sql = _build_union_sql(engine_list, restrict_to_selected_samples=True)
+        else:
+            scope_sql = ""
+            union_sql = _build_union_sql(engine_list)
+        full_query = f"{scope_sql}\n{_build_engine_stats_query(union_sql)}"
 
         #_export_engine_stats_query(full_query)
 
-        df = db_engine.execute_query(full_query, fetch=True, return_columns=True, as_dataframe=as_dataframe)
+        df = db_engine.execute_query(
+            full_query,
+            params=selected_ids,
+            fetch=True,
+            return_columns=True,
+            as_dataframe=as_dataframe,
+        )
         return df
 
     except Exception as e:

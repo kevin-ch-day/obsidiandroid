@@ -64,7 +64,7 @@ def get_active_trusted_engines():
         return []
 
 
-def build_union_sql(valid_engines: list[str]) -> str:
+def build_union_sql(valid_engines: list[str], *, restrict_to_selected_samples: bool = False) -> str:
     """
     Builds UNION ALL SQL to extract engine verdicts:
     - 'malicious' for any positive detection label
@@ -77,14 +77,26 @@ def build_union_sql(valid_engines: list[str]) -> str:
 
     verdicts_table = schema_map.table("vendor_verdicts")
     for engine in valid_engines:
+        if restrict_to_selected_samples:
+            source_sql = (
+                f"{verdicts_table} AS verdict_row "
+                "INNER JOIN selected_samples AS selected "
+                "ON selected.sample_id = verdict_row.sample_id"
+            )
+            sample_id_ref = "verdict_row.sample_id"
+            engine_ref = f"verdict_row.`{engine}`"
+        else:
+            source_sql = verdicts_table
+            sample_id_ref = "sample_id"
+            engine_ref = f"`{engine}`"
         sql = f"""
-            SELECT sample_id, '{engine}' AS engine,
+            SELECT {sample_id_ref} AS sample_id, '{engine}' AS engine,
                 CASE
-                    WHEN {sql_non_detection_predicate(f'`{engine}`')}
+                    WHEN {sql_non_detection_predicate(engine_ref)}
                         THEN 'undetected'
                     ELSE 'malicious'
                 END AS verdict
-            FROM {verdicts_table}
+            FROM {source_sql}
         """
         union_parts.append(sql.strip())
 
@@ -114,7 +126,14 @@ def get_existing_result_columns():
         return set()
 
 
-def get_sample_malicious_score(min_engines=5):
+def get_sample_malicious_score(min_engines=5, sample_ids=None):
+    """Return trusted-engine scores, optionally restricted to one cohort.
+
+    The enrichment caller only merges rows for its current feature matrix.  A
+    scoped query avoids re-aggregating the entire verdict corpus for every
+    pipeline run while preserving the former unscoped behavior for callers
+    that do not provide sample IDs.
+    """
     try:
         trusted_engines = _get_normalized_trusted_engines()
         if not trusted_engines:
@@ -124,8 +143,23 @@ def get_sample_malicious_score(min_engines=5):
         if not valid_engines:
             return ([], [])
 
-        query = _build_malicious_score_query(valid_engines, min_engines)
-        _columns, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
+        selected_ids = None
+        if sample_ids is not None:
+            selected_ids = sorted({int(sample_id) for sample_id in sample_ids})
+            if not selected_ids:
+                return ([], [])
+
+        query = _build_malicious_score_query(
+            valid_engines,
+            min_engines,
+            sample_ids=selected_ids,
+        )
+        _columns, rows = db_engine.execute_query(
+            query,
+            params=selected_ids,
+            fetch=True,
+            return_columns=True,
+        )
 
         if not rows:
             du.print_warning("[INFO] Malicious score query returned no rows.")
@@ -167,9 +201,24 @@ def _filter_valid_engine_columns(normalized_engines):
 
 
 # --- Helper: Build final SQL query for malicious score aggregation ---
-def _build_malicious_score_query(valid_engines, min_engines):
-    union_sql = build_union_sql(valid_engines)
+def _build_malicious_score_query(valid_engines, min_engines, *, sample_ids=None):
+    selected_ids = None if sample_ids is None else sorted({int(sample_id) for sample_id in sample_ids})
+    if selected_ids:
+        verdicts_table = schema_map.table("vendor_verdicts")
+        placeholders = ", ".join(["%s"] * len(selected_ids))
+        scope_sql = f"""
+            WITH selected_samples AS (
+                SELECT DISTINCT sample_id
+                FROM {verdicts_table}
+                WHERE sample_id IN ({placeholders})
+            )
+        """
+        union_sql = build_union_sql(valid_engines, restrict_to_selected_samples=True)
+    else:
+        scope_sql = ""
+        union_sql = build_union_sql(valid_engines)
     return f"""
+        {scope_sql}
         SELECT
             sample_id,
             COUNT(*) AS total_engines,

@@ -8,6 +8,47 @@ from pathlib import Path
 from obsidiandroid.diagnostics import contract_and_taxonomy_reports as reports
 
 
+def test_contract_reports_reuse_run_scoped_outputs(tmp_path: Path, monkeypatch) -> None:
+    """Research and operator bundles must not rematerialize the same run report."""
+    output_root = tmp_path / "output"
+    run_id = "r_cache"
+    diagnostics_dir = output_root / "runs" / run_id / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(
+        reports.oh.app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False
+    )
+    comparison_calls: list[bool] = []
+
+    def _comparison(*_args, **_kwargs):
+        comparison_calls.append(True)
+        return {
+            "headline_feature_column_hash": "h",
+            "ablation_full_fused_feature_column_hash": "a",
+            "split_hash": "s",
+            "label_target": "family_id",
+            "apples_to_apples": True,
+        }
+
+    monkeypatch.setattr(reports, "build_feature_contract_comparison", _comparison)
+    first = reports.write_headline_vs_ablation_contract_reports(diagnostics_dir, run_id)
+    second = reports.write_headline_vs_ablation_contract_reports(diagnostics_dir, run_id)
+    assert len(comparison_calls) == 1
+    assert first[:2] == second[:2]
+    assert second[2]["apples_to_apples"] is True
+
+    taxonomy_reads: list[bool] = []
+
+    def _summary(*_args, **_kwargs):
+        taxonomy_reads.append(True)
+        return {"rows_evaluated": 0, "family_rows_evaluated": 0}
+
+    monkeypatch.setattr(reports, "_read_taxonomy_summary", _summary)
+    first_tax = reports.write_taxonomy_type_authority_reports(diagnostics_dir, run_id)
+    second_tax = reports.write_taxonomy_type_authority_reports(diagnostics_dir, run_id)
+    assert len(taxonomy_reads) == 1
+    assert first_tax == second_tax
+
+
 def test_contract_and_taxonomy_reports_use_global_latest_mirrors_for_run_dirs(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -276,11 +317,8 @@ def test_taxonomy_authority_split_reports_separate_scopes_and_categories(
     assert payload["authority_scopes"]["run_cohort_authority"]["available"] is True
     assert payload["taxonomy_split"]["model_prediction_error"]["count"] == 2
 
-    rendering_df = reports.pd.read_csv(rendering_csv_path)
-    assert set(rendering_df["diagnostic_bucket"]) == {"type_authority_vs_rendering_mismatch"}
-
-    pred_df = reports.pd.read_csv(model_err_csv_path)
-    assert set(pred_df["diagnostic_bucket"]) == {"model_prediction_error"}
+    assert rendering_csv_path.name == f"taxonomy_consistency_mismatches_{run_id}.csv"
+    assert model_err_csv_path.name == f"prediction_errors_{run_id}.csv"
 
     gap_df = reports.pd.read_csv(gap_csv_path)
     assert "generic_or_coarse_label_issue" in set(gap_df["summary_group"])

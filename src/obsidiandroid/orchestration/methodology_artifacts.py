@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,6 +18,7 @@ def export_feature_contract(
     feature_df: pd.DataFrame,
     run_id: str,
     output_dir: str = "output/diagnostics",
+    selection_contract: dict[str, Any] | None = None,
 ) -> str:
     """Export feature contract artifact for exact training reproducibility.
 
@@ -90,6 +90,8 @@ def export_feature_contract(
             "columns": int(feature_df.shape[1]),
         },
     }
+    if isinstance(selection_contract, dict):
+        payload["feature_selection"] = dict(selection_contract)
 
     stamped = f"feature_contract_{run_id}.json"
     oh.mirror_json_text_run_then_global(
@@ -111,16 +113,10 @@ def export_feature_contract(
         csv_text=ordered_columns_csv,
         global_latest_name="feature_columns.latest.csv",
     )
-    if not bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True)):
-        stamped_path = output_root / stamped
-        if stamped_path.exists():
-            try:
-                stamped_path.unlink()
-            except OSError:
-                pass
-    compat = output_root / "feature_contract.json"
-    compat.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return str(compat)
+    # Core methodology evidence is always stamped and run-bound.  Do not
+    # replace it with an unversioned compatibility copy: reused run slots and
+    # global ``latest`` mirrors can otherwise point reports at another run.
+    return str(output_root / stamped)
 
 
 def export_leakage_assessment(
@@ -184,16 +180,7 @@ def export_leakage_assessment(
         text=body,
         global_latest_name="leakage_assessment.latest.txt",
     )
-    if not bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True)):
-        stamped_path = output_root / f"leakage_assessment_{run_id}.txt"
-        if stamped_path.exists():
-            try:
-                stamped_path.unlink()
-            except OSError:
-                pass
-    compat = output_root / "leakage_assessment.txt"
-    compat.write_text(body, encoding="utf-8")
-    return str(compat)
+    return str(output_root / f"leakage_assessment_{run_id}.txt")
 
 
 def export_modality_method_contract(
@@ -295,13 +282,4 @@ def export_modality_method_contract(
         payload=payload,
         global_latest_name="modality_method_contract.latest.json",
     )
-    if not bool(getattr(app_config, "ENABLE_VERBOSE_RUN_ARTIFACTS", True)):
-        stamped_path = output_root / f"modality_method_contract_{run_id}.json"
-        if stamped_path.exists():
-            try:
-                stamped_path.unlink()
-            except OSError:
-                pass
-    compat = output_root / "modality_method_contract.json"
-    compat.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return str(compat)
+    return str(output_root / f"modality_method_contract_{run_id}.json")

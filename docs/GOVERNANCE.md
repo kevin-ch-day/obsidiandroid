@@ -34,6 +34,12 @@ Supported keys:
 - `threshold_overrides`
 - `dataset_filters`
 
+`cohort_gates.require_active_type_slug` is an optional boolean gate for a
+type-supervised profile. When enabled, rows whose resolved
+`android_malware_type` record is inactive are excluded from the governed cohort.
+Broad diagnostic profiles may intentionally retain those historical rows, but
+their type-target reports must not present them as trainable labels.
+
 ## Engine Canonicalization
 Rules:
 1. lowercase

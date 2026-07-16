@@ -10,6 +10,8 @@ import json
 import pandas as pd
 
 from obsidiandroid.common.hash_utils import hash_payload
+from obsidiandroid.governance import family_tier_authority
+from obsidiandroid.common.family_label_semantics import family_label_conflict_mask
 
 
 WEAK_LABEL_KINDS = {"filename", "hash_like", "opaque_string", "unclassified"}
@@ -106,34 +108,16 @@ def _effective_ts(df: pd.DataFrame) -> pd.Series:
 
 
 def _mapped_family_mask(df: pd.DataFrame) -> pd.Series:
-    family_name = (
-        df["family_canonical"].fillna("").astype(str).str.strip().str.lower()
-        if "family_canonical" in df.columns
-        else pd.Series("", index=df.index, dtype="object")
-    )
-    family_id_present = (
-        pd.to_numeric(df["family_id"], errors="coerce").notna()
-        if "family_id" in df.columns
-        else pd.Series(False, index=df.index)
-    )
-    return family_id_present | (~family_name.isin({"", "unknown", "other", "unmapped", "none", "null"}))
+    """Keep gap-audit mapping semantics identical to target-surface reporting."""
+    return family_tier_authority.build_family_tier_masks(df)["mapped_family"]
 
 
 def _family_label_conflict_mask(df: pd.DataFrame) -> pd.Series:
-    raw = (
-        df["family_label"].fillna("").astype(str).str.strip().str.lower()
-        if "family_label" in df.columns
-        else pd.Series("", index=df.index, dtype="object")
-    )
-    canonical = (
-        df["family_canonical"].fillna("").astype(str).str.strip().str.lower()
-        if "family_canonical" in df.columns
-        else pd.Series("", index=df.index, dtype="object")
-    )
-    return (
-        ~raw.isin({"", "unknown", "generic", "unclassified", "unlabeled"})
-        & ~canonical.isin({"", "unknown", "other", "unmapped", "none", "null"})
-        & (raw != canonical)
+    """Return shared alias-aware conflict semantics for gap auditing."""
+    return family_label_conflict_mask(
+        df,
+        raw_column="family_label",
+        canonical_column="family_canonical",
     )
 
 
@@ -193,7 +177,7 @@ def _reason_series(df: pd.DataFrame, policy: CohortGatePolicy) -> pd.Series:
         allowed_for_support &= ~family_norm.isin(set(policy.exclude_families))
 
     family_support_counts = (
-        family_norm[allowed_for_support & ~family_norm.isin({"", "unknown", "other", "unmapped", "none", "null"})]
+        family_norm[allowed_for_support & ~family_norm.isin({"", "unknown", "other", "unmapped", "none", "null", "nan", "n/a"})]
         .value_counts()
         .to_dict()
     )

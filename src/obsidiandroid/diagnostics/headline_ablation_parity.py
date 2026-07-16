@@ -8,25 +8,18 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-
-def _prefer_run_scoped(paths: list[Path], run_id: str) -> Path | None:
-    tagged = [p for p in paths if run_id in p.name]
-    if tagged:
-        return sorted(tagged, key=lambda p: len(p.name), reverse=True)[0]
-    return paths[0] if paths else None
+from obsidiandroid.common import output_hygiene as oh
 
 
 def read_evaluation_contract(diagnostics_dir: Path, run_id: str) -> dict[str, Any]:
-    """Load ``evaluation_contract`` JSON when manifest finalization has written it."""
-    for name in (f"evaluation_contract_{run_id}.json", "evaluation_contract.latest.json"):
-        p = diagnostics_dir / name
-        if not p.is_file():
-            continue
+    """Load this run's final evaluation contract, never a ``latest`` mirror."""
+    p = diagnostics_dir / f"evaluation_contract_{run_id}.json"
+    if p.is_file():
         try:
             blob = json.loads(p.read_text(encoding="utf-8"))
             return blob if isinstance(blob, dict) else {}
         except (OSError, json.JSONDecodeError):
-            continue
+            return {}
     return {}
 
 
@@ -48,13 +41,8 @@ def read_headline_feature_column_hash(
         if isinstance(h, str) and h.strip():
             return h.strip(), "evaluation_contract_json"
 
-    globs = sorted(
-        diagnostics_dir.glob("model_comparison_summary*.csv"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    path = _prefer_run_scoped(globs, run_id)
-    if path is None or not path.is_file():
+    path = oh.resolve_model_comparison_summary_path(diagnostics_dir, run_id)
+    if not path.is_file():
         return None, None
     try:
         with path.open(encoding="utf-8", newline="") as fh:
@@ -82,11 +70,8 @@ def _resolve_headline_feature_contract_path(
             candidate = Path(raw)
             if candidate.is_file():
                 return candidate
-    for name in (f"feature_contract_{run_id}.json", "feature_contract.json", "feature_contract.latest.json"):
-        candidate = diagnostics_dir / name
-        if candidate.is_file():
-            return candidate
-    return None
+    candidate = oh.resolve_feature_contract_path(diagnostics_dir, run_id)
+    return candidate if candidate.is_file() else None
 
 
 def _summarize_headline_feature_modalities(
@@ -143,13 +128,8 @@ def read_ablation_full_fused_feature_column_hash(
     preferred_label_targets: list[str] | None = None,
 ) -> tuple[str | None, str | None]:
     """Hash from ablation grid row ``full_fused`` × preferred family label target."""
-    globs = sorted(
-        diagnostics_dir.glob("ablation_summary*.csv"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    path = _prefer_run_scoped(globs, run_id)
-    if path is None or not path.is_file():
+    path = oh.resolve_ablation_summary_path(diagnostics_dir, run_id)
+    if not path.is_file():
         return None, None
     try:
         with path.open(encoding="utf-8", newline="") as fh:

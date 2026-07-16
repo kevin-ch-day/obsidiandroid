@@ -10,7 +10,7 @@ import pytest
 from obsidiandroid.cli import profile_manager
 from obsidiandroid.common.repo_paths import repo_root
 from obsidiandroid.pipeline import stage_samples
-from obsidiandroid.database import db_sample_metadata_queries
+from obsidiandroid.database import db_sample_metadata_fetchers, db_sample_metadata_queries
 
 
 def _locked_materialization_stub(samples_df: pd.DataFrame, **overrides) -> SimpleNamespace:
@@ -58,6 +58,31 @@ def test_load_samples_by_type_supports_all_types_when_slug_none(monkeypatch) -> 
     df = db_sample_metadata_queries.load_samples_by_type(type_slug=None)
     assert not df.empty
     assert captured["type_slug"] is None
+
+
+def test_active_type_gate_is_applied_to_outer_and_support_sql() -> None:
+    """Type-level training can require active taxonomy rows without changing broad audits."""
+    parts = db_sample_metadata_fetchers._cohort_loader_sql_parts(  # pylint: disable=protected-access
+        type_slug=None,
+        min_samples_per_family=3,
+        require_mapped_family=False,
+        require_sha256=True,
+        allow_missing_package_name=True,
+        exclude_unknown_type_slug=True,
+        exclude_weak_label_kinds=False,
+        exclude_family_label_conflicts=False,
+        effective_time_start_utc=None,
+        effective_time_end_utc=None,
+        require_effective_first_seen=True,
+        include_family_canonical=None,
+        exclude_family_ids=None,
+        exclude_family_canonical=None,
+        require_active_type_slug=True,
+    )
+
+    where_sql = " ".join(parts["where_clauses"])
+    assert "COALESCE(t.is_active, 0) = 1" in where_sql
+    assert "COALESCE(t_inner.is_active, 0) = 1" in where_sql
 
 
 def test_load_banker_dataframe_routes_to_generic_type_loader(monkeypatch) -> None:
@@ -1081,7 +1106,7 @@ def test_validate_type_slug_hybrid_static_fallback_accepts_live_taxonomy_slug(mo
 
 
 def test_validate_type_slug_static_accepts_current_taxonomy_slug(monkeypatch) -> None:
-    """Static validation should include the expanded supported Android malware taxonomy."""
+    """Static validation should include the expanded active Android taxonomy."""
     monkeypatch.setattr(
         db_sample_metadata_queries.app_config,
         "TYPE_SLUG_VALIDATION_MODE",
@@ -1090,6 +1115,36 @@ def test_validate_type_slug_static_accepts_current_taxonomy_slug(monkeypatch) ->
     )
 
     db_sample_metadata_queries._validate_type_slug("ransomware")  # pylint: disable=protected-access
+    db_sample_metadata_queries._validate_type_slug("subscription-fraud")  # pylint: disable=protected-access
+
+
+def test_validate_type_slug_static_rejects_retired_taxonomy_type(monkeypatch) -> None:
+    """Static fallback must not revive a type retired in the live taxonomy."""
+    monkeypatch.setattr(
+        db_sample_metadata_queries.app_config,
+        "TYPE_SLUG_VALIDATION_MODE",
+        "static",
+        raising=False,
+    )
+
+    with pytest.raises(ValueError, match="Unsupported type_slug 'worm'"):
+        db_sample_metadata_queries._validate_type_slug("worm")  # pylint: disable=protected-access
+
+
+def test_fetch_available_type_slugs_filters_retired_rows(monkeypatch) -> None:
+    """Live validation must expose only active taxonomy rows."""
+    captured: dict[str, str] = {}
+
+    def fake_execute(query, **_kwargs):
+        captured["query"] = query
+        return ["type_slug"], [("banker",), ("dropper",)]
+
+    from obsidiandroid.database import db_sample_metadata_fetchers
+
+    monkeypatch.setattr(db_sample_metadata_fetchers.db_engine, "execute_query", fake_execute)
+
+    assert db_sample_metadata_fetchers.fetch_available_android_type_slugs() == ("banker", "dropper")
+    assert "is_active = 1" in captured["query"]
 
 
 @pytest.mark.integration

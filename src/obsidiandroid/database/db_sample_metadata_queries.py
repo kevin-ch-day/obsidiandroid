@@ -35,10 +35,10 @@ _DB_TYPE_SLUG_CACHE: tuple[str, ...] | None = None
 
 
 def _allowed_type_slugs() -> tuple[str, ...]:
-    """Resolve allowed type slugs from DB taxonomy with static fallback.
+    """Resolve allowed active type slugs from DB taxonomy with static fallback.
 
     Validation modes:
-        - ``static``: Use hardcoded contract list only.
+        - ``static``: Use the hardcoded active-type contract only.
         - ``hybrid``: Prefer DB list; fallback to static on DB errors.
         - ``strict``: Require DB list, propagate DB errors.
     """
@@ -97,6 +97,7 @@ def load_samples_by_type(
     include_family_canonical: tuple[str, ...] | None = None,
     exclude_family_ids: tuple[int, ...] | None = None,
     exclude_family_canonical: tuple[str, ...] | None = None,
+    require_active_type_slug: bool = False,
 ) -> pd.DataFrame:
     """Load Android APK samples for a canonical malware type.
 
@@ -119,6 +120,7 @@ def load_samples_by_type(
         effective_time_start_utc: Inclusive lower bound for effective first-seen.
         effective_time_end_utc: Exclusive upper bound for effective first-seen.
         require_effective_first_seen: Require effective first-seen timestamp.
+        require_active_type_slug: Require the taxonomy type row to be active.
 
     Returns:
         DataFrame in the pipeline metadata contract format.
@@ -151,6 +153,7 @@ def load_samples_by_type(
         include_family_canonical=include_family_canonical,
         exclude_family_ids=exclude_family_ids,
         exclude_family_canonical=exclude_family_canonical,
+        require_active_type_slug=require_active_type_slug,
         as_dataframe=False,
     )
     frame = convert_to_dataframe(result, label)
@@ -180,6 +183,7 @@ def load_sample_ids_by_type(
     include_family_canonical: tuple[str, ...] | None = None,
     exclude_family_ids: tuple[int, ...] | None = None,
     exclude_family_canonical: tuple[str, ...] | None = None,
+    require_active_type_slug: bool = False,
 ) -> set[int]:
     """Load governed ``sample_id`` values without materializing the full metadata frame."""
     _validate_type_slug(type_slug)
@@ -204,6 +208,7 @@ def load_sample_ids_by_type(
         include_family_canonical=include_family_canonical,
         exclude_family_ids=exclude_family_ids,
         exclude_family_canonical=exclude_family_canonical,
+        require_active_type_slug=require_active_type_slug,
     )
 
 

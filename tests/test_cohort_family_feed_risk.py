@@ -90,3 +90,32 @@ def test_export_family_feed_risk_reports_writes_expected_files(tmp_path: Path) -
     assert len(out) == 3
     for path in out:
         assert Path(path).exists()
+
+
+def test_feed_risk_normalizes_known_aliases_and_textual_nulls() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "family_canonical": "RoamingMantis",
+                "family_label_raw": "Wroba",
+                "type_slug": "banker",
+                "sample_label_kind": "family_or_common_name",
+                "vt_family_token": "wroba",
+            },
+            {
+                "family_canonical": "nan",
+                "family_label_raw": "n/a",
+                "type_slug": "banker",
+                "sample_label_kind": "family_or_common_name",
+                "vt_family_token": "possiblefamily",
+            },
+        ]
+    )
+
+    payload = cohort_family_feed_risk.build_family_feed_risk_payload(df, top_n=10)
+
+    assert payload["family_count"] == 1
+    roaming = next(row for row in payload["ranked_families"] if row["family_canonical"] == "RoamingMantis")
+    assert roaming["family_conflict_rows"] == 0
+    blank = next(row for row in payload["ranked_families"] if row["family_canonical"] == "<blank>")
+    assert blank["blank_family_with_token_rows"] == 1

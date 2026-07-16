@@ -221,7 +221,6 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
         taxonomy_signals = {}
     policy_held_family_samples = int(taxonomy_signals.get("policy_held_family_samples", 0) or 0)
     blank_resolved_family_samples = int(taxonomy_signals.get("blank_resolved_family_samples", 0) or 0)
-    missing_primary_samples = int(taxonomy_signals.get("missing_primary_label_samples", 0) or 0)
     backlog_triage_health = assess_backlog_triage_health(
         readiness=readiness_payload,
         android_missing_triage=android_triage,
@@ -370,7 +369,7 @@ def build_diagnostics_overview(*, output_root: Path, latest_run_id: str | None) 
             "label": "Feature matrix",
             "status": _status_light(
                 oh.resolve_feature_build_coverage_path(rdiag, rid).is_file()
-                or (rdiag / "feature_contract.json").is_file()
+                or oh.resolve_feature_contract_path(rdiag, rid).is_file()
                 if rid
                 else False
             ),

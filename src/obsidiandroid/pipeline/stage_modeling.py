@@ -47,11 +47,23 @@ def compute_engine_weights_from_pipeline(
         has_vendor_eval=bool(isinstance(pipeline_results.get("vendor_eval_df"), pd.DataFrame)),
     )
     try:
-        if bool(getattr(app_config, "ENABLE_ENGINE_WEIGHT_DB_SUMMARY", True)):
+        engine_scores_df = pipeline_results.get("engine_scores")
+        has_primary_engine_scores = (
+            isinstance(engine_scores_df, pd.DataFrame) and not engine_scores_df.empty
+        )
+        if bool(getattr(app_config, "ENABLE_ENGINE_WEIGHT_DB_SUMMARY", True)) and not has_primary_engine_scores:
             summary_df = engine_scoring_summary.build_av_engine_scoring_summary_from_db()
             if summary_df.empty:
                 raise ValueError("Engine scoring summary is empty.")
             pipeline_results["engine_summary"] = summary_df
+        elif has_primary_engine_scores:
+            # ``engine_summary`` is only consumed as a fallback when the AV
+            # pipeline did not produce engine scores. Avoid a second corpus
+            # aggregation after the primary score table already exists.
+            du.print_info(
+                "[ENGINE WEIGHTS] Reusing AV pipeline engine scores; "
+                "skipping redundant DB engine-summary aggregation."
+            )
         else:
             du.print_info("[ENGINE WEIGHTS] DB engine summary stage disabled by config.")
 
@@ -62,7 +74,7 @@ def compute_engine_weights_from_pipeline(
         weights_df = compute_vendor_scores.run_score_analysis(vendor_eval_df, verbose=True)
         weights_df = _enrich_vendor_trust_flags(
             weights_df=weights_df,
-            engine_scores_df=pipeline_results.get("engine_scores"),
+            engine_scores_df=engine_scores_df,
         )
         du.print_success(f"Engine weights computed: {weights_df.shape}")
         log_event(

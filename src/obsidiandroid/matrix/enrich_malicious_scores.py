@@ -14,10 +14,10 @@ def is_valid_av_matrix(df: pd.DataFrame) -> bool:
 
 
 # --- Load scoring data ---
-def fetch_malicious_score_table() -> pd.DataFrame:
-    """Fetches malicious scoring data from the database."""
+def fetch_malicious_score_table(sample_ids=None) -> pd.DataFrame:
+    """Fetch malicious scoring data, optionally for the active cohort only."""
     try:
-        result = db_sample_malicious_scoring.get_sample_malicious_score()
+        result = db_sample_malicious_scoring.get_sample_malicious_score(sample_ids=sample_ids)
         if not isinstance(result, (list, tuple)) or len(result) != 2:
             return pd.DataFrame()
         rows, cols = result
@@ -44,11 +44,14 @@ def apply_score_enrichment(matrix_df: pd.DataFrame, verbose: bool = False) -> pd
         return matrix_df
 
     try:
-        score_df = fetch_malicious_score_table()
+        score_df = fetch_malicious_score_table(sample_ids=matrix_df["sample_id"].tolist())
         if score_df.empty:
             return matrix_df
 
-        enriched = pd.merge(matrix_df, score_df, on="sample_id", how="left", indicator=True)
+        # The wide engine pivot is assembled incrementally and can be highly
+        # fragmented. Copying once here consolidates its blocks before the
+        # merge, avoiding repeated consolidation work during a long run.
+        enriched = pd.merge(matrix_df.copy(), score_df.copy(), on="sample_id", how="left", indicator=True)
         enriched = enriched.drop(columns=["_merge"])
         enriched = enrich_score_features.add_derived_score_features(enriched)
 

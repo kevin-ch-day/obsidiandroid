@@ -18,7 +18,7 @@ import pandas as pd
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
-from obsidiandroid.common.run_lifecycle import finalize_run_lifecycle_terminal
+from obsidiandroid.common.run_lifecycle import finalize_run_lifecycle_terminal, touch_run_lifecycle_running
 from obsidiandroid.diagnostics import cohort_vocabulary
 from obsidiandroid.observability.logging import log_event
 from obsidiandroid.observability.pipeline_observability import PipelineObservabilitySession
@@ -140,11 +140,21 @@ class PipelineRunStageControl:
             self.manifest_context.pop("failed_stage", None)
 
     def begin_stage(self, stage_name: str) -> None:
-        """Track the active stage for failure reporting."""
+        """Track the active stage for failure reporting and the live run marker."""
         self.current_stage_name = stage_name
         self.active_perf_stage_start = perf_counter()
         self.manifest_context["current_stage"] = stage_name
         self.manifest_context["_active_stage_wall_start_iso"] = datetime.now(timezone.utc).isoformat()
+        # A full run can spend hours inside one stage.  Keep the lightweight
+        # on-disk capsule current so an operator can distinguish a live run at
+        # ``training`` from a stale ``.RUNNING`` marker after an interruption.
+        run_root = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
+        if run_root:
+            try:
+                touch_run_lifecycle_running(Path(run_root), stage=stage_name)
+            except OSError:
+                # Lifecycle decoration must never block the scientific stage.
+                pass
         obs_begin = self.manifest_context.get("pipeline_observability")
         if isinstance(obs_begin, PipelineObservabilitySession):
             obs_begin.emit_stage_start(stage_name, stop_after=str(self.manifest_context.get("stop_after", "")))

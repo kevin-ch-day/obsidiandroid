@@ -33,10 +33,12 @@ def _coerce_sample_id_to_int64_rows(df: pd.DataFrame | None) -> pd.DataFrame | N
         return df
     if "sample_id" not in df.columns:
         return df
-    out = df.copy()
-    sid = pd.to_numeric(out["sample_id"], errors="coerce")
+    sid = pd.to_numeric(df["sample_id"], errors="coerce")
     valid = sid.notna()
-    out = out.loc[valid].copy()
+    # Select and copy once.  The former ``df.copy()`` followed by
+    # ``out.loc[valid].copy()`` duplicated every full enrichment frame even
+    # when all sample IDs were already valid.
+    out = df.loc[valid].copy()
     if out.empty:
         return out
     out["sample_id"] = sid.loc[valid].round().astype("int64")
@@ -293,7 +295,7 @@ def _apply_permission_fuse(
     *,
     internet_col: str | None,
 ) -> pd.DataFrame:
-    perm_coerced = _coerce_sample_id_to_int64_rows(permission_features_df.copy())
+    perm_coerced = _coerce_sample_id_to_int64_rows(permission_features_df)
     if perm_coerced is None or perm_coerced.empty:
         audit: dict[str, Any] = {}
         audit.update(_fuse_stats_dict("pre_permission_merge", merged, None, internet_col=internet_col))
@@ -450,7 +452,7 @@ def merge_sample_metadata_features(
         )
         return merged
 
-    metadata_features_df = _coerce_sample_id_to_int64_rows(metadata_features_df.copy())
+    metadata_features_df = _coerce_sample_id_to_int64_rows(metadata_features_df)
     if metadata_features_df is None or metadata_features_df.empty:
         return extra_features_df
 

@@ -145,7 +145,7 @@ def launch_feature_matrix_modality_menu(
     rdiag = output_root / "runs" / rid / "diagnostics"
     gdiag = output_root / "diagnostics"
     entries: list[tuple[str, list[Path]]] = [
-        ("Feature contract", [rdiag / "feature_contract.json", gdiag / "feature_contract.json"]),
+        ("Feature contract", [oh.resolve_feature_contract_path(rdiag, rid)]),
         (
             "Modality contribution (JSON)",
             [rdiag / "modality_contribution_summary.json", gdiag / "modality_contribution_summary.json"],
@@ -334,14 +334,6 @@ def launch_taxonomy_consistency_review_menu(
             [rdiag / f"taxonomy_authority_split_{rid}.json", output_root / "diagnostics" / "taxonomy_authority_split.latest.json"],
         ),
         (
-            "Rendering mismatches",
-            [rdiag / f"taxonomy_rendering_mismatches_{rid}.csv", output_root / "diagnostics" / "taxonomy_rendering_mismatches.latest.csv"],
-        ),
-        (
-            "Model prediction errors",
-            [rdiag / f"taxonomy_model_prediction_errors_{rid}.csv", output_root / "diagnostics" / "taxonomy_model_prediction_errors.latest.csv"],
-        ),
-        (
             "Authority gap summary",
             [rdiag / f"taxonomy_authority_gap_summary_{rid}.csv", output_root / "diagnostics" / "taxonomy_authority_gap_summary.latest.csv"],
         ),
@@ -350,10 +342,10 @@ def launch_taxonomy_consistency_review_menu(
             [oh.resolve_taxonomy_consistency_summary_path(rdiag, rid)],
         ),
         (
-            "Mismatch rows",
+            "Rendering mismatch rows",
             [oh.resolve_taxonomy_consistency_mismatches_path(rdiag, rid)],
         ),
-        ("Prediction rows", [oh.resolve_prediction_errors_path(rdiag, rid)]),
+        ("Model prediction-error rows", [oh.resolve_prediction_errors_path(rdiag, rid)]),
     ]
     du.print_subheader("Diagnostics")
     for label, candidates in rows:

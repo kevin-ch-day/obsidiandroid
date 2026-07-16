@@ -11,8 +11,9 @@ import numpy as np
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.modeling.parallel_layout import (
+    grid_search_pre_dispatch,
     grid_search_job_counts,
-    stratified_kfold_for_grid_search,
+    tuning_grid_splitter,
 )
 from obsidiandroid.modeling.training_console_policy import (
     emit_class_imbalance_notice,
@@ -68,6 +69,7 @@ def train_svm(
     should_grid = bool(
         grid_search or getattr(app_config, "ENABLE_SVM_GRID_SEARCH", False)
     )
+    grid_search_status = "disabled"
     model = None
     if should_grid:
         param_grid = getattr(app_config, "SVM_PARAM_GRID", {
@@ -77,13 +79,15 @@ def train_svm(
         })
         label_counts = Counter(y_train)
         min_class_size = min(label_counts.values())
-        cv_splitter = stratified_kfold_for_grid_search(
+        cv_splitter, minimum_tuning_support = tuning_grid_splitter(
             min_class_size, random_state=random_state
         )
         if cv_splitter is None:
+            grid_search_status = "skipped_insufficient_class_support"
             if verbose:
                 du.print_warning(
-                    "[SVM] Grid search skipped: need ≥2 samples per class "
+                    "[SVM] Grid search skipped: need "
+                    f"≥{minimum_tuning_support} samples per class "
                     f"(minimum count was {min_class_size}). Fitting default parameters."
                 )
         else:
@@ -92,17 +96,20 @@ def train_svm(
                 _debug_training_info(y_train, n_splits)
                 _analyze_training_setup(X_train, y_train, param_grid, n_splits)
             _, grid_jobs = grid_search_job_counts()
-            base_model = SVC(class_weight="balanced", probability=True)
+            base_params = {key: value for key, value in model_params.items() if key not in param_grid}
+            base_model = SVC(**base_params)
             grid = GridSearchCV(
                 estimator=base_model,
                 param_grid=param_grid,
                 cv=cv_splitter,
                 scoring="f1_macro",
                 n_jobs=grid_jobs,
+                pre_dispatch=grid_search_pre_dispatch(),
             )
             grid.fit(X_train, y_train)
             model = grid.best_estimator_
             model_params.update(grid.best_params_)
+            grid_search_status = "completed"
 
     if model is None:
         model = SVC(**model_params)
@@ -119,7 +126,10 @@ def train_svm(
     results = {
         "metadata": {
             "duration": duration,
-            "params": model_params
+            "params": model_params,
+            "grid_search_requested": should_grid,
+            "grid_search_active": grid_search_status == "completed",
+            "grid_search_status": grid_search_status,
         }
     }
 
@@ -129,7 +139,7 @@ def train_svm(
         confidences = np.max(y_prob, axis=1)
 
         # Prepare outputs using sample_ids
-        if sample_ids and len(sample_ids) == len(y_pred):
+        if sample_ids is not None and len(sample_ids) == len(y_pred):
             predictions_dict = {sid: int(pred) for sid, pred in zip(sample_ids, y_pred)}
             labels_dict = {sid: int(label) for sid, label in zip(sample_ids, y_test)}
             meta_dict = {

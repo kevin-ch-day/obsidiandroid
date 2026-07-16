@@ -66,6 +66,22 @@ def test_major_family_profile_resolves_include_families_from_authority() -> None
     assert "donot" in include_families
 
 
+def test_support20_candidate_materializes_membership_before_freezing() -> None:
+    """The future benchmark candidate must not masquerade as a locked profile."""
+    profile = profile_manager.load_profile("android_malware_major_families_support20")
+    gates = profile.get("cohort_gates", {})
+
+    assert profile.get("paper_locked") is False
+    assert profile.get("evidence_mode") is False
+    assert profile["profile_status"]["lifecycle"] == "prepublication_candidate"
+    assert profile["profile_status"]["status_label"] == "Candidate benchmark — lock required"
+    assert gates.get("support_floor_mode") == "membership_gate"
+    assert gates.get("min_samples_per_family") == 20
+    assert gates.get("require_active_type_slug") is True
+    assert gates.get("include_families_from_authority") == "major_families"
+    assert len(gates.get("include_families", [])) == 39
+
+
 def test_expanded_family_profile_uses_benchmark_eligibility_support_floor() -> None:
     profile = profile_manager.load_profile("android_malware_expanded_families")
     gates = profile.get("cohort_gates", {})
@@ -393,8 +409,8 @@ def test_infer_cohort_readiness_signal_prefers_declared_bucket_contract() -> Non
     assert "Declared readiness bucket in profile contract" in str(signal["detail"])
 
 
-def test_select_profile_interactive_quick_uses_six_intent_menu(monkeypatch) -> None:
-    """Quick path should expose only the six benchmark/dev intents."""
+def test_select_profile_interactive_quick_includes_support20_candidate(monkeypatch) -> None:
+    """Quick path should expose the pre-freeze support-gated benchmark candidate."""
     captured: dict[str, list[str]] = {}
 
     def _fake_display_menu(options, *_, **kwargs):
@@ -410,6 +426,7 @@ def test_select_profile_interactive_quick_uses_six_intent_menu(monkeypatch) -> N
     assert captured["Execution profile"] == [
         "Current Android malware — all samples",
         "Major-family Android malware classification",
+        "Candidate benchmark — n >= 20 family support",
         "Expanded Android malware — major + minor families",
         "Type-level / coarse taxonomy classification",
         "Robustness and perturbation suite",
@@ -420,7 +437,7 @@ def test_select_profile_interactive_quick_uses_six_intent_menu(monkeypatch) -> N
 
 def test_select_profile_interactive_quick_resolves_robustness_submenu(monkeypatch) -> None:
     """Robustness intent should expose exactly two sensitivity profiles."""
-    choices = iter([5, 2])
+    choices = iter([6, 2])
     seen: dict[str, list[str]] = {}
 
     def _fake_display_menu(options, *_, **kwargs):
@@ -435,6 +452,7 @@ def test_select_profile_interactive_quick_resolves_robustness_submenu(monkeypatc
     assert seen["Execution profile"] == [
         "Current Android malware — all samples",
         "Major-family Android malware classification",
+        "Candidate benchmark — n >= 20 family support",
         "Expanded Android malware — major + minor families",
         "Type-level / coarse taxonomy classification",
         "Robustness and perturbation suite",
@@ -453,7 +471,7 @@ def test_type_taxonomy_profile_declares_type_slug_training_target() -> None:
 
 def test_select_profile_interactive_quick_resolves_development_submenu(monkeypatch) -> None:
     """Development intent should expose exactly fast iteration and smoke."""
-    choices = iter([6, 1])
+    choices = iter([7, 1])
     seen: dict[str, list[str]] = {}
 
     def _fake_display_menu(options, *_, **kwargs):

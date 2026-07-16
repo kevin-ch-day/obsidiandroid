@@ -8,6 +8,8 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.diagnostics import family_label_confidence_audit
+from obsidiandroid.governance import family_tier_authority
+from obsidiandroid.common.family_label_semantics import family_label_conflict_mask
 from obsidiandroid.governance.support_floor_policy import resolve_diagnostic_min_samples_per_family
 from obsidiandroid.orchestration.profile_filters import malicious_signal_or_taxonomy_mask
 
@@ -40,6 +42,34 @@ def apply_contract_filters(
 
     evidence_mode = bool(getattr(app_config, "RUNTIME_EVIDENCE_MODE", False))
     paper_mode = bool(getattr(app_config, "PAPER_MODE_ENABLED", False))
+    if bool(gates.get("require_mapped_family", False)):
+        # SQL can establish that a numeric ``family_id`` is present, but that
+        # alone does not make an ID-shaped or textual-null display value a
+        # defensible supervised family target. Reapply the governed mapping
+        # definition at the frame boundary before support is computed.
+        before = len(out)
+        mapped_family = family_tier_authority.build_family_tier_masks(out)["mapped_family"]
+        out = out[mapped_family].copy()
+        _record(
+            "require_mapped_family_target_guard",
+            before,
+            len(out),
+            "canonical family name and numeric family_id required; placeholders rejected",
+        )
+    if bool(gates.get("exclude_family_label_conflicts", False)):
+        # The SQL loader applies the same stable alias contract for normal runs.
+        # Retain this boundary guard for snapshots, mocks, and any loader that
+        # returns rows outside that SQL path.
+        before = len(out)
+        conflict_mask = family_label_conflict_mask(
+            out,
+            raw_column="family_label_raw" if "family_label_raw" in out.columns else "family_label",
+            canonical_column="family_canonical",
+        )
+        out = out[~conflict_mask].copy()
+        applied_in_sql = bool(samples_df.attrs.get("exclude_family_label_conflicts_applied_in_sql", False))
+        detail = "alias_aware boundary assertion; already_applied_in_sql" if applied_in_sql else "alias_aware boundary filter"
+        _record("exclude_family_label_conflicts", before, len(out), detail)
     exclude_unknown = bool(
         getattr(app_config, "RUNTIME_EXCLUDE_UNKNOWN_FROM_MAIN_RESULTS", False)
         or evidence_mode
@@ -59,7 +89,7 @@ def apply_contract_filters(
             if "type_slug" in out.columns
             else pd.Series([""], index=out.index, dtype="object")
         )
-        invalid = {"", "unknown", "other", "unmapped", "none", "null"}
+        invalid = {"", "unknown", "other", "unmapped", "none", "null", "nan", "n/a"}
         family_ok = ~normalized.isin(invalid)
         type_ok = ~type_slug_norm.isin({"", "unknown"})
         out = out[family_ok & type_ok].copy()

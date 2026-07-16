@@ -1,8 +1,10 @@
-import pandas as pd
 from typing import Any, Dict, Optional, Set
 
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.classification_builder import sample_classification_builder
+from obsidiandroid.classification_builder.classification_row_builder import (
+    build_label_resolution_context,
+)
 from obsidiandroid.labeling.malware_family_constants import (
     is_known_family_name,
     normalize_family_name,
@@ -20,33 +22,11 @@ def _normalize_type_token(value: Any) -> str:
 
 
 def _normalize_family_type_profile() -> Dict[str, Set[str]]:
-    """
-    Build observed family→type mappings from run-level metadata.
-
-    This keeps DB family overrides aligned with authoritative sample type context and avoids
-    cross-type spillover where known family tokens are reused across incompatible types.
-    """
-    meta = getattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", None)
-    if not isinstance(meta, pd.DataFrame) or meta.empty:
-        return {}
-
-    family_column = next(
-        (c for c in ("family_canonical", "family_name") if c in meta.columns),
-        None,
-    )
-    if family_column is None or "type_slug" not in meta.columns:
-        return {}
-
-    profile: Dict[str, Set[str]] = {}
-    rows = meta[[family_column, "type_slug"]].copy()
-    rows = rows.dropna()
-    for family_value, type_value in rows.itertuples(index=False, name=None):
-        family_token = normalize_family_name(family_value)
-        type_token = _normalize_type_token(type_value)
-        if not family_token or not type_token:
-            continue
-        profile.setdefault(family_token, set()).add(type_token)
-    return profile
+    """Compatibility wrapper for the shared label-resolution authority map."""
+    return {
+        family: set(type_tokens)
+        for family, type_tokens in build_label_resolution_context({}).family_type_profile.items()
+    }
 
 
 def should_use_db_family(

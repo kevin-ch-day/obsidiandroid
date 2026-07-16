@@ -75,6 +75,36 @@ def test_grid_search_job_counts_cv_n_jobs_none_falls_back(monkeypatch) -> None:
     assert outer == -1
 
 
+def test_minimum_grid_search_class_support_has_a_safe_floor(monkeypatch) -> None:
+    monkeypatch.setattr(app_config, "GRID_SEARCH_MIN_CLASS_SUPPORT", 1, raising=False)
+    assert parallel_layout.minimum_grid_search_class_support() == 2
+
+    monkeypatch.setattr(app_config, "GRID_SEARCH_MIN_CLASS_SUPPORT", 6, raising=False)
+    assert parallel_layout.minimum_grid_search_class_support() == 6
+
+
+def test_grid_search_pre_dispatch_is_conservative_and_validated(monkeypatch) -> None:
+    monkeypatch.setattr(app_config, "GRID_SEARCH_PRE_DISPATCH", 3, raising=False)
+    assert parallel_layout.grid_search_pre_dispatch() == 3
+    monkeypatch.setattr(app_config, "GRID_SEARCH_PRE_DISPATCH", "2*n_jobs", raising=False)
+    assert parallel_layout.grid_search_pre_dispatch() == "2*n_jobs"
+    monkeypatch.setattr(app_config, "GRID_SEARCH_PRE_DISPATCH", "all", raising=False)
+    assert parallel_layout.grid_search_pre_dispatch() == 2
+
+
+def test_tuning_grid_splitter_enforces_the_support_floor(monkeypatch) -> None:
+    monkeypatch.setattr(app_config, "GRID_SEARCH_MIN_CLASS_SUPPORT", 5, raising=False)
+
+    unavailable, required = parallel_layout.tuning_grid_splitter(3, random_state=42)
+    splitter, configured_required = parallel_layout.tuning_grid_splitter(8, random_state=42)
+
+    assert unavailable is None
+    assert required == 5
+    assert splitter is not None
+    assert configured_required == 5
+    assert splitter.n_splits == 5
+
+
 def test_stratified_kfold_for_grid_search_none_when_rare_class_tiny() -> None:
     assert parallel_layout.stratified_kfold_for_grid_search(1, random_state=0) is None
 

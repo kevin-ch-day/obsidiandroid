@@ -10,6 +10,8 @@ import pytest
 
 from obsidiandroid.pipeline import contract_filters
 from obsidiandroid.pipeline import stage_samples
+from obsidiandroid.governance.cohort_lock_manifest import validate_lock_manifest
+from obsidiandroid.governance.label_snapshot_contract import label_snapshot_hash
 from config import app_config
 
 apply_contract_filters = contract_filters.apply_contract_filters
@@ -66,6 +68,53 @@ def test_apply_contract_filters_excludes_unknown_in_paper_mode(monkeypatch) -> N
     assert len(out_df) == 1
     assert out_df["sample_id"].tolist() == [1]
     assert any(row["gate_name"] == "exclude_unknown_type_slug" for row in gate_rows)
+
+
+def test_apply_contract_filters_rejects_textual_null_and_id_shaped_family_targets(monkeypatch) -> None:
+    """A numeric ID alone must not promote a placeholder into a training family."""
+    samples_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "family_id": [11, 12, 13],
+            "family_canonical": ["nan", "family_id=12", "NamedFamily"],
+            "type_slug": ["banker", "banker", "banker"],
+        }
+    )
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+
+    out_df, gate_rows = apply_contract_filters(
+        samples_df=samples_df,
+        gates={"require_mapped_family": True},
+        run_id="mapped_guard",
+    )
+
+    assert out_df["sample_id"].tolist() == [3]
+    guard = next(row for row in gate_rows if row["gate_name"] == "require_mapped_family_target_guard")
+    assert guard["dropped"] == 2
+
+
+def test_apply_contract_filters_treats_known_aliases_as_same_family(monkeypatch) -> None:
+    """Conflict exclusion must retain aliases while removing substantive label drift."""
+    samples_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "family_label_raw": ["Wroba", "BlackLoan", "SpyC23"],
+            "family_canonical": ["RoamingMantis", "SpyLoan", "HiddenAd"],
+            "type_slug": ["banker", "banker", "adware"],
+        }
+    )
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+
+    out_df, gate_rows = apply_contract_filters(
+        samples_df=samples_df,
+        gates={"exclude_family_label_conflicts": True},
+        run_id="alias_conflict_guard",
+    )
+
+    assert out_df["sample_id"].tolist() == [1, 2]
+    conflict_gate = next(row for row in gate_rows if row["gate_name"] == "exclude_family_label_conflicts")
+    assert conflict_gate["dropped"] == 1
+    assert "alias_aware" in conflict_gate["details"]
 
 
 def test_apply_contract_filters_family_cap_and_min_malicious(monkeypatch) -> None:
@@ -398,6 +447,22 @@ def test_export_cohort_lock_artifacts_writes_summary_and_membership(
     assert membership_df["sample_id"].tolist() == [1, 2]
     assert manifest_payload["sample_count"] == 2
     assert manifest_payload["cohort_hash"]
+    label_snapshot_path = Path(summary_payload["artifacts"]["label_snapshot_csv"])
+    assert label_snapshot_path.exists()
+    label_snapshot_df = pd.read_csv(label_snapshot_path)
+    assert label_snapshot_df["sample_id"].tolist() == [1, 2]
+    assert manifest_payload["label_snapshot_path"] == str(label_snapshot_path)
+    assert manifest_payload["label_snapshot_hash"] == label_snapshot_hash(label_snapshot_df)
+    assert manifest_payload["taxonomy_hash"] == manifest_payload["label_snapshot_hash"]
+    assert summary_payload["label_snapshot"]["taxonomy_hash_source"] == "row_level_label_snapshot"
+    validate_lock_manifest(manifest=manifest_payload, manifest_path=manifest_path)
+
+    # A declared row-level label snapshot is part of the lock, not optional
+    # informational output.  Tampering must fail validation before reuse.
+    label_snapshot_df.loc[0, "family_canonical"] = "MutatedFamily"
+    label_snapshot_df.to_csv(label_snapshot_path, index=False)
+    with pytest.raises(ValueError, match="label_snapshot_hash mismatch"):
+        validate_lock_manifest(manifest=manifest_payload, manifest_path=manifest_path)
 
 
 def test_export_cohort_lock_artifacts_marks_live_db_drift_as_count_only(

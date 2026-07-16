@@ -211,7 +211,7 @@ def test_emit_research_operator_report_surfaces_runtime_caveats(
     assert "Temporal profile used a non-temporal holdout policy" in text
     assert "stratified_seeded" in text
     assert "Taxonomy split issues present" in text
-    assert "Family taxonomy curation discipline required" in text
+    assert "Family taxonomy curation requires priority review" in text
     assert "Taxonomy mismatches: total=377; claim-facing=0." in text
     assert "policy-held generic/coarse token residue" in text
     assert "Taxonomy curation discipline: high-priority conflicts=9/12; dominant action=review_db_type_mapping (7); dominant issue=type_mismatch (7)." in text
@@ -981,11 +981,20 @@ def test_emit_research_operator_report_marks_all_current_as_diagnostic_surface(
     assert "This run describes current governed Android malware corpus health." in text
     assert "Family/type models are diagnostic because the current corpus is concentration-heavy." in text
     assert "Visible governed families       : 115" in text
-    assert "Modeled family classes          : 115" in text
+    assert "Active supervised family classes: 114" in text
+    assert "Modeled family classes" not in text
     assert "Excluded / non-claim families   : 1" in text
     assert "Use benchmark profiles for stronger family-classification claims." in text
     assert "NOT SUPPORTED BY THIS RUN" in text
     assert "research_claim_audit.md" in text
+
+
+def test_broad_current_claim_status_cannot_be_benchmark_strong() -> None:
+    assert operator_dashboard._claim_status_for_surface(  # pylint: disable=protected-access
+        "Strong",
+        [],
+        readiness_surface="broad_current_corpus",
+    ) == "DIAGNOSTIC"
 
 
 def test_emit_research_operator_report_uses_publication_heading_for_locked_profile(
@@ -1480,7 +1489,7 @@ def test_emit_research_operator_report_surfaces_support_threshold_tracks(
     )
 
     text = "\n".join(captured)
-    assert "Conservative support track: threshold=20 classes=17 retained=957 dropped=230." in text
+    assert "Counterfactual conservative support track (not this run's active model): n>=20 would retain 17 classes / 957 rows and exclude 230 row(s)." in text
     assert "Exploratory expanded-class track: threshold=10 classes=31 retained=1168 dropped=19" in text
     assert "Training policy `exploratory_expanded_class_threshold`" in text
 

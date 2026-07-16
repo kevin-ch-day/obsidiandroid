@@ -8,6 +8,17 @@ from config import app_config
 from obsidiandroid.pipeline import stage_feature_enrichment
 
 
+def test_sample_id_coercion_copies_once_without_mutating_source() -> None:
+    source = pd.DataFrame({"sample_id": ["1", "invalid"], "value": [3, 4]})
+
+    out = stage_feature_enrichment._coerce_sample_id_to_int64_rows(source)  # pylint: disable=protected-access
+
+    assert out is not source
+    assert out["sample_id"].tolist() == [1]
+    assert out["sample_id"].dtype == "int64"
+    assert source["sample_id"].tolist() == ["1", "invalid"]
+
+
 def test_merge_sample_metadata_features_disabled_returns_original() -> None:
     """Disabled metadata flag should return the enrichment frame unchanged when no permissions."""
     existing_df = pd.DataFrame({"sample_id": [1], "existing": [1.0]})

@@ -175,6 +175,22 @@ def _claim_status_code(
     return "NOT_ASSESSED"
 
 
+def _claim_status_for_surface(
+    readiness_heading: str,
+    readiness_blockers: Sequence[str],
+    *,
+    readiness_surface: str,
+) -> str:
+    """Return a claim status that cannot overstate broad-corpus diagnostics."""
+    status = _claim_status_code(readiness_heading, readiness_blockers)
+    if str(readiness_surface or "").strip() == "broad_current_corpus":
+        # A broad live corpus can be healthy enough for diagnostic analysis
+        # while still being concentration-heavy and unsuitable as a benchmark
+        # leaderboard.  Do not render that as a publication-strength claim.
+        return "DIAGNOSTIC" if status in {"STRONG", "STRONG_WITH_CAUTIONS"} else status
+    return status
+
+
 def _claim_surface_label(*, profile_id: str, readiness_surface: str) -> str:
     """Return concise operator wording for the active claim surface."""
     profile = str(profile_id or "").strip()
@@ -476,14 +492,22 @@ def _queue_runtime_operator_issues(
         readiness = {}
     taxonomy_signals = readiness.get("taxonomy_signals", {}) if isinstance(readiness, dict) else {}
     if isinstance(taxonomy_signals, dict):
-        curation_note = str(build_taxonomy_curation_posture(readiness=readiness).get("note", "") or "").strip()
+        curation_posture = build_taxonomy_curation_posture(readiness=readiness)
+        curation_note = str(curation_posture.get("note", "") or "").strip()
         if curation_note:
+            high_priority = int(curation_posture.get("high_priority_count", 0) or 0)
+            if high_priority > 0:
+                title = "Family taxonomy curation requires priority review"
+                guidance = "Prioritize DB type mapping, family mapping, and unknown-type cleanup before treating those conflict candidates as stable."
+            else:
+                title = "Family taxonomy curation coverage queue"
+                guidance = "No high-priority conflict is currently reported; review unmapped-family coverage with source-backed curation rather than treating the queue as model-error evidence."
             record_operator_issue(
                 tag="TAXONOMY",
-                title="Family taxonomy curation discipline required",
+                title=title,
                 lines=[
                     curation_note,
-                    "Prioritize DB type mapping, family mapping, and unknown-type cleanup before treating family taxonomy as stable.",
+                    guidance,
                 ],
             )
 
@@ -703,8 +727,8 @@ def write_diagnostics_index_md(
         ("experiment_registry_", "Experiment registry wiring + profile context."),
         ("cohort_foundation", "Structured cohort demographics + funnel narrative."),
         ("feature_contract", "Frozen training feature-column contract."),
-        ("leakage_assessment.txt", "Leakage posture / modality coupling summary."),
-        ("modality_method_contract.json", "Per-modality method + fusion accounting."),
+        ("leakage_assessment_<run_id>.txt", "Leakage posture / modality coupling summary."),
+        ("modality_method_contract_<run_id>.json", "Per-modality method + fusion accounting."),
         ("feature_column_survival", "Feature survival through pruning gates."),
         ("ablation_summary_", "Methodology grid (when enabled)."),
         ("pipeline_stage_summary.csv", "Stage timings + throughput."),
@@ -1016,11 +1040,11 @@ def emit_research_operator_report(
         )
         if threshold_20:
             pr(
-                "  Conservative support track: "
-                f"threshold={threshold_20.get('threshold', 20)} "
-                f"classes={threshold_20.get('trainable_classes', 0)} "
-                f"retained={threshold_20.get('retained_rows', 0)} "
-                f"dropped={threshold_20.get('dropped_rows', 0)}."
+                "  Counterfactual conservative support track (not this run's active model): "
+                f"n>={threshold_20.get('threshold', 20)} would retain "
+                f"{threshold_20.get('trainable_classes', 0)} classes / "
+                f"{threshold_20.get('retained_rows', 0)} rows and exclude "
+                f"{threshold_20.get('dropped_rows', 0)} row(s)."
             )
         if exploratory:
             pr(
@@ -1201,16 +1225,18 @@ def emit_research_operator_report(
     if is_canonical_v3_profile(str(profile_id or "")) and dl_seed.get("dl_seed_status") != "ready":
         readiness_blockers = list(readiness_blockers)
         readiness_blockers.append("DL seed handoff incomplete for canonical V3 profile")
-    claim_status = _claim_status_code(readiness_heading, readiness_blockers)
+    claim_status = _claim_status_for_surface(
+        readiness_heading,
+        readiness_blockers,
+        readiness_surface=readiness_surface,
+    )
     primary_surface_label = _claim_surface_label(
         profile_id=str(profile_id or ""),
         readiness_surface=readiness_surface,
     )
     eligible_family_classes = int(active_cls) if str(active_cls).isdigit() else None
     visible_family_classes = int(visible_family_count) if str(visible_family_count).isdigit() else None
-    modeled_family_classes = None
-    if readiness_surface == "broad_current_corpus" and visible_family_classes is not None:
-        modeled_family_classes = visible_family_classes
+    active_supervised_family_classes = eligible_family_classes
     excluded_family_classes = None
     if visible_family_classes is not None and eligible_family_classes is not None:
         excluded_family_classes = max(0, visible_family_classes - eligible_family_classes)
@@ -1251,17 +1277,13 @@ def emit_research_operator_report(
         block_lines.append(
             "DL seed caveats                 : " + "; ".join(str(item) for item in dl_seed_caveats[:3])
         )
-    if eligible_family_classes is not None:
+    if active_supervised_family_classes is not None:
         block_lines.append(
-            f"Claim-eligible family classes   : {eligible_family_classes}"
+            f"Active supervised family classes: {active_supervised_family_classes}"
         )
     if visible_family_classes is not None:
         block_lines.append(
             f"Visible governed families       : {visible_family_classes}"
-        )
-    if modeled_family_classes is not None:
-        block_lines.append(
-            f"Modeled family classes          : {modeled_family_classes}"
         )
     if excluded_family_classes not in (None, 0):
         block_lines.append(
@@ -1325,9 +1347,9 @@ def emit_research_operator_report(
         "permission_claim_status": "capability_analysis_layer_available",
         "publication_ready": _publication_mode_active(manifest_context),
         "paper_locked": bool(manifest_context.get("paper_locked")),
-        "claim_eligible_family_classes": eligible_family_classes,
+        "claim_eligible_family_classes": active_supervised_family_classes,
         "visible_governed_family_classes": visible_family_classes,
-        "modeled_family_classes": modeled_family_classes,
+        "modeled_family_classes": active_supervised_family_classes,
         "excluded_non_claim_family_classes": excluded_family_classes,
         "benchmark_support_excluded_samples": benchmark_support_excluded_sample_count,
         "benchmark_support_excluded_families": benchmark_support_excluded_family_count,

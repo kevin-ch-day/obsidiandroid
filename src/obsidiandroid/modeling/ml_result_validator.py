@@ -68,6 +68,26 @@ def validate_result_structure(result: dict, model_name: str = "unknown") -> bool
         )
         return False
 
+    # Prediction, label, and confidence payloads must retain one-to-one
+    # alignment. A truncated ``zip`` can otherwise yield a plausible-looking
+    # result that silently omits samples from exported evaluation artifacts.
+    true_labels = result.get("true_labels")
+    if true_labels is None or not hasattr(true_labels, "__len__"):
+        du.print_warning(f"{trace_tag} 'true_labels' is missing or not list-like.")
+        return False
+
+    prediction_count = len(preds)
+    if len(true_labels) != prediction_count:
+        du.print_warning(
+            f"{trace_tag} Prediction/label length mismatch: "
+            f"{prediction_count} != {len(true_labels)}."
+        )
+        return False
+    if isinstance(preds, dict) and isinstance(true_labels, dict):
+        if set(preds) != set(true_labels):
+            du.print_warning(f"{trace_tag} Prediction/label sample-ID keys differ.")
+            return False
+
     # Check confidences
     confidences = result.get("confidences")
     if confidences is None:
@@ -77,6 +97,12 @@ def validate_result_structure(result: dict, model_name: str = "unknown") -> bool
         du.print_debug(f"{trace_tag} Confidences length: {len(confidences)}")
     else:
         du.print_warning(f"{trace_tag} 'confidences' is not list-like.")
+        return False
+    if len(confidences) != prediction_count:
+        du.print_warning(
+            f"{trace_tag} Prediction/confidence length mismatch: "
+            f"{prediction_count} != {len(confidences)}."
+        )
         return False
 
     du.print_debug(f"{trace_tag} Structure validation passed.")

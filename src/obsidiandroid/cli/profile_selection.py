@@ -52,6 +52,8 @@ def profile_sort_key(profile_id: str) -> tuple[int, int, str]:
         return (0, 0, pid)
     if pid == "android_malware_major_families":
         return (0, 1, pid)
+    if pid == "android_malware_major_families_support20":
+        return (0, 2, pid)
     if pid == "android_malware_expanded_families":
         return (1, 0, pid)
     if pid == "android_malware_type_taxonomy":
@@ -147,6 +149,7 @@ def quick_profile_label(profile_id: str) -> str:
     labels = {
         "android_malware_all_current": "Research: all current Android malware",
         "android_malware_major_families": "Research: major-family classification",
+        "android_malware_major_families_support20": "Candidate: frozen n >= 20 family benchmark",
         "android_malware_expanded_families": "Research: expanded family classification",
         "android_malware_type_taxonomy": "Research: type-level taxonomy",
         "malicious_temporal_consensus10": "Sensitivity: consensus threshold",
@@ -185,6 +188,7 @@ def _quick_intent_options() -> list[tuple[str, str]]:
     return [
         ("Current Android malware — all samples", "android_malware_all_current"),
         ("Major-family Android malware classification", "android_malware_major_families"),
+        ("Candidate benchmark — n >= 20 family support", "android_malware_major_families_support20"),
         ("Expanded Android malware — major + minor families", "android_malware_expanded_families"),
         ("Type-level / coarse taxonomy classification", "android_malware_type_taxonomy"),
         ("Robustness and perturbation suite", "__submenu_robustness__"),

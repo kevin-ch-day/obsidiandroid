@@ -87,6 +87,32 @@ def test_load_paper_cohort_sample_ids_missing_column_returns_empty_set() -> None
     assert result == set()
 
 
+def test_write_ablation_progress_snapshot_records_completed_cells(tmp_path) -> None:
+    """Long grids expose durable, compact progress without waiting for final summary export."""
+    path = stage_ablation._write_ablation_progress_snapshot(  # pylint: disable=protected-access
+        diagnostics_dir=tmp_path,
+        run_id="progress_run",
+        total_combo_count=4,
+        current_combo_id="vendor_no_parsed_family__lt_family_id",
+        combo_records=[
+            {
+                "combo_id": "vendor_full__lt_family_id",
+                "status": "complete",
+                "model_rows_written": 3,
+            }
+        ],
+        summary_row_count=3,
+        grid_status="running",
+    )
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["total_combo_count"] == 4
+    assert payload["completed_combo_count"] == 1
+    assert payload["current_combo_id"] == "vendor_no_parsed_family__lt_family_id"
+    assert payload["combo_records"][0]["status"] == "complete"
+    assert not path.with_suffix(".json.tmp").exists()
+
+
 def test_load_paper_cohort_sample_ids_from_runtime_dataframe() -> None:
     """sample_id values should be normalized to int set with invalid rows dropped."""
     samples_df = pd.DataFrame({"sample_id": [1, "2", None, "bad", 3]})
@@ -119,13 +145,6 @@ def test_prepare_training_inputs_uses_runtime_min_support_and_no_other_by_defaul
         "apply_min_family_support",
         _fake_apply_min_family_support,
     )
-    monkeypatch.setattr(stage_ablation.pipeline_core, "_prune_low_information_features", lambda df: df)
-    monkeypatch.setattr(
-        stage_ablation.pipeline_core,
-        "_prune_potential_leakage_features",
-        lambda feature_df, _labels_df: feature_df,
-    )
-
     out_features, out_labels = stage_ablation._prepare_training_inputs(  # pylint: disable=protected-access
         feature_df=features,
         samples_df=pd.DataFrame({"sample_id": [1, 2]}),
@@ -152,6 +171,17 @@ def test_reindex_ablation_features_with_sample_id_column() -> None:
     out = stage_ablation.reindex_ablation_features_to_frozen_ids(raw, [1, 2, 3])
     assert list(out.index) == [1, 2, 3]
     assert float(out.loc[3, "x"]) == 0.0
+
+
+def test_ablation_variable_column_guard_ignores_sample_id_but_keeps_real_signal() -> None:
+    """Ablation must skip all-constant feature sets before model fan-out."""
+    only_identifier = pd.DataFrame({"sample_id": [1, 2, 3]}, index=[1, 2, 3])
+    constant_features = pd.DataFrame({"feature": [0, 0, 0]}, index=[1, 2, 3])
+    usable_features = pd.DataFrame({"feature": [0, 1, 0]}, index=[1, 2, 3])
+
+    assert not stage_ablation._has_variable_predictive_column(only_identifier)  # pylint: disable=protected-access
+    assert not stage_ablation._has_variable_predictive_column(constant_features)  # pylint: disable=protected-access
+    assert stage_ablation._has_variable_predictive_column(usable_features)  # pylint: disable=protected-access
 
 
 def test_split_cache_key_ignores_feature_count_during_ablation(monkeypatch) -> None:
@@ -530,6 +560,149 @@ def test_run_ablation_experiments_persists_skipped_feature_sets(tmp_path, monkey
     assert outcome["skipped_experiments"] == expected_skip
     assert manifest_context["_ablation_skipped_experiments"] == expected_skip
     assert manifest_context["_ablation_cohort_gap_summary"]["skipped_experiments"] == expected_skip
+
+
+def test_run_ablation_experiments_skips_constant_matrix_before_model_fanout(tmp_path, monkeypatch) -> None:
+    """A constant feature set is an unavailable ablation, not 3×N model failures."""
+    trained: list[str] = []
+    monkeypatch.setattr(stage_ablation, "_diagnostics_dir", lambda: tmp_path)
+    monkeypatch.setattr(stage_ablation, "_load_paper_cohort_sample_ids", lambda _samples_df: {1, 2})
+    monkeypatch.setattr(
+        stage_ablation,
+        "_build_experiment_matrix_dict",
+        lambda *_args, **_kwargs: {
+            "vendor_no_parsed_family": lambda: pd.DataFrame({"constant": [0, 0]}, index=[1, 2])
+        },
+    )
+    monkeypatch.setattr(
+        stage_ablation.pipeline_core,
+        "train_models",
+        lambda *_args, **_kwargs: trained.append("called") or ({}, []),
+    )
+    monkeypatch.setattr(app_config, "ENABLE_ABLATION_MULTI_LABEL_TARGETS", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ABLATION_CROSS_VALIDATION", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ABLATION_MODEL_EXPORT", False, raising=False)
+    monkeypatch.setattr(app_config, "ABLATION_COHORT_REINDEX_ZERO_FILL", True, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "constant_guard", raising=False)
+
+    stage_ablation.run_ablation_experiments(
+        samples_df=pd.DataFrame({"sample_id": [1, 2], "family_canonical": ["a", "b"]}),
+        weights_df=pd.DataFrame(),
+        parsed_data={},
+        permission_features_df=None,
+        model_list=["random_forest", "xgboost", "logistic_regression"],
+        run_id="constant_guard",
+        pipeline_results={},
+        manifest_context={},
+    )
+
+    outcome = json.loads((tmp_path / "ablation_run_outcome_constant_guard.json").read_text(encoding="utf-8"))
+    assert trained == []
+    assert outcome["trainable_experiments"] == 0
+    assert outcome["skipped_experiments"][0]["reason"] == "no_variable_feature_columns"
+
+
+def test_ablation_scopes_label_adjacent_permission_to_declared_experiments(tmp_path, monkeypatch) -> None:
+    """Only the declared lexical vendor ablation may relax the leakage naming guard."""
+    observed: list[tuple[str, bool]] = []
+    monkeypatch.setattr(stage_ablation, "_diagnostics_dir", lambda: tmp_path)
+    monkeypatch.setattr(stage_ablation, "_load_paper_cohort_sample_ids", lambda _samples_df: {1, 2})
+    monkeypatch.setattr(
+        stage_ablation,
+        "_build_experiment_matrix_dict",
+        lambda *_args, **_kwargs: {
+            "vendor_full": lambda: pd.DataFrame({"parsed_family_vendor": [0, 1]}, index=[1, 2]),
+            "permissions_raw": lambda: pd.DataFrame({"perm__internet": [0, 1]}, index=[1, 2]),
+        },
+    )
+    monkeypatch.setattr(
+        stage_ablation,
+        "_prepare_training_inputs",
+        lambda feature_df, _samples_df, **_kwargs: (feature_df, pd.Series([0, 1], index=feature_df.index)),
+    )
+    monkeypatch.setattr(
+        stage_ablation.pipeline_core,
+        "train_models",
+        lambda *_args, **_kwargs: (
+            observed.append(
+                (
+                    str(getattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", "")),
+                    bool(getattr(app_config, "RUNTIME_ABLATION_ALLOW_LABEL_ADJACENT_FEATURES", False)),
+                )
+            )
+            or {},
+            [],
+        ),
+    )
+    monkeypatch.setattr(stage_ablation, "_print_ablation_terminal_summary", lambda *_a, **_k: None)
+    monkeypatch.setattr(app_config, "ENABLE_ABLATION_MULTI_LABEL_TARGETS", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ABLATION_CROSS_VALIDATION", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ABLATION_MODEL_EXPORT", False, raising=False)
+    monkeypatch.setattr(app_config, "ABLATION_COHORT_REINDEX_ZERO_FILL", True, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "ablation_scope", raising=False)
+
+    stage_ablation.run_ablation_experiments(
+        samples_df=pd.DataFrame({"sample_id": [1, 2], "family_canonical": ["a", "b"]}),
+        weights_df=pd.DataFrame(),
+        parsed_data={},
+        permission_features_df=None,
+        model_list=["random_forest"],
+        run_id="ablation_scope",
+        pipeline_results={},
+        manifest_context={},
+    )
+
+    assert observed == [("vendor_full", True), ("permissions_raw", False)]
+    assert not bool(getattr(app_config, "RUNTIME_ABLATION_ALLOW_LABEL_ADJACENT_FEATURES", False))
+
+
+def test_ablation_records_empty_model_combination_in_outcome(tmp_path, monkeypatch) -> None:
+    """An all-model failure cannot disappear from an otherwise complete-looking grid."""
+    monkeypatch.setattr(stage_ablation, "_diagnostics_dir", lambda: tmp_path)
+    monkeypatch.setattr(stage_ablation, "_load_paper_cohort_sample_ids", lambda _samples_df: {1, 2})
+    monkeypatch.setattr(
+        stage_ablation,
+        "_build_experiment_matrix_dict",
+        lambda *_args, **_kwargs: {
+            "permissions_raw": lambda: pd.DataFrame({"perm__internet": [0, 1]}, index=[1, 2])
+        },
+    )
+    monkeypatch.setattr(
+        stage_ablation,
+        "_prepare_training_inputs",
+        lambda feature_df, _samples_df, **_kwargs: (feature_df, pd.Series([0, 1], index=feature_df.index)),
+    )
+    monkeypatch.setattr(stage_ablation.pipeline_core, "train_models", lambda *_a, **_k: ({}, ["random_forest"]))
+    monkeypatch.setattr(app_config, "ENABLE_ABLATION_MULTI_LABEL_TARGETS", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ABLATION_CROSS_VALIDATION", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ABLATION_MODEL_EXPORT", False, raising=False)
+    monkeypatch.setattr(app_config, "ABLATION_COHORT_REINDEX_ZERO_FILL", True, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "empty_combo", raising=False)
+
+    stage_ablation.run_ablation_experiments(
+        samples_df=pd.DataFrame({"sample_id": [1, 2], "family_canonical": ["a", "b"]}),
+        weights_df=pd.DataFrame(),
+        parsed_data={},
+        permission_features_df=None,
+        model_list=["random_forest"],
+        run_id="empty_combo",
+        pipeline_results={},
+        manifest_context={},
+    )
+
+    outcome = json.loads((tmp_path / "ablation_run_outcome_empty_combo.json").read_text(encoding="utf-8"))
+    assert outcome["summary_row_count"] == 0
+    assert outcome["skipped_label_target_run_count"] == 1
+    skipped = outcome["skipped_label_target_runs"][0]
+    assert skipped["reason"] == "no_valid_model_results"
+    assert skipped["feature_set"] == "permissions_raw"
+    assert "random_forest" in skipped["detail"]
 
 
 def test_run_ablation_experiments_prefers_family_id_as_primary_family_target(tmp_path, monkeypatch) -> None:

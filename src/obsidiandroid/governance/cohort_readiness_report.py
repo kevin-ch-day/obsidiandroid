@@ -11,6 +11,8 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
+
+from obsidiandroid.common.family_label_semantics import family_label_conflict_mask
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
@@ -212,6 +214,8 @@ def print_cohort_sql_scope_gate_summary(stats: dict) -> None:
     du.print_stat("Excluded Unmapped Family", int(stats.get("excluded_unmapped_family", 0)))
     du.print_stat("Excluded Missing SHA256", int(stats.get("excluded_missing_sha256", 0)))
     du.print_stat("Excluded Unknown Type", int(stats.get("excluded_unknown_type_slug", 0)))
+    if "excluded_inactive_type_slug" in stats:
+        du.print_stat("Excluded Inactive Type", int(stats.get("excluded_inactive_type_slug", 0)))
     du.print_stat("Excluded Missing Package", int(stats.get("excluded_missing_package_name", 0)))
     if "excluded_weak_label_kind" in stats:
         du.print_stat("Excluded Weak Label Kind", int(stats.get("excluded_weak_label_kind", 0)))
@@ -426,10 +430,10 @@ def _build_catalog_quality_metrics(
         ).sum()
     ) if len(token_norm) else 0
     family_conflict_rows = int(
-        (
-            ~family_raw.isin({"", "unknown", "generic", "unclassified", "unlabeled"})
-            & ~family_canonical.isin({"", "unknown", "other", "unmapped", "none", "null"})
-            & (family_raw != family_canonical)
+        family_label_conflict_mask(
+            samples_df,
+            raw_column="family_label_raw",
+            canonical_column="family_canonical",
         ).sum()
     ) if len(family_raw) else 0
     drift_parts: list[str] = []
@@ -713,21 +717,9 @@ def _print_catalog_semantics(samples_df: pd.DataFrame) -> None:
             ),
         )
     if "family_label_raw" in samples_df.columns and "family_canonical" in samples_df.columns:
-        family_raw = (
-            samples_df["family_label_raw"].fillna("").astype(str).str.strip().str.lower()
-        )
-        family_canonical = (
-            samples_df["family_canonical"].fillna("").astype(str).str.strip().str.lower()
-        )
         du.print_stat(
             "Raw-vs-Canonical Family Conflicts",
-            int(
-                (
-                    ~family_raw.isin({"", "unknown", "generic", "unclassified", "unlabeled"})
-                    & ~family_canonical.isin({"", "unknown", "other", "unmapped", "none", "null"})
-                    & (family_raw != family_canonical)
-                ).sum()
-            ),
+            int(family_label_conflict_mask(samples_df).sum()),
         )
 
     if "source_batch_label" in samples_df.columns:
@@ -862,11 +854,7 @@ def _collect_top_drift_groups(samples_df: pd.DataFrame) -> list[dict[str, Any]]:
         (vt_token != "")
         & family_raw.isin({"", "unknown", "generic", "unclassified", "unlabeled"})
     )
-    frame["issue_family_conflict"] = (
-        ~family_raw.isin({"", "unknown", "generic", "unclassified", "unlabeled"})
-        & ~family_canonical.isin({"", "unknown", "other", "unmapped", "none", "null"})
-        & (family_raw != family_canonical)
-    )
+    frame["issue_family_conflict"] = family_label_conflict_mask(frame)
     issue_columns = [
         "issue_non_android_lane",
         "issue_non_android_target",
@@ -1200,19 +1188,7 @@ def _print_cohort_verdict(
                 f"weak sample labels despite canonical family authority: {weak_label_with_authority}"
             )
     if "family_label_raw" in samples_df.columns and "family_canonical" in samples_df.columns:
-        family_raw = (
-            samples_df["family_label_raw"].fillna("").astype(str).str.strip().str.lower()
-        )
-        family_canonical = (
-            samples_df["family_canonical"].fillna("").astype(str).str.strip().str.lower()
-        )
-        raw_vs_canonical_conflicts = int(
-            (
-                ~family_raw.isin({"", "unknown", "generic", "unclassified", "unlabeled"})
-                & ~family_canonical.isin({"", "unknown", "other", "unmapped", "none", "null"})
-                & (family_raw != family_canonical)
-            ).sum()
-        )
+        raw_vs_canonical_conflicts = int(family_label_conflict_mask(samples_df).sum())
         if raw_vs_canonical_conflicts > 0:
             warning_messages.append(
                 f"raw family label differs from canonical family: {raw_vs_canonical_conflicts}"

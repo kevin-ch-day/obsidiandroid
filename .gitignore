@@ -78,6 +78,9 @@ paper_exports/docs/locked_vs_current_overlap.csv
 paper_exports/docs/locked_vs_current_overlap.json
 artifacts/paper/cohort_gap_audit_latest/
 artifacts/baselines/output_writer_audit.csv
+# Local snapshots of completed/current pipeline runs can be large and are
+# reproducibility evidence, not source-controlled application assets.
+artifacts/current_run_archives/
 
 # Patch / merge artifacts
 *.orig

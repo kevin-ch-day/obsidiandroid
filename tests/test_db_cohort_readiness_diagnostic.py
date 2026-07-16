@@ -299,7 +299,7 @@ def test_cohort_readiness_snapshot_splits_missing_primary_residual_lanes(monkeyp
             rows = [
                 ("public_package_identity_provenance_review", 2, 0, 2, 0),
                 ("already_sample_suppressed", 1, 0, 1, 1),
-                ("high_strong_primary_backfill_review", 1, 1, 0, 0),
+                ("authority_backed_primary_backfill_review", 1, 1, 0, 0),
             ]
             return (columns, rows) if return_columns else rows
         if "FROM `erebus_threat_intel_prod`.`v_android_sample_family_type_authority`" in query:
@@ -365,7 +365,7 @@ def test_cohort_readiness_snapshot_splits_missing_primary_residual_lanes(monkeyp
     assert snapshot["taxonomy_signals"]["missing_primary_label_lane_counts"] == {
         "public_package_identity_provenance_review": 2,
         "already_sample_suppressed": 1,
-        "high_strong_primary_backfill_review": 1,
+        "authority_backed_primary_backfill_review": 1,
     }
     assert snapshot["taxonomy_signals"]["top_missing_primary_label_lanes"][0] == {
         "lane": "public_package_identity_provenance_review",

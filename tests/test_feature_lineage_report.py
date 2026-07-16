@@ -34,6 +34,7 @@ def test_classify_enriched_scores() -> None:
 
 
 def test_build_report_from_fixture_contracts(tmp_path: Path) -> None:
+    run_id = "rid"
     diag = tmp_path / "diagnostics"
     diag.mkdir(parents=True)
     modality = {
@@ -58,10 +59,10 @@ def test_build_report_from_fixture_contracts(tmp_path: Path) -> None:
         "selected_vendors": ["a"],
         "selected_vendor_count": 1,
     }
-    (diag / "modality_method_contract.json").write_text(json.dumps(modality), encoding="utf-8")
-    (diag / "feature_contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    (diag / f"modality_method_contract_{run_id}.json").write_text(json.dumps(modality), encoding="utf-8")
+    (diag / f"feature_contract_{run_id}.json").write_text(json.dumps(contract), encoding="utf-8")
 
-    built = flr.build_feature_lineage_report(diag)
+    built = flr.build_feature_lineage_report(diag, run_id=run_id)
     assert built["summary"]["training_stage_counts"]["feature_columns_after_pruning"] == 5
     groups = built["summary"]["lineage_group_counts_training"]
     assert groups.get("vendor_parsed_av_strings") == 1
@@ -69,30 +70,31 @@ def test_build_report_from_fixture_contracts(tmp_path: Path) -> None:
 
 
 def test_write_feature_lineage_artifacts(tmp_path: Path) -> None:
+    run_id = "rid"
     diag = tmp_path / "d"
     diag.mkdir(parents=True)
-    (diag / "modality_method_contract.json").write_text(
+    (diag / f"modality_method_contract_{run_id}.json").write_text(
         json.dumps({"fusion_modality": {"feature_count_total": 2}}),
         encoding="utf-8",
     )
-    (diag / "feature_contract.json").write_text(
+    (diag / f"feature_contract_{run_id}.json").write_text(
         json.dumps({"feature_columns": ["perm__a", "meta__b"], "selected_vendors": []}),
         encoding="utf-8",
     )
-    jp, cp = flr.write_feature_lineage_artifacts(diag)
+    jp, cp = flr.write_feature_lineage_artifacts(diag, run_id=run_id)
     assert jp.is_file() and cp.is_file()
     payload = json.loads(jp.read_text(encoding="utf-8"))
     assert "column_lineage" in payload
     assert len(payload["column_lineage"]) == 2
 
 
-def test_build_report_falls_back_to_global_leakage_audit_latest(make_run_diagnostics_layout) -> None:
+def test_build_report_does_not_fall_back_to_global_leakage_audit_latest(make_run_diagnostics_layout) -> None:
     output_root, diag, global_diag = make_run_diagnostics_layout("rid")
-    (diag / "modality_method_contract.json").write_text(
+    (diag / "modality_method_contract_rid.json").write_text(
         json.dumps({"fusion_modality": {"feature_count_total": 1}}),
         encoding="utf-8",
     )
-    (diag / "feature_contract.json").write_text(
+    (diag / "feature_contract_rid.json").write_text(
         json.dumps({"feature_columns": ["perm__a"], "selected_vendors": []}),
         encoding="utf-8",
     )
@@ -101,8 +103,6 @@ def test_build_report_falls_back_to_global_leakage_audit_latest(make_run_diagnos
         encoding="utf-8",
     )
 
-    built = flr.build_feature_lineage_report(diag)
-    assert built["summary"]["training_stage_counts"]["leakage_pruning_audit_rows"] == 1
-    assert built["summary"]["artifact_sources"]["leakage_pruning_audit"].endswith(
-        "output/diagnostics/leakage_pruning_audit.latest.csv"
-    )
+    built = flr.build_feature_lineage_report(diag, run_id="rid")
+    assert built["summary"]["training_stage_counts"]["leakage_pruning_audit_rows"] == 0
+    assert built["summary"]["artifact_sources"]["leakage_pruning_audit"] is None

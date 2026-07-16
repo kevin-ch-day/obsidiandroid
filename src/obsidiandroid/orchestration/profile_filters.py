@@ -10,6 +10,8 @@ import pandas as pd
 from config import app_config
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
 
+_MISSING_TAXONOMY_TOKENS = {"", "unknown", "other", "unmapped", "none", "null", "nan", "n/a"}
+
 
 def _num_nullable(samples_df: pd.DataFrame, name: str) -> pd.Series:
     """Return a numeric series preserving missingness for consensus-aware filtering."""
@@ -33,10 +35,10 @@ def malicious_signal_or_taxonomy_mask(samples_df: pd.DataFrame) -> pd.Series:
 
     if "family_canonical" in samples_df.columns:
         family = samples_df["family_canonical"].fillna("").astype(str).str.strip().str.lower()
-        out = out | ~family.isin({"", "unknown", "other", "unmapped", "none", "null"})
+        out = out | ~family.isin(_MISSING_TAXONOMY_TOKENS)
     if "type_slug" in samples_df.columns:
         type_slug = samples_df["type_slug"].fillna("").astype(str).str.strip().str.lower()
-        out = out | ~type_slug.isin({"", "unknown", "other", "unmapped", "none", "null"})
+        out = out | ~type_slug.isin(_MISSING_TAXONOMY_TOKENS)
 
     return out
 

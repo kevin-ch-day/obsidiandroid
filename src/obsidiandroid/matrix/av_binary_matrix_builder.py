@@ -6,6 +6,7 @@ import pandas as pd
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.database import db_av_engine_verdicts
 from obsidiandroid.database.verdict_semantics import (
+    NON_DETECTION_TOKENS,
     VERDICT_METADATA_COLUMNS,
     is_positive_detection_label,
 )
@@ -101,42 +102,45 @@ def _generate_av_binary_matrix(samples_df: pd.DataFrame, verbose: bool = True) -
         return pd.DataFrame()
     
     try:
-        long_verdicts_df = convert_to_long_format(wide_verdicts_df)
-        engine_count = long_verdicts_df["engine_name"].nunique()
-        du.print_success(f"[MELT] Success: {len(long_verdicts_df)} rows created across {engine_count} engines.")
-    except Exception as e:
-        du.print_error(f"[PHASE] Conversion to long-format failed:\n  {e}")
-        return pd.DataFrame()
-
-    if long_verdicts_df.empty:
-        du.print_error("[PHASE] Long-format DataFrame is empty after conversion.")
-        return pd.DataFrame()
-
-    try:
+        # The source is already a sample × engine matrix.  Melting roughly
+        # 215k observed cells and immediately pivoting them back to the same
+        # shape creates avoidable peak memory and dataframe work.  Construct
+        # the binary matrix directly, retaining the former pivot semantics for
+        # duplicate sample rows and all-null samples.
+        engine_cols = get_av_engine_columns(wide_verdicts_df)
+        if not engine_cols:
+            du.print_error("[PHASE] No AV engine columns found in verdict matrix.")
+            return pd.DataFrame()
+        verdict_values = wide_verdicts_df[engine_cols]
+        present = verdict_values.notna()
+        normalized = verdict_values.astype(str).apply(lambda col: col.str.strip().str.lower())
         scan_counts = (
-            long_verdicts_df.assign(scanned=long_verdicts_df["result"].map(_is_scanned_result))
-            .groupby("engine_name")["scanned"]
-            .sum()
+            (present & ~normalized.isin(MISSING_TOKENS))
+            .sum(axis=0)
             .astype(int)
             .to_dict()
         )
-
+        binary_values = (present & ~normalized.isin(NON_DETECTION_TOKENS)).astype("int8")
+        # ``melt(...).dropna(...).pivot_table(...)`` omitted a sample when all
+        # of its engine verdict cells were null. Keep that existing population
+        # contract while eliminating the temporary long-form dataframe.
+        binary_matrix = binary_values.loc[present.any(axis=1)].copy()
+        binary_matrix.insert(0, "sample_id", wide_verdicts_df.loc[binary_matrix.index, "sample_id"].to_numpy())
         binary_matrix = (
-            long_verdicts_df.assign(value=long_verdicts_df["result"].map(_is_positive_detection))
-            .pivot_table(
-                index="sample_id",
-                columns="engine_name",
-                values="value",
-                aggfunc="max",
-                fill_value=0
-            )
-            .astype(int)
-            .reset_index()
+            binary_matrix.groupby("sample_id", as_index=False, sort=True)[engine_cols]
+            .max()
+            .astype({column: "int8" for column in engine_cols})
         )
+        # Preserve the column-index name emitted by the previous pivot-table path.
+        binary_matrix.columns.name = "engine_name"
         binary_matrix.attrs["engine_scan_counts"] = scan_counts
+        observed_cells = int(present.to_numpy(dtype=bool).sum())
+        du.print_success(
+            f"[VERDICTS] Success: {observed_cells} observed cells across {len(engine_cols)} engines."
+        )
     except Exception as e:
-        du.print_error(f"[PHASE] Pivot operation failed:\n  {e}")
-        du.print_debug(f"[DEBUG] Long-format shape before pivot: {long_verdicts_df.shape}")
+        du.print_error(f"[PHASE] Binary matrix construction failed:\n  {e}")
+        du.print_debug(f"[DEBUG] Wide verdict shape: {wide_verdicts_df.shape}")
         return pd.DataFrame()
 
     return binary_matrix
@@ -167,7 +171,9 @@ def _postprocess_and_clean_matrix(matrix_df: pd.DataFrame) -> pd.DataFrame:
     cleaned_df[detection_cols] = cleaned_df[detection_cols].fillna(0)
 
     try:
-        cleaned_df[detection_cols] = cleaned_df[detection_cols].astype(int)
+        # Detection features are strictly binary.  Preserve compact storage
+        # through cleanup instead of widening every engine column to int64.
+        cleaned_df[detection_cols] = cleaned_df[detection_cols].astype("int8")
     except Exception as e:
         du.print_error(f"[CLEANUP ERROR] Failed to convert detection columns to int:\n  {e}")
         return pd.DataFrame()

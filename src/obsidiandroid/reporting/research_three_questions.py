@@ -281,11 +281,7 @@ def _load_ablation_df(diagnostics_dir: Path, run_id: str) -> pd.DataFrame:
     appropriate; this summary intentionally does not.
     """
     rid = oh.normalize_artifact_run_id(run_id)
-    candidates = (
-        diagnostics_dir / f"ablation_summary_{rid}.csv",
-        diagnostics_dir / "ablation_summary.latest.csv",
-        diagnostics_dir / f"ablation_summary_partial_{rid}.csv",
-    )
+    candidates = (diagnostics_dir / f"ablation_summary_{rid}.csv",)
     for path in candidates:
         if not path.is_file():
             continue

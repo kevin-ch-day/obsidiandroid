@@ -9,10 +9,11 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.governance.family_tier_authority import normalize_family_identity_token
 
 
-_GENERIC_FAMILY_TOKENS = {"", "unknown", "generic", "unclassified", "unlabeled"}
-_GENERIC_CANONICAL_TOKENS = {"", "unknown", "other", "unmapped", "none", "null"}
+_GENERIC_FAMILY_TOKENS = {"", "unknown", "generic", "unclassified", "unlabeled", "none", "null", "nan", "n/a"}
+_GENERIC_CANONICAL_TOKENS = {"", "unknown", "other", "unmapped", "none", "null", "nan", "n/a"}
 _WEAK_LABEL_KINDS = {"filename", "hash_like", "opaque_string", "unclassified"}
 
 
@@ -31,20 +32,20 @@ def _build_issue_frame(samples_df: pd.DataFrame) -> pd.DataFrame:
     target = _norm_series(frame, "payload_target_platform", lower=True)
     label_kind = _norm_series(frame, "sample_label_kind", lower=True)
     vt_token = _norm_series(frame, "vt_family_token")
-    family_raw = _norm_series(frame, "family_label_raw", lower=True)
-    family_canonical = _norm_series(frame, "family_canonical", lower=True)
+    family_raw = _norm_series(frame, "family_label_raw").map(normalize_family_identity_token)
+    family_display = _norm_series(frame, "family_canonical")
+    family_canonical = family_display.map(normalize_family_identity_token)
+    frame["family_canonical"] = family_display.where(family_canonical.ne(""), "<blank>")
 
     frame["issue_non_android_lane"] = lane != "android_artifact"
     frame["issue_non_android_target"] = (target != "") & (target != "android")
-    frame["issue_weak_label"] = label_kind.isin(_WEAK_LABEL_KINDS) & ~family_canonical.isin(
-        _GENERIC_CANONICAL_TOKENS
-    )
+    frame["issue_weak_label"] = label_kind.isin(_WEAK_LABEL_KINDS) & family_canonical.ne("")
     frame["issue_blank_family_with_token"] = (vt_token != "") & family_raw.isin(
         _GENERIC_FAMILY_TOKENS
     )
     frame["issue_family_conflict"] = (
         ~family_raw.isin(_GENERIC_FAMILY_TOKENS)
-        & ~family_canonical.isin(_GENERIC_CANONICAL_TOKENS)
+        & family_canonical.ne("")
         & (family_raw != family_canonical)
     )
     issue_cols = [

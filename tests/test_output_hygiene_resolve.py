@@ -113,13 +113,19 @@ def test_resolve_taxonomy_consistency_summary_path_prefers_run_scoped(make_run_d
     assert oh.resolve_taxonomy_consistency_summary_path(diag, "rid") == scoped
 
 
-def test_resolve_feature_column_survival_path_prefers_global_latest_when_local_latest_is_pruned(
+def test_resolve_feature_column_survival_path_rejects_global_latest_by_default(
     make_run_diagnostics_layout,
 ) -> None:
     _output_root, diag, gdiag = make_run_diagnostics_layout("rid")
     global_latest = gdiag / "feature_column_survival.latest.csv"
     global_latest.write_text("feature_name\nx\n", encoding="utf-8")
-    assert oh.resolve_feature_column_survival_path(diag, "rid").resolve() == global_latest.resolve()
+    assert oh.resolve_feature_column_survival_path(diag, "rid") != global_latest
+    assert not oh.resolve_feature_column_survival_path(diag, "rid").is_file()
+    assert oh.resolve_feature_column_survival_path(
+        diag,
+        "rid",
+        allow_global_latest=True,
+    ).resolve() == global_latest.resolve()
 
 
 def test_diagnostics_mirror_write_policy_prefers_global_latest_for_run_scoped(
@@ -140,7 +146,6 @@ def test_resolve_feature_build_artifacts_prefers_global_latest_when_local_latest
 ) -> None:
     _output_root, diag, gdiag = make_run_diagnostics_layout("rid")
     fixtures = {
-        "ablation_summary.latest.csv": oh.resolve_ablation_summary_path,
         "analysis_snapshot_label_conflicts.latest.csv": oh.resolve_analysis_snapshot_label_conflicts_path,
         "analysis_snapshot_filter_summary.latest.csv": oh.resolve_analysis_snapshot_filter_summary_path,
         "cohort_filter_contract.latest.json": oh.resolve_cohort_filter_contract_path,
@@ -148,16 +153,11 @@ def test_resolve_feature_build_artifacts_prefers_global_latest_when_local_latest
         "engine_lifecycle.latest.csv": oh.resolve_engine_lifecycle_path,
         "feature_build_coverage.latest.json": oh.resolve_feature_build_coverage_path,
         "cohort_missing_from_feature_matrix.latest.csv": oh.resolve_cohort_missing_from_feature_matrix_path,
-        "feature_set_ablation_summary.latest.csv": oh.resolve_feature_set_ablation_summary_path,
-        "feature_contract.latest.json": oh.resolve_feature_contract_path,
         "feature_matrix_lineage_gate.latest.json": oh.resolve_feature_matrix_lineage_gate_path,
         "feature_modality_coverage_audit.latest.csv": oh.resolve_feature_modality_coverage_audit_path,
         "feature_modality_coverage_summary.latest.json": oh.resolve_feature_modality_coverage_summary_path,
         "headline_vs_ablation_contract_comparison.latest.md": oh.resolve_headline_vs_ablation_contract_comparison_path,
         "label_name_map.latest.json": oh.resolve_label_name_map_path,
-        "leakage_assessment.latest.txt": oh.resolve_leakage_assessment_path,
-        "modality_method_contract.latest.json": oh.resolve_modality_method_contract_path,
-        "model_comparison_summary.latest.csv": oh.resolve_model_comparison_summary_path,
         "parser_quality.latest.csv": oh.resolve_parser_quality_path,
         "parser_quality_final.latest.csv": oh.resolve_parser_quality_final_path,
         "prediction_errors.latest.csv": oh.resolve_prediction_errors_path,
@@ -175,6 +175,39 @@ def test_resolve_feature_build_artifacts_prefers_global_latest_when_local_latest
         global_latest = gdiag / name
         global_latest.write_text("{}\n", encoding="utf-8")
         assert resolver(diag, "rid").resolve() == global_latest.resolve()
+
+
+def test_scientific_artifact_resolvers_reject_cross_run_global_latest_by_default(
+    make_run_diagnostics_layout,
+) -> None:
+    _output_root, diag, gdiag = make_run_diagnostics_layout("rid")
+    global_files = {
+        "ablation_summary.latest.csv": oh.resolve_ablation_summary_path,
+        "feature_set_ablation_summary.latest.csv": oh.resolve_feature_set_ablation_summary_path,
+        "feature_contract.latest.json": oh.resolve_feature_contract_path,
+        "leakage_assessment.latest.txt": oh.resolve_leakage_assessment_path,
+        "modality_method_contract.latest.json": oh.resolve_modality_method_contract_path,
+        "model_comparison_summary.latest.csv": oh.resolve_model_comparison_summary_path,
+    }
+    for filename, resolver in global_files.items():
+        latest = gdiag / filename
+        latest.write_text("{}\n", encoding="utf-8")
+        resolved = resolver(diag, "rid")
+        assert resolved != latest
+        assert not resolved.is_file()
+
+
+def test_scientific_artifact_resolvers_allow_explicit_legacy_operator_lookup(
+    make_run_diagnostics_layout,
+) -> None:
+    _output_root, diag, gdiag = make_run_diagnostics_layout("rid")
+    latest = gdiag / "feature_contract.latest.json"
+    latest.write_text("{}\n", encoding="utf-8")
+    assert oh.resolve_feature_contract_path(
+        diag,
+        "rid",
+        allow_global_latest=True,
+    ) == latest
 
 
 def test_resolve_ablation_summary_path_can_fall_back_to_partial_run_scoped_file(
@@ -230,9 +263,15 @@ def test_methodology_resolvers_prefer_run_scoped_compat_files(
     modality_contract.write_text("{}", encoding="utf-8")
     leakage_assessment.write_text("ok\n", encoding="utf-8")
 
-    assert oh.resolve_feature_contract_path(diag, "rid") == feature_contract
-    assert oh.resolve_modality_method_contract_path(diag, "rid") == modality_contract
-    assert oh.resolve_leakage_assessment_path(diag, "rid") == leakage_assessment
+    assert oh.resolve_feature_contract_path(
+        diag, "rid", allow_legacy_compat=True
+    ) == feature_contract
+    assert oh.resolve_modality_method_contract_path(
+        diag, "rid", allow_legacy_compat=True
+    ) == modality_contract
+    assert oh.resolve_leakage_assessment_path(
+        diag, "rid", allow_legacy_compat=True
+    ) == leakage_assessment
 
 
 def test_suppress_mode_leaves_no_latest_named_files_in_run_diagnostics(tmp_path: Path, monkeypatch) -> None:

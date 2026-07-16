@@ -16,10 +16,14 @@ from obsidiandroid.diagnostics.backlog_triage_context import (
 )
 
 
-def test_preflight_auto_refresh_backlog_enabled_respects_env(monkeypatch) -> None:
+def test_preflight_auto_refresh_backlog_enabled_is_opt_in_and_respects_env(monkeypatch) -> None:
     monkeypatch.delenv("OBSIDIANDROID_PREFLIGHT_REFRESH_BACKLOG", raising=False)
     monkeypatch.delenv("OBSIDIANDROID_PREFLIGHT_SKIP_BACKLOG", raising=False)
     monkeypatch.delenv("OBSIDIANDROID_TEST_OUTPUT_ROOT", raising=False)
+    monkeypatch.delenv("OBSIDIANDROID_PREFLIGHT_BACKLOG", raising=False)
+    assert preflight_auto_refresh_backlog_enabled() is False
+    monkeypatch.setenv("OBSIDIANDROID_PREFLIGHT_BACKLOG", "1")
+    monkeypatch.setenv("OBSIDIANDROID_PREFLIGHT_REFRESH_BACKLOG", "1")
     assert preflight_auto_refresh_backlog_enabled() is True
     monkeypatch.setenv("OBSIDIANDROID_PREFLIGHT_REFRESH_BACKLOG", "0")
     assert preflight_auto_refresh_backlog_enabled() is False
@@ -30,6 +34,9 @@ def test_preflight_auto_refresh_backlog_enabled_respects_env(monkeypatch) -> Non
 def test_preflight_backlog_snapshot_disabled_for_tests_and_skip_env(monkeypatch) -> None:
     monkeypatch.delenv("OBSIDIANDROID_TEST_OUTPUT_ROOT", raising=False)
     monkeypatch.delenv("OBSIDIANDROID_PREFLIGHT_SKIP_BACKLOG", raising=False)
+    monkeypatch.delenv("OBSIDIANDROID_PREFLIGHT_BACKLOG", raising=False)
+    assert preflight_backlog_snapshot_enabled() is False
+    monkeypatch.setenv("OBSIDIANDROID_PREFLIGHT_BACKLOG", "1")
     assert preflight_backlog_snapshot_enabled() is True
     monkeypatch.setenv("OBSIDIANDROID_TEST_OUTPUT_ROOT", "/tmp/pytest-output")
     assert preflight_backlog_snapshot_enabled() is False

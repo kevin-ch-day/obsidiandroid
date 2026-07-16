@@ -6,6 +6,7 @@ Canonical implementation (**Pass 70**): ``obsidiandroid.pipeline.stage_ablation`
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from enum import Enum
 import json
 from pathlib import Path
@@ -40,6 +41,35 @@ class PaperCohortSource(str, Enum):
 def _diagnostics_dir() -> Path:
     """Resolve diagnostics directory for current runtime context."""
     return resolve_diagnostics_dir()
+
+
+def _write_ablation_progress_snapshot(
+    *,
+    diagnostics_dir: Path,
+    run_id: str,
+    total_combo_count: int,
+    current_combo_id: str,
+    combo_records: list[dict[str, Any]],
+    summary_row_count: int,
+    grid_status: str,
+) -> Path:
+    """Persist a small, atomically replaced progress capsule for a long ablation grid."""
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    path = diagnostics_dir / f"ablation_progress_{run_id}.json"
+    payload = {
+        "run_id": str(run_id),
+        "grid_status": str(grid_status),
+        "total_combo_count": int(total_combo_count),
+        "completed_combo_count": int(len(combo_records)),
+        "current_combo_id": str(current_combo_id),
+        "summary_row_count": int(summary_row_count),
+        "combo_records": list(combo_records),
+        "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    temp_path = path.with_suffix(".json.tmp")
+    temp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temp_path.replace(path)
+    return path
 
 
 def _build_permissions_band_matrix(
@@ -123,6 +153,16 @@ _VENDOR_SAFE_EXPERIMENTS = {
     "vendor_consensus_scores_only",
 }
 
+# These are intentionally AV-label-informed sensitivity experiments.  They
+# must be visibly scoped to ablation, never admitted to the headline feature
+# contract, and remain distinguishable from label-independent experiments.
+_LABEL_ADJACENT_ABLATION_EXPERIMENTS = {
+    "vendor_full",
+    "vendor_no_parsed_family",
+    "permissions_grouped_plus_vendor_no_family",
+    "full_fused",
+}
+
 
 def _format_ablation_terminal_label(experiment: str) -> str:
     return ABLATION_TERMINAL_LABELS.get(str(experiment), format_feature_set_label(str(experiment)))
@@ -166,11 +206,9 @@ def _prepare_training_inputs(
         min_support=min_support,
         group_label=group_label,
     )
-    aligned_features = pipeline_core._prune_low_information_features(aligned_features)  # pylint: disable=protected-access
-    aligned_features = pipeline_core._prune_potential_leakage_features(  # pylint: disable=protected-access
-        aligned_features,
-        labels_df,
-    )
+    # Train-only selection is applied by model_trainer_factory after its
+    # frozen ablation split is established.  Do not use all ablation rows to
+    # decide column survival here.
     return aligned_features, labels_df
 
 
@@ -354,6 +392,29 @@ def _build_ablation_feature_set_summary_rows(
             }
         )
     return rows
+
+
+def _has_variable_predictive_column(feature_df: pd.DataFrame) -> bool:
+    """Return whether an ablation matrix contains at least one usable signal column.
+
+    The normal train-only selector correctly rejects a matrix whose columns are
+    all constant.  Detecting that case here avoids needlessly invoking every
+    model for every label target and prevents a skipped feature set from
+    flooding the operator terminal with repeated training failures.
+    """
+    if not isinstance(feature_df, pd.DataFrame) or feature_df.empty:
+        return False
+    for column in feature_df.columns:
+        if str(column) == "sample_id":
+            continue
+        try:
+            if int(feature_df[column].nunique(dropna=False)) > 1:
+                return True
+        except (TypeError, ValueError):
+            # A column that cannot be counted is left to the normal feature
+            # contract validator rather than silently discarded here.
+            return True
+    return False
 
 
 def _print_ablation_feature_set_build_summary(
@@ -692,6 +753,21 @@ def run_ablation_experiments(
                 if ml_console.is_debug():
                     du.print_warning(f"[ABLATION] '{exp_name}' has zero columns after reindex — skipping.")
                 continue
+            if not _has_variable_predictive_column(reindexed):
+                skipped_experiments.append(
+                    {
+                        "feature_set": str(exp_name),
+                        "reason": "no_variable_feature_columns",
+                        "detail": (
+                            "All predictive columns are constant on the frozen cohort; "
+                            "skipping futile per-model training."
+                        ),
+                    }
+                )
+                du.print_warning(
+                    f"[ABLATION] '{exp_name}' has no variable predictive columns on the frozen cohort — skipping."
+                )
+                continue
             experiment_matrices[exp_name] = reindexed
         for exp_name, df in list(experiment_matrices.items()):
             idx_set = set(pd.to_numeric(df.index, errors="coerce").dropna().astype(int).tolist())
@@ -738,17 +814,17 @@ def run_ablation_experiments(
 
     from obsidiandroid.evaluation.ml_terminal_presentation import print_ablation_feature_sets_built
 
-    summary_rows = _build_ablation_feature_set_summary_rows(
+    feature_set_rows = _build_ablation_feature_set_summary_rows(
         experiment_order=list(ABLATION_EXPERIMENT_ORDER),
         built_matrices=experiment_matrices,
         skipped_experiments=skipped_experiments,
     )
-    built_ok = sum(1 for row in summary_rows if str(row.get("status", "")).upper() == "OK")
-    skipped_count = sum(1 for row in summary_rows if str(row.get("status", "")).upper() == "SKIPPED")
+    built_ok = sum(1 for row in feature_set_rows if str(row.get("status", "")).upper() == "OK")
+    skipped_count = sum(1 for row in feature_set_rows if str(row.get("status", "")).upper() == "SKIPPED")
     print_ablation_feature_sets_built(
-        rows=summary_rows,
+        rows=feature_set_rows,
         built_ok=built_ok,
-        built_total=len(summary_rows),
+        built_total=len(feature_set_rows),
         skipped_count=skipped_count,
     )
 
@@ -819,9 +895,20 @@ def run_ablation_experiments(
     if isinstance(manifest_context, dict):
         manifest_context["_ablation_label_target_stats"] = label_stats_snapshot
 
+    planned_combo_count = len(experiment_matrices) * len(label_targets)
+    planned_model_fit_upper_bound = planned_combo_count * len(selected_models)
+    du.print_info(
+        "[ABLATION] Plan: "
+        f"{len(experiment_matrices)} feature set(s) × {len(label_targets)} label target(s) "
+        f"× {len(selected_models)} model(s) = up to {planned_model_fit_upper_bound} fits."
+    )
+
     previous_cv = bool(getattr(app_config, "ENABLE_CROSS_VALIDATION", False))
     previous_cv_rebalance = bool(getattr(app_config, "ENABLE_CV_REBALANCING", False))
     previous_quiet = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
+    previous_label_adjacent_allowed = bool(
+        getattr(app_config, "RUNTIME_ABLATION_ALLOW_LABEL_ADJACENT_FEATURES", False)
+    )
     if not ablation_cv_enabled:
         setattr(app_config, "ENABLE_CROSS_VALIDATION", False)
         setattr(app_config, "ENABLE_CV_REBALANCING", False)
@@ -845,15 +932,43 @@ def run_ablation_experiments(
 
     schema_audit_snapshot: list[dict[str, Any]] = []
     ablation_grid_exc: BaseException | None = None
+    progress_records: list[dict[str, Any]] = []
+    progress_path = _write_ablation_progress_snapshot(
+        diagnostics_dir=_diagnostics_dir(),
+        run_id=run_id,
+        total_combo_count=planned_combo_count,
+        current_combo_id="",
+        combo_records=progress_records,
+        summary_row_count=0,
+        grid_status="running",
+    )
+    artifact_paths.append(str(progress_path))
     try:
         with pipeline_core._suppress_known_sklearn_parallel_warning():
             for experiment_name, feature_df in experiment_matrices.items():
                 for label_slug, forced_col in label_targets:
                     combo_id = f"{experiment_name}__lt_{label_slug}"
+                    combo_status = "running"
+                    combo_detail = ""
+                    combo_rows_before = len(summary_rows)
+                    _write_ablation_progress_snapshot(
+                        diagnostics_dir=_diagnostics_dir(),
+                        run_id=run_id,
+                        total_combo_count=planned_combo_count,
+                        current_combo_id=combo_id,
+                        combo_records=progress_records,
+                        summary_row_count=len(summary_rows),
+                        grid_status="running",
+                    )
                     try:
                         setattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", experiment_name)
                         setattr(app_config, "RUNTIME_ABLATION_LABEL_TARGET_SLUG", label_slug)
                         setattr(app_config, "RUNTIME_EXPERIMENT_ID", combo_id)
+                        setattr(
+                            app_config,
+                            "RUNTIME_ABLATION_ALLOW_LABEL_ADJACENT_FEATURES",
+                            experiment_name in _LABEL_ADJACENT_ABLATION_EXPERIMENTS,
+                        )
                         work_df = feature_df.copy()
                         if not reindex_zero_fill:
                             if "sample_id" in work_df.columns:
@@ -868,6 +983,8 @@ def run_ablation_experiments(
                                 )
                                 work_df = work_df.loc[idx_series.isin(common_ids)].copy()
                         if work_df.empty:
+                            combo_status = "skipped"
+                            combo_detail = "empty_filtered_feature_matrix"
                             skipped_label_target_runs.append(
                                 {
                                     "feature_set": str(experiment_name),
@@ -888,6 +1005,8 @@ def run_ablation_experiments(
                             forced_label_column=forced_col,
                         )
                         if x_train is None or y_train is None or x_train.empty:
+                            combo_status = "skipped"
+                            combo_detail = "alignment_failure"
                             skipped_label_target_runs.append(
                                 {
                                     "feature_set": str(experiment_name),
@@ -901,12 +1020,35 @@ def run_ablation_experiments(
                                     f"[ABLATION] Skipping '{experiment_name}'/'{label_slug}' due to alignment failure."
                                 )
                             continue
-                        results, _ = pipeline_core.train_models(
+                        results, skipped_models = pipeline_core.train_models(
                             x_train,
                             y_train,
                             models=selected_models or None,
                             save_model=ablation_save_models,
                         )
+                        if not results:
+                            combo_status = "skipped"
+                            combo_detail = "no_valid_model_results"
+                            skipped_label_target_runs.append(
+                                {
+                                    "feature_set": str(experiment_name),
+                                    "label_target": str(label_slug),
+                                    "reason": "no_valid_model_results",
+                                    "detail": (
+                                        "No valid model result was returned for this feature/label combination"
+                                        + (
+                                            f"; skipped_models={','.join(map(str, skipped_models))}."
+                                            if skipped_models
+                                            else "."
+                                        )
+                                    ),
+                                }
+                            )
+                            du.print_warning(
+                                f"[ABLATION] '{experiment_name}'/'{label_slug}' produced no valid model results — "
+                                "recorded as skipped."
+                            )
+                            continue
                         _print_ablation_combo_summary(experiment_name, label_slug, results)
                         rows, family_rows = _collect_experiment_rows(
                             experiment_name,
@@ -916,7 +1058,11 @@ def run_ablation_experiments(
                         )
                         summary_rows.extend(rows)
                         per_family_rows.extend(family_rows)
+                        combo_status = "complete"
+                        combo_detail = f"model_rows={len(rows)}"
                     except Exception as exc:
+                        combo_status = "failed"
+                        combo_detail = str(exc)
                         skipped_label_target_runs.append(
                             {
                                 "feature_set": str(experiment_name),
@@ -928,8 +1074,30 @@ def run_ablation_experiments(
                         if ml_console.is_debug():
                             du.print_warning(f"[ABLATION] '{experiment_name}'/'{label_slug}' failed: {exc}")
                     finally:
+                        if combo_status == "running":
+                            combo_status = "interrupted_or_aborted"
+                        progress_records.append(
+                            {
+                                "combo_id": combo_id,
+                                "feature_set": str(experiment_name),
+                                "label_target": str(label_slug),
+                                "status": combo_status,
+                                "detail": combo_detail,
+                                "model_rows_written": len(summary_rows) - combo_rows_before,
+                            }
+                        )
+                        _write_ablation_progress_snapshot(
+                            diagnostics_dir=_diagnostics_dir(),
+                            run_id=run_id,
+                            total_combo_count=planned_combo_count,
+                            current_combo_id="",
+                            combo_records=progress_records,
+                            summary_row_count=len(summary_rows),
+                            grid_status="running",
+                        )
                         setattr(app_config, "RUNTIME_EXPERIMENT_ID", "")
                         setattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", "")
+                        setattr(app_config, "RUNTIME_ABLATION_ALLOW_LABEL_ADJACENT_FEATURES", False)
     except BaseException as exc:
         ablation_grid_exc = exc
         if isinstance(exc, (KeyboardInterrupt, SystemExit)):
@@ -940,6 +1108,22 @@ def run_ablation_experiments(
         else:
             du.print_warning(f"[ABLATION] Ablation grid aborted by {type(exc).__name__}: {exc}")
     finally:
+        terminal_progress_status = (
+            "complete"
+            if ablation_grid_exc is None
+            else "interrupted"
+            if isinstance(ablation_grid_exc, (KeyboardInterrupt, SystemExit))
+            else "failed"
+        )
+        _write_ablation_progress_snapshot(
+            diagnostics_dir=_diagnostics_dir(),
+            run_id=run_id,
+            total_combo_count=planned_combo_count,
+            current_combo_id="",
+            combo_records=progress_records,
+            summary_row_count=len(summary_rows),
+            grid_status=terminal_progress_status,
+        )
         raw_audit = getattr(app_config, "RUNTIME_ABLATION_SCHEMA_AUDIT_ROWS", None)
         if isinstance(raw_audit, list):
             schema_audit_snapshot = list(raw_audit)
@@ -953,6 +1137,11 @@ def run_ablation_experiments(
         setattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX", None)
         setattr(app_config, "RUNTIME_ABLATION_LABEL_TARGET_SLUG", "")
         setattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", "")
+        setattr(
+            app_config,
+            "RUNTIME_ABLATION_ALLOW_LABEL_ADJACENT_FEATURES",
+            previous_label_adjacent_allowed,
+        )
 
     audit_df = (
         pd.DataFrame(schema_audit_snapshot)
@@ -982,6 +1171,9 @@ def run_ablation_experiments(
         "exception_message": str(ablation_grid_exc) if ablation_grid_exc else "",
         "summary_row_count": len(summary_rows),
         "trainable_experiments": len(experiment_matrices),
+        "planned_combo_count": planned_combo_count,
+        "planned_model_fit_upper_bound": planned_model_fit_upper_bound,
+        "completed_combo_count": len(progress_records),
         "skipped_experiment_count": len(skipped_experiments),
         "skipped_experiments": list(skipped_experiments),
         "skipped_label_target_run_count": len(skipped_label_target_runs),

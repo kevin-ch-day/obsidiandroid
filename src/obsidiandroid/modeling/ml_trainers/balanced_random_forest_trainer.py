@@ -75,7 +75,7 @@ def train_balanced_random_forest(
         y_prob = model.predict_proba(X_test) if hasattr(model, "predict_proba") else None
         confidences = np.max(y_prob, axis=1) if y_prob is not None else np.ones_like(y_pred)
 
-        if sample_ids and len(sample_ids) == len(y_pred):
+        if sample_ids is not None and len(sample_ids) == len(y_pred):
             predictions_dict = {sid: int(pred) for sid, pred in zip(sample_ids, y_pred)}
             labels_dict = {sid: int(label) for sid, label in zip(sample_ids, y_test)}
             meta_dict = {

@@ -15,7 +15,10 @@ def test_attach_engine_metadata_writes_overlay_without_extra_rows(monkeypatch, t
     monkeypatch.setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
     monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "t_overlay", raising=False)
 
-    def _fake_fetch(verbose: bool = True) -> pd.DataFrame:
+    captured: dict[str, object] = {}
+
+    def _fake_fetch(sample_ids=None, verbose: bool = True) -> pd.DataFrame:
+        captured["sample_ids"] = sample_ids
         return pd.DataFrame(
             {
                 "engine_name": ["eng_a"],
@@ -43,6 +46,7 @@ def test_attach_engine_metadata_writes_overlay_without_extra_rows(monkeypatch, t
     overlay = diagnostics_dir / "engine_metadata_overlay_t_overlay.csv"
     assert overlay.exists()
     assert getattr(app_config, "RUNTIME_ENGINE_METADATA_OVERLAY_CSV", "") == str(overlay)
+    assert captured["sample_ids"] == [1, 2]
 
 
 def test_attach_engine_metadata_run_scoped_uses_global_latest(monkeypatch, tmp_path) -> None:
@@ -53,7 +57,7 @@ def test_attach_engine_metadata_run_scoped_uses_global_latest(monkeypatch, tmp_p
     monkeypatch.setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
     monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "rid", raising=False)
 
-    def _fake_fetch(verbose: bool = True) -> pd.DataFrame:
+    def _fake_fetch(sample_ids=None, verbose: bool = True) -> pd.DataFrame:
         return pd.DataFrame(
             {
                 "engine_name": ["eng_a"],
@@ -90,7 +94,7 @@ def test_attach_engine_metadata_slot_root_stays_run_scoped(monkeypatch, tmp_path
     monkeypatch.setattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", str(diagnostics_dir), raising=False)
     monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", "rid_slot", raising=False)
 
-    def _fake_fetch(verbose: bool = True) -> pd.DataFrame:
+    def _fake_fetch(sample_ids=None, verbose: bool = True) -> pd.DataFrame:
         return pd.DataFrame(
             {
                 "engine_name": ["eng_a"],

@@ -21,6 +21,28 @@ from obsidiandroid.diagnostics.family_type_authority_coverage import (
 )
 
 
+def _read_cached_headline_contract_payload(csv_path: Path) -> dict[str, Any]:
+    """Read the compact contract payload needed by a later report consumer."""
+    try:
+        frame = pd.read_csv(csv_path, dtype=str, keep_default_na=False)
+    except Exception:
+        return {}
+    if frame.empty:
+        return {}
+    payload = frame.iloc[0].to_dict()
+    apples = str(payload.get("apples_to_apples", "")).strip().lower()
+    if apples in {"true", "yes"}:
+        payload["apples_to_apples"] = True
+    elif apples in {"false", "no"}:
+        payload["apples_to_apples"] = False
+    else:
+        payload["apples_to_apples"] = None
+    payload["incommensurable_message"] = str(
+        payload.get("not_comparable_warning", "") or ""
+    ).strip()
+    return payload
+
+
 def write_headline_vs_ablation_contract_reports(
     diagnostics_dir: Path,
     run_id: str,
@@ -30,6 +52,16 @@ def write_headline_vs_ablation_contract_reports(
 ) -> tuple[Path | None, Path | None, dict[str, Any]]:
     """Emit ``headline_vs_ablation_contract_comparison.{md,csv}`` under diagnostics."""
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = diagnostics_dir / f"headline_vs_ablation_contract_comparison_{run_id}.csv"
+    md_path = diagnostics_dir / f"headline_vs_ablation_contract_comparison_{run_id}.md"
+    # The research-validity bundle and post-finalize operator report both need this
+    # contract. Reuse the run-scoped result rather than rebuilding and mirroring it
+    # twice in one pipeline completion.
+    if csv_path.is_file() and md_path.is_file():
+        cached = _read_cached_headline_contract_payload(csv_path)
+        if cached:
+            return md_path, csv_path, cached
+
     payload = build_feature_contract_comparison(
         diagnostics_dir,
         run_id,
@@ -75,8 +107,6 @@ def write_headline_vs_ablation_contract_reports(
             ]
         )
 
-    csv_path = diagnostics_dir / f"headline_vs_ablation_contract_comparison_{run_id}.csv"
-    md_path = diagnostics_dir / f"headline_vs_ablation_contract_comparison_{run_id}.md"
     row = {
         **{k: v for k, v in payload.items() if k != "incommensurable_message"},
         "apples_to_apples_yes_no": apples_txt,
@@ -226,26 +256,13 @@ def _taxonomy_split_reason_bucket(reason: str) -> str:
 def write_taxonomy_authority_split_reports(
     diagnostics_dir: Path,
     run_id: str,
-) -> tuple[Path | None, Path | None, Path | None, Path | None]:
+) -> tuple[Path | None, Path | None, Path | None, Path | None, Path | None]:
     """Emit scope-aware taxonomy authority split artifacts."""
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
     summary = _read_taxonomy_summary(diagnostics_dir, run_id)
     mismatch_path = oh.resolve_taxonomy_consistency_mismatches_path(diagnostics_dir, run_id)
     prediction_path = oh.resolve_prediction_errors_path(diagnostics_dir, run_id)
-
-    mismatch_df = pd.DataFrame()
-    prediction_df = pd.DataFrame()
-    if mismatch_path.is_file():
-        try:
-            mismatch_df = pd.read_csv(mismatch_path)
-        except Exception:
-            mismatch_df = pd.DataFrame()
-    if prediction_path.is_file():
-        try:
-            prediction_df = pd.read_csv(prediction_path)
-        except Exception:
-            prediction_df = pd.DataFrame()
 
     authority_df, source_mode, warning = load_authority_df(require_live_view=True)
     global_scope = _authority_scope_payload(
@@ -315,29 +332,11 @@ def write_taxonomy_authority_split_reports(
         )
         run_scope["cohort_source"] = cohort_source
 
-    rendering_df = mismatch_df.copy()
-    if not rendering_df.empty:
-        rendering_df["diagnostic_bucket"] = rendering_df["mismatch_reason"].map(_taxonomy_split_reason_bucket)
-    rendering_csv_path = diagnostics_dir / f"taxonomy_rendering_mismatches_{run_id}.csv"
-    rendering_df.to_csv(rendering_csv_path, index=False)
-    oh.mirror_csv_text_run_then_global(
-        diagnostics_dir=diagnostics_dir,
-        run_filename=rendering_csv_path.name,
-        csv_text=rendering_df.to_csv(index=False),
-        global_latest_name="taxonomy_rendering_mismatches.latest.csv",
-    )
-
-    prediction_export_df = prediction_df.copy()
-    if not prediction_export_df.empty:
-        prediction_export_df["diagnostic_bucket"] = "model_prediction_error"
-    model_err_csv_path = diagnostics_dir / f"taxonomy_model_prediction_errors_{run_id}.csv"
-    prediction_export_df.to_csv(model_err_csv_path, index=False)
-    oh.mirror_csv_text_run_then_global(
-        diagnostics_dir=diagnostics_dir,
-        run_filename=model_err_csv_path.name,
-        csv_text=prediction_export_df.to_csv(index=False),
-        global_latest_name="taxonomy_model_prediction_errors.latest.csv",
-    )
+    # These are canonical Stage 7 exports. Earlier versions copied each into a
+    # taxonomy-prefixed CSV (one byte-identical; one with only a constant bucket
+    # column), which doubled storage and made the artifact index misleading.
+    rendering_csv_path = mismatch_path if mismatch_path.is_file() else None
+    model_err_csv_path = prediction_path if prediction_path.is_file() else None
 
     gap_rows: list[dict[str, Any]] = []
     for scope_blob in (global_scope, run_scope):
@@ -408,11 +407,11 @@ def write_taxonomy_authority_split_reports(
             },
             "type_authority_vs_rendering_mismatch": {
                 "counts": rendering_counts,
-                "csv_path": str(rendering_csv_path),
+                "csv_path": str(rendering_csv_path or ""),
             },
             "model_prediction_error": {
                 "count": prediction_error_count,
-                "csv_path": str(model_err_csv_path),
+                "csv_path": str(model_err_csv_path or ""),
             },
             "generic_or_coarse_label_issue": {
                 "global_row_count": int(global_scope.get("generic_or_coarse_label_rows", 0)),
@@ -487,13 +486,13 @@ def write_taxonomy_authority_split_reports(
             f"- `type_label_missing`: **{rendering_counts['type_label_missing']}**",
             f"- `type_label_noncanonical`: **{rendering_counts['type_label_noncanonical']}**",
             f"- `label_family_mismatch`: **{rendering_counts['label_family_mismatch']}**",
-            f"- CSV: `{rendering_csv_path}`",
+            f"- CSV: `{rendering_csv_path or 'missing'}`",
             "- These are rendering/taxonomy issues, not model-family errors.",
             "",
             "### 3. Model prediction error",
             "",
             f"- Count: **{prediction_error_count}**",
-            f"- CSV: `{model_err_csv_path}`",
+            f"- CSV: `{model_err_csv_path or 'missing'}`",
             "- These rows remain separate from type/rendering mismatches.",
             "",
             "### 4. Generic/coarse label issue",
@@ -562,6 +561,13 @@ def write_taxonomy_type_authority_reports(
 ) -> tuple[Path | None, Path | None]:
     """Emit ``taxonomy_type_authority_review.{md,csv}`` with policy + counts + examples."""
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    md_path = diagnostics_dir / f"taxonomy_type_authority_review_{run_id}.md"
+    csv_path = diagnostics_dir / f"taxonomy_type_authority_review_{run_id}.csv"
+    # This function is intentionally called by both reporting bundles. The first
+    # call owns materialization; the second only needs the same two paths.
+    if md_path.is_file() and csv_path.is_file():
+        return md_path, csv_path
+
     summary = _read_taxonomy_summary(diagnostics_dir, run_id)
     summary_present = bool(summary)
 
@@ -690,8 +696,6 @@ def write_taxonomy_type_authority_reports(
         "mismatch_csv_path": str(mismatch_path) if mismatch_path else "",
     }
 
-    md_path = diagnostics_dir / f"taxonomy_type_authority_review_{run_id}.md"
-    csv_path = diagnostics_dir / f"taxonomy_type_authority_review_{run_id}.csv"
     with csv_path.open("w", encoding="utf-8", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=list(csv_payload.keys()))
         w.writeheader()

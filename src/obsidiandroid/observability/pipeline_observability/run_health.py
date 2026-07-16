@@ -309,9 +309,13 @@ def _ablation_line(payload: dict[str, Any]) -> str:
     status_line = str(ablation.get("status_line", "") or payload.get("ablation_status", "") or "n/a").strip()
     if not status_line:
         return "n/a"
-    text = status_line.replace("artifact_paths=", "").replace("ablation_grid_status=", "")
+    # Keep each quantity labelled: artifact count is not experiment count.
+    # Older run records used ``artifact_paths=`` / ``ablation_grid_status=``;
+    # normalize them without dropping the field name.
+    text = status_line.replace("artifact_paths=", "artifacts=").replace(
+        "ablation_grid_status=", "status="
+    )
     text = text.replace("skipped_experiments=", "skipped=")
-    text = text.replace("summary=", "summary=")
     text = text.replace(" | ", "; ")
     return text
 

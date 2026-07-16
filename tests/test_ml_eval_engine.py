@@ -319,6 +319,46 @@ def test_compare_model_performance_ranks_by_macro_f1(monkeypatch) -> None:
     summary_df = ml_comparator_summary.compare_model_performance(results)
     assert not summary_df.empty
     assert summary_df.iloc[0]["Model"] == "model_b"
+    assert summary_df["comparison_contract_status"].eq("unverified").all()
+
+
+def test_model_comparison_marks_different_metric_label_universes_invalid(monkeypatch) -> None:
+    monkeypatch.setattr(app_config, "MODEL_RANK_PRIMARY_METRIC", "macro_f1_score")
+    monkeypatch.setattr(app_config, "PAPER_MODE_ENABLED", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_EVIDENCE_MODE", False, raising=False)
+    results = {
+        "model_a": {
+            "evaluation": {
+                "accuracy": 0.9,
+                "precision": 0.9,
+                "recall": 0.9,
+                "f1_score": 0.9,
+                "macro_f1_score": 0.7,
+                "samples_tested": 20,
+                "num_classes": 3,
+                "num_confusion_labels": 3,
+                "evaluation_label_hash": "labels_a",
+            }
+        },
+        "model_b": {
+            "evaluation": {
+                "accuracy": 0.9,
+                "precision": 0.9,
+                "recall": 0.9,
+                "f1_score": 0.9,
+                "macro_f1_score": 0.7,
+                "samples_tested": 20,
+                "num_classes": 2,
+                "num_confusion_labels": 2,
+                "evaluation_label_hash": "labels_b",
+            }
+        },
+    }
+
+    comparison = ml_comparator_summary.compare_model_performance(results)
+
+    assert comparison["comparison_contract_status"].eq("invalid").all()
+    assert "different evaluation-label counts" in comparison.iloc[0]["comparison_contract_reason"]
 
 
 def test_compare_model_performance_uses_primary_metric_for_headline_tier(monkeypatch) -> None:

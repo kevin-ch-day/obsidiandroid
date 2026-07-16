@@ -9,6 +9,28 @@ from pathlib import Path
 from obsidiandroid.diagnostics.headline_ablation_parity import build_feature_contract_comparison
 
 
+def test_contract_comparison_rejects_other_run_artifacts(tmp_path: Path) -> None:
+    """A run cannot inherit a model or ablation contract from a neighbor."""
+    diag = tmp_path / "diagnostics"
+    diag.mkdir(parents=True)
+    (diag / "evaluation_contract_other.json").write_text(
+        json.dumps({"feature_contract": {"headline_feature_column_hash": "other"}}),
+        encoding="utf-8",
+    )
+    (diag / "model_comparison_summary_other.csv").write_text(
+        "Model,headline_feature_column_hash\nrandom_forest,other\n",
+        encoding="utf-8",
+    )
+    (diag / "ablation_summary_other.csv").write_text(
+        "experiment,label_target,feature_column_hash\nfull_fused,family_id,other\n",
+        encoding="utf-8",
+    )
+
+    out = build_feature_contract_comparison(diag, "active")
+    assert out["headline_feature_column_hash"] is None
+    assert out["ablation_full_fused_feature_column_hash"] is None
+
+
 def test_build_feature_contract_comparison_merges_evaluation_contract(tmp_path: Path) -> None:
     rid = "run_xyz"
     diag = tmp_path / "diagnostics"

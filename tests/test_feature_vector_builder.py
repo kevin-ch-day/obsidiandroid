@@ -6,6 +6,7 @@ import pandas as pd
 from pathlib import Path
 
 from obsidiandroid.features import feature_vector_builder
+from obsidiandroid.features.vectorization import feature_vendor_extractor
 from config import app_config
 
 
@@ -192,6 +193,41 @@ def test_merge_extra_features_coerces_object_perm_columns_numeric() -> None:
     assert "perm__android_permission_internet" not in maps
     assert out["perm__android_permission_internet"].tolist() == [1, 0]
     assert out["perm__total_count"].tolist() == [3, 0]
+
+
+def test_merge_extra_features_retains_zero_filled_columns_when_extra_ids_invalid() -> None:
+    """Invalid extra IDs must not silently change the feature-column contract."""
+    encoded = pd.DataFrame({"feat_a": [1, 2]}, index=pd.Index([10, 20], name="sample_id"))
+    extra = pd.DataFrame({"sample_id": ["invalid"], "perm__x": [9]})
+
+    out, _maps = feature_vector_builder._merge_extra_features(encoded, extra, verbose=False)
+
+    assert out["perm__x"].tolist() == [0, 0]
+
+
+def test_extract_vendor_fields_fills_missing_columns_without_mutating_parser_frame() -> None:
+    vendor_frame = pd.DataFrame({"sample_id": [1], "Parsed Family": ["alpha"]})
+
+    extracted = feature_vendor_extractor.extract_vendor_fields(
+        {"Vendor-X": vendor_frame},
+        ["Vendor-X"],
+        ["Parsed Family", "Threat Class"],
+    )
+
+    assert extracted[0]["threat_class_vendorx"].tolist() == ["unknown"]
+    assert "Threat Class" not in vendor_frame.columns
+
+
+def test_merge_vendor_features_does_not_count_sample_id_as_a_predictive_column(monkeypatch) -> None:
+    """A zero-field safe contract must be described as pre-enrichment, not one feature."""
+    messages: list[str] = []
+    monkeypatch.setattr(feature_vendor_extractor.du, "print_info", lambda message: messages.append(str(message)))
+    monkeypatch.setattr(feature_vendor_extractor.du, "print_stat", lambda *_args: (_ for _ in ()).throw(AssertionError()))
+
+    out = feature_vendor_extractor.merge_vendor_features([pd.DataFrame({"sample_id": [1, 2]})])
+
+    assert out.columns.tolist() == ["sample_id"]
+    assert any("policy-disabled" in message and "continuing to enrichment" in message for message in messages)
 
 
 def test_expand_to_cohort_authoritative_adds_permission_row_for_vendor_gap() -> None:

@@ -267,6 +267,7 @@ def test_build_row_suppresses_cross_type_known_family_prediction(monkeypatch):
     assert row["predicted_family_id"] == "other"
     assert row["classification_label"] == "trojan/android.banker.other"
     assert row["override_tag"] == "type_guard_family_suppressed"
+    assert row["raw_model_predicted_family"] == "SpyNote"
     assert row["raw_predicted_family"] == "SpyNote"
     assert metadata["1003"]["override_tag"] == "type_guard_family_suppressed"
     assert metadata["1003"]["raw_predicted_family"] == "SpyNote"
