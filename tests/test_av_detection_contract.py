@@ -50,3 +50,29 @@ def test_ambiguous_missing_snapshot_identity_fails_closed():
     rows = pd.DataFrame([{"sample_id": 1, "engine_name": "a", "result": "x"}, {"sample_id": 1, "engine_name": "b", "result": "y", "report_id": "known"}])
     with pytest.raises(ValueError, match="snapshot identity unavailable"):
         select_coherent_report_snapshot(rows)
+
+
+@pytest.mark.parametrize(
+    ("result", "expected"),
+    [
+        ("malicious", (1, 1)), ("Trojan.FreeText", (1, 1)), ("suspicious", (1, 1)),
+        ("harmless", (0, 1)), ("undetected", (0, 1)), ("timeout", (0, 0)),
+        ("confirmed_timeout", (0, 0)), ("failure", (0, 0)), ("type_unsupported", (0, 0)),
+        (None, (0, 0)), ("", (0, 0)), ("none", (0, 1)), ("n/a", (0, 1)),
+    ],
+)
+def test_av_status_truth_table(result, expected):
+    rows = pd.DataFrame([{"sample_id": 1, "engine_name": "alpha", "result": result, "report_id": "r"}])
+    contract = fit_av_detection_contract(rows, [1], scope="all_observed")
+    out = transform_av_detection_features(rows, contract, [1]).set_index("sample_id")
+    if expected == (0, 0):
+        assert contract.engine_columns == ()
+    else:
+        assert (out.loc[1, "avdet__alpha"], out.loc[1, "avobs__alpha"]) == expected
+
+
+@pytest.mark.parametrize("status", ["malformed", "unknown"])
+def test_structured_malformed_status_never_becomes_train_observed(status):
+    rows = pd.DataFrame([{"sample_id": 1, "engine_name": "alpha", "status": status, "report_id": "r"}])
+    with pytest.raises(ValueError, match="Unknown structured"):
+        fit_av_detection_contract(rows, [1], scope="all_observed")
