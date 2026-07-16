@@ -19,6 +19,7 @@ from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common import output_paths
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
 from obsidiandroid.pipeline.engine_normalization import canonicalize_engine_name
+from obsidiandroid.pipeline.engine_lifecycle_schema import readiness_mask
 from obsidiandroid.observability.pipeline_observability.session import PipelineObservabilitySession
 from obsidiandroid.observability.pipeline_observability.taxonomy import LogCategory, LogSeverity
 
@@ -351,7 +352,7 @@ def _assert_engine_lifecycle_integrity(lifecycle_df: pd.DataFrame) -> None:
 
     observed_count = _bool_sum("observed_flag")
     canonicalized_count = _bool_sum("canonicalized_flag")
-    included_count = _bool_sum("included_in_model_flag")
+    included_count = int(readiness_mask(lifecycle_df).sum())
     excluded_count = int(len(lifecycle_df) - included_count)
     du.print_stat(
         "Engine Lifecycle",
@@ -370,9 +371,8 @@ def _assert_engine_count_consistency(
     engine_scores_df: pd.DataFrame,
 ) -> None:
     """Fail fast when lifecycle and attrs report mismatched included/excluded counts."""
-    include_col = "included_in_model_flag"
-    if include_col in lifecycle_df.columns:
-        include_mask = lifecycle_df[include_col].fillna(False).astype(bool)
+    if {"readiness_eligible_flag", "included_in_model_flag"}.intersection(lifecycle_df.columns):
+        include_mask = readiness_mask(lifecycle_df)
         lifecycle_included = int(include_mask.sum())
         lifecycle_excluded = int((~include_mask).sum())
     else:

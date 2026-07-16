@@ -10,6 +10,7 @@ from obsidiandroid.matrix import enrich_malicious_scores as enrich_scores
 from obsidiandroid.pipeline.engine_pipeline_utils import validate_sample_input
 from obsidiandroid.pipeline.attach_engine_metadata import attach_engine_metadata
 from obsidiandroid.pipeline.engine_normalization import canonicalize_engine_name
+from obsidiandroid.pipeline.engine_lifecycle_schema import READINESS_FLAG, readiness_mask
 from obsidiandroid.pipeline.score_av_engines import run_av_engine_scoring
 from obsidiandroid.cli.ui import display as du
 
@@ -55,12 +56,11 @@ def apply_binary_feature_engine_scope(
     engine_columns = [str(col) for col in binary_matrix.columns if str(col) != "sample_id"]
     included_canonical: set[str] = set()
     if isinstance(engine_lifecycle, pd.DataFrame) and not engine_lifecycle.empty:
-        required = {"engine_name_canonical", "included_in_model_flag"}
-        if required.issubset(engine_lifecycle.columns):
+        if "engine_name_canonical" in engine_lifecycle.columns:
             included_canonical = {
                 canonicalize_engine_name(name)
                 for name in engine_lifecycle.loc[
-                    engine_lifecycle["included_in_model_flag"].fillna(False).astype(bool),
+                    readiness_mask(engine_lifecycle),
                     "engine_name_canonical",
                 ].tolist()
                 if canonicalize_engine_name(name)
@@ -72,7 +72,7 @@ def apply_binary_feature_engine_scope(
         if not included_canonical:
             raise ValueError(
                 "lifecycle_included AV feature scope requires lifecycle rows with "
-                "engine_name_canonical and included_in_model_flag."
+                f"engine_name_canonical and {READINESS_FLAG}."
             )
         selected_columns = [
             column

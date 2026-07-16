@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from obsidiandroid.pipeline import engine_normalization
+from obsidiandroid.pipeline import engine_lifecycle_schema
 from obsidiandroid.risk_band import phase_score_engines
 from config import app_config
 from obsidiandroid.common.cv_fold_config import (
@@ -295,16 +296,14 @@ def _build_lifecycle_table(
                 "engine_hash": "",
             }
         )
-    return pd.DataFrame(rows)
+    return engine_lifecycle_schema.add_readiness_compatibility_columns(pd.DataFrame(rows))
 
 
 def _export_engine_exclusion_audit(lifecycle_df: pd.DataFrame, lifecycle_path: Path) -> Path | None:
     """Export excluded-engine audit rows with threshold context."""
     if not isinstance(lifecycle_df, pd.DataFrame) or lifecycle_df.empty:
         return None
-    exclusion_df = lifecycle_df[
-        lifecycle_df["included_in_model_flag"].fillna(False).astype(bool) == False  # noqa: E712
-    ].copy()
+    exclusion_df = lifecycle_df[~engine_lifecycle_schema.readiness_mask(lifecycle_df)].copy()
     if exclusion_df.empty:
         return None
     sort_cols = [col for col in ("near_miss_flag", "coverage_pct", "detection_pct", "samples_scanned") if col in exclusion_df.columns]
@@ -323,7 +322,7 @@ def _validate_lifecycle_reconciliation(lifecycle_df: pd.DataFrame) -> None:
     excluded_precanonical = int((lifecycle_df["exclusion_stage"] == "excluded_precanonical").sum())
     scored = int(lifecycle_df["scored_flag"].sum())
     excluded_prescore = int((lifecycle_df["exclusion_stage"] == "excluded_prescore").sum())
-    included = int(lifecycle_df["included_in_model_flag"].sum())
+    included = int(engine_lifecycle_schema.readiness_mask(lifecycle_df).sum())
     excluded_postscore = int((lifecycle_df["exclusion_stage"] == "excluded_postscore").sum())
 
     if observed != canonicalized + excluded_precanonical:
