@@ -12,7 +12,7 @@ from obsidiandroid.governance.frozen_benchmark_manifest import (
 
 
 def _plan():
-    return {"arms": ["A", "B", "C"], "models": ["random_forest", "logistic_regression", "xgboost"], "sensitivity_contrasts": [("B", "detection_only"), ("B", "detection_plus_mask"), ("C", "detection_only"), ("C", "detection_plus_mask")], "paired_comparisons": ["B-A", "C-A", "C-B"], "metrics": ["macro_f1"]}
+    return {"arms": ["A", "B", "C"], "models": ["random_forest", "logistic_regression", "xgboost"], "sensitivity_contrasts": [("B", "detection_only"), ("B", "detection_plus_mask"), ("C", "detection_only"), ("C", "detection_plus_mask")], "paired_comparisons": ["B_detection_plus_mask-B_detection_only", "C_detection_plus_mask-C_detection_only", "B-A", "C-A", "C-B"], "metrics": ["macro_f1", "weighted_f1", "accuracy", "balanced_accuracy"]}
 
 
 def test_sdk_imputation_is_fit_only_on_outer_train():

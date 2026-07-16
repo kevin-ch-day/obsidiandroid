@@ -7,7 +7,7 @@ from obsidiandroid.evaluation.frozen_abc_comparator import paired_lineage_compon
 def _predictions():
     rows = []
     for arm, predictions in {"A": [0, 1, 0, 1, 0, 1, 0, 1], "B": [0, 1, 1, 1, 0, 0, 0, 1]}.items():
-        for sample_id, (component, family, truth, prediction) in enumerate(zip(["c1", "c1", "c2", "c2", "c3", "c3", "c4", "c4"], [0, 0, 0, 0, 1, 1, 1, 1], [0, 1, 0, 1, 0, 1, 0, 1], predictions), start=1):
+        for sample_id, (component, family, truth, prediction) in enumerate(zip(["c1", "c1", "c2", "c2", "c3", "c3", "c4", "c4"], [0, 0, 0, 0, 1, 1, 1, 1], [0, 0, 0, 0, 1, 1, 1, 1], predictions), start=1):
             rows.append({"sample_id": sample_id, "lineage_component_id": component, "family_id": family, "model": "random_forest", "arm": arm, "y_true": truth, "y_pred": prediction})
     return pd.DataFrame(rows)
 

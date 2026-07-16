@@ -48,7 +48,7 @@ def test_unknown_structured_status_fails_closed():
 
 def test_ambiguous_missing_snapshot_identity_fails_closed():
     rows = pd.DataFrame([{"sample_id": 1, "engine_name": "a", "result": "x"}, {"sample_id": 1, "engine_name": "b", "result": "y", "report_id": "known"}])
-    with pytest.raises(ValueError, match="snapshot identity unavailable"):
+    with pytest.raises(ValueError, match="LIVE_REPORT_IDENTITY_UNVERIFIED"):
         select_coherent_report_snapshot(rows)
 
 
@@ -58,7 +58,7 @@ def test_ambiguous_missing_snapshot_identity_fails_closed():
         ("malicious", (1, 1)), ("Trojan.FreeText", (1, 1)), ("suspicious", (1, 1)),
         ("harmless", (0, 1)), ("undetected", (0, 1)), ("timeout", (0, 0)),
         ("confirmed_timeout", (0, 0)), ("failure", (0, 0)), ("type_unsupported", (0, 0)),
-        (None, (0, 0)), ("", (0, 0)), ("none", (0, 1)), ("n/a", (0, 1)),
+        (None, (0, 0)), ("", (0, 0)), ("none", (0, 0)), ("n/a", (0, 0)),
     ],
 )
 def test_av_status_truth_table(result, expected):
