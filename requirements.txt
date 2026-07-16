@@ -12,6 +12,6 @@ mysql-connector-python
 python-dotenv
 openpyxl
 tabulate
-imbalanced-learn==0.14.1
+imbalanced-learn==0.14.2
 PyYAML
 pytest
