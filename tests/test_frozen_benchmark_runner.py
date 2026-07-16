@@ -1,7 +1,7 @@
 import pandas as pd
 
 from obsidiandroid.governance.frozen_benchmark_sources import SyntheticFrozenBenchmarkSourceProvider
-from obsidiandroid.pipeline.frozen_benchmark_runner import run_frozen_android_family_av_benchmark
+from obsidiandroid.pipeline.frozen_benchmark_runner import evaluate_synthetic_frozen_benchmark, run_frozen_android_family_av_benchmark
 
 
 def _provider():
@@ -21,3 +21,12 @@ def test_dedicated_runner_locks_contracts_without_legacy_pipeline(tmp_path):
     assert context.lifecycle.payload["state"] == "MODELS_LOCKED"
     assert set(context.features) == {"A", "B", "C"}
     assert {"perm__android_permission_camera", "perm__known_dangerous_count"}.issubset(context.features["A"].columns)
+
+
+def test_synthetic_runner_executes_only_the_complete_atomic_plan(tmp_path):
+    provider = _provider()
+    context = run_frozen_android_family_av_benchmark(provider, run_root=tmp_path)
+    result = evaluate_synthetic_frozen_benchmark(context, provider)
+    assert result["state"] == "HELDOUT_EVALUATED"
+    assert len(result["results"]) == 15
+    assert len(result["comparisons"]) == 9
