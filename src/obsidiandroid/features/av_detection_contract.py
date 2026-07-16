@@ -21,7 +21,7 @@ OBSERVED_MIN_TRAIN_ROWS = 1
 _NON_OBSERVATIONS = frozenset({"", "missing", "none", "null", "n/a", "timeout", "confirmed_timeout", "failure", "unsupported", "type_unsupported"})
 _OBSERVED_NON_DETECTIONS = frozenset({"undetected", "harmless"})
 _DETECTIONS = frozenset({"malicious", "suspicious", "detected", "positive"})
-_IDENTITY_COLUMNS = ("report_id", "analysis_id", "retrieval_batch", "report_timestamp")
+_IDENTITY_COLUMNS = ("report_id", "analysis_id", "retrieval_batch", "report_timestamp", "snapshot_row_id")
 _ORDER_COLUMNS = ("report_timestamp", "updated_at", "record_created_at", "record_id")
 
 
@@ -135,7 +135,7 @@ def fit_av_detection_contract(
         "scope": scope,
         "observed_min_train_rows": OBSERVED_MIN_TRAIN_ROWS,
         "observation_semantics": "avobs=1 only for a report with a non-timeout/non-failure/non-unsupported verdict",
-        "snapshot_policy": "report_id>analysis_id>retrieval_batch>report_timestamp; order=report_timestamp>updated_at>record_created_at>record_id",
+        "snapshot_policy": "report_id>analysis_id>retrieval_batch>report_timestamp>snapshot_row_id; order=report_timestamp>updated_at>record_created_at>record_id",
         "status_truth_table": {
             "missing_or_unavailable": "avobs=0,avdet=0",
             "timeout_failure_unsupported": "avobs=0,avdet=0",

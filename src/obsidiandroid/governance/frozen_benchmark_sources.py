@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from pathlib import Path
 from typing import Protocol
 
 import pandas as pd
+
+from obsidiandroid.governance.frozen_source_snapshot import SealedSnapshot, validate_sealed_snapshot
 
 
 class FrozenBenchmarkSourceProvider(Protocol):
@@ -58,6 +62,60 @@ class SyntheticFrozenBenchmarkSourceProvider:
     def engine_metadata(self) -> pd.DataFrame: return self.engines.copy()
     def taxonomy_aliases(self) -> pd.DataFrame: return self.taxonomy.copy()
     def permission_knowledge(self) -> dict[str, object]: return dict(self.knowledge or {})
+
+
+class SealedSnapshotFrozenBenchmarkSourceProvider:
+    """Read a hash-verified sealed filesystem snapshot and nothing else."""
+    def __init__(self, snapshot_root: Path) -> None:
+        self.snapshot: SealedSnapshot = validate_sealed_snapshot(snapshot_root)
+        self.synthetic_only = self.snapshot.manifest.get("classification") == "synthetic_validation"
+        self._frames = {entry["name"]: pd.read_csv(self.snapshot.root / entry["path"], compression="gzip") for entry in self.snapshot.manifest["extracts"]}
+
+    @property
+    def snapshot_identity(self) -> dict[str, object]:
+        return {
+            "snapshot_id": self.snapshot.manifest["snapshot_id"],
+            "temporal_limitation_classification": self.snapshot.manifest["temporal_limitation_classification"],
+            "vt_temporal_semantics": self.snapshot.manifest["vt_temporal_semantics"],
+        }
+
+    def _frame(self, name: str) -> pd.DataFrame:
+        return self._frames[name].copy(deep=True)
+
+    def cohort_rows(self) -> pd.DataFrame: return self._frame("cohort_candidates")
+    def android_metadata(self) -> pd.DataFrame: return self._frame("android_metadata")
+    def permission_rows(self) -> pd.DataFrame: return self._frame("permission_observations")
+    def engine_metadata(self) -> pd.DataFrame: return self._frame("engine_metadata")
+    def taxonomy_aliases(self) -> pd.DataFrame: return self._frame("taxonomy_aliases")
+
+    def vt_rows(self) -> pd.DataFrame:
+        rows = self._frame("vt_long_normalized")
+        return rows.rename(columns={"raw_engine_name": "engine_name", "raw_result": "result"}).drop(columns=["normalized_status", "avdet", "avobs"], errors="ignore")
+
+    def permission_knowledge(self) -> dict[str, object]:
+        rows = self._frame("permission_knowledge")
+        result: dict[str, object] = {}
+        for row in rows.to_dict("records"):
+            kind = str(row.get("knowledge_kind") or "")
+            try:
+                payload = json.loads(str(row.get("payload_json") or "null"))
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Snapshot permission knowledge is malformed: {kind}") from exc
+            if kind in {"permission_dictionary", "authority_classification", "protection_level_classification"}:
+                if not isinstance(payload, list):
+                    raise ValueError(f"Snapshot permission knowledge must be a row list: {kind}")
+                result[kind] = pd.DataFrame(payload)
+            elif kind == "approved_oem_google_tokens":
+                if not isinstance(payload, list):
+                    raise ValueError("Snapshot approved permission allowlist must be a list.")
+                result[kind] = [str(value) for value in payload]
+            elif kind == "alias_map":
+                if not isinstance(payload, dict):
+                    raise ValueError("Snapshot permission alias map must be an object.")
+                result[kind] = payload
+            elif kind == "known_missing_protection_policy":
+                result[kind] = str(payload)
+        return result
 
 
 class DatabaseFrozenBenchmarkSourceProvider:

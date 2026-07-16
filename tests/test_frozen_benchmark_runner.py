@@ -1,7 +1,8 @@
 import pandas as pd
 import pytest
 
-from obsidiandroid.governance.frozen_benchmark_sources import SyntheticFrozenBenchmarkSourceProvider
+from obsidiandroid.governance.frozen_benchmark_sources import SyntheticFrozenBenchmarkSourceProvider, SealedSnapshotFrozenBenchmarkSourceProvider
+from obsidiandroid.governance.frozen_source_snapshot import create_synthetic_sealed_snapshot
 from obsidiandroid.pipeline.frozen_benchmark_runner import evaluate_synthetic_frozen_benchmark, run_frozen_android_family_av_benchmark
 
 
@@ -29,10 +30,13 @@ def test_dedicated_runner_locks_contracts_without_legacy_pipeline(tmp_path, monk
 
 @pytest.mark.integration
 def test_synthetic_runner_executes_only_the_complete_atomic_plan(tmp_path):
-    provider = _provider()
+    snapshot_root = tmp_path / "sealed_snapshot"
+    create_synthetic_sealed_snapshot(snapshot_root)
+    provider = SealedSnapshotFrozenBenchmarkSourceProvider(snapshot_root)
     context = run_frozen_android_family_av_benchmark(provider, run_root=tmp_path)
     result = evaluate_synthetic_frozen_benchmark(context, provider)
     assert result["state"] == "HELDOUT_EVALUATED"
+    assert context.lifecycle.payload["classification"] == "synthetic_validation"
     assert len(result["results"]) == 15
     assert len(result["comparisons"]) == 15
     assert {entry["comparison"] for entry in result["comparisons"]} == set(context.experiment["evaluation_plan"]["paired_comparisons"])

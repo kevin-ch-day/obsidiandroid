@@ -91,11 +91,15 @@ def run_frozen_android_family_av_benchmark(provider: FrozenBenchmarkSourceProvid
     profile, experiment = load_frozen_cohort_profile(), load_frozen_experiment(experiment_id)
     resolved = resolve_frozen_configuration(profile, experiment)
     bundle = FrozenBenchmarkSourceBundle.acquire(provider)
-    classification = "synthetic_validation" if isinstance(provider, SyntheticFrozenBenchmarkSourceProvider) else "canonical"
+    classification = "synthetic_validation" if bool(getattr(provider, "synthetic_only", False)) or isinstance(provider, SyntheticFrozenBenchmarkSourceProvider) else "canonical"
     lifecycle = FrozenBenchmarkLifecycle(run_root, classification=classification)
     knowledge = _permission_snapshot(bundle)
     source_path = _source_index(bundle, run_root, lifecycle.run_id, knowledge)
     lifecycle.record_artifact("sources", source_path)
+    snapshot_identity = getattr(provider, "snapshot_identity", None)
+    if snapshot_identity:
+        snapshot_identity_path = _write(run_root, "sealed_source_snapshot_identity.json", snapshot_identity)
+        lifecycle.record_artifact("sealed_source_snapshot", snapshot_identity_path)
     locked = freeze_cohort(bundle.cohort, min_total_support=profile["cohort_policy"]["min_total_support"], max_component_share=profile["cohort_policy"]["max_component_share"], taxonomy=bundle.taxonomy)
     cohort = locked.frame
     cohort_path = _write(run_root, "cohort_lock.csv", cohort)
@@ -134,6 +138,10 @@ def run_frozen_android_family_av_benchmark(provider: FrozenBenchmarkSourceProvid
         "label_map_hash": label_mapping.label_map_hash, "probability_column_hash": label_mapping.probability_column_hash,
         "resolved_configuration_hash": hash_payload(resolved),
     }
+    if snapshot_identity:
+        # The run-local contract retains the sealed source identity and its
+        # explicit mutable-latest-state temporal limitation.
+        feature_payload["sealed_source_snapshot"] = snapshot_identity
     feature_path = _write(run_root, "feature_contracts.json", feature_payload)
     readiness_path = _write(run_root, "train_fitted_av_readiness.csv", readiness.ledger)
     label_path = _write(run_root, "frozen_label_mapping.csv", label_mapping.table)
@@ -170,9 +178,9 @@ def _metric_payload(y_true: pd.Series, y_pred: pd.Series, labels: list[int]) -> 
     }
 
 
-def evaluate_synthetic_frozen_benchmark(context: FrozenBenchmarkContext, provider: SyntheticFrozenBenchmarkSourceProvider) -> dict[str, Any]:
+def evaluate_synthetic_frozen_benchmark(context: FrozenBenchmarkContext, provider: FrozenBenchmarkSourceProvider) -> dict[str, Any]:
     """Execute exactly the predeclared synthetic plan; never a real holdout."""
-    if not isinstance(provider, SyntheticFrozenBenchmarkSourceProvider) or context.lifecycle.payload["classification"] != "synthetic_validation":
+    if not bool(getattr(provider, "synthetic_only", isinstance(provider, SyntheticFrozenBenchmarkSourceProvider))) or context.lifecycle.payload["classification"] != "synthetic_validation":
         raise RuntimeError("Real heldout evaluation is not authorized by this runner.")
     plan = context.experiment["evaluation_plan"]
     context.lifecycle.authorize(plan=plan, source_commit="synthetic", dependency_hash="synthetic", approved_manifest_hash=hash_payload(plan))
