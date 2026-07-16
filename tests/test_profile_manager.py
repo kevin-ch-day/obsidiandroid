@@ -526,6 +526,14 @@ def test_inventory_cohort_readiness_mappings_current_catalog_has_no_ambiguous_en
     assert ambiguous == []
 
 
+def test_inventory_recognizes_frozen_contract_profiles_without_legacy_loading() -> None:
+    rows = profile_manager.inventory_cohort_readiness_mappings(
+        profile_ids=["android_malware_major_families_frozen_n20_v1"]
+    )
+    assert rows[0]["status"] == "mapped"
+    assert rows[0]["bucket"] == "android_family_ready_min3_permission_obs"
+
+
 def test_profile_status_metadata_classifies_supported_profiles() -> None:
     final_profile = profile_manager.load_profile("malicious_temporal_stability_locked")
     dev_profile = profile_manager.load_profile("dev_fast")

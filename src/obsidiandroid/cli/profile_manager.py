@@ -522,7 +522,12 @@ def inventory_cohort_readiness_mappings(
 
     inventory: list[dict[str, Any]] = []
     for profile_path in paths:
-        profile = load_profile(str(profile_path))
+        # Frozen benchmark cohort contracts are intentionally not legacy
+        # operator profiles.  They still need advisory inventory coverage, but
+        # must not be forced through the legacy profile schema merely to be
+        # displayed in a read-only readiness report.
+        raw = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+        profile = dict(raw) if raw.get("cohort_contract_id") else load_profile(str(profile_path))
         signal = infer_cohort_readiness_signal(profile)
         inventory.append(
             {
