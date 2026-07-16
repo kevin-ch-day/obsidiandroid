@@ -596,6 +596,8 @@ def write_run_evidence_index_md(
     ml_permission_pattern_fact_csv = diagnostics_dir / f"ml_permission_pattern_fact_{run_id}.csv"
     ml_sample_permission_feature_csv = diagnostics_dir / f"ml_sample_permission_feature_{run_id}.csv"
     ml_split_csv = diagnostics_dir / f"ml_train_validation_test_split_{run_id}.csv"
+    if not ml_split_csv.is_file():
+        ml_split_csv = diagnostics_dir / f"split_freeze_headline_{run_id}.csv"
     v3_dl_handoff_summary_json = diagnostics_dir / f"v3_dl_handoff_summary_{run_id}.json"
     dl_seed_status = ""
     if v3_dl_handoff_summary_json.is_file():
@@ -629,7 +631,7 @@ def write_run_evidence_index_md(
     if ml_sample_permission_feature_csv.exists():
         lines.append(f"- **ML sample permission feature:** `{ml_sample_permission_feature_csv}`")
     if ml_split_csv.exists():
-        lines.append(f"- **ML train/validation/test split:** `{ml_split_csv}`")
+        lines.append(f"- **Frozen train/test split ledger:** `{ml_split_csv}`")
     if v3_dl_handoff_summary_json.exists():
         lines.append(f"- **V3 DL handoff summary:** `{v3_dl_handoff_summary_json}`")
     lines.extend(

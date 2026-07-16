@@ -92,12 +92,16 @@ def _norm_family_series(
 
 
 def _infer_raw_type(primary: str, subtype: str) -> str:
+    """Return a comparable raw type, ignoring generic parent categories.
+
+    ``trojan`` commonly appears as a coarse vendor/category label alongside a
+    more specific governed type such as ``banker`` or ``rat``.  It is not
+    evidence of a type conflict unless a specific subtype disagrees.
+    """
     if subtype in _CANONICAL_TYPE_TOKENS:
         return subtype
-    if primary in _CANONICAL_TYPE_TOKENS:
+    if primary in _CANONICAL_TYPE_TOKENS and primary != "trojan":
         return primary
-    if primary == "trojan" and subtype in _CANONICAL_TYPE_TOKENS:
-        return subtype
     return ""
 
 
@@ -127,6 +131,8 @@ def build_family_label_confidence_payload(
         return {
             "row_count": 0,
             "family_count": 0,
+            "input_family_count": 0,
+            "alias_collapsed_family_count": 0,
             "sample_rows": [],
             "family_rows": [],
         }
@@ -138,6 +144,16 @@ def build_family_label_confidence_payload(
         generic_tokens=_GENERIC_CANONICAL_TOKENS,
         blank_token="<blank>",
     )
+    # Preserve the pre-alias count alongside the normalized count.  The audit
+    # intentionally applies the shared taxonomy alias layer, so its family
+    # count can otherwise differ from a governed-cohort report that displays
+    # the original canonical labels (for example, an authority that retains
+    # both an alias and its canonical family as separate entries).
+    input_family = _norm_series(
+        frame,
+        "family_canonical",
+        generic_tokens=_GENERIC_CANONICAL_TOKENS,
+    ).replace("", "<blank>")
     family_raw = _norm_family_series(
         frame,
         "family_label_raw",
@@ -291,9 +307,13 @@ def build_family_label_confidence_payload(
         for _, row in grouped.iterrows()
     ]
 
+    input_family_count = int(input_family.loc[input_family.ne("<blank>")].nunique())
+    normalized_family_count = int(frame.loc[frame["family_norm"].ne("<blank>"), "family_norm"].nunique())
     return {
         "row_count": int(len(frame)),
-        "family_count": int(frame.loc[frame["family_norm"].ne("<blank>"), "family_norm"].nunique()),
+        "family_count": normalized_family_count,
+        "input_family_count": input_family_count,
+        "alias_collapsed_family_count": max(0, input_family_count - normalized_family_count),
         "min_support": int(min_support),
         "sample_rows": sample_rows,
         "family_rows": family_rows,
@@ -453,7 +473,9 @@ def export_family_label_confidence_reports(
         "",
         f"Run ID: `{run_id}`",
         f"Cohort rows: **{int(payload.get('row_count', 0))}**",
-        f"Families: **{int(payload.get('family_count', 0))}**",
+        f"Taxonomy-normalized families: **{int(payload.get('family_count', 0))}**",
+        f"Distinct input family labels: **{int(payload.get('input_family_count', 0))}**",
+        f"Labels collapsed by taxonomy aliases: **{int(payload.get('alias_collapsed_family_count', 0))}**",
         f"Min support floor: **{int(payload.get('min_support', 0))}**",
         "",
         "## Family priorities",

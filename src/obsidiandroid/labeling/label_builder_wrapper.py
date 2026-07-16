@@ -1,5 +1,7 @@
 from typing import Any, Dict, Optional, Set
 
+import pandas as pd
+
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.classification_builder import sample_classification_builder
 from obsidiandroid.classification_builder.classification_row_builder import (

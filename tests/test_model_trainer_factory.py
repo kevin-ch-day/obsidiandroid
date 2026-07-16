@@ -771,15 +771,25 @@ def test_ablation_split_audit_is_shared_across_models(
     }
     model_trainer_factory._export_split_audit(model_type="random_forest", **common)  # pylint: disable=protected-access
     model_trainer_factory._export_split_audit(model_type="xgboost", **common)  # pylint: disable=protected-access
+    model_trainer_factory._export_split_audit(  # pylint: disable=protected-access
+        model_type="random_forest",
+        **{**common, "feature_set_token": "permissions_grouped"},
+    )
 
     ledgers = list(tmp_path.glob("split_freeze_ablation__*.csv"))
     assert len(ledgers) == 1
     assert "__shared__" in ledgers[0].name
+    ledger = pd.read_csv(ledgers[0])
+    assert set(ledger["feature_set"]) == {"shared_partition"}
+    assert set(ledger["model"]) == {"ablation_shared_split"}
     index = getattr(app_config, "RUNTIME_SPLIT_LEDGER_INDEX")
     assert isinstance(index, dict)
     rf = index[("ablation_shared", "vendor_no_parsed_family", "family_id", "random_forest")]
     xgb = index[("ablation_shared", "vendor_no_parsed_family", "family_id", "xgboost")]
+    perms = index[("ablation_shared", "permissions_grouped", "family_id", "random_forest")]
     assert rf["split_audit_path"] == xgb["split_audit_path"]
+    assert rf["split_audit_path"] == perms["split_audit_path"]
+    assert perms["feature_set"] == "permissions_grouped"
 
 
 def test_temporal_holdout_summary_records_dropped_family_names(

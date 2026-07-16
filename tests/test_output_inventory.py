@@ -404,7 +404,7 @@ def test_write_run_evidence_index_lists_v3_seed_exports(tmp_path: Path, monkeypa
         f"ml_sample_label_fact_{run_id}.csv",
         f"ml_permission_vocabulary_{run_id}.json",
         f"ml_permission_pattern_fact_{run_id}.csv",
-        f"ml_train_validation_test_split_{run_id}.csv",
+        f"split_freeze_headline_{run_id}.csv",
         f"v3_dl_handoff_summary_{run_id}.json",
     ):
         if name.endswith(".json"):
@@ -436,7 +436,7 @@ def test_write_run_evidence_index_lists_v3_seed_exports(tmp_path: Path, monkeypa
     assert "ML permission pattern fact" in text
     assert "DL seed handoff status" in text
     assert "V3 DL handoff summary" in text
-    assert "ML train/validation/test split" in text
+    assert "Frozen train/test split ledger" in text
 
 
 @pytest.mark.integration

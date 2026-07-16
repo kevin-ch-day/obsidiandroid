@@ -10,7 +10,6 @@ import pandas as pd
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
-from obsidiandroid.evaluation import accuracy_band_utils
 
 
 def should_defer_headline_training_terminal() -> bool:
@@ -239,7 +238,6 @@ def _unknown_prediction_line(results: dict[str, dict], model_key: str) -> str | 
     payload = results.get(model_key, {})
     if not isinstance(payload, dict):
         return None
-    pred_meta = payload.get("prediction_metadata")
     predictions = payload.get("predictions")
     if not isinstance(predictions, dict) or not predictions:
         return None
@@ -317,6 +315,19 @@ def _artifact_lines(
     return lines
 
 
+def _print_summary_stat(label: str, value: Any, *, compact: bool) -> None:
+    """Render an evaluation summary field without table padding in compact mode."""
+    du.print_stat(label, value, width=0 if compact else 32)
+
+
+def _compact_key_value_line(line: str) -> str:
+    """Collapse legacy pre-aligned ``label : value`` text for compact output."""
+    label, separator, value = line.partition(":")
+    if not separator:
+        return line.strip()
+    return f"{label.strip()}: {value.strip()}"
+
+
 def print_model_evaluation_terminal_summary(
     results: dict[str, dict],
     summary_df: pd.DataFrame,
@@ -353,39 +364,43 @@ def print_model_evaluation_terminal_summary(
         trainable_n = manifest_context.get("post_low_support_training_rows")
 
     claim_surface = resolve_claim_surface_label(manifest_context)
+    compact = ml_console.is_compact()
 
     du.print_section("MODEL EVALUATION SUMMARY")
-    du.print_stat("Profile", profile_surface)
+    _print_summary_stat("Profile", profile_surface, compact=compact)
     if run_id:
-        du.print_stat("Run ID", run_id)
-    du.print_stat("Target label", label_field)
-    du.print_stat("Claim surface", claim_surface)
-    du.print_stat("Primary metric", primary_label)
+        _print_summary_stat("Run ID", run_id, compact=compact)
+    _print_summary_stat("Target label", label_field, compact=compact)
+    _print_summary_stat("Claim surface", claim_surface, compact=compact)
+    _print_summary_stat("Primary metric", primary_label, compact=compact)
     if test_n not in (None, "", "-"):
-        du.print_stat("Evaluation set", f"{int(test_n):,} test samples")
+        _print_summary_stat("Evaluation set", f"{int(test_n):,} test samples", compact=compact)
     if trainable_n not in (None, ""):
-        du.print_stat("Trainable cohort", f"{int(trainable_n):,} samples")
+        _print_summary_stat("Trainable cohort", f"{int(trainable_n):,} samples", compact=compact)
     if classes not in (None, "", "-"):
-        du.print_stat("Modeled families", f"{int(classes)}")
+        _print_summary_stat("Modeled families", f"{int(classes)}", compact=compact)
 
-    print("")
-    du.print_stat("Best model", top_model)
-    du.print_stat("Macro-F1", _fmt_metric(macro_f1))
-    du.print_stat("Weighted F1", _fmt_metric(weighted_f1))
-    du.print_stat("Accuracy", _fmt_metric(accuracy))
-    du.print_stat(
+    if not compact:
+        print("")
+    _print_summary_stat("Best model", top_model, compact=compact)
+    _print_summary_stat("Macro-F1", _fmt_metric(macro_f1), compact=compact)
+    _print_summary_stat("Weighted F1", _fmt_metric(weighted_f1), compact=compact)
+    _print_summary_stat("Accuracy", _fmt_metric(accuracy), compact=compact)
+    _print_summary_stat(
         "Primary tier",
         f"{tier_code_only(str(top.get('Primary Tier', '')))} — {tier_readable(str(top.get('Primary Tier', '')))}",
+        compact=compact,
     )
     interpretation = interpretation_for_macro_f1(
         float(macro_f1) if macro_f1 is not None else None,
         weighted_f1=float(weighted_f1) if weighted_f1 is not None else None,
         accuracy=float(accuracy) if accuracy is not None else None,
     )
-    wrapped = _wrap_terminal_prose(interpretation, indent="                       ")
-    print("Interpretation       : " + wrapped[0])
+    interpretation_indent = "  " if compact else "                       "
+    wrapped = _wrap_terminal_prose(interpretation, indent=interpretation_indent)
+    print(("Interpretation: " if compact else "Interpretation       : ") + wrapped[0])
     for extra in wrapped[1:]:
-        print("                       " + extra)
+        print(interpretation_indent + extra)
 
     if ml_console.is_debug():
         print("")
@@ -421,7 +436,7 @@ def print_model_evaluation_terminal_summary(
         print("")
         du.print_subheader("COHORT / SPLIT SUMMARY")
         for line in pop_lines:
-            print(line)
+            print(_compact_key_value_line(line) if compact else line)
 
     print("")
     du.print_subheader("EXPORTED ARTIFACTS")
@@ -432,7 +447,7 @@ def print_model_evaluation_terminal_summary(
         run_id=run_id,
         training_runtime_sec=runtime_sec,
     ):
-        print(line)
+        print(_compact_key_value_line(line) if compact else line)
     print("")
 
 

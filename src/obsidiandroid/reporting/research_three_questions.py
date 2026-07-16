@@ -409,6 +409,33 @@ def _classification_table_rows(
     if not isinstance(creport, dict):
         return []
     label_map = _build_label_map(model_results, model_key, diagnostics_dir, run_id)
+    label_classes = res.get("label_classes")
+    if not isinstance(label_classes, list):
+        encoder = res.get("label_encoder")
+        label_classes = list(getattr(encoder, "classes_", [])) if encoder is not None else []
+
+    report_labels = {
+        str(label).strip()
+        for label, stats in creport.items()
+        if isinstance(stats, dict) and label not in {"accuracy", "macro avg", "weighted avg"}
+    }
+    raw_label_set = {str(value).strip() for value in label_classes}
+    encoded_index_labels = {str(index) for index in range(len(label_classes))}
+    report_uses_encoded_indices = (
+        bool(label_classes)
+        and report_labels == encoded_index_labels
+        and report_labels != raw_label_set
+    )
+
+    def display_label(label: Any) -> str:
+        raw = str(label).strip()
+        if report_uses_encoded_indices:
+            try:
+                raw = str(label_classes[int(raw)])
+            except (ValueError, IndexError):
+                pass
+        return _label_display(raw, label_map)
+
     rows: list[dict[str, Any]] = []
     for label, stats in creport.items():
         if not isinstance(stats, dict):
@@ -418,7 +445,7 @@ def _classification_table_rows(
         try:
             rows.append(
                 {
-                    "family": _label_display(label, label_map),
+                    "family": display_label(label),
                     "precision": float(stats.get("precision", 0)),
                     "recall": float(stats.get("recall", 0)),
                     "f1_score": float(stats.get("f1-score", 0)),

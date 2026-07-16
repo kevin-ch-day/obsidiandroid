@@ -202,8 +202,7 @@ def test_export_confusion_matrix_uses_run_scoped_name(monkeypatch, tmp_path):
     output_path = Path(path)
     assert output_path.name == "confusion_matrix_random_forest.png"
     assert output_path.parent == tmp_path / "runs" / "20260228T184458Z__634d83" / "conf_matrices"
-    assert captured["output_path"].name == "random_forest.png"
-    assert captured["output_path"].parent.name == "headline"
+    assert captured["output_path"] == output_path
 
 
 def test_export_confusion_matrix_includes_experiment_id(monkeypatch, tmp_path):
@@ -303,7 +302,7 @@ def test_export_confusion_matrix_uses_dynamic_default_output_dir(monkeypatch, tm
             model_name="xgboost",
         )
     )
-    assert path.parent == tmp_path / "output" / "runs" / "20260304T003828Z__bcfc09" / "conf_matrices" / "headline"
+    assert path.parent == tmp_path / "output" / "runs" / "20260304T003828Z__bcfc09" / "conf_matrices"
 
 
 def test_export_confusion_matrix_uses_slot_run_root_when_active(monkeypatch, tmp_path):
@@ -331,7 +330,7 @@ def test_export_confusion_matrix_uses_slot_run_root_when_active(monkeypatch, tmp
             model_name="xgboost",
         )
     )
-    assert path.parent == slot_root / "conf_matrices" / "headline"
+    assert path.parent == slot_root / "conf_matrices"
     assert not (tmp_path / "output" / "runs" / run_id / "conf_matrices").exists()
 
 

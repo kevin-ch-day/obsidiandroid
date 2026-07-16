@@ -76,7 +76,7 @@ def build_v3_dl_handoff_summary_payload(
     if isinstance(split_meta, dict):
         split_hash = str(split_meta.get("split_hash", "") or "").strip() or None
     split_export = optional_refs.get("ml_train_validation_test_split") or (
-        f"ml_train_validation_test_split_{run_id}.csv"
+        f"split_freeze_headline_{run_id}.csv"
     )
     split_path = diagnostics_dir / str(split_export)
     split_present = split_path.is_file()
@@ -105,7 +105,7 @@ def build_v3_dl_handoff_summary_payload(
     if sample_rows <= 0:
         caveats.append("ml_sample_label_fact has zero rows")
     if split_hash and not split_present:
-        caveats.append("split_hash present but ml_train_validation_test_split export missing")
+        caveats.append("split_hash present but frozen train/test split ledger missing")
     return {
         "summary_version": "v3_dl_handoff_summary_v1",
         "run_id": run_id,

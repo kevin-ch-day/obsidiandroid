@@ -392,10 +392,13 @@ def _export_split_audit(
 
     ablation = bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
     ledger_kind = "ablation" if ablation else "headline"
+    # The split cache key already binds the ordered cohort, encoded labels,
+    # split policy, and seed.  An ablation's feature matrix must not create a
+    # second copy of the same sample-assignment ledger.  Label-target scope is
+    # retained because two target definitions can have equal encoded values by
+    # coincidence while still needing distinct provenance surfaces.
     ledger_scope: tuple[Any, ...] = (
-        ("ablation", str(feature_set_token), str(label_target_slug))
-        if ablation
-        else ("headline",)
+        ("ablation", str(label_target_slug)) if ablation else ("headline",)
     )
     split_key_hash = _split_key_hash(split_cache_key)
 
@@ -405,6 +408,19 @@ def _export_split_audit(
     cached = split_audit_cache.get(cache_key)
     if cached is not None:
         meta_copy = dict(cached)
+        # The persisted ablation ledger describes only the shared partition.
+        # Attach the caller's feature/model context to its registry entry so a
+        # later experiment is never represented as the first experiment that
+        # happened to materialize the ledger.
+        if ledger_kind == "ablation":
+            meta_copy.update(
+                {
+                    "feature_set": str(feature_set_token),
+                    "label_target": str(label_target_slug),
+                    "active_class_count": int(active_class_count),
+                    "split_model_written_for": "ablation_shared_split",
+                }
+            )
         setattr(app_config, "RUNTIME_SPLIT_HASH", meta_copy.get("split_hash"))
         setattr(app_config, "RUNTIME_SPLIT_AUDIT_PATH", meta_copy.get("split_audit_path"))
         setattr(app_config, "RUNTIME_SPLIT_METADATA", meta_copy)
@@ -513,8 +529,10 @@ def _export_split_audit(
     split_df["label_field"] = str(label_field)
     split_df["label_target"] = str(label_target_slug)
     split_df["active_class_count"] = int(active_class_count)
-    split_df["feature_set"] = str(feature_set_token)
-    split_df["model"] = headline_model_token if ledger_kind == "headline" else str(model_type)
+    split_df["feature_set"] = (
+        str(feature_set_token) if ledger_kind == "headline" else "shared_partition"
+    )
+    split_df["model"] = headline_model_token if ledger_kind == "headline" else "ablation_shared_split"
     split_df["split_key_hash"] = split_key_hash
     split_df["train_sample_hash"] = train_sample_hash
     split_df["test_sample_hash"] = test_sample_hash
@@ -589,7 +607,7 @@ def _export_split_audit(
     else:
         ablation_name = (
             "split_freeze_ablation__"
-            f"{_filename_slug(feature_set_token)}__{_filename_slug(label_target_slug)}__"
+            f"{_filename_slug(label_target_slug)}__{split_key_hash[:12]}__"
             f"shared__{run_id}.csv"
         )
         primary_path = out_dir / ablation_name

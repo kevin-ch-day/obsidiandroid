@@ -35,6 +35,17 @@ def _primary_claim_surface(
     return "broad_current_corpus"
 
 
+def _claim_audit_filename(primary_surface: str) -> str:
+    """Return the single run-scoped claim-audit name for a claim surface."""
+    return {
+        "locked_publication_surface": "publication_claim_audit.md",
+        "major_family_benchmark": "benchmark_claim_audit.md",
+        "type_taxonomy_surface": "benchmark_claim_audit.md",
+        "broad_current_corpus": "research_claim_audit.md",
+        "expanded_family_exploratory": "research_claim_audit.md",
+    }.get(primary_surface, "research_claim_audit.md")
+
+
 def _read_csv_exists(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -196,12 +207,8 @@ def write_paper_claim_audit_md(
     manifest_context: dict[str, Any] | None,
     run_id: str,
 ) -> Path:
-    """Write ``paper_claim_audit.md`` with explicit evidence artifacts and wording guidance."""
+    """Write one surface-specific claim audit with evidence and wording guidance."""
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    path = diagnostics_dir / "paper_claim_audit.md"
-    alias_path = diagnostics_dir / "publication_claim_audit.md"
-    research_alias_path = diagnostics_dir / "research_claim_audit.md"
-    benchmark_alias_path = diagnostics_dir / "benchmark_claim_audit.md"
     mctx = manifest_context if isinstance(manifest_context, dict) else {}
     man = manifest if isinstance(manifest, dict) else {}
     model_summary = mctx.get("model_summary") or man.get("model_summary") or {}
@@ -241,6 +248,7 @@ def write_paper_claim_audit_md(
         support_floor_mode=support_floor_mode,
         benchmark_support_floor=benchmark_support_floor,
     )
+    path = diagnostics_dir / _claim_audit_filename(primary_surface)
     compliance_path = man.get("paper_mode_compliance_report") or diagnostics_dir / f"paper_mode_compliance_report_{run_id}.json"
 
     population_line = _cohort_snapshot(man, mctx)
@@ -503,7 +511,4 @@ def write_paper_claim_audit_md(
 
     body = "\n".join(lines)
     path.write_text(body, encoding="utf-8")
-    alias_path.write_text(body, encoding="utf-8")
-    research_alias_path.write_text(body, encoding="utf-8")
-    benchmark_alias_path.write_text(body, encoding="utf-8")
     return path

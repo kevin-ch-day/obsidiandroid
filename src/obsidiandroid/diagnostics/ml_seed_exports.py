@@ -381,23 +381,54 @@ def _build_sample_permission_feature(
     return out.sort_values(["sample_id", "permission_name"]).reset_index(drop=True)
 
 
-def _build_split_export(diagnostics_dir: Path, run_id: str, manifest: dict[str, Any]) -> pd.DataFrame:
+def _resolve_split_export_source(
+    diagnostics_dir: Path,
+    run_id: str,
+    manifest: dict[str, Any],
+) -> Path | None:
+    """Resolve this run's frozen split ledger without copying it.
+
+    The ML seed manifest stores a file name relative to ``diagnostics_dir``.
+    A global ``latest`` ledger from another run is therefore not a valid
+    substitute: it would produce a dangling relative reference and falsely
+    report a canonical V3 handoff as complete.
+    """
+    diagnostics_dir = Path(diagnostics_dir)
+
+    def _run_local(path: Path | None) -> Path | None:
+        if path is None or not path.is_file():
+            return None
+        try:
+            path.resolve().relative_to(diagnostics_dir.resolve())
+        except ValueError:
+            return None
+        return path
+
+    # Prefer the exact run-scoped ledger before any runtime/global fallback.
+    headline = _run_local(diagnostics_dir / f"split_freeze_headline_{run_id}.csv")
+    if headline is not None:
+        return headline
+
     split_meta = manifest.get("split") if isinstance(manifest.get("split"), dict) else {}
     split_path = str(split_meta.get("split_audit_path", "") or "").strip()
     if not split_path:
         split_path = str(getattr(app_config, "RUNTIME_SPLIT_AUDIT_PATH", "") or "").strip()
     if split_path:
-        df = _read_csv_if_exists(Path(split_path))
-        if not df.empty:
-            return df
-    for stem in (f"split_freeze_headline_{run_id}", "split_audit"):
-        path = _resolve_existing_path(diagnostics_dir, stem.replace(f"_{run_id}", ""), run_id, ".csv")
+        path = _run_local(Path(split_path))
         if path is not None:
-            df = _read_csv_if_exists(path)
-            if not df.empty:
-                return df
-    headline = diagnostics_dir / f"split_freeze_headline_{run_id}.csv"
-    return _read_csv_if_exists(headline)
+            return path
+    for stem in (f"split_freeze_headline_{run_id}", "split_audit"):
+        path = _run_local(
+            _resolve_existing_path(diagnostics_dir, stem.replace(f"_{run_id}", ""), run_id, ".csv")
+        )
+        if path is not None:
+            return path
+    return None
+
+
+def _build_split_export(diagnostics_dir: Path, run_id: str, manifest: dict[str, Any]) -> pd.DataFrame:
+    source_path = _resolve_split_export_source(diagnostics_dir, run_id, manifest)
+    return _read_csv_if_exists(source_path) if source_path is not None else pd.DataFrame()
 
 
 def _run_root_for_diagnostics(diagnostics_dir: Path) -> Path:
@@ -533,21 +564,18 @@ def ensure_ml_split_export(
     run_id: str,
     manifest: dict[str, Any],
 ) -> Path | None:
-    """Write ml_train_validation_test_split when split source exists but export is missing."""
+    """Return the frozen split ledger and register it in the ML seed manifest.
+
+    Historical runs may already contain the old copied ML-named export. New
+    runs reference ``split_freeze_headline_<run_id>.csv`` directly.
+    """
     diagnostics_dir = Path(diagnostics_dir)
-    split_path = diagnostics_dir / f"ml_train_validation_test_split_{run_id}.csv"
-    if split_path.is_file():
-        return split_path
-    split_df = _build_split_export(diagnostics_dir, run_id, manifest)
-    if split_df.empty:
-        return None
-    split_df.to_csv(split_path, index=False)
-    oh.mirror_csv_text_run_then_global(
-        diagnostics_dir=diagnostics_dir,
-        run_filename=split_path.name,
-        csv_text=split_path.read_text(encoding="utf-8"),
-        global_latest_name="ml_train_validation_test_split.latest.csv",
+    legacy_path = diagnostics_dir / f"ml_train_validation_test_split_{run_id}.csv"
+    split_path = legacy_path if legacy_path.is_file() else _resolve_split_export_source(
+        diagnostics_dir, run_id, manifest
     )
+    if split_path is None:
+        return None
     manifest_path = diagnostics_dir / f"ml_run_manifest_{run_id}.json"
     if manifest_path.is_file():
         payload = _read_json(manifest_path)
@@ -628,17 +656,8 @@ def export_ml_seed_artifacts(
         paths.append(str(pattern_path))
         optional_refs["ml_permission_pattern_fact"] = pattern_path.name
 
-    split_df = _build_split_export(diagnostics_dir, run_id, manifest)
-    if not split_df.empty:
-        split_path = diagnostics_dir / f"ml_train_validation_test_split_{run_id}.csv"
-        split_df.to_csv(split_path, index=False)
-        oh.mirror_csv_text_run_then_global(
-            diagnostics_dir=diagnostics_dir,
-            run_filename=split_path.name,
-            csv_text=split_path.read_text(encoding="utf-8"),
-            global_latest_name="ml_train_validation_test_split.latest.csv",
-        )
-        paths.append(str(split_path))
+    split_path = _resolve_split_export_source(diagnostics_dir, run_id, manifest)
+    if split_path is not None:
         optional_refs["ml_train_validation_test_split"] = split_path.name
 
     permission_feature_df = _build_sample_permission_feature(

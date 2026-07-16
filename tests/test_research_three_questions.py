@@ -15,6 +15,32 @@ from obsidiandroid.reporting import research_three_questions as rtq
 pytestmark = pytest.mark.contract
 
 
+def test_classification_table_decodes_encoded_report_indices(tmp_path: Path) -> None:
+    """Per-family artifacts must not confuse encoded class positions with family IDs."""
+    rows = rtq._classification_table_rows(  # pylint: disable=protected-access
+        {
+            "random_forest": {
+                "label_classes": ["46", "9"],
+                "label_name_map": {"46": "Joker", "9": "Godfather"},
+                "metadata": {
+                    "classification_report": {
+                        "0": {"precision": 1.0, "recall": 0.5, "f1-score": 0.667, "support": 2},
+                        "1": {"precision": 0.5, "recall": 1.0, "f1-score": 0.667, "support": 1},
+                        "accuracy": 0.667,
+                        "macro avg": {"precision": 0.75},
+                        "weighted avg": {"precision": 0.833},
+                    }
+                },
+            }
+        },
+        "random_forest",
+        diagnostics_dir=tmp_path,
+        run_id="r1",
+    )
+
+    assert [row["family"] for row in rows] == ["Joker", "Godfather"]
+
+
 def test_modality_summary_falls_back_to_runtime_engine_counts_and_notes_raw_permissions(
     monkeypatch,
     tmp_path: Path,

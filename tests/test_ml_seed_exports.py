@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from config import app_config
 from obsidiandroid.diagnostics import ml_seed_exports
 from obsidiandroid.pipeline.permission_trends.constants import PERMISSION_ALIAS_MAP
 
@@ -105,7 +106,7 @@ def test_export_ml_seed_artifacts_writes_minimum_tables(tmp_path: Path) -> None:
     assert refs["ml_permission_vocabulary"] == "ml_permission_vocabulary_run_seed.json"
     assert "ml_permission_pattern_fact" not in refs
     assert ml_manifest["optional_seed_artifact_refs"]["ml_train_validation_test_split"] == (
-        "ml_train_validation_test_split_run_seed.csv"
+        "split_freeze_headline_run_seed.csv"
     )
     assert ml_manifest["optional_seed_artifact_refs"]["ml_sample_permission_feature"] == (
         "ml_sample_permission_feature_run_seed.csv"
@@ -182,7 +183,7 @@ def test_export_ml_seed_artifacts_rejects_empty_samples(tmp_path: Path) -> None:
         )
 
 
-def test_ensure_ml_split_export_writes_csv_from_split_freeze_headline(tmp_path: Path) -> None:
+def test_ensure_ml_split_export_reuses_split_freeze_headline(tmp_path: Path) -> None:
     run_id = "run_split_ensure"
     diagnostics_dir = tmp_path / "diagnostics"
     diagnostics_dir.mkdir(parents=True)
@@ -202,9 +203,30 @@ def test_ensure_ml_split_export_writes_csv_from_split_freeze_headline(tmp_path: 
     )
 
     assert split_path is not None
-    assert split_path.name == f"ml_train_validation_test_split_{run_id}.csv"
+    assert split_path.name == f"split_freeze_headline_{run_id}.csv"
+    assert not (diagnostics_dir / f"ml_train_validation_test_split_{run_id}.csv").exists()
     manifest = json.loads((diagnostics_dir / f"ml_run_manifest_{run_id}.json").read_text(encoding="utf-8"))
     assert manifest["optional_seed_artifact_refs"]["ml_train_validation_test_split"] == split_path.name
+
+
+def test_split_export_source_rejects_global_runtime_ledger_when_run_ledger_is_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A run-relative seed reference must never silently point at another run."""
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir()
+    external_ledger = tmp_path / "other_run_split.csv"
+    external_ledger.write_text("sample_id,split\n1,train\n", encoding="utf-8")
+    monkeypatch.setattr(app_config, "RUNTIME_SPLIT_AUDIT_PATH", str(external_ledger), raising=False)
+
+    resolved = ml_seed_exports._resolve_split_export_source(  # pylint: disable=protected-access
+        diagnostics_dir,
+        "run_local",
+        {"split": {"split_hash": "abc123"}},
+    )
+
+    assert resolved is None
 
 
 def test_sync_ml_run_manifest_seed_counters_copies_dataset_hash(tmp_path: Path) -> None:

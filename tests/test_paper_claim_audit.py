@@ -67,8 +67,9 @@ def test_write_paper_claim_audit_md_keeps_table_rows_single_line(tmp_path) -> No
     assert "overall_status=pass; checks_pass=2/2" in claim_row
     assert len(claim_row.split("|")) >= 8
     assert (diagnostics_dir / "publication_claim_audit.md").exists()
-    assert (diagnostics_dir / "benchmark_claim_audit.md").exists()
-    assert (diagnostics_dir / "research_claim_audit.md").exists()
+    assert not (diagnostics_dir / "paper_claim_audit.md").exists()
+    assert not (diagnostics_dir / "benchmark_claim_audit.md").exists()
+    assert not (diagnostics_dir / "research_claim_audit.md").exists()
 
 
 def test_write_paper_claim_audit_md_rejects_global_latest_ablation_without_run_identity(

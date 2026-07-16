@@ -99,7 +99,10 @@ def resolve_confusion_matrix_png_path(
     if exp_raw:
         exp_t = _token(exp_raw)
         return conf_matrices_dir / f"confusion_matrix_{exp_t}__{model_t}.png"
-    return conf_matrices_dir / "headline" / f"{model_t}.png"
+    # The flat canonical name is the sole headline artifact.  Earlier runs also
+    # wrote ``headline/<model>.png`` and then copied it here, leaving two
+    # indistinguishable headline matrices in every run directory.
+    return conf_matrices_dir / f"confusion_matrix_{model_t}.png"
 
 
 def write_confusion_matrix_catalog(conf_matrices_dir: Path, *, run_id: str) -> tuple[Path | None, Path | None]:
@@ -191,9 +194,9 @@ def write_confusion_matrix_catalog(conf_matrices_dir: Path, *, run_id: str) -> t
                 "",
                 "## Layout",
                 "",
-                "- `headline/` — main training / headline evaluation (one PNG per model).",
+                "- Flat `confusion_matrix_<model>.png` — main training / headline evaluation.",
                 "- `ablation/<feature_set>/<label_target>/` — ablation grid cells.",
-                "- Flat `confusion_matrix_*.png` files may remain from older runs or retention copies.",
+                "- `headline/` files may remain in older runs and are retained for backward compatibility.",
                 "",
                 "- **`confusion_matrix_random_forest.png`** is only updated during main (non-ablation) "
                 "training; it is the paper-facing headline RF alias and must not be overwritten by ablation exports.",

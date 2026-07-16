@@ -141,6 +141,8 @@ def test_build_family_label_confidence_payload_ranks_conflicts_and_type_mismatch
 
     assert payload["row_count"] == 4
     assert payload["family_count"] == 3
+    assert payload["input_family_count"] == 3
+    assert payload["alias_collapsed_family_count"] == 0
     assert payload["sample_rows"]
     worst = payload["sample_rows"][0]
     assert worst["sample_id"] == 2
@@ -151,6 +153,47 @@ def test_build_family_label_confidence_payload_ranks_conflicts_and_type_mismatch
     assert families["gigabud"]["family_conflict_rows"] == 1
     assert families["gigabud"]["type_mismatch_rows"] == 1
     assert families["spynote"]["weak_label_rows"] == 1
+
+
+def test_family_label_confidence_ignores_generic_trojan_parent_type() -> None:
+    """A coarse raw Trojan category does not contradict a governed subtype."""
+    df = pd.DataFrame(
+        {
+            "sample_id": [1],
+            "family_canonical": ["Godfather"],
+            "family_label_raw": ["Godfather"],
+            "type_slug": ["banker"],
+            "category_primary": ["trojan"],
+            "category_subtype": [""],
+            "sample_label_kind": ["family_or_common_name"],
+        }
+    )
+
+    payload = family_label_confidence_audit.build_family_label_confidence_payload(df, min_support=1)
+
+    assert payload["sample_rows"][0]["reasons"] == ""
+    assert payload["family_rows"][0]["type_mismatch_rows"] == 0
+
+
+def test_family_label_confidence_reports_alias_collapsed_family_count() -> None:
+    """The confidence surface discloses taxonomy alias merges in its count."""
+    df = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "family_canonical": ["SpyMax", "SpyNote"],
+            "family_label_raw": ["SpyMax", "SpyNote"],
+            "type_slug": ["rat", "rat"],
+            "category_primary": ["rat", "rat"],
+            "category_subtype": ["rat", "rat"],
+            "sample_label_kind": ["family_or_common_name", "family_or_common_name"],
+        }
+    )
+
+    payload = family_label_confidence_audit.build_family_label_confidence_payload(df, min_support=1)
+
+    assert payload["input_family_count"] == 2
+    assert payload["family_count"] == 1
+    assert payload["alias_collapsed_family_count"] == 1
 
 
 def test_build_family_label_confidence_payload_downgrades_publicly_corroborated_weak_labels() -> None:

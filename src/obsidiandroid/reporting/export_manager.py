@@ -835,27 +835,23 @@ def export_confusion_matrix(
     flat_cm = cm_dir
     canon_rf = flat_cm / "confusion_matrix_random_forest.png"
     canon_rf_display = flat_cm / "confusion_matrix_random_forest_display.png"
-    headline_rf = cm_dir / "headline" / "random_forest.png"
-    headline_rf_display = cm_dir / "headline" / "random_forest_display.png"
-    # Paper-facing stable alias: only main (non-ablation) headline training may refresh these paths.
+    # Paper-facing stable artifact: only main (non-ablation) headline training may refresh this path.
     # Ablation RF matrices must never overwrite ``confusion_matrix_random_forest.png``.
     if headline_ctx and model_token == "random_forest":
         try:
             src_path = Path(str(exported_path)).resolve()
-            for dst in (headline_rf, canon_rf):
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                if dst.resolve() != src_path:
-                    shutil.copyfile(src_path, dst)
+            canon_rf.parent.mkdir(parents=True, exist_ok=True)
+            if canon_rf.resolve() != src_path:
+                shutil.copyfile(src_path, canon_rf)
             exported_path = str(canon_rf.resolve())
         except Exception:
             pass
         try:
             if display_exported_path.exists():
                 src_display_path = display_exported_path.resolve()
-                for dst in (headline_rf_display, canon_rf_display):
-                    dst.parent.mkdir(parents=True, exist_ok=True)
-                    if dst.resolve() != src_display_path:
-                        shutil.copyfile(src_display_path, dst)
+                canon_rf_display.parent.mkdir(parents=True, exist_ok=True)
+                if canon_rf_display.resolve() != src_display_path:
+                    shutil.copyfile(src_display_path, canon_rf_display)
         except Exception:
             pass
     return exported_path

@@ -99,20 +99,7 @@ def print_unified_run_health(
         ],
     )
 
-    _print_group(
-        "Model summary",
-        [
-            ("Main model", _main_model_name(payload)),
-            ("Macro-F1", _main_macro_f1(payload)),
-            ("Primary metric", _main_primary_metric_name(payload)),
-            ("Primary tier", _main_primary_tier(payload)),
-            ("Weighted-F1 tier", _main_weighted_tier(payload)),
-            ("Accuracy tier", _main_accuracy_tier(payload)),
-            ("Test set", _safe_value(payload.get("test_sample_count") or payload.get("counts", {}).get("test_rows"))),
-            ("Feature columns", _feature_column_line(payload)),
-            ("Ablation", _ablation_line(payload)),
-        ],
-    )
+    _print_model_summary(payload)
 
     warning_rows = _warning_rows(payload)
     if warning_rows:
@@ -129,6 +116,7 @@ def print_unified_run_health(
             ("Claim audit", _best_existing_rel(run_root, _artifact_candidates(run_root, obs_resolved.parent, "claim_audit", payload=payload))),
             ("Ablation summary", _ablation_summary_path(run_root, obs_resolved.parent, payload)),
         ],
+        compact=True,
     )
 
     _print_group(
@@ -143,12 +131,37 @@ def print_unified_run_health(
         du.print_note(f"Publication detail: {', '.join(str(x) for x in publication_ready_reasons)}")
 
 
-def _print_group(title: str, rows: list[tuple[str, Any]]) -> None:
+def _print_group(title: str, rows: list[tuple[str, Any]], *, compact: bool = False) -> None:
     du.print_subheader(title)
     for label, value in rows:
         if value in (None, "", "n/a"):
             continue
-        du.print_stat(label, value)
+        du.print_stat(label, value, width=0 if compact else 32)
+
+
+def _print_model_summary(payload: dict[str, Any]) -> None:
+    """Print the end-of-run model handoff without table-style padding."""
+    du.print_subheader("Model summary")
+    rows = [
+        ("Main model", _main_model_name(payload)),
+        ("Macro-F1", _main_macro_f1(payload)),
+        ("Primary metric", _main_primary_metric_name(payload)),
+        ("Primary tier", _main_primary_tier(payload)),
+        ("Weighted-F1 tier", _main_weighted_tier(payload)),
+        ("Accuracy tier", _main_accuracy_tier(payload)),
+        ("Test set", _safe_value(payload.get("test_sample_count") or payload.get("counts", {}).get("test_rows"))),
+        ("Feature columns", _feature_column_line(payload)),
+    ]
+    for label, value in rows:
+        if value not in (None, "", "n/a"):
+            du.print_stat(label, value, width=0)
+
+    status, details = _ablation_summary_parts(payload)
+    if status == "n/a":
+        return
+    du.print_stat("Ablation", status, width=0)
+    for detail in details:
+        print(f"  - {detail}")
 
 
 def _format_status_with_reason(payload: dict[str, Any], status_key: str, reason_key: str) -> str:
@@ -320,6 +333,28 @@ def _ablation_line(payload: dict[str, Any]) -> str:
     return text
 
 
+def _ablation_summary_parts(payload: dict[str, Any]) -> tuple[str, list[str]]:
+    """Return a short ablation status followed by readable detail lines."""
+    line = _ablation_line(payload)
+    if line == "n/a":
+        return line, []
+
+    fields: dict[str, str] = {}
+    for token in line.split():
+        key, separator, value = token.partition("=")
+        if separator and key and value:
+            fields[key] = value
+    status = fields.pop("status", line)
+
+    first_line_keys = ("trainable_experiments", "skipped")
+    second_line_keys = ("summary_rows", "artifacts", "summary")
+    detail_lines = [
+        " ".join(f"{key}={fields[key]}" for key in keys if key in fields)
+        for keys in (first_line_keys, second_line_keys)
+    ]
+    return status, [line for line in detail_lines if line]
+
+
 def _warning_rows(payload: dict[str, Any]) -> list[tuple[str, str, str]]:
     rows: list[tuple[str, str, str]] = []
     profile_id = str(payload.get("profile_id", "") or "").strip()
@@ -337,7 +372,12 @@ def _warning_rows(payload: dict[str, Any]) -> list[tuple[str, str, str]]:
             continue
         family_match = _RAW_CANONICAL_RE.search(message)
         if family_match:
-            item = ("MEDIUM", "Family conflicts", f"raw-vs-canonical conflicts={family_match.group(1)}")
+            # This count is a source-label disagreement review signal, not the
+            # taxonomy mismatch count exposed in the observability payload.
+            # Keeping the two concepts separate avoids suggesting that a
+            # governed taxonomy conflict exists when only an alias/raw-label
+            # reconciliation needs review.
+            item = ("MEDIUM", "Family-label review", f"raw-label disagreements={family_match.group(1)}")
             if item[:2] not in seen:
                 seen.add(item[:2])
                 rows.append(item)
@@ -345,7 +385,7 @@ def _warning_rows(payload: dict[str, Any]) -> list[tuple[str, str, str]]:
     if not rows:
         family_conflicts = int(payload.get("family_conflict_count", 0) or 0)
         if family_conflicts > 0:
-            rows.append(("MEDIUM", "Family conflicts", f"raw-vs-canonical conflicts={family_conflicts}"))
+            rows.append(("MEDIUM", "Taxonomy conflicts", f"canonical taxonomy mismatches={family_conflicts}"))
     if not rows and warnings:
         preview = " | ".join(str(item) for item in warnings[:3])
         if len(warnings) > 3:
@@ -371,7 +411,6 @@ def _artifact_candidates(
 ) -> list[Path]:
     if lane == "taxonomy":
         return [
-            diagnostics_dir / "index.md",
             diagnostics_dir / "taxonomy_authority_split.latest.md",
             *sorted(diagnostics_dir.glob("taxonomy_authority_split_*.md")),
         ]
@@ -403,8 +442,8 @@ def _artifact_candidates(
 def _start_here_path(run_root: Path, evidence_index_path: Path | None) -> str:
     diagnostics_dir = run_root / "diagnostics"
     candidates = [
-        diagnostics_dir / "index.md",
         diagnostics_dir / "run_science_index.md",
+        diagnostics_dir / "index.md",
         diagnostics_dir / "run_artifact_index.md",
         evidence_index_path if evidence_index_path else None,
     ]

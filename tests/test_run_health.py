@@ -24,6 +24,13 @@ def test_ablation_line_keeps_artifact_count_distinct_from_experiment_count() -> 
         "status=complete trainable_experiments=8 skipped=1 summary_rows=96 "
         "artifacts=6 summary=ablation_summary.csv"
     )
+    assert run_health._ablation_summary_parts(payload) == (  # pylint: disable=protected-access
+        "complete",
+        [
+            "trainable_experiments=8 skipped=1",
+            "summary_rows=96 artifacts=6 summary=ablation_summary.csv",
+        ],
+    )
 
 pytestmark = pytest.mark.contract
 
@@ -310,6 +317,49 @@ def test_print_unified_run_health_compact_shortens_labels(tmp_path: Path, capsys
     assert "Feature columns" in out
     assert "120 → 90" in out
     assert "NEXT ARTIFACTS" in out
+
+
+def test_print_unified_run_health_compacts_model_and_artifact_handoff(tmp_path: Path, capsys) -> None:
+    run_root = tmp_path / "output" / "runs" / "r_handoff"
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (diagnostics_dir / "index.md").write_text("x\n", encoding="utf-8")
+    (diagnostics_dir / "run_science_index.md").write_text("x\n", encoding="utf-8")
+    (diagnostics_dir / "ablation_summary.csv").write_text("x\n", encoding="utf-8")
+    obs_path = diagnostics_dir / "run_observability_summary.json"
+    obs_path.write_text(
+        json.dumps(
+            {
+                "pipeline_status": "PASS",
+                "test_sample_count": 1138,
+                "features": {"pre_prune": 651, "post_prune": 608},
+                "model_summary": {"top_model": "random_forest", "top_macro_f1": 0.8459},
+                "ablation": {
+                    "status_line": (
+                        "status=complete trainable_experiments=8 skipped_experiments=1 "
+                        "summary_rows=96 artifacts=6 summary=ablation_summary.csv"
+                    )
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_health.print_unified_run_health(
+        inventory_summary={},
+        observability_json_path=obs_path,
+        evidence_index_path=None,
+        run_root=run_root,
+    )
+
+    out = capsys.readouterr().out
+    assert "Main model: random_forest" in out
+    assert "Feature columns: 651 → 608" in out
+    assert "Ablation: complete" in out
+    assert "  - trainable_experiments=8 skipped=1" in out
+    assert "  - summary_rows=96 artifacts=6 summary=ablation_summary.csv" in out
+    assert "Start here: diagnostics/run_science_index.md" in out
+    assert "Cohort/taxonomy:" not in out
 
 
 def test_print_unified_run_health_surfaces_scientific_adequacy(tmp_path: Path, capsys) -> None:
@@ -607,7 +657,7 @@ def test_print_unified_run_health_structures_warning_lines(tmp_path: Path, capsy
 
     out = capsys.readouterr().out
     assert "[HIGH] Banker share: 88.69% exceeds 60.00%" in out
-    assert "[MEDIUM] Family conflicts: raw-vs-canonical conflicts=22" in out
+    assert "[MEDIUM] Family-label review: raw-label disagreements=22" in out
     assert "Run slot" in out
     assert "majorfam_benchmark" in out
 

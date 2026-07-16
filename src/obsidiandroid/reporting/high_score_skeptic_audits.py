@@ -385,32 +385,6 @@ def write_false_attribution_audit(
     return payload
 
 
-def _write_false_attribution_empty(diagnostics_dir: Path, payload: dict[str, Any]) -> None:
-    (diagnostics_dir / "false_attribution_audit.json").write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
-    (diagnostics_dir / "false_attribution_audit.md").write_text(
-        "# False attribution audit\n\n(no model payload)\n", encoding="utf-8"
-    )
-    for name in (
-        "false_positive_by_predicted_family.csv",
-        "false_negative_by_true_family.csv",
-        "high_confidence_wrong_predictions.csv",
-        "top_confusion_pairs.csv",
-    ):
-        pd.DataFrame([{"note": "insufficient_model_state"}]).to_csv(diagnostics_dir / name, index=False)
-
-
-def _package_prefix_two_segments(package: str) -> str:
-    s = str(package).strip().lower()
-    if not s:
-        return ""
-    parts = [p for p in s.split(".") if p]
-    if len(parts) >= 2:
-        return ".".join(parts[:2])
-    return s
-
-
 def write_split_contamination_audit(
     *,
     diagnostics_dir: Path,
