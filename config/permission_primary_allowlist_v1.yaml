@@ -1,0 +1,5 @@
+version: permission_primary_allowlist_v1
+# Exact non-AOSP tokens admitted to the primary governed-permission surface.
+# Keep this deliberately empty until a token is reviewed with its authority and
+# rationale. AOSP dictionary matches remain eligible without an entry here.
+tokens: []
