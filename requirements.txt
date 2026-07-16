@@ -4,7 +4,7 @@ scikit-learn==1.8.0
 xgboost
 matplotlib
 seaborn
-scipy==1.17.0
+scipy==1.17.1
 scikit-posthocs==0.14.0
 colorama
 joblib
