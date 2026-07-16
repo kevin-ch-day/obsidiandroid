@@ -1,0 +1,8 @@
+source,classification,evidence,transaction_snapshot_sufficiency
+cohort_and_labels,MUTABLE_LATEST_STATE,malware_sample_catalog record_updated_at_utc and dynamic authority views,primary-schema snapshot only
+android_sdk_metadata,MUTABLE_LATEST_STATE,malware_sample_catalog record_updated_at_utc,primary-schema snapshot only
+permission_observations,MUTABLE_LATEST_STATE,UNIQUE(sample_id;permission_string) with no versioned snapshot key,Permission-Intel snapshot only
+permission_knowledge,MUTABLE_LATEST_STATE,dictionaries/enrichment have record_updated_at_utc,Permission-Intel snapshot only
+vt_reports,MUTABLE_LATEST_STATE,PRIMARY(sample_id) plus mutable updated_at and no report identity,insufficient for immutable VT report selection
+engine_metadata,MUTABLE_LATEST_STATE,current active/trusted flags plus updated_at,primary-schema snapshot only
+taxonomy_and_aliases,MUTABLE_LATEST_STATE,active/current authority rows plus updated timestamps,primary-schema snapshot only

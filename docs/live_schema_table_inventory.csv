@@ -1,0 +1,15 @@
+schema,object_name,object_kind,role,primary_or_unique_contract,temporal_classification,inspection_status
+primary,virustotal_sample_vendor_engine_verdicts,BASE TABLE,wide AV verdict matrix,PRIMARY(sample_id); FK sample_id->malware_sample_catalog.sample_id,MUTABLE_LATEST_STATE,VERIFIED_WITH_LIMITATION
+primary,virustotal_vendor_engines,BASE TABLE,engine metadata,PRIMARY(vendor_engine_id); UNIQUE(vendor_key),MUTABLE_LATEST_STATE,VERIFIED_WITH_LIMITATION
+primary,malware_sample_catalog,BASE TABLE,canonical sample and Android metadata,PRIMARY(sample_id); UNIQUE(sha256),MUTABLE_LATEST_STATE,VERIFIED_WITH_LIMITATION
+primary,v_android_sample_family_type_authority,VIEW,Android family/type authority,no inspected uniqueness; duplicate sample_id probe true,MUTABLE_LATEST_STATE,AMBIGUOUS
+primary,v_android_apk_family_resolved,VIEW,resolved Android family token,no inspected uniqueness; duplicate sample_id probe true,MUTABLE_LATEST_STATE,AMBIGUOUS
+primary,android_malware_family,BASE TABLE,family taxonomy,PRIMARY(family_id); UNIQUE(family_slug),MUTABLE_LATEST_STATE,VERIFIED_WITH_LIMITATION
+primary,android_malware_family_alias,BASE TABLE,legacy family aliases,PRIMARY(alias_id); UNIQUE(family_id;alias_name),MUTABLE_LATEST_STATE,AMBIGUOUS
+primary,malware_family_alias_fact,BASE TABLE,canonical alias facts,PRIMARY(alias_id); UNIQUE(alias_token;canonical_family_slug;alias_kind;is_active),MUTABLE_LATEST_STATE,AMBIGUOUS
+primary,android_malware_type,BASE TABLE,governance type taxonomy,PRIMARY(type_id); UNIQUE(type_slug),MUTABLE_LATEST_STATE,VERIFIED_WITH_LIMITATION
+permission_intel,android_permission_obs_sample,BASE TABLE,per-sample permission observations,PRIMARY(obs_id); UNIQUE(sample_id;permission_string),MUTABLE_LATEST_STATE,VERIFIED_WITH_LIMITATION
+permission_intel,android_permission_dict_aosp,BASE TABLE,AOSP permission dictionary,PRIMARY(constant_value),MUTABLE_LATEST_STATE,VERIFIED_WITH_LIMITATION
+permission_intel,android_permission_dict_oem,BASE TABLE,OEM permission dictionary,PRIMARY(permission_string),MUTABLE_LATEST_STATE,VERIFIED_WITH_LIMITATION
+permission_intel,android_permission_dict_unknown,BASE TABLE,unknown permission triage,PRIMARY(permission_string); UNIQUE(permission_string_norm),MUTABLE_LATEST_STATE,VERIFIED_WITH_LIMITATION
+permission_intel,android_permission_meta_oem_vendor,BASE TABLE,OEM authority metadata,PRIMARY(vendor_id); UNIQUE(vendor_name); UNIQUE(vendor_slug),MUTABLE_LATEST_STATE,VERIFIED_WITH_LIMITATION

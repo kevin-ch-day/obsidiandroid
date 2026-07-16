@@ -1,0 +1,19 @@
+{
+  "preflight_scope": "read_only_schema_and_source_contract_inspection",
+  "provider_decision": "LIVE_PROVIDER_BLOCKED_MUTABLE_LATEST_ONLY",
+  "coherent_report_classification": "MUTABLE_LATEST_ONLY",
+  "fail_closed_state": "LIVE_SCHEMA_UNVERIFIED",
+  "blocking_findings": [
+    "The VT verdict source is a wide table keyed only by sample_id.",
+    "No report_id, analysis_id, scan_id, retrieval batch, or report timestamp exists.",
+    "updated_at is mutable audit metadata and cannot serve as report identity.",
+    "The family-resolution authority views have duplicate sample_id values."
+  ],
+  "provider_implementation": "BLOCKED",
+  "real_cohort_lock": "NOT_AUTHORIZED",
+  "real_split_lock": "NOT_AUTHORIZED",
+  "feature_contract_fitting": "NOT_AUTHORIZED",
+  "heldout_authorization": "NOT_AUTHORIZED",
+  "database_mutation_performed": false,
+  "real_benchmark_execution_performed": false
+}
