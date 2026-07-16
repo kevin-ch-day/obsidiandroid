@@ -69,7 +69,10 @@ def _prepare_rows(rows: pd.DataFrame, *, allowlist: dict[str, dict[str, str]], a
     if missing:
         raise ValueError(f"Permission rows missing required columns: {sorted(missing)}")
     out = rows.copy()
-    raw = out.get("permission_string_norm", out["permission_string"])
+    # Normalization is chosen per observation.  A globally present but blank
+    # normalized column must not erase a usable raw token on another row.
+    normalized = out.get("permission_string_norm", pd.Series("", index=out.index))
+    raw = normalized.where(normalized.fillna("").astype(str).str.strip().ne(""), out["permission_string"])
     out["permission_token"] = raw.map(lambda value: normalize_permission_token(value, aliases))
     permission_source = (
         out["permission_source"]

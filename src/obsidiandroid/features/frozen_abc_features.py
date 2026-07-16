@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import pandas as pd
 
 from obsidiandroid.common.hash_utils import hash_payload
+from obsidiandroid.features.av_detection_contract import AVDetectionContract
+from obsidiandroid.features.permission_contract import PermissionVocabularyContract, _column_name, group_definition_payload
 
 
 SDK_COLUMNS = ("meta__target_min_version", "meta__target_sdk_version")
@@ -20,17 +22,26 @@ class ABCFeatureContracts:
     column_hashes: dict[str, str]
 
 
-def _validate_base(frame: pd.DataFrame) -> pd.DataFrame:
-    expected = [column for column in frame.columns if column.startswith(_PERMISSION_PREFIXES)] + list(SDK_COLUMNS)
+def _validate_base(frame: pd.DataFrame, permission_contract: PermissionVocabularyContract) -> pd.DataFrame:
+    token_columns = [_column_name(token) for token in permission_contract.tokens]
+    # The governed transform creates these deterministic aggregate/group fields.
+    aggregate_columns = [f"perm_grp__{item['name']}" for item in group_definition_payload()] + [
+        "perm__known_dangerous_count", "perm__known_normal_count", "perm__known_total_count", "perm__approved_oem_count",
+    ]
+    expected = [*token_columns, *aggregate_columns, *SDK_COLUMNS]
     if any(column not in frame.columns for column in SDK_COLUMNS):
         raise ValueError("Frozen A contract is missing an approved SDK column.")
     disallowed = set(frame.columns).difference({"sample_id", *expected})
     if disallowed:
         raise ValueError(f"Frozen A contract contains unregistered columns: {sorted(disallowed)}")
-    return frame.loc[:, ["sample_id", *sorted(column for column in expected if column not in SDK_COLUMNS), *SDK_COLUMNS]].copy()
+    expected = list(dict.fromkeys(expected))
+    missing = [column for column in expected if column not in frame.columns]
+    if missing:
+        raise ValueError(f"Frozen A contract does not match the fitted permission vocabulary: {missing}")
+    return frame.loc[:, ["sample_id", *[column for column in expected if column not in SDK_COLUMNS], *SDK_COLUMNS]].copy()
 
 
-def _validate_av(frame: pd.DataFrame, base: pd.DataFrame, arm: str) -> pd.DataFrame:
+def _validate_av(frame: pd.DataFrame, base: pd.DataFrame, arm: str, contract: AVDetectionContract) -> pd.DataFrame:
     base_columns = list(base.columns)
     if any(column not in frame.columns for column in base_columns):
         raise ValueError(f"Frozen {arm} contract does not retain every A column.")
@@ -40,7 +51,8 @@ def _validate_av(frame: pd.DataFrame, base: pd.DataFrame, arm: str) -> pd.DataFr
     av = [column for column in frame.columns if column.startswith(("avdet__", "avobs__"))]
     engines_det = {column.removeprefix("avdet__") for column in av if column.startswith("avdet__")}
     engines_obs = {column.removeprefix("avobs__") for column in av if column.startswith("avobs__")}
-    if not av or engines_det != engines_obs:
+    expected = {f"{prefix}__{engine}" for prefix in ("avdet", "avobs") for engine in contract.engine_columns}
+    if set(av) != expected or engines_det != engines_obs:
         raise ValueError(f"Frozen {arm} requires matched avdet/avobs engine pairs.")
     return frame.loc[:, [*base_columns, *sorted(av)]].copy()
 
@@ -52,13 +64,30 @@ def _validate_names(frame: pd.DataFrame) -> None:
             raise ValueError(f"Prohibited frozen-benchmark feature: {column}")
 
 
-def build_abc_feature_contracts(permission_features: pd.DataFrame, metadata: pd.DataFrame, av_b: pd.DataFrame, av_c: pd.DataFrame) -> ABCFeatureContracts:
+def build_abc_feature_contracts(
+    permission_features: pd.DataFrame,
+    metadata: pd.DataFrame,
+    av_b: pd.DataFrame,
+    av_c: pd.DataFrame,
+    *,
+    permission_contract: PermissionVocabularyContract,
+    av_b_contract: AVDetectionContract,
+    av_c_contract: AVDetectionContract,
+) -> ABCFeatureContracts:
     """Join approved sources and reject every unregistered predictive column."""
     metadata_allowed = metadata.loc[:, ["sample_id", *SDK_COLUMNS]].copy()
     base = permission_features.merge(metadata_allowed, on="sample_id", how="inner", validate="one_to_one")
-    base = _validate_base(base)
-    b = _validate_av(base.merge(av_b, on="sample_id", how="left", validate="one_to_one").fillna(0), base, "B")
-    c = _validate_av(base.merge(av_c, on="sample_id", how="left", validate="one_to_one").fillna(0), base, "C")
+    base = _validate_base(base, permission_contract)
+    # Only AV schema absence is a binary zero.  SDK nulls remain null until the
+    # shared outer-train imputation contract is applied.
+    b_joined = base.merge(av_b, on="sample_id", how="left", validate="one_to_one")
+    c_joined = base.merge(av_c, on="sample_id", how="left", validate="one_to_one")
+    for joined, contract in ((b_joined, av_b_contract), (c_joined, av_c_contract)):
+        for engine in contract.engine_columns:
+            for prefix in ("avdet", "avobs"):
+                joined[f"{prefix}__{engine}"] = joined[f"{prefix}__{engine}"].fillna(0).astype("int8")
+    b = _validate_av(b_joined, base, "B", av_b_contract)
+    c = _validate_av(c_joined, base, "C", av_c_contract)
     for frame in (base, b, c):
         _validate_names(frame)
     frames = {"A": base, "B": b, "C": c}

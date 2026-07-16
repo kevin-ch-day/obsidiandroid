@@ -24,7 +24,7 @@ CANONICAL_FAMILY_MISSING_TOKENS: frozenset[str] = frozenset(
     {"", "unknown", "other", "unmapped", "none", "null", "nan", "n/a"}
 )
 _FAMILY_PLACEHOLDER_PATTERN = re.compile(
-    r"^(?:\d+|(?:family|unresolved(?:[\s_-]*family)?)[\s_:=#-]*id?[\s_:=#-]*\d+)$",
+    r"^(?:\d+|(?:family|unresolved(?:[\s_-]*family)?)[\s_:=#-]*(?:id[\s_:=#-]*)?\d+)$",
     flags=re.IGNORECASE,
 )
 

@@ -30,7 +30,7 @@ def _valid_package(value: object) -> str:
     return token if token not in _GENERIC_PACKAGES and _PACKAGE.fullmatch(token) else ""
 
 
-def _validate_labels(frame: pd.DataFrame) -> None:
+def _validate_labels(frame: pd.DataFrame, taxonomy: pd.DataFrame | None = None) -> None:
     required = {"sample_id", "sha256", "family_id", "family_canonical"}
     missing = required.difference(frame.columns)
     if missing:
@@ -38,6 +38,27 @@ def _validate_labels(frame: pd.DataFrame) -> None:
     labels = frame["family_canonical"].fillna("").astype(str).str.strip()
     if labels.eq("").any() or labels.map(is_family_placeholder_token).any():
         raise ValueError("Frozen cohort contains missing or numeric family placeholders.")
+    if taxonomy is None:
+        return
+    required_taxonomy = {"family_id", "family_canonical"}
+    if missing_taxonomy := required_taxonomy.difference(taxonomy.columns):
+        raise ValueError(f"Frozen taxonomy missing columns: {sorted(missing_taxonomy)}")
+    authority = taxonomy[["family_id", "family_canonical"]].dropna().copy()
+    authority["family_id"] = pd.to_numeric(authority["family_id"], errors="raise").astype(int)
+    authority["family_canonical"] = authority["family_canonical"].astype(str).str.strip()
+    if authority.groupby("family_id")["family_canonical"].nunique().gt(1).any():
+        raise ValueError("Frozen taxonomy maps a family ID to multiple canonical names.")
+    if "alias" in taxonomy:
+        aliases = taxonomy.dropna(subset=["alias"])[["alias", "family_canonical"]].copy()
+        aliases["alias"] = aliases["alias"].astype(str).str.strip().str.lower()
+        if aliases.groupby("alias")["family_canonical"].nunique().gt(1).any():
+            raise ValueError("Frozen taxonomy aliases do not resolve deterministically.")
+    if "active" in taxonomy and (~taxonomy.set_index("family_id").reindex(frame["family_id"])["active"].fillna(False).astype(bool)).any():
+        raise ValueError("Frozen cohort contains inactive or invalid taxonomy families.")
+    expected = authority.drop_duplicates("family_id").set_index("family_id")["family_canonical"]
+    actual = frame["family_id"].map(expected)
+    if actual.isna().any() or actual.ne(labels).any():
+        raise ValueError("Frozen cohort canonical labels do not match the frozen taxonomy authority.")
 
 
 def _canonical_duplicate_rows(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -97,10 +118,15 @@ def _lineage_components(frame: pd.DataFrame) -> pd.DataFrame:
     return work.drop(columns=["_package"])
 
 
-def freeze_cohort(frame: pd.DataFrame, *, min_total_support: int = 20, max_component_share: float = 0.80) -> FrozenCohortLock:
+def freeze_cohort(frame: pd.DataFrame, *, min_total_support: int = 20, max_component_share: float = 0.80, taxonomy: pd.DataFrame | None = None) -> FrozenCohortLock:
     """Validate, canonicalize, and lock a cohort before any feature fitting."""
-    _validate_labels(frame)
-    retained, duplicate_ledger = _canonical_duplicate_rows(frame)
+    normalized = frame.copy()
+    if taxonomy is not None and "alias" in taxonomy:
+        aliases = taxonomy.dropna(subset=["alias"])[["alias", "family_canonical"]].drop_duplicates("alias")
+        alias_map = dict(zip(aliases["alias"].astype(str).str.strip().str.lower(), aliases["family_canonical"].astype(str).str.strip()))
+        normalized["family_canonical"] = normalized["family_canonical"].astype(str).str.strip().map(lambda value: alias_map.get(value.lower(), value))
+    _validate_labels(normalized, taxonomy)
+    retained, duplicate_ledger = _canonical_duplicate_rows(normalized)
     locked = _lineage_components(retained)
     support = locked.groupby("family_id").size()
     component_support = locked.groupby(["family_id", "lineage_component_id"]).size()
@@ -128,7 +154,14 @@ def freeze_cohort(frame: pd.DataFrame, *, min_total_support: int = 20, max_compo
     return FrozenCohortLock(locked, payload)
 
 
-def create_frozen_group_split(lock: FrozenCohortLock, *, seed: int = 42) -> pd.DataFrame:
+def create_frozen_group_split(
+    lock: FrozenCohortLock,
+    *,
+    seed: int = 42,
+    min_train_support: int = 15,
+    min_test_support: int = 4,
+    min_test_components: int = 2,
+) -> pd.DataFrame:
     """Choose one valid 80/20 family-stratified lineage-group split or fail."""
     frame = lock.frame.reset_index(drop=True)
     y = frame["family_id"].astype(int).to_numpy()
@@ -138,10 +171,11 @@ def create_frozen_group_split(lock: FrozenCohortLock, *, seed: int = 42) -> pd.D
         split = frame[["sample_id", "family_id", "family_canonical", "sha256", "lineage_component_id"]].copy()
         split["split_role"] = "train"
         split.loc[test_index, "split_role"] = "test"
-        train_counts = split[split["split_role"] == "train"].groupby("family_id").size()
-        test_counts = split[split["split_role"] == "test"].groupby("family_id").size()
-        test_components = split[split["split_role"] == "test"].groupby("family_id")["lineage_component_id"].nunique()
-        if (train_counts < 15).any() or (test_counts < 4).any() or (test_components < 2).any():
+        universe = pd.Index(lock.payload["ordered_family_ids"], name="family_id")
+        train_counts = split[split["split_role"] == "train"].groupby("family_id").size().reindex(universe, fill_value=0)
+        test_counts = split[split["split_role"] == "test"].groupby("family_id").size().reindex(universe, fill_value=0)
+        test_components = split[split["split_role"] == "test"].groupby("family_id")["lineage_component_id"].nunique().reindex(universe, fill_value=0)
+        if (train_counts < int(min_train_support)).any() or (test_counts < int(min_test_support)).any() or (test_components < int(min_test_components)).any():
             continue
         family_total = split.groupby("family_id").size()
         deviation = max(abs((test_counts / family_total) - 0.20))
