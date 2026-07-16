@@ -4,7 +4,7 @@ This audit identifies oversized scripts/modules and split targets to reduce main
 
 **Note:** Line counts below were refreshed against the tree on the date of the last audit edit; re-run the inspection scripts below before relying on exact numbers. Root `main.py` is a **compatibility shim** (~60 LOC); real CLI imports live under **`src/obsidiandroid/cli/`**.
 
-**Pipeline stages:** substantive implementations live under **`src/obsidiandroid/pipeline/`** (`obsidiandroid.pipeline.*`). On-disk **`analysis/pipeline/stage_*.py`** (and most sibling stage-related leaves) are **short identity shims**; hotspot scans and refactors should target **`src/...`** paths, not the shim files.
+**Pipeline stages:** substantive implementations live under **`src/obsidiandroid/pipeline/`** (`obsidiandroid.pipeline.*`). Hotspot scans and refactors should target those canonical paths.
 
 ## Current hotspots (refreshed)
 
@@ -21,7 +21,7 @@ Representative file sizes (production + orchestration paths, approximate):
 | `src/obsidiandroid/pipeline/stage_permission_trends_report.py` | ~1910 | Largest stage module (orchestrates `permission_trends` subpackage) |
 | `src/obsidiandroid/cli/startup_menu.py` | ~1320 | Operator menu (canonical) |
 | `src/obsidiandroid/pipeline/stage_manifest.py` | ~610 | Manifest stage; heavy lifting in `obsidiandroid.pipeline.manifest.*` |
-| `src/obsidiandroid/pipeline/runner.py` | ~1590 | `run_pipeline` orchestration (`analysis.pipeline.runner` is a shim) |
+| `src/obsidiandroid/pipeline/runner.py` | ~1590 | `run_pipeline` orchestration |
 | `src/obsidiandroid/pipeline/stage_results_warehouse.py` | ~1170 | Results warehouse stage |
 | `obsidiandroid.reporting.export_manager` | ~870 | Exports |
 | `src/obsidiandroid/modeling/pipeline_core.py` | ~1020 | Training orchestration (canonical; `ml_classification/training/pipeline_core.py` is a shim) |
@@ -40,7 +40,7 @@ Largest function hotspots (see inspect scripts for current line numbers):
 1. **Pipeline stage overload**
    - `stage_permission_trends_report.py` and `stage_manifest.py` (under **`src/obsidiandroid/pipeline/`**) still combine orchestration, analytics, export, compliance, and persistence concerns across the stage module + subpackages.
 2. **Control-flow depth + broad exception handling**
-   - `src/obsidiandroid/pipeline/runner.py` (legacy shim exists), `stage_manifest.py`, and `export_manager.py` contain high branch counts and multiple broad `except Exception` handlers.
+   - `src/obsidiandroid/pipeline/runner.py`, `stage_manifest.py`, and `export_manager.py` contain high branch counts and multiple broad `except Exception` handlers.
 3. **Operational UI mixed with workflow logic**
    - `src/obsidiandroid/cli/startup_menu.py` still contains substantial action logic that could move to dedicated service modules over time.
 4. **Classification label audit complexity growth**
@@ -60,19 +60,19 @@ Largest function hotspots (see inspect scripts for current line numbers):
 
 ### 1) `src/obsidiandroid/pipeline/stage_permission_trends_report.py` (further decomposition)
 
-Much logic already lives in **`obsidiandroid.pipeline.permission_trends.*`** (`bundle_*`, `stats`, `stats_core`, `sample_permission_data`, figure/diagnostic exports, …). Prefer **new focused modules under that package** (and thin compatibility shims under **`analysis/pipeline/permission_trends/`** only when a stable legacy import path must be preserved).
+Much logic already lives in **`obsidiandroid.pipeline.permission_trends.*`** (`bundle_*`, `stats`, `stats_core`, `sample_permission_data`, figure/diagnostic exports, …). Prefer **new focused modules under that package**.
 
 Goal: keep `run_permission_trends_report_stage` as orchestration + wiring; push new helpers out of the stage module rather than growing a parallel tree.
 
 ### 2) `src/obsidiandroid/pipeline/stage_manifest.py` (tighten boundaries)
 
-Manifest composition, writers, paper exports, and compliance checks are already split across **`obsidiandroid.pipeline.manifest.*`**. Next refactors should clarify **assembly vs validation vs writers** inside that subtree—not reintroduce duplicate layout under **`analysis/pipeline/manifest/`** beyond existing shims.
+Manifest composition, writers, paper exports, and compliance checks are already split across **`obsidiandroid.pipeline.manifest.*`**. Next refactors should clarify **assembly vs validation vs writers** inside that subtree.
 
 ### 3) Orchestration vs CLI
 
 - Repo-root `main.py` should remain a **thin** import surface for tests (`import main`).
 - **`src/obsidiandroid/cli/main.py`** — CLI exports and `main()` entry.
-- **`src/obsidiandroid/pipeline/runner.py`** — `run_pipeline` and run-scoped helpers (canonical; legacy shim exists).
+- **`src/obsidiandroid/pipeline/runner.py`** — `run_pipeline` and run-scoped helpers.
 
 Goal: avoid growing new logic in root `main.py`; extend `runner` / stages / `obsidiandroid.*` facades instead.
 

@@ -8,7 +8,7 @@ from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.evaluation import evaluate_av_classifications
 from obsidiandroid.reporting import export_manager as em
-from scripts.diagnostics import inspect_vendor_feature_results
+from obsidiandroid.diagnostics import vendor_feature_validation
 
 
 def extract_vendor_feature_metadata(
@@ -100,7 +100,7 @@ def _finalize_extraction_output(output: dict, verbose: bool) -> tuple:
     else:
         du.print_success(f"[VENDOR EXTRACT] Metadata extracted for {len(records_by_vendor)} vendor(s).")
         if verbose:
-            inspect_vendor_feature_results.validate_vendor_classification_output(
+            vendor_feature_validation.validate_vendor_classification_output(
                 output_dict=output,
                 verbose=True,
                 strict=False,

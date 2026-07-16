@@ -51,3 +51,18 @@ def test_malicious_only_retains_taxonomy_backed_rows_when_vt_consensus_missing()
     assert list(out["sample_id"]) == [1]
     summary = out.attrs.get("cohort_filter_summary", {})
     assert summary.get("malicious_candidates") == 1
+
+
+def test_textual_null_taxonomy_tokens_do_not_rescue_missing_consensus_rows() -> None:
+    """CSV-style null strings are absence of evidence, not malicious taxonomy."""
+    frame = pd.DataFrame(
+        {
+            "family_canonical": ["nan", "n/a", "NamedFamily"],
+            "type_slug": ["n/a", "null", "banker"],
+            "category_primary": ["", "", ""],
+            "category_subtype": ["", "", ""],
+            "vt_suggested_label": ["", "", ""],
+        }
+    )
+
+    assert profile_filters.malicious_signal_or_taxonomy_mask(frame).tolist() == [False, False, True]

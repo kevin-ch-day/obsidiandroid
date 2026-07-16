@@ -14,7 +14,6 @@ Example::
       --run-root output/runs/20260503T051146Z__de2cdc
 
 Use ``--skip-db`` for filesystem-only summary (no gap_detail CSV).
-Compatibility wrapper retained at ``scripts/report_feature_matrix_gap.py``.
 """
 
 from __future__ import annotations

@@ -2,7 +2,6 @@
 """Compare run_manifest / run_summary against run_observability_summary.json (Tier A QA).
 
 Exits non-zero when identifiers or headline counts disagree beyond optional tolerances.
-Compatibility wrapper retained at ``scripts/check_run_integrity.py``.
 """
 
 from __future__ import annotations

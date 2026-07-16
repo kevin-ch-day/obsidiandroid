@@ -37,7 +37,7 @@ def _format_model_label(token: str) -> str:
 def run_output_cleanup() -> int:
     """Run output cleanup in dry-run or apply mode."""
     du.print_section("Cleanup Output Artifacts")
-    script_path = repo_operator_script("cleanup_output_artifacts.py")
+    script_path = repo_operator_script("maintenance", "cleanup_output_artifacts.py")
     if not script_path.exists():
         du.print_error(f"[MENU] Missing script: {script_path}")
         return 1

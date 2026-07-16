@@ -47,6 +47,10 @@ ALLOWED_MODEL_KEYS = {
     "xgboost",
     "logistic_regression",
 }
+ALLOWED_AV_BINARY_FEATURE_ENGINE_SCOPES = {
+    "all_observed",
+    "lifecycle_included",
+}
 ALLOWED_COHORT_GATE_KEYS = {
     "support_floor_mode",
     "min_samples_per_family",
@@ -249,6 +253,13 @@ def _validate_profile(profile: Dict[str, Any], profile_path: Path) -> None:
             f"Profile '{profile_path}' has unsupported training_label_field={training_label_field!r}. "
             "Allowed values: ['family_id', 'type_slug', 'family_within_type']."
         )
+    av_binary_scope = str(profile.get("av_binary_feature_engine_scope", "all_observed") or "").strip().lower()
+    if av_binary_scope not in ALLOWED_AV_BINARY_FEATURE_ENGINE_SCOPES:
+        allowed = ", ".join(sorted(ALLOWED_AV_BINARY_FEATURE_ENGINE_SCOPES))
+        raise ValueError(
+            f"Profile '{profile_path}' has unsupported "
+            f"av_binary_feature_engine_scope={av_binary_scope!r}. Allowed values: [{allowed}]."
+        )
     validate_profile_paper_lock(profile, profile_path)
 
 
@@ -259,6 +270,10 @@ def _apply_policy_defaults(profile: Dict[str, Any]) -> Dict[str, Any]:
     out.setdefault("allow_vendor_fallback_for_width", True)
     out.setdefault("allow_adaptive_top_k", True)
     out.setdefault("top_k_requested", 8)
+    # Keep predictive AV-engine membership explicit and deterministic.  A
+    # lifecycle-filtered scope is an experimental comparison, never an
+    # inherited side effect of a prior process-local run.
+    out.setdefault("av_binary_feature_engine_scope", "all_observed")
     out.setdefault("exclude_unknown_from_main_results", False)
     out.setdefault("paper_locked", False)
     out["cohort_gates"] = _resolve_authority_backed_cohort_gates(

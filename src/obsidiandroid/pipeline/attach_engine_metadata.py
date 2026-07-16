@@ -1,7 +1,7 @@
 # Filename: obsidiandroid/pipeline/attach_engine_metadata.py
 # Purpose  : Resolve AV engine metadata for matrices; persist overlay CSV without mutating sample rows.
 #
-# Canonical (**Pass 71**): legacy ``analysis.pipeline.attach_engine_metadata`` is shim.
+# Canonical AV-engine metadata attachment helpers.
 
 from pathlib import Path
 

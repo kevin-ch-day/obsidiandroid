@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""Emit artifact classification inventory for a finished run directory.
-
-Compatibility wrapper retained at ``scripts/report_output_inventory.py``.
-"""
+"""Emit artifact classification inventory for a finished run directory."""
 
 from __future__ import annotations
 

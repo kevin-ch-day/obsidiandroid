@@ -25,11 +25,7 @@ py-modules = ["main"]
 where = ["src", "."]
 include = [
     "obsidiandroid*",
-    "analysis*",
     "config*",
-    "scripts*",
-    "database*",
-    "ml_classification*",
     "profiles*",
 ]
 

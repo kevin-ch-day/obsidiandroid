@@ -1,8 +1,8 @@
 """Compatibility wrapper for the repo-root ``main`` monkeypatch bridge.
 
-Canonical code now uses :mod:`obsidiandroid.cli.main_override_bridge`. This module
-is retained so older imports, tests, and ``analysis.pipeline.main_facade`` shims
-continue to resolve the same behavior while the migration completes.
+Canonical code uses :mod:`obsidiandroid.cli.main_override_bridge`. This small
+facade preserves the established runner call site while repo-root ``main``
+remains a temporary test/operator entry surface.
 """
 
 from __future__ import annotations

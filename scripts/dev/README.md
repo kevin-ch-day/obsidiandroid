@@ -11,7 +11,12 @@ Scripts here support **package layout, import hygiene, and local repo maintenanc
 | [`data_fuzzer.py`](data_fuzzer.py) | Synthetic classification data for stress tests (`sklearn` + pandas). |
 | [`run_ml_static_scan.py`](run_ml_static_scan.py) | Argparse driver for the ML predict misuse scan (`python -m scripts.dev.run_ml_static_scan` or `make ml-scan`). |
 | [`scan_ml_predict_misuse.py`](scan_ml_predict_misuse.py) | Core walker used by `run_ml_static_scan`. |
+| [`output_writer_audit.py`](output_writer_audit.py) | Static CSV audit of output-writing call sites (`make output-writer-audit`). |
+| [`build_v3_canonical_slot_fixtures.py`](build_v3_canonical_slot_fixtures.py) | Regenerate checked-in offline V3 canonical-slot fixtures; maintainers only. |
+| [`refresh_v3_canonical_handoff.py`](refresh_v3_canonical_handoff.py) | Refresh V3 handoff artifacts for existing canonical slots (`make refresh-v3-handoff`). |
 | [`validate_v3_canonical_runs.py`](validate_v3_canonical_runs.py) | Offline/live V3 closure artifact validation (`make verify-v3`). |
+| [`wait_validate_v3_slot.py`](wait_validate_v3_slot.py) | Wait for a canonical V3 slot, then optionally refresh and validate it. |
+| [`report_compatibility_retirement.py`](report_compatibility_retirement.py) | Print the remaining repository compatibility-shim retirement matrix. |
 | Repo-root [`../import_v3_run_to_db.py`](../import_v3_run_to_db.py) | V3.1 dry-run research DB import planner (`make dry-run-v3-db-import`). |
 
 ### Shell entrypoints (Fedora venv, pytest)

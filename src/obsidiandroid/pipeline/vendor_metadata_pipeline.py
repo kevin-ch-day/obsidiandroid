@@ -1,6 +1,6 @@
 # Filename: obsidiandroid/pipeline/vendor_metadata_pipeline.py
 #
-# Canonical (**Pass 71**): legacy ``analysis.pipeline.vendor_metadata_pipeline`` is shim.
+# Canonical vendor-metadata pipeline helpers.
 
 """Vendor metadata extraction pipeline orchestration."""
 

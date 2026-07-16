@@ -13,19 +13,19 @@ This document explains how ObsidianDroid ingests antivirus telemetry, computes r
        │                     ▼                        │
        │              Feature matrices                 │
        │                                                ▼
-       └────────────── database/ ───────────────> scripts/ + reports
+       └──── obsidiandroid.database ────────────> scripts/ + reports
 ```
 
-1. **Metadata ingestion** loads sample identifiers, vendor detections, and contextual attributes from a MySQL database using helpers in `database/`. See [`data_sources.md`](data_sources.md) for a catalog of required tables and replication guidance.
-2. **Analysis and feature engineering** normalize AV labels, score vendors, and build per-sample feature matrices in **canonical** `src/obsidiandroid/` modules (with legacy `analysis.*` shims retained for compatibility).
+1. **Metadata ingestion** loads sample identifiers, vendor detections, and contextual attributes from a MySQL database using helpers in `obsidiandroid.database`. See [`data_sources.md`](data_sources.md) for a catalog of required tables and replication guidance.
+2. **Analysis and feature engineering** normalize AV labels, score vendors, and build per-sample feature matrices in **canonical** `src/obsidiandroid/` modules.
 3. **Model training and inference** use canonical `obsidiandroid.modeling`, `obsidiandroid.inference`, and `obsidiandroid.engine_weights` modules; the legacy repo-root `ml_classification/` surface has been retired.
 4. **Evaluation and export** routines write canonical family labels, diagnostics, and artifacts under `output/`.
 
-**Run-scoped path snapshot:** `obsidiandroid.pipeline.run_bounds` exposes `PipelineRunBounds` (set at the end of profile + evidence-mode path setup in `runner.py`, cleared when the run finishes). New diagnostics helpers can use `get_pipeline_run_bounds()` instead of re-deriving paths from scattered `app_config` keys. **DB settings surface:** `database/settings.py` provides `load_connection_settings()` as a typed view of `database/db_config` for scripts and tooling.
+**Run-scoped path snapshot:** `obsidiandroid.pipeline.run_bounds` exposes `PipelineRunBounds` (set at the end of profile + evidence-mode path setup in `runner.py`, cleared when the run finishes). New diagnostics helpers can use `get_pipeline_run_bounds()` instead of re-deriving paths from scattered `app_config` keys. **DB settings surface:** `obsidiandroid.database.settings` provides `load_connection_settings()` as a typed view of `obsidiandroid.database.db_config` for scripts and tooling.
 
 ## Pipeline Stages in Detail
 
-### 1. Metadata Ingestion (`database/`)
+### 1. Metadata Ingestion (`obsidiandroid.database`)
 - `db_config.py` centralizes MySQL credentials (including the split **primary Erebus** schema and **Permission Intel** schema via environment variables; see [`data_sources.md`](data_sources.md)).
 - `db_engine.py` runs SQL against the primary DB; `execute_permission_query()` targets Permission Intel for live `android_permission_*` tables.
 - `db_sample_metadata_fetchers.py`, `db_sample_metadata_queries.py`, and `db_sample_metadata_contracts.py` load cohorts and enforce query contracts.
@@ -60,8 +60,7 @@ Consult [`modeling_reference.md`](modeling_reference.md) for estimator-specific 
 
 ### 6. Execution Entrypoints (`main.py`, `obsidiandroid.pipeline.runner`, `scripts/`)
 - `main.py` is the **thin CLI entry**: argument parsing and stable symbols for tests (`run_pipeline`, diagnostics paths, and monkeypatch-friendly re-exports).
-- `src/obsidiandroid/pipeline/runner.py` holds **`run_pipeline`** orchestration; legacy `analysis.pipeline.runner` is an identity shim to the same module.
-- `analysis/pipeline/main_facade.py` exposes **`from_main_or()`** so pytest can patch attributes on `main` (for example `finalize_run_manifest_stage`) and have **`runner.run_pipeline`** observe those bindings despite living outside `main.py`.
+- `src/obsidiandroid/pipeline/runner.py` holds **`run_pipeline`** orchestration; `obsidiandroid.pipeline.main_facade` delegates main-module test overrides to `obsidiandroid.cli.main_override_bridge`.
 - `obsidiandroid.pipeline.stage_samples` loads cohorts and applies gates; `stage_av_vendor` runs AV analysis, vendor extraction, and alignment; `stage_modeling` covers weights, feature matrix, training, and label resolution.
 - `obsidiandroid.pipeline.stage_permission_trends_report` produces permission analytics (helpers under `obsidiandroid.pipeline.permission_trends`). `stage_manifest.py` writes the run manifest and paper/evidence exports.
 - `stage_results_warehouse.py` persists selected outputs when configured.
@@ -76,8 +75,8 @@ Consult [`modeling_reference.md`](modeling_reference.md) for estimator-specific 
 
 | Artifact | Producer | Consumer | Notes |
 | --- | --- | --- | --- |
-| Vendor verdict frames | `database/db_av_engine_verdicts.py` | `obsidiandroid.pipeline.stage_av_vendor` | Wide per-sample vendor matrix for parsers. |
-| Sample cohort DataFrames | `database/db_sample_metadata_queries.py` | `obsidiandroid.pipeline.stage_samples` | Filtered by profile/type slug. |
+| Vendor verdict frames | `obsidiandroid.database.db_av_engine_verdicts` | `obsidiandroid.pipeline.stage_av_vendor` | Wide per-sample vendor matrix for parsers. |
+| Sample cohort DataFrames | `obsidiandroid.database.db_sample_metadata_queries` | `obsidiandroid.pipeline.stage_samples` | Filtered by profile/type slug. |
 | Feature matrix | `obsidiandroid.pipeline.stage_modeling` (`build_feature_matrix_stage`) | `run_feature_alignment_stage`, training | Mix of AV-derived columns and optional permission/metadata features. |
 | Run manifest JSON | `obsidiandroid.pipeline.stage_manifest` | Operators, evidence bundles | Lists artifacts and run provenance. |
 

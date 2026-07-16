@@ -127,6 +127,13 @@ def summarize_profile(profile_path: Path) -> str:
     if exclude_unknown is not None:
         parts.append(f"exclude_unknown={bool(exclude_unknown)}")
 
+    # The lifecycle-filtered AV engine set is an explicit experimental
+    # feature contract.  Surface it in catalog entries so it cannot be
+    # mistaken for the normal all-observed baseline.
+    av_scope = str(raw.get("av_binary_feature_engine_scope", "all_observed") or "all_observed").strip().lower()
+    if av_scope != "all_observed":
+        parts.append(f"av_scope={av_scope}")
+
     if models:
         parts.append(f"models={len(models)}")
 

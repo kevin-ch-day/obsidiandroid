@@ -23,8 +23,8 @@
 
 The core workflow (`main.py` → `obsidiandroid.pipeline.runner`) executes these key steps:
 
-1. **Load Sample Metadata** from a configured MySQL database. Connection defaults and environment overrides are defined in **`obsidiandroid.database.db_config`** (same module as **`database/db_config.py`** — primary Erebus DB plus the Permission Intel DB; see [Configuration](#configuration) below).
-2. **Run AV Engine Analysis** via canonical vendor parsing/execution modules (**`obsidiandroid.vendors`**) with legacy `analysis.*` shims preserved for compatibility.
+1. **Load Sample Metadata** from a configured MySQL database. Connection defaults and environment overrides are defined in **`obsidiandroid.database.db_config`** for the primary Erebus DB plus the Permission Intel DB; see [Configuration](#configuration) below.
+2. **Run AV Engine Analysis** via canonical vendor parsing/execution modules (**`obsidiandroid.vendors`**).
 3. **Extract Vendor Metadata** and generate summary statistics/evaluation metrics.
 4. **Compute Engine Weights** using specificity, noise, and historical performance (see `obsidiandroid/feature_engineering/compute_vendor_scores.py`).
 5. **Feature Engineering:** Construct feature vectors from permissions, vendor scores, and consensus features.
@@ -38,7 +38,7 @@ All artifacts (models, reports, diagnostics) are saved under `output/`.
 
 ## Repository layout (hybrid migration)
 
-The installable package lives under **`src/obsidiandroid/`** (CLI, `common`, **`obsidiandroid.database`**, `pipeline`, `modeling`, `features`, `labeling`, …). The remaining legacy root is mainly **`analysis/pipeline/`** for compatibility/monkeypatch seams; the old repo-root **`ml_classification/`**, **`model/`**, and **`utils/`** trees have been retired. Top-level **`database/`** remains an intentional compatibility namespace in front of the curated **`obsidiandroid.database`** façade. Prefer **`obsidiandroid.*`** imports in new code. Details, backlog, and pass history: [`docs/STRUCTURE_MIGRATION_PLAN.md`](docs/STRUCTURE_MIGRATION_PLAN.md).
+The installable package lives under **`src/obsidiandroid/`** (CLI, `common`, **`obsidiandroid.database`**, `pipeline`, `modeling`, `features`, `labeling`, …). The old repo-root **`analysis/`**, **`ml_classification/`**, **`model/`**, and **`utils/`** Python trees have been retired. Top-level **`database/`** holds versioned SQL assets; use the curated **`obsidiandroid.database`** façade for Python. Details, backlog, and pass history: [`docs/STRUCTURE_MIGRATION_PLAN.md`](docs/STRUCTURE_MIGRATION_PLAN.md).
 
 **Generated / runtime artifacts** (`output/`, `logs/`, virtualenvs, caches, build outputs) are listed in **`.gitignore`** and should not be committed. For a **source-only** tree view after local runs, run **`make clean-bytecode`** then **`make tree-source`** (ignores `output/`, `logs/`, `.venv`, pytest/coverage caches, etc.; install the `tree` utility if needed). Developer import modes (`pip install -e .`, `PYTHONPATH`, pytest): see [`docs/AGENTS.md`](docs/AGENTS.md) (repo-root [`AGENTS.md`](AGENTS.md) is a short pointer).
 
@@ -48,9 +48,8 @@ The installable package lives under **`src/obsidiandroid/`** (CLI, `common`, **`
 
 ```
 ObsidianDroid/
-├── analysis/               # Legacy compatibility shims for moved analysis modules
 ├── config/                 # YAML and JSON configs, app and model hyperparameters
-├── database/               # DB access helpers and queries
+├── database/               # Versioned SQL assets and migrations
 ├── docs/                   # Guides (incl. AGENTS, GOVERNANCE, STRUCTURE plan)
 ├── pyproject.toml          # Packaging, dependencies, pytest defaults
 ├── main.py                 # CLI entry (implementation in `obsidiandroid.pipeline.runner`)
@@ -97,7 +96,7 @@ Each markdown file can be browsed directly in GitHub’s file viewer for quick n
    source .venv/bin/activate
    pip install -e .
    ```
-4. **(Optional for full pipeline runs) Configure MariaDB/MySQL** by setting `OBSIDIAN_DB_*` and `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (see [Configuration](#configuration)) or by editing the defaults in `database/db_config.py` for local development only. Do not commit real passwords; prefer environment variables or a secrets manager.
+4. **(Optional for full pipeline runs) Configure MariaDB/MySQL** by setting `OBSIDIAN_DB_*` and `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (see [Configuration](#configuration)) or by editing the non-secret defaults in `src/obsidiandroid/database/db_config.py` for local development only. Do not commit real passwords; prefer environment variables or a secrets manager.
    The CLI can launch before database access is fully configured, but database-backed menu actions and pipeline stages still require a working database.
 5. **(Optional) Edit pipeline settings** in `config/app_config.py` (model selection, hyperparameters, etc).
 
@@ -112,7 +111,7 @@ from obsidiandroid.database import db_config  # thin façade; same module object
 
 - **Console entrypoint:** `python -m obsidiandroid.cli.startup_menu` (same as the `obsidiandroid` setuptools script after install).
 - **Operator / checkout paths:** repo-root **`main.py`** and **`./run.sh`** remain supported; they ensure `src/` is on **`sys.path`** then call into **`obsidiandroid`**. **`import main; main.run_pipeline(...)`** is still valid for quick one-liners.
-- **Legacy import trees:** top-level **`analysis/`** and repo-root **`database/`** files remain the main compatibility surfaces—prefer **`obsidiandroid.*`** for anything new. The old **`ml_classification/`** tree has been retired. Pass history and remaining moves: [`docs/STRUCTURE_MIGRATION_PLAN.md`](docs/STRUCTURE_MIGRATION_PLAN.md).
+- **Python import surfaces:** use **`obsidiandroid.*`**. The old repo-root **`analysis/`** and **`ml_classification/`** trees are retired; root **`database/`** is SQL-only. Pass history and remaining moves: [`docs/STRUCTURE_MIGRATION_PLAN.md`](docs/STRUCTURE_MIGRATION_PLAN.md).
 
 ---
 
@@ -177,12 +176,12 @@ Override via environment variables (recommended for deployment):
 | `OBSIDIAN_DB_NAME` | Primary Erebus schema |
 | `OBSIDIAN_PERMISSION_INTEL_DB_NAME` | Permission Intel schema |
 
-Defaults match `database/db_config.py`. Cross-schema SQL (for example joining `malware_sample_catalog` to `android_permission_obs_sample`) fully qualifies both schema names so ObsidianDroid does not rely on live `android_permission_*` tables inside the primary DB.
+Defaults match `obsidiandroid.database.db_config`. Cross-schema SQL (for example joining `malware_sample_catalog` to `android_permission_obs_sample`) fully qualifies both schema names so ObsidianDroid does not rely on live `android_permission_*` tables inside the primary DB.
 
 Quick connectivity check (requires network access to the DB):
 
 ```bash
-python -m database.split_db_health
+python -m obsidiandroid.database.split_db_health
 ```
 
 ### Pipeline and model settings
@@ -218,7 +217,7 @@ See comments in `config/settings/*.py` (or `config/app_config.py`) for full deta
 
 ## Repository layout & migration status
 
-The repo uses a **hybrid layout**: installable code in **`src/obsidiandroid/`** plus legacy compatibility surfaces at the top level (primarily `analysis/` and `database/`). For a **full audit** of the root, CI/tooling maturity, and planned next steps (not everything fits in the tree diagram above), see **[`docs/ROOT_AND_STRUCTURE_AUDIT.md`](docs/ROOT_AND_STRUCTURE_AUDIT.md)**.
+The repo uses a **src layout**: installable code in **`src/obsidiandroid/`** and versioned SQL assets under repo-root **`database/`**. For a **full audit** of the root, CI/tooling maturity, and planned next steps (not everything fits in the tree diagram above), see **[`docs/ROOT_AND_STRUCTURE_AUDIT.md`](docs/ROOT_AND_STRUCTURE_AUDIT.md)**.
 
 ---
 

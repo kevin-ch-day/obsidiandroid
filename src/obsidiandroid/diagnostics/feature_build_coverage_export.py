@@ -109,82 +109,84 @@ def export_feature_modality_coverage_audit(
             and not str(c).startswith(("perm__", "perm_grp__", "meta__"))
         ]
 
+    # Keep the first row for a duplicate sample id, matching the former
+    # ``sub.iloc[0]`` behavior without rescanning the full frame for every
+    # cohort member. The old implementation was O(cohort_rows * feature_rows)
+    # and created a substantial unreported pause on current-corpus runs.
+    work_by_sid = work.drop_duplicates("_audit_sid", keep="first").set_index("_audit_sid", drop=False)
+    audit_index = pd.Index(cohort_ids, name="sample_id")
+    present_ids = set(work_by_sid.index)
     enc_maps: dict[str, Any] = feature_df.attrs.get("encoder_mappings") or {}
 
-    rows: list[dict[str, Any]] = []
-    for sid in cohort_ids:
-        sub = work.loc[work["_audit_sid"] == sid]
-        pi_signal = perm_pi_positive.get(sid, False)
-        in_vm = sid in vendor_ids
-        if sub.empty:
-            rows.append(
-                {
-                    "sample_id": sid,
-                    "in_governed_cohort": True,
-                    "in_vendor_feature_matrix": in_vm,
-                    "in_permission_feature_matrix": pi_signal,
-                    "in_final_fused_matrix": sid in idx_ids,
-                    "has_vendor_features": False,
-                    "has_permission_features": False,
-                    "has_metadata_features": False,
-                    "has_any_feature": pi_signal,
-                    "vendor_parser_gate_passed": in_vm,
-                    "permission_signal_positive": pi_signal,
-                    "dropped_reason_supervised_training": "missing_fused_row",
-                }
-            )
-            continue
-
-        r = sub.iloc[0]
-        vhit = False
-        for c in vendor_cols:
-            if c not in r.index or c == "_audit_sid":
-                continue
-            mv = float(pd.to_numeric(r[c], errors="coerce") or 0.0)
-            if abs(mv - _column_unknown_code(c, enc_maps)) > 1e-9:
-                vhit = True
-                break
-        phit = False
-        if perm_cols:
-            pm = pd.to_numeric(r[perm_cols], errors="coerce").fillna(0)
-            phit = bool((pm > 0).any())
-        mhit = False
-        if meta_cols:
-            mm = pd.to_numeric(r[meta_cols], errors="coerce").fillna(0)
-            mhit = bool((mm > 0).any())
-
-        has_any = bool(vhit or phit or mhit or pi_signal)
-        drop_reason = ""
-        if isinstance(samples_df, pd.DataFrame) and not samples_df.empty and "sample_id" in samples_df.columns:
-            sid_series = pd.to_numeric(samples_df["sample_id"], errors="coerce")
-            match = samples_df.loc[sid_series == float(sid)]
-            if match.empty:
-                drop_reason = "missing_from_samples_metadata"
-            else:
-                lbl_cols = [c for c in ("family_canonical", "family_id", "family_name") if c in match.columns]
-                if lbl_cols:
-                    lv = match.iloc[0].get(lbl_cols[0])
-                    if lv is None or (isinstance(lv, float) and pd.isna(lv)) or str(lv).strip() == "":
-                        drop_reason = "missing_supervised_label"
-
-        rows.append(
-            {
-                "sample_id": sid,
-                "in_governed_cohort": True,
-                "in_vendor_feature_matrix": in_vm,
-                "in_permission_feature_matrix": pi_signal,
-                "in_final_fused_matrix": sid in idx_ids,
-                "has_vendor_features": bool(vhit),
-                "has_permission_features": bool(phit),
-                "has_metadata_features": bool(mhit),
-                "has_any_feature": bool(has_any),
-                "vendor_parser_gate_passed": bool(in_vm),
-                "permission_signal_positive": bool(pi_signal),
-                "dropped_reason_supervised_training": drop_reason,
-            }
+    vendor_signal = pd.Series(False, index=work_by_sid.index)
+    available_vendor_cols = [c for c in vendor_cols if c in work_by_sid.columns and c != "_audit_sid"]
+    if available_vendor_cols:
+        vendor_values = work_by_sid[available_vendor_cols].apply(pd.to_numeric, errors="coerce")
+        unknown_codes = pd.Series(
+            {_col: _column_unknown_code(_col, enc_maps) for _col in available_vendor_cols}
         )
+        vendor_signal = (
+            vendor_values.ne(unknown_codes, axis="columns") & vendor_values.notna()
+        ).any(axis="columns")
 
-    audit_df = pd.DataFrame(rows)
+    permission_signal = pd.Series(False, index=work_by_sid.index)
+    if perm_cols:
+        permission_values = work_by_sid[perm_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
+        permission_signal = (permission_values > 0).any(axis="columns")
+
+    metadata_signal = pd.Series(False, index=work_by_sid.index)
+    if meta_cols:
+        metadata_values = work_by_sid[meta_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
+        metadata_signal = (metadata_values > 0).any(axis="columns")
+
+    audit_df = pd.DataFrame(index=audit_index)
+    audit_df["in_governed_cohort"] = True
+    audit_df["in_vendor_feature_matrix"] = audit_index.isin(vendor_ids)
+    audit_df["in_permission_feature_matrix"] = [bool(perm_pi_positive.get(sid, False)) for sid in audit_index]
+    audit_df["in_final_fused_matrix"] = audit_index.isin(idx_ids)
+    audit_df["has_vendor_features"] = audit_index.map(vendor_signal).fillna(False).astype(bool)
+    audit_df["has_permission_features"] = audit_index.map(permission_signal).fillna(False).astype(bool)
+    audit_df["has_metadata_features"] = audit_index.map(metadata_signal).fillna(False).astype(bool)
+    audit_df["vendor_parser_gate_passed"] = audit_index.isin(vendor_ids)
+    audit_df["permission_signal_positive"] = audit_df["in_permission_feature_matrix"]
+    audit_df["has_any_feature"] = (
+        audit_df["has_vendor_features"]
+        | audit_df["has_permission_features"]
+        | audit_df["has_metadata_features"]
+        | audit_df["permission_signal_positive"]
+    )
+    audit_df["dropped_reason_supervised_training"] = ""
+    audit_df.loc[~audit_index.isin(present_ids), "dropped_reason_supervised_training"] = "missing_fused_row"
+
+    if isinstance(samples_df, pd.DataFrame) and not samples_df.empty and "sample_id" in samples_df.columns:
+        sample_rows = samples_df.copy()
+        sample_rows["_audit_sid"] = pd.to_numeric(sample_rows["sample_id"], errors="coerce")
+        sample_rows = sample_rows.loc[sample_rows["_audit_sid"].notna()].copy()
+        sample_rows["_audit_sid"] = sample_rows["_audit_sid"].round().astype("int64")
+        sample_rows = sample_rows.drop_duplicates("_audit_sid", keep="first").set_index("_audit_sid", drop=False)
+        metadata_present = audit_index.isin(sample_rows.index)
+        audit_df.loc[~metadata_present & audit_df["dropped_reason_supervised_training"].eq(""), "dropped_reason_supervised_training"] = (
+            "missing_from_samples_metadata"
+        )
+        label_col = next(
+            (column for column in ("family_canonical", "family_id", "family_name") if column in sample_rows.columns),
+            None,
+        )
+        if label_col is not None:
+            labels = audit_index.map(sample_rows[label_col])
+            missing_label = labels.map(
+                lambda value: value is None
+                or (isinstance(value, float) and pd.isna(value))
+                or str(value).strip() == ""
+            )
+            audit_df.loc[
+                metadata_present
+                & missing_label.to_numpy()
+                & audit_df["dropped_reason_supervised_training"].eq(""),
+                "dropped_reason_supervised_training",
+            ] = "missing_supervised_label"
+
+    audit_df = audit_df.reset_index()
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     rid = str(run_id)

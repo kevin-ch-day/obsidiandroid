@@ -32,7 +32,7 @@ This guide walks operators through setting up their environment, executing the m
 
 ## 3. Configure Data Sources
 
-1. Point ObsidianDroid at your MySQL/MariaDB instance using **environment variables** (recommended) or the defaults in `database/db_config.py`:
+1. Point ObsidianDroid at your MySQL/MariaDB instance using **environment variables** (recommended) or the defaults in `obsidiandroid.database.db_config`:
    - `OBSIDIAN_DB_HOST`, `OBSIDIAN_DB_PORT`, `OBSIDIAN_DB_USER`, `OBSIDIAN_DB_PASSWORD` — shared credentials for the server.
    - `OBSIDIAN_DB_NAME` — primary Erebus schema (samples, VirusTotal mirrors, catalog).
    - `OBSIDIAN_PERMISSION_INTEL_DB_NAME` — Permission Intel schema (all live `android_permission_*` tables).
@@ -42,7 +42,7 @@ This guide walks operators through setting up their environment, executing the m
    - Primary: `malware_sample_catalog`, `virustotal_sample_vendor_engine_verdicts`, and related VT/catalog tables.
    - Permission Intel: `android_permission_obs_sample` and related `android_permission_*` dictionaries and enrichment tables.
    - Legacy docs may reference `vt_*` naming; the replicated wide verdict table in this project is `virustotal_sample_vendor_engine_verdicts`.
-5. Optional smoke check when the DB is reachable: `python -m database.split_db_health` (JSON status and exit code 0 when primary, Permission Intel, and `android_permission_obs_sample` in PI are OK).
+5. Optional smoke check when the DB is reachable: `python -m obsidiandroid.database.split_db_health` (JSON status and exit code 0 when primary, Permission Intel, and `android_permission_obs_sample` in PI are OK).
 
 ### VirusTotal integration checklist
 
@@ -75,8 +75,8 @@ python -m obsidiandroid.evaluation.model_tuning
 This runs the module’s sample tuning workflow (`tune_models`); wire your own search grids via `config/model_params/` and canonical `obsidiandroid.modeling` trainers for production sweeps.
 
 ### Utility Scripts (examples)
-- `python scripts/diagnostics/report_feature_lineage.py --help` – Feature lineage / gap reporting helpers (legacy top-level wrapper kept for compatibility).
-- `python scripts/diagnostics/report_feature_matrix_gap.py --help` – Compare expected vs built feature columns when debugging matrices (legacy top-level wrapper kept for compatibility).
+- `python scripts/diagnostics/report_feature_lineage.py --help` – Feature lineage / gap reporting helpers.
+- `python scripts/diagnostics/report_feature_matrix_gap.py --help` – Compare expected vs built feature columns when debugging matrices.
 - `python -m scripts.dev.run_ml_static_scan` or `make ml-scan` – Detect patterns that might cause train/test leakage in ML code.
 
 ## 6. Inspect Outputs
@@ -99,7 +99,7 @@ Additional artifacts such as confusion matrices, feature importance exports, pap
 
 | Symptom | Suggested Actions |
 | --- | --- |
-| `MySQLdb._exceptions.OperationalError` | Verify `OBSIDIAN_DB_*` credentials (or `database/db_config.py` defaults), both schema names, and network connectivity; test with `mysql` CLI. |
+| `MySQLdb._exceptions.OperationalError` | Verify `OBSIDIAN_DB_*` credentials (or `obsidiandroid.database.db_config` defaults), both schema names, and network connectivity; test with `mysql` CLI. |
 | Memory exhaustion during feature build | Enable chunked processing in `config/app_config.py` or increase swap space. |
 | Model training takes too long | Disable heavy estimators (e.g., XGBoost) or reduce feature sets via config toggles. |
 | Predictions look noisy | Revisit vendor weights, adjust consensus thresholds, or inspect raw detections for mislabeled samples. |

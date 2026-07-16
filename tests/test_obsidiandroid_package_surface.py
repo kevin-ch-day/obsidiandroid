@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+from zipfile import ZipFile
+
 import pytest
 
 
@@ -60,26 +67,25 @@ def test_repo_operator_script_resolves_under_repo_root() -> None:
     assert p.is_file()
 
 
-def test_scripts_runtime_bootstrap_prepends_src_when_repo_root_on_path() -> None:
-    import importlib
+def test_prepare_script_runtime_prepends_repo_root_and_src() -> None:
     import sys
     from pathlib import Path
 
     from obsidiandroid.common import repo_paths
+    from scripts._bootstrap import prepare_script_runtime
 
     here = Path(repo_paths.__file__).resolve()
     if len(here.parents) < 4 or here.parents[2].name != "src":
         pytest.skip("repo_paths not loaded from a checkout tree under src/")
     root = here.parents[3]
-    rb = root / "scripts" / "runtime_bootstrap.py"
-    if not rb.is_file():
-        pytest.skip("scripts/runtime_bootstrap.py missing")
     src = str((root / "src").resolve())
     root_s = str(root.resolve())
-    if root_s not in sys.path:
-        sys.path.insert(0, root_s)
-    sys.modules.pop("scripts.runtime_bootstrap", None)
-    importlib.import_module("scripts.runtime_bootstrap")
+    while root_s in sys.path:
+        sys.path.remove(root_s)
+    while src in sys.path:
+        sys.path.remove(src)
+    assert prepare_script_runtime(root / "scripts" / "diagnostics" / "check_run_integrity.py") == root
+    assert root_s in sys.path
     assert src in sys.path
 
 
@@ -94,6 +100,15 @@ def test_thin_compat_shim_trees_follow_policy() -> None:
     assert errs == [], "thin compat shim violations:\n" + "\n".join(errs)
 
 
+def test_setuptools_package_discovery_excludes_retired_analysis_tree() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    with (repo_root / "pyproject.toml").open("rb") as handle:
+        metadata = tomllib.load(handle)
+
+    include = metadata["tool"]["setuptools"]["packages"]["find"]["include"]
+    assert "analysis*" not in include
+
+
 def test_python_sources_have_no_utf8_bom_prefix() -> None:
     """BOM-prefixed ``*.py`` files break ast.parse and CI shim checks (see check_import_surface)."""
     from pathlib import Path
@@ -103,3 +118,55 @@ def test_python_sources_have_no_utf8_bom_prefix() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     bad = collect_utf8_bom_python_sources(repo_root)
     assert not bad, "UTF-8 BOM at start of:\n" + "\n".join(bad)
+
+
+@pytest.mark.contract
+def test_production_wheel_excludes_source_checkout_operator_scripts(tmp_path: Path) -> None:
+    """The installable package must not turn dev/diagnostic scripts into a public API."""
+    repo_root = Path(__file__).resolve().parents[1]
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+
+    for name in ("pyproject.toml", "README.md", "requirements.txt", "main.py"):
+        shutil.copy2(repo_root / name, source_root / name)
+    ignored = shutil.ignore_patterns(
+        "__pycache__",
+        "*.pyc",
+        "*.egg-info",
+        ".pytest_cache",
+        ".pytest_tmp",
+        ".ruff_cache",
+        "build",
+        "dist",
+    )
+    for name in ("src", "config", "database", "profiles", "scripts"):
+        shutil.copytree(repo_root / name, source_root / name, ignore=ignored)
+
+    wheel_dir = tmp_path / "wheel"
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            "--no-deps",
+            "--no-build-isolation",
+            "--no-cache-dir",
+            "--wheel-dir",
+            str(wheel_dir),
+            str(source_root),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    wheel = next(wheel_dir.glob("*.whl"))
+    with ZipFile(wheel) as archive:
+        names = archive.namelist()
+
+    assert not any(name.startswith("scripts/") for name in names)
+    assert not any(name.startswith("analysis/") for name in names)
+    assert not any(name.startswith("database/") for name in names)
+    assert any(name.startswith("obsidiandroid/") for name in names)
+    assert any(name.startswith("config/") for name in names)
+    assert any(name.startswith("profiles/") for name in names)

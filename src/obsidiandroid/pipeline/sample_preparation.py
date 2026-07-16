@@ -1,7 +1,7 @@
 """Helpers for preparing cohort samples and metadata features.
 
 Canonical implementation (**Pass 70**): ``obsidiandroid.pipeline.sample_preparation``;
-``analysis.pipeline.sample_preparation`` is an identity shim.
+The supported import path is ``obsidiandroid.pipeline.sample_preparation``.
 
 This module extracts preprocessing logic from ``main.py`` to keep pipeline
 orchestration compact and easier to test in isolation.

@@ -412,12 +412,12 @@ def verify_only_cli(
 
 
 def run_profiles_cli() -> int:
-    import main  # noqa: E402
+    from obsidiandroid.cli.pipeline_entry import run_pipeline
 
     results: list[dict[str, object]] = []
     for profile_id in CANONICAL_PROFILES:
         print(f"[V3] Running profile={profile_id} …", flush=True)
-        code = main.run_pipeline(
+        code = run_pipeline(
             profile_ref=profile_id,
             selected_models=["logistic_regression"],
         )

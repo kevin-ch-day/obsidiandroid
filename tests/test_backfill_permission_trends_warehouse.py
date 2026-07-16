@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from scripts import backfill_permission_trends_warehouse as backfill
+from scripts.maintenance import backfill_permission_trends_warehouse as backfill
 
 
 def test_artifact_path_from_manifest_resolves_relative_path(tmp_path: Path) -> None:

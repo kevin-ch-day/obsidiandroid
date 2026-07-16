@@ -1,7 +1,7 @@
 """Stage helpers for AV analysis, vendor extraction, and alignment.
 
 Canonical implementation (**Pass 69**): ``obsidiandroid.pipeline.stage_av_vendor``;
-``analysis.pipeline.stage_av_vendor`` is an identity shim.
+The supported import path is ``obsidiandroid.pipeline.stage_av_vendor``.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common import output_paths
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
+from obsidiandroid.pipeline.engine_normalization import canonicalize_engine_name
 from obsidiandroid.observability.pipeline_observability.session import PipelineObservabilitySession
 from obsidiandroid.observability.pipeline_observability.taxonomy import LogCategory, LogSeverity
 
@@ -37,6 +38,66 @@ def _engine_lifecycle_path(run_id: str) -> Path:
     if runtime_dir:
         return Path(runtime_dir) / f"engine_lifecycle_{normalized_run_id}.csv"
     return output_paths.diagnostics_root() / f"engine_lifecycle_{normalized_run_id}.csv"
+
+
+def _av_feature_scope_contract_path(run_id: str) -> Path:
+    """Return the run-scoped AV binary-feature scope contract path."""
+    runtime_dir = str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", "") or "").strip()
+    normalized_run_id = oh.normalize_artifact_run_id(run_id)
+    if runtime_dir:
+        return Path(runtime_dir) / f"av_binary_feature_scope_{normalized_run_id}.csv"
+    return output_paths.diagnostics_root() / f"av_binary_feature_scope_{normalized_run_id}.csv"
+
+
+def _export_av_feature_scope_contract(
+    *,
+    lifecycle_df: pd.DataFrame,
+    binary_matrix: pd.DataFrame | None,
+    scope_contract: dict[str, Any] | None,
+    run_id: str,
+    profile_id: str,
+) -> str:
+    """Export lifecycle status beside actual binary-feature membership.
+
+    Engine readiness and binary feature membership are separate surfaces.  This
+    compact, run-scoped table makes their relationship explicit without
+    claiming that a parser score controls every AV verdict column.
+    """
+    if not isinstance(lifecycle_df, pd.DataFrame) or lifecycle_df.empty:
+        return ""
+    frame = lifecycle_df.copy()
+    source_columns = []
+    if isinstance(binary_matrix, pd.DataFrame) and "sample_id" in binary_matrix.columns:
+        source_columns = [str(col) for col in binary_matrix.columns if str(col) != "sample_id"]
+    source_canonical = {canonicalize_engine_name(column) for column in source_columns}
+    canonical_col = "engine_name_canonical"
+    if canonical_col not in frame.columns:
+        return ""
+    frame["binary_matrix_column_present"] = frame[canonical_col].map(
+        lambda value: int(canonicalize_engine_name(value) in source_canonical)
+    )
+    resolved = dict(scope_contract or {})
+    frame["binary_feature_engine_scope"] = str(
+        resolved.get("binary_feature_engine_scope", "all_observed")
+    )
+    frame["selected_for_binary_feature_scope"] = frame["binary_matrix_column_present"]
+    frame["observed_binary_engine_columns"] = int(
+        resolved.get("observed_binary_engine_columns", len(source_columns)) or 0
+    )
+    frame["selected_binary_engine_columns"] = int(
+        resolved.get("selected_binary_engine_columns", len(source_columns)) or 0
+    )
+    frame["run_id"] = str(run_id)
+    frame["profile_id"] = str(profile_id)
+
+    path = _av_feature_scope_contract_path(run_id)
+    paths = oh.mirror_csv_text_run_then_global(
+        diagnostics_dir=path.parent,
+        run_filename=path.name,
+        csv_text=frame.to_csv(index=False),
+        global_latest_name="av_binary_feature_scope.latest.csv",
+    )
+    return str(paths[0])
 
 
 def run_av_analysis_stage(
@@ -67,7 +128,16 @@ def run_av_analysis_stage(
         if isinstance(maybe, PipelineObservabilitySession):
             obs = maybe
 
-    av_config = {"run_id": run_id, "profile_context": profile_id}
+    # Pass the scope explicitly as part of the stage contract rather than
+    # relying only on process-global configuration.  This is recorded again in
+    # the run artifacts and makes a paired AV-scope experiment auditable.
+    av_config = {
+        "run_id": run_id,
+        "profile_context": profile_id,
+        "binary_feature_engine_scope": str(
+            getattr(app_config, "AV_BINARY_FEATURE_ENGINE_SCOPE", "all_observed")
+        ),
+    }
     pipeline_results = av_engine_pipeline.run_av_analysis_pipeline(
         samples_df,
         config=av_config,
@@ -161,6 +231,42 @@ def run_av_analysis_stage(
             app_config,
             "RUNTIME_ENGINE_COUNT_EXCLUDED_AFTER_GATING",
             int(engine_scores_df.attrs.get("engine_excluded_count", 0) or 0),
+        )
+        feature_scope_contract = pipeline_results.get("av_binary_feature_scope_contract")
+        if not isinstance(feature_scope_contract, dict):
+            feature_scope_contract = {}
+        scope_name = str(
+            feature_scope_contract.get(
+                "binary_feature_engine_scope",
+                getattr(app_config, "AV_BINARY_FEATURE_ENGINE_SCOPE", "all_observed"),
+            )
+        )
+        selected_binary_count = int(
+            feature_scope_contract.get("selected_binary_engine_columns", 0) or 0
+        )
+        observed_binary_count = int(
+            feature_scope_contract.get("observed_binary_engine_columns", 0) or 0
+        )
+        setattr(app_config, "RUNTIME_AV_BINARY_FEATURE_ENGINE_SCOPE", scope_name)
+        setattr(app_config, "RUNTIME_AV_BINARY_FEATURE_ENGINE_COUNT", selected_binary_count)
+        scope_path = _export_av_feature_scope_contract(
+            lifecycle_df=lifecycle_df,
+            binary_matrix=bm if isinstance(bm, pd.DataFrame) else None,
+            scope_contract=feature_scope_contract,
+            run_id=run_id,
+            profile_id=profile_id,
+        )
+        if scope_path:
+            setattr(app_config, "RUNTIME_AV_FEATURE_SCOPE_CONTRACT_CSV", scope_path)
+            artifact_list.append(scope_path)
+            if obs is not None:
+                obs.emit_artifact_written(scope_path, detail="AV binary-feature scope contract CSV")
+        du.print_stat(
+            "AV Feature Contract",
+            (
+                f"scope={scope_name}, binary_engine_columns="
+                f"{selected_binary_count}/{observed_binary_count}"
+            ),
         )
     elif obs is not None:
         obs.emit_artifact_skipped(

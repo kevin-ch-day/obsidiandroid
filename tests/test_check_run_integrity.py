@@ -1,25 +1,15 @@
-"""Tests for scripts/check_run_integrity.py Tier A QA helper."""
+"""Tests for scripts/diagnostics/check_run_integrity.py Tier A QA helper."""
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import sys
 from pathlib import Path
 
-
-def _load_checker():
-    root = Path(__file__).resolve().parents[1]
-    path = root / "scripts" / "check_run_integrity.py"
-    spec = importlib.util.spec_from_file_location("check_run_integrity", path)
-    mod = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(mod)
-    return mod
+from scripts.diagnostics import check_run_integrity
 
 
 def test_compare_run_artifacts_aligned() -> None:
-    chk = _load_checker()
     man = {"run_id": "r1", "cohort_size": 100, "train_sample_count": 70, "test_sample_count": 30, "profile_params": {"profile_id": "p1"}}
     summ = {"top_model": "rf", "top_macro_f1": 0.77, "publication_ready_status": "NOT_APPLICABLE", "train_sample_count": 70}
     obs = {
@@ -30,11 +20,12 @@ def test_compare_run_artifacts_aligned() -> None:
         "model_summary": {"top_model": "rf", "top_macro_f1": 0.77},
         "model": {"top_model": "rf", "top_macro_f1": 0.77},
     }
-    assert chk.compare_run_artifacts(manifest=man, summary=summ, observability=obs, f1_tolerance=0.01) == []
+    assert check_run_integrity.compare_run_artifacts(
+        manifest=man, summary=summ, observability=obs, f1_tolerance=0.01
+    ) == []
 
 
 def test_compare_run_artifacts_detects_drift(tmp_path: Path) -> None:
-    chk = _load_checker()
     man = {"run_id": "r1", "cohort_size": 100, "train_sample_count": 70, "test_sample_count": 30, "profile_params": {"profile_id": "p1"}}
     summ = {"top_model": "rf", "top_macro_f1": 0.77, "cohort_size": 100, "train_sample_count": 70}
     obs = {
@@ -44,14 +35,15 @@ def test_compare_run_artifacts_detects_drift(tmp_path: Path) -> None:
         "model_summary": {"top_model": "xgb", "top_macro_f1": 0.5},
         "model": {},
     }
-    issues = chk.compare_run_artifacts(manifest=man, summary=summ, observability=obs, f1_tolerance=0.01)
+    issues = check_run_integrity.compare_run_artifacts(
+        manifest=man, summary=summ, observability=obs, f1_tolerance=0.01
+    )
     blob = "\n".join(issues)
     assert "cohort_size mismatch" in blob
     assert "top_model mismatch" in blob
 
 
 def test_cli_end_to_end_ok(tmp_path: Path) -> None:
-    chk = _load_checker()
     run = tmp_path / "runzz"
     diag = run / "diagnostics"
     diag.mkdir(parents=True)
@@ -85,6 +77,6 @@ def test_cli_end_to_end_ok(tmp_path: Path) -> None:
     old = sys.argv
     try:
         sys.argv = ["check_run_integrity.py", "--run-root", str(run)]
-        assert chk.main() == 0
+        assert check_run_integrity.main() == 0
     finally:
         sys.argv = old

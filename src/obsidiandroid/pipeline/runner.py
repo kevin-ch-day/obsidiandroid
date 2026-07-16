@@ -1,7 +1,7 @@
 """Pipeline orchestration: profile loading, staged execution, manifest finalization.
 
 Canonical implementation (**Pass 67**): lives under ``obsidiandroid.pipeline.runner``.
-``analysis.pipeline.runner`` is a thin ``sys.modules`` identity shim.
+``obsidiandroid.pipeline.runner`` is the supported runner module.
 
 This module holds ``run_pipeline`` and run-scoped helpers extracted from ``main.py``
 so the CLI entry module stays thin and tests can import ``main.run_pipeline`` unchanged.
@@ -1063,6 +1063,17 @@ def run_pipeline(
                 manifest_context["engine_count_canonical"] = canonical
                 manifest_context["included_engine_count"] = included
                 manifest_context["excluded_engine_count"] = excluded
+                av_scope_contract = pipeline_results.get("av_binary_feature_scope_contract")
+                if isinstance(av_scope_contract, dict):
+                    manifest_context["av_binary_feature_engine_scope"] = str(
+                        av_scope_contract.get("binary_feature_engine_scope", "all_observed")
+                    )
+                    manifest_context["av_binary_feature_engine_columns"] = int(
+                        av_scope_contract.get("selected_binary_engine_columns", 0) or 0
+                    )
+                    manifest_context["av_binary_feature_engine_columns_observed"] = int(
+                        av_scope_contract.get("observed_binary_engine_columns", 0) or 0
+                    )
                 manifest_context["engine_exclusion_reason_counts"] = exclusion_reason_counts
                 manifest_context["engine_near_miss_count"] = near_miss_count
                 setattr(app_config, "RUNTIME_INCLUDED_ENGINE_COUNT", included)
@@ -1377,6 +1388,41 @@ def run_pipeline(
             manifest_context["feature_column_survival_csv"] = feat_surv_csv
             if feat_surv_csv not in artifact_list:
                 artifact_list.append(feat_surv_csv)
+        try:
+            from obsidiandroid.diagnostics.av_selection_contract import export_av_selection_contract
+
+            lifecycle_for_contract = pipeline_results.get("engine_lifecycle")
+            binary_for_contract = pipeline_results.get("binary_matrix")
+            if isinstance(lifecycle_for_contract, pd.DataFrame) and isinstance(binary_for_contract, pd.DataFrame):
+                binary_columns = [
+                    str(column)
+                    for column in binary_for_contract.columns
+                    if str(column) != "sample_id"
+                ]
+                final_columns = list(
+                    getattr(app_config, "RUNTIME_HEADLINE_FIT_COLUMN_NAMES", []) or []
+                )
+                av_selection_path = export_av_selection_contract(
+                    lifecycle_df=lifecycle_for_contract,
+                    weights_df=weights_df if isinstance(weights_df, pd.DataFrame) else None,
+                    binary_feature_columns=binary_columns,
+                    final_feature_columns=[str(column) for column in final_columns],
+                    selected_vendors=list(feature_df.attrs.get("selected_vendors", []) or []),
+                    selected_vendor_predictive_field_count=int(
+                        feature_df.attrs.get("selected_vendor_predictive_field_count", 0) or 0
+                    ),
+                    binary_scope_contract=pipeline_results.get("av_binary_feature_scope_contract"),
+                    diagnostics_dir=DIAGNOSTICS_DIR,
+                    run_id=run_id,
+                    profile_id=profile_id,
+                )
+                if av_selection_path:
+                    setattr(app_config, "RUNTIME_AV_SELECTION_CONTRACT_CSV", av_selection_path)
+                    manifest_context["av_selection_contract_csv"] = av_selection_path
+                    if av_selection_path not in artifact_list:
+                        artifact_list.append(av_selection_path)
+        except Exception as exc:
+            du.print_warning(f"[AV CONTRACT] Selection-contract export skipped: {exc}")
         try:
             _lineage_p = feature_build_coverage_export.export_sample_stage_lineage_audit(
                 cohort_sample_ids=samples_df["sample_id"],

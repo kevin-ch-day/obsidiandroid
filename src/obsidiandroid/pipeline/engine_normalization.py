@@ -1,7 +1,7 @@
 """Engine name normalization and alias resolution.
 
 Canonical implementation (**Pass 71**): ``obsidiandroid.pipeline.engine_normalization``;
-``analysis.pipeline.engine_normalization`` is an identity shim.
+The supported import path is ``obsidiandroid.pipeline.engine_normalization``.
 """
 
 from __future__ import annotations

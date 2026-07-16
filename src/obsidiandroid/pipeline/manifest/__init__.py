@@ -1,8 +1,6 @@
 """Pipeline manifest helpers (hashing, writer, paper exports, runtime support).
 
-Implementation is canonical under ``obsidiandroid.pipeline.manifest`` (**Pass 76**);
-legacy ``analysis.pipeline.manifest`` imports are compatibility aliases
-brokered by the protected ``analysis.pipeline`` shell.
+Implementation is canonical under ``obsidiandroid.pipeline.manifest``.
 """
 
 from __future__ import annotations

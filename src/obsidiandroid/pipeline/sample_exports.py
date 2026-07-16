@@ -1,7 +1,7 @@
 """Cohort export and time-contract helpers for the samples stage.
 
 Canonical implementation (**Pass 69**): ``obsidiandroid.pipeline.sample_exports``;
-``analysis.pipeline.sample_exports`` is an identity shim.
+The supported import path is ``obsidiandroid.pipeline.sample_exports``.
 """
 
 from __future__ import annotations

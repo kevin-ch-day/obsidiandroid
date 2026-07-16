@@ -1,9 +1,4 @@
-"""Permission-trends pipeline helpers (canonical **Pass 74**).
-
-Legacy ``analysis.pipeline.permission_trends.*`` resolves to the same module
-objects via compatibility aliases brokered by the protected
-``analysis.pipeline`` shell.
-"""
+"""Permission-trends pipeline helpers."""
 
 from __future__ import annotations
 

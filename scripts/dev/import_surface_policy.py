@@ -1,8 +1,9 @@
 """Static import-surface policies for :mod:`scripts.dev.check_import_surface`.
 
-AST/file-system checks only (no ``importlib`` of project packages). Repo-root ``utils`` and
-``ml_classification`` were retired; the remaining live legacy leaf shim tree is ``analysis``.
-Thin-compat policy tuple is empty but kept for future optional trees.
+AST/file-system checks only (no ``importlib`` of project packages). Repo-root
+compatibility Python trees are retired; the repository-root ``database/``
+directory remains only for SQL assets. Thin-compat policy is empty but retained
+as an extension point.
 """
 
 from __future__ import annotations
@@ -12,36 +13,26 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scripts.dev.compatibility_retirement_manifest import (
-    ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS as _ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS,
-    ANALYSIS_PIPELINE_RETIRED_PACKAGE_BRIDGES as _ANALYSIS_PIPELINE_RETIRED_PACKAGE_BRIDGES,
-    ANALYSIS_PIPELINE_RETIRED_PLAIN_IDENTITY_SHIMS as _ANALYSIS_PIPELINE_RETIRED_PLAIN_IDENTITY_SHIMS,
+    CANONICAL_CODE_COMPATIBILITY_IMPORT_ROOTS as _CANONICAL_CODE_COMPATIBILITY_IMPORT_ROOTS,
     CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST as _CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST,
     CANONICAL_FILENAME_HEADER_BAD_ROOTS as _CANONICAL_FILENAME_HEADER_BAD_ROOTS,
     EARLY_DEPRECATION_READY_TREES as _EARLY_DEPRECATION_READY_TREES,
     LEGACY_COMPATIBILITY_IMPORT_ROOTS as _LEGACY_COMPATIBILITY_IMPORT_ROOTS,
-    LEGACY_LEAF_SHIM_ROOTS as _LEGACY_LEAF_SHIM_ROOTS,
     NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST as _NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST,
+    RETIRED_COMPATIBILITY_ROOTS as _RETIRED_COMPATIBILITY_ROOTS,
+    RETIRED_ROOT_COMPATIBILITY_FILES as _RETIRED_ROOT_COMPATIBILITY_FILES,
 )
 
 _UTF8_BOM = b"\xef\xbb\xbf"
-CANONICAL_CODE_LEGACY_IMPORT_ROOTS = frozenset(_LEGACY_COMPATIBILITY_IMPORT_ROOTS)
+CANONICAL_CODE_LEGACY_IMPORT_ROOTS = frozenset(_CANONICAL_CODE_COMPATIBILITY_IMPORT_ROOTS)
 # First path segment of ``# Filename:`` headers under ``src/`` must not name a legacy tree.
 CANONICAL_FILENAME_HEADER_BAD_ROOTS = frozenset(_CANONICAL_FILENAME_HEADER_BAD_ROOTS)
 _CANONICAL_CODE_IMPORT_SCAN_ROOTS = ("src", "scripts")
 CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST = frozenset(_CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST)
 NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST = frozenset(_NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST)
-LEGACY_LEAF_SHIM_ROOTS = _LEGACY_LEAF_SHIM_ROOTS
-LEGACY_LEAF_SHIM_MAX_LINES = 16
 READY_NOW_LEGACY_SHIM_BATCHES = frozenset(_EARLY_DEPRECATION_READY_TREES)
-ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS = frozenset(
-    Path(p) for p in _ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS
-)
-ANALYSIS_PIPELINE_RETIRED_PLAIN_IDENTITY_SHIMS = frozenset(
-    Path(p) for p in _ANALYSIS_PIPELINE_RETIRED_PLAIN_IDENTITY_SHIMS
-)
-ANALYSIS_PIPELINE_RETIRED_PACKAGE_BRIDGES = frozenset(
-    Path(p) for p in _ANALYSIS_PIPELINE_RETIRED_PACKAGE_BRIDGES
-)
+RETIRED_COMPATIBILITY_ROOTS = frozenset(_RETIRED_COMPATIBILITY_ROOTS)
+RETIRED_ROOT_COMPATIBILITY_FILES = frozenset(_RETIRED_ROOT_COMPATIBILITY_FILES)
 # Directory name fragments skipped when scanning for UTF-8 BOM (generated / vendor trees).
 _BOM_SCAN_SKIP_DIR_PARTS = frozenset(
     {
@@ -84,21 +75,13 @@ __all__ = (
     "CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST",
     "CANONICAL_CODE_LEGACY_IMPORT_ROOTS",
     "CANONICAL_FILENAME_HEADER_BAD_ROOTS",
-    "ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS",
-    "ANALYSIS_PIPELINE_RETIRED_PLAIN_IDENTITY_SHIMS",
-    "ANALYSIS_PIPELINE_RETIRED_PACKAGE_BRIDGES",
-    "LEGACY_LEAF_SHIM_MAX_LINES",
-    "LEGACY_LEAF_SHIM_ROOTS",
     "NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST",
     "READY_NOW_LEGACY_SHIM_BATCHES",
     "THIN_COMPAT_SHIM_POLICIES",
     "ThinCompatShimPolicy",
     "collect_canonical_code_legacy_imports",
-    "collect_analysis_pipeline_plain_shim_violations",
-    "collect_analysis_pipeline_retired_shim_violations",
-    "collect_analysis_pipeline_retired_package_bridge_violations",
-    "collect_legacy_leaf_shim_violations",
-    "collect_database_shim_helper_violations",
+    "collect_retired_compatibility_tree_violations",
+    "collect_retired_compatibility_file_violations",
     "collect_ml_training_plain_shim_violations",
     "collect_nonparity_test_legacy_imports",
     "collect_ready_now_shim_helper_violations",
@@ -109,19 +92,23 @@ __all__ = (
 )
 
 
-def legacy_root_import_violations(tree: ast.AST, rel_posix: str) -> list[str]:
+def legacy_root_import_violations(
+    tree: ast.AST,
+    rel_posix: str,
+    *,
+    forbidden_roots: frozenset[str] = CANONICAL_CODE_LEGACY_IMPORT_ROOTS,
+) -> list[str]:
     """Lines like ``path:lineno: ...`` for imports rooted at legacy compatibility packages."""
     bad: list[str] = []
-    roots = CANONICAL_CODE_LEGACY_IMPORT_ROOTS
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 root = alias.name.split(".", 1)[0]
-                if root in roots:
+                if root in forbidden_roots:
                     bad.append(f"{rel_posix}:{node.lineno}: import {alias.name}")
         elif isinstance(node, ast.ImportFrom) and node.module:
             root = node.module.split(".", 1)[0]
-            if root in roots:
+            if root in forbidden_roots:
                 bad.append(f"{rel_posix}:{node.lineno}: from {node.module} import ...")
     return bad
 
@@ -131,6 +118,7 @@ def _collect_legacy_imports_under_scan_roots(
     *,
     scan_roots: tuple[Path, ...],
     path_allowlist: frozenset[Path],
+    forbidden_roots: frozenset[str],
 ) -> list[str]:
     """Scan ``*.py`` under ``scan_roots`` for imports rooted at legacy compatibility packages."""
     bad: list[str] = []
@@ -151,7 +139,13 @@ def _collect_legacy_imports_under_scan_roots(
             except OSError as exc:
                 bad.append(f"{rel}: cannot read file while scanning imports ({exc})")
                 continue
-            bad.extend(legacy_root_import_violations(tree, rel.as_posix()))
+            bad.extend(
+                legacy_root_import_violations(
+                    tree,
+                    rel.as_posix(),
+                    forbidden_roots=forbidden_roots,
+                )
+            )
     return bad
 
 
@@ -208,49 +202,6 @@ def collect_thin_compat_shim_violations(repo_root: Path) -> list[str]:
     return out
 
 
-def collect_legacy_leaf_shim_violations(repo_root: Path) -> list[str]:
-    """Return legacy analysis leaf modules that are no longer thin ModuleType identity shims."""
-    errors: list[str] = []
-    for root_name in LEGACY_LEAF_SHIM_ROOTS:
-        root = repo_root / root_name
-        if not root.exists():
-            continue
-        for path in sorted(root.rglob("*.py")):
-            if path.name == "__init__.py":
-                continue
-            rel = path.relative_to(repo_root)
-            try:
-                text = path.read_text(encoding="utf-8")
-            except OSError as exc:
-                errors.append(f"{rel}: cannot read file ({exc})")
-                continue
-
-            lines = text.splitlines()
-            if len(lines) > LEGACY_LEAF_SHIM_MAX_LINES:
-                errors.append(
-                    f"{rel}: {len(lines)} lines (max {LEGACY_LEAF_SHIM_MAX_LINES}); "
-                    "legacy leaf modules must stay thin"
-                )
-            if "obsidiandroid" not in text:
-                errors.append(f"{rel}: must import canonical obsidiandroid implementation")
-            if "sys.modules" not in text:
-                errors.append(f"{rel}: must register ModuleType identity via sys.modules")
-
-            try:
-                tree = ast.parse(text, filename=str(path))
-            except SyntaxError as exc:
-                errors.append(f"{rel}: syntax error: {exc}")
-                continue
-
-            for node in tree.body:
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                    errors.append(
-                        f"{rel}: shim must not define {node.name!r} at module level "
-                        "(implement under src/obsidiandroid)"
-                    )
-    return errors
-
-
 def _ready_now_batch_python_files(repo_root: Path, subtree: str) -> list[Path]:
     if "/*.py" in subtree:
         base = repo_root / subtree.split("/*.py", 1)[0]
@@ -295,71 +246,22 @@ def collect_ready_now_shim_helper_violations(repo_root: Path) -> list[str]:
     return errors
 
 
-def collect_database_shim_helper_violations(repo_root: Path) -> list[str]:
-    """Return repo-root database shims that drift from the shared helper pattern."""
-    errors: list[str] = []
-    base = repo_root / "database"
-    if not base.exists():
-        return errors
-    for path in sorted(base.glob("*.py")):
-        if path.name == "__init__.py":
-            continue
-        rel = path.relative_to(repo_root)
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError as exc:
-            errors.append(f"{rel}: cannot read file ({exc})")
-            continue
-        if "import_legacy_shim(" not in text:
-            errors.append(f"{rel}: database shim must use import_legacy_shim(...)")
-        if path.name != "split_db_health.py" and "sys.modules[__name__] = _mod" not in text:
-            errors.append(f"{rel}: database leaf shim must register sys.modules[__name__] = _mod")
-        if path.name == "split_db_health.py" and 'sys.modules["database.split_db_health"] = _canon' not in text:
-            errors.append(f"{rel}: split_db_health shim must register database.split_db_health alias")
-        if "importlib.import_module(" in text:
-            errors.append(f"{rel}: database shim should not call importlib.import_module directly")
-    return errors
+def collect_retired_compatibility_tree_violations(repo_root: Path) -> list[str]:
+    """Return retired compatibility roots that were accidentally recreated."""
+    return [
+        f"{root}: retired compatibility tree should not exist on disk"
+        for root in sorted(RETIRED_COMPATIBILITY_ROOTS)
+        if (repo_root / root).exists()
+    ]
 
 
-def collect_analysis_pipeline_plain_shim_violations(repo_root: Path) -> list[str]:
-    """Return ordinary analysis/pipeline shims that drift from the shared helper pattern."""
-    errors: list[str] = []
-    for rel in sorted(ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS):
-        path = repo_root / rel
-        if not path.exists():
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError as exc:
-            errors.append(f"{rel}: cannot read file ({exc})")
-            continue
-        if "import_legacy_shim(" not in text:
-            errors.append(f"{rel}: plain analysis.pipeline shim must use import_legacy_shim(...)")
-        if "sys.modules[__name__] = _mod" not in text:
-            errors.append(f"{rel}: plain analysis.pipeline shim must register sys.modules[__name__] = _mod")
-        if "importlib.import_module(" in text:
-            errors.append(f"{rel}: plain analysis.pipeline shim should not call importlib.import_module directly")
-    return errors
-
-
-def collect_analysis_pipeline_retired_shim_violations(repo_root: Path) -> list[str]:
-    """Return retired analysis/pipeline shim files that unexpectedly still exist."""
-    errors: list[str] = []
-    for rel in sorted(ANALYSIS_PIPELINE_RETIRED_PLAIN_IDENTITY_SHIMS):
-        path = repo_root / rel
-        if path.exists():
-            errors.append(f"{rel}: retired plain analysis.pipeline shim should not exist on disk")
-    return errors
-
-
-def collect_analysis_pipeline_retired_package_bridge_violations(repo_root: Path) -> list[str]:
-    """Return retired analysis/pipeline package bridges that unexpectedly still exist."""
-    errors: list[str] = []
-    for rel in sorted(ANALYSIS_PIPELINE_RETIRED_PACKAGE_BRIDGES):
-        path = repo_root / rel
-        if path.exists():
-            errors.append(f"{rel}: retired analysis.pipeline package bridge should not exist on disk")
-    return errors
+def collect_retired_compatibility_file_violations(repo_root: Path) -> list[str]:
+    """Return former root-level compatibility files that were accidentally recreated."""
+    return [
+        f"{rel.as_posix()}: retired compatibility file should not exist on disk"
+        for rel in sorted(RETIRED_ROOT_COMPATIBILITY_FILES)
+        if (repo_root / rel).exists()
+    ]
 
 
 def collect_ml_training_plain_shim_violations(repo_root: Path) -> list[str]:
@@ -419,6 +321,7 @@ def collect_canonical_code_legacy_imports(repo_root: Path) -> list[str]:
         repo_root,
         scan_roots=roots,
         path_allowlist=CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST,
+        forbidden_roots=CANONICAL_CODE_LEGACY_IMPORT_ROOTS,
     )
 
 
@@ -428,6 +331,7 @@ def collect_nonparity_test_legacy_imports(repo_root: Path) -> list[str]:
         repo_root,
         scan_roots=(repo_root / "tests",),
         path_allowlist=NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST,
+        forbidden_roots=frozenset(_LEGACY_COMPATIBILITY_IMPORT_ROOTS),
     )
 
 

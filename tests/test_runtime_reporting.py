@@ -30,6 +30,9 @@ def test_build_run_summary_payload_includes_engine_exclusion_reason_counts(monke
             "engine_count_observed": 93,
             "engine_count_canonical": 93,
             "engine_exclusion_reason_counts": {"BELOW_THRESHOLD": 25, "LOW_COVERAGE": 12},
+            "av_binary_feature_engine_scope": "lifecycle_included",
+            "av_binary_feature_engine_columns": 56,
+            "av_binary_feature_engine_columns_observed": 93,
         },
     )
 
@@ -38,6 +41,8 @@ def test_build_run_summary_payload_includes_engine_exclusion_reason_counts(monke
         "BELOW_THRESHOLD": 25,
         "LOW_COVERAGE": 12,
     }
+    assert payload["av_binary_feature_engine_scope"] == "lifecycle_included"
+    assert payload["av_binary_feature_engine_columns"] == 56
 
 
 def test_export_and_print_run_summary_emits_top_exclusion_reasons(
@@ -69,6 +74,9 @@ def test_export_and_print_run_summary_emits_top_exclusion_reasons(
             "engine_count_included_after_gating": 56,
             "engine_count_near_miss": 2,
             "engine_exclusion_reason_counts": {"BELOW_THRESHOLD": 25, "LOW_COVERAGE": 12},
+            "av_binary_feature_engine_scope": "all_observed",
+            "av_binary_feature_engine_columns": 93,
+            "av_binary_feature_engine_columns_observed": 93,
             "engine_count_requested_top_k": 8,
             "effective_top_k": 8,
             "fallback_used": False,
@@ -87,6 +95,7 @@ def test_export_and_print_run_summary_emits_top_exclusion_reasons(
     stat_map = dict(captured_stats)
     assert stat_map["Excluded Near-Miss Engines"] == 2
     assert stat_map["Top Exclusion Reasons"] == "BELOW_THRESHOLD=25, LOW_COVERAGE=12"
+    assert stat_map["AV Binary Feature Scope"] == "all_observed (93/93 columns)"
 
 def test_count_evaluated_models_ignores_family_tier_scope_rows() -> None:
     model_results = {

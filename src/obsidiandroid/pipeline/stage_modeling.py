@@ -1,7 +1,7 @@
 """Modeling-stage helpers for feature construction, training, and label resolution.
 
 Canonical implementation (**Pass 70**): ``obsidiandroid.pipeline.stage_modeling``;
-``analysis.pipeline.stage_modeling`` is an identity shim.
+The supported import path is ``obsidiandroid.pipeline.stage_modeling``.
 """
 
 from __future__ import annotations

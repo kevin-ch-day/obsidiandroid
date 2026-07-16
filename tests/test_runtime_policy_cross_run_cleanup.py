@@ -54,6 +54,7 @@ def test_mutable_config_keys_covers_artifact_pointers() -> None:
     keys = build_mutable_config_keys()
     assert set(CROSS_RUN_ARTIFACT_POINTERS).issubset(keys)
     assert "RUNTIME_TRAINING_STATE" in keys
+    assert {"FEATURE_TOP_K", "ALLOW_VENDOR_FALLBACK_FOR_WIDTH", "AV_BINARY_FEATURE_ENGINE_SCOPE"}.issubset(keys)
 
 
 def test_reset_runtime_training_caches_clears_run_entries(monkeypatch) -> None:

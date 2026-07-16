@@ -12,7 +12,7 @@ ObsidianDroid does **not** call live VirusTotal APIs during execution. Instead, 
 
 ## Database Layout (split model)
 
-ObsidianDroid uses two **upstream read-only** logical databases on the same MySQL/MariaDB instance in typical deployments, plus a **planned curated research ledger** (V3.1+). Configure schema names with `OBSIDIAN_DB_NAME` (primary), `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (Permission Intel), and **`OBSIDIANDROID_RESEARCH_DB_NAME`** (ObsidianDroid research, default `obsidiandroid_research`); see `database/db_config.py` for Erebus/PI and [`OBSIDIANDROID_DB_PLAN.md`](OBSIDIANDROID_DB_PLAN.md) for the research schema.
+ObsidianDroid uses two **upstream read-only** logical databases on the same MySQL/MariaDB instance in typical deployments, plus a **planned curated research ledger** (V3.1+). Configure schema names with `OBSIDIAN_DB_NAME` (primary), `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (Permission Intel), and **`OBSIDIANDROID_RESEARCH_DB_NAME`** (ObsidianDroid research, default `obsidiandroid_research`); see `obsidiandroid.database.db_config` for Erebus/PI and [`OBSIDIANDROID_DB_PLAN.md`](OBSIDIANDROID_DB_PLAN.md) for the research schema.
 
 ### Primary Erebus database (`OBSIDIAN_DB_NAME`, default `erebus_threat_intel_prod`)
 
@@ -81,9 +81,9 @@ Configure with:
 
 - **Primary database:** sample catalog, VT/vendor mirrors, engine verdicts, family/type taxonomy, and other non-permission operational tables.
 - **Permission Intel database:** all live `android_permission_*` tables (observations, dictionaries, enrichment).
-- **Do not** query `android_permission_*` through primary `execute_query()` only. Use `execute_permission_query()` from `database/db_engine.py`, fully qualified ``schema.table`` in cross-schema SQL, or helpers that delegate to Permission Intel. Brownfield `_legacy_android_permission_*` tables on primary are archive-only and are not a substitute for live PI reads.
+- **Do not** query `android_permission_*` through primary `execute_query()` only. Use `execute_permission_query()` from `obsidiandroid.database.db_engine`, fully qualified ``schema.table`` in cross-schema SQL, or helpers that delegate to Permission Intel. Brownfield `_legacy_android_permission_*` tables on primary are archive-only and are not a substitute for live PI reads.
 
-Connections are built from `database/db_config.py`. Pooling applies to the primary connection when `OBSIDIAN_DB_ENABLE_POOLING` is enabled; Permission Intel uses a dedicated connection helper (`execute_permission_query` in `database/db_engine.py`).
+Connections are built from `obsidiandroid.database.db_config`. Pooling applies to the primary connection when `OBSIDIAN_DB_ENABLE_POOLING` is enabled; Permission Intel uses a dedicated connection helper (`execute_permission_query` in `obsidiandroid.database.db_engine`).
 
 ## Replication & Refresh Cadence
 
@@ -100,7 +100,7 @@ Access to replicated VirusTotal data must comply with [VirusTotal’s Terms of S
 ## Local Development Tips
 
 - Seed a development database by restoring a sanitized snapshot (if your team provides one) or by generating synthetic detections using `scripts/dev/data_fuzzer.py`.
-- Prefer `OBSIDIAN_*` environment variables over committing credentials; local overrides can still use `database/db_config.py` defaults for non-secret fields.
+- Prefer `OBSIDIAN_*` environment variables over committing credentials; local overrides can still use `obsidiandroid.database.db_config` defaults for non-secret fields.
 - When adding new VirusTotal columns, update both the ORM/select queries and the validation scripts to maintain coverage.
 
 ## Related Documentation

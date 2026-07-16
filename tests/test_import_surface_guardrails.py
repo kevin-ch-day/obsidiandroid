@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+import importlib
 import tempfile
 from pathlib import Path
 
+import pytest
 from scripts.dev.compatibility_retirement_manifest import (
+    CANONICAL_CODE_COMPATIBILITY_IMPORT_ROOTS,
     CANONICAL_FILENAME_HEADER_BAD_ROOTS,
     CANONICAL_RELOCATION_COMPLETE_DOMAINS,
     EARLY_DEPRECATION_READY_TREES,
     LEGACY_SUBTREE_RETIREMENT_BUCKETS,
     LEGACY_TREE_RETIREMENT_MATRIX,
     LEGACY_COMPATIBILITY_IMPORT_ROOTS,
-    LEGACY_LEAF_SHIM_ROOTS,
     NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST,
+    RETIRED_COMPATIBILITY_ROOTS,
+    RETIRED_ROOT_COMPATIBILITY_FILES,
 )
 from scripts.dev import import_surface_policy as policy
 from scripts.dev.compatibility_retirement_audit import (
@@ -28,6 +32,7 @@ def test_collect_canonical_code_legacy_imports_flags_src_and_scripts(write_text_
         repo = Path(raw)
         write_text_file(repo / "src" / "obsidiandroid" / "bad.py", "import analysis.pipeline.runner\n")
         write_text_file(repo / "scripts" / "bad_script.py", "import analysis.pipeline.runner\n")
+        write_text_file(repo / "src" / "obsidiandroid" / "bad_main.py", "from main import run_pipeline\n")
         write_text_file(
             repo / "scripts" / "dev" / "check_import_surface.py",
             "import analysis.pipeline.runner\n",
@@ -35,16 +40,15 @@ def test_collect_canonical_code_legacy_imports_flags_src_and_scripts(write_text_
 
         assert policy.collect_canonical_code_legacy_imports(repo) == [
             "src/obsidiandroid/bad.py:1: import analysis.pipeline.runner",
+            "src/obsidiandroid/bad_main.py:1: from main import ...",
             "scripts/bad_script.py:1: import analysis.pipeline.runner",
         ]
 
 
 def test_guardrail_constants_are_sourced_from_retirement_manifest() -> None:
-    assert policy.CANONICAL_CODE_LEGACY_IMPORT_ROOTS == frozenset(LEGACY_COMPATIBILITY_IMPORT_ROOTS)
-    assert policy.ANALYSIS_PIPELINE_PLAIN_IDENTITY_SHIMS == frozenset()
-    assert policy.ANALYSIS_PIPELINE_RETIRED_PACKAGE_BRIDGES
-    assert policy.ANALYSIS_PIPELINE_RETIRED_PLAIN_IDENTITY_SHIMS
-    assert tuple(policy.LEGACY_LEAF_SHIM_ROOTS) == LEGACY_LEAF_SHIM_ROOTS
+    assert policy.CANONICAL_CODE_LEGACY_IMPORT_ROOTS == frozenset(CANONICAL_CODE_COMPATIBILITY_IMPORT_ROOTS)
+    assert policy.RETIRED_COMPATIBILITY_ROOTS == frozenset(RETIRED_COMPATIBILITY_ROOTS)
+    assert policy.RETIRED_ROOT_COMPATIBILITY_FILES == frozenset(RETIRED_ROOT_COMPATIBILITY_FILES)
     assert policy.NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST == frozenset(NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST)
     assert policy.CANONICAL_FILENAME_HEADER_BAD_ROOTS == frozenset(CANONICAL_FILENAME_HEADER_BAD_ROOTS)
     assert policy.READY_NOW_LEGACY_SHIM_BATCHES == frozenset(EARLY_DEPRECATION_READY_TREES)
@@ -52,9 +56,9 @@ def test_guardrail_constants_are_sourced_from_retirement_manifest() -> None:
     assert "feature_engineering" in CANONICAL_RELOCATION_COMPLETE_DOMAINS
 
 
-def test_legacy_tree_retirement_matrix_covers_remaining_compatibility_roots() -> None:
+def test_legacy_tree_retirement_matrix_has_no_remaining_compatibility_roots() -> None:
     roots = {entry.root for entry in LEGACY_TREE_RETIREMENT_MATRIX}
-    assert roots == {"analysis", "database"}
+    assert roots == set()
     for entry in LEGACY_TREE_RETIREMENT_MATRIX:
         assert entry.file_count > 0
         assert entry.blockers
@@ -63,8 +67,8 @@ def test_legacy_tree_retirement_matrix_covers_remaining_compatibility_roots() ->
 
 def test_legacy_subtree_retirement_buckets_cover_core_legacy_surfaces() -> None:
     trees = {entry.tree for entry in LEGACY_SUBTREE_RETIREMENT_BUCKETS}
-    assert "analysis/pipeline" in trees
-    assert "database/split_db_health.py" in trees
+    assert "analysis/pipeline" not in trees
+    assert "database/split_db_health.py" not in trees
     assert "ml_classification/builder" not in trees
     assert "ml_classification/engine_weights" not in trees
     assert "ml_classification/inference" not in trees
@@ -101,24 +105,19 @@ def test_ready_now_shims_use_shared_helper_and_warning_pattern() -> None:
     assert policy.collect_ready_now_shim_helper_violations(repo_root) == []
 
 
-def test_database_shims_use_shared_helper_pattern() -> None:
+def test_retired_root_compatibility_files_stay_deleted() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    assert policy.collect_database_shim_helper_violations(repo_root) == []
+    assert policy.collect_retired_compatibility_file_violations(repo_root) == []
 
 
-def test_analysis_pipeline_plain_shims_use_shared_helper_pattern() -> None:
+def test_retired_compatibility_trees_stay_deleted() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    assert policy.collect_analysis_pipeline_plain_shim_violations(repo_root) == []
+    assert policy.collect_retired_compatibility_tree_violations(repo_root) == []
 
 
-def test_retired_analysis_pipeline_plain_shims_stay_deleted() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    assert policy.collect_analysis_pipeline_retired_shim_violations(repo_root) == []
-
-
-def test_retired_analysis_pipeline_package_bridges_stay_deleted() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    assert policy.collect_analysis_pipeline_retired_package_bridge_violations(repo_root) == []
+def test_analysis_namespace_is_retired() -> None:
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("analysis")
 
 
 def test_ml_training_plain_shims_use_shared_helper_pattern() -> None:
@@ -126,7 +125,7 @@ def test_ml_training_plain_shims_use_shared_helper_pattern() -> None:
     assert policy.collect_ml_training_plain_shim_violations(repo_root) == []
 
 
-def test_collect_nonparity_test_legacy_imports_respects_parity_allowlist(write_text_file) -> None:
+def test_collect_nonparity_test_legacy_imports_flags_retired_imports(write_text_file) -> None:
     with tempfile.TemporaryDirectory() as raw:
         repo = Path(raw)
         write_text_file(repo / "tests" / "test_behavior.py", "import analysis.pipeline.runner\n")
@@ -134,6 +133,7 @@ def test_collect_nonparity_test_legacy_imports_respects_parity_allowlist(write_t
 
         assert policy.collect_nonparity_test_legacy_imports(repo) == [
             "tests/test_behavior.py:1: import analysis.pipeline.runner",
+            "tests/test_legacy_shim_parity.py:1: import analysis.pipeline.runner",
         ]
 
 
@@ -155,103 +155,28 @@ def test_collect_stale_canonical_filename_headers_flags_legacy_roots(write_text_
         ]
 
 
-def test_collect_legacy_leaf_shim_violations_requires_thin_identity_shims(write_text_file) -> None:
+def test_collect_retired_compatibility_file_violations_flags_reintroduced_files(write_text_file) -> None:
     with tempfile.TemporaryDirectory() as raw:
         repo = Path(raw)
-        write_text_file(
-            repo / "analysis" / "pipeline" / "good.py",
-            '"""Legacy shim: implementation lives under ``obsidiandroid.pipeline.good``."""\n'
-            "\n"
-            "from __future__ import annotations\n"
-            "\n"
-            "import importlib\n"
-            "import sys\n"
-            "\n"
-            '_mod = importlib.import_module("obsidiandroid.pipeline.good")\n'
-            "sys.modules[__name__] = _mod\n",
-        )
-        write_text_file(
-            repo / "analysis" / "pipeline" / "bad_leaf.py",
-            "def duplicate_logic():\n"
-            "    return 1\n",
-        )
+        write_text_file(repo / "database" / "__init__.py", '"""Retired compatibility root."""\n')
+        write_text_file(repo / "database" / "split_db_health.py", '"""Retired compatibility entrypoint."""\n')
 
-        assert policy.collect_legacy_leaf_shim_violations(repo) == [
-            "analysis/pipeline/bad_leaf.py: must import canonical obsidiandroid implementation",
-            "analysis/pipeline/bad_leaf.py: must register ModuleType identity via sys.modules",
-            "analysis/pipeline/bad_leaf.py: shim must not define 'duplicate_logic' at module level "
-            "(implement under src/obsidiandroid)",
+        assert policy.collect_retired_compatibility_file_violations(repo) == [
+            "database/__init__.py: retired compatibility file should not exist on disk",
+            "database/split_db_health.py: retired compatibility file should not exist on disk",
         ]
 
 
-def test_collect_database_shim_helper_violations_flags_bespoke_patterns(write_text_file) -> None:
+def test_collect_retired_compatibility_tree_violations_flags_reintroduced_roots(write_text_file) -> None:
     with tempfile.TemporaryDirectory() as raw:
         repo = Path(raw)
-        write_text_file(
-            repo / "database" / "db_utils.py",
-            '"""Legacy shim."""\n'
-            "import importlib\n"
-            '_mod = importlib.import_module("obsidiandroid.database.db_utils")\n',
-        )
-        write_text_file(
-            repo / "database" / "split_db_health.py",
-            "from obsidiandroid.legacy_shim_lazy import import_legacy_shim\n"
-            '_canon = import_legacy_shim("obsidiandroid.database.split_db_health", "database.split_db_health")\n',
-        )
+        write_text_file(repo / "analysis" / "pipeline" / "runner.py", '"""Legacy shim."""\n')
+        write_text_file(repo / "ml_classification" / "__init__.py", '"""Legacy shim."""\n')
 
-        assert sorted(policy.collect_database_shim_helper_violations(repo)) == sorted(
-            [
-                "database/db_utils.py: database shim must use import_legacy_shim(...)",
-                "database/db_utils.py: database leaf shim must register sys.modules[__name__] = _mod",
-                "database/db_utils.py: database shim should not call importlib.import_module directly",
-                "database/split_db_health.py: split_db_health shim must register database.split_db_health alias",
-            ]
-        )
-
-
-def test_collect_analysis_pipeline_retired_shim_violations_flags_reintroduced_files(write_text_file) -> None:
-    with tempfile.TemporaryDirectory() as raw:
-        repo = Path(raw)
-        write_text_file(
-            repo / "analysis" / "pipeline" / "artifacts" / "paths.py",
-            '"""Legacy shim."""\n'
-            "import importlib\n"
-            '_mod = importlib.import_module("obsidiandroid.pipeline.artifacts.paths")\n',
-        )
-        write_text_file(
-            repo / "analysis" / "pipeline" / "manifest" / "builder.py",
-            "from obsidiandroid.legacy_shim_lazy import import_legacy_shim\n"
-            '_mod = import_legacy_shim("obsidiandroid.pipeline.manifest.builder", __name__)\n',
-        )
-
-        violations = policy.collect_analysis_pipeline_retired_shim_violations(repo)
-        assert (
-            "analysis/pipeline/artifacts/paths.py: retired plain analysis.pipeline shim should not exist on disk"
-            in violations
-        )
-        assert (
-            "analysis/pipeline/manifest/builder.py: retired plain analysis.pipeline shim should not exist on disk"
-            in violations
-        )
-
-
-def test_collect_analysis_pipeline_retired_package_bridge_violations_flags_reintroduced_bridges(
-    write_text_file,
-) -> None:
-    with tempfile.TemporaryDirectory() as raw:
-        repo = Path(raw)
-        write_text_file(repo / "analysis" / "pipeline" / "artifacts" / "__init__.py", 'X = 1\n')
-        write_text_file(repo / "analysis" / "pipeline" / "manifest" / "__init__.py", 'Y = 2\n')
-
-        violations = policy.collect_analysis_pipeline_retired_package_bridge_violations(repo)
-        assert (
-            "analysis/pipeline/artifacts/__init__.py: retired analysis.pipeline package bridge should not exist on disk"
-            in violations
-        )
-        assert (
-            "analysis/pipeline/manifest/__init__.py: retired analysis.pipeline package bridge should not exist on disk"
-            in violations
-        )
+        assert policy.collect_retired_compatibility_tree_violations(repo) == [
+            "analysis: retired compatibility tree should not exist on disk",
+            "ml_classification: retired compatibility tree should not exist on disk",
+        ]
 
 
 def test_collect_ml_training_plain_shim_violations_flags_bespoke_patterns(write_text_file) -> None:

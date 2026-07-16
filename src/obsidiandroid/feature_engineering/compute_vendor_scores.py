@@ -300,7 +300,13 @@ def print_debug_top_vendors(df: pd.DataFrame):
     if ml_console.is_compact():
         top = df.sort_values("Final ML Score", ascending=False)["Vendor"].astype(str).head(5).tolist()
         if top:
-            du.print_info(f"[SCORING] Top vendors by Final ML Score: {', '.join(top)}")
+            selector = str(getattr(app_config, "FEATURE_SCORE_FIELD", "Final ML Score"))
+            if bool(getattr(app_config, "ENABLE_LEAKAGE_SAFE_VENDOR_SCORING", True)):
+                selector = str(getattr(app_config, "LEAKAGE_SAFE_SCORE_FIELD", "Leakage Safe Score"))
+            du.print_info(
+                "[SCORING] Diagnostic top vendors by Final ML Score "
+                f"(not the feature selector; selector='{selector}'): {', '.join(top)}"
+            )
         return
     du.print_section("Top Vendors by Final ML Score")
     du.print_table(

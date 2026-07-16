@@ -1,60 +1,53 @@
 # Maintenance, diagnostics, and research scripts
 
-Run these from the **repository root** so imports resolve (`obsidiandroid`, `database`, `config`, etc.):
+Run these from the **repository root** so canonical imports resolve (`obsidiandroid`, `config`, etc.):
 
 ```bash
 cd /path/to/obsidiandroid
 source .venv/bin/activate   # if using the project venv
-python scripts/diagnose_alignment_gap.py --help
+python scripts/diagnostics/diagnose_alignment_gap.py --help
 ```
 
 ## Imports and coupling
 
 - **Prefer** orchestration via `run_pipeline` — `from obsidiandroid.pipeline import run_pipeline` (canonical) or `from obsidiandroid.cli.pipeline_entry import run_pipeline` (CLI entry wrapper). Repo-root **`main.py`** remains a compatibility re-export surface for tests/operators.
 - **Avoid** importing deep stage internals (`obsidiandroid.pipeline.stage_*`) from new scripts unless you are extending the pipeline; those modules assume full runtime context (`app_config`, diagnostics paths, profiles).
-- **Database**: credentials come from `database/db_config.py` (environment variables `OBSIDIAN_DB_*`, optional repo-root `.env` via `python-dotenv`). Smoke-check connectivity before long jobs:
+- **Database**: credentials come from `obsidiandroid.database.db_config` (environment variables `OBSIDIAN_DB_*`, optional repo-root `.env` via `python-dotenv`). Smoke-check connectivity before long jobs:
 
   ```bash
   make preflight-db
-  # or: python -m database.split_db_health
+  # canonical: python -m obsidiandroid.database.split_db_health
   ```
 
-- **Bootstrap**: repo entrypoints should use [`scripts/_bootstrap.py`](_bootstrap.py) instead of open-coding repeated `sys.path` and `runtime_bootstrap` setup. Top-level scripts still add the repo root once before importing `scripts._bootstrap`; nested `scripts/diagnostics/*` and `scripts/research/*` do the same with their deeper parent path.
+- **Bootstrap**: repo entrypoints use [`scripts/_bootstrap.py`](_bootstrap.py) rather than open-coding `sys.path` setup. Top-level scripts add the repo root once before importing `scripts._bootstrap`; nested `scripts/diagnostics/*` and `scripts/research/*` do the same with their deeper parent path.
+- **Runtime boundary**: reusable application logic belongs under `src/obsidiandroid/`; production modules must not import from `scripts/`. Scripts are CLI, maintenance, or developer surfaces. Vendor-output validation and classifier-summary rendering live under `obsidiandroid.diagnostics`; the historical helper scripts were removed.
 
 ## Layout
 
 | Path | Role |
 | --- | --- |
-| `scripts/*.py` | Stable operator entrypoints plus compatibility wrappers for a few diagnostics that were moved under `scripts/diagnostics/`. |
+| `scripts/*.py` | Stable cohort-gate, taxonomy-audit, retraining, and dry-run import entrypoints. |
 | `scripts/dev/*` | Shell: venv bootstrap, startup menu, pytest helpers; Python: bytecode cleanup, import smoke, ML scan, data fuzzer (see [`dev/README.md`](dev/README.md)). |
 | `scripts/diagnostics/*.py` | Canonical report, audit, and inspection CLIs. Prefer these paths for new docs and operator workflows. |
-| `scripts/research/*.py` | Publication tables, evidence bundles, structural diagnostics. |
+| `scripts/maintenance/*.py` | Explicit database/state-changing maintenance commands (see [`maintenance/README.md`](maintenance/README.md)). |
+| `scripts/research/*.py` | Publication tables, evidence bundles, structural diagnostics (see [`research/README.md`](research/README.md)). |
 
-## Canonical diagnostics now under `scripts/diagnostics/`
+## Diagnostics entrypoints
 
-These top-level names are still runnable for compatibility, but the canonical locations are:
+Diagnostics are supported only under `scripts/diagnostics/`. The former
+top-level diagnostic wrappers were removed; update any local automation to use
+the canonical paths shown in that directory.
 
-| Compatibility entrypoint | Canonical path |
-| --- | --- |
-| `scripts/diagnose_alignment_gap.py` | `scripts/diagnostics/diagnose_alignment_gap.py` |
-| `scripts/report_feature_lineage.py` | `scripts/diagnostics/report_feature_lineage.py` |
-| `scripts/report_feature_matrix_gap.py` | `scripts/diagnostics/report_feature_matrix_gap.py` |
-| `scripts/report_output_inventory.py` | `scripts/diagnostics/report_output_inventory.py` |
-| `scripts/trace_feature_builder_drops.py` | `scripts/diagnostics/trace_feature_builder_drops.py` |
-| `scripts/check_run_integrity.py` | `scripts/diagnostics/check_run_integrity.py` |
-
-Top-level operator scripts that remain intentionally top-level for now include:
-- `backfill_permission_trends_warehouse.py`
-- `cleanup_output_artifacts.py`
-- `fresh_pipeline_reset.py`
+Top-level operator scripts that remain intentionally top-level include:
 - `retrain_models_from_cached_alignment.py`
 - `family_label_taxonomy_audit.py`
 - `check_cohort_foundation.py`
 
-Those are closer to run operations, warehouse maintenance, or cohort gating than pure diagnostics.
+Those are closer to run operations, taxonomy audit, or cohort gating than pure diagnostics.
 
 Release-hygiene note:
-- `cleanup_output_artifacts.py` is the canonical on-disk cleanup tool for `output/` and repo-root runtime logs.
+- `maintenance/cleanup_output_artifacts.py` is the canonical on-disk cleanup tool for `output/` and repo-root runtime logs.
+- Its default mode is a dry run; use `--apply` only after reviewing the proposed removals.
 - It now repairs stale latest-run pointer files from a real manifest-backed run before syncing promoted pointers, and prunes stale run-bound `output/diagnostics/*.latest.*` mirrors that no longer match the current latest run.
 
 For architecture context see [`docs/architecture.md`](../docs/architecture.md). Repository root layout during the src-package migration is summarized in [`docs/STRUCTURE_MIGRATION_PLAN.md`](../docs/STRUCTURE_MIGRATION_PLAN.md).

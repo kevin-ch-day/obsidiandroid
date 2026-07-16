@@ -56,9 +56,11 @@ PARSER_OVERRIDE_KEYS = (
 )
 
 # Paths / split handles that must not leak across pytest modules or sequential CLI
-# runs; :mod:`analysis.pipeline.runner` appends these to a strict artifact list.
+# runs; :mod:`obsidiandroid.pipeline.runner` appends these to a strict artifact list.
 CROSS_RUN_ARTIFACT_POINTERS: dict[str, Any] = {
     "RUNTIME_ENGINE_METADATA_OVERLAY_CSV": "",
+    "RUNTIME_AV_FEATURE_SCOPE_CONTRACT_CSV": "",
+    "RUNTIME_AV_SELECTION_CONTRACT_CSV": "",
     "RUNTIME_PERMISSION_TRAINING_SURVIVAL_CSV": "",
     "RUNTIME_FEATURE_COLUMN_SURVIVAL_CSV": "",
     "RUNTIME_PERMISSION_BUNDLE_DIR": "",
@@ -101,6 +103,11 @@ def build_mutable_config_keys() -> set[str]:
     """Build runtime config keys that must be restored after a run."""
     return {
         "DEFAULT_OUTPUT_DIR",
+        # Profile controls below affect feature membership.  They are mutable
+        # for one run only and must not leak into the next CLI invocation.
+        "FEATURE_TOP_K",
+        "AV_BINARY_FEATURE_ENGINE_SCOPE",
+        "ALLOW_VENDOR_FALLBACK_FOR_WIDTH",
         "RUNTIME_RUN_ROOT",
         "RUNTIME_RUN_ID",
         "EVIDENCE_MODE_ENABLED",
@@ -132,6 +139,8 @@ def build_mutable_config_keys() -> set[str]:
         "RUNTIME_ENGINE_COUNT_OBSERVED",
         "RUNTIME_ENGINE_COUNT_CANONICAL",
         "RUNTIME_ENGINE_COUNT_NEAR_MISS",
+        "RUNTIME_AV_BINARY_FEATURE_ENGINE_SCOPE",
+        "RUNTIME_AV_BINARY_FEATURE_ENGINE_COUNT",
         "RUNTIME_EVIDENCE_OVERRIDE_USED",
         "RUNTIME_NON_STANDARD_FEATURES",
         "RUNTIME_PERMISSION_ENRICHMENT_DEGRADED",
@@ -175,6 +184,8 @@ def reset_runtime_markers() -> None:
     setattr(app_config, "RUNTIME_ENGINE_COUNT_OBSERVED", 0)
     setattr(app_config, "RUNTIME_ENGINE_COUNT_CANONICAL", 0)
     setattr(app_config, "RUNTIME_ENGINE_COUNT_NEAR_MISS", 0)
+    setattr(app_config, "RUNTIME_AV_BINARY_FEATURE_ENGINE_SCOPE", "")
+    setattr(app_config, "RUNTIME_AV_BINARY_FEATURE_ENGINE_COUNT", 0)
     setattr(app_config, "RUNTIME_EVIDENCE_OVERRIDE_USED", False)
     setattr(app_config, "RUNTIME_NON_STANDARD_FEATURES", False)
     setattr(app_config, "RUNTIME_PERMISSION_ENRICHMENT_DEGRADED", False)
@@ -263,6 +274,19 @@ def apply_profile_runtime_policy(
     strict_evidence_mode = bool(evidence_mode and not override_allowed)
     requested_top_k = int(profile.get("top_k_requested", getattr(app_config, "FEATURE_TOP_K", 8)) or 8)
     setattr(app_config, "FEATURE_TOP_K", requested_top_k)
+    av_scope = str(
+        profile.get(
+            "av_binary_feature_engine_scope",
+            "all_observed",
+        )
+        or "all_observed"
+    ).strip().lower()
+    if av_scope not in {"all_observed", "lifecycle_included"}:
+        raise ValueError(
+            "[PROFILE] av_binary_feature_engine_scope must be 'all_observed' or "
+            f"'lifecycle_included', got {av_scope!r}."
+        )
+    setattr(app_config, "AV_BINARY_FEATURE_ENGINE_SCOPE", av_scope)
     setattr(
         app_config,
         "ALLOW_VENDOR_FALLBACK_FOR_WIDTH",

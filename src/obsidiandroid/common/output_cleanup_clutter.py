@@ -1,6 +1,7 @@
 """Shared glob and filename lists for pruning legacy clutter under ``output/``.
 
-Used by ``scripts/fresh_pipeline_reset`` and ``scripts/cleanup_output_artifacts``
+Used by ``scripts.maintenance.fresh_pipeline_reset`` and
+``scripts.maintenance.cleanup_output_artifacts``
 so bundle smoke patterns and mirror filenames stay in one place.
 """
 

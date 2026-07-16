@@ -11,6 +11,7 @@ from obsidiandroid.pipeline.permission_trends import bundle_manifest as perm_bun
 from obsidiandroid.pipeline.permission_trends import pattern_framework as perm_pattern_framework
 from obsidiandroid.pipeline.permission_trends import sample_permission_data as sample_perm_data
 from obsidiandroid.pipeline.permission_trends import reporting_support as perm_trends_reporting_support
+from obsidiandroid.pipeline.permission_trends import publish_paths as permission_publish_paths
 from obsidiandroid.pipeline.permission_trends import stats_core
 
 
@@ -1679,59 +1680,6 @@ def test_prune_run_stamped_pngs_skips_run_scoped_bundle(tmp_path: Path):
     assert not stale.exists()
 
 
-def test_publish_canonical_type_heatmap_writes_run_and_latest(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(report_stage.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path), raising=False)
-    monkeypatch.setattr(
-        report_stage.app_config,
-        "ENABLE_LEGACY_CANONICAL_HEATMAP_EXPORT",
-        True,
-        raising=False,
-    )
-    src = tmp_path / "paper_bundle_latest" / "permission_trends" / "type_permission_heatmap.latest.png"
-    src.parent.mkdir(parents=True)
-    src.write_bytes(b"png")
-
-    out = report_stage._publish_canonical_type_heatmap(  # pylint: disable=protected-access
-        source_path=str(src),
-        run_id="20260303T153540Z__90e82c",
-        cohort_hash="cohort123",
-        permission_feature_hash="feature123",
-        type_heatmap_identity="identity123",
-    )
-
-    run_path = tmp_path / "runs" / "20260303T153540Z__90e82c" / "paper" / "type_permission_heatmap.png"
-    latest_path = tmp_path / "latest" / "type_permission_heatmap.png"
-    identity_path = tmp_path / "latest" / "type_permission_heatmap.identity.json"
-    assert str(run_path) in out
-    assert str(latest_path) in out
-    assert str(identity_path) in out
-    assert run_path.exists()
-    assert latest_path.exists()
-    assert identity_path.exists()
-
-
-def test_publish_canonical_type_heatmap_disabled_by_default(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(report_stage.app_config, "DEFAULT_OUTPUT_DIR", str(tmp_path), raising=False)
-    monkeypatch.setattr(
-        report_stage.app_config,
-        "ENABLE_LEGACY_CANONICAL_HEATMAP_EXPORT",
-        False,
-        raising=False,
-    )
-    src = tmp_path / "permission_trends" / "type_permission_heatmap.latest.png"
-    src.parent.mkdir(parents=True, exist_ok=True)
-    src.write_bytes(b"png")
-
-    out = report_stage._publish_canonical_type_heatmap(  # pylint: disable=protected-access
-        source_path=str(src),
-        run_id="r1",
-        cohort_hash="c",
-        permission_feature_hash="p",
-        type_heatmap_identity="i",
-    )
-    assert out == []
-
-
 def test_export_helpers_write_to_grouped_subfolders(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(perm_trends_reporting_support, "write_run_scoped_permission_artifacts", lambda: False)
     df = pd.DataFrame({"a": [1]})
@@ -1777,6 +1725,15 @@ def test_resolve_permission_bundle_dir_prefers_runtime_run_root(monkeypatch, tmp
     out = report_stage._resolve_permission_bundle_dir("run123")  # pylint: disable=protected-access
 
     assert out == run_root / "bundles" / "permission_trends"
+
+
+def test_publish_paths_resolves_runtime_run_root_without_stage_module_globals(monkeypatch, tmp_path: Path):
+    """The extracted resolver owns its config dependency rather than relying on stage imports."""
+    run_root = tmp_path / "runs" / "run123"
+    monkeypatch.setattr(permission_publish_paths.app_config, "RUNTIME_RUN_ROOT", str(run_root), raising=False)
+    monkeypatch.setattr(permission_publish_paths.app_config, "RUNTIME_RUN_ID", "run123", raising=False)
+
+    assert permission_publish_paths.resolve_run_root_for_run_id("run123") == run_root
 
 
 def test_copy_permission_bundle_to_latest_creates_latest_copy(monkeypatch, tmp_path: Path):

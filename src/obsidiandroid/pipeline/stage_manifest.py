@@ -1,7 +1,7 @@
 """Run manifest stage helpers.
 
 Canonical implementation (**Pass 69**): ``obsidiandroid.pipeline.stage_manifest``;
-``analysis.pipeline.stage_manifest`` is an identity shim.
+The supported import path is ``obsidiandroid.pipeline.stage_manifest``.
 
 This module isolates manifest assembly/writing so orchestration code can remain
 focused on pipeline step ordering.

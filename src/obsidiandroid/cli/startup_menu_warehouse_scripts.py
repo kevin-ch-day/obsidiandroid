@@ -26,7 +26,7 @@ def run_backfill_results_warehouse() -> int:
         du.print_warning("[MENU] Backfill cancelled (no run_id provided).")
         return 1
 
-    script_path = repo_operator_script("backfill_permission_trends_warehouse.py")
+    script_path = repo_operator_script("maintenance", "backfill_permission_trends_warehouse.py")
     if not script_path.exists():
         du.print_error(f"[MENU] Missing script: {script_path}")
         return 1

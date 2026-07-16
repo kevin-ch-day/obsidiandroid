@@ -56,6 +56,47 @@ def _write_latest_run_manifest(out_root: Path, payload: object) -> None:
     _write_json(out_root / "diagnostics" / "run_manifest.latest.json", payload)
 
 
+@pytest.mark.parametrize(
+    ("action_name", "args", "expected_kwargs"),
+    [
+        ("_run_full_pipeline", ("profile_a",), {"profile_ref": "profile_a"}),
+        (
+            "_run_single_model",
+            ("random_forest", "profile_a"),
+            {"selected_models": ["random_forest"], "profile_ref": "profile_a"},
+        ),
+        ("_run_vendor_only", ("profile_a",), {"stop_after": "vendor_metadata", "profile_ref": "profile_a"}),
+    ],
+)
+def test_pipeline_actions_use_canonical_pipeline_entrypoint(
+    monkeypatch,
+    action_name: str,
+    args: tuple[str, ...],
+    expected_kwargs: dict[str, object],
+) -> None:
+    """Menu actions call the canonical entrypoint, not the repo-root ``main`` shim."""
+    from obsidiandroid.cli import pipeline_entry
+
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(pipeline_entry, "run_pipeline", lambda **kwargs: calls.append(kwargs) or 17)
+
+    result = getattr(startup_menu, action_name)(*args)
+
+    assert result == 17
+    assert calls == [expected_kwargs]
+
+
+def test_run_to_stage_uses_canonical_pipeline_entrypoint(monkeypatch) -> None:
+    from obsidiandroid.cli import pipeline_entry
+
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: 1)
+    monkeypatch.setattr(pipeline_entry, "run_pipeline", lambda **kwargs: calls.append(kwargs) or 23)
+
+    assert startup_menu._run_to_stage("profile_a") == 23  # pylint: disable=protected-access
+    assert calls == [{"stop_after": "samples", "profile_ref": "profile_a"}]
+
+
 def test_main_menu_clear_screen_option(monkeypatch) -> None:
     """Main menu clear option should call clear_screen and continue loop."""
     choices = iter([8, 0])

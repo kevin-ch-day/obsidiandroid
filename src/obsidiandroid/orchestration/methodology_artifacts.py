@@ -67,6 +67,16 @@ def export_feature_contract(
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "selected_vendors": [str(v) for v in selected_vendors],
         "selected_vendor_count": int(len(selected_vendors)),
+        "selected_vendor_predictive_field_count": int(
+            feature_df.attrs.get("selected_vendor_predictive_field_count", 0) or 0
+        ),
+        "binary_feature_engine_scope": str(
+            getattr(app_config, "RUNTIME_AV_BINARY_FEATURE_ENGINE_SCOPE", "")
+            or getattr(app_config, "AV_BINARY_FEATURE_ENGINE_SCOPE", "all_observed")
+        ),
+        "binary_feature_engine_column_count": int(
+            getattr(app_config, "RUNTIME_AV_BINARY_FEATURE_ENGINE_COUNT", 0) or 0
+        ),
         "feature_columns": feature_columns,
         "feature_column_hash": hash_payload(feature_columns),
         "ordered_feature_columns_artifact": f"feature_columns_{run_id}.csv",

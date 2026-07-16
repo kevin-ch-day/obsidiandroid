@@ -1,7 +1,7 @@
 """Feature matrix enrichment stage helpers.
 
 Canonical implementation (**Pass 70**): ``obsidiandroid.pipeline.stage_feature_enrichment``;
-``analysis.pipeline.stage_feature_enrichment`` is an identity shim.
+The supported import path is ``obsidiandroid.pipeline.stage_feature_enrichment``.
 """
 
 from __future__ import annotations

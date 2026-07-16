@@ -1,9 +1,7 @@
-"""Run path resolution, cohort hashing, and optional canonical heatmap publishing."""
+"""Run path resolution, cohort hashing, and latest-bundle cleanup helpers."""
 
 from __future__ import annotations
 
-import json
-import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -60,43 +58,6 @@ def compute_permission_feature_hash(kept_permissions_by_view: dict[str, list[str
         },
     }
     return hash_payload(payload)
-
-
-def publish_canonical_type_heatmap(
-    source_path: str | None,
-    run_id: str,
-    cohort_hash: str,
-    permission_feature_hash: str,
-    type_heatmap_identity: str,
-) -> list[str]:
-    """Publish canonical type heatmap into run-scoped and mutable latest workspaces."""
-    if not bool(getattr(app_config, "ENABLE_LEGACY_CANONICAL_HEATMAP_EXPORT", False)):
-        return []
-    if not source_path:
-        return []
-    src = Path(source_path)
-    if not src.exists():
-        return []
-    run_paper_dir = output_paths.runs_root() / str(run_id) / "paper"
-    latest_dir = output_paths.latest_root()
-    run_paper_dir.mkdir(parents=True, exist_ok=True)
-    latest_dir.mkdir(parents=True, exist_ok=True)
-
-    run_path = run_paper_dir / "type_permission_heatmap.png"
-    latest_path = latest_dir / "type_permission_heatmap.png"
-    shutil.copy2(src, run_path)
-    shutil.copy2(src, latest_path)
-
-    identity_path = latest_dir / "type_permission_heatmap.identity.json"
-    identity_payload = {
-        "run_id": str(run_id),
-        "cohort_hash": str(cohort_hash),
-        "permission_feature_hash": str(permission_feature_hash),
-        "type_permission_heatmap_identity": str(type_heatmap_identity),
-        "source_artifact": str(src),
-    }
-    identity_path.write_text(json.dumps(identity_payload, indent=2, sort_keys=True), encoding="utf-8")
-    return [str(run_path), str(latest_path), str(identity_path)]
 
 
 def prune_run_stamped_pngs_in_latest_bundle(bundle_dir: Path) -> list[str]:

@@ -13,6 +13,7 @@ from . import alignment_gap_diagnostics
 from . import cohort_foundation_export
 from . import cohort_sample_id_audit
 from . import cohort_vocabulary
+from . import classification_summary
 from . import feature_builder_drop_trace
 from . import feature_build_coverage_export
 from . import feature_column_survival_export
@@ -25,6 +26,7 @@ from . import headline_evaluation_export
 from . import output_artifact_policy
 from . import rf_feature_importance_export
 from . import split_ledger_resolve
+from . import vendor_feature_validation
 from . import output_inventory
 from . import permission_training_survival_audit
 
@@ -37,6 +39,7 @@ __all__ = [
     "cohort_foundation_export",
     "cohort_sample_id_audit",
     "cohort_vocabulary",
+    "classification_summary",
     "feature_builder_drop_trace",
     "feature_build_coverage_export",
     "feature_column_survival_export",
@@ -49,6 +52,7 @@ __all__ = [
     "hostile_audit",
     "output_artifact_policy",
     "split_ledger_resolve",
+    "vendor_feature_validation",
     "output_inventory",
     "permission_training_survival_audit",
     "rf_feature_importance_export",

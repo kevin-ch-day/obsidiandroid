@@ -1,0 +1,3 @@
+[submodule "research/external_iocs/Zimperium-IOC"]
+	path = research/external_iocs/Zimperium-IOC
+	url = https://github.com/Zimperium/IOC.git

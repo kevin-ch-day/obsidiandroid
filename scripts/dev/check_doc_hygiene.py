@@ -34,6 +34,9 @@ _FORBIDDEN = (
     "scripts/export_feature_snapshot.py",
     "scripts/update_vendor_scores.py",
     "utils/config_loader.py",
+    "analysis.pipeline",
+    "analysis/pipeline",
+    "python -m database.split_db_health",
 )
 
 # Lines matching this are allowed to mention a forbidden fragment (e.g. "does not ship X").

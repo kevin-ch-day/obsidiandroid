@@ -293,6 +293,61 @@ def test_apply_profile_sets_ablation_model_list_from_yaml_shape(monkeypatch) -> 
     assert app_config.ABLATION_MODEL_LIST == ["random_forest"]
 
 
+def test_apply_profile_runtime_policy_sets_declared_av_binary_scope(monkeypatch) -> None:
+    """A lifecycle-gated AV comparison must be an explicit profile contract."""
+    from obsidiandroid.pipeline.runtime_policy import apply_profile_runtime_policy
+
+    monkeypatch.setattr(app_config, "AV_BINARY_FEATURE_ENGINE_SCOPE", "all_observed", raising=False)
+    profile = {
+        "profile_id": "unit_av_scope_probe",
+        "evidence_mode": False,
+        "type_slug_filter": None,
+        "allow_vendor_fallback_for_width": False,
+        "allow_adaptive_top_k": False,
+        "top_k_requested": 8,
+        "exclude_unknown_from_main_results": True,
+        "av_binary_feature_engine_scope": "lifecycle_included",
+        "cohort_gates": {},
+        "feature_flags": {},
+    }
+    apply_profile_runtime_policy(
+        profile=profile,
+        feature_flags=profile["feature_flags"],
+        allow_evidence_override=False,
+        allow_global_artifacts=False,
+        manifest_context={},
+    )
+
+    assert app_config.AV_BINARY_FEATURE_ENGINE_SCOPE == "lifecycle_included"
+
+
+def test_apply_profile_runtime_policy_defaults_av_scope_without_inheriting_prior_run(monkeypatch) -> None:
+    """A profile that omits the scope must resolve to the declared safe default."""
+    from obsidiandroid.pipeline.runtime_policy import apply_profile_runtime_policy
+
+    monkeypatch.setattr(app_config, "AV_BINARY_FEATURE_ENGINE_SCOPE", "lifecycle_included", raising=False)
+    profile = {
+        "profile_id": "unit_default_av_scope",
+        "evidence_mode": False,
+        "allow_vendor_fallback_for_width": False,
+        "allow_adaptive_top_k": False,
+        "top_k_requested": 8,
+        "exclude_unknown_from_main_results": True,
+        "cohort_gates": {},
+        "feature_flags": {},
+    }
+
+    apply_profile_runtime_policy(
+        profile=profile,
+        feature_flags={},
+        allow_evidence_override=False,
+        allow_global_artifacts=False,
+        manifest_context={},
+    )
+
+    assert app_config.AV_BINARY_FEATURE_ENGINE_SCOPE == "all_observed"
+
+
 def test_apply_profile_runtime_policy_accepts_compact_tuning_artifact_overrides(monkeypatch) -> None:
     from obsidiandroid.pipeline.runtime_policy import apply_profile_runtime_policy
 

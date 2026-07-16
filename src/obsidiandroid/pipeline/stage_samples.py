@@ -1,7 +1,7 @@
 """Sample loading and analysis snapshot preparation stage for the pipeline.
 
 Canonical implementation (**Pass 68**): ``obsidiandroid.pipeline.stage_samples``;
-``analysis.pipeline.stage_samples`` is an identity shim.
+The supported import path is ``obsidiandroid.pipeline.stage_samples``.
 """
 
 from __future__ import annotations

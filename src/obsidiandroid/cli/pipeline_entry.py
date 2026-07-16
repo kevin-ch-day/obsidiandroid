@@ -1,7 +1,7 @@
 """Stable entrypoint for automation and scripts that invoke the full pipeline.
 
 Same object as :func:`obsidiandroid.pipeline.run_pipeline`. Legacy
-``analysis.pipeline.runner.run_pipeline`` and ``from main import run_pipeline``
+the historical repo-root ``main`` launcher
 surfaces remain compatibility aliases to the same implementation.
 """
 

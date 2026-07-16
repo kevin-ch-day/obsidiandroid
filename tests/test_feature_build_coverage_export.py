@@ -183,6 +183,54 @@ def test_export_feature_auxiliaries_run_scoped_use_global_latest_mirrors_only(
         assert (output_root / "diagnostics" / name).is_file()
 
 
+def test_modality_audit_preserves_first_duplicate_row_and_supervised_drop_reasons(tmp_path: Path) -> None:
+    """The indexed audit keeps the former first-row semantics without quadratic scans."""
+    feat = pd.DataFrame(
+        {
+            "vendor_alpha": [1, 0, 0, 1],
+            "perm__camera": [0, 1, 0, 0],
+            "meta__size": [0, 0, 2, 0],
+        },
+        index=[1, 2, 3, 3],
+    )
+    feat.attrs["vendor_merge_sample_ids"] = [1, 3]
+    feat.attrs["vendor_feature_column_names"] = ["vendor_alpha"]
+    feat.attrs["encoder_mappings"] = {"vendor_alpha": {"unknown": 0}}
+    samples = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "family_canonical": ["FamilyOne", None],
+        }
+    )
+    perms = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "perm__internet": [1, 0, 1],
+        }
+    )
+
+    csv_path, _ = feature_build_coverage_export.export_feature_modality_coverage_audit(
+        cohort_sample_ids=[1, 2, 3, 4],
+        feature_df=feat,
+        permission_features_df=perms,
+        samples_df=samples,
+        output_dir=tmp_path,
+        run_id="indexed",
+        enabled=True,
+    )
+
+    assert csv_path is not None
+    audit = pd.read_csv(csv_path).set_index("sample_id")
+    assert bool(audit.loc[1, "has_vendor_features"]) is True
+    assert bool(audit.loc[2, "has_permission_features"]) is True
+    assert bool(audit.loc[3, "has_metadata_features"]) is True
+    assert bool(audit.loc[3, "has_vendor_features"]) is False
+    assert bool(audit.loc[3, "permission_signal_positive"]) is True
+    assert audit.loc[2, "dropped_reason_supervised_training"] == "missing_supervised_label"
+    assert audit.loc[3, "dropped_reason_supervised_training"] == "missing_from_samples_metadata"
+    assert audit.loc[4, "dropped_reason_supervised_training"] == "missing_fused_row"
+
+
 def test_export_sample_stage_lineage_defaults_off_in_compact_mode(
     monkeypatch,
     tmp_path: Path,

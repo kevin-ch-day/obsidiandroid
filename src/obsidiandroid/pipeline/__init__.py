@@ -2,9 +2,8 @@
 
 :mod:`obsidiandroid.pipeline.runner` holds ``run_pipeline`` (**Pass 67**), and
 the stage/orchestration modules wired through the runner are implemented under
-``obsidiandroid.pipeline.*``. Legacy ``analysis.pipeline.*`` imports remain
-available as thin identity shims for compatibility, but this package is the
-canonical surface for new code.
+``obsidiandroid.pipeline.*``. This package is the only supported pipeline
+import surface.
 
 Policy leaf modules **contract_filters**, **run_bounds**, and **runtime_policy**
 also live here (**Pass 66**). Attributes resolve via :func:`__getattr__` so
@@ -51,7 +50,7 @@ _RUNNER_ATTRS = {
     "run_pipeline",
 }
 
-# Pass 66–71: implementation under ``obsidiandroid.pipeline``; legacy paths are thin shims.
+# Pipeline implementation modules exposed by the canonical package facade.
 _PIPELINE_PHYSICAL_MODULES = frozenset(
     {
         "contract_filters",

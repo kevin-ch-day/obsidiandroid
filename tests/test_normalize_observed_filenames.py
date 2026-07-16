@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scripts.diagnostics import normalize_observed_filenames as mod
+from scripts.maintenance import normalize_observed_filenames as mod
 
 
 def test_normalize_observed_filename_decodes_safe_transport_artifacts() -> None:

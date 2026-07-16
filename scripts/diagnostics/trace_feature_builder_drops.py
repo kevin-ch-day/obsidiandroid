@@ -6,7 +6,6 @@ Example::
     python scripts/diagnostics/trace_feature_builder_drops.py \\
         --diagnostics-dir output/runs/20260503T044105Z__008d9d/diagnostics
 
-Compatibility wrapper retained at ``scripts/trace_feature_builder_drops.py``.
 """
 
 from __future__ import annotations

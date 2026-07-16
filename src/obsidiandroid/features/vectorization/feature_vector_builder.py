@@ -714,16 +714,17 @@ def build_feature_vector(
             combined_mappings = dict(encoded.attrs.get("encoder_mappings", {}))
     encoded.attrs["selected_vendors"] = list(top_vendors)
     encoded.attrs["include_fields"] = list(fields)
+    encoded.attrs["selected_vendor_predictive_field_count"] = int(len(fields))
     encoded.attrs["feature_build_encoding"] = str(encoding)
     effective_top_k = int(len(top_vendors))
-    if allow_adaptive_top_k and effective_top_k < requested_top_k:
-        if verbose and not ml_console.is_compact():
+    if effective_top_k < requested_top_k:
+        if verbose:
             du.print_warning(
-                "[FEATURE BUILD] Adaptive top-k active: "
-                f"requested_k={requested_top_k}, effective_k={effective_top_k}."
+                "[FEATURE BUILD] Vendor-selection shortfall: "
+                f"requested_k={requested_top_k}, selected={effective_top_k}; "
+                f"predictive_parsed_fields={len(fields)}; "
+                f"adaptive_policy={'enabled' if allow_adaptive_top_k else 'disabled'}."
             )
-    else:
-        effective_top_k = int(requested_top_k)
     encoded.attrs["feature_top_k"] = int(requested_top_k)
     encoded.attrs["feature_effective_top_k"] = int(effective_top_k)
     fallback_added_count = len(set(top_vendors) - set(top_vendors_initial))

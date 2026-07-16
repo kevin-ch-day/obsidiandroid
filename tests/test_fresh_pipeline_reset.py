@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scripts import fresh_pipeline_reset as fpr
+from scripts.maintenance import fresh_pipeline_reset as fpr
 
 
 def test_wipe_preserves_main_workbook(tmp_path: Path) -> None:

@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from config import app_config
-from scripts.diagnostics import inspect_classification_results as inspector
+from obsidiandroid.diagnostics import classification_summary as inspector
 from obsidiandroid.evaluation import ml_comparator_summary as comparator
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console, output_hygiene as oh
@@ -612,28 +612,34 @@ def summarize_models(results: Dict[str, dict]) -> Optional[str]:
         active_model_key = top_model_key if top_model_key in results else DEFAULT_MODEL_KEY
         active_eval = results.get(active_model_key, {}).get("evaluation", {})
         if active_eval:
-            if bool(getattr(app_config, "ML_SHOW_CLASSIFIER_SUMMARY_TERMINAL", False)):
-                inspector.generate_classification_summary(
-                    accuracy=active_eval.get("accuracy"),
-                    report_path=active_eval.get("confusion_matrix_path", "N/A"),
-                    model_path="N/A",
-                    metadata=active_eval,
-                    model_name=active_model_key,
+            show_classifier_summary = bool(
+                getattr(app_config, "ML_SHOW_CLASSIFIER_SUMMARY_TERMINAL", False)
+            )
+            write_legacy_classifier_summary = bool(
+                getattr(app_config, "ML_WRITE_CLASSIFIER_SUMMARY_REPORT", False)
+            )
+            if show_classifier_summary or write_legacy_classifier_summary:
+                summary_kwargs = {
+                    "accuracy": active_eval.get("accuracy"),
+                    "report_path": active_eval.get("confusion_matrix_path", "N/A"),
+                    "model_path": "N/A",
+                    "metadata": active_eval,
+                    "model_name": active_model_key,
+                    "write_report": write_legacy_classifier_summary,
+                }
+                if show_classifier_summary:
+                    inspector.generate_classification_summary(**summary_kwargs)
+                else:
+                    # Preserve opt-in legacy report generation without adding verbose terminal output.
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        inspector.generate_classification_summary(**summary_kwargs)
+                if write_legacy_classifier_summary and not defer_terminal:
+                    du.print_info("[SUMMARY] Optional classifier summary report written (see diagnostics/).")
+            elif not defer_terminal:
+                du.print_info(
+                    "[SUMMARY] Structured model metrics are available in the run diagnostics; "
+                    "legacy classifier summary text is disabled."
                 )
-            else:
-                # Keep report artifact generation but suppress verbose narrative in terminal.
-                with contextlib.redirect_stdout(io.StringIO()):
-                    inspector.generate_classification_summary(
-                        accuracy=active_eval.get("accuracy"),
-                        report_path=active_eval.get("confusion_matrix_path", "N/A"),
-                        model_path="N/A",
-                        metadata=active_eval,
-                        model_name=active_model_key,
-                    )
-                if not defer_terminal:
-                    du.print_info(
-                        "[SUMMARY] Classification inspector report written (terminal narrative suppressed)."
-                    )
 
         log_event(
             PIPELINE_LOGGER,

@@ -120,6 +120,28 @@ def test_verify_only_passes_for_minimal_canonical_slot(tmp_path: Path) -> None:
     assert code == 0
 
 
+def test_run_profiles_cli_uses_canonical_pipeline_entrypoint(monkeypatch) -> None:
+    """The V3 runner must not depend on the repo-root ``main`` compatibility shim."""
+    from obsidiandroid.cli import pipeline_entry
+
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(v3_validate, "CANONICAL_PROFILES", ("profile_a",))
+    monkeypatch.setattr(v3_validate.app_config, "RUNTIME_RUN_ID", "run_a", raising=False)
+    monkeypatch.setattr(
+        pipeline_entry,
+        "run_pipeline",
+        lambda **kwargs: calls.append(kwargs) or 0,
+    )
+    monkeypatch.setattr(
+        v3_validate,
+        "_verify_run",
+        lambda profile_id, run_id: {"profile_id": profile_id, "run_id": run_id, "ok": True},
+    )
+
+    assert v3_validate.run_profiles_cli() == 0
+    assert calls == [{"profile_ref": "profile_a", "selected_models": ["logistic_regression"]}]
+
+
 def test_verify_only_reads_vocabulary_from_bundle_contracts_only(tmp_path: Path) -> None:
     runs_root = tmp_path / "output" / "runs"
     profile_id = "android_malware_major_families"

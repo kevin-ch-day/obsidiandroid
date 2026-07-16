@@ -6,7 +6,6 @@ Example::
     python scripts/diagnostics/report_feature_lineage.py \\
         --diagnostics-dir output/runs/RUNID/diagnostics
 
-Compatibility wrapper retained at ``scripts/report_feature_lineage.py``.
 """
 
 from __future__ import annotations

@@ -1,79 +1,8 @@
-"""Parity checks for legacy compatibility shims against canonical ``obsidiandroid.*`` modules."""
+"""Regression checks for canonical package facades."""
 
 from __future__ import annotations
 
 from pathlib import Path
-
-def test_pipeline_facade_matches_runner_public_surface() -> None:
-    """``obsidiandroid.pipeline`` delegates to live ``runner`` bindings (PEP 562 __getattr__)."""
-    from obsidiandroid.pipeline import runner as runner_mod
-    import obsidiandroid.pipeline as facade
-
-    assert facade.run_pipeline is runner_mod.run_pipeline
-    assert facade.DIAGNOSTICS_DIR is runner_mod.DIAGNOSTICS_DIR
-    assert facade.PIPELINE_MAIN_LOGGER is runner_mod.PIPELINE_MAIN_LOGGER
-    assert facade.PARSER_QUALITY_PATH is runner_mod.PARSER_QUALITY_PATH
-
-    module_pairs = (
-        ("attach_engine_metadata", "analysis.pipeline.attach_engine_metadata"),
-        ("av_engine_pipeline", "analysis.pipeline.av_engine_pipeline"),
-        ("contract_filters", "analysis.pipeline.contract_filters"),
-        ("engine_normalization", "analysis.pipeline.engine_normalization"),
-        ("main_facade", "analysis.pipeline.main_facade"),
-        ("runner", "analysis.pipeline.runner"),
-        ("run_bounds", "analysis.pipeline.run_bounds"),
-        ("runtime_policy", "analysis.pipeline.runtime_policy"),
-        ("sample_exports", "analysis.pipeline.sample_exports"),
-        ("sample_preparation", "analysis.pipeline.sample_preparation"),
-        ("score_av_engines", "analysis.pipeline.score_av_engines"),
-        ("stage_ablation", "analysis.pipeline.stage_ablation"),
-        ("stage_av_vendor", "analysis.pipeline.stage_av_vendor"),
-        ("stage_feature_enrichment", "analysis.pipeline.stage_feature_enrichment"),
-        ("stage_manifest", "analysis.pipeline.stage_manifest"),
-        ("stage_modeling", "analysis.pipeline.stage_modeling"),
-        ("stage_permission_trends_report", "analysis.pipeline.stage_permission_trends_report"),
-        ("stage_results_warehouse", "analysis.pipeline.stage_results_warehouse"),
-        ("stage_samples", "analysis.pipeline.stage_samples"),
-        ("vendor_metadata_pipeline", "analysis.pipeline.vendor_metadata_pipeline"),
-    )
-    import importlib
-    from pathlib import Path
-
-    for attr, canon_name in module_pairs:
-        canon_mod = importlib.import_module(canon_name)
-        assert getattr(facade, attr) is canon_mod
-
-
-def test_pipeline_physical_leaf_modules_share_identity_with_legacy_shims() -> None:
-    """Canonical pipeline modules through Pass 71 share identity with ``analysis.pipeline`` shims."""
-    import importlib
-
-    for name in (
-        "contract_filters",
-        "run_bounds",
-        "runtime_policy",
-        "runner",
-        "main_facade",
-        "stage_samples",
-        "sample_exports",
-        "stage_av_vendor",
-        "stage_manifest",
-        "sample_preparation",
-        "stage_feature_enrichment",
-        "stage_modeling",
-        "stage_ablation",
-        "stage_results_warehouse",
-        "stage_permission_trends_report",
-        "engine_pipeline_utils",
-        "attach_engine_metadata",
-        "engine_normalization",
-        "score_av_engines",
-        "av_engine_pipeline",
-        "vendor_metadata_pipeline",
-    ):
-        physical = importlib.import_module(f"obsidiandroid.pipeline.{name}")
-        legacy = importlib.import_module(f"analysis.pipeline.{name}")
-        assert physical is legacy
 
 
 def test_pipeline_entrypoints_match_runner_public_surface() -> None:
@@ -84,79 +13,8 @@ def test_pipeline_entrypoints_match_runner_public_surface() -> None:
     assert pipeline_entry.run_pipeline is runner_mod.run_pipeline
 
 
-def test_analysis_pipeline_nested_package_submodules_resolve_to_canonical_modules() -> None:
-    """Nested legacy package imports keep working after ordinary leaf shim retirement."""
-    import importlib
-
-    pairs = (
-        ("analysis.pipeline.artifacts.paths", "obsidiandroid.pipeline.artifacts.paths"),
-        ("analysis.pipeline.artifacts.registry", "obsidiandroid.pipeline.artifacts.registry"),
-        ("analysis.pipeline.governance.exceptions", "obsidiandroid.governance.exceptions"),
-        ("analysis.pipeline.governance.integrity", "obsidiandroid.governance.integrity"),
-        ("analysis.pipeline.governance.policy", "obsidiandroid.governance.policy"),
-        ("analysis.pipeline.governance.readiness", "obsidiandroid.governance.readiness"),
-        ("analysis.pipeline.manifest.builder", "obsidiandroid.pipeline.manifest.builder"),
-        ("analysis.pipeline.manifest.hashing", "obsidiandroid.pipeline.manifest.hashing"),
-        (
-            "analysis.pipeline.manifest.paper_compliance_checks",
-            "obsidiandroid.pipeline.manifest.paper_compliance_checks",
-        ),
-        (
-            "analysis.pipeline.manifest.paper_figure_renderers",
-            "obsidiandroid.pipeline.manifest.paper_figure_renderers",
-        ),
-        ("analysis.pipeline.manifest.runtime_support", "obsidiandroid.pipeline.manifest.runtime_support"),
-        ("analysis.pipeline.manifest.schema", "obsidiandroid.pipeline.manifest.schema"),
-        ("analysis.pipeline.manifest.writer", "obsidiandroid.pipeline.manifest.writer"),
-        (
-            "analysis.pipeline.permission_trends.bundle_manifest",
-            "obsidiandroid.pipeline.permission_trends.bundle_manifest",
-        ),
-        (
-            "analysis.pipeline.permission_trends.constants",
-            "obsidiandroid.pipeline.permission_trends.constants",
-        ),
-        (
-            "analysis.pipeline.permission_trends.publish_paths",
-            "obsidiandroid.pipeline.permission_trends.publish_paths",
-        ),
-        (
-            "analysis.pipeline.permission_trends.reporting_support",
-            "obsidiandroid.pipeline.permission_trends.reporting_support",
-        ),
-        (
-            "analysis.pipeline.permission_trends.sample_permission_data",
-            "obsidiandroid.pipeline.permission_trends.sample_permission_data",
-        ),
-        (
-            "analysis.pipeline.permission_trends.stats_core",
-            "obsidiandroid.pipeline.permission_trends.stats_core",
-        ),
-    )
-    for legacy_name, canon_name in pairs:
-        legacy_mod = importlib.import_module(legacy_name)
-        canon_mod = importlib.import_module(canon_name)
-        assert legacy_mod is canon_mod
-
-
-def test_analysis_pipeline_nested_package_imports_resolve_to_canonical_packages() -> None:
-    """Nested legacy package imports resolve through root alias registration."""
-    import importlib
-
-    pairs = (
-        ("analysis.pipeline.artifacts", "obsidiandroid.pipeline.artifacts"),
-        ("analysis.pipeline.governance", "obsidiandroid.governance"),
-        ("analysis.pipeline.manifest", "obsidiandroid.pipeline.manifest"),
-        ("analysis.pipeline.permission_trends", "obsidiandroid.pipeline.permission_trends"),
-    )
-    for legacy_name, canon_name in pairs:
-        legacy_mod = importlib.import_module(legacy_name)
-        canon_mod = importlib.import_module(canon_name)
-        assert legacy_mod is canon_mod
-
-
 def test_ml_facades_match_ml_classification_modules() -> None:
-    """Pass 47+ canonical ML facades preserve identity with legacy shim modules."""
+    """Canonical ML facades preserve their retained compatibility-module identities."""
     import importlib
 
     from obsidiandroid.features.features_facade_manifest import FEATURES_FACADE_ALIAS_TARGETS
@@ -183,7 +41,7 @@ def test_ml_facades_match_ml_classification_modules() -> None:
         assert alias_mod is canon_mod
 
 def test_labeling_taxonomy_is_wrapper_not_legacy_module_alias() -> None:
-    """Pass 58: taxonomy lives under ``src/`` and wraps rather than aliases legacy helpers."""
+    """The canonical taxonomy module wraps helpers rather than aliasing them."""
     import importlib
     from pathlib import Path
 
@@ -197,7 +55,7 @@ def test_labeling_taxonomy_is_wrapper_not_legacy_module_alias() -> None:
 
 
 def test_taxonomy_module_is_canonical_src_file() -> None:
-    """Pass 58: taxonomy wrapper must be canonical source file, not alias shim."""
+    """The taxonomy wrapper must remain a canonical source file, not an alias shim."""
     import obsidiandroid.labeling.malware_family_constants as canon_constants
     import obsidiandroid.labeling.taxonomy as taxonomy
 
@@ -333,7 +191,7 @@ def test_labeling_classification_builder_inference_and_engine_weights_packages_e
             assert getattr(pkg, name) is sub
 
 def test_vendors_facade_matches_vendor_processing_modules() -> None:
-    """Pass 59+: vendors facade points at canonical parsing package."""
+    """The vendors facade points at the canonical parsing package."""
     import importlib
 
     import obsidiandroid.vendors as vendors_facade
@@ -423,21 +281,15 @@ def test_diagnostics_facade_modules_match_canonical_submodules() -> None:
         assert bundle_canon is getattr(canon_pkg, "bundle")
 
 
-def test_database_facade_modules_match_legacy_database_shims() -> None:
-    """``obsidiandroid.database`` exposes the same modules as legacy ``database.*`` shims."""
+def test_database_facade_modules_resolve_canonically() -> None:
+    """``obsidiandroid.database`` exposes canonical façade modules."""
     import importlib
 
-    from obsidiandroid.database.facade_manifest import FACADE_MODULE_PAIRS, LEGACY_SHIM_PAIRS
+    from obsidiandroid.database.facade_manifest import FACADE_MODULE_PAIRS
 
     import obsidiandroid.database as facade
 
     for attr, canon_name in FACADE_MODULE_PAIRS:
         canon_mod = importlib.import_module(canon_name)
         assert getattr(facade, attr) is canon_mod
-        alias_mod = importlib.import_module(f"obsidiandroid.database.{attr}")
-        assert alias_mod is canon_mod
-
-    for attr, legacy_name in LEGACY_SHIM_PAIRS:
-        assert importlib.import_module(legacy_name) is importlib.import_module(
-            f"obsidiandroid.database.{attr}"
-        )
+        assert importlib.import_module(f"obsidiandroid.database.{attr}") is canon_mod

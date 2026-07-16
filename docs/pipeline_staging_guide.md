@@ -10,11 +10,11 @@ Originally a single module handled orchestration and many stage internals, which
 - unit test stage behavior in isolation,
 - evolve one stage without risking unrelated sections.
 
-Today canonical **`src/obsidiandroid/pipeline/runner.py`** owns **`run_pipeline`** (stage sequencing); legacy **`analysis.pipeline.runner`** is an identity shim to the same module. **`main.py`** is the CLI shell and test-stable import surface. **Stage implementations** live under **`src/obsidiandroid/pipeline/`** (`obsidiandroid.pipeline.stage_*`, shared helpers like **`obsidiandroid.pipeline.sample_preparation`**). On-disk **`analysis/pipeline/stage_*.py`** (and related leaves) are **identity shims** so `analysis.pipeline.*` imports keep working; prefer **`obsidiandroid.pipeline`** for new code (see [`analysis/pipeline/README.md`](../analysis/pipeline/README.md)).
+Today canonical **`src/obsidiandroid/pipeline/runner.py`** owns **`run_pipeline`** (stage sequencing). **`main.py`** is the CLI shell and test-stable import surface. **Stage implementations** live under **`src/obsidiandroid/pipeline/`** (`obsidiandroid.pipeline.stage_*`, shared helpers like **`obsidiandroid.pipeline.sample_preparation`**).
 
 ## Current stage modules
 
-Canonical modules below; legacy **`analysis.pipeline.stage_*`** resolves to the same objects via shims.
+Canonical modules below.
 
 | Canonical module | Responsibility | Runner call site (`obsidiandroid.pipeline.runner`) |
 | --- | --- | --- |
@@ -35,17 +35,17 @@ Canonical modules below; legacy **`analysis.pipeline.stage_*`** resolves to the 
 
 ## Compatibility layer
 
-`main.py` re-exports **`run_pipeline`** and symbols that older tests monkeypatch (`finalize_run_manifest_stage`, `profile_manager`, `runtime_logging`, etc.). Implementations live in **`runner.py`**; **`analysis/pipeline/main_facade.py`** resolves patched attributes on `main` when orchestration runs outside `main.py`.
+`main.py` re-exports **`run_pipeline`** and symbols that older tests monkeypatch (`finalize_run_manifest_stage`, `profile_manager`, `runtime_logging`, etc.). Implementations live in **`runner.py`**; **`obsidiandroid.pipeline.main_facade`** resolves patched attributes on `main` when orchestration runs outside `main.py`.
 
 When adding new stage modules:
 
-1. Add a stage helper under **`src/obsidiandroid/pipeline/`** (import as **`obsidiandroid.pipeline.stage_*`**) and invoke it from **`runner.run_pipeline`** (not from `main.py`). Add or extend a thin **`analysis/pipeline/stage_*.py`** shim only when callers still need the **`analysis.pipeline.*`** name.
-2. If tests must patch a callable, expose it on **`main`** for monkeypatch compatibility or patch **`obsidiandroid.pipeline.stage_*`** (or the legacy **`analysis.pipeline.stage_*`** alias) directly.
+1. Add a stage helper under **`src/obsidiandroid/pipeline/`** (import as **`obsidiandroid.pipeline.stage_*`**) and invoke it from **`runner.run_pipeline`** (not from `main.py`).
+2. If tests must patch a callable, expose it on **`main`** for monkeypatch compatibility or patch **`obsidiandroid.pipeline.stage_*`** directly.
 3. Prefer **`from obsidiandroid.cli.pipeline_entry import run_pipeline`** (or **`from obsidiandroid.pipeline import run_pipeline`**) in new automation scripts (same implementation as `main.run_pipeline`).
 
 ## How to add a new stage
 
-1. **Create a focused module** under **`src/obsidiandroid/pipeline/`** (for example `stage_export.py`, imported as **`obsidiandroid.pipeline.stage_export`**), plus a shim under **`analysis/pipeline/`** if **`analysis.pipeline.stage_export`** must remain stable.
+1. **Create a focused module** under **`src/obsidiandroid/pipeline/`** (for example `stage_export.py`, imported as **`obsidiandroid.pipeline.stage_export`**).
 2. **Use explicit inputs/outputs** (typed args + return values). Avoid hidden global state.
 3. **Keep integrity checks near stage boundaries** and raise `ValueError` with clear messages.
 4. **Return `None` for recoverable failure modes** only when the caller has explicit handling.

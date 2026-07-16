@@ -6,11 +6,11 @@ This document is a **status report** and **deep audit** of repository layout: wh
 
 ## 1. Executive summary
 
-ObsidianDroid is intentionally a **hybrid layout**: an installable package under **`src/obsidiandroid/`**, plus a small set of legacy compatibility surfaces at the repository root (primarily `analysis/pipeline/` and `database/`). The earlier `ml_classification/` compatibility tree has been retired. The hybrid is **professional for a mature research codebase** (explicit migration, shims, CI), but it **does not look like a minimal greenfield app** (single `src/` package only, empty root).
+ObsidianDroid uses a **src layout**: an installable package under **`src/obsidiandroid/`**, plus versioned SQL assets in the repository-root `database/` directory. The earlier `analysis/` and `ml_classification/` compatibility trees have been retired.
 
 **Progress so far:** canonical CLI/common/pipeline/governance surfaces, diagnostics and dev tooling under **`scripts/`** (repo-root **`data_inspect/`** and **`devtools/`** shims **removed** — use **`scripts.diagnostics`** / **`scripts.dev`**), Makefile and CI as the operator entrypoints, pytest configuration folded into **`pyproject.toml`**, documentation split so long-form guides live under **`docs/`**, and automated GitHub Actions + Dependabot.
 
-**Still visibly crowded at the root:** domain packages, shim directories, thin wrappers (`main.py`, shell scripts, bytecode/ML scan entries), metadata files, and **runtime/generated** directories when present locally (`output/`, `logs/`, `__pycache__/`, `.pytest_tmp/`). Reducing *listed* clutter further requires either **moving legacy domains** (big bang, high risk) or **accepting pointers-only at root** for docs (already partly done for AGENTS/GOVERNANCE/STRUCTURE).
+**Still visibly crowded at the root:** configuration, the retained database entrypoint, thin wrappers (`main.py`, shell scripts), metadata files, and **runtime/generated** directories when present locally (`output/`, `logs/`, `__pycache__/`, `.pytest_tmp/`). Further reduction should preserve the supported CLI and database operator paths.
 
 ---
 
@@ -45,7 +45,7 @@ Work proceeded in **documented passes** (see **`STRUCTURE_MIGRATION_PLAN.md`**).
 | **Contributor docs** | **`docs/AGENTS.md`**, **`docs/developer_guide.md`**, **`Makefile`** help, optional **`.pre-commit-config.yaml`**. |
 | **Operational clarity** | **`make ci`** mirrors CI; **`make tree-source`** after **`make clean-bytecode`** for layout reviews. |
 
-**Gap vs a “clean single-package repo”:** multiple top-level Python **namespaces** (`analysis`, `database`, …) remain by design until a deliberate migration shrinks them.
+**Gap vs a “clean single-package repo”:** the repo-root `database/` SQL-asset directory remains by design; the Python database API is canonical under `obsidiandroid.database`.
 
 ---
 
@@ -80,8 +80,7 @@ Work proceeded in **documented passes** (see **`STRUCTURE_MIGRATION_PLAN.md`**).
 | Directory | Role |
 |-----------|------|
 | **`src/obsidiandroid/`** | **Canonical product package** (CLI, common, pipeline facade, governance, reporting/observability surfaces, diagnostics facade — plus placeholder roots for domains not yet bulk-moved). |
-| **`analysis/`** | Now effectively the **`analysis/pipeline/`** compatibility tree. Most moved implementations live under `src/obsidiandroid/` with a reduced set of identity/patch-sensitive shims kept for stability. Pipeline observability APIs live under **`obsidiandroid.observability.pipeline_observability`**; the former **`analysis/observability`** shim path was removed. |
-| **`database/`** | Repo-root compatibility shims for the canonical **`obsidiandroid.database`** surface, plus the retained **`python -m database.split_db_health`** entrypoint. |
+| **`database/`** | Versioned SQL migrations, views, and operator assets. Python database code lives under **`obsidiandroid.database`**. |
 | **`config/`**, **`profiles/`** | Configuration and YAML profiles (**`package-data`** for profiles). |
 | *(removed)* **`utils/`** | Repo-root `utils/` shims were retired; canonical surfaces are under `src/obsidiandroid/` and `scripts/`. |
 | **`tests/`** | Pytest tree. |

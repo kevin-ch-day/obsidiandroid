@@ -1,9 +1,7 @@
 """Canonical governance namespace.
 
 Evidence mode, compliance, cohort reproducibility, manifest, and governance
-policy helpers live under :mod:`obsidiandroid.governance`. Legacy
-``analysis.pipeline.governance.*`` imports remain compatibility aliases
-brokered from the protected ``analysis.pipeline`` shell.
+policy helpers live under :mod:`obsidiandroid.governance`.
 """
 
 from __future__ import annotations

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Smoke-check that ``obsidiandroid`` and CLI/pipeline entry modules import correctly.
 
-Static policy scans (legacy-root imports in ``src/``/``scripts``, tests, BOM, legacy leaf
-shims under ``analysis``) live in
+Static policy scans (legacy-root imports in ``src/``/``scripts``, tests, BOM, and retired
+compatibility-path checks) live in
 :mod:`scripts.dev.import_surface_policy`.
 
 Fails if any tracked-style ``*.py`` tree under the repo starts with a **UTF-8 BOM**
@@ -11,9 +11,9 @@ Fails if any tracked-style ``*.py`` tree under the repo starts with a **UTF-8 BO
 
 Static AST/file-system ratchets (legacy-root imports in ``src/`` / ``scripts`` / tests,
 ``# Filename:`` headers under ``src/`` (first segment must not be ``analysis``,
-``ml_classification``, or repo-root ``database``), legacy leaf shim shape) live in
-:mod:`scripts.dev.import_surface_policy`. Database façade / legacy-shim identity tuples
-live in :mod:`obsidiandroid.database.facade_manifest` (imported by this script after
+``ml_classification``, or repo-root ``database``)) live in
+:mod:`scripts.dev.import_surface_policy`. Database façade tuples live in
+:mod:`obsidiandroid.database.facade_manifest` (imported by this script after
 ``src/`` is prepended to ``sys.path``).
 
 Run from the repository root after ``pip install -e .`` or with ``PYTHONPATH`` including
@@ -31,13 +31,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-import scripts.runtime_bootstrap  # noqa: F401
+from scripts._bootstrap import prepare_script_runtime
 
-from obsidiandroid.database.facade_manifest import FACADE_MODULE_PAIRS, LEGACY_SHIM_PAIRS
+prepare_script_runtime(__file__)
+
+from obsidiandroid.database.facade_manifest import FACADE_MODULE_PAIRS
 from obsidiandroid.features.features_facade_manifest import FEATURES_FACADE_ALIAS_TARGETS
-from obsidiandroid.legacy.analysis_pipeline_governance_manifest import (
-    ANALYSIS_PIPELINE_GOVERNANCE_SUBMODULES,
-)
 from obsidiandroid.modeling.modeling_facade_manifest import (
     MODELING_FACADE_EAGER_SUBMODULE_NAMES,
     MODELING_FACADE_LEGACY_VIA_ML_CLASSIFICATION_TRAINING,
@@ -57,15 +56,12 @@ from obsidiandroid.vendors.parsing.vendor_parser_submodule_manifest import (
 
 from scripts.dev.import_surface_policy import (
     THIN_COMPAT_SHIM_POLICIES,
-    collect_analysis_pipeline_plain_shim_violations,
-    collect_analysis_pipeline_retired_package_bridge_violations,
-    collect_analysis_pipeline_retired_shim_violations,
     collect_canonical_code_legacy_imports,
-    collect_database_shim_helper_violations,
-    collect_legacy_leaf_shim_violations,
     collect_ml_training_plain_shim_violations,
     collect_nonparity_test_legacy_imports,
     collect_ready_now_shim_helper_violations,
+    collect_retired_compatibility_file_violations,
+    collect_retired_compatibility_tree_violations,
     collect_stale_canonical_filename_headers,
     collect_thin_compat_shim_violations,
     collect_utf8_bom_python_sources,
@@ -150,7 +146,7 @@ def _check_static_policy_scans() -> bool:
     if legacy_imports:
         print(
             "FAIL: canonical src/scripts code imports legacy compatibility roots "
-            "(use obsidiandroid.*; forbidden roots: analysis, ml_classification):",
+            "(use obsidiandroid.*; forbidden roots: analysis, ml_classification, main):",
             file=sys.stderr,
         )
         for item in legacy_imports:
@@ -162,7 +158,7 @@ def _check_static_policy_scans() -> bool:
     if test_legacy_imports:
         print(
             "FAIL: non-parity tests import legacy compatibility roots "
-            "(use obsidiandroid.* unless the file is allowlisted for parity on analysis/ml_classification):",
+            "(use obsidiandroid.*; analysis and ml_classification are retired import roots):",
             file=sys.stderr,
         )
         for item in test_legacy_imports:
@@ -207,17 +203,6 @@ def _check_static_policy_scans() -> bool:
     else:
         print("OK   no repo-root thin-compat shim policies (utils/ removed)")
 
-    legacy_leaf_errors = collect_legacy_leaf_shim_violations(_REPO_ROOT)
-    if legacy_leaf_errors:
-        print(
-            "FAIL: legacy analysis leaf modules must stay thin shims:",
-            file=sys.stderr,
-        )
-        for item in legacy_leaf_errors:
-            print(f"  {item}", file=sys.stderr)
-        return False
-    print("OK   legacy analysis leaf shims")
-
     ready_now_helper_errors = collect_ready_now_shim_helper_violations(_REPO_ROOT)
     if ready_now_helper_errors:
         print(
@@ -229,49 +214,27 @@ def _check_static_policy_scans() -> bool:
         return False
     print("OK   ready-now legacy shim batches use shared helper/warning pattern")
 
-    database_shim_errors = collect_database_shim_helper_violations(_REPO_ROOT)
-    if database_shim_errors:
+    retired_file_errors = collect_retired_compatibility_file_violations(_REPO_ROOT)
+    if retired_file_errors:
         print(
-            "FAIL: repo-root database shims must use shared helper pattern:",
+            "FAIL: retired root-level compatibility file reappeared on disk:",
             file=sys.stderr,
         )
-        for item in database_shim_errors:
+        for item in retired_file_errors:
             print(f"  {item}", file=sys.stderr)
         return False
-    print("OK   repo-root database shims use shared helper pattern")
+    print("OK   retired root-level compatibility files stay absent")
 
-    pipeline_plain_errors = collect_analysis_pipeline_plain_shim_violations(_REPO_ROOT)
-    if pipeline_plain_errors:
+    retired_tree_errors = collect_retired_compatibility_tree_violations(_REPO_ROOT)
+    if retired_tree_errors:
         print(
-            "FAIL: ordinary analysis/pipeline shims must use shared helper pattern:",
+            "FAIL: retired compatibility tree reappeared on disk:",
             file=sys.stderr,
         )
-        for item in pipeline_plain_errors:
+        for item in retired_tree_errors:
             print(f"  {item}", file=sys.stderr)
         return False
-    print("OK   ordinary analysis/pipeline shims use shared helper pattern")
-
-    retired_pipeline_bridge_errors = collect_analysis_pipeline_retired_package_bridge_violations(_REPO_ROOT)
-    if retired_pipeline_bridge_errors:
-        print(
-            "FAIL: retired analysis/pipeline package bridges reappeared on disk:",
-            file=sys.stderr,
-        )
-        for item in retired_pipeline_bridge_errors:
-            print(f"  {item}", file=sys.stderr)
-        return False
-    print("OK   retired analysis/pipeline package bridges stay retired")
-
-    retired_pipeline_plain_errors = collect_analysis_pipeline_retired_shim_violations(_REPO_ROOT)
-    if retired_pipeline_plain_errors:
-        print(
-            "FAIL: retired ordinary analysis/pipeline shim files reappeared on disk:",
-            file=sys.stderr,
-        )
-        for item in retired_pipeline_plain_errors:
-            print(f"  {item}", file=sys.stderr)
-        return False
-    print("OK   retired ordinary analysis/pipeline shim files stay retired")
+    print("OK   retired compatibility trees stay absent")
 
     ml_training_plain_errors = collect_ml_training_plain_shim_violations(_REPO_ROOT)
     if ml_training_plain_errors:
@@ -426,16 +389,7 @@ def _check_observability_diagnostics_database_shims() -> bool:
                 file=sys.stderr,
             )
             return False
-    for _attr, _legacy_mod in LEGACY_SHIM_PAIRS:
-        _legacy = importlib.import_module(_legacy_mod)
-        _physical = importlib.import_module(f"obsidiandroid.database.{_attr}")
-        if _legacy is not _physical:
-            print(
-                f"FAIL: {_legacy_mod} shim must match obsidiandroid.database.{_attr}",
-                file=sys.stderr,
-            )
-            return False
-    print("OK   obsidiandroid.database submodules match database")
+    print("OK   obsidiandroid.database facade submodules resolve canonically")
 
     return True
 
@@ -446,13 +400,6 @@ def main() -> int:
         return 1
 
     canon_runner = importlib.import_module("obsidiandroid.pipeline.runner")
-    legacy_runner = importlib.import_module("analysis.pipeline.runner")
-    if canon_runner is not legacy_runner:
-        print(
-            "FAIL: obsidiandroid.pipeline.runner must be identical ModuleType to analysis.pipeline.runner shim",
-            file=sys.stderr,
-        )
-        return 1
     pipeline_mod = importlib.import_module("obsidiandroid.pipeline")
     if pipeline_mod.run_pipeline is not canon_runner.run_pipeline:
         print(
@@ -460,7 +407,7 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    print("OK   obsidiandroid.pipeline.run_pipeline is obsidiandroid.pipeline.runner.run_pipeline (legacy shim identical)")
+    print("OK   obsidiandroid.pipeline.run_pipeline is obsidiandroid.pipeline.runner.run_pipeline")
     if pipeline_mod.DIAGNOSTICS_DIR != canon_runner.DIAGNOSTICS_DIR:
         print("FAIL: pipeline facade DIAGNOSTICS_DIR mismatch", file=sys.stderr)
         return 1
@@ -497,13 +444,6 @@ def main() -> int:
     )
     for attr in _pipeline_physical_attrs:
         physical_mod = importlib.import_module(f"obsidiandroid.pipeline.{attr}")
-        legacy_mod = importlib.import_module(f"analysis.pipeline.{attr}")
-        if physical_mod is not legacy_mod:
-            print(
-                f"FAIL: obsidiandroid.pipeline.{attr} physical vs analysis.pipeline.{attr} shim mismatch",
-                file=sys.stderr,
-            )
-            return 1
         facade_mod = getattr(pipeline_mod, attr)
         if facade_mod is not physical_mod:
             print(
@@ -511,9 +451,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-    print(
-        "OK   obsidiandroid.pipeline façade + leaf identity (Pass 66–71, 74); analysis.pipeline shims identical"
-    )
+    print("OK   obsidiandroid.pipeline facade exports canonical pipeline modules")
 
     _manifest_facade = importlib.import_module("obsidiandroid.pipeline.manifest")
     _manifest_pairs = (
@@ -539,17 +477,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-        legacy_mod = importlib.import_module(f"analysis.pipeline.manifest.{attr}")
-        if legacy_mod is not canon_mod:
-            print(
-                f"FAIL: analysis.pipeline.manifest.{attr} shim mismatch vs {canon_name}",
-                file=sys.stderr,
-            )
-            return 1
-    print(
-        "OK   obsidiandroid.pipeline.manifest canonical package; "
-        "analysis.pipeline.manifest aliases brokered by analysis.pipeline shell"
-    )
+    print("OK   obsidiandroid.pipeline.manifest canonical package")
 
     _artifacts_facade = importlib.import_module("obsidiandroid.pipeline.artifacts")
     _artifacts_pairs = (
@@ -572,17 +500,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-        legacy_mod = importlib.import_module(f"analysis.pipeline.artifacts.{attr}")
-        if legacy_mod is not canon_mod:
-            print(
-                f"FAIL: analysis.pipeline.artifacts.{attr} shim mismatch vs {canon_name}",
-                file=sys.stderr,
-            )
-            return 1
-    print(
-        "OK   obsidiandroid.pipeline.artifacts canonical package; "
-        "analysis.pipeline.artifacts aliases brokered by analysis.pipeline shell"
-    )
+    print("OK   obsidiandroid.pipeline.artifacts canonical package")
 
     _permission_trends_facade = importlib.import_module("obsidiandroid.pipeline.permission_trends")
     for attr in PERMISSION_TRENDS_FACADE_SUBMODULE_NAMES:
@@ -602,14 +520,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-        legacy_mod = importlib.import_module(f"analysis.pipeline.permission_trends.{attr}")
-        if legacy_mod is not canon_mod:
-            print(
-                f"FAIL: analysis.pipeline.permission_trends.{attr} legacy shim mismatch vs {canon_name}",
-                file=sys.stderr,
-            )
-            return 1
-    print("OK   obsidiandroid.pipeline.permission_trends submodules match legacy shims (Pass 74)")
+    print("OK   obsidiandroid.pipeline.permission_trends submodules resolve canonically")
 
     _modeling_facade = importlib.import_module("obsidiandroid.modeling")
     for attr in MODELING_FACADE_EAGER_SUBMODULE_NAMES:
@@ -879,7 +790,7 @@ def main() -> int:
     print("OK   obsidiandroid.vendors.execution canonical modules import cleanly")
 
     _governance_facade = importlib.import_module("obsidiandroid.governance")
-    for attr in sorted(ANALYSIS_PIPELINE_GOVERNANCE_SUBMODULES):
+    for attr in getattr(_governance_facade, "__all__", []):
         canon_name = f"obsidiandroid.governance.{attr}"
         canon_mod = importlib.import_module(canon_name)
         facade_mod = getattr(_governance_facade, attr)
@@ -896,14 +807,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-        legacy_mod = importlib.import_module(f"analysis.pipeline.governance.{attr}")
-        if legacy_mod is not canon_mod:
-            print(
-                f"FAIL: analysis.pipeline.governance.{attr} legacy shim mismatch vs {canon_name}",
-                file=sys.stderr,
-            )
-            return 1
-    print("OK   obsidiandroid.governance pipeline governance matches legacy shims (Pass 75)")
+    print("OK   obsidiandroid.governance submodules resolve canonically")
 
     if not _check_common_reporting_surfaces():
         return 1

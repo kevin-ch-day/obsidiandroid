@@ -12,7 +12,6 @@ ObsidianDroid is an end-to-end framework for Android malware analysis, AV engine
 | [`user_guide.md`](user_guide.md) | Task-focused instructions for installing dependencies, configuring data sources, running jobs, and interpreting results. |
 | [`developer_guide.md`](developer_guide.md) | Workflows for contributors: environment setup, branching strategy, testing expectations, and release procedures. |
 | [`pipeline_staging_guide.md`](pipeline_staging_guide.md) | Stage-by-stage reference for the refactored pipeline modules and extension patterns. |
-| [`../analysis/pipeline/README.md`](../analysis/pipeline/README.md) | Quick index of `runner.py`, `stage_*` modules, and `manifest/` helpers. |
 | [`operations_playbook.md`](operations_playbook.md) | Runbooks and checklists for production support, monitoring, incident response, and change management. |
 | [`GOVERNANCE.md`](GOVERNANCE.md) | Mandatory governance behavior for runtime, diagnostics, and reproducibility. |
 | [`AGENTS.md`](AGENTS.md) | Contributor and automated-agent conventions (layout, testing, hygiene); repo-root `AGENTS.md` is a pointer. |
@@ -29,7 +28,7 @@ ObsidianDroid is an end-to-end framework for Android malware analysis, AV engine
 
 ## Quick Facts
 
-- **Entry points:** Repo-root `main.py` is a thin shim; canonical CLI lives in `src/obsidiandroid/cli/main.py`. **Pipeline orchestration** is **`obsidiandroid.pipeline.runner`** (`analysis.pipeline.runner` is an identity shim). **Stage implementations** (`stage_*`, AV/vendor chain, permission-trends report, manifest, …) live under **`src/obsidiandroid/pipeline/`**; on-disk `analysis/pipeline/stage_*.py` and related leaves are **shims** for legacy imports (see [`STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md)). Model tuning entrypoint: `python -m obsidiandroid.evaluation.model_tuning`. `scripts/` holds maintenance tools (`scripts/dev/` for hygiene/import checks, `scripts/diagnostics/` for inspection CLIs).
+- **Entry points:** Repo-root `main.py` is a thin shim; canonical CLI lives in `src/obsidiandroid/cli/main.py`. **Pipeline orchestration** and all stage implementations (`stage_*`, AV/vendor chain, permission-trends report, manifest, …) live under **`src/obsidiandroid/pipeline/`**. Model tuning entrypoint: `python -m obsidiandroid.evaluation.model_tuning`. `scripts/` holds maintenance tools (`scripts/dev/` for hygiene/import checks, `scripts/diagnostics/` for inspection CLIs).
 - **Configuration:** YAML/JSON files in `config/` control feature toggles, model parameters, and database credentials.
 - **Outputs:** Runtime artifacts (labels, evaluation metrics, feature matrices) are written under an `output/` directory that is created on demand.
 - **Generated paper exports:** `paper_exports/docs/` holds generated runtime evidence such as cohort census reports. Regenerate these files when needed; do not treat checked-in copies as hand-maintained source of truth.

@@ -43,7 +43,6 @@ ALLOW_VENDOR_FALLBACK_FOR_WIDTH = False
 ANALYSIS_SCOPE = "all"  # one of: all, type, family, banker
 FIGURE_MODE = "analysis"  # one of: analysis, paper
 ENABLE_BANKER_CASE_STUDY_ARTIFACTS = False
-ENABLE_LEGACY_CANONICAL_HEATMAP_EXPORT = False
 ENABLE_PERMISSION_TRENDS_BUNDLE_ZIP = False
 ENABLE_PERMISSION_TRENDS_LATEST_MIRROR = False
 # When True, permission-trends bundle writers also emit run_id-suffixed CSV/JSON/TXT/PNG

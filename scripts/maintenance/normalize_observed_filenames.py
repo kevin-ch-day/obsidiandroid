@@ -1,4 +1,4 @@
-"""Normalize clearly synthetic `observed_filename` values in the sample catalog.
+"""Maintenance tool to normalize clearly synthetic catalog filenames.
 
 This script only targets safe cleanup patterns that commonly leak in from IOC
 feeds or transport encoding:
@@ -21,8 +21,18 @@ import html
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
+import sys
 import unicodedata
 from urllib.parse import unquote
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts._bootstrap import prepare_script_runtime
+
+prepare_script_runtime(__file__)
 
 from obsidiandroid.database import db_engine
 

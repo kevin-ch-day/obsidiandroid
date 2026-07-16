@@ -1,8 +1,9 @@
-"""Tests for metadata feature extraction (pipeline sample preparation)."""
+"""Tests for metadata feature extraction in pipeline sample preparation."""
 
 import pandas as pd
 
 from obsidiandroid.pipeline import sample_preparation
+
 
 build_metadata_feature_frame = sample_preparation.build_metadata_feature_frame
 
@@ -36,8 +37,10 @@ def test_build_metadata_feature_frame_creates_expected_columns() -> None:
 
 
 def test_orchestration_metadata_features_shim_matches_canonical() -> None:
-    """:mod:`obsidiandroid.orchestration.metadata_features` delegates to :mod:`sample_preparation`."""
-    import obsidiandroid.orchestration.metadata_features as shim
+    """:mod:`obsidiandroid.orchestration.metadata_features` delegates to sample preparation."""
+    from importlib import import_module
+
+    shim = import_module("obsidiandroid.orchestration.metadata_features")
     from obsidiandroid.pipeline import sample_preparation as canon
 
     assert shim.build_metadata_feature_frame is canon.build_metadata_feature_frame

@@ -1,7 +1,7 @@
 # Filename: obsidiandroid/pipeline/engine_pipeline_utils.py
 # Purpose : Utility functions for AV engine pipeline input validation and metadata fetching
 #
-# Canonical (**Pass 71**): legacy ``analysis.pipeline.engine_pipeline_utils`` is shim.
+# Canonical AV-engine pipeline utilities.
 
 import pandas as pd
 from obsidiandroid.cli.ui import display as du

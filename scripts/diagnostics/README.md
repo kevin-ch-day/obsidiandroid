@@ -8,14 +8,10 @@ The canonical implementations are **here**. Import them as **`scripts.diagnostic
 
 | Module | Role |
 |--------|------|
-| [`inspect_av_pipeline_results.py`](inspect_av_pipeline_results.py) | AV pipeline output inspection |
-| [`inspect_classification_results.py`](inspect_classification_results.py) | Classification outputs |
 | [`inspect_complexity_hotspots.py`](inspect_complexity_hotspots.py) | Complexity hotspots |
 | [`inspect_engine_score_matrix.py`](inspect_engine_score_matrix.py) | Engine score matrix |
 | [`inspect_module_size_hotspots.py`](inspect_module_size_hotspots.py) | Module/function size |
-| [`inspect_parsed_data.py`](inspect_parsed_data.py) | Parsed data |
 | [`inspect_vendor_column_opportunities.py`](inspect_vendor_column_opportunities.py) | Vendor columns |
-| [`inspect_vendor_feature_results.py`](inspect_vendor_feature_results.py) | Vendor features |
 | [`inspect_vendor_missing_patterns.py`](inspect_vendor_missing_patterns.py) | Missing patterns |
 | [`inspect_vendor_parser_health.py`](inspect_vendor_parser_health.py) | Parser health |
 | [`export_label_authority_vendor_evidence.py`](export_label_authority_vendor_evidence.py) | Parser-enriched long-form vendor-label evidence export for label-authority rollout |
@@ -39,19 +35,21 @@ The canonical implementations are **here**. Import them as **`scripts.diagnostic
 | [`report_vendor_verdict_debt.py`](report_vendor_verdict_debt.py) | Read-only vendor-verdict debt report that buckets malicious labels into family-ready, overlap, generic-signal, and provenance-noise classes and exports vendor/token/sample pressure CSVs |
 | [`report_zimperium_ioc_repo_coverage.py`](report_zimperium_ioc_repo_coverage.py) | Optional external IOC inventory (`research/external_iocs/Zimperium-IOC/`); exits cleanly with empty exports when the tree is absent |
 
-## Canonical diagnostics migrated from top-level `scripts/`
+The optional Zimperium IOC source is pinned as a Git submodule. Materialize it
+only when running its coverage diagnostic:
 
-These scripts now live here canonically. Repo-root wrappers are kept so older menu paths,
-operator habits, and docs links do not break immediately.
+```bash
+git submodule update --init research/external_iocs/Zimperium-IOC
+```
 
-| Canonical script | Compatibility wrapper |
-|--------|------|
-| [`diagnose_alignment_gap.py`](diagnose_alignment_gap.py) | `scripts/diagnose_alignment_gap.py` |
-| [`report_feature_lineage.py`](report_feature_lineage.py) | `scripts/report_feature_lineage.py` |
-| [`report_feature_matrix_gap.py`](report_feature_matrix_gap.py) | `scripts/report_feature_matrix_gap.py` |
-| [`report_output_inventory.py`](report_output_inventory.py) | `scripts/report_output_inventory.py` |
-| [`trace_feature_builder_drops.py`](trace_feature_builder_drops.py) | `scripts/trace_feature_builder_drops.py` |
-| [`check_run_integrity.py`](check_run_integrity.py) | `scripts/check_run_integrity.py` |
+## Supported diagnostic entrypoints
+
+The diagnostic scripts in this directory are the only supported command paths.
+The former top-level wrappers were removed to keep one authoritative entrypoint
+per diagnostic.
+
+Database- or state-changing maintenance commands live under
+[`scripts/maintenance/`](../maintenance/README.md), not in this directory.
 
 ## Other operator scripts still intentionally top-level
 

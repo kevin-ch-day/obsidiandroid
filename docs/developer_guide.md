@@ -61,11 +61,11 @@ Quick sanity check: **`python scripts/dev/check_import_surface.py`** or **`make 
 
 ## Working with the Staged Pipeline
 
-Orchestration lives in **`src/obsidiandroid/pipeline/runner.py`** (`run_pipeline`). Legacy **`analysis.pipeline.runner`** is an identity shim to the same module. **`main.py`** is a thin CLI shell + compatibility surface; tests may monkeypatch `main` symbols which are bridged into the runner via the legacy `analysis/pipeline/main_facade.py` shim.
+Orchestration lives in **`src/obsidiandroid/pipeline/runner.py`** (`run_pipeline`). **`main.py`** is a thin CLI shell + compatibility surface; tests may monkeypatch `main` symbols, which are resolved by `obsidiandroid.pipeline.main_facade`.
 
-- Add heavy logic in **`obsidiandroid.pipeline`** `stage_*.py` modules (canonical under `src/obsidiandroid/pipeline/`; on-disk `analysis/pipeline/stage_*.py` are identity shims for legacy imports), not in `runner.py`.
+- Add heavy logic in **`obsidiandroid.pipeline`** `stage_*.py` modules under `src/obsidiandroid/pipeline/`, not in `runner.py`.
 - Document stage entry/exit contracts in docstrings (input columns, required keys, and failure behavior).
-- Scripts that need the full pipeline should use **`from obsidiandroid.pipeline import run_pipeline`**, **`from obsidiandroid.cli.pipeline_entry import run_pipeline`**, or **`from main import run_pipeline`**; avoid importing deep `stage_*` internals unless you are extending a stage.
+- Scripts that need the full pipeline should use **`from obsidiandroid.pipeline import run_pipeline`** or **`from obsidiandroid.cli.pipeline_entry import run_pipeline`**; avoid importing deep `stage_*` internals unless you are extending a stage.
 - Add focused unit tests per stage module (for example: `tests/test_stage_<name>.py`) for success and integrity-failure paths.
 - Use [`pipeline_staging_guide.md`](pipeline_staging_guide.md) as the primary extension checklist.
 
@@ -112,10 +112,10 @@ Orchestration lives in **`src/obsidiandroid/pipeline/runner.py`** (`run_pipeline
 ## Tooling Reference
 
 - **`scripts/README.md`** – How to run operator scripts from the repo root and DB preflight expectations.
-- **`scripts/backfill_permission_trends_warehouse.py`** – Warehouse backfills when configured.
+- **`scripts/maintenance/backfill_permission_trends_warehouse.py`** – Warehouse backfills when configured.
 - **`scripts/research/`** – Publication tables, evidence bundles, structural diagnostics.
 - **`scripts/dev/`** – Synthetic dataset fuzzer, ML static-scan, venv/test wrappers (not collected by pytest; see `tests/` for automated tests). Legacy **`devtools/`** at repo root was removed.
-- **`scripts/dev/run_tests.sh`** / **`Makefile`** – Fast (`make test`) and full (`make test-full`) pytest; **`make preflight-db`** checks MySQL connectivity (`database.split_db_health`).
+- **`scripts/dev/run_tests.sh`** / **`Makefile`** – Fast (`make test`) and full (`make test-full`) pytest; **`make preflight-db`** checks MySQL connectivity (`obsidiandroid.database.split_db_health`).
 
 ## Release Checklist
 

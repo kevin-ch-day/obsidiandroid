@@ -11,7 +11,7 @@ import re
 import sys
 from pathlib import Path
 
-_ROOT = Path(__file__).resolve().parents[1]
+_ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -74,12 +74,20 @@ def _parse_run_id_timestamp(run_id: str) -> datetime | None:
 
 def _resolve_existing_run_root(output_dir: Path, *, run_id: str, run_root_raw: str = "") -> Path | None:
     """Resolve an existing run root from a pointer or run ID."""
+    output_root = output_dir.resolve()
     candidate_roots: list[Path] = []
     if run_root_raw:
         run_root = Path(run_root_raw)
-        candidate_roots.append(run_root if run_root.is_absolute() else Path.cwd() / run_root)
+        if run_root.is_absolute():
+            candidate_roots.append(run_root)
+        else:
+            # Pointer files commonly store paths such as ``output/runs/<id>``.
+            # Resolve those relative to the supplied output root's parent, not
+            # the process CWD; otherwise a temporary/audited output root can
+            # accidentally adopt a live repository run with the same pointer.
+            candidate_roots.extend((output_root.parent / run_root, output_root / run_root))
     if run_id:
-        candidate_roots.append(output_dir / "runs" / run_id)
+        candidate_roots.append(output_root / "runs" / run_id)
 
     seen: set[Path] = set()
     for candidate in candidate_roots:
@@ -87,10 +95,14 @@ def _resolve_existing_run_root(output_dir: Path, *, run_id: str, run_root_raw: s
         if resolved in seen:
             continue
         seen.add(resolved)
+        try:
+            resolved.relative_to(output_root)
+        except ValueError:
+            continue
         if (resolved / "run_manifest.json").is_file():
             return resolved
 
-    runs_dir = output_dir / "runs"
+    runs_dir = output_root / "runs"
     if not runs_dir.exists():
         return None
     target = str(run_id).strip()

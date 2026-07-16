@@ -1,7 +1,7 @@
 """Permission trends and classification pattern reporting stage.
 
 Canonical implementation (**Pass 70**): ``obsidiandroid.pipeline.stage_permission_trends_report``;
-``analysis.pipeline.stage_permission_trends_report`` is an identity shim.
+The supported import path is ``obsidiandroid.pipeline.stage_permission_trends_report``.
 """
 
 from __future__ import annotations
@@ -40,7 +40,6 @@ from obsidiandroid.pipeline.permission_trends.publish_paths import (
     compute_cohort_hash as _compute_cohort_hash,
     compute_permission_feature_hash as _compute_permission_feature_hash,
     prune_run_stamped_pngs_in_latest_bundle as _prune_run_stamped_pngs_in_latest_bundle,
-    publish_canonical_type_heatmap as _publish_canonical_type_heatmap,
 )
 from obsidiandroid.pipeline.permission_trends.reporting_support import (
     read_dataset_time_contract as _read_dataset_time_contract,
@@ -484,13 +483,6 @@ def run_permission_trends_report_stage(
     paper_variant_paths: list[str] = []
     top_permissions_visual = safe_int_config_value(getattr(app_config, "MAX_PERMISSIONS_HEATMAP", 30), default=30)
     top_families_visual = safe_int_config_value(getattr(app_config, "MAX_FAMILY_VISUAL_COUNT", 12), default=12)
-    canonical_heatmap_paths = _publish_canonical_type_heatmap(
-        source_path=type_heatmap_png,
-        run_id=run_id,
-        cohort_hash=cohort_hash,
-        permission_feature_hash=permission_feature_hash,
-        type_heatmap_identity=type_heatmap_identity,
-    )
 
     family_profiles_df, family_entropy_df = _build_family_permission_profiles(
         sample_core_df=sample_core_df,
@@ -1246,7 +1238,6 @@ def run_permission_trends_report_stage(
         if isinstance(extra_path, str) and extra_path:
             paths.append(extra_path)
     paths.extend(paper_variant_paths)
-    paths.extend(canonical_heatmap_paths)
     if isinstance(bundle_readme_path, str) and bundle_readme_path:
         paths.append(bundle_readme_path)
     bundle_manifest_json = _export_permission_trends_bundle_manifest(

@@ -12,17 +12,8 @@ from scripts.dev.compatibility_retirement_audit import (
     collect_ready_now_bucket_callers,
 )
 from scripts.dev.compatibility_retirement_manifest import (
-    DATABASE_COMPAT_CANDIDATE_DELETE_TREES,
-    DATABASE_COMPAT_DEFER_TREES,
-    DATABASE_COMPAT_KEEP_TREES,
     LEGACY_SUBTREE_RETIREMENT_BUCKETS,
     LEGACY_TREE_RETIREMENT_MATRIX,
-)
-from obsidiandroid.database.facade_manifest import (
-    REPO_ROOT_DATABASE_CANDIDATE_DELETE_FILES,
-    REPO_ROOT_DATABASE_DEFER_FILES,
-    REPO_ROOT_DATABASE_KEEP_FILES,
-    REPO_ROOT_DATABASE_RETIRED_FILES,
 )
 
 
@@ -30,9 +21,11 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parents[2]
     print("Compatibility Retirement Matrix")
     print("------------------------------")
-    print("Tip: set OBSIDIANDROID_WARN_LEGACY_SHIMS=1 to surface opt-in warnings for ready-now shim batches.")
-    print("Tip: ordinary shim-only legacy leaves are now expected to use shared helpers from obsidiandroid.legacy_shim_lazy.")
+    print("Canonical application imports use obsidiandroid.*; no repo-root Python compatibility tree remains.")
     print()
+    if not LEGACY_TREE_RETIREMENT_MATRIX:
+        print("No repo-root Python compatibility trees remain.")
+        print()
     for entry in LEGACY_TREE_RETIREMENT_MATRIX:
         print(f"Root: {entry.root}")
         print(f"  Files: {entry.file_count}")
@@ -45,6 +38,9 @@ def main() -> int:
         print()
     print("Subtree Buckets")
     print("---------------")
+    if not LEGACY_SUBTREE_RETIREMENT_BUCKETS:
+        print("No active compatibility subtree buckets.")
+        print()
     for bucket in LEGACY_SUBTREE_RETIREMENT_BUCKETS:
         print(f"Tree: {bucket.tree}")
         print(f"  Canonical target: {bucket.canonical_target}")
@@ -55,48 +51,6 @@ def main() -> int:
         print(f"  Next step: {bucket.next_step}")
         print(f"  Target exists: {'yes' if canonical_target_exists(repo_root, bucket.canonical_target) else 'no'}")
         print()
-    print("Repo-Root Database Shim Split")
-    print("-----------------------------")
-    print("Keep trees:")
-    for item in DATABASE_COMPAT_KEEP_TREES:
-        print(f"  - {item}")
-    print("Candidate-delete trees:")
-    if DATABASE_COMPAT_CANDIDATE_DELETE_TREES:
-        for item in DATABASE_COMPAT_CANDIDATE_DELETE_TREES:
-            print(f"  - {item}")
-    else:
-        print("  - none")
-    if DATABASE_COMPAT_DEFER_TREES:
-        print("Defer trees:")
-        for item in DATABASE_COMPAT_DEFER_TREES:
-            print(f"  - {item}")
-    else:
-        print("Defer trees:")
-        print("  - none")
-    print("Keep files:")
-    for item in REPO_ROOT_DATABASE_KEEP_FILES:
-        print(f"  - database/{item}")
-    print("Candidate-delete files:")
-    if REPO_ROOT_DATABASE_CANDIDATE_DELETE_FILES:
-        for item in REPO_ROOT_DATABASE_CANDIDATE_DELETE_FILES:
-            print(f"  - database/{item}")
-    else:
-        print("  - none")
-    if REPO_ROOT_DATABASE_DEFER_FILES:
-        print("Deferred files:")
-        for item in REPO_ROOT_DATABASE_DEFER_FILES:
-            print(f"  - database/{item}")
-    else:
-        print("Deferred files:")
-        print("  - none")
-    if REPO_ROOT_DATABASE_RETIRED_FILES:
-        print("Retired files:")
-        for item in REPO_ROOT_DATABASE_RETIRED_FILES:
-            print(f"  - database/{item}")
-    else:
-        print("Retired files:")
-        print("  - none")
-    print()
     print("Ready-Now Caller Audit")
     print("----------------------")
     for tree, hits in collect_ready_now_bucket_callers(repo_root).items():

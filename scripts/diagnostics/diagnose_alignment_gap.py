@@ -6,7 +6,6 @@ Example::
     python scripts/diagnostics/diagnose_alignment_gap.py \\
         --run-root output/runs/20260503T044105Z__008d9d
 
-Compatibility wrapper retained at ``scripts/diagnose_alignment_gap.py``.
 """
 
 from __future__ import annotations

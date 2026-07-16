@@ -117,6 +117,7 @@ def test_build_feature_vector_recovers_when_parser_gating_selects_zero(monkeypat
     assert not out.empty
     assert bool(out.attrs.get("vendor_fallback_used", False)) is True
     assert str(out.attrs.get("vendor_selection_policy", "")) == "explicit_widening"
+    assert int(out.attrs.get("feature_effective_top_k", 0)) == 1
 
 
 def test_merge_extra_features_joins_on_sample_id_column_with_range_index() -> None:

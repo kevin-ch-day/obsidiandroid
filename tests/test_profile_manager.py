@@ -36,6 +36,7 @@ def test_load_profile_required_keys() -> None:
         assert key in profile
     assert profile["profile_status"]["lifecycle"] == "final_canonical"
     assert profile["profile_status"]["operator_surface"] == "supported"
+    assert profile["av_binary_feature_engine_scope"] == "all_observed"
 
 
 def test_all_current_profile_uses_diagnostic_only_support_floor() -> None:
@@ -268,6 +269,24 @@ def test_profile_summary_includes_key_gates(tmp_path: Path) -> None:
     assert "family_cap=300" in summary
     assert "type_cap=120" in summary
     assert "exclude_unknown=True" in summary
+
+
+def test_profile_summary_marks_nonbaseline_av_scope(tmp_path: Path) -> None:
+    profile_path = tmp_path / "scope_probe.yaml"
+    profile_path.write_text(
+        "\n".join(
+            [
+                "profile_id: scope_probe",
+                "type_slug_filter: all",
+                "cohort_gates: {}",
+                "model_list: [random_forest]",
+                "av_binary_feature_engine_scope: lifecycle_included",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert "av_scope=lifecycle_included" in profile_selection.summarize_profile(profile_path)
 
 
 def test_profile_summary_exposes_locked_status(tmp_path: Path) -> None:

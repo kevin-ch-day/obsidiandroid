@@ -10,7 +10,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import scripts.runtime_bootstrap  # noqa: F401
+from scripts._bootstrap import prepare_script_runtime
+
+prepare_script_runtime(__file__)
 
 from obsidiandroid.common.backlog_semantics import build_backlog_markdown_lines
 from obsidiandroid.diagnostics.backlog_triage_context import load_backlog_triage_context

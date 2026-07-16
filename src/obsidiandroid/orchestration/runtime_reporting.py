@@ -736,6 +736,24 @@ def build_run_summary_payload(
     engine_exclusion_reason_counts = dict(
         manifest_context.get("engine_exclusion_reason_counts", {}) or {}
     )
+    av_binary_feature_scope = str(
+        manifest_context.get(
+            "av_binary_feature_engine_scope",
+            getattr(app_config, "RUNTIME_AV_BINARY_FEATURE_ENGINE_SCOPE", "all_observed"),
+        )
+        or "all_observed"
+    )
+    av_binary_feature_engine_columns = safe_int_config_value(
+        manifest_context.get(
+            "av_binary_feature_engine_columns",
+            getattr(app_config, "RUNTIME_AV_BINARY_FEATURE_ENGINE_COUNT", 0),
+        ),
+        default=0,
+    )
+    av_binary_feature_engine_columns_observed = safe_int_config_value(
+        manifest_context.get("av_binary_feature_engine_columns_observed", 0),
+        default=0,
+    )
     non_standard_features = bool(getattr(app_config, "RUNTIME_NON_STANDARD_FEATURES", False))
 
     return {
@@ -746,6 +764,9 @@ def build_run_summary_payload(
         "engine_count_included_after_gating": included_engine_count,
         "engine_count_near_miss": engine_count_near_miss,
         "engine_exclusion_reason_counts": engine_exclusion_reason_counts,
+        "av_binary_feature_engine_scope": av_binary_feature_scope,
+        "av_binary_feature_engine_columns": av_binary_feature_engine_columns,
+        "av_binary_feature_engine_columns_observed": av_binary_feature_engine_columns_observed,
         "engine_count_requested_top_k": k_requested,
         "effective_top_k": effective_top_k,
         "fallback_used": fallback_used,
@@ -790,6 +811,14 @@ def export_and_print_run_summary(
         du.print_stat("Cohort Engines Observed", payload.get("engine_count_observed"))
         du.print_stat("Cohort Engines Canonical", payload.get("engine_count_canonical"))
         du.print_stat("Post-Score Engines Included", payload.get("engine_count_included_after_gating"))
+        du.print_stat(
+            "AV Binary Feature Scope",
+            (
+                f"{payload.get('av_binary_feature_engine_scope')} "
+                f"({payload.get('av_binary_feature_engine_columns')}/"
+                f"{payload.get('av_binary_feature_engine_columns_observed')} columns)"
+            ),
+        )
         if payload.get("engine_count_near_miss") is not None:
             du.print_stat("Excluded Near-Miss Engines", payload.get("engine_count_near_miss"))
         exclusion_counts = payload.get("engine_exclusion_reason_counts", {}) or {}

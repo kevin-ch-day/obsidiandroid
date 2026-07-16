@@ -1,12 +1,8 @@
-"""Canonical database import surface (Passes 38–43).
+"""Canonical database import surface.
 
 All façade-listed modules are implemented under ``src/obsidiandroid/database/``.
-Repo-root ``database/<name>.py`` files are **thin identity shims** (except
-``split_db_health``, which also wires ``python -m database.split_db_health``).
-
-Each shim registers the same :class:`types.ModuleType` as
-``obsidiandroid.database.<name>`` so ``import database.<name>`` and
-``import obsidiandroid.database.<name>`` resolve to identical objects.
+The repository-root ``database/`` directory contains SQL assets only; Python
+callers use this package.
 
 Prefer::
 
@@ -18,8 +14,7 @@ or::
     from obsidiandroid.database import db_engine
 
 Timeline / AV-stats / label-keyword helpers are on the same façade list as the
-core DB modules (see :mod:`obsidiandroid.database.facade_manifest`); repo-root
-``database.*`` shims remain thin identity aliases.
+core DB modules (see :mod:`obsidiandroid.database.facade_manifest`).
 """
 
 from __future__ import annotations

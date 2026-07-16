@@ -86,7 +86,7 @@ test-full:
 
 # MySQL/MariaDB connectivity (primary + Permission Intel DB). Exit 0 when healthy.
 preflight-db:
-	python -m database.split_db_health
+	python -m obsidiandroid.database.split_db_health
 
 # Optional static scan for ML call-site hygiene (scripts/dev/run_ml_static_scan.py).
 ml-scan:
@@ -148,4 +148,4 @@ output-writer-audit:
 # Tier A QA: cohort/train/test/top-model consistency across canonical JSON sinks.
 check-run-integrity:
 	@test -n "$(RUN_ROOT)" || (echo "Usage: make check-run-integrity RUN_ROOT=output/runs/<run_id>"; exit 1)
-	python scripts/check_run_integrity.py --run-root "$(RUN_ROOT)"
+	python scripts/diagnostics/check_run_integrity.py --run-root "$(RUN_ROOT)"

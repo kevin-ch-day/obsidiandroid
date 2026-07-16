@@ -1,7 +1,7 @@
 """Persist permission-trends analysis artifacts into MariaDB run-scoped tables.
 
 Canonical implementation (**Pass 70**): ``obsidiandroid.pipeline.stage_results_warehouse``;
-``analysis.pipeline.stage_results_warehouse`` is an identity shim.
+The supported import path is ``obsidiandroid.pipeline.stage_results_warehouse``.
 """
 
 from __future__ import annotations

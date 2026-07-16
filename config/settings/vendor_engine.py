@@ -33,6 +33,14 @@ ENGINE_MIN_POSITIVE_FLAGS = 5
 ENGINE_MIN_DETECTION_PCT = 1.0
 ENGINE_EXCLUDE_ZERO_DETECTION = True
 
+# Defines which binary AV-verdict columns enter the headline feature matrix.
+# ``all_observed`` preserves the established baseline: every observed engine is
+# available, subject to train-only low-information pruning.  ``lifecycle_included``
+# is an explicitly scoped experimental surface that retains only engines passing
+# the readiness lifecycle gate.  Do not change this default to optimise a result;
+# compare the two scopes on a frozen cohort and split first.
+AV_BINARY_FEATURE_ENGINE_SCOPE = "all_observed"
+
 FEATURE_TOP_K = 8
 FEATURE_SCORE_FIELD = "Final ML Score"
 FEATURE_EXCLUDE_VENDOR_CATEGORIES = []

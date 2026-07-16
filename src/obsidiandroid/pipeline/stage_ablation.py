@@ -1,7 +1,7 @@
 """Ablation experiment helpers for leakage sensitivity evaluation.
 
 Canonical implementation (**Pass 70**): ``obsidiandroid.pipeline.stage_ablation``;
-``analysis.pipeline.stage_ablation`` is an identity shim.
+The supported import path is ``obsidiandroid.pipeline.stage_ablation``.
 """
 
 from __future__ import annotations

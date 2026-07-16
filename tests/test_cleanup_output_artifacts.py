@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 
-from scripts import cleanup_output_artifacts as coa
+from scripts.maintenance import cleanup_output_artifacts as coa
 
 
 def _make_run(output_dir: Path, run_id: str) -> Path:
