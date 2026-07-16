@@ -18,10 +18,11 @@ from obsidiandroid.pipeline.engine_normalization import canonicalize_engine_name
 
 CONTRACT_ID = "av_detection_observation_frozen_v1"
 OBSERVED_MIN_TRAIN_ROWS = 1
-_NON_OBSERVATIONS = frozenset({"", "missing", "timeout", "confirmed_timeout", "failure", "unsupported", "type_unsupported"})
-_OBSERVED_NON_DETECTIONS = frozenset({"undetected", "clean", "benign", "harmless", "safe", "approved", "verified", "none", "null", "n/a"})
+_NON_OBSERVATIONS = frozenset({"", "missing", "none", "null", "n/a", "timeout", "confirmed_timeout", "failure", "unsupported", "type_unsupported"})
+_OBSERVED_NON_DETECTIONS = frozenset({"undetected", "harmless"})
 _DETECTIONS = frozenset({"malicious", "suspicious", "detected", "positive"})
-_IDENTITY_COLUMNS = ("report_id", "analysis_id", "retrieval_batch", "report_timestamp", "updated_at")
+_IDENTITY_COLUMNS = ("report_id", "analysis_id", "retrieval_batch", "report_timestamp")
+_ORDER_COLUMNS = ("report_timestamp", "updated_at", "record_created_at", "record_id")
 
 
 @dataclass(frozen=True)
@@ -85,16 +86,14 @@ def select_coherent_report_snapshot(rows: pd.DataFrame) -> tuple[pd.DataFrame, p
     work["_snapshot_identity"] = identity
     work["_snapshot_kind"] = identity_kind
     if work["_snapshot_identity"].eq("").any():
-        counts = work.groupby("sample_id")["_snapshot_identity"].nunique(dropna=False)
-        ambiguous = counts[counts > 1]
-        if not ambiguous.empty:
-            raise ValueError("AV snapshot identity unavailable for a multi-snapshot sample.")
-        work.loc[work["_snapshot_identity"].eq(""), "_snapshot_identity"] = "single_undifferentiated_batch"
-        work.loc[work["_snapshot_kind"].eq(""), "_snapshot_kind"] = "deterministic_single_batch_fallback"
+        # A live source without coherent report-level identity cannot prove
+        # that all engine rows originate from one report.  Synthetic fixtures
+        # must provide the same identity fields; no per-engine fallback exists.
+        raise ValueError("LIVE_REPORT_IDENTITY_UNVERIFIED")
     # Use report time as a deterministic selection ordering; absent time falls
     # back to lexical identity, which is recorded in the report-selection ledger.
     order_time = pd.Series("", index=work.index, dtype="object")
-    for column in ("report_timestamp", "updated_at", "retrieved_at"):
+    for column in _ORDER_COLUMNS:
         if column in work:
             values = work[column].fillna("").astype(str)
             order_time = order_time.where(order_time.ne(""), values)
@@ -136,7 +135,13 @@ def fit_av_detection_contract(
         "scope": scope,
         "observed_min_train_rows": OBSERVED_MIN_TRAIN_ROWS,
         "observation_semantics": "avobs=1 only for a report with a non-timeout/non-failure/non-unsupported verdict",
-        "snapshot_policy": "report_id>analysis_id>retrieval_batch>report_timestamp>deterministic_single_batch_fallback",
+        "snapshot_policy": "report_id>analysis_id>retrieval_batch>report_timestamp; order=report_timestamp>updated_at>record_created_at>record_id",
+        "status_truth_table": {
+            "missing_or_unavailable": "avobs=0,avdet=0",
+            "timeout_failure_unsupported": "avobs=0,avdet=0",
+            "harmless_undetected": "avobs=1,avdet=0",
+            "suspicious_malicious_or_free_text": "avobs=1,avdet=1",
+        },
         "engine_columns": list(engines),
         "active_only_temporal_meaning": "frozen_vendor_engine_metadata_snapshot_not_historical_observation_time",
     }
