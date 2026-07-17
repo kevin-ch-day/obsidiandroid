@@ -23,6 +23,82 @@ def _permission_obs_key_expr_ops() -> str:
     return permission_contracts.permission_obs_key_expr(alias="ops")
 
 
+_GOVERNANCE_COLUMNS = (
+    "effective_source_family_key",
+    "candidate_source_family_key",
+    "effective_review_lane",
+    "effective_resolution_semantics",
+)
+
+
+def _fetch_governance_rows_for_tokens(permission_tokens: list[str]) -> pd.DataFrame:
+    """Fetch the governed Permission Intel contract once per distinct token.
+
+    The governed view includes candidate-policy work that is expensive when it
+    is joined against every sample observation.  Permission governance is a
+    token-level contract, so requesting it for the distinct normalized tokens
+    preserves the same source of truth while avoiding repeated view work.
+    """
+    tokens = sorted({str(token).strip().lower() for token in permission_tokens if str(token).strip()})
+    if not tokens:
+        return pd.DataFrame(columns=["permission_string", *_GOVERNANCE_COLUMNS])
+
+    frames: list[pd.DataFrame] = []
+    chunk_size = 500
+    for idx in range(0, len(tokens), chunk_size):
+        chunk = tokens[idx : idx + chunk_size]
+        placeholders = ", ".join(["%s"] * len(chunk))
+        query = f"""
+            SELECT
+                observed_token AS permission_string,
+                effective_source_family_key,
+                candidate_source_family_key,
+                effective_review_lane,
+                effective_resolution_semantics
+            FROM vw_permission_vt_current_governed
+            WHERE observed_token IN ({placeholders})
+        """
+        frame = db_engine.execute_permission_query(
+            query,
+            params=tuple(chunk),
+            fetch=True,
+            as_dataframe=True,
+        )
+        if isinstance(frame, pd.DataFrame) and not frame.empty:
+            frames.append(frame)
+    if not frames:
+        return pd.DataFrame(columns=["permission_string", *_GOVERNANCE_COLUMNS])
+
+    out = pd.concat(frames, ignore_index=True)
+    if "permission_string" not in out.columns:
+        return pd.DataFrame(columns=["permission_string", *_GOVERNANCE_COLUMNS])
+    out["permission_string"] = out["permission_string"].fillna("").astype(str).str.strip().str.lower()
+    out = out[out["permission_string"] != ""].drop_duplicates(subset=["permission_string"], keep="last")
+    for column in _GOVERNANCE_COLUMNS:
+        if column not in out.columns:
+            out[column] = ""
+    return out[["permission_string", *_GOVERNANCE_COLUMNS]]
+
+
+def _attach_governance_rows(permission_rows_df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Attach the token-level governed contract and return its mapped-token count."""
+    out = permission_rows_df.copy()
+    if "permission_string" not in out.columns:
+        for column in _GOVERNANCE_COLUMNS:
+            out[column] = ""
+        return out, 0
+
+    governance = _fetch_governance_rows_for_tokens(out["permission_string"].tolist())
+    if governance.empty:
+        for column in _GOVERNANCE_COLUMNS:
+            out[column] = ""
+        return out, 0
+    return (
+        out.merge(governance, on="permission_string", how="left", sort=False, validate="many_to_one"),
+        int(len(governance)),
+    )
+
+
 def build_sample_core(samples_df: pd.DataFrame) -> pd.DataFrame:
     working = samples_df.copy()
     working["sample_id"] = pd.to_numeric(working["sample_id"], errors="coerce")
@@ -241,23 +317,13 @@ def fetch_permission_rows_for_samples(
                 UPPER(COALESCE(a.protection_level, o.protection_level, 'UNKNOWN')) AS protection_level,
                 UPPER(COALESCE(ops.classification, 'UNKNOWN')) AS permission_source,
                 CASE WHEN a.constant_value IS NOT NULL THEN 1 ELSE 0 END AS is_aosp_dict_match,
-                CASE WHEN o.permission_string IS NOT NULL THEN 1 ELSE 0 END AS is_oem_dict_match,
-                gov.effective_source_family_key,
-                gov.candidate_source_family_key,
-                gov.effective_review_lane,
-                gov.effective_resolution_semantics
+                CASE WHEN o.permission_string IS NOT NULL THEN 1 ELSE 0 END AS is_oem_dict_match
             FROM android_permission_obs_sample ops
             LEFT JOIN android_permission_dict_aosp a
               ON {aosp_join}
             LEFT JOIN android_permission_dict_oem o
               ON {oem_join}
              AND (ops.vendor_id = o.vendor_id OR o.vendor_id IS NULL)
-            -- ``observed_token`` is the case-insensitive primary token key of
-            -- the underlying enrichment table.  Joining on the derived
-            -- ``raw_token_norm`` expression instead forces a full vocabulary
-            -- scan for every permission observation.
-            LEFT JOIN vw_permission_vt_current_governed gov
-              ON {permission_key_expr} = gov.observed_token
             WHERE ops.sample_id IN ({placeholders})
               AND ops.permission_string IS NOT NULL
               AND TRIM(ops.permission_string) <> ''
@@ -302,17 +368,30 @@ def fetch_permission_rows_for_samples(
     out = out.dropna(subset=["sample_id"])
     out["sample_id"] = out["sample_id"].astype(int)
     out["permission_string"] = out["permission_string"].fillna("").astype(str).str.strip().str.lower()
-    out["permission_string"] = out["permission_string"].replace(PERMISSION_ALIAS_MAP)
     out["protection_level"] = out["protection_level"].fillna("UNKNOWN").astype(str).str.upper()
     out["permission_source"] = out["permission_source"].fillna("UNKNOWN").astype(str).str.upper()
-    for col in (
-        "effective_source_family_key",
-        "candidate_source_family_key",
-        "effective_review_lane",
-        "effective_resolution_semantics",
-    ):
+    governance_started_at = perf_counter()
+    emit_progress(
+        {
+            "phase": "governance_start",
+            "distinct_token_count": int(out["permission_string"].nunique()),
+            "elapsed_sec": max(0.0, perf_counter() - stage_started_at),
+        }
+    )
+    out, governed_token_count = _attach_governance_rows(out)
+    emit_progress(
+        {
+            "phase": "governance_complete",
+            "distinct_token_count": int(out["permission_string"].nunique()),
+            "returned_token_count": governed_token_count,
+            "query_duration_sec": max(0.0, perf_counter() - governance_started_at),
+            "elapsed_sec": max(0.0, perf_counter() - stage_started_at),
+        }
+    )
+    for col in _GOVERNANCE_COLUMNS:
         series = out[col] if col in out.columns else pd.Series("", index=out.index, dtype="object")
         out[col] = series.fillna("").astype(str).str.strip().str.lower()
+    out["permission_string"] = out["permission_string"].replace(PERMISSION_ALIAS_MAP)
     out["is_aosp_dict_match"] = pd.to_numeric(out.get("is_aosp_dict_match", 0), errors="coerce").fillna(0).astype(int)
     out["is_oem_dict_match"] = pd.to_numeric(out.get("is_oem_dict_match", 0), errors="coerce").fillna(0).astype(int)
     out = out[out["permission_string"] != ""].drop_duplicates(subset=["sample_id", "permission_string"])

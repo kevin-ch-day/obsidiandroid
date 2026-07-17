@@ -210,6 +210,17 @@ def run_permission_trends_report_stage(
                 f"  Query: {duration} | Rows: {returned:,} | "
                 f"Cumulative rows: {cumulative:,} | Stage elapsed: {elapsed}"
             )
+            return
+        if phase == "governance_start":
+            tokens = int(event.get("distinct_token_count", 0) or 0)
+            du.print_info(f"[REPORT] Permission governance: resolving {tokens:,} distinct tokens")
+            return
+        if phase == "governance_complete":
+            resolved = int(event.get("returned_token_count", 0) or 0)
+            duration = du.format_elapsed_duration(event.get("query_duration_sec"))
+            elapsed = du.format_elapsed_duration(event.get("elapsed_sec"))
+            du.print_info("[REPORT] Permission governance: complete")
+            print(f"  Mapped tokens: {resolved:,} | Query: {duration} | Stage elapsed: {elapsed}")
 
     permission_rows_df = _fetch_permission_rows_for_samples(
         sample_core_df["sample_id"].tolist(),

@@ -95,10 +95,20 @@ def test_fetch_permission_rows_for_samples_prefers_permission_string_norm(monkey
         "get_table_columns",
         lambda _table: ["sample_id", "permission_string", "permission_string_norm"],
     )
-    captured: dict[str, object] = {}
+    captured: list[str] = []
 
     def _fake_execute_permission_query(query, **kwargs):
-        captured["query"] = query
+        captured.append(query)
+        if "vw_permission_vt_current_governed" in query:
+            return pd.DataFrame(
+                {
+                    "permission_string": ["android.permission.read_sms"],
+                    "effective_source_family_key": ["aosp_public_manifest"],
+                    "candidate_source_family_key": [""],
+                    "effective_review_lane": ["public_aosp_candidate_review"],
+                    "effective_resolution_semantics": ["exact_concept"],
+                }
+            )
         return pd.DataFrame(
             {
                 "sample_id": [1, 1],
@@ -124,11 +134,10 @@ def test_fetch_permission_rows_for_samples_prefers_permission_string_norm(monkey
     )
 
     out = sample_perm_data.fetch_permission_rows_for_samples([1])
-    assert "permission_string_norm" in str(captured.get("query", ""))
+    assert "permission_string_norm" in captured[0]
     assert out["permission_string"].tolist() == ["android.permission.read_sms"]
-
-    assert "permission_string_norm" in str(captured.get("query", ""))
-    assert out["permission_string"].tolist() == ["android.permission.read_sms"]
+    assert out["effective_resolution_semantics"].tolist() == ["exact_concept"]
+    assert "WHERE observed_token IN" in captured[1]
 
 
 def test_fetch_permission_rows_for_samples_falls_back_without_norm(monkeypatch) -> None:
@@ -169,6 +178,49 @@ def test_fetch_permission_rows_for_samples_falls_back_without_norm(monkeypatch) 
     out = sample_perm_data.fetch_permission_rows_for_samples([1])
 
 
+def test_fetch_permission_rows_governs_raw_token_before_display_alias(monkeypatch) -> None:
+    """Governance must use the observed token, not the later reporting alias."""
+    sample_perm_data.permission_contracts.reset_permission_obs_norm_cache()
+    monkeypatch.setattr(
+        sample_perm_data.permission_contracts.db_engine,
+        "get_table_columns",
+        lambda _table: ["sample_id", "permission_string", "permission_string_norm"],
+    )
+    observed_governance_params: list[object] = []
+
+    def _fake_execute_permission_query(query, *, params=(), **_kwargs):
+        if "vw_permission_vt_current_governed" in query:
+            observed_governance_params.extend(params)
+            return pd.DataFrame(
+                {
+                    "permission_string": ["android.permission.system_overlay_window"],
+                    "effective_source_family_key": ["aosp_public_manifest"],
+                    "candidate_source_family_key": [""],
+                    "effective_review_lane": ["public_aosp_candidate_review"],
+                    "effective_resolution_semantics": ["exact_concept"],
+                }
+            )
+        return pd.DataFrame(
+            {
+                "sample_id": [1],
+                "permission_string_raw": ["android.permission.SYSTEM_OVERLAY_WINDOW"],
+                "permission_string": ["android.permission.system_overlay_window"],
+                "protection_level": ["DANGEROUS"],
+                "permission_source": ["AOSP"],
+                "is_aosp_dict_match": [1],
+                "is_oem_dict_match": [0],
+            }
+        )
+
+    monkeypatch.setattr(sample_perm_data.db_engine, "execute_permission_query", _fake_execute_permission_query)
+
+    out = sample_perm_data.fetch_permission_rows_for_samples([1])
+
+    assert observed_governance_params == ["android.permission.system_overlay_window"]
+    assert out["permission_string"].tolist() == ["android.permission.system_alert_window"]
+    assert out["effective_resolution_semantics"].tolist() == ["exact_concept"]
+
+
 def test_fetch_permission_rows_reports_start_and_completion_for_each_batch(monkeypatch) -> None:
     sample_perm_data.permission_contracts.reset_permission_obs_norm_cache()
     monkeypatch.setattr(
@@ -203,15 +255,17 @@ def test_fetch_permission_rows_reports_start_and_completion_for_each_batch(monke
     )
 
     assert len(out) == 501
-    assert [(event["phase"], event["batch_number"]) for event in events] == [
+    batch_events = [event for event in events if event["phase"] in {"start", "complete"}]
+    assert [(event["phase"], event["batch_number"]) for event in batch_events] == [
         ("start", 1),
         ("complete", 1),
         ("start", 2),
         ("complete", 2),
     ]
-    assert events[-1]["total_batches"] == 2
-    assert events[-1]["returned_row_count"] == 1
-    assert events[-1]["cumulative_rows"] == 501
+    assert batch_events[-1]["total_batches"] == 2
+    assert batch_events[-1]["returned_row_count"] == 1
+    assert batch_events[-1]["cumulative_rows"] == 501
+    assert [event["phase"] for event in events[-2:]] == ["governance_start", "governance_complete"]
 
 
 def test_fetch_permission_rows_uses_indexed_dictionary_keys_when_available(monkeypatch) -> None:
@@ -229,10 +283,20 @@ def test_fetch_permission_rows_uses_indexed_dictionary_keys_when_available(monke
         "get_table_columns",
         _table_columns,
     )
-    captured: dict[str, str] = {}
+    captured: list[str] = []
 
     def _fake_execute_permission_query(query, **_kwargs):
-        captured["query"] = query
+        captured.append(query)
+        if "vw_permission_vt_current_governed" in query:
+            return pd.DataFrame(
+                {
+                    "permission_string": ["android.permission.read_sms"],
+                    "effective_source_family_key": ["aosp_public_manifest"],
+                    "candidate_source_family_key": [""],
+                    "effective_review_lane": ["public_aosp_candidate_review"],
+                    "effective_resolution_semantics": ["exact_concept"],
+                }
+            )
         return pd.DataFrame(
             {
                 "sample_id": [1],
@@ -253,11 +317,12 @@ def test_fetch_permission_rows_uses_indexed_dictionary_keys_when_available(monke
 
     sample_perm_data.fetch_permission_rows_for_samples([1])
 
-    assert "= a.constant_value_norm" in captured["query"]
-    assert "= o.permission_string_norm" in captured["query"]
-    assert "LOWER(TRIM(a.constant_value))" not in captured["query"]
-    assert "= gov.observed_token" in captured["query"]
-    assert "= gov.raw_token_norm" not in captured["query"]
+    assert "= a.constant_value_norm" in captured[0]
+    assert "= o.permission_string_norm" in captured[0]
+    assert "LOWER(TRIM(a.constant_value))" not in captured[0]
+    assert "LEFT JOIN vw_permission_vt_current_governed" not in captured[0]
+    assert "FROM vw_permission_vt_current_governed" in captured[1]
+    assert "WHERE observed_token IN" in captured[1]
 
 
 def test_js_distance_zero_for_identical() -> None:
