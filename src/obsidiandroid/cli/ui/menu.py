@@ -18,11 +18,21 @@ def _print_breadcrumb(text: str) -> None:
         print(line.encode("ascii", errors="replace").decode("ascii"))
 
 
-def _print_menu_title(title: str, *, subtitle: str | None = None, breadcrumb: str | None = None) -> None:
-    """Print menu title and optional breadcrumb / subtitle."""
+def _print_menu_title(
+    title: str,
+    *,
+    subtitle: str | None = None,
+    breadcrumb: str | None = None,
+    context_lines: list[tuple[str, str]] | None = None,
+) -> None:
+    """Print a menu title with optional breadcrumb, context, and subtitle."""
     if breadcrumb:
         _print_breadcrumb(breadcrumb)
     cc.print_subheader(title.upper())
+    if context_lines:
+        for label, value in context_lines:
+            cc.print_context(str(label), str(value), fg=cc.THEME_ACCENT)
+        cc.print_rule()
     if subtitle:
         cc.print_info(str(subtitle).strip())
 
@@ -70,6 +80,7 @@ def display_menu(
     exit_label: str = "Exit",
     subtitle: str | None = None,
     breadcrumb: str | None = None,
+    context_lines: list[tuple[str, str]] | None = None,
     default_choice: int | None = None,
     action_hint: str | None = None,
 ) -> int:
@@ -81,10 +92,16 @@ def display_menu(
         exit_label: Label for the zero option.
         subtitle: Optional single line of context under the title.
         breadcrumb: Optional muted line above the title (e.g. ``Main › Tools``).
+        context_lines: Optional labeled context lines shown below the title.
         default_choice: If set (1..len(options)), blank input selects that row.
         action_hint: Footer hint; defaults to a standard key legend + default note.
     """
-    _print_menu_title(title, subtitle=subtitle, breadcrumb=breadcrumb)
+    _print_menu_title(
+        title,
+        subtitle=subtitle,
+        breadcrumb=breadcrumb,
+        context_lines=context_lines,
+    )
     _print_menu_options(options, exit_label=exit_label)
     footer = action_hint if action_hint is not None else (
         "Type a row number. " + _format_action_hint(default_choice=default_choice)

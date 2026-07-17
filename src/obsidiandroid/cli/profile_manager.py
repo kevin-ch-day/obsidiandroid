@@ -577,6 +577,7 @@ def select_profile_interactive(
     *,
     breadcrumb: str | None = None,
     subtitle: str | None = None,
+    context_lines: list[tuple[str, str]] | None = None,
     title: str = "Execution profile",
     exit_label: str = "Back",
 ) -> str | None:
@@ -586,6 +587,7 @@ def select_profile_interactive(
         load_profile_fn=load_profile,
         breadcrumb=breadcrumb,
         subtitle=subtitle,
+        context_lines=context_lines,
         title=title,
         exit_label=exit_label,
     )
@@ -595,6 +597,7 @@ def select_profile_interactive_quick(
     *,
     breadcrumb: str | None = None,
     subtitle: str | None = None,
+    context_lines: list[tuple[str, str]] | None = None,
     title: str = "Execution profile",
     exit_label: str = "Back",
 ) -> str | None:
@@ -605,6 +608,7 @@ def select_profile_interactive_quick(
         select_profile_interactive_fn=select_profile_interactive,
         breadcrumb=breadcrumb,
         subtitle=subtitle,
+        context_lines=context_lines,
         title=title,
         exit_label=exit_label,
     )

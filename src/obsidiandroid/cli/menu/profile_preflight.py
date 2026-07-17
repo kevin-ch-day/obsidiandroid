@@ -217,8 +217,8 @@ def _observed_readiness_note(
     return build_observed_readiness_note(readiness, bucket)
 
 
-def _profile_menu_latest_run_subtitle(output_root: Path | None = None) -> str | None:
-    """Summarize the latest run quickly without querying the live database.
+def _profile_menu_latest_run_context(output_root: Path | None = None) -> list[tuple[str, str]]:
+    """Build concise latest-run context without querying the live database.
 
     Profile selection must remain responsive.  The detailed live readiness
     query therefore stays in the selected-profile preflight; this menu uses
@@ -227,36 +227,33 @@ def _profile_menu_latest_run_subtitle(output_root: Path | None = None) -> str | 
     root = output_root or Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
     candidates = list(root.glob("runs/*/diagnostics/run_observability_summary.json"))
     if not candidates:
-        return None
+        return []
     summary_path = max(candidates, key=lambda path: path.stat().st_mtime)
     try:
         payload = json.loads(summary_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return None
+        return []
     if not isinstance(payload, dict):
-        return None
+        return []
 
-    run_id = str(payload.get("run_id") or payload.get("run_instance_id") or "latest run")
-    status = str(payload.get("run_status") or payload.get("pipeline_status") or "unknown").upper()
+    status = str(payload.get("run_status") or payload.get("pipeline_status") or "unknown").title()
     prepared = payload.get("cohort_prepared_row_count")
     trainable = payload.get("post_low_support_training_rows")
     visible_families = payload.get("visible_family_count")
     modeled_families = payload.get("modeled_family_class_count")
 
-    parts: list[str] = []
+    context: list[tuple[str, str]] = [("LAST RUN STATUS", status)]
     if isinstance(prepared, int):
-        prepared_text = f"prepared={prepared:,}"
+        prepared_text = f"Cohort: {prepared:,} prepared"
         if isinstance(trainable, int):
-            prepared_text += f" → trainable={trainable:,}"
-        parts.append(prepared_text)
+            prepared_text += f" → {trainable:,} classification-ready"
+        context.append(("INFO", prepared_text))
     if isinstance(visible_families, int):
-        family_text = f"visible families={visible_families:,}"
+        family_text = f"Family coverage: {visible_families:,} visible"
         if isinstance(modeled_families, int):
-            family_text += f" / modeled={modeled_families:,}"
-        parts.append(family_text)
-    if not parts:
-        return None
-    return f"Latest run {run_id} ({status}): " + " · ".join(parts)
+            family_text += f" → {modeled_families:,} modeled"
+        context.append(("INFO", family_text))
+    return context
 
 
 def resolve_profile_for_run(
@@ -264,6 +261,7 @@ def resolve_profile_for_run(
     prefer_quick: bool = False,
     menu_breadcrumb: str | None = None,
     menu_subtitle: str | None = None,
+    menu_context_lines: list[tuple[str, str]] | None = None,
     menu_title: str | None = None,
 ) -> str | None:
     """Resolve execution profile interactively."""
@@ -272,11 +270,13 @@ def resolve_profile_for_run(
         return profile_manager.select_profile_interactive_quick(
             breadcrumb=menu_breadcrumb,
             subtitle=menu_subtitle,
+            context_lines=menu_context_lines,
             title=title,
         )
     return profile_manager.select_profile_interactive(
         breadcrumb=menu_breadcrumb,
         subtitle=menu_subtitle,
+        context_lines=menu_context_lines,
         title=title,
     )
 
@@ -481,13 +481,19 @@ def resolve_and_validate_profile(
     effective_menu_subtitle = (
         menu_subtitle
         if menu_subtitle is not None
-        else _profile_menu_latest_run_subtitle()
+        else None
+    )
+    effective_menu_context_lines = (
+        None
+        if menu_subtitle is not None
+        else _profile_menu_latest_run_context()
     )
     while True:
         profile_id = resolve_profile_for_run(
             prefer_quick=prefer_quick,
             menu_breadcrumb=menu_breadcrumb,
             menu_subtitle=effective_menu_subtitle,
+            menu_context_lines=effective_menu_context_lines,
             menu_title=menu_title,
         )
         if not profile_id:

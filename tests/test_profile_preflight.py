@@ -12,7 +12,7 @@ import obsidiandroid.database.db_sample_metadata_fetchers as sample_metadata_fet
 from obsidiandroid.cli.menu import profile_preflight
 
 
-def test_profile_menu_latest_run_subtitle_summarizes_latest_artifact(tmp_path: Path) -> None:
+def test_profile_menu_latest_run_context_summarizes_latest_artifact(tmp_path: Path) -> None:
     diagnostics = tmp_path / "runs" / "allcurrent_diagnostic" / "diagnostics"
     diagnostics.mkdir(parents=True)
     (diagnostics / "run_observability_summary.json").write_text(
@@ -29,16 +29,17 @@ def test_profile_menu_latest_run_subtitle_summarizes_latest_artifact(tmp_path: P
         encoding="utf-8",
     )
 
-    subtitle = profile_preflight._profile_menu_latest_run_subtitle(tmp_path)
+    context = profile_preflight._profile_menu_latest_run_context(tmp_path)
 
-    assert subtitle == (
-        "Latest run 20260716T191247Z__3815fa (FAILED): prepared=9,716 → "
-        "trainable=9,440 · visible families=207 / modeled=169"
-    )
+    assert context == [
+        ("LAST RUN STATUS", "Failed"),
+        ("INFO", "Cohort: 9,716 prepared → 9,440 classification-ready"),
+        ("INFO", "Family coverage: 207 visible → 169 modeled"),
+    ]
 
 
-def test_profile_menu_latest_run_subtitle_handles_missing_artifact(tmp_path: Path) -> None:
-    assert profile_preflight._profile_menu_latest_run_subtitle(tmp_path) is None
+def test_profile_menu_latest_run_context_handles_missing_artifact(tmp_path: Path) -> None:
+    assert profile_preflight._profile_menu_latest_run_context(tmp_path) == []
 
 
 def test_resolve_and_validate_profile_reprompts_until_valid(monkeypatch) -> None:

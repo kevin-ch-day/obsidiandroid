@@ -117,6 +117,24 @@ def test_display_menu_blank_input_selects_default(monkeypatch) -> None:
     assert menu.display_menu(["First", "Second"], title="T", default_choice=2) == 2
 
 
+def test_display_menu_renders_labeled_context_lines(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "0")
+
+    assert menu.display_menu(
+        ["Only"],
+        title="Execution profile",
+        context_lines=[
+            ("LAST RUN STATUS", "Failed"),
+            ("INFO", "Cohort: 9,716 prepared → 9,440 classification-ready"),
+        ],
+    ) == 0
+
+    out = capsys.readouterr().out
+    assert "[LAST RUN STATUS] Failed" in out
+    assert "[INFO" in out
+    assert "Cohort: 9,716 prepared → 9,440 classification-ready" in out
+
+
 def test_display_menu_blank_without_default_reprompts(monkeypatch) -> None:
     """Main menu: empty line shows hint then accepts numeric choice."""
     replies = iter(["", "2"])

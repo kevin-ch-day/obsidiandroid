@@ -267,6 +267,11 @@ def print_label(
     _safe_print(out)
 
 
+def print_context(label: str, msg: str, *, fg: Optional[str] = Fore.WHITE) -> None:
+    """Print an unpadded context tag for compact menu status blocks."""
+    _safe_print(apply_color(f"[{str(label).strip().upper()}] {msg}", fg=fg))
+
+
 def print_stat(
     label: str,
     value,
@@ -374,6 +379,7 @@ __all__ = [
     "temporary_colors",
     "print_subheader",
     "print_label",
+    "print_context",
     "print_stat",
     "clear_screen",
     "Fore",
