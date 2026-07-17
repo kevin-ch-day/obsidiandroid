@@ -122,6 +122,12 @@ def _fetch_permission_rows(sample_ids: list[int]) -> pd.DataFrame:
     for chunk in _iter_chunks(sample_ids):
         placeholders = ", ".join(["%s"] * len(chunk))
         permission_key_expr = _permission_obs_key_expr()
+        if permission_contracts.permission_dictionary_norm_available():
+            aosp_join = f"{permission_key_expr} = a.constant_value_norm"
+            oem_join = f"{permission_key_expr} = o.permission_string_norm"
+        else:
+            aosp_join = "LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(a.constant_value))"
+            oem_join = "LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(o.permission_string))"
         query = f"""
             SELECT
                 ops.sample_id,
@@ -131,9 +137,9 @@ def _fetch_permission_rows(sample_ids: list[int]) -> pd.DataFrame:
                 UPPER(COALESCE(a.protection_level, o.protection_level, 'UNKNOWN')) AS protection_level
             FROM android_permission_obs_sample ops
             LEFT JOIN android_permission_dict_aosp a
-                ON LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(a.constant_value))
+                ON {aosp_join}
             LEFT JOIN android_permission_dict_oem o
-                ON LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(o.permission_string))
+                ON {oem_join}
                 AND (ops.vendor_id = o.vendor_id OR o.vendor_id IS NULL)
             WHERE ops.sample_id IN ({placeholders})
               AND ops.permission_string IS NOT NULL

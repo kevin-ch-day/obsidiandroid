@@ -214,6 +214,50 @@ def test_fetch_permission_rows_reports_start_and_completion_for_each_batch(monke
     assert events[-1]["cumulative_rows"] == 501
 
 
+def test_fetch_permission_rows_uses_indexed_dictionary_keys_when_available(monkeypatch) -> None:
+    sample_perm_data.permission_contracts.reset_permission_obs_norm_cache()
+
+    def _table_columns(table: str) -> list[str]:
+        return {
+            "android_permission_obs_sample": ["sample_id", "permission_string", "permission_string_norm"],
+            "android_permission_dict_aosp": ["constant_value", "constant_value_norm"],
+            "android_permission_dict_oem": ["permission_string", "permission_string_norm"],
+        }[table]
+
+    monkeypatch.setattr(
+        sample_perm_data.permission_contracts.db_engine,
+        "get_table_columns",
+        _table_columns,
+    )
+    captured: dict[str, str] = {}
+
+    def _fake_execute_permission_query(query, **_kwargs):
+        captured["query"] = query
+        return pd.DataFrame(
+            {
+                "sample_id": [1],
+                "permission_string_raw": ["android.permission.READ_SMS"],
+                "permission_string": ["android.permission.read_sms"],
+                "protection_level": ["DANGEROUS"],
+                "permission_source": ["AOSP"],
+                "is_aosp_dict_match": [1],
+                "is_oem_dict_match": [0],
+            }
+        )
+
+    monkeypatch.setattr(
+        sample_perm_data.db_engine,
+        "execute_permission_query",
+        _fake_execute_permission_query,
+    )
+
+    sample_perm_data.fetch_permission_rows_for_samples([1])
+
+    assert "= a.constant_value_norm" in captured["query"]
+    assert "= o.permission_string_norm" in captured["query"]
+    assert "LOWER(TRIM(a.constant_value))" not in captured["query"]
+
+
 def test_js_distance_zero_for_identical() -> None:
     p = np.array([0.2, 0.3, 0.5], dtype=float)
     assert stats_core.js_distance(p, p) == pytest.approx(0.0, abs=1e-9)

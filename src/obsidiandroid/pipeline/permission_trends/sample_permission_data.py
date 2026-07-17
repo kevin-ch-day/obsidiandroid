@@ -227,6 +227,12 @@ def fetch_permission_rows_for_samples(
         )
         placeholders = ", ".join(["%s"] * len(chunk))
         permission_key_expr = _permission_obs_key_expr_ops()
+        if permission_contracts.permission_dictionary_norm_available():
+            aosp_join = f"{permission_key_expr} = a.constant_value_norm"
+            oem_join = f"{permission_key_expr} = o.permission_string_norm"
+        else:
+            aosp_join = "LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(a.constant_value))"
+            oem_join = "LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(o.permission_string))"
         query = f"""
             SELECT
                 ops.sample_id,
@@ -242,9 +248,9 @@ def fetch_permission_rows_for_samples(
                 gov.effective_resolution_semantics
             FROM android_permission_obs_sample ops
             LEFT JOIN android_permission_dict_aosp a
-              ON LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(a.constant_value))
+              ON {aosp_join}
             LEFT JOIN android_permission_dict_oem o
-              ON LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(o.permission_string))
+              ON {oem_join}
              AND (ops.vendor_id = o.vendor_id OR o.vendor_id IS NULL)
             LEFT JOIN vw_permission_vt_current_governed gov
               ON {permission_key_expr} = gov.raw_token_norm

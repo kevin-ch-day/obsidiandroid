@@ -6,12 +6,14 @@ from . import db_engine
 
 
 _PERMISSION_OBS_NORM_AVAILABLE: bool | None = None
+_PERMISSION_DICTIONARY_NORM_AVAILABLE: bool | None = None
 
 
 def reset_permission_obs_norm_cache() -> None:
     """Reset cached `permission_string_norm` availability for tests or schema refresh."""
-    global _PERMISSION_OBS_NORM_AVAILABLE  # pylint: disable=global-statement
+    global _PERMISSION_OBS_NORM_AVAILABLE, _PERMISSION_DICTIONARY_NORM_AVAILABLE  # pylint: disable=global-statement
     _PERMISSION_OBS_NORM_AVAILABLE = None
+    _PERMISSION_DICTIONARY_NORM_AVAILABLE = None
 
 
 def permission_obs_norm_available() -> bool:
@@ -36,3 +38,22 @@ def permission_obs_key_expr(*, alias: str | None = None) -> str:
     if permission_obs_norm_available():
         return f"COALESCE(NULLIF(TRIM({norm}), ''), LOWER(TRIM({base})))"
     return f"LOWER(TRIM({base}))"
+
+
+def permission_dictionary_norm_available() -> bool:
+    """Return whether both permission dictionaries expose indexed normalized keys."""
+    global _PERMISSION_DICTIONARY_NORM_AVAILABLE  # pylint: disable=global-statement
+    if _PERMISSION_DICTIONARY_NORM_AVAILABLE is None:
+        aosp_columns = {
+            str(column).strip().lower()
+            for column in db_engine.get_table_columns("android_permission_dict_aosp")
+        }
+        oem_columns = {
+            str(column).strip().lower()
+            for column in db_engine.get_table_columns("android_permission_dict_oem")
+        }
+        _PERMISSION_DICTIONARY_NORM_AVAILABLE = (
+            "constant_value_norm" in aosp_columns
+            and "permission_string_norm" in oem_columns
+        )
+    return bool(_PERMISSION_DICTIONARY_NORM_AVAILABLE)
