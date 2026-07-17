@@ -19,7 +19,7 @@ RECEIPT_ROOT = REPOSITORY_ROOT / "governance" / "taxonomy_repairs"
 def test_committed_taxonomy_repair_receipts_validate() -> None:
     """Every committed repair package is complete, hashed, and reviewable."""
     results = validate_receipt_root(RECEIPT_ROOT)
-    assert len(results) == 2
+    assert len(results) == 3
     assert all(result.valid for result in results), results
 
 

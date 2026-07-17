@@ -1,0 +1,74 @@
+{
+  "repair_id": "2026-07-17_hipposms-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Codex direct-main workflow",
+  "applied_at_utc": "2026-07-17T20:38:37Z",
+  "receipt_created_at_utc": "2026-07-17T20:39:13Z",
+  "source_commit_at_application": "4a3d3b9fb9687e6cc5e61cb4aa94456cb81b1273",
+  "source_commit_at_receipt_creation": "4a3d3b9fb9687e6cc5e61cb4aa94456cb81b1273",
+  "affected_family_ids": [257],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 23,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 14,
+    "primary_type_slug": "sms-trojan",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 23,
+    "distinct_mapped_samples": 23,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Reactivate the existing evidence-backed Android HippoSMS family record and establish current SMS-Trojan authority without creating a duplicate taxonomy identity or changing mappings.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_threat_description",
+      "name": "F-Secure Threat Descriptions",
+      "url": "https://www.f-secure.com/v-descs/trojan-android-hipposms"
+    },
+    {
+      "kind": "android_malware_dataset_taxonomy",
+      "name": "CCCS-CIC-AndMal-2020",
+      "url": "https://www.unb.ca/cic/datasets/andmal2020.html"
+    }
+  ],
+  "before_sql_hash": "c24da6af73489970416d1f59fb5c62bddb67f7d49862d9899cdb1bee8af6501c",
+  "applied_sql_hash": "69d4b76e1c2cbfbd6f53d339f442a082b26c0367bc18d4d36db6f90f45e26a7f",
+  "validation_sql_hash": "6375e6bc5d2f4425bba4761ef296f0c58d69841226bfa992c7eee4477923f0bc",
+  "rollback_sql_hash": "a367a6fb006df38e71d4b9a2a7655276405a52377692e12982a19630aa61082f",
+  "evidence_hash": "c0a68c36bd2d5a84b322ae6f75cc69e49efdb2444f3f4e557fa34180c9cf9f12",
+  "post_change_validation": {
+    "family_257_status": "active",
+    "family_257_is_active": 1,
+    "family_257_primary_type_id": 14,
+    "catalog_mapped_sample_count": 23,
+    "authority_family_257_sample_count": 23,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "authority_view_duplicate_sample_groups": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "NOT_ATTEMPTED",
+    "recommendation": "No review-event insertion was needed for this narrowly scoped existing-family reactivation; do not introduce an entity migration without separate approval."
+  },
+  "limitations": "The contemporaneous before-state and aggregate post-change validation establish this narrow authority repair. They do not prove every behavior of every local sample, create a frozen benchmark artifact, or establish a paper-result claim."
+}
