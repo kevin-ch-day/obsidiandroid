@@ -1,0 +1,63 @@
+{
+  "repair_id": "2026-07-16_spymax-stale-alias",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "alias_deactivation",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Codex direct-main workflow",
+  "applied_at_utc": "2026-07-16T22:10:15Z",
+  "receipt_created_at_utc": "2026-07-17T05:08:31Z",
+  "source_commit_at_application": "9f04c414bc3a7a4ee3cdfcdcd1e96ab81c08fe51",
+  "source_commit_at_receipt_creation": "9f04c414bc3a7a4ee3cdfcdcd1e96ab81c08fe51",
+  "affected_family_ids": [37, 36],
+  "affected_alias_ids": [183],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family_alias",
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "v_android_apk_family_resolved",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 1,
+  "before_state_capture_mode": "RECONSTRUCTED_FROM_QUERY_OUTPUT",
+  "before_state": {
+    "alias_183_is_active": 1,
+    "alias_183_is_preferred": 1,
+    "alias_183_review_status": "accepted",
+    "alias_183_confidence": "1.000",
+    "family_37_status": "needs_review",
+    "family_37_is_active": 0,
+    "family_37_normalization_target_family_id": 36
+  },
+  "reason": "Deactivate the stale active alias on an inactive family to eliminate an ambiguous current authority resolution while preserving historical provenance.",
+  "evidence_sources": [
+    {
+      "kind": "database_governance_state",
+      "locator": "database://erebus_threat_intel_prod/android_malware_family_alias/183",
+      "description": "Recorded terminal query output and post-change read-only reconstruction."
+    }
+  ],
+  "before_sql_hash": "aefaf827f9917be589fcd1468dc76ae6fa7702531c959f427b874ba5e4d1db4d",
+  "applied_sql_hash": "69d4c8de268921c4117536565d11c57f628f87c856fe04ccf8613e58c1d30393",
+  "validation_sql_hash": "1c84077c82a83d260e72a1498fa3584134155214c028dcbe74ae433d82ebff74",
+  "rollback_sql_hash": "a419019248ae6725ff65da26001d2465e813f0a0a2e9663a692b97d613210b91",
+  "evidence_hash": "82f8cb059520e0fcf5715d02a75f7056ad3db92b397f8571d0202fbdd41b06df",
+  "post_change_validation": {
+    "alias_183_present": true,
+    "alias_183_is_active": 0,
+    "family_37_is_active": 0,
+    "family_37_normalization_target_family_id": 36,
+    "historical_mapping_count": 29,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "resolved_view_duplicate_sample_groups": 0,
+    "authority_view_duplicate_sample_groups": 0
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "ELIGIBLE_NOT_RECORDED",
+    "family_entity_id": 40,
+    "existing_legacy_review_event_count": 1,
+    "recommendation": "A separately approved database review event may later reference the existing V2 entity; no event was inserted while backfilling this receipt."
+  },
+  "limitations": "The pre-change state was reconstructed from recorded query output. No contemporaneous immutable before snapshot or database-side review-event row exists."
+}

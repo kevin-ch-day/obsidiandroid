@@ -1,0 +1,70 @@
+{
+  "repair_id": "2026-07-17_jsmshider-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Codex direct-main workflow",
+  "applied_at_utc": "2026-07-17T03:22:35Z",
+  "receipt_created_at_utc": "2026-07-17T05:08:31Z",
+  "source_commit_at_application": "9f04c414bc3a7a4ee3cdfcdcd1e96ab81c08fe51",
+  "source_commit_at_receipt_creation": "9f04c414bc3a7a4ee3cdfcdcd1e96ab81c08fe51",
+  "affected_family_ids": [268],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 10,
+  "before_state_capture_mode": "RECONSTRUCTED_FROM_QUERY_OUTPUT",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 14,
+    "primary_type_slug": "sms-trojan",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null
+  },
+  "reason": "Reactivate the existing evidence-backed Android SMS-Trojan family record and establish current authority without creating a duplicate taxonomy identity.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_threat_description",
+      "name": "Microsoft Security Intelligence",
+      "url": "https://www.microsoft.com/en-us/wdsi/threats/malware-encyclopedia-description?Name=Trojan%3AAndroidOS%2FSmsHider.A"
+    },
+    {
+      "kind": "android_malware_research",
+      "name": "Yajin Zhou, Android Malware: Detection",
+      "url": "https://repository.lib.ncsu.edu/server/api/core/bitstreams/54aa6ff0-d29e-40b3-9c25-bf7478d7b453/content"
+    }
+  ],
+  "before_sql_hash": "3d78600379b6f9d64c66932b5e41c39114fd10cc8daf0877f4346c97009f3532",
+  "applied_sql_hash": "c78313d3fa7587a53e411b709e935d5b190d8a19be8f1c1dfdbf8714f60ac080",
+  "validation_sql_hash": "aab1c371e796b6315d111c0feaf6d2281542ce0e20f247158c64e9c8b5110141",
+  "rollback_sql_hash": "de07d885cb291bbf81f561d20dd874d6edc184356103848c303628704024b0e0",
+  "evidence_hash": "3c79308e9c74834413f017011caf36ca015ddb191b16542313f7b8a0d94ea53b",
+  "post_change_validation": {
+    "family_268_status": "active",
+    "family_268_is_active": 1,
+    "family_268_primary_type_id": 14,
+    "catalog_label_sample_count": 10,
+    "authority_family_268_sample_count": 10,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "authority_view_duplicate_sample_groups": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "The pre-change state was reconstructed from recorded query output. No contemporaneous immutable before snapshot or database-side review-event row exists; family 268 has no android_family_entity_v2 row, so the V2 review-event table cannot be used without a separate entity-migration decision."
+}
