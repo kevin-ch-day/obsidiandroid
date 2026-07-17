@@ -256,6 +256,8 @@ def test_fetch_permission_rows_uses_indexed_dictionary_keys_when_available(monke
     assert "= a.constant_value_norm" in captured["query"]
     assert "= o.permission_string_norm" in captured["query"]
     assert "LOWER(TRIM(a.constant_value))" not in captured["query"]
+    assert "= gov.observed_token" in captured["query"]
+    assert "= gov.raw_token_norm" not in captured["query"]
 
 
 def test_js_distance_zero_for_identical() -> None:

@@ -252,8 +252,12 @@ def fetch_permission_rows_for_samples(
             LEFT JOIN android_permission_dict_oem o
               ON {oem_join}
              AND (ops.vendor_id = o.vendor_id OR o.vendor_id IS NULL)
+            -- ``observed_token`` is the case-insensitive primary token key of
+            -- the underlying enrichment table.  Joining on the derived
+            -- ``raw_token_norm`` expression instead forces a full vocabulary
+            -- scan for every permission observation.
             LEFT JOIN vw_permission_vt_current_governed gov
-              ON {permission_key_expr} = gov.raw_token_norm
+              ON {permission_key_expr} = gov.observed_token
             WHERE ops.sample_id IN ({placeholders})
               AND ops.permission_string IS NOT NULL
               AND TRIM(ops.permission_string) <> ''
