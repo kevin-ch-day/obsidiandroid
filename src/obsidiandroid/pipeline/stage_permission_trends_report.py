@@ -171,10 +171,9 @@ def run_permission_trends_report_stage(
 
     bundle_dir = _resolve_permission_bundle_dir(run_id)
     bundle_dir.mkdir(parents=True, exist_ok=True)
-    du.print_info(
-        f"[REPORT] Permission trends stage started for {len(samples_df)} samples "
-        f"(bundle: {du.format_console_path(bundle_dir)})"
-    )
+    du.print_info("[REPORT] Permission trends")
+    print(f"  Cohort: {len(samples_df):,} samples")
+    print(f"  Bundle: {du.format_console_path(bundle_dir)}")
     removed_pngs = _prune_run_stamped_pngs_in_latest_bundle(bundle_dir)
     if removed_pngs:
         du.print_info(f"[CLEANUP] Pruned {len(removed_pngs)} legacy run-stamped PNG(s) from latest bundle.")

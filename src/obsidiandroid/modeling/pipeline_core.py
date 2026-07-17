@@ -1214,7 +1214,9 @@ def train_all_models(
             return None
 
         trained = [m for m in results if m in ALL_SUPPORTED_MODELS]
-        du.print_info(f"[SUMMARY] Trained models: {', '.join(trained)}")
+        du.print_info("[SUMMARY] Trained models:")
+        for model_name in trained:
+            print(f"             - {model_name}")
         log_event(
             PIPELINE_LOGGER,
             "train_all_models_complete",

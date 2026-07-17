@@ -69,7 +69,7 @@ class PipelineRunStageControl:
         self.last_completed_stage = stage_name
         self.manifest_context["completed_stage"] = stage_name
         display_stage_name = "manifest stage total" if str(stage_name).strip().lower() == "manifest" else stage_name
-        du.print_info(f"[TIME] {display_stage_name}: {duration:.2f}s")
+        du.print_info(f"[TIME] {display_stage_name}: {du.format_elapsed_duration(duration)}")
         log_event(
             self._pipeline_logger,
             "stage_timing",

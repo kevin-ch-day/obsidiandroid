@@ -1807,7 +1807,9 @@ def run_pipeline(
             )
 
         total_runtime_sec = max(0.0, perf_counter() - pipeline_started_at)
-        du.print_info(f"[TIME] total_pipeline_runtime: {total_runtime_sec:.2f}s")
+        du.print_info(
+            f"[TIME] total_pipeline_runtime: {du.format_elapsed_duration(total_runtime_sec)}"
+        )
         log_event(
             PIPELINE_MAIN_LOGGER,
             "pipeline_timing_complete",

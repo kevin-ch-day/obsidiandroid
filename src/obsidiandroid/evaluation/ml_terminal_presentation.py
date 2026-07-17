@@ -290,7 +290,7 @@ def _artifact_lines(
     run_id: str,
     training_runtime_sec: float | None,
 ) -> list[str]:
-    lines: list[str] = []
+    lines: list[str] = [f"Promoted model: {top_model}"]
     export_paths = {}
     payload = results.get(top_model, {})
     if isinstance(payload, dict):
@@ -300,18 +300,19 @@ def _artifact_lines(
 
     model_path = export_paths.get("model_path")
     metadata_path = export_paths.get("metadata_path")
-    if model_path:
-        lines.append(f"Model                 : {format_run_relative_path(model_path)}")
-    if metadata_path:
-        lines.append(f"Model metadata        : {format_run_relative_path(metadata_path)}")
-    if run_id and run_id != "unknown":
-        lines.append(f"Leaderboard           : diagnostics/model_comparison_summary_{run_id}.csv")
-    lines.append("Family-tier summary   : diagnostics/")
-    lines.append("RF importances        : diagnostics/")
-    lines.append("Inspector report      : diagnostics/")
     if training_runtime_sec is not None:
-        lines.append(f"Training runtime      : {training_runtime_sec:.2f}s")
-    lines.append(f"Promoted model        : {top_model}")
+        lines.append(f"Training runtime: {du.format_elapsed_duration(training_runtime_sec)}")
+    lines.append("")
+    lines.append("Model artifacts")
+    if model_path:
+        lines.append(f"Model: {format_run_relative_path(model_path)}")
+    if metadata_path:
+        lines.append(f"Model metadata: {format_run_relative_path(metadata_path)}")
+    lines.append("")
+    lines.append("Run diagnostics")
+    if run_id and run_id != "unknown":
+        lines.append(f"Leaderboard: diagnostics/model_comparison_summary_{run_id}.csv")
+    lines.append("Additional reports: diagnostics/ (family tiers, RF importances, inspector)")
     return lines
 
 

@@ -424,9 +424,11 @@ def apply_confusion_matrix_policy(run_id: str, top_model: str | None) -> None:
     if not files:
         return
     if mode == "all":
-        du.print_info(
-            f"[CONFUSION] Retention policy=all: kept all {len(files)} matrix PNGs under conf_matrices/"
-        )
+        du.print_info("[CONFUSION] Export summary")
+        print("  Policy: all")
+        print(f"  Retained: {len(files)} matrix file(s)")
+        print("  Removed: 0 matrix file(s)")
+        print("  Location: conf_matrices/")
         try:
             from obsidiandroid.reporting import confusion_matrix_layout as cm_layout
 
@@ -537,12 +539,12 @@ def apply_confusion_matrix_policy(run_id: str, top_model: str | None) -> None:
     except Exception:
         pass
 
-    kept_names = ", ".join(sorted(path.name for path in keep)[:6])
-    suffix = " …" if len(keep) > 6 else ""
-    du.print_info(
-        f"[CONFUSION] Policy '{mode}': kept {len(keep)}, removed {removed} "
-        f"(top_model={top_model}) — {kept_names}{suffix}"
-    )
+    du.print_info("[CONFUSION] Export summary")
+    print(f"  Policy: {mode}")
+    print(f"  Retained: {len(keep)} matrix file(s)")
+    print(f"  Removed: {removed} matrix file(s)")
+    print(f"  Promoted model: {top_model}")
+    print("  Location: conf_matrices/")
 
 
 def export_model_config_snapshot(

@@ -42,6 +42,29 @@ def format_console_path(path_like: str | os.PathLike[str]) -> str:
     return f"{repo.name}/{relative.as_posix()}"
 
 
+def format_elapsed_duration(value: object, *, precision: int = 2) -> str:
+    """Format an elapsed duration for an operator-facing terminal message.
+
+    Keep short operations compact in seconds, but make longer stages readable
+    without asking an operator to mentally convert raw seconds.
+    """
+    try:
+        seconds = max(0.0, float(value))
+    except (TypeError, ValueError):
+        return "n/a"
+
+    digits = max(0, int(precision))
+    if seconds < 60:
+        return f"{seconds:.{digits}f}s"
+
+    whole_minutes, remainder = divmod(seconds, 60)
+    if whole_minutes < 60:
+        return f"{int(whole_minutes)}m {remainder:.{digits}f}s"
+
+    hours, minutes = divmod(int(whole_minutes), 60)
+    return f"{hours}h {minutes}m {remainder:.{digits}f}s"
+
+
 def print_panel(
     title: str,
     rows: list[tuple[str, object]],

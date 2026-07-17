@@ -105,6 +105,10 @@ def test_compare_model_performance_prints_headline_summary(monkeypatch, capsys) 
     assert "COHORT / SPLIT SUMMARY" in out
     assert "Governed cohort" in out
     assert "EXPORTED ARTIFACTS" in out
+    assert "Promoted model: logistic_regression" in out
+    assert "Training runtime: 3m 36.73s" in out
+    assert "Model artifacts" in out
+    assert "Run diagnostics" in out
     assert "models/logistic_regression/logistic_regression_classifier_model.joblib" in out
     assert "Primary result" not in out
     assert "BEST MODEL METRICS" not in out

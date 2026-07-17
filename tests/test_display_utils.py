@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import pandas as pd
 from obsidiandroid.cli.ui.display import clear_console
+from obsidiandroid.cli.ui.display import format_elapsed_duration
 from obsidiandroid.cli.ui.display import format_console_path
 from obsidiandroid.cli.ui.display import print_table
 import obsidiandroid.cli.ui.display as du
@@ -80,3 +81,9 @@ def test_format_console_path_preserves_absolute_path_outside_repo(monkeypatch):
     target = Path("/tmp/other/file.txt").resolve()
     monkeypatch.setattr(du, "repo_root", lambda: repo)
     assert format_console_path(target) == target.as_posix()
+
+
+def test_format_elapsed_duration_uses_minutes_after_one_minute():
+    assert format_elapsed_duration(59.9) == "59.90s"
+    assert format_elapsed_duration(180.70) == "3m 0.70s"
+    assert format_elapsed_duration(3661.2) == "1h 1m 1.20s"
