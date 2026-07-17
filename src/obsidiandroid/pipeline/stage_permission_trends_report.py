@@ -2447,28 +2447,73 @@ def _interpret_enrichment_bucket(odds_ratio: float, q_value: float) -> str:
     return "no_signal"
 
 
+def _chi2_2x2_p_values(
+    a: np.ndarray,
+    b: np.ndarray,
+    c: np.ndarray,
+    d: np.ndarray,
+) -> np.ndarray:
+    """Vectorize the existing Pearson 2x2 p-value calculation without correction."""
+    a_float = np.asarray(a, dtype=float)
+    b_float = np.asarray(b, dtype=float)
+    c_float = np.asarray(c, dtype=float)
+    d_float = np.asarray(d, dtype=float)
+    total = a_float + b_float + c_float + d_float
+    denominator = (a_float + b_float) * (c_float + d_float) * (a_float + c_float) * (b_float + d_float)
+    statistic = np.divide(
+        total * np.square(a_float * d_float - b_float * c_float),
+        denominator,
+        out=np.zeros_like(total, dtype=float),
+        where=denominator > 0.0,
+    )
+    try:
+        from scipy.stats import chi2
+
+        return np.where(denominator > 0.0, chi2.sf(statistic, df=1), 1.0).astype(float)
+    except Exception:
+        return np.asarray(
+            [_chi2_2x2_p_and_v(int(xa), int(xb), int(xc), int(xd))[0] for xa, xb, xc, xd in zip(a, b, c, d)],
+            dtype=float,
+        )
+
+
 def _build_permission_type_enrichment(
     sample_core_df: pd.DataFrame,
     permission_matrix_df: pd.DataFrame,
 ) -> pd.DataFrame:
     merged = sample_core_df[["sample_id", "type_slug"]].merge(permission_matrix_df, on="sample_id", how="left").fillna(0)
     permission_cols = [c for c in merged.columns if c not in {"sample_id", "type_slug"}]
+    present_matrix = (
+        merged[permission_cols]
+        .apply(pd.to_numeric, errors="coerce")
+        .fillna(0)
+        .astype(int)
+        .gt(0)
+        .astype(int)
+    )
+    total_present = present_matrix.sum(axis=0)
+    total_rows = int(len(merged))
     rows: list[dict[str, Any]] = []
     for type_slug, group in merged.groupby("type_slug", dropna=False):
-        other = merged[merged["type_slug"] != type_slug]
-        if group.empty or other.empty:
+        group_index = group.index
+        n_type = int(len(group_index))
+        n_other = total_rows - n_type
+        if group.empty or n_other <= 0:
             continue
-        n_type = int(len(group))
-        n_other = int(len(other))
-        for permission in permission_cols:
-            present_type = pd.to_numeric(group[permission], errors="coerce").fillna(0).astype(int) > 0
-            present_other = pd.to_numeric(other[permission], errors="coerce").fillna(0).astype(int) > 0
-            a = int(present_type.sum())
-            b = int(n_type - a)
-            c = int(present_other.sum())
-            d = int(n_other - c)
+        type_present = present_matrix.loc[group_index].sum(axis=0)
+        other_present = total_present - type_present
+        a_values = type_present.to_numpy(dtype=int)
+        b_values = n_type - a_values
+        c_values = other_present.to_numpy(dtype=int)
+        d_values = n_other - c_values
+        p_values = _chi2_2x2_p_values(a_values, b_values, c_values, d_values)
+        for position, (permission, a_value) in enumerate(type_present.items()):
+            a = int(a_value)
+            b = int(b_values[position])
+            c = int(c_values[position])
+            d = int(d_values[position])
             odds_ratio = ((a + 0.5) * (d + 0.5)) / ((b + 0.5) * (c + 0.5))
-            p_value, _cramers_v = _chi2_2x2_p_and_v(a, b, c, d)
+            p_value = float(p_values[position])
             rows.append(
                 {
                     "permission": str(permission),
@@ -2535,31 +2580,48 @@ def _build_permission_family_enrichment(
         .fillna(0)
     )
     permission_cols = [c for c in permission_matrix_df.columns if c != "sample_id"]
+    present_matrix = (
+        merged[permission_cols]
+        .apply(pd.to_numeric, errors="coerce")
+        .fillna(0)
+        .astype(int)
+        .gt(0)
+        .astype(int)
+    )
+    total_present = present_matrix.sum(axis=0)
+    total_rows = int(len(merged))
     rows: list[dict[str, Any]] = []
     for family_name, group in merged.groupby("family_canonical", dropna=False):
-        other = merged[merged["family_canonical"] != family_name]
-        if group.empty or other.empty:
+        group_index = group.index
+        group_rows = int(len(group_index))
+        other_rows = total_rows - group_rows
+        if group.empty or other_rows <= 0:
             continue
         family_support = int(pd.to_numeric(group["family_support"], errors="coerce").fillna(0).iloc[0])
         type_slug = str(group["type_slug"].iloc[0])
         benchmark_eligible = bool(group["benchmark_eligible_n_ge_3"].iloc[0])
-        for permission in permission_cols:
-            present_family = pd.to_numeric(group[permission], errors="coerce").fillna(0).astype(int) > 0
-            present_other = pd.to_numeric(other[permission], errors="coerce").fillna(0).astype(int) > 0
-            a = int(present_family.sum())
-            b = int(len(group) - a)
-            c = int(present_other.sum())
-            d = int(len(other) - c)
+        family_present = present_matrix.loc[group_index].sum(axis=0)
+        other_present = total_present - family_present
+        a_values = family_present.to_numpy(dtype=int)
+        b_values = group_rows - a_values
+        c_values = other_present.to_numpy(dtype=int)
+        d_values = other_rows - c_values
+        p_values = _chi2_2x2_p_values(a_values, b_values, c_values, d_values)
+        for position, (permission, a_value) in enumerate(family_present.items()):
+            a = int(a_value)
+            b = int(b_values[position])
+            c = int(c_values[position])
+            d = int(d_values[position])
             odds_ratio = ((a + 0.5) * (d + 0.5)) / ((b + 0.5) * (c + 0.5))
-            p_value, _cramers_v = _chi2_2x2_p_and_v(a, b, c, d)
+            p_value = float(p_values[position])
             rows.append(
                 {
                     "permission": str(permission),
                     "family_canonical": str(family_name),
                     "type_slug": type_slug,
                     "family_support": family_support,
-                    "family_prevalence_pct": round((float(a) / float(max(len(group), 1))) * 100.0, 6),
-                    "non_family_prevalence_pct": round((float(c) / float(max(len(other), 1))) * 100.0, 6),
+                    "family_prevalence_pct": round((float(a) / float(max(group_rows, 1))) * 100.0, 6),
+                    "non_family_prevalence_pct": round((float(c) / float(max(other_rows, 1))) * 100.0, 6),
                     "odds_ratio": round(float(odds_ratio), 6),
                     "p_value": float(p_value),
                     "benchmark_eligible_n_ge_3": benchmark_eligible,

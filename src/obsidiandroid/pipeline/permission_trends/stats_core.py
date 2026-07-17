@@ -139,13 +139,37 @@ def spearman_with_bootstrap_ci(
     if n < 3:
         return rho, p_value, np.nan, np.nan
     rng = np.random.default_rng(rng_seed)
-    resamples = int(bootstrap_resamples)
-    boot = []
-    for _ in range(max(resamples, 100)):
-        idx = rng.integers(0, n, size=n)
-        r, _ = spearman_stat(x_vals[idx], y_vals[idx])
-        if not np.isnan(r):
-            boot.append(r)
+    resamples = max(int(bootstrap_resamples), 100)
+    boot: list[float] = []
+    try:
+        from scipy.stats import rankdata
+
+        # Rank complete batches together.  This preserves the sample-level
+        # bootstrap draws and average-tie rank semantics of ``spearmanr`` but
+        # avoids 2,000 Python/scipy calls for each reported association.
+        batch_size = 64
+        for offset in range(0, resamples, batch_size):
+            batch_count = min(batch_size, resamples - offset)
+            idx = rng.integers(0, n, size=(batch_count, n))
+            x_rank = rankdata(x_vals[idx], axis=1, method="average")
+            y_rank = rankdata(y_vals[idx], axis=1, method="average")
+            x_centered = x_rank - x_rank.mean(axis=1, keepdims=True)
+            y_centered = y_rank - y_rank.mean(axis=1, keepdims=True)
+            denominator = np.sqrt((x_centered * x_centered).sum(axis=1) * (y_centered * y_centered).sum(axis=1))
+            correlations = np.divide(
+                (x_centered * y_centered).sum(axis=1),
+                denominator,
+                out=np.full(batch_count, np.nan, dtype=float),
+                where=denominator > 0.0,
+            )
+            boot.extend(correlations[np.isfinite(correlations)].astype(float).tolist())
+    except Exception:
+        # Keep a deterministic fallback for environments without SciPy.
+        for _ in range(resamples):
+            idx = rng.integers(0, n, size=n)
+            r, _ = spearman_stat(x_vals[idx], y_vals[idx])
+            if not np.isnan(r):
+                boot.append(r)
     if not boot:
         return rho, p_value, np.nan, np.nan
     low = float(np.quantile(boot, 0.025))

@@ -30,23 +30,23 @@ def build_sample_level_permission_metrics(
         "dangerous",
         np.where(work["protection_level"].str.contains("NORMAL", regex=False), "normal", "unknown"),
     )
-    counts = work.groupby(["sample_id", "bucket"])["permission_string"].count().reset_index(name="count")
-    entropy_rows: list[dict[str, Any]] = []
-    for sample_id, group in counts.groupby("sample_id"):
-        vals = group["count"].astype(float).values
-        probs = vals / vals.sum() if vals.sum() > 0 else np.array([1.0])
-        entropy = float(-(probs * np.log(probs)).sum())
-        strict = int(group[group["bucket"] == "dangerous"]["count"].sum())
-        unknown = int(group[group["bucket"] == "unknown"]["count"].sum())
-        entropy_rows.append(
-            {
-                "sample_id": int(sample_id),
-                "permission_entropy": entropy,
-                "dangerous_count_strict": strict,
-                "dangerous_count_inclusive": strict + unknown,
-            }
-        )
-    out = pd.DataFrame(entropy_rows)
+    counts = work.groupby(["sample_id", "bucket"])["permission_string"].count().unstack(fill_value=0)
+    for bucket in ("dangerous", "normal", "unknown"):
+        if bucket not in counts.columns:
+            counts[bucket] = 0
+    counts = counts[["dangerous", "normal", "unknown"]].astype(float)
+    totals = counts.sum(axis=1)
+    probabilities = counts.div(totals.replace(0.0, np.nan), axis=0)
+    positive_probabilities = probabilities.where(probabilities > 0.0)
+    entropy = -(positive_probabilities * np.log(positive_probabilities)).sum(axis=1, skipna=True)
+    out = pd.DataFrame(
+        {
+            "sample_id": counts.index.astype(int),
+            "permission_entropy": entropy.fillna(0.0).astype(float),
+            "dangerous_count_strict": counts["dangerous"].astype(int),
+            "dangerous_count_inclusive": (counts["dangerous"] + counts["unknown"]).astype(int),
+        }
+    ).reset_index(drop=True)
     return sample_core_df[["sample_id"]].merge(out, on="sample_id", how="left").fillna(0)
 
 

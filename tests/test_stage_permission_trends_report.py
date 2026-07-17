@@ -485,6 +485,29 @@ def test_spearman_with_bootstrap_strong_correlation() -> None:
     assert rho > 0.99
 
 
+def test_spearman_bootstrap_batch_matches_scalar_reference_with_ties() -> None:
+    """Batching must preserve deterministic draws and average-tie rank semantics."""
+    x = pd.Series([0, 0, 1, 1, 2, 2, 3, 3], dtype=float)
+    y = pd.Series([3, 3, 2, 2, 1, 1, 0, 0], dtype=float)
+    _rho, _p, actual_low, actual_high = stats_core.spearman_with_bootstrap_ci(
+        x,
+        y,
+        bootstrap_resamples=100,
+        rng_seed=123,
+    )
+
+    rng = np.random.default_rng(123)
+    scalar_boot = []
+    for _ in range(100):
+        indices = rng.integers(0, len(x), size=len(x))
+        corr, _ = stats_core.spearman_stat(x.to_numpy()[indices], y.to_numpy()[indices])
+        if not np.isnan(corr):
+            scalar_boot.append(corr)
+
+    assert actual_low == pytest.approx(float(np.quantile(scalar_boot, 0.025)), abs=1e-12)
+    assert actual_high == pytest.approx(float(np.quantile(scalar_boot, 0.975)), abs=1e-12)
+
+
 def test_fetch_permission_aggregates_prefers_permission_string_norm(monkeypatch) -> None:
     sample_perm_data.permission_contracts.reset_permission_obs_norm_cache()
     monkeypatch.setattr(
@@ -1383,6 +1406,21 @@ def test_build_permission_enrichment_outputs_expected_fields() -> None:
         "pattern_confidence",
         "pattern_reason",
     }.issubset(family_out.columns)
+
+
+def test_vectorized_chi2_p_values_match_scalar_contract() -> None:
+    """Enrichment batching must retain the existing no-correction p-values."""
+    a = np.array([2, 0, 4, 1])
+    b = np.array([3, 5, 0, 1])
+    c = np.array([1, 2, 3, 0])
+    d = np.array([4, 3, 1, 0])
+
+    actual = report_stage._chi2_2x2_p_values(a, b, c, d)
+    expected = np.array(
+        [report_stage._chi2_2x2_p_and_v(int(xa), int(xb), int(xc), int(xd))[0] for xa, xb, xc, xd in zip(a, b, c, d)]
+    )
+
+    np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
 
 
 def test_permission_pattern_framework_emits_no_pattern_and_conflicting_evidence() -> None:
