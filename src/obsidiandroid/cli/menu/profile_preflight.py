@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from obsidiandroid.orchestration.profile_filters import split_benign_malicious
@@ -214,6 +215,48 @@ def _observed_readiness_note(
         except Exception as exc:
             return f"Observed readiness counts unavailable: {exc}"
     return build_observed_readiness_note(readiness, bucket)
+
+
+def _profile_menu_latest_run_subtitle(output_root: Path | None = None) -> str | None:
+    """Summarize the latest run quickly without querying the live database.
+
+    Profile selection must remain responsive.  The detailed live readiness
+    query therefore stays in the selected-profile preflight; this menu uses
+    only the latest run-local observability artifact.
+    """
+    root = output_root or Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+    candidates = list(root.glob("runs/*/diagnostics/run_observability_summary.json"))
+    if not candidates:
+        return None
+    summary_path = max(candidates, key=lambda path: path.stat().st_mtime)
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    run_id = str(payload.get("run_id") or payload.get("run_instance_id") or "latest run")
+    status = str(payload.get("run_status") or payload.get("pipeline_status") or "unknown").upper()
+    prepared = payload.get("cohort_prepared_row_count")
+    trainable = payload.get("post_low_support_training_rows")
+    visible_families = payload.get("visible_family_count")
+    modeled_families = payload.get("modeled_family_class_count")
+
+    parts: list[str] = []
+    if isinstance(prepared, int):
+        prepared_text = f"prepared={prepared:,}"
+        if isinstance(trainable, int):
+            prepared_text += f" → trainable={trainable:,}"
+        parts.append(prepared_text)
+    if isinstance(visible_families, int):
+        family_text = f"visible families={visible_families:,}"
+        if isinstance(modeled_families, int):
+            family_text += f" / modeled={modeled_families:,}"
+        parts.append(family_text)
+    if not parts:
+        return None
+    return f"Latest run {run_id} ({status}): " + " · ".join(parts)
 
 
 def resolve_profile_for_run(
@@ -435,11 +478,16 @@ def resolve_and_validate_profile(
     menu_title: str | None = None,
 ) -> str | None:
     """Interactive profile selection with preflight validation."""
+    effective_menu_subtitle = (
+        menu_subtitle
+        if menu_subtitle is not None
+        else _profile_menu_latest_run_subtitle()
+    )
     while True:
         profile_id = resolve_profile_for_run(
             prefer_quick=prefer_quick,
             menu_breadcrumb=menu_breadcrumb,
-            menu_subtitle=menu_subtitle,
+            menu_subtitle=effective_menu_subtitle,
             menu_title=menu_title,
         )
         if not profile_id:

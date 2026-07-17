@@ -445,18 +445,16 @@ def test_select_profile_interactive_quick_includes_support20_candidate(monkeypat
 
     assert selected is None
     assert captured["Execution profile"] == [
-        "Current corpus diagnostic — all Android samples",
+        "Run analysis — all Android samples",
         "Current benchmark — major-family classification",
         "Candidate benchmark — n >= 20; lock required",
         "Expanded exploration — major + mapped minor families",
         "Current benchmark — malware-type taxonomy",
         "Sensitivity studies — consensus and family-cap",
-        "Development checks — fast iteration or smoke",
+        "Development checks",
     ]
     assert "More profiles (full catalog)" not in captured["Execution profile"]
-    assert subtitles["Execution profile"] == (
-        "Current-corpus profiles only; they do not reproduce the accepted paper's historical experiment."
-    )
+    assert subtitles["Execution profile"] is None
 
 
 def test_select_profile_interactive_quick_resolves_robustness_submenu(monkeypatch) -> None:
@@ -474,13 +472,13 @@ def test_select_profile_interactive_quick_resolves_robustness_submenu(monkeypatc
 
     assert selected == "malicious_temporal_family300"
     assert seen["Execution profile"] == [
-        "Current corpus diagnostic — all Android samples",
+        "Run analysis — all Android samples",
         "Current benchmark — major-family classification",
         "Candidate benchmark — n >= 20; lock required",
         "Expanded exploration — major + mapped minor families",
         "Current benchmark — malware-type taxonomy",
         "Sensitivity studies — consensus and family-cap",
-        "Development checks — fast iteration or smoke",
+        "Development checks",
     ]
     assert seen["Robustness / perturbations"] == [
         "Sensitivity: consensus threshold",
