@@ -431,10 +431,12 @@ def test_infer_cohort_readiness_signal_prefers_declared_bucket_contract() -> Non
 def test_select_profile_interactive_quick_includes_support20_candidate(monkeypatch) -> None:
     """Quick path should expose the pre-freeze support-gated benchmark candidate."""
     captured: dict[str, list[str]] = {}
+    subtitles: dict[str, str | None] = {}
 
     def _fake_display_menu(options, *_, **kwargs):
         title = str(kwargs.get("title", ""))
         captured[title] = list(options)
+        subtitles[title] = kwargs.get("subtitle")
         return 0
 
     monkeypatch.setattr(profile_manager.profile_selection.mu, "display_menu", _fake_display_menu)
@@ -443,15 +445,18 @@ def test_select_profile_interactive_quick_includes_support20_candidate(monkeypat
 
     assert selected is None
     assert captured["Execution profile"] == [
-        "Current Android malware — all samples",
-        "Major-family Android malware classification",
-        "Candidate benchmark — n >= 20 family support",
-        "Expanded Android malware — major + minor families",
-        "Type-level / coarse taxonomy classification",
-        "Robustness and perturbation suite",
-        "Development / smoke checks",
+        "Current corpus diagnostic — all Android samples",
+        "Current benchmark — major-family classification",
+        "Candidate benchmark — n >= 20; lock required",
+        "Expanded exploration — major + mapped minor families",
+        "Current benchmark — malware-type taxonomy",
+        "Sensitivity studies — consensus and family-cap",
+        "Development checks — fast iteration or smoke",
     ]
     assert "More profiles (full catalog)" not in captured["Execution profile"]
+    assert subtitles["Execution profile"] == (
+        "Current-corpus profiles only; they do not reproduce the accepted paper's historical experiment."
+    )
 
 
 def test_select_profile_interactive_quick_resolves_robustness_submenu(monkeypatch) -> None:
@@ -469,13 +474,13 @@ def test_select_profile_interactive_quick_resolves_robustness_submenu(monkeypatc
 
     assert selected == "malicious_temporal_family300"
     assert seen["Execution profile"] == [
-        "Current Android malware — all samples",
-        "Major-family Android malware classification",
-        "Candidate benchmark — n >= 20 family support",
-        "Expanded Android malware — major + minor families",
-        "Type-level / coarse taxonomy classification",
-        "Robustness and perturbation suite",
-        "Development / smoke checks",
+        "Current corpus diagnostic — all Android samples",
+        "Current benchmark — major-family classification",
+        "Candidate benchmark — n >= 20; lock required",
+        "Expanded exploration — major + mapped minor families",
+        "Current benchmark — malware-type taxonomy",
+        "Sensitivity studies — consensus and family-cap",
+        "Development checks — fast iteration or smoke",
     ]
     assert seen["Robustness / perturbations"] == [
         "Sensitivity: consensus threshold",

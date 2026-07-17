@@ -193,13 +193,13 @@ def _profile_status_label(raw: dict[str, object], profile_id: str) -> str:
 def _quick_intent_options() -> list[tuple[str, str]]:
     """Return the fixed operator-facing intent menu."""
     return [
-        ("Current Android malware — all samples", "android_malware_all_current"),
-        ("Major-family Android malware classification", "android_malware_major_families"),
-        ("Candidate benchmark — n >= 20 family support", "android_malware_major_families_support20"),
-        ("Expanded Android malware — major + minor families", "android_malware_expanded_families"),
-        ("Type-level / coarse taxonomy classification", "android_malware_type_taxonomy"),
-        ("Robustness and perturbation suite", "__submenu_robustness__"),
-        ("Development / smoke checks", "__submenu_development__"),
+        ("Current corpus diagnostic — all Android samples", "android_malware_all_current"),
+        ("Current benchmark — major-family classification", "android_malware_major_families"),
+        ("Candidate benchmark — n >= 20; lock required", "android_malware_major_families_support20"),
+        ("Expanded exploration — major + mapped minor families", "android_malware_expanded_families"),
+        ("Current benchmark — malware-type taxonomy", "android_malware_type_taxonomy"),
+        ("Sensitivity studies — consensus and family-cap", "__submenu_robustness__"),
+        ("Development checks — fast iteration or smoke", "__submenu_development__"),
     ]
 
 
@@ -328,7 +328,13 @@ def select_profile_interactive_quick(
             [label for label, _ in options],
             title=title,
             breadcrumb=breadcrumb,
-            subtitle=subtitle,
+            subtitle=(
+                subtitle
+                or (
+                    "Current-corpus profiles only; they do not reproduce the accepted "
+                    "paper's historical experiment."
+                )
+            ),
             exit_label=exit_label,
             default_choice=1,
         )
