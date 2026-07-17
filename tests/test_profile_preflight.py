@@ -28,13 +28,18 @@ def test_profile_menu_latest_run_context_summarizes_latest_artifact(tmp_path: Pa
         ),
         encoding="utf-8",
     )
+    (diagnostics / "support_threshold_preview.csv").write_text(
+        "min_support_threshold,retained_families\n3,112\n20,50\n",
+        encoding="utf-8",
+    )
 
     context = profile_preflight._profile_menu_latest_run_context(tmp_path)
 
     assert context == [
         ("LAST RUN STATUS", "Failed"),
         ("INFO", "Cohort: 9,716 prepared → 9,440 classification-ready"),
-        ("INFO", "Family coverage: 207 visible → 169 modeled"),
+        ("INFO", "Family labels: 207 governed · 169 used in the last diagnostic model"),
+        ("INFO", "Family-target support preview: 112 at n>=3 · 50 at n>=20"),
     ]
 
 

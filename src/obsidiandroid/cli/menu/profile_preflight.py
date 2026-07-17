@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 
@@ -241,6 +242,7 @@ def _profile_menu_latest_run_context(output_root: Path | None = None) -> list[tu
     trainable = payload.get("post_low_support_training_rows")
     visible_families = payload.get("visible_family_count")
     modeled_families = payload.get("modeled_family_class_count")
+    support_floor_families = payload.get("benchmark_trainable_family_count")
 
     context: list[tuple[str, str]] = [("LAST RUN STATUS", status)]
     if isinstance(prepared, int):
@@ -249,11 +251,38 @@ def _profile_menu_latest_run_context(output_root: Path | None = None) -> list[tu
             prepared_text += f" → {trainable:,} classification-ready"
         context.append(("INFO", prepared_text))
     if isinstance(visible_families, int):
-        family_text = f"Family coverage: {visible_families:,} visible"
+        family_text = f"Family labels: {visible_families:,} governed"
         if isinstance(modeled_families, int):
-            family_text += f" → {modeled_families:,} modeled"
+            family_text += f" · {modeled_families:,} used in the last diagnostic model"
         context.append(("INFO", family_text))
+
+    support_preview_path = summary_path.parent / "support_threshold_preview.csv"
+    preview_floor_families = _support_preview_family_count(support_preview_path, threshold=3)
+    conservative_families = _support_preview_family_count(support_preview_path, threshold=20)
+    if not isinstance(support_floor_families, int):
+        support_floor_families = preview_floor_families
+    if isinstance(support_floor_families, int) or conservative_families is not None:
+        support_text = "Family-target support preview:"
+        preview_parts: list[str] = []
+        if isinstance(support_floor_families, int):
+            preview_parts.append(f"{support_floor_families:,} at n>=3")
+        if conservative_families is not None:
+            preview_parts.append(f"{conservative_families:,} at n>=20")
+        context.append(("INFO", support_text + " " + " · ".join(preview_parts)))
     return context
+
+
+def _support_preview_family_count(path: Path, *, threshold: int) -> int | None:
+    """Read one family-count value from a run-local support preview safely."""
+    try:
+        with path.open(newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                if int(str(row.get("min_support_threshold", "")).strip()) != threshold:
+                    continue
+                return int(str(row.get("retained_families", "")).strip())
+    except (OSError, ValueError, TypeError, csv.Error):
+        return None
+    return None
 
 
 def resolve_profile_for_run(
