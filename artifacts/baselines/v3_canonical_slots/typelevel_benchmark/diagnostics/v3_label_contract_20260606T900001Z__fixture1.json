@@ -1,1 +1,0 @@
-{"contract_version": "v3_label_contract_v1", "run_id": "20260606T900001Z__fixture1", "profile_id": "android_malware_type_taxonomy", "profile_role": "malware type/category taxonomy surface", "target_label_namespace": "malware_type_slug", "claim_surface_label": "Type taxonomy benchmark", "training_label_field": "type_slug"}

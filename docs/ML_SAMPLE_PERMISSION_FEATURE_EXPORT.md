@@ -1,8 +1,8 @@
 # `ml_sample_permission_feature_{run_id}.csv` export spec
 
-**Status:** implemented in V3.1.1 (`export_ml_seed_artifacts()`). Present-only sparse rows; offline authority/risk defaults (`unknown` / `aligned_features`).
+**Status:** implemented in v2.2.0 (`export_ml_seed_artifacts()`). Present-only sparse rows; offline authority/risk defaults (`unknown` / `aligned_features`).
 
-**Related:** [`OBSIDIANDROID_DB_PLAN.md`](OBSIDIANDROID_DB_PLAN.md) §5, table `sample_permission_facts`, DDL under `database/sql/obsidiandroid/`.
+**Related:** [`RESEARCH_DB_PLAN.md`](RESEARCH_DB_PLAN.md) §5, table `sample_permission_facts`, DDL under `database/sql/obsidiandroid/`.
 
 ---
 
@@ -58,13 +58,13 @@ Future optional columns (non-blocking): `permission_group`, `dangerous_flag`, `o
 ## Export rules
 
 1. **Present-only sparse long-form** — one row per (`sample_id`, `permission_name`) where the aligned `perm__*` value is `> 0`. Do not emit zero rows or a full dense cross-product of samples × vocabulary.
-2. **Run-frozen values** — V3.1.1 uses offline defaults (`permission_authority_bucket=unknown`, `permission_risk_tier=unknown`, `permission_source=aligned_features`). Live Permission Intel enrichment is deferred.
+2. **Run-frozen values** — v2.2.0 uses offline defaults (`permission_authority_bucket=unknown`, `permission_risk_tier=unknown`, `permission_source=aligned_features`). Live Permission Intel enrichment is deferred.
 3. **Feeds `sample_permission_facts`** — column names map directly to the research DB table (see `001_create_core_tables.sql`).
 4. **Dense melt is derived** — wide matrices for ML teams may be generated offline from this export or from `aligned_features_{run_id}.csv.gz`; never persisted as SQL truth.
 
 ---
 
-## Primary implementation source (V3.1.1)
+## Primary implementation source (v2.2.0)
 
 1. Read post-alignment fused features (`aligned_features_{run_id}.csv.gz` or in-memory frame at ML seed export).
 2. Select `perm__*` columns.
@@ -79,6 +79,6 @@ Future optional columns (non-blocking): `permission_group`, `dangerous_flag`, `o
 
 ---
 
-## Dry-run importer behavior (V3.1.0)
+## Dry-run importer behavior (v2.2.0)
 
-`scripts/import_v3_run_to_db.py` reports the artifact as optional. When missing, `sample_permission_facts` planned row count is `0` and a warning is emitted. No database writes occur in V3.1.0.
+`scripts/import_canonical_runs_to_db.py` reports the artifact as optional. When missing, `sample_permission_facts` planned row count is `0` and a warning is emitted. No database writes occur in v2.2.0.

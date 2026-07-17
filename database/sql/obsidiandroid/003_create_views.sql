@@ -1,4 +1,4 @@
--- ObsidianDroid research database — convenience views (DDL draft, V3.1.0)
+-- ObsidianDroid research database — convenience views (DDL draft, v2.2.0)
 
 USE obsidiandroid_research;
 

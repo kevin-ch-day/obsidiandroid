@@ -24,19 +24,19 @@ _SLOT_BY_PROFILE = {
     "dev_ablation_fast": "dev_smoke",
 }
 
-CANONICAL_V3_PROFILES = (
+CANONICAL_PROFILES = (
     "android_malware_major_families",
     "android_malware_type_taxonomy",
     "android_malware_expanded_families",
     "android_malware_all_current",
 )
 
-_CANONICAL_V3_PROFILE_SET = frozenset(CANONICAL_V3_PROFILES)
+_CANONICAL_PROFILE_SET = frozenset(CANONICAL_PROFILES)
 
 
-def is_canonical_v3_profile(profile_id: str) -> bool:
-    """Return True for the four V3 closure benchmark/diagnostic profiles."""
-    return str(profile_id or "").strip() in _CANONICAL_V3_PROFILE_SET
+def is_canonical_profile(profile_id: str) -> bool:
+    """Return True for the four canonical benchmark/diagnostic profiles."""
+    return str(profile_id or "").strip() in _CANONICAL_PROFILE_SET
 
 
 @dataclass(frozen=True)

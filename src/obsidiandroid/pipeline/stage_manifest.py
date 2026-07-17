@@ -256,7 +256,7 @@ def _apply_terminal_manifest_status(
         manifest_context.get("failure_reason", "") or manifest_context.get("integrity_error", "") or ""
     ).strip()
 
-    from obsidiandroid.common.run_slots import is_canonical_v3_profile
+    from obsidiandroid.common.run_slots import is_canonical_profile
 
     profile_id = str(profile.get("profile_id", "") or "unknown")
     manifest["run_diagnostics_root"] = str(diagnostics_dir)
@@ -267,7 +267,7 @@ def _apply_terminal_manifest_status(
         hostile_failed=bool(manifest_context.get("hostile_audit_failed")),
         readiness_issues=list(manifest_context.get("_evidence_readiness_failed_checks") or []),
         failure_reason=failure_reason,
-        canonical_v3=is_canonical_v3_profile(profile_id),
+        canonical_profile=is_canonical_profile(profile_id),
     )
     manifest["training_completed_before_terminal"] = training_completed
     manifest["top_model"] = top_model or None
@@ -383,7 +383,7 @@ def finalize_run_manifest_stage(
         except Exception:
             pass
 
-        from obsidiandroid.common.run_slots import is_canonical_v3_profile
+        from obsidiandroid.common.run_slots import is_canonical_profile
         from obsidiandroid.diagnostics.cohort_persistence import resolve_effective_samples_df
 
         profile_id = str(profile.get("profile_id", "") or "unknown")
@@ -397,11 +397,11 @@ def finalize_run_manifest_stage(
             else:
                 manifest_context["cohort_persistence_source"] = "unavailable"
 
-        if is_canonical_v3_profile(profile_id) and manifest_context.get("cohort_persistence_source") == "unavailable":
+        if is_canonical_profile(profile_id) and manifest_context.get("cohort_persistence_source") == "unavailable":
             du.print_error(
                 f"[MANIFEST] Canonical profile `{profile_id}` cannot finalize without persisted cohort membership."
             )
-            raise RuntimeError("canonical_v3_cohort_persistence_unavailable")
+            raise RuntimeError("canonical_cohort_persistence_unavailable")
 
         included_engines, excluded_engines, engine_names = _summarize_engine_lifecycle(
             pipeline_results
@@ -410,11 +410,11 @@ def finalize_run_manifest_stage(
         parser_list = _extract_parser_list(vendor_eval_df)
         dataset_hash = _compute_dataset_hash(samples_df=samples_df)
         manifest_context["dataset_hash"] = dataset_hash
-        if is_canonical_v3_profile(profile_id) and not str(dataset_hash or "").strip():
+        if is_canonical_profile(profile_id) and not str(dataset_hash or "").strip():
             du.print_error(
                 f"[MANIFEST] Canonical profile `{profile_id}` requires a non-empty dataset_hash."
             )
-            raise RuntimeError("canonical_v3_dataset_hash_missing")
+            raise RuntimeError("canonical_dataset_hash_missing")
         registry_payload = build_registry_payload(
             manifest_context=manifest_context,
             samples_df=samples_df,
@@ -784,7 +784,7 @@ def finalize_run_manifest_stage(
                 )
             except Exception as exc:
                 manifest_context["research_validity_bundle_error"] = str(exc)
-                if is_canonical_v3_profile(profile_id):
+                if is_canonical_profile(profile_id):
                     du.print_error(
                         f"[AUDIT] Research validity bundle failed for canonical profile `{profile_id}`: {exc}"
                     )

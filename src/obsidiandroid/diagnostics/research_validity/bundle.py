@@ -31,7 +31,7 @@ from .signal_export import write_signal_decomposition_artifacts
 from .type_permission_figures import (
     write_type_permission_figure_bundle,
 )
-from obsidiandroid.common.run_slots import is_canonical_v3_profile
+from obsidiandroid.common.run_slots import is_canonical_profile
 from obsidiandroid.diagnostics.cohort_persistence import resolve_effective_samples_df
 from obsidiandroid.observability.pipeline_observability import api as obs_api
 
@@ -53,10 +53,10 @@ def write_research_validity_bundle(
     if effective_samples is not None:
         samples_df = effective_samples
     cohort_size = int(manifest.get("cohort_size", 0) or 0)
-    if is_canonical_v3_profile(profile_id) and cohort_size > 0:
+    if is_canonical_profile(profile_id) and cohort_size > 0:
         if not isinstance(samples_df, pd.DataFrame) or samples_df.empty:
             raise RuntimeError(
-                "canonical_v3_research_validity_requires_cohort_samples "
+                "canonical_profile_research_validity_requires_cohort_samples "
                 f"(profile={profile_id}, cohort_size={cohort_size})"
             )
     finalize_cohort_funnel_dict(manifest_context)
@@ -159,7 +159,7 @@ def write_research_validity_bundle(
             partial_failures.append(
                 {"step": "contract_and_taxonomy_reports", "error": str(exc)}
             )
-        if is_canonical_v3_profile(profile_id):
+        if is_canonical_profile(profile_id):
             raise
 
     hostile_wall = datetime.now(timezone.utc).isoformat()

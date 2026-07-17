@@ -1,6 +1,6 @@
--- ObsidianDroid research database — core tables (DDL draft, V3.1.0)
+-- ObsidianDroid research database — core tables (DDL draft, v2.2.0)
 -- Target schema: obsidiandroid_research (OBSIDIANDROID_RESEARCH_DB_NAME)
--- No runtime writes in V3.1.0; apply manually after review.
+-- No runtime writes in v2.2.0; apply manually after review.
 
 CREATE DATABASE IF NOT EXISTS obsidiandroid_research
   DEFAULT CHARACTER SET utf8mb4
@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS sample_label_facts (
 
 -- ---------------------------------------------------------------------------
 -- profile_membership — cohort membership and curation state per sample
--- curation_state enum (V3.1): benchmark_include, exploratory_include,
+-- curation_state enum (v2.2): benchmark_include, exploratory_include,
 -- diagnostic_only, audit_only, needs_review, exclude_from_training,
 -- exclude_from_claims
 -- ---------------------------------------------------------------------------

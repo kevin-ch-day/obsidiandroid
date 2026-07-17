@@ -12,7 +12,7 @@ ObsidianDroid does **not** call live VirusTotal APIs during execution. Instead, 
 
 ## Database Layout (split model)
 
-ObsidianDroid uses two **upstream read-only** logical databases on the same MySQL/MariaDB instance in typical deployments, plus a **planned curated research ledger** (V3.1+). Configure schema names with `OBSIDIAN_DB_NAME` (primary), `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (Permission Intel), and **`OBSIDIANDROID_RESEARCH_DB_NAME`** (ObsidianDroid research, default `obsidiandroid_research`); see `obsidiandroid.database.db_config` for Erebus/PI and [`OBSIDIANDROID_DB_PLAN.md`](OBSIDIANDROID_DB_PLAN.md) for the research schema.
+ObsidianDroid uses two **upstream read-only** logical databases on the same MySQL/MariaDB instance in typical deployments, plus a **planned curated research ledger** (v2.2+). Configure schema names with `OBSIDIAN_DB_NAME` (primary), `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (Permission Intel), and **`OBSIDIANDROID_RESEARCH_DB_NAME`** (ObsidianDroid research, default `obsidiandroid_research`); see `obsidiandroid.database.db_config` for Erebus/PI and [`RESEARCH_DB_PLAN.md`](RESEARCH_DB_PLAN.md) for the research schema.
 
 ### Primary Erebus database (`OBSIDIAN_DB_NAME`, default `erebus_threat_intel_prod`)
 
@@ -75,7 +75,7 @@ Configure with:
 | Permission research | `permission_vocabulary`, `sample_permission_facts`, `permission_pattern_facts` | Run-frozen permission vocabulary and sparse long-form facts |
 | Model & audit | `model_metrics`, `prediction_facts`, `quality_flags` | Metrics, predictions, taxonomy/claim audit flags |
 
-**V3.1.1 status:** DDL draft + dry-run importer + sparse `ml_sample_permission_feature_{run_id}.csv` export. **No live writes** from the pipeline or importer yet. The research DB is downstream from Erebus and Permission Intel; it does not replace either upstream store.
+**v2.2.0 status:** DDL draft + dry-run importer + sparse `ml_sample_permission_feature_{run_id}.csv` export. **No live writes** from the pipeline or importer yet. The research DB is downstream from Erebus and Permission Intel; it does not replace either upstream store.
 
 ### Contributor rules (split database)
 
@@ -110,5 +110,5 @@ Access to replicated VirusTotal data must comply with [VirusTotal’s Terms of S
 - [`operations_playbook.md`](operations_playbook.md) provides incident response and restore workflows for the replication jobs.
 - [`LABEL_AUTHORITY_SCHEMA_PLAN.md`](LABEL_AUTHORITY_SCHEMA_PLAN.md) defines the proposed
   family/type authority and vendor-label evidence layer for Erebus.
-- [`OBSIDIANDROID_DB_PLAN.md`](OBSIDIANDROID_DB_PLAN.md) defines the curated ObsidianDroid
-  research database (V3.1 direction).
+- [`RESEARCH_DB_PLAN.md`](RESEARCH_DB_PLAN.md) defines the curated ObsidianDroid
+  research database (v2.2 direction).

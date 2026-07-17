@@ -79,7 +79,7 @@ def test_export_ml_seed_artifacts_writes_minimum_tables(tmp_path: Path) -> None:
         "split": {"split_hash": "abc123"},
         "trained_models": ["logistic_regression"],
     }
-    (tmp_path / "v3_label_contract_run_seed.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "label_contract_run_seed.json").write_text("{}", encoding="utf-8")
     (tmp_path / "permission_pattern_contract_run_seed.json").write_text("{}", encoding="utf-8")
     _write_canonical_handoff_fixtures(tmp_path, "run_seed", with_split=True)
     _write_aligned_features_fixture(tmp_path, "run_seed")
@@ -100,7 +100,7 @@ def test_export_ml_seed_artifacts_writes_minimum_tables(tmp_path: Path) -> None:
     ml_manifest = json.loads((tmp_path / "ml_run_manifest_run_seed.json").read_text(encoding="utf-8"))
     assert ml_manifest["downstream_phase"] == "neptune_iapetus_deep_learning_prep"
     refs = ml_manifest["seed_artifact_refs"]
-    assert refs["v3_label_contract"] == "v3_label_contract_run_seed.json"
+    assert refs["label_contract"] == "label_contract_run_seed.json"
     assert refs["permission_pattern_contract"] == "permission_pattern_contract_run_seed.json"
     assert refs["ml_sample_label_fact"] == "ml_sample_label_fact_run_seed.csv"
     assert refs["ml_permission_vocabulary"] == "ml_permission_vocabulary_run_seed.json"
@@ -117,7 +117,7 @@ def test_export_ml_seed_artifacts_writes_minimum_tables(tmp_path: Path) -> None:
     assert set(permission_df["permission_present"].tolist()) == {1}
     assert len(permission_df) == 2
     assert "perm__dangerous_count" not in permission_df["permission_name"].astype(str).tolist()
-    handoff = json.loads((tmp_path / "v3_dl_handoff_summary_run_seed.json").read_text(encoding="utf-8"))
+    handoff = json.loads((tmp_path / "dl_handoff_summary_run_seed.json").read_text(encoding="utf-8"))
     assert handoff["dl_seed_status"] == "ready"
 
 
@@ -128,7 +128,7 @@ def test_export_ml_seed_artifacts_rebuilds_label_fact_from_aligned_labels(tmp_pa
         "1,10,Alpha,banker,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,family_or_common_name\n",
         encoding="utf-8",
     )
-    (tmp_path / f"v3_label_contract_{run_id}.json").write_text("{}", encoding="utf-8")
+    (tmp_path / f"label_contract_{run_id}.json").write_text("{}", encoding="utf-8")
     (tmp_path / f"permission_pattern_contract_{run_id}.json").write_text("{}", encoding="utf-8")
     _write_canonical_handoff_fixtures(tmp_path, run_id)
 
@@ -153,7 +153,7 @@ def test_export_ml_seed_artifacts_rebuilds_from_cohort_membership_csv(tmp_path: 
         "sample_id,family_id,family_canonical,type_slug\n2,11,Beta,rat\n",
         encoding="utf-8",
     )
-    (tmp_path / f"v3_label_contract_{run_id}.json").write_text("{}", encoding="utf-8")
+    (tmp_path / f"label_contract_{run_id}.json").write_text("{}", encoding="utf-8")
     (tmp_path / f"permission_pattern_contract_{run_id}.json").write_text("{}", encoding="utf-8")
     _write_canonical_handoff_fixtures(tmp_path, run_id)
 

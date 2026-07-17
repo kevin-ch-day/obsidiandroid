@@ -588,7 +588,7 @@ def write_run_evidence_index_md(
         lines.append(f"- **reasons:** {', '.join(publication_ready_reasons)}")
     lines.append("")
     _extend_with_backlog_section(lines, backlog_context=backlog_context)
-    v3_label_contract_md = diagnostics_dir / f"v3_label_contract_{run_id}.md"
+    label_contract_md = diagnostics_dir / f"label_contract_{run_id}.md"
     permission_pattern_contract_md = diagnostics_dir / f"permission_pattern_contract_{run_id}.md"
     ml_run_manifest_json = diagnostics_dir / f"ml_run_manifest_{run_id}.json"
     ml_sample_label_fact_csv = diagnostics_dir / f"ml_sample_label_fact_{run_id}.csv"
@@ -598,11 +598,11 @@ def write_run_evidence_index_md(
     ml_split_csv = diagnostics_dir / f"ml_train_validation_test_split_{run_id}.csv"
     if not ml_split_csv.is_file():
         ml_split_csv = diagnostics_dir / f"split_freeze_headline_{run_id}.csv"
-    v3_dl_handoff_summary_json = diagnostics_dir / f"v3_dl_handoff_summary_{run_id}.json"
+    dl_handoff_summary_json = diagnostics_dir / f"dl_handoff_summary_{run_id}.json"
     dl_seed_status = ""
-    if v3_dl_handoff_summary_json.is_file():
+    if dl_handoff_summary_json.is_file():
         try:
-            handoff_payload = json.loads(v3_dl_handoff_summary_json.read_text(encoding="utf-8"))
+            handoff_payload = json.loads(dl_handoff_summary_json.read_text(encoding="utf-8"))
             if isinstance(handoff_payload, dict):
                 dl_seed_status = str(handoff_payload.get("dl_seed_status", "") or "").strip()
         except Exception:
@@ -610,14 +610,14 @@ def write_run_evidence_index_md(
 
     lines.extend(
         [
-            "## V3 research contracts (open first)",
+            "## Research contracts (open first)",
             "",
         ]
     )
     if dl_seed_status:
         lines.append(f"- **DL seed handoff status:** `{dl_seed_status}`")
-    if v3_label_contract_md.exists():
-        lines.append(f"- **V3 label contract:** `{v3_label_contract_md}`")
+    if label_contract_md.exists():
+        lines.append(f"- **Label contract:** `{label_contract_md}`")
     if permission_pattern_contract_md.exists():
         lines.append(f"- **Permission pattern contract:** `{permission_pattern_contract_md}`")
     if ml_run_manifest_json.exists():
@@ -632,8 +632,8 @@ def write_run_evidence_index_md(
         lines.append(f"- **ML sample permission feature:** `{ml_sample_permission_feature_csv}`")
     if ml_split_csv.exists():
         lines.append(f"- **Frozen train/test split ledger:** `{ml_split_csv}`")
-    if v3_dl_handoff_summary_json.exists():
-        lines.append(f"- **V3 DL handoff summary:** `{v3_dl_handoff_summary_json}`")
+    if dl_handoff_summary_json.exists():
+        lines.append(f"- **DL handoff summary:** `{dl_handoff_summary_json}`")
     lines.extend(
         [
             "",

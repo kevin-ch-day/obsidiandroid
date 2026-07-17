@@ -95,7 +95,7 @@ def main() -> int:
         "--profile-id",
         action="append",
         default=[],
-        help="Profile to analyze (default: canonical V3 profiles).",
+        help="Profile to analyze (default: canonical profiles).",
     )
     args = parser.parse_args()
     profile_ids = tuple(args.profile_id or _DEFAULT_PROFILES)

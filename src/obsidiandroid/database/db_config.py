@@ -4,7 +4,7 @@
 """MySQL connection configuration for ObsidianDroid.
 
 ObsidianDroid uses two upstream read-only logical databases on the same MySQL/MariaDB
-server by default, plus a planned curated research ledger (V3.1+):
+server by default, plus a planned curated research ledger (v2.2+):
 
 - Primary Erebus schema (samples, VirusTotal, catalog).
 - Permission Intel schema (all ``android_permission_*`` live tables).
@@ -104,7 +104,7 @@ PERMISSION_INTEL_DB_PASSWORD = _env_first(
     DB_PASSWORD,
 )
 
-# Curated ObsidianDroid research ledger (V3.1+). No runtime writes until importer --apply.
+# Curated ObsidianDroid research ledger (v2.2+). No runtime writes until importer --apply.
 RESEARCH_DB_HOST = _env_first(("OBSIDIANDROID_RESEARCH_DB_HOST",), DB_HOST)
 RESEARCH_DB_PORT = _env_first_int(("OBSIDIANDROID_RESEARCH_DB_PORT",), DB_PORT)
 RESEARCH_DB_USER = _env_first(("OBSIDIANDROID_RESEARCH_DB_USER",), DB_USER)

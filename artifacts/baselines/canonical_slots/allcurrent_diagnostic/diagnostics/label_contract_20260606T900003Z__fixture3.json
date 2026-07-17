@@ -1,0 +1,1 @@
+{"contract_version": "label_contract_v1", "run_id": "20260606T900003Z__fixture3", "profile_id": "android_malware_all_current", "profile_role": "current-state census / exploratory surface", "target_label_namespace": "malware_family", "claim_surface_label": "Current-corpus diagnostic surface", "training_label_field": "family_id"}

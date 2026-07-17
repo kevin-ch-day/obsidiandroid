@@ -141,7 +141,7 @@ def _emit_post_finalize_operator_report(
     model_results: dict[str, Any] | None,
     top_model: str | None,
 ) -> None:
-    """Emit operator dashboard after manifest finalize so V3/seed artifacts exist."""
+    """Emit operator dashboard after manifest finalize so seed artifacts exist."""
     try:
         operator_dashboard.emit_research_operator_report(
             diagnostics_dir=diagnostics_dir,
@@ -154,9 +154,9 @@ def _emit_post_finalize_operator_report(
             artifact_list=list(st.artifact_list) if st is not None else [],
         )
     except Exception as exc:
-        from obsidiandroid.common.run_slots import is_canonical_v3_profile
+        from obsidiandroid.common.run_slots import is_canonical_profile
 
-        if is_canonical_v3_profile(str(profile_id or "")):
+        if is_canonical_profile(str(profile_id or "")):
             du.print_error(f"[OPERATOR] Post-finalize report failed for canonical profile `{profile_id}`: {exc}")
             raise
         du.print_warning(f"[OPERATOR] Post-finalize report skipped: {exc}")

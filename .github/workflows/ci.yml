@@ -188,8 +188,8 @@ jobs:
             logs/**
             output/**
 
-  verify-v3:
-    name: v3 closure (python 3.12)
+  verify-canonical:
+    name: canonical closure (python 3.12)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -210,5 +210,5 @@ jobs:
           pip install -r requirements.txt
           pip install -e .
 
-      - name: V3 closure contract tests
-        run: make verify-v3
+      - name: canonical closure contract tests
+        run: make verify-canonical

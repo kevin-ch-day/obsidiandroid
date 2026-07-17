@@ -367,7 +367,7 @@ def finalize_output_hygiene_bundle(
     samples_df: Any | None = None,
 ) -> None:
     """Artifact inventory, virtual layout, run evidence index, and terminal summary."""
-    from obsidiandroid.common.run_slots import is_canonical_v3_profile
+    from obsidiandroid.common.run_slots import is_canonical_profile
 
     profile_id = str(profile.get("profile_id", "") or "unknown")
     try:
@@ -386,7 +386,7 @@ def finalize_output_hygiene_bundle(
 
         from obsidiandroid.diagnostics import ml_seed_exports
         from obsidiandroid.diagnostics import permission_pattern_contract
-        from obsidiandroid.diagnostics import v3_label_contract
+        from obsidiandroid.diagnostics import label_contract
         from obsidiandroid.diagnostics.cohort_persistence import resolve_effective_samples_df
 
         effective_samples = resolve_effective_samples_df(
@@ -397,7 +397,7 @@ def finalize_output_hygiene_bundle(
         if isinstance(effective_samples, pd.DataFrame) and not effective_samples.empty:
             min_support = int(getattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", 1) or 1)
             try:
-                label_contract_paths = v3_label_contract.export_v3_label_contract(
+                label_contract_paths = label_contract.export_label_contract(
                     diagnostics_dir=diagnostics_dir,
                     run_id=run_id,
                     profile=profile,
@@ -406,12 +406,12 @@ def finalize_output_hygiene_bundle(
                 )
                 artifact_list.extend(label_contract_paths)
             except Exception as exc:
-                if is_canonical_v3_profile(profile_id):
+                if is_canonical_profile(profile_id):
                     du.print_error(
-                        f"[MANIFEST] V3 label contract refresh failed for canonical profile `{profile_id}`: {exc}"
+                        f"[MANIFEST] Label contract refresh failed for canonical profile `{profile_id}`: {exc}"
                     )
                     raise
-                du.print_warning(f"[MANIFEST] V3 label contract refresh skipped: {exc}")
+                du.print_warning(f"[MANIFEST] Label contract refresh skipped: {exc}")
 
         try:
             contract_paths = permission_pattern_contract.export_permission_pattern_contract(
@@ -421,7 +421,7 @@ def finalize_output_hygiene_bundle(
             )
             artifact_list.extend(contract_paths)
         except Exception as exc:
-            if is_canonical_v3_profile(profile_id):
+            if is_canonical_profile(profile_id):
                 du.print_error(
                     f"[MANIFEST] Permission pattern contract export failed for canonical profile `{profile_id}`: {exc}"
                 )
@@ -439,7 +439,7 @@ def finalize_output_hygiene_bundle(
             )
             artifact_list.extend(seed_paths)
         except Exception as exc:
-            if is_canonical_v3_profile(profile_id):
+            if is_canonical_profile(profile_id):
                 du.print_error(f"[MANIFEST] ML seed export failed for canonical profile `{profile_id}`: {exc}")
                 raise
             du.print_warning(f"[MANIFEST] ML seed export skipped: {exc}")
@@ -593,7 +593,7 @@ def finalize_output_hygiene_bundle(
             run_root=run_root,
         )
     except Exception as exc:
-        if is_canonical_v3_profile(profile_id):
+        if is_canonical_profile(profile_id):
             du.print_error(
                 f"[OUTPUT] Hygiene bundle failed for canonical profile `{profile_id}`: {exc}"
             )

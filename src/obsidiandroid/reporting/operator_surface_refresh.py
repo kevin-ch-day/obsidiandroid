@@ -110,7 +110,7 @@ def enrich_manifest_context_funnel_fields(
             ctx["support_floor_mode"] = support_floor_mode
 
     if not ctx.get("support_floor_mode"):
-        for contract_path in sorted(diagnostics_dir.glob("v3_label_contract_*.json")):
+        for contract_path in sorted(diagnostics_dir.glob("label_contract_*.json")):
             contract = read_json_dict(contract_path)
             support_floor_mode = str(contract.get("support_floor_mode", "") or "").strip().lower()
             if support_floor_mode:
@@ -225,11 +225,11 @@ def _write_claim_readiness_summary_from_refreshed_artifacts(
         profile_id=str(profile_id or ""),
         manifest_context=manifest_context,
     )
-    from obsidiandroid.common.run_slots import is_canonical_v3_profile
+    from obsidiandroid.common.run_slots import is_canonical_profile
 
-    if is_canonical_v3_profile(str(profile_id or "")) and dl_seed.get("dl_seed_status") != "ready":
+    if is_canonical_profile(str(profile_id or "")) and dl_seed.get("dl_seed_status") != "ready":
         readiness_blockers = list(readiness_blockers)
-        readiness_blockers.append("DL seed handoff incomplete for canonical V3 profile")
+        readiness_blockers.append("DL seed handoff incomplete for canonical profile")
 
     claim_status = operator_dashboard._claim_status_for_surface(  # pylint: disable=protected-access
         readiness_heading,
@@ -268,7 +268,7 @@ def _write_claim_readiness_summary_from_refreshed_artifacts(
         "dl_seed_status": dl_seed.get("dl_seed_status"),
         "dl_seed_missing_refs": dl_seed.get("dl_seed_missing_refs"),
         "dl_seed_caveats": dl_seed.get("dl_seed_caveats"),
-        "v3_dl_handoff_summary": f"v3_dl_handoff_summary_{run_id}.json",
+        "dl_handoff_summary": f"dl_handoff_summary_{run_id}.json",
         "dataset_hash": dl_seed.get("dataset_hash") or manifest_context.get("dataset_hash"),
         "cohort_persistence_source": dl_seed.get("cohort_persistence_source")
         or manifest_context.get("cohort_persistence_source"),

@@ -304,7 +304,7 @@ def test_emit_research_operator_report_surfaces_dl_seed_handoff_for_canonical_pr
     run_id = "run_dl_seed"
     dataset_hash = "abc123deadbeefcafe00"
     for filename in (
-        f"v3_label_contract_{run_id}.json",
+        f"label_contract_{run_id}.json",
         f"permission_pattern_contract_{run_id}.json",
         f"ml_sample_label_fact_{run_id}.csv",
         f"ml_permission_vocabulary_{run_id}.json",
@@ -317,7 +317,7 @@ def test_emit_research_operator_report_surfaces_dl_seed_handoff_for_canonical_pr
                 "vocabulary_entry_count": 42,
                 "sample_label_rows": 1,
                 "seed_artifact_refs": {
-                    "v3_label_contract": f"v3_label_contract_{run_id}.json",
+                    "label_contract": f"label_contract_{run_id}.json",
                     "permission_pattern_contract": f"permission_pattern_contract_{run_id}.json",
                     "ml_sample_label_fact": f"ml_sample_label_fact_{run_id}.csv",
                     "ml_permission_vocabulary": f"ml_permission_vocabulary_{run_id}.json",
@@ -326,7 +326,7 @@ def test_emit_research_operator_report_surfaces_dl_seed_handoff_for_canonical_pr
         ),
         encoding="utf-8",
     )
-    (diagnostics_dir / f"v3_dl_handoff_summary_{run_id}.json").write_text(
+    (diagnostics_dir / f"dl_handoff_summary_{run_id}.json").write_text(
         json.dumps(
             {
                 "dl_seed_status": "ready",
@@ -386,7 +386,7 @@ def test_emit_research_operator_report_surfaces_dl_seed_handoff_for_canonical_pr
     assert dataset_hash in joined
     assert "Cohort persistence source       : runtime_frame" in joined
     assert "ML permission vocabulary        : 42 entries" in joined
-    assert f"v3_dl_handoff_summary_{run_id}.json" in joined
+    assert f"dl_handoff_summary_{run_id}.json" in joined
 
 
 def test_emit_research_operator_report_surfaces_dl_seed_caveats_when_incomplete(
@@ -396,7 +396,7 @@ def test_emit_research_operator_report_surfaces_dl_seed_caveats_when_incomplete(
     diagnostics_dir = tmp_path / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     run_id = "run_dl_caveats"
-    (diagnostics_dir / f"v3_dl_handoff_summary_{run_id}.json").write_text(
+    (diagnostics_dir / f"dl_handoff_summary_{run_id}.json").write_text(
         json.dumps(
             {
                 "dl_seed_status": "incomplete",

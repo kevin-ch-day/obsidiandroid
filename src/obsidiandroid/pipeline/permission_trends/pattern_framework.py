@@ -1,6 +1,6 @@
-"""Normalized permission-pattern scoring for ObsidianDroid V3.
+"""Normalized permission-pattern scoring for ObsidianDroid canonical.
 
-V3 uses a 0–9 structural association ladder. Levels describe declared-capability
+canonical uses a 0–9 structural association ladder. Levels describe declared-capability
 pattern strength across malware types/families — not proof of malware behavior,
 runtime causality, or dynamic-analysis findings.
 """
@@ -12,8 +12,8 @@ from typing import Any
 
 import pandas as pd
 
-PATTERN_SCALE_NAME = "obsidiandroid_v3_structural_permission_pattern_0_9"
-PATTERN_SCALE_VERSION = "v3_structural_0_9"
+PATTERN_SCALE_NAME = "obsidiandroid_canonical_structural_permission_pattern_0_9"
+PATTERN_SCALE_VERSION = "canonical_structural_0_9"
 
 PATTERN_LEVEL_LABELS: dict[int, str] = {
     9: "Certain Pattern",
@@ -99,13 +99,13 @@ def _safe_int(value: Any, default: int = 0) -> int:
 
 
 def pattern_label_for_level(level: int) -> str:
-    """Return the canonical V3 pattern label for a normalized level."""
+    """Return the canonical pattern label for a normalized level."""
     clamped = max(0, min(int(level), 9))
     return PATTERN_LEVEL_LABELS.get(clamped, PATTERN_LEVEL_LABELS[3])
 
 
 def build_pattern_scale_contract() -> dict[str, Any]:
-    """Return the machine-readable V3 permission-pattern scale contract."""
+    """Return the machine-readable canonical permission-pattern scale contract."""
     return {
         "scale_name": PATTERN_SCALE_NAME,
         "scale_version": PATTERN_SCALE_VERSION,
@@ -191,7 +191,7 @@ def classify_prevalence_pattern(
     group_support: int,
     basis: str,
 ) -> dict[str, Any]:
-    """Classify a prevalence-only signal into the V3 structural pattern ladder."""
+    """Classify a prevalence-only signal into the canonical structural pattern ladder."""
     support = max(_safe_int(group_support), 0)
     positive = max(_safe_int(positive_count), 0)
     prevalence = _safe_float(prevalence_pct)
@@ -249,7 +249,7 @@ def classify_enrichment_pattern(
     support: int,
     basis: str,
 ) -> dict[str, Any]:
-    """Classify enrichment-vs-background evidence into the V3 structural pattern ladder."""
+    """Classify enrichment-vs-background evidence into the canonical structural pattern ladder."""
     subject = _safe_float(subject_prevalence_pct)
     background = _safe_float(background_prevalence_pct)
     support_n = max(_safe_int(support), 0)
@@ -350,7 +350,7 @@ def classify_similarity_pattern(
     basis: str,
     same_type: bool | None = None,
 ) -> dict[str, Any]:
-    """Classify pairwise similarity evidence into the V3 structural pattern ladder."""
+    """Classify pairwise similarity evidence into the canonical structural pattern ladder."""
     cosine = max(0.0, min(_safe_float(cosine_similarity), 1.0))
     jaccard = max(0.0, min(_safe_float(jaccard_similarity), 1.0))
     spearman = max(-1.0, min(_safe_float(spearman_correlation), 1.0))
@@ -443,7 +443,7 @@ def annotate_prevalence_patterns(
     prevalence_col: str = "prevalence_pct",
     basis: str,
 ) -> pd.DataFrame:
-    """Append normalized V3 pattern fields to prevalence-style outputs."""
+    """Append normalized canonical pattern fields to prevalence-style outputs."""
     if not isinstance(df, pd.DataFrame) or df.empty:
         return df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
     out = df.copy()
@@ -472,7 +472,7 @@ def annotate_enrichment_patterns(
     q_value_col: str = "q_value_fdr",
     basis: str,
 ) -> pd.DataFrame:
-    """Append normalized V3 pattern fields to enrichment-style outputs."""
+    """Append normalized canonical pattern fields to enrichment-style outputs."""
     if not isinstance(df, pd.DataFrame) or df.empty:
         return df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
     out = df.copy()
@@ -504,7 +504,7 @@ def annotate_similarity_patterns(
     same_type_col: str | None = None,
     basis: str,
 ) -> pd.DataFrame:
-    """Append normalized V3 pattern fields to similarity-style outputs."""
+    """Append normalized canonical pattern fields to similarity-style outputs."""
     if not isinstance(df, pd.DataFrame) or df.empty:
         return df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
     out = df.copy()

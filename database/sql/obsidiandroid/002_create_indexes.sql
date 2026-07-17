@@ -1,4 +1,4 @@
--- ObsidianDroid research database — secondary indexes (DDL draft, V3.1.0)
+-- ObsidianDroid research database — secondary indexes (DDL draft, v2.2.0)
 
 USE obsidiandroid_research;
 

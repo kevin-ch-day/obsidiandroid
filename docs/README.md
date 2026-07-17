@@ -24,7 +24,7 @@ ObsidianDroid is an end-to-end framework for Android malware analysis, AV engine
 | [`module_split_audit.md`](module_split_audit.md) | Audit of large modules/functions and candidates for decomposition. |
 | [`code_review.md`](code_review.md) | Historical engineering review notes that still inform migration and cleanup work. |
 | [`PERMISSION_PATTERN_REPORT_PLAN.md`](PERMISSION_PATTERN_REPORT_PLAN.md) | Design plan for making permission-pattern analysis a first-class reporting lane across broad corpus, family benchmark, and type-level surfaces. |
-| [`V3_CLOSURE.md`](V3_CLOSURE.md) | Final V3 scope boundary: permission-pattern contract, DB ownership, inference-vs-rebuild, and explicit V4 deferrals. |
+| [`CANONICAL_RUN_CONTRACTS.md`](CANONICAL_RUN_CONTRACTS.md) | Final canonical scope boundary: permission-pattern contract, DB ownership, inference-vs-rebuild, and explicit later release deferrals. |
 
 ## Quick Facts
 

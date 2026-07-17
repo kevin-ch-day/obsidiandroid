@@ -15,7 +15,7 @@ from .recommended_findings import write_recommended_findings
 from .temporal_validity_audit import write_temporal_validity_audit
 from .target_validity_audit import write_target_validity_audit
 from .vendor_label_leakage_audit import write_vendor_label_leakage_audit
-from obsidiandroid.common.run_slots import is_canonical_v3_profile
+from obsidiandroid.common.run_slots import is_canonical_profile
 
 
 def write_hostile_audit_bundle(
@@ -163,9 +163,9 @@ def write_hostile_audit_bundle(
         emitted.append(sp)
         mctx["hostile_audit_partial_error_count"] = int(partial_error_count)
         profile_id = str(man.get("profile_id", "") or mctx.get("profile_id", "") or "")
-        if is_canonical_v3_profile(profile_id):
+        if is_canonical_profile(profile_id):
             raise RuntimeError(
-                "hostile_audit_partial_errors for canonical V3 profile "
+                "hostile_audit_partial_errors for canonical profile "
                 f"`{profile_id}` ({partial_error_count} step failures); see {partial_log.name}"
             )
 

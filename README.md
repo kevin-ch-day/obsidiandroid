@@ -36,6 +36,12 @@ All artifacts (models, reports, diagnostics) are saved under `output/`.
 
 ---
 
+## Version
+
+Current application version: **v2.2.0**.
+
+---
+
 ## Repository layout (hybrid migration)
 
 The installable package lives under **`src/obsidiandroid/`** (CLI, `common`, **`obsidiandroid.database`**, `pipeline`, `modeling`, `features`, `labeling`, …). The old repo-root **`analysis/`**, **`ml_classification/`**, **`model/`**, and **`utils/`** Python trees have been retired. Top-level **`database/`** holds versioned SQL assets; use the curated **`obsidiandroid.database`** façade for Python. Details, backlog, and pass history: [`docs/STRUCTURE_MIGRATION_PLAN.md`](docs/STRUCTURE_MIGRATION_PLAN.md).
@@ -68,7 +74,7 @@ ObsidianDroid/
 - **Documentation hub:** See [`docs/README.md`](docs/README.md) for a curated map of contributor, operator, and user guides.
 - **Contributor / agent guide:** [`docs/AGENTS.md`](docs/AGENTS.md) (repo-root [`AGENTS.md`](AGENTS.md) links here).
 - **Governance:** [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md) describes mandatory runtime and reproducibility policies.
-- **V3 closure scope:** [`docs/V3_CLOSURE.md`](docs/V3_CLOSURE.md) records the V3 boundary for permission patterns, DB ownership, inference-vs-rebuild concepts, and what moves to V4.
+- **canonical closure scope:** [`docs/CANONICAL_RUN_CONTRACTS.md`](docs/CANONICAL_RUN_CONTRACTS.md) records the canonical boundary for permission patterns, DB ownership, inference-vs-rebuild concepts, and what moves to later release.
 - **System architecture:** [`docs/architecture.md`](docs/architecture.md) explains end-to-end data flow and package responsibilities.
 - **Pipeline staging:** [`docs/pipeline_staging_guide.md`](docs/pipeline_staging_guide.md) maps `runner.py` stages and extension points.
 - **Data sources:** [`docs/data_sources.md`](docs/data_sources.md) describes the replicated VirusTotal tables ObsidianDroid relies on and how to keep them synchronized.

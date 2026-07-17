@@ -1,0 +1,24 @@
+{
+  "caveats": [],
+  "cohort_persistence_source": "diagnostics_export",
+  "cohort_size": 1,
+  "dataset_hash": "fixture_dataset_hash_00",
+  "dl_seed_status": "ready",
+  "missing_seed_refs": [],
+  "optional_seed_refs": {
+    "ml_sample_permission_feature": "ml_sample_permission_feature_20260606T900000Z__fixture0.csv"
+  },
+  "profile_id": "android_malware_major_families",
+  "run_id": "20260606T900000Z__fixture0",
+  "sample_label_rows": 1,
+  "seed_refs_present": {
+    "ml_permission_vocabulary": "artifacts/baselines/canonical_slots/majorfam_benchmark/diagnostics/ml_permission_vocabulary_20260606T900000Z__fixture0.json",
+    "ml_sample_label_fact": "artifacts/baselines/canonical_slots/majorfam_benchmark/diagnostics/ml_sample_label_fact_20260606T900000Z__fixture0.csv",
+    "permission_pattern_contract": "artifacts/baselines/canonical_slots/majorfam_benchmark/diagnostics/permission_pattern_contract_20260606T900000Z__fixture0.json",
+    "label_contract": "artifacts/baselines/canonical_slots/majorfam_benchmark/diagnostics/label_contract_20260606T900000Z__fixture0.json"
+  },
+  "split_export_present": false,
+  "split_hash": null,
+  "summary_version": "dl_handoff_summary_v1",
+  "vocabulary_entry_count": 3
+}

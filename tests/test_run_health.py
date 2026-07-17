@@ -42,11 +42,11 @@ def test_top_artifacts_to_open_only_lists_existing_files(tmp_path: Path) -> None
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
     existing = [
-        diagnostics_dir / "v3_label_contract_r1.md",
+        diagnostics_dir / "label_contract_r1.md",
         diagnostics_dir / "permission_pattern_contract_r1.md",
         run_root / "run_evidence_index.md",
         diagnostics_dir / "run_observability_summary.json",
-        diagnostics_dir / "v3_label_contract_r1.json",
+        diagnostics_dir / "label_contract_r1.json",
         diagnostics_dir / "permission_pattern_contract_r1.json",
         diagnostics_dir / "pipeline_stage_summary.md",
     ]
@@ -73,11 +73,11 @@ def test_top_artifacts_to_open_includes_authority_coverage_when_present(tmp_path
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
     existing = [
-        diagnostics_dir / "v3_label_contract_r_auth.md",
+        diagnostics_dir / "label_contract_r_auth.md",
         diagnostics_dir / "permission_pattern_contract_r_auth.md",
         run_root / "run_evidence_index.md",
         diagnostics_dir / "run_observability_summary.json",
-        diagnostics_dir / "v3_label_contract_r_auth.json",
+        diagnostics_dir / "label_contract_r_auth.json",
         diagnostics_dir / "permission_pattern_contract_r_auth.json",
         diagnostics_dir / "family_type_authority_coverage_r_auth.md",
     ]
@@ -104,12 +104,12 @@ def test_top_artifacts_to_open_includes_taxonomy_authority_split_when_present(tm
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
     existing = [
-        diagnostics_dir / "v3_label_contract_r_tax.md",
+        diagnostics_dir / "label_contract_r_tax.md",
         diagnostics_dir / "permission_pattern_contract_r_tax.md",
         diagnostics_dir / "taxonomy_authority_split_r_tax.md",
         run_root / "run_evidence_index.md",
         diagnostics_dir / "run_observability_summary.json",
-        diagnostics_dir / "v3_label_contract_r_tax.json",
+        diagnostics_dir / "label_contract_r_tax.json",
         diagnostics_dir / "permission_pattern_contract_r_tax.json",
     ]
     for path in existing:

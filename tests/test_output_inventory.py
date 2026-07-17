@@ -388,9 +388,9 @@ def test_write_run_evidence_index_surfaces_claim_surface_and_claim_audit(
 
 
 @pytest.mark.integration
-def test_write_run_evidence_index_lists_v3_seed_exports(tmp_path: Path, monkeypatch) -> None:
+def test_write_run_evidence_index_lists_canonical_seed_exports(tmp_path: Path, monkeypatch) -> None:
     output_root = tmp_path / "output"
-    run_id = "r_v3_seed"
+    run_id = "r_canonical_seed"
     run_root = output_root / "runs" / run_id
     diagnostics_dir = run_root / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
@@ -398,14 +398,14 @@ def test_write_run_evidence_index_lists_v3_seed_exports(tmp_path: Path, monkeypa
     monkeypatch.setattr(app_config, "RUNTIME_OUTPUT_ROOT_BASE", str(output_root), raising=False)
 
     for name in (
-        f"v3_label_contract_{run_id}.md",
+        f"label_contract_{run_id}.md",
         f"permission_pattern_contract_{run_id}.md",
         f"ml_run_manifest_{run_id}.json",
         f"ml_sample_label_fact_{run_id}.csv",
         f"ml_permission_vocabulary_{run_id}.json",
         f"ml_permission_pattern_fact_{run_id}.csv",
         f"split_freeze_headline_{run_id}.csv",
-        f"v3_dl_handoff_summary_{run_id}.json",
+        f"dl_handoff_summary_{run_id}.json",
     ):
         if name.endswith(".json"):
             (diagnostics_dir / name).write_text(
@@ -430,12 +430,12 @@ def test_write_run_evidence_index_lists_v3_seed_exports(tmp_path: Path, monkeypa
     )
 
     text = out_path.read_text(encoding="utf-8")
-    assert "## V3 research contracts (open first)" in text
+    assert "## canonical research contracts (open first)" in text
     assert "ML sample label fact" in text
     assert "ML permission vocabulary" in text
     assert "ML permission pattern fact" in text
     assert "DL seed handoff status" in text
-    assert "V3 DL handoff summary" in text
+    assert "canonical DL handoff summary" in text
     assert "Frozen train/test split ledger" in text
 
 

@@ -15,7 +15,7 @@ Contributor/agent notes: **[`docs/AGENTS.md`](../docs/AGENTS.md)** (repo-root `A
 Keep test ownership aligned to the canonical production domain; do not retain a
 standalone file merely because a shim or migration once existed. Compatibility
 tests belong in `test_legacy_shim_parity.py` or
-`test_import_surface_guardrails.py`; immutable paper-lock and V3 fixtures are
+`test_import_surface_guardrails.py`; immutable paper-lock and canonical fixtures are
 regression assets, not general cleanup candidates.
 
 Avoid recording static suite counts here: they become stale quickly. To inspect

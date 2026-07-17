@@ -93,7 +93,7 @@ def test_expanded_family_profile_uses_benchmark_eligibility_support_floor() -> N
     assert gates.get("min_samples_per_family") == 3
 
 
-def test_quick_menu_v3_profiles_default_to_non_publication_mode() -> None:
+def test_quick_menu_canonical_profiles_default_to_non_publication_mode() -> None:
     expected_non_evidence = (
         "android_malware_all_current",
         "android_malware_major_families",

@@ -38,7 +38,7 @@ from obsidiandroid.pipeline.manifest.runtime_support import (
     derive_aggregate_pipeline_verdict,
     derive_terminal_run_status,
 )
-from obsidiandroid.diagnostics.v3_dl_handoff import build_v3_dl_handoff_observability_block as _build_v3_dl_handoff_observability_block
+from obsidiandroid.diagnostics.dl_handoff import build_dl_handoff_observability_block as _build_dl_handoff_observability_block
 from obsidiandroid.observability.pipeline_observability.logging_audit import write_logging_audit_artifacts
 from obsidiandroid.observability.pipeline_observability.session import PipelineObservabilitySession
 
@@ -155,17 +155,17 @@ def _top_artifacts_to_open(
     authority_md = diagnostics_dir / f"family_type_authority_coverage_{run_id}.md"
     taxonomy_split_md = diagnostics_dir / f"taxonomy_authority_split_{run_id}.md"
     ordered: list[Path] = [
-        diagnostics_dir / f"v3_label_contract_{run_id}.md",
+        diagnostics_dir / f"label_contract_{run_id}.md",
         diagnostics_dir / f"permission_pattern_contract_{run_id}.md",
         taxonomy_split_md,
         rr / "run_evidence_index.md",
         diagnostics_dir / AUTHORITATIVE_SUMMARY_FILENAME,
-        diagnostics_dir / f"v3_label_contract_{run_id}.json",
+        diagnostics_dir / f"label_contract_{run_id}.json",
         diagnostics_dir / f"permission_pattern_contract_{run_id}.json",
         diagnostics_dir / f"ml_run_manifest_{run_id}.json",
         diagnostics_dir / f"ml_sample_label_fact_{run_id}.csv",
         diagnostics_dir / f"ml_permission_vocabulary_{run_id}.json",
-        diagnostics_dir / f"v3_dl_handoff_summary_{run_id}.json",
+        diagnostics_dir / f"dl_handoff_summary_{run_id}.json",
         authority_md,
         diagnostics_dir / "pipeline_stage_summary.md",
         diagnostics_dir / "partial_failures.md",
@@ -375,7 +375,7 @@ def finalize_pipeline_observability(
     # --- Aggregate pipeline verdict (explicit about audits) ---
     evidence_readiness_issues = manifest_context.get("_evidence_readiness_failed_checks") or []
 
-    from obsidiandroid.common.run_slots import is_canonical_v3_profile
+    from obsidiandroid.common.run_slots import is_canonical_profile
 
     verdict = derive_aggregate_pipeline_verdict(
         run_status_raw=run_status_raw,
@@ -388,7 +388,7 @@ def finalize_pipeline_observability(
             or manifest_context.get("integrity_error", "")
             or ""
         ),
-        canonical_v3=is_canonical_v3_profile(str(profile_id or "")),
+        canonical_profile=is_canonical_profile(str(profile_id or "")),
     )
 
     publication_ready_terminal, reasons = evaluate_publication_ready_status(
@@ -831,7 +831,7 @@ def finalize_pipeline_observability(
         ),
         "cohort_persistence_source": str(manifest_context.get("cohort_persistence_source", "") or "") or None,
         "dataset_hash": str(manifest.get("dataset_hash", "") or manifest_context.get("dataset_hash", "") or "") or None,
-        "v3_dl_handoff": _build_v3_dl_handoff_observability_block(
+        "dl_handoff": _build_dl_handoff_observability_block(
             diagnostics_dir=diagnostics_dir,
             run_id=run_id,
             manifest=manifest if isinstance(manifest, dict) else {},

@@ -14,7 +14,7 @@ from obsidiandroid.pipeline.permission_trends.pattern_framework import (
 pytestmark = pytest.mark.contract
 
 
-def test_build_pattern_scale_contract_uses_v3_structural_ladder() -> None:
+def test_build_pattern_scale_contract_uses_canonical_structural_ladder() -> None:
     payload = build_pattern_scale_contract()
     assert payload["scale_name"] == PATTERN_SCALE_NAME
     assert payload["level_min"] == 0
@@ -32,7 +32,7 @@ def test_export_permission_pattern_contract_writes_json_and_md(tmp_path: Path) -
     )
     assert len(paths) == 2
     md_text = (tmp_path / "permission_pattern_contract_run_contract.md").read_text(encoding="utf-8")
-    assert "V3 Permission Pattern Contract" in md_text
+    assert "canonical Permission Pattern Contract" in md_text
     assert "Null / Absent Pattern" in md_text
     assert "family_vs_global" in md_text
     assert "permission_alone_proves_malware" in md_text

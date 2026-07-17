@@ -44,7 +44,7 @@ from obsidiandroid.diagnostics import family_label_confidence_audit
 from obsidiandroid.diagnostics import cohort_foundation_export
 from obsidiandroid.diagnostics import family_label_taxonomy_audit
 from obsidiandroid.diagnostics import taxonomy_target_surface_report
-from obsidiandroid.diagnostics import v3_label_contract
+from obsidiandroid.diagnostics import label_contract
 from obsidiandroid.diagnostics import cohort_vocabulary
 from obsidiandroid.pipeline.sample_exports import (
     augment_dataset_time_contract as _augment_dataset_time_contract,
@@ -849,7 +849,7 @@ def load_and_prepare_samples(
         )
 
     try:
-        label_contract_artifacts = v3_label_contract.export_v3_label_contract(
+        label_contract_artifacts = label_contract.export_label_contract(
             diagnostics_dir=_diagnostics_dir(),
             run_id=str(run_id or "unknown"),
             profile=profile,
@@ -859,19 +859,19 @@ def load_and_prepare_samples(
         if isinstance(artifact_list, list):
             artifact_list.extend(label_contract_artifacts)
     except Exception as contract_exc:  # pylint: disable=broad-except
-        from obsidiandroid.common.run_slots import is_canonical_v3_profile
+        from obsidiandroid.common.run_slots import is_canonical_profile
 
-        if is_canonical_v3_profile(profile_id):
+        if is_canonical_profile(profile_id):
             du.print_error(
-                f"[COHORT] V3 label contract export failed for canonical profile `{profile_id}`: {contract_exc}"
+                f"[COHORT] Label contract export failed for canonical profile `{profile_id}`: {contract_exc}"
             )
             raise
         du.print_warning(
-            f"[COHORT] V3 label contract export skipped: {type(contract_exc).__name__}."
+            f"[COHORT] Label contract export skipped: {type(contract_exc).__name__}."
         )
         log_event(
             PIPELINE_LOGGER,
-            "samples_v3_label_contract_export_failed",
+            "samples_label_contract_export_failed",
             event_id="SAMPLES_326",
             level="WARNING",
             run_id=str(run_id or "unknown"),

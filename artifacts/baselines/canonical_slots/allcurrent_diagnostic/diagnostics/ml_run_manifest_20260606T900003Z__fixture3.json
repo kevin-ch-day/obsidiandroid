@@ -1,0 +1,18 @@
+{
+  "cohort_size": 1,
+  "dataset_hash": "fixture_dataset_hash_03",
+  "export_version": "ml_run_manifest_v1",
+  "optional_seed_artifact_refs": {
+    "ml_sample_permission_feature": "ml_sample_permission_feature_20260606T900003Z__fixture3.csv"
+  },
+  "profile_id": "android_malware_all_current",
+  "run_id": "20260606T900003Z__fixture3",
+  "sample_label_rows": 1,
+  "seed_artifact_refs": {
+    "ml_permission_vocabulary": "ml_permission_vocabulary_20260606T900003Z__fixture3.json",
+    "ml_sample_label_fact": "ml_sample_label_fact_20260606T900003Z__fixture3.csv",
+    "permission_pattern_contract": "permission_pattern_contract_20260606T900003Z__fixture3.json",
+    "label_contract": "label_contract_20260606T900003Z__fixture3.json"
+  },
+  "vocabulary_entry_count": 4
+}

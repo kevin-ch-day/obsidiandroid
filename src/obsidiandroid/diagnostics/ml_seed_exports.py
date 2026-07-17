@@ -1,4 +1,4 @@
-"""Minimum deep-learning seed exports for the post-V3 Neptune/Iapetus phase."""
+"""Minimum deep-learning seed exports for the Neptune/Iapetus phase."""
 
 from __future__ import annotations
 
@@ -13,10 +13,10 @@ from config import app_config
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.diagnostics.cohort_persistence import resolve_effective_samples_df
 from obsidiandroid.diagnostics.run_artifact_resolve import resolve_run_artifact_path
-from obsidiandroid.common.run_slots import is_canonical_v3_profile
-from obsidiandroid.diagnostics.v3_dl_handoff import (
-    build_v3_dl_handoff_summary_payload,
-    export_v3_dl_handoff_summary,
+from obsidiandroid.common.run_slots import is_canonical_profile
+from obsidiandroid.diagnostics.dl_handoff import (
+    build_dl_handoff_summary_payload,
+    export_dl_handoff_summary,
 )
 
 
@@ -391,7 +391,7 @@ def _resolve_split_export_source(
     The ML seed manifest stores a file name relative to ``diagnostics_dir``.
     A global ``latest`` ledger from another run is therefore not a valid
     substitute: it would produce a dangling relative reference and falsely
-    report a canonical V3 handoff as complete.
+    report a canonical handoff as complete.
     """
     diagnostics_dir = Path(diagnostics_dir)
 
@@ -679,7 +679,7 @@ def export_ml_seed_artifacts(
         optional_refs["ml_sample_permission_feature"] = permission_feature_path.name
 
     for key, filename in (
-        ("v3_label_contract", f"v3_label_contract_{run_id}.json"),
+        ("label_contract", f"label_contract_{run_id}.json"),
         ("permission_pattern_contract", f"permission_pattern_contract_{run_id}.json"),
         ("taxonomy_target_surfaces", f"taxonomy_target_surfaces_{run_id}.json"),
         ("run_manifest", "run_manifest.json"),
@@ -708,7 +708,7 @@ def export_ml_seed_artifacts(
     )
     paths.append(str(ml_manifest_path))
 
-    handoff_path = export_v3_dl_handoff_summary(
+    handoff_path = export_dl_handoff_summary(
         diagnostics_dir=diagnostics_dir,
         run_id=run_id,
         profile=profile,
@@ -716,8 +716,8 @@ def export_ml_seed_artifacts(
         manifest_context=manifest_context,
     )
     paths.append(str(handoff_path))
-    if is_canonical_v3_profile(str(profile.get("profile_id", "") or "")):
-        handoff_payload = build_v3_dl_handoff_summary_payload(
+    if is_canonical_profile(str(profile.get("profile_id", "") or "")):
+        handoff_payload = build_dl_handoff_summary_payload(
             diagnostics_dir=diagnostics_dir,
             run_id=run_id,
             profile=profile,
@@ -727,7 +727,7 @@ def export_ml_seed_artifacts(
         if handoff_payload.get("dl_seed_status") != "ready":
             caveats = handoff_payload.get("caveats") or []
             raise MlSeedExportError(
-                "canonical V3 DL handoff incomplete: " + "; ".join(str(item) for item in caveats)
+                "canonical DL handoff incomplete: " + "; ".join(str(item) for item in caveats)
             )
 
     return paths

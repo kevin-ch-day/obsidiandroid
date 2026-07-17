@@ -77,7 +77,7 @@ pytest -q -m "not slow"
 
 **`make verify`** runs **`scripts/dev/check_import_surface.py`** and then the same fast pytest selection as **`make test`** (import paths + default **`slow`** exclusion).
 
-**CI:** GitHub Actions runs three parallel jobs: **fast** (`make doc-check` + `make verify` + `make ml-scan-strict` on Python 3.11/3.12), **integration** (`make verify-integration` on 3.12), and **V3 closure** (`make verify-v3` on 3.12). Locally, use **`make ci-fast`** for the daily gate (~30–40s) and **`make ci`** only before push when V3 closure matters.
+**CI:** GitHub Actions runs three parallel jobs: **fast** (`make doc-check` + `make verify` + `make ml-scan-strict` on Python 3.11/3.12), **integration** (`make verify-integration` on 3.12), and **canonical closure** (`make verify-canonical` on 3.12). Locally, use **`make ci-fast`** for the daily gate (~30–40s) and **`make ci`** only before push when canonical closure matters.
 
 Whole test **files** listed in `_SLOW_TEST_MODULES` inside `tests/conftest.py` are auto-marked `slow` at collection time so they stay out of the default run.
 

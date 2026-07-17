@@ -1,4 +1,4 @@
-"""Standalone V3 permission-pattern contract artifacts."""
+"""Standalone canonical permission-pattern contract artifacts."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ def build_permission_pattern_contract_payload(
             "pairwise_similarity": _artifact_exists(diag, "family_permission_similarity", run_id),
         }
     return {
-        "contract_version": "v3_permission_pattern_contract_v1",
+        "contract_version": "permission_pattern_contract_v1",
         "run_id": str(run_id or "").strip(),
         "profile_id": str(profile_id or "").strip(),
         "pattern_scale": build_pattern_scale_contract(),
@@ -110,7 +110,7 @@ def export_permission_pattern_contract(
 
     scale = payload.get("pattern_scale", {}) if isinstance(payload.get("pattern_scale"), dict) else {}
     lines = [
-        "# V3 Permission Pattern Contract",
+        "# canonical Permission Pattern Contract",
         "",
         f"Run ID: `{run_id}`",
         f"Profile: `{profile_id}`",

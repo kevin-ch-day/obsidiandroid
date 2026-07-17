@@ -3,7 +3,7 @@
 # Shared ignore pattern for `tree` (noise / generated paths).
 _TREE_IGNORE := .git|.venv|__pycache__|*.pyc|output|logs|.pytest_cache|.pytest_tmp|*.egg-info|build|dist|.mypy_cache|.ruff_cache|.hypothesis|htmlcov|coverage.xml|wandb|mlruns
 
-.PHONY: clean clean-bytecode tree-source tree-obsidiandroid tree-utils tree-exporting-shims test test-changed test-integration test-pipeline-integration test-full setup menu install-editable doc-check verify verify-integration verify-pipeline-integration verify-v3 ci ci-fast ml-scan ml-scan-strict preflight-db check-run-integrity dev-import-check output-writer-audit help
+.PHONY: clean clean-bytecode tree-source tree-obsidiandroid tree-utils tree-exporting-shims test test-changed test-integration test-pipeline-integration test-full setup menu install-editable doc-check verify verify-integration verify-pipeline-integration verify-canonical ci ci-fast ml-scan ml-scan-strict preflight-db check-run-integrity dev-import-check output-writer-audit help
 
 help:
 	@echo "Targets:"
@@ -19,8 +19,8 @@ help:
 	@echo "  make ml-scan       - static scan for suspicious .predict() / .predict_proba() sites"
 	@echo "  make ml-scan-strict  - same scan; exit 1 if any warning (matches CI)"
 	@echo "  make doc-check     - block reintroduced phantom paths in README + key docs"
-	@echo "  make ci-fast       - doc-check + verify + ml-scan-strict (daily local gate, no V3)"
-	@echo "  make ci            - ci-fast + verify-v3 (full pre-push gate)"
+	@echo "  make ci-fast       - doc-check + verify + ml-scan-strict (daily local gate, no canonical)"
+	@echo "  make ci            - ci-fast + verify-canonical (full pre-push gate)"
 	@echo "  make clean         - alias for clean-bytecode (bytecode + stray logs under .)"
 	@echo "  make clean-bytecode  - run scripts/dev/clean_bytecode_cache.py on the repo root"
 	@echo "  make tree-source     - repo-root layout (excludes .venv, output, caches; needs \`tree\`)"
@@ -31,7 +31,7 @@ help:
 	@echo "  make output-writer-audit  - CSV audit of output-related write call-sites (scripts/dev/output_writer_audit.py)"
 	@echo "  make verify          - import smoke + fast pytest; use before PRs"
 	@echo "  make verify-integration - integration pytest lane (pipeline partial-run smoke)"
-	@echo "  make verify-v3       - V3 closure contract tests (validate script + ML seed exports)"
+	@echo "  make verify-canonical - canonical contract tests (validation + ML seed exports)"
 	@echo "  make check-run-integrity RUN_ROOT=<path>  - manifest vs observability rollup (Tier A)"
 
 clean: clean-bytecode
@@ -98,11 +98,11 @@ ml-scan-strict:
 doc-check:
 	python scripts/dev/check_doc_hygiene.py
 
-# Daily local gate: matches the GitHub fast job (no V3 closure scripts).
+# Daily local gate: matches the GitHub fast job (no canonical closure scripts).
 ci-fast: doc-check verify ml-scan-strict
 
-# Full pre-push gate: fast job + offline V3 closure lane.
-ci: ci-fast verify-v3
+# Full pre-push gate: fast job + offline canonical validation lane.
+ci: ci-fast verify-canonical
 
 # Import surface + default fast test selection (CI-friendly local gate).
 verify:
@@ -116,26 +116,24 @@ verify-integration:
 verify-pipeline-integration:
 	./scripts/dev/run_tests_pipeline_integration.sh
 
-# V3 closure contract lane (pytest fixtures; offline slot check when output/runs exists).
-refresh-v3-handoff:
-	python scripts/dev/refresh_v3_canonical_handoff.py --skip-missing-slots
+# canonical closure contract lane (pytest fixtures; offline slot check when output/runs exists).
+refresh-canonical-handoff:
+	python scripts/dev/refresh_canonical_handoff.py --skip-missing-slots
 
-validate-v3-live:
-	python scripts/dev/validate_v3_canonical_runs.py --verify-only --strict --skip-missing-slots
+validate-canonical-live:
+	python scripts/dev/validate_canonical_runs.py --verify-only --strict --skip-missing-slots
 
 wait-validate-majorfam:
-	python scripts/dev/wait_validate_v3_slot.py --profile-id android_malware_major_families --refresh-handoff --validate-all
+	python scripts/dev/wait_validate_canonical_slot.py --profile-id android_malware_major_families --refresh-handoff --validate-all
 
-verify-v3:
-	python -m pytest -q tests/test_validate_v3_canonical_runs.py tests/test_import_v3_run_to_db.py tests/test_obsidiandroid_research_ddl.py tests/test_ml_seed_exports.py tests/test_v3_label_contract.py tests/test_permission_pattern_contract.py tests/test_v3_canonical_hard_fail.py tests/test_v3_samples_label_contract.py tests/test_cohort_persistence.py tests/test_run_artifact_resolve.py tests/test_runtime_support_v3.py tests/test_research_validity_bundle_v3.py tests/test_hostile_audit_bundle_v3.py tests/test_v3_dl_handoff.py -m "not slow"
-	python scripts/dev/validate_v3_canonical_runs.py --verify-only --strict --runs-root artifacts/baselines/v3_canonical_slots
-	python scripts/import_v3_run_to_db.py --runs-root artifacts/baselines/v3_canonical_slots --release-tag v3.0.0
-	@if [ -d output/runs/allcurrent_diagnostic ]; then python scripts/dev/validate_v3_canonical_runs.py --verify-only --strict --skip-missing-slots; fi
-	@if [ -d output/runs/allcurrent_diagnostic ]; then python scripts/import_v3_run_to_db.py --runs-root output/runs --release-tag v3.0.0 --skip-missing-slots; fi
+verify-canonical:
+	python -m pytest -q tests/test_validate_canonical_runs.py tests/test_import_canonical_runs_to_db.py tests/test_obsidiandroid_research_ddl.py tests/test_ml_seed_exports.py tests/test_label_contract.py tests/test_permission_pattern_contract.py tests/test_canonical_hard_fail.py tests/test_canonical_samples_label_contract.py tests/test_cohort_persistence.py tests/test_run_artifact_resolve.py tests/test_runtime_support_canonical.py tests/test_research_validity_bundle_canonical.py tests/test_hostile_audit_bundle_canonical.py tests/test_dl_handoff.py -m "not slow"
+	python scripts/dev/validate_canonical_runs.py --verify-only --strict --runs-root artifacts/baselines/canonical_slots
+	python scripts/import_canonical_runs_to_db.py --runs-root artifacts/baselines/canonical_slots --release-tag v2.2.0
 
 # Dry-run ObsidianDroid research DB import plans for canonical fixture slots.
-dry-run-v3-db-import:
-	python scripts/import_v3_run_to_db.py --runs-root artifacts/baselines/v3_canonical_slots --release-tag v3.0.0
+dry-run-canonical-db-import:
+	python scripts/import_canonical_runs_to_db.py --runs-root artifacts/baselines/canonical_slots --release-tag v2.2.0
 
 # Quick smoke: obsidiandroid package and pipeline facade (editable install or PYTHONPATH=src).
 dev-import-check:

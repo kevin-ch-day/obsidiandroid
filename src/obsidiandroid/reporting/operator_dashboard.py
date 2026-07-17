@@ -131,15 +131,15 @@ def _dl_seed_readiness_context(
     manifest_context: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Summarize Neptune/Iapetus seed-chain readiness for operator claim surfaces."""
-    from obsidiandroid.diagnostics.v3_dl_handoff import build_v3_dl_handoff_summary_payload
+    from obsidiandroid.diagnostics.dl_handoff import build_dl_handoff_summary_payload
 
     run_root = diagnostics_dir.parent if diagnostics_dir.name == "diagnostics" else diagnostics_dir
     manifest = read_json_dict(run_root / "run_manifest.json")
-    handoff_path = diagnostics_dir / f"v3_dl_handoff_summary_{run_id}.json"
+    handoff_path = diagnostics_dir / f"dl_handoff_summary_{run_id}.json"
     if handoff_path.is_file():
         handoff = read_json_dict(handoff_path)
     else:
-        handoff = build_v3_dl_handoff_summary_payload(
+        handoff = build_dl_handoff_summary_payload(
             diagnostics_dir=diagnostics_dir,
             run_id=run_id,
             profile={"profile_id": profile_id},
@@ -1220,11 +1220,11 @@ def emit_research_operator_report(
         bundle=bundle,
         runtime_temporal_summary=getattr(app_config, "RUNTIME_TEMPORAL_SPLIT_SUMMARY", None),
     )
-    from obsidiandroid.common.run_slots import is_canonical_v3_profile
+    from obsidiandroid.common.run_slots import is_canonical_profile
 
-    if is_canonical_v3_profile(str(profile_id or "")) and dl_seed.get("dl_seed_status") != "ready":
+    if is_canonical_profile(str(profile_id or "")) and dl_seed.get("dl_seed_status") != "ready":
         readiness_blockers = list(readiness_blockers)
-        readiness_blockers.append("DL seed handoff incomplete for canonical V3 profile")
+        readiness_blockers.append("DL seed handoff incomplete for canonical profile")
     claim_status = _claim_status_for_surface(
         readiness_heading,
         readiness_blockers,
@@ -1337,7 +1337,7 @@ def emit_research_operator_report(
         "dl_seed_status": dl_seed.get("dl_seed_status"),
         "dl_seed_missing_refs": dl_seed.get("dl_seed_missing_refs"),
         "dl_seed_caveats": dl_seed.get("dl_seed_caveats"),
-        "v3_dl_handoff_summary": f"v3_dl_handoff_summary_{run_id}.json",
+        "dl_handoff_summary": f"dl_handoff_summary_{run_id}.json",
         "dataset_hash": dl_seed.get("dataset_hash"),
         "cohort_persistence_source": dl_seed.get("cohort_persistence_source"),
         "ml_vocabulary_entry_count": dl_seed.get("ml_vocabulary_entry_count"),
@@ -1380,12 +1380,12 @@ def emit_research_operator_report(
             print_fn(f"[Run] {du.format_console_path(rr)}")
     diag_base = diagnostics_dir
     start_candidates = [
-        diagnostics_dir / f"v3_label_contract_{run_id}.md",
+        diagnostics_dir / f"label_contract_{run_id}.md",
         diagnostics_dir / f"permission_pattern_contract_{run_id}.md",
         diagnostics_dir / f"ml_run_manifest_{run_id}.json",
         diagnostics_dir / f"ml_permission_vocabulary_{run_id}.json",
         diagnostics_dir / f"ml_sample_label_fact_{run_id}.csv",
-        diagnostics_dir / f"v3_dl_handoff_summary_{run_id}.json",
+        diagnostics_dir / f"dl_handoff_summary_{run_id}.json",
         diagnostics_dir / "dataset_foundation_summary.md",
         diagnostics_dir / "modality_contribution_summary.md",
         diagnostics_dir / "model_and_family_failure_summary.md",
