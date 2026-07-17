@@ -189,7 +189,32 @@ def run_permission_trends_report_stage(
     permission_obs_df = _fetch_permission_aggregates()
     permission_merged_df = sample_core_df.merge(permission_obs_df, on="sample_id", how="left")
     permission_merged_df = _fill_permission_observations(permission_merged_df)
-    permission_rows_df = _fetch_permission_rows_for_samples(sample_core_df["sample_id"].tolist())
+    def permission_fetch_progress(event: dict[str, Any]) -> None:
+        batch = int(event.get("batch_number", 0) or 0)
+        total = int(event.get("total_batches", 0) or 0)
+        phase = str(event.get("phase", "")).strip().lower()
+        if phase == "start":
+            requested = int(event.get("requested_sample_count", 0) or 0)
+            du.print_info(
+                f"[REPORT] Permission retrieval: batch {batch}/{total} "
+                f"({requested:,} sample IDs)"
+            )
+            return
+        if phase == "complete":
+            returned = int(event.get("returned_row_count", 0) or 0)
+            cumulative = int(event.get("cumulative_rows", 0) or 0)
+            duration = du.format_elapsed_duration(event.get("query_duration_sec"))
+            elapsed = du.format_elapsed_duration(event.get("elapsed_sec"))
+            du.print_info(f"[REPORT] Permission retrieval: batch {batch}/{total} complete")
+            print(
+                f"  Query: {duration} | Rows: {returned:,} | "
+                f"Cumulative rows: {cumulative:,} | Stage elapsed: {elapsed}"
+            )
+
+    permission_rows_df = _fetch_permission_rows_for_samples(
+        sample_core_df["sample_id"].tolist(),
+        progress_callback=permission_fetch_progress,
+    )
     support_floor = _permission_support_floor(len(sample_core_df))
     forced_permissions = {
         "android.permission.read_sms",

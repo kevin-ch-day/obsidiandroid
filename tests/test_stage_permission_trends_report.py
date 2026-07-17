@@ -169,6 +169,51 @@ def test_fetch_permission_rows_for_samples_falls_back_without_norm(monkeypatch) 
     out = sample_perm_data.fetch_permission_rows_for_samples([1])
 
 
+def test_fetch_permission_rows_reports_start_and_completion_for_each_batch(monkeypatch) -> None:
+    sample_perm_data.permission_contracts.reset_permission_obs_norm_cache()
+    monkeypatch.setattr(
+        sample_perm_data.permission_contracts.db_engine,
+        "get_table_columns",
+        lambda _table: ["sample_id", "permission_string", "permission_string_norm"],
+    )
+
+    def _fake_execute_permission_query(_query, *, params, **_kwargs):
+        return pd.DataFrame(
+            {
+                "sample_id": list(params),
+                "permission_string_raw": ["android.permission.READ_SMS"] * len(params),
+                "permission_string": ["android.permission.read_sms"] * len(params),
+                "protection_level": ["DANGEROUS"] * len(params),
+                "permission_source": ["AOSP"] * len(params),
+                "is_aosp_dict_match": [1] * len(params),
+                "is_oem_dict_match": [0] * len(params),
+            }
+        )
+
+    monkeypatch.setattr(
+        sample_perm_data.db_engine,
+        "execute_permission_query",
+        _fake_execute_permission_query,
+    )
+    events: list[dict[str, object]] = []
+
+    out = sample_perm_data.fetch_permission_rows_for_samples(
+        list(range(1, 502)),
+        progress_callback=events.append,
+    )
+
+    assert len(out) == 501
+    assert [(event["phase"], event["batch_number"]) for event in events] == [
+        ("start", 1),
+        ("complete", 1),
+        ("start", 2),
+        ("complete", 2),
+    ]
+    assert events[-1]["total_batches"] == 2
+    assert events[-1]["returned_row_count"] == 1
+    assert events[-1]["cumulative_rows"] == 501
+
+
 def test_js_distance_zero_for_identical() -> None:
     p = np.array([0.2, 0.3, 0.5], dtype=float)
     assert stats_core.js_distance(p, p) == pytest.approx(0.0, abs=1e-9)

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from time import perf_counter
+from typing import Any
+
 import pandas as pd
 
 from obsidiandroid.database import db_engine
@@ -173,7 +177,18 @@ def fill_permission_observations(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def fetch_permission_rows_for_samples(sample_ids: list[int]) -> pd.DataFrame:
+def fetch_permission_rows_for_samples(
+    sample_ids: list[int],
+    *,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> pd.DataFrame:
+    """Fetch normalized permission observations with optional batch progress events.
+
+    Permission-trends reporting needs a richer row-level contract than the ML
+    feature builder.  The optional callback is deliberately observational: a
+    renderer or checkpoint writer can report batch progress without changing
+    query semantics or causing a reporting failure to interrupt retrieval.
+    """
     if not sample_ids:
         return pd.DataFrame(
             columns=[
@@ -184,9 +199,32 @@ def fetch_permission_rows_for_samples(sample_ids: list[int]) -> pd.DataFrame:
             ]
         )
     chunk_size = 500
+    total_batches = (len(sample_ids) + chunk_size - 1) // chunk_size
     frames: list[pd.DataFrame] = []
+    cumulative_rows = 0
+    stage_started_at = perf_counter()
+
+    def emit_progress(event: dict[str, Any]) -> None:
+        if progress_callback is None:
+            return
+        try:
+            progress_callback(event)
+        except Exception:  # pragma: no cover - presentation must not break data retrieval.
+            return
+
     for idx in range(0, len(sample_ids), chunk_size):
         chunk = sample_ids[idx : idx + chunk_size]
+        batch_number = (idx // chunk_size) + 1
+        emit_progress(
+            {
+                "phase": "start",
+                "batch_number": batch_number,
+                "total_batches": total_batches,
+                "requested_sample_count": len(chunk),
+                "cumulative_rows": cumulative_rows,
+                "elapsed_sec": max(0.0, perf_counter() - stage_started_at),
+            }
+        )
         placeholders = ", ".join(["%s"] * len(chunk))
         permission_key_expr = _permission_obs_key_expr_ops()
         query = f"""
@@ -214,8 +252,23 @@ def fetch_permission_rows_for_samples(sample_ids: list[int]) -> pd.DataFrame:
               AND ops.permission_string IS NOT NULL
               AND TRIM(ops.permission_string) <> ''
         """
+        batch_started_at = perf_counter()
         frame = db_engine.execute_permission_query(
             query, params=tuple(chunk), fetch=True, as_dataframe=True
+        )
+        batch_rows = int(len(frame)) if isinstance(frame, pd.DataFrame) else 0
+        cumulative_rows += batch_rows
+        emit_progress(
+            {
+                "phase": "complete",
+                "batch_number": batch_number,
+                "total_batches": total_batches,
+                "requested_sample_count": len(chunk),
+                "returned_row_count": batch_rows,
+                "cumulative_rows": cumulative_rows,
+                "query_duration_sec": max(0.0, perf_counter() - batch_started_at),
+                "elapsed_sec": max(0.0, perf_counter() - stage_started_at),
+            }
         )
         if isinstance(frame, pd.DataFrame) and not frame.empty:
             frames.append(frame)
