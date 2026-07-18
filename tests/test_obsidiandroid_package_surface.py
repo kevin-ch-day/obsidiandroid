@@ -89,17 +89,6 @@ def test_prepare_script_runtime_prepends_repo_root_and_src() -> None:
     assert src in sys.path
 
 
-def test_thin_compat_shim_trees_follow_policy() -> None:
-    """Legacy shim dirs stay star-import / bootstrap only (see check_import_surface)."""
-    from pathlib import Path
-
-    from scripts.dev.import_surface_policy import collect_thin_compat_shim_violations
-
-    repo_root = Path(__file__).resolve().parents[1]
-    errs = collect_thin_compat_shim_violations(repo_root)
-    assert errs == [], "thin compat shim violations:\n" + "\n".join(errs)
-
-
 def test_setuptools_package_discovery_excludes_retired_analysis_tree() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     with (repo_root / "pyproject.toml").open("rb") as handle:

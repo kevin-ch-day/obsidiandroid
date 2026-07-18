@@ -14,7 +14,6 @@ import pandas as pd
 from config import app_config
 import main
 from obsidiandroid.cli import main_override_bridge
-from obsidiandroid.pipeline import main_facade
 from obsidiandroid.pipeline import runtime_policy
 
 
@@ -531,19 +530,6 @@ def test_enforce_paper_perturbation_axes_accepts_locked_axes() -> None:
         ],
     }
     runtime_policy.enforce_paper_perturbation_axes(profile=profile, paper_mode=True)
-
-
-def test_from_main_or_returns_default_when_main_missing(monkeypatch) -> None:
-    monkeypatch.delitem(sys.modules, "main", raising=False)
-    assert main_facade.from_main_or("anything", 42) == 42
-
-
-def test_from_main_or_prefers_main_attribute(monkeypatch) -> None:
-    class _FakeMain:
-        marker = "patched"
-
-    monkeypatch.setitem(sys.modules, "main", _FakeMain())
-    assert main_facade.from_main_or("marker", "default") == "patched"
 
 
 def test_resolve_main_override_returns_default_when_main_missing(monkeypatch) -> None:

@@ -60,7 +60,7 @@ Consult [`modeling_reference.md`](modeling_reference.md) for estimator-specific 
 
 ### 6. Execution Entrypoints (`main.py`, `obsidiandroid.pipeline.runner`, `scripts/`)
 - `main.py` is the **thin CLI entry**: argument parsing and stable symbols for tests (`run_pipeline`, diagnostics paths, and monkeypatch-friendly re-exports).
-- `src/obsidiandroid/pipeline/runner.py` holds **`run_pipeline`** orchestration; `obsidiandroid.pipeline.main_facade` delegates main-module test overrides to `obsidiandroid.cli.main_override_bridge`.
+- `src/obsidiandroid/pipeline/runner.py` holds **`run_pipeline`** orchestration; `obsidiandroid.cli.main_override_bridge` handles main-module test overrides.
 - `obsidiandroid.pipeline.stage_samples` loads cohorts and applies gates; `stage_av_vendor` runs AV analysis, vendor extraction, and alignment; `stage_modeling` covers weights, feature matrix, training, and label resolution.
 - `obsidiandroid.pipeline.stage_permission_trends_report` produces permission analytics (helpers under `obsidiandroid.pipeline.permission_trends`). `stage_manifest.py` writes the run manifest and paper/evidence exports.
 - `stage_results_warehouse.py` persists selected outputs when configured.

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from . import (
-    metadata_features,
     methodology_artifacts,
     permission_features,
     profile_filters,
@@ -11,7 +10,6 @@ from . import (
 )
 
 __all__ = [
-    "metadata_features",
     "methodology_artifacts",
     "permission_features",
     "profile_filters",

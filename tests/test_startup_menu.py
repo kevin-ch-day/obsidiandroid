@@ -68,17 +68,17 @@ def _write_latest_run_manifest(out_root: Path, payload: object) -> None:
         ("_run_vendor_only", ("profile_a",), {"stop_after": "vendor_metadata", "profile_ref": "profile_a"}),
     ],
 )
-def test_pipeline_actions_use_canonical_pipeline_entrypoint(
+def test_pipeline_actions_use_canonical_pipeline_facade(
     monkeypatch,
     action_name: str,
     args: tuple[str, ...],
     expected_kwargs: dict[str, object],
 ) -> None:
-    """Menu actions call the canonical entrypoint, not the repo-root ``main`` shim."""
-    from obsidiandroid.cli import pipeline_entry
+    """Menu actions call the canonical pipeline facade, not repo-root ``main``."""
+    import obsidiandroid.pipeline as pipeline
 
     calls: list[dict[str, object]] = []
-    monkeypatch.setattr(pipeline_entry, "run_pipeline", lambda **kwargs: calls.append(kwargs) or 17)
+    monkeypatch.setattr(pipeline, "run_pipeline", lambda **kwargs: calls.append(kwargs) or 17)
 
     result = getattr(startup_menu, action_name)(*args)
 
@@ -86,12 +86,12 @@ def test_pipeline_actions_use_canonical_pipeline_entrypoint(
     assert calls == [expected_kwargs]
 
 
-def test_run_to_stage_uses_canonical_pipeline_entrypoint(monkeypatch) -> None:
-    from obsidiandroid.cli import pipeline_entry
+def test_run_to_stage_uses_canonical_pipeline_facade(monkeypatch) -> None:
+    import obsidiandroid.pipeline as pipeline
 
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: 1)
-    monkeypatch.setattr(pipeline_entry, "run_pipeline", lambda **kwargs: calls.append(kwargs) or 23)
+    monkeypatch.setattr(pipeline, "run_pipeline", lambda **kwargs: calls.append(kwargs) or 23)
 
     assert startup_menu._run_to_stage("profile_a") == 23  # pylint: disable=protected-access
     assert calls == [{"stop_after": "samples", "profile_ref": "profile_a"}]

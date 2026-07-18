@@ -5,7 +5,7 @@ Scripts here support **package layout, import hygiene, and local repo maintenanc
 | Script / module | Purpose |
 |-----------------|---------|
 | [`check_import_surface.py`](check_import_surface.py) | Smoke-test `obsidiandroid` imports and shim parity; orchestrates static ratchets; exits nonzero on failure. |
-| [`import_surface_policy.py`](import_surface_policy.py) | AST/file-system only: legacy-root import scans, `# Filename:` header ratchet, legacy-leaf shim rules under `analysis`/`ml_classification`/`model`, UTF-8 BOM scan (shared with tests). |
+| [`import_surface_policy.py`](import_surface_policy.py) | AST/file-system only: retired-root import scans, `# Filename:` header ratchet, and UTF-8 BOM scan (shared with tests). |
 | [`check_doc_hygiene.py`](check_doc_hygiene.py) | Block known-removed phantom script paths in operator docs; **`make doc-check`**. |
 | [`clean_bytecode_cache.py`](clean_bytecode_cache.py) | Remove `__pycache__`, local logs, and common junk under a tree including `.pytest_cache`, `.pytest_tmp*`, `.mypy_cache`, `.ruff_cache`, `htmlcov`, and coverage files (**canonical**; use `python scripts/dev/clean_bytecode_cache.py` or `make clean-bytecode`). |
 | [`data_fuzzer.py`](data_fuzzer.py) | Synthetic classification data for stress tests (`sklearn` + pandas). |
@@ -16,7 +16,6 @@ Scripts here support **package layout, import hygiene, and local repo maintenanc
 | [`refresh_canonical_handoff.py`](refresh_canonical_handoff.py) | Refresh canonical handoff artifacts for existing canonical slots (`make refresh-canonical-handoff`). |
 | [`validate_canonical_runs.py`](validate_canonical_runs.py) | Offline/live canonical closure artifact validation (`make verify-canonical`). |
 | [`wait_validate_canonical_slot.py`](wait_validate_canonical_slot.py) | Wait for a canonical slot, then optionally refresh and validate it. |
-| [`report_compatibility_retirement.py`](report_compatibility_retirement.py) | Print the remaining repository compatibility-shim retirement matrix. |
 | Repo-root [`../import_canonical_runs_to_db.py`](../import_canonical_runs_to_db.py) | v2.2 dry-run research DB import planner (`make dry-run-canonical-db-import`). |
 
 ### Shell entrypoints (Fedora venv, pytest)

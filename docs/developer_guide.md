@@ -61,11 +61,11 @@ Quick sanity check: **`python scripts/dev/check_import_surface.py`** or **`make 
 
 ## Working with the Staged Pipeline
 
-Orchestration lives in **`src/obsidiandroid/pipeline/runner.py`** (`run_pipeline`). **`main.py`** is a thin CLI shell + compatibility surface; tests may monkeypatch `main` symbols, which are resolved by `obsidiandroid.pipeline.main_facade`.
+Orchestration lives in **`src/obsidiandroid/pipeline/runner.py`** (`run_pipeline`). **`main.py`** is a thin CLI shell + compatibility surface; tests may monkeypatch `main` symbols, which are resolved by `obsidiandroid.cli.main_override_bridge`.
 
 - Add heavy logic in **`obsidiandroid.pipeline`** `stage_*.py` modules under `src/obsidiandroid/pipeline/`, not in `runner.py`.
 - Document stage entry/exit contracts in docstrings (input columns, required keys, and failure behavior).
-- Scripts that need the full pipeline should use **`from obsidiandroid.pipeline import run_pipeline`** or **`from obsidiandroid.cli.pipeline_entry import run_pipeline`**; avoid importing deep `stage_*` internals unless you are extending a stage.
+- Scripts that need the full pipeline should use **`from obsidiandroid.pipeline import run_pipeline`**; avoid importing deep `stage_*` internals unless you are extending a stage.
 - Add focused unit tests per stage module (for example: `tests/test_stage_<name>.py`) for success and integrity-failure paths.
 - Use [`pipeline_staging_guide.md`](pipeline_staging_guide.md) as the primary extension checklist.
 

@@ -1,20 +1,16 @@
-"""Stable malware-family taxonomy helpers (Pass 58).
+"""Stable malware-family taxonomy helpers.
 
-Pass 46 tagged legacy malware-family normalization functions as ``needs_wrapper``
-because outer callers should not depend on mutable tables and package layout under
-``ml_classification``.
+This explicit public surface keeps outer callers independent from the internal
+normalization tables.
 
-**Surface:** ``needs_wrapper`` → implemented here as an explicit delegation wrapper,
-not as a ``sys.modules`` alias to the legacy module.
-
-**Frozen public API** (backward-compatible with legacy behavior):
+**Public API:**
 
 * :func:`normalize_family_name`
 * :func:`is_known_family_name`
 * :func:`canonicalize_family_label`
 
 **Intentionally not exported:** ``KNOWN_FAMILIES``, ``FAMILY_ALIASES``, ``GENERIC_TOKENS``,
-and ``CANONICAL_FAMILY_DISPLAY`` remain legacy implementation details.
+and ``CANONICAL_FAMILY_DISPLAY`` are internal implementation details.
 Alias dictionaries that overlap vendor parsing belong under a future
 ``obsidiandroid.vendors`` contract (Pass 46 ``defer`` rows), not this labeling surface.
 

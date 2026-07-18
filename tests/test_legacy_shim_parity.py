@@ -5,14 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def test_pipeline_entrypoints_match_runner_public_surface() -> None:
-    """``obsidiandroid.cli.pipeline_entry`` should expose the pipeline runner facade."""
-    from obsidiandroid.cli import pipeline_entry
-    from obsidiandroid.pipeline import runner as runner_mod
-
-    assert pipeline_entry.run_pipeline is runner_mod.run_pipeline
-
-
 def test_ml_facades_match_ml_classification_modules() -> None:
     """Canonical ML facades preserve their retained compatibility-module identities."""
     import importlib
@@ -20,7 +12,6 @@ def test_ml_facades_match_ml_classification_modules() -> None:
     from obsidiandroid.features.features_facade_manifest import FEATURES_FACADE_ALIAS_TARGETS
     from obsidiandroid.modeling.modeling_facade_manifest import (
         MODELING_FACADE_EAGER_SUBMODULE_NAMES,
-        MODELING_FACADE_LEGACY_VIA_ML_CLASSIFICATION_TRAINING,
     )
 
     import obsidiandroid.features as features_facade
@@ -32,8 +23,6 @@ def test_ml_facades_match_ml_classification_modules() -> None:
         assert getattr(modeling_facade, attr) is canon_mod
         alias_mod = importlib.import_module(f"obsidiandroid.modeling.{attr}")
         assert alias_mod is canon_mod
-        assert attr not in MODELING_FACADE_LEGACY_VIA_ML_CLASSIFICATION_TRAINING
-
     for attr, canon_name in FEATURES_FACADE_ALIAS_TARGETS:
         canon_mod = importlib.import_module(canon_name)
         assert getattr(features_facade, attr) is canon_mod

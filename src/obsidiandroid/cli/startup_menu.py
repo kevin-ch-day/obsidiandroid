@@ -70,28 +70,28 @@ class _MenuCommand:
 
 def _run_full_pipeline(profile_id: str) -> int:
     """Run the complete pipeline with configured model set."""
-    from .pipeline_entry import run_pipeline
+    from obsidiandroid.pipeline import run_pipeline
 
     return run_pipeline(profile_ref=profile_id)
 
 
 def _run_single_model(model_key: str, profile_id: str) -> int:
     """Run the full pipeline while training only one selected model."""
-    from .pipeline_entry import run_pipeline
+    from obsidiandroid.pipeline import run_pipeline
 
     return run_pipeline(selected_models=[model_key], profile_ref=profile_id)
 
 
 def _run_vendor_only(profile_id: str) -> int:
     """Run pipeline through vendor metadata extraction and stop before ML."""
-    from .pipeline_entry import run_pipeline
+    from obsidiandroid.pipeline import run_pipeline
 
     return run_pipeline(stop_after="vendor_metadata", profile_ref=profile_id)
 
 
 def _run_to_stage(profile_id: str) -> int:
     """Run pipeline and stop after a selected stage."""
-    from .pipeline_entry import run_pipeline
+    from obsidiandroid.pipeline import run_pipeline
 
     stage_map: Dict[str, str] = {
         "Samples only": "samples",

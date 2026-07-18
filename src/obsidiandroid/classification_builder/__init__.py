@@ -7,9 +7,8 @@ Structured malware classification record builders now live under
 from __future__ import annotations
 
 import importlib
-import sys
 
-_LEGACY_BY_CANONICAL: dict[str, str] = {
+_LAZY_CANONICAL_SUBMODULES: dict[str, str] = {
     "classification_constants": "obsidiandroid.classification_builder.classification_constants",
     "classification_row_builder": "obsidiandroid.classification_builder.classification_row_builder",
     "prediction_utils": "obsidiandroid.classification_builder.prediction_utils",
@@ -20,16 +19,15 @@ _LEGACY_BY_CANONICAL: dict[str, str] = {
 
 
 def __getattr__(name: str):
-    if name not in _LEGACY_BY_CANONICAL:
+    if name not in _LAZY_CANONICAL_SUBMODULES:
         raise AttributeError(name)
-    mod = importlib.import_module(_LEGACY_BY_CANONICAL[name])
+    mod = importlib.import_module(_LAZY_CANONICAL_SUBMODULES[name])
     globals()[name] = mod
-    sys.modules.setdefault(f"obsidiandroid.classification_builder.{name}", mod)
     return mod
 
 
 def __dir__() -> list[str]:
-    return sorted(list(globals().keys()) + list(_LEGACY_BY_CANONICAL.keys()))
+    return sorted(list(globals().keys()) + list(_LAZY_CANONICAL_SUBMODULES.keys()))
 
 
-__all__ = sorted(_LEGACY_BY_CANONICAL.keys())
+__all__ = sorted(_LAZY_CANONICAL_SUBMODULES.keys())

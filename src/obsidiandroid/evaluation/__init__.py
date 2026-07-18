@@ -1,20 +1,18 @@
 """Canonical evaluation namespace.
 
-Implementation modules live in this package. Compatibility support remains for
-selected ``ml_classification.*`` imports during the modeling migration.
+Implementation modules live in this package.
 """
 
 from __future__ import annotations
 
 import importlib
-import sys
 
 from obsidiandroid.evaluation.vendor_classification_parser import (
     VendorClassificationParseResult,  # noqa: F401
     parse_vendor_classifications,  # noqa: F401
 )
 
-_LEGACY_BY_CANONICAL = {
+_LAZY_CANONICAL_SUBMODULES = {
     "accuracy_band_utils": "obsidiandroid.evaluation.accuracy_band_utils",
     "av_results_fetcher": "obsidiandroid.evaluation.av_results_fetcher",
     "engine_scoring_summary": "obsidiandroid.evaluation.engine_scoring_summary",
@@ -35,19 +33,18 @@ _LEGACY_BY_CANONICAL = {
 
 
 def __getattr__(name: str):
-    if name not in _LEGACY_BY_CANONICAL:
+    if name not in _LAZY_CANONICAL_SUBMODULES:
         raise AttributeError(name)
-    mod = importlib.import_module(_LEGACY_BY_CANONICAL[name])
+    mod = importlib.import_module(_LAZY_CANONICAL_SUBMODULES[name])
     globals()[name] = mod
-    sys.modules.setdefault(f"obsidiandroid.evaluation.{name}", mod)
     return mod
 
 
 def __dir__() -> list[str]:
-    return sorted(list(globals().keys()) + list(_LEGACY_BY_CANONICAL.keys()))
+    return sorted(list(globals().keys()) + list(_LAZY_CANONICAL_SUBMODULES.keys()))
 
 
-__all__ = sorted(_LEGACY_BY_CANONICAL.keys())
+__all__ = sorted(_LAZY_CANONICAL_SUBMODULES.keys())
 
 # Stable function entrypoints (so callers don't need to import deep submodules).
 __all__.extend(["VendorClassificationParseResult", "parse_vendor_classifications"])

@@ -120,15 +120,15 @@ def test_verify_only_passes_for_minimal_canonical_slot(tmp_path: Path) -> None:
     assert code == 0
 
 
-def test_run_profiles_cli_uses_canonical_pipeline_entrypoint(monkeypatch) -> None:
+def test_run_profiles_cli_uses_canonical_pipeline_facade(monkeypatch) -> None:
     """The canonical runner must not depend on the repo-root ``main`` compatibility shim."""
-    from obsidiandroid.cli import pipeline_entry
+    import obsidiandroid.pipeline as pipeline
 
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(canonical_validate, "CANONICAL_PROFILES", ("profile_a",))
     monkeypatch.setattr(canonical_validate.app_config, "RUNTIME_RUN_ID", "run_a", raising=False)
     monkeypatch.setattr(
-        pipeline_entry,
+        pipeline,
         "run_pipeline",
         lambda **kwargs: calls.append(kwargs) or 0,
     )

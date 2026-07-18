@@ -1,8 +1,7 @@
 """Canonical ML modeling namespace.
 
 Training controllers, execution helpers, evaluation helpers, and utility
-modules now live under ``obsidiandroid.modeling`` while legacy
-``ml_classification.*`` paths remain thin compatibility shims:
+modules live under ``obsidiandroid.modeling``:
 
 - :mod:`obsidiandroid.modeling.pipeline_core` (physical)
 - :mod:`obsidiandroid.modeling.model_trainer_factory` (physical)

@@ -14,24 +14,16 @@ Implementation details remain under subpackages:
 
 from __future__ import annotations
 
-import importlib
 import sys
 
 from obsidiandroid.vendors.contracts.parsed_label_metadata import ParsedLabelMetadata  # noqa: F401
 from obsidiandroid.vendors.contracts.record_core import VendorClassificationRecord  # noqa: F401
 from obsidiandroid.vendors.parsing.generic_label_parser import parse_generic_classification  # noqa: F401
+from obsidiandroid.vendors.parsing import vendor_parser_map
 
-_CANONICAL_SUBMODULE_NAMES = ("vendor_parser_map",)
-_LEGACY_BY_CANONICAL = {
-    "vendor_parser_map": "obsidiandroid.vendors.parsing.vendor_parser_map",
-}
+sys.modules.setdefault("obsidiandroid.vendors.vendor_parser_map", vendor_parser_map)
 
-for _name in _CANONICAL_SUBMODULE_NAMES:
-    _canon = importlib.import_module(_LEGACY_BY_CANONICAL[_name])
-    globals()[_name] = _canon
-    sys.modules.setdefault(f"obsidiandroid.vendors.{_name}", _canon)
-
-__all__ = list(_CANONICAL_SUBMODULE_NAMES)
+__all__ = ["vendor_parser_map"]
 
 # Stable contract re-exports (so callers don't need to reach into contracts.*).
 __all__.extend(
@@ -41,5 +33,3 @@ __all__.extend(
         "parse_generic_classification",
     ]
 )
-
-del _CANONICAL_SUBMODULE_NAMES, _LEGACY_BY_CANONICAL, _name, _canon

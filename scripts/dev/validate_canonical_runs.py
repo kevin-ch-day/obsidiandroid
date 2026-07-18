@@ -412,7 +412,7 @@ def verify_only_cli(
 
 
 def run_profiles_cli() -> int:
-    from obsidiandroid.cli.pipeline_entry import run_pipeline
+    from obsidiandroid.pipeline import run_pipeline
 
     results: list[dict[str, object]] = []
     for profile_id in CANONICAL_PROFILES:

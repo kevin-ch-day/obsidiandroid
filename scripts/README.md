@@ -10,7 +10,7 @@ python scripts/diagnostics/diagnose_alignment_gap.py --help
 
 ## Imports and coupling
 
-- **Prefer** orchestration via `run_pipeline` — `from obsidiandroid.pipeline import run_pipeline` (canonical) or `from obsidiandroid.cli.pipeline_entry import run_pipeline` (CLI entry wrapper). Repo-root **`main.py`** remains a compatibility re-export surface for tests/operators.
+- **Prefer** orchestration via `run_pipeline` — `from obsidiandroid.pipeline import run_pipeline`. Repo-root **`main.py`** remains a compatibility re-export surface for tests/operators.
 - **Avoid** importing deep stage internals (`obsidiandroid.pipeline.stage_*`) from new scripts unless you are extending the pipeline; those modules assume full runtime context (`app_config`, diagnostics paths, profiles).
 - **Database**: credentials come from `obsidiandroid.database.db_config` (environment variables `OBSIDIAN_DB_*`, optional repo-root `.env` via `python-dotenv`). Smoke-check connectivity before long jobs:
 

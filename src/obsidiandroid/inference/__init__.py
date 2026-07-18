@@ -7,9 +7,8 @@ Heuristic label consensus and signal-quality helpers live under
 from __future__ import annotations
 
 import importlib
-import sys
 
-_LEGACY_BY_CANONICAL: dict[str, str] = {
+_LAZY_CANONICAL_SUBMODULES: dict[str, str] = {
     "label_consensus_engine": "obsidiandroid.inference.label_consensus_engine",
     "malware_type_engine": "obsidiandroid.inference.malware_type_engine",
     "signal_health_checker": "obsidiandroid.inference.signal_health_checker",
@@ -18,16 +17,15 @@ _LEGACY_BY_CANONICAL: dict[str, str] = {
 
 
 def __getattr__(name: str):
-    if name not in _LEGACY_BY_CANONICAL:
+    if name not in _LAZY_CANONICAL_SUBMODULES:
         raise AttributeError(name)
-    mod = importlib.import_module(_LEGACY_BY_CANONICAL[name])
+    mod = importlib.import_module(_LAZY_CANONICAL_SUBMODULES[name])
     globals()[name] = mod
-    sys.modules.setdefault(f"obsidiandroid.inference.{name}", mod)
     return mod
 
 
 def __dir__() -> list[str]:
-    return sorted(list(globals().keys()) + list(_LEGACY_BY_CANONICAL.keys()))
+    return sorted(list(globals().keys()) + list(_LAZY_CANONICAL_SUBMODULES.keys()))
 
 
-__all__ = sorted(_LEGACY_BY_CANONICAL.keys())
+__all__ = sorted(_LAZY_CANONICAL_SUBMODULES.keys())

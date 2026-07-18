@@ -9,30 +9,18 @@ as an extension point.
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
 from pathlib import Path
 
-from scripts.dev.compatibility_retirement_manifest import (
-    CANONICAL_CODE_COMPATIBILITY_IMPORT_ROOTS as _CANONICAL_CODE_COMPATIBILITY_IMPORT_ROOTS,
-    CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST as _CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST,
-    CANONICAL_FILENAME_HEADER_BAD_ROOTS as _CANONICAL_FILENAME_HEADER_BAD_ROOTS,
-    EARLY_DEPRECATION_READY_TREES as _EARLY_DEPRECATION_READY_TREES,
-    LEGACY_COMPATIBILITY_IMPORT_ROOTS as _LEGACY_COMPATIBILITY_IMPORT_ROOTS,
-    NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST as _NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST,
-    RETIRED_COMPATIBILITY_ROOTS as _RETIRED_COMPATIBILITY_ROOTS,
-    RETIRED_ROOT_COMPATIBILITY_FILES as _RETIRED_ROOT_COMPATIBILITY_FILES,
-)
-
 _UTF8_BOM = b"\xef\xbb\xbf"
-CANONICAL_CODE_LEGACY_IMPORT_ROOTS = frozenset(_CANONICAL_CODE_COMPATIBILITY_IMPORT_ROOTS)
+CANONICAL_CODE_LEGACY_IMPORT_ROOTS = frozenset({"analysis", "ml_classification", "main"})
 # First path segment of ``# Filename:`` headers under ``src/`` must not name a legacy tree.
-CANONICAL_FILENAME_HEADER_BAD_ROOTS = frozenset(_CANONICAL_FILENAME_HEADER_BAD_ROOTS)
+CANONICAL_FILENAME_HEADER_BAD_ROOTS = frozenset({"analysis", "ml_classification", "database"})
 _CANONICAL_CODE_IMPORT_SCAN_ROOTS = ("src", "scripts")
-CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST = frozenset(_CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST)
-NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST = frozenset(_NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST)
-READY_NOW_LEGACY_SHIM_BATCHES = frozenset(_EARLY_DEPRECATION_READY_TREES)
-RETIRED_COMPATIBILITY_ROOTS = frozenset(_RETIRED_COMPATIBILITY_ROOTS)
-RETIRED_ROOT_COMPATIBILITY_FILES = frozenset(_RETIRED_ROOT_COMPATIBILITY_FILES)
+CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST = frozenset({Path("scripts/dev/check_import_surface.py")})
+RETIRED_COMPATIBILITY_ROOTS = frozenset({"analysis", "ml_classification"})
+RETIRED_ROOT_COMPATIBILITY_FILES = frozenset(
+    {Path("database/__init__.py"), Path("database/split_db_health.py")}
+)
 # Directory name fragments skipped when scanning for UTF-8 BOM (generated / vendor trees).
 _BOM_SCAN_SKIP_DIR_PARTS = frozenset(
     {
@@ -56,37 +44,15 @@ _BOM_SCAN_SKIP_DIR_PARTS = frozenset(
     }
 )
 
-
-@dataclass(frozen=True)
-class ThinCompatShimPolicy:
-    """Declarative checks for star-import / re-export compatibility modules."""
-
-    label: str
-    relative_parts: tuple[str, ...]
-    max_lines: int
-    required_substrings: tuple[str, ...]
-    relocate_hint: str
-    exclude_names: frozenset[str] = frozenset()
-
-
-THIN_COMPAT_SHIM_POLICIES: tuple[ThinCompatShimPolicy, ...] = ()
-
 __all__ = (
     "CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST",
     "CANONICAL_CODE_LEGACY_IMPORT_ROOTS",
     "CANONICAL_FILENAME_HEADER_BAD_ROOTS",
-    "NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST",
-    "READY_NOW_LEGACY_SHIM_BATCHES",
-    "THIN_COMPAT_SHIM_POLICIES",
-    "ThinCompatShimPolicy",
     "collect_canonical_code_legacy_imports",
     "collect_retired_compatibility_tree_violations",
     "collect_retired_compatibility_file_violations",
-    "collect_ml_training_plain_shim_violations",
     "collect_nonparity_test_legacy_imports",
-    "collect_ready_now_shim_helper_violations",
     "collect_stale_canonical_filename_headers",
-    "collect_thin_compat_shim_violations",
     "collect_utf8_bom_python_sources",
     "legacy_root_import_violations",
 )
@@ -149,103 +115,6 @@ def _collect_legacy_imports_under_scan_roots(
     return bad
 
 
-def _validate_single_thin_compat_policy(repo_root: Path, policy: ThinCompatShimPolicy) -> list[str]:
-    errors: list[str] = []
-    shim_dir = repo_root.joinpath(*policy.relative_parts)
-    if not shim_dir.is_dir():
-        return [f"missing shim directory: {shim_dir.relative_to(repo_root)}"]
-
-    for path in sorted(shim_dir.glob("*.py")):
-        if path.name in policy.exclude_names:
-            continue
-        rel = path.relative_to(repo_root)
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError as exc:
-            errors.append(f"{rel}: cannot read file ({exc})")
-            continue
-
-        lines = text.splitlines()
-        if len(lines) > policy.max_lines:
-            errors.append(
-                f"{rel}: {len(lines)} lines (max {policy.max_lines}); "
-                f"move logic to {policy.relocate_hint}"
-            )
-            continue
-
-        for sub in policy.required_substrings:
-            if sub not in text:
-                errors.append(f"{rel}: must contain {sub!r} (canonical import / bootstrap)")
-
-        try:
-            tree = ast.parse(text, filename=str(path))
-        except SyntaxError as exc:
-            errors.append(f"{rel}: syntax error: {exc}")
-            continue
-
-        for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                errors.append(
-                    f"{rel}: shim must not define {node.name!r} at module level "
-                    f"(implement under {policy.relocate_hint})"
-                )
-
-    return errors
-
-
-def collect_thin_compat_shim_violations(repo_root: Path) -> list[str]:
-    """Run thin-compat shim policies (none today — repo-root ``utils/`` removed)."""
-    out: list[str] = []
-    for policy in THIN_COMPAT_SHIM_POLICIES:
-        for msg in _validate_single_thin_compat_policy(repo_root, policy):
-            out.append(f"[{policy.label}] {msg}")
-    return out
-
-
-def _ready_now_batch_python_files(repo_root: Path, subtree: str) -> list[Path]:
-    if "/*.py" in subtree:
-        base = repo_root / subtree.split("/*.py", 1)[0]
-        files = sorted(path for path in base.glob("*.py") if path.is_file())
-        if subtree.startswith("database/*.py"):
-            return [path for path in files if path.name not in {"__init__.py", "split_db_health.py"}]
-        return files
-    subtree_path = repo_root / subtree
-    if subtree_path.is_file():
-        return [subtree_path]
-    if subtree_path.is_dir():
-        return sorted(path for path in subtree_path.rglob("*.py") if path.is_file())
-    return []
-
-
-def collect_ready_now_shim_helper_violations(repo_root: Path) -> list[str]:
-    """Return ready-now shim batches that drift from the shared helper/warning pattern."""
-    errors: list[str] = []
-    for subtree in READY_NOW_LEGACY_SHIM_BATCHES:
-        for path in _ready_now_batch_python_files(repo_root, subtree):
-            rel = path.relative_to(repo_root)
-            try:
-                text = path.read_text(encoding="utf-8")
-            except OSError as exc:
-                errors.append(f"{rel}: cannot read file ({exc})")
-                continue
-            if rel.name == "__init__.py" and rel.parts[0] == "ml_classification":
-                if "lazy_legacy_submodule(" not in text and "import_legacy_shim(" not in text:
-                    errors.append(
-                        f"{rel}: ready-now ml_classification package shim must use "
-                        "lazy_legacy_submodule(...) or import_legacy_shim(...)"
-                    )
-                if "warn=True" not in text:
-                    errors.append(f"{rel}: ready-now ml_classification package shim must opt in to warn=True")
-                continue
-            if "import_legacy_shim(" not in text:
-                errors.append(f"{rel}: ready-now legacy shim must use import_legacy_shim(...)")
-            if "warn=True" not in text:
-                errors.append(f"{rel}: ready-now legacy shim must opt in to warn=True")
-            if "importlib.import_module(" in text:
-                errors.append(f"{rel}: ready-now legacy shim should not call importlib.import_module directly")
-    return errors
-
-
 def collect_retired_compatibility_tree_violations(repo_root: Path) -> list[str]:
     """Return retired compatibility roots that were accidentally recreated."""
     return [
@@ -262,36 +131,6 @@ def collect_retired_compatibility_file_violations(repo_root: Path) -> list[str]:
         for rel in sorted(RETIRED_ROOT_COMPATIBILITY_FILES)
         if (repo_root / rel).exists()
     ]
-
-
-def collect_ml_training_plain_shim_violations(repo_root: Path) -> list[str]:
-    """Return retired ML-training shim violations in synthetic fixtures, if any."""
-    errors: list[str] = []
-    training_root = repo_root / "ml_classification" / "training"
-    if not training_root.exists():
-        return errors
-    for rel in sorted(
-        path.relative_to(repo_root)
-        for path in training_root.rglob("*.py")
-        if path.is_file() and path.name != "__init__.py"
-    ):
-        path = repo_root / rel
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError as exc:
-            errors.append(f"{rel}: cannot read file ({exc})")
-            continue
-        if "import_legacy_shim(" not in text:
-            errors.append(f"{rel}: plain ml_classification.training shim must use import_legacy_shim(...)")
-        if "sys.modules[__name__] = _mod" not in text and "sys.modules[__name__] = _canonical" not in text:
-            errors.append(
-                f"{rel}: plain ml_classification.training shim must register sys.modules[__name__] alias"
-            )
-        if "importlib.import_module(" in text or "from importlib import import_module" in text:
-            errors.append(
-                f"{rel}: plain ml_classification.training shim should not use direct importlib import patterns"
-            )
-    return errors
 
 
 def collect_utf8_bom_python_sources(repo_root: Path) -> list[str]:
@@ -330,8 +169,8 @@ def collect_nonparity_test_legacy_imports(repo_root: Path) -> list[str]:
     return _collect_legacy_imports_under_scan_roots(
         repo_root,
         scan_roots=(repo_root / "tests",),
-        path_allowlist=NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST,
-        forbidden_roots=frozenset(_LEGACY_COMPATIBILITY_IMPORT_ROOTS),
+        path_allowlist=frozenset(),
+        forbidden_roots=RETIRED_COMPATIBILITY_ROOTS,
     )
 
 

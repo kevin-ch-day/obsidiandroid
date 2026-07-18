@@ -35,13 +35,13 @@ Canonical modules below.
 
 ## Compatibility layer
 
-`main.py` re-exports **`run_pipeline`** and symbols that older tests monkeypatch (`finalize_run_manifest_stage`, `profile_manager`, `runtime_logging`, etc.). Implementations live in **`runner.py`**; **`obsidiandroid.pipeline.main_facade`** resolves patched attributes on `main` when orchestration runs outside `main.py`.
+`main.py` re-exports **`run_pipeline`** and symbols that older tests monkeypatch (`finalize_run_manifest_stage`, `profile_manager`, `runtime_logging`, etc.). Implementations live in **`runner.py`**; **`obsidiandroid.cli.main_override_bridge`** resolves patched attributes on `main` when orchestration runs outside `main.py`.
 
 When adding new stage modules:
 
 1. Add a stage helper under **`src/obsidiandroid/pipeline/`** (import as **`obsidiandroid.pipeline.stage_*`**) and invoke it from **`runner.run_pipeline`** (not from `main.py`).
 2. If tests must patch a callable, expose it on **`main`** for monkeypatch compatibility or patch **`obsidiandroid.pipeline.stage_*`** directly.
-3. Prefer **`from obsidiandroid.cli.pipeline_entry import run_pipeline`** (or **`from obsidiandroid.pipeline import run_pipeline`**) in new automation scripts (same implementation as `main.run_pipeline`).
+3. Prefer **`from obsidiandroid.pipeline import run_pipeline`** in new automation scripts (same implementation as `main.run_pipeline`).
 
 ## How to add a new stage
 

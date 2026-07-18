@@ -34,14 +34,3 @@ def test_build_metadata_feature_frame_creates_expected_columns() -> None:
     # Tag counting should handle both comma-separated strings and JSON lists.
     assert out.loc[out["sample_id"] == 1, "meta__vt_tag_count"].iloc[0] == 2
     assert out.loc[out["sample_id"] == 2, "meta__vt_tag_count"].iloc[0] == 2
-
-
-def test_orchestration_metadata_features_shim_matches_canonical() -> None:
-    """:mod:`obsidiandroid.orchestration.metadata_features` delegates to sample preparation."""
-    from importlib import import_module
-
-    shim = import_module("obsidiandroid.orchestration.metadata_features")
-    from obsidiandroid.pipeline import sample_preparation as canon
-
-    assert shim.build_metadata_feature_frame is canon.build_metadata_feature_frame
-    assert shim.extract_vt_tag_count is canon.extract_vt_tag_count

@@ -39,13 +39,12 @@ from obsidiandroid.database.facade_manifest import FACADE_MODULE_PAIRS
 from obsidiandroid.features.features_facade_manifest import FEATURES_FACADE_ALIAS_TARGETS
 from obsidiandroid.modeling.modeling_facade_manifest import (
     MODELING_FACADE_EAGER_SUBMODULE_NAMES,
-    MODELING_FACADE_LEGACY_VIA_ML_CLASSIFICATION_TRAINING,
 )
-from obsidiandroid.modeling.legacy_ml_classification_manifest import (
-    ML_CLASSIFICATION_BUILDER_SUBMODULES,
-    ML_CLASSIFICATION_ENGINE_WEIGHTS_SUBMODULES,
-    ML_CLASSIFICATION_INFERENCE_SUBMODULES,
-    ML_CLASSIFICATION_LABELING_SUBMODULES,
+from obsidiandroid.modeling.classification_facade_manifest import (
+    CLASSIFICATION_BUILDER_FACADE_SUBMODULE_NAMES,
+    ENGINE_WEIGHT_FACADE_SUBMODULE_NAMES,
+    INFERENCE_FACADE_SUBMODULE_NAMES,
+    LABELING_FACADE_SUBMODULE_NAMES,
 )
 from obsidiandroid.pipeline.permission_trends.permission_trends_submodule_manifest import (
     PERMISSION_TRENDS_FACADE_SUBMODULE_NAMES,
@@ -55,15 +54,11 @@ from obsidiandroid.vendors.parsing.vendor_parser_submodule_manifest import (
 )
 
 from scripts.dev.import_surface_policy import (
-    THIN_COMPAT_SHIM_POLICIES,
     collect_canonical_code_legacy_imports,
-    collect_ml_training_plain_shim_violations,
     collect_nonparity_test_legacy_imports,
-    collect_ready_now_shim_helper_violations,
     collect_retired_compatibility_file_violations,
     collect_retired_compatibility_tree_violations,
     collect_stale_canonical_filename_headers,
-    collect_thin_compat_shim_violations,
     collect_utf8_bom_python_sources,
 )
 
@@ -119,7 +114,6 @@ def _check_import_smoke() -> bool:
 
     for name in (
         "obsidiandroid.cli.startup_menu",
-        "obsidiandroid.cli.pipeline_entry",
         "obsidiandroid.pipeline",
         "obsidiandroid.modeling",
         "obsidiandroid.features",
@@ -192,28 +186,6 @@ def _check_static_policy_scans() -> bool:
         return False
     print("OK   Python sources: no UTF-8 BOM prefix (repo scan)")
 
-    thin_errors = collect_thin_compat_shim_violations(_REPO_ROOT)
-    if thin_errors:
-        for msg in thin_errors:
-            print(f"FAIL: thin compat shim policy: {msg}", file=sys.stderr)
-        return False
-    if THIN_COMPAT_SHIM_POLICIES:
-        for policy in THIN_COMPAT_SHIM_POLICIES:
-            print(f"OK   {policy.label}")
-    else:
-        print("OK   no repo-root thin-compat shim policies (utils/ removed)")
-
-    ready_now_helper_errors = collect_ready_now_shim_helper_violations(_REPO_ROOT)
-    if ready_now_helper_errors:
-        print(
-            "FAIL: ready-now legacy shim batches must use shared helper + opt-in warning path:",
-            file=sys.stderr,
-        )
-        for item in ready_now_helper_errors:
-            print(f"  {item}", file=sys.stderr)
-        return False
-    print("OK   ready-now legacy shim batches use shared helper/warning pattern")
-
     retired_file_errors = collect_retired_compatibility_file_violations(_REPO_ROOT)
     if retired_file_errors:
         print(
@@ -235,17 +207,6 @@ def _check_static_policy_scans() -> bool:
             print(f"  {item}", file=sys.stderr)
         return False
     print("OK   retired compatibility trees stay absent")
-
-    ml_training_plain_errors = collect_ml_training_plain_shim_violations(_REPO_ROOT)
-    if ml_training_plain_errors:
-        print(
-            "FAIL: ordinary ml_classification/training shims must use shared helper pattern:",
-            file=sys.stderr,
-        )
-        for item in ml_training_plain_errors:
-            print(f"  {item}", file=sys.stderr)
-        return False
-    print("OK   ml_classification/training shim tree retired or still follows shared helper pattern")
 
     return True
 
@@ -423,7 +384,6 @@ def main() -> int:
         "av_engine_pipeline",
         "contract_filters",
         "engine_normalization",
-        "main_facade",
         "runner",
         "run_bounds",
         "runtime_policy",
@@ -540,12 +500,6 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-        if attr in MODELING_FACADE_LEGACY_VIA_ML_CLASSIFICATION_TRAINING:
-            print(
-                f"FAIL: modeling facade still expects retired ml_classification.training parity for {attr}",
-                file=sys.stderr,
-            )
-            return 1
     print("OK   obsidiandroid.modeling submodules resolve canonically")
 
     _features_facade = importlib.import_module("obsidiandroid.features")
@@ -568,7 +522,7 @@ def main() -> int:
     print("OK   obsidiandroid.features canonical aliases resolve")
 
     _labeling_facade = importlib.import_module("obsidiandroid.labeling")
-    for attr in sorted(ML_CLASSIFICATION_LABELING_SUBMODULES):
+    for attr in sorted(LABELING_FACADE_SUBMODULE_NAMES):
         canon_name = f"obsidiandroid.labeling.{attr}"
         canon_mod = importlib.import_module(canon_name)
         facade_mod = getattr(_labeling_facade, attr)
@@ -648,7 +602,7 @@ def main() -> int:
     print("OK   ml_classification.training and trainer namespaces retired")
 
     _cb_facade = importlib.import_module("obsidiandroid.classification_builder")
-    for name in sorted(ML_CLASSIFICATION_BUILDER_SUBMODULES):
+    for name in sorted(CLASSIFICATION_BUILDER_FACADE_SUBMODULE_NAMES):
         canon_cb = importlib.import_module(f"obsidiandroid.classification_builder.{name}")
         facade_cb = getattr(_cb_facade, name)
         if facade_cb is not canon_cb:
@@ -661,7 +615,7 @@ def main() -> int:
     print("OK   obsidiandroid.classification_builder exports canonical builder modules")
 
     _inf_facade = importlib.import_module("obsidiandroid.inference")
-    for name in sorted(ML_CLASSIFICATION_INFERENCE_SUBMODULES):
+    for name in sorted(INFERENCE_FACADE_SUBMODULE_NAMES):
         canon_inf = importlib.import_module(f"obsidiandroid.inference.{name}")
         facade_inf = getattr(_inf_facade, name)
         if facade_inf is not canon_inf:
@@ -674,7 +628,7 @@ def main() -> int:
     print("OK   obsidiandroid.inference exports canonical inference modules")
 
     _ew_facade = importlib.import_module("obsidiandroid.engine_weights")
-    for name in sorted(ML_CLASSIFICATION_ENGINE_WEIGHTS_SUBMODULES):
+    for name in sorted(ENGINE_WEIGHT_FACADE_SUBMODULE_NAMES):
         canon_ew = importlib.import_module(f"obsidiandroid.engine_weights.{name}")
         facade_ew = getattr(_ew_facade, name)
         if facade_ew is not canon_ew:

@@ -7,24 +7,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from scripts.dev.compatibility_retirement_manifest import (
-    CANONICAL_CODE_COMPATIBILITY_IMPORT_ROOTS,
-    CANONICAL_FILENAME_HEADER_BAD_ROOTS,
-    CANONICAL_RELOCATION_COMPLETE_DOMAINS,
-    EARLY_DEPRECATION_READY_TREES,
-    LEGACY_SUBTREE_RETIREMENT_BUCKETS,
-    LEGACY_TREE_RETIREMENT_MATRIX,
-    LEGACY_COMPATIBILITY_IMPORT_ROOTS,
-    NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST,
-    RETIRED_COMPATIBILITY_ROOTS,
-    RETIRED_ROOT_COMPATIBILITY_FILES,
-)
 from scripts.dev import import_surface_policy as policy
-from scripts.dev.compatibility_retirement_audit import (
-    canonical_target_exists,
-    collect_legacy_subtree_python_files,
-    collect_ready_now_bucket_callers,
-)
 
 
 def test_collect_canonical_code_legacy_imports_flags_src_and_scripts(write_text_file) -> None:
@@ -45,64 +28,17 @@ def test_collect_canonical_code_legacy_imports_flags_src_and_scripts(write_text_
         ]
 
 
-def test_guardrail_constants_are_sourced_from_retirement_manifest() -> None:
-    assert policy.CANONICAL_CODE_LEGACY_IMPORT_ROOTS == frozenset(CANONICAL_CODE_COMPATIBILITY_IMPORT_ROOTS)
-    assert policy.RETIRED_COMPATIBILITY_ROOTS == frozenset(RETIRED_COMPATIBILITY_ROOTS)
-    assert policy.RETIRED_ROOT_COMPATIBILITY_FILES == frozenset(RETIRED_ROOT_COMPATIBILITY_FILES)
-    assert policy.NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST == frozenset(NONPARITY_TEST_LEGACY_IMPORT_ALLOWLIST)
-    assert policy.CANONICAL_FILENAME_HEADER_BAD_ROOTS == frozenset(CANONICAL_FILENAME_HEADER_BAD_ROOTS)
-    assert policy.READY_NOW_LEGACY_SHIM_BATCHES == frozenset(EARLY_DEPRECATION_READY_TREES)
-    assert "pipeline" in CANONICAL_RELOCATION_COMPLETE_DOMAINS
-    assert "feature_engineering" in CANONICAL_RELOCATION_COMPLETE_DOMAINS
-
-
-def test_legacy_tree_retirement_matrix_has_no_remaining_compatibility_roots() -> None:
-    roots = {entry.root for entry in LEGACY_TREE_RETIREMENT_MATRIX}
-    assert roots == set()
-    for entry in LEGACY_TREE_RETIREMENT_MATRIX:
-        assert entry.file_count > 0
-        assert entry.blockers
-        assert entry.next_step
-
-
-def test_legacy_subtree_retirement_buckets_cover_core_legacy_surfaces() -> None:
-    trees = {entry.tree for entry in LEGACY_SUBTREE_RETIREMENT_BUCKETS}
-    assert "analysis/pipeline" not in trees
-    assert "database/split_db_health.py" not in trees
-    assert "ml_classification/builder" not in trees
-    assert "ml_classification/engine_weights" not in trees
-    assert "ml_classification/inference" not in trees
-    assert "ml_classification/labeling" not in trees
-    assert "analysis/diagnostics" not in trees
-    assert "analysis/evaluation" not in trees
-    assert "analysis/execution" not in trees
-    assert "analysis/vendor_processing" not in trees
-    for entry in LEGACY_SUBTREE_RETIREMENT_BUCKETS:
-        assert entry.canonical_target.startswith("obsidiandroid.")
-        assert entry.file_count > 0
-        assert entry.bucket
-        assert entry.readiness
-        assert entry.next_step
-
-
-def test_legacy_subtree_retirement_targets_exist_and_ready_batches_have_files() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    for entry in LEGACY_SUBTREE_RETIREMENT_BUCKETS:
-        assert canonical_target_exists(repo_root, entry.canonical_target), entry.canonical_target
-        files = collect_legacy_subtree_python_files(repo_root, entry.tree)
-        assert len(files) == entry.file_count
-
-
-def test_early_deprecation_ready_buckets_have_no_external_legacy_import_callers() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    callers = collect_ready_now_bucket_callers(repo_root)
-    assert set(callers) == set(EARLY_DEPRECATION_READY_TREES)
-    assert callers == {}
-
-
-def test_ready_now_shims_use_shared_helper_and_warning_pattern() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    assert policy.collect_ready_now_shim_helper_violations(repo_root) == []
+def test_legacy_import_guardrails_have_concrete_retirement_rules() -> None:
+    assert policy.CANONICAL_CODE_LEGACY_IMPORT_ROOTS == frozenset(
+        {"analysis", "ml_classification", "main"}
+    )
+    assert policy.RETIRED_COMPATIBILITY_ROOTS == frozenset({"analysis", "ml_classification"})
+    assert policy.RETIRED_ROOT_COMPATIBILITY_FILES == frozenset(
+        {Path("database/__init__.py"), Path("database/split_db_health.py")}
+    )
+    assert policy.CANONICAL_FILENAME_HEADER_BAD_ROOTS == frozenset(
+        {"analysis", "ml_classification", "database"}
+    )
 
 
 def test_retired_root_compatibility_files_stay_deleted() -> None:
@@ -118,11 +54,6 @@ def test_retired_compatibility_trees_stay_deleted() -> None:
 def test_analysis_namespace_is_retired() -> None:
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("analysis")
-
-
-def test_ml_training_plain_shims_use_shared_helper_pattern() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    assert policy.collect_ml_training_plain_shim_violations(repo_root) == []
 
 
 def test_collect_nonparity_test_legacy_imports_flags_retired_imports(write_text_file) -> None:
@@ -177,37 +108,3 @@ def test_collect_retired_compatibility_tree_violations_flags_reintroduced_roots(
             "analysis: retired compatibility tree should not exist on disk",
             "ml_classification: retired compatibility tree should not exist on disk",
         ]
-
-
-def test_collect_ml_training_plain_shim_violations_flags_bespoke_patterns(write_text_file) -> None:
-    with tempfile.TemporaryDirectory() as raw:
-        repo = Path(raw)
-        write_text_file(
-            repo / "ml_classification" / "training" / "pipeline_core.py",
-            '"""Legacy shim."""\n'
-            "import importlib\n"
-            '_mod = importlib.import_module("obsidiandroid.modeling.pipeline_core")\n',
-        )
-        write_text_file(
-            repo / "ml_classification" / "training" / "model_prediction.py",
-            "from obsidiandroid.legacy_shim_lazy import import_legacy_shim\n"
-            '_canonical = import_legacy_shim("obsidiandroid.modeling.model_prediction", __name__)\n',
-        )
-
-        violations = policy.collect_ml_training_plain_shim_violations(repo)
-        assert (
-            "ml_classification/training/pipeline_core.py: plain ml_classification.training shim must use "
-            "import_legacy_shim(...)" in violations
-        )
-        assert (
-            "ml_classification/training/pipeline_core.py: plain ml_classification.training shim must register "
-            "sys.modules[__name__] alias" in violations
-        )
-        assert (
-            "ml_classification/training/pipeline_core.py: plain ml_classification.training shim should not use "
-            "direct importlib import patterns" in violations
-        )
-        assert (
-            "ml_classification/training/model_prediction.py: plain ml_classification.training shim must register "
-            "sys.modules[__name__] alias" in violations
-        )
