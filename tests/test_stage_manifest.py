@@ -231,7 +231,7 @@ def test_write_evidence_readiness_includes_generic_alias_keys(tmp_path: Path) ->
     assert (tmp_path / "run1" / "evidence_bundle" / "evidence_readiness.json").exists()
 
 
-def test_finalize_run_manifest_stage_success(monkeypatch) -> None:
+def test_finalize_run_manifest_stage_success(monkeypatch, tmp_path: Path) -> None:
     """Finalize stage should return success when manifest writer succeeds."""
     captured = {}
 
@@ -245,7 +245,7 @@ def test_finalize_run_manifest_stage_success(monkeypatch) -> None:
         "compute_taxonomy_version_hash",
         lambda: "taxhash",
     )
-    run_root = Path("output") / "runs" / "r1"
+    run_root = tmp_path / "output" / "runs" / "r1"
     diagnostics_dir = run_root / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(stage_manifest.app_config, "RUNTIME_RUN_ROOT", str(run_root), raising=False)

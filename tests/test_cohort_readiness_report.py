@@ -182,8 +182,8 @@ def test_cohort_readiness_report_distinguishes_visible_benchmark_and_modeled_fam
     assert "4 visible families" in out
     assert "Family target" in out
     assert "benchmark-eligible classes" in out
-    assert "Actual modeled family classes" in out
-    assert "4 diagnostic modeled classes" in out
+    assert "Diagnostic candidate family classes" in out
+    assert "4 before label-authority filtering" in out
 
 
 def test_compact_top_drift_groups_dedupes_same_sample_pocket(capsys, monkeypatch) -> None:

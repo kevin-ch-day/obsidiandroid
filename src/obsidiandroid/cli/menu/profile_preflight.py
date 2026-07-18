@@ -219,14 +219,34 @@ def _observed_readiness_note(
 
 
 def _profile_menu_latest_run_context(output_root: Path | None = None) -> list[tuple[str, str]]:
-    """Build concise latest-run context without querying the live database.
+    """Build concise context from one canonical latest-run artifact.
 
-    Profile selection must remain responsive.  The detailed live readiness
-    query therefore stays in the selected-profile preflight; this menu uses
-    only the latest run-local observability artifact.
+    Profile selection must remain responsive, so this avoids a live-database
+    query.  It also must not combine a latest-run pointer with a summary from
+    another slot merely because that file was written more recently.
     """
     root = output_root or Path(str(getattr(app_config, "DEFAULT_OUTPUT_DIR", "output")))
+    pointer_path = root / "diagnostics" / "latest_run_pointer.json"
+    pointer_run_id = ""
+    try:
+        pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+        if isinstance(pointer, dict):
+            pointer_run_id = str(pointer.get("run_id", "")).strip()
+    except (OSError, json.JSONDecodeError):
+        pass
+
     candidates = list(root.glob("runs/*/diagnostics/run_observability_summary.json"))
+    if pointer_run_id:
+        candidates = [
+            path
+            for path in candidates
+            if _summary_run_id(path) == pointer_run_id
+        ]
+        if not candidates:
+            return [
+                ("LAST RUN STATUS", "Summary unavailable"),
+                ("INFO", f"Canonical run: {pointer_run_id}"),
+            ]
     if not candidates:
         return []
     summary_path = max(candidates, key=lambda path: path.stat().st_mtime)
@@ -244,16 +264,20 @@ def _profile_menu_latest_run_context(output_root: Path | None = None) -> list[tu
     modeled_families = payload.get("modeled_family_class_count")
     support_floor_families = payload.get("benchmark_trainable_family_count")
 
-    context: list[tuple[str, str]] = [("LAST RUN STATUS", status)]
+    claim_surface = str(payload.get("claim_surface") or "").replace("_", " ").strip()
+    status_text = status if not claim_surface else f"{status} · {claim_surface}"
+    context: list[tuple[str, str]] = [("LAST RUN STATUS", status_text)]
     if isinstance(prepared, int):
-        prepared_text = f"Cohort: {prepared:,} prepared"
+        prepared_text = f"Prepared cohort: {prepared:,} samples"
         if isinstance(trainable, int):
-            prepared_text += f" → {trainable:,} classification-ready"
-        context.append(("INFO", prepared_text))
+            context.append(("INFO", prepared_text))
+            context.append(("INFO", f"Supervised training pool: {trainable:,} samples"))
+        else:
+            context.append(("INFO", prepared_text))
     if isinstance(visible_families, int):
-        family_text = f"Family labels: {visible_families:,} governed"
+        family_text = f"Family classes: {visible_families:,} visible"
         if isinstance(modeled_families, int):
-            family_text += f" · {modeled_families:,} used in the last diagnostic model"
+            family_text += f" · {modeled_families:,} trainable"
         context.append(("INFO", family_text))
 
     support_preview_path = summary_path.parent / "support_threshold_preview.csv"
@@ -262,7 +286,7 @@ def _profile_menu_latest_run_context(output_root: Path | None = None) -> list[tu
     if not isinstance(support_floor_families, int):
         support_floor_families = preview_floor_families
     if isinstance(support_floor_families, int) or conservative_families is not None:
-        support_text = "Family-target support preview:"
+        support_text = "Support preview only:"
         preview_parts: list[str] = []
         if isinstance(support_floor_families, int):
             preview_parts.append(f"{support_floor_families:,} at n>=3")
@@ -270,6 +294,15 @@ def _profile_menu_latest_run_context(output_root: Path | None = None) -> list[tu
             preview_parts.append(f"{conservative_families:,} at n>=20")
         context.append(("INFO", support_text + " " + " · ".join(preview_parts)))
     return context
+
+
+def _summary_run_id(path: Path) -> str:
+    """Return a summary run ID without raising during interactive rendering."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    return str(payload.get("run_id", "")).strip() if isinstance(payload, dict) else ""
 
 
 def _support_preview_family_count(path: Path, *, threshold: int) -> int | None:

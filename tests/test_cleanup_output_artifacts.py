@@ -36,6 +36,38 @@ def test_collect_targets_prunes_legacy_run_subdirs_for_older_runs(tmp_path: Path
     assert "runs/20260519T020202Z__bbbbbb/latest" not in target_set
 
 
+def test_collect_targets_removes_noncanonical_test_run_directory(tmp_path: Path) -> None:
+    output_dir = tmp_path / "output"
+    fixture_run = _make_run(output_dir, "r1")
+    (fixture_run / "run_manifest.json").write_text(
+        json.dumps({"run_id": "r1", "timestamp_utc": "t1", "profile_id": "test"}),
+        encoding="utf-8",
+    )
+
+    targets = coa._collect_targets(  # pylint: disable=protected-access
+        output_dir,
+        keep_run_ids=set(),
+        keep_runtime_logs=0,
+    )
+
+    assert fixture_run in set(targets)
+
+
+def test_discover_recent_run_ids_excludes_noncanonical_test_fixture(tmp_path: Path) -> None:
+    output_dir = tmp_path / "output"
+    fixture_run = _make_run(output_dir, "r1")
+    real_run = _make_run(output_dir, "20260519T020202Z__bbbbbb")
+    (fixture_run / "run_manifest.json").write_text(
+        json.dumps({"run_id": "r1", "timestamp_utc": "t1"}), encoding="utf-8"
+    )
+    (real_run / "run_manifest.json").write_text(
+        json.dumps({"run_id": "20260519T020202Z__bbbbbb", "timestamp_utc": "2026-05-19T02:02:02Z"}),
+        encoding="utf-8",
+    )
+
+    assert coa._discover_recent_run_ids(output_dir, keep_latest_runs=2) == {"20260519T020202Z__bbbbbb"}
+
+
 def test_collect_targets_can_prune_legacy_subdirs_for_preserved_latest_run(tmp_path: Path) -> None:
     output_dir = tmp_path / "output"
     keep_run = _make_run(output_dir, "20260519T020202Z__bbbbbb")

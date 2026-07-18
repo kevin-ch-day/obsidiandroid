@@ -129,8 +129,8 @@ def print_cohort_readiness_report(
     )
     if support_floor_mode == "diagnostic_only":
         du.print_stat(
-            "Actual modeled family classes",
-            f"family_id | {represented_families:,} diagnostic modeled classes",
+            "Diagnostic candidate family classes",
+            f"family_id | {represented_families:,} before label-authority filtering",
         )
     du.print_stat(
         "Type target",

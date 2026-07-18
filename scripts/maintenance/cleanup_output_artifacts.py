@@ -35,12 +35,18 @@ from obsidiandroid.common.output_paths import project_logs_root
 
 
 RUN_ID_PATTERN = re.compile(r"(\d{8}T\d{6}Z__[a-z0-9]{6})")
+CANONICAL_RUN_ID_PATTERN = re.compile(r"^\d{8}T\d{6}Z__[a-z0-9]{6}$")
 
 
 def _extract_run_id(path: Path) -> str | None:
     """Extract run_id token from path name when present."""
     match = RUN_ID_PATTERN.search(path.name)
     return match.group(1) if match else None
+
+
+def _is_canonical_run_id(run_id: object) -> bool:
+    """Return whether an ID is eligible for retention as a real pipeline run."""
+    return bool(CANONICAL_RUN_ID_PATTERN.fullmatch(str(run_id or "").strip()))
 
 
 def _parse_iso_utc(value: object) -> datetime | None:
@@ -130,6 +136,8 @@ def _iter_run_manifest_records(output_dir: Path) -> list[tuple[tuple[int, dateti
             continue
         run_root = manifest_path.parent.resolve()
         run_id = str(payload.get("run_id", "")).strip() or _extract_run_id(run_root) or run_root.name
+        if not _is_canonical_run_id(run_id):
+            continue
         timestamp = (
             _parse_iso_utc(payload.get("timestamp_utc"))
             or _parse_iso_utc(payload.get("run_started_at_utc"))
@@ -187,6 +195,8 @@ def _resolve_latest_pointer_payload(output_dir: Path) -> dict[str, str] | None:
         if not isinstance(pointer_payload, dict):
             continue
         run_id = str(pointer_payload.get("run_id", "")).strip()
+        if not _is_canonical_run_id(run_id):
+            continue
         run_root = _resolve_existing_run_root(
             output_dir,
             run_id=run_id,
@@ -216,6 +226,11 @@ def _resolve_latest_pointer_payload(output_dir: Path) -> dict[str, str] | None:
             manifest_payload = {}
         if isinstance(manifest_payload, dict):
             run_id = str(manifest_payload.get("run_id", "")).strip()
+            if not _is_canonical_run_id(run_id):
+                run_id = ""
+            if not run_id:
+                manifest_payload = {}
+        if isinstance(manifest_payload, dict) and manifest_payload:
             run_root = _resolve_existing_run_root(
                 output_dir,
                 run_id=run_id,
@@ -347,6 +362,11 @@ def _collect_targets(
                     manifest_payload = {}
                 run_id = str(manifest_payload.get("run_id", "")).strip()
             run_id = run_id or _extract_run_id(run_dir) or run_dir.name
+            if not _is_canonical_run_id(run_id):
+                # Test fixtures and interrupted manual experiments must not
+                # occupy a retention slot or remain as misleading run history.
+                targets.append(run_dir)
+                continue
             preserve_run = run_id in keep_run_ids
             if preserve_run and not prune_preserved_legacy:
                 continue

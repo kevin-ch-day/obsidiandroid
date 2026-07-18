@@ -37,9 +37,49 @@ def test_profile_menu_latest_run_context_summarizes_latest_artifact(tmp_path: Pa
 
     assert context == [
         ("LAST RUN STATUS", "Failed"),
-        ("INFO", "Cohort: 9,716 prepared → 9,440 classification-ready"),
-        ("INFO", "Family labels: 207 governed · 169 used in the last diagnostic model"),
-        ("INFO", "Family-target support preview: 112 at n>=3 · 50 at n>=20"),
+        ("INFO", "Prepared cohort: 9,716 samples"),
+        ("INFO", "Supervised training pool: 9,440 samples"),
+        ("INFO", "Family classes: 207 visible · 169 trainable"),
+        ("INFO", "Support preview only: 112 at n>=3 · 50 at n>=20"),
+    ]
+
+
+def test_profile_menu_latest_run_context_uses_pointer_matched_summary(tmp_path: Path) -> None:
+    old_diag = tmp_path / "runs" / "old" / "diagnostics"
+    current_diag = tmp_path / "runs" / "current" / "diagnostics"
+    old_diag.mkdir(parents=True)
+    current_diag.mkdir(parents=True)
+    (old_diag / "run_observability_summary.json").write_text(
+        json.dumps({"run_id": "old", "run_status": "failed", "cohort_prepared_row_count": 10}),
+        encoding="utf-8",
+    )
+    (current_diag / "run_observability_summary.json").write_text(
+        json.dumps({"run_id": "current", "run_status": "complete", "cohort_prepared_row_count": 20}),
+        encoding="utf-8",
+    )
+    pointer = tmp_path / "diagnostics" / "latest_run_pointer.json"
+    pointer.parent.mkdir(parents=True)
+    pointer.write_text(json.dumps({"run_id": "current"}), encoding="utf-8")
+
+    assert profile_preflight._profile_menu_latest_run_context(tmp_path) == [
+        ("LAST RUN STATUS", "Complete"),
+        ("INFO", "Prepared cohort: 20 samples"),
+    ]
+
+
+def test_profile_menu_latest_run_context_does_not_mix_stale_pointer_and_summary(tmp_path: Path) -> None:
+    diagnostics = tmp_path / "runs" / "old" / "diagnostics"
+    diagnostics.mkdir(parents=True)
+    (diagnostics / "run_observability_summary.json").write_text(
+        json.dumps({"run_id": "old", "run_status": "complete"}), encoding="utf-8"
+    )
+    pointer = tmp_path / "diagnostics" / "latest_run_pointer.json"
+    pointer.parent.mkdir(parents=True)
+    pointer.write_text(json.dumps({"run_id": "new"}), encoding="utf-8")
+
+    assert profile_preflight._profile_menu_latest_run_context(tmp_path) == [
+        ("LAST RUN STATUS", "Summary unavailable"),
+        ("INFO", "Canonical run: new"),
     ]
 
 
