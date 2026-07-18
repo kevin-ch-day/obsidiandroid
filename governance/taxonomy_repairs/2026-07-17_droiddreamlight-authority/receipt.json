@@ -1,0 +1,75 @@
+{
+  "repair_id": "2026-07-17_droiddreamlight-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation_with_type_repair",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Codex direct-main workflow",
+  "applied_at_utc": "2026-07-17T22:48:56Z",
+  "receipt_created_at_utc": "2026-07-17T22:48:56Z",
+  "source_commit_at_application": "b5c0e1ecedea54d9897cb3f8b9bc7a652e82c787",
+  "source_commit_at_receipt_creation": "b5c0e1ecedea54d9897cb3f8b9bc7a652e82c787",
+  "affected_family_ids": [260],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 10,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 8,
+    "primary_type_slug": "unknown",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 10,
+    "distinct_mapped_samples": 10,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Replace the unsupported placeholder type with broad Trojan and reactivate the existing evidence-backed Android DroidDreamLight family record without creating a duplicate identity or changing mappings.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_research",
+      "name": "K7 Labs: DroidDreamLight",
+      "url": "https://labs.k7computing.com/index.php/paranoid-android-part-2/"
+    },
+    {
+      "kind": "android_malware_research",
+      "name": "UCR malicious Android-app characterization",
+      "url": "https://www.cs.ucr.edu/~neamtiu/pubs/MaliciousAppsTR.pdf"
+    }
+  ],
+  "before_sql_hash": "3adf86fb1084b9fbcab2e10b3a57069076bdfa153eb1f08bf5ae09550c0f32b2",
+  "applied_sql_hash": "ae6e3aa170c3c3c3d37e91d1ba7006582741aa153fae4ff636af6aea1d1f079b",
+  "validation_sql_hash": "4b8912f5b1d7db1c089333881c6f005ccc408785b0d7c37a0a7b94f8b0f6241e",
+  "rollback_sql_hash": "8f82c56c3e1edc02003048644fbf33ff21dcfcc70a233f02ee280a1fea181545",
+  "evidence_hash": "3b21183d43345b5645c40ef584e7728c5984352d5ac6df554c887a31a0816b77",
+  "post_change_validation": {
+    "family_260_status": "active",
+    "family_260_is_active": 1,
+    "family_260_primary_type_id": 1,
+    "catalog_mapped_sample_count": 10,
+    "authority_family_260_sample_count": 10,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "authority_view_duplicate_sample_groups": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "The contemporaneous database state and aggregate post-change validation establish the broad type and narrow authority repair. They do not prove every behavior of the mapped samples, create a frozen benchmark artifact, or establish a paper-result claim."
+}

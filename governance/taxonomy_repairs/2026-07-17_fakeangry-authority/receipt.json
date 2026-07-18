@@ -1,0 +1,75 @@
+{
+  "repair_id": "2026-07-17_fakeangry-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation_with_type_repair",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Codex direct-main workflow",
+  "applied_at_utc": "2026-07-17T23:02:51Z",
+  "receipt_created_at_utc": "2026-07-17T23:02:51Z",
+  "source_commit_at_application": "b5c0e1ecedea54d9897cb3f8b9bc7a652e82c787",
+  "source_commit_at_receipt_creation": "b5c0e1ecedea54d9897cb3f8b9bc7a652e82c787",
+  "affected_family_ids": [261],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 10,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 8,
+    "primary_type_slug": "unknown",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 10,
+    "distinct_mapped_samples": 10,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Replace the unsupported placeholder type with Backdoor and reactivate the existing evidence-backed Android FakeAngry family record without creating a duplicate identity or changing mappings.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_research",
+      "name": "Bitdefender: From China with Love: New Android Backdoor",
+      "url": "https://www.bitdefender.com/en-gb/blog/hotforsecurity/from-china-with-love-new-android-backdoor-spreading-through-hacked-apps"
+    },
+    {
+      "kind": "android_malware_research",
+      "name": "AMD 2017 Android malware dataset paper",
+      "url": "https://www.cs.bgsu.edu/sanroy/Files/papers/amd2017.pdf"
+    }
+  ],
+  "before_sql_hash": "027df1355a21e4321df5ecfa10f43ba40e818028e5db89c032908d9074b3f35a",
+  "applied_sql_hash": "fad2412f4b281f772fbf02904ddf156ae3c9fa747ea70593b2694c69c57ee942",
+  "validation_sql_hash": "4a5f00b2ea6d27c2af3b2805527931def9b2f91c25242734b004cd8215126afb",
+  "rollback_sql_hash": "7613160660c02b437559ace35aadb1f4510c6775a9294cd21eccd2ccfc31b097",
+  "evidence_hash": "f1ce9eabb7168d50ee17387133757566097ba08a4d77a80759c1ed82ca19451d",
+  "post_change_validation": {
+    "family_261_status": "active",
+    "family_261_is_active": 1,
+    "family_261_primary_type_id": 6,
+    "catalog_mapped_sample_count": 10,
+    "authority_family_261_sample_count": 10,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "authority_view_duplicate_sample_groups": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "The contemporaneous database state and aggregate post-change validation establish the narrow Backdoor authority repair. They do not prove every behavior of the mapped samples, create a frozen benchmark artifact, or establish a paper-result claim."
+}

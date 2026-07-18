@@ -171,6 +171,27 @@ def show_profile_readiness_mapping_inventory(
                 "meaning": "Resolved family mapped to type_slug=banker",
             },
             {
+                "signal": "typed_authority_pi_scope",
+                "samples": taxonomy_signals.get("typed_authority_permission_obs_samples", "unavailable")
+                if taxonomy_signals.get("typed_authority_permission_obs_samples") is not None
+                else "unavailable",
+                "meaning": "Family-typed authority rows in the Android + Permission Intel scope; may include retired taxonomy records",
+            },
+            {
+                "signal": "strict_active_authority_pi_scope",
+                "samples": taxonomy_signals.get("strict_active_authority_permission_obs_samples", "unavailable")
+                if taxonomy_signals.get("strict_active_authority_permission_obs_samples") is not None
+                else "unavailable",
+                "meaning": "Family-typed authority rows whose linked family and type records are both active",
+            },
+            {
+                "signal": "retired_type_authority_pi_scope",
+                "samples": taxonomy_signals.get("retired_type_authority_permission_obs_samples", "unavailable")
+                if taxonomy_signals.get("retired_type_authority_permission_obs_samples") is not None
+                else "unavailable",
+                "meaning": "Family-typed authority rows excluded from the strict surface because their active family points to a retired type",
+            },
+            {
                 "signal": "missing_primary_labels",
                 "samples": taxonomy_signals.get("missing_primary_label_samples", "unavailable")
                 if taxonomy_signals.get("missing_primary_label_samples") is not None

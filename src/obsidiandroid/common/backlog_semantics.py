@@ -10,6 +10,7 @@ from typing import Any
 import pandas as pd
 
 from obsidiandroid.common.authority_taxonomy_terms import (
+    ACTIVE_FAMILY_RETIRED_TYPE_LIFECYCLE_LABEL,
     ANDROID_MISSING_RESOLUTION_BACKLOG_LABEL,
     FAMILY_TYPE_CONFLICT_BACKLOG_LABEL,
     POLICY_HELD_FAMILY_NOISE_LABEL,
@@ -29,6 +30,7 @@ BACKLOG_ROW_TRUE_UNRESOLVED_FAMILY = "true_unresolved_family"
 BACKLOG_ROW_POLICY_HELD_FAMILY = "policy_held_family"
 BACKLOG_ROW_FAMILY_TYPE_CONFLICT = "family_type_conflict"
 BACKLOG_ROW_BLANK_RESOLVED_FAMILY = "blank_resolved_family"
+BACKLOG_ROW_ACTIVE_FAMILY_RETIRED_TYPE = "active_family_retired_type"
 
 # These lanes have an authority-derived primary-label target and can be worked
 # as a bounded review/backfill queue.  All other residual lanes remain
@@ -50,6 +52,8 @@ MISSING_PRIMARY_REQUIRED_COLUMNS: frozenset[str] = frozenset(
         "authority_family_slug",
         "authority_type_slug",
         "authority_parent_type_slug",
+        "authority_family_is_active",
+        "authority_type_is_active",
         "proposed_classification_primary",
         "confidence_bucket",
         "residual_lane",
@@ -274,6 +278,33 @@ def _family_type_conflict_detail(taxonomy: dict[str, object]) -> str:
     return detail or "Rows where DB type, label semantics, or authority mapping still disagree."
 
 
+def _active_family_retired_type_detail(taxonomy: dict[str, object]) -> str:
+    """Describe active families that still point to retired type records.
+
+    Readiness deliberately fetches this cheaply and does not expand the full
+    authority view for sample counts. The detailed read-only lifecycle report
+    is the source for impact counts before a lifecycle decision is made.
+    """
+    mappings = taxonomy.get("top_active_family_retired_type_mappings", [])
+    pairs: list[str] = []
+    if isinstance(mappings, list):
+        for mapping in mappings[:4]:
+            if not isinstance(mapping, dict):
+                continue
+            family = str(mapping.get("family_slug", "") or "").strip()
+            type_slug = str(mapping.get("type_slug", "") or "").strip()
+            if family and type_slug:
+                pairs.append(f"{family}→{type_slug}")
+    detail = (
+        "Active family mappings reference retired type records; do not use them for type-level claims "
+        "until lifecycle review is complete."
+    )
+    if pairs:
+        detail += " Examples=" + ", ".join(pairs) + "."
+    detail += " Use report_taxonomy_type_lifecycle_gaps.py for authority-sample impact."
+    return detail
+
+
 def read_profile_family_mapping_debt_snapshot(*, output_root: Path) -> dict[str, object]:
     """Load the latest profile family-mapping debt summary export."""
     path = output_root / "diagnostics" / "profile_family_mapping_debt_latest.json"
@@ -294,12 +325,15 @@ def read_profile_family_mapping_debt_snapshot(*, output_root: Path) -> dict[str,
     focus = allcurrent if isinstance(allcurrent, dict) else (profiles[0] if profiles else {})
     if not isinstance(focus, dict):
         return {}
+    governed_sql_rows = safe_int(focus.get("governed_sql_rows", 0), 0)
+    excluded_rows = safe_int(focus.get("excluded_unmapped_family_rows", 0), 0)
     return {
         "path": path,
         "freshness": file_freshness_label(path),
         "profile_id": str(focus.get("profile_id", "") or ""),
-        "governed_sql_rows": safe_int(focus.get("governed_sql_rows", 0), 0),
-        "excluded_unmapped_family_rows": safe_int(focus.get("excluded_unmapped_family_rows", 0), 0),
+        "governed_sql_rows": governed_sql_rows,
+        "family_mapped_rows": max(governed_sql_rows - excluded_rows, 0),
+        "excluded_unmapped_family_rows": excluded_rows,
         "blank_resolved_slug_rows": safe_int(focus.get("blank_resolved_slug_rows", 0), 0),
         "policy_held_resolved_slug_rows": safe_int(focus.get("policy_held_resolved_slug_rows", 0), 0),
         "true_unmapped_resolved_slug_rows": safe_int(focus.get("true_unmapped_resolved_slug_rows", 0), 0),
@@ -346,9 +380,12 @@ def _profile_family_mapping_detail(snapshot: dict[str, object] | None) -> str:
     triage = snapshot if isinstance(snapshot, dict) else {}
     if not triage:
         return ""
+    selected = safe_int(triage.get("governed_sql_rows", 0), 0)
+    excluded = safe_int(triage.get("excluded_unmapped_family_rows", 0), 0)
+    mapped = safe_int(triage.get("family_mapped_rows", selected - excluded), 0)
     return (
-        f"allcurrent governed_sql={safe_int(triage.get('governed_sql_rows', 0), 0)}; "
-        f"excluded_unmapped={safe_int(triage.get('excluded_unmapped_family_rows', 0), 0)} "
+        f"allcurrent profile_selected={selected}; family_mapped={mapped}; "
+        f"not_admitted_to_family_surface={excluded} "
         f"(blank_resolved={safe_int(triage.get('blank_resolved_slug_rows', 0), 0)}, "
         f"policy_held={safe_int(triage.get('policy_held_resolved_slug_rows', 0), 0)}, "
         f"true_unmapped={safe_int(triage.get('true_unmapped_resolved_slug_rows', 0), 0)}); "
@@ -1025,6 +1062,16 @@ def build_backlog_debt_summary(
             ),
         ),
         _row(
+            code=BACKLOG_ROW_ACTIVE_FAMILY_RETIRED_TYPE,
+            label=ACTIVE_FAMILY_RETIRED_TYPE_LIFECYCLE_LABEL,
+            count=safe_int(taxonomy.get("active_family_retired_type_mapping_count", 0), 0),
+            action=(
+                "Run report_taxonomy_type_lifecycle_gaps.py, then review whether evidence supports "
+                "type reactivation, active-family remapping, or family deactivation. Do not change rows automatically."
+            ),
+            detail=_active_family_retired_type_detail(taxonomy if isinstance(taxonomy, dict) else {}),
+        ),
+        _row(
             code=BACKLOG_ROW_FAMILY_TYPE_CONFLICT,
             label=FAMILY_TYPE_CONFLICT_BACKLOG_LABEL,
             count=safe_int(taxonomy.get("family_type_conflict_count", 0), 0),
@@ -1035,12 +1082,13 @@ def build_backlog_debt_summary(
     ranked_rows = [row for row in rows if isinstance(row, dict)]
     row_priority = {
         BACKLOG_ROW_ANDROID_MISSING_RESOLUTION: 0,
-        BACKLOG_ROW_TRUE_UNRESOLVED_FAMILY: 1,
-        BACKLOG_ROW_MISSING_PRIMARY_LABELS: 2,
-        BACKLOG_ROW_BLANK_RESOLVED_FAMILY: 3,
-        BACKLOG_ROW_FAMILY_TYPE_CONFLICT: 4,
-        BACKLOG_ROW_VT_FALSE_POSITIVE: 5,
-        BACKLOG_ROW_POLICY_HELD_FAMILY: 6,
+        BACKLOG_ROW_ACTIVE_FAMILY_RETIRED_TYPE: 1,
+        BACKLOG_ROW_TRUE_UNRESOLVED_FAMILY: 2,
+        BACKLOG_ROW_MISSING_PRIMARY_LABELS: 3,
+        BACKLOG_ROW_BLANK_RESOLVED_FAMILY: 4,
+        BACKLOG_ROW_FAMILY_TYPE_CONFLICT: 5,
+        BACKLOG_ROW_VT_FALSE_POSITIVE: 6,
+        BACKLOG_ROW_POLICY_HELD_FAMILY: 7,
     }
     ranked_rows.sort(key=lambda row: (-safe_int(row.get("count", 0), 0), str(row.get("label", ""))))
     ranked_rows.sort(

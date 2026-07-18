@@ -12,6 +12,7 @@ from obsidiandroid.common.backlog_semantics import (
     choose_priority_triage,
     read_missing_primary_triage_snapshot,
 )
+from obsidiandroid.database.db_cohort_readiness import _missing_primary_label_lane_rows_cte_sql
 from scripts.diagnostics.report_missing_primary_label_triage import (
     attach_proposal_review_fields,
     build_authority_backfill_proposals,
@@ -82,6 +83,15 @@ def test_build_authority_backfill_proposals_groups_review_only_candidates() -> N
     assert template.loc[0, "sample_id_hash"] == record["sample_id_hash"]
 
 
+def test_missing_primary_cte_requires_active_taxonomy_for_backfill_lane() -> None:
+    """Historical authority mappings must not become closure-ready proposals."""
+    query = _missing_primary_label_lane_rows_cte_sql()
+
+    assert "authority_family_is_active = 1" in query
+    assert "authority_type_is_active = 1" in query
+    assert "authority_retired_taxonomy_lifecycle_review" in query
+
+
 def test_read_missing_primary_triage_snapshot_reads_lane_counts(tmp_path: Path) -> None:
     csv_path = tmp_path / "diagnostics" / "missing_primary_label_triage_latest.csv"
     csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -140,6 +150,8 @@ def test_priority_uses_closure_ready_missing_primary_subset(tmp_path: Path) -> N
         "authority_family_slug": "anubis",
         "authority_type_slug": "banker",
         "authority_parent_type_slug": "trojan",
+        "authority_family_is_active": 1,
+        "authority_type_is_active": 1,
         "proposed_classification_primary": "trojan",
         "confidence_bucket": "high",
         "residual_lane": "authority_backed_primary_backfill_review",

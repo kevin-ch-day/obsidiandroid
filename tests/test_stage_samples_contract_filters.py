@@ -454,8 +454,17 @@ def test_export_cohort_lock_artifacts_writes_summary_and_membership(
     assert manifest_payload["label_snapshot_path"] == str(label_snapshot_path)
     assert manifest_payload["label_snapshot_hash"] == label_snapshot_hash(label_snapshot_df)
     assert manifest_payload["taxonomy_hash"] == manifest_payload["label_snapshot_hash"]
+    # The manifest also records the validated taxonomy-repair evidence set
+    # available at cohort-lock time. It is governance context; the row-level
+    # label snapshot above remains the reproducibility authority.
+    assert len(manifest_payload["taxonomy_repair_receipt_set_hash"]) == 64
     assert summary_payload["label_snapshot"]["taxonomy_hash_source"] == "row_level_label_snapshot"
     validate_lock_manifest(manifest=manifest_payload, manifest_path=manifest_path)
+
+    manifest_payload["taxonomy_repair_receipt_set_hash"] = "not-a-sha256"
+    with pytest.raises(ValueError, match="taxonomy_repair_receipt_set_hash"):
+        validate_lock_manifest(manifest=manifest_payload, manifest_path=manifest_path)
+    manifest_payload["taxonomy_repair_receipt_set_hash"] = ""
 
     # A declared row-level label snapshot is part of the lock, not optional
     # informational output.  Tampering must fail validation before reuse.

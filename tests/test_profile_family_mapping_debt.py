@@ -43,6 +43,7 @@ def test_read_profile_family_mapping_debt_snapshot_reads_allcurrent_focus(tmp_pa
     snapshot = read_profile_family_mapping_debt_snapshot(output_root=tmp_path)
 
     assert snapshot["profile_id"] == "android_malware_all_current"
+    assert snapshot["family_mapped_rows"] == 5351
     assert snapshot["excluded_unmapped_family_rows"] == 236
     assert snapshot["blank_resolved_slug_rows"] == 159
     assert snapshot["policy_held_resolved_slug_rows"] == 77

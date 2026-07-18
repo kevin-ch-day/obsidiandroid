@@ -1,0 +1,75 @@
+{
+  "repair_id": "2026-07-17_pjapps-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation_with_type_repair",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Codex direct-main workflow",
+  "applied_at_utc": "2026-07-17T23:06:13Z",
+  "receipt_created_at_utc": "2026-07-17T23:06:13Z",
+  "source_commit_at_application": "b5c0e1ecedea54d9897cb3f8b9bc7a652e82c787",
+  "source_commit_at_receipt_creation": "b5c0e1ecedea54d9897cb3f8b9bc7a652e82c787",
+  "affected_family_ids": [262],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 10,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 8,
+    "primary_type_slug": "unknown",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 10,
+    "distinct_mapped_samples": 10,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Replace the unsupported placeholder type with broad Trojan and reactivate the existing evidence-backed Android Pjapps family record without creating a duplicate identity or changing mappings.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_research",
+      "name": "Microsoft Security Intelligence: TrojanSpy:AndroidOS/Pjapps.A",
+      "url": "https://www.microsoft.com/security/portal/Threat/Encyclopedia/Entry.aspx?Name=TrojanSpy%3AAndroidOS%2FPjapps.A"
+    },
+    {
+      "kind": "vendor_research",
+      "name": "F-Secure: Trojan:Android/PjApps",
+      "url": "https://www.f-secure.com/v-descs/trojan-android-pjapps.shtml"
+    }
+  ],
+  "before_sql_hash": "4c4f27e7baba61d98aadcb6966e22a8f69502cfbdd140685c8f1d4e421d42705",
+  "applied_sql_hash": "838de7ccebd9037da4dfd34e288c2499a9f2d27a02c95b79825c8231334f2871",
+  "validation_sql_hash": "600cfe2def5c27a8487750aeb71346997fa59ad190b24222e0b95b0c841637a5",
+  "rollback_sql_hash": "2c26be463e427f922a0c000932e986b1183db6bf1b6732bdeedcef41981e6b8d",
+  "evidence_hash": "c16b1f2be3e63b1078adbb431c4239e98036830fbe4dba6719ff39f765ebd2be",
+  "post_change_validation": {
+    "family_262_status": "active",
+    "family_262_is_active": 1,
+    "family_262_primary_type_id": 1,
+    "catalog_mapped_sample_count": 10,
+    "authority_family_262_sample_count": 10,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "authority_view_duplicate_sample_groups": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "The contemporaneous database state and aggregate post-change validation establish the broad type and narrow authority repair. They do not prove every behavior of the mapped samples, create a frozen benchmark artifact, or establish a paper-result claim."
+}

@@ -17,6 +17,7 @@ from obsidiandroid.database import db_sample_metadata_queries
 import obsidiandroid.governance.cohort_readiness_report as cohort_readiness_report
 import obsidiandroid.governance.cohort_reproducibility as cohort_reproducibility
 from obsidiandroid.governance.cohort_lock_manifest import build_lock_manifest_payload
+from obsidiandroid.governance.taxonomy_repair_receipts import receipt_set_hash
 from obsidiandroid.governance.label_snapshot_contract import (
     label_snapshot_hash,
     normalize_label_snapshot_frame,
@@ -31,6 +32,7 @@ from obsidiandroid.governance.support_floor_policy import (
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as output_hygiene_mod
 from obsidiandroid.common.hash_utils import hash_payload
+from obsidiandroid.common.repo_paths import repo_root
 from obsidiandroid.observability.logging import get_logger, log_event
 from obsidiandroid.common.sample_metadata_preprocessor import prepare_sample_dataframe
 
@@ -1070,6 +1072,7 @@ def _export_cohort_lock_artifacts(
         }
     )
     taxonomy_hash = label_hash or aggregate_taxonomy_hash
+    receipt_hash = receipt_set_hash(repo_root() / "governance" / "taxonomy_repairs")
     lock_manifest = build_lock_manifest_payload(
         lock_version=str(run_id),
         profile_id=profile_id,
@@ -1103,6 +1106,7 @@ def _export_cohort_lock_artifacts(
         },
         top_family_support=top_family_support,
         top_family_share=round(top_family_share, 12),
+        taxonomy_repair_receipt_set_hash=receipt_hash,
     )
     manifest_path.write_text(json.dumps(lock_manifest, indent=2, sort_keys=True), encoding="utf-8")
 

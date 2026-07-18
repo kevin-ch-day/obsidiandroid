@@ -1,0 +1,75 @@
+{
+  "repair_id": "2026-07-17_smskey-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Codex direct-main workflow",
+  "applied_at_utc": "2026-07-17T22:46:17Z",
+  "receipt_created_at_utc": "2026-07-17T22:46:17Z",
+  "source_commit_at_application": "b5c0e1ecedea54d9897cb3f8b9bc7a652e82c787",
+  "source_commit_at_receipt_creation": "b5c0e1ecedea54d9897cb3f8b9bc7a652e82c787",
+  "affected_family_ids": [274],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 9,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 14,
+    "primary_type_slug": "sms-trojan",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 9,
+    "distinct_mapped_samples": 9,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Reactivate the existing evidence-backed Android SmsKey family record and establish current SMS-Trojan authority without creating a duplicate identity or changing mappings.",
+  "evidence_sources": [
+    {
+      "kind": "android_malware_corpus",
+      "name": "Argus Lab Android Malware Dataset: Trojan-SMS.SmsKey.1",
+      "url": "https://amd.arguslab.org/families/SmsKey/variety1.html"
+    },
+    {
+      "kind": "android_malware_research",
+      "name": "AMD2017 family/type survey",
+      "url": "https://www.cs.bgsu.edu/sanroy/Files/papers/amd2017.pdf"
+    }
+  ],
+  "before_sql_hash": "ba0cb34f59ddf47e6de8cf446443fbf342d840aad35a1ae998a7ad3d840dba6b",
+  "applied_sql_hash": "6f4c3e1b5647af287c6a0147005d7061c6117916c01546454aaf01d4f1221090",
+  "validation_sql_hash": "6c6ebe017e23eec63f799815e6a8b8d031aff179e2b255d8581d0f55284e82ea",
+  "rollback_sql_hash": "f021b6dc795ab59f4dd0e4f847678dd492ccf00ccf5cb859d3db07e7c826bba7",
+  "evidence_hash": "51172f1cbac6a1b8f9e6246590c3d633b2be16cc8698ac39af78cf8f0169abf4",
+  "post_change_validation": {
+    "family_274_status": "active",
+    "family_274_is_active": 1,
+    "family_274_primary_type_id": 14,
+    "catalog_mapped_sample_count": 9,
+    "authority_family_274_sample_count": 9,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "authority_view_duplicate_sample_groups": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "The contemporaneous database state and aggregate post-change validation establish this narrow authority repair. They do not prove every behavior of the mapped samples, create a frozen benchmark artifact, or establish a paper-result claim."
+}

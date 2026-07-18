@@ -30,7 +30,7 @@ CSV_OUT = OUTPUT_DIR / "missing_primary_label_triage_latest.csv"
 PROPOSAL_CSV_OUT = OUTPUT_DIR / "missing_primary_label_authority_backfill_proposals_latest.csv"
 REVIEW_TEMPLATE_CSV_OUT = OUTPUT_DIR / "missing_primary_label_authority_backfill_review_template_latest.csv"
 SUMMARY_JSON_OUT = OUTPUT_DIR / "missing_primary_label_triage_summary_latest.json"
-TRIAGE_SCHEMA_VERSION = 2
+TRIAGE_SCHEMA_VERSION = 3
 PROPOSAL_GROUP_COLUMNS = [
     "proposed_classification_primary",
     "authority_type_slug",
@@ -40,7 +40,7 @@ PROPOSAL_GROUP_COLUMNS = [
 ]
 PROPOSAL_REVIEW_STATUS = "pending_human_review"
 PROPOSAL_BASIS = (
-    "authority_family_typed plus high/strong VT consensus; "
+    "active family and active type authority plus high/strong VT consensus; "
     "proposed primary is authority parent type when present, otherwise authority type"
 )
 

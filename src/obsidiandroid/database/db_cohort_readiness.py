@@ -143,23 +143,155 @@ def _fetch_high_confidence_sample_ids() -> set[int]:
 
 
 def _fetch_android_authority_rows() -> list[dict[str, Any]]:
+    """Load authority rows plus current family/type lifecycle flags.
+
+    The authority view intentionally preserves historical mappings and therefore
+    does not itself mean that both taxonomy records are currently active. The
+    joins are read-only and let readiness distinguish broad family authority
+    from the strict active-family/active-type surface without changing the
+    view's historical semantics.
+    """
     query = f"""
         SELECT
-            sample_id,
-            resolved_family_lc,
-            family_slug,
-            type_slug,
-            raw_classification_primary,
-            raw_classification_subtype,
-            authority_bucket,
-            raw_vs_authority_status
-        FROM `{DB_NAME}`.`{_ANDROID_AUTHORITY_VIEW}`
+            a.sample_id,
+            a.resolved_family_lc,
+            a.family_slug,
+            a.type_slug,
+            a.raw_classification_primary,
+            a.raw_classification_subtype,
+            a.authority_bucket,
+            a.raw_vs_authority_status,
+            f.is_active AS family_is_active,
+            t.is_active AS type_is_active
+        FROM `{DB_NAME}`.`{_ANDROID_AUTHORITY_VIEW}` AS a
+        LEFT JOIN `{DB_NAME}`.`{_ANDROID_FAMILY_TABLE}` AS f
+          ON f.family_id = a.family_id
+        LEFT JOIN `{DB_NAME}`.`{_ANDROID_TYPE_TABLE}` AS t
+          ON t.type_id = a.type_id
     """
     columns, rows = db_engine.execute_query(query, fetch=True, return_columns=True)
     out: list[dict[str, Any]] = []
     for row in rows:
         out.append(dict(zip(columns, row)))
     return out
+
+
+def _active_flag(value: Any) -> bool | None:
+    """Normalize a nullable SQL active flag without guessing unknown values."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    token = str(value).strip().lower()
+    if token in {"1", "true", "yes"}:
+        return True
+    if token in {"0", "false", "no"}:
+        return False
+    return None
+
+
+def _authority_lifecycle_coverage(
+    *,
+    authority_rows: list[dict[str, Any]],
+    permission_sample_ids: set[int],
+    source_mode: str,
+) -> dict[str, int | None]:
+    """Measure broad and strict authority surfaces on the Android + PI scope.
+
+    ``authority_family_typed`` only proves that a family/type mapping exists.
+    The strict surface additionally requires both linked taxonomy records to
+    be active. A legacy fallback cannot supply the lifecycle fields, so strict
+    counts are deliberately unavailable rather than approximated.
+    """
+    keys = (
+        "typed_authority_permission_obs_samples",
+        "typed_authority_permission_obs_families",
+        "strict_active_authority_permission_obs_samples",
+        "strict_active_authority_permission_obs_families",
+        "retired_type_authority_permission_obs_samples",
+        "inactive_family_authority_permission_obs_samples",
+        "unknown_lifecycle_authority_permission_obs_samples",
+    )
+    unavailable = {key: None for key in keys}
+    if source_mode != "live_view":
+        return unavailable
+
+    typed_rows = [
+        row
+        for row in authority_rows
+        if row.get("sample_id") is not None
+        and int(row["sample_id"]) in permission_sample_ids
+        and _norm_text(row.get("authority_bucket")).lower() == "authority_family_typed"
+    ]
+    typed_sample_ids = {int(row["sample_id"]) for row in typed_rows}
+    typed_families = {
+        _norm_text(row.get("family_slug")).lower()
+        for row in typed_rows
+        if _norm_text(row.get("family_slug"))
+    }
+    result: dict[str, int | None] = {
+        "typed_authority_permission_obs_samples": len(typed_sample_ids),
+        "typed_authority_permission_obs_families": len(typed_families),
+        "strict_active_authority_permission_obs_samples": None,
+        "strict_active_authority_permission_obs_families": None,
+        "retired_type_authority_permission_obs_samples": None,
+        "inactive_family_authority_permission_obs_samples": None,
+        "unknown_lifecycle_authority_permission_obs_samples": None,
+    }
+    if not typed_rows:
+        result.update(
+            {
+                "strict_active_authority_permission_obs_samples": 0,
+                "strict_active_authority_permission_obs_families": 0,
+                "retired_type_authority_permission_obs_samples": 0,
+                "inactive_family_authority_permission_obs_samples": 0,
+                "unknown_lifecycle_authority_permission_obs_samples": 0,
+            }
+        )
+        return result
+
+    # A view/schema fallback that omits these fields must not be described as
+    # strict authority coverage. This is a reporting fail-closed behavior.
+    if any(
+        _active_flag(row.get("family_is_active")) is None
+        or _active_flag(row.get("type_is_active")) is None
+        for row in typed_rows
+    ):
+        return result
+
+    strict_rows = [
+        row
+        for row in typed_rows
+        if _active_flag(row.get("family_is_active")) is True
+        and _active_flag(row.get("type_is_active")) is True
+    ]
+    retired_type_ids = {
+        int(row["sample_id"])
+        for row in typed_rows
+        if _active_flag(row.get("family_is_active")) is True
+        and _active_flag(row.get("type_is_active")) is False
+    }
+    inactive_family_ids = {
+        int(row["sample_id"])
+        for row in typed_rows
+        if _active_flag(row.get("family_is_active")) is False
+    }
+    strict_sample_ids = {int(row["sample_id"]) for row in strict_rows}
+    strict_families = {
+        _norm_text(row.get("family_slug")).lower()
+        for row in strict_rows
+        if _norm_text(row.get("family_slug"))
+    }
+    result.update(
+        {
+            "strict_active_authority_permission_obs_samples": len(strict_sample_ids),
+            "strict_active_authority_permission_obs_families": len(strict_families),
+            "retired_type_authority_permission_obs_samples": len(retired_type_ids),
+            "inactive_family_authority_permission_obs_samples": len(inactive_family_ids),
+            "unknown_lifecycle_authority_permission_obs_samples": 0,
+        }
+    )
+    return result
 
 
 def fetch_active_family_inactive_type_gaps(
@@ -345,8 +477,13 @@ _MISSING_PRIMARY_RESIDUAL_LANE_CASE_SQL = """
                          THEN 'public_package_identity_provenance_review'
                     WHEN authority_bucket = 'authority_family_typed'
                          AND COALESCE(TRIM(authority_type_slug), '') NOT IN ('', 'unknown')
+                         AND authority_family_is_active = 1
+                         AND authority_type_is_active = 1
                          AND confidence_bucket IN ('high', 'strong')
                          THEN 'authority_backed_primary_backfill_review'
+                    WHEN authority_bucket = 'authority_family_typed'
+                         AND (authority_family_is_active <> 1 OR authority_type_is_active <> 1)
+                         THEN 'authority_retired_taxonomy_lifecycle_review'
                     WHEN confidence_bucket IN ('high', 'strong')
                          THEN 'high_strong_primary_no_authority_review'
                     WHEN authority_bucket = 'missing_resolved_family'
@@ -370,6 +507,8 @@ _MISSING_PRIMARY_RECOMMENDED_ACTION_CASE_SQL = """
                         THEN 'Closed: sample already under FP suppression; no primary backfill.'
                     WHEN 'authority_backed_primary_backfill_review'
                         THEN 'Review authority-derived primary-label proposal; no automatic write.'
+                    WHEN 'authority_retired_taxonomy_lifecycle_review'
+                        THEN 'Review retired family/type lifecycle before any primary-label backfill; no automatic write.'
                     WHEN 'high_strong_primary_no_authority_review'
                         THEN 'Manual review: high/strong VT consensus lacks governed family/type authority.'
                     WHEN 'high_risk_keylogger_signal_review'
@@ -397,6 +536,8 @@ def _missing_primary_label_prerequisites_met() -> bool:
     return bool(
         _table_exists_primary(_PRIMARY_CATALOG_TABLE)
         and _table_exists_primary(_ANDROID_AUTHORITY_VIEW)
+        and _table_exists_primary(_ANDROID_FAMILY_TABLE)
+        and _table_exists_primary(_ANDROID_TYPE_TABLE)
         and _table_exists_primary(_VT_CONFIDENCE_TABLE)
         and _table_exists_primary(_FP_SUPPRESSION_TABLE)
         and _table_exists_permission(_PERMISSION_OBS_TABLE)
@@ -447,6 +588,8 @@ def _missing_primary_label_lane_rows_cte_sql() -> str:
                 COALESCE(a.family_slug, '') AS authority_family_slug,
                 COALESCE(a.type_slug, '') AS authority_type_slug,
                 COALESCE(a.parent_type_slug, '') AS authority_parent_type_slug,
+                COALESCE(f.is_active, 0) AS authority_family_is_active,
+                COALESCE(t.is_active, 0) AS authority_type_is_active,
                 COALESCE(vs.confidence_bucket, 'none') AS confidence_bucket,
                 COALESCE(vs.vt_malicious_count, 0) AS vt_malicious_count,
                 COALESCE(s.max_suppression_weight, 0) AS sample_suppression_weight,
@@ -459,6 +602,10 @@ def _missing_primary_label_lane_rows_cte_sql() -> str:
               ON pi.sample_id = msc.sample_id
             LEFT JOIN `{DB_NAME}`.`{_ANDROID_AUTHORITY_VIEW}` AS a
               ON a.sample_id = msc.sample_id
+            LEFT JOIN `{DB_NAME}`.`{_ANDROID_FAMILY_TABLE}` AS f
+              ON LOWER(TRIM(f.family_slug)) = LOWER(TRIM(a.family_slug))
+            LEFT JOIN `{DB_NAME}`.`{_ANDROID_TYPE_TABLE}` AS t
+              ON t.type_id = f.primary_type_id
             LEFT JOIN `{DB_NAME}`.`{_VT_CONFIDENCE_TABLE}` AS vs
               ON vs.sample_id = msc.sample_id
             LEFT JOIN suppression AS s
@@ -477,9 +624,13 @@ def _missing_primary_label_lane_rows_cte_sql() -> str:
                 authority_family_slug,
                 authority_type_slug,
                 authority_parent_type_slug,
+                authority_family_is_active,
+                authority_type_is_active,
                 CASE
                     WHEN authority_bucket = 'authority_family_typed'
                          AND COALESCE(TRIM(authority_type_slug), '') NOT IN ('', 'unknown')
+                         AND authority_family_is_active = 1
+                         AND authority_type_is_active = 1
                         THEN COALESCE(
                             NULLIF(TRIM(authority_parent_type_slug), ''),
                             NULLIF(TRIM(authority_type_slug), '')
@@ -511,6 +662,8 @@ def fetch_missing_primary_label_triage_rows(*, include_suppressed: bool = False)
             authority_family_slug,
             authority_type_slug,
             authority_parent_type_slug,
+            authority_family_is_active,
+            authority_type_is_active,
             proposed_classification_primary,
             confidence_bucket,
             vt_malicious_count,
@@ -522,17 +675,18 @@ def fetch_missing_primary_label_triage_rows(*, include_suppressed: bool = False)
         ORDER BY
             CASE residual_lane
                 WHEN 'authority_backed_primary_backfill_review' THEN 0
-                WHEN 'high_strong_primary_no_authority_review' THEN 1
-                WHEN 'high_risk_keylogger_signal_review' THEN 2
-                WHEN 'fake_app_or_impersonation_signal_review' THEN 3
-                WHEN 'pua_adware_or_testkey_signal_review' THEN 4
-                WHEN 'public_package_identity_provenance_review' THEN 5
-                WHEN 'zero_detection_blank_family_provenance_review' THEN 6
-                WHEN 'blank_family_low_consensus_manual_review' THEN 7
-                WHEN 'unknown_family_zero_signal_review' THEN 8
-                WHEN 'unknown_family_low_consensus_review' THEN 9
-                WHEN 'manual_review' THEN 10
-                ELSE 11
+                WHEN 'authority_retired_taxonomy_lifecycle_review' THEN 1
+                WHEN 'high_strong_primary_no_authority_review' THEN 2
+                WHEN 'high_risk_keylogger_signal_review' THEN 3
+                WHEN 'fake_app_or_impersonation_signal_review' THEN 4
+                WHEN 'pua_adware_or_testkey_signal_review' THEN 5
+                WHEN 'public_package_identity_provenance_review' THEN 6
+                WHEN 'zero_detection_blank_family_provenance_review' THEN 7
+                WHEN 'blank_family_low_consensus_manual_review' THEN 8
+                WHEN 'unknown_family_zero_signal_review' THEN 9
+                WHEN 'unknown_family_low_consensus_review' THEN 10
+                WHEN 'manual_review' THEN 11
+                ELSE 12
             END,
             vt_malicious_count DESC,
             sample_id
@@ -1061,6 +1215,13 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
             "top_blank_resolved_family_buckets": [],
             "active_family_retired_type_mapping_count": None,
             "top_active_family_retired_type_mappings": [],
+            "typed_authority_permission_obs_samples": None,
+            "typed_authority_permission_obs_families": None,
+            "strict_active_authority_permission_obs_samples": None,
+            "strict_active_authority_permission_obs_families": None,
+            "retired_type_authority_permission_obs_samples": None,
+            "inactive_family_authority_permission_obs_samples": None,
+            "unknown_lifecycle_authority_permission_obs_samples": None,
         },
     }
 
@@ -1274,6 +1435,27 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
                 payload["warnings"].append(f"Android family-resolution query failed: {inner_exc}")
     payload["authority_source_mode"] = authority_source_mode
     if authority_rows:
+        lifecycle_coverage = _authority_lifecycle_coverage(
+            authority_rows=authority_rows,
+            permission_sample_ids=permission_sample_ids,
+            source_mode=authority_source_mode,
+        )
+        payload["taxonomy_signals"].update(lifecycle_coverage)
+        broad_typed = lifecycle_coverage.get("typed_authority_permission_obs_samples")
+        strict_typed = lifecycle_coverage.get("strict_active_authority_permission_obs_samples")
+        retired_type_typed = lifecycle_coverage.get("retired_type_authority_permission_obs_samples")
+        inactive_family_typed = lifecycle_coverage.get("inactive_family_authority_permission_obs_samples")
+        if broad_typed is not None and strict_typed is None:
+            payload["warnings"].append(
+                "Family-typed authority is available, but strict active-family/active-type coverage is unavailable "
+                "because lifecycle flags could not be verified from the live authority projection."
+            )
+        elif broad_typed is not None and strict_typed is not None and int(broad_typed) != int(strict_typed):
+            payload["warnings"].append(
+                "Family-typed authority has a stricter active-family/active-type subset: "
+                f"broad={int(broad_typed)}, strict={int(strict_typed)}, "
+                f"retired_type={int(retired_type_typed or 0)}, inactive_family={int(inactive_family_typed or 0)}."
+            )
         banker_type_rows = [
             row
             for row in authority_rows

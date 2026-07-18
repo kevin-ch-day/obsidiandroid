@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import json
+import re
 import pandas as pd
 
 from obsidiandroid.common.hash_utils import hash_payload
@@ -20,6 +21,7 @@ from obsidiandroid.governance.label_snapshot_contract import label_snapshot_hash
 
 
 DEFAULT_LOCK_MANIFEST_FILENAME = "cohort_lock_manifest.json"
+_SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
 
 def resolve_lock_manifest_path(raw_lock: dict[str, Any]) -> Path | None:
@@ -100,6 +102,11 @@ def validate_lock_manifest(*, manifest: dict[str, Any], manifest_path: Path) -> 
         raise ValueError(f"Lock manifest '{manifest_path}' must declare a non-empty cohort_hash.")
     if not str(manifest.get("taxonomy_hash", "") or "").strip():
         raise ValueError(f"Lock manifest '{manifest_path}' must declare a non-empty taxonomy_hash.")
+    receipt_hash = str(manifest.get("taxonomy_repair_receipt_set_hash", "") or "").strip()
+    if receipt_hash and _SHA256_RE.fullmatch(receipt_hash) is None:
+        raise ValueError(
+            f"Lock manifest '{manifest_path}' taxonomy_repair_receipt_set_hash must be a SHA-256 digest when declared."
+        )
     member_df = read_member_list(member_path)
     observed_count = int(len(member_df))
     if observed_count != int(manifest.get("sample_count", 0) or 0):
@@ -205,6 +212,7 @@ def build_lock_manifest_payload(
     top_family_share: float | None = None,
     label_target_class_stats: list[dict[str, Any]] | None = None,
     source_artifacts: dict[str, Any] | None = None,
+    taxonomy_repair_receipt_set_hash: str | None = None,
 ) -> dict[str, Any]:
     """Build a canonical immutable cohort-lock manifest payload."""
     return {
@@ -229,4 +237,8 @@ def build_lock_manifest_payload(
         "top_family_share": float(top_family_share) if top_family_share is not None else None,
         "label_target_class_stats": list(label_target_class_stats or []),
         "source_artifacts": dict(source_artifacts or {}),
+        # Informational governance-state binding for future runs.  Historical
+        # locks legitimately omit it, and row-level labels remain the primary
+        # reproducibility contract.
+        "taxonomy_repair_receipt_set_hash": str(taxonomy_repair_receipt_set_hash or ""),
     }

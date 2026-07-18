@@ -40,6 +40,15 @@ type-supervised profile. When enabled, rows whose resolved
 Broad diagnostic profiles may intentionally retain those historical rows, but
 their type-target reports must not present them as trainable labels.
 
+The `authority_family_typed` bucket is a **broad mapping surface**: it means a
+family/type mapping exists, including historical mappings whose records may
+now be retired. Readiness therefore also reports a strict
+active-family/active-type count for the Android + Permission Intel scope when
+the live lifecycle fields are available. Do not substitute the broad count for
+the strict count in type-level claims. If strict coverage is unavailable, the
+operator must treat it as unavailable rather than infer it from the broad
+authority bucket.
+
 ## Engine Canonicalization
 Rules:
 1. lowercase

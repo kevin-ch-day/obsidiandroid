@@ -1,0 +1,75 @@
+{
+  "repair_id": "2026-07-17_simbad-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Codex direct-main workflow",
+  "applied_at_utc": "2026-07-17T22:42:48Z",
+  "receipt_created_at_utc": "2026-07-17T22:42:48Z",
+  "source_commit_at_application": "b5c0e1ecedea54d9897cb3f8b9bc7a652e82c787",
+  "source_commit_at_receipt_creation": "b5c0e1ecedea54d9897cb3f8b9bc7a652e82c787",
+  "affected_family_ids": [290],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 7,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 3,
+    "primary_type_slug": "adware",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 7,
+    "distinct_mapped_samples": 7,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Reactivate the existing evidence-backed Android SimBad family record and establish current adware authority without creating a duplicate identity or changing mappings.",
+  "evidence_sources": [
+    {
+      "kind": "threat_research",
+      "name": "Check Point Research: SimBad",
+      "url": "https://research.checkpoint.com/2019/simbad-a-rogue-adware-campaign-on-google-play/"
+    },
+    {
+      "kind": "attack_knowledge_base",
+      "name": "MITRE ATT&CK: SimBad",
+      "url": "https://attack.mitre.org/software/S0419/"
+    }
+  ],
+  "before_sql_hash": "922b778cd8fc7dc9c143f379b38a052c8b6ab32516c4ce170978e6d95ab1b400",
+  "applied_sql_hash": "7c77d4e51d339fe5e28cdfa2b16be0048510f58bca754144ff993edbcf681c30",
+  "validation_sql_hash": "e280aad2e49368d8b25f9af1174c84fa377fe82f99230d991107cf0320954f4a",
+  "rollback_sql_hash": "3da91a7be2255744aeb2a2c754bfaf67ea0c98210f8e466dc08059c37ee42466",
+  "evidence_hash": "d0a50cd3c2f45b239d7d4f186af7ddc2c3c7015b5212972339cd34a1620e38bb",
+  "post_change_validation": {
+    "family_290_status": "active",
+    "family_290_is_active": 1,
+    "family_290_primary_type_id": 3,
+    "catalog_mapped_sample_count": 7,
+    "authority_family_290_sample_count": 7,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "authority_view_duplicate_sample_groups": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "The contemporaneous database state and aggregate post-change validation establish this narrow authority repair. They do not prove every behavior of the mapped samples, create a frozen benchmark artifact, or establish a paper-result claim."
+}

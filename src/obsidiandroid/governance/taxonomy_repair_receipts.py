@@ -82,6 +82,7 @@ PROHIBITED_RECEIPT_KEYS = frozenset(
     }
 )
 EVIDENCE_LOCATOR_RE = re.compile(r"(?:https?|database)://[^\s)]+")
+REPAIR_DIRECTORY_RE = re.compile(r"\d{4}-\d{2}-\d{2}_.+")
 
 
 @dataclass(frozen=True)
@@ -195,9 +196,73 @@ def validate_receipt_package(package: Path) -> ReceiptValidationResult:
 
 
 def validate_receipt_root(root: Path) -> tuple[ReceiptValidationResult, ...]:
-    """Validate each immediate child package containing ``receipt.json``."""
-    packages = sorted(path for path in root.iterdir() if (path / "receipt.json").is_file())
-    return tuple(validate_receipt_package(package) for package in packages)
+    """Validate every immediate receipt directory, including incomplete ones.
+
+    A directory lacking ``receipt.json`` is an incomplete governance package,
+    not something to skip silently. Duplicate repair identifiers are likewise
+    invalid even when each package is individually well formed.
+    """
+    if not root.is_dir():
+        return ()
+    packages = sorted(
+        path
+        for path in root.iterdir()
+        if path.is_dir()
+        and not path.name.startswith(".")
+        and (
+            REPAIR_DIRECTORY_RE.fullmatch(path.name) is not None
+            or any((path / filename).exists() for filename in REQUIRED_FILES)
+        )
+    )
+    results = [validate_receipt_package(package) for package in packages]
+    repair_ids: dict[str, list[int]] = {}
+    for index, result in enumerate(results):
+        receipt_path = result.package / "receipt.json"
+        if not receipt_path.is_file():
+            continue
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        repair_id = str(receipt.get("repair_id", "") or "").strip()
+        if repair_id:
+            repair_ids.setdefault(repair_id, []).append(index)
+    for repair_id, indexes in repair_ids.items():
+        if len(indexes) > 1:
+            for index in indexes:
+                result = results[index]
+                results[index] = ReceiptValidationResult(
+                    package=result.package,
+                    errors=(*result.errors, f"duplicate repair_id: {repair_id}"),
+                )
+    return tuple(results)
+
+
+def receipt_set_hash(root: Path) -> str:
+    """Return a stable SHA-256 over every validated receipt artifact.
+
+    This records the governance evidence available at run start. It complements,
+    but never replaces, the row-level taxonomy snapshot for a frozen cohort.
+    """
+    results = validate_receipt_root(root)
+    if not results:
+        return ""
+    invalid = [result for result in results if not result.valid]
+    if invalid:
+        packages = ", ".join(str(result.package) for result in invalid)
+        raise ValueError(f"Cannot hash invalid taxonomy-repair receipt package(s): {packages}")
+    manifest = [
+        {
+            "package": result.package.name,
+            "files": {
+                filename: sha256_file(result.package / filename)
+                for filename in sorted(REQUIRED_FILES - {"SHA256SUMS"})
+            },
+        }
+        for result in results
+    ]
+    encoded = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def main() -> int:

@@ -52,3 +52,28 @@ def test_build_backlog_debt_summary_includes_blank_resolved_row() -> None:
     )
     assert blank_row["count"] == 43
     assert "live_blank_resolved=191" in blank_row["detail"]
+
+
+def test_build_backlog_debt_summary_surfaces_retired_type_lifecycle_gaps() -> None:
+    summary = build_backlog_debt_summary(
+        readiness={
+            "taxonomy_signals": {
+                "active_family_retired_type_mapping_count": 2,
+                "top_active_family_retired_type_mappings": [
+                    {"family_slug": "kuguo", "type_slug": "pua"},
+                    {"family_slug": "smsworm", "type_slug": "worm"},
+                ],
+            }
+        },
+        fp_triage={},
+        android_missing_triage={},
+    )
+
+    lifecycle_row = next(
+        row
+        for row in summary["rows"]
+        if row["code"] == "active_family_retired_type"
+    )
+    assert lifecycle_row["count"] == 2
+    assert "kuguo→pua" in lifecycle_row["detail"]
+    assert "Do not change rows automatically" in lifecycle_row["action"]
