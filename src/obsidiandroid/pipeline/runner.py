@@ -96,9 +96,10 @@ from obsidiandroid.database.db_sample_metadata_contracts import get_query_contra
 from obsidiandroid.pipeline.runner_support import (
     emit_pipeline_failure_summary,
     PipelineStageFailure,
+    register_pipeline_failure_summary,
+    restore_pipeline_runtime_state,
     ScopedArtifactList,
     sync_main_module_diagnostics,
-    write_pipeline_failure_summary,
 )
 from obsidiandroid.pipeline.runner_stage_control import PipelineRunStageControl
 from obsidiandroid.pipeline.run_bounds import (
@@ -1874,24 +1875,16 @@ def run_pipeline(
             )
             st.write_preflight(status="interrupted", reason="KeyboardInterrupt")
         manifest_context["error_type"] = "KeyboardInterrupt"
-        try:
-            written_paths = write_pipeline_failure_summary(
-                diagnostics_dir=DIAGNOSTICS_DIR,
-                run_root=str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or ""),
-                run_id=run_id,
-                stage_name=(st.current_stage_name or st.last_completed_stage) if st else "startup",
-                error=KeyboardInterrupt("KeyboardInterrupt"),
-                preflight_path=str(st.preflight_path or "") if st else "",
-            )
-            for path in written_paths:
-                if path not in artifact_list:
-                    artifact_list.append(path)
-            manifest_context["failure_summary_path"] = next(
-                (str(path) for path in written_paths if str(path).endswith("failure_summary.json")),
-                "",
-            )
-        except Exception:
-            pass
+        register_pipeline_failure_summary(
+            diagnostics_dir=DIAGNOSTICS_DIR,
+            run_root=str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or ""),
+            run_id=run_id,
+            stage_name=(st.current_stage_name or st.last_completed_stage) if st else "startup",
+            error=KeyboardInterrupt("KeyboardInterrupt"),
+            preflight_path=str(st.preflight_path or "") if st else "",
+            artifact_list=artifact_list,
+            manifest_context=manifest_context,
+        )
         try:
             if st:
                 st.attach_runtime_timing_context()
@@ -1969,24 +1962,16 @@ def run_pipeline(
             run_root=str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or ""),
             preflight_path=str(st.preflight_path or "") if st else "",
         )
-        try:
-            written_paths = write_pipeline_failure_summary(
-                diagnostics_dir=DIAGNOSTICS_DIR,
-                run_root=str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or ""),
-                run_id=run_id,
-                stage_name=(st.current_stage_name or st.last_completed_stage) if st else "startup",
-                error=e,
-                preflight_path=str(st.preflight_path or "") if st else "",
-            )
-            for path in written_paths:
-                if path not in artifact_list:
-                    artifact_list.append(path)
-            manifest_context["failure_summary_path"] = next(
-                (str(path) for path in written_paths if str(path).endswith("failure_summary.json")),
-                "",
-            )
-        except Exception:
-            pass
+        register_pipeline_failure_summary(
+            diagnostics_dir=DIAGNOSTICS_DIR,
+            run_root=str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or ""),
+            run_id=run_id,
+            stage_name=(st.current_stage_name or st.last_completed_stage) if st else "startup",
+            error=e,
+            preflight_path=str(st.preflight_path or "") if st else "",
+            artifact_list=artifact_list,
+            manifest_context=manifest_context,
+        )
 
         # Avoid full tracebacks for expected profile/data failures
         if ml_console.is_debug() and not error_text.startswith("[PROFILE]") and not isinstance(e, PipelineStageFailure):
@@ -2031,19 +2016,14 @@ def run_pipeline(
             raise
         return 1
     finally:
-        resolve_main_override("runtime_logging", runtime_logging).stop_runtime_logging(runtime_log_context)
-        logger_manager.close_all_loggers()
-        for key, original_value in mutable_config_snapshot.items():
-            if original_value is _CONFIG_MISSING:
-                if hasattr(app_config, key):
-                    try:
-                        delattr(app_config, key)
-                    except Exception:
-                        pass
-                continue
-            try:
-                setattr(app_config, key, original_value)
-            except Exception:
-                pass
-        clear_pipeline_run_bounds()
-        _set_diagnostics_dir(original_diagnostics_dir)
+        restore_pipeline_runtime_state(
+            stop_runtime_logging=resolve_main_override("runtime_logging", runtime_logging).stop_runtime_logging,
+            runtime_log_context=runtime_log_context,
+            close_all_loggers=logger_manager.close_all_loggers,
+            mutable_config_snapshot=mutable_config_snapshot,
+            config=app_config,
+            missing_sentinel=_CONFIG_MISSING,
+            clear_run_bounds=clear_pipeline_run_bounds,
+            set_diagnostics_dir=_set_diagnostics_dir,
+            original_diagnostics_dir=original_diagnostics_dir,
+        )

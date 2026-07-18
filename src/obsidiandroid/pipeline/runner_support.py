@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any, Mapping
 
 from obsidiandroid.cli.ui import display as du
 
@@ -68,6 +69,60 @@ class ScopedArtifactList(list[str]):
 
 class PipelineStageFailure(RuntimeError):
     """Expected pipeline-stage failure that should finalize cleanly."""
+
+
+def restore_pipeline_runtime_state(
+    *,
+    stop_runtime_logging: Callable[[Any], None],
+    runtime_log_context: Any,
+    close_all_loggers: Callable[[], None],
+    mutable_config_snapshot: Mapping[str, Any],
+    config: Any,
+    missing_sentinel: object,
+    clear_run_bounds: Callable[[], None],
+    set_diagnostics_dir: Callable[[str], None],
+    original_diagnostics_dir: str,
+) -> None:
+    """Restore process-local state without allowing cleanup failures to leak.
+
+    A pipeline can run repeatedly within the operator console.  Runtime logging,
+    configuration overrides, run bounds, and the diagnostics path must therefore
+    be restored independently: a failure in one cleanup action must not prevent
+    the remaining actions from running.
+    """
+
+    def _warn(action: str, exc: Exception) -> None:
+        du.print_warning(f"[CLEANUP] {action} failed: {exc}")
+
+    try:
+        stop_runtime_logging(runtime_log_context)
+    except Exception as exc:
+        _warn("runtime logging shutdown", exc)
+
+    try:
+        close_all_loggers()
+    except Exception as exc:
+        _warn("logger shutdown", exc)
+
+    for key, original_value in mutable_config_snapshot.items():
+        try:
+            if original_value is missing_sentinel:
+                if hasattr(config, key):
+                    delattr(config, key)
+            else:
+                setattr(config, key, original_value)
+        except Exception as exc:
+            _warn(f"runtime configuration restore for {key}", exc)
+
+    try:
+        clear_run_bounds()
+    except Exception as exc:
+        _warn("pipeline run-bounds reset", exc)
+
+    try:
+        set_diagnostics_dir(original_diagnostics_dir)
+    except Exception as exc:
+        _warn("diagnostics-path restore", exc)
 
 
 def _clean_failure_reason(error_text: str) -> str:
@@ -159,6 +214,45 @@ def write_pipeline_failure_summary(
         encoding="utf-8",
     )
     return [str(json_path), str(md_path)]
+
+
+def register_pipeline_failure_summary(
+    *,
+    diagnostics_dir: str,
+    run_root: str,
+    run_id: str,
+    stage_name: str | None,
+    error: Exception,
+    preflight_path: str,
+    artifact_list: list[str],
+    manifest_context: dict[str, Any],
+) -> list[str]:
+    """Write and register failure artifacts without masking the original error.
+
+    Failure artifacts are valuable during both interrupted and failed runs, but
+    an export problem must not replace the primary pipeline error or prevent its
+    normal finalization path.
+    """
+    try:
+        written_paths = write_pipeline_failure_summary(
+            diagnostics_dir=diagnostics_dir,
+            run_root=run_root,
+            run_id=run_id,
+            stage_name=stage_name,
+            error=error,
+            preflight_path=preflight_path,
+        )
+        for path in written_paths:
+            if path not in artifact_list:
+                artifact_list.append(path)
+        manifest_context["failure_summary_path"] = next(
+            (str(path) for path in written_paths if str(path).endswith("failure_summary.json")),
+            "",
+        )
+        return written_paths
+    except Exception as exc:
+        du.print_warning(f"[FAILURE] Failure-summary export skipped: {exc}")
+        return []
 
 
 def emit_pipeline_failure_summary(
