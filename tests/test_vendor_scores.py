@@ -46,7 +46,11 @@ def test_print_debug_top_vendors_compact_emits_single_summary_line(monkeypatch):
     df = run_score_analysis(_sample_df(), verbose=False)
     print_debug_top_vendors(df)
 
-    assert any("Top vendors by Final ML Score" in msg for msg in captured)
+    # Final ML Score is an operator diagnostic, not the feature-admission
+    # selector. Keep the compact message explicit so terminal output cannot
+    # imply that score tuning changes the headline feature contract.
+    assert any("Diagnostic top vendors by Final ML Score" in msg for msg in captured)
+    assert any("not the feature selector" in msg for msg in captured)
     assert "section" not in captured
     assert "table" not in captured
 
