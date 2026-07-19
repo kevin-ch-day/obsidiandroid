@@ -24,11 +24,11 @@ class ObsidianConnectionSettings:
     password: str
     database: str
     permission_intel_database: str
-    research_database_host: str
-    research_database_port: int
-    research_database_user: str
-    research_database_password: str
-    research_database: str
+    core_database_host: str
+    core_database_port: int
+    core_database_user: str
+    core_database_password: str
+    core_database: str
     charset: str
 
 
@@ -41,10 +41,10 @@ def load_connection_settings() -> ObsidianConnectionSettings:
         password=str(db_config.DB_PASSWORD),
         database=str(db_config.DB_NAME),
         permission_intel_database=str(db_config.PERMISSION_INTEL_DB_NAME),
-        research_database_host=str(db_config.RESEARCH_DB_HOST),
-        research_database_port=int(db_config.RESEARCH_DB_PORT),
-        research_database_user=str(db_config.RESEARCH_DB_USER),
-        research_database_password=str(db_config.RESEARCH_DB_PASSWORD),
-        research_database=str(db_config.RESEARCH_DB_NAME),
+        core_database_host=str(db_config.CORE_DB_HOST),
+        core_database_port=int(db_config.CORE_DB_PORT),
+        core_database_user=str(db_config.CORE_DB_USER),
+        core_database_password=str(db_config.CORE_DB_PASSWORD),
+        core_database=str(db_config.CORE_DB_NAME),
         charset=str(db_config.DB_CHARSET),
     )

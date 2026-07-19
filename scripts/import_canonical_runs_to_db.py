@@ -35,8 +35,8 @@ from obsidiandroid.diagnostics.run_artifact_resolve import (  # noqa: E402
     resolve_run_artifact_path,
 )
 
-SCHEMA_NAME = "obsidiandroid_research"
-ENV_DB_NAME = "OBSIDIANDROID_RESEARCH_DB_NAME"
+SCHEMA_NAME = "obsidiandroid_core_prod"
+ENV_DB_NAME = "OBSIDIANDROID_CORE_DB_NAME"
 
 REQUIRED_ARTIFACTS = (
     "label_contract",

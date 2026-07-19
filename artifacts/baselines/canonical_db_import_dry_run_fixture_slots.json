@@ -1,5 +1,5 @@
 {
-  "env_db_name": "OBSIDIANDROID_RESEARCH_DB_NAME",
+  "env_db_name": "OBSIDIANDROID_CORE_DB_NAME",
   "profiles": [
     {
       "artifacts_missing": [],
@@ -27,7 +27,7 @@
       "blocked": false,
       "blocking_errors": [],
       "diagnostics_dir": "artifacts/baselines/canonical_slots/majorfam_benchmark/diagnostics",
-      "env_db_name": "OBSIDIANDROID_RESEARCH_DB_NAME",
+      "env_db_name": "OBSIDIANDROID_CORE_DB_NAME",
       "planned_rows": {
         "model_metrics": 0,
         "permission_pattern_facts": 0,
@@ -48,7 +48,7 @@
       "run_id": "20260606T900000Z__fixture0",
       "run_root": "artifacts/baselines/canonical_slots/majorfam_benchmark",
       "sample_id_count": 1,
-      "schema": "obsidiandroid_research",
+      "schema": "obsidiandroid_core_prod",
       "status": "ready",
       "warnings": [
         "ml_permission_pattern_fact missing run-local but a global diagnostics mirror exists; import plan ignores global mirrors",
@@ -85,7 +85,7 @@
       "blocked": false,
       "blocking_errors": [],
       "diagnostics_dir": "artifacts/baselines/canonical_slots/typelevel_benchmark/diagnostics",
-      "env_db_name": "OBSIDIANDROID_RESEARCH_DB_NAME",
+      "env_db_name": "OBSIDIANDROID_CORE_DB_NAME",
       "planned_rows": {
         "model_metrics": 0,
         "permission_pattern_facts": 0,
@@ -106,7 +106,7 @@
       "run_id": "20260606T900001Z__fixture1",
       "run_root": "artifacts/baselines/canonical_slots/typelevel_benchmark",
       "sample_id_count": 1,
-      "schema": "obsidiandroid_research",
+      "schema": "obsidiandroid_core_prod",
       "status": "ready",
       "warnings": [
         "ml_permission_pattern_fact missing run-local but a global diagnostics mirror exists; import plan ignores global mirrors",
@@ -143,7 +143,7 @@
       "blocked": false,
       "blocking_errors": [],
       "diagnostics_dir": "artifacts/baselines/canonical_slots/expandedfam_exploratory/diagnostics",
-      "env_db_name": "OBSIDIANDROID_RESEARCH_DB_NAME",
+      "env_db_name": "OBSIDIANDROID_CORE_DB_NAME",
       "planned_rows": {
         "model_metrics": 0,
         "permission_pattern_facts": 0,
@@ -164,7 +164,7 @@
       "run_id": "20260606T900002Z__fixture2",
       "run_root": "artifacts/baselines/canonical_slots/expandedfam_exploratory",
       "sample_id_count": 1,
-      "schema": "obsidiandroid_research",
+      "schema": "obsidiandroid_core_prod",
       "status": "ready",
       "warnings": [
         "ml_permission_pattern_fact missing run-local but a global diagnostics mirror exists; import plan ignores global mirrors",
@@ -201,7 +201,7 @@
       "blocked": false,
       "blocking_errors": [],
       "diagnostics_dir": "artifacts/baselines/canonical_slots/allcurrent_diagnostic/diagnostics",
-      "env_db_name": "OBSIDIANDROID_RESEARCH_DB_NAME",
+      "env_db_name": "OBSIDIANDROID_CORE_DB_NAME",
       "planned_rows": {
         "model_metrics": 0,
         "permission_pattern_facts": 0,
@@ -222,7 +222,7 @@
       "run_id": "20260606T900003Z__fixture3",
       "run_root": "artifacts/baselines/canonical_slots/allcurrent_diagnostic",
       "sample_id_count": 1,
-      "schema": "obsidiandroid_research",
+      "schema": "obsidiandroid_core_prod",
       "status": "ready",
       "warnings": [
         "ml_permission_pattern_fact missing run-local but a global diagnostics mirror exists; import plan ignores global mirrors",
@@ -236,5 +236,5 @@
   ],
   "release_tag": "v2.2.0",
   "runs_root": "artifacts/baselines/canonical_slots",
-  "schema": "obsidiandroid_research"
+  "schema": "obsidiandroid_core_prod"
 }

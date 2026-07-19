@@ -190,12 +190,12 @@ def test_load_connection_settings_matches_dataclass_fields() -> None:
     assert isinstance(s.port, int)
     assert isinstance(s.database, str)
     assert isinstance(s.permission_intel_database, str)
-    assert isinstance(s.research_database, str)
-    assert s.research_database == db_config.RESEARCH_DB_NAME
-    assert s.research_database_host == db_config.RESEARCH_DB_HOST
-    assert s.research_database_port == db_config.RESEARCH_DB_PORT
-    assert s.research_database_user == db_config.RESEARCH_DB_USER
-    assert s.research_database_password == db_config.RESEARCH_DB_PASSWORD
+    assert isinstance(s.core_database, str)
+    assert s.core_database == db_config.CORE_DB_NAME
+    assert s.core_database_host == db_config.CORE_DB_HOST
+    assert s.core_database_port == db_config.CORE_DB_PORT
+    assert s.core_database_user == db_config.CORE_DB_USER
+    assert s.core_database_password == db_config.CORE_DB_PASSWORD
 
 
 def test_schema_table_resolution():

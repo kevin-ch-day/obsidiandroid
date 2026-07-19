@@ -4,11 +4,11 @@
 """MySQL connection configuration for ObsidianDroid.
 
 ObsidianDroid uses two upstream read-only logical databases on the same MySQL/MariaDB
-server by default, plus a planned curated research ledger (v2.2+):
+server by default, plus an optional, independently configured core ledger:
 
 - Primary Erebus schema (samples, VirusTotal, catalog).
 - Permission Intel schema (all ``android_permission_*`` live tables).
-- ObsidianDroid research schema (curated run outputs; ``OBSIDIANDROID_RESEARCH_DB_NAME``).
+- ObsidianDroid core schema (curated run outputs; ``OBSIDIANDROID_CORE_DB_NAME``).
 
 Override via ``OBSIDIAN_*`` environment variables. Do not commit real passwords.
 
@@ -104,17 +104,16 @@ PERMISSION_INTEL_DB_PASSWORD = _env_first(
     DB_PASSWORD,
 )
 
-# Curated ObsidianDroid research ledger (v2.2+). No runtime writes until importer --apply.
-RESEARCH_DB_HOST = _env_first(("OBSIDIANDROID_RESEARCH_DB_HOST",), DB_HOST)
-RESEARCH_DB_PORT = _env_first_int(("OBSIDIANDROID_RESEARCH_DB_PORT",), DB_PORT)
-RESEARCH_DB_USER = _env_first(("OBSIDIANDROID_RESEARCH_DB_USER",), DB_USER)
-RESEARCH_DB_PASSWORD = _env_first(
-    ("OBSIDIANDROID_RESEARCH_DB_PASSWORD",),
-    DB_PASSWORD,
-)
-RESEARCH_DB_NAME = _env_first(
-    ("OBSIDIANDROID_RESEARCH_DB_NAME", "OBSIDIAN_RESEARCH_DB_NAME"),
-    "obsidiandroid_research",
+# ObsidianDroid-owned core ledger.  These values intentionally do *not* inherit
+# the Erebus connection or password: a missing core configuration must fail
+# closed instead of accidentally writing derived state to a source catalog.
+CORE_DB_HOST = _env_first(("OBSIDIANDROID_CORE_DB_HOST",), "")
+CORE_DB_PORT = _env_first_int(("OBSIDIANDROID_CORE_DB_PORT",), 3306)
+CORE_DB_USER = _env_first(("OBSIDIANDROID_CORE_DB_USER",), "")
+CORE_DB_PASSWORD = _env_first(("OBSIDIANDROID_CORE_DB_PASSWORD",), "")
+CORE_DB_NAME = _env_first(("OBSIDIANDROID_CORE_DB_NAME",), "obsidiandroid_core_prod")
+CORE_PERSISTENCE_ENABLED = _env_first(("OBSIDIANDROID_CORE_PERSISTENCE_ENABLED",), "false").lower() in (
+    "1", "true", "yes", "on"
 )
 
 # === Optional Advanced Settings === #

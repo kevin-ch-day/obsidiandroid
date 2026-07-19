@@ -28,6 +28,12 @@ from .db_config import (
     PERMISSION_INTEL_DB_PORT,
     PERMISSION_INTEL_DB_USER,
     PERMISSION_INTEL_DB_PASSWORD,
+    CORE_DB_HOST,
+    CORE_DB_PORT,
+    CORE_DB_USER,
+    CORE_DB_PASSWORD,
+    CORE_DB_NAME,
+    CORE_PERSISTENCE_ENABLED,
 )
 from .db_errors import mysql_error_summary, operator_facing_db_message
 from config import app_config
@@ -37,6 +43,13 @@ DEBUG_SQL = False   # Set True only for dev debugging
 VERBOSE_ERRORS = False  # Toggle detailed error logs for production
 DB_LOGGER = get_logger(f"{getattr(app_config, 'APP_LOG_NAMESPACE', 'framework')}.db", "database")
 _CONNECTION_POOL = None
+_CORE_FORBIDDEN_DATABASES = frozenset(
+    {"erebus_threat_intel_prod", "android_permission_intel", "scytaledroid_core_prod"}
+)
+
+
+class CoreDatabaseConfigurationError(RuntimeError):
+    """Raised when the isolated ObsidianDroid core connection is unsafe or unavailable."""
 
 
 def _should_retry_via_tcp_loopback(exc: BaseException, connect_kwargs: dict) -> bool:
@@ -144,6 +157,51 @@ def _build_permission_intel_connect_kwargs() -> dict:
     }
 
 
+def _build_core_connect_kwargs() -> dict:
+    """Build connector kwargs for the independently configured core ledger.
+
+    Core settings intentionally have no fallback to the primary Erebus settings.
+    This makes an omitted service-account configuration a visible preflight
+    failure rather than a silent source-database write.
+    """
+    missing = [
+        name
+        for name, value in (
+            ("OBSIDIANDROID_CORE_DB_HOST", CORE_DB_HOST),
+            ("OBSIDIANDROID_CORE_DB_USER", CORE_DB_USER),
+            ("OBSIDIANDROID_CORE_DB_PASSWORD", CORE_DB_PASSWORD),
+        )
+        if not str(value or "").strip()
+    ]
+    if missing:
+        raise CoreDatabaseConfigurationError(
+            "Core database configuration is incomplete; missing " + ", ".join(missing)
+        )
+    _validate_core_database_name(CORE_DB_NAME)
+    return {
+        "host": CORE_DB_HOST,
+        "port": CORE_DB_PORT,
+        "user": CORE_DB_USER,
+        "password": CORE_DB_PASSWORD,
+        "database": CORE_DB_NAME,
+        "charset": DB_CHARSET,
+        "autocommit": False,
+        "connection_timeout": max(2, int(DB_CONNECT_TIMEOUT)),
+    }
+
+
+def _validate_core_database_name(database_name: str) -> str:
+    """Reject source and unrelated database names from the core connection."""
+    name = str(database_name or "").strip()
+    if not name:
+        raise CoreDatabaseConfigurationError("Core database name is empty")
+    if name in _CORE_FORBIDDEN_DATABASES:
+        raise CoreDatabaseConfigurationError(
+            f"Unsafe core database name {name!r}; source and Scytale catalogs are forbidden"
+        )
+    return name
+
+
 def _get_connection():
     """Return a database connection, optionally from a connector-managed pool."""
     global _CONNECTION_POOL
@@ -190,6 +248,12 @@ def _get_permission_intel_connection():
     )
 
 
+def _get_core_connection():
+    """Open a core-ledger connection after configuration validation."""
+    kwargs = _build_core_connect_kwargs()
+    return _connect_with_localhost_fallback(kwargs, database_name=CORE_DB_NAME)
+
+
 # === Connection Context Managers === #
 @contextmanager
 def database_connection():
@@ -229,6 +293,46 @@ def permission_intel_database_connection():
         if conn:
             _safe_rollback(conn, context="permission_intel_database_connection", original_exc=e)
         raise
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
+
+
+@contextmanager
+def core_database_connection():
+    """Yield an isolated core-ledger connection with an explicit UTC session.
+
+    No caller may use this context until the server confirms that ``DATABASE()``
+    is the configured core schema.  This is deliberately separate from both
+    source connection helpers and does not pool credentials with them.
+    """
+    conn = None
+    try:
+        conn = _get_core_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SET time_zone = '+00:00'")
+            cursor.execute("SELECT DATABASE()")
+            row = cursor.fetchone()
+            actual = str(row[0] if row else "").strip()
+        finally:
+            cursor.close()
+        expected = _validate_core_database_name(CORE_DB_NAME)
+        if actual != expected:
+            raise CoreDatabaseConfigurationError(
+                f"Core connection schema mismatch: expected {expected!r}, got {actual!r}"
+            )
+        yield conn
+        conn.commit()
+    except Exception as exc:
+        if conn:
+            _safe_rollback(conn, context="core_database_connection", original_exc=exc)
+        if isinstance(exc, CoreDatabaseConfigurationError):
+            raise
+        _log_mysql_failure("core_database_connection_error", exc, database=CORE_DB_NAME)
+        raise CoreDatabaseConfigurationError(
+            "Core database connection failed; no fallback to Erebus is permitted"
+        ) from exc
     finally:
         if conn and conn.is_connected():
             conn.close()
@@ -382,6 +486,83 @@ def execute_permission_query(
             started=started,
             log_label="permission_sql",
         )
+
+
+def execute_core_query(
+    query,
+    params=None,
+    fetch=False,
+    return_columns=False,
+    as_dataframe=False,
+    as_namedtuple=False,
+):
+    """Execute SQL only through the verified ObsidianDroid core connection."""
+    started = perf_counter()
+    with core_database_connection() as conn:
+        return _run_query(
+            conn,
+            query,
+            params=params,
+            fetch=fetch,
+            return_columns=return_columns,
+            as_dataframe=as_dataframe,
+            as_namedtuple=as_namedtuple,
+            started=started,
+            log_label="core_sql",
+        )
+
+
+def core_database_health() -> dict[str, object]:
+    """Return a credential-redacted, fail-closed core connection preflight."""
+    try:
+        with core_database_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("SELECT DATABASE(), @@session.time_zone")
+                database_name, time_zone = cursor.fetchone()
+            finally:
+                cursor.close()
+        return {
+            "ok": True,
+            "database": str(database_name),
+            "time_zone": str(time_zone),
+            "configured_database": CORE_DB_NAME,
+            "error": None,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "database": None,
+            "time_zone": None,
+            "configured_database": CORE_DB_NAME,
+            "error": str(exc),
+        }
+
+
+def core_persistence_preflight() -> dict[str, object]:
+    """Fail closed before any future core persistence is permitted.
+
+    Phase 1 deliberately leaves persistence disabled.  Once explicitly enabled,
+    the database must contain the single append-only migration ledger defined by
+    the reviewed core schema; otherwise callers receive a blocked result and
+    must not issue DDL or DML.
+    """
+    if not CORE_PERSISTENCE_ENABLED:
+        return {"ready": False, "status": "disabled", "reason": "feature_flag_disabled"}
+    health = core_database_health()
+    if not health["ok"]:
+        return {"ready": False, "status": "blocked", "reason": "core_connection_unhealthy", "health": health}
+    try:
+        rows = execute_core_query(
+            "SELECT COUNT(*) FROM information_schema.TABLES "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'core_schema_migration'",
+            fetch=True,
+        )
+        if not rows or int(rows[0][0]) != 1:
+            return {"ready": False, "status": "blocked", "reason": "core_schema_migration_missing"}
+    except Exception as exc:
+        return {"ready": False, "status": "blocked", "reason": "core_schema_check_failed", "error": str(exc)}
+    return {"ready": True, "status": "ready", "reason": None}
 
 
 # === Insert / Update / Delete Utilities === #
