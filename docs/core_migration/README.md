@@ -18,9 +18,11 @@ Phase 1 creates only design, validation, and evidence-preservation material:
   artifact inventories. Its reports live under `inventory/`, are ignored by
   Git, and must be reviewed locally rather than treated as versioned source.
 - `make check-phase1-closeout` performs an offline-only readiness check. It
-  confirms that Core persistence is disabled, the design-only DDL is present,
-  and all required local inventory reports exist. It does not open a database
-  connection.
+  confirms that Core persistence is disabled, the design-only DDL has the
+  expected evidence tables, all seven local inventory reports exist, and the
+  July 18 fixture preview remains a nonpublication dry run with its expected
+  row plan. It reports the exact DDL SHA-256 for the future migration receipt.
+  It does not open a database connection.
 
 An `OK` result means only that the Phase 1 review package is available for
 human review. It does **not** authorize Phase 2, apply DDL, copy evidence,
