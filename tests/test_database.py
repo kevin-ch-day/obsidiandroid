@@ -196,6 +196,7 @@ def test_load_connection_settings_matches_dataclass_fields() -> None:
     assert s.core_database_port == db_config.CORE_DB_PORT
     assert s.core_database_user == db_config.CORE_DB_USER
     assert s.core_database_password == db_config.CORE_DB_PASSWORD
+    assert s.core_persistence_enabled is db_config.CORE_PERSISTENCE_ENABLED
 
 
 def test_schema_table_resolution():

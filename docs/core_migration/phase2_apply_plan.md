@@ -22,16 +22,20 @@ Intel backups. It must not delete, rename, or update any source record.
 
 1. Confirm `obsidiandroid_core_prod` is empty and the recovery-verification
    receipt is valid for the source backup IDs.
-2. Connect as the dedicated core writer with a UTC session and apply the one
+2. Record the approved transition of `OBSIDIANDROID_CORE_PERSISTENCE_ENABLED`
+   from its Phase 1 default (`false`) to `true` in the dated migration receipt.
+3. Connect as the dedicated core writer with a UTC session and apply the one
    reviewed DDL file.
-3. Insert one successful `core_schema_migration` row with the DDL SHA-256,
-   application commit, and UTC application timestamp.
-4. Run the dry-run planner for `20260718T032717Z__a8cf01`; compare its plan hash
+4. Insert one successful `core_schema_migration` row with the DDL SHA-256,
+   application commit, UTC application timestamp, migration version `0001`, and
+   `execution_status='applied'`. The application preflight remains blocked
+   until that exact ledger state is present.
+5. Run the dry-run planner for `20260718T032717Z__a8cf01`; compare its plan hash
    and expected rows against the Phase 1 preview.
-5. Copy the first-wave source tables only: `analysis_run`, `analysis_snapshot`,
+6. Copy the first-wave source tables only: `analysis_run`, `analysis_snapshot`,
    `analysis_snapshot_sample`, `analysis_artifact`, and
    `snapshot_label_conflict`.
-6. Validate source/destination counts and per-run keys. Do not switch the
+7. Validate source/destination counts and per-run keys. Do not switch the
    active warehouse writer in the same change window.
 
 ## Expected July 18 fixture rows

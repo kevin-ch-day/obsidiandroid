@@ -77,6 +77,7 @@ reviewed schema ledger exists. Configure it only with a dedicated account:
 - `OBSIDIANDROID_CORE_DB_NAME` (default `obsidiandroid_core_prod`)
 - `OBSIDIANDROID_CORE_DB_USER`
 - `OBSIDIANDROID_CORE_DB_PASSWORD`
+- `OBSIDIANDROID_CORE_PERSISTENCE_ENABLED` (default `false`; keep disabled in Phase 1)
 
 | Schema area | Key tables | Purpose |
 | --- | --- | --- |

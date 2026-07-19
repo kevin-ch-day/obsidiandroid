@@ -29,6 +29,7 @@ class ObsidianConnectionSettings:
     core_database_user: str
     core_database_password: str
     core_database: str
+    core_persistence_enabled: bool
     charset: str
 
 
@@ -46,5 +47,6 @@ def load_connection_settings() -> ObsidianConnectionSettings:
         core_database_user=str(db_config.CORE_DB_USER),
         core_database_password=str(db_config.CORE_DB_PASSWORD),
         core_database=str(db_config.CORE_DB_NAME),
+        core_persistence_enabled=bool(db_config.CORE_PERSISTENCE_ENABLED),
         charset=str(db_config.DB_CHARSET),
     )

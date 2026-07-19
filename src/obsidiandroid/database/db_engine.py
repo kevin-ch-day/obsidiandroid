@@ -46,10 +46,15 @@ _CONNECTION_POOL = None
 _CORE_FORBIDDEN_DATABASES = frozenset(
     {"erebus_threat_intel_prod", "android_permission_intel", "scytaledroid_core_prod"}
 )
+_CORE_READ_ONLY_SQL_PREFIXES = ("SELECT", "SHOW", "DESCRIBE", "DESC", "EXPLAIN")
 
 
 class CoreDatabaseConfigurationError(RuntimeError):
     """Raised when the isolated ObsidianDroid core connection is unsafe or unavailable."""
+
+
+class CoreDatabaseWriteBlockedError(CoreDatabaseConfigurationError):
+    """Raised when Phase 1 code attempts DDL or DML through the Core helper."""
 
 
 def _should_retry_via_tcp_loopback(exc: BaseException, connect_kwargs: dict) -> bool:
@@ -195,7 +200,7 @@ def _validate_core_database_name(database_name: str) -> str:
     name = str(database_name or "").strip()
     if not name:
         raise CoreDatabaseConfigurationError("Core database name is empty")
-    if name in _CORE_FORBIDDEN_DATABASES:
+    if name.casefold() in _CORE_FORBIDDEN_DATABASES:
         raise CoreDatabaseConfigurationError(
             f"Unsafe core database name {name!r}; source and Scytale catalogs are forbidden"
         )
@@ -496,7 +501,13 @@ def execute_core_query(
     as_dataframe=False,
     as_namedtuple=False,
 ):
-    """Execute SQL only through the verified ObsidianDroid core connection."""
+    """Execute a read-only query through the verified ObsidianDroid Core connection.
+
+    Phase 1 intentionally exposes no Core DDL/DML helper.  Future persistence
+    must use a separately reviewed Phase 2 write path rather than turning this
+    diagnostic/read-preflight helper into an implicit writer.
+    """
+    _assert_core_read_only_query(query)
     started = perf_counter()
     with core_database_connection() as conn:
         return _run_query(
@@ -509,6 +520,25 @@ def execute_core_query(
             as_namedtuple=as_namedtuple,
             started=started,
             log_label="core_sql",
+        )
+
+
+def _assert_core_read_only_query(query: object) -> None:
+    """Reject empty, multi-statement, and write SQL in the Phase 1 Core helper."""
+    statement = str(query or "").strip()
+    if not statement:
+        raise CoreDatabaseWriteBlockedError("Core query is empty; only read-only SQL is permitted in Phase 1")
+    if statement.endswith(";"):
+        statement = statement[:-1].rstrip()
+    if ";" in statement:
+        raise CoreDatabaseWriteBlockedError(
+            "Core multi-statement SQL is blocked; only one read-only statement is permitted in Phase 1"
+        )
+    keyword = statement.split(None, 1)[0].upper() if statement else ""
+    if keyword not in _CORE_READ_ONLY_SQL_PREFIXES:
+        allowed = ", ".join(_CORE_READ_ONLY_SQL_PREFIXES)
+        raise CoreDatabaseWriteBlockedError(
+            f"Core {keyword or 'unknown'} SQL is blocked in Phase 1; allowed read-only prefixes: {allowed}"
         )
 
 
@@ -535,8 +565,15 @@ def core_database_health() -> dict[str, object]:
             "database": None,
             "time_zone": None,
             "configured_database": CORE_DB_NAME,
-            "error": str(exc),
+            "error": _core_health_error(exc),
         }
+
+
+def _core_health_error(exc: BaseException) -> str:
+    """Return a diagnostic error without exposing connector credentials or endpoint details."""
+    if isinstance(exc, CoreDatabaseConfigurationError):
+        return str(exc)
+    return "Core database connection unavailable"
 
 
 def core_persistence_preflight() -> dict[str, object]:
@@ -560,6 +597,13 @@ def core_persistence_preflight() -> dict[str, object]:
         )
         if not rows or int(rows[0][0]) != 1:
             return {"ready": False, "status": "blocked", "reason": "core_schema_migration_missing"}
+        applied_rows = execute_core_query(
+            "SELECT COUNT(*) FROM core_schema_migration "
+            "WHERE migration_version = '0001' AND execution_status = 'applied'",
+            fetch=True,
+        )
+        if not applied_rows or int(applied_rows[0][0]) != 1:
+            return {"ready": False, "status": "blocked", "reason": "core_schema_migration_not_applied"}
     except Exception as exc:
         return {"ready": False, "status": "blocked", "reason": "core_schema_check_failed", "error": str(exc)}
     return {"ready": True, "status": "ready", "reason": None}
