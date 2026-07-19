@@ -1,7 +1,7 @@
 # Tests
 
 - **`tests/` vs QA helpers:** Pytest collects only this tree. Canonical QA helpers (synthetic fuzzer, ML predict scan) live under **`scripts.dev`** (`scripts/dev/` on disk). Example: **`from scripts.dev import data_fuzzer`** or **`python scripts/dev/data_fuzzer.py`**.
-- **Default run:** `pytest` / `make test` — respects **`pyproject.toml`** `[tool.pytest.ini_options]` (`-m "not (slow or integration or heavy or contract)"`). See `tests/conftest.py` for the `_SLOW_TEST_MODULES` list and temp output routing. Pytest basetemp is `.pytest_tmp/` at the repo root (gitignored).
+- **Default run:** `pytest` / `make test` — respects **`pyproject.toml`** `[tool.pytest.ini_options]` (`-m "not (slow or integration or heavy or contract)"`). See `tests/conftest.py` for the `_SLOW_TEST_MODULES` list and temp output routing. Pytest uses its OS-managed temporary base, avoiding a shared repository-local test directory.
 - **Changed-files loop:** `make test-changed` (or `./scripts/dev/run_tests_changed.sh origin/main`) — runs only mapped `tests/test_*.py` modules touched in the git diff; falls back to import smoke when no tests map cleanly.
 - **Integration lane:** `make test-integration` / `make verify-integration` — partial `run_pipeline()` and subprocess smoke tests (`test_main_runtime_overrides.py`, `test_pipeline_ablation_resilience.py`, `test_small_smoke.py`, …). Excluded from the default fast loop to keep local/CI verify under ~20 minutes.
 - **Pipeline-heavy lane:** `make test-pipeline-integration` / `make verify-pipeline-integration` — seven full partial `run_pipeline()` failure-path tests marked `pipeline_heavy` (~50s each). CI runs this lane only when pipeline paths change (always on `main` pushes).
