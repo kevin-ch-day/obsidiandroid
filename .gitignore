@@ -82,6 +82,10 @@ artifacts/baselines/output_writer_audit.csv
 # reproducibility evidence, not source-controlled application assets.
 artifacts/current_run_archives/
 
+# Local, read-only Core-migration audit reports. They contain environment-specific
+# preservation evidence and must be reviewed locally before Phase 2, not committed.
+docs/core_migration/inventory/
+
 # Patch / merge artifacts
 *.orig
 *.rej
