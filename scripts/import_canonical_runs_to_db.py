@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dry-run canonical run folder validation and import-plan reporter (no DB writes)."""
+"""Read-only legacy canonical-artifact planner; never a Core DB importer."""
 
 from __future__ import annotations
 
@@ -35,8 +35,10 @@ from obsidiandroid.diagnostics.run_artifact_resolve import (  # noqa: E402
     resolve_run_artifact_path,
 )
 
-SCHEMA_NAME = "obsidiandroid_core_prod"
-ENV_DB_NAME = "OBSIDIANDROID_CORE_DB_NAME"
+# This planner retains the v2.2 fixture-artifact checks only.  Its historical
+# row labels describe the retired 13-table design and must never be interpreted
+# as the Core v1 destination schema or a permission to write to any database.
+PLAN_SCOPE = "retired_v2_2_canonical_artifact_plan"
 
 REQUIRED_ARTIFACTS = (
     "label_contract",
@@ -516,8 +518,7 @@ def dry_run_all_slots_cli(
 def import_plan_to_dict(plan: ImportPlan, *, release_tag: str = "") -> dict[str, Any]:
     """Serialize an import plan for JSON output or tests."""
     return {
-        "schema": SCHEMA_NAME,
-        "env_db_name": ENV_DB_NAME,
+        "plan_scope": PLAN_SCOPE,
         "run_root": _display_path(plan.run_root),
         "diagnostics_dir": _display_path(plan.diagnostics_dir),
         "run_id": plan.run_id,
@@ -537,8 +538,8 @@ def import_plan_to_dict(plan: ImportPlan, *, release_tag: str = "") -> dict[str,
 
 def _format_plan(plan: ImportPlan, *, release_tag: str) -> str:
     lines: list[str] = []
-    lines.append("ObsidianDroid canonical import plan (dry-run)")
-    lines.append(f"schema: {SCHEMA_NAME} ({ENV_DB_NAME})")
+    lines.append("ObsidianDroid retired canonical-artifact plan (read-only)")
+    lines.append(f"plan scope: {PLAN_SCOPE}")
     lines.append(f"run_root: {plan.run_root}")
     lines.append(f"diagnostics: {plan.diagnostics_dir}")
     lines.append("")
@@ -558,7 +559,7 @@ def _format_plan(plan: ImportPlan, *, release_tag: str) -> str:
         mark = "present" if stem in plan.artifacts_optional_present else "missing"
         lines.append(f"  [{mark}] {stem}")
     lines.append("")
-    lines.append("Planned rows (would insert)")
+    lines.append("Historical draft row mapping (not Core v1 inserts)")
     for table in TABLE_INSERT_ORDER:
         lines.append(f"  {table}: {plan.planned_rows.get(table, 0)}")
     lines.append(f"  unique sample_ids (lazy registry): {len(plan.sample_ids)}")
@@ -574,15 +575,15 @@ def _format_plan(plan: ImportPlan, *, release_tag: str) -> str:
             lines.append(f"  WARN: {item}")
         lines.append("")
     if plan.blocked:
-        lines.append("Result: BLOCKED (no database writes performed)")
+        lines.append("Result: BLOCKED (no database connection or writes performed)")
     else:
-        lines.append("Result: READY FOR REVIEW (dry-run only; no database writes performed)")
+        lines.append("Result: READY FOR ARTIFACT REVIEW (read-only; no database connection or writes performed)")
     return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Validate a canonical run folder and print a dry-run database import plan."
+        description="Validate canonical artifacts and print a retired-draft row mapping (read-only)."
     )
     parser.add_argument(
         "--run-root",
@@ -606,7 +607,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--release-tag",
         default="",
-        help="Optional release tag (e.g. v2.2.0) for release_manifests row planning.",
+        help="Optional historical release tag (e.g. v2.2.0) for retired-draft row planning.",
     )
     parser.add_argument(
         "--allow-mixed",
@@ -632,8 +633,7 @@ def main(argv: list[str] | None = None) -> int:
         release_tag = str(args.release_tag or "").strip()
         if args.json:
             payload = {
-                "schema": SCHEMA_NAME,
-                "env_db_name": ENV_DB_NAME,
+                "plan_scope": PLAN_SCOPE,
                 "runs_root": _display_path(args.runs_root),
                 "release_tag": release_tag,
                 "profiles": [],

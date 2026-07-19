@@ -1,8 +1,15 @@
-# ObsidianDroid Database Plan (v2.2 direction)
+# Retired ObsidianDroid Database Plan (v2.2 historical direction)
 
-**Status:** v2.2.0 draft — approved decisions locked; DDL draft + dry-run importer skeleton delivered. No runtime DB writes, web UI, Quasar, ScytaleDroid, or deep-learning training in this phase.
+> **Historical planning record — do not implement from this document.** The
+> proposed `obsidiandroid_research` schema, its credential fallback design, and
+> its 13-table DDL have been retired before application. This file remains only
+> to preserve the v2.2.0 planning history.
 
-**Context:** ObsidianDroid **v2.2.0** closed the governed platform and artifact contract. v2.2 defines a **dedicated ObsidianDroid research database** that persists curated outputs separately from Erebus.
+**Current direction:** the reviewed replacement is the fail-closed
+`obsidiandroid_core_prod` evidence foundation. Its smaller seven-table v1 DDL
+is design-only and must not be applied until the separately approved Phase 2
+plan, restore rehearsal, dedicated database accounts, and migration receipt
+are complete. See [`core_migration/phase2_apply_plan.md`](core_migration/phase2_apply_plan.md).
 
 ---
 

@@ -1,3 +1,4 @@
+-- RETIRED HISTORICAL DRAFT. DO NOT APPLY.
 -- ObsidianDroid research database — secondary indexes (DDL draft, v2.2.0)
 
 USE obsidiandroid_research;

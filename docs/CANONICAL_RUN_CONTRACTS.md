@@ -193,12 +193,12 @@ via `obsidiandroid.diagnostics.cohort_persistence`; manifest finalize reloads th
 Remaining deferrals stay in later release+ (deep learning, ScytaleDroid, frozen-model
 inference UX).
 
-## v2.2 research database (next milestone)
+## Core evidence database (gated future phase)
 
-v2.2 adds a **dedicated curated research ledger** (`obsidiandroid_research`,
-`OBSIDIANDROID_RESEARCH_DB_NAME`) separate from Erebus raw storage. v2.2.0 delivers
-DDL drafts, a dry-run importer, and the sparse `ml_sample_permission_feature` export
-spec — no live DB writes, web UI, Quasar, ScytaleDroid, or deep-learning training.
-
-See [`docs/RESEARCH_DB_PLAN.md`](RESEARCH_DB_PLAN.md). Dry-run all canonical
-fixture slots with `make dry-run-canonical-db-import`.
+The former `obsidiandroid_research` v2.2 draft is retired and is not a
+canonical-run dependency. The reviewed successor is the separate
+`obsidiandroid_core_prod` evidence database, configured only through
+`OBSIDIANDROID_CORE_DB_*`. Its Phase 1 DDL remains un-applied, and no canonical
+run may claim Core persistence until the separate Phase 2 approval, restore
+rehearsal, dedicated credentials, and migration receipt are complete. See
+[`core_migration/phase2_apply_plan.md`](core_migration/phase2_apply_plan.md).

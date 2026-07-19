@@ -1,4 +1,4 @@
-"""Tests for the canonical dry-run database import planner."""
+"""Tests for the read-only legacy canonical-artifact planner."""
 
 from __future__ import annotations
 
@@ -176,8 +176,7 @@ def test_fixture_baseline_json_matches_live_dry_run() -> None:
         pytest.skip("baseline runs_root missing")
 
     live_payload = {
-        "schema": importer.SCHEMA_NAME,
-        "env_db_name": importer.ENV_DB_NAME,
+        "plan_scope": importer.PLAN_SCOPE,
         "runs_root": importer._display_path(runs_root),
         "release_tag": expected.get("release_tag", ""),
         "profiles": [],
@@ -194,8 +193,7 @@ def test_fixture_baseline_json_matches_live_dry_run() -> None:
             entry.update(importer.import_plan_to_dict(plan, release_tag=str(expected.get("release_tag", "") or "")))
         live_payload["profiles"].append(entry)
 
-    assert live_payload["schema"] == expected["schema"]
-    assert live_payload["env_db_name"] == expected["env_db_name"]
+    assert live_payload["plan_scope"] == expected["plan_scope"]
     assert len(live_payload["profiles"]) == len(expected["profiles"])
     for live_entry, expected_entry in zip(live_payload["profiles"], expected["profiles"]):
         assert live_entry["profile_id"] == expected_entry["profile_id"]
@@ -253,8 +251,7 @@ def test_import_plan_to_dict_round_trip_fields(tmp_path: Path) -> None:
     plan = importer.build_import_plan(slot_root, release_tag="v2.2.0")
     payload = importer.import_plan_to_dict(plan, release_tag="v2.2.0")
 
-    assert payload["schema"] == importer.SCHEMA_NAME
-    assert payload["env_db_name"] == importer.ENV_DB_NAME
+    assert payload["plan_scope"] == importer.PLAN_SCOPE
     assert payload["run_id"] == "20260606T500004Z__dict"
     assert payload["blocked"] is False
     assert payload["planned_rows"]["samples"] == 1

@@ -1,3 +1,4 @@
+-- RETIRED HISTORICAL DRAFT. DO NOT APPLY.
 -- ObsidianDroid research database — core tables (DDL draft, v2.2.0)
 -- Target schema: obsidiandroid_research (OBSIDIANDROID_RESEARCH_DB_NAME)
 -- No runtime writes in v2.2.0; apply manually after review.

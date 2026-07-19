@@ -2,7 +2,9 @@
 
 **Status:** implemented in v2.2.0 (`export_ml_seed_artifacts()`). Present-only sparse rows; offline authority/risk defaults (`unknown` / `aligned_features`).
 
-**Related:** [`RESEARCH_DB_PLAN.md`](RESEARCH_DB_PLAN.md) §5, table `sample_permission_facts`, DDL under `database/sql/obsidiandroid/`.
+**Related:** the export is an optional legacy run artifact. It is not yet an
+input to the reviewed Core v1 evidence schema; see
+[`core_migration/phase2_apply_plan.md`](core_migration/phase2_apply_plan.md).
 
 ---
 
@@ -10,7 +12,7 @@
 
 Provide a **sparse, long-form, run-scoped** permission handoff for:
 
-- `sample_permission_facts` database import
+- future, separately designed permission-fact persistence
 - Neptune / Iapetus deep-learning seed joins (future)
 - SQL analytics without loading wide `perm__*` feature matrices
 
@@ -59,7 +61,8 @@ Future optional columns (non-blocking): `permission_group`, `dangerous_flag`, `o
 
 1. **Present-only sparse long-form** — one row per (`sample_id`, `permission_name`) where the aligned `perm__*` value is `> 0`. Do not emit zero rows or a full dense cross-product of samples × vocabulary.
 2. **Run-frozen values** — v2.2.0 uses offline defaults (`permission_authority_bucket=unknown`, `permission_risk_tier=unknown`, `permission_source=aligned_features`). Live Permission Intel enrichment is deferred.
-3. **Feeds `sample_permission_facts`** — column names map directly to the research DB table (see `001_create_core_tables.sql`).
+3. **Persistence deferred** — the export is preserved as a run-local handoff;
+   no active database table or importer contract consumes it.
 4. **Dense melt is derived** — wide matrices for ML teams may be generated offline from this export or from `aligned_features_{run_id}.csv.gz`; never persisted as SQL truth.
 
 ---
@@ -81,4 +84,6 @@ Future optional columns (non-blocking): `permission_group`, `dangerous_flag`, `o
 
 ## Dry-run importer behavior (v2.2.0)
 
-`scripts/import_canonical_runs_to_db.py` reports the artifact as optional. When missing, `sample_permission_facts` planned row count is `0` and a warning is emitted. No database writes occur in v2.2.0.
+The retired canonical-artifact planner may report the file as optional for
+historical fixture validation. It does not describe the active Core v1 schema
+and it performs no database writes.

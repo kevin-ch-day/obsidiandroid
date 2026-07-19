@@ -12,7 +12,15 @@ ObsidianDroid does **not** call live VirusTotal APIs during execution. Instead, 
 
 ## Database Layout (split model)
 
-ObsidianDroid uses two **upstream read-only** logical databases on the same MySQL/MariaDB instance in typical deployments, plus a **planned curated research ledger** (v2.2+). Configure schema names with `OBSIDIAN_DB_NAME` (primary), `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (Permission Intel), and **`OBSIDIANDROID_RESEARCH_DB_NAME`** (ObsidianDroid research, default `obsidiandroid_research`); see `obsidiandroid.database.db_config` for Erebus/PI and [`RESEARCH_DB_PLAN.md`](RESEARCH_DB_PLAN.md) for the research schema.
+ObsidianDroid consumes two **upstream read-only** logical databases on the same
+MySQL/MariaDB instance in typical deployments. A third, dedicated
+ObsidianDroid Core database is planned for preserved run evidence, but is
+disabled and empty until separately approved Phase 2 work. Configure source
+schema names with `OBSIDIAN_DB_NAME` (primary) and
+`OBSIDIAN_PERMISSION_INTEL_DB_NAME` (Permission Intel). The core connection
+uses its own required `OBSIDIANDROID_CORE_DB_*` credentials and defaults only
+its database name to `obsidiandroid_core_prod`; it never falls back to primary
+source credentials.
 
 ### Primary Erebus database (`OBSIDIAN_DB_NAME`, default `erebus_threat_intel_prod`)
 
@@ -58,24 +66,28 @@ On `android_permission_obs_sample`, the observation timestamp column is **`obser
 
 Cross-schema reporting joins (for example banking trojan permission extracts) qualify both databases in SQL (e.g. ``primary.malware_sample_catalog`` joined to ``android_permission_intel.android_permission_obs_sample``). ObsidianDroid does **not** assume live `android_permission_*` tables exist in the primary database.
 
-### ObsidianDroid research database (`OBSIDIANDROID_RESEARCH_DB_*`, default schema `obsidiandroid_research`)
+### ObsidianDroid Core database (`OBSIDIANDROID_CORE_DB_*`, default schema `obsidiandroid_core_prod`)
 
-Configure with:
+The core database is a downstream evidence store, not an upstream source. It
+is disabled by default and its connection preflight fails closed until the
+reviewed schema ledger exists. Configure it only with a dedicated account:
 
-- `OBSIDIANDROID_RESEARCH_DB_HOST` (defaults to `OBSIDIAN_DB_HOST`)
-- `OBSIDIANDROID_RESEARCH_DB_PORT` (defaults to `OBSIDIAN_DB_PORT`)
-- `OBSIDIANDROID_RESEARCH_DB_NAME` (default `obsidiandroid_research`)
-- `OBSIDIANDROID_RESEARCH_DB_USER` (defaults to `OBSIDIAN_DB_USER`)
-- `OBSIDIANDROID_RESEARCH_DB_PASSWORD` (defaults to `OBSIDIAN_DB_PASSWORD`)
+- `OBSIDIANDROID_CORE_DB_HOST`
+- `OBSIDIANDROID_CORE_DB_PORT` (default `3306`)
+- `OBSIDIANDROID_CORE_DB_NAME` (default `obsidiandroid_core_prod`)
+- `OBSIDIANDROID_CORE_DB_USER`
+- `OBSIDIANDROID_CORE_DB_PASSWORD`
 
 | Schema area | Key tables | Purpose |
 | --- | --- | --- |
-| Run governance | `profiles`, `runs`, `release_manifests` | Curated run manifests, git/release provenance, claim posture |
-| Labels & membership | `samples`, `sample_label_facts`, `profile_membership`, `split_assignments` | Lazy sample registry, governed labels, curation states |
-| Permission research | `permission_vocabulary`, `sample_permission_facts`, `permission_pattern_facts` | Run-frozen permission vocabulary and sparse long-form facts |
-| Model & audit | `model_metrics`, `prediction_facts`, `quality_flags` | Metrics, predictions, taxonomy/claim audit flags |
+| Migration governance | `core_schema_migration` | Applied schema-ledger entries and checksums |
+| Run evidence | `core_profile`, `core_source_snapshot`, `core_run`, `core_run_sample` | Frozen profile, source, run, and sample-membership evidence |
+| Artifact and quality evidence | `core_artifact`, `core_quality_finding` | Artifact hashes/availability and run-scoped findings |
 
-**v2.2.0 status:** DDL draft + dry-run importer + sparse `ml_sample_permission_feature_{run_id}.csv` export. **No live writes** from the pipeline or importer yet. The research DB is downstream from Erebus and Permission Intel; it does not replace either upstream store.
+**Current status:** Phase 1 design only. The version-1 DDL is intentionally
+un-applied; no pipeline writes, historical run import, or database cutover has
+occurred. See [`core_migration/phase2_apply_plan.md`](core_migration/phase2_apply_plan.md)
+for the explicitly gated next phase.
 
 ### Contributor rules (split database)
 
@@ -110,5 +122,5 @@ Access to replicated VirusTotal data must comply with [VirusTotal’s Terms of S
 - [`operations_playbook.md`](operations_playbook.md) provides incident response and restore workflows for the replication jobs.
 - [`LABEL_AUTHORITY_SCHEMA_PLAN.md`](LABEL_AUTHORITY_SCHEMA_PLAN.md) defines the proposed
   family/type authority and vendor-label evidence layer for Erebus.
-- [`RESEARCH_DB_PLAN.md`](RESEARCH_DB_PLAN.md) defines the curated ObsidianDroid
-  research database (v2.2 direction).
+- [`core_migration/phase2_apply_plan.md`](core_migration/phase2_apply_plan.md)
+  defines the gated Core database application plan.
