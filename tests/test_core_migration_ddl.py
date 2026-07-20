@@ -11,6 +11,7 @@ pytestmark = pytest.mark.contract
 
 DDL_PATH = Path("database/core_migrations/0001_core_evidence_foundation.sql")
 CONTRACT_DDL_PATH = Path("database/core_migrations/0002_core_evidence_contracts.sql")
+RESULTS_DDL_PATH = Path("database/core_migrations/0003_core_results_contracts.sql")
 IMMUTABLE_0001_SHA256 = "fd65d0106b50484da3ca802f8a2b98649f9bac06993989c5602f09d30c0badae"
 
 EXPECTED_TABLES = (
@@ -84,3 +85,17 @@ def test_follow_up_contract_migration_completes_the_same_seven_table_model() -> 
         "uq_core_quality_finding_source_record",
     ):
         assert required_contract in sql
+
+
+def test_core_results_migration_is_additive_and_keeps_results_in_core() -> None:
+    sql = RESULTS_DDL_PATH.read_text(encoding="utf-8")
+    expected = (
+        "core_run_stage", "core_feature_contract", "core_split_ledger",
+        "core_model_execution", "core_model_metric", "core_prediction",
+        "core_experiment", "core_experiment_metric", "core_permission_measure",
+    )
+    assert tuple(re.findall(r"CREATE TABLE (core_[a-z_]+)", sql)) == expected
+    assert "erebus_threat_intel_prod" not in sql
+    assert "android_permission_intel" not in sql
+    for contract in ("fk_core_model_execution_feature", "fk_core_prediction_execution", "ordered_column_hash", "split_contract_hash"):
+        assert contract in sql
