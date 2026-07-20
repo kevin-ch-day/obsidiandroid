@@ -133,6 +133,14 @@ production, or read source databases. Temporary exact-schema writer and
 auditor grants and a credential-free external receipt are still required before
 execution.
 
+## Phase 2D: Core-owned generated results
+
+Phase 2D moves generated application results—not source intelligence—into
+Core. The governing ownership boundary and additive migration plan are in
+[phase2d_core_results_contract.md](phase2d_core_results_contract.md). Until
+that migration and Core-only writer are validated, normal pipeline persistence
+remains `read_only`; it must not write generated results to Erebus.
+
 The service-account provisioner is single-use: it refuses existing account or
 receipt paths, creates accounts and grants before writing local credential
 references, and emits a credential-free failure receipt if MariaDB leaves a
