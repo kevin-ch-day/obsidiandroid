@@ -22,8 +22,11 @@ TARGET = "obsidiandroid_core_prod"
 EXPECTED_MIGRATIONS = {
     "0001": "fd65d0106b50484da3ca802f8a2b98649f9bac06993989c5602f09d30c0badae",
     "0002": "076fefdc613e9f359f03c2156027009f0950df33b4e049cd501c523dcb4c9b21",
+    "0003": "ffb09f7fe5c8b476384dac4587f1c69a7f24ca1807d4cbb5bba2a809c11707f2",
+    "0004": "39d8ebfa55f9a4113ac2469b184504ff750cb7548f3a735df04d4f029e381942",
+    "0005": "de649016c32e0bc52fc02557e3d871be914d950cfc62f5bb7afc46ed7e2527c1",
 }
-EXPECTED_TABLES = {
+CORE_FOUNDATION_TABLES = {
     "core_schema_migration",
     "core_profile",
     "core_source_snapshot",
@@ -31,6 +34,44 @@ EXPECTED_TABLES = {
     "core_run_sample",
     "core_artifact",
     "core_quality_finding",
+}
+CORE_RESULT_TABLES = {
+    "run_stage",
+    "feature_contract",
+    "split_ledger",
+    "model_execution",
+    "model_metric",
+    "prediction",
+    "experiment",
+    "experiment_metric",
+    "permission_measure",
+    "label_contract",
+    "label_assignment",
+    "confusion_cell",
+}
+# Temporary pre-0005 names must not remain after Phase 2D provisioning.
+FORBIDDEN_TEMPORARY_RESULT_TABLES = {
+    "core_run_stage",
+    "core_feature_contract",
+    "core_split_ledger",
+    "core_model_execution",
+    "core_model_metric",
+    "core_prediction",
+    "core_experiment",
+    "core_experiment_metric",
+    "core_permission_measure",
+    "core_label_contract",
+    "core_label_assignment",
+    "core_confusion_cell",
+}
+EXPECTED_TABLES = CORE_FOUNDATION_TABLES | CORE_RESULT_TABLES
+EXPECTED_FIXTURE_COUNTS = {
+    "core_profile": 1,
+    "core_source_snapshot": 1,
+    "core_run": 1,
+    "core_run_sample": 9716,
+    "core_artifact": 57,
+    "core_quality_finding": 0,
 }
 EXPECTED_ACCOUNTS = {
     "obsidiandroid_core_migrator": {"host": "localhost", "plugin": "mysql_native_password", "locked": True},
@@ -110,10 +151,22 @@ def audit(option_file: Path) -> dict[str, Any]:
             version_comment=server_attestation["version_comment"],
         )
         migrations = _rows(cursor, f"SELECT migration_version, migration_checksum, execution_status FROM `{TARGET}`.core_schema_migration ORDER BY migration_version")
-        evidence_counts = {}
-        for table in sorted(EXPECTED_TABLES - {"core_schema_migration"}):
+        fixture_counts = {}
+        for table, expected in EXPECTED_FIXTURE_COUNTS.items():
             cursor.execute(f"SELECT COUNT(*) FROM `{TARGET}`.`{table}`")
-            evidence_counts[table] = int(cursor.fetchone()[0])
+            fixture_counts[table] = int(cursor.fetchone()[0])
+        result_counts = {}
+        for table in sorted(CORE_RESULT_TABLES):
+            cursor.execute(
+                "SELECT COUNT(*) FROM information_schema.TABLES "
+                "WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s AND TABLE_TYPE='BASE TABLE'",
+                (TARGET, table),
+            )
+            if int(cursor.fetchone()[0]) != 1:
+                result_counts[table] = None
+                continue
+            cursor.execute(f"SELECT COUNT(*) FROM `{TARGET}`.`{table}`")
+            result_counts[table] = int(cursor.fetchone()[0])
         users = _rows(cursor, "SELECT u.User, u.Host, u.plugin, JSON_EXTRACT(p.Priv, '$.account_locked') FROM mysql.user u JOIN mysql.global_priv p ON p.User=u.User AND p.Host=u.Host WHERE u.User LIKE 'obsidiandroid\\_%' ESCAPE '\\\\' ORDER BY u.User, u.Host")
         grants = _rows(cursor, "SELECT GRANTEE, TABLE_SCHEMA, TABLE_NAME, PRIVILEGE_TYPE FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE LIKE '''obsidiandroid\\_%''%' ESCAPE '\\\\' ORDER BY GRANTEE, TABLE_SCHEMA, TABLE_NAME, PRIVILEGE_TYPE")
         schema_grants = _rows(cursor, "SELECT GRANTEE, TABLE_SCHEMA, PRIVILEGE_TYPE FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE LIKE '''obsidiandroid\\_%''%' ESCAPE '\\\\' ORDER BY GRANTEE, TABLE_SCHEMA, PRIVILEGE_TYPE")
@@ -137,6 +190,7 @@ def audit(option_file: Path) -> dict[str, Any]:
             str(user): {"host": str(host), "plugin": str(plugin), "locked": bool(locked)}
             for user, host, plugin, locked in users
         }
+        actual_table_set = {str(row[0]) for row in tables}
         core_identity_grants = [row for row in grants if "core_" in str(row[0])]
         erebus_reader_grants = [row for row in grants if "erebus_reader" in str(row[0])]
         approved_table_schemas = {TARGET, "erebus_threat_intel_prod"}
@@ -145,12 +199,22 @@ def audit(option_file: Path) -> dict[str, Any]:
             "server_attestation": server_attestation,
             "expected_tables": sorted(EXPECTED_TABLES),
             "actual_tables": [str(row[0]) for row in tables],
-            "table_contract_ok": {str(row[0]) for row in tables} == EXPECTED_TABLES,
+            "table_contract_ok": actual_table_set == EXPECTED_TABLES,
+            "temporary_result_tables_absent": not (actual_table_set & FORBIDDEN_TEMPORARY_RESULT_TABLES),
             "migrations": [{"version": v, "checksum": h, "status": s} for v, h, s in migrations],
             "migration_contract_ok": recorded == EXPECTED_MIGRATIONS,
-            "evidence_counts": evidence_counts,
-            "evidence_empty": not any(evidence_counts.values()),
+            "fixture_counts": fixture_counts,
+            "fixture_contract_ok": fixture_counts == EXPECTED_FIXTURE_COUNTS,
+            "result_counts": result_counts,
+            "results_empty": all(value == 0 for value in result_counts.values()),
             "auxiliary_objects": auxiliary,
+            "auxiliary_contract_ok": auxiliary == {
+                "views": 0,
+                "triggers": 0,
+                "routines": 0,
+                "events": 0,
+                "cross_schema_foreign_keys": 0,
+            },
             "service_accounts": [{"user": user, "host": host, "plugin": plugin, "locked": bool(locked)} for user, host, plugin, locked in users],
             "account_contract_ok": account_contract(actual_accounts),
             "table_grants": [{"grantee": g, "schema": s, "table": t, "privilege": p} for g, s, t, p in grants],

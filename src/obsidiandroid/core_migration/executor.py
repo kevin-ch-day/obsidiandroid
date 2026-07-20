@@ -156,6 +156,16 @@ def _write_receipt(receipt: dict[str, Any], receipt_path: Path | None) -> None:
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _migration_receipt_id(*, invocation_id: str, version: str, checksum: str) -> str:
+    """Return a durable, unique receipt id for one migration version.
+
+    The schema enforces ``UNIQUE (receipt_id)``.  One invocation may apply
+    several migrations, so each version must receive a distinct id derived from
+    the invocation identity plus the version and content hash.
+    """
+    return sha256(f"{invocation_id}|{version}|{checksum}".encode()).hexdigest()
+
+
 def apply_migrations(
     *,
     target_database: str,
@@ -172,12 +182,26 @@ def apply_migrations(
     Each migration is ledgered only after all its statements complete.  MariaDB
     DDL may auto-commit, so a failed DDL migration is reported in the receipt
     and never claimed as applied; its schema effects require operator review.
+
+    The external receipt identifies the whole invocation.  Each ledgered
+    migration version receives its own ``receipt_id`` so multi-migration runs
+    cannot collide with ``uq_core_schema_migration_receipt``.
     """
     target = validate_target_name(target_database, allow_production=allow_production)
     migrations = discover_migrations(Path(migrations_dir))
+    invocation_id = sha256(f"{target}|{_utc_now()}|{executor_id}".encode()).hexdigest()
+    planned_receipt_ids = {
+        item.version: _migration_receipt_id(
+            invocation_id=invocation_id, version=item.version, checksum=item.checksum
+        )
+        for item in migrations
+    }
     receipt: dict[str, Any] = {
         "receipt_version": "core-migration-receipt-v1",
-        "receipt_id": sha256(f"{target}|{_utc_now()}|{executor_id}".encode()).hexdigest(),
+        # File-level correlation id for the whole apply_migrations() call.
+        "receipt_id": invocation_id,
+        "invocation_id": invocation_id,
+        "migration_receipt_ids": planned_receipt_ids,
         "target_database": target,
         "dry_run": bool(dry_run),
         "executor_id": executor_id,
@@ -215,6 +239,7 @@ def apply_migrations(
                     raise CoreMigrationError(f"Migration {migration.version} has unsafe ledger status {status!r}")
                 receipt["skipped"].append(migration.version)
                 continue
+            migration_receipt = planned_receipt_ids[migration.version]
             started = perf_counter()
             _execute_script(cursor, migration)
             duration_ms = round((perf_counter() - started) * 1000)
@@ -228,7 +253,7 @@ def apply_migrations(
                     "application_commit, execution_status, notes) "
                     "VALUES (%s, %s, %s, UTC_TIMESTAMP(6), %s, 'applied', %s)",
                     (migration.version, migration.name, migration.checksum, application_commit,
-                     f"executor={executor_id}; duration_ms={duration_ms}; receipt={receipt['receipt_id']}"),
+                     f"executor={executor_id}; duration_ms={duration_ms}; receipt={migration_receipt}"),
                 )
             else:
                 cursor.execute("SELECT VERSION()")
@@ -239,7 +264,7 @@ def apply_migrations(
                     "executor_id, mariadb_version, execution_duration_ms, receipt_id, execution_status, notes) "
                     "VALUES (%s,%s,%s,UTC_TIMESTAMP(6),%s,%s,%s,%s,%s,'applied',%s)",
                     (migration.version, migration.name, migration.checksum, application_commit, executor_id,
-                     server_version, duration_ms, receipt["receipt_id"], "applied by dedicated Core executor"),
+                     server_version, duration_ms, migration_receipt, "applied by dedicated Core executor"),
                 )
             connection.commit()
             receipt["applied"].append(migration.version)
