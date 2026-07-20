@@ -46,6 +46,14 @@ normal pipeline routing remain disabled throughout Phase 2C.
    rows, persistence disabled, and the account/grant contract intact. Preserve
    a content-addressed empty-Core recovery artifact and bind the audit hash to
    the authorization.
+7. Use `scripts/core_migration/execute_phase2c_import.py` only after the
+   previous records have been reviewed and explicitly authorized. It accepts
+   no source-database credential or source-query option. It requires private
+   external plan, authorization, and preflight files; a dedicated Core-writer
+   option file; a private single-use consumption ledger; a new private
+   execution-receipt path; and the literal confirmation token documented by
+   the command. It is not a normal-pipeline command and does not authorize an
+   import by its presence.
 
 ## Controlled execution boundary
 

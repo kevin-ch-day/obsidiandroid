@@ -70,6 +70,15 @@ connection code and cannot execute an import. Plan creation and production
 execution both require a clean checkout at the reviewed commit; a Git commit
 identifier alone does not authorize uncommitted code.
 
+The final production-only boundary is
+`scripts/core_migration/execute_phase2c_import.py`. It cannot build an extract
+or plan and is not called by the normal pipeline. When separately authorized,
+it accepts only private external reviewed files, the dedicated Core-writer
+option file, a new external execution-receipt path, and an exact confirmation
+token. It consumes the single-use authorization before opening Core, then the
+library importer verifies the reviewed preflights, clean commit, target-server
+attestation, and writer identity before any transaction begins.
+
 Before a Phase 2C authorization is issued, run the read-only Core audit and
 preserve its complete JSON result. The authorization binds the self-verifying
 audit hash and the audit's MariaDB server attestation (hostname, port,
