@@ -49,6 +49,13 @@ Phase 2C remains a separately authorized controlled fixture import. Its
 write to one reviewed source extract and deterministic plan. Phase 2D remains
 separately authorized pipeline integration.
 
+The service-account provisioner is single-use: it refuses existing account or
+receipt paths, creates accounts and grants before writing local credential
+references, and emits a credential-free failure receipt if MariaDB leaves a
+partial DDL effect. It never performs automatic cleanup of a partial account
+operation; that requires review of the preserved receipt and a targeted
+administrator action.
+
 ## Earlier Phase 2 planning material
 
 [phase2_apply_plan.md](phase2_apply_plan.md) is retained only as historical
