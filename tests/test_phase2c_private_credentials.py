@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 from obsidiandroid.core_migration.mapping import CoreImportError
-from obsidiandroid.core_migration.private_credentials import Phase2CCredentialRole, load_phase2c_credentials
+from obsidiandroid.core_migration.private_credentials import (
+    Phase2CCredentialRole,
+    load_disposable_rehearsal_writer_credentials,
+    load_phase2c_credentials,
+)
 
 
 def _values(role: Phase2CCredentialRole) -> dict[str, str]:
@@ -96,3 +100,16 @@ def test_rejects_wrong_owner_when_platform_can_simulate_it(tmp_path: Path, monke
     monkeypatch.setattr(os, "geteuid", lambda: actual_stat.st_uid + 1)
     with pytest.raises(CoreImportError, match="owned"):
         load_phase2c_credentials(path, Phase2CCredentialRole.CORE_AUDITOR)
+
+
+def test_disposable_rehearsal_writer_is_pinned_to_one_phase2c_target(tmp_path: Path) -> None:
+    target = "od_core_phase2c_rehearsal_20260720T120000Z"
+    values = _values(Phase2CCredentialRole.CORE_WRITER)
+    values["OBSIDIANDROID_CORE_DB_NAME"] = target
+    path = _credential(tmp_path, Phase2CCredentialRole.CORE_WRITER, values)
+    credentials = load_disposable_rehearsal_writer_credentials(path, target_database=target)
+    assert credentials.database == target
+    with pytest.raises(CoreImportError, match="schema does not match"):
+        load_disposable_rehearsal_writer_credentials(path, target_database="od_core_phase2c_rehearsal_20260720T120001Z")
+    with pytest.raises(CoreImportError):
+        load_disposable_rehearsal_writer_credentials(path, target_database="obsidiandroid_core_prod")

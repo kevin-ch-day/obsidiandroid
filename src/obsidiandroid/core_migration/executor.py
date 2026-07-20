@@ -22,7 +22,9 @@ class CoreMigrationError(RuntimeError):
 
 
 _MIGRATION_NAME = re.compile(r"^(?P<version>\d{4})_(?P<name>[a-z0-9_]+)\.sql$")
-_DISPOSABLE_TARGET = re.compile(r"^od_core_phase2b_validate_\d{8}T\d{6}Z(?:_[a-z0-9]+)?$")
+_DISPOSABLE_TARGET = re.compile(
+    r"^od_core_phase2(?:b_validate|c_rehearsal)_\d{8}T\d{6}Z(?:_[a-z0-9]+)?$"
+)
 _FORBIDDEN_TARGETS = frozenset(
     {
         "erebus_threat_intel_prod",
@@ -48,7 +50,12 @@ def _utc_now() -> str:
 
 
 def validate_target_name(target_database: str, *, allow_production: bool = False) -> str:
-    """Accept only Phase 2B disposable schemas unless production is separately allowed."""
+    """Accept only named disposable Core schemas unless production is separately allowed.
+
+    ``od_core_phase2c_rehearsal_*`` is deliberately distinct from the Phase
+    2B synthetic-validation namespace.  It is the only non-production target
+    class permitted for Phase 2C replay and rollback rehearsals.
+    """
     target = str(target_database or "").strip()
     lowered = target.casefold()
     if lowered in _FORBIDDEN_TARGETS:
@@ -57,7 +64,7 @@ def validate_target_name(target_database: str, *, allow_production: bool = False
         raise CoreMigrationError(f"Protected or source schema is not an approved target: {target!r}")
     if not _DISPOSABLE_TARGET.fullmatch(target):
         raise CoreMigrationError(
-            "Core migration target must be an explicit Phase 2B disposable schema; "
+            "Core migration target must be an explicit Phase 2B validation or Phase 2C rehearsal schema; "
             f"got {target!r}"
         )
     return target

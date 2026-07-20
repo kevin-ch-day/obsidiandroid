@@ -26,6 +26,26 @@ _RUN_EVIDENCE_BY_KIND = {
     "snapshot_backed": {"snapshot_backed", "incomplete", "persistence_disabled", "persistence_failed", "imported", "import_rejected", "superseded"},
 }
 
+# These checkpoints exist solely to prove transactional rollback in a named
+# disposable Phase 2C rehearsal schema.  They are intentionally not exposed by
+# the production import CLI and are rejected before any production validation,
+# authorization consumption, or database connection.
+_DISPOSABLE_FAILURE_CHECKPOINTS = frozenset(
+    {
+        "after_profile_insert",
+        "after_snapshot_insert",
+        "after_run_insert",
+        "after_samples_insert",
+        "after_artifacts_insert",
+        "after_quality_findings_insert",
+    }
+)
+
+
+def _raise_if_rehearsal_failure(checkpoint: str | None, current: str) -> None:
+    if checkpoint == current:
+        raise CoreImportError(f"Controlled disposable rehearsal failure injected at {current}")
+
 
 def validate_import_plan(plan: dict[str, Any]) -> None:
     """Reject source-independent contradictory Core states before opening Core."""
@@ -125,6 +145,7 @@ def execute_import_plan(
     authorization_consumption_ledger: AuthorizationConsumptionLedger | None = None,
     production_core_preflight: dict[str, Any] | None = None,
     production_host_preflight: dict[str, Any] | None = None,
+    disposable_failure_checkpoint: str | None = None,
 ) -> dict[str, Any]:
     """Execute a validated plan atomically in a Core-only target.
 
@@ -133,12 +154,18 @@ def execute_import_plan(
     record; the normal pipeline never supplies one. It performs no source
     read, no filesystem copy, and leaves source artifact paths as metadata.
     Existing matching run hashes are an idempotent no-op; a mismatched source
-    hash is rejected before child writes.
+    hash is rejected before child writes. ``disposable_failure_checkpoint`` is
+    a test/rehearsal-only rollback probe and is never permitted for production.
     """
     if not plan.get("dry_run") or not plan.get("plan_sha256"):
         raise CoreImportError("Only deterministic dry-run import plans may cross the Core execution boundary")
     validate_import_plan(plan)
     production_target = str(target_database or "").casefold() == PRODUCTION_CORE_SCHEMA
+    if disposable_failure_checkpoint is not None:
+        if production_target:
+            raise CoreImportError("Controlled failure injection is forbidden for production Core imports")
+        if disposable_failure_checkpoint not in _DISPOSABLE_FAILURE_CHECKPOINTS:
+            raise CoreImportError("Unknown controlled disposable rehearsal failure checkpoint")
     authorization_receipt_path: str | None = None
     if production_target:
         if production_authorization is None:
@@ -159,6 +186,8 @@ def execute_import_plan(
     elif authorization_consumption_ledger is not None:
         raise CoreImportError("A Phase 2C authorization ledger cannot be used for a disposable Core target")
     target = validate_target_name(target_database, allow_production=production_target)
+    if disposable_failure_checkpoint is not None and not target.startswith("od_core_phase2c_rehearsal_"):
+        raise CoreImportError("Controlled failure injection requires a named Phase 2C rehearsal schema")
     if connection_factory is None:
         raise CoreMigrationError("An injected dedicated Core connection factory is required for import execution")
     run_rows = plan.get("destination_rows", {}).get("core_run", [])
@@ -198,6 +227,7 @@ def execute_import_plan(
             "VALUES (%s, %s, %s, %s, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))",
             (profile["profile_id"], profile["profile_hash"], profile["profile_name"], _database_json(profile["profile_contract_json"])),
         )
+        _raise_if_rehearsal_failure(disposable_failure_checkpoint, "after_profile_insert")
         snapshot_id = None
         snapshots = plan["destination_rows"]["core_source_snapshot"]
         if snapshots:
@@ -208,26 +238,31 @@ def execute_import_plan(
                 (snapshot["snapshot_key"], _database_json(snapshot["source_catalogs_json"]), snapshot["source_schema_name"], snapshot["source_database_role"], snapshot["source_schema_hash"], snapshot["source_query_contract_hash"], snapshot["source_query_contract_version"], snapshot["cohort_checksum"], snapshot["taxonomy_checksum"], snapshot["permission_snapshot_checksum"], _database_json(snapshot["source_row_counts_json"]), snapshot["source_record_hash"], _database_datetime(snapshot["extracted_at_utc"]), snapshot["snapshot_status"], snapshot["validation_status"], receipt_id),
             )
             snapshot_id = cursor.lastrowid
+        _raise_if_rehearsal_failure(disposable_failure_checkpoint, "after_snapshot_insert")
         cursor.execute(
             "INSERT INTO core_run (run_id, legacy_run_id, run_slot, profile_id, source_snapshot_id, run_kind, application_commit, application_version, configuration_hash, source_record_hash, run_started_at_utc, run_completed_at_utc, run_status, scope_kind, publication_applicability, evidence_completeness_status, import_receipt_id, artifact_count, metadata_json, imported_at_utc) "
             "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,UTC_TIMESTAMP(6))",
             (run["run_id"], run["legacy_run_id"], run["run_slot"], run["profile_id"], snapshot_id, run["run_kind"], run["application_commit"], run["application_version"], run["configuration_hash"], run["source_record_hash"], _database_datetime(run["run_started_at_utc"]), _database_datetime(run["run_completed_at_utc"]), run["run_status"], run["scope_kind"], run["publication_applicability"], run["evidence_completeness_status"], receipt_id, run["artifact_count"], _database_json(run["metadata_json"])),
         )
+        _raise_if_rehearsal_failure(disposable_failure_checkpoint, "after_run_insert")
         for row in plan["destination_rows"]["core_run_sample"]:
             cursor.execute(
                 "INSERT INTO core_run_sample (run_id,sample_key,sha256,source_sample_id,source_sample_namespace,observed_family,observed_type,inclusion_role,supervised_status,split_status,label_authority_state,evidence_state,record_checksum,source_record_hash) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 tuple(row[key] for key in ("run_id", "sample_key", "sha256", "source_sample_id", "source_sample_namespace", "observed_family", "observed_type", "inclusion_role", "supervised_status", "split_status", "label_authority_state", "evidence_state", "record_checksum", "source_record_hash")),
             )
+        _raise_if_rehearsal_failure(disposable_failure_checkpoint, "after_samples_insert")
         for row in plan["destination_rows"]["core_artifact"]:
             cursor.execute(
                 "INSERT INTO core_artifact (run_id,artifact_role,source_snapshot_id,immutable_relative_path,legacy_source_path,sha256,expected_sha256,observed_sha256,byte_size,expected_byte_size,observed_byte_size,media_type,availability_status,hash_validation_status,mutable_pointer_flag,mutable_pointer_kind,retention_status,storage_root_class,archive_recovery_status,recoverability_confidence,evidence_status,import_receipt_id,imported_at_utc) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,UTC_TIMESTAMP(6))",
                 (row["run_id"], row["artifact_role"], snapshot_id, row["immutable_relative_path"], row["legacy_source_path"], row["sha256"], row["expected_sha256"], row["observed_sha256"], row["byte_size"], row["expected_byte_size"], row["observed_byte_size"], row["availability_status"], row["hash_validation_status"], row["mutable_pointer_flag"], row["mutable_pointer_kind"], row["retention_status"], row["storage_root_class"], row["archive_recovery_status"], row["recoverability_confidence"], row["evidence_status"], receipt_id),
             )
+        _raise_if_rehearsal_failure(disposable_failure_checkpoint, "after_artifacts_insert")
         for row in plan["destination_rows"]["core_quality_finding"]:
             cursor.execute(
                 "INSERT INTO core_quality_finding (run_id,source_snapshot_id,sample_key,finding_code,finding_kind,severity,category,affected_dimension,message,finding_value,observed_values_json,selected_value,resolution_status,resolution_authority,evidence_path,source_record_hash,import_receipt_id,created_at_utc) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,UTC_TIMESTAMP(6))",
                 (row["run_id"], snapshot_id, row["sample_key"], row["finding_code"], row["finding_kind"], row["severity"], row["category"], row["affected_dimension"], row["message"], row["finding_value"], _database_json(row["observed_values_json"]), row["selected_value"], row["resolution_status"], row["resolution_authority"], row["evidence_path"], row["source_record_hash"], receipt_id),
             )
+        _raise_if_rehearsal_failure(disposable_failure_checkpoint, "after_quality_findings_insert")
         connection.commit()
         return {
             "status": "imported",

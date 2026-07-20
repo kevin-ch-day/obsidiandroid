@@ -223,3 +223,96 @@ def test_importer_normalizes_frozen_utc_timestamps_for_mariadb_datetime() -> Non
     assert _database_datetime(None) is None
     with pytest.raises(CoreImportError, match="invalid ISO-8601"):
         _database_datetime("not-a-timestamp")
+
+
+class _ImportCursor:
+    def __init__(self, target: str, *, existing_hash: str | None = None) -> None:
+        self.target = target
+        self.existing_hash = existing_hash
+        self.executed: list[str] = []
+        self.lastrowid = 41
+
+    def execute(self, sql: str, _params=()) -> None:
+        self.executed.append(sql)
+
+    def fetchone(self):
+        sql = self.executed[-1]
+        if "SELECT DATABASE" in sql:
+            return (self.target,)
+        if "SELECT source_record_hash FROM core_run" in sql:
+            return (self.existing_hash,) if self.existing_hash else None
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+class _ImportConnection:
+    def __init__(self, target: str, *, existing_hash: str | None = None) -> None:
+        self.cursor_instance = _ImportCursor(target, existing_hash=existing_hash)
+        self.commits = 0
+        self.rollbacks = 0
+
+    def cursor(self) -> _ImportCursor:
+        return self.cursor_instance
+
+    def commit(self) -> None:
+        self.commits += 1
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
+
+    def close(self) -> None:
+        return None
+
+
+def test_disposable_failure_injection_rolls_back_after_partial_child_work() -> None:
+    plan = _plan()
+    target = "od_core_phase2c_rehearsal_20260720T120000Z"
+    connection = _ImportConnection(target)
+    with pytest.raises(CoreImportError, match="Controlled disposable rehearsal failure injected at after_run_insert"):
+        execute_import_plan(
+            target_database=target,
+            plan=plan,
+            connection_factory=lambda _target: connection,
+            disposable_failure_checkpoint="after_run_insert",
+        )
+    assert connection.commits == 0
+    assert connection.rollbacks == 1
+    writes = "\n".join(connection.cursor_instance.executed)
+    assert "INSERT INTO core_profile" in writes
+    assert "INSERT INTO core_source_snapshot" in writes
+    assert "INSERT INTO core_run" in writes
+    assert "INSERT INTO core_run_sample" not in writes
+
+
+def test_disposable_replay_is_a_no_write_idempotent_result() -> None:
+    plan = _plan()
+    target = "od_core_phase2c_rehearsal_20260720T120000Z"
+    expected_hash = plan["destination_rows"]["core_run"][0]["source_record_hash"]
+    connection = _ImportConnection(target, existing_hash=expected_hash)
+    result = execute_import_plan(target_database=target, plan=plan, connection_factory=lambda _target: connection)
+    assert result["status"] == "already_imported"
+    assert connection.commits == 0
+    assert connection.rollbacks == 1
+    assert not any(sql.startswith("INSERT") for sql in connection.cursor_instance.executed)
+
+
+def test_production_rejects_controlled_failure_injection_before_connecting() -> None:
+    with pytest.raises(CoreImportError, match="forbidden for production"):
+        execute_import_plan(
+            target_database="obsidiandroid_core_prod",
+            plan=_plan(),
+            connection_factory=lambda _target: (_ for _ in ()).throw(AssertionError("must not connect")),
+            disposable_failure_checkpoint="after_run_insert",
+        )
+
+
+def test_controlled_failure_injection_rejects_phase2b_targets_before_connecting() -> None:
+    with pytest.raises(CoreImportError, match="requires a named Phase 2C rehearsal schema"):
+        execute_import_plan(
+            target_database="od_core_phase2b_validate_20260720T120000Z",
+            plan=_plan(),
+            connection_factory=lambda _target: (_ for _ in ()).throw(AssertionError("must not connect")),
+            disposable_failure_checkpoint="after_run_insert",
+        )

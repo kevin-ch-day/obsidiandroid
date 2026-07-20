@@ -37,22 +37,22 @@ Phase 2B added the reviewed additive `0002` contract migration, a fail-closed
 Core-only migration executor, deterministic mapping planner, synthetic
 disposable validation, production provisioning, and narrow local service
 accounts. `obsidiandroid_core_prod` now has exactly seven Core tables and two
-applied migration rows, but zero evidence rows. Core persistence remains
-disabled; no pipeline routing, dual write, or July 18 fixture import has
+applied migration rows, plus the one imported July 18 diagnostic fixture.
+Core persistence remains disabled; no pipeline routing or dual write has
 occurred. The durable design is in
 [phase2b_core_contract.md](phase2b_core_contract.md), the mapping is in
 [phase2b_source_mapping.md](phase2b_source_mapping.md), and the historical
 Phase 2 plan is not an operational runbook.
 
-Phase 2C remains a separately authorized controlled fixture import. Its
-[review gate](phase2c_controlled_import_review.md) binds any future production
-write to one reviewed source-extract package, deterministic plan, exact
-migration bytes, preflight audit, target server, writer identity, and a
-single-use authorization-consumption receipt. No source extract, authorization,
-or fixture import has yet been created or executed. Phase 2D remains separately
+Phase 2C completed its separately authorized controlled fixture import. Its
+[review gate](phase2c_controlled_import_review.md), retained as the historical
+authorization record, bound the production write to one reviewed source-extract
+package, deterministic plan, exact migration bytes, preflight audit, target
+server, writer identity, and a
+single-use authorization-consumption receipt. Phase 2D remains separately
 authorized pipeline integration.
 
-When separately authorized, only
+The completed import used only
 `scripts/core_migration/create_phase2c_source_extract.py` may create the first
 fixture package. It is locked to `20260718T032717Z__a8cf01`, requires the
 dedicated `obsidiandroid_erebus_reader` private `.env` credential file and an explicit read-only
@@ -70,7 +70,7 @@ connection code and cannot execute an import. Plan creation and production
 execution both require a clean checkout at the reviewed commit; a Git commit
 identifier alone does not authorize uncommitted code.
 
-The final production-only boundary is
+The production-only boundary used was
 `scripts/core_migration/execute_phase2c_import.py`. It cannot build an extract
 or plan and is not called by the normal pipeline. When separately authorized,
 it accepts only private external reviewed files, the dedicated Core-writer
@@ -79,7 +79,7 @@ token. It consumes the single-use authorization before opening Core, then the
 library importer verifies the reviewed preflights, clean commit, target-server
 attestation, and writer identity before any transaction begins.
 
-After a committed import, use
+After the committed import, use
 `scripts/core_migration/verify_phase2c_import.py` with the Core auditor
 `.env` credential file and the same private plan. It can only read the six Core evidence
 tables, requires the `obsidiandroid_core_auditor@localhost` identity, and
@@ -119,6 +119,16 @@ For Phase 2C, the passing host-preflight JSON hash is part of the one-time
 authorization alongside the Core audit hash. The importer rejects a missing,
 changed, or blocked host report before it consumes the authorization or opens
 the Core writer connection.
+
+The remaining Phase 2C closeout evidence is a disposable replay and rollback
+rehearsal. `scripts/core_migration/rehearse_phase2c_disposable.py` accepts only
+an empty, pre-migrated `od_core_phase2c_rehearsal_*` schema, a private plan,
+and a private writer credential pinned to that exact schema. It injects a
+failure after the run insert and verifies that every Core evidence-table count
+remains zero; it then imports the plan and verifies that a second application
+is an idempotent no-op. It cannot create a schema, alter grants, use
+production, or read source databases. A temporary exact-schema writer grant
+and a credential-free external receipt are still required before execution.
 
 The service-account provisioner is single-use: it refuses existing account or
 receipt paths, creates accounts and grants before writing local credential

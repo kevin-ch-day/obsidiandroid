@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 
 from .mapping import CoreImportError
+from .executor import CoreMigrationError, validate_target_name
 
 
 _KEY = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -145,4 +146,41 @@ def load_phase2c_credentials(path: Path, role: Phase2CCredentialRole) -> Phase2C
     return Phase2CCredentials(
         role=role, host=values[mapping["host"]], port=port, user=values[mapping["user"]],
         password=values[mapping["password"]], database=values[mapping["database"]],
+    )
+
+
+def load_disposable_rehearsal_writer_credentials(path: Path, *, target_database: str) -> Phase2CCredentials:
+    """Load a writer credential pinned to one disposable Phase 2C schema.
+
+    This is deliberately separate from the production writer loader: a
+    rehearsal needs a temporary, exact-schema grant and must not silently use
+    the production schema from a Phase 2C credential file.
+    """
+    try:
+        target = validate_target_name(target_database)
+    except CoreMigrationError as exc:
+        raise CoreImportError("Disposable rehearsal credential target is not an approved disposable Core schema") from exc
+    values = _parse(_private_path(path))
+    expected_keys = _ROLE_CONTRACTS[Phase2CCredentialRole.CORE_WRITER]["keys"]
+    if set(values) != expected_keys:
+        raise CoreImportError("Disposable rehearsal credential file does not match the writer contract")
+    if values["OBSIDIANDROID_CORE_PERSISTENCE_ENABLED"].casefold() != "false":
+        raise CoreImportError("Disposable rehearsal writer credential requires persistence to remain disabled")
+    if values["OBSIDIANDROID_CORE_DB_HOST"] != "localhost":
+        raise CoreImportError("Disposable rehearsal credential host violates the localhost-only policy")
+    if values["OBSIDIANDROID_CORE_DB_USER"] != "obsidiandroid_core_writer":
+        raise CoreImportError("Disposable rehearsal credential identity does not match the Core writer")
+    if values["OBSIDIANDROID_CORE_DB_NAME"] != target:
+        raise CoreImportError("Disposable rehearsal credential schema does not match the requested target")
+    try:
+        port = int(values["OBSIDIANDROID_CORE_DB_PORT"])
+    except ValueError as exc:
+        raise CoreImportError("Disposable rehearsal credential port must be numeric") from exc
+    if not 1 <= port <= 65535:
+        raise CoreImportError("Disposable rehearsal credential port is out of range")
+    return Phase2CCredentials(
+        role=Phase2CCredentialRole.CORE_WRITER,
+        host=values["OBSIDIANDROID_CORE_DB_HOST"], port=port,
+        user=values["OBSIDIANDROID_CORE_DB_USER"], password=values["OBSIDIANDROID_CORE_DB_PASSWORD"],
+        database=target,
     )
