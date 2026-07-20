@@ -101,31 +101,91 @@ def discover_migrations(migrations_dir: Path) -> tuple[MigrationFile, ...]:
 
 
 def split_sql_statements(sql: str) -> tuple[str, ...]:
-    """Split the reviewed DDL without treating semicolons inside quoted strings as delimiters."""
+    """Split reviewed DDL on statement terminators outside quotes and comments.
+
+    MariaDB accepts ``--`` line comments and ``/* ... */`` block comments in
+    migration files.  Semicolons inside those comments must not become statement
+    boundaries; that footgun previously forced operators to avoid ``;`` in
+    comments entirely.
+    """
     statements: list[str] = []
     buffer: list[str] = []
     quote: str | None = None
     escaped = False
-    for character in sql:
-        buffer.append(character)
+    in_line_comment = False
+    in_block_comment = False
+    index = 0
+    length = len(sql)
+    while index < length:
+        character = sql[index]
+        nxt = sql[index + 1] if index + 1 < length else ""
+        if in_line_comment:
+            buffer.append(character)
+            if character == "\n":
+                in_line_comment = False
+            index += 1
+            continue
+        if in_block_comment:
+            buffer.append(character)
+            if character == "*" and nxt == "/":
+                buffer.append(nxt)
+                in_block_comment = False
+                index += 2
+                continue
+            index += 1
+            continue
         if quote:
+            buffer.append(character)
             if escaped:
                 escaped = False
             elif character == "\\":
                 escaped = True
             elif character == quote:
                 quote = None
-        elif character in ("'", '"', "`"):
+            index += 1
+            continue
+        if character == "-" and nxt == "-":
+            buffer.append(character)
+            buffer.append(nxt)
+            in_line_comment = True
+            index += 2
+            continue
+        if character == "/" and nxt == "*":
+            buffer.append(character)
+            buffer.append(nxt)
+            in_block_comment = True
+            index += 2
+            continue
+        if character in ("'", '"', "`"):
+            buffer.append(character)
             quote = character
-        elif character == ";":
-            statement = "".join(buffer[:-1]).strip()
+            index += 1
+            continue
+        if character == ";":
+            statement = "".join(buffer).strip()
             if statement:
                 statements.append(statement)
             buffer = []
+            index += 1
+            continue
+        buffer.append(character)
+        index += 1
     remainder = "".join(buffer).strip()
     if remainder:
         raise CoreMigrationError("Migration SQL ends with an unterminated statement")
     return tuple(statements)
+
+
+def _safe_db_error_fields(exc: BaseException) -> dict[str, Any]:
+    """Capture credential-free connector metadata for migration receipts."""
+    fields: dict[str, Any] = {"error_type": type(exc).__name__}
+    errno = getattr(exc, "errno", None)
+    sqlstate = getattr(exc, "sqlstate", None)
+    if isinstance(errno, int):
+        fields["error_errno"] = errno
+    if isinstance(sqlstate, str) and sqlstate:
+        fields["error_sqlstate"] = sqlstate
+    return fields
 
 
 def _fetch_applied(cursor: Any) -> dict[str, tuple[str, str]]:
@@ -276,8 +336,10 @@ def apply_migrations(
             except Exception:
                 pass
         receipt["status"] = "failed"
-        receipt["error_type"] = type(exc).__name__
+        receipt.update(_safe_db_error_fields(exc))
         receipt["error"] = "Core migration failed; inspect the local receipt and target schema without credentials."
+        # MariaDB DDL may already have auto-committed before the ledger INSERT.
+        receipt["partial_ddl_review_required"] = True
         raise
     finally:
         receipt["completed_at_utc"] = _utc_now()

@@ -165,9 +165,27 @@ def _validate_synthetic_states(factory, target: str) -> dict[str, Any]:
         table_count = int(cursor.fetchone()[0])
         cursor.execute("SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND UNIQUE_CONSTRAINT_SCHEMA <> DATABASE()")
         cross_schema_fks = int(cursor.fetchone()[0])
+        cursor.execute(
+            "SELECT migration_version, receipt_id FROM core_schema_migration "
+            "WHERE execution_status='applied' ORDER BY migration_version"
+        )
+        ledger_rows = cursor.fetchall()
+        ledger_versions = [str(version) for version, _receipt in ledger_rows]
+        ledger_receipt_ids = [str(receipt) for _version, receipt in ledger_rows if receipt is not None]
         cursor.execute("SELECT artifact_role, availability_status, hash_validation_status FROM core_artifact ORDER BY artifact_role")
         artifacts = cursor.fetchall()
-        return {"table_count": table_count, "cross_schema_foreign_keys": cross_schema_fks, "invalid_status_rejected": invalid_rejected, "run_delete_rejected": delete_rejected, "contradictory_run_rejections": contradictory_run_rejections, "artifact_rule_rejections": artifact_rule_rejections, "duplicate_finding_rejected": duplicate_finding_rejected, "artifact_states": artifacts}
+        return {
+            "table_count": table_count,
+            "cross_schema_foreign_keys": cross_schema_fks,
+            "ledger_versions": ledger_versions,
+            "ledger_receipt_ids_unique": len(ledger_receipt_ids) == len(set(ledger_receipt_ids)),
+            "invalid_status_rejected": invalid_rejected,
+            "run_delete_rejected": delete_rejected,
+            "contradictory_run_rejections": contradictory_run_rejections,
+            "artifact_rule_rejections": artifact_rule_rejections,
+            "duplicate_finding_rejected": duplicate_finding_rejected,
+            "artifact_states": artifacts,
+        }
     finally:
         cursor.close()
         connection.close()
@@ -210,36 +228,58 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="od-core-phase2b-") as temp_dir:
         altered = Path(temp_dir) / "migrations"
         shutil.copytree(MIGRATIONS, altered)
-        (altered / "0002_core_evidence_contracts.sql").write_text((altered / "0002_core_evidence_contracts.sql").read_text(encoding="utf-8") + "\n-- altered only for checksum validation\n", encoding="utf-8")
+        (altered / "0002_core_evidence_contracts.sql").write_text(
+            (altered / "0002_core_evidence_contracts.sql").read_text(encoding="utf-8")
+            + "\n-- altered only for checksum validation\n",
+            encoding="utf-8",
+        )
         try:
             apply_migrations(target_database=target, migrations_dir=altered, connection_factory=factory, dry_run=False)
         except Exception:
             checksum_mismatch_rejected = True
-        (altered / "0002_core_evidence_contracts.sql").write_text((MIGRATIONS / "0002_core_evidence_contracts.sql").read_text(encoding="utf-8"), encoding="utf-8")
-        (altered / "0003_intentionally_broken.sql").write_text("THIS IS NOT VALID SQL;", encoding="utf-8")
+        (altered / "0002_core_evidence_contracts.sql").write_text(
+            (MIGRATIONS / "0002_core_evidence_contracts.sql").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        # Use the next free version so the failure probe does not collide with
+        # committed Phase 2D migrations 0003-0005.
+        (altered / "0006_intentionally_broken.sql").write_text("THIS IS NOT VALID SQL;", encoding="utf-8")
         try:
             apply_migrations(target_database=target, migrations_dir=altered, connection_factory=factory, dry_run=False)
         except Exception:
             check = factory(target)
             check_cursor = check.cursor()
             try:
-                check_cursor.execute("SELECT COUNT(*) FROM core_schema_migration WHERE migration_version = '0003' AND execution_status = 'applied'")
+                check_cursor.execute(
+                    "SELECT COUNT(*) FROM core_schema_migration "
+                    "WHERE migration_version = '0006' AND execution_status = 'applied'"
+                )
                 failed_migration_not_ledgered = int(check_cursor.fetchone()[0]) == 0
             finally:
                 check_cursor.close()
                 check.close()
     result = {"schema": target, "migration": receipt, "import": imported, "idempotent_import": idempotent, "reexecution": rerun, "validation": validation}
     args.receipt.with_name(args.receipt.stem + "_validation.json").write_text(json.dumps(result, indent=2, default=str) + "\n", encoding="utf-8")
-    assert validation["table_count"] == 7
+    assert validation["table_count"] == 19
     assert validation["cross_schema_foreign_keys"] == 0
+    assert validation["ledger_versions"] == ["0001", "0002", "0003", "0004", "0005"]
+    assert validation["ledger_receipt_ids_unique"] is True
     assert validation["invalid_status_rejected"] and validation["run_delete_rejected"]
     assert validation["contradictory_run_rejections"] == 3
     assert validation["artifact_rule_rejections"] == 3
     assert validation["duplicate_finding_rejected"]
     assert idempotent["status"] == "already_imported"
-    assert rerun["status"] == "applied" and rerun["skipped"] == ["0001", "0002"]
+    assert rerun["status"] == "applied" and rerun["skipped"] == ["0001", "0002", "0003", "0004", "0005"]
+    assert len(set(receipt["migration_receipt_ids"].values())) == len(receipt["migration_receipt_ids"])
     assert checksum_mismatch_rejected and failed_migration_not_ledgered
-    print(json.dumps({"schema": target, "table_count": validation["table_count"], "import": imported["status"], "idempotent_import": idempotent["status"], "migration_reexecution": rerun["skipped"]}, sort_keys=True))
+    print(json.dumps({
+        "schema": target,
+        "table_count": validation["table_count"],
+        "import": imported["status"],
+        "idempotent_import": idempotent["status"],
+        "migration_reexecution": rerun["skipped"],
+        "ledger_receipt_ids_unique": validation["ledger_receipt_ids_unique"],
+    }, sort_keys=True))
     return 0
 
 

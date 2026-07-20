@@ -12,6 +12,7 @@ from obsidiandroid.core_migration.executor import (
     _migration_receipt_id,
     apply_migrations,
     discover_migrations,
+    split_sql_statements,
     validate_target_name,
 )
 
@@ -58,6 +59,24 @@ def test_dry_run_never_needs_connection_and_writes_receipt(tmp_path: Path) -> No
     assert receipt.exists()
     assert result["invocation_id"] == result["receipt_id"]
     assert set(result["migration_receipt_ids"]) == {"0001"}
+
+
+def test_split_sql_statements_ignores_semicolons_inside_comments() -> None:
+    sql = (
+        "-- note: do not treat this; as a boundary\n"
+        "CREATE TABLE demo (id INT PRIMARY KEY);\n"
+        "/* block; comment; with; semicolons */\n"
+        "ALTER TABLE demo ADD COLUMN name VARCHAR(8) NOT NULL;\n"
+    )
+    statements = split_sql_statements(sql)
+    assert len(statements) == 2
+    assert "CREATE TABLE demo" in statements[0]
+    assert "ALTER TABLE demo" in statements[1]
+
+
+def test_split_sql_statements_still_respects_quoted_semicolons() -> None:
+    sql = "INSERT INTO demo(notes) VALUES ('a;b');\n"
+    assert split_sql_statements(sql) == ("INSERT INTO demo(notes) VALUES ('a;b')",)
 
 
 def test_migration_receipt_ids_are_unique_per_version() -> None:
