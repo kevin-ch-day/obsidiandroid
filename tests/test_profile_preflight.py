@@ -456,7 +456,7 @@ def test_resolve_and_validate_profile_prints_advisory_readiness_mapping(monkeypa
     assert "Android banker malware · permission observations" in out
     assert "Cohort membership" in out
     assert "Cohort gates determine membership." in out
-    assert "CURRENT SOURCE COVERAGE" in out
+    assert "CURRENT ANDROID CATALOG COVERAGE" in out
     assert "Samples" in out
     assert "790" in out
     assert "Families" in out
@@ -635,7 +635,7 @@ def test_resolve_and_validate_profile_uses_human_readiness_block(monkeypatch, ca
     assert "Android malware · high/strong AV · permission observations" in out
     assert "Cohort gates determine membership." in out
     assert "Checked during the run, not by this menu." in out
-    assert "CURRENT SOURCE COVERAGE" in out
+    assert "CURRENT ANDROID CATALOG COVERAGE" in out
     assert "Best matching readiness bucket" not in out
     assert "Declared readiness bucket" not in out
     assert "Samples" in out

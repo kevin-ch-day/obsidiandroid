@@ -231,7 +231,7 @@ def _print_current_source_coverage(note: str) -> None:
     if not headline.startswith("Observed readiness for `"):
         _print_profile_block(headline, *lines)
         return
-    du.print_subheader("Current source coverage")
+    du.print_subheader("Current Android Catalog Coverage")
     for line in lines:
         key, separator, value = line.partition("=")
         if separator:

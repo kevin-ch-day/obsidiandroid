@@ -169,18 +169,19 @@ def print_cohort_readiness_report(
             "no non-Android rows, weak labels, filename/hash labels, or blank VT-token rows",
         )
     elif quality.get("catalog_drift_summary"):
-        du.print_stat("Catalog drift", str(quality["catalog_drift_summary"]))
+        du.print_stat("Catalog consistency", str(quality["catalog_drift_summary"]))
     if int(quality["family_conflict_rows"]) > 0:
         du.print_stat("Family conflicts", f"raw-vs-canonical conflicts={int(quality['family_conflict_rows'])}")
     if composition.get("dominance_warning"):
         du.print_stat("Dominance warning", str(composition["dominance_warning"]))
 
     if drift_groups:
-        du.print_subheader("Top Curation Queue")
+        du.print_subheader("Top Data-Quality Pockets")
         for idx, row in enumerate(drift_groups[:3], start=1):
+            issue = str(row.get("dominant_issue", "issue")).replace("_", " ")
             du.print_stat(
-                f"{idx}. {row['label']} {row['group_value']}",
-                f"{int(row['rows'])} rows",
+                f"{idx}. {row['label']}: {row['group_value']}",
+                f"{issue}={int(row.get('dominant_count', 0))} | affected rows={int(row['rows'])}",
             )
 
     du.print_subheader("Policy")
@@ -438,9 +439,9 @@ def _build_catalog_quality_metrics(
     ) if len(family_raw) else 0
     drift_parts: list[str] = []
     if non_android_lane_rows > 0:
-        drift_parts.append(f"non-Android lane={non_android_lane_rows}")
+        drift_parts.append(f"analysis-lane mismatch={non_android_lane_rows}")
     if non_android_target_rows > 0:
-        drift_parts.append(f"non-Android target={non_android_target_rows}")
+        drift_parts.append(f"non-Android target metadata={non_android_target_rows}")
     if filename_rows > 0:
         drift_parts.append(f"filename labels={filename_rows}")
     if hash_rows > 0:

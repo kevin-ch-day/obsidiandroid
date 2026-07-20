@@ -465,8 +465,8 @@ def print_ablation_experiments_header(
         return
     du.print_section("ABLATION EXPERIMENTS")
     print(
-        "Purpose: Compare feature families and estimate how much signal comes from\n"
-        "         permissions, vendor features, and fused inputs."
+        "Purpose: Descriptively compare reported feature configurations across\n"
+        "         permissions, vendor features, and fused inputs; not causal attribution."
     )
     # This is a compact operator block, not a fixed-width dashboard.  Keep
     # each value beside its label rather than reserving the global stat column.

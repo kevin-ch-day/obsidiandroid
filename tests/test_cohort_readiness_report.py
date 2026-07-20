@@ -21,7 +21,13 @@ def test_catalog_quality_metrics_do_not_count_known_aliases_as_conflicts() -> No
         }
     )
 
-    quality = cohort_readiness_report._build_catalog_quality_metrics(df)  # pylint: disable=protected-access
+    quality = cohort_readiness_report._build_catalog_quality_metrics(  # pylint: disable=protected-access
+        samples_df=df,
+        total=len(df),
+        missing_pkg=0.0,
+        missing_vt_time=0.0,
+        unmapped=0,
+    )
 
     assert quality["family_conflict_rows"] == 1
 
@@ -147,7 +153,7 @@ def test_cohort_readiness_report_warns_for_android_catalog_semantic_anomalies(ca
     assert "quality / risk flags" in out
     assert "label readiness" in out
     assert "family conflicts" in out
-    assert "top curation queue" in out
+    assert "top data-quality pockets" in out.lower()
     assert "families" in out
     assert isinstance(warnings, list)
     assert any("non-android analysis_lane rows present" in msg for msg in warnings)
@@ -211,7 +217,7 @@ def test_compact_top_drift_groups_dedupes_same_sample_pocket(capsys, monkeypatch
         gates={"max_missing_package_pct": 10.0},
     )
     out = capsys.readouterr().out
-    assert "top curation queue" in out.lower()
+    assert "top data-quality pockets" in out.lower()
     assert "families" in out and "SpyNote" in out
     assert "types rat" not in out.lower()
     assert "source batches <blank>" not in out.lower()
@@ -498,8 +504,8 @@ def test_cohort_readiness_report_compact_dedupes_overlapping_drift_groups(monkey
 
     cohort_readiness_report.print_cohort_readiness_report(df, gates={"max_missing_package_pct": 10.0})
     out = capsys.readouterr().out
-    assert "1. families SpyNote" in out
-    assert out.count("families SpyNote") == 1
+    assert "1. families: SpyNote" in out
+    assert out.count("families: SpyNote") == 1
     assert "types rat" not in out
     assert "source batches <blank>" not in out
 
