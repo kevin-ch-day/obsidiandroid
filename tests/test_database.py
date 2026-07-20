@@ -116,6 +116,15 @@ def test_primary_option_file_is_an_explicit_private_source_configuration(monkeyp
     assert kwargs["database"] == db_engine.DB_NAME
 
 
+def test_primary_source_configuration_rejects_administrator_environment_account(monkeypatch) -> None:
+    monkeypatch.setattr(db_engine, "DB_OPTION_FILE", "")
+    monkeypatch.setattr(db_engine, "DB_HOST", "localhost")
+    monkeypatch.setattr(db_engine, "DB_USER", "root")
+    monkeypatch.setattr(db_engine, "DB_PASSWORD", "fixture-password")
+    with pytest.raises(db_engine.SourceDatabaseConfigurationError, match="administrator"):
+        db_engine._build_connect_kwargs()
+
+
 def test_execute_permission_query_retries_permission_intel_localhost_via_tcp(monkeypatch) -> None:
     """Permission Intel DB helpers should inherit the same localhost fallback behavior."""
     calls: list[dict] = []
@@ -157,6 +166,7 @@ def test_execute_permission_query_retries_permission_intel_localhost_via_tcp(mon
     monkeypatch.setattr(db_engine, "PERMISSION_INTEL_DB_HOST", "localhost")
     monkeypatch.setattr(db_engine, "PERMISSION_INTEL_DB_USER", "fixture_user")
     monkeypatch.setattr(db_engine, "PERMISSION_INTEL_DB_PASSWORD", "fixture_password")
+    monkeypatch.setattr(db_engine, "PERMISSION_INTEL_DB_OPTION_FILE", "")
 
     db_engine.execute_permission_query("SELECT 1", fetch=False)
 
@@ -846,6 +856,9 @@ def test_db_config_erebus_env_fallbacks_in_fresh_interpreter() -> None:
         import sys
         sys.path.insert(0, %r)
         sys.path.insert(0, %r)
+        for key in tuple(os.environ):
+            if key.startswith("OBSIDIAN_DB_") or key.startswith("OBSIDIAN_PERMISSION_INTEL_DB_"):
+                os.environ.pop(key, None)
         os.environ["EREBUS_DB_HOST"] = "erebus-db-host"
         os.environ["EREBUS_DB_PORT"] = "4406"
         os.environ["EREBUS_DB_USER"] = "erebus_user"

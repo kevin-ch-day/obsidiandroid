@@ -10,7 +10,17 @@ ENABLE_PERMISSION_TRENDS_REPORT = True
 ENABLE_LABEL_RESOLUTION_STAGE = True
 ENABLE_ENGINE_WEIGHT_DB_SUMMARY = True
 ENABLE_FAMILY_DISTRIBUTION_REPORT = True
-ENABLE_RESULTS_WAREHOUSE_EXPORT = True
+# Database persistence is deliberately opt-in.  Normal desktop analysis writes
+# run artifacts to the filesystem; the historical Erebus warehouse path is a
+# temporary compatibility mode until Phase 2D owns persistence in Core.
+RESULTS_PERSISTENCE_MODE = os.getenv("OBSIDIANDROID_RESULTS_PERSISTENCE_MODE", "read_only").strip().lower()
+_VALID_RESULTS_PERSISTENCE_MODES = frozenset({"read_only", "legacy_warehouse"})
+if RESULTS_PERSISTENCE_MODE not in _VALID_RESULTS_PERSISTENCE_MODES:
+    allowed = ", ".join(sorted(_VALID_RESULTS_PERSISTENCE_MODES))
+    raise RuntimeError(
+        "OBSIDIANDROID_RESULTS_PERSISTENCE_MODE must be one of " + allowed
+    )
+ENABLE_RESULTS_WAREHOUSE_EXPORT = RESULTS_PERSISTENCE_MODE == "legacy_warehouse"
 CONSENSUS_MIN_VENDOR_COUNT = 5
 GENERIC_MIN_SUPPORT = 30
 BANKER_PATTERN_CLUSTER_K = 3

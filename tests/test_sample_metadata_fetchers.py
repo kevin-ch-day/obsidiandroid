@@ -10,6 +10,7 @@ import pytest
 
 from obsidiandroid.database import db_sample_metadata_queries
 from obsidiandroid.database import db_sample_metadata_fetchers as fetchers
+from mysql.connector import Error as MySQLError
 from obsidiandroid.database.db_sample_metadata_contracts import log_and_assert_loader_sample_grain
 from obsidiandroid.diagnostics import cohort_sample_id_audit
 
@@ -122,6 +123,62 @@ def test_fetch_samples_by_type_uses_left_hash_join_when_sha_not_required(monkeyp
     assert m and m.group("left") is not None
     assert "malware_artifact_hash_registry h0" in query
     assert "_artifact_hash_rn" in query
+
+
+def test_profile_viability_query_omits_unused_vt_scan_and_window_reductions() -> None:
+    query, params = fetchers.build_profile_cohort_viability_query(
+        type_slug=None,
+        min_samples_per_family=3,
+        require_sha256=True,
+        exclude_unknown_type_slug=True,
+        effective_time_start_utc="2020-01-01T00:00:00Z",
+        effective_time_end_utc="2026-01-01T00:00:00Z",
+    )
+    assert "virustotal_sample_scan_summary" not in query
+    assert "ROW_NUMBER() OVER" not in query
+    assert "v_android_sample_family_type_authority" in query
+    assert "malware_artifact_hash_registry AS x" in query
+    assert "LIMIT 1" in query
+    assert params == ("2020-01-01T00:00:00Z", "2026-01-01T00:00:00Z", 3)
+
+
+def test_profile_viability_probe_returns_bounded_result(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_execute(query, params=None, **_kwargs):
+        captured.setdefault("queries", []).append(query)
+        captured.setdefault("params", []).append(params)
+        if "v_android_sample_family_type_authority" in query:
+            return (["sample_id", "family_id", "family_name", "type_id", "type_slug", "type_is_active"], [(1, 2, "fixture", 3, "banker", 1)])
+        return (["sample_id"], [(1,)])
+
+    monkeypatch.setattr(fetchers.db_engine, "execute_query", _fake_execute)
+    result = fetchers.probe_profile_cohort_viability(type_slug="banker", timeout_seconds=2)
+    assert result["runnable"] is True
+    assert result["probe_kind"] == "bounded_candidate_window"
+    assert result["timed_out"] is False
+    assert all(str(query).startswith("SET STATEMENT max_statement_time") for query in captured["queries"])
+    assert tuple(captured["params"][0])[0] == 2.0
+
+
+def test_profile_viability_probe_marks_statement_timeout(monkeypatch) -> None:
+    def _raise(*_args, **_kwargs):
+        error = MySQLError("Query execution was interrupted (max_statement_time exceeded)")
+        error.errno = 1969
+        raise error
+
+    monkeypatch.setattr(fetchers.db_engine, "execute_query", _raise)
+    result = fetchers.probe_profile_cohort_viability(type_slug="banker")
+    assert result["runnable"] is False
+    assert result["reason_code"] == "query_timeout"
+    assert result["timed_out"] is True
+
+
+def test_profile_viability_probe_is_inconclusive_when_profile_admits_unmapped_rows(monkeypatch) -> None:
+    monkeypatch.setattr(fetchers.db_engine, "execute_query", lambda *_args, **_kwargs: pytest.fail("query not expected"))
+    result = fetchers.probe_profile_cohort_viability(require_mapped_family=False)
+    assert result["runnable"] is False
+    assert result["reason_code"] == "inconclusive_authority_surface"
 
 
 def test_fetch_samples_by_type_uses_inner_hash_join_when_sha_required(monkeypatch) -> None:

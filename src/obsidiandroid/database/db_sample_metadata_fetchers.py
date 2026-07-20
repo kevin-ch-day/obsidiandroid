@@ -10,7 +10,12 @@ Row-count terminology for operators and manifests is centralized in
 
 from __future__ import annotations
 
+from hashlib import sha256
+from time import perf_counter
 from typing import Any
+from collections import Counter
+
+from mysql.connector import Error as MySQLError
 
 from . import db_engine
 from .cohort_sql_fragments import (
@@ -245,6 +250,253 @@ def _cohort_loader_sql_parts(
         "fam_one": fam_one,
         "where_clauses": where_clauses,
         "params": params,
+    }
+
+
+def _profile_viability_predicates(
+    *,
+    type_slug: str | None,
+    require_mapped_family: bool,
+    require_sha256: bool,
+    allow_missing_package_name: bool,
+    exclude_unknown_type_slug: bool,
+    exclude_weak_label_kinds: bool,
+    exclude_family_label_conflicts: bool,
+    effective_time_start_utc: str | None,
+    effective_time_end_utc: str | None,
+    require_effective_first_seen: bool,
+    include_family_canonical: tuple[str, ...] | None,
+    exclude_family_ids: tuple[int, ...] | None,
+    exclude_family_canonical: tuple[str, ...] | None,
+    require_active_type_slug: bool,
+) -> tuple[list[str], tuple[Any, ...]]:
+    """Reuse the canonical gate predicates without embedding support/count work."""
+    parts = _cohort_loader_sql_parts(
+        type_slug=type_slug,
+        min_samples_per_family=None,
+        require_mapped_family=require_mapped_family,
+        require_sha256=require_sha256,
+        allow_missing_package_name=allow_missing_package_name,
+        exclude_unknown_type_slug=exclude_unknown_type_slug,
+        exclude_weak_label_kinds=exclude_weak_label_kinds,
+        exclude_family_label_conflicts=exclude_family_label_conflicts,
+        effective_time_start_utc=effective_time_start_utc,
+        effective_time_end_utc=effective_time_end_utc,
+        require_effective_first_seen=require_effective_first_seen,
+        include_family_canonical=include_family_canonical,
+        exclude_family_ids=exclude_family_ids,
+        exclude_family_canonical=exclude_family_canonical,
+        require_active_type_slug=require_active_type_slug,
+    )
+    return list(parts["where_clauses"]), tuple(parts["params"])
+
+
+def build_profile_cohort_viability_query(
+    *,
+    type_slug: str | None,
+    min_samples_per_family: int | None = None,
+    require_mapped_family: bool = True,
+    require_sha256: bool = True,
+    allow_missing_package_name: bool = True,
+    exclude_unknown_type_slug: bool = False,
+    exclude_weak_label_kinds: bool = False,
+    exclude_family_label_conflicts: bool = False,
+    effective_time_start_utc: str | None = None,
+    effective_time_end_utc: str | None = None,
+    require_effective_first_seen: bool = True,
+    include_family_canonical: tuple[str, ...] | None = None,
+    exclude_family_ids: tuple[int, ...] | None = None,
+    exclude_family_canonical: tuple[str, ...] | None = None,
+    require_active_type_slug: bool = False,
+) -> tuple[str, tuple[Any, ...]]:
+    """Build a bounded existence probe for routine menu profile selection.
+
+    This deliberately does not reuse the detailed gate-stat query.  It uses
+    the cardinality-safe authority view and the primary-key hash registry for
+    eligibility, omits the unused VT scan-summary reduction, and returns at
+    most one row.  Exact counts remain available from
+    :func:`get_type_cohort_gate_stats` for explicit diagnostics.
+    """
+    predicates, outer_params = _profile_viability_predicates(
+        type_slug=type_slug,
+        require_mapped_family=require_mapped_family,
+        require_sha256=require_sha256,
+        allow_missing_package_name=allow_missing_package_name,
+        exclude_unknown_type_slug=exclude_unknown_type_slug,
+        exclude_weak_label_kinds=exclude_weak_label_kinds,
+        exclude_family_label_conflicts=exclude_family_label_conflicts,
+        effective_time_start_utc=effective_time_start_utc,
+        effective_time_end_utc=effective_time_end_utc,
+        require_effective_first_seen=require_effective_first_seen,
+        include_family_canonical=include_family_canonical,
+        exclude_family_ids=exclude_family_ids,
+        exclude_family_canonical=exclude_family_canonical,
+        require_active_type_slug=require_active_type_slug,
+    )
+    where_sql = " AND ".join(predicates)
+    params: list[Any] = list(outer_params)
+    if min_samples_per_family is not None:
+        # A qualifying family is itself proof that at least one eligible row
+        # exists.  Do not scan the same cohort a second time just to test an
+        # outer ``IN`` membership predicate.
+        params.append(int(min_samples_per_family))
+        query = f"""
+            SELECT 1
+            FROM malware_sample_catalog AS y
+            JOIN malware_artifact_hash_registry AS x
+              ON x.sha256 = y.sha256
+            JOIN v_android_sample_family_type_authority AS a
+              ON a.sample_id = y.sample_id
+            JOIN android_malware_family AS f
+              ON f.family_id = a.family_id
+            JOIN android_malware_type AS t
+              ON t.type_id = a.type_id
+            WHERE {where_sql}
+            GROUP BY a.family_id
+            HAVING COUNT(*) >= %s
+            LIMIT 1
+        """
+    else:
+        query = f"""
+        SELECT 1
+        FROM malware_sample_catalog AS y
+        JOIN malware_artifact_hash_registry AS x
+          ON x.sha256 = y.sha256
+        JOIN v_android_sample_family_type_authority AS a
+          ON a.sample_id = y.sample_id
+        JOIN android_malware_family AS f
+          ON f.family_id = a.family_id
+        JOIN android_malware_type AS t
+          ON t.type_id = a.type_id
+        WHERE {where_sql}
+        LIMIT 1
+    """
+    return query, tuple(params)
+
+
+def probe_profile_cohort_viability(
+    *,
+    timeout_seconds: float = 15.0,
+    **kwargs: Any,
+) -> dict[str, object]:
+    """Return a bounded read-only answer to "does this profile have one row?".
+
+    MariaDB's statement timeout applies only to this existence query.  It does
+    not alter server configuration or session state, and a timeout is reported
+    as an inconclusive preflight rather than an empty cohort.
+    """
+    # A direct grouped query against the authority view can still force a full
+    # view materialization before MariaDB applies LIMIT.  First inspect a small
+    # authority window, then test those concrete sample ids against the catalog
+    # and hash registry.  A positive result is exact (three observed members
+    # prove support >= 3); an exhausted window is explicitly inconclusive.
+    return _probe_profile_cohort_viability_windowed(timeout_seconds=timeout_seconds, **kwargs)
+
+
+def _probe_profile_cohort_viability_windowed(*, timeout_seconds: float, **kwargs: Any) -> dict[str, object]:
+    type_slug = kwargs.get("type_slug")
+    min_support = kwargs.get("min_samples_per_family")
+    require_mapped = bool(kwargs.get("require_mapped_family", True))
+    require_active_type = bool(kwargs.get("require_active_type_slug", False))
+    exclude_unknown = bool(kwargs.get("exclude_unknown_type_slug", False))
+    include_families = {str(v).strip().lower() for v in (kwargs.get("include_family_canonical") or ()) if str(v).strip()}
+    exclude_families = {str(v).strip().lower() for v in (kwargs.get("exclude_family_canonical") or ()) if str(v).strip()}
+    exclude_ids = {int(v) for v in (kwargs.get("exclude_family_ids") or ()) if str(v).strip()}
+    fingerprint_source = "profile-viability-windowed-v1|" + repr(sorted(kwargs.items()))
+    fingerprint = sha256(fingerprint_source.encode("utf-8")).hexdigest()
+    started = perf_counter()
+    # Keep this intentionally small: the authority surface is a view and the
+    # menu needs a fast positive proof, not a census.  A too-small window is
+    # reported as inconclusive rather than as an empty cohort.
+    candidate_limit = 64
+    # The authority surface contains resolved family assignments.  It cannot
+    # prove viability for profiles that intentionally admit unresolved rows.
+    if not require_mapped:
+        return _viability_result(False, "inconclusive_authority_surface", fingerprint, started, timed_out=False)
+    authority_sql = f"""
+        SELECT a.sample_id, a.family_id, a.family_name, a.type_id, a.type_slug,
+               COALESCE(t.is_active, 0) AS type_is_active
+        FROM v_android_sample_family_type_authority AS a
+        LEFT JOIN android_malware_type AS t ON t.type_id = a.type_id
+        LIMIT %s
+    """
+    try:
+        _cols, authority_rows = db_engine.execute_query(
+            "SET STATEMENT max_statement_time = %s FOR " + authority_sql,
+            params=(max(0.1, min(float(timeout_seconds), 5.0)), candidate_limit),
+            fetch=True,
+            return_columns=True,
+        )
+        candidates = {
+            int(row[0]): {
+                "family_id": int(row[1]),
+                "family_name": str(row[2] or "").strip().lower(),
+                "type_id": row[3],
+                "type_slug": str(row[4] or "").strip().lower(),
+                "type_is_active": bool(row[5]),
+            }
+            for row in authority_rows
+            if row and row[0] is not None and row[1] is not None
+        }
+        candidates = {
+            sample_id: value
+            for sample_id, value in candidates.items()
+            if value["family_id"] not in exclude_ids
+            and (not include_families or value["family_name"] in include_families)
+            and value["family_name"] not in exclude_families
+            and (not type_slug or value["type_slug"] == str(type_slug).strip().lower())
+            and (not exclude_unknown or value["type_slug"] not in {"", "unknown"})
+            and (not require_active_type or value["type_is_active"])
+        }
+        if not candidates:
+            return _viability_result(False, "inconclusive_candidate_window", fingerprint, started, timed_out=False)
+        sample_ids = tuple(candidates)
+        catalog_predicates = ["y.platform = 'android'", "y.file_extension = 'apk'", "y.sample_id IN (" + ", ".join(["%s"] * len(sample_ids)) + ")"]
+        catalog_params: list[Any] = list(sample_ids)
+        if bool(kwargs.get("require_effective_first_seen", True)):
+            catalog_predicates.append("COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) IS NOT NULL")
+        if kwargs.get("effective_time_start_utc"):
+            catalog_predicates.append("COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) >= %s")
+            catalog_params.append(kwargs["effective_time_start_utc"])
+        if kwargs.get("effective_time_end_utc"):
+            catalog_predicates.append("COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) < %s")
+            catalog_params.append(kwargs["effective_time_end_utc"])
+        if bool(kwargs.get("require_sha256", True)):
+            catalog_predicates.extend(["y.sha256 IS NOT NULL", "LENGTH(TRIM(y.sha256)) = 64"])
+        if not bool(kwargs.get("allow_missing_package_name", True)):
+            catalog_predicates.append("COALESCE(TRIM(y.android_package_name), '') <> ''")
+        if bool(kwargs.get("exclude_weak_label_kinds", False)) or bool(kwargs.get("exclude_family_label_conflicts", False)):
+            return _viability_result(False, "inconclusive_quality_gate", fingerprint, started, timed_out=False)
+        hash_join = "JOIN malware_artifact_hash_registry AS x ON x.sha256 = y.sha256" if bool(kwargs.get("require_sha256", True)) else ""
+        catalog_sql = f"SELECT y.sample_id FROM malware_sample_catalog AS y {hash_join} WHERE {' AND '.join(catalog_predicates)}"
+        _cols, catalog_rows = db_engine.execute_query(
+            "SET STATEMENT max_statement_time = %s FOR " + catalog_sql,
+            params=(max(0.1, float(timeout_seconds)), *catalog_params),
+            fetch=True,
+            return_columns=True,
+        )
+    except MySQLError as exc:
+        message = str(exc).lower()
+        timed_out = int(getattr(exc, "errno", 0) or 0) in {1969, 3024} or "max_statement_time" in message
+        if timed_out:
+            return _viability_result(False, "query_timeout", fingerprint, started, timed_out=True)
+        raise
+    support = Counter(candidates[int(row[0])]["family_id"] for row in catalog_rows if row and int(row[0]) in candidates)
+    if min_support is None:
+        return _viability_result(bool(support), "eligible_sample_found" if support else "inconclusive_candidate_window", fingerprint, started, timed_out=False)
+    if any(count >= int(min_support) for count in support.values()):
+        return _viability_result(True, "eligible_sample_found", fingerprint, started, timed_out=False)
+    return _viability_result(False, "inconclusive_candidate_window", fingerprint, started, timed_out=False)
+
+
+def _viability_result(runnable: bool, reason_code: str, fingerprint: str, started: float, *, timed_out: bool) -> dict[str, object]:
+    return {
+        "runnable": runnable,
+        "reason_code": reason_code,
+        "probe_kind": "bounded_candidate_window",
+        "query_fingerprint": fingerprint,
+        "elapsed_ms": round((perf_counter() - started) * 1000, 3),
+        "timed_out": timed_out,
     }
 
 

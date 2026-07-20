@@ -43,7 +43,7 @@ This guide walks operators through setting up their environment, executing the m
    - Primary: `malware_sample_catalog`, `virustotal_sample_vendor_engine_verdicts`, and related VT/catalog tables.
    - Permission Intel: `android_permission_obs_sample` and related `android_permission_*` dictionaries and enrichment tables.
    - Legacy docs may reference `vt_*` naming; the replicated wide verdict table in this project is `virustotal_sample_vendor_engine_verdicts`.
-5. Optional smoke check when the DB is reachable: `python -m obsidiandroid.database.split_db_health` (JSON status and exit code 0 when primary, Permission Intel, and `android_permission_obs_sample` in PI are OK).
+5. Before starting a pipeline, run `make audit-runtime-db`. It performs only credential-redacted configuration checks and bounded source `SELECT` queries; it does not connect to Core or create output. The normal default is `OBSIDIANDROID_RESULTS_PERSISTENCE_MODE=read_only`, which disables legacy Erebus warehouse writes and Core persistence. See [`runtime_source_connection_policy.md`](runtime_source_connection_policy.md).
 
 ### VirusTotal integration checklist
 

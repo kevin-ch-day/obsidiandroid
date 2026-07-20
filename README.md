@@ -102,7 +102,7 @@ Each markdown file can be browsed directly in GitHub’s file viewer for quick n
    source .venv/bin/activate
    pip install -e .
    ```
-4. **(Optional for full pipeline runs) Configure MariaDB** by setting explicit `OBSIDIAN_DB_*` and Permission Intel connection variables (see [Configuration](#configuration)). Source connections no longer fall back to root credentials or an embedded password. Do not commit real passwords; prefer environment variables or a secrets manager.
+4. **(Optional for full pipeline runs) Configure MariaDB** by setting explicit `OBSIDIAN_DB_*` and Permission Intel connection variables (see [Configuration](#configuration)). Source connections no longer fall back to root credentials or an embedded password. Do not commit real passwords; prefer a private `0600` client option file. The default runtime is read-only and keeps both legacy warehouse export and Core persistence disabled; see [`docs/runtime_source_connection_policy.md`](docs/runtime_source_connection_policy.md).
    The CLI can launch before database access is fully configured, but database-backed menu actions and pipeline stages still require a working database.
 5. **(Optional) Edit pipeline settings** in `config/app_config.py` (model selection, hyperparameters, etc).
 

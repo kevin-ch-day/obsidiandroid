@@ -73,6 +73,10 @@ def _private_source_option_file(value: str, *, role: str) -> str:
         raise SourceDatabaseConfigurationError(f"{role} option file is unavailable") from exc
     if not path.is_file() or mode & 0o077:
         raise SourceDatabaseConfigurationError(f"{role} option file must be private (0600)")
+    if path.resolve() == (Path.home() / ".my.cnf").resolve():
+        raise SourceDatabaseConfigurationError(
+            f"{role} option file must be a dedicated normal-pipeline credential, not the administrator .my.cnf"
+        )
     return str(path)
 
 
@@ -92,6 +96,10 @@ def _require_source_connection_config(*, role: str, host: str, user: str, passwo
             f"{role} database configuration is incomplete; set explicit environment credentials (missing "
             + ", ".join(missing)
             + ")"
+        )
+    if str(user).strip().lower() in {"root", "mysql", "mariadb"}:
+        raise SourceDatabaseConfigurationError(
+            f"{role} must use a dedicated normal-pipeline account, not an administrator account"
         )
 
 

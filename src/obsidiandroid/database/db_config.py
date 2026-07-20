@@ -26,6 +26,12 @@ import os
 from pathlib import Path
 
 
+# Preserve variables exported by the invoking operator before optional dotenv
+# files are read.  Compatibility aliases (for example ``EREBUS_DB_NAME``)
+# must still outrank a different alias injected from a checkout-local file.
+_PROCESS_ENV_BEFORE_DOTENV = dict(os.environ)
+
+
 def _repo_root() -> Path:
     """Checkout root (``<repo>``) when this file lives under ``<repo>/src/...``."""
     here = Path(__file__).resolve()
@@ -67,6 +73,10 @@ _load_env_files()
 def _env_first(names: tuple[str, ...], default: str) -> str:
     """Return the first non-empty environment value across compatible variable names."""
     for name in names:
+        value = _PROCESS_ENV_BEFORE_DOTENV.get(name)
+        if value is not None and str(value).strip() != "":
+            return str(value)
+    for name in names:
         value = os.getenv(name)
         if value is not None and str(value).strip() != "":
             return str(value)
@@ -75,6 +85,14 @@ def _env_first(names: tuple[str, ...], default: str) -> str:
 
 def _env_first_int(names: tuple[str, ...], default: int) -> int:
     """Return the first valid integer env value across compatible variable names."""
+    for name in names:
+        value = _PROCESS_ENV_BEFORE_DOTENV.get(name)
+        if value is None or str(value).strip() == "":
+            continue
+        try:
+            return int(str(value).strip())
+        except ValueError:
+            continue
     for name in names:
         value = os.getenv(name)
         if value is None or str(value).strip() == "":

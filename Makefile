@@ -3,7 +3,7 @@
 # Shared ignore pattern for `tree` (noise / generated paths).
 _TREE_IGNORE := .git|.venv|__pycache__|*.pyc|output|logs|.pytest_cache|.pytest_tmp|*.egg-info|build|dist|.mypy_cache|.ruff_cache|.hypothesis|htmlcov|coverage.xml|wandb|mlruns
 
-.PHONY: clean clean-bytecode tree-source tree-obsidiandroid tree-utils tree-exporting-shims test test-changed test-integration test-pipeline-integration test-full setup menu install-editable doc-check verify verify-integration verify-pipeline-integration verify-canonical ci ci-fast ml-scan ml-scan-strict preflight-db preflight-migration-host check-phase1-closeout check-phase2b-schema check-run-integrity dev-import-check output-writer-audit help
+.PHONY: clean clean-bytecode tree-source tree-obsidiandroid tree-utils tree-exporting-shims test test-changed test-integration test-pipeline-integration test-full setup menu install-editable doc-check verify verify-integration verify-pipeline-integration verify-canonical ci ci-fast ml-scan ml-scan-strict preflight-db audit-runtime-db preflight-migration-host check-phase1-closeout check-phase2b-schema check-run-integrity dev-import-check output-writer-audit help
 
 help:
 	@echo "Targets:"
@@ -16,6 +16,7 @@ help:
 	@echo "  make test-pipeline-integration - full partial run_pipeline integration lane only"
 	@echo "  make test-full     - full pytest including slow integration modules"
 	@echo "  make preflight-db  - MySQL/MariaDB connectivity check (split_db_health)"
+	@echo "  make audit-runtime-db - credential-redacted normal source configuration and read-surface audit"
 	@echo "  make preflight-migration-host OPTION_FILE=<path> MODE=local|remote - read-only workstation and MariaDB capability gate"
 	@echo "  make ml-scan       - static scan for suspicious .predict() / .predict_proba() sites"
 	@echo "  make ml-scan-strict  - same scan; exit 1 if any warning (matches CI)"
@@ -90,6 +91,9 @@ test-full:
 # MySQL/MariaDB connectivity (primary + Permission Intel DB). Exit 0 when healthy.
 preflight-db:
 	python -m obsidiandroid.database.split_db_health
+
+audit-runtime-db:
+	python scripts/diagnostics/audit_runtime_database_config.py
 
 preflight-migration-host:
 	@test -n "$(OPTION_FILE)" && test -n "$(MODE)" || (echo "Usage: make preflight-migration-host OPTION_FILE=<private.cnf> MODE=local|remote"; exit 1)
