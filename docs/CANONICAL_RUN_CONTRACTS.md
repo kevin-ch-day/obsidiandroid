@@ -195,7 +195,7 @@ inference UX).
 
 ## Core evidence database (gated future phase)
 
-The former `obsidiandroid_research` v2.2 draft is retired and is not a
+The retired v2.2 research-ledger draft has been removed and is not a
 canonical-run dependency. The reviewed successor is the separate
 `obsidiandroid_core_prod` evidence database, configured only through
 `OBSIDIANDROID_CORE_DB_*`. Its Phase 1 DDL remains un-applied, and no canonical

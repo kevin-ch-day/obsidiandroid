@@ -510,7 +510,7 @@ All of the following are **ignored** by `.gitignore` (rules in parentheses). Whe
 
 | File | Change |
 |------|--------|
-| `ml_classification/training/pipeline_core.py` | Historical interim import from `scripts.diagnostics`; later replaced by `obsidiandroid.diagnostics.classification_summary` and the script helper was removed. |
+| `ml_classification/training/pipeline_core.py` | Historical interim import from `scripts.diagnostics`; later replaced by run-scoped structured model metrics and the script helper was removed. |
 | `analysis/evaluation/vendor_feature_extractor.py` | Historical interim import from `scripts.diagnostics`; later replaced by `obsidiandroid.diagnostics.vendor_feature_validation` and the script helper was removed. |
 | `tests/test_data_fuzzer.py` | `from scripts.dev import data_fuzzer` (canonical) |
 | `tests/test_devtools_shim.py` | **new** — asserts `devtools.data_fuzzer.generate_fuzz_data` is `scripts.dev.data_fuzzer.generate_fuzz_data` (shim test **removed** in **Pass 24**). |

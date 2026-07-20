@@ -67,7 +67,14 @@ def vendor_semantic_subset(encoded_df: pd.DataFrame, variant: str) -> pd.DataFra
             continue
         keep.append(col)
     if not keep:
-        return pd.DataFrame()
+        # This is an expected ablation outcome when every available lexical
+        # vendor field belongs to the requested semantic exclusion.  Preserve
+        # the reason so the operator sees a meaningful skipped-arm status
+        # instead of an apparent builder failure.
+        out = pd.DataFrame(index=encoded_df.index.copy())
+        out.attrs.update(getattr(encoded_df, "attrs", {}))
+        out.attrs["ablation_empty_reason"] = "no_retained_vendor_fields"
+        return out
     out = encoded_df[keep].copy()
     for key, val in getattr(encoded_df, "attrs", {}).items():
         out.attrs[key] = val
@@ -142,12 +149,26 @@ def build_experiment_matrix_dict(
     threat_type_vendor_fields = ["Threat Class", "Malware Type"]
     pipelines = pipeline_results if isinstance(pipeline_results, dict) else {}
     cids = cohort_sample_ids
+    full_vendor_cache: pd.DataFrame | None = None
+
+    def _vendor_full() -> pd.DataFrame:
+        """Build the raw full vendor surface once for compatible ablation arms."""
+        nonlocal full_vendor_cache
+        if full_vendor_cache is None:
+            full_vendor_cache = build_vendor_matrix(
+                weights_df,
+                parsed_data,
+                full_vendor_fields,
+                extra_features_df=None,
+                cohort_sample_ids=cids,
+            )
+        # Downstream builders may reindex or subset their input.  Preserve the
+        # cached source surface while giving each arm an independent frame.
+        return full_vendor_cache.copy()
 
     builders: dict[str, Any] = {}
 
-    builders["vendor_full"] = lambda: build_vendor_matrix(
-        weights_df, parsed_data, full_vendor_fields, extra_features_df=None, cohort_sample_ids=cids
-    )
+    builders["vendor_full"] = _vendor_full
     builders["vendor_no_parsed_family"] = lambda: build_vendor_matrix(
         weights_df,
         parsed_data,
@@ -157,7 +178,7 @@ def build_experiment_matrix_dict(
     )
 
     def _vendor_no_ft() -> pd.DataFrame:
-        raw_mat = builders["vendor_full"]()
+        raw_mat = _vendor_full()
         if not isinstance(raw_mat, pd.DataFrame) or raw_mat.empty:
             return pd.DataFrame()
         return vendor_semantic_subset(raw_mat, variant="no_family_no_type")

@@ -550,6 +550,9 @@ def build_feature_vector(
     # must be supplied explicitly by a scoped ablation or experiment.
     fields = list(include_fields or [])
     requested_top_k = int(top_k)
+    ablation_feature_build = bool(
+        getattr(app_config, "RUNTIME_ABLATION_FEATURE_BUILD_ACTIVE", False)
+    )
     # A safe binary/permission contract does not consume parsed vendor output.
     # Do this before ranking, parser-gate diagnostics, or fallback selection so
     # a parser shortfall cannot affect a model with zero parsed vendor columns.
@@ -597,12 +600,13 @@ def build_feature_vector(
     allow_adaptive_top_k = bool(getattr(app_config, "ALLOW_ADAPTIVE_TOP_K", False))
 
     # Step 1: Vendor Selection
-    _export_pre_gate_vendor_scores(
-        weights_df=weights_df,
-        score_preference=score_preference,
-        exclude_categories=exclude_categories,
-        verbose=bool(verbose),
-    )
+    if not ablation_feature_build:
+        _export_pre_gate_vendor_scores(
+            weights_df=weights_df,
+            score_preference=score_preference,
+            exclude_categories=exclude_categories,
+            verbose=bool(verbose),
+        )
     top_vendors = _select_top_vendors(
         weights_df,
         top_k,
@@ -694,12 +698,13 @@ def build_feature_vector(
         return pd.DataFrame()
 
     # Step 2: Feature Extraction + Merging
-    _export_vendor_gate_debug(
-        weights_df=weights_df if isinstance(weights_df, pd.DataFrame) else pd.DataFrame(),
-        selected_vendors=top_vendors,
-        parsed_vendor_data=parsed_vendor_data if isinstance(parsed_vendor_data, dict) else {},
-        top_vendors_initial=top_vendors_initial,
-    )
+    if not ablation_feature_build:
+        _export_vendor_gate_debug(
+            weights_df=weights_df if isinstance(weights_df, pd.DataFrame) else pd.DataFrame(),
+            selected_vendors=top_vendors,
+            parsed_vendor_data=parsed_vendor_data if isinstance(parsed_vendor_data, dict) else {},
+            top_vendors_initial=top_vendors_initial,
+        )
     merged = _prepare_vendor_features(parsed_vendor_data, top_vendors, fields)
     if merged.empty:
         return pd.DataFrame()
@@ -771,17 +776,18 @@ def build_feature_vector(
     encoded.attrs["vendor_fallback_used"] = bool(fallback_used)
     encoded.attrs["vendor_fallback_added_count"] = int(fallback_added_count)
     encoded.attrs["vendor_selection_policy"] = selection_policy
-    setattr(app_config, "RUNTIME_VENDOR_FALLBACK_USED", bool(fallback_used))
-    setattr(app_config, "RUNTIME_VENDOR_FALLBACK_ADDED_COUNT", int(fallback_added_count))
-    setattr(app_config, "RUNTIME_VENDOR_SELECTION_POLICY", selection_policy)
-    setattr(app_config, "RUNTIME_K_REQUESTED", int(requested_top_k))
-    setattr(app_config, "RUNTIME_EFFECTIVE_TOP_K", int(effective_top_k))
     non_standard_features = bool(
         fallback_used
         or (effective_top_k < requested_top_k)
         or bool(getattr(app_config, "RUNTIME_EVIDENCE_OVERRIDE_USED", False))
     )
-    setattr(app_config, "RUNTIME_NON_STANDARD_FEATURES", non_standard_features)
+    if not ablation_feature_build:
+        setattr(app_config, "RUNTIME_VENDOR_FALLBACK_USED", bool(fallback_used))
+        setattr(app_config, "RUNTIME_VENDOR_FALLBACK_ADDED_COUNT", int(fallback_added_count))
+        setattr(app_config, "RUNTIME_VENDOR_SELECTION_POLICY", selection_policy)
+        setattr(app_config, "RUNTIME_K_REQUESTED", int(requested_top_k))
+        setattr(app_config, "RUNTIME_EFFECTIVE_TOP_K", int(effective_top_k))
+        setattr(app_config, "RUNTIME_NON_STANDARD_FEATURES", non_standard_features)
     encoded.attrs["non_standard_features"] = non_standard_features
     if strict_evidence_mode and fallback_used and not allow_fallback:
         du.print_error(
@@ -795,6 +801,8 @@ def build_feature_vector(
     if isinstance(weights_df, pd.DataFrame):
         encoded.attrs["feature_score_field"] = str(score_preference or "")
 
+    if should_suppress_ablation_feature_build_terminal():
+        return encoded
     if bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)) and not ml_console.is_debug():
         return encoded
     if ml_console.is_compact():

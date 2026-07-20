@@ -80,11 +80,67 @@ def test_build_experiment_matrix_dict_keeps_vendor_experiments_semantically_dist
     assert captured[2] == (["Parsed Family", "Threat Class", "Malware Type"], True)
 
 
+def test_vendor_full_surface_is_reused_for_no_family_no_type_arm(monkeypatch) -> None:
+    """The compatible raw vendor matrix should not be built twice in one ablation."""
+    calls: list[list[str]] = []
+
+    def _fake_build_vendor_matrix(
+        _weights_df,
+        _parsed_data,
+        include_fields,
+        extra_features_df=None,
+        cohort_sample_ids=None,
+    ):
+        del extra_features_df, cohort_sample_ids
+        calls.append(list(include_fields))
+        return pd.DataFrame(
+            {"parsed_family_engine": [1], "threat_class_engine": [2], "malware_type_engine": [3]},
+            index=pd.Index([1], name="sample_id"),
+        )
+
+    monkeypatch.setattr(registry, "build_vendor_matrix", _fake_build_vendor_matrix)
+    builders = registry.build_experiment_matrix_dict(
+        weights_df=pd.DataFrame(),
+        parsed_data={},
+        permission_features_df=None,
+        pipeline_results=None,
+        cohort_sample_ids=[1],
+        permissions_band_builder=lambda _df, _subset: pd.DataFrame(),
+    )
+
+    full = builders["vendor_full"]()
+    no_family_or_type = builders["vendor_no_family_no_type"]()
+
+    assert calls == [["Parsed Family", "Threat Class", "Malware Type"]]
+    assert list(full.columns) == ["parsed_family_engine", "threat_class_engine", "malware_type_engine"]
+    assert list(no_family_or_type.columns) == []
+    assert no_family_or_type.attrs["ablation_empty_reason"] == "no_retained_vendor_fields"
+
+
 def test_load_paper_cohort_sample_ids_missing_column_returns_empty_set() -> None:
     """Missing sample_id column should not raise and should return empty set."""
     samples_df = pd.DataFrame({"sha256": ["a", "b"]})
     result = stage_ablation._load_paper_cohort_sample_ids(samples_df)  # pylint: disable=protected-access
     assert result == set()
+
+
+def test_ablation_progress_checkpoint_is_compact_and_actionable(monkeypatch) -> None:
+    messages: list[str] = []
+    monkeypatch.setattr(stage_ablation.ml_console, "is_minimal", lambda: False)
+    monkeypatch.setattr(stage_ablation.du, "print_info", lambda message: messages.append(str(message)))
+
+    stage_ablation._print_ablation_combo_progress(  # pylint: disable=protected-access
+        completed=19,
+        total=32,
+        experiment_name="permissions_raw",
+        label_slug="family_within_type",
+        status="complete",
+        detail="model_rows=3",
+    )
+
+    assert messages == [
+        "[ABLATION] Progress 19/32 (59%) — Permissions (raw) / family_within_type: complete (model_rows=3)"
+    ]
 
 
 def test_write_ablation_progress_snapshot_records_completed_cells(tmp_path) -> None:
@@ -328,8 +384,8 @@ def test_print_ablation_terminal_summary_compact_mode_reduces_grid(monkeypatch, 
 
     out = capsys.readouterr().out
     assert captured_tables == []
-    assert "ABLATION LEADERBOARD" in out
-    assert "family_id" in out.lower()
+    assert "ABLATION SUMMARY" in out
+    assert "Family classification" in out
     assert any("Full experiment grid remains in diagnostics CSV/Markdown summaries." in msg for msg in captured_info)
 
 
@@ -354,7 +410,7 @@ def test_print_ablation_terminal_summary_family_easier_than_type(monkeypatch, ca
     stage_ablation._print_ablation_terminal_summary(summary_df)  # pylint: disable=protected-access
 
     out = capsys.readouterr().out
-    assert "ABLATION INTERPRETATION" in out
+    assert "ABLATION COMPARISON NOTES" in out
     assert any("family_id is easier than type_slug" in msg for msg in captured_info)
     assert any("family_within_type exceeds type_slug on best Macro-F1" in msg for msg in captured_info)
     assert not any("type_slug is easier than family_id" in msg for msg in captured_info)
@@ -433,12 +489,12 @@ def test_build_ablation_feature_set_summary_rows_uses_terminal_labels() -> None:
         ],
     )
 
-    assert rows[0]["feature_set"] == "vendor_parsed_full"
+    assert rows[0]["feature_set"] == "Vendor (parsed-family fields)"
     assert rows[0]["selected_vendors"] == "2"
     assert rows[0]["effective_top_k"] == "2"
-    assert rows[1]["feature_set"] == "permissions_grouped"
+    assert rows[1]["feature_set"] == "Permissions (grouped)"
     assert rows[1]["selected_vendors"] == "—"
-    assert rows[2]["feature_set"] == "vendor_without_family_or_type_strings"
+    assert rows[2]["feature_set"] == "Vendor (no family/type strings)"
     assert rows[2]["status"] == "SKIPPED"
 
 

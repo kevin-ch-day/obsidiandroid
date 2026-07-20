@@ -16,7 +16,7 @@ import shutil
 import pandas as pd
 
 from config import app_config
-from obsidiandroid.common.cv_fold_config import safe_float_config_value
+from obsidiandroid.common.cv_fold_config import safe_float_config_value, safe_int_config_value
 from obsidiandroid.modeling import distribution_reporter
 from obsidiandroid.modeling import pipeline_core
 from obsidiandroid.cli.ui import display as du
@@ -135,15 +135,15 @@ ABLATION_EXPERIMENT_ORDER: tuple[str, ...] = (
 )
 
 ABLATION_TERMINAL_LABELS: dict[str, str] = {
-    "vendor_full": "vendor_parsed_full",
-    "vendor_no_parsed_family": "vendor_without_family_strings",
-    "vendor_no_family_no_type": "vendor_without_family_or_type_strings",
-    "vendor_detection_binary_only": "vendor_detection_binary_only",
-    "vendor_consensus_scores_only": "vendor_consensus_scores_only",
-    "permissions_raw": "permissions_raw",
-    "permissions_grouped": "permissions_grouped",
-    "permissions_grouped_plus_vendor_no_family": "permissions_grouped_plus_vendor_safe",
-    "full_fused": "full_fused",
+    "vendor_full": "Vendor (parsed-family fields)",
+    "vendor_no_parsed_family": "Vendor-NoFam",
+    "vendor_no_family_no_type": "Vendor (no family/type strings)",
+    "vendor_detection_binary_only": "Vendor detections only",
+    "vendor_consensus_scores_only": "Vendor consensus scores",
+    "permissions_raw": "Permissions (raw)",
+    "permissions_grouped": "Permissions (grouped)",
+    "permissions_grouped_plus_vendor_no_family": "Permissions (grouped) + Vendor-NoFam",
+    "full_fused": "Full fused",
 }
 
 _PERMISSION_ONLY_EXPERIMENTS = {"permissions_raw", "permissions_grouped"}
@@ -342,6 +342,32 @@ def _print_ablation_combo_summary(
     )
 
 
+def _print_ablation_combo_progress(
+    *,
+    completed: int,
+    total: int,
+    experiment_name: str,
+    label_slug: str,
+    status: str,
+    detail: str,
+) -> None:
+    """Emit one durable, human-readable checkpoint for a long ablation grid."""
+    if ml_console.is_minimal():
+        return
+    finished = max(0, int(completed))
+    planned = max(0, int(total))
+    percent = (100.0 * finished / planned) if planned else 0.0
+    label = _format_ablation_terminal_label(experiment_name)
+    context = f"{label} / {label_slug}"
+    line = f"[ABLATION] Progress {finished}/{planned} ({percent:.0f}%) — {context}: {status}"
+    if detail:
+        line += f" ({detail})"
+    if str(status).lower() in {"failed", "skipped", "interrupted_or_aborted"}:
+        du.print_warning(line)
+    else:
+        du.print_info(line)
+
+
 def _build_ablation_feature_set_summary_rows(
     *,
     experiment_order: list[str],
@@ -415,25 +441,6 @@ def _has_variable_predictive_column(feature_df: pd.DataFrame) -> bool:
             # contract validator rather than silently discarded here.
             return True
     return False
-
-
-def _print_ablation_feature_set_build_summary(
-    *,
-    experiment_order: list[str],
-    built_matrices: dict[str, pd.DataFrame],
-    skipped_experiments: list[dict[str, str]],
-) -> None:
-    if ml_console.is_minimal():
-        return
-    rows = _build_ablation_feature_set_summary_rows(
-        experiment_order=experiment_order,
-        built_matrices=built_matrices,
-        skipped_experiments=skipped_experiments,
-    )
-    if not rows:
-        return
-    du.print_section("ABLATION FEATURE-SET BUILD SUMMARY")
-    du.print_table(pd.DataFrame(rows), show_index=False)
 
 
 def _load_paper_cohort_sample_ids(
@@ -661,54 +668,79 @@ def run_ablation_experiments(
     if not ml_console.is_minimal():
         from obsidiandroid.evaluation.ml_terminal_presentation import print_ablation_experiments_header
 
-        vendor_k = getattr(app_config, "RUNTIME_EFFECTIVE_TOP_K", getattr(app_config, "RUNTIME_K_REQUESTED", "—"))
+        headline_vendor_k = getattr(
+            app_config,
+            "RUNTIME_EFFECTIVE_TOP_K",
+            getattr(app_config, "RUNTIME_K_REQUESTED", "—"),
+        )
+        ablation_vendor_k = safe_int_config_value(
+            getattr(app_config, "FEATURE_TOP_K", 8),
+            default=8,
+        )
         print_ablation_experiments_header(
             cohort_n=len(base_ids),
-            selected_vendors=vendor_k,
-            effective_top_k=vendor_k,
+            headline_selected_vendors=headline_vendor_k,
+            ablation_requested_top_k=ablation_vendor_k,
         )
 
     if not ml_console.is_minimal() and ml_console.is_compact() and not ml_console.is_debug():
         du.print_info("Building ablation feature sets...")
 
-    builders = _build_experiment_matrix_dict(
-        weights_df,
-        parsed_data,
-        permission_features_df,
-        pipeline_results,
-        cohort_sample_ids=frozen_sorted,
-    )
-    experiments = [
-        (name, builders[name])
-        for name in ABLATION_EXPERIMENT_ORDER
-        if name in builders and callable(builders[name])
-    ]
     experiment_matrices_raw: dict[str, pd.DataFrame] = {}
-    for experiment_name, builder in experiments:
-        try:
-            feature_df = builder()
-            if not isinstance(feature_df, pd.DataFrame) or feature_df.empty:
+    previous_feature_build_active = bool(
+        getattr(app_config, "RUNTIME_ABLATION_FEATURE_BUILD_ACTIVE", False)
+    )
+    setattr(app_config, "RUNTIME_ABLATION_FEATURE_BUILD_ACTIVE", True)
+    try:
+        builders = _build_experiment_matrix_dict(
+            weights_df,
+            parsed_data,
+            permission_features_df,
+            pipeline_results,
+            cohort_sample_ids=frozen_sorted,
+        )
+        experiments = [
+            (name, builders[name])
+            for name in ABLATION_EXPERIMENT_ORDER
+            if name in builders and callable(builders[name])
+        ]
+        for experiment_name, builder in experiments:
+            try:
+                feature_df = builder()
+                if not isinstance(feature_df, pd.DataFrame) or feature_df.empty:
+                    empty_reason = "empty_feature_matrix"
+                    empty_detail = "Builder returned a non-DataFrame or empty feature matrix."
+                    if isinstance(feature_df, pd.DataFrame):
+                        declared_reason = str(feature_df.attrs.get("ablation_empty_reason", "") or "").strip()
+                        if declared_reason:
+                            empty_reason = declared_reason
+                            empty_detail = (
+                                "This ablation removed every retained predictive field "
+                                "under its declared semantic exclusion."
+                            )
+                    skipped_experiments.append(
+                        {
+                            "feature_set": str(experiment_name),
+                            "reason": empty_reason,
+                            "detail": empty_detail,
+                        }
+                    )
+                    if ml_console.is_debug():
+                        du.print_warning(f"[ABLATION] Skipping '{experiment_name}' due to empty feature matrix.")
+                    continue
+                experiment_matrices_raw[experiment_name] = feature_df
+            except Exception as exc:
                 skipped_experiments.append(
                     {
                         "feature_set": str(experiment_name),
-                        "reason": "empty_feature_matrix",
-                        "detail": "Builder returned a non-DataFrame or empty feature matrix.",
+                        "reason": "build_failed",
+                        "detail": str(exc),
                     }
                 )
                 if ml_console.is_debug():
-                    du.print_warning(f"[ABLATION] Skipping '{experiment_name}' due to empty feature matrix.")
-                continue
-            experiment_matrices_raw[experiment_name] = feature_df
-        except Exception as exc:
-            skipped_experiments.append(
-                {
-                    "feature_set": str(experiment_name),
-                    "reason": "build_failed",
-                    "detail": str(exc),
-                }
-            )
-            if ml_console.is_debug():
-                du.print_warning(f"[ABLATION] '{experiment_name}' failed during build: {exc}")
+                    du.print_warning(f"[ABLATION] '{experiment_name}' failed during build: {exc}")
+    finally:
+        setattr(app_config, "RUNTIME_ABLATION_FEATURE_BUILD_ACTIVE", previous_feature_build_active)
 
     if not experiment_matrices_raw:
         return artifact_paths
@@ -1095,6 +1127,14 @@ def run_ablation_experiments(
                             summary_row_count=len(summary_rows),
                             grid_status="running",
                         )
+                        _print_ablation_combo_progress(
+                            completed=len(progress_records),
+                            total=planned_combo_count,
+                            experiment_name=experiment_name,
+                            label_slug=label_slug,
+                            status=combo_status,
+                            detail=combo_detail,
+                        )
                         setattr(app_config, "RUNTIME_EXPERIMENT_ID", "")
                         setattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", "")
                         setattr(app_config, "RUNTIME_ABLATION_ALLOW_LABEL_ADJACENT_FEATURES", False)
@@ -1469,10 +1509,10 @@ def _print_ablation_terminal_summary(summary_df: pd.DataFrame) -> None:
     )
 
     leaderboard_df = pd.DataFrame(leaderboard_rows).sort_values(["label_target"], kind="stable")
-    du.print_section("ABLATION LEADERBOARD")
     if ml_console.is_compact() and not ml_console.is_debug():
         print_ablation_leaderboard_compact(leaderboard_rows)
     else:
+        du.print_section("ABLATION LEADERBOARD")
         du.print_table(leaderboard_df, show_index=False)
 
     print_ablation_interpretation_summary(summary_df)

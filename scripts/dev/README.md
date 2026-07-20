@@ -16,7 +16,6 @@ Scripts here support **package layout, import hygiene, and local repo maintenanc
 | [`refresh_canonical_handoff.py`](refresh_canonical_handoff.py) | Refresh canonical handoff artifacts for existing canonical slots (`make refresh-canonical-handoff`). |
 | [`validate_canonical_runs.py`](validate_canonical_runs.py) | Offline/live canonical closure artifact validation (`make verify-canonical`). |
 | [`wait_validate_canonical_slot.py`](wait_validate_canonical_slot.py) | Wait for a canonical slot, then optionally refresh and validate it. |
-| Repo-root [`../import_canonical_runs_to_db.py`](../import_canonical_runs_to_db.py) | Historical canonical-artifact dry-run planner; it does not apply the active Core v1 schema. |
 
 ### Shell entrypoints (Fedora venv, pytest)
 

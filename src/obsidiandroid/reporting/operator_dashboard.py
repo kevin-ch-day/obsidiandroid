@@ -29,6 +29,7 @@ from obsidiandroid.common.backlog_semantics import (
     read_blank_resolved_triage_snapshot,
 )
 from obsidiandroid.common.json_io import read_json_dict
+from obsidiandroid.common import ml_console
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.output_paths import output_root as canonical_output_root
 from obsidiandroid.common.scientific_adequacy import classify_scientific_adequacy
@@ -842,6 +843,7 @@ def emit_research_operator_report(
     from obsidiandroid.reporting import research_three_questions as research_rq
 
     pr = print_fn or (lambda s: du.print_info(s))
+    compact_terminal = ml_console.is_compact()
 
     try:
         _cm, _cc, parity = write_headline_vs_ablation_contract_reports(
@@ -977,21 +979,26 @@ def emit_research_operator_report(
     raw_pop = _perm_top_from_survival(surv, prefix="perm__android_", top_n=5)
     rf_perm = _rf_perm_importance_top(model_results or {}, top_n=5)
     if raw_pop or rf_perm:
-        du.print_subheader("Permission feature survival / RF hints (see diagnostics for full detail)")
-        if raw_pop:
-            pr("  Top permission columns by training nonzero: " + ", ".join(f"{n}({z})" for n, z in raw_pop))
-        if rf_perm:
+        if compact_terminal:
             pr(
-                "  RF top permission-ish importances: "
-                + ", ".join(f"{n}={score:.4f}" for n, score in rf_perm)
+                "[DIAGNOSTICS] Permission feature survival and RF hints: "
+                f"`{_artifact_label(surv, base=diagnostics_dir)}`"
             )
+        else:
+            du.print_subheader("Permission feature survival / RF hints (see diagnostics for full detail)")
+            if raw_pop:
+                pr("  Top permission columns by training nonzero: " + ", ".join(f"{n}({z})" for n, z in raw_pop))
+            if rf_perm:
+                pr(
+                    "  RF top permission-ish importances: "
+                    + ", ".join(f"{n}={score:.4f}" for n, score in rf_perm)
+                )
         pr("")
 
     data_problem_flags = (
         data_problem_payload.get("issue_flags") if isinstance(data_problem_payload, dict) else []
     )
     if isinstance(data_problem_flags, list) and data_problem_flags:
-        du.print_section("DATA PROBLEM QUANTIFICATION")
         priority = (
             data_problem_payload.get("priority_score")
             if isinstance(data_problem_payload.get("priority_score"), dict)
@@ -1017,10 +1024,18 @@ def emit_research_operator_report(
             if isinstance(data_problem_payload.get("training_policy_recommendations"), dict)
             else {}
         )
-        pr(
-            "  Composite problem score: "
-            f"{priority.get('composite_problem_score_0_100', 'n/a')} / 100"
-        )
+        if compact_terminal:
+            du.print_section("DATA / TUNING REVIEW")
+            pr(
+                "  Data-quality priority: "
+                f"{priority.get('composite_problem_score_0_100', 'n/a')} / 100"
+            )
+        else:
+            du.print_section("DATA PROBLEM QUANTIFICATION")
+            pr(
+                "  Composite problem score: "
+                f"{priority.get('composite_problem_score_0_100', 'n/a')} / 100"
+            )
         if support_gap:
             pr(
                 "  Support-gap ROI: "
@@ -1038,7 +1053,7 @@ def emit_research_operator_report(
             if isinstance(support_curve.get("recommended_exploratory_threshold"), dict)
             else {}
         )
-        if threshold_20:
+        if threshold_20 and not compact_terminal:
             pr(
                 "  Counterfactual conservative support track (not this run's active model): "
                 f"n>={threshold_20.get('threshold', 20)} would retain "
@@ -1046,7 +1061,7 @@ def emit_research_operator_report(
                 f"{threshold_20.get('retained_rows', 0)} rows and exclude "
                 f"{threshold_20.get('dropped_rows', 0)} row(s)."
             )
-        if exploratory:
+        if exploratory and not compact_terminal:
             pr(
                 "  Exploratory expanded-class track: "
                 f"threshold={exploratory.get('threshold', '')} "
@@ -1056,7 +1071,7 @@ def emit_research_operator_report(
                 "(separate from evidence headline)."
             )
         tracks = training_policy.get("tracks") if isinstance(training_policy.get("tracks"), list) else []
-        if tracks:
+        if tracks and not compact_terminal:
             for track in tracks[:3]:
                 if not isinstance(track, dict):
                     continue
@@ -1071,32 +1086,57 @@ def emit_research_operator_report(
                     f"{top_pair.get('expected_family', '')} -> {top_pair.get('predicted_family', '')} "
                     f"n={top_pair.get('count', 0)}"
                 )
-        for row in data_problem_flags[:6]:
-            if not isinstance(row, dict):
-                continue
-            pr(
-                f"  [{str(row.get('severity', 'note')).upper()}] "
-                f"{row.get('issue', '')}: value={row.get('value', '')} "
-                f"threshold={row.get('threshold', '')}"
+        if compact_terminal:
+            highest = next(
+                (
+                    row
+                    for row in data_problem_flags
+                    if isinstance(row, dict)
+                    and str(row.get("severity", "")).strip().lower() == "high"
+                ),
+                None,
             )
-            action = str(row.get("recommended_action", "") or "").strip()
-            if action:
-                pr(f"      Action: {action}")
+            if isinstance(highest, dict):
+                pr(
+                    "  Primary concern: "
+                    f"{highest.get('issue', '—')} ({highest.get('value', '—')})"
+                )
+        else:
+            for row in data_problem_flags[:6]:
+                if not isinstance(row, dict):
+                    continue
+                pr(
+                    f"  [{str(row.get('severity', 'note')).upper()}] "
+                    f"{row.get('issue', '')}: value={row.get('value', '')} "
+                    f"threshold={row.get('threshold', '')}"
+                )
+                action = str(row.get("recommended_action", "") or "").strip()
+                if action:
+                    pr(f"      Action: {action}")
         pr(f"  File: `{diagnostics_dir / f'data_problem_quantification_{run_id}.md'}`")
         pr("")
 
     recs = ml_tuning_payload.get("recommendations") if isinstance(ml_tuning_payload, dict) else []
     if isinstance(recs, list) and recs:
-        du.print_section("ML TUNING RECOMMENDATIONS")
-        for row in recs[:5]:
-            if not isinstance(row, dict):
-                continue
-            pr(f"  [{str(row.get('priority', 'note')).upper()}] {row.get('area', '')}: {row.get('finding', '')}")
-            action = str(row.get("recommended_action", "") or "").strip()
-            if action:
-                pr(f"      Action: {action}")
-        pr(f"  File: `{diagnostics_dir / f'ml_tuning_recommendations_{run_id}.md'}`")
-        pr("")
+        if compact_terminal:
+            first = next((row for row in recs if isinstance(row, dict)), None)
+            if isinstance(first, dict):
+                action = str(first.get("recommended_action", "") or "").strip()
+                if action:
+                    pr(f"  Next tuning step: {action}")
+            pr(f"  Details: `data_problem_quantification_{run_id}.md` and `ml_tuning_recommendations_{run_id}.md`")
+            pr("")
+        else:
+            du.print_section("ML TUNING RECOMMENDATIONS")
+            for row in recs[:5]:
+                if not isinstance(row, dict):
+                    continue
+                pr(f"  [{str(row.get('priority', 'note')).upper()}] {row.get('area', '')}: {row.get('finding', '')}")
+                action = str(row.get("recommended_action", "") or "").strip()
+                if action:
+                    pr(f"      Action: {action}")
+            pr(f"  File: `{diagnostics_dir / f'ml_tuning_recommendations_{run_id}.md'}`")
+            pr("")
 
     du.print_section("ISSUES FOUND")
     issues = getattr(app_config, "RUNTIME_OPERATOR_ISSUES", []) or []
@@ -1117,14 +1157,30 @@ def emit_research_operator_report(
                 pr(f"    {ln}")
             pr("")
     if isinstance(backlog_debt_summary, dict) and backlog_debt_summary.get("rows"):
-        du.print_section("BACKLOG DEBT")
-        for line in build_backlog_terminal_lines(
-            debt_summary=backlog_debt_summary,
-            priority_backlog=priority_backlog if isinstance(priority_backlog, dict) else {},
-            backlog_path=backlog_md_path,
-            max_rows=5,
-        ):
-            pr(f"  {line}")
+        if compact_terminal:
+            du.print_section("LIVE DATA BACKLOG (NOT RUN EVIDENCE)")
+            pr(
+                "  Focus: "
+                f"{backlog_debt_summary.get('focus_label', '—')} "
+                f"({int(backlog_debt_summary.get('focus_count', 0) or 0):,} rows)"
+            )
+            focus_detail = str(backlog_debt_summary.get("focus_detail", "") or "").strip()
+            if focus_detail:
+                pr(f"  Status: {focus_detail}")
+            focus_action = str(backlog_debt_summary.get("focus_action", "") or "").strip()
+            if focus_action:
+                pr(f"  Next action: {focus_action}")
+            if backlog_md_path is not None:
+                pr(f"  Details: `{_artifact_label(backlog_md_path, base=diagnostics_dir)}`")
+        else:
+            du.print_section("BACKLOG DEBT")
+            for line in build_backlog_terminal_lines(
+                debt_summary=backlog_debt_summary,
+                priority_backlog=priority_backlog if isinstance(priority_backlog, dict) else {},
+                backlog_path=backlog_md_path,
+                max_rows=5,
+            ):
+                pr(f"  {line}")
         pr("")
     readiness_title, readiness_surface = _claim_readiness_context(
         profile_id=str(profile_id or ""),
@@ -1380,6 +1436,11 @@ def emit_research_operator_report(
             print_fn(f"[Run] {du.format_console_path(rr)}")
     diag_base = diagnostics_dir
     start_candidates = [
+        diagnostics_dir / f"label_contract_{run_id}.md",
+        diagnostics_dir / f"ml_run_manifest_{run_id}.json",
+        diagnostics_dir / details_name,
+        diagnostics_dir / f"backlog_debt_summary_{run_id}.md",
+    ] if compact_terminal else [
         diagnostics_dir / f"label_contract_{run_id}.md",
         diagnostics_dir / f"permission_pattern_contract_{run_id}.md",
         diagnostics_dir / f"ml_run_manifest_{run_id}.json",

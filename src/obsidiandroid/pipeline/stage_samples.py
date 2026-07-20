@@ -310,6 +310,14 @@ def load_and_prepare_samples(
         exclude_weak_label_kinds=exclude_weak_label_kinds,
         exclude_family_label_conflicts=exclude_family_label_conflicts,
     )
+    loader_count_is_authoritative = not lock_membership_authoritative and not any(
+        (
+            isinstance(limit, int) and limit > 0,
+            isinstance(family_cap, int) and family_cap > 0,
+            isinstance(type_cap, int) and type_cap > 0,
+            isinstance(type_cap_by_slug, dict) and bool(type_cap_by_slug),
+        )
+    )
     gate_stats_snapshot: dict[str, Any] = {}
     if not reuse_gate_stats_from_loaded_frame:
         gate_stats = db_sample_metadata_queries.get_type_cohort_gate_stats(
@@ -327,9 +335,9 @@ def load_and_prepare_samples(
             require_effective_first_seen=require_effective_first_seen,
             include_family_canonical=include_families,
             exclude_family_canonical=sql_exclude_families,
+            include_governed_count=not loader_count_is_authoritative,
         )
         gate_stats_snapshot = dict(gate_stats)
-        cohort_readiness_report.print_cohort_sql_scope_gate_summary(gate_stats_snapshot)
     log_event(
         PIPELINE_LOGGER,
         "samples_stage_start",
@@ -388,6 +396,14 @@ def load_and_prepare_samples(
             include_family_canonical=include_families,
             exclude_family_canonical=sql_exclude_families,
         )
+    if loader_count_is_authoritative and not reuse_gate_stats_from_loaded_frame:
+        # The normal loader uses the same governed predicate and has just
+        # materialized every matching row.  Reusing its count avoids a second
+        # expensive full-cohort COUNT query while preserving the exact value.
+        loaded_count = int(len(samples_df))
+        gate_stats_snapshot["governed_cohort_count"] = loaded_count
+        gate_stats_snapshot["final_count_estimate"] = loaded_count
+        gate_stats_snapshot["gate_stats_mode"] = "aggregate_plus_loaded_governed_count"
     if reuse_gate_stats_from_loaded_frame:
         gate_stats_snapshot = _build_reused_gate_stats_snapshot(
             samples_df=samples_df,
@@ -397,6 +413,7 @@ def load_and_prepare_samples(
             sql_min_support=sql_min_support,
             sql_exclude_families=sql_exclude_families,
         )
+    if gate_stats_snapshot:
         cohort_readiness_report.print_cohort_sql_scope_gate_summary(gate_stats_snapshot)
     if exclude_unknown_type_slug:
         before_unknown = int(len(samples_df))

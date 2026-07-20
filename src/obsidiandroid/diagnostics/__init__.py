@@ -13,7 +13,6 @@ from . import alignment_gap_diagnostics
 from . import cohort_foundation_export
 from . import cohort_sample_id_audit
 from . import cohort_vocabulary
-from . import classification_summary
 from . import feature_builder_drop_trace
 from . import feature_build_coverage_export
 from . import feature_column_survival_export
@@ -39,7 +38,6 @@ __all__ = [
     "cohort_foundation_export",
     "cohort_sample_id_audit",
     "cohort_vocabulary",
-    "classification_summary",
     "feature_builder_drop_trace",
     "feature_build_coverage_export",
     "feature_column_survival_export",

@@ -1,7 +1,9 @@
 # Filename: train_model_executor.py
 # Purpose : Execute full training and evaluation pipeline for a given ML model
 
+from contextlib import contextmanager
 from pathlib import Path
+from threading import Event, Thread
 from time import time
 
 import pandas as pd
@@ -10,6 +12,7 @@ from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.common import output_paths
+from obsidiandroid.common.run_lifecycle import touch_run_lifecycle_running
 from obsidiandroid.modeling import ml_result_validator
 from obsidiandroid.observability.logging import get_logger, log_event
 
@@ -22,6 +25,44 @@ ML_LOGGER = get_logger(
     f"{getattr(app_config, 'APP_LOG_NAMESPACE', 'framework')}.ml.executor",
     "ml",
 )
+
+_MODEL_FIT_HEARTBEAT_SECONDS = 30.0
+
+
+@contextmanager
+def _model_fit_lifecycle_heartbeat(model_type: str):
+    """Keep the active-run marker fresh while an estimator is fitting.
+
+    Some estimator fits take several minutes without reaching a normal pipeline
+    checkpoint.  The marker is operational status only: this helper neither
+    changes model state nor writes research artifacts.
+    """
+    run_root_raw = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
+    if not run_root_raw:
+        yield
+        return
+
+    run_root = Path(run_root_raw)
+    stage = f"training:{model_type}"
+    stopped = Event()
+
+    def _refresh_until_stopped() -> None:
+        while not stopped.wait(_MODEL_FIT_HEARTBEAT_SECONDS):
+            touch_run_lifecycle_running(run_root, stage=stage)
+
+    touch_run_lifecycle_running(run_root, stage=stage)
+    worker = Thread(
+        target=_refresh_until_stopped,
+        name=f"obsidiandroid-run-heartbeat-{model_type}",
+        daemon=True,
+    )
+    worker.start()
+    try:
+        yield
+    finally:
+        stopped.set()
+        worker.join(timeout=1.0)
+        touch_run_lifecycle_running(run_root, stage=stage)
 
 
 def _model_output_root() -> Path:
@@ -71,8 +112,11 @@ def train_and_evaluate_model(
             features=int(features_df.shape[1]),
         )
 
-    # Train the model
-    result = train_model(model_type, features_df, labels)
+    # Keep the active-run marker fresh while a long estimator fit is in flight.
+    # This is deliberately scoped to fitting; later reporting retains its own
+    # stage transitions and checkpoints.
+    with _model_fit_lifecycle_heartbeat(model_type):
+        result = train_model(model_type, features_df, labels)
     required_result_keys = ("model", "X_test", "y_test", "label_encoder")
     if (
         not isinstance(result, dict)

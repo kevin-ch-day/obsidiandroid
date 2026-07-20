@@ -201,6 +201,7 @@ def build_feature_matrix_stage(
     """
     du.print_subheader("Build ML Feature Vectors")
     top_k = safe_int_config_value(getattr(app_config, "FEATURE_TOP_K", 8), default=8)
+    include_fields = _resolve_vendor_include_fields()
     score_field = str(getattr(app_config, "FEATURE_SCORE_FIELD", "Final ML Score"))
     if bool(getattr(app_config, "ENABLE_LEAKAGE_SAFE_VENDOR_SCORING", True)):
         leakage_safe_field = str(
@@ -212,7 +213,12 @@ def build_feature_matrix_stage(
         getattr(app_config, "FEATURE_EXCLUDE_VENDOR_CATEGORIES", [])
     )
     min_score = getattr(app_config, "FEATURE_MIN_VENDOR_SCORE", 0.0)
-    if ml_console.is_compact():
+    if not include_fields:
+        du.print_info(
+            "[FEATURE CONTRACT] Parsed vendor fields are disabled for this matrix; "
+            "vendor Top-K selection is not a headline-model input."
+        )
+    elif ml_console.is_compact():
         du.print_info(
             f"[PARAM] feature_top_k={top_k} | score_field='{score_field}' | min_vendor_score={min_score}"
         )
@@ -254,7 +260,7 @@ def build_feature_matrix_stage(
             score_preference=score_field,
             exclude_categories=exclude_categories,
             min_score=min_score,
-            include_fields=_resolve_vendor_include_fields(),
+            include_fields=include_fields,
             encoding="category",
             verbose=True,
             extra_features_df=extra_features,
@@ -285,6 +291,11 @@ def build_feature_matrix_stage(
             du.print_warning(
                 "[FEATURE BUILD] Vendor fallback engaged: "
                 f"added={fallback_added}, selected={selected_vendor_count}."
+            )
+        if selection_policy == "parser_disabled_no_predictive_fields":
+            du.print_info(
+                "[FEATURE CONTRACT] Parsed vendor metadata: 0 predictive columns by policy; "
+                "the requested vendor Top-K was not applied."
             )
         du.print_success(
             "[FEATURES] Built matrix: "

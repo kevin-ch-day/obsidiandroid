@@ -858,8 +858,8 @@ def test_print_research_questions_terminal_labels_vendor_merge_coverage_honestly
     )
 
     text = "\n".join(captured)
-    assert "parsed vendor weak-support coverage is full (100.0%)." in text
-    assert "parsed vendor weak-support coverage is sparse (100.0%)." not in text
+    assert "vendor weak-support coverage: full (100.0%)" in text
+    assert "vendor weak-support coverage: sparse (100.0%)" not in text
 
 
 def test_print_research_questions_terminal_compact_summary_omits_headline_task_boundary(
@@ -919,7 +919,7 @@ def test_print_research_questions_terminal_compact_summary_omits_headline_task_b
     )
 
     text = "\n".join(captured)
-    assert "Bottom line:" in text
+    assert "Assessment:" in text
     assert "Headline task boundary:" not in text
 
 
@@ -1032,7 +1032,7 @@ def test_terminal_summary_bottom_line_is_not_promising_for_weak_macro_f1() -> No
     )
 
     text = "\n".join(captured)
-    assert "Bottom line:" in text
+    assert "Assessment:" in text
     assert "treat this as weak evidence" in text
     assert "promising, not final proof" not in text
 
@@ -1101,14 +1101,16 @@ def test_terminal_summary_surfaces_dominant_blockers_for_weak_run(monkeypatch) -
     )
 
     text = "\n".join(captured)
-    assert "4. Dominant blockers:" in text
+    assert "Review first:" in text
     assert "supervised family claims are not yet suitable" in text
     assert "temporal holdout dropped 219 future-only family row(s)" in text
     assert "weighted F1 exceeds Macro-F1 by +0.1662" in text
     assert "cross-type confusions appear in 1/2 top confusion pairs" in text
 
 
-def test_print_research_questions_terminal_formats_failure_structure_compact_and_decodes_unresolved_ids() -> None:
+def test_print_research_questions_terminal_formats_failure_structure_and_decodes_unresolved_ids(
+    monkeypatch,
+) -> None:
     captured: list[str] = []
     captured_tables: list[pd.DataFrame] = []
 
@@ -1120,6 +1122,8 @@ def test_print_research_questions_terminal_formats_failure_structure_compact_and
         @staticmethod
         def print_table(df, **_kwargs) -> None:  # type: ignore[no-untyped-def]
             captured_tables.append(df.copy())
+
+    monkeypatch.setattr(app_config, "ML_TERMINAL_COMPACT", False, raising=False)
 
     rtq.print_research_questions_terminal(
         {

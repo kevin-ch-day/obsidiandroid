@@ -194,33 +194,31 @@ def run_permission_trends_report_stage(
         total = int(event.get("total_batches", 0) or 0)
         phase = str(event.get("phase", "")).strip().lower()
         if phase == "start":
-            requested = int(event.get("requested_sample_count", 0) or 0)
-            du.print_info(
-                f"[REPORT] Permission retrieval: batch {batch}/{total} "
-                f"({requested:,} sample IDs)"
-            )
+            # Completion rows carry the useful timing and row-count evidence;
+            # avoid emitting a second noisy line for every small DB batch.
             return
         if phase == "complete":
             returned = int(event.get("returned_row_count", 0) or 0)
             cumulative = int(event.get("cumulative_rows", 0) or 0)
             duration = du.format_elapsed_duration(event.get("query_duration_sec"))
             elapsed = du.format_elapsed_duration(event.get("elapsed_sec"))
-            du.print_info(f"[REPORT] Permission retrieval: batch {batch}/{total} complete")
-            print(
-                f"  Query: {duration} | Rows: {returned:,} | "
-                f"Cumulative rows: {cumulative:,} | Stage elapsed: {elapsed}"
+            du.print_info(
+                f"[REPORT] Permissions {batch}/{total} · {returned:,} rows · "
+                f"query {duration} · elapsed {elapsed} · cumulative {cumulative:,}"
             )
             return
         if phase == "governance_start":
             tokens = int(event.get("distinct_token_count", 0) or 0)
-            du.print_info(f"[REPORT] Permission governance: resolving {tokens:,} distinct tokens")
+            du.print_info(f"[REPORT] Permission governance: resolving {tokens:,} tokens")
             return
         if phase == "governance_complete":
             resolved = int(event.get("returned_token_count", 0) or 0)
             duration = du.format_elapsed_duration(event.get("query_duration_sec"))
             elapsed = du.format_elapsed_duration(event.get("elapsed_sec"))
-            du.print_info("[REPORT] Permission governance: complete")
-            print(f"  Mapped tokens: {resolved:,} | Query: {duration} | Stage elapsed: {elapsed}")
+            du.print_info(
+                f"[REPORT] Permission governance complete · {resolved:,} mapped · "
+                f"query {duration} · elapsed {elapsed}"
+            )
 
     permission_rows_df = _fetch_permission_rows_for_samples(
         sample_core_df["sample_id"].tolist(),
@@ -1191,8 +1189,6 @@ def run_permission_trends_report_stage(
     bundle_readme_path = _export_permission_trends_bundle_readme(run_id=run_id, bundle_dir=bundle_dir)
 
     bundle_zip_path = _zip_bundle(bundle_dir) if bool(getattr(app_config, "ENABLE_PERMISSION_TRENDS_BUNDLE_ZIP", False)) else ""
-    if not bundle_zip_path:
-        du.print_info("[REPORT] Bundle ZIP export disabled; keeping run-scoped folder only.")
 
     artifacts = ReportArtifacts(
         coverage_csv=coverage_csv,
@@ -1344,18 +1340,17 @@ def run_permission_trends_report_stage(
         except Exception as exc:
             du.print_warning(f"[WAREHOUSE] Skipped DB persistence due to error: {exc}")
     latest_copy_dir = None
-    if bool(getattr(app_config, "ENABLE_PERMISSION_TRENDS_LATEST_MIRROR", False)):
+    latest_mirror_enabled = bool(getattr(app_config, "ENABLE_PERMISSION_TRENDS_LATEST_MIRROR", False))
+    if latest_mirror_enabled:
         latest_copy_dir = _copy_permission_bundle_to_latest(bundle_dir=bundle_dir)
-    else:
-        du.print_info("[REPORT] Latest bundle mirror disabled; using run-scoped bundle as source of truth.")
-    # Paper exports are now authored strictly in stage_manifest only.
-    # Keep this stage focused on research bundle production.
-    du.print_info("[REPORT] Skipping legacy bundle->paper_exports mirror (stage_manifest is authoritative).")
+    if not bundle_zip_path and not latest_mirror_enabled:
+        du.print_info("[REPORT] Bundle policy: run-scoped folder only (ZIP and latest mirror disabled).")
     setattr(app_config, "RUNTIME_PERMISSION_BUNDLE_DIR", str(bundle_dir))
     setattr(app_config, "RUNTIME_PERMISSION_BUNDLE_ZIP", str(artifacts.bundle_zip))
     if latest_copy_dir is not None:
         setattr(app_config, "RUNTIME_PERMISSION_BUNDLE_LATEST_DIR", str(latest_copy_dir))
-    du.print_info(f"[REPORT] Permission trends artifacts:{du.format_console_path(bundle_dir)}")
+    du.print_info("[REPORT] Permission trends complete")
+    print(f"  Artifacts: {du.format_console_path(bundle_dir)}")
     return paths
 
 

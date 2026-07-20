@@ -137,3 +137,36 @@ def test_resolve_vendor_include_fields_requires_explicit_opt_in(monkeypatch) -> 
         "Threat Class",
         "Malware Type",
     ]
+
+
+def test_safe_feature_contract_explains_that_vendor_top_k_is_not_used(monkeypatch) -> None:
+    """Do not make a parser Top-K setting look like a headline feature input."""
+    monkeypatch.setattr(app_config, "ENABLE_LABEL_DERIVED_VENDOR_FEATURES", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_LEAKAGE_SAFE_VENDOR_SCORING", False, raising=False)
+    messages: list[str] = []
+    monkeypatch.setattr(stage_modeling.du, "print_info", lambda message: messages.append(str(message)))
+    monkeypatch.setattr(stage_modeling.du, "print_success", lambda _message: None)
+    matrix = pd.DataFrame({"perm__camera": [1]}, index=pd.Index([7], name="sample_id"))
+    matrix.attrs.update(
+        {
+            "selected_vendors": [],
+            "vendor_fallback_used": False,
+            "vendor_fallback_added_count": 0,
+            "vendor_selection_policy": "parser_disabled_no_predictive_fields",
+        }
+    )
+    monkeypatch.setattr(
+        stage_modeling.feature_vector_builder,
+        "build_feature_vector",
+        lambda **_kwargs: matrix,
+    )
+
+    out = stage_modeling.build_feature_matrix_stage(
+        weights_df=pd.DataFrame({"Vendor": ["engine_a"]}),
+        vendor_data={},
+        cohort_sample_ids=[7],
+    )
+
+    assert out is matrix
+    assert any("Top-K selection is not a headline-model input" in message for message in messages)
+    assert any("0 predictive columns by policy" in message for message in messages)

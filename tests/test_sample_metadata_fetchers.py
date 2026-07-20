@@ -286,6 +286,39 @@ def test_gate_stats_accounts_for_missing_hash_registry_rows(monkeypatch) -> None
     assert stats["final_count_estimate_sequential_legacy"] == 79
 
 
+def test_gate_stats_can_defer_governed_count_to_immediate_loader(monkeypatch) -> None:
+    """Normal runs can avoid a duplicate full-cohort COUNT before materialization."""
+    seen_labels: list[str] = []
+
+    def _fake_execute_query(query, params=None, **kwargs):
+        seen_labels.append(str(kwargs.get("log_label", "")))
+        assert "cohort_governed_count" not in str(query)
+        return (
+            [
+                "total_candidates",
+                "missing_sha256",
+                "missing_hash_registry",
+                "unmapped_family",
+                "missing_package",
+                "unknown_type_slug",
+                "weak_label_kind_rows",
+                "family_label_conflict_rows",
+                "low_support_rows",
+            ],
+            [(10, 0, 0, 0, 0, 0, 0, 0, 0)],
+        )
+
+    monkeypatch.setattr(fetchers.db_engine, "execute_query", _fake_execute_query)
+    stats = fetchers.get_type_cohort_gate_stats(
+        type_slug="banker",
+        include_governed_count=False,
+    )
+
+    assert stats["governed_cohort_count"] is None
+    assert stats["final_count_estimate"] is None
+    assert seen_labels == ["cohort_gate_stats_aggregate"]
+
+
 def test_fetch_min_support_subquery_reuses_sha_join_mode(monkeypatch) -> None:
     """Min-support family subquery should honor require_sha256 join semantics."""
     captured: dict[str, object] = {}

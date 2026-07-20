@@ -12,10 +12,6 @@ ML_TERMINAL_COMPACT = True
 ML_SHOW_METRIC_GUIDE = False
 ML_SHOW_LABEL_ENCODER_INFO = False
 ML_SHOW_PREDICTION_PREVIEWS = False
-ML_SHOW_CLASSIFIER_SUMMARY_TERMINAL = False
-# The timestamped text summary duplicates run-scoped structured metrics.  Keep
-# it opt-in for compatibility investigations rather than producing it per run.
-ML_WRITE_CLASSIFIER_SUMMARY_REPORT = False
 ML_SHOW_PER_FAMILY_TABLE = False
 # When per-family table is hidden, optionally show a small top-N preview.
 ML_SHOW_PER_FAMILY_PREVIEW_WHEN_HIDDEN = False

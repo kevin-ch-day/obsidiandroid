@@ -82,8 +82,7 @@ Future optional columns (non-blocking): `permission_group`, `dangerous_flag`, `o
 
 ---
 
-## Dry-run importer behavior (v2.2.0)
+## Historical fixture behavior
 
-The retired canonical-artifact planner may report the file as optional for
-historical fixture validation. It does not describe the active Core v1 schema
-and it performs no database writes.
+This export is optional in historical fixture validation. That fixture status
+does not change the run-scoped export contract or the active Core v1 schema.

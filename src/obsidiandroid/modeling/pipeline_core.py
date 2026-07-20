@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import contextlib
-import io
 import json
 import os
 import traceback
@@ -16,11 +15,11 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from config import app_config
-from obsidiandroid.diagnostics import classification_summary as inspector
 from obsidiandroid.evaluation import ml_comparator_summary as comparator
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console, output_hygiene as oh
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
+from obsidiandroid.common.run_lifecycle import touch_run_lifecycle_running
 from obsidiandroid.reporting import export_manager as em
 from obsidiandroid.reporting.operator_dashboard import bump_artifact_counter
 from obsidiandroid.observability.logging import get_logger, log_event
@@ -108,6 +107,12 @@ def _write_training_checkpoint(
         }
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        run_root = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
+        if run_root:
+            touch_run_lifecycle_running(
+                Path(run_root),
+                stage=(f"training:{model}" if model else "training"),
+            )
         return path
     except OSError:
         return None
@@ -391,10 +396,11 @@ def train_models(
             model=model_name,
         )
         quiet = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
-        if not quiet and not ml_console.is_minimal() and not defer_terminal:
-            du.print_subheader(f"[TRAINING] {model_name.upper()}")
+        if not quiet:
+            if not ml_console.is_minimal() and not defer_terminal:
+                du.print_subheader(f"[TRAINING] {model_name.upper()}")
             du.print_info(
-                f"[CHECKPOINT] {model_name} started; progress is recorded in "
+                f"[TRAINING] {model_name.replace('_', ' ')} started; progress is recorded in "
                 f"training_checkpoint_{oh.normalize_artifact_run_id(getattr(app_config, 'RUNTIME_RUN_ID', ''))}.json."
             )
 
@@ -608,38 +614,7 @@ def summarize_models(results: Dict[str, dict]) -> Optional[str]:
         top_model_key = None
         if isinstance(summary_df, pd.DataFrame) and not summary_df.empty:
             top_model_key = str(summary_df.iloc[0]["Model"])
-
         active_model_key = top_model_key if top_model_key in results else DEFAULT_MODEL_KEY
-        active_eval = results.get(active_model_key, {}).get("evaluation", {})
-        if active_eval:
-            show_classifier_summary = bool(
-                getattr(app_config, "ML_SHOW_CLASSIFIER_SUMMARY_TERMINAL", False)
-            )
-            write_legacy_classifier_summary = bool(
-                getattr(app_config, "ML_WRITE_CLASSIFIER_SUMMARY_REPORT", False)
-            )
-            if show_classifier_summary or write_legacy_classifier_summary:
-                summary_kwargs = {
-                    "accuracy": active_eval.get("accuracy"),
-                    "report_path": active_eval.get("confusion_matrix_path", "N/A"),
-                    "model_path": "N/A",
-                    "metadata": active_eval,
-                    "model_name": active_model_key,
-                    "write_report": write_legacy_classifier_summary,
-                }
-                if show_classifier_summary:
-                    inspector.generate_classification_summary(**summary_kwargs)
-                else:
-                    # Preserve opt-in legacy report generation without adding verbose terminal output.
-                    with contextlib.redirect_stdout(io.StringIO()):
-                        inspector.generate_classification_summary(**summary_kwargs)
-                if write_legacy_classifier_summary and not defer_terminal:
-                    du.print_info("[SUMMARY] Optional classifier summary report written (see diagnostics/).")
-            elif not defer_terminal:
-                du.print_info(
-                    "[SUMMARY] Structured model metrics are available in the run diagnostics; "
-                    "legacy classifier summary text is disabled."
-                )
 
         log_event(
             PIPELINE_LOGGER,
@@ -1214,9 +1189,17 @@ def train_all_models(
             return None
 
         trained = [m for m in results if m in ALL_SUPPORTED_MODELS]
-        du.print_info("[SUMMARY] Trained models:")
-        for model_name in trained:
-            print(f"             - {model_name}")
+        # Compact mode has already emitted the consolidated model leaderboard.
+        # Repeating this raw list immediately afterwards adds vertical noise
+        # without adding model or metric information.
+        from obsidiandroid.evaluation.ml_terminal_presentation import (
+            should_defer_headline_training_terminal,
+        )
+
+        if not should_defer_headline_training_terminal():
+            du.print_info("[SUMMARY] Trained models:")
+            for model_name in trained:
+                print(f"             - {model_name}")
         log_event(
             PIPELINE_LOGGER,
             "train_all_models_complete",

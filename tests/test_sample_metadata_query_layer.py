@@ -307,6 +307,7 @@ def test_stage_samples_reuses_loaded_frame_for_gate_stats_when_sql_slice_is_unli
                 {
                     "sample_id": 1,
                     "sha256": "a" * 64,
+                    "family_id": 1,
                     "family_canonical": "family_a",
                     "type_slug": "banker",
                     "permissions": 1,
@@ -316,6 +317,7 @@ def test_stage_samples_reuses_loaded_frame_for_gate_stats_when_sql_slice_is_unli
                 {
                     "sample_id": 2,
                     "sha256": "b" * 64,
+                    "family_id": 2,
                     "family_canonical": "family_b",
                     "type_slug": "rat",
                     "permissions": 1,

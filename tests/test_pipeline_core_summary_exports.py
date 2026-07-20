@@ -39,12 +39,6 @@ def test_summarize_models_exports_csv_and_skips_excel_by_default(
             ]
         ),
     )
-    monkeypatch.setattr(
-        pipeline_core.inspector,
-        "generate_classification_summary",
-        lambda **_kwargs: None,
-    )
-
     excel_calls = {"count": 0}
 
     def _fake_export_dataframe_to_excel(**_kwargs):
@@ -108,12 +102,6 @@ def test_summarize_models_paper_mode_filters_balanced_rf(
             ]
         ),
     )
-    monkeypatch.setattr(
-        pipeline_core.inspector,
-        "generate_classification_summary",
-        lambda **_kwargs: None,
-    )
-
     results = {
         "balanced_random_forest": {"evaluation": {"accuracy": 0.95, "macro_f1_score": 0.95}},
         "random_forest": {"evaluation": {"accuracy": 0.90, "macro_f1_score": 0.90}},
@@ -170,12 +158,6 @@ def test_summarize_models_exports_family_tier_evaluation_for_family_target(
         "compare_model_performance",
         lambda _results, **_kwargs: pd.DataFrame([{"Model": "random_forest", "Macro F1-Score": 0.80}]),
     )
-    monkeypatch.setattr(
-        pipeline_core.inspector,
-        "generate_classification_summary",
-        lambda **_kwargs: None,
-    )
-
     results = {
         "random_forest": {
             "evaluation": {
@@ -241,12 +223,6 @@ def test_summarize_models_skips_family_tier_evaluation_for_type_target(
         "compare_model_performance",
         lambda _results, **_kwargs: pd.DataFrame([{"Model": "logistic_regression", "Macro F1-Score": 0.70}]),
     )
-    monkeypatch.setattr(
-        pipeline_core.inspector,
-        "generate_classification_summary",
-        lambda **_kwargs: None,
-    )
-
     results = {
         "logistic_regression": {
             "evaluation": {

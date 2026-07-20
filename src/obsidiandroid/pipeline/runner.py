@@ -1132,14 +1132,19 @@ def run_pipeline(
                 except (TypeError, ValueError, ZeroDivisionError):
                     signal_rate = None
                 du.print_subheader("Feature matrix ready")
-                du.print_stat("Matrix", f"{int(row_n or 0):,} samples × {feature_df.shape[1]:,} columns")
-                du.print_stat("Permission columns", f"{int(pi_like or 0):,}")
+                du.print_stat(
+                    "Matrix",
+                    f"{int(row_n or 0):,} samples × {feature_df.shape[1]:,} columns",
+                    width=0,
+                )
+                du.print_stat("Permission columns", f"{int(pi_like or 0):,}", width=0)
                 if signal_rate is None:
-                    du.print_stat("Permission signal", f"{int(any_perm or 0):,} samples")
+                    du.print_stat("Permission signal", f"{int(any_perm or 0):,} samples", width=0)
                 else:
                     du.print_stat(
                         "Permission signal",
                         f"{int(any_perm or 0):,}/{int(row_n or 0):,} samples ({signal_rate:.1f}%)",
+                        width=0,
                     )
                 try:
                     fuse_audit = manifest_context.get("permission_fuse_audit")

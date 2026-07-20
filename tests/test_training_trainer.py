@@ -443,6 +443,48 @@ def test_train_and_evaluate_model_uses_configured_output_root_for_exports(
     assert captured["output_dir"] == (tmp_path / "output").resolve()
 
 
+def test_train_and_evaluate_model_refreshes_lifecycle_while_fitting(monkeypatch, tmp_path) -> None:
+    """A long model fit must keep the active-run marker from looking stale."""
+    monkeypatch.setattr(app_config, "ENABLE_ML_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ROOT", str(tmp_path / "run"), raising=False)
+    monkeypatch.setattr(train_model_executor, "announce_training", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(train_model_executor.ml_console, "is_minimal", lambda: True)
+    touches: list[str] = []
+    monkeypatch.setattr(
+        train_model_executor,
+        "touch_run_lifecycle_running",
+        lambda _path, *, stage: touches.append(stage),
+    )
+    monkeypatch.setattr(
+        train_model_executor,
+        "train_model",
+        lambda *_args, **_kwargs: {
+            "model": object(),
+            "X_test": pd.DataFrame({"f": [0.1]}),
+            "y_test": pd.Series([0]),
+            "label_encoder": object(),
+        },
+    )
+    monkeypatch.setattr(
+        train_model_executor,
+        "evaluate_model",
+        lambda **_kwargs: {"accuracy": 1.0, "f1_score": 1.0},
+    )
+    monkeypatch.setattr(train_model_executor.ml_result_validator, "validate_result_structure", lambda _result: True)
+    monkeypatch.setattr(train_model_executor, "display_post_training_metrics", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(train_model_executor, "run_predictions_and_compile_result", lambda *_args, **_kwargs: {"ok": True})
+
+    result = train_model_executor.train_and_evaluate_model(
+        model_type="random_forest",
+        features_df=pd.DataFrame({"f": [0.1, 0.2]}),
+        labels=pd.Series([0, 1]),
+        save_model=False,
+    )
+
+    assert result == {"ok": True}
+    assert touches == ["training:random_forest", "training:random_forest"]
+
+
 def test_train_and_evaluate_model_uses_frozen_schema_for_full_predictions(
     monkeypatch,
 ) -> None:

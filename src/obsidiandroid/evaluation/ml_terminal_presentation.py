@@ -32,6 +32,8 @@ def should_suppress_ablation_feature_build_terminal() -> bool:
     """Return True when ablation matrix builds should not spam per-set build logs."""
     if ml_console.is_debug():
         return False
+    if bool(getattr(app_config, "RUNTIME_ABLATION_FEATURE_BUILD_ACTIVE", False)):
+        return ml_console.is_compact()
     if not bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False)):
         return False
     return ml_console.is_compact()
@@ -452,18 +454,33 @@ def print_model_evaluation_terminal_summary(
     print("")
 
 
-def print_ablation_experiments_header(*, cohort_n: int, selected_vendors: int | str, effective_top_k: int | str) -> None:
+def print_ablation_experiments_header(
+    *,
+    cohort_n: int,
+    headline_selected_vendors: int | str,
+    ablation_requested_top_k: int | str,
+) -> None:
     """Print the ablation section header and purpose block."""
     if ml_console.is_minimal():
         return
     du.print_section("ABLATION EXPERIMENTS")
     print(
-        "Purpose              : Compare feature families and estimate how much signal\n"
-        "                       comes from permissions, vendor features, and fused inputs."
+        "Purpose: Compare feature families and estimate how much signal comes from\n"
+        "         permissions, vendor features, and fused inputs."
     )
-    du.print_stat("Cohort", f"{int(cohort_n):,} aligned samples")
-    du.print_stat("Selected vendors", selected_vendors)
-    du.print_stat("Effective top-k", effective_top_k)
+    # This is a compact operator block, not a fixed-width dashboard.  Keep
+    # each value beside its label rather than reserving the global stat column.
+    du.print_stat("Cohort", f"{int(cohort_n):,} aligned samples", width=0)
+    du.print_stat(
+        "Headline parsed-vendor fields",
+        f"disabled ({headline_selected_vendors} selected)",
+        width=0,
+    )
+    du.print_stat(
+        "Ablation lexical-vendor arms",
+        f"up to {ablation_requested_top_k} selected; actual counts shown below",
+        width=0,
+    )
     print("")
 
 
@@ -490,6 +507,7 @@ def print_ablation_feature_sets_built(
             {
                 "Feature set": row.get("feature_set", ""),
                 "Columns": row.get("columns", 0),
+                "Parser vendors": row.get("selected_vendors", "—"),
                 "Status": status,
             }
         )
@@ -526,8 +544,19 @@ def _primary_ablation_label_target(summary_df: pd.DataFrame) -> str:
     return targets[0] if targets else "family_canonical_default"
 
 
+def _ablation_target_label(label_target: str) -> str:
+    """Return a reader-facing label for a stored ablation target key."""
+    labels = {
+        "family_id": "Family classification",
+        "family_canonical_default": "Canonical-family classification",
+        "family_within_type": "Family classification within type",
+        "type_slug": "Malware-type classification",
+    }
+    return labels.get(str(label_target), str(label_target).replace("_", " ").title())
+
+
 def ablation_interpretation_lines(summary_df: pd.DataFrame) -> list[str]:
-    """Return compact ablation interpretation rows for terminal display."""
+    """Return factual, configuration-level ablation comparison rows."""
     if summary_df.empty:
         return []
 
@@ -546,46 +575,18 @@ def ablation_interpretation_lines(summary_df: pd.DataFrame) -> list[str]:
     )
 
     lines: list[str] = []
+    lines.append(f"Comparison target      : {_ablation_target_label(label_target)}")
     if permissions_raw is not None:
-        lines.append(f"Permissions raw       : {_fmt_metric(permissions_raw)} Macro-F1")
+        lines.append(f"Permissions (raw)     : {_fmt_metric(permissions_raw)} Macro-F1")
     if full_fused is not None:
         lines.append(f"Full fused            : {_fmt_metric(full_fused)} Macro-F1")
     if permissions_raw is not None and full_fused is not None:
-        lines.append(f"Permission gap        : {permissions_raw - full_fused:+.4f}")
+        lines.append(f"Fused − permissions   : {full_fused - permissions_raw:+.4f}")
     if vendor_parsed is not None and vendor_safe is not None:
-        lines.append(f"Vendor leakage gap    : {vendor_parsed - vendor_safe:+.4f}")
-
-    if permissions_raw is not None and full_fused is not None:
-        perm_gap = permissions_raw - full_fused
-        leak_gap = (vendor_parsed - vendor_safe) if vendor_parsed is not None and vendor_safe is not None else None
-        if perm_gap >= 0.02 and (leak_gap is None or leak_gap <= 0.02):
-            interpretation = (
-                "Permissions carry strong independent signal; fused gains are modest."
-            )
-        elif perm_gap >= 0.0 and leak_gap is not None and leak_gap > 0.02:
-            interpretation = (
-                "Permissions carry strong independent signal; parsed vendor-family "
-                "features remain leakage-sensitive."
-            )
-        elif leak_gap is not None and leak_gap > 0.02:
-            interpretation = (
-                "Parsed vendor-family features remain leakage-sensitive; permissions "
-                "add complementary but smaller lift."
-            )
-        elif perm_gap < -0.02:
-            interpretation = (
-                "Fused features outperform permissions-only signal; permission slice "
-                "is informative but not sufficient alone."
-            )
-        else:
-            interpretation = (
-                "Permissions and fused vendor features contribute comparable signal; "
-                "review leakage-sensitive vendor slices before claiming family separation."
-            )
-        wrapped = _wrap_terminal_prose(interpretation, indent="                       ")
-        lines.append("Interpretation        : " + wrapped[0])
-        for extra in wrapped[1:]:
-            lines.append("                       " + extra)
+        lines.append(f"Parsed-family contrast: {vendor_parsed - vendor_safe:+.4f}")
+    lines.append(
+        "Note                   : Descriptive configuration comparison; not causal feature attribution."
+    )
     return lines
 
 
@@ -611,7 +612,7 @@ def _wrap_terminal_prose(text: str, *, indent: str, width: int = 92) -> list[str
 
 
 def print_ablation_leaderboard_compact(leaderboard_rows: list[dict[str, Any]]) -> None:
-    """Print a compact ablation leaderboard focused on the primary family target."""
+    """Print one compact factual ablation summary for the primary family target."""
     if ml_console.is_minimal() or not leaderboard_rows:
         return
     if ml_console.is_debug():
@@ -621,32 +622,33 @@ def print_ablation_leaderboard_compact(leaderboard_rows: list[dict[str, Any]]) -
         leaderboard_rows[0],
     )
     label_target = str(primary.get("label_target", "family"))
-    du.print_subheader(
-        f"ABLATION LEADERBOARD — {label_target} (best Macro-F1 per slice)"
-    )
-    print(f"{'Slice':<16}{'Feature set':<28}{'Macro-F1':>10}")
-    print(f"{'Best overall':<16}{str(primary.get('best_feature_set', '—')):<28}{_fmt_metric(primary.get('best_macro_f1')):>10}")
+    du.print_subheader(f"ABLATION SUMMARY — {_ablation_target_label(label_target)}")
+    best_feature_set = str(primary.get("best_feature_set", "—"))
+    best_model = str(primary.get("best_model", "")).strip()
+    best_model_fragment = f" / {best_model}" if best_model else ""
+    print(f"Best Macro-F1         : {_fmt_metric(primary.get('best_macro_f1'))}")
+    print(f"Best configuration    : {best_feature_set}{best_model_fragment}")
     perm = str(primary.get("permission_only", "—"))
     vendor = str(primary.get("vendor_safe", "—"))
     fused = str(primary.get("full_fused", "—"))
     if perm != "—":
-        print(f"{'Permission-only':<16}{perm:<28}")
+        print(f"Permission-only       : {perm}")
     if vendor != "—":
-        print(f"{'Vendor-safe':<16}{vendor:<28}")
+        print(f"Vendor-NoFam          : {vendor}")
     if fused != "—":
-        print(f"{'Full fused':<16}{fused:<28}")
+        print(f"Full fused            : {fused}")
     print("")
 
 
 def print_ablation_interpretation_summary(summary_df: pd.DataFrame) -> None:
-    """Print the compact post-leaderboard ablation interpretation block."""
+    """Print the compact post-summary ablation comparison notes."""
     if ml_console.is_minimal():
         return
     lines = ablation_interpretation_lines(summary_df)
     if not lines:
         return
     print("")
-    du.print_subheader("ABLATION INTERPRETATION")
+    du.print_subheader("ABLATION COMPARISON NOTES")
     for line in lines:
         print(line)
 
@@ -662,8 +664,8 @@ def print_ablation_cohort_integrity_summary(
     if ml_console.is_minimal():
         return
     print("")
-    du.print_stat("Cohort integrity", "PASS" if missing_ids == 0 else "WARN")
-    du.print_stat("Aligned feature sets", f"{aligned_feature_sets} / {total_feature_sets}")
-    du.print_stat("Missing sample IDs", missing_ids)
+    du.print_stat("Cohort integrity", "PASS" if missing_ids == 0 else "WARN", width=0)
+    du.print_stat("Aligned feature sets", f"{aligned_feature_sets} / {total_feature_sets}", width=0)
+    du.print_stat("Missing sample IDs", missing_ids, width=0)
     if aligned_samples:
-        du.print_stat("Aligned samples", f"{int(aligned_samples):,}")
+        du.print_stat("Aligned samples", f"{int(aligned_samples):,}", width=0)

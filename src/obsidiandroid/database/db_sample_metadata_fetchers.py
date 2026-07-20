@@ -1228,6 +1228,7 @@ def _execute_samples_by_type_query(
         fetch=True,
         return_columns=True,
         as_dataframe=as_dataframe,
+        log_label=("cohort_sample_id_load" if id_only_projection else "cohort_metadata_load"),
     )
 
 
@@ -1247,6 +1248,7 @@ def get_type_cohort_gate_stats(
     exclude_family_ids: tuple[int, ...] | None = None,
     exclude_family_canonical: tuple[str, ...] | None = None,
     require_active_type_slug: bool = False,
+    include_governed_count: bool = True,
 ) -> dict:
     """Return SQL-scope diagnostic counts for the cohort loader (pre-``samples_df``).
 
@@ -1257,6 +1259,9 @@ def get_type_cohort_gate_stats(
       (cohort **SQL profile scope** head count).
     * ``governed_cohort_count`` / ``final_count_estimate`` — same value: authoritative
       COUNT for the full conjunctive cohort predicate used by ``load_samples_by_type``.
+      Callers that will immediately materialize that loader may set
+      ``include_governed_count=False`` and fill this exact value from the loaded
+      frame, avoiding a duplicate full-cohort scan.
     * ``final_count_estimate_sequential_legacy`` — legacy marginal subtraction; diagnostic
       only when it disagrees with ``governed_cohort_count``.
 
@@ -1411,6 +1416,7 @@ def get_type_cohort_gate_stats(
         params=tuple(aggregate_params),
         fetch=True,
         return_columns=True,
+        log_label="cohort_gate_stats_aggregate",
     )
     aggregate_map = {
         str(columns[idx]): int((rows[0][idx] if rows else 0) or 0)
@@ -1448,7 +1454,9 @@ def get_type_cohort_gate_stats(
     )
     governed_where = " AND ".join(loader_parts["where_clauses"])
     governed_params = tuple(loader_parts["params"])
-    governed_sql = f"""
+    governed_cohort_count: int | None = None
+    if include_governed_count:
+        governed_sql = f"""
         SELECT COUNT(*) AS c /* cohort_governed_count */
         FROM malware_sample_catalog y
         {loader_parts["hash_join_clause"]}
@@ -1458,13 +1466,14 @@ def get_type_cohort_gate_stats(
         LEFT JOIN android_malware_type t ON t.type_id = f.primary_type_id
         WHERE {governed_where}
     """
-    _gcolumns, grows = db_engine.execute_query(
-        governed_sql,
-        params=governed_params,
-        fetch=True,
-        return_columns=True,
-    )
-    governed_cohort_count = int(grows[0][0]) if grows else 0
+        _gcolumns, grows = db_engine.execute_query(
+            governed_sql,
+            params=governed_params,
+            fetch=True,
+            return_columns=True,
+            log_label="cohort_governed_count",
+        )
+        governed_cohort_count = int(grows[0][0]) if grows else 0
 
     # Legacy sequential estimate (marginal buckets can overlap — diagnostic only).
     final_count_legacy = total_candidates

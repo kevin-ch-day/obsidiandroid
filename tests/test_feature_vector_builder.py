@@ -179,6 +179,50 @@ def test_build_feature_vector_default_excludes_label_derived_vendor_fields(monke
     assert {"perm__internet", "malicious_ratio"}.issubset(out.columns)
 
 
+def test_ablation_vendor_build_preserves_headline_runtime_contract(monkeypatch) -> None:
+    """Ablation-only lexical arms must not overwrite headline vendor state or artifacts."""
+    monkeypatch.setattr(app_config, "RUNTIME_ABLATION_FEATURE_BUILD_ACTIVE", True, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_K_REQUESTED", 0, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_EFFECTIVE_TOP_K", 0, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_VENDOR_SELECTION_POLICY", "parser_disabled_no_predictive_fields", raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_VENDOR_FALLBACK_USED", False, raising=False)
+    monkeypatch.setattr(
+        feature_vector_builder,
+        "_export_pre_gate_vendor_scores",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("ablation must not rewrite headline pre-gate artifact")),
+    )
+    monkeypatch.setattr(
+        feature_vector_builder,
+        "_export_vendor_gate_debug",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("ablation must not rewrite headline gate artifact")),
+    )
+    monkeypatch.setattr(feature_vector_builder, "_select_top_vendors", lambda *_args, **_kwargs: ["lionic"])
+
+    out = feature_vector_builder.build_feature_vector(
+        weights_df=pd.DataFrame({"Vendor": ["lionic"], "Leakage Safe Score": [0.9]}),
+        parsed_vendor_data={
+            "lionic": pd.DataFrame(
+                {
+                    "sample_id": [1, 2],
+                    "Parsed Family": ["alpha", "beta"],
+                    "Threat Class": ["trojan", "trojan"],
+                    "Malware Type": ["banker", "banker"],
+                }
+            )
+        },
+        include_fields=["Parsed Family"],
+        top_k=1,
+        verbose=False,
+        cohort_sample_ids=[1, 2],
+    )
+
+    assert out.attrs["selected_vendors"] == ["lionic"]
+    assert app_config.RUNTIME_K_REQUESTED == 0
+    assert app_config.RUNTIME_EFFECTIVE_TOP_K == 0
+    assert app_config.RUNTIME_VENDOR_SELECTION_POLICY == "parser_disabled_no_predictive_fields"
+    assert app_config.RUNTIME_VENDOR_FALLBACK_USED is False
+
+
 def test_merge_extra_features_coerces_object_perm_columns_numeric() -> None:
     """Permission bag columns must not use categorical codes (object dtype from CSV joins)."""
     encoded = pd.DataFrame(

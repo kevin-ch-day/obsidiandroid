@@ -1335,6 +1335,13 @@ def print_research_questions_terminal(
     """Print DATASET FOUNDATION, MODALITY CONTRIBUTION, MODEL FAILURE, and RESEARCH RUN SUMMARY."""
     from obsidiandroid.reporting import high_score_skeptic_terminal as _hssa
 
+    # Normal operator runs need the decision surface, not a second rendering of
+    # every diagnostic already written to the run folder.  Research/debug mode
+    # retains the detailed benchmark, modality, failure, and skeptic blocks.
+    if bool(getattr(app_config, "ML_TERMINAL_COMPACT", True)):
+        _print_compact_research_run_summary(bundle=bundle, pr=pr, du=du)
+        return
+
     sk = bundle.get("skeptic_audits")
     if isinstance(sk, dict) and sk:
         _hssa.print_scope_of_headline_score_terminal(sk, pr=pr, du=du)
@@ -1511,7 +1518,7 @@ def print_research_questions_terminal(
         _hssa.print_skeptic_audit_followup_terminal(sk2, pr=pr, du=du)
 
     du.print_section("RESEARCH RUN SUMMARY")
-    compact = bool(getattr(app_config, "ML_TERMINAL_COMPACT", True))
+    compact = False
     gov_n = q1.get("governed_samples", "—")
     fam_n = q1.get("families_represented", "—")
     typ_n = q1.get("malware_types_represented", "—")
@@ -1601,5 +1608,63 @@ def print_research_questions_terminal(
         f"   Governed cohort ≈ {gov_n} samples / {fam_gov} visible families; headline training applies to "
         f"≈ {train_n} samples / {fam_tr} active benchmark family classes"
         + (f" after dropping ≈{drop_s} samples from low-support families." if drop_s else ".")
+    )
+    pr("")
+
+
+def _print_compact_research_run_summary(
+    *,
+    bundle: Mapping[str, Any],
+    pr: Callable[[str], None],
+    du: Any,
+) -> None:
+    """Render the small, decision-oriented end-of-run research summary."""
+    q1 = bundle.get("q1") if isinstance(bundle.get("q1"), dict) else {}
+    q2 = bundle.get("q2") if isinstance(bundle.get("q2"), dict) else {}
+    mk = str(bundle.get("model_key") or "random_forest")
+    gov_n = q1.get("governed_samples", "—")
+    fam_n = q1.get("families_represented", "—")
+    typ_n = q1.get("malware_types_represented", "—")
+    t5 = float((q1.get("concentration") or {}).get("top5_share_pct") or 0)
+    raw_perm_n = int(q2.get("permission_raw_observation_n") or 0)
+    raw_perm_pct = float(q2.get("permission_raw_observation_pct") or 0)
+    fused_perm_n = int(q2.get("permission_signal_n") or 0)
+    fused_perm_pct = float(q2.get("permission_signal_pct") or 0)
+    vendor_merge_pct = float(q2.get("vendor_merge_pct") or 0)
+    vendor_merge_label = _vendor_merge_coverage_label(vendor_merge_pct)
+    bottom_line = _bottom_line_interpretation(macro_f1=float(bundle.get("macro_f1") or 0))
+    summary_blockers = _research_run_summary_blockers(dict(bundle))
+
+    du.print_section("RESEARCH RUN SUMMARY")
+    pr("Cohort:")
+    pr(
+        f"  {gov_n} governed samples · {fam_n} visible families · {typ_n} types · "
+        f"top-5 share {t5:.2f}%"
+    )
+    pr("Model:")
+    pr(
+        f"  {mk} · Macro-F1={float(bundle.get('macro_f1') or 0):.4f} · "
+        f"weighted F1={float(bundle.get('wf1') or 0):.4f}"
+    )
+    if bundle.get("balanced_accuracy") is not None:
+        pr(f"  Balanced accuracy={float(bundle.get('balanced_accuracy') or 0):.4f}")
+    pr("Modality:")
+    if fused_perm_n == 0 and raw_perm_n > 0:
+        pr(
+            f"  Raw permission observations: {raw_perm_pct:.1f}% · "
+            f"fused permission features absent · vendor weak-support coverage: "
+            f"{vendor_merge_label} ({vendor_merge_pct:.1f}%)"
+        )
+    else:
+        pr(
+            f"  Permission signal: {fused_perm_pct:.1f}% · vendor weak-support coverage: "
+            f"{vendor_merge_label} ({vendor_merge_pct:.1f}%)"
+        )
+    pr(f"Assessment: {bottom_line}")
+    if summary_blockers:
+        pr("Review first: " + "; ".join(summary_blockers) + ".")
+    pr(
+        "Details: `dataset_foundation_summary.md` | `modality_contribution_summary.md` | "
+        "`model_and_family_failure_summary.md`"
     )
     pr("")

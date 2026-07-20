@@ -215,12 +215,10 @@ def test_emit_research_operator_report_surfaces_runtime_caveats(
     assert "Taxonomy mismatches: total=377; claim-facing=0." in text
     assert "policy-held generic/coarse token residue" in text
     assert "Taxonomy curation discipline: high-priority conflicts=9/12; dominant action=review_db_type_mapping (7); dominant issue=type_mismatch (7)." in text
-    assert "Focus area: Android missing-resolution backlog (3 row(s))" in text
-    assert "Source: live DB current-state view, not frozen run snapshot" in text
-    assert "Focus detail: freshness=current; top_lane=blank_package_review" in text
-    assert "Missing primary labels: 153" in text
-    assert "Priority queue: True unresolved family debt" not in text
-    assert "Priority queue: Android missing-resolution triage [freshness=current]" in text
+    assert "Focus: Android missing-resolution backlog (3 rows)" in text
+    assert "Status: freshness=current; top_lane=blank_package_review" in text
+    assert "Next action:" in text
+    assert "Priority queue:" not in text
     assert f"backlog_debt_summary_{run_id}.md" in text
     backlog_md = diagnostics_dir / f"backlog_debt_summary_{run_id}.md"
     assert backlog_md.is_file()
@@ -1473,6 +1471,7 @@ def test_emit_research_operator_report_surfaces_support_threshold_tracks(
         lambda *_args, **_kwargs: diagnostics_dir / "index.md",
     )
     monkeypatch.setattr("obsidiandroid.cli.ui.display.print_section", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(app_config, "ML_TERMINAL_COMPACT", False, raising=False)
 
     captured: list[str] = []
     operator_dashboard.clear_operator_state()
@@ -1625,7 +1624,7 @@ def test_emit_research_operator_report_downgrades_claim_readiness_for_weak_famil
     text = "\n".join(captured)
     assert "Claim status                    : LIMITED" in text
     assert "headline family Macro-F1 is weak (0.3261)." in text
-    assert "dataset foundation does not mark supervised family claims as suitable." in text
+    assert "dataset foundation has not passed the stricter supervised-family suitability gate." in text
     assert "temporal holdout dropped 219 future-only family row(s)." in text
     assert "Claim status                    : STRONG" not in text
     assert "Claim status                    : STRONG_WITH_CAUTIONS" not in text

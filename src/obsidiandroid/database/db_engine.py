@@ -523,8 +523,13 @@ def execute_query(
     return_columns=False,
     as_dataframe=False,
     as_namedtuple=False,
+    log_label: str = "sql",
 ):
-    """Execute SQL against the primary Erebus database (samples, VT, catalog)."""
+    """Execute SQL against the primary Erebus database (samples, VT, catalog).
+
+    ``log_label`` is a stable, non-secret operation name for performance
+    diagnostics. It never includes SQL text or bound values.
+    """
     started = perf_counter()
     with database_connection() as conn:
         return _run_query(
@@ -536,7 +541,7 @@ def execute_query(
             as_dataframe=as_dataframe,
             as_namedtuple=as_namedtuple,
             started=started,
-            log_label="sql",
+            log_label=str(log_label or "sql"),
         )
 
 

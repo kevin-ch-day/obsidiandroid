@@ -32,7 +32,9 @@ def classify_scientific_adequacy(
     elif macro < 0.60:
         blockers.append(f"headline family Macro-F1 is mixed ({macro:.4f})")
     if not bool(supervised_family_claims_suitable):
-        blockers.append("dataset foundation does not mark supervised family claims as suitable")
+        blockers.append(
+            "dataset foundation has not passed the stricter supervised-family suitability gate"
+        )
     if dropped > 0:
         blockers.append(f"temporal holdout dropped {dropped} future-only family row(s)")
 

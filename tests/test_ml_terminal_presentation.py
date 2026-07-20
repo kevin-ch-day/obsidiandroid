@@ -17,6 +17,28 @@ def test_should_defer_headline_training_terminal_respects_ablation(monkeypatch) 
     assert ml_term.should_defer_headline_training_terminal() is False
 
 
+def test_ablation_feature_build_suppression_applies_before_grid_execution(monkeypatch) -> None:
+    """Matrix construction must be quiet before the later training flag is enabled."""
+    monkeypatch.setattr(app_config, "ML_TERMINAL_COMPACT", True, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_ABLATION_ACTIVE", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_ABLATION_FEATURE_BUILD_ACTIVE", True, raising=False)
+    assert ml_term.should_suppress_ablation_feature_build_terminal() is True
+
+
+def test_ablation_header_distinguishes_headline_and_ablation_vendor_contracts(capsys) -> None:
+    ml_term.print_ablation_experiments_header(
+        cohort_n=2848,
+        headline_selected_vendors=0,
+        ablation_requested_top_k=8,
+    )
+    out = capsys.readouterr().out
+    assert "Cohort: 2,848 aligned samples" in out
+    assert "Headline parsed-vendor fields" in out
+    assert "disabled (0 selected)" in out
+    assert "Ablation lexical-vendor arms" in out
+    assert "up to 8 selected" in out
+
+
 def test_format_population_terminal_lines_uses_runtime_counters(monkeypatch) -> None:
     monkeypatch.setattr(app_config, "RUNTIME_ALIGNED_ROWS_BEFORE_LOW_SUPPORT_FILTER", 5286, raising=False)
     monkeypatch.setattr(app_config, "RUNTIME_POST_LOW_SUPPORT_TRAINING_ROWS", 5235, raising=False)
@@ -144,11 +166,11 @@ def test_ablation_interpretation_lines_use_primary_family_target() -> None:
         ]
     )
     lines = ml_term.ablation_interpretation_lines(summary_df)
-    assert any("Permissions raw" in line and "0.6890" in line for line in lines)
+    assert any("Permissions (raw)" in line and "0.6890" in line for line in lines)
     assert any("Full fused" in line and "0.7234" in line for line in lines)
-    assert any("Permission gap" in line and "-0.0344" in line for line in lines)
-    assert any("Vendor leakage gap" in line and "+0.1282" in line for line in lines)
-    assert any(line.startswith("Interpretation") for line in lines)
+    assert any("Fused − permissions" in line and "+0.0344" in line for line in lines)
+    assert any("Parsed-family contrast" in line and "+0.1282" in line for line in lines)
+    assert any(line.startswith("Note") for line in lines)
 
 
 def test_print_ablation_leaderboard_compact_uses_family_id_row(capsys) -> None:
@@ -172,7 +194,9 @@ def test_print_ablation_leaderboard_compact_uses_family_id_row(capsys) -> None:
     ]
     ml_term.print_ablation_leaderboard_compact(rows)
     out = capsys.readouterr().out
-    assert "family_id" in out.lower()
+    assert "FAMILY CLASSIFICATION" in out
+    assert "Best Macro-F1         : 0.7234" in out
+    assert "Best configuration    : full_fused" in out
     assert "0.7234" in out
     assert "permissions_raw" in out
 
