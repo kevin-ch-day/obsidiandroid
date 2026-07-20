@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 import json
 from pathlib import Path
 import secrets
-import stat
 from typing import Any
 
 import mysql.connector
@@ -70,6 +69,18 @@ def _write_secret(path: Path, values: dict[str, str]) -> None:
     temporary.replace(path)
 
 
+def _write_receipt(path: Path, payload: dict[str, Any]) -> None:
+    """Write a credential-free receipt once, with private local permissions."""
+    if path.exists():
+        raise RuntimeError(f"Refusing to overwrite an existing service-account receipt: {path}")
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.parent.chmod(0o700)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.chmod(0o600)
+    temporary.replace(path)
+
+
 def _assert_absent(cursor) -> None:
     for name in ROLES.values():
         cursor.execute("SELECT COUNT(*) FROM mysql.user WHERE User=%s AND Host=%s", (name, HOST))
@@ -77,10 +88,14 @@ def _assert_absent(cursor) -> None:
             raise RuntimeError(f"Refusing to alter existing account {name!r}@{HOST!r}")
 
 
-def _create_accounts(cursor, passwords: dict[str, str]) -> None:
+def _create_accounts(cursor, passwords: dict[str, str]) -> list[str]:
+    """Create accounts one by one so a failure receipt can name partial effects."""
+    created: list[str] = []
     for role, name in ROLES.items():
         lock = " ACCOUNT LOCK" if role == "core_migrator" else ""
         cursor.execute(f"CREATE USER '{name}'@'{HOST}' IDENTIFIED BY %s{lock}", (passwords[role],))
+        created.append(role)
+    return created
 
 
 def _plugin_inventory(cursor) -> dict[str, str]:
@@ -127,6 +142,27 @@ def _write_credential_references(secret_root: Path, passwords: dict[str, str], r
     return records
 
 
+def _failure_receipt(
+    *,
+    created_roles: list[str],
+    applied_grants: list[str],
+    credential_reference_state: str,
+    error: Exception,
+) -> dict[str, Any]:
+    """Describe DDL side effects without retaining error text or credentials."""
+    return {
+        "receipt_version": "core-service-account-grants-v1",
+        "status": "failed",
+        "failed_at_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "host": HOST,
+        "created_roles": created_roles,
+        "applied_grant_statements": applied_grants,
+        "credential_reference_state": credential_reference_state,
+        "error_type": type(error).__name__,
+        "operator_action": "Inspect only the listed task-created identities and grants; preserve this receipt before any targeted cleanup.",
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
@@ -140,34 +176,58 @@ def main() -> int:
     if not args.apply:
         print(json.dumps({"dry_run": True, "plan": plan}, indent=2, sort_keys=True))
         return 0
+    if args.receipt.exists():
+        raise SystemExit("Refusing: service-account receipt path already exists")
     passwords = {role: secrets.token_urlsafe(32) for role in ROLES}
     connection = _connect(args.option_file)
     cursor = connection.cursor()
     created: list[str] = []
+    applied_grants: list[str] = []
+    credential_reference_state = "not_attempted"
     try:
         _assert_absent(cursor)
-        _write_credential_references(args.secret_root, passwords, Path.cwd())
-        _create_accounts(cursor, passwords)
+        created = _create_accounts(cursor, passwords)
         for statement in grant_plan():
             cursor.execute(statement)
+            applied_grants.append(statement)
         connection.commit()
-        created = list(ROLES)
+        credential_reference_state = "writing"
+        credential_references = _write_credential_references(args.secret_root, passwords, Path.cwd())
+        credential_reference_state = "written"
         receipt = {
             "receipt_version": "core-service-account-grants-v1",
+            "status": "applied",
             "applied_at_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "host": HOST,
             "created_roles": created,
             "authentication_plugins": _plugin_inventory(cursor),
             "migrator_locked": True,
             "grant_statements": list(grant_plan()),
-            "credential_references": _write_credential_references(args.secret_root, passwords, Path.cwd()),
+            "credential_references": credential_references,
             "persistence_enabled": False,
         }
-        args.receipt.parent.mkdir(parents=True, exist_ok=True)
-        args.receipt.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        _write_receipt(args.receipt, receipt)
         print("APPLIED roles=" + ",".join(created) + " host=" + HOST)
-    except Exception:
-        connection.rollback()
+    except Exception as exc:
+        # MariaDB account/grant DDL can commit independently. A rollback cannot
+        # be represented as a complete undo, so preserve the narrow effect list.
+        try:
+            connection.rollback()
+        except Exception:
+            pass
+        if not args.receipt.exists():
+            try:
+                _write_receipt(
+                    args.receipt,
+                    _failure_receipt(
+                        created_roles=created,
+                        applied_grants=applied_grants,
+                        credential_reference_state=credential_reference_state,
+                        error=exc,
+                    ),
+                )
+            except Exception:
+                pass
         raise
     finally:
         cursor.close()

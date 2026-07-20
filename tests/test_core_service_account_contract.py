@@ -14,6 +14,10 @@ def test_account_script_uses_local_hosts_and_narrow_grants() -> None:
     assert "ACCOUNT LOCK" in text
     assert "GRANT DELETE" not in text
     assert "Password123" not in text
+    assert '"status": "failed"' in text
+    assert "credential_reference_state" in text
+    assert text.index("created = _create_accounts") < text.index("credential_references = _write_credential_references")
+    assert "Refusing to overwrite an existing service-account receipt" in text
 
 
 def test_read_only_audit_checks_privilege_separation() -> None:
