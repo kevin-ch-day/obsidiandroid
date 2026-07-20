@@ -44,3 +44,6 @@ def test_execution_command_has_no_source_extract_or_normal_pipeline_import() -> 
     assert "run_pipeline" not in text
     assert "OBSIDIAN_DB_" not in text
     assert "EXECUTE_APPROVED_PHASE2C_IMPORT" in text
+    assert "--credential-file" in text
+    assert "--core-option-file" not in text
+    assert "option_files=" not in text

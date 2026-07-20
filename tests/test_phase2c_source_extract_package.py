@@ -9,6 +9,7 @@ from pathlib import Path
 from obsidiandroid.core_migration.mapping import CoreImportError, SOURCE_SURFACES
 from obsidiandroid.core_migration.source_extracts import load_verified_source_extract_package, validate_source_extract_manifest
 from scripts.core_migration.create_phase2c_source_extract import _write_package
+from scripts.core_migration.create_phase2c_source_extract import _connection_encoding
 
 
 def _source_rows() -> dict[str, list[dict]]:
@@ -83,3 +84,16 @@ def test_phase2c_source_extract_reader_rejects_a_tampered_payload(tmp_path: Path
         assert "hash mismatch" in str(exc)
     else:
         raise AssertionError("tampered source payload was unexpectedly accepted")
+
+
+def test_phase2c_encoding_probe_uses_named_dictionary_fields() -> None:
+    assert _connection_encoding({"character_set_connection": "utf8mb4", "collation_connection": "utf8mb4_unicode_ci"}) == {
+        "character_set_connection": "utf8mb4", "collation_connection": "utf8mb4_unicode_ci"
+    }
+    for row in (None, {"character_set_connection": "latin1", "collation_connection": "latin1_swedish_ci"}, {"character_set_connection": "utf8mb4"}):
+        try:
+            _connection_encoding(row)
+        except RuntimeError as exc:
+            assert "credential" not in str(exc).casefold()
+        else:
+            raise AssertionError("invalid encoding attestation was unexpectedly accepted")

@@ -81,3 +81,6 @@ def test_auditor_command_has_no_import_or_source_extract_dependency() -> None:
     assert "execute_import_plan" not in text
     assert "create_phase2c_source_extract" not in text
     assert "obsidiandroid_core_auditor@localhost" in text
+    assert "--credential-file" in text
+    assert "--core-auditor-option-file" not in text
+    assert "option_files=" not in text

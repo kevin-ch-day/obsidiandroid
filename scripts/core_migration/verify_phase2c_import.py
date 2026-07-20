@@ -25,6 +25,7 @@ prepare_script_runtime(__file__)
 from obsidiandroid.core_migration.authorization import PRODUCTION_CORE_SCHEMA
 from obsidiandroid.core_migration.importer import validate_import_plan
 from obsidiandroid.core_migration.mapping import CoreImportError
+from obsidiandroid.core_migration.private_credentials import Phase2CCredentialRole, load_phase2c_credentials
 from obsidiandroid.core_migration.reconciliation import reconcile_destination_rows
 
 
@@ -124,16 +125,19 @@ def _write_receipt(path: Path, receipt: dict[str, Any]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", type=Path, required=True)
-    parser.add_argument("--core-auditor-option-file", type=Path, required=True)
+    parser.add_argument("--credential-file", type=Path, required=True, help="0600 provisioned Core-auditor .env file")
     parser.add_argument("--verification-receipt", type=Path, required=True)
     args = parser.parse_args()
     receipt_path = _new_receipt(args.verification_receipt)
     receipt: dict[str, Any] = {"receipt_version": "phase2c-import-verification-v1", "started_at_utc": _utc_now(), "status": "rejected"}
     try:
         plan = _load_plan(_private_regular_file(args.plan, label="import plan"))
-        option_file = _private_regular_file(args.core_auditor_option_file, label="Core auditor option file")
+        credentials = load_phase2c_credentials(args.credential_file, Phase2CCredentialRole.CORE_AUDITOR)
         receipt.update({"plan_sha256": plan["plan_sha256"], "source_run_id": plan["source_run_id"]})
-        connection = mysql.connector.connect(option_files=str(option_file), database=PRODUCTION_CORE_SCHEMA, autocommit=False)
+        connection = mysql.connector.connect(
+            host=credentials.host, port=credentials.port, user=credentials.user,
+            password=credentials.password, database=PRODUCTION_CORE_SCHEMA, autocommit=False,
+        )
         try:
             observed = collect_observed_rows(connection, plan)
         finally:

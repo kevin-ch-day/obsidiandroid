@@ -26,6 +26,11 @@ from scripts._bootstrap import prepare_script_runtime
 prepare_script_runtime(__file__)
 
 from obsidiandroid.core_migration.mapping import SOURCE_SURFACES
+from obsidiandroid.core_migration.private_credentials import (
+    Phase2CCredentials,
+    Phase2CCredentialRole,
+    load_phase2c_credentials,
+)
 from obsidiandroid.core_migration.source_extracts import (
     SOURCE_EXTRACT_MANIFEST_VERSION,
     canonical_hash,
@@ -86,42 +91,31 @@ def _canonical_jsonl(rows: list[dict[str, Any]]) -> bytes:
     return (("\n".join(lines) + "\n") if lines else "").encode("utf-8")
 
 
-def _read_private_env(path: Path) -> dict[str, str]:
-    path = Path(path).expanduser()
-    try:
-        mode = path.stat().st_mode & 0o777
-    except OSError as exc:
-        raise RuntimeError("Dedicated Erebus reader credential file is unavailable") from exc
-    if not path.is_file() or mode & 0o077:
-        raise RuntimeError("Dedicated Erebus reader credential file must be private (0600)")
-    values: dict[str, str] = {}
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        key, separator, value = line.partition("=")
-        if not separator or not key or not value:
-            raise RuntimeError("Dedicated Erebus reader credential file has an invalid entry")
-        values[key] = value
-    required = ("OBSIDIANDROID_DB_HOST", "OBSIDIANDROID_DB_PORT", "OBSIDIANDROID_DB_USER", "OBSIDIANDROID_DB_PASSWORD", "OBSIDIANDROID_DB_NAME")
-    if any(not values.get(key) for key in required):
-        raise RuntimeError("Dedicated Erebus reader credential file is incomplete")
-    if values["OBSIDIANDROID_DB_NAME"] != SOURCE_SCHEMA or values["OBSIDIANDROID_DB_USER"] != "obsidiandroid_erebus_reader":
-        raise RuntimeError("Refusing a credential that is not the dedicated approved Erebus reader")
-    return values
-
-
-def _connect(reader_env: dict[str, str]):
+def _connect(credentials: Phase2CCredentials):
     return mysql.connector.connect(
-        host=reader_env["OBSIDIANDROID_DB_HOST"],
-        port=int(reader_env["OBSIDIANDROID_DB_PORT"]),
-        user=reader_env["OBSIDIANDROID_DB_USER"],
-        password=reader_env["OBSIDIANDROID_DB_PASSWORD"],
+        host=credentials.host,
+        port=credentials.port,
+        user=credentials.user,
+        password=credentials.password,
         database=SOURCE_SCHEMA,
         charset="utf8mb4",
         autocommit=False,
         connection_timeout=30,
     )
+
+
+def _connection_encoding(encoding_row: dict[str, Any] | None) -> dict[str, str]:
+    """Validate the named encoding attestation returned by a dictionary cursor."""
+    if not isinstance(encoding_row, dict):
+        raise RuntimeError("Phase 2C extraction requires an encoding attestation row")
+    try:
+        character_set = str(encoding_row["character_set_connection"])
+        collation = str(encoding_row["collation_connection"])
+    except KeyError as exc:
+        raise RuntimeError("Phase 2C extraction encoding attestation is incomplete") from exc
+    if character_set.casefold() != "utf8mb4" or not collation:
+        raise RuntimeError("Phase 2C extraction requires an utf8mb4 MariaDB connection")
+    return {"character_set_connection": character_set, "collation_connection": collation}
 
 
 def _write_package(
@@ -216,15 +210,16 @@ def main() -> int:
         raise SystemExit("Refusing: pass --approve-read-only-extract after separate approval")
     if args.run_id != FIXTURE_RUN_ID:
         raise SystemExit(f"Refusing: Phase 2C is approved only for fixture {FIXTURE_RUN_ID}")
-    reader_env = _read_private_env(args.credential_file)
-    connection = _connect(reader_env)
+    credentials = load_phase2c_credentials(args.credential_file, Phase2CCredentialRole.EREBUS_READER)
+    connection = _connect(credentials)
     cursor = connection.cursor(dictionary=True)
     try:
-        cursor.execute("SELECT @@character_set_connection, @@collation_connection")
+        cursor.execute(
+            "SELECT @@character_set_connection AS character_set_connection, "
+            "@@collation_connection AS collation_connection"
+        )
         encoding_row = cursor.fetchone()
-        if not encoding_row or str(encoding_row[0]).casefold() != "utf8mb4":
-            raise RuntimeError("Phase 2C extraction requires an utf8mb4 MariaDB connection")
-        connection_encoding = {"character_set_connection": str(encoding_row[0]), "collation_connection": str(encoding_row[1])}
+        connection_encoding = _connection_encoding(encoding_row)
         cursor.execute("SET TRANSACTION READ ONLY")
         cursor.execute("START TRANSACTION WITH CONSISTENT SNAPSHOT")
         source_rows: dict[str, list[dict[str, Any]]] = {}

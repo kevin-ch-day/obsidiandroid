@@ -55,7 +55,7 @@ authorized pipeline integration.
 When separately authorized, only
 `scripts/core_migration/create_phase2c_source_extract.py` may create the first
 fixture package. It is locked to `20260718T032717Z__a8cf01`, requires the
-dedicated `obsidiandroid_erebus_reader` credential and an explicit read-only
+dedicated `obsidiandroid_erebus_reader` private `.env` credential file and an explicit read-only
 acknowledgement, uses a single consistent read-only transaction, writes outside
 the repository, and never opens Core. The older
 `dry_run_evidence_migration.py` remains Phase 1 historical planning material;
@@ -74,14 +74,14 @@ The final production-only boundary is
 `scripts/core_migration/execute_phase2c_import.py`. It cannot build an extract
 or plan and is not called by the normal pipeline. When separately authorized,
 it accepts only private external reviewed files, the dedicated Core-writer
-option file, a new external execution-receipt path, and an exact confirmation
+`.env` credential file, a new external execution-receipt path, and an exact confirmation
 token. It consumes the single-use authorization before opening Core, then the
 library importer verifies the reviewed preflights, clean commit, target-server
 attestation, and writer identity before any transaction begins.
 
 After a committed import, use
 `scripts/core_migration/verify_phase2c_import.py` with the Core auditor
-credential and the same private plan. It can only read the six Core evidence
+`.env` credential file and the same private plan. It can only read the six Core evidence
 tables, requires the `obsidiandroid_core_auditor@localhost` identity, and
 records a plan-bound count/key/row-hash reconciliation receipt outside Git.
 

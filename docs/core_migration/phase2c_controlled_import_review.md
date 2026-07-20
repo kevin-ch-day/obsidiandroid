@@ -16,7 +16,8 @@ normal pipeline routing remain disabled throughout Phase 2C.
    `analysis_artifact`, and `snapshot_label_conflict`. The approved command is
    `scripts/core_migration/create_phase2c_source_extract.py`; it is locked to
    the fixture run, uses one read-only consistent snapshot, and refuses the
-   normal application database configuration.
+   normal application database configuration. It accepts only the provisioned
+   private Phase 2C Erebus-reader `.env` file, never an administrator `.cnf`.
 3. Preserve minimal, content-addressed source extracts and a redacted manifest
    before any Core write. For every approved source surface, the manifest must
    record source table, approved column contract, extraction-query hash,
@@ -50,7 +51,7 @@ normal pipeline routing remain disabled throughout Phase 2C.
    previous records have been reviewed and explicitly authorized. It accepts
    no source-database credential or source-query option. It requires private
    external plan, authorization, and preflight files; a dedicated Core-writer
-   option file; a private single-use consumption ledger; a new private
+   `.env` file; a private single-use consumption ledger; a new private
    execution-receipt path; and the literal confirmation token documented by
    the command. It is not a normal-pipeline command and does not authorize an
    import by its presence.
@@ -72,7 +73,7 @@ writer-side delete.
 
 Re-run the Core audit through the Core auditor account, then use
 `scripts/core_migration/verify_phase2c_import.py` with the approved plan and
-the dedicated auditor credential to reconcile destination counts, key-set
+the dedicated Core-auditor `.env` credential to reconcile destination counts, key-set
 hashes, and canonical row hashes against the approved plan;
 preserve the source extract, plan, authorization record, authorization
 consumption receipt, execution receipt, and checksum manifest off-host. The

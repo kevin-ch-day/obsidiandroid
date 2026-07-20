@@ -27,9 +27,13 @@ from obsidiandroid.core_migration.authorization import (
     FileAuthorizationConsumptionLedger,
     Phase2CImportAuthorization,
     PRODUCTION_CORE_SCHEMA,
+    require_clean_repository_at_commit,
+    validate_core_preflight_payload,
+    validate_host_preflight_payload,
 )
-from obsidiandroid.core_migration.importer import execute_import_plan
+from obsidiandroid.core_migration.importer import execute_import_plan, validate_import_plan
 from obsidiandroid.core_migration.mapping import CoreImportError
+from obsidiandroid.core_migration.private_credentials import Phase2CCredentialRole, load_phase2c_credentials
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -98,7 +102,7 @@ def main() -> int:
     parser.add_argument("--authorization", type=Path, required=True, help="Reviewed single-use authorization outside the repository")
     parser.add_argument("--core-preflight", type=Path, required=True, help="Reviewed Core audit JSON outside the repository")
     parser.add_argument("--host-preflight", type=Path, required=True, help="Reviewed host preflight JSON outside the repository")
-    parser.add_argument("--core-option-file", type=Path, required=True, help="0600 Core-writer MariaDB option file")
+    parser.add_argument("--credential-file", type=Path, required=True, help="0600 provisioned Core-writer .env file")
     parser.add_argument("--consumption-ledger-dir", type=Path, required=True, help="Private external single-use receipt directory")
     parser.add_argument("--execution-receipt", type=Path, required=True, help="New private external execution receipt")
     parser.add_argument("--confirm", required=True, help=f"Exact confirmation token: {_CONFIRMATION}")
@@ -118,12 +122,21 @@ def main() -> int:
         authorization_path = _private_regular_file(args.authorization, label="authorization")
         core_preflight_path = _private_regular_file(args.core_preflight, label="Core preflight")
         host_preflight_path = _private_regular_file(args.host_preflight, label="host preflight")
-        option_file = _private_regular_file(args.core_option_file, label="Core writer option file")
         ledger_dir = _outside_repository(args.consumption_ledger_dir, label="authorization ledger")
         plan = _load_json_object(plan_path, label="import plan")
         authorization = _authorization_from_payload(_load_json_object(authorization_path, label="authorization"))
         core_preflight = _load_json_object(core_preflight_path, label="Core preflight")
         host_preflight = _load_json_object(host_preflight_path, label="host preflight")
+        # Repeat the importer gates before loading any writer secret. The
+        # importer repeats them immediately before its one-time consumption.
+        validate_import_plan(plan)
+        authorization.validate_for(target_database=PRODUCTION_CORE_SCHEMA, plan=plan)
+        validate_core_preflight_payload(core_preflight, authorization)
+        validate_host_preflight_payload(host_preflight, authorization)
+        require_clean_repository_at_commit(REPOSITORY_ROOT, authorization.repository_commit)
+        if (ledger_dir / f"{authorization.authorization_id}.consumed.json").exists():
+            raise CoreImportError("Phase 2C authorization has already been consumed")
+        credentials = load_phase2c_credentials(args.credential_file, Phase2CCredentialRole.CORE_WRITER)
         receipt.update({
             "authorization_id": authorization.authorization_id,
             "plan_sha256": str(plan.get("plan_sha256") or ""),
@@ -131,7 +144,10 @@ def main() -> int:
         })
 
         def connection_factory(target: str):
-            return mysql.connector.connect(option_files=str(option_file), database=target, autocommit=False)
+            return mysql.connector.connect(
+                host=credentials.host, port=credentials.port, user=credentials.user,
+                password=credentials.password, database=target, autocommit=False,
+            )
 
         result = execute_import_plan(
             target_database=PRODUCTION_CORE_SCHEMA,
