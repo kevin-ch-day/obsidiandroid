@@ -12,9 +12,6 @@ def align_feature_and_label_rows(
     labels_df: pd.DataFrame,
     verbose: bool = True
 ) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
-
-    du.print_subheader("Align Feature and Label Samples by Sample ID")
-
     # Validate input structure
     if not _validate_inputs(features_df, labels_df):
         return None, None
@@ -83,8 +80,13 @@ def _print_dataframe_info(
     features_df: pd.DataFrame,
     labels_df: pd.DataFrame
 ):
-    du.print_info(f"[SHAPE] Features: {features_df.shape}, Labels: {labels_df.shape}")
-    du.print_info(f"[INDEX TYPE] Features: {type(features_df.index).__name__}, Labels: {type(labels_df.index).__name__}")
+    du.print_info(
+        "[ALIGNMENT] Input: {rows:,} rows | {features:,} feature columns | {labels:,} label fields".format(
+            rows=len(features_df),
+            features=features_df.shape[1],
+            labels=labels_df.shape[1],
+        )
+    )
 
     if features_df.index.name != labels_df.index.name:
         du.print_warning(f"[INDEX WARNING] Index name mismatch → Features='{features_df.index.name}', Labels='{labels_df.index.name}'")

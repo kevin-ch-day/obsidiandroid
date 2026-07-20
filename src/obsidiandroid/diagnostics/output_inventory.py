@@ -266,6 +266,23 @@ def _load_json(path: Path) -> dict[str, Any]:
         return {}
 
 
+def _load_inventory_rows(*, diagnostics_dir: Path) -> list[dict[str, Any]] | None:
+    """Return the just-written inventory rows when they are structurally valid.
+
+    Finalization writes ``artifact_inventory.json`` once as its authoritative
+    filesystem snapshot.  Index writers should consume that snapshot instead
+    of repeatedly walking a potentially large run tree.  Callers retain the
+    filesystem-walk fallback for standalone use or older runs.
+    """
+    payload = _load_json(diagnostics_dir / "artifact_inventory.json")
+    rows = payload.get("rows") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return None
+    if not all(isinstance(row, dict) for row in rows):
+        return None
+    return rows
+
+
 def _authority_coverage_report_path(*, diagnostics_dir: Path, run_id: str) -> Path | None:
     path = diagnostics_dir / f"family_type_authority_coverage_{run_id}.md"
     return path if path.exists() else None
@@ -672,7 +689,9 @@ def write_run_science_index_md(
     publication_ready_status: str,
 ) -> Path | None:
     """Write a compact operator-first run science index with lifecycle guidance."""
-    rows = build_inventory_rows(run_root)
+    rows = _load_inventory_rows(diagnostics_dir=diagnostics_dir)
+    if rows is None:
+        rows = build_inventory_rows(run_root)
     by_lifecycle: dict[str, list[str]] = {}
     for row in rows:
         key = str(row.get("lifecycle_class", "diagnostics_optional"))

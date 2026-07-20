@@ -286,7 +286,10 @@ def build_feature_matrix_stage(
                 "[FEATURE BUILD] Vendor fallback engaged: "
                 f"added={fallback_added}, selected={selected_vendor_count}."
             )
-        du.print_success(f"[FEATURES] Matrix shape: {feature_df.shape}")
+        du.print_success(
+            "[FEATURES] Built matrix: "
+            f"{feature_df.shape[0]:,} samples × {feature_df.shape[1]:,} columns"
+        )
         log_event(
             PIPELINE_LOGGER,
             "feature_matrix_complete",

@@ -791,8 +791,8 @@ def train_model_factory(
                 getattr(app_config, "RUNTIME_SPLIT_CACHE_NOTICE_EMITTED", False)
             ):
                 du.print_info(
-                    "[SPLIT] Reusing cached train/test partition for model consistency "
-                    "(cache key includes encoded labels; different label targets use independent splits)."
+                    "[SPLIT] Reusing cached train/test partition for model consistency. "
+                    "Different label targets receive independent splits."
                 )
                 setattr(app_config, "RUNTIME_SPLIT_CACHE_NOTICE_EMITTED", True)
         else:
@@ -1029,10 +1029,26 @@ def train_model_factory(
                 output_dir=diagnostics_dir,
             )
     if not quiet_train:
-        du.print_info(
-            "[FEATURES] Train-only feature contract retained "
-            f"{X_train.shape[1]}/{len(selection_contract.get('retained_feature_columns', [])) + len(selection_contract.get('dropped_low_information_columns', [])) + len(selection_contract.get('dropped_leakage_columns', []))} column(s)."
+        source_column_count = (
+            len(selection_contract.get("retained_feature_columns", []))
+            + len(selection_contract.get("dropped_low_information_columns", []))
+            + len(selection_contract.get("dropped_leakage_columns", []))
         )
+        contract_summary = (int(X_train.shape[1]), int(source_column_count))
+        previous_summary = getattr(app_config, "RUNTIME_FEATURE_CONTRACT_TERMINAL_SUMMARY", None)
+        if previous_summary is None:
+            du.print_info(
+                "[FEATURE CONTRACT] Train-only selection retained "
+                f"{contract_summary[0]:,}/{contract_summary[1]:,} columns."
+            )
+            setattr(app_config, "RUNTIME_FEATURE_CONTRACT_TERMINAL_SUMMARY", contract_summary)
+        elif previous_summary != contract_summary:
+            du.print_warning(
+                "[FEATURE CONTRACT] Selection changed across models: "
+                f"{previous_summary[0]:,}/{previous_summary[1]:,} → "
+                f"{contract_summary[0]:,}/{contract_summary[1]:,} columns."
+            )
+            setattr(app_config, "RUNTIME_FEATURE_CONTRACT_TERMINAL_SUMMARY", contract_summary)
 
     # Split audit must be computed on the original deterministic split universe
     # before any synthetic resampling (e.g., SMOTE) mutates the training index.

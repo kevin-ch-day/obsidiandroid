@@ -104,7 +104,11 @@ def write_run_artifact_index(
     try:
         from obsidiandroid.diagnostics import output_inventory
 
-        lifecycle_rows = output_inventory.build_inventory_rows(run_root)
+        lifecycle_rows = output_inventory._load_inventory_rows(  # pylint: disable=protected-access
+            diagnostics_dir=diagnostics_dir
+        )
+        if lifecycle_rows is None:
+            lifecycle_rows = output_inventory.build_inventory_rows(run_root)
         lifecycle_counts: dict[str, int] = {}
         for row in lifecycle_rows:
             key = str(row.get("lifecycle_class", "diagnostics_optional"))

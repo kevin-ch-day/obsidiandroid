@@ -449,18 +449,6 @@ def finalize_output_hygiene_bundle(
         layout_path = output_inventory.write_virtual_layout(run_root) if verbose_run_artifacts else None
         inv_paths: list[Path] = []
         summary = {}
-        if verbose_run_artifacts:
-            inv_paths, summary = output_inventory.write_artifact_inventory_bundle(
-                run_root=run_root,
-                diagnostics_dir=diagnostics_dir,
-                run_id=run_id,
-                manifest_paths=list(artifact_list),
-                extra_summary={
-                    "profile_id": str(profile.get("profile_id", "")),
-                    "evidence_mode": evidence_mode,
-                    "paper_mode": paper_mode,
-                },
-            )
 
         mf_start = manifest_context.get("_manifest_finalize_perf_start")
         try:
@@ -528,6 +516,27 @@ def finalize_output_hygiene_bundle(
             else manifest_context.get("paper_cohort_contract")
         )
         cohort_locked = bool((cohort_contract or {}).get("paper_locked", False))
+        refreshed_index_path = None
+        if verbose_run_artifacts:
+            # Capture one authoritative filesystem snapshot after the required
+            # evidence/provenance files exist.  The subsequent indexes consume
+            # this snapshot rather than repeating full run-tree walks.
+            inv_paths, summary = output_inventory.write_artifact_inventory_bundle(
+                run_root=run_root,
+                diagnostics_dir=diagnostics_dir,
+                run_id=run_id,
+                manifest_paths=list(artifact_list),
+                extra_summary={
+                    "profile_id": str(profile.get("profile_id", "")),
+                    "evidence_mode": evidence_mode,
+                    "paper_mode": paper_mode,
+                },
+            )
+            refreshed_index_path = write_run_artifact_index(
+                run_id=run_id,
+                run_root=run_root,
+                diagnostics_dir=diagnostics_dir,
+            )
         science_index_path = output_inventory.write_run_science_index_md(
             run_root=run_root,
             diagnostics_dir=diagnostics_dir,
@@ -547,32 +556,10 @@ def finalize_output_hygiene_bundle(
             artifact_list.append(str(evidence_path))
         if provenance_path and str(provenance_path) not in artifact_list:
             artifact_list.append(str(provenance_path))
-        if science_index_path and str(science_index_path) not in artifact_list:
-            artifact_list.append(str(science_index_path))
-        refreshed_index_path = None
-        if verbose_run_artifacts:
-            refreshed_index_path = write_run_artifact_index(
-                run_id=run_id,
-                run_root=run_root,
-                diagnostics_dir=diagnostics_dir,
-            )
         if refreshed_index_path and str(refreshed_index_path) not in artifact_list:
             artifact_list.append(str(refreshed_index_path))
-        if verbose_run_artifacts:
-            inv_paths, summary = output_inventory.write_artifact_inventory_bundle(
-                run_root=run_root,
-                diagnostics_dir=diagnostics_dir,
-                run_id=run_id,
-                manifest_paths=list(artifact_list),
-                extra_summary={
-                    "profile_id": str(profile.get("profile_id", "")),
-                    "evidence_mode": evidence_mode,
-                    "paper_mode": paper_mode,
-                },
-            )
-            for p in inv_paths:
-                if p and p not in artifact_list:
-                    artifact_list.append(p)
+        if science_index_path and str(science_index_path) not in artifact_list:
+            artifact_list.append(str(science_index_path))
 
         observability_json_path = (
             obs_path

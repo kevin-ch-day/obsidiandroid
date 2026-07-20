@@ -143,6 +143,8 @@ def _emit_post_finalize_operator_report(
     top_model: str | None,
 ) -> None:
     """Emit operator dashboard after manifest finalize so seed artifacts exist."""
+    started_at = perf_counter()
+    du.print_info("[REPORT] Post-run operator dashboard started...")
     try:
         operator_dashboard.emit_research_operator_report(
             diagnostics_dir=diagnostics_dir,
@@ -161,6 +163,30 @@ def _emit_post_finalize_operator_report(
             du.print_error(f"[OPERATOR] Post-finalize report failed for canonical profile `{profile_id}`: {exc}")
             raise
         du.print_warning(f"[OPERATOR] Post-finalize report skipped: {exc}")
+    finally:
+        elapsed = max(0.0, perf_counter() - started_at)
+        manifest_context["post_finalize_operator_report_duration_sec"] = elapsed
+        timing_path = diagnostics_dir / f"post_finalize_operator_report_timing_{run_id}.json"
+        try:
+            timing_path.write_text(
+                json.dumps(
+                    {
+                        "run_id": run_id,
+                        "profile_id": profile_id,
+                        "duration_sec": round(elapsed, 6),
+                        "purpose": "post-finalize operator dashboard",
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            if st is not None and str(timing_path) not in st.artifact_list:
+                st.artifact_list.append(str(timing_path))
+        except OSError as write_exc:
+            du.print_warning(f"[REPORT] Could not write operator-dashboard timing: {write_exc}")
+        du.print_info(f"[TIME] Post-run operator dashboard: {du.format_elapsed_duration(elapsed)}")
 
 
 def run_pipeline(
@@ -1101,15 +1127,20 @@ def run_pipeline(
                 row_n = fused_perm_sig.get("fused_matrix_row_count")
                 any_perm = fused_perm_sig.get("fused_matrix_rows_with_any_perm_like_positive")
                 pi_like = fused_perm_sig.get("fused_matrix_perm_like_column_count")
-                du.print_subheader("Fused ML matrix — permission slice")
-                du.print_info(
-                    "  rows={rows} | cols≈perm_family {pcols} | "
-                    "rows_with_any_perm_signal={psig}".format(
-                        rows=row_n,
-                        pcols=pi_like,
-                        psig=any_perm,
+                try:
+                    signal_rate = (100.0 * int(any_perm) / int(row_n)) if int(row_n) else 0.0
+                except (TypeError, ValueError, ZeroDivisionError):
+                    signal_rate = None
+                du.print_subheader("Feature matrix ready")
+                du.print_stat("Matrix", f"{int(row_n or 0):,} samples × {feature_df.shape[1]:,} columns")
+                du.print_stat("Permission columns", f"{int(pi_like or 0):,}")
+                if signal_rate is None:
+                    du.print_stat("Permission signal", f"{int(any_perm or 0):,} samples")
+                else:
+                    du.print_stat(
+                        "Permission signal",
+                        f"{int(any_perm or 0):,}/{int(row_n or 0):,} samples ({signal_rate:.1f}%)",
                     )
-                )
                 try:
                     fuse_audit = manifest_context.get("permission_fuse_audit")
                     enrich_any = None
@@ -1202,7 +1233,7 @@ def run_pipeline(
             operator_dashboard.bump_artifact_counter("diagnostics", 1)
             gov_notes.append(f"modality_contract={Path(modality_contract_path).name}")
         if gov_notes:
-            du.print_info("[ARTIFACTS] Governance / contracts: " + " | ".join(gov_notes))
+            du.print_info("[FEATURES] Contract: " + " | ".join(gov_notes))
 
         if stop_after == "feature_matrix":
             st.mark_run_state("partial", completed_stage="feature_matrix")

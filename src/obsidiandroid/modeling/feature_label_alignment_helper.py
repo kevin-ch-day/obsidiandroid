@@ -15,7 +15,7 @@ def perform_feature_label_alignment(
     export_debug: bool = False,
     output_dir: str = "output/diagnostics"
 ) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
-    du.print_subheader("Align Feature and Label Samples by Sample ID")
+    du.print_subheader("Feature/label alignment")
 
     # Basic metadata preview
     _preview_input_metadata(feature_df, label_df)
@@ -80,14 +80,14 @@ def _validate_sample_id_indexing(
 
     if feature_df.index.name != 'sample_id':
         if 'sample_id' in feature_df.columns:
-            du.print_warning("[INDEX FIX] Setting feature_df index to 'sample_id'.")
+            du.print_info("[ALIGNMENT] Normalized feature index to sample_id.")
             feature_df = feature_df.set_index('sample_id', drop=False)
         else:
             du.print_error("[INDEX ERROR] 'sample_id' not found in feature_df columns.")
     
     if label_df.index.name != 'sample_id':
         if 'sample_id' in label_df.columns:
-            du.print_warning("[INDEX FIX] Setting label_df index to 'sample_id'.")
+            du.print_info("[ALIGNMENT] Normalized label index to sample_id.")
             label_df = label_df.set_index('sample_id', drop=False)
         else:
             du.print_error("[INDEX ERROR] 'sample_id' not found in label_df columns.")
@@ -109,9 +109,13 @@ def _preview_alignment_overlap(
     feature_only = feature_ids - label_ids
     label_only = label_ids - feature_ids
 
-    du.print_info(f"[ALIGNMENT] Shared sample_ids: {len(shared_ids)}")
-    du.print_info(f"[ALIGNMENT] Features not in labels: {len(feature_only)}")
-    du.print_info(f"[ALIGNMENT] Labels not in features: {len(label_only)}")
+    du.print_info(
+        "[ALIGNMENT] Shared: {shared:,} | feature-only: {feature_only:,} | label-only: {label_only:,}".format(
+            shared=len(shared_ids),
+            feature_only=len(feature_only),
+            label_only=len(label_only),
+        )
+    )
 
     if feature_only:
         preview = ', '.join(map(str, sorted(list(feature_only))[:5]))

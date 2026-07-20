@@ -39,10 +39,10 @@ def test_profile_menu_latest_run_context_summarizes_latest_artifact(tmp_path: Pa
 
     assert context == [
         ("LAST RUN STATUS", "Failed"),
-        ("INFO", "Prepared cohort: 9,716 samples"),
-        ("INFO", "Supervised training pool: 9,440 samples"),
-        ("INFO", "Family classes: 207 visible · 169 trainable"),
-        ("INFO", "Support preview only: 112 at n>=3 · 50 at n>=20"),
+        ("INFO", "Latest cohort: 9,716 prepared samples"),
+        ("INFO", "Training-eligible samples: 9,440"),
+        ("INFO", "Family coverage: 207 visible · 169 modeled"),
+        ("INFO", "Support thresholds (preview): n>=3: 112 families · n>=20: 50 families"),
     ]
 
 
@@ -65,7 +65,7 @@ def test_profile_menu_latest_run_context_uses_pointer_matched_summary(tmp_path: 
 
     assert profile_preflight._profile_menu_latest_run_context(tmp_path) == [
         ("LAST RUN STATUS", "Complete"),
-        ("INFO", "Prepared cohort: 20 samples"),
+        ("INFO", "Latest cohort: 20 prepared samples"),
     ]
 
 
@@ -139,8 +139,8 @@ def test_resolve_and_validate_profile_cancel(monkeypatch) -> None:
     assert profile_preflight.resolve_and_validate_profile() is None
 
 
-def test_validate_profile_runnable_uses_sql_gate_stats_and_lightweight_probe_for_malicious_only(monkeypatch) -> None:
-    """Malicious-only preflight should use the real SQL gate surface before probing."""
+def test_validate_profile_runnable_forwards_gate_contract_to_bounded_probe_for_malicious_only(monkeypatch) -> None:
+    """Malicious-only preflight must forward its full gate contract to the probe."""
     monkeypatch.setattr(
         profile_preflight.profile_manager,
         "load_profile",
@@ -151,6 +151,7 @@ def test_validate_profile_runnable_uses_sql_gate_stats_and_lightweight_probe_for
             "cohort_gates": {
                 "exclude_unknown_type_slug": True,
                 "exclude_families": ["Devixor", " Gigabud "],
+                "exclude_family_ids": [17, " 23 "],
                 "family_cap": 60,
                 "family_cap_seed": 1337,
                 "type_cap": 300,
@@ -164,48 +165,25 @@ def test_validate_profile_runnable_uses_sql_gate_stats_and_lightweight_probe_for
             "dataset_filters": {"mode": "none"},
         },
     )
-    stats_calls: list[dict[str, object]] = []
-    fetch_calls: list[dict[str, object]] = []
-
-    def _fake_stats(**kwargs):
-        stats_calls.append(kwargs)
-        return {"governed_cohort_count": 3}
-
-    def _fake_fetch(**kwargs):
-        fetch_calls.append(kwargs)
-        return pd.DataFrame([{"sample_id": 1}])
+    probe_calls: list[dict[str, object]] = []
 
     monkeypatch.setattr(
         sample_metadata_fetchers,
-        "get_type_cohort_gate_stats",
-        _fake_stats,
-    )
-    monkeypatch.setattr(
-        sample_metadata_fetchers,
-        "fetch_samples_by_type",
-        _fake_fetch,
+        "probe_profile_cohort_viability",
+        lambda **kwargs: probe_calls.append(kwargs) or {"runnable": True, "timed_out": False},
     )
 
     ok, reason = profile_preflight.validate_profile_runnable("malicious_temporal_stability")
     assert ok is True
     assert reason == ""
-    assert len(stats_calls) == 1
-    assert stats_calls[0]["exclude_unknown_type_slug"] is True
-    assert stats_calls[0]["exclude_family_canonical"] == ("devixor", "gigabud")
-    assert stats_calls[0]["effective_time_start_utc"] == "2020-01-01T00:00:00Z"
-    assert stats_calls[0]["effective_time_end_utc"] == "2026-01-01T00:00:00Z"
-    assert len(fetch_calls) == 1
-    assert fetch_calls[0]["limit"] == 1
-    assert fetch_calls[0]["family_cap"] == 60
-    assert fetch_calls[0]["family_cap_seed"] == 1337
-    assert fetch_calls[0]["type_cap"] == 300
-    assert fetch_calls[0]["type_cap_seed"] == 1337
-    assert fetch_calls[0]["type_cap_by_slug"] == {"banker": 90, "rat": 55}
-    assert fetch_calls[0]["exclude_weak_label_kinds"] is True
-    assert fetch_calls[0]["exclude_family_label_conflicts"] is True
-    assert fetch_calls[0]["as_dataframe"] is True
-    assert fetch_calls[0]["exclude_unknown_type_slug"] is True
-    assert fetch_calls[0]["exclude_family_canonical"] == ("devixor", "gigabud")
+    assert len(probe_calls) == 1
+    assert probe_calls[0]["exclude_unknown_type_slug"] is True
+    assert probe_calls[0]["exclude_family_canonical"] == ("devixor", "gigabud")
+    assert probe_calls[0]["exclude_family_ids"] == (17, 23)
+    assert probe_calls[0]["effective_time_start_utc"] == "2020-01-01T00:00:00Z"
+    assert probe_calls[0]["effective_time_end_utc"] == "2026-01-01T00:00:00Z"
+    assert probe_calls[0]["exclude_weak_label_kinds"] is True
+    assert probe_calls[0]["exclude_family_label_conflicts"] is True
 
 
 def test_validate_profile_runnable_returns_a_configuration_warning_instead_of_raising(monkeypatch) -> None:
@@ -216,12 +194,13 @@ def test_validate_profile_runnable_returns_a_configuration_warning_instead_of_ra
     )
     monkeypatch.setattr(
         sample_metadata_fetchers,
-        "get_type_cohort_gate_stats",
+        "probe_profile_cohort_viability",
         lambda **_kwargs: (_ for _ in ()).throw(SourceDatabaseConfigurationError("Erebus source configuration is incomplete")),
     )
     ok, reason = profile_preflight.validate_profile_runnable("fixture")
     assert ok is False
     assert "OBSIDIAN_DB_OPTION_FILE" in reason
+    assert "Phase 2C Erebus reader is not a normal pipeline credential" in reason
 
 
 def test_validate_profile_runnable_returns_a_connection_warning_instead_of_raising(monkeypatch) -> None:
@@ -232,12 +211,20 @@ def test_validate_profile_runnable_returns_a_connection_warning_instead_of_raisi
     )
     monkeypatch.setattr(
         sample_metadata_fetchers,
-        "get_type_cohort_gate_stats",
+        "probe_profile_cohort_viability",
         lambda **_kwargs: (_ for _ in ()).throw(MySQLError("connection refused")),
     )
     ok, reason = profile_preflight.validate_profile_runnable("fixture")
     assert ok is False
-    assert "Source database is unavailable" in reason
+    assert "normal source connection or query failed" in reason
+
+
+def test_source_preflight_classifies_missing_source_objects() -> None:
+    exc = MySQLError("missing table")
+    exc.errno = 1146
+    ok, reason = profile_preflight._source_preflight_failure(exc)
+    assert ok is False
+    assert "table or view is missing" in reason
 
 
 def test_validate_profile_runnable_uses_resolved_default_time_contract(monkeypatch) -> None:
@@ -264,13 +251,8 @@ def test_validate_profile_runnable_uses_resolved_default_time_contract(monkeypat
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(
         sample_metadata_fetchers,
-        "get_type_cohort_gate_stats",
-        lambda **kwargs: calls.append(kwargs) or {"governed_cohort_count": 1},
-    )
-    monkeypatch.setattr(
-        sample_metadata_fetchers,
-        "fetch_samples_by_type",
-        lambda **_kwargs: pd.DataFrame([{"sample_id": 1}]),
+        "probe_profile_cohort_viability",
+        lambda **kwargs: calls.append(kwargs) or {"runnable": True, "timed_out": False},
     )
 
     ok, reason = profile_preflight.validate_profile_runnable("all_current")
@@ -282,8 +264,8 @@ def test_validate_profile_runnable_uses_resolved_default_time_contract(monkeypat
     assert calls[0]["require_effective_first_seen"] is True
 
 
-def test_validate_profile_runnable_fails_fast_when_sql_governed_count_is_zero(monkeypatch) -> None:
-    """Preflight should fail before materialization when the governed SQL cohort is empty."""
+def test_validate_profile_runnable_fails_fast_when_viability_probe_is_empty(monkeypatch) -> None:
+    """Routine preflight reports an empty cohort without exact count or materialization work."""
     monkeypatch.setattr(
         profile_preflight.profile_manager,
         "load_profile",
@@ -295,23 +277,47 @@ def test_validate_profile_runnable_fails_fast_when_sql_governed_count_is_zero(mo
             "dataset_filters": {"mode": "malicious_only"},
         },
     )
-    fetch_calls: list[dict[str, object]] = []
-
     monkeypatch.setattr(
         sample_metadata_fetchers,
-        "get_type_cohort_gate_stats",
-        lambda **_kwargs: {"governed_cohort_count": 0},
-    )
-    monkeypatch.setattr(
-        sample_metadata_fetchers,
-        "fetch_samples_by_type",
-        lambda **kwargs: fetch_calls.append(kwargs) or pd.DataFrame([{"sample_id": 1}]),
+        "probe_profile_cohort_viability",
+        lambda **_kwargs: {"runnable": False, "timed_out": False},
     )
 
     ok, reason = profile_preflight.validate_profile_runnable("malicious_temporal_stability")
     assert ok is False
     assert "selected an empty cohort" in reason
-    assert fetch_calls == []
+
+
+def test_validate_profile_runnable_reports_bounded_probe_timeout(monkeypatch) -> None:
+    monkeypatch.setattr(
+        profile_preflight.profile_manager,
+        "load_profile",
+        lambda _profile_id: {"profile_id": "fixture", "cohort_gates": {}, "dataset_filters": {"mode": "none"}},
+    )
+    monkeypatch.setattr(
+        sample_metadata_fetchers,
+        "probe_profile_cohort_viability",
+        lambda **_kwargs: {"runnable": False, "timed_out": True},
+    )
+    ok, reason = profile_preflight.validate_profile_runnable("fixture")
+    assert ok is False
+    assert "viability check timed out" in reason
+
+
+def test_validate_profile_runnable_reports_inconclusive_bounded_probe(monkeypatch) -> None:
+    monkeypatch.setattr(
+        profile_preflight.profile_manager,
+        "load_profile",
+        lambda _profile_id: {"profile_id": "fixture", "cohort_gates": {}, "dataset_filters": {"mode": "none"}},
+    )
+    monkeypatch.setattr(
+        sample_metadata_fetchers,
+        "probe_profile_cohort_viability",
+        lambda **_kwargs: {"runnable": False, "timed_out": False, "reason_code": "inconclusive_candidate_window"},
+    )
+    ok, reason = profile_preflight.validate_profile_runnable("fixture")
+    assert ok is False
+    assert "viability check was inconclusive" in reason
 
 
 def test_validate_profile_runnable_paper_locked_uses_lock_manifest_without_live_sql(
@@ -445,11 +451,16 @@ def test_resolve_and_validate_profile_prints_advisory_readiness_mapping(monkeypa
     out = capsys.readouterr().out
 
     assert selected == "banker"
-    assert "[PROFILE] Best matching readiness bucket: android_banker_with_permission_obs" in out
-    assert "does not enforce sample selection" in out
-    assert "[PROFILE] Observed readiness for `android_banker_with_permission_obs`:" in out
-    assert "samples=790" in out
-    assert "families=12" in out
+    assert "SELECTED PROFILE" in out
+    assert "Readiness scope" in out
+    assert "Android banker malware · permission observations" in out
+    assert "Cohort membership" in out
+    assert "Cohort gates determine membership." in out
+    assert "CURRENT SOURCE COVERAGE" in out
+    assert "Samples" in out
+    assert "790" in out
+    assert "Families" in out
+    assert "12" in out
 
 
 def test_resolve_and_validate_profile_reports_ambiguous_inventory_advisory(monkeypatch, capsys) -> None:
@@ -557,15 +568,15 @@ def test_resolve_and_validate_profile_surfaces_live_gap_notes(monkeypatch, capsy
     out = capsys.readouterr().out
 
     assert selected == "malicious_temporal_stability_locked"
-    assert "does not enforce sample selection" in out
-    assert "current-corpus profiles" in out
+    assert "Cohort gates determine membership." in out
+    assert "Refresh the lock to change membership." in out
     assert "repair candidates=7, known unresolved families=3, policy-held tokens=11" in out
     assert "high-priority conflicts=4/5; dominant action=review_db_type_mapping (2); dominant issue=type_unknown (2)" in out
     assert "may not change cohort membership until the lock is refreshed" in out
     assert "Observed readiness for `android_high_or_strong_vt_with_permission_obs` is unavailable" not in out
 
 
-def test_resolve_and_validate_profile_uses_compact_profile_block(monkeypatch, capsys) -> None:
+def test_resolve_and_validate_profile_uses_human_readiness_block(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         profile_preflight,
         "resolve_profile_for_run",
@@ -620,28 +631,34 @@ def test_resolve_and_validate_profile_uses_compact_profile_block(monkeypatch, ca
     assert selected == "android_malware_major_families"
     assert "[INFO]" not in out
     assert "[NOTE]" not in out
-    assert "[PROFILE] Best matching readiness bucket: android_high_or_strong_vt_with_permission_obs" in out
-    assert "[PROFILE] Declared readiness bucket in profile contract: android_high_or_strong_vt_with_permission_obs." in out
-    assert "Advisory only; sample selection is not enforced." in out
-    assert "[PROFILE] Observed readiness for `android_high_or_strong_vt_with_permission_obs`:" in out
-    assert "samples=3285" in out
-    assert "families=220" in out
+    assert "SELECTED PROFILE" in out
+    assert "Android malware · high/strong AV · permission observations" in out
+    assert "Cohort gates determine membership." in out
+    assert "Checked during the run, not by this menu." in out
+    assert "CURRENT SOURCE COVERAGE" in out
+    assert "Best matching readiness bucket" not in out
+    assert "Declared readiness bucket" not in out
+    assert "Samples" in out
+    assert "3285" in out
+    assert "Families" in out
+    assert "220" in out
     assert "[PROFILE] Live authority/taxonomy backlog: repair candidates=0, known unresolved families=0, policy-held tokens=67." in out
     assert "Permission Intel observations include 1 sample_id(s) outside the current Android catalog cohort." in out
     assert "[PROFILE] Preflight: verifying cohort against the database (quick check)..." in out
 
 
-def test_compact_profile_detail_hardens_locked_cohort_wording() -> None:
-    detail = (
-        "Declared readiness bucket in profile contract: android_high_or_strong_vt_with_permission_obs. "
-        "Android malicious evidence-style profile intent is best compared against the Android cohort with permission observations and high/strong VT confidence. "
-        "Advisory only; this does not enforce sample selection. "
-        "Permission-observation wording is advisory here; bucket mapping does not verify or enforce PI observation materialization for the selected run. "
-        "This profile is paper-locked; snapshot membership can prevent new DB curation or authority expansions from changing the cohort until the lock is refreshed."
+def test_readiness_scope_block_hardens_locked_cohort_wording() -> None:
+    headline, lines = profile_preflight._readiness_scope_block(  # pylint: disable=protected-access
+        {
+            "status": "mapped",
+            "bucket": "android_high_or_strong_vt_with_permission_obs",
+            "summary": "unused",
+            "detail": "unused",
+        },
+        paper_locked=True,
     )
 
-    compact = profile_preflight._compact_profile_detail(detail, paper_locked=True)  # pylint: disable=protected-access
-
-    assert "Advisory only; sample selection is not enforced." in compact
-    assert "Permission-observation wording is not verified/enforced for this run." in compact
-    assert "Locked benchmark cohort; new DB curation will not change membership until the lock is refreshed." in compact
+    assert headline == "Readiness scope: Android malware · high/strong AV · permission observations"
+    assert "Cohort gates determine membership." in lines
+    assert "Checked during the run, not by this menu." in lines
+    assert "Refresh the lock to change membership." in lines

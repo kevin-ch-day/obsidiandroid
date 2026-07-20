@@ -10,6 +10,7 @@ from typing import Any
 import pandas as pd
 
 from config import app_config
+from obsidiandroid.cli.ui import display as du
 
 from ..contract_and_taxonomy_reports import (
     write_headline_vs_ablation_contract_reports,
@@ -48,6 +49,15 @@ def write_research_validity_bundle(
     paper_mode: bool,
 ) -> None:
     """Emit cohort funnel, signal decomposition exports, audits, figures, claim review."""
+    step_timings = manifest_context.setdefault("research_validity_step_timings_sec", {})
+
+    def finish_step(step: str, started_at: float) -> None:
+        """Persist and display a bounded progress checkpoint for a long final stage."""
+        elapsed = max(0.0, perf_counter() - started_at)
+        if isinstance(step_timings, dict):
+            step_timings[step] = elapsed
+        du.print_info(f"[RESEARCH] {step}: {du.format_elapsed_duration(elapsed)}")
+
     profile_id = str(manifest.get("profile_id", "") or manifest_context.get("profile_id", "") or "")
     effective_samples = resolve_effective_samples_df(diagnostics_dir, run_id, samples_df)
     if effective_samples is not None:
@@ -60,6 +70,7 @@ def write_research_validity_bundle(
                 f"(profile={profile_id}, cohort_size={cohort_size})"
             )
     finalize_cohort_funnel_dict(manifest_context)
+    step_t0 = perf_counter()
     cohort_paths = list(
         write_cohort_funnel_artifacts(
             diagnostics_dir=diagnostics_dir,
@@ -76,7 +87,9 @@ def write_research_validity_bundle(
             cohort_paths[-1],
             detail="research_validity:cohort_funnel_bundle",
         )
+    finish_step("Cohort funnel", step_t0)
 
+    step_t0 = perf_counter()
     for path in write_signal_decomposition_artifacts(
         diagnostics_dir=diagnostics_dir,
         run_id=run_id,
@@ -84,7 +97,9 @@ def write_research_validity_bundle(
         sp = str(path)
         if sp not in artifact_list:
             artifact_list.append(sp)
+    finish_step("Signal decomposition", step_t0)
 
+    step_t0 = perf_counter()
     perm_path = write_permission_feature_audit_csv(
         diagnostics_dir=diagnostics_dir,
         samples_df=samples_df,
@@ -110,7 +125,9 @@ def write_research_validity_bundle(
             pi_path,
             detail="research_validity:permission_intel_audit",
         )
+    finish_step("Permission audits", step_t0)
 
+    step_t0 = perf_counter()
     fig_paths = write_validity_figures(
         diagnostics_dir=diagnostics_dir,
         manifest_context=manifest_context,
@@ -125,7 +142,9 @@ def write_research_validity_bundle(
         samples_df=samples_df,
         artifact_list=artifact_list,
     )
+    finish_step("Validity figures", step_t0)
 
+    step_t0 = perf_counter()
     claim_path = write_paper_claim_audit_md(
         diagnostics_dir=diagnostics_dir,
         manifest=manifest,
@@ -135,7 +154,9 @@ def write_research_validity_bundle(
     if str(claim_path) not in artifact_list:
         artifact_list.append(str(claim_path))
     obs_api.record_artifact_write(manifest_context, claim_path, detail="research_validity:paper_claim_audit")
+    finish_step("Claim audit", step_t0)
 
+    step_t0 = perf_counter()
     try:
         _h_md, _h_csv, _ = write_headline_vs_ablation_contract_reports(
             diagnostics_dir=diagnostics_dir,
@@ -161,6 +182,8 @@ def write_research_validity_bundle(
             )
         if is_canonical_profile(profile_id):
             raise
+    finally:
+        finish_step("Contract and taxonomy reports", step_t0)
 
     hostile_wall = datetime.now(timezone.utc).isoformat()
     hostile_t0 = perf_counter()
@@ -180,6 +203,7 @@ def write_research_validity_bundle(
         if isinstance(manifest_context, dict):
             manifest_context["_hostile_bundle_wall_start_iso"] = hostile_wall
             manifest_context["_hostile_bundle_duration_sec"] = max(0.0, perf_counter() - hostile_t0)
+        finish_step("Hostile audit", hostile_t0)
 
 
 __all__ = ["write_research_validity_bundle"]

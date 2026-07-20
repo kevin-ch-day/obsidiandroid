@@ -247,7 +247,7 @@ def _select_fixed_profile_menu(
             du.print_error(f"[PROFILE] Selected profile is invalid: {exc}")
             continue
 
-        _print_profile_selection(f"Selected: {selected_profile_id}")
+        _print_profile_selection(f"Selected profile: {quick_profile_label(selected_profile_id)}")
         return selected_profile_id
 
 

@@ -259,10 +259,11 @@ def perform_cross_validation(
     if bool(getattr(app_config, "CV_AVOID_NESTED_PARALLELISM", True)) and cv_n_jobs != 1:
         estimator, updated = _force_estimator_single_thread(estimator)
         if updated and not quiet:
-            du.print_info(
-                "[CROSS-VAL] Nested parallelism guard enabled; "
-                f"forcing estimator threads to 1 ({', '.join(sorted(updated.keys()))})."
-            )
+            if not bool(getattr(app_config, "RUNTIME_CV_THREAD_POLICY_NOTICE_EMITTED", False)):
+                du.print_info(
+                    "[CROSS-VAL] CPU policy: CV may parallelize; model threads are limited to 1."
+                )
+                setattr(app_config, "RUNTIME_CV_THREAD_POLICY_NOTICE_EMITTED", True)
     try:
         with warnings.catch_warnings():
             if model_type == "balanced_random_forest":
@@ -295,8 +296,9 @@ def perform_cross_validation(
                 du.print_info("[CROSS-VAL] Rebalancing enabled inside folds (SMOTE/ROS auto).")
             du.print_info(f"[CROSS-VAL] n_jobs={cv_n_jobs}")
         elif not ml_console.is_minimal():
+            model_label = str(model_type).replace("_", " ")
             du.print_info(
-                f"[CROSS-VAL] {folds} folds x {repeats} repeat(s) "
+                f"[CROSS-VAL] {model_label}: {folds} folds × {repeats} repeat(s) "
                 f"| mean={np.mean(score_list):.4f} | std={np.std(score_list):.4f}"
             )
         if not quiet and ml_console.is_debug():
@@ -339,7 +341,8 @@ def apply_smote(
                 method_used = "SMOTE"
                 if not quiet:
                     du.print_info(
-                        f"[SMOTE] Applied with k_neighbors={k_neighbors}; new size: {len(X_res)}"
+                        f"[RESAMPLING] SMOTE (k={k_neighbors}): "
+                        f"{original_n:,} → {len(X_res):,} training rows."
                     )
             except ValueError as smote_exc:
                 if not quiet:

@@ -32,6 +32,7 @@ from obsidiandroid.cli.menu.readiness_notes import (
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.observability.logging import get_logger, log_event
 import obsidiandroid.cli.profile_manager as profile_manager
+from obsidiandroid.cli.profile_selection import quick_profile_label
 
 MENU_LOGGER = get_logger(
     f"{getattr(app_config, 'APP_LOG_NAMESPACE', 'framework')}.menu.profile_preflight",
@@ -40,11 +41,34 @@ MENU_LOGGER = get_logger(
 
 
 def _source_preflight_failure(exc: BaseException) -> tuple[bool, str]:
-    """Return an operator-safe retry message for expected source DB failures."""
+    """Return an operator-safe, actionable message for expected source DB failures."""
+    if isinstance(exc, SourceDatabaseConfigurationError):
+        detail = str(exc).lower()
+        if "administrator" in detail:
+            cause = "The administrator credential is blocked for normal pipeline use."
+        elif "option file" in detail:
+            cause = "The configured private source option file is unavailable or not mode 0600."
+        else:
+            cause = "Normal Erebus or Permission Intel source configuration is missing."
+    elif isinstance(exc, MySQLError):
+        errno = int(getattr(exc, "errno", 0) or 0)
+        if errno in {1045, 1698}:
+            cause = "Source authentication failed."
+        elif errno in {1044, 1142, 1227}:
+            cause = "The configured source account lacks required SELECT access."
+        elif errno == 1146:
+            cause = "A required normal-analysis source table or view is missing."
+        else:
+            cause = "The normal source connection or query failed."
+    else:
+        cause = "The normal source configuration or connection failed."
     return (
         False,
-        "[PROFILE] Source database is unavailable: "
-        f"{exc}. Check the configured source account/host (OBSIDIAN_DB_* or OBSIDIAN_DB_OPTION_FILE), then retry.",
+        "[PROFILE] "
+        + cause
+        + " Configure OBSIDIAN_DB_* or OBSIDIAN_DB_OPTION_FILE, then retry. "
+        + "The restricted Phase 2C Erebus reader is not a normal pipeline credential. "
+        + "Historical menu counts can still describe the latest local run while live source connectivity is unavailable.",
     )
 
 
@@ -144,50 +168,77 @@ def _summarize_live_readiness_gaps(
     return out
 
 
-def _compact_profile_detail(detail: str, *, paper_locked: bool = False) -> str:
-    text = " ".join(str(detail or "").split()).strip()
-    if not text:
-        return ""
-    compact = text
-    compact = compact.replace(
-        "Android malicious evidence-style profile intent is best compared against the Android cohort with permission observations and high/strong VT confidence. ",
-        "",
-    )
-    compact = compact.replace(
-        "Advisory only; this does not enforce sample selection. ",
-        "Advisory only; sample selection is not enforced. ",
-    )
-    compact = compact.replace(
-        "Permission-observation wording is advisory here; bucket mapping does not verify or enforce PI observation materialization for the selected run. ",
-        "Permission-observation wording is not verified/enforced for this run. ",
-    )
-    compact = compact.replace(
-        "This profile is paper-locked; snapshot membership can prevent new DB curation or authority expansions from changing the cohort until the lock is refreshed.",
-        "Locked benchmark cohort; new DB curation will not change membership until the lock is refreshed.",
-    )
-    if paper_locked and "Locked benchmark cohort" not in compact:
-        compact = (
-            f"{compact} Locked benchmark cohort; new DB curation will not change membership until the lock is refreshed."
-        ).strip()
-    return compact
+_READINESS_SCOPE_LABELS = {
+    "android_banker_with_permission_obs": "Android banker malware · permission observations",
+    "android_high_or_strong_vt_with_permission_obs": (
+        "Android malware · high/strong AV · permission observations"
+    ),
+    "android_with_permission_obs": "Android malware · permission observations",
+    "android_family_ready_min3_permission_obs": (
+        "Android family classification · permission observations"
+    ),
+    "android_platform": "All Android catalog records",
+    "all_catalog": "All catalog records",
+}
 
 
-def _paper_locked_follow_up_note(*, profile_id: str | None, paper_locked: bool = False) -> str | None:
-    token = str(profile_id or "").strip()
-    if not paper_locked or not token:
-        return None
-    return (
-        "This run uses a locked benchmark cohort. Use the current-corpus profiles in "
-        "`Run Analysis` when you want recent DB curation and authority repairs to affect membership immediately."
-    )
+def _readiness_scope_block(
+    readiness_signal: dict[str, object],
+    *,
+    paper_locked: bool,
+) -> tuple[str, list[str]]:
+    """Render a brief operator-facing explanation without internal bucket jargon."""
+    bucket = str(readiness_signal.get("bucket", "") or "").strip()
+    label = _READINESS_SCOPE_LABELS.get(bucket)
+    if not label:
+        summary = str(readiness_signal.get("summary", "") or "").strip()
+        detail = str(readiness_signal.get("detail", "") or "").strip()
+        return summary, _profile_detail_lines(detail)
+
+    lines = ["Cohort gates determine membership."]
+    if "permission_obs" in bucket:
+        lines.append("Checked during the run, not by this menu.")
+    if paper_locked:
+        lines.append("Refresh the lock to change membership.")
+    return f"Readiness scope: {label}", lines
 
 
-def _merge_advisory_notes(*notes: str | None) -> str | None:
-    """Combine short advisory notes into one operator-facing line."""
-    parts = [str(note).strip() for note in notes if str(note or "").strip()]
-    if not parts:
-        return None
-    return " ".join(parts)
+def _print_profile_readiness_summary(
+    *,
+    profile_id: str,
+    readiness_headline: str,
+    readiness_lines: list[str],
+) -> None:
+    """Render selection context as aligned operator fields, not log fragments."""
+    scope = readiness_headline.removeprefix("Readiness scope:").strip() or readiness_headline
+    labels = {
+        "Cohort gates determine membership.": "Cohort membership",
+        "Checked during the run, not by this menu.": "Permission coverage",
+        "Refresh the lock to change membership.": "Locked cohort",
+    }
+    du.print_subheader("Selected profile")
+    du.print_stat("Name", quick_profile_label(profile_id), width=20)
+    du.print_stat("Profile ID", profile_id, width=20)
+    du.print_stat("Readiness scope", scope, width=20)
+    for line in readiness_lines:
+        du.print_stat(labels.get(line, "Note"), line, width=20)
+    print("")
+
+
+def _print_current_source_coverage(note: str) -> None:
+    """Render the current readiness snapshot as a compact aligned block."""
+    headline, lines = _observed_note_lines(note)
+    if not headline.startswith("Observed readiness for `"):
+        _print_profile_block(headline, *lines)
+        return
+    du.print_subheader("Current source coverage")
+    for line in lines:
+        key, separator, value = line.partition("=")
+        if separator:
+            du.print_stat(key.replace("_", " ").title(), value, width=20)
+        else:
+            du.print_stat("Detail", line, width=20)
+    print("")
 
 
 def _compact_live_gap_lines(notes: list[str]) -> tuple[str, list[str]]:
@@ -280,16 +331,16 @@ def _profile_menu_latest_run_context(output_root: Path | None = None) -> list[tu
     status_text = status if not claim_surface else f"{status} · {claim_surface}"
     context: list[tuple[str, str]] = [("LAST RUN STATUS", status_text)]
     if isinstance(prepared, int):
-        prepared_text = f"Prepared cohort: {prepared:,} samples"
+        prepared_text = f"Latest cohort: {prepared:,} prepared samples"
         if isinstance(trainable, int):
             context.append(("INFO", prepared_text))
-            context.append(("INFO", f"Supervised training pool: {trainable:,} samples"))
+            context.append(("INFO", f"Training-eligible samples: {trainable:,}"))
         else:
             context.append(("INFO", prepared_text))
     if isinstance(visible_families, int):
-        family_text = f"Family classes: {visible_families:,} visible"
+        family_text = f"Family coverage: {visible_families:,} visible"
         if isinstance(modeled_families, int):
-            family_text += f" · {modeled_families:,} trainable"
+            family_text += f" · {modeled_families:,} modeled"
         context.append(("INFO", family_text))
 
     support_preview_path = summary_path.parent / "support_threshold_preview.csv"
@@ -298,12 +349,12 @@ def _profile_menu_latest_run_context(output_root: Path | None = None) -> list[tu
     if not isinstance(support_floor_families, int):
         support_floor_families = preview_floor_families
     if isinstance(support_floor_families, int) or conservative_families is not None:
-        support_text = "Support preview only:"
+        support_text = "Support thresholds (preview):"
         preview_parts: list[str] = []
         if isinstance(support_floor_families, int):
-            preview_parts.append(f"{support_floor_families:,} at n>=3")
+            preview_parts.append(f"n>=3: {support_floor_families:,} families")
         if conservative_families is not None:
-            preview_parts.append(f"{conservative_families:,} at n>=20")
+            preview_parts.append(f"n>=20: {conservative_families:,} families")
         context.append(("INFO", support_text + " " + " · ".join(preview_parts)))
     return context
 
@@ -391,6 +442,11 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
         for family in (gates.get("include_families", []) or [])
         if str(family).strip()
     )
+    exclude_family_ids = tuple(
+        int(family_id)
+        for family_id in (gates.get("exclude_family_ids", []) or [])
+        if str(family_id).strip()
+    )
     # Keep readiness counts on exactly the same temporal contract as the
     # samples stage. Non-evidence profiles without explicit bounds still
     # inherit the global reproducibility window.
@@ -426,10 +482,10 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
 
     if mode in {"none", "", "malicious_only"}:
         # Fast/silent preflight for standard malicious-only profiles.
-        # Use the same SQL gate summary path as the real samples stage so time-window,
-        # unknown-type, and excluded-family gates do not get silently skipped here.
+        # Forward the same profile gate contract as the samples stage, but use
+        # a bounded viability probe instead of an exact governed-cohort census.
         try:
-            gate_stats = db_sample_metadata_fetchers.get_type_cohort_gate_stats(
+            viability = db_sample_metadata_fetchers.probe_profile_cohort_viability(
                 type_slug=type_slug,
                 min_samples_per_family=min_support,
                 require_mapped_family=bool(gates.get("require_mapped_family", True)),
@@ -443,44 +499,28 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
                 effective_time_end_utc=effective_time_end_utc,
                 require_effective_first_seen=require_effective_first_seen,
                 include_family_canonical=include_families,
+                exclude_family_ids=exclude_family_ids,
                 exclude_family_canonical=exclude_families,
             )
         except (SourceDatabaseConfigurationError, MySQLError) as exc:
             return _source_preflight_failure(exc)
-        governed_count = int(
-            gate_stats.get("governed_cohort_count", gate_stats.get("final_count_estimate", 0)) or 0
-        )
-        if governed_count <= 0:
-            return False, f"[PROFILE] Profile '{profile_id}' selected an empty cohort."
-
-        # Lightweight materialization probe for the same governed SQL surface.
-        try:
-            sample_probe_df = db_sample_metadata_fetchers.fetch_samples_by_type(
-                type_slug=type_slug,
-                min_samples_per_family=min_support,
-                require_mapped_family=bool(gates.get("require_mapped_family", True)),
-                require_sha256=bool(gates.get("require_sha256", True)),
-                allow_missing_package_name=bool(gates.get("allow_missing_package_name", True)),
-                exclude_unknown_type_slug=exclude_unknown_type_slug,
-                require_active_type_slug=require_active_type_slug,
-                exclude_weak_label_kinds=exclude_weak_label_kinds,
-                exclude_family_label_conflicts=exclude_family_label_conflicts,
-                effective_time_start_utc=effective_time_start_utc,
-                effective_time_end_utc=effective_time_end_utc,
-                require_effective_first_seen=require_effective_first_seen,
-                include_family_canonical=include_families,
-                exclude_family_canonical=exclude_families,
-                limit=1,
-                family_cap=family_cap,
-                family_cap_seed=family_cap_seed,
-                type_cap=type_cap,
-                type_cap_seed=type_cap_seed,
-                type_cap_by_slug=type_cap_by_slug,
-                as_dataframe=True,
+        if bool(viability.get("timed_out", False)):
+            return (
+                False,
+                "[PROFILE] Bounded cohort viability check timed out; no pipeline was started. "
+                "Run the explicit cohort diagnostics before retrying this profile.",
             )
-        except (SourceDatabaseConfigurationError, MySQLError) as exc:
-            return _source_preflight_failure(exc)
-        if sample_probe_df is None or sample_probe_df.empty:
+        if not bool(viability.get("runnable", False)):
+            if str(viability.get("reason_code", "")) in {
+                "inconclusive_candidate_window",
+                "inconclusive_quality_gate",
+                "inconclusive_authority_surface",
+            }:
+                return (
+                    False,
+                    "[PROFILE] Bounded cohort viability check was inconclusive; no pipeline was started. "
+                    "Run the explicit cohort diagnostics before retrying this profile.",
+                )
             return False, f"[PROFILE] Profile '{profile_id}' selected an empty cohort."
         return True, ""
 
@@ -507,6 +547,7 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
             effective_time_end_utc=effective_time_end_utc,
             require_effective_first_seen=require_effective_first_seen,
             include_family_canonical=include_families,
+            exclude_family_ids=exclude_family_ids,
             exclude_family_canonical=exclude_families,
             as_dataframe=True,
         )
@@ -571,6 +612,13 @@ def resolve_and_validate_profile(
         if menu_subtitle is not None
         else _profile_menu_latest_run_context()
     )
+    persistence_mode = str(getattr(app_config, "RESULTS_PERSISTENCE_MODE", "read_only")).strip()
+    warehouse_enabled = bool(getattr(app_config, "ENABLE_RESULTS_WAREHOUSE_EXPORT", False))
+    print(
+        "[PROFILE] Persistence mode: "
+        f"{persistence_mode} (legacy Erebus warehouse export {'enabled' if warehouse_enabled else 'disabled'}; "
+        "Core persistence disabled unless separately enabled)."
+    )
     while True:
         profile_id = resolve_profile_for_run(
             prefer_quick=prefer_quick,
@@ -583,9 +631,6 @@ def resolve_and_validate_profile(
             return None
 
         readiness_signal = profile_manager.infer_cohort_readiness_signal(profile_id)
-        summary_text = str(readiness_signal.get("summary", "") or "").strip()
-        if summary_text:
-            _print_profile_block(summary_text)
         readiness_snapshot = None
         paper_locked = False
         try:
@@ -594,19 +639,16 @@ def resolve_and_validate_profile(
             profile_payload = {}
         if isinstance(profile_payload, dict):
             paper_locked = bool(profile_payload.get("paper_locked", False))
-        detail = _compact_profile_detail(
-            str(readiness_signal.get("detail", "") or "").strip(),
+        readiness_headline, readiness_lines = _readiness_scope_block(
+            readiness_signal,
             paper_locked=paper_locked,
         )
-        locked_follow_up = _paper_locked_follow_up_note(
-            profile_id=profile_id,
-            paper_locked=paper_locked,
-        )
-        advisory_note = _merge_advisory_notes(detail, locked_follow_up)
-        if advisory_note:
-            detail_lines = _profile_detail_lines(advisory_note)
-            if detail_lines:
-                _print_profile_block(detail_lines[0], *detail_lines[1:], blank_after=True)
+        if readiness_headline:
+            _print_profile_readiness_summary(
+                profile_id=profile_id,
+                readiness_headline=readiness_headline,
+                readiness_lines=readiness_lines,
+            )
         try:
             readiness_snapshot = get_cohort_readiness_snapshot()
         except Exception:
@@ -629,8 +671,7 @@ def resolve_and_validate_profile(
                 or "counts unavailable" in observed_note
             )
         ):
-            observed_headline, observed_lines = _observed_note_lines(observed_note)
-            _print_profile_block(observed_headline, *observed_lines)
+            _print_current_source_coverage(observed_note)
         if gap_headline:
             _print_profile_block(gap_headline, *gap_lines, blank_after=True)
         try:

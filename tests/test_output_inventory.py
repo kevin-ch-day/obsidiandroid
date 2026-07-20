@@ -61,6 +61,45 @@ def test_build_inventory_rows_counts_files(tmp_path: Path) -> None:
     assert kinds["run_manifest.json"] == "evidence_required"
 
 
+def test_science_index_uses_existing_inventory_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Finalization indexes must not rescan a large tree after inventory exists."""
+    run_id = "r_cached_inventory"
+    run_root = tmp_path / "output" / "runs" / run_id
+    diagnostics_dir = run_root / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
+    (run_root / "run_summary.json").write_text("{}", encoding="utf-8")
+    (run_root / "run_evidence_index.md").write_text("# evidence\n", encoding="utf-8")
+    (diagnostics_dir / "run_observability_summary.json").write_text("{}", encoding="utf-8")
+    (diagnostics_dir / "artifact_inventory.json").write_text(
+        json.dumps({"rows": [{"path": "run_manifest.json", "lifecycle_class": "canonical_run_evidence"}]}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        output_inventory,
+        "build_inventory_rows",
+        lambda _run_root: pytest.fail("science index unexpectedly rescanned run tree"),
+    )
+    monkeypatch.setattr(output_inventory, "_read_backlog_context", lambda **_kwargs: {})
+
+    out_path = output_inventory.write_run_science_index_md(
+        run_root=run_root,
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="dev_smoke",
+        evidence_mode=False,
+        cohort_locked=False,
+        publication_ready_status="NOT_APPLICABLE",
+    )
+
+    assert out_path is not None
+    assert out_path.is_file()
+
+
 def test_report_output_inventory_resolves_archived_run_id(monkeypatch, tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     run_id = "20260303T000000Z__abc123"

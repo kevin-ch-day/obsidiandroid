@@ -174,7 +174,14 @@ def export_feature_column_survival_matrix(
     )
     primary = diagnostics_dir / f"feature_column_survival_{safe_run_id}.csv"
     setattr(app_config, "RUNTIME_FEATURE_COLUMN_SURVIVAL_CSV", str(primary))
-    du.print_info(f"[FEATURE_SURVIVAL] Wrote {len(df)} feature column row(s) → {primary.name}")
+    previous_notice = str(
+        getattr(app_config, "RUNTIME_FEATURE_COLUMN_SURVIVAL_NOTICE_PATH", "") or ""
+    )
+    if previous_notice != str(primary):
+        du.print_info(
+            f"[FEATURE CONTRACT] Survival audit: {len(df):,} columns → {primary.name}"
+        )
+        setattr(app_config, "RUNTIME_FEATURE_COLUMN_SURVIVAL_NOTICE_PATH", str(primary))
     return primary
 
 

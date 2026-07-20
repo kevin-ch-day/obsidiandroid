@@ -133,6 +133,9 @@ def build_mutable_config_keys() -> set[str]:
         "RUNTIME_CLASS_IMBALANCE_NOTICE_EMITTED",
         "RUNTIME_SPLIT_CACHE_NOTICE_EMITTED",
         "RUNTIME_SPLIT_SIZE_NOTICE_EMITTED",
+        "RUNTIME_CV_THREAD_POLICY_NOTICE_EMITTED",
+        "RUNTIME_FEATURE_CONTRACT_TERMINAL_SUMMARY",
+        "RUNTIME_FEATURE_COLUMN_SURVIVAL_NOTICE_PATH",
         "RUNTIME_K_REQUESTED",
         "RUNTIME_EFFECTIVE_TOP_K",
         "RUNTIME_INCLUDED_ENGINE_COUNT",
@@ -213,6 +216,9 @@ def reset_runtime_markers() -> None:
     setattr(app_config, "RUNTIME_CLASS_IMBALANCE_NOTICE_EMITTED", False)
     setattr(app_config, "RUNTIME_SPLIT_CACHE_NOTICE_EMITTED", False)
     setattr(app_config, "RUNTIME_SPLIT_SIZE_NOTICE_EMITTED", False)
+    setattr(app_config, "RUNTIME_CV_THREAD_POLICY_NOTICE_EMITTED", False)
+    setattr(app_config, "RUNTIME_FEATURE_CONTRACT_TERMINAL_SUMMARY", None)
+    setattr(app_config, "RUNTIME_FEATURE_COLUMN_SURVIVAL_NOTICE_PATH", "")
 
 
 def enforce_paper_perturbation_axes(profile: dict[str, Any], paper_mode: bool) -> None:
