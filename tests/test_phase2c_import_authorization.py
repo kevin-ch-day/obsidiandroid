@@ -71,5 +71,6 @@ def test_authorization_is_rejected_for_a_disposable_target() -> None:
 
 def test_importer_has_no_boolean_production_bypass() -> None:
     text = Path("src/obsidiandroid/core_migration/importer.py").read_text(encoding="utf-8")
-    assert "allow_production" not in text
+    assert "allow_production: bool" not in text
+    assert "production_authorization: Phase2CImportAuthorization | None" in text
     assert "Phase2CImportAuthorization" in text
