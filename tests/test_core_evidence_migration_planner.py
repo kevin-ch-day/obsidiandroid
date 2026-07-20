@@ -36,4 +36,17 @@ def test_missing_artifact_is_metadata_only() -> None:
         artifacts=[{"artifact_key": "gone", "artifact_path": "/missing/file", "artifact_sha256": "a" * 64}], conflicts=[],
     )
     assert plan["artifacts"][0]["availability_status"] == "missing"
-    assert plan["artifacts"][0]["hash_validation_status"] == "unknown"
+    assert plan["artifacts"][0]["hash_validation_status"] == "unavailable"
+
+
+def test_mutable_latest_artifact_is_not_immutable_evidence(tmp_path: Path) -> None:
+    artifact = tmp_path / "evidence.latest.csv"
+    artifact.write_text("mutable\n", encoding="utf-8")
+    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+
+    classified = planner.classify_artifact(str(artifact), digest)
+
+    assert classified["file_exists"] is True
+    assert classified["availability_status"] == "mutable_pointer_only"
+    assert classified["hash_validation_status"] == "not_applicable"
+    assert classified["evidence_status"] == "mutable_pointer_only"

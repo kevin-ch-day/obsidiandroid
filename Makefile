@@ -3,7 +3,7 @@
 # Shared ignore pattern for `tree` (noise / generated paths).
 _TREE_IGNORE := .git|.venv|__pycache__|*.pyc|output|logs|.pytest_cache|.pytest_tmp|*.egg-info|build|dist|.mypy_cache|.ruff_cache|.hypothesis|htmlcov|coverage.xml|wandb|mlruns
 
-.PHONY: clean clean-bytecode tree-source tree-obsidiandroid tree-utils tree-exporting-shims test test-changed test-integration test-pipeline-integration test-full setup menu install-editable doc-check verify verify-integration verify-pipeline-integration verify-canonical ci ci-fast ml-scan ml-scan-strict preflight-db check-phase1-closeout check-run-integrity dev-import-check output-writer-audit help
+.PHONY: clean clean-bytecode tree-source tree-obsidiandroid tree-utils tree-exporting-shims test test-changed test-integration test-pipeline-integration test-full setup menu install-editable doc-check verify verify-integration verify-pipeline-integration verify-canonical ci ci-fast ml-scan ml-scan-strict preflight-db check-phase1-closeout check-phase2b-schema check-run-integrity dev-import-check output-writer-audit help
 
 help:
 	@echo "Targets:"
@@ -33,6 +33,7 @@ help:
 	@echo "  make verify-integration - integration pytest lane (pipeline partial-run smoke)"
 	@echo "  make verify-canonical - canonical contract tests (validation + ML seed exports)"
 	@echo "  make check-phase1-closeout - offline Core-migration review-package check; no DB access"
+	@echo "  make check-phase2b-schema - offline Phase 2B schema/executor/import-contract tests; no DB access"
 	@echo "  make check-run-integrity RUN_ROOT=<path>  - manifest vs observability rollup (Tier A)"
 
 clean: clean-bytecode
@@ -135,6 +136,9 @@ verify-canonical:
 # Offline-only Phase 1 status check. It never opens a database connection.
 check-phase1-closeout:
 	python scripts/core_migration/check_phase1_closeout.py
+
+check-phase2b-schema:
+	python -m pytest -q tests/test_core_migration_ddl.py tests/test_core_migration_executor.py tests/test_core_import_mapping.py tests/test_core_grant_contract.py -m "not slow"
 
 # Historical dry-run canonical-artifact plans; not a Core database migration.
 dry-run-canonical-db-import:

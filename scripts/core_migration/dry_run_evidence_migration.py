@@ -42,29 +42,50 @@ def classify_artifact(path_text: str, expected_hash: str | None) -> dict[str, An
     """Classify artifact availability without modifying the referenced file."""
     raw = str(path_text or "")
     mutable = ".latest." in raw or raw.endswith(".latest")
+    pointer_kind = "latest_alias" if mutable else "none"
     legacy_absolute = raw.startswith("/") or (len(raw) >= 3 and raw[1:3] == ":\\")
     path = Path(raw) if raw.startswith("/") else None
     exists = bool(path and path.is_file())
     actual_hash = _sha256(path) if exists and path is not None else None
     expected = str(expected_hash or "") or None
-    if not exists:
-        availability, validation = "missing", "unknown"
+    if mutable:
+        # A mutable alias may be readable today, but cannot establish immutable
+        # run evidence. Retain its observed hash only as diagnostic metadata.
+        availability, validation = "mutable_pointer_only", "not_applicable"
+        confidence, evidence, notes = "low", "mutable_pointer_only", "mutable .latest alias is not immutable evidence identity"
+    elif not raw:
+        availability, validation = "unknown", "unknown"
+        confidence, evidence, notes = "low", "metadata_only", "artifact ledger path is empty"
+    elif path is None:
+        availability, validation = "legacy_path_unresolved", "unavailable"
+        confidence, evidence, notes = "low", "metadata_only", "non-absolute legacy path was not resolved"
+    elif not exists:
+        availability, validation = "missing", "unavailable"
+        confidence, evidence, notes = "low", "metadata_only", "legacy path is absent at inventory time"
     elif expected and actual_hash == expected:
         availability, validation = "present", "validated"
+        confidence, evidence, notes = "high", "validated", "immutable legacy artifact hash validated"
     elif expected:
-        availability, validation = "present", "hash_mismatch"
+        availability, validation = "present", "mismatch"
+        confidence, evidence, notes = "none", "hash_mismatch", "observed bytes do not match recorded hash"
     else:
-        availability, validation = "present", "present_unvalidated"
+        availability, validation = "present", "not_recorded"
+        confidence, evidence, notes = "medium", "present_unvalidated", "artifact exists but the ledger has no expected hash"
     return {
         "legacy_source_path": raw,
         "immutable_relative_path": None,
         "availability_status": availability,
         "hash_validation_status": validation,
         "mutable_pointer_flag": mutable,
+        "mutable_pointer_kind": pointer_kind,
         "legacy_absolute_path": legacy_absolute,
         "sha256": expected,
         "actual_sha256": actual_hash,
         "byte_size": path.stat().st_size if exists and path is not None else None,
+        "file_exists": exists,
+        "recoverability_confidence": confidence,
+        "evidence_status": evidence,
+        "notes": notes,
     }
 
 

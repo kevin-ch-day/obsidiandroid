@@ -14,8 +14,9 @@ ObsidianDroid does **not** call live VirusTotal APIs during execution. Instead, 
 
 ObsidianDroid consumes two **upstream read-only** logical databases on the same
 MySQL/MariaDB instance in typical deployments. A third, dedicated
-ObsidianDroid Core database is planned for preserved run evidence, but is
-disabled and empty until separately approved Phase 2 work. Configure source
+ObsidianDroid Core database is provisioned for preserved run evidence, but
+contains no evidence rows and remains disabled until separately approved Phase
+2C work. Configure source
 schema names with `OBSIDIAN_DB_NAME` (primary) and
 `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (Permission Intel). The core connection
 uses its own required `OBSIDIANDROID_CORE_DB_*` credentials and defaults only
@@ -77,7 +78,7 @@ reviewed schema ledger exists. Configure it only with a dedicated account:
 - `OBSIDIANDROID_CORE_DB_NAME` (default `obsidiandroid_core_prod`)
 - `OBSIDIANDROID_CORE_DB_USER`
 - `OBSIDIANDROID_CORE_DB_PASSWORD`
-- `OBSIDIANDROID_CORE_PERSISTENCE_ENABLED` (default `false`; keep disabled in Phase 1)
+- `OBSIDIANDROID_CORE_PERSISTENCE_ENABLED` (default `false`; keep disabled until separately approved Phase 2C work)
 
 | Schema area | Key tables | Purpose |
 | --- | --- | --- |
@@ -85,10 +86,14 @@ reviewed schema ledger exists. Configure it only with a dedicated account:
 | Run evidence | `core_profile`, `core_source_snapshot`, `core_run`, `core_run_sample` | Frozen profile, source, run, and sample-membership evidence |
 | Artifact and quality evidence | `core_artifact`, `core_quality_finding` | Artifact hashes/availability and run-scoped findings |
 
-**Current status:** Phase 1 design only. The version-1 DDL is intentionally
-un-applied; no pipeline writes, historical run import, or database cutover has
-occurred. See [`core_migration/phase2_apply_plan.md`](core_migration/phase2_apply_plan.md)
-for the explicitly gated next phase.
+**Current status:** the seven-table Core schema is provisioned with migrations
+`0001` and `0002` applied, zero evidence rows, and persistence disabled.
+Dedicated Core accounts are separated from source readers; the local Core
+migrator is normally locked, and the writer is insert-only while persistence
+is disabled. No pipeline writes, historical import, or database cutover has
+occurred. Phase 2C fixture import and Phase 2D integration remain separately
+authorized. See the
+[`core_migration` documentation](core_migration/README.md).
 
 ### Contributor rules (split database)
 
@@ -124,4 +129,4 @@ Access to replicated VirusTotal data must comply with [VirusTotal’s Terms of S
 - [`LABEL_AUTHORITY_SCHEMA_PLAN.md`](LABEL_AUTHORITY_SCHEMA_PLAN.md) defines the proposed
   family/type authority and vendor-label evidence layer for Erebus.
 - [`core_migration/phase2_apply_plan.md`](core_migration/phase2_apply_plan.md)
-  defines the gated Core database application plan.
+  is retained as historical planning material, not an operational runbook.

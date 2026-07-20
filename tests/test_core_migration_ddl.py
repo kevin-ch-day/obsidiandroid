@@ -10,6 +10,8 @@ import pytest
 pytestmark = pytest.mark.contract
 
 DDL_PATH = Path("database/core_migrations/0001_core_evidence_foundation.sql")
+CONTRACT_DDL_PATH = Path("database/core_migrations/0002_core_evidence_contracts.sql")
+IMMUTABLE_0001_SHA256 = "fd65d0106b50484da3ca802f8a2b98649f9bac06993989c5602f09d30c0badae"
 
 EXPECTED_TABLES = (
     "core_schema_migration",
@@ -28,6 +30,8 @@ def test_core_v1_ddl_is_present_and_explicitly_unapplied() -> None:
     assert "do not apply this file to a live database" in sql
     assert "CREATE DATABASE" not in sql
     assert re.search(r"^USE\s+", sql, flags=re.MULTILINE) is None
+    import hashlib
+    assert hashlib.sha256(DDL_PATH.read_bytes()).hexdigest() == IMMUTABLE_0001_SHA256
 
 
 def test_core_v1_ddl_declares_only_reviewed_evidence_tables() -> None:
@@ -59,3 +63,24 @@ def test_core_v1_ddl_has_integrity_links_and_utc_precision() -> None:
         "sha256",
     ):
         assert checksum_column in sql
+
+
+def test_follow_up_contract_migration_completes_the_same_seven_table_model() -> None:
+    sql = CONTRACT_DDL_PATH.read_text(encoding="utf-8")
+    assert "CREATE TABLE" not in sql
+    assert "ALTER TABLE core_" in sql
+    for required_contract in (
+        "expected_sha256",
+        "observed_sha256",
+        "source_record_hash",
+        "source_query_contract_version",
+        "snapshot_key",
+        "supersedes_run_id",
+        "chk_core_run_status",
+        "chk_core_artifact_availability",
+        "chk_core_quality_finding_state",
+        "chk_core_run_snapshot_kind",
+        "chk_core_artifact_pointer_pair",
+        "uq_core_quality_finding_source_record",
+    ):
+        assert required_contract in sql

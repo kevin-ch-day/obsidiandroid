@@ -45,6 +45,20 @@ def _load_env_files() -> None:
         path = root / name
         if path.is_file():
             load_dotenv(path, override=False)
+    # A local Core writer reference can live outside the checkout.  The
+    # reference itself is non-secret; the referenced file is accepted only
+    # when owned by the interactive/service user and not group/world-readable.
+    core_file = os.getenv("OBSIDIANDROID_CORE_CREDENTIAL_FILE", "").strip()
+    if core_file:
+        path = Path(core_file).expanduser()
+        try:
+            mode = path.stat().st_mode & 0o777
+            if path.is_file() and mode & 0o077 == 0:
+                load_dotenv(path, override=False)
+        except OSError:
+            # Missing/unreadable Core credentials remain a fail-closed later
+            # Core connection error; no source credential fallback is allowed.
+            pass
 
 
 _load_env_files()
