@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from obsidiandroid.core_migration.authorization import Phase2CImportAuthorization
@@ -65,3 +67,9 @@ def test_authorization_is_rejected_for_a_disposable_target() -> None:
             connection_factory=None,
             production_authorization=authorization,
         )
+
+
+def test_importer_has_no_boolean_production_bypass() -> None:
+    text = Path("src/obsidiandroid/core_migration/importer.py").read_text(encoding="utf-8")
+    assert "allow_production" not in text
+    assert "Phase2CImportAuthorization" in text

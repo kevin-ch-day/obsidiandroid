@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from hashlib import sha256
+import json
+
 import pytest
 
 from obsidiandroid.core_migration.importer import validate_import_plan
@@ -43,5 +46,10 @@ def test_selection_rule_disagreement_and_cross_state_are_rejected() -> None:
         )
     plan = _plan()
     plan["destination_rows"]["core_run"][0]["run_kind"] = "ledger_only"
+    canonical = dict(plan)
+    canonical.pop("plan_sha256", None)
+    plan["plan_sha256"] = sha256(
+        json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
     with pytest.raises(CoreImportError, match="contradicts run kind"):
         validate_import_plan(plan)
