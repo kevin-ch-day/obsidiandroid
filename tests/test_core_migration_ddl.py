@@ -12,6 +12,7 @@ pytestmark = pytest.mark.contract
 DDL_PATH = Path("database/core_migrations/0001_core_evidence_foundation.sql")
 CONTRACT_DDL_PATH = Path("database/core_migrations/0002_core_evidence_contracts.sql")
 RESULTS_DDL_PATH = Path("database/core_migrations/0003_core_results_contracts.sql")
+LABELS_DDL_PATH = Path("database/core_migrations/0004_core_label_and_confusion_contracts.sql")
 IMMUTABLE_0001_SHA256 = "fd65d0106b50484da3ca802f8a2b98649f9bac06993989c5602f09d30c0badae"
 
 EXPECTED_TABLES = (
@@ -98,4 +99,13 @@ def test_core_results_migration_is_additive_and_keeps_results_in_core() -> None:
     assert "erebus_threat_intel_prod" not in sql
     assert "android_permission_intel" not in sql
     for contract in ("fk_core_model_execution_feature", "fk_core_prediction_execution", "ordered_column_hash", "split_contract_hash"):
+        assert contract in sql
+
+
+def test_core_label_and_confusion_migration_keeps_ml_outputs_queryable() -> None:
+    sql = LABELS_DDL_PATH.read_text(encoding="utf-8")
+    assert tuple(re.findall(r"CREATE TABLE (core_[a-z_]+)", sql)) == (
+        "core_label_contract", "core_label_assignment", "core_confusion_cell",
+    )
+    for contract in ("label_universe_hash", "taxonomy_version", "true_label", "predicted_label", "sample_count"):
         assert contract in sql

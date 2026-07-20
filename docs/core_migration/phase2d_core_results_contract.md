@@ -42,6 +42,9 @@ surfaces:
 | `core_experiment` | Ablation or sensitivity experiment definition and status. |
 | `core_experiment_metric` | Metrics for an experiment/model/split cell. |
 | `core_permission_measure` | Run-scoped permission, family, type, and temporal measures with an explicit measure kind and dimensions. |
+| `core_label_contract` | Label target, class universe, taxonomy version, and authority state. |
+| `core_label_assignment` | Per-sample target/observed/resolved/predicted labels without an opaque JSON blob. |
+| `core_confusion_cell` | Queryable true-label/predicted-label counts for each evaluated model and split. |
 
 Existing `core_artifact` remains the registry for immutable CSV, JSON, model,
 plot, and bundle files; result rows reference its role rather than duplicate
