@@ -87,6 +87,30 @@ def _database_json(value: Any) -> str | None:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
+def _database_datetime(value: Any) -> datetime | None:
+    """Convert frozen ISO-8601 UTC evidence into MariaDB DATETIME input.
+
+    Source extracts deliberately use an unambiguous trailing ``Z``. MariaDB's
+    DATETIME parser accepts that form only with a truncation warning, which is
+    a DataError under strict SQL mode. The Core schema stores UTC wall-clock
+    DATETIME(6), so bind a timezone-normalized, naive ``datetime`` instead.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise CoreImportError("Core import plan contains an invalid ISO-8601 timestamp") from exc
+    else:
+        raise CoreImportError("Core import plan contains an unsupported timestamp value")
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+    return parsed
+
+
 def _one(cursor: Any, sql: str, params: tuple[Any, ...]) -> Any:
     cursor.execute(sql, params)
     return cursor.fetchone()
@@ -181,13 +205,13 @@ def execute_import_plan(
             cursor.execute(
                 "INSERT INTO core_source_snapshot (snapshot_key, source_catalogs_json, source_schema_name, source_database_role, source_schema_hash, source_query_contract_hash, source_query_contract_version, cohort_checksum, taxonomy_checksum, permission_snapshot_checksum, source_row_counts_json, source_record_hash, extracted_at_utc, snapshot_status, validation_status, import_receipt_id) "
                 "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (snapshot["snapshot_key"], _database_json(snapshot["source_catalogs_json"]), snapshot["source_schema_name"], snapshot["source_database_role"], snapshot["source_schema_hash"], snapshot["source_query_contract_hash"], snapshot["source_query_contract_version"], snapshot["cohort_checksum"], snapshot["taxonomy_checksum"], snapshot["permission_snapshot_checksum"], _database_json(snapshot["source_row_counts_json"]), snapshot["source_record_hash"], snapshot["extracted_at_utc"], snapshot["snapshot_status"], snapshot["validation_status"], receipt_id),
+                (snapshot["snapshot_key"], _database_json(snapshot["source_catalogs_json"]), snapshot["source_schema_name"], snapshot["source_database_role"], snapshot["source_schema_hash"], snapshot["source_query_contract_hash"], snapshot["source_query_contract_version"], snapshot["cohort_checksum"], snapshot["taxonomy_checksum"], snapshot["permission_snapshot_checksum"], _database_json(snapshot["source_row_counts_json"]), snapshot["source_record_hash"], _database_datetime(snapshot["extracted_at_utc"]), snapshot["snapshot_status"], snapshot["validation_status"], receipt_id),
             )
             snapshot_id = cursor.lastrowid
         cursor.execute(
             "INSERT INTO core_run (run_id, legacy_run_id, run_slot, profile_id, source_snapshot_id, run_kind, application_commit, application_version, configuration_hash, source_record_hash, run_started_at_utc, run_completed_at_utc, run_status, scope_kind, publication_applicability, evidence_completeness_status, import_receipt_id, artifact_count, metadata_json, imported_at_utc) "
             "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,UTC_TIMESTAMP(6))",
-            (run["run_id"], run["legacy_run_id"], run["run_slot"], run["profile_id"], snapshot_id, run["run_kind"], run["application_commit"], run["application_version"], run["configuration_hash"], run["source_record_hash"], run["run_started_at_utc"], run["run_completed_at_utc"], run["run_status"], run["scope_kind"], run["publication_applicability"], run["evidence_completeness_status"], receipt_id, run["artifact_count"], _database_json(run["metadata_json"])),
+            (run["run_id"], run["legacy_run_id"], run["run_slot"], run["profile_id"], snapshot_id, run["run_kind"], run["application_commit"], run["application_version"], run["configuration_hash"], run["source_record_hash"], _database_datetime(run["run_started_at_utc"]), _database_datetime(run["run_completed_at_utc"]), run["run_status"], run["scope_kind"], run["publication_applicability"], run["evidence_completeness_status"], receipt_id, run["artifact_count"], _database_json(run["metadata_json"])),
         )
         for row in plan["destination_rows"]["core_run_sample"]:
             cursor.execute(

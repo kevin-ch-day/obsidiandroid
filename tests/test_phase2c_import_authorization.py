@@ -16,7 +16,7 @@ from obsidiandroid.core_migration.authorization import (
     validate_core_preflight_payload,
     validate_host_preflight_payload,
 )
-from obsidiandroid.core_migration.importer import _database_json, execute_import_plan
+from obsidiandroid.core_migration.importer import _database_datetime, _database_json, execute_import_plan
 from obsidiandroid.core_migration.mapping import CoreImportError, build_import_plan
 
 
@@ -213,3 +213,13 @@ def test_importer_preserves_structured_json_without_double_encoding() -> None:
     source_value = '{"source_observed_values":"one|two"}'
     assert _database_json(source_value) == source_value
     assert _database_json({"source_observed_values": "one|two"}) == source_value
+
+
+def test_importer_normalizes_frozen_utc_timestamps_for_mariadb_datetime() -> None:
+    value = _database_datetime("2026-07-18T03:27:49.000000Z")
+    assert value is not None
+    assert value.isoformat(sep=" ") == "2026-07-18 03:27:49"
+    assert value.tzinfo is None
+    assert _database_datetime(None) is None
+    with pytest.raises(CoreImportError, match="invalid ISO-8601"):
+        _database_datetime("not-a-timestamp")

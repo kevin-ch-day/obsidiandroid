@@ -166,6 +166,8 @@ def main() -> int:
         return 0
     except Exception as exc:
         receipt["error_type"] = type(exc).__name__
+        if isinstance(exc, mysql.connector.Error) and getattr(exc, "errno", None) is not None:
+            receipt["database_error_code"] = int(exc.errno)
         receipt["finished_at_utc"] = _utc_now()
         _write_receipt(receipt_path, receipt)
         raise SystemExit(f"PHASE2C IMPORT BLOCKED: {type(exc).__name__}; receipt={receipt_path}") from exc
