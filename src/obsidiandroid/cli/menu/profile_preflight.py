@@ -6,6 +6,8 @@ import csv
 import json
 from pathlib import Path
 
+from mysql.connector import Error as MySQLError
+
 from obsidiandroid.orchestration.profile_filters import split_benign_malicious
 from config import app_config
 from obsidiandroid.common.authority_taxonomy_terms import (
@@ -14,6 +16,7 @@ from obsidiandroid.common.authority_taxonomy_terms import (
 )
 from obsidiandroid.common.backlog_semantics import build_taxonomy_curation_posture
 from obsidiandroid.database import db_sample_metadata_fetchers
+from obsidiandroid.database.db_engine import SourceDatabaseConfigurationError
 from obsidiandroid.database.db_cohort_readiness import get_cohort_readiness_snapshot
 from obsidiandroid.governance.cohort_lock_manifest import (
     load_lock_manifest,
@@ -34,6 +37,15 @@ MENU_LOGGER = get_logger(
     f"{getattr(app_config, 'APP_LOG_NAMESPACE', 'framework')}.menu.profile_preflight",
     "menu",
 )
+
+
+def _source_preflight_failure(exc: BaseException) -> tuple[bool, str]:
+    """Return an operator-safe retry message for expected source DB failures."""
+    return (
+        False,
+        "[PROFILE] Source database is unavailable: "
+        f"{exc}. Check the configured source account/host (OBSIDIAN_DB_* or OBSIDIAN_DB_OPTION_FILE), then retry.",
+    )
 
 
 def _print_profile_block(headline: str, *detail_lines: str, blank_after: bool = False) -> None:
@@ -416,22 +428,25 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
         # Fast/silent preflight for standard malicious-only profiles.
         # Use the same SQL gate summary path as the real samples stage so time-window,
         # unknown-type, and excluded-family gates do not get silently skipped here.
-        gate_stats = db_sample_metadata_fetchers.get_type_cohort_gate_stats(
-            type_slug=type_slug,
-            min_samples_per_family=min_support,
-            require_mapped_family=bool(gates.get("require_mapped_family", True)),
-            require_sha256=bool(gates.get("require_sha256", True)),
-            allow_missing_package_name=bool(gates.get("allow_missing_package_name", True)),
-            exclude_unknown_type_slug=exclude_unknown_type_slug,
-            require_active_type_slug=require_active_type_slug,
-            exclude_weak_label_kinds=exclude_weak_label_kinds,
-            exclude_family_label_conflicts=exclude_family_label_conflicts,
-            effective_time_start_utc=effective_time_start_utc,
-            effective_time_end_utc=effective_time_end_utc,
-            require_effective_first_seen=require_effective_first_seen,
-            include_family_canonical=include_families,
-            exclude_family_canonical=exclude_families,
-        )
+        try:
+            gate_stats = db_sample_metadata_fetchers.get_type_cohort_gate_stats(
+                type_slug=type_slug,
+                min_samples_per_family=min_support,
+                require_mapped_family=bool(gates.get("require_mapped_family", True)),
+                require_sha256=bool(gates.get("require_sha256", True)),
+                allow_missing_package_name=bool(gates.get("allow_missing_package_name", True)),
+                exclude_unknown_type_slug=exclude_unknown_type_slug,
+                require_active_type_slug=require_active_type_slug,
+                exclude_weak_label_kinds=exclude_weak_label_kinds,
+                exclude_family_label_conflicts=exclude_family_label_conflicts,
+                effective_time_start_utc=effective_time_start_utc,
+                effective_time_end_utc=effective_time_end_utc,
+                require_effective_first_seen=require_effective_first_seen,
+                include_family_canonical=include_families,
+                exclude_family_canonical=exclude_families,
+            )
+        except (SourceDatabaseConfigurationError, MySQLError) as exc:
+            return _source_preflight_failure(exc)
         governed_count = int(
             gate_stats.get("governed_cohort_count", gate_stats.get("final_count_estimate", 0)) or 0
         )
@@ -439,7 +454,40 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
             return False, f"[PROFILE] Profile '{profile_id}' selected an empty cohort."
 
         # Lightweight materialization probe for the same governed SQL surface.
-        sample_probe_df = db_sample_metadata_fetchers.fetch_samples_by_type(
+        try:
+            sample_probe_df = db_sample_metadata_fetchers.fetch_samples_by_type(
+                type_slug=type_slug,
+                min_samples_per_family=min_support,
+                require_mapped_family=bool(gates.get("require_mapped_family", True)),
+                require_sha256=bool(gates.get("require_sha256", True)),
+                allow_missing_package_name=bool(gates.get("allow_missing_package_name", True)),
+                exclude_unknown_type_slug=exclude_unknown_type_slug,
+                require_active_type_slug=require_active_type_slug,
+                exclude_weak_label_kinds=exclude_weak_label_kinds,
+                exclude_family_label_conflicts=exclude_family_label_conflicts,
+                effective_time_start_utc=effective_time_start_utc,
+                effective_time_end_utc=effective_time_end_utc,
+                require_effective_first_seen=require_effective_first_seen,
+                include_family_canonical=include_families,
+                exclude_family_canonical=exclude_families,
+                limit=1,
+                family_cap=family_cap,
+                family_cap_seed=family_cap_seed,
+                type_cap=type_cap,
+                type_cap_seed=type_cap_seed,
+                type_cap_by_slug=type_cap_by_slug,
+                as_dataframe=True,
+            )
+        except (SourceDatabaseConfigurationError, MySQLError) as exc:
+            return _source_preflight_failure(exc)
+        if sample_probe_df is None or sample_probe_df.empty:
+            return False, f"[PROFILE] Profile '{profile_id}' selected an empty cohort."
+        return True, ""
+
+    # Mixed-mode profiles need partition counts, so we still load the gated cohort.
+    # Use the lower-level fetch path to avoid noisy preflight terminal banners.
+    try:
+        samples_df = db_sample_metadata_fetchers.fetch_samples_by_type(
             type_slug=type_slug,
             min_samples_per_family=min_support,
             require_mapped_family=bool(gates.get("require_mapped_family", True)),
@@ -449,48 +497,21 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
             require_active_type_slug=require_active_type_slug,
             exclude_weak_label_kinds=exclude_weak_label_kinds,
             exclude_family_label_conflicts=exclude_family_label_conflicts,
-            effective_time_start_utc=effective_time_start_utc,
-            effective_time_end_utc=effective_time_end_utc,
-            require_effective_first_seen=require_effective_first_seen,
-            include_family_canonical=include_families,
-            exclude_family_canonical=exclude_families,
-            limit=1,
+            limit=gates.get("limit", None),
             family_cap=family_cap,
             family_cap_seed=family_cap_seed,
             type_cap=type_cap,
             type_cap_seed=type_cap_seed,
             type_cap_by_slug=type_cap_by_slug,
+            effective_time_start_utc=effective_time_start_utc,
+            effective_time_end_utc=effective_time_end_utc,
+            require_effective_first_seen=require_effective_first_seen,
+            include_family_canonical=include_families,
+            exclude_family_canonical=exclude_families,
             as_dataframe=True,
         )
-        if sample_probe_df is None or sample_probe_df.empty:
-            return False, f"[PROFILE] Profile '{profile_id}' selected an empty cohort."
-        return True, ""
-
-    # Mixed-mode profiles need partition counts, so we still load the gated cohort.
-    # Use the lower-level fetch path to avoid noisy preflight terminal banners.
-    samples_df = db_sample_metadata_fetchers.fetch_samples_by_type(
-        type_slug=type_slug,
-        min_samples_per_family=min_support,
-        require_mapped_family=bool(gates.get("require_mapped_family", True)),
-        require_sha256=bool(gates.get("require_sha256", True)),
-        allow_missing_package_name=bool(gates.get("allow_missing_package_name", True)),
-        exclude_unknown_type_slug=exclude_unknown_type_slug,
-        require_active_type_slug=require_active_type_slug,
-        exclude_weak_label_kinds=exclude_weak_label_kinds,
-        exclude_family_label_conflicts=exclude_family_label_conflicts,
-        limit=gates.get("limit", None),
-        family_cap=family_cap,
-        family_cap_seed=family_cap_seed,
-        type_cap=type_cap,
-        type_cap_seed=type_cap_seed,
-        type_cap_by_slug=type_cap_by_slug,
-        effective_time_start_utc=effective_time_start_utc,
-        effective_time_end_utc=effective_time_end_utc,
-        require_effective_first_seen=require_effective_first_seen,
-        include_family_canonical=include_families,
-        exclude_family_canonical=exclude_families,
-        as_dataframe=True,
-    )
+    except (SourceDatabaseConfigurationError, MySQLError) as exc:
+        return _source_preflight_failure(exc)
     if samples_df is None or samples_df.empty:
         return False, f"[PROFILE] Profile '{profile_id}' selected an empty cohort."
 

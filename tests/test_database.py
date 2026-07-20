@@ -103,6 +103,19 @@ def test_connect_with_localhost_fallback_does_not_retry_non_localhost(monkeypatc
     assert [call["host"] for call in calls] == ["db.example.internal"]
 
 
+def test_primary_option_file_is_an_explicit_private_source_configuration(monkeypatch, tmp_path: Path) -> None:
+    option_file = tmp_path / "source.cnf"
+    option_file.write_text("[client]\n", encoding="utf-8")
+    option_file.chmod(0o600)
+    monkeypatch.setattr(db_engine, "DB_OPTION_FILE", str(option_file))
+    monkeypatch.setattr(db_engine, "DB_HOST", "")
+    monkeypatch.setattr(db_engine, "DB_USER", "")
+    monkeypatch.setattr(db_engine, "DB_PASSWORD", "")
+    kwargs = db_engine._build_connect_kwargs()
+    assert kwargs["option_files"] == str(option_file)
+    assert kwargs["database"] == db_engine.DB_NAME
+
+
 def test_execute_permission_query_retries_permission_intel_localhost_via_tcp(monkeypatch) -> None:
     """Permission Intel DB helpers should inherit the same localhost fallback behavior."""
     calls: list[dict] = []
@@ -142,6 +155,8 @@ def test_execute_permission_query_retries_permission_intel_localhost_via_tcp(mon
 
     monkeypatch.setattr(db_engine.mysql.connector, "connect", fake_connect)
     monkeypatch.setattr(db_engine, "PERMISSION_INTEL_DB_HOST", "localhost")
+    monkeypatch.setattr(db_engine, "PERMISSION_INTEL_DB_USER", "fixture_user")
+    monkeypatch.setattr(db_engine, "PERMISSION_INTEL_DB_PASSWORD", "fixture_password")
 
     db_engine.execute_permission_query("SELECT 1", fetch=False)
 
@@ -511,6 +526,9 @@ def test_execute_permission_query_uses_permission_intel_database(monkeypatch) ->
         return mock_conn
 
     monkeypatch.setattr(db_engine.mysql.connector, "connect", fake_connect)
+    monkeypatch.setattr(db_engine, "PERMISSION_INTEL_DB_HOST", "localhost")
+    monkeypatch.setattr(db_engine, "PERMISSION_INTEL_DB_USER", "fixture_user")
+    monkeypatch.setattr(db_engine, "PERMISSION_INTEL_DB_PASSWORD", "fixture_password")
     db_engine.execute_permission_query("SELECT 1", fetch=False)
     assert captured.get("database") == PERMISSION_INTEL_DB_NAME
 

@@ -155,7 +155,10 @@ Provisioning review must confirm exactly seven Core tables, migration versions
 and hashes, no views/triggers/routines/events, no cross-schema FKs, disabled
 persistence, no Phase 2A routing, appropriate accounts, and an empty
 `obsidiandroid_core_prod`. Phase 2C requires a reviewed live-source contract
-and a `Phase2CImportAuthorization` bound to the exact deterministic plan SHA
-and source run. The normal pipeline cannot supply that authorization. Phase 2D
-requires a successful retained fixture receipt plus separate approval before
-any pipeline integration.
+and a v2 `Phase2CImportAuthorization` bound to the exact deterministic plan,
+source-extract manifest, migration checksums, target server and writer,
+preflight audit, expected counts, and source run. A durable external ledger
+consumes that authorization before a Core connection is opened, so it cannot be
+replayed after an attempt. The normal pipeline cannot supply that authorization.
+Phase 2D requires a successful retained fixture receipt plus separate approval
+before any pipeline integration.

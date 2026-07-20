@@ -8,7 +8,7 @@ import json
 import pytest
 
 from obsidiandroid.core_migration.importer import validate_import_plan
-from obsidiandroid.core_migration.mapping import CoreImportError, build_import_plan
+from obsidiandroid.core_migration.mapping import CoreImportError, build_import_plan, destination_reconciliation_contract
 
 
 def _plan() -> dict:
@@ -46,6 +46,7 @@ def test_selection_rule_disagreement_and_cross_state_are_rejected() -> None:
         )
     plan = _plan()
     plan["destination_rows"]["core_run"][0]["run_kind"] = "ledger_only"
+    plan["destination_reconciliation"] = destination_reconciliation_contract(plan["destination_rows"])
     canonical = dict(plan)
     canonical.pop("plan_sha256", None)
     plan["plan_sha256"] = sha256(
@@ -53,3 +54,24 @@ def test_selection_rule_disagreement_and_cross_state_are_rejected() -> None:
     ).hexdigest()
     with pytest.raises(CoreImportError, match="contradicts run kind"):
         validate_import_plan(plan)
+
+
+def test_phase2c_execution_contract_requires_frozen_extract_and_migration_identities() -> None:
+    with pytest.raises(CoreImportError, match="source_extract_manifest_sha256"):
+        build_import_plan(
+            run={"run_id": "r", "profile_id": "p"}, snapshots=[], samples=[], artifacts=[], conflicts=[],
+            phase2c_execution_contract={
+                "source_extract_manifest_sha256": "not-a-hash",
+                "repository_commit": "a" * 40,
+                "migration_checksums": {"0001": "a" * 64, "0002": "b" * 64},
+            },
+        )
+    with pytest.raises(CoreImportError, match="0001 and 0002"):
+        build_import_plan(
+            run={"run_id": "r", "profile_id": "p"}, snapshots=[], samples=[], artifacts=[], conflicts=[],
+            phase2c_execution_contract={
+                "source_extract_manifest_sha256": "a" * 64,
+                "repository_commit": "b" * 40,
+                "migration_checksums": {"0001": "c" * 64},
+            },
+        )

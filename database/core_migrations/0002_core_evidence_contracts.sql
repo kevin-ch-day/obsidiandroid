@@ -49,7 +49,7 @@ ALTER TABLE core_run
   ADD CONSTRAINT chk_core_run_kind CHECK (run_kind IN ('ledger_only', 'snapshot_backed')),
   ADD CONSTRAINT chk_core_run_status CHECK (run_status IN ('planned', 'running', 'completed', 'failed', 'rejected', 'superseded')),
   ADD CONSTRAINT chk_core_run_evidence CHECK (evidence_completeness_status IN ('ledger_only', 'snapshot_backed', 'incomplete', 'persistence_disabled', 'persistence_failed', 'imported', 'import_rejected', 'superseded'));
-
+  
 ALTER TABLE core_run
   ADD CONSTRAINT chk_core_run_snapshot_kind
     CHECK ((run_kind = 'ledger_only' AND source_snapshot_id IS NULL) OR (run_kind = 'snapshot_backed' AND source_snapshot_id IS NOT NULL)),
@@ -71,7 +71,7 @@ ALTER TABLE core_run_sample
   ADD CONSTRAINT chk_core_run_sample_supervised CHECK (supervised_status IN ('eligible', 'ineligible', 'not_applicable', 'unknown')),
   ADD CONSTRAINT chk_core_run_sample_split CHECK (split_status IN ('train', 'test', 'validation', 'not_assigned', 'excluded', 'unknown')),
   ADD CONSTRAINT chk_core_run_sample_authority CHECK (label_authority_state IN ('resolved', 'unresolved', 'conflicted', 'unknown'));
-
+  
 ALTER TABLE core_run_sample
   ADD CONSTRAINT chk_core_run_sample_evidence
     CHECK (evidence_state IN ('observed', 'snapshot_backed', 'imported', 'rejected', 'unknown'));
@@ -92,7 +92,7 @@ ALTER TABLE core_artifact
   ADD CONSTRAINT chk_core_artifact_availability CHECK (availability_status IN ('present', 'missing', 'mutable_pointer_only', 'legacy_path_unresolved', 'archive_candidate_found', 'unknown')),
   ADD CONSTRAINT chk_core_artifact_hash CHECK (hash_validation_status IN ('validated', 'mismatch', 'unavailable', 'not_recorded', 'not_applicable', 'unknown')),
   ADD CONSTRAINT chk_core_artifact_pointer CHECK (mutable_pointer_kind IN ('none', 'latest_alias', 'symlink', 'other'));
-
+  
 ALTER TABLE core_artifact
   ADD CONSTRAINT chk_core_artifact_pointer_pair
     CHECK ((mutable_pointer_flag = 0 AND mutable_pointer_kind = 'none') OR (mutable_pointer_flag = 1 AND mutable_pointer_kind <> 'none')),
@@ -128,6 +128,6 @@ ALTER TABLE core_quality_finding
   ADD CONSTRAINT fk_core_quality_finding_snapshot FOREIGN KEY (source_snapshot_id) REFERENCES core_source_snapshot (source_snapshot_id),
   ADD CONSTRAINT chk_core_quality_finding_state CHECK (resolution_status IN ('open', 'reviewed', 'resolved', 'accepted_limitation', 'rejected', 'superseded')),
   ADD CONSTRAINT chk_core_quality_finding_selected CHECK (selected_value IS NULL OR resolution_status IN ('resolved', 'accepted_limitation'));
-
+  
 ALTER TABLE core_quality_finding
   ADD UNIQUE KEY uq_core_quality_finding_source_record (run_id, source_record_hash);

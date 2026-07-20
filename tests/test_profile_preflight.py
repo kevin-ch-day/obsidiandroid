@@ -6,8 +6,10 @@ import json
 from pathlib import Path
 
 import pandas as pd
+from mysql.connector import Error as MySQLError
 
 import obsidiandroid.database.db_sample_metadata_fetchers as sample_metadata_fetchers
+from obsidiandroid.database.db_engine import SourceDatabaseConfigurationError
 
 from obsidiandroid.cli.menu import profile_preflight
 
@@ -204,6 +206,38 @@ def test_validate_profile_runnable_uses_sql_gate_stats_and_lightweight_probe_for
     assert fetch_calls[0]["as_dataframe"] is True
     assert fetch_calls[0]["exclude_unknown_type_slug"] is True
     assert fetch_calls[0]["exclude_family_canonical"] == ("devixor", "gigabud")
+
+
+def test_validate_profile_runnable_returns_a_configuration_warning_instead_of_raising(monkeypatch) -> None:
+    monkeypatch.setattr(
+        profile_preflight.profile_manager,
+        "load_profile",
+        lambda _profile_id: {"profile_id": "fixture", "cohort_gates": {}, "dataset_filters": {"mode": "none"}},
+    )
+    monkeypatch.setattr(
+        sample_metadata_fetchers,
+        "get_type_cohort_gate_stats",
+        lambda **_kwargs: (_ for _ in ()).throw(SourceDatabaseConfigurationError("Erebus source configuration is incomplete")),
+    )
+    ok, reason = profile_preflight.validate_profile_runnable("fixture")
+    assert ok is False
+    assert "OBSIDIAN_DB_OPTION_FILE" in reason
+
+
+def test_validate_profile_runnable_returns_a_connection_warning_instead_of_raising(monkeypatch) -> None:
+    monkeypatch.setattr(
+        profile_preflight.profile_manager,
+        "load_profile",
+        lambda _profile_id: {"profile_id": "fixture", "cohort_gates": {}, "dataset_filters": {"mode": "none"}},
+    )
+    monkeypatch.setattr(
+        sample_metadata_fetchers,
+        "get_type_cohort_gate_stats",
+        lambda **_kwargs: (_ for _ in ()).throw(MySQLError("connection refused")),
+    )
+    ok, reason = profile_preflight.validate_profile_runnable("fixture")
+    assert ok is False
+    assert "Source database is unavailable" in reason
 
 
 def test_validate_profile_runnable_uses_resolved_default_time_contract(monkeypatch) -> None:

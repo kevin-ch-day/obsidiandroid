@@ -455,3 +455,48 @@ def test_prune_empty_runtime_log_dirs_removes_empty_run_dirs(tmp_path: Path) -> 
     assert removed >= 1
     assert not empty_run.exists()
     assert keep_run.exists()
+
+
+def test_cleanup_preserves_explicit_historical_run_id(tmp_path: Path) -> None:
+    output_dir = tmp_path / "output"
+    retained_id = "20260716T150046Z__35107e"
+    stale_id = "20260715T050406Z__67b5b4"
+    for run_id in (retained_id, stale_id):
+        run_root = output_dir / "runs" / run_id
+        diagnostics = run_root / "diagnostics"
+        diagnostics.mkdir(parents=True, exist_ok=True)
+        (run_root / "run_manifest.json").write_text(
+            json.dumps({"run_id": run_id, "timestamp_utc": "2026-07-16T15:00:46Z"}),
+            encoding="utf-8",
+        )
+        (diagnostics / f"split_freeze_ablation__full__{run_id}.csv").write_text("header\n", encoding="utf-8")
+
+    targets = coa._collect_targets(  # pylint: disable=protected-access
+        output_dir,
+        keep_run_ids={retained_id},
+        keep_runtime_logs=0,
+    )
+    target_set = {path.as_posix() for path in targets}
+    retained_path = (output_dir / "runs" / retained_id / "diagnostics" / f"split_freeze_ablation__full__{retained_id}.csv").as_posix()
+    stale_path = (output_dir / "runs" / stale_id / "diagnostics" / f"split_freeze_ablation__full__{stale_id}.csv").as_posix()
+
+    assert retained_path not in target_set
+    assert stale_path in target_set
+
+
+def test_cleanup_never_treats_a_manifest_container_as_a_run(tmp_path: Path) -> None:
+    output_dir = tmp_path / "output"
+    nested_run = output_dir / "runs" / "majorfam_benchmark" / "20260716T150046Z__35107e"
+    nested_run.mkdir(parents=True, exist_ok=True)
+    (nested_run / "run_manifest.json").write_text(
+        json.dumps({"run_id": "20260716T150046Z__35107e", "timestamp_utc": "2026-07-16T15:00:46Z"}),
+        encoding="utf-8",
+    )
+
+    targets = coa._collect_targets(  # pylint: disable=protected-access
+        output_dir,
+        keep_run_ids=set(),
+        keep_runtime_logs=0,
+    )
+
+    assert output_dir / "runs" / "majorfam_benchmark" not in set(targets)

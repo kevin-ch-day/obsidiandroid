@@ -32,8 +32,9 @@ This guide walks operators through setting up their environment, executing the m
 
 ## 3. Configure Data Sources
 
-1. Point ObsidianDroid at your MySQL/MariaDB instance using **environment variables** (recommended) or the defaults in `obsidiandroid.database.db_config`:
+1. Point ObsidianDroid at your MariaDB instance using explicit **environment variables**. The application intentionally has no fallback source host, user, or password:
    - `OBSIDIAN_DB_HOST`, `OBSIDIAN_DB_PORT`, `OBSIDIAN_DB_USER`, `OBSIDIAN_DB_PASSWORD` — shared credentials for the server.
+   - `OBSIDIAN_DB_OPTION_FILE` — an alternative private (`0600`) MariaDB client option file. It is explicit configuration, not a fallback; use it only for the normal read-only pipeline account, never the restricted Phase 2C extract reader.
    - `OBSIDIAN_DB_NAME` — primary Erebus schema (samples, VirusTotal mirrors, catalog).
    - `OBSIDIAN_PERMISSION_INTEL_DB_NAME` — Permission Intel schema (all live `android_permission_*` tables).
 2. The same database user typically needs `SELECT` on **both** schemas so cross-schema joins and the Permission Intel connection helper can run.

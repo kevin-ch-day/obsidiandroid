@@ -19,6 +19,47 @@ SOURCE_SURFACES = (
     "snapshot_label_conflict",
 )
 SOURCE_QUERY_CONTRACT_VERSION = "core-approved-source-query-contract-v1"
+_SHA256_LENGTH = 64
+_PERSISTED_COLUMNS = {
+    "core_profile": ("profile_id", "profile_hash", "profile_name", "profile_contract_json"),
+    "core_source_snapshot": (
+        "snapshot_key", "source_catalogs_json", "source_schema_name", "source_database_role",
+        "source_schema_hash", "source_query_contract_hash", "source_query_contract_version",
+        "cohort_checksum", "taxonomy_checksum", "permission_snapshot_checksum", "source_row_counts_json",
+        "source_record_hash", "extracted_at_utc", "snapshot_status", "validation_status",
+    ),
+    "core_run": (
+        "run_id", "legacy_run_id", "run_slot", "profile_id", "run_kind", "application_commit",
+        "application_version", "configuration_hash", "source_record_hash", "run_started_at_utc",
+        "run_completed_at_utc", "run_status", "scope_kind", "publication_applicability",
+        "evidence_completeness_status", "artifact_count", "metadata_json",
+    ),
+    "core_run_sample": (
+        "run_id", "sample_key", "sha256", "source_sample_id", "source_sample_namespace",
+        "observed_family", "observed_type", "inclusion_role", "supervised_status", "split_status",
+        "label_authority_state", "evidence_state", "record_checksum", "source_record_hash",
+    ),
+    "core_artifact": (
+        "run_id", "artifact_role", "immutable_relative_path", "legacy_source_path", "sha256",
+        "expected_sha256", "observed_sha256", "byte_size", "expected_byte_size", "observed_byte_size",
+        "availability_status", "hash_validation_status", "mutable_pointer_flag", "mutable_pointer_kind",
+        "retention_status", "storage_root_class", "archive_recovery_status", "recoverability_confidence",
+        "evidence_status",
+    ),
+    "core_quality_finding": (
+        "run_id", "sample_key", "finding_code", "finding_kind", "severity", "category",
+        "affected_dimension", "message", "finding_value", "observed_values_json", "selected_value",
+        "resolution_status", "resolution_authority", "evidence_path", "source_record_hash",
+    ),
+}
+_RECONCILIATION_KEYS = {
+    "core_profile": ("profile_id",),
+    "core_source_snapshot": ("snapshot_key",),
+    "core_run": ("run_id",),
+    "core_run_sample": ("run_id", "sample_key"),
+    "core_artifact": ("run_id", "artifact_role"),
+    "core_quality_finding": ("run_id", "source_record_hash"),
+}
 
 
 def _canonical_hash(value: object) -> str:
@@ -36,6 +77,56 @@ def _required(record: dict[str, Any], key: str, surface: str) -> Any:
     return value
 
 
+def _validated_execution_contract(contract: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Validate Phase 2C bindings without manufacturing an execution authority."""
+    if contract is None:
+        return None
+    normalized = dict(contract)
+    value = str(normalized.get("source_extract_manifest_sha256") or "")
+    if len(value) != _SHA256_LENGTH or any(character not in "0123456789abcdef" for character in value):
+        raise CoreImportError("phase2c_execution_contract.source_extract_manifest_sha256 must be a lowercase SHA-256")
+    repository_commit = str(normalized.get("repository_commit") or "")
+    if len(repository_commit) not in {40, 64} or any(character not in "0123456789abcdef" for character in repository_commit):
+        raise CoreImportError("phase2c_execution_contract.repository_commit must be a full Git object ID")
+    checksums = normalized.get("migration_checksums")
+    if not isinstance(checksums, dict) or set(checksums) != {"0001", "0002"}:
+        raise CoreImportError("phase2c_execution_contract must bind 0001 and 0002 migration checksums")
+    if any(
+        len(str(value)) != _SHA256_LENGTH or any(character not in "0123456789abcdef" for character in str(value))
+        for value in checksums.values()
+    ):
+        raise CoreImportError("phase2c_execution_contract migration checksums must be lowercase SHA-256 values")
+    return {
+        "source_extract_manifest_sha256": str(normalized["source_extract_manifest_sha256"]),
+        "repository_commit": repository_commit,
+        "migration_checksums": {version: str(checksums[version]) for version in sorted(checksums)},
+    }
+
+
+def destination_reconciliation_contract(destination: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, Any]]:
+    """Describe exact persisted row content expected after a controlled import.
+
+    Auto-generated IDs, timestamps, and receipt IDs are intentionally omitted.
+    The resulting table contracts can be compared through the Core auditor
+    without depending on source rows or a writer account.
+    """
+    contract: dict[str, dict[str, Any]] = {}
+    for table, columns in _PERSISTED_COLUMNS.items():
+        rows = destination.get(table, [])
+        projected = [{column: row.get(column) for column in columns} for row in rows]
+        key_columns = _RECONCILIATION_KEYS[table]
+        ordered = sorted(projected, key=lambda row: tuple(str(row.get(key) or "") for key in key_columns))
+        key_rows = [{key: row.get(key) for key in key_columns} for row in ordered]
+        contract[table] = {
+            "columns": list(columns),
+            "key_columns": list(key_columns),
+            "row_count": len(ordered),
+            "key_sha256": _canonical_hash(key_rows),
+            "row_sha256": _canonical_hash(ordered),
+        }
+    return contract
+
+
 def build_import_plan(
     *,
     run: dict[str, Any],
@@ -44,6 +135,7 @@ def build_import_plan(
     artifacts: Iterable[dict[str, Any]],
     conflicts: Iterable[dict[str, Any]],
     mapping_contract_version: str = "core-source-mapping-v1",
+    phase2c_execution_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Map source-shaped rows into ordered Core-shaped records without I/O.
 
@@ -52,6 +144,7 @@ def build_import_plan(
     a separately reviewed Core writer may execute it later.
     """
     source_run = dict(run)
+    execution_contract = _validated_execution_contract(phase2c_execution_contract)
     run_id = str(_required(source_run, "run_id", "analysis_run"))
     profile_id = str(_required(source_run, "profile_id", "analysis_run"))
     source_snapshots = _as_list(snapshots)
@@ -223,6 +316,7 @@ def build_import_plan(
         "import_order": ["core_profile", "core_source_snapshot", "core_run", "core_run_sample", "core_artifact", "core_quality_finding"],
         "destination_rows": destination,
         "expected_counts": {table: len(rows) for table, rows in destination.items()},
+        "destination_reconciliation": destination_reconciliation_contract(destination),
         "rejection_conditions": [
             "missing required source natural identity",
             "child run_id mismatch",
@@ -232,6 +326,8 @@ def build_import_plan(
         ],
         "rollback_scope": "Only active Core transaction rows; source rows and artifact files are never changed.",
     }
+    if execution_contract is not None:
+        plan["phase2c_execution_contract"] = execution_contract
     plan["plan_sha256"] = _canonical_hash(plan)
     return plan
 

@@ -332,7 +332,7 @@ def _collect_targets(
     keep_runtime_logs: int,
     prune_preserved_legacy: bool = False,
 ) -> list[Path]:
-    """Build list of cleanup targets while preserving selected recent runs."""
+    """Build cleanup targets while preserving recent and explicitly retained runs."""
     targets: list[Path] = []
     pipeline_runtime_candidates: list[Path] = []
     runtime_category_targets: list[Path] = []
@@ -353,6 +353,10 @@ def _collect_targets(
                 continue
             manifest_path = run_dir / "run_manifest.json"
             if not manifest_path.is_file() and run_dir.name.startswith("_"):
+                continue
+            if not manifest_path.is_file() and any(run_dir.rglob("run_manifest.json")):
+                # A profile/archival container may hold manifest-backed runs
+                # below it. It is not itself a disposable noncanonical run.
                 continue
             run_id = ""
             if manifest_path.is_file():
@@ -439,6 +443,8 @@ def _collect_targets(
                 if not path.is_file():
                     continue
                 if path.name.startswith("pipeline_runtime"):
+                    if preserve_run:
+                        continue
                     pipeline_runtime_candidates.append(path)
                     continue
                 if path.name in LEGACY_SHORT_NAME_LOG_FILES and (not preserve_run or prune_preserved_legacy):
@@ -468,6 +474,9 @@ def _collect_targets(
     unique_targets = []
     for path in sorted(set(path for path in targets if path.exists())):
         if path.name in protected_names:
+            continue
+        run_id = _extract_run_id(path)
+        if run_id and run_id in keep_run_ids:
             continue
         unique_targets.append(path)
     return unique_targets
@@ -518,6 +527,13 @@ def main() -> None:
         help="Number of newest runtime log files to preserve.",
     )
     parser.add_argument(
+        "--retain-run-id",
+        action="append",
+        default=[],
+        metavar="RUN_ID",
+        help="Preserve this additional canonical run ID; repeat for historical evidence.",
+    )
+    parser.add_argument(
         "--prune-preserved-legacy",
         action="store_true",
         help="Also prune redundant legacy layout dirs from the preserved latest run(s).",
@@ -531,6 +547,12 @@ def main() -> None:
         return
 
     keep_run_ids = _discover_recent_run_ids(output_dir, keep_latest_runs=max(0, args.keep_latest_runs))
+    explicit_keep_run_ids = {
+        run_id.strip()
+        for run_id in args.retain_run_id
+        if _is_canonical_run_id(run_id.strip())
+    }
+    keep_run_ids.update(explicit_keep_run_ids)
     targets = _collect_targets(
         output_dir,
         keep_run_ids=keep_run_ids,

@@ -15,6 +15,11 @@ if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
     exit 1
 fi
 
+"${PYTHON_BIN}" -c 'import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] <= (3, 14) else 1)' || {
+    echo "ObsidianDroid supports Python 3.11 through 3.14; choose an approved interpreter with PYTHON=."
+    exit 1
+}
+
 if [[ ! -d "${VENV_DIR}" ]]; then
     "${PYTHON_BIN}" -m venv "${VENV_DIR}"
 fi
@@ -24,6 +29,7 @@ source "${VENV_DIR}/bin/activate"
 
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+python -m pip check
 
 echo "Fedora setup complete."
 echo "Run the CLI with: ./run.sh"

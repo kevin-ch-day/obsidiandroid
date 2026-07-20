@@ -46,8 +46,56 @@ Phase 2 plan is not an operational runbook.
 
 Phase 2C remains a separately authorized controlled fixture import. Its
 [review gate](phase2c_controlled_import_review.md) binds any future production
-write to one reviewed source extract and deterministic plan. Phase 2D remains
-separately authorized pipeline integration.
+write to one reviewed source-extract package, deterministic plan, exact
+migration bytes, preflight audit, target server, writer identity, and a
+single-use authorization-consumption receipt. No source extract, authorization,
+or fixture import has yet been created or executed. Phase 2D remains separately
+authorized pipeline integration.
+
+When separately authorized, only
+`scripts/core_migration/create_phase2c_source_extract.py` may create the first
+fixture package. It is locked to `20260718T032717Z__a8cf01`, requires the
+dedicated `obsidiandroid_erebus_reader` credential and an explicit read-only
+acknowledgement, uses a single consistent read-only transaction, writes outside
+the repository, and never opens Core. The older
+`dry_run_evidence_migration.py` remains Phase 1 historical planning material;
+it is not the Phase 2C extractor.
+
+`scripts/core_migration/build_phase2c_import_plan.py` is the next offline-only
+step. It verifies every compressed extract and canonical payload hash before it
+maps the reviewed rows into a plan. It binds that plan to the extract-manifest
+hash, the local repository commit, both exact Core migration checksums, expected
+counts, and post-import row/key reconciliation hashes. It has no database
+connection code and cannot execute an import. Plan creation and production
+execution both require a clean checkout at the reviewed commit; a Git commit
+identifier alone does not authorize uncommitted code.
+
+Before a Phase 2C authorization is issued, run the read-only Core audit and
+preserve its complete JSON result. The authorization binds the self-verifying
+audit hash and the audit's MariaDB server attestation (hostname, port,
+server-id, version, and version comment). The importer rechecks those values
+immediately before writing. This is a deterministic MariaDB attestation, not a
+claim that the server exposes MySQL's unsupported `@@server_uuid` variable.
+
+Before the first real Core evidence import, create and rehearse a Core recovery
+package with `scripts/core_migration/core_backup_rehearsal.py`. It requires a
+private MariaDB option file, stores a checksum-bound dump package outside the
+repository, and restores only to a new `od_core_restore_*` disposable schema
+when `--apply` is explicitly supplied. Do not treat a created dump as recovery
+evidence until its disposable restore reports `PASS`.
+
+Before moving to another workstation or database host, run
+`make preflight-migration-host OPTION_FILE=<private.cnf> MODE=local|remote`.
+It is read-only and records the supported Python range, required MariaDB
+clients, MariaDB version/family, identifier behavior, scheduler state, and
+transport policy. A remote deployment is blocked unless TLS is available and
+required and `local_infile` is disabled; do not weaken that gate to accommodate
+an unprepared remote server.
+
+For Phase 2C, the passing host-preflight JSON hash is part of the one-time
+authorization alongside the Core audit hash. The importer rejects a missing,
+changed, or blocked host report before it consumes the authorization or opens
+the Core writer connection.
 
 The service-account provisioner is single-use: it refuses existing account or
 receipt paths, creates accounts and grants before writing local credential

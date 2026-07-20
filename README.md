@@ -102,7 +102,7 @@ Each markdown file can be browsed directly in GitHub’s file viewer for quick n
    source .venv/bin/activate
    pip install -e .
    ```
-4. **(Optional for full pipeline runs) Configure MariaDB/MySQL** by setting `OBSIDIAN_DB_*` and `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (see [Configuration](#configuration)) or by editing the non-secret defaults in `src/obsidiandroid/database/db_config.py` for local development only. Do not commit real passwords; prefer environment variables or a secrets manager.
+4. **(Optional for full pipeline runs) Configure MariaDB** by setting explicit `OBSIDIAN_DB_*` and Permission Intel connection variables (see [Configuration](#configuration)). Source connections no longer fall back to root credentials or an embedded password. Do not commit real passwords; prefer environment variables or a secrets manager.
    The CLI can launch before database access is fully configured, but database-backed menu actions and pipeline stages still require a working database.
 5. **(Optional) Edit pipeline settings** in `config/app_config.py` (model selection, hyperparameters, etc).
 
@@ -179,6 +179,7 @@ Override via environment variables (recommended for deployment):
 | --- | --- |
 | `OBSIDIAN_DB_HOST`, `OBSIDIAN_DB_PORT` | Server host and port |
 | `OBSIDIAN_DB_USER`, `OBSIDIAN_DB_PASSWORD` | Credentials (same user typically has `SELECT` on both schemas) |
+| `OBSIDIAN_DB_OPTION_FILE` | Alternative explicit private MariaDB client option file (mode `0600`) for both upstream source schemas |
 | `OBSIDIAN_DB_NAME` | Primary Erebus schema |
 | `OBSIDIAN_PERMISSION_INTEL_DB_NAME` | Permission Intel schema |
 

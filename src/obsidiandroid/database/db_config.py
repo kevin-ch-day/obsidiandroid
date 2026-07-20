@@ -87,11 +87,12 @@ def _env_first_int(names: tuple[str, ...], default: int) -> int:
 
 # === MySQL Database Connection Configuration === #
 
-DB_HOST = _env_first(("OBSIDIAN_DB_HOST", "EREBUS_DB_HOST"), "localhost")
+DB_HOST = _env_first(("OBSIDIAN_DB_HOST", "EREBUS_DB_HOST"), "")
 DB_PORT = _env_first_int(("OBSIDIAN_DB_PORT", "EREBUS_DB_PORT"), 3306)
-DB_USER = _env_first(("OBSIDIAN_DB_USER", "EREBUS_DB_USER"), "root")
-DB_PASSWORD = _env_first(("OBSIDIAN_DB_PASSWORD", "EREBUS_DB_PASSWORD"), "Password123!")
+DB_USER = _env_first(("OBSIDIAN_DB_USER", "EREBUS_DB_USER"), "")
+DB_PASSWORD = _env_first(("OBSIDIAN_DB_PASSWORD", "EREBUS_DB_PASSWORD"), "")
 DB_NAME = _env_first(("OBSIDIAN_DB_NAME", "EREBUS_DB_NAME"), "erebus_threat_intel_prod")
+DB_OPTION_FILE = _env_first(("OBSIDIAN_DB_OPTION_FILE",), "")
 
 PERMISSION_INTEL_DB_NAME = _env_first(
     (
@@ -116,6 +117,10 @@ PERMISSION_INTEL_DB_USER = _env_first(
 PERMISSION_INTEL_DB_PASSWORD = _env_first(
     ("OBSIDIAN_PERMISSION_INTEL_DB_PASSWORD", "EREBUS_PERMISSION_INTEL_DB_PASSWORD"),
     DB_PASSWORD,
+)
+PERMISSION_INTEL_DB_OPTION_FILE = _env_first(
+    ("OBSIDIAN_PERMISSION_INTEL_DB_OPTION_FILE",),
+    DB_OPTION_FILE,
 )
 
 # ObsidianDroid-owned core ledger.  These values intentionally do *not* inherit

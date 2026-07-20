@@ -5,11 +5,20 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from hashlib import sha256
 import json
+from pathlib import Path
 from typing import Any, Callable
 
-from .authorization import Phase2CImportAuthorization, PRODUCTION_CORE_SCHEMA
+from .authorization import (
+    AuthorizationConsumptionLedger,
+    Phase2CImportAuthorization,
+    PRODUCTION_CORE_SCHEMA,
+    mariadb_server_attestation,
+    require_clean_repository_at_commit,
+    validate_core_preflight_payload,
+    validate_host_preflight_payload,
+)
 from .executor import CoreMigrationError, validate_target_name
-from .mapping import CoreImportError
+from .mapping import CoreImportError, destination_reconciliation_contract
 
 
 _RUN_EVIDENCE_BY_KIND = {
@@ -29,6 +38,8 @@ def validate_import_plan(plan: dict[str, Any]) -> None:
     if not declared_hash or declared_hash != actual_hash:
         raise CoreImportError("Import plan SHA-256 does not match its canonical contents")
     destination = plan.get("destination_rows", {})
+    if plan.get("destination_reconciliation") != destination_reconciliation_contract(destination):
+        raise CoreImportError("Import plan destination reconciliation contract does not match its rows")
     runs = destination.get("core_run", [])
     snapshots = destination.get("core_source_snapshot", [])
     if len(runs) != 1:
@@ -64,6 +75,18 @@ def _receipt_id(plan: dict[str, Any]) -> str:
     return sha256((str(plan["plan_sha256"]) + datetime.now(UTC).isoformat()).encode()).hexdigest()
 
 
+def _database_json(value: Any) -> str | None:
+    """Serialize JSON once, preserving already-canonical JSON structures."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            pass
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
 def _one(cursor: Any, sql: str, params: tuple[Any, ...]) -> Any:
     cursor.execute(sql, params)
     return cursor.fetchone()
@@ -75,6 +98,9 @@ def execute_import_plan(
     plan: dict[str, Any],
     connection_factory: Callable[[str], Any] | None,
     production_authorization: Phase2CImportAuthorization | None = None,
+    authorization_consumption_ledger: AuthorizationConsumptionLedger | None = None,
+    production_core_preflight: dict[str, Any] | None = None,
+    production_host_preflight: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute a validated plan atomically in a Core-only target.
 
@@ -89,12 +115,25 @@ def execute_import_plan(
         raise CoreImportError("Only deterministic dry-run import plans may cross the Core execution boundary")
     validate_import_plan(plan)
     production_target = str(target_database or "").casefold() == PRODUCTION_CORE_SCHEMA
+    authorization_receipt_path: str | None = None
     if production_target:
         if production_authorization is None:
             raise CoreImportError("Production Core import requires an explicit Phase 2C authorization record")
+        if authorization_consumption_ledger is None:
+            raise CoreImportError("Production Core import requires a durable single-use authorization ledger")
         production_authorization.validate_for(target_database=target_database, plan=plan)
+        validate_core_preflight_payload(production_core_preflight or {}, production_authorization)
+        validate_host_preflight_payload(production_host_preflight or {}, production_authorization)
+        repository_root = Path(__file__).resolve().parents[3]
+        require_clean_repository_at_commit(repository_root, production_authorization.repository_commit)
+        # Consume before opening the Core connection.  A failed or rejected
+        # attempt needs a new authorization rather than silently reusing a
+        # reviewed one-time record.
+        authorization_receipt_path = authorization_consumption_ledger.consume(production_authorization)
     elif production_authorization is not None:
         raise CoreImportError("Phase 2C authorization cannot be used for a disposable Core target")
+    elif authorization_consumption_ledger is not None:
+        raise CoreImportError("A Phase 2C authorization ledger cannot be used for a disposable Core target")
     target = validate_target_name(target_database, allow_production=production_target)
     if connection_factory is None:
         raise CoreMigrationError("An injected dedicated Core connection factory is required for import execution")
@@ -110,6 +149,19 @@ def execute_import_plan(
         current = _one(cursor, "SELECT DATABASE()", ())
         if str(current[0] if current else "") != target:
             raise CoreMigrationError("Dedicated Core import connection did not select the approved target")
+        if production_target:
+            cursor.execute("SELECT @@hostname, @@port, @@server_id, @@version, @@version_comment, CURRENT_USER()")
+            server = cursor.fetchone()
+            if not server or len(server) != 6:
+                raise CoreImportError("Production Core server did not return a complete MariaDB attestation")
+            server_identity = mariadb_server_attestation(
+                hostname=server[0], port=server[1], server_id=server[2], version=server[3], version_comment=server[4]
+            )
+            writer_identity = str(server[5])
+            if server_identity != production_authorization.target_server_identity:
+                raise CoreImportError("Production Core server identity does not match the authorization")
+            if writer_identity != production_authorization.writer_account:
+                raise CoreImportError("Production Core writer account does not match the authorization")
         existing = _one(cursor, "SELECT source_record_hash FROM core_run WHERE run_id = %s", (run["run_id"],))
         if existing:
             if str(existing[0] or "") != str(run["source_record_hash"]):
@@ -120,7 +172,7 @@ def execute_import_plan(
         cursor.execute(
             "INSERT INTO core_profile (profile_id, profile_hash, profile_name, profile_contract_json, created_at_utc, imported_at_utc) "
             "VALUES (%s, %s, %s, %s, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))",
-            (profile["profile_id"], profile["profile_hash"], profile["profile_name"], json.dumps(profile["profile_contract_json"]) if profile["profile_contract_json"] else None),
+            (profile["profile_id"], profile["profile_hash"], profile["profile_name"], _database_json(profile["profile_contract_json"])),
         )
         snapshot_id = None
         snapshots = plan["destination_rows"]["core_source_snapshot"]
@@ -129,13 +181,13 @@ def execute_import_plan(
             cursor.execute(
                 "INSERT INTO core_source_snapshot (snapshot_key, source_catalogs_json, source_schema_name, source_database_role, source_schema_hash, source_query_contract_hash, source_query_contract_version, cohort_checksum, taxonomy_checksum, permission_snapshot_checksum, source_row_counts_json, source_record_hash, extracted_at_utc, snapshot_status, validation_status, import_receipt_id) "
                 "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (snapshot["snapshot_key"], json.dumps(snapshot["source_catalogs_json"]), snapshot["source_schema_name"], snapshot["source_database_role"], snapshot["source_schema_hash"], snapshot["source_query_contract_hash"], snapshot["source_query_contract_version"], snapshot["cohort_checksum"], snapshot["taxonomy_checksum"], snapshot["permission_snapshot_checksum"], json.dumps(snapshot["source_row_counts_json"]), snapshot["source_record_hash"], snapshot["extracted_at_utc"], snapshot["snapshot_status"], snapshot["validation_status"], receipt_id),
+                (snapshot["snapshot_key"], _database_json(snapshot["source_catalogs_json"]), snapshot["source_schema_name"], snapshot["source_database_role"], snapshot["source_schema_hash"], snapshot["source_query_contract_hash"], snapshot["source_query_contract_version"], snapshot["cohort_checksum"], snapshot["taxonomy_checksum"], snapshot["permission_snapshot_checksum"], _database_json(snapshot["source_row_counts_json"]), snapshot["source_record_hash"], snapshot["extracted_at_utc"], snapshot["snapshot_status"], snapshot["validation_status"], receipt_id),
             )
             snapshot_id = cursor.lastrowid
         cursor.execute(
             "INSERT INTO core_run (run_id, legacy_run_id, run_slot, profile_id, source_snapshot_id, run_kind, application_commit, application_version, configuration_hash, source_record_hash, run_started_at_utc, run_completed_at_utc, run_status, scope_kind, publication_applicability, evidence_completeness_status, import_receipt_id, artifact_count, metadata_json, imported_at_utc) "
             "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,UTC_TIMESTAMP(6))",
-            (run["run_id"], run["legacy_run_id"], run["run_slot"], run["profile_id"], snapshot_id, run["run_kind"], run["application_commit"], run["application_version"], run["configuration_hash"], run["source_record_hash"], run["run_started_at_utc"], run["run_completed_at_utc"], run["run_status"], run["scope_kind"], run["publication_applicability"], run["evidence_completeness_status"], receipt_id, run["artifact_count"], json.dumps(run["metadata_json"])),
+            (run["run_id"], run["legacy_run_id"], run["run_slot"], run["profile_id"], snapshot_id, run["run_kind"], run["application_commit"], run["application_version"], run["configuration_hash"], run["source_record_hash"], run["run_started_at_utc"], run["run_completed_at_utc"], run["run_status"], run["scope_kind"], run["publication_applicability"], run["evidence_completeness_status"], receipt_id, run["artifact_count"], _database_json(run["metadata_json"])),
         )
         for row in plan["destination_rows"]["core_run_sample"]:
             cursor.execute(
@@ -150,10 +202,16 @@ def execute_import_plan(
         for row in plan["destination_rows"]["core_quality_finding"]:
             cursor.execute(
                 "INSERT INTO core_quality_finding (run_id,source_snapshot_id,sample_key,finding_code,finding_kind,severity,category,affected_dimension,message,finding_value,observed_values_json,selected_value,resolution_status,resolution_authority,evidence_path,source_record_hash,import_receipt_id,created_at_utc) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,UTC_TIMESTAMP(6))",
-                (row["run_id"], snapshot_id, row["sample_key"], row["finding_code"], row["finding_kind"], row["severity"], row["category"], row["affected_dimension"], row["message"], row["finding_value"], row["observed_values_json"], row["selected_value"], row["resolution_status"], row["resolution_authority"], row["evidence_path"], row["source_record_hash"], receipt_id),
+                (row["run_id"], snapshot_id, row["sample_key"], row["finding_code"], row["finding_kind"], row["severity"], row["category"], row["affected_dimension"], row["message"], row["finding_value"], _database_json(row["observed_values_json"]), row["selected_value"], row["resolution_status"], row["resolution_authority"], row["evidence_path"], row["source_record_hash"], receipt_id),
             )
         connection.commit()
-        return {"status": "imported", "receipt_id": receipt_id, "run_id": run["run_id"], "source_snapshot_id": snapshot_id}
+        return {
+            "status": "imported",
+            "receipt_id": receipt_id,
+            "authorization_consumption_receipt": authorization_receipt_path,
+            "run_id": run["run_id"],
+            "source_snapshot_id": snapshot_id,
+        }
     except Exception:
         connection.rollback()
         raise

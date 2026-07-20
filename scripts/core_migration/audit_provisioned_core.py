@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from hashlib import sha256
 import json
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,8 @@ import mysql.connector
 from scripts._bootstrap import prepare_script_runtime
 
 prepare_script_runtime(__file__)
+
+from obsidiandroid.core_migration.authorization import mariadb_server_attestation
 
 
 TARGET = "obsidiandroid_core_prod"
@@ -43,6 +46,11 @@ def _connect(option_file: Path):
     return mysql.connector.connect(option_files=str(option_file), autocommit=False)
 
 
+def _audit_hash(result: dict[str, Any]) -> str:
+    """Return the canonical, credential-free identity of an audit result."""
+    return sha256(json.dumps(result, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")).hexdigest()
+
+
 def _rows(cursor, sql: str, params: tuple[Any, ...] = ()) -> list[tuple[Any, ...]]:
     cursor.execute(sql, params)
     return list(cursor.fetchall())
@@ -54,6 +62,25 @@ def audit(option_file: Path) -> dict[str, Any]:
     cursor = connection.cursor()
     try:
         tables = _rows(cursor, "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=%s AND TABLE_TYPE='BASE TABLE' ORDER BY TABLE_NAME", (TARGET,))
+        cursor.execute("SELECT @@hostname, @@port, @@server_id, @@version, @@version_comment")
+        server_values = cursor.fetchone()
+        if not server_values or len(server_values) != 5:
+            raise RuntimeError("MariaDB server did not return a complete Core attestation")
+        server_attestation = {
+            "attestation_version": "mariadb-server-attestation-v1",
+            "hostname": str(server_values[0]),
+            "port": int(server_values[1]),
+            "server_id": int(server_values[2]),
+            "version": str(server_values[3]),
+            "version_comment": str(server_values[4]),
+        }
+        server_attestation["sha256"] = mariadb_server_attestation(
+            hostname=server_attestation["hostname"],
+            port=server_attestation["port"],
+            server_id=server_attestation["server_id"],
+            version=server_attestation["version"],
+            version_comment=server_attestation["version_comment"],
+        )
         migrations = _rows(cursor, f"SELECT migration_version, migration_checksum, execution_status FROM `{TARGET}`.core_schema_migration ORDER BY migration_version")
         evidence_counts = {}
         for table in sorted(EXPECTED_TABLES - {"core_schema_migration"}):
@@ -85,8 +112,9 @@ def audit(option_file: Path) -> dict[str, Any]:
         core_identity_grants = [row for row in grants if "core_" in str(row[0])]
         erebus_reader_grants = [row for row in grants if "erebus_reader" in str(row[0])]
         approved_table_schemas = {TARGET, "erebus_threat_intel_prod"}
-        return {
+        result = {
             "target": TARGET,
+            "server_attestation": server_attestation,
             "expected_tables": sorted(EXPECTED_TABLES),
             "actual_tables": [str(row[0]) for row in tables],
             "table_contract_ok": {str(row[0]) for row in tables} == EXPECTED_TABLES,
@@ -119,6 +147,8 @@ def audit(option_file: Path) -> dict[str, Any]:
                 "no_service_global_privilege": all(str(p) == "USAGE" for _, p in global_grants),
             },
         }
+        result["audit_sha256"] = _audit_hash(result)
+        return result
     finally:
         cursor.close()
         connection.close()

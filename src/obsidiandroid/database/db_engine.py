@@ -4,6 +4,7 @@
 # Canonical implementation; the repo-root ``database.db_engine`` shim has been retired.
 
 import json
+from pathlib import Path
 import mysql.connector
 from mysql.connector import Error
 from mysql.connector import pooling
@@ -18,6 +19,7 @@ from .db_config import (
     DB_USER,
     DB_PASSWORD,
     DB_NAME,
+    DB_OPTION_FILE,
     PERMISSION_INTEL_DB_NAME,
     DB_CHARSET,
     DB_ENABLE_POOLING,
@@ -28,6 +30,7 @@ from .db_config import (
     PERMISSION_INTEL_DB_PORT,
     PERMISSION_INTEL_DB_USER,
     PERMISSION_INTEL_DB_PASSWORD,
+    PERMISSION_INTEL_DB_OPTION_FILE,
     CORE_DB_HOST,
     CORE_DB_PORT,
     CORE_DB_USER,
@@ -55,6 +58,41 @@ class CoreDatabaseConfigurationError(RuntimeError):
 
 class CoreDatabaseWriteBlockedError(CoreDatabaseConfigurationError):
     """Raised when Phase 1 code attempts DDL or DML through the Core helper."""
+
+
+class SourceDatabaseConfigurationError(RuntimeError):
+    """Raised when an upstream source connection lacks explicit credentials."""
+
+
+def _private_source_option_file(value: str, *, role: str) -> str:
+    """Accept only an explicit, private client option file for a source role."""
+    path = Path(value).expanduser()
+    try:
+        mode = path.stat().st_mode & 0o777
+    except OSError as exc:
+        raise SourceDatabaseConfigurationError(f"{role} option file is unavailable") from exc
+    if not path.is_file() or mode & 0o077:
+        raise SourceDatabaseConfigurationError(f"{role} option file must be private (0600)")
+    return str(path)
+
+
+def _require_source_connection_config(*, role: str, host: str, user: str, password: str, database: str, option_file: str) -> None:
+    if str(option_file or "").strip():
+        _private_source_option_file(option_file, role=role)
+        if not str(database or "").strip():
+            raise SourceDatabaseConfigurationError(f"{role} database configuration is incomplete; missing database")
+        return
+    missing = [
+        name
+        for name, value in (("host", host), ("user", user), ("password", password), ("database", database))
+        if not str(value or "").strip()
+    ]
+    if missing:
+        raise SourceDatabaseConfigurationError(
+            f"{role} database configuration is incomplete; set explicit environment credentials (missing "
+            + ", ".join(missing)
+            + ")"
+        )
 
 
 def _should_retry_via_tcp_loopback(exc: BaseException, connect_kwargs: dict) -> bool:
@@ -136,6 +174,15 @@ def _safe_rollback(conn, *, context: str, original_exc: BaseException | None = N
 
 def _build_connect_kwargs() -> dict:
     """Build shared connector kwargs for direct and pooled connections (primary DB)."""
+    _require_source_connection_config(role="Erebus source", host=DB_HOST, user=DB_USER, password=DB_PASSWORD, database=DB_NAME, option_file=DB_OPTION_FILE)
+    if str(DB_OPTION_FILE).strip():
+        return {
+            "option_files": _private_source_option_file(DB_OPTION_FILE, role="Erebus source"),
+            "database": DB_NAME,
+            "charset": DB_CHARSET,
+            "autocommit": False,
+            "connection_timeout": max(2, int(DB_CONNECT_TIMEOUT)),
+        }
     return {
         "host": DB_HOST,
         "port": DB_PORT,
@@ -150,6 +197,22 @@ def _build_connect_kwargs() -> dict:
 
 def _build_permission_intel_connect_kwargs() -> dict:
     """Connector kwargs for the Permission Intel database (android_permission_* tables)."""
+    _require_source_connection_config(
+        role="Permission Intel source",
+        host=PERMISSION_INTEL_DB_HOST,
+        user=PERMISSION_INTEL_DB_USER,
+        password=PERMISSION_INTEL_DB_PASSWORD,
+        database=PERMISSION_INTEL_DB_NAME,
+        option_file=PERMISSION_INTEL_DB_OPTION_FILE,
+    )
+    if str(PERMISSION_INTEL_DB_OPTION_FILE).strip():
+        return {
+            "option_files": _private_source_option_file(PERMISSION_INTEL_DB_OPTION_FILE, role="Permission Intel source"),
+            "database": PERMISSION_INTEL_DB_NAME,
+            "charset": DB_CHARSET,
+            "autocommit": False,
+            "connection_timeout": max(2, int(DB_CONNECT_TIMEOUT)),
+        }
     return {
         "host": PERMISSION_INTEL_DB_HOST,
         "port": PERMISSION_INTEL_DB_PORT,
@@ -267,7 +330,7 @@ def database_connection():
         conn = _get_connection()
         yield conn
         conn.commit()
-    except Error as e:
+    except (Error, SourceDatabaseConfigurationError) as e:
         _log_mysql_failure("db_connection_error", e, database=DB_NAME)
         if VERBOSE_ERRORS:
             print(f"[ERROR] DB connection error: {e}")
@@ -287,7 +350,7 @@ def permission_intel_database_connection():
         conn = _get_permission_intel_connection()
         yield conn
         conn.commit()
-    except Error as e:
+    except (Error, SourceDatabaseConfigurationError) as e:
         _log_mysql_failure(
             "permission_intel_connection_error",
             e,
@@ -409,7 +472,7 @@ def _run_query(
 
         return rows
 
-    except Error as e:
+    except (Error, SourceDatabaseConfigurationError) as e:
         active_exc = e
         _log_mysql_failure(
             "sql_error",
@@ -671,7 +734,7 @@ def get_table_columns(table_name: str) -> list:
         runner = execute_permission_query if use_pi else execute_query
         rows = runner(query, fetch=True)
         return [row[0] for row in rows]
-    except Error as e:
+    except (Error, SourceDatabaseConfigurationError) as e:
         _log_mysql_failure("get_table_columns_error", e, table=table_name)
         if VERBOSE_ERRORS:
             print(f"[ERROR] Failed to get columns for '{table_name}': {e}")
@@ -711,7 +774,7 @@ def test_connection(verbose: bool = False) -> bool:
         if conn.is_connected() and getattr(app_config, "ENABLE_DB_LOGGING", True):
             log_event(DB_LOGGER, "test_connection_ok", host=DB_HOST, db=DB_NAME)
         return bool(conn.is_connected())
-    except Error as e:
+    except (Error, SourceDatabaseConfigurationError) as e:
         _log_mysql_failure("test_connection_error", e, database=DB_NAME)
         if verbose:
             print(f"[ERROR] Connection failed: {e}")
@@ -739,7 +802,7 @@ def test_permission_intel_connection(verbose: bool = False) -> bool:
                 db=PERMISSION_INTEL_DB_NAME,
             )
         return bool(conn.is_connected())
-    except Error as e:
+    except (Error, SourceDatabaseConfigurationError) as e:
         _log_mysql_failure(
             "test_permission_intel_error",
             e,
@@ -778,8 +841,8 @@ def check_split_database_health() -> dict:
         finally:
             if conn and conn.is_connected():
                 conn.close()
-    except Error as e:
-        result["primary_error"] = operator_facing_db_message(e)
+    except (Error, SourceDatabaseConfigurationError) as e:
+        result["primary_error"] = operator_facing_db_message(e) if isinstance(e, Error) else str(e)
         _log_mysql_failure("split_db_health_primary_failed", e, database=DB_NAME)
 
     try:
@@ -814,8 +877,8 @@ def check_split_database_health() -> dict:
         finally:
             if conn and conn.is_connected():
                 conn.close()
-    except Error as e:
-        result["permission_intel_error"] = operator_facing_db_message(e)
+    except (Error, SourceDatabaseConfigurationError) as e:
+        result["permission_intel_error"] = operator_facing_db_message(e) if isinstance(e, Error) else str(e)
         _log_mysql_failure(
             "split_db_health_permission_intel_connect_failed",
             e,
