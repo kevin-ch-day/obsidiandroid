@@ -73,6 +73,16 @@ def _training_fail_fast_enabled() -> bool:
     )
 
 
+def _training_checkpoint_filename(run_id: str) -> str:
+    """Keep ablation progress from overwriting the headline training checkpoint."""
+    prefix = (
+        "ablation_training_checkpoint"
+        if bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
+        else "training_checkpoint"
+    )
+    return f"{prefix}_{run_id}.json"
+
+
 def _write_training_checkpoint(
     *,
     state: str,
@@ -85,7 +95,7 @@ def _write_training_checkpoint(
     """Persist an inspectable boundary after every headline model attempt."""
     run_id = oh.normalize_artifact_run_id(getattr(app_config, "RUNTIME_RUN_ID", ""))
     try:
-        path = _diagnostics_dir() / f"training_checkpoint_{run_id}.json"
+        path = _diagnostics_dir() / _training_checkpoint_filename(run_id)
         payload = {
             "run_id": run_id,
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -401,7 +411,7 @@ def train_models(
                 du.print_subheader(f"[TRAINING] {model_name.upper()}")
             du.print_info(
                 f"[TRAINING] {model_name.replace('_', ' ')} started; progress is recorded in "
-                f"training_checkpoint_{oh.normalize_artifact_run_id(getattr(app_config, 'RUNTIME_RUN_ID', ''))}.json."
+                f"{_training_checkpoint_filename(oh.normalize_artifact_run_id(getattr(app_config, 'RUNTIME_RUN_ID', '')))}."
             )
 
         try:

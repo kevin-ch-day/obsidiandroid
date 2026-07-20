@@ -76,6 +76,13 @@ def test_training_checkpoint_halts_remaining_headline_models_after_failure(monke
     assert checkpoint["next_model"] == "xgboost"
 
 
+def test_ablation_training_uses_a_distinct_checkpoint_name(monkeypatch) -> None:
+    monkeypatch.setattr(app_config, "RUNTIME_ABLATION_ACTIVE", False, raising=False)
+    assert pipeline_core._training_checkpoint_filename("run_1") == "training_checkpoint_run_1.json"
+    monkeypatch.setattr(app_config, "RUNTIME_ABLATION_ACTIVE", True, raising=False)
+    assert pipeline_core._training_checkpoint_filename("run_1") == "ablation_training_checkpoint_run_1.json"
+
+
 def test_primary_feature_contract_blocks_target_adjacent_av_semantics(monkeypatch):
     monkeypatch.setattr(app_config, "ENABLE_LABEL_DERIVED_VENDOR_FEATURES", False, raising=False)
     frame = pd.DataFrame(

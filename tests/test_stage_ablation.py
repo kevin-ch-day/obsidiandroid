@@ -143,6 +143,69 @@ def test_ablation_progress_checkpoint_is_compact_and_actionable(monkeypatch) -> 
     ]
 
 
+def test_ablation_progress_includes_elapsed_time_and_eta_when_available(monkeypatch) -> None:
+    messages: list[str] = []
+    monkeypatch.setattr(stage_ablation.ml_console, "is_minimal", lambda: False)
+    monkeypatch.setattr(stage_ablation.du, "print_info", lambda message: messages.append(str(message)))
+
+    stage_ablation._print_ablation_combo_progress(  # pylint: disable=protected-access
+        completed=2,
+        total=4,
+        experiment_name="permissions_raw",
+        label_slug="family_id",
+        status="complete",
+        detail="model_rows=3",
+        elapsed_sec=90.0,
+        estimated_remaining_sec=90.0,
+    )
+
+    assert len(messages) == 1
+    assert "elapsed=1m 30.00s" in messages[0]
+    assert "ETA≈1m 30.00s" in messages[0]
+
+
+def test_ablation_omits_only_a_proven_one_to_one_canonical_label_alias(monkeypatch) -> None:
+    monkeypatch.setattr(app_config, "ENABLE_ABLATION_MULTI_LABEL_TARGETS", True, raising=False)
+    targets, omissions = stage_ablation._build_ablation_label_targets(  # pylint: disable=protected-access
+        pd.DataFrame(
+            {
+                "family_id": [10, 10, 11, 11],
+                "family_canonical": ["Alpha", "Alpha", "Beta", "Beta"],
+                "type_slug": ["banker", "banker", "rat", "rat"],
+                "family_within_type": ["banker::Alpha", "banker::Alpha", "rat::Beta", "rat::Beta"],
+            }
+        )
+    )
+    assert targets == [
+        ("family_id", "family_id"),
+        ("type_slug", "type_slug"),
+        ("family_within_type", "family_within_type"),
+    ]
+    assert omissions == [
+        {
+            "omitted_label_target": "family_canonical_default",
+            "retained_label_target": "family_id",
+            "reason": "one_to_one_label_alias",
+            "aligned_rows": 4,
+            "class_count": 2,
+        }
+    ]
+
+
+def test_ablation_retains_canonical_target_when_family_mapping_is_not_one_to_one(monkeypatch) -> None:
+    monkeypatch.setattr(app_config, "ENABLE_ABLATION_MULTI_LABEL_TARGETS", True, raising=False)
+    targets, omissions = stage_ablation._build_ablation_label_targets(  # pylint: disable=protected-access
+        pd.DataFrame(
+            {
+                "family_id": [10, 10, 11],
+                "family_canonical": ["Alpha", "AliasAlpha", "Beta"],
+            }
+        )
+    )
+    assert ("family_canonical_default", None) in targets
+    assert omissions == []
+
+
 def test_write_ablation_progress_snapshot_records_completed_cells(tmp_path) -> None:
     """Long grids expose durable, compact progress without waiting for final summary export."""
     path = stage_ablation._write_ablation_progress_snapshot(  # pylint: disable=protected-access
@@ -163,6 +226,8 @@ def test_write_ablation_progress_snapshot_records_completed_cells(tmp_path) -> N
 
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["total_combo_count"] == 4
+    assert payload["elapsed_sec"] is None
+    assert payload["estimated_remaining_sec"] is None
     assert payload["completed_combo_count"] == 1
     assert payload["current_combo_id"] == "vendor_no_parsed_family__lt_family_id"
     assert payload["combo_records"][0]["status"] == "complete"

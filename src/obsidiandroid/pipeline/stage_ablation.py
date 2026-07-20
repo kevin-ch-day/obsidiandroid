@@ -52,6 +52,8 @@ def _write_ablation_progress_snapshot(
     combo_records: list[dict[str, Any]],
     summary_row_count: int,
     grid_status: str,
+    elapsed_sec: float | None = None,
+    estimated_remaining_sec: float | None = None,
 ) -> Path:
     """Persist a small, atomically replaced progress capsule for a long ablation grid."""
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
@@ -63,6 +65,12 @@ def _write_ablation_progress_snapshot(
         "completed_combo_count": int(len(combo_records)),
         "current_combo_id": str(current_combo_id),
         "summary_row_count": int(summary_row_count),
+        "elapsed_sec": round(float(elapsed_sec), 3) if elapsed_sec is not None else None,
+        "estimated_remaining_sec": (
+            round(float(estimated_remaining_sec), 3)
+            if estimated_remaining_sec is not None
+            else None
+        ),
         "combo_records": list(combo_records),
         "updated_at_utc": datetime.now(timezone.utc).isoformat(),
     }
@@ -350,6 +358,8 @@ def _print_ablation_combo_progress(
     label_slug: str,
     status: str,
     detail: str,
+    elapsed_sec: float | None = None,
+    estimated_remaining_sec: float | None = None,
 ) -> None:
     """Emit one durable, human-readable checkpoint for a long ablation grid."""
     if ml_console.is_minimal():
@@ -362,6 +372,10 @@ def _print_ablation_combo_progress(
     line = f"[ABLATION] Progress {finished}/{planned} ({percent:.0f}%) — {context}: {status}"
     if detail:
         line += f" ({detail})"
+    if elapsed_sec is not None:
+        line += f" | elapsed={du.format_elapsed_duration(elapsed_sec)}"
+    if estimated_remaining_sec is not None:
+        line += f" | ETA≈{du.format_elapsed_duration(estimated_remaining_sec)}"
     if str(status).lower() in {"failed", "skipped", "interrupted_or_aborted"}:
         du.print_warning(line)
     else:
@@ -619,6 +633,65 @@ def _ablation_label_target_stats(
             }
         )
     return out
+
+
+def _build_ablation_label_targets(
+    samples_label_basis: pd.DataFrame,
+) -> tuple[list[tuple[str, str | None]], list[dict[str, Any]]]:
+    """Return non-duplicative ablation targets and documented alias omissions.
+
+    A numeric ``family_id`` can be a lossless rename of ``family_canonical``.
+    Training both targets then repeats the same split and learning task for
+    every feature configuration.  Keep the primary ``family_id`` target and
+    omit its canonical alias only when both directions are provably one-to-one
+    across the complete aligned universe.  Any missing or many-to-one mapping
+    retains both targets.
+    """
+    targets: list[tuple[str, str | None]] = []
+    omitted_aliases: list[dict[str, Any]] = []
+    has_family_id = "family_id" in samples_label_basis.columns
+    has_canonical = "family_canonical" in samples_label_basis.columns
+    if has_family_id:
+        targets.append(("family_id", "family_id"))
+    else:
+        targets.append(("family_canonical_default", None))
+
+    if not bool(getattr(app_config, "ENABLE_ABLATION_MULTI_LABEL_TARGETS", True)):
+        return targets, omitted_aliases
+
+    canonical_is_alias = False
+    if has_family_id and has_canonical:
+        pairs = samples_label_basis[["family_id", "family_canonical"]].copy()
+        pairs["family_id"] = pairs["family_id"].astype("string").str.strip()
+        pairs["family_canonical"] = pairs["family_canonical"].astype("string").str.strip()
+        complete_pairs = pairs[
+            pairs["family_id"].notna()
+            & pairs["family_canonical"].notna()
+            & (pairs["family_id"] != "")
+            & (pairs["family_canonical"] != "")
+        ]
+        if len(complete_pairs) == len(samples_label_basis) and not complete_pairs.empty:
+            family_to_canonical = int(complete_pairs.groupby("family_id")["family_canonical"].nunique().max())
+            canonical_to_family = int(complete_pairs.groupby("family_canonical")["family_id"].nunique().max())
+            canonical_is_alias = family_to_canonical == 1 and canonical_to_family == 1
+            if canonical_is_alias:
+                omitted_aliases.append(
+                    {
+                        "omitted_label_target": "family_canonical_default",
+                        "retained_label_target": "family_id",
+                        "reason": "one_to_one_label_alias",
+                        "aligned_rows": int(len(complete_pairs)),
+                        "class_count": int(complete_pairs["family_id"].nunique()),
+                    }
+                )
+
+    if not canonical_is_alias and has_canonical:
+        targets.append(("family_canonical_default", None))
+    if "type_slug" in samples_label_basis.columns:
+        targets.append(("type_slug", "type_slug"))
+    if "family_within_type" in samples_label_basis.columns:
+        targets.append(("family_within_type", "family_within_type"))
+    return targets, omitted_aliases
 
 
 def run_ablation_experiments(
@@ -909,23 +982,18 @@ def run_ablation_experiments(
             + samples_label_basis["family_canonical"].fillna("unknown").astype(str).str.strip()
         )
 
-    label_targets: list[tuple[str, str | None]] = []
-    has_family_id = "family_id" in samples_label_basis.columns
-    if has_family_id:
-        label_targets.append(("family_id", "family_id"))
-    else:
-        label_targets.append(("family_canonical_default", None))
-    if bool(getattr(app_config, "ENABLE_ABLATION_MULTI_LABEL_TARGETS", True)):
-        if has_family_id:
-            label_targets.append(("family_canonical_default", None))
-        if "type_slug" in samples_label_basis.columns:
-            label_targets.append(("type_slug", "type_slug"))
-        if "family_within_type" in samples_label_basis.columns:
-            label_targets.append(("family_within_type", "family_within_type"))
+    label_targets, equivalent_label_target_omissions = _build_ablation_label_targets(samples_label_basis)
+    for omitted in equivalent_label_target_omissions:
+        du.print_info(
+            "[ABLATION] Omitted redundant label target "
+            f"{omitted['omitted_label_target']} (one-to-one alias of {omitted['retained_label_target']}; "
+            f"{omitted['class_count']} classes across {omitted['aligned_rows']:,} aligned rows)."
+        )
 
     label_stats_snapshot = _ablation_label_target_stats(samples_label_basis, label_targets)
     if isinstance(manifest_context, dict):
         manifest_context["_ablation_label_target_stats"] = label_stats_snapshot
+        manifest_context["_ablation_equivalent_label_target_omissions"] = list(equivalent_label_target_omissions)
 
     planned_combo_count = len(experiment_matrices) * len(label_targets)
     planned_model_fit_upper_bound = planned_combo_count * len(selected_models)
@@ -975,6 +1043,7 @@ def run_ablation_experiments(
         grid_status="running",
     )
     artifact_paths.append(str(progress_path))
+    grid_started_at = datetime.now(timezone.utc)
     try:
         with pipeline_core._suppress_known_sklearn_parallel_warning():
             for experiment_name, feature_df in experiment_matrices.items():
@@ -991,6 +1060,7 @@ def run_ablation_experiments(
                         combo_records=progress_records,
                         summary_row_count=len(summary_rows),
                         grid_status="running",
+                        elapsed_sec=(datetime.now(timezone.utc) - grid_started_at).total_seconds(),
                     )
                     try:
                         setattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", experiment_name)
@@ -1126,6 +1196,20 @@ def run_ablation_experiments(
                             combo_records=progress_records,
                             summary_row_count=len(summary_rows),
                             grid_status="running",
+                            elapsed_sec=(datetime.now(timezone.utc) - grid_started_at).total_seconds(),
+                            estimated_remaining_sec=(
+                                (datetime.now(timezone.utc) - grid_started_at).total_seconds()
+                                * (planned_combo_count - len(progress_records))
+                                / len(progress_records)
+                                if progress_records
+                                else None
+                            ),
+                        )
+                        elapsed_sec = (datetime.now(timezone.utc) - grid_started_at).total_seconds()
+                        estimated_remaining_sec = (
+                            elapsed_sec * (planned_combo_count - len(progress_records)) / len(progress_records)
+                            if progress_records
+                            else None
                         )
                         _print_ablation_combo_progress(
                             completed=len(progress_records),
@@ -1134,6 +1218,8 @@ def run_ablation_experiments(
                             label_slug=label_slug,
                             status=combo_status,
                             detail=combo_detail,
+                            elapsed_sec=elapsed_sec,
+                            estimated_remaining_sec=estimated_remaining_sec,
                         )
                         setattr(app_config, "RUNTIME_EXPERIMENT_ID", "")
                         setattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", "")
@@ -1163,6 +1249,7 @@ def run_ablation_experiments(
             combo_records=progress_records,
             summary_row_count=len(summary_rows),
             grid_status=terminal_progress_status,
+            elapsed_sec=(datetime.now(timezone.utc) - grid_started_at).total_seconds(),
         )
         raw_audit = getattr(app_config, "RUNTIME_ABLATION_SCHEMA_AUDIT_ROWS", None)
         if isinstance(raw_audit, list):
@@ -1218,6 +1305,7 @@ def run_ablation_experiments(
         "skipped_experiments": list(skipped_experiments),
         "skipped_label_target_run_count": len(skipped_label_target_runs),
         "skipped_label_target_runs": list(skipped_label_target_runs),
+        "equivalent_label_target_omissions": list(equivalent_label_target_omissions),
         "models": list(selected_models),
     }
     if isinstance(manifest_context, dict):
