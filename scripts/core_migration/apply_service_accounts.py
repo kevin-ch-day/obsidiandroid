@@ -25,6 +25,14 @@ ROLES = {
 CORE_EVIDENCE_TABLES = (
     "core_profile", "core_source_snapshot", "core_run", "core_run_sample", "core_artifact", "core_quality_finding",
 )
+CORE_RESULT_TABLES = (
+    "run_stage", "feature_contract", "split_ledger", "model_execution",
+    "model_metric", "prediction", "experiment", "experiment_metric",
+    "permission_measure", "label_contract", "label_assignment", "confusion_cell",
+)
+# Idempotency checks must be narrow and are never a license to inspect Core
+# evidence broadly. All other result writes are insert-only.
+CORE_RESULT_WRITER_READS = ("feature_contract", "model_execution", "experiment", "label_contract")
 EREBUS_SURFACES = (
     "analysis_run", "analysis_snapshot", "analysis_snapshot_sample", "analysis_artifact", "snapshot_label_conflict",
 )
@@ -54,7 +62,10 @@ def grant_plan() -> tuple[str, ...]:
         f"GRANT SELECT ON `{CORE}`.`core_run` TO {_account('core_writer')}",
     ]
     statements.extend(f"GRANT INSERT ON `{CORE}`.`{table}` TO {_account('core_writer')}" for table in CORE_EVIDENCE_TABLES)
+    statements.extend(f"GRANT INSERT ON `{CORE}`.`{table}` TO {_account('core_writer')}" for table in CORE_RESULT_TABLES)
+    statements.extend(f"GRANT SELECT ON `{CORE}`.`{table}` TO {_account('core_writer')}" for table in CORE_RESULT_WRITER_READS)
     statements.extend(f"GRANT SELECT ON `{CORE}`.`{table}` TO {_account('core_auditor')}" for table in ("core_schema_migration", *CORE_EVIDENCE_TABLES))
+    statements.extend(f"GRANT SELECT ON `{CORE}`.`{table}` TO {_account('core_auditor')}" for table in CORE_RESULT_TABLES)
     statements.extend(f"GRANT SELECT ON `{EREBUS}`.`{table}` TO {_account('erebus_reader')}" for table in EREBUS_SURFACES)
     return tuple(statements)
 
