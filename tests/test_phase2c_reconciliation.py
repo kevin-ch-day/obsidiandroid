@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import pytest
 
-from obsidiandroid.core_migration.mapping import CoreImportError, build_import_plan
+from obsidiandroid.core_migration.mapping import CoreImportError, build_import_plan, destination_reconciliation_contract
 from obsidiandroid.core_migration.reconciliation import reconcile_destination_rows
 
 
@@ -50,3 +51,16 @@ def test_reconciliation_rejects_an_incomplete_auditor_projection() -> None:
     del observed["core_run"][0]["source_record_hash"]
     with pytest.raises(CoreImportError, match="omitted required columns"):
         reconcile_destination_rows(plan=plan, observed_rows=observed)
+
+
+def test_reconciliation_normalizes_json_datetime_and_tinyint_storage_forms() -> None:
+    plan = _plan()
+    observed = _observed_from_plan(plan)
+    snapshot = observed["core_source_snapshot"][0]
+    snapshot["source_catalogs_json"] = '{"approved_surfaces":["analysis_run"]}'
+    plan["destination_rows"]["core_source_snapshot"][0]["source_catalogs_json"] = {"approved_surfaces": ["analysis_run"]}
+    plan["destination_reconciliation"] = destination_reconciliation_contract(plan["destination_rows"])
+    snapshot["extracted_at_utc"] = datetime(2026, 7, 19, 12, 0, 0)
+    plan["destination_rows"]["core_source_snapshot"][0]["extracted_at_utc"] = "2026-07-19T12:00:00.000000Z"
+    plan["destination_reconciliation"] = destination_reconciliation_contract(plan["destination_rows"])
+    assert reconcile_destination_rows(plan=plan, observed_rows=observed)["all_match"] is True
