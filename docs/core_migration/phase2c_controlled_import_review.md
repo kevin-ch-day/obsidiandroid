@@ -70,8 +70,10 @@ writer-side delete.
 
 ## Required post-import review
 
-Re-run the Core audit through the Core auditor account; reconcile destination
-counts, key-set hashes, and canonical row hashes against the approved plan;
+Re-run the Core audit through the Core auditor account, then use
+`scripts/core_migration/verify_phase2c_import.py` with the approved plan and
+the dedicated auditor credential to reconcile destination counts, key-set
+hashes, and canonical row hashes against the approved plan;
 preserve the source extract, plan, authorization record, authorization
 consumption receipt, execution receipt, and checksum manifest off-host. The
 resulting import is a controlled fixture record only: it is not a paper

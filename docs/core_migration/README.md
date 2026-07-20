@@ -79,6 +79,12 @@ token. It consumes the single-use authorization before opening Core, then the
 library importer verifies the reviewed preflights, clean commit, target-server
 attestation, and writer identity before any transaction begins.
 
+After a committed import, use
+`scripts/core_migration/verify_phase2c_import.py` with the Core auditor
+credential and the same private plan. It can only read the six Core evidence
+tables, requires the `obsidiandroid_core_auditor@localhost` identity, and
+records a plan-bound count/key/row-hash reconciliation receipt outside Git.
+
 Before a Phase 2C authorization is issued, run the read-only Core audit and
 preserve its complete JSON result. The authorization binds the self-verifying
 audit hash and the audit's MariaDB server attestation (hostname, port,
