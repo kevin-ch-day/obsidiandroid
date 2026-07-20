@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 
 
@@ -28,6 +29,27 @@ def test_read_only_audit_checks_privilege_separation() -> None:
     assert "no_unrelated_table_privileges" in text
     assert "no_service_routine_privilege" in text
     assert "account_set_ok" in text
+    assert "obsidiandroid_pipeline_reader" in text
+    assert "no_normal_reader_core_privilege" in text
     assert "INSERT " not in text
     assert "UPDATE " not in text
     assert "DELETE " not in text
+
+
+def test_read_only_audit_allows_the_approved_normal_reader_but_no_unknown_account() -> None:
+    path = Path("scripts/core_migration/audit_provisioned_core.py")
+    spec = importlib.util.spec_from_file_location("core_audit", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    approved = {
+        **module.EXPECTED_ACCOUNTS,
+        **module.APPROVED_RUNTIME_ACCOUNTS,
+    }
+    assert module.account_contract(approved)["account_set_ok"] is True
+
+    with_unknown = {**approved, "obsidiandroid_unreviewed": approved["obsidiandroid_core_auditor"]}
+    result = module.account_contract(with_unknown)
+    assert result["account_set_ok"] is False
+    assert result["unexpected_accounts"] == ["obsidiandroid_unreviewed"]

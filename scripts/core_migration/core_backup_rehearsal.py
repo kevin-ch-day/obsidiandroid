@@ -60,6 +60,37 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
+def _write_failure_receipt(path: Path, *, operation: str, error: BaseException, context: dict[str, str]) -> Path | None:
+    """Preserve a credential-free, one-attempt recovery failure receipt.
+
+    The receipt intentionally records the exception *type*, not its message:
+    client errors can include transport or authentication details that do not
+    belong in a retained operational artifact.  An existing receipt is never
+    overwritten, preserving the first failure evidence for that attempted
+    output or restore target.
+    """
+    if path.exists():
+        return None
+    payload = {
+        "receipt_version": "obsidiandroid-core-backup-failure-v1",
+        "status": "failed",
+        "operation": operation,
+        "failed_at_utc": _utc_now(),
+        "error_type": type(error).__name__,
+        "context": dict(context),
+        "operator_action": (
+            "Preserve this receipt. Inspect only the named disposable target, if any, "
+            "before a separately reviewed cleanup or retry."
+        ),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.chmod(0o600)
+    temporary.replace(path)
+    return path
+
+
 def _connect(option_file: Path, database: str | None = None):
     kwargs: dict[str, Any] = {"option_files": str(option_file), "autocommit": False}
     if database:
@@ -103,6 +134,25 @@ def _manifest_hash(manifest: dict[str, Any]) -> str:
     return _canonical_hash(canonical)
 
 
+def _write_gzip_dump(command: list[str], destination: Path) -> None:
+    """Run ``mariadb-dump`` and gzip its stdout without bypassing the codec.
+
+    Passing a :class:`gzip.GzipFile` directly as ``subprocess`` stdout is not
+    safe: ``subprocess`` uses its underlying file descriptor and bypasses
+    ``GzipFile.write``.  Stage the compact Core dump in a temporary file, then
+    stream that file through the gzip writer so the declared compression and
+    bytes on disk always agree.
+    """
+    with tempfile.TemporaryFile() as plain_dump:
+        completed = subprocess.run(command, stdout=plain_dump, stderr=subprocess.PIPE, check=False)
+        if completed.returncode:
+            raise RuntimeError("Core backup dump failed; inspect the protected MariaDB client configuration")
+        plain_dump.seek(0)
+        with destination.open("wb") as raw_output:
+            with gzip.GzipFile(filename="", mode="wb", fileobj=raw_output, mtime=0) as output:
+                shutil.copyfileobj(plain_dump, output)
+
+
 def create_backup(*, option_file: Path, output_dir: Path) -> dict[str, Any]:
     """Read Core and create a new immutable dump package outside the repository."""
     option_file = _private_option_file(option_file)
@@ -116,11 +166,7 @@ def create_backup(*, option_file: Path, output_dir: Path) -> dict[str, Any]:
     dump_path = staging / "obsidiandroid_core_prod.sql.gz"
     command = [dump_binary, f"--defaults-extra-file={option_file}", "--single-transaction", "--routines", "--events", "--triggers", "--default-character-set=utf8mb4", "--databases", CORE_SCHEMA]
     try:
-        with dump_path.open("wb") as raw_output:
-            with gzip.GzipFile(filename="", mode="wb", fileobj=raw_output, mtime=0) as output:
-                completed = subprocess.run(command, stdout=output, stderr=subprocess.PIPE, check=False)
-        if completed.returncode:
-            raise RuntimeError("Core backup dump failed; inspect the protected MariaDB client configuration")
+        _write_gzip_dump(command, dump_path)
         dump_sha = sha256(dump_path.read_bytes()).hexdigest()
         manifest: dict[str, Any] = {
             "manifest_version": MANIFEST_VERSION, "created_at_utc": _utc_now(), "source_schema": CORE_SCHEMA,
@@ -220,11 +266,36 @@ def main() -> int:
     if args.create:
         if args.apply or args.output_dir is None:
             raise SystemExit("Core backup creation requires --create and --output-dir; --apply is not valid")
-        result = create_backup(option_file=args.option_file, output_dir=args.output_dir)
+        output_dir = _outside_repository(args.output_dir)
+        try:
+            result = create_backup(option_file=args.option_file, output_dir=output_dir)
+        except Exception as exc:
+            _write_failure_receipt(
+                output_dir.parent / f"{output_dir.name}.failure_receipt.json",
+                operation="create_backup",
+                error=exc,
+                context={"requested_output_dir": str(output_dir)},
+            )
+            raise
     else:
         if args.backup_dir is None or not args.target_schema:
             raise SystemExit("Core restore rehearsal requires --backup-dir and --target-schema")
-        result = rehearse_restore(option_file=args.option_file, package_dir=args.backup_dir, target_schema=args.target_schema, apply=args.apply)
+        package_dir = _outside_repository(args.backup_dir)
+        try:
+            result = rehearse_restore(
+                option_file=args.option_file,
+                package_dir=package_dir,
+                target_schema=args.target_schema,
+                apply=args.apply,
+            )
+        except Exception as exc:
+            _write_failure_receipt(
+                package_dir.parent / f"{package_dir.name}.{args.target_schema}.restore_failure_receipt.json",
+                operation="rehearse_restore",
+                error=exc,
+                context={"backup_dir": str(package_dir), "target_schema": str(args.target_schema)},
+            )
+            raise
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 

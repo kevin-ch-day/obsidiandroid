@@ -76,13 +76,21 @@ audit hash and the audit's MariaDB server attestation (hostname, port,
 server-id, version, and version comment). The importer rechecks those values
 immediately before writing. This is a deterministic MariaDB attestation, not a
 claim that the server exposes MySQL's unsupported `@@server_uuid` variable.
+The audit recognizes the separately approved normal
+`obsidiandroid_pipeline_reader` account as a runtime reader, while continuing
+to require the four Phase 2B/Core identities and reject any unreviewed
+`obsidiandroid_*` account. The normal reader is not a Core identity and must
+never receive Core privileges.
 
 Before the first real Core evidence import, create and rehearse a Core recovery
 package with `scripts/core_migration/core_backup_rehearsal.py`. It requires a
 private MariaDB option file, stores a checksum-bound dump package outside the
 repository, and restores only to a new `od_core_restore_*` disposable schema
-when `--apply` is explicitly supplied. Do not treat a created dump as recovery
-evidence until its disposable restore reports `PASS`.
+when `--apply` is explicitly supplied. A failed creation or rehearsal writes a
+credential-free, non-overwriting failure receipt beside the attempted external
+package; its exception type is preserved but its message is intentionally not
+recorded. Do not treat a created dump as recovery evidence until its disposable
+restore reports `PASS`.
 
 Before moving to another workstation or database host, run
 `make preflight-migration-host OPTION_FILE=<private.cnf> MODE=local|remote`.

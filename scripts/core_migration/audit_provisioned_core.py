@@ -38,6 +38,13 @@ EXPECTED_ACCOUNTS = {
     "obsidiandroid_core_auditor": {"host": "localhost", "plugin": "mysql_native_password", "locked": False},
     "obsidiandroid_erebus_reader": {"host": "localhost", "plugin": "mysql_native_password", "locked": False},
 }
+# The normal analysis reader is deliberately outside the Phase 2C/Core import
+# lane.  It is nevertheless an approved local identity, so an account audit
+# must recognize it explicitly rather than flagging a healthy deployment as an
+# unexpected service account.
+APPROVED_RUNTIME_ACCOUNTS = {
+    "obsidiandroid_pipeline_reader": {"host": "localhost", "plugin": "mysql_native_password", "locked": False},
+}
 CORE_EVIDENCE_TABLES = ("core_profile", "core_source_snapshot", "core_run", "core_run_sample", "core_artifact", "core_quality_finding")
 EREBUS_SURFACES = ("analysis_run", "analysis_snapshot", "analysis_snapshot_sample", "analysis_artifact", "snapshot_label_conflict")
 
@@ -54,6 +61,27 @@ def _audit_hash(result: dict[str, Any]) -> str:
 def _rows(cursor, sql: str, params: tuple[Any, ...] = ()) -> list[tuple[Any, ...]]:
     cursor.execute(sql, params)
     return list(cursor.fetchall())
+
+
+def account_contract(actual_accounts: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Evaluate the complete approved local service-account inventory.
+
+    The Core migration roles and the normal read-only pipeline reader have
+    distinct responsibilities, but both are intentional local identities.
+    Keeping the latter in this explicit allowlist prevents a false Phase 2B
+    failure while still rejecting any unreviewed ``obsidiandroid_*`` account.
+    """
+    expected = {**EXPECTED_ACCOUNTS, **APPROVED_RUNTIME_ACCOUNTS}
+    return {
+        "account_set_ok": set(actual_accounts) == set(expected),
+        "per_account": {
+            user: actual_accounts.get(user) == specification
+            for user, specification in sorted(expected.items())
+        },
+        "phase2_service_accounts": sorted(EXPECTED_ACCOUNTS),
+        "approved_runtime_accounts": sorted(APPROVED_RUNTIME_ACCOUNTS),
+        "unexpected_accounts": sorted(set(actual_accounts) - set(expected)),
+    }
 
 
 def audit(option_file: Path) -> dict[str, Any]:
@@ -124,13 +152,7 @@ def audit(option_file: Path) -> dict[str, Any]:
             "evidence_empty": not any(evidence_counts.values()),
             "auxiliary_objects": auxiliary,
             "service_accounts": [{"user": user, "host": host, "plugin": plugin, "locked": bool(locked)} for user, host, plugin, locked in users],
-            "account_contract_ok": {
-                "account_set_ok": set(actual_accounts) == set(EXPECTED_ACCOUNTS),
-                "per_account": {
-                    user: actual_accounts.get(user) == expected
-                    for user, expected in sorted(EXPECTED_ACCOUNTS.items())
-                },
-            },
+            "account_contract_ok": account_contract(actual_accounts),
             "table_grants": [{"grantee": g, "schema": s, "table": t, "privilege": p} for g, s, t, p in grants],
             "schema_grants": [{"grantee": g, "schema": s, "privilege": p} for g, s, p in schema_grants],
             "global_grants": [{"grantee": g, "privilege": p} for g, p in global_grants],
@@ -140,9 +162,13 @@ def audit(option_file: Path) -> dict[str, Any]:
                 "no_core_writer_migration_ledger_privilege": not any("core_writer" in str(g) and str(t) == "core_schema_migration" for g, _, t, _ in grants),
                 "no_core_identity_source_privilege": not any(str(s) != TARGET for g, s, _, _ in core_identity_grants),
                 "no_source_reader_core_privilege": not any(str(s) == TARGET for g, s, _, _ in erebus_reader_grants),
+                "no_normal_reader_core_privilege": not any("pipeline_reader" in str(g) and str(s) == TARGET for g, s, _, _ in grants),
                 "no_unrelated_table_privileges": all(str(s) in approved_table_schemas for _, s, _, _ in grants),
                 "no_phase2a_schema_privileges": not any(str(s).startswith("od_core_phase2") for _, s, _, _ in grants) and not any(str(s).startswith("od_core_phase2") for _, s, _ in schema_grants),
                 "source_reader_select_only": all(str(p) == "SELECT" for _, _, _, p in erebus_reader_grants),
+                "normal_reader_select_only": all(
+                    str(p) == "SELECT" for g, _, _, p in grants if "pipeline_reader" in str(g)
+                ),
                 "no_service_routine_privilege": not routine_grants,
                 "no_service_global_privilege": all(str(p) == "USAGE" for _, p in global_grants),
             },
