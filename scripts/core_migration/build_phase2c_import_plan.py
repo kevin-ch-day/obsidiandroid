@@ -76,14 +76,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-extract-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--repository-commit", default=_repository_commit())
     args = parser.parse_args()
+    # Resolve this only after argparse has handled --help.  More importantly,
+    # do not accept an operator-supplied commit value: a Phase 2C plan must be
+    # bound to the actual clean checkout that created it.
+    repository_commit = _repository_commit()
     output = Path(args.output)
     if output.exists():
         raise SystemExit("Refusing to overwrite an existing Phase 2C plan")
     if REPO_ROOT == output.resolve() or REPO_ROOT in output.resolve().parents:
         raise SystemExit("Phase 2C plans must be written outside the repository")
-    plan = build_plan_from_package(args.source_extract_dir, repository_commit=args.repository_commit)
+    plan = build_plan_from_package(args.source_extract_dir, repository_commit=repository_commit)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     output.chmod(0o600)
