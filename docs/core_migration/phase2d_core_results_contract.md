@@ -33,18 +33,18 @@ surfaces:
 
 | Table | Purpose |
 |---|---|
-| `core_run_stage` | Stage status, timestamps, duration, and failure class. |
-| `core_feature_contract` | Modality/feature contract identity, ordered-column hash, leakage status, and immutable artifact reference. |
-| `core_split_ledger` | Per-sample split assignment and immutable split hash. |
-| `core_model_execution` | Model identity, estimator/configuration hash, feature/split contract references, and promoted status. |
-| `core_model_metric` | Scalar metrics for one model, split, and evaluation scope. |
-| `core_prediction` | Held-out prediction ledger keyed by run, model, split, and sample. |
-| `core_experiment` | Ablation or sensitivity experiment definition and status. |
-| `core_experiment_metric` | Metrics for an experiment/model/split cell. |
-| `core_permission_measure` | Run-scoped permission, family, type, and temporal measures with an explicit measure kind and dimensions. |
-| `core_label_contract` | Label target, class universe, taxonomy version, and authority state. |
-| `core_label_assignment` | Per-sample target/observed/resolved/predicted labels without an opaque JSON blob. |
-| `core_confusion_cell` | Queryable true-label/predicted-label counts for each evaluated model and split. |
+| `run_stage` | Stage status, timestamps, duration, and failure class. |
+| `feature_contract` | Modality/feature contract identity, ordered-column hash, leakage status, and immutable artifact reference. |
+| `split_ledger` | Per-sample split assignment and immutable split hash. |
+| `model_execution` | Model identity, estimator/configuration hash, feature/split contract references, and promoted status. |
+| `model_metric` | Scalar metrics for one model, split, and evaluation scope. |
+| `prediction` | Held-out prediction ledger keyed by run, model, split, and sample. |
+| `experiment` | Ablation or sensitivity experiment definition and status. |
+| `experiment_metric` | Metrics for an experiment/model/split cell. |
+| `permission_measure` | Run-scoped permission, family, type, and temporal measures with an explicit measure kind and dimensions. |
+| `label_contract` | Label target, class universe, taxonomy version, and authority state. |
+| `label_assignment` | Per-sample target/observed/resolved/predicted labels without an opaque JSON blob. |
+| `confusion_cell` | Queryable true-label/predicted-label counts for each evaluated model and split. |
 
 Existing `core_artifact` remains the registry for immutable CSV, JSON, model,
 plot, and bundle files; result rows reference its role rather than duplicate

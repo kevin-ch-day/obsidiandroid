@@ -13,6 +13,7 @@ DDL_PATH = Path("database/core_migrations/0001_core_evidence_foundation.sql")
 CONTRACT_DDL_PATH = Path("database/core_migrations/0002_core_evidence_contracts.sql")
 RESULTS_DDL_PATH = Path("database/core_migrations/0003_core_results_contracts.sql")
 LABELS_DDL_PATH = Path("database/core_migrations/0004_core_label_and_confusion_contracts.sql")
+RENAME_DDL_PATH = Path("database/core_migrations/0005_simplify_core_result_table_names.sql")
 IMMUTABLE_0001_SHA256 = "fd65d0106b50484da3ca802f8a2b98649f9bac06993989c5602f09d30c0badae"
 
 EXPECTED_TABLES = (
@@ -109,3 +110,10 @@ def test_core_label_and_confusion_migration_keeps_ml_outputs_queryable() -> None
     )
     for contract in ("label_universe_hash", "taxonomy_version", "true_label", "predicted_label", "sample_count"):
         assert contract in sql
+
+
+def test_result_names_are_simplified_after_the_immutable_contract_migrations() -> None:
+    sql = RENAME_DDL_PATH.read_text(encoding="utf-8")
+    assert "CREATE TABLE" not in sql
+    for source, target in (("core_model_execution", "model_execution"), ("core_label_contract", "label_contract"), ("core_confusion_cell", "confusion_cell")):
+        assert f"{source} TO {target}" in sql
