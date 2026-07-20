@@ -10,6 +10,7 @@ import pytest
 from obsidiandroid.core_migration.mapping import CoreImportError
 from obsidiandroid.core_migration.private_credentials import (
     Phase2CCredentialRole,
+    load_disposable_rehearsal_auditor_credentials,
     load_disposable_rehearsal_writer_credentials,
     load_phase2c_credentials,
 )
@@ -113,3 +114,14 @@ def test_disposable_rehearsal_writer_is_pinned_to_one_phase2c_target(tmp_path: P
         load_disposable_rehearsal_writer_credentials(path, target_database="od_core_phase2c_rehearsal_20260720T120001Z")
     with pytest.raises(CoreImportError):
         load_disposable_rehearsal_writer_credentials(path, target_database="obsidiandroid_core_prod")
+
+
+def test_disposable_rehearsal_auditor_is_pinned_to_one_phase2c_target(tmp_path: Path) -> None:
+    target = "od_core_phase2c_rehearsal_20260720T120000Z"
+    values = _values(Phase2CCredentialRole.CORE_AUDITOR)
+    values["OBSIDIANDROID_DB_NAME"] = target
+    path = _credential(tmp_path, Phase2CCredentialRole.CORE_AUDITOR, values)
+    credentials = load_disposable_rehearsal_auditor_credentials(path, target_database=target)
+    assert credentials.database == target
+    with pytest.raises(CoreImportError, match="schema does not match"):
+        load_disposable_rehearsal_auditor_credentials(path, target_database="od_core_phase2c_rehearsal_20260720T120001Z")

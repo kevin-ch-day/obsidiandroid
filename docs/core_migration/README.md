@@ -123,12 +123,15 @@ the Core writer connection.
 The remaining Phase 2C closeout evidence is a disposable replay and rollback
 rehearsal. `scripts/core_migration/rehearse_phase2c_disposable.py` accepts only
 an empty, pre-migrated `od_core_phase2c_rehearsal_*` schema, a private plan,
-and a private writer credential pinned to that exact schema. It injects a
+and separate private writer and auditor credentials pinned to that exact
+schema. The writer performs inserts; the auditor alone checks evidence counts.
+It injects a
 failure after the run insert and verifies that every Core evidence-table count
 remains zero; it then imports the plan and verifies that a second application
 is an idempotent no-op. It cannot create a schema, alter grants, use
-production, or read source databases. A temporary exact-schema writer grant
-and a credential-free external receipt are still required before execution.
+production, or read source databases. Temporary exact-schema writer and
+auditor grants and a credential-free external receipt are still required before
+execution.
 
 The service-account provisioner is single-use: it refuses existing account or
 receipt paths, creates accounts and grants before writing local credential

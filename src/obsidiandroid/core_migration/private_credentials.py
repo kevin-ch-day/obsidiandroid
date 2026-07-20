@@ -184,3 +184,33 @@ def load_disposable_rehearsal_writer_credentials(path: Path, *, target_database:
         user=values["OBSIDIANDROID_CORE_DB_USER"], password=values["OBSIDIANDROID_CORE_DB_PASSWORD"],
         database=target,
     )
+
+
+def load_disposable_rehearsal_auditor_credentials(path: Path, *, target_database: str) -> Phase2CCredentials:
+    """Load a read-only auditor credential pinned to one rehearsal schema."""
+    try:
+        target = validate_target_name(target_database)
+    except CoreMigrationError as exc:
+        raise CoreImportError("Disposable rehearsal credential target is not an approved disposable Core schema") from exc
+    values = _parse(_private_path(path))
+    contract = _ROLE_CONTRACTS[Phase2CCredentialRole.CORE_AUDITOR]
+    if set(values) != contract["keys"]:
+        raise CoreImportError("Disposable rehearsal credential file does not match the auditor contract")
+    mapping = contract["mapping"]
+    if values[mapping["host"]] != "localhost":
+        raise CoreImportError("Disposable rehearsal credential host violates the localhost-only policy")
+    if values[mapping["user"]] != "obsidiandroid_core_auditor":
+        raise CoreImportError("Disposable rehearsal credential identity does not match the Core auditor")
+    if values[mapping["database"]] != target:
+        raise CoreImportError("Disposable rehearsal credential schema does not match the requested target")
+    try:
+        port = int(values[mapping["port"]])
+    except ValueError as exc:
+        raise CoreImportError("Disposable rehearsal credential port must be numeric") from exc
+    if not 1 <= port <= 65535:
+        raise CoreImportError("Disposable rehearsal credential port is out of range")
+    return Phase2CCredentials(
+        role=Phase2CCredentialRole.CORE_AUDITOR,
+        host=values[mapping["host"]], port=port, user=values[mapping["user"]],
+        password=values[mapping["password"]], database=target,
+    )

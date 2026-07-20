@@ -24,7 +24,10 @@ prepare_script_runtime(__file__)
 from obsidiandroid.core_migration.executor import validate_target_name
 from obsidiandroid.core_migration.importer import execute_import_plan, validate_import_plan
 from obsidiandroid.core_migration.mapping import CoreImportError
-from obsidiandroid.core_migration.private_credentials import load_disposable_rehearsal_writer_credentials
+from obsidiandroid.core_migration.private_credentials import (
+    load_disposable_rehearsal_auditor_credentials,
+    load_disposable_rehearsal_writer_credentials,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -93,6 +96,7 @@ def main() -> int:
     parser.add_argument("--target", required=True)
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--credential-file", type=Path, required=True)
+    parser.add_argument("--auditor-credential-file", type=Path, required=True)
     parser.add_argument("--receipt", type=Path, required=True)
     parser.add_argument("--confirm", required=True)
     args = parser.parse_args()
@@ -109,11 +113,18 @@ def main() -> int:
             _external_private_file(args.credential_file, label="credential file", must_exist=True),
             target_database=target,
         )
+        auditor_credentials = load_disposable_rehearsal_auditor_credentials(
+            _external_private_file(args.auditor_credential_file, label="auditor credential file", must_exist=True),
+            target_database=target,
+        )
 
         def factory(database: str):
             return mysql.connector.connect(host=credentials.host, port=credentials.port, user=credentials.user, password=credentials.password, database=database, autocommit=False)
 
-        before = _counts(factory, target)
+        def auditor_factory(database: str):
+            return mysql.connector.connect(host=auditor_credentials.host, port=auditor_credentials.port, user=auditor_credentials.user, password=auditor_credentials.password, database=database, autocommit=False)
+
+        before = _counts(auditor_factory, target)
         if any(before.values()):
             raise CoreImportError("Phase 2C disposable rehearsal target must contain zero evidence rows")
         try:
@@ -123,12 +134,12 @@ def main() -> int:
                 raise
         else:
             raise CoreImportError("Controlled rollback probe did not fail")
-        after_rollback = _counts(factory, target)
+        after_rollback = _counts(auditor_factory, target)
         if after_rollback != before:
             raise CoreImportError("Controlled rollback probe left Core evidence rows in the disposable target")
         imported = execute_import_plan(target_database=target, plan=plan, connection_factory=factory)
         replay = execute_import_plan(target_database=target, plan=plan, connection_factory=factory)
-        after_replay = _counts(factory, target)
+        after_replay = _counts(auditor_factory, target)
         expected = _expected_counts(plan)
         if imported.get("status") != "imported" or replay.get("status") != "already_imported" or after_replay != expected:
             raise CoreImportError("Phase 2C disposable rehearsal did not satisfy rollback, import, and replay expectations")
