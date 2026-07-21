@@ -37,6 +37,7 @@ The canonical implementations are **here**. Import them as **`scripts.diagnostic
 | [`generate_type_permission_pattern_report.py`](generate_type_permission_pattern_report.py) | Read-only malware-type permission-pattern report from an existing run's `permission_trends` tables (complete type accounting, provisional/final status, prevalence, lift, family balance, banker/dropper); does not query production. Contract: [`docs/TYPE_PERMISSION_PATTERN_REPORT.md`](../../docs/TYPE_PERMISSION_PATTERN_REPORT.md) |
 | [`generate_type_permission_pairwise_report.py`](generate_type_permission_pairwise_report.py) | Phase-2 pairwise permission co-occurrence from aligned features + permission audit (AOSP/OEM/Google lanes, family-aware support, FDR, explicit suppression); no DB; no three-way mining |
 | [`generate_type_guard_suppression_audit.py`](generate_type_guard_suppression_audit.py) | Read-only audit of `type_guard_family_suppressed` rows in `prediction_errors_*.csv` (raw vs post-guard pairs; not holdout CM) |
+| [`generate_research_hygiene_pack.py`](generate_research_hygiene_pack.py) | Holdout confidence calibration (ECE/Brier/support tiers) + split class accounting (206/169/132/train-only) + read-only Core Results v1 artifact map; no DB/Core writes |
 
 The optional Zimperium IOC source is pinned as a Git submodule. Materialize it
 only when running its coverage diagnostic:

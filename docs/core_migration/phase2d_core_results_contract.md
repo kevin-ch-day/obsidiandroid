@@ -66,6 +66,32 @@ paths or hashes.
    until a separate, receipted backfill decision is approved. They are not
    dropped as part of Phase 2D.
 
+## Live fixture mapping
+
+After a finished current-corpus diagnostic run, generate a read-only artifact map:
+
+```bash
+python scripts/diagnostics/generate_research_hygiene_pack.py \
+  --run-root output/runs/<slot> \
+  --run-id <run_id>
+```
+
+Outputs (run-scoped, not for Git):
+
+- `diagnostics/core_results_artifact_map/` — which Core Results v1 tables this run can populate
+- `diagnostics/holdout_calibration/` — ECE/Brier + train-only class reconciliation
+
+Rules for using a live fixture:
+
+1. Map source artifacts, natural identities, and row bounds only.
+2. Do **not** enable Core persistence or write the run into Core while partial
+   `0004` remains unresolved and `0005` is unapplied.
+3. Treat slot-level unstamped paths (for example reused `models/*.joblib` or
+   `obsidiandroid_outputs.xlsx`) as mutable pointers until run-id stamped
+   copies are registered in `core_artifact`.
+4. `experiment` / `experiment_metric` remain `not_exercised` when ablations are
+   disabled.
+
 ## Delivery order
 
 1. Inventory the exact CSV/JSON contracts emitted by training, ablation,
