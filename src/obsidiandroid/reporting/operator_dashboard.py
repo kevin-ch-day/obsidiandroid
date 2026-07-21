@@ -1037,12 +1037,22 @@ def emit_research_operator_report(
                 f"{priority.get('composite_problem_score_0_100', 'n/a')} / 100"
             )
         if support_gap:
+            source = str(support_gap.get("distribution_source") or "family_distribution").strip()
+            threshold = int(support_gap.get("min_support") or support_gap.get("trainability_threshold") or 20)
             pr(
-                "  Support-gap ROI: "
+                "  Support-gap ROI "
+                f"(surface={source}; threshold n>={threshold}): "
                 f"{support_gap.get('families_with_gap_le_5', 0)} family/families within <=5 "
                 f"sample(s) of trainability; all-tail closure needs "
                 f"{support_gap.get('samples_needed_to_make_all_families_trainable', 0)} sample(s)."
             )
+            pretrain_lt3 = support_gap.get("pretraining_families_below_runtime_min_support")
+            if pretrain_lt3 not in (None, ""):
+                pr(
+                    "  Pre-training low-support warning surface: "
+                    f"{int(pretrain_lt3)} families below the runtime min-support floor "
+                    "(separate from the n>=20 trainability gap above)."
+                )
         threshold_20 = (
             support_curve.get("threshold_20")
             if isinstance(support_curve.get("threshold_20"), dict)
@@ -1080,11 +1090,28 @@ def emit_research_operator_report(
                     pr(f"  Training policy `{track.get('track', '')}`: {action}")
         if pred_errors:
             top_pair = pred_errors.get("top_error_pair") if isinstance(pred_errors.get("top_error_pair"), dict) else {}
+            top_raw = (
+                pred_errors.get("top_error_pair_raw_model")
+                if isinstance(pred_errors.get("top_error_pair_raw_model"), dict)
+                else {}
+            )
             if top_pair:
                 pr(
-                    "  Top error pair: "
+                    "  Top structured prediction-error pair (post type-guard): "
                     f"{top_pair.get('expected_family', '')} -> {top_pair.get('predicted_family', '')} "
                     f"n={top_pair.get('count', 0)}"
+                )
+            if top_raw:
+                pr(
+                    "  Top structured prediction-error pair (raw model): "
+                    f"{top_raw.get('expected_family', '')} -> {top_raw.get('predicted_family', '')} "
+                    f"n={top_raw.get('count', 0)}"
+                )
+            guard_n = pred_errors.get("type_guard_suppressed_count")
+            if guard_n not in (None, "", 0):
+                pr(
+                    f"  Type-guard demotions in prediction_errors: {int(guard_n)} "
+                    "(post-model governance; not holdout confusion-matrix pairs)."
                 )
         if compact_terminal:
             highest = next(
@@ -1321,7 +1348,9 @@ def emit_research_operator_report(
         block_lines.append(f"Split export ({dl_seed.get('split_hash')}) : {split_ready}")
     if dl_seed.get("ml_vocabulary_entry_count"):
         block_lines.append(
-            f"ML permission vocabulary        : {dl_seed.get('ml_vocabulary_entry_count')} entries"
+            "ML seed permission vocabulary   : "
+            f"{dl_seed.get('ml_vocabulary_entry_count')} entries "
+            "(compact DL-handoff export; not fused feature-column width)"
         )
     if dl_seed.get("dl_seed_missing_refs"):
         block_lines.append(
@@ -1335,7 +1364,7 @@ def emit_research_operator_report(
         )
     if active_supervised_family_classes is not None:
         block_lines.append(
-            f"Active supervised family classes: {active_supervised_family_classes}"
+            f"Training target family classes  : {active_supervised_family_classes}"
         )
     if visible_family_classes is not None:
         block_lines.append(

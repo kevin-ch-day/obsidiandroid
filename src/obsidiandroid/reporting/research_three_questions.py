@@ -198,12 +198,15 @@ def _research_run_summary_blockers(bundle: dict[str, Any]) -> list[str]:
         row for row in confusion_rows if isinstance(row, dict) and str(row.get("shared_malware_type", "")).strip().lower() == "no"
     ]
     if cross_type_rows:
-        blockers.append(f"cross-type confusions appear in {len(cross_type_rows)}/{len(confusion_rows)} top confusion pairs")
+        blockers.append(
+            f"cross-type confusions appear in {len(cross_type_rows)}/{len(confusion_rows)} "
+            "top holdout confusion pairs"
+        )
 
     top_confusion = next((row for row in confusion_rows if isinstance(row, dict) and int(row.get("count", 0) or 0) > 0), None)
     if isinstance(top_confusion, dict):
         blockers.append(
-            "top confusion="
+            "top holdout confusion="
             f"{top_confusion.get('true_label', '')} -> {top_confusion.get('predicted_label', '')} "
             f"n={int(top_confusion.get('count', 0) or 0)}"
         )
@@ -1477,7 +1480,7 @@ def print_research_questions_terminal(
                 for row in confusion_rows
             ]
         )
-        pr("[FAILURE] Top confusion pairs:")
+        pr("[FAILURE] Top holdout confusion pairs (true → pred):")
         du.print_table(conf_df, show_index=False)
         pr("")
     if bundle.get("type_easier"):

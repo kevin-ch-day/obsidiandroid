@@ -383,7 +383,8 @@ def test_emit_research_operator_report_surfaces_dl_seed_handoff_for_canonical_pr
     assert "DL seed handoff                 : ready" in joined
     assert dataset_hash in joined
     assert "Cohort persistence source       : runtime_frame" in joined
-    assert "ML permission vocabulary        : 42 entries" in joined
+    assert "ML seed permission vocabulary   : 42 entries" in joined
+    assert "compact DL-handoff export" in joined
     assert f"dl_handoff_summary_{run_id}.json" in joined
 
 
@@ -979,7 +980,7 @@ def test_emit_research_operator_report_marks_all_current_as_diagnostic_surface(
     assert "This run describes current governed Android malware corpus health." in text
     assert "Family/type models are diagnostic because the current corpus is concentration-heavy." in text
     assert "Visible governed families       : 115" in text
-    assert "Active supervised family classes: 114" in text
+    assert "Training target family classes  : 114" in text
     assert "Modeled family classes" not in text
     assert "Excluded / non-claim families   : 1" in text
     assert "Use benchmark profiles for stronger family-classification claims." in text

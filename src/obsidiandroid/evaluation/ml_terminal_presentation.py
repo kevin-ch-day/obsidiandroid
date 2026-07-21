@@ -225,7 +225,7 @@ def format_population_terminal_lines(manifest_context: dict[str, Any] | None) ->
     if visible_families not in (None, "", 0):
         lines.append(f"Visible families      : {int(visible_families)}")
     if modeled_families not in (None, "", "-"):
-        lines.append(f"Modeled families      : {int(modeled_families)}")
+        lines.append(f"Training target classes: {int(modeled_families)}")
     if excluded_rows > 0:
         family_text = (
             f"{excluded_rows:,} rows / {int(excluded_families)} families"
@@ -381,7 +381,7 @@ def print_model_evaluation_terminal_summary(
     if trainable_n not in (None, ""):
         _print_summary_stat("Trainable cohort", f"{int(trainable_n):,} samples", compact=compact)
     if classes not in (None, "", "-"):
-        _print_summary_stat("Modeled families", f"{int(classes)}", compact=compact)
+        _print_summary_stat("Held-out evaluated classes", f"{int(classes)}", compact=compact)
 
     if not compact:
         print("")

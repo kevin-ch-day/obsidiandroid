@@ -80,7 +80,7 @@ def print_skeptic_audit_followup_terminal(bundle: dict[str, Any], *, pr: Callabl
             f"support={row.get('support_holdout')}"
         )
     pr("")
-    pr("Top confusion pairs (true → pred):")
+    pr("Top holdout confusion pairs (true → pred):")
     for row in (fa.get("top_confusion_pairs") or [])[:8]:
         pr(
             f"  {row.get('true_family')} → {row.get('predicted_family')}: n={row.get('count')} "

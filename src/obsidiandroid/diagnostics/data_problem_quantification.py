@@ -209,7 +209,31 @@ def _support_performance_metrics(diagnostics_dir: Path) -> dict[str, Any]:
 
 
 def _support_gap_metrics(diagnostics_dir: Path, run_id: str, min_support: int = 20) -> dict[str, Any]:
-    fam_df = _family_distribution(diagnostics_dir, run_id)
+    """Trainability-gap metrics against an explicit distribution surface.
+
+    Prefer the full aligned prepared cohort (``aligned_labels_*.csv``) so the
+    n>=20 gap is not silently empty when ``family_distribution.csv`` already
+    reflects a post-support / trainable subset.
+    """
+    distribution_source = "family_distribution.csv"
+    fam_df = pd.DataFrame(columns=["family", "sample_count"])
+    if run_id:
+        labels = _read_csv(diagnostics_dir / f"aligned_labels_{run_id}.csv")
+        if not labels.empty and "family_canonical" in labels.columns:
+            fam_df = (
+                labels["family_canonical"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .loc[lambda s: s.ne("") & s.str.lower().ne("unknown")]
+                .value_counts()
+                .rename_axis("family")
+                .reset_index(name="sample_count")
+            )
+            distribution_source = f"aligned_labels_{run_id}.csv"
+    if fam_df.empty:
+        fam_df = _family_distribution(diagnostics_dir, run_id)
+        distribution_source = "family_distribution.csv"
     if fam_df.empty or "sample_count" not in fam_df.columns:
         return {}
     work = fam_df.copy()
@@ -217,9 +241,16 @@ def _support_gap_metrics(diagnostics_dir: Path, run_id: str, min_support: int = 
     tail = work[(work["sample_count"] > 0) & (work["sample_count"] < min_support)].copy()
     out: dict[str, Any] = {
         "min_support": min_support,
+        "trainability_threshold": min_support,
+        "distribution_source": distribution_source,
         "below_support_family_count": int(len(tail)),
         "below_support_sample_count": int(tail["sample_count"].sum()) if not tail.empty else 0,
     }
+    low_support_path = diagnostics_dir / "low_support_families.csv"
+    if low_support_path.is_file():
+        low_df = _read_csv(low_support_path)
+        out["pretraining_families_below_runtime_min_support"] = int(len(low_df)) if not low_df.empty else 0
+        out["pretraining_low_support_source"] = "low_support_families.csv"
     if tail.empty:
         out.update(
             {
@@ -375,8 +406,34 @@ def _prediction_error_metrics(diagnostics_dir: Path, run_id: str) -> dict[str, A
     total = int(len(work))
     pair_dist = _distribution_metrics(pair_counts["count"].astype(int).tolist())
     top_pair = pair_counts.iloc[0].to_dict() if not pair_counts.empty else {}
+    raw_col = next(
+        (c for c in ("raw_model_predicted_family", "raw_predicted_family") if c in work.columns),
+        "",
+    )
+    top_raw: dict[str, Any] = {}
+    if raw_col:
+        work[raw_col] = work[raw_col].fillna("").astype(str)
+        raw_pairs = (
+            work.groupby([expected_col, raw_col], dropna=False)
+            .size()
+            .reset_index(name="count")
+            .sort_values("count", ascending=False)
+        )
+        if not raw_pairs.empty:
+            raw_top = raw_pairs.iloc[0].to_dict()
+            top_raw = {
+                "expected_family": str(raw_top.get(expected_col, "")),
+                "predicted_family": str(raw_top.get(raw_col, "")),
+                "count": int(raw_top.get("count", 0) or 0),
+            }
+    guard_count = 0
+    if "override_tag" in work.columns:
+        guard_count = int(
+            work["override_tag"].fillna("").astype(str).str.strip().eq("type_guard_family_suppressed").sum()
+        )
     return {
         "prediction_error_rows": total,
+        "prediction_error_surface": "structured_prediction_errors_post_label_resolution",
         "error_pair_count": int(len(pair_counts)),
         "error_pair_entropy_bits": pair_dist.get("entropy_bits", 0.0),
         "error_pair_hhi": pair_dist.get("hhi", 0.0),
@@ -386,11 +443,14 @@ def _prediction_error_metrics(diagnostics_dir: Path, run_id: str) -> dict[str, A
         "top_expected_error_count": int(expected_counts.iloc[0]) if not expected_counts.empty else 0,
         "top_predicted_error_family": str(predicted_counts.index[0]) if not predicted_counts.empty else "",
         "top_predicted_error_count": int(predicted_counts.iloc[0]) if not predicted_counts.empty else 0,
+        "type_guard_suppressed_count": guard_count,
         "top_error_pair": {
             "expected_family": str(top_pair.get(expected_col, "")),
             "predicted_family": str(top_pair.get(predicted_col, "")),
             "count": int(top_pair.get("count", 0) or 0),
+            "scope": "post_type_guard",
         },
+        "top_error_pair_raw_model": {**top_raw, "scope": "raw_model"} if top_raw else {},
     }
 
 
@@ -829,9 +889,13 @@ def write_data_problem_quantification(
             "",
             f"- Composite problem score: `{priority.get('composite_problem_score_0_100', 0.0)}` / 100",
             f"- Families below support threshold: `{support_gap.get('below_support_family_count', 0)}`",
+            f"- Support-gap distribution source: `{support_gap.get('distribution_source', '')}`",
             f"- Samples needed to make all current families trainable: `{support_gap.get('samples_needed_to_make_all_families_trainable', 0)}`",
             f"- Families within <=5 samples of trainability: `{support_gap.get('families_with_gap_le_5', 0)}`",
+            f"- Pre-training families below runtime min-support: `{support_gap.get('pretraining_families_below_runtime_min_support', 'n/a')}`",
             f"- Prediction-error top-3 pair share: `{pred.get('top3_error_pair_share', 0.0)}`",
+            f"- Prediction-error surface: `{pred.get('prediction_error_surface', 'structured_prediction_errors')}`",
+            f"- Type-guard suppressions in prediction_errors: `{pred.get('type_guard_suppressed_count', 0)}`",
             "",
             "### Support Threshold Curve",
             "",
