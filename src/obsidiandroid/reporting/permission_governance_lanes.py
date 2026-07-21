@@ -26,7 +26,7 @@ from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
-PROTECTION_LANE_CONTRACT_VERSION = "1.0.0"
+PROTECTION_LANE_CONTRACT_VERSION = "1.1.0"
 
 # Exactly one headline reporting lane per token.
 LANE_AOSP_NORMAL = "aosp_normal"
@@ -82,7 +82,34 @@ DEFAULT_THRESHOLDS: dict[str, Any] = {
     "dominance_threshold": 0.85,
     "fdr_alpha": 0.05,
     "app_defined_max_global_support_for_identity": 5,
+    # Headline strength tiers (applied after family_balanced_supported).
+    "headline_strength_strong_fb": 0.20,
+    "headline_strength_moderate_fb": 0.10,
 }
+
+
+def classify_headline_strength(
+    *,
+    reportability_status: str,
+    family_balanced_prevalence: float | None,
+    thresholds: Mapping[str, Any] | None = None,
+) -> str:
+    """Tier already-supported headlines by family-balanced prevalence.
+
+    Returns one of: ``strong``, ``moderate``, ``marginal``, ``not_headline``.
+    Does not hide marginal rows; interpretation should prefer strong/moderate.
+    """
+    thr = {**DEFAULT_THRESHOLDS, **(dict(thresholds) if thresholds else {})}
+    if str(reportability_status) != "family_balanced_supported":
+        return "not_headline"
+    if family_balanced_prevalence is None or pd.isna(family_balanced_prevalence):
+        return "marginal"
+    fb = float(family_balanced_prevalence)
+    if fb >= float(thr["headline_strength_strong_fb"]):
+        return "strong"
+    if fb >= float(thr["headline_strength_moderate_fb"]):
+        return "moderate"
+    return "marginal"
 
 
 def _norm_source(value: Any) -> str:
@@ -363,5 +390,6 @@ __all__ = [
     "reconcile_lane_token_counts",
     "governance_field_contract_table",
     "classify_permission_row_reportability",
+    "classify_headline_strength",
     "contract_metadata",
 ]

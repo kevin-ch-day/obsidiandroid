@@ -9,7 +9,7 @@ or Erebus queries are performed by the composers.
 
 | Field | Value |
 | --- | --- |
-| `protection_lane_contract_version` | `1.0.0` |
+| `protection_lane_contract_version` | `1.1.0` |
 
 ## Canonical headline lanes
 
@@ -88,5 +88,20 @@ Documented here and emitted in every composer manifest:
 | `min_effect_odds` | 1.5 |
 | `dominance_threshold` | 0.85 |
 | `fdr_alpha` | 0.05 |
+| `headline_strength_moderate_fb` | 0.10 |
+| `headline_strength_strong_fb` | 0.20 |
+
+### Headline strength tiers
+
+After a pair reaches `family_balanced_supported`, assign:
+
+| Strength | Rule |
+| --- | --- |
+| `strong` | FB prevalence >= 0.20 |
+| `moderate` | FB prevalence >= 0.10 |
+| `marginal` | FB prevalence >= 0.05 |
+| `not_headline` | not `family_balanced_supported` |
+
+Prefer `strong` / `moderate` for research claims; keep `marginal` visible.
 
 Implementation: `obsidiandroid.reporting.permission_governance_lanes`.

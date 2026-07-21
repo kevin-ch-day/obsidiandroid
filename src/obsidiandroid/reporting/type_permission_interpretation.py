@@ -60,7 +60,12 @@ def compose_type_permission_interpretation(
     coverage = _read_csv(type_dir / f"type_lane_coverage_matrix_{run_id}.csv")
     banker_dropper = _read_csv(type_dir / f"banker_dropper_comparison_{run_id}.csv")
     pairs = _read_csv(pair_dir / f"pairwise_all_{run_id}.csv")
-    headline_pairs = _read_csv(pair_dir / f"pairwise_headline_{run_id}.csv")
+    headline_pairs = _read_csv(pair_dir / f"pairwise_headline_strong_{run_id}.csv")
+    if headline_pairs.empty:
+        headline_pairs = _read_csv(pair_dir / f"pairwise_headline_{run_id}.csv")
+    moderate = _read_csv(pair_dir / f"pairwise_headline_moderate_{run_id}.csv")
+    if not moderate.empty:
+        headline_pairs = pd.concat([headline_pairs, moderate], ignore_index=True)
 
     type_manifest_path = type_dir / f"type_permission_pattern_report_manifest_{run_id}.json"
     pair_manifest_path = pair_dir / f"type_permission_pairwise_manifest_{run_id}.json"
@@ -272,17 +277,21 @@ def _render_interpretation(
         )
         lines.append(f"5. OEM/Google patterns: {_fmt_perm_list(oem)}")
         if not headline_pairs.empty:
-            hp = headline_pairs[headline_pairs.type_slug == type_slug].head(5)
+            hp = headline_pairs[headline_pairs.type_slug == type_slug].copy()
+            if "headline_strength" in hp.columns:
+                hp = hp[hp.headline_strength.isin(["strong", "moderate"])]
+            hp = hp.head(5)
             if hp.empty:
-                lines.append("6. Strong family-balanced pairs: _none reached `family_balanced_supported` for this type_.")
+                lines.append("6. Strong family-balanced pairs: _none reached strong/moderate tiers for this type_.")
             else:
                 bits = [
                     f"`{r.permission_a}`+`{r.permission_b}` "
-                    f"({r.lane_pair_class}; FB {float(r.family_balanced_prevalence_pct):.1f}%; "
+                    f"({getattr(r, 'headline_strength', '')}; {r.lane_pair_class}; "
+                    f"FB {float(r.family_balanced_prevalence_pct):.1f}%; "
                     f"OR {float(r.odds_ratio_type_vs_rest):.2f})"
                     for r in hp.itertuples(index=False)
                 ]
-                lines.append("6. Strong family-balanced pairs: " + "; ".join(bits))
+                lines.append("6. Strong/moderate family-balanced pairs: " + "; ".join(bits))
         else:
             lines.append("6. Strong family-balanced pairs: _pairwise table unavailable_.")
         # collapses

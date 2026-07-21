@@ -114,9 +114,9 @@ Implementation: `obsidiandroid.reporting.type_permission_pairwise`.
 
 | Field | Value |
 | --- | --- |
-| `composer_version` | `1.1.0` |
-| `report_schema_version` | `type_permission_pairwise_v2` |
-| `protection_lane_contract_version` | `1.0.0` |
+| `composer_version` | `1.2.0` |
+| `report_schema_version` | `type_permission_pairwise_v3` |
+| `protection_lane_contract_version` | `1.1.0` |
 
 Inputs (no database access):
 
@@ -147,3 +147,14 @@ python scripts/diagnostics/generate_type_permission_interpretation.py \
   --run-root output/runs/allcurrent_diagnostic \
   --run-id <run_id>
 ```
+
+Main-type differential (high-ROI):
+
+```bash
+python scripts/diagnostics/generate_type_permission_main_comparison.py \
+  --run-root output/runs/allcurrent_diagnostic \
+  --run-id <run_id>
+```
+
+Headline pairs are tiered `strong` / `moderate` / `marginal` by family-balanced
+prevalence (see governance lane contract). Prefer strong/moderate for claims.

@@ -20,6 +20,7 @@ import pandas as pd
 from obsidiandroid.reporting.permission_governance_lanes import (
     DEFAULT_THRESHOLDS,
     PROTECTION_LANE_CONTRACT_VERSION,
+    classify_headline_strength,
     classify_protection_lane,
     contract_metadata,
     lane_pair_class,
@@ -31,8 +32,8 @@ from obsidiandroid.reporting.type_permission_pattern_report import (
     sha256_file,
 )
 
-PAIRWISE_COMPOSER_VERSION = "1.1.0"
-PAIRWISE_SCHEMA_VERSION = "type_permission_pairwise_v2"
+PAIRWISE_COMPOSER_VERSION = "1.2.0"
+PAIRWISE_SCHEMA_VERSION = "type_permission_pairwise_v3"
 
 HEADLINE_VOCAB_LANES = frozenset({"AOSP", "OEM", "GOOGLE"})
 UNKNOWN_LANE = "UNKNOWN"
@@ -404,15 +405,27 @@ def compute_type_pairwise_table(
         ),
         "",
     )
+    frame["headline_strength"] = [
+        classify_headline_strength(
+            reportability_status=str(row.reportability_status),
+            family_balanced_prevalence=(
+                float(row.family_balanced_prevalence)
+                if pd.notna(row.family_balanced_prevalence)
+                else None
+            ),
+        )
+        for row in frame.itertuples(index=False)
+    ]
     return frame.sort_values(
         [
             "type_slug",
             "lane_pair_class",
+            "headline_strength",
             "reportability_status",
             "odds_ratio_type_vs_rest",
             "positive_sample_count",
         ],
-        ascending=[True, True, True, False, False],
+        ascending=[True, True, True, True, False, False],
     ).reset_index(drop=True)
 
 
@@ -508,6 +521,12 @@ def compose_type_permission_pairwise_report(
         if not pair_table.empty
         else pair_table
     )
+    headline_strong = (
+        headline[headline["headline_strength"] == "strong"].copy() if not headline.empty else headline
+    )
+    headline_moderate = (
+        headline[headline["headline_strength"] == "moderate"].copy() if not headline.empty else headline
+    )
     within_lane = (
         pair_table[pair_table["lane_pair_class"] == "within_lane"].copy()
         if not pair_table.empty
@@ -526,6 +545,14 @@ def compose_type_permission_pairwise_report(
         if not pair_table.empty
         else pd.DataFrame(columns=["lane_pair_class", "lane_pair_ordered", "reportability_status", "pair_count"])
     )
+    strength_summary = (
+        headline["headline_strength"]
+        .value_counts()
+        .rename_axis("headline_strength")
+        .reset_index(name="pair_count")
+        if not headline.empty
+        else pd.DataFrame(columns=["headline_strength", "pair_count"])
+    )
 
     out_dir = Path(output_dir) if output_dir else run_root / "diagnostics" / "type_permission_pairwise"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -533,9 +560,12 @@ def compose_type_permission_pairwise_report(
     derived = {
         "pairwise_all": pair_table,
         "pairwise_headline": headline,
+        "pairwise_headline_strong": headline_strong,
+        "pairwise_headline_moderate": headline_moderate,
         "pairwise_within_lane": within_lane,
         "pairwise_cross_lane": cross_lane,
         "pairwise_lane_pair_summary": lane_pair_summary,
+        "pairwise_headline_strength_summary": strength_summary,
         "pairwise_suppression_summary": suppression,
         "pairwise_vocab_used": vocab[
             [
@@ -585,6 +615,8 @@ def compose_type_permission_pairwise_report(
         min_family_support=min_family_support,
         coverage_row=coverage_row,
         lane_pair_summary=lane_pair_summary,
+        headline_strong=headline_strong,
+        strength_summary=strength_summary,
     )
     report_path = out_dir / f"type_permission_pairwise_report_{run_id}.md"
     report_path.write_text(report_md, encoding="utf-8")
@@ -622,8 +654,15 @@ def compose_type_permission_pairwise_report(
         "unknown_token_count": int(len(unknown_vocab)),
         "pair_count_total": int(len(pair_table)),
         "pair_count_headline": int(len(headline)),
+        "pair_count_headline_strong": int(len(headline_strong)),
+        "pair_count_headline_moderate": int(len(headline_moderate)),
         "pair_count_within_lane": int(len(within_lane)),
         "pair_count_cross_lane": int(len(cross_lane)),
+        "headline_strength_summary": {
+            str(row.headline_strength): int(row.pair_count) for row in strength_summary.itertuples(index=False)
+        }
+        if not strength_summary.empty
+        else {},
         "suppression_summary": {
             str(row.reportability_status): int(row.pair_count) for row in suppression.itertuples(index=False)
         }
@@ -657,6 +696,8 @@ def _render_pairwise_markdown(
     min_family_support: int,
     coverage_row: dict[str, Any],
     lane_pair_summary: pd.DataFrame | None = None,
+    headline_strong: pd.DataFrame | None = None,
+    strength_summary: pd.DataFrame | None = None,
 ) -> str:
     lines: list[str] = []
     lines.append(f"# Type permission pairwise co-occurrence (`{run_id}`)")
@@ -716,28 +757,65 @@ def _render_pairwise_markdown(
                 f"`{row.reportability_status}` | {int(row.pair_count):,} |"
             )
     lines.append("")
-    lines.append("## Headline pairs (`family_balanced_supported`)")
+    lines.append("## Headline strength tiers")
     lines.append("")
-    if headline.empty:
-        lines.append("No pairs reached `family_balanced_supported` under current gates.")
+    lines.append(
+        "Supported pairs are retained at FB >= 0.05, then tiered: "
+        "`strong` (>=0.20), `moderate` (>=0.10), `marginal` (>=0.05)."
+    )
+    lines.append("")
+    if strength_summary is None or strength_summary.empty:
+        lines.append("No supported headline rows to tier.")
+    else:
+        lines.append("| headline_strength | pair_count |")
+        lines.append("|---|---:|")
+        for row in strength_summary.itertuples(index=False):
+            lines.append(f"| `{row.headline_strength}` | {int(row.pair_count):,} |")
+    lines.append("")
+    lines.append("## Strong headline pairs (FB >= 20%)")
+    lines.append("")
+    strong = headline_strong if headline_strong is not None else pd.DataFrame()
+    if strong.empty:
+        lines.append("No strong headline pairs under current gates.")
     else:
         lines.append(
-            "| type | permission_a | permission_b | lanes | class | SW% | FB% | families | largest family | OR | q |"
+            "| type | permission_a | permission_b | lanes | class | SW% | FB% | families | OR | q |"
         )
-        lines.append("|---|---|---|---|---|---:|---:|---:|---|---:|---:|")
-        for row in headline.head(40).itertuples(index=False):
+        lines.append("|---|---|---|---|---|---:|---:|---:|---:|---:|")
+        for row in strong.head(30).itertuples(index=False):
             lines.append(
                 f"| {row.type_slug} | `{row.permission_a}` | `{row.permission_b}` | "
                 f"`{row.permission_a_lane}`/`{row.permission_b_lane}` | `{row.lane_pair_class}` | "
                 f"{float(row.sample_weighted_prevalence_pct):.1f} | "
                 f"{float(row.family_balanced_prevalence_pct):.1f} | "
-                f"{int(row.families_with_pair)} | {row.largest_family_canonical} | "
+                f"{int(row.families_with_pair)} | "
+                f"{float(row.odds_ratio_type_vs_rest):.2f} | {float(row.q_value_fdr):.3g} |"
+            )
+    lines.append("")
+    lines.append("## Headline pairs (`family_balanced_supported`, all strengths)")
+    lines.append("")
+    if headline.empty:
+        lines.append("No pairs reached `family_balanced_supported` under current gates.")
+    else:
+        lines.append(
+            "| type | permission_a | permission_b | strength | lanes | SW% | FB% | families | OR | q |"
+        )
+        lines.append("|---|---|---|---|---|---:|---:|---:|---:|---:|")
+        for row in headline.head(40).itertuples(index=False):
+            strength = getattr(row, "headline_strength", "")
+            lines.append(
+                f"| {row.type_slug} | `{row.permission_a}` | `{row.permission_b}` | "
+                f"`{strength}` | `{row.permission_a_lane}`/`{row.permission_b_lane}` | "
+                f"{float(row.sample_weighted_prevalence_pct):.1f} | "
+                f"{float(row.family_balanced_prevalence_pct):.1f} | "
+                f"{int(row.families_with_pair)} | "
                 f"{float(row.odds_ratio_type_vs_rest):.2f} | {float(row.q_value_fdr):.3g} |"
             )
     lines.append("")
     lines.append("## Notes")
     lines.append("")
     lines.append("- Declared permissions only; not runtime behavior.")
+    lines.append("- Prefer `strong` / `moderate` headline tiers for research claims; keep `marginal` visible.")
     lines.append("- App-defined identity tokens are excluded from the default headline lane.")
     lines.append("- Backdoor/dropper/thin types are labeled exploratory or suppressed, not headline.")
     lines.append(
