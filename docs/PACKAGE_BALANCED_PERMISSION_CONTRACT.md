@@ -82,3 +82,7 @@ Cross-family / cross-type collisions are **not** auto-consolidated.
 ## Outputs
 
 Under `diagnostics/package_balanced_permission_analysis/` only.
+
+## Sensitivity companion
+
+See [`PACKAGE_BALANCED_SENSITIVITY_NOTES.md`](PACKAGE_BALANCED_SENSITIVITY_NOTES.md).
