@@ -158,3 +158,14 @@ python scripts/diagnostics/generate_type_permission_main_comparison.py \
 
 Headline pairs are tiered `strong` / `moderate` / `marginal` by family-balanced
 prevalence (see governance lane contract). Prefer strong/moderate for claims.
+
+Dominant-family robustness (leave-largest-family):
+
+```bash
+python scripts/diagnostics/generate_dominant_family_robustness.py \
+  --run-root output/runs/allcurrent_diagnostic \
+  --run-id <run_id>
+```
+
+Use this before treating banker/RAT dangerous discriminators as broad type behavior,
+especially when ClayRat or Godfather dominate sample mass.

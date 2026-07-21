@@ -38,6 +38,7 @@ The canonical implementations are **here**. Import them as **`scripts.diagnostic
 | [`generate_type_permission_pairwise_report.py`](generate_type_permission_pairwise_report.py) | Phase-2 pairwise permission co-occurrence from aligned features + permission audit (AOSP/OEM/Google + protection lanes, within/cross-lane pairs, family-aware support, FDR, explicit suppression); no DB; no three-way mining |
 | [`generate_type_permission_interpretation.py`](generate_type_permission_interpretation.py) | Concise evidence-qualified interpretation (banker/RAT/spyware/adware + banker-vs-dropper cautions) from generated type/pairwise diagnostics; offline only |
 | [`generate_type_permission_main_comparison.py`](generate_type_permission_main_comparison.py) | High-ROI main-type differential: side-by-side FB discriminators, strong/moderate pairs, SW→FB collapse ledger |
+| [`generate_dominant_family_robustness.py`](generate_dominant_family_robustness.py) | Leave-dominant-family robustness (ClayRat/Godfather/…) + banker vs RAT dangerous contrast; offline only |
 | [`generate_type_guard_suppression_audit.py`](generate_type_guard_suppression_audit.py) | Read-only audit of `type_guard_family_suppressed` rows in `prediction_errors_*.csv` (raw vs post-guard pairs; not holdout CM) |
 | [`generate_research_hygiene_pack.py`](generate_research_hygiene_pack.py) | Holdout confidence calibration (ECE/Brier/support tiers) + split class accounting (206/169/132/train-only) + read-only Core Results v1 artifact map; no DB/Core writes |
 
