@@ -86,8 +86,37 @@ The manifest records:
 - complete type count + reconciliation block
 - SHA-256 for every input table and derived output
 
-## What is committed vs generated
+## Phase 2: pairwise co-occurrence
 
-**Commit:** composer source, tests, this contract doc, diagnostics README entry.
+Entrypoint:
 
-**Do not commit:** generated CSVs, markdown reports, PNGs, live run data, full matrices under `output/`.
+```bash
+python scripts/diagnostics/generate_type_permission_pairwise_report.py \
+  --run-root output/runs/allcurrent_diagnostic \
+  --run-id <run_id>
+```
+
+Implementation: `obsidiandroid.reporting.type_permission_pairwise`.
+
+| Field | Value |
+| --- | --- |
+| `composer_version` | `1.0.0` |
+| `report_schema_version` | `type_permission_pairwise_v1` |
+
+Inputs (no database access):
+
+- `diagnostics/aligned_features_<run_id>.csv.gz`
+- `diagnostics/aligned_labels_<run_id>.csv`
+- `diagnostics/permission_feature_audit.csv`
+
+Headline vocabulary defaults to governed **AOSP / OEM / GOOGLE** tokens with configurable
+`min_global_support`. App-defined tokens are optional (`--include-app-defined-lane`).
+Unknown tokens are inventoried but excluded from headline claims.
+
+Pair measures include sample-weighted and family-balanced prevalence, supporting-family
+count, largest-family contribution, Jaccard, independence lift, type-vs-rest odds ratio,
+Wilson CI, Fisher p-values, and BH-FDR q-values.
+
+Reportability statuses are explicit (`family_balanced_supported`,
+`single_family_dominated`, `insufficient_*`, `not_significant_after_fdr`,
+`effect_too_small`, `descriptive_*`). Three-way mining is intentionally disabled.
