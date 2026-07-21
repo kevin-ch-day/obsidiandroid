@@ -17,14 +17,22 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
+from obsidiandroid.reporting.permission_governance_lanes import (
+    DEFAULT_THRESHOLDS,
+    PROTECTION_LANE_CONTRACT_VERSION,
+    classify_protection_lane,
+    contract_metadata,
+    lane_pair_class,
+    ordered_lane_pair,
+)
 from obsidiandroid.reporting.type_permission_pattern_report import (
     detect_source_run_status,
     resolve_git_commit,
     sha256_file,
 )
 
-PAIRWISE_COMPOSER_VERSION = "1.0.0"
-PAIRWISE_SCHEMA_VERSION = "type_permission_pairwise_v1"
+PAIRWISE_COMPOSER_VERSION = "1.1.0"
+PAIRWISE_SCHEMA_VERSION = "type_permission_pairwise_v2"
 
 HEADLINE_VOCAB_LANES = frozenset({"AOSP", "OEM", "GOOGLE"})
 UNKNOWN_LANE = "UNKNOWN"
@@ -163,20 +171,40 @@ def classify_pair_reportability(
     dominance_threshold: float = 0.85,
     min_effect_odds: float = 1.5,
     fdr_alpha: float = 0.05,
+    lane_a: str = "",
+    lane_b: str = "",
+    family_balanced_prevalence: float | None = None,
+    min_family_balanced_prevalence: float | None = None,
 ) -> str:
     """Explicit reportability / suppression class."""
     slug = str(type_slug).strip().lower()
+    unresolved = {"unknown_unresolved", "aosp_protection_unresolved"}
+    if str(lane_a) in unresolved or str(lane_b) in unresolved:
+        return "protection_level_unresolved"
+    if str(lane_a) == "app_defined" or str(lane_b) == "app_defined":
+        return "app_defined_high_cardinality"
     if positive_samples < min_sample_support:
         return "insufficient_sample_support"
     if families_used < min_family_support or families_with_pair < min_family_support:
         return "insufficient_family_support"
     if largest_family_share_of_positives >= dominance_threshold:
         return "single_family_dominated"
+    fb_floor = (
+        float(min_family_balanced_prevalence)
+        if min_family_balanced_prevalence is not None
+        else float(DEFAULT_THRESHOLDS["min_family_balanced_prevalence"])
+    )
+    if (
+        family_balanced_prevalence is not None
+        and not math.isnan(family_balanced_prevalence)
+        and family_balanced_prevalence < fb_floor
+    ):
+        return "effect_too_small"
     if slug in no_headline_types:
         return (
             "descriptive_type_enriched"
             if (effect_odds_ratio or 0) >= min_effect_odds
-            else "descriptive_common"
+            else "exploratory_only"
         )
     if effect_odds_ratio is not None and effect_odds_ratio < min_effect_odds:
         return "effect_too_small"
@@ -216,6 +244,10 @@ def compute_type_pairwise_table(
         if name in meta.index and "dangerous_bucket" in meta.columns
         else ""
         for name in permission_names
+    ]
+    gov_lanes = [
+        classify_protection_lane(pi_bucket_source=lanes[i], dangerous_bucket=buckets[i], permission_string=permission_names[i])
+        for i in range(n_perm)
     ]
 
     global_co = (matrix.T @ matrix).astype(np.int64)
@@ -284,6 +316,9 @@ def compute_type_pairwise_table(
             else:
                 largest_name, largest_pos, largest_share = "", 0, 0.0
 
+            lane_a = gov_lanes[i]
+            lane_b = gov_lanes[j]
+            lane_lo, lane_hi = ordered_lane_pair(lane_a, lane_b)
             rows.append(
                 {
                     "type_slug": type_slug,
@@ -293,8 +328,13 @@ def compute_type_pairwise_table(
                     "vocab_lane_b": lanes[j],
                     "protection_bucket_a": buckets[i],
                     "protection_bucket_b": buckets[j],
+                    "permission_a_lane": lane_a,
+                    "permission_b_lane": lane_b,
+                    "lane_pair_class": lane_pair_class(lane_a, lane_b),
+                    "lane_pair_ordered": f"{lane_lo}__{lane_hi}",
                     "type_sample_count": n_type,
                     "positive_sample_count": support,
+                    "both_permission_sample_support": support,
                     "sample_weighted_prevalence": sample_prev,
                     "sample_weighted_prevalence_pct": 100.0 * sample_prev,
                     "permission_a_count": a_count,
@@ -307,6 +347,7 @@ def compute_type_pairwise_table(
                     "prevalence_ci_high": ci_hi,
                     "families_used": families_used,
                     "families_with_pair": families_with_pair,
+                    "supporting_family_count": families_with_pair,
                     "family_balanced_prevalence": family_balanced,
                     "family_balanced_prevalence_pct": (
                         100.0 * family_balanced if not math.isnan(family_balanced) else float("nan")
@@ -317,6 +358,7 @@ def compute_type_pairwise_table(
                     "largest_family_canonical": largest_name,
                     "largest_family_positive_count": int(largest_pos),
                     "largest_family_share_of_positives": largest_share,
+                    "largest_family_contribution": largest_share,
                     "rest_positive_count": rest_support,
                     "rest_sample_count": rest_n,
                 }
@@ -346,12 +388,31 @@ def compute_type_pairwise_table(
             min_sample_support=min_sample_support,
             min_family_support=min_family_support,
             no_headline_types=no_headline,
+            lane_a=str(row.permission_a_lane),
+            lane_b=str(row.permission_b_lane),
+            family_balanced_prevalence=(
+                float(row.family_balanced_prevalence)
+                if pd.notna(row.family_balanced_prevalence)
+                else None
+            ),
         )
         for row in frame.itertuples(index=False)
     ]
+    frame["suppression_reason"] = frame["reportability_status"].where(
+        ~frame["reportability_status"].isin(
+            {"family_balanced_supported", "descriptive_common", "descriptive_type_enriched"}
+        ),
+        "",
+    )
     return frame.sort_values(
-        ["type_slug", "reportability_status", "odds_ratio_type_vs_rest", "positive_sample_count"],
-        ascending=[True, True, False, False],
+        [
+            "type_slug",
+            "lane_pair_class",
+            "reportability_status",
+            "odds_ratio_type_vs_rest",
+            "positive_sample_count",
+        ],
+        ascending=[True, True, True, False, False],
     ).reset_index(drop=True)
 
 
@@ -393,6 +454,15 @@ def compose_type_permission_pairwise_report(
     if vocab.empty:
         raise RuntimeError("no permissions remained after vocabulary/support filters")
 
+    vocab = vocab.copy()
+    vocab["protection_governance_lane"] = [
+        classify_protection_lane(
+            pi_bucket_source=row.pi_bucket_source,
+            dangerous_bucket=getattr(row, "dangerous_bucket", ""),
+            permission_string=row.permission_string,
+        )
+        for row in vocab.itertuples(index=False)
+    ]
     perm_cols = vocab["feature_column"].astype(str).tolist()
     features = pd.read_csv(feature_path, usecols=["sample_id"] + perm_cols)
     labels = pd.read_csv(label_path, usecols=["sample_id", "type_slug", "family_canonical"])
@@ -438,6 +508,24 @@ def compose_type_permission_pairwise_report(
         if not pair_table.empty
         else pair_table
     )
+    within_lane = (
+        pair_table[pair_table["lane_pair_class"] == "within_lane"].copy()
+        if not pair_table.empty
+        else pair_table
+    )
+    cross_lane = (
+        pair_table[pair_table["lane_pair_class"] == "cross_lane"].copy()
+        if not pair_table.empty
+        else pair_table
+    )
+    lane_pair_summary = (
+        pair_table.groupby(["lane_pair_class", "lane_pair_ordered", "reportability_status"], as_index=False)
+        .size()
+        .rename(columns={"size": "pair_count"})
+        .sort_values(["lane_pair_class", "pair_count"], ascending=[True, False])
+        if not pair_table.empty
+        else pd.DataFrame(columns=["lane_pair_class", "lane_pair_ordered", "reportability_status", "pair_count"])
+    )
 
     out_dir = Path(output_dir) if output_dir else run_root / "diagnostics" / "type_permission_pairwise"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -445,6 +533,9 @@ def compose_type_permission_pairwise_report(
     derived = {
         "pairwise_all": pair_table,
         "pairwise_headline": headline,
+        "pairwise_within_lane": within_lane,
+        "pairwise_cross_lane": cross_lane,
+        "pairwise_lane_pair_summary": lane_pair_summary,
         "pairwise_suppression_summary": suppression,
         "pairwise_vocab_used": vocab[
             [
@@ -454,6 +545,7 @@ def compose_type_permission_pairwise_report(
                     "feature_column",
                     "pi_bucket_source",
                     "dangerous_bucket",
+                    "protection_governance_lane",
                     "global_support",
                 ]
                 if c in vocab.columns
@@ -492,6 +584,7 @@ def compose_type_permission_pairwise_report(
         min_sample_support=min_sample_support,
         min_family_support=min_family_support,
         coverage_row=coverage_row,
+        lane_pair_summary=lane_pair_summary,
     )
     report_path = out_dir / f"type_permission_pairwise_report_{run_id}.md"
     report_path.write_text(report_md, encoding="utf-8")
@@ -521,11 +614,16 @@ def compose_type_permission_pairwise_report(
             "permissions_are_declared_capabilities_not_runtime_behavior": True,
             "generated_outputs_must_not_be_committed": True,
             "no_database_access": True,
+            "protection_lane_thresholds": dict(DEFAULT_THRESHOLDS),
         },
+        "protection_lane_contract_version": PROTECTION_LANE_CONTRACT_VERSION,
+        "protection_lane_contract": contract_metadata(),
         "vocab_permission_count": int(len(vocab)),
         "unknown_token_count": int(len(unknown_vocab)),
         "pair_count_total": int(len(pair_table)),
         "pair_count_headline": int(len(headline)),
+        "pair_count_within_lane": int(len(within_lane)),
+        "pair_count_cross_lane": int(len(cross_lane)),
         "suppression_summary": {
             str(row.reportability_status): int(row.pair_count) for row in suppression.itertuples(index=False)
         }
@@ -558,6 +656,7 @@ def _render_pairwise_markdown(
     min_sample_support: int,
     min_family_support: int,
     coverage_row: dict[str, Any],
+    lane_pair_summary: pd.DataFrame | None = None,
 ) -> str:
     lines: list[str] = []
     lines.append(f"# Type permission pairwise co-occurrence (`{run_id}`)")
@@ -566,6 +665,7 @@ def _render_pairwise_markdown(
     lines.append(f"- Source run status: **{source_run_status}**")
     lines.append(f"- Pairwise composer: `{PAIRWISE_COMPOSER_VERSION}`")
     lines.append(f"- Schema: `{PAIRWISE_SCHEMA_VERSION}`")
+    lines.append(f"- Protection-lane contract: `{PROTECTION_LANE_CONTRACT_VERSION}`")
     lines.append("- Three-way mining: **disabled**")
     lines.append("")
     if coverage_row:
@@ -579,9 +679,18 @@ def _render_pairwise_markdown(
         f"- Headline vocabulary lanes: {', '.join(sorted(HEADLINE_VOCAB_LANES))} "
         f"(min global support >= {min_global_support}; permissions used: {len(vocab)})"
     )
+    if "protection_governance_lane" in vocab.columns:
+        lane_counts = vocab["protection_governance_lane"].value_counts()
+        lines.append(
+            "- Protection/governance lanes in vocab: "
+            + ", ".join(f"`{k}`={int(v)}" for k, v in lane_counts.items())
+        )
     lines.append(f"- Unknown tokens inventoried (excluded from headline): **{unknown_n}**")
     lines.append(
-        f"- Pair support gates: sample >= {min_sample_support}, families >= {min_family_support}"
+        f"- Pair support gates: sample >= {min_sample_support}, families >= {min_family_support}, "
+        f"family-balanced prevalence >= {DEFAULT_THRESHOLDS['min_family_balanced_prevalence']}, "
+        f"odds >= {DEFAULT_THRESHOLDS['min_effect_odds']}, "
+        f"dominance ceiling < {DEFAULT_THRESHOLDS['dominance_threshold']}"
     )
     lines.append("")
     lines.append("## Suppression summary")
@@ -594,18 +703,32 @@ def _render_pairwise_markdown(
         for row in suppression.itertuples(index=False):
             lines.append(f"| `{row.reportability_status}` | {int(row.pair_count):,} |")
     lines.append("")
+    lines.append("## Lane-pair summary")
+    lines.append("")
+    if lane_pair_summary is None or lane_pair_summary.empty:
+        lines.append("No lane-pair summary rows.")
+    else:
+        lines.append("| lane_pair_class | lane_pair_ordered | reportability | pairs |")
+        lines.append("|---|---|---|---:|")
+        for row in lane_pair_summary.head(40).itertuples(index=False):
+            lines.append(
+                f"| `{row.lane_pair_class}` | `{row.lane_pair_ordered}` | "
+                f"`{row.reportability_status}` | {int(row.pair_count):,} |"
+            )
+    lines.append("")
     lines.append("## Headline pairs (`family_balanced_supported`)")
     lines.append("")
     if headline.empty:
         lines.append("No pairs reached `family_balanced_supported` under current gates.")
     else:
         lines.append(
-            "| type | permission_a | permission_b | SW% | FB% | families | largest family | OR | q |"
+            "| type | permission_a | permission_b | lanes | class | SW% | FB% | families | largest family | OR | q |"
         )
-        lines.append("|---|---|---|---:|---:|---:|---|---:|---:|")
+        lines.append("|---|---|---|---|---|---:|---:|---:|---|---:|---:|")
         for row in headline.head(40).itertuples(index=False):
             lines.append(
                 f"| {row.type_slug} | `{row.permission_a}` | `{row.permission_b}` | "
+                f"`{row.permission_a_lane}`/`{row.permission_b_lane}` | `{row.lane_pair_class}` | "
                 f"{float(row.sample_weighted_prevalence_pct):.1f} | "
                 f"{float(row.family_balanced_prevalence_pct):.1f} | "
                 f"{int(row.families_with_pair)} | {row.largest_family_canonical} | "
@@ -616,7 +739,12 @@ def _render_pairwise_markdown(
     lines.append("")
     lines.append("- Declared permissions only; not runtime behavior.")
     lines.append("- App-defined identity tokens are excluded from the default headline lane.")
-    lines.append("- Backdoor/dropper/thin types are labeled descriptive or suppressed, not headline.")
+    lines.append("- Backdoor/dropper/thin types are labeled exploratory or suppressed, not headline.")
+    lines.append(
+        "- `aosp_protection_unresolved` pairs are labeled `protection_level_unresolved` "
+        "(signature/privileged cannot be confirmed offline)."
+    )
+    lines.append("- Single-family-dominated pairs remain visible with that explicit status.")
     lines.append("- Full pair tables are run-scoped CSVs (not for Git).")
     lines.append("")
     return "\n".join(lines)
