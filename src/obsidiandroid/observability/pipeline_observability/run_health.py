@@ -89,7 +89,24 @@ def print_unified_run_health(
         "Benchmark eligibility",
         [
             ("Prepared cohort", _safe_value(payload.get("cohort_rows") or payload.get("cohort_prepared_row_count"))),
-            ("Visible governed families", _safe_value(payload.get("visible_family_count"))),
+            (
+                "Known governed families",
+                _safe_value(
+                    payload.get("governed_known_family_count", payload.get("visible_family_count"))
+                ),
+            ),
+            (
+                "Observed family labels (incl. unknown)",
+                _safe_value(payload.get("observed_family_label_count_including_unknown")),
+            ),
+            (
+                "Known governed types",
+                _safe_value(payload.get("governed_known_type_count", payload.get("visible_type_count"))),
+            ),
+            (
+                "Observed type_slug (incl. unknown)",
+                _safe_value(payload.get("observed_type_slug_count_including_unknown")),
+            ),
             ("Benchmark trainable", _safe_value(payload.get("post_low_support_training_rows") or payload.get("counts", {}).get("post_low_support_training_rows"))),
             ("Active benchmark family classes", _safe_value(payload.get("benchmark_trainable_family_count"))),
             ("Actual modeled family classes", _safe_value(payload.get("modeled_family_class_count"))),

@@ -18,6 +18,11 @@ import pandas as pd
 from config import app_config
 from obsidiandroid.database import db_config
 
+from obsidiandroid.reporting.cohort_count_contract import (
+    compute_cohort_identity_counts,
+    normalize_family_labels_including_unknown,
+    normalize_type_slugs_including_unknown,
+)
 from .cohort_vocabulary import KEY_COHORT_PREPARED_ROW_COUNT, KEY_COHORT_SQL_SCOPE_ROW_COUNT
 
 
@@ -42,6 +47,12 @@ def _family_shares(samples_df: pd.DataFrame, *, col: str = "family_canonical") -
         return {
             "family_count": 0,
             "type_count": 0,
+            "governed_known_family_count": 0,
+            "observed_family_label_count_including_unknown": 0,
+            "unknown_family_sample_count": 0,
+            "governed_known_type_count": 0,
+            "observed_type_slug_count_including_unknown": 0,
+            "unknown_type_sample_count": 0,
             "top_family": "",
             "top_family_count": 0,
             "top_family_share_pct": 0.0,
@@ -51,7 +62,15 @@ def _family_shares(samples_df: pd.DataFrame, *, col: str = "family_canonical") -
             "type_distribution": {},
         }
     total = int(len(samples_df))
-    fc = samples_df[col].fillna("unknown").astype(str)
+    identity = compute_cohort_identity_counts(
+        samples_df,
+        family_col=col,
+        type_col="type_slug",
+        source_surface="prepared_cohort_samples_df",
+        authority_stage="prepared_cohort_before_train_split",
+    )
+    # Observed labels (blank→unknown) for concentration / top-family display.
+    fc = normalize_family_labels_including_unknown(samples_df[col])
     vc = fc.value_counts()
     top = str(vc.index[0]) if len(vc) else ""
     top_n = int(vc.iloc[0]) if len(vc) else 0
@@ -60,13 +79,28 @@ def _family_shares(samples_df: pd.DataFrame, *, col: str = "family_canonical") -
     type_dist: dict[str, int] = {}
     if "type_slug" in samples_df.columns:
         type_dist = (
-            samples_df["type_slug"].fillna("unknown").astype(str).value_counts().head(40).to_dict()
+            normalize_type_slugs_including_unknown(samples_df["type_slug"])
+            .value_counts()
+            .head(40)
+            .to_dict()
         )
     fam_dist = {str(k): int(v) for k, v in vc.head(50).items()}
-    type_count = int(samples_df["type_slug"].nunique()) if "type_slug" in samples_df.columns else 0
     return {
-        "family_count": int(vc.shape[0]),
-        "type_count": type_count,
+        # Backward-compatible keys: observed-including-unknown (historical Q1 meaning).
+        "family_count": int(identity["observed_family_label_count_including_unknown"]),
+        "type_count": int(identity["observed_type_slug_count_including_unknown"]),
+        # Canonical contract keys.
+        "governed_known_family_count": int(identity["governed_known_family_count"]),
+        "observed_family_label_count_including_unknown": int(
+            identity["observed_family_label_count_including_unknown"]
+        ),
+        "unknown_family_sample_count": int(identity["unknown_family_sample_count"]),
+        "governed_known_type_count": int(identity["governed_known_type_count"]),
+        "observed_type_slug_count_including_unknown": int(
+            identity["observed_type_slug_count_including_unknown"]
+        ),
+        "unknown_type_sample_count": int(identity["unknown_type_sample_count"]),
+        "identity_count_contract_version": identity["contract_version"],
         "top_family": top,
         "top_family_count": top_n,
         "top_family_share_pct": _pct(top_n, total),
@@ -555,6 +589,49 @@ def export_cohort_foundation_bundle(
         }
     )
     ft = payload.get("family_type_summary", {})
+    counts_rows.append(
+        {
+            "metric": "governed_known_family_count",
+            "value": str(ft.get("governed_known_family_count")),
+            "section": "families",
+        }
+    )
+    counts_rows.append(
+        {
+            "metric": "observed_family_label_count_including_unknown",
+            "value": str(ft.get("observed_family_label_count_including_unknown", ft.get("family_count"))),
+            "section": "families",
+        }
+    )
+    counts_rows.append(
+        {
+            "metric": "unknown_family_sample_count",
+            "value": str(ft.get("unknown_family_sample_count")),
+            "section": "families",
+        }
+    )
+    counts_rows.append(
+        {
+            "metric": "governed_known_type_count",
+            "value": str(ft.get("governed_known_type_count")),
+            "section": "families",
+        }
+    )
+    counts_rows.append(
+        {
+            "metric": "observed_type_slug_count_including_unknown",
+            "value": str(ft.get("observed_type_slug_count_including_unknown", ft.get("type_count"))),
+            "section": "families",
+        }
+    )
+    counts_rows.append(
+        {
+            "metric": "unknown_type_sample_count",
+            "value": str(ft.get("unknown_type_sample_count")),
+            "section": "families",
+        }
+    )
+    # Legacy aliases (observed-including-unknown).
     counts_rows.append({"metric": "family_count", "value": str(ft.get("family_count")), "section": "families"})
     counts_rows.append({"metric": "type_count", "value": str(ft.get("type_count")), "section": "families"})
     counts_rows.append({"metric": "top_family_share_pct", "value": str(ft.get("top_family_share_pct")), "section": "families"})

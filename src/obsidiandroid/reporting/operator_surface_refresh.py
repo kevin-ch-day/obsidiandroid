@@ -245,11 +245,22 @@ def _write_claim_readiness_summary_from_refreshed_artifacts(
     if isinstance(mc_la, dict) and mc_la.get("active_training_classes") is not None:
         active_cls = str(mc_la.get("active_training_classes"))
     eligible_family_classes = int(active_cls) if str(active_cls).isdigit() else None
-    visible_family_classes = int(q1.get("families_represented", 0) or 0) or None
+    known_family_classes = int(q1.get("governed_known_family_count", 0) or 0) or None
+    observed_family_classes = (
+        int(
+            q1.get(
+                "observed_family_label_count_including_unknown",
+                q1.get("families_represented", 0),
+            )
+            or 0
+        )
+        or None
+    )
+    visible_family_classes = known_family_classes or observed_family_classes
     modeled_family_classes = eligible_family_classes
     excluded_family_classes = None
-    if visible_family_classes is not None and eligible_family_classes is not None:
-        excluded_family_classes = max(0, visible_family_classes - eligible_family_classes)
+    if known_family_classes is not None and eligible_family_classes is not None:
+        excluded_family_classes = max(0, known_family_classes - eligible_family_classes)
 
     details_name = (
         "publication_claim_audit.md"
@@ -280,6 +291,8 @@ def _write_claim_readiness_summary_from_refreshed_artifacts(
         "publication_ready": operator_dashboard._publication_mode_active(manifest_context),  # pylint: disable=protected-access
         "paper_locked": bool(manifest_context.get("paper_locked")),
         "claim_eligible_family_classes": eligible_family_classes,
+        "governed_known_family_count": known_family_classes,
+        "observed_family_label_count_including_unknown": observed_family_classes,
         "visible_governed_family_classes": visible_family_classes,
         "modeled_family_classes": modeled_family_classes,
         "excluded_non_claim_family_classes": excluded_family_classes,

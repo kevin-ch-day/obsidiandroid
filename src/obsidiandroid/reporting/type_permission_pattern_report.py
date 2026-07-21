@@ -19,6 +19,7 @@ from typing import Any
 
 import pandas as pd
 
+from obsidiandroid.reporting.cohort_count_contract import compute_cohort_identity_counts
 from obsidiandroid.reporting.permission_governance_lanes import (
     CANONICAL_PROTECTION_LANES,
     DEFAULT_THRESHOLDS,
@@ -850,6 +851,11 @@ def compose_type_permission_pattern_report(
         prevalence_by_type=prevalence_by_type,
         prepared_sample_count=prepared,
     )
+    identity_counts = compute_cohort_identity_counts(
+        snapshot,
+        source_surface="type_permission_analysis_snapshot",
+        authority_stage="analysis_snapshot",
+    )
     reconciliation = dict(type_inventory.attrs.get("reconciliation") or {})
     type_census = type_inventory[
         [
@@ -980,6 +986,16 @@ def compose_type_permission_pattern_report(
         "protection_lane_token_reconciliation": lane_token_recon,
         "protection_lane_observation_reconciliation": observation_recon,
         "represented_type_count": int(type_inventory.shape[0]),
+        "governed_known_type_count": int(identity_counts["governed_known_type_count"]),
+        "observed_type_slug_count_including_unknown": int(
+            identity_counts["observed_type_slug_count_including_unknown"]
+        ),
+        "unknown_type_sample_count": int(identity_counts["unknown_type_sample_count"]),
+        "governed_known_family_count": int(identity_counts["governed_known_family_count"]),
+        "observed_family_label_count_including_unknown": int(
+            identity_counts["observed_family_label_count_including_unknown"]
+        ),
+        "unknown_family_sample_count": int(identity_counts["unknown_family_sample_count"]),
         "permission_trends_permission_token_count": int(prevalence_by_type["permission"].nunique()),
     }
     manifest_path = out_dir / f"type_permission_pattern_report_manifest_{run_id}.json"

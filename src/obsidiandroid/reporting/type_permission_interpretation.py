@@ -212,7 +212,10 @@ def _render_interpretation(
         f"reconciles={bool(recon.get('reconciles'))}). "
         f"Permission-evidence sample count recorded by the type report: "
         f"**{int(type_manifest.get('permission_evidence_sample_count', 0)):,}**. "
-        f"Represented `type_slug` values: **{int(type_manifest.get('represented_type_count', 0))}**."
+        f"Known governed types: **{int(type_manifest.get('governed_known_type_count', type_manifest.get('represented_type_count', 0)))}**; "
+        f"observed `type_slug` values: "
+        f"**{int(type_manifest.get('observed_type_slug_count_including_unknown', type_manifest.get('represented_type_count', 0)))}** "
+        f"including `unknown`."
     )
     lines.append("")
     lines.append(

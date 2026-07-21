@@ -24,7 +24,9 @@ def test_profile_menu_latest_run_context_summarizes_latest_artifact(tmp_path: Pa
                 "run_status": "failed",
                 "cohort_prepared_row_count": 9_716,
                 "post_low_support_training_rows": 9_440,
-                "visible_family_count": 207,
+                "visible_family_count": 206,
+                "governed_known_family_count": 206,
+                "observed_family_label_count_including_unknown": 207,
                 "modeled_family_class_count": 169,
             }
         ),
@@ -41,7 +43,7 @@ def test_profile_menu_latest_run_context_summarizes_latest_artifact(tmp_path: Pa
         ("LAST RUN STATUS", "Failed"),
         ("INFO", "Latest cohort: 9,716 prepared samples"),
         ("INFO", "Training-eligible samples: 9,440"),
-        ("INFO", "Family coverage: 207 visible · 169 modeled"),
+        ("INFO", "Family coverage: 206 known governed · 207 observed labels (incl. unknown) · 169 training targets"),
         ("INFO", "Support thresholds (preview): n>=3: 112 families · n>=20: 50 families"),
     ]
 

@@ -24,6 +24,7 @@ from obsidiandroid.governance.support_floor_policy import (
     resolve_diagnostic_min_samples_per_family,
     resolve_support_floor_mode,
 )
+from obsidiandroid.reporting.cohort_count_contract import compute_cohort_identity_counts
 
 
 def _coalesce_attrs_publication_mode(samples_df: pd.DataFrame) -> bool:
@@ -88,13 +89,25 @@ def print_cohort_readiness_report(
     funnel_governed = governed_ref if governed_ref > 0 else total
     support_floor_mode = resolve_support_floor_mode(gates, samples_df=samples_df)
     funnel_trainable_rows = int(target_summary.get("benchmark_eligible_rows", total) or 0)
-    represented_types = _unique_count(samples_df, "type_slug")
-    represented_families = _unique_count(samples_df, fam_col)
+    identity = compute_cohort_identity_counts(
+        samples_df,
+        family_col=fam_col or "family_canonical",
+        type_col="type_slug",
+        source_surface="cohort_readiness_samples_df",
+        authority_stage="prepared_cohort_before_train_split",
+    )
+    known_families = int(identity["governed_known_family_count"])
+    observed_families = int(identity["observed_family_label_count_including_unknown"])
+    known_types = int(identity["governed_known_type_count"])
+    observed_types = int(identity["observed_type_slug_count_including_unknown"])
+    # Legacy locals retained for downstream diagnostic-candidate wording.
+    represented_types = observed_types
+    represented_families = known_families
     benchmark_trainable_families = int(target_summary.get("family_trainable_classes", 0) or 0)
     benchmark_floor = target_summary.get("benchmark_min_support")
     conservative_families = int(target_summary.get("family_trainable_classes_at_20", 0) or 0)
     support_excluded_rows = max(0, total - funnel_trainable_rows)
-    support_excluded_families = max(0, represented_families - benchmark_trainable_families)
+    support_excluded_families = max(0, known_families - benchmark_trainable_families)
 
     surface_label = _profile_surface_label(profile_id=profile_id, samples_df=samples_df)
     du.print_stat("Profile surface", surface_label)
@@ -119,7 +132,11 @@ def print_cohort_readiness_report(
         )
     du.print_stat(
         "Represented taxonomy",
-        f"{represented_types:,} type_slug classes | {represented_families:,} visible families",
+        (
+            f"{known_types:,} known types / {observed_types:,} observed type_slug "
+            f"(incl. unknown) | {known_families:,} known families / "
+            f"{observed_families:,} observed family labels (incl. unknown)"
+        ),
     )
 
     du.print_subheader("Benchmark Targets")

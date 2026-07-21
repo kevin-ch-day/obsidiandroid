@@ -644,6 +644,42 @@ def finalize_pipeline_observability(
         or 0
     )
     visible_type_count = int(type_target_row.get("unique_classes", 0) or 0)
+    # Taxonomy-target unique_classes exclude blank/unknown → governed known identities.
+    governed_known_family_count = visible_family_count
+    governed_known_type_count = visible_type_count
+    observed_family_label_count_including_unknown = None
+    observed_type_slug_count_including_unknown = None
+    unknown_family_sample_count = None
+    unknown_type_sample_count = None
+    cf_path = diagnostics_dir / "cohort_foundation.json"
+    if cf_path.is_file():
+        try:
+            cf_blob = json.loads(cf_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            cf_blob = None
+        if isinstance(cf_blob, dict):
+            fts_blob = cf_blob.get("family_type_summary")
+            if isinstance(fts_blob, dict):
+                if fts_blob.get("governed_known_family_count") is not None:
+                    governed_known_family_count = int(fts_blob["governed_known_family_count"])
+                if fts_blob.get("governed_known_type_count") is not None:
+                    governed_known_type_count = int(fts_blob["governed_known_type_count"])
+                if fts_blob.get("observed_family_label_count_including_unknown") is not None:
+                    observed_family_label_count_including_unknown = int(
+                        fts_blob["observed_family_label_count_including_unknown"]
+                    )
+                elif fts_blob.get("family_count") is not None:
+                    observed_family_label_count_including_unknown = int(fts_blob["family_count"])
+                if fts_blob.get("observed_type_slug_count_including_unknown") is not None:
+                    observed_type_slug_count_including_unknown = int(
+                        fts_blob["observed_type_slug_count_including_unknown"]
+                    )
+                elif fts_blob.get("type_count") is not None:
+                    observed_type_slug_count_including_unknown = int(fts_blob["type_count"])
+                if fts_blob.get("unknown_family_sample_count") is not None:
+                    unknown_family_sample_count = int(fts_blob["unknown_family_sample_count"])
+                if fts_blob.get("unknown_type_sample_count") is not None:
+                    unknown_type_sample_count = int(fts_blob["unknown_type_sample_count"])
     modeled_family_class_count = int(
         getattr(app_config, "RUNTIME_TRAINING_LABEL_CLASS_COUNT", 0) or 0
     )
@@ -734,6 +770,12 @@ def finalize_pipeline_observability(
         "benchmark_trainable_family_count": benchmark_trainable_family_count,
         "modeled_family_class_count": modeled_family_class_count,
         "visible_type_count": visible_type_count,
+        "governed_known_family_count": int(governed_known_family_count),
+        "governed_known_type_count": int(governed_known_type_count),
+        "observed_family_label_count_including_unknown": observed_family_label_count_including_unknown,
+        "observed_type_slug_count_including_unknown": observed_type_slug_count_including_unknown,
+        "unknown_family_sample_count": unknown_family_sample_count,
+        "unknown_type_sample_count": unknown_type_sample_count,
         "family_conflict_count": int(taxonomy_summary_payload.get("taxonomy_mismatch_count", 0) or 0),
         "temporal_future_only_family_drops_top": _format_top_count_pairs(temporal_dropped_family_counts),
         "main_training_row_authority": row_authority,

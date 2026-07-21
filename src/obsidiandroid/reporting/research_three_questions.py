@@ -508,8 +508,31 @@ def write_research_question_artifacts(
     if trainable is None:
         trainable = getattr(app_config, "RUNTIME_POST_LOW_SUPPORT_TRAINING_ROWS", None)
 
-    fam_count = int(fts.get("family_count") or 0)
-    type_count = int(fts.get("type_count") or 0)
+    # Canonical identity counts (prefer contract keys; fall back to legacy Q1 keys).
+    fam_count = int(
+        fts.get("observed_family_label_count_including_unknown")
+        or fts.get("family_count")
+        or 0
+    )
+    type_count = int(
+        fts.get("observed_type_slug_count_including_unknown")
+        or fts.get("type_count")
+        or 0
+    )
+    fam_dist_probe = fts.get("family_distribution") if isinstance(fts.get("family_distribution"), dict) else {}
+    type_dist_probe = fts.get("type_distribution") if isinstance(fts.get("type_distribution"), dict) else {}
+    known_fam_count = int(fts.get("governed_known_family_count") or 0)
+    known_type_count = int(fts.get("governed_known_type_count") or 0)
+    if known_fam_count <= 0 and fam_count > 0:
+        # Legacy foundation payloads lacked the contract split; treat observed as
+        # including-unknown when unknown samples are present in the distribution.
+        known_fam_count = max(
+            0, fam_count - (1 if "unknown" in {str(k).lower() for k in fam_dist_probe} else 0)
+        )
+    if known_type_count <= 0 and type_count > 0:
+        known_type_count = max(
+            0, type_count - (1 if "unknown" in {str(k).lower() for k in type_dist_probe} else 0)
+        )
     top_fam = str(fts.get("top_family") or "")
     top_n = int(fts.get("top_family_count") or 0)
     top_share = float(fts.get("top_family_share_pct") or 0)
@@ -710,8 +733,16 @@ def write_research_question_artifacts(
         "governed_samples": gov,
         "aligned_supervised_samples": aligned,
         "trainable_after_support_filter": trainable,
+        # Legacy keys: observed labels including unknown (blank→unknown).
         "families_represented": fam_count,
         "malware_types_represented": type_count,
+        # Canonical contract keys (preferred for operator/claim copy).
+        "governed_known_family_count": known_fam_count,
+        "observed_family_label_count_including_unknown": fam_count,
+        "unknown_family_sample_count": int(fts.get("unknown_family_sample_count") or 0),
+        "governed_known_type_count": known_type_count,
+        "observed_type_slug_count_including_unknown": type_count,
+        "unknown_type_sample_count": int(fts.get("unknown_type_sample_count") or 0),
         "concentration": {
             "top_family": top_fam,
             "top_family_count": top_n,
@@ -764,7 +795,10 @@ def write_research_question_artifacts(
         f"- Governed cohort: **{gov}**",
         f"- Aligned supervised: **{aligned if aligned is not None else '—'}**",
         f"- Trainable after family-support filter: **{trainable if trainable is not None else '—'}**",
-        f"- Families / types: **{fam_count}** / **{type_count}**",
+        f"- Known governed families: **{known_fam_count}**",
+        f"- Observed family labels: **{fam_count}** including `unknown`",
+        f"- Known governed types: **{known_type_count}**",
+        f"- Observed type_slug values: **{type_count}** including `unknown`",
         f"- Top family: **{top_fam}** — {top_n} samples ({top_share:.2f}%)",
         f"- Top-3 / top-5 share: **{t3_share:.2f}%** / **{t5_share:.2f}%**",
         "",
@@ -1523,8 +1557,16 @@ def print_research_questions_terminal(
     du.print_section("RESEARCH RUN SUMMARY")
     compact = False
     gov_n = q1.get("governed_samples", "—")
-    fam_n = q1.get("families_represented", "—")
-    typ_n = q1.get("malware_types_represented", "—")
+    fam_known = q1.get("governed_known_family_count", q1.get("families_represented", "—"))
+    fam_obs = q1.get(
+        "observed_family_label_count_including_unknown",
+        q1.get("families_represented", "—"),
+    )
+    typ_known = q1.get("governed_known_type_count", q1.get("malware_types_represented", "—"))
+    typ_obs = q1.get(
+        "observed_type_slug_count_including_unknown",
+        q1.get("malware_types_represented", "—"),
+    )
     t5 = float((q1.get("concentration") or {}).get("top5_share_pct") or 0)
     raw_perm_n = int(q2.get("permission_raw_observation_n") or 0)
     raw_perm_pct = float(q2.get("permission_raw_observation_pct") or 0)
@@ -1539,7 +1581,9 @@ def print_research_questions_terminal(
     if compact:
         pr("1. Interpretation:")
         pr(
-            f"   Governed cohort {gov_n}; {fam_n} visible families, {typ_n} types; "
+            f"   Governed cohort {gov_n}; known governed families {fam_known} "
+            f"(observed labels {fam_obs} including unknown); "
+            f"known types {typ_known} (observed type_slug {typ_obs} including unknown); "
             f"top-5 share ≈ {t5:.2f}% — Macro-F1 and recall tails are primary."
         )
         pr("2. Modality signal:")
@@ -1570,7 +1614,9 @@ def print_research_questions_terminal(
 
     pr("1. Dataset:")
     pr(
-        f"   Governed cohort {gov_n}; {fam_n} visible families, {typ_n} types; "
+        f"   Governed cohort {gov_n}; known governed families {fam_known} "
+        f"(observed labels {fam_obs} including unknown); "
+        f"known types {typ_known} (observed type_slug {typ_obs} including unknown); "
         f"top-5 share ≈ {t5:.2f}% — Macro-F1 is primary."
     )
     pr("2. Feature signal:")
@@ -1595,7 +1641,11 @@ def print_research_questions_terminal(
     pr("   Treat very high headline scores as **promising but not final proof** until support filtering, split ")
     pr("   contamination, SMOTE effect, leakage-safe ablations, and false-attribution audits are reviewed.")
     pr("")
-    fam_gov = q1.get("families_represented", "—")
+    fam_gov = q1.get("governed_known_family_count", q1.get("families_represented", "—"))
+    fam_obs_boundary = q1.get(
+        "observed_family_label_count_including_unknown",
+        q1.get("families_represented", "—"),
+    )
     train_n = q1.get("trainable_after_support_filter", "—")
     fam_tr = getattr(app_config, "RUNTIME_TRAINING_LABEL_CLASS_COUNT", None)
     try:
@@ -1608,8 +1658,9 @@ def print_research_questions_terminal(
         drop_s = None
     pr("4. Headline task boundary:")
     pr(
-        f"   Governed cohort ≈ {gov_n} samples / {fam_gov} visible families; headline training applies to "
-        f"≈ {train_n} samples / {fam_tr} active benchmark family classes"
+        f"   Governed cohort ≈ {gov_n} samples / {fam_gov} known governed families "
+        f"({fam_obs_boundary} observed labels including unknown); headline training applies to "
+        f"≈ {train_n} samples / {fam_tr} training target classes"
         + (f" after dropping ≈{drop_s} samples from low-support families." if drop_s else ".")
     )
     pr("")
@@ -1626,8 +1677,16 @@ def _print_compact_research_run_summary(
     q2 = bundle.get("q2") if isinstance(bundle.get("q2"), dict) else {}
     mk = str(bundle.get("model_key") or "random_forest")
     gov_n = q1.get("governed_samples", "—")
-    fam_n = q1.get("families_represented", "—")
-    typ_n = q1.get("malware_types_represented", "—")
+    fam_known = q1.get("governed_known_family_count", q1.get("families_represented", "—"))
+    fam_obs = q1.get(
+        "observed_family_label_count_including_unknown",
+        q1.get("families_represented", "—"),
+    )
+    typ_known = q1.get("governed_known_type_count", q1.get("malware_types_represented", "—"))
+    typ_obs = q1.get(
+        "observed_type_slug_count_including_unknown",
+        q1.get("malware_types_represented", "—"),
+    )
     t5 = float((q1.get("concentration") or {}).get("top5_share_pct") or 0)
     raw_perm_n = int(q2.get("permission_raw_observation_n") or 0)
     raw_perm_pct = float(q2.get("permission_raw_observation_pct") or 0)
@@ -1641,7 +1700,9 @@ def _print_compact_research_run_summary(
     du.print_section("RESEARCH RUN SUMMARY")
     pr("Cohort:")
     pr(
-        f"  {gov_n} governed samples · {fam_n} visible families · {typ_n} types · "
+        f"  {gov_n} governed samples · {fam_known} known families "
+        f"({fam_obs} observed labels incl. unknown) · "
+        f"{typ_known} known types ({typ_obs} type_slug incl. unknown) · "
         f"top-5 share {t5:.2f}%"
     )
     pr("Model:")

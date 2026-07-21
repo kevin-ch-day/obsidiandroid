@@ -185,7 +185,8 @@ def test_cohort_readiness_report_distinguishes_visible_benchmark_and_modeled_fam
     )
     out = capsys.readouterr().out
     assert "Represented taxonomy" in out
-    assert "4 visible families" in out
+    assert "4 known families" in out
+    assert "4 observed family labels" in out
     assert "Family target" in out
     assert "benchmark-eligible classes" in out
     assert "Diagnostic candidate family classes" in out

@@ -929,6 +929,10 @@ def test_emit_research_operator_report_marks_all_current_as_diagnostic_surface(
                 "trainable_after_support_filter": 3433,
                 "families_represented": 115,
                 "malware_types_represented": 6,
+                "governed_known_family_count": 115,
+                "observed_family_label_count_including_unknown": 116,
+                "governed_known_type_count": 6,
+                "observed_type_slug_count_including_unknown": 7,
                 "concentration": {
                     "top_family": "BankBot",
                     "top_family_count": 2400,
@@ -979,10 +983,12 @@ def test_emit_research_operator_report_marks_all_current_as_diagnostic_surface(
     assert "Current-corpus diagnostic surface" in text
     assert "This run describes current governed Android malware corpus health." in text
     assert "Family/type models are diagnostic because the current corpus is concentration-heavy." in text
-    assert "Visible governed families       : 115" in text
+    assert "Known governed families         : 115" in text
+    assert "Observed family labels          : 116 including `unknown`" in text
     assert "Training target family classes  : 114" in text
     assert "Modeled family classes" not in text
-    assert "Excluded / non-claim families   : 1" in text
+    assert "Known families outside training : 1" in text
+    assert "Unknown family label bucket     : 1" in text
     assert "Use benchmark profiles for stronger family-classification claims." in text
     assert "NOT SUPPORTED BY THIS RUN" in text
     assert "research_claim_audit.md" in text

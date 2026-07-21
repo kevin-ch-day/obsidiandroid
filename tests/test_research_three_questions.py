@@ -1253,8 +1253,13 @@ def test_print_research_questions_terminal_distinguishes_visible_vs_active_famil
     )
 
     text = "\n".join(captured)
-    assert "Governed cohort 100; 10 visible families, 3 types" in text
     assert (
-        "Governed cohort ≈ 100 samples / 10 visible families; headline training applies to "
-        "≈ 98 samples / 8 active benchmark family classes"
+        "Governed cohort 100; known governed families 10 "
+        "(observed labels 10 including unknown); "
+        "known types 3 (observed type_slug 3 including unknown)"
+    ) in text
+    assert (
+        "Governed cohort ≈ 100 samples / 10 known governed families "
+        "(10 observed labels including unknown); headline training applies to "
+        "≈ 98 samples / 8 training target classes"
     ) in text

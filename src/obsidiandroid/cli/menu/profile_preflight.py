@@ -344,9 +344,16 @@ def _profile_menu_latest_run_context(output_root: Path | None = None) -> list[tu
         else:
             context.append(("INFO", prepared_text))
     if isinstance(visible_families, int):
-        family_text = f"Family coverage: {visible_families:,} visible"
+        known = payload.get("governed_known_family_count", visible_families)
+        observed = payload.get("observed_family_label_count_including_unknown")
+        if isinstance(known, int) and isinstance(observed, int) and observed != known:
+            family_text = (
+                f"Family coverage: {known:,} known governed · {observed:,} observed labels (incl. unknown)"
+            )
+        else:
+            family_text = f"Family coverage: {int(known):,} known governed"
         if isinstance(modeled_families, int):
-            family_text += f" · {modeled_families:,} modeled"
+            family_text += f" · {modeled_families:,} training targets"
         context.append(("INFO", family_text))
 
     support_preview_path = summary_path.parent / "support_threshold_preview.csv"

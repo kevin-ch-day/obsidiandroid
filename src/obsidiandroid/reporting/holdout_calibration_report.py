@@ -66,8 +66,10 @@ def build_split_class_accounting(
     split_df: pd.DataFrame,
     *,
     visible_family_count: int | None = None,
+    governed_known_family_count: int | None = None,
+    observed_family_label_count_including_unknown: int | None = None,
 ) -> dict[str, Any]:
-    """Reconcile visible / training / held-out / train-only class counts."""
+    """Reconcile known / observed / training / held-out / train-only class counts."""
     work = split_df.copy()
     role = work["split_role"].fillna("").astype(str).str.strip().str.lower()
     fam = work["family_canonical"].fillna("").astype(str).str.strip()
@@ -77,6 +79,9 @@ def build_split_class_accounting(
     test = set(fam.loc[role.isin(["test", "holdout", "eval"])])
     train_only = sorted(train - test)
     test_only = sorted(test - train)
+    known = governed_known_family_count
+    if known is None:
+        known = visible_family_count
     payload = {
         "training_target_classes": int(len(train)),
         "held_out_evaluated_classes": int(len(test)),
@@ -87,11 +92,17 @@ def build_split_class_accounting(
         "train_only_family_canonical": train_only,
         "reconciles_training_minus_heldout": int(len(train) - len(test)) == int(len(train_only)),
     }
-    if visible_family_count is not None:
-        payload["visible_governed_families"] = int(visible_family_count)
+    if known is not None:
+        payload["governed_known_family_count"] = int(known)
+        # Backward-compatible alias.
+        payload["visible_governed_families"] = int(known)
         payload["note"] = (
-            "Visible governed families may exceed training target classes because "
-            "unknown/unmapped or non-authoritative labels are excluded before training."
+            "Known governed families may exceed training target classes because "
+            "support/authority filtering removes some identities before training."
+        )
+    if observed_family_label_count_including_unknown is not None:
+        payload["observed_family_label_count_including_unknown"] = int(
+            observed_family_label_count_including_unknown
         )
     return payload
 
@@ -200,12 +211,45 @@ def compose_holdout_calibration_report(
         if obs.is_file():
             try:
                 payload = json.loads(obs.read_text(encoding="utf-8"))
-                if isinstance(payload, dict) and payload.get("visible_family_count") is not None:
-                    visible_family_count = int(payload["visible_family_count"])
+                if isinstance(payload, dict):
+                    if payload.get("governed_known_family_count") is not None:
+                        visible_family_count = int(payload["governed_known_family_count"])
+                    elif payload.get("visible_family_count") is not None:
+                        visible_family_count = int(payload["visible_family_count"])
+                    if payload.get("observed_family_label_count_including_unknown") is not None:
+                        observed_family_count = int(
+                            payload["observed_family_label_count_including_unknown"]
+                        )
+                    else:
+                        observed_family_count = None
+                else:
+                    observed_family_count = None
             except (OSError, json.JSONDecodeError, TypeError, ValueError):
                 visible_family_count = None
+                observed_family_count = None
+        else:
+            observed_family_count = None
+    else:
+        observed_family_count = None
+        obs = diagnostics / "run_observability_summary.json"
+        if obs.is_file():
+            try:
+                payload = json.loads(obs.read_text(encoding="utf-8"))
+                if isinstance(payload, dict) and payload.get(
+                    "observed_family_label_count_including_unknown"
+                ) is not None:
+                    observed_family_count = int(
+                        payload["observed_family_label_count_including_unknown"]
+                    )
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                observed_family_count = None
 
-    accounting = build_split_class_accounting(split, visible_family_count=visible_family_count)
+    accounting = build_split_class_accounting(
+        split,
+        visible_family_count=visible_family_count,
+        governed_known_family_count=visible_family_count,
+        observed_family_label_count_including_unknown=observed_family_count,
+    )
     reliability, tiers, metrics = build_calibration_tables(pred, family_support)
 
     out_dir = Path(output_dir) if output_dir else diagnostics / "holdout_calibration"
@@ -241,7 +285,13 @@ def compose_holdout_calibration_report(
         "",
         "## Split class accounting",
         "",
-        f"- Visible governed families: **{accounting.get('visible_governed_families', 'n/a')}**",
+        f"- Known governed families: **{accounting.get('governed_known_family_count', accounting.get('visible_governed_families', 'n/a'))}**",
+        (
+            f"- Observed family labels: **{accounting.get('observed_family_label_count_including_unknown', 'n/a')}** "
+            "including `unknown`"
+            if accounting.get("observed_family_label_count_including_unknown") is not None
+            else "- Observed family labels: **n/a**"
+        ),
         f"- Training target classes: **{accounting['training_target_classes']}**",
         f"- Held-out evaluated classes: **{accounting['held_out_evaluated_classes']}**",
         f"- Train-only classes: **{accounting['train_only_classes']}**",

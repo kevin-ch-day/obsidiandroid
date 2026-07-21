@@ -1225,7 +1225,18 @@ def emit_research_operator_report(
     benchmark_support_excluded_family_count = int(bundle.get("benchmark_support_excluded_family_count", 0) or 0)
     family_target = str(label_strategy.get("preferred_family_target", "") or "").strip()
     type_target = str(label_strategy.get("preferred_type_target", "") or "").strip()
-    visible_family_count = q1.get("families_represented")
+    known_family_count = q1.get("governed_known_family_count")
+    observed_family_count = q1.get(
+        "observed_family_label_count_including_unknown",
+        q1.get("families_represented"),
+    )
+    known_type_count = q1.get("governed_known_type_count")
+    observed_type_count = q1.get(
+        "observed_type_slug_count_including_unknown",
+        q1.get("malware_types_represented"),
+    )
+    # Legacy alias: prefer known governed when available.
+    visible_family_count = known_family_count if known_family_count is not None else observed_family_count
 
     lines_strong = []
     caution = [
@@ -1318,11 +1329,29 @@ def emit_research_operator_report(
         readiness_surface=readiness_surface,
     )
     eligible_family_classes = int(active_cls) if str(active_cls).isdigit() else None
-    visible_family_classes = int(visible_family_count) if str(visible_family_count).isdigit() else None
+    known_family_classes = (
+        int(known_family_count) if str(known_family_count).isdigit() else None
+    )
+    observed_family_classes = (
+        int(observed_family_count) if str(observed_family_count).isdigit() else None
+    )
+    known_type_classes = int(known_type_count) if str(known_type_count).isdigit() else None
+    observed_type_classes = (
+        int(observed_type_count) if str(observed_type_count).isdigit() else None
+    )
+    # Backward-compatible alias used by older claim payloads.
+    visible_family_classes = known_family_classes
+    if visible_family_classes is None:
+        visible_family_classes = (
+            int(visible_family_count) if str(visible_family_count).isdigit() else None
+        )
     active_supervised_family_classes = eligible_family_classes
     excluded_family_classes = None
-    if visible_family_classes is not None and eligible_family_classes is not None:
-        excluded_family_classes = max(0, visible_family_classes - eligible_family_classes)
+    if known_family_classes is not None and eligible_family_classes is not None:
+        excluded_family_classes = max(0, known_family_classes - eligible_family_classes)
+    unknown_family_label_delta = None
+    if known_family_classes is not None and observed_family_classes is not None:
+        unknown_family_label_delta = max(0, observed_family_classes - known_family_classes)
     details_name = (
         "publication_claim_audit.md"
         if readiness_surface == "locked_publication_surface"
@@ -1366,16 +1395,33 @@ def emit_research_operator_report(
         block_lines.append(
             f"Training target family classes  : {active_supervised_family_classes}"
         )
-    if visible_family_classes is not None:
+    if known_family_classes is not None:
         block_lines.append(
-            f"Visible governed families       : {visible_family_classes}"
+            f"Known governed families         : {known_family_classes}"
+        )
+    if observed_family_classes is not None:
+        block_lines.append(
+            f"Observed family labels          : {observed_family_classes} including `unknown`"
+        )
+    if known_type_classes is not None:
+        block_lines.append(
+            f"Known governed types            : {known_type_classes}"
+        )
+    if observed_type_classes is not None:
+        block_lines.append(
+            f"Observed type_slug values       : {observed_type_classes} including `unknown`"
+        )
+    if unknown_family_label_delta not in (None, 0):
+        block_lines.append(
+            f"Unknown family label bucket     : {unknown_family_label_delta}"
         )
     if excluded_family_classes not in (None, 0):
         block_lines.append(
-            f"Excluded / non-claim families   : {excluded_family_classes}"
+            f"Known families outside training : {excluded_family_classes}"
         )
         block_lines.append(
-            "Note                            : Difference reflects excluded or non-claim family buckets, such as `unknown`."
+            "Note                            : Gap is known governed identities minus "
+            "training target classes (support/authority filtering), not the unknown bucket."
         )
     if family_target:
         block_lines.append(f"Primary family target           : {family_target}")
@@ -1433,9 +1479,14 @@ def emit_research_operator_report(
         "publication_ready": _publication_mode_active(manifest_context),
         "paper_locked": bool(manifest_context.get("paper_locked")),
         "claim_eligible_family_classes": active_supervised_family_classes,
+        "governed_known_family_count": known_family_classes,
+        "observed_family_label_count_including_unknown": observed_family_classes,
+        "governed_known_type_count": known_type_classes,
+        "observed_type_slug_count_including_unknown": observed_type_classes,
         "visible_governed_family_classes": visible_family_classes,
         "modeled_family_classes": active_supervised_family_classes,
         "excluded_non_claim_family_classes": excluded_family_classes,
+        "unknown_family_label_delta": unknown_family_label_delta,
         "benchmark_support_excluded_samples": benchmark_support_excluded_sample_count,
         "benchmark_support_excluded_families": benchmark_support_excluded_family_count,
         "details_artifact": details_name,
