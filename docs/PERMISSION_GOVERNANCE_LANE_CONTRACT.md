@@ -9,7 +9,8 @@ or Erebus queries are performed by the composers.
 
 | Field | Value |
 | --- | --- |
-| `protection_lane_contract_version` | `2.0.0` |
+| `protection_lane_contract_version` | `2.0.0` (artifact-only) |
+| Enriched companion | `2.1.0` via [`PERMISSION_AUTHORITY_ENRICHMENT_CONTRACT.md`](PERMISSION_AUTHORITY_ENRICHMENT_CONTRACT.md) |
 | `governance_field_contract_version` | `1.0.0` |
 
 ## Canonical headline lanes

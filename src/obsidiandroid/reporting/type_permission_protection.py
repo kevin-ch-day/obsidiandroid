@@ -195,11 +195,12 @@ def build_type_lane_summary(
         feat_cols = [c for c in features.columns if str(c).startswith("perm__")]
         # Map feature column → lane via audit
         audit_f = attach_protection_lanes(audit)
-        col_to_lane = {
-            str(r.feature_column): str(r.protection_governance_lane)
-            for r in audit_f.itertuples(index=False)
-            if hasattr(r, "feature_column")
-        }
+        col_to_lane = {}
+        for r in audit_f.itertuples(index=False):
+            feat = str(getattr(r, "feature_column", "") or "")
+            perm = _norm_perm(getattr(r, "permission_string", ""))
+            col_to_lane[feat] = lane_lookup.get(perm, str(getattr(r, "protection_governance_lane", "unknown_unresolved")))
+
         merged = labels[["sample_id", "type_slug"]].merge(
             features[["sample_id"] + feat_cols], on="sample_id", how="inner"
         )
@@ -539,7 +540,15 @@ def _render_interpretation(
     pairwise: pd.DataFrame,
     app_risk: pd.DataFrame,
     hypo: pd.DataFrame,
+    lane_contract_version: str | None = None,
+    enrichment_kind: str | None = None,
 ) -> str:
+    lane_ver = lane_contract_version or PROTECTION_LANE_CONTRACT_VERSION
+    scope = (
+        "authority-enriched (post-run Permission Intel observation)"
+        if enrichment_kind
+        else "artifact-limited (run-local fields only)"
+    )
     lines = [
         "# Type permission protection interpretation",
         "",
@@ -550,7 +559,9 @@ def _render_interpretation(
         f"- profile_id: `{identity['profile_id']}`",
         f"- prepared samples: {identity['prepared_sample_count']}",
         f"- permission-bearing samples: {identity['permission_bearing_sample_count']}",
-        f"- protection-lane contract: `{PROTECTION_LANE_CONTRACT_VERSION}`",
+        f"- protection-lane contract: `{lane_ver}`",
+        f"- analysis_scope: `{scope}`",
+        f"- enrichment_kind: `{enrichment_kind or 'none'}`",
         f"- governance-field contract: `{GOVERNANCE_FIELD_CONTRACT_VERSION}`",
         "",
     ]
@@ -660,6 +671,9 @@ def compose_type_permission_protection(
     pairwise_output_dir: Path | None = None,
     repo_root: Path | None = None,
     load_aligned_features: bool = True,
+    enrichment_csv: Path | None = None,
+    lane_contract_version: str | None = None,
+    enrichment_kind: str | None = None,
 ) -> dict[str, Any]:
     """Write protection-stratified report package (does not overwrite family-context)."""
     run_root = Path(run_root)
@@ -707,10 +721,43 @@ def compose_type_permission_protection(
         / "hypothesis_validation.csv"
     )
     type_inv = _type_inventory_from_snapshot(identity["snapshot"])
-    lane_lookup = permission_lane_lookup(audit)
+
+    enrichment = _optional_csv(Path(enrichment_csv)) if enrichment_csv else pd.DataFrame()
+    if enrichment_csv and enrichment.empty:
+        raise FileNotFoundError(enrichment_csv)
+    if not enrichment.empty:
+        from obsidiandroid.reporting.permission_authority_enrichment import enrichment_lane_lookup
+
+        lane_lookup = enrichment_lane_lookup(enrichment)
+        # Build lane inventory from enrichment headline lanes
+        framed = enrichment.rename(columns={"headline_lane": "protection_governance_lane"}).copy()
+        recon = reconcile_lane_token_counts(framed["protection_governance_lane"])
+        lane_inventory = pd.DataFrame(
+            [
+                {
+                    "headline_lane": lane,
+                    "token_count": int((framed["protection_governance_lane"] == lane).sum()),
+                    "retained_token_count": "",
+                    "mean_global_support": float(
+                        pd.to_numeric(
+                            enrichment.loc[
+                                enrichment["headline_lane"] == lane, "run_global_support"
+                            ],
+                            errors="coerce",
+                        ).mean()
+                    )
+                    if "run_global_support" in enrichment.columns
+                    else 0.0,
+                }
+                for lane in CANONICAL_PROTECTION_LANES
+            ]
+        )
+        token_recon = recon
+    else:
+        lane_lookup = permission_lane_lookup(audit)
+        lane_inventory, token_recon = build_permission_lane_inventory(audit)
 
     field_contract = pd.DataFrame(governance_field_contract_rows(audit))
-    lane_inventory, token_recon = build_permission_lane_inventory(audit)
     summary, prevalence, type_recon = build_type_lane_summary(
         snap=identity["snapshot"],
         type_prev=type_prev,
@@ -733,6 +780,7 @@ def compose_type_permission_protection(
     pairwise_prot = enrich_pairwise_protection(
         pairwise=pairwise_src, lane_lookup=lane_lookup, fam_prev=fam_prev
     )
+    effective_lane_version = lane_contract_version or PROTECTION_LANE_CONTRACT_VERSION
     interpretation = _render_interpretation(
         identity=identity,
         summary=summary,
@@ -740,6 +788,8 @@ def compose_type_permission_protection(
         pairwise=pairwise_prot,
         app_risk=app_risk,
         hypo=hypo,
+        lane_contract_version=effective_lane_version,
+        enrichment_kind=enrichment_kind,
     )
 
     out_dir = (
@@ -803,6 +853,8 @@ def compose_type_permission_protection(
         / "type_permission_pairwise"
         / f"pairwise_all_{run_id}.csv",
     }
+    if enrichment_csv:
+        input_paths["permission_authority_enrichment"] = Path(enrichment_csv)
     input_hashes = {k: sha256_file(p) for k, p in input_paths.items() if p.is_file()}
 
     manifest = {
@@ -814,9 +866,10 @@ def compose_type_permission_protection(
         "repository_commit_at_run": identity["repository_commit"],
         "repository_commit_at_compose": resolve_git_commit(repo_root) if repo_root else "",
         "dataset_hash": identity["dataset_hash"],
-        "protection_lane_contract_version": PROTECTION_LANE_CONTRACT_VERSION,
+        "protection_lane_contract_version": effective_lane_version,
         "governance_field_contract_version": GOVERNANCE_FIELD_CONTRACT_VERSION,
         "pairwise_protection_contract_version": PAIRWISE_PROTECTION_CONTRACT_VERSION,
+        "enrichment_kind": enrichment_kind,
         "thresholds": dict(DEFAULT_THRESHOLDS),
         "lane_contract": contract_metadata(),
         "token_reconciliation": token_recon,
