@@ -19,8 +19,19 @@ from typing import Any
 
 import pandas as pd
 
-COMPOSER_VERSION = "1.0.0"
-REPORT_SCHEMA_VERSION = "type_permission_pattern_report_v1"
+from obsidiandroid.reporting.permission_governance_lanes import (
+    CANONICAL_PROTECTION_LANES,
+    DEFAULT_THRESHOLDS,
+    PROTECTION_LANE_CONTRACT_VERSION,
+    attach_protection_lanes,
+    classify_permission_row_reportability,
+    contract_metadata,
+    permission_lane_lookup,
+    reconcile_lane_token_counts,
+)
+
+COMPOSER_VERSION = "1.1.0"
+REPORT_SCHEMA_VERSION = "type_permission_pattern_report_v2"
 
 # Types that can enter the headline comparison when support gates pass.
 _MAIN_COMPARISON_CANDIDATES = frozenset(
@@ -145,7 +156,228 @@ def resolve_type_permission_inputs(run_root: Path, run_id: str) -> dict[str, Pat
     snapshot = run_root / "diagnostics" / f"analysis_snapshot_{run_id}.csv"
     if snapshot.is_file():
         paths["analysis_snapshot"] = snapshot
+    audit = run_root / "diagnostics" / "permission_feature_audit.csv"
+    if audit.is_file():
+        paths["permission_feature_audit"] = audit
     return paths
+
+
+def _map_permission_lanes(permissions: pd.Series, lane_lookup: dict[str, str]) -> pd.Series:
+    return permissions.fillna("").astype(str).str.strip().str.lower().map(lane_lookup).fillna(
+        "unknown_unresolved"
+    )
+
+
+def build_protection_lane_token_inventory(audit: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Per-token lane assignment + reconciliation over the governed audit vocabulary."""
+    framed = attach_protection_lanes(audit)
+    inventory = framed[
+        [
+            c
+            for c in [
+                "permission_string",
+                "feature_column",
+                "pi_bucket_source",
+                "dangerous_bucket",
+                "protection_governance_lane",
+                "global_support",
+                "retained_after_pruning",
+            ]
+            if c in framed.columns
+        ]
+    ].copy()
+    inventory = inventory.sort_values(
+        ["protection_governance_lane", "permission_string"]
+    ).reset_index(drop=True)
+    recon = reconcile_lane_token_counts(inventory["protection_governance_lane"])
+    return inventory, recon
+
+
+def build_type_lane_coverage_matrix(
+    *,
+    type_inventory: pd.DataFrame,
+    prevalence_by_type: pd.DataFrame,
+    lane_lookup: dict[str, str],
+) -> pd.DataFrame:
+    """Coverage matrix: type × lane distinct-permission and observation counts."""
+    prev = prevalence_by_type.copy()
+    prev["protection_governance_lane"] = _map_permission_lanes(prev["permission"], lane_lookup)
+    prev["permission_positive_count"] = pd.to_numeric(
+        prev["permission_positive_count"], errors="coerce"
+    ).fillna(0)
+    prev["n_samples"] = pd.to_numeric(prev["n_samples"], errors="coerce").fillna(0)
+    rows: list[dict[str, Any]] = []
+    type_meta = type_inventory.set_index("type_slug")
+    for type_slug, group in prev.groupby("type_slug", dropna=False):
+        meta = type_meta.loc[type_slug] if type_slug in type_meta.index else None
+        sample_count = int(meta["sample_count"]) if meta is not None else int(group["n_samples"].max())
+        perm_bearing = int(meta["permission_table_n_samples"]) if meta is not None else sample_count
+        families = int(meta["active_families"]) if meta is not None else 0
+        largest_share = float(meta["largest_family_share"]) if meta is not None else float("nan")
+        for lane in CANONICAL_PROTECTION_LANES:
+            lane_group = group[group["protection_governance_lane"] == lane]
+            distinct = int(lane_group["permission"].nunique()) if not lane_group.empty else 0
+            obs_rows = int(len(lane_group))
+            positive_sum = int(lane_group["permission_positive_count"].sum()) if not lane_group.empty else 0
+            unresolved_share = 1.0 if lane in {"unknown_unresolved", "aosp_protection_unresolved"} and distinct else 0.0
+            rows.append(
+                {
+                    "type_slug": type_slug,
+                    "sample_count": sample_count,
+                    "permission_bearing_sample_count": perm_bearing,
+                    "family_count": families,
+                    "largest_family_share": largest_share,
+                    "protection_governance_lane": lane,
+                    "distinct_permissions": distinct,
+                    "type_permission_observation_rows": obs_rows,
+                    "permission_positive_sum": positive_sum,
+                    "unresolved_lane_flag": bool(
+                        lane in {"unknown_unresolved", "aosp_protection_unresolved"}
+                    ),
+                    "unresolved_token_share_within_lane_table": unresolved_share,
+                }
+            )
+    matrix = pd.DataFrame(rows)
+    # Observation-row reconciliation: every prevalence row maps to exactly one lane.
+    obs_recon = {
+        "prevalence_observation_rows": int(len(prev)),
+        "matrix_observation_row_sum": int(matrix["type_permission_observation_rows"].sum()),
+        "reconciles": int(len(prev)) == int(matrix["type_permission_observation_rows"].sum()),
+    }
+    matrix.attrs["observation_reconciliation"] = obs_recon
+    return matrix
+
+
+def build_lane_stratified_type_permission_table(
+    *,
+    prevalence_by_type: pd.DataFrame,
+    type_enrichment: pd.DataFrame,
+    family_balanced: pd.DataFrame,
+    lane_lookup: dict[str, str],
+    thresholds: dict[str, Any] | None = None,
+) -> pd.DataFrame:
+    """Type×permission rows with protection lane + dual prevalence + reportability."""
+    thr = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
+    prev = prevalence_by_type.copy()
+    prev["protection_governance_lane"] = _map_permission_lanes(prev["permission"], lane_lookup)
+    prev["permission_positive_count"] = pd.to_numeric(
+        prev["permission_positive_count"], errors="coerce"
+    ).fillna(0)
+    prev["n_samples"] = pd.to_numeric(prev["n_samples"], errors="coerce").fillna(0)
+    prev["prevalence_pct"] = pd.to_numeric(prev["prevalence_pct"], errors="coerce").fillna(0.0)
+    prev["sample_weighted_prevalence"] = prev["prevalence_pct"] / 100.0
+
+    enrich = type_enrichment.copy()
+    enrich["odds_ratio"] = pd.to_numeric(enrich["odds_ratio"], errors="coerce")
+    enrich_cols = ["type_slug", "permission", "odds_ratio"]
+    if "interpretation_bucket" in enrich.columns:
+        enrich_cols.append("interpretation_bucket")
+    enrich = enrich[enrich_cols]
+
+    fb = family_balanced.copy()
+    if not fb.empty:
+        fb = fb[
+            [
+                "type_slug",
+                "permission",
+                "families_used",
+                "family_balanced_prevalence_pct",
+                "largest_family_canonical",
+                "dominance_gap_pct",
+            ]
+        ].copy()
+        fb["family_balanced_prevalence"] = (
+            pd.to_numeric(fb["family_balanced_prevalence_pct"], errors="coerce").fillna(0.0) / 100.0
+        )
+    else:
+        fb = pd.DataFrame(
+            columns=[
+                "type_slug",
+                "permission",
+                "families_used",
+                "family_balanced_prevalence_pct",
+                "family_balanced_prevalence",
+                "largest_family_canonical",
+                "dominance_gap_pct",
+            ]
+        )
+
+    merged = prev.merge(enrich, on=["type_slug", "permission"], how="left")
+    merged = merged.merge(fb, on=["type_slug", "permission"], how="left")
+    merged["families_used"] = pd.to_numeric(merged["families_used"], errors="coerce").fillna(0).astype(int)
+    # Approximate largest-family contribution from dominance gap when share unavailable.
+    merged["largest_family_contribution"] = pd.to_numeric(
+        merged.get("dominance_gap_pct"), errors="coerce"
+    ).fillna(0.0) / 100.0
+    # Family support proxy: families_used from family-balanced table.
+    merged["supporting_family_count"] = merged["families_used"]
+    merged["largest_family_share_proxy"] = merged["largest_family_contribution"].clip(0.0, 1.0)
+
+    statuses: list[str] = []
+    for row in merged.itertuples(index=False):
+        statuses.append(
+            classify_permission_row_reportability(
+                lane=str(row.protection_governance_lane),
+                type_slug=str(row.type_slug),
+                positive_samples=int(row.permission_positive_count),
+                families_with_permission=int(row.supporting_family_count),
+                largest_family_share=float(row.largest_family_share_proxy),
+                sample_weighted_prevalence=float(row.sample_weighted_prevalence),
+                family_balanced_prevalence=(
+                    float(row.family_balanced_prevalence)
+                    if pd.notna(getattr(row, "family_balanced_prevalence", float("nan")))
+                    else None
+                ),
+                odds_ratio=float(row.odds_ratio) if pd.notna(row.odds_ratio) else None,
+                thresholds=thr,
+            )
+        )
+    merged["reportability_status"] = statuses
+    merged["suppression_reason"] = merged["reportability_status"].where(
+        ~merged["reportability_status"].isin(
+            {"family_balanced_supported", "descriptive_common", "descriptive_type_enriched"}
+        ),
+        "",
+    )
+    return merged.sort_values(
+        [
+            "type_slug",
+            "protection_governance_lane",
+            "family_balanced_prevalence_pct",
+            "prevalence_pct",
+        ],
+        ascending=[True, True, False, False],
+    ).reset_index(drop=True)
+
+
+def build_lane_leader_tables(
+    lane_table: pd.DataFrame,
+    *,
+    top_n: int = 15,
+) -> dict[str, pd.DataFrame]:
+    """Highest-prevalence / highest-lift leaders per conceptual lane section."""
+    out: dict[str, pd.DataFrame] = {}
+    section_map = {
+        "normal_permissions": "aosp_normal",
+        "dangerous_permissions": "aosp_dangerous",
+        "signature_privileged_descriptive": "aosp_protection_unresolved",
+        "oem_google_permissions": "oem_or_google",
+        "app_defined_permissions": "app_defined",
+        "unknown_unresolved_permissions": "unknown_unresolved",
+    }
+    for name, lane in section_map.items():
+        subset = lane_table[lane_table["protection_governance_lane"] == lane].copy()
+        if subset.empty:
+            out[name] = subset
+            continue
+        # Prefer family-balanced when present; fall back to sample-weighted.
+        subset = subset.sort_values(
+            ["odds_ratio", "family_balanced_prevalence_pct", "prevalence_pct"],
+            ascending=[False, False, False],
+        )
+        leaders = subset.groupby("type_slug", as_index=False).head(int(top_n))
+        out[name] = leaders.reset_index(drop=True)
+    return out
 
 
 def _blank_family_mask(series: pd.Series) -> pd.Series:
@@ -599,6 +831,11 @@ def compose_type_permission_pattern_report(
     prevalence_by_family = _require_csv(paths["prevalence_by_family"])
     dangerous_by_type = _require_csv(paths["dangerous_by_type"])
     snapshot = _require_csv(paths["analysis_snapshot"])
+    if "permission_feature_audit" not in paths:
+        raise FileNotFoundError(
+            "permission_feature_audit.csv is required for protection/governance lane stratification"
+        )
+    audit = _require_csv(paths["permission_feature_audit"])
 
     coverage_row = coverage.iloc[0].to_dict() if not coverage.empty else {}
     prepared = int(coverage_row.get("sample_count") or len(snapshot))
@@ -643,6 +880,22 @@ def compose_type_permission_pattern_report(
         min_family_support=min_family_support,
     )
 
+    lane_token_inventory, lane_token_recon = build_protection_lane_token_inventory(audit)
+    lane_lookup = permission_lane_lookup(audit)
+    type_lane_coverage = build_type_lane_coverage_matrix(
+        type_inventory=type_inventory,
+        prevalence_by_type=prevalence_by_type,
+        lane_lookup=lane_lookup,
+    )
+    observation_recon = dict(type_lane_coverage.attrs.get("observation_reconciliation") or {})
+    lane_stratified = build_lane_stratified_type_permission_table(
+        prevalence_by_type=prevalence_by_type,
+        type_enrichment=type_enrichment,
+        family_balanced=family_balanced,
+        lane_lookup=lane_lookup,
+    )
+    lane_leaders = build_lane_leader_tables(lane_stratified, top_n=lift_top_n)
+
     derived = {
         "type_inventory": type_inventory,
         "type_census": type_census,
@@ -651,6 +904,10 @@ def compose_type_permission_pattern_report(
         "family_balanced_type_prevalence": family_balanced,
         "type_lift_leaders": lift_leaders,
         "banker_dropper_comparison": banker_dropper,
+        "protection_lane_token_inventory": lane_token_inventory,
+        "type_lane_coverage_matrix": type_lane_coverage,
+        "lane_stratified_type_permissions": lane_stratified,
+        **{f"lane_leaders_{key}": frame for key, frame in lane_leaders.items()},
     }
     output_hashes: dict[str, str] = {}
     for name, frame in derived.items():
@@ -676,6 +933,11 @@ def compose_type_permission_pattern_report(
         banker_dropper=banker_dropper,
         dangerous_by_type=dangerous_by_type,
         min_family_support=min_family_support,
+        lane_token_recon=lane_token_recon,
+        observation_recon=observation_recon,
+        type_lane_coverage=type_lane_coverage,
+        lane_stratified=lane_stratified,
+        lane_leaders=lane_leaders,
     )
     report_path = out_dir / f"type_permission_pattern_report_{run_id}.md"
     latest_path = out_dir / "type_permission_pattern_report.latest.md"
@@ -712,7 +974,13 @@ def compose_type_permission_pattern_report(
             "permissions_are_declared_capabilities_not_runtime_behavior": True,
             "dropper_is_top_level_type_slug": True,
             "generated_outputs_must_not_be_committed": True,
+            "protection_lane_thresholds": dict(DEFAULT_THRESHOLDS),
         },
+        "protection_lane_contract": contract_metadata(),
+        "protection_lane_token_reconciliation": lane_token_recon,
+        "protection_lane_observation_reconciliation": observation_recon,
+        "represented_type_count": int(type_inventory.shape[0]),
+        "permission_trends_permission_token_count": int(prevalence_by_type["permission"].nunique()),
     }
     manifest_path = out_dir / f"type_permission_pattern_report_manifest_{run_id}.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -742,6 +1010,11 @@ def _render_markdown(
     banker_dropper: pd.DataFrame,
     dangerous_by_type: pd.DataFrame,
     min_family_support: int,
+    lane_token_recon: dict[str, Any] | None = None,
+    observation_recon: dict[str, Any] | None = None,
+    type_lane_coverage: pd.DataFrame | None = None,
+    lane_stratified: pd.DataFrame | None = None,
+    lane_leaders: dict[str, pd.DataFrame] | None = None,
 ) -> str:
     lines: list[str] = []
     lines.append(f"# Malware-type permission-pattern report (`{run_id}`)")
@@ -750,6 +1023,7 @@ def _render_markdown(
     lines.append(f"- Source run status: **{source_run_status}**")
     lines.append(f"- Composer version: `{COMPOSER_VERSION}`")
     lines.append(f"- Schema: `{REPORT_SCHEMA_VERSION}`")
+    lines.append(f"- Protection-lane contract: `{PROTECTION_LANE_CONTRACT_VERSION}`")
     if report_status == "PROVISIONAL":
         lines.append(
             "- This report is **provisional** because the source run is still active "
@@ -965,6 +1239,106 @@ def _render_markdown(
                 f"{int(d_fam)} | {d_large} |"
             )
         lines.append("")
+    lines.append("## 9. Protection / governance lane stratification")
+    lines.append("")
+    lines.append(
+        f"Contract `{PROTECTION_LANE_CONTRACT_VERSION}`. Every governed audit token maps to "
+        "exactly one headline lane (or explicit unresolved). Structured Android "
+        "`protectionLevel` / signature / privileged flags are **not** present in the "
+        "completed-run audit CSV; AOSP tokens with `dangerous_bucket=unknown` are labeled "
+        "`aosp_protection_unresolved` (descriptive only — not confirmed signature/privileged)."
+    )
+    lines.append("")
+    if lane_token_recon:
+        counts = lane_token_recon.get("lane_counts") or {}
+        lines.append(
+            f"- Governed audit tokens: **{int(lane_token_recon.get('total_tokens', 0)):,}**; "
+            f"lane sum reconciles: **{bool(lane_token_recon.get('reconciles'))}**"
+        )
+        lines.append("")
+        lines.append("| lane | token count |")
+        lines.append("|---|---:|")
+        for lane in CANONICAL_PROTECTION_LANES:
+            lines.append(f"| `{lane}` | {int(counts.get(lane, 0)):,} |")
+        lines.append("")
+    if observation_recon:
+        lines.append(
+            f"- Prevalence observation rows: **{int(observation_recon.get('prevalence_observation_rows', 0)):,}**; "
+            f"matrix sum: **{int(observation_recon.get('matrix_observation_row_sum', 0)):,}**; "
+            f"reconciles: **{bool(observation_recon.get('reconciles'))}**"
+        )
+        lines.append("")
+    lines.append("### A. Coverage by type and lane")
+    lines.append("")
+    if type_lane_coverage is not None and not type_lane_coverage.empty:
+        # Compact: show distinct permission counts for main types across lanes.
+        pivot = type_lane_coverage.pivot_table(
+            index="type_slug",
+            columns="protection_governance_lane",
+            values="distinct_permissions",
+            aggfunc="first",
+        )
+        for lane in CANONICAL_PROTECTION_LANES:
+            if lane not in pivot.columns:
+                pivot[lane] = 0
+        pivot = pivot[list(CANONICAL_PROTECTION_LANES)]
+        meta = type_lane_coverage.drop_duplicates("type_slug").set_index("type_slug")
+        lines.append(
+            "| type | samples | families | largest% | "
+            + " | ".join(CANONICAL_PROTECTION_LANES)
+            + " |"
+        )
+        lines.append("|---|---:|---:|---:|" + "|---:" * len(CANONICAL_PROTECTION_LANES) + "|")
+        for type_slug in pivot.index:
+            m = meta.loc[type_slug]
+            cells = " | ".join(str(int(pivot.loc[type_slug, lane])) for lane in CANONICAL_PROTECTION_LANES)
+            lines.append(
+                f"| {type_slug} | {int(m.sample_count):,} | {int(m.family_count)} | "
+                f"{100.0 * float(m.largest_family_share):.1f} | {cells} |"
+            )
+        lines.append("")
+    section_titles = [
+        ("B. Normal permissions (`aosp_normal`)", "normal_permissions"),
+        ("C. Dangerous permissions (`aosp_dangerous`)", "dangerous_permissions"),
+        (
+            "D. Signature / privileged (descriptive unresolved AOSP protection)",
+            "signature_privileged_descriptive",
+        ),
+        ("E. OEM / Google permissions", "oem_google_permissions"),
+        ("F. App-defined permissions", "app_defined_permissions"),
+        ("G. Unknown / unresolved permissions", "unknown_unresolved_permissions"),
+    ]
+    for title, key in section_titles:
+        lines.append(f"### {title}")
+        lines.append("")
+        frame = (lane_leaders or {}).get(key)
+        if frame is None or frame.empty:
+            lines.append("No rows in this lane for the permission-trends type tables.")
+            lines.append("")
+            continue
+        lines.append(
+            "| type | permission | SW% | FB% | families | OR | reportability |"
+        )
+        lines.append("|---|---|---:|---:|---:|---:|---|")
+        for row in frame.head(24).itertuples(index=False):
+            sw = float(getattr(row, "prevalence_pct", float("nan")))
+            fb = getattr(row, "family_balanced_prevalence_pct", float("nan"))
+            fam = int(getattr(row, "supporting_family_count", 0) or 0)
+            odds = getattr(row, "odds_ratio", float("nan"))
+            status = getattr(row, "reportability_status", "")
+            lines.append(
+                f"| {row.type_slug} | `{row.permission}` | {sw:.1f} | "
+                f"{float(fb) if pd.notna(fb) else float('nan'):.1f} | {fam} | "
+                f"{float(odds) if pd.notna(odds) else float('nan'):.2f} | `{status}` |"
+            )
+        lines.append("")
+    if lane_stratified is not None and not lane_stratified.empty:
+        status_counts = lane_stratified["reportability_status"].value_counts()
+        lines.append("Lane-stratified reportability counts (type×permission rows):")
+        lines.append("")
+        for status, count in status_counts.items():
+            lines.append(f"- `{status}`: {int(count):,}")
+        lines.append("")
     lines.append("---")
     lines.append(
         "Derived CSVs accompany this markdown under "
@@ -981,8 +1355,12 @@ __all__ = [
     "build_banker_dropper_comparison",
     "build_complete_type_inventory",
     "build_family_balanced_type_prevalence",
+    "build_lane_leader_tables",
+    "build_lane_stratified_type_permission_table",
     "build_overall_permission_prevalence",
+    "build_protection_lane_token_inventory",
     "build_type_census",
+    "build_type_lane_coverage_matrix",
     "build_type_lift_leaders",
     "classify_permission_role",
     "classify_type_inclusion",

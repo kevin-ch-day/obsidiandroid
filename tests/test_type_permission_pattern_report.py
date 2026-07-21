@@ -423,6 +423,83 @@ def _write_fixture_run(tmp_path: Path, *, run_id: str = "fixture_run", with_runn
             },
         ]
     ).to_csv(tables / f"dangerous_distribution_by_type_{run_id}.csv", index=False)
+
+    pd.DataFrame(
+        [
+            {
+                "dangerous_bucket": "normal",
+                "feature_column": "perm__android_permission_internet",
+                "permission_string": "android.permission.internet",
+                "pi_bucket_source": "AOSP",
+                "global_support": 100,
+                "retained_after_pruning": "yes",
+            },
+            {
+                "dangerous_bucket": "dangerous",
+                "feature_column": "perm__android_permission_read_sms",
+                "permission_string": "android.permission.read_sms",
+                "pi_bucket_source": "AOSP",
+                "global_support": 40,
+                "retained_after_pruning": "yes",
+            },
+            {
+                "dangerous_bucket": "dangerous",
+                "feature_column": "perm__android_permission_read_media_images",
+                "permission_string": "android.permission.read_media_images",
+                "pi_bucket_source": "AOSP",
+                "global_support": 20,
+                "retained_after_pruning": "yes",
+            },
+            {
+                "dangerous_bucket": "dangerous",
+                "feature_column": "perm__android_permission_request_install_packages",
+                "permission_string": "android.permission.request_install_packages",
+                "pi_bucket_source": "AOSP",
+                "global_support": 15,
+                "retained_after_pruning": "yes",
+            },
+            {
+                "dangerous_bucket": "unknown",
+                "feature_column": "perm__android_permission_install_packages",
+                "permission_string": "android.permission.install_packages",
+                "pi_bucket_source": "AOSP",
+                "global_support": 5,
+                "retained_after_pruning": "yes",
+            },
+            {
+                "dangerous_bucket": "google",
+                "feature_column": "perm__com_google_android_providers_gsf_permission_read_gservices",
+                "permission_string": "com.google.android.providers.gsf.permission.read_gservices",
+                "pi_bucket_source": "GOOGLE",
+                "global_support": 8,
+                "retained_after_pruning": "yes",
+            },
+            {
+                "dangerous_bucket": "oem_vendor",
+                "feature_column": "perm__com_samsung_android_providers_context_permission_write_use_app_feature_survey",
+                "permission_string": "com.samsung.android.providers.context.permission.write_use_app_feature_survey",
+                "pi_bucket_source": "OEM",
+                "global_support": 3,
+                "retained_after_pruning": "yes",
+            },
+            {
+                "dangerous_bucket": "app_defined",
+                "feature_column": "perm__com_example_app_perm",
+                "permission_string": "com.example.app.perm",
+                "pi_bucket_source": "APP_DEFINED",
+                "global_support": 1,
+                "retained_after_pruning": "no",
+            },
+            {
+                "dangerous_bucket": "unknown",
+                "feature_column": "perm__weird",
+                "permission_string": "weird.token",
+                "pi_bucket_source": "UNKNOWN",
+                "global_support": 1,
+                "retained_after_pruning": "no",
+            },
+        ]
+    ).to_csv(run_root / "diagnostics" / "permission_feature_audit.csv", index=False)
     return run_root
 
 

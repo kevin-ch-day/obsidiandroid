@@ -18,8 +18,9 @@ Implementation: `obsidiandroid.reporting.type_permission_pattern_report`.
 
 | Field | Value |
 | --- | --- |
-| `composer_version` | `1.0.0` (harden milestone; pairwise is Phase 2) |
-| `report_schema_version` | `type_permission_pattern_report_v1` |
+| `composer_version` | `1.1.0` |
+| `report_schema_version` | `type_permission_pattern_report_v2` |
+| `protection_lane_contract_version` | `1.0.0` (see [`PERMISSION_GOVERNANCE_LANE_CONTRACT.md`](PERMISSION_GOVERNANCE_LANE_CONTRACT.md)) |
 
 ## Report status
 
@@ -46,6 +47,19 @@ Under `<run_root>/bundles/permission_trends/tables/`:
 Plus:
 
 - `<run_root>/diagnostics/analysis_snapshot_<run_id>.csv` (**required** for complete type accounting)
+- `<run_root>/diagnostics/permission_feature_audit.csv` (**required** for protection/governance lanes)
+
+## Protection / governance lanes
+
+Type reports emit lane-stratified tables:
+
+- `protection_lane_token_inventory_*.csv`
+- `type_lane_coverage_matrix_*.csv`
+- `lane_stratified_type_permissions_*.csv`
+- `lane_leaders_*_*.csv` (normal / dangerous / unresolved / OEM-Google / app-defined / unknown)
+
+See [`PERMISSION_GOVERNANCE_LANE_CONTRACT.md`](PERMISSION_GOVERNANCE_LANE_CONTRACT.md) for
+precedence, reconciliation, reportability statuses, and default thresholds.
 
 ## Derived outputs (not for Git)
 
@@ -100,8 +114,9 @@ Implementation: `obsidiandroid.reporting.type_permission_pairwise`.
 
 | Field | Value |
 | --- | --- |
-| `composer_version` | `1.0.0` |
-| `report_schema_version` | `type_permission_pairwise_v1` |
+| `composer_version` | `1.1.0` |
+| `report_schema_version` | `type_permission_pairwise_v2` |
+| `protection_lane_contract_version` | `1.0.0` |
 
 Inputs (no database access):
 
@@ -113,10 +128,22 @@ Headline vocabulary defaults to governed **AOSP / OEM / GOOGLE** tokens with con
 `min_global_support`. App-defined tokens are optional (`--include-app-defined-lane`).
 Unknown tokens are inventoried but excluded from headline claims.
 
+Each pair row includes `permission_a_lane`, `permission_b_lane`, `lane_pair_class`
+(`within_lane` / `cross_lane`), and `lane_pair_ordered`.
+
 Pair measures include sample-weighted and family-balanced prevalence, supporting-family
 count, largest-family contribution, Jaccard, independence lift, type-vs-rest odds ratio,
 Wilson CI, Fisher p-values, and BH-FDR q-values.
 
 Reportability statuses are explicit (`family_balanced_supported`,
 `single_family_dominated`, `insufficient_*`, `not_significant_after_fdr`,
-`effect_too_small`, `descriptive_*`). Three-way mining is intentionally disabled.
+`effect_too_small`, `descriptive_*`, `exploratory_only`, `protection_level_unresolved`,
+`app_defined_high_cardinality`). Three-way mining is intentionally disabled.
+
+Interpretation entrypoint:
+
+```bash
+python scripts/diagnostics/generate_type_permission_interpretation.py \
+  --run-root output/runs/allcurrent_diagnostic \
+  --run-id <run_id>
+```
