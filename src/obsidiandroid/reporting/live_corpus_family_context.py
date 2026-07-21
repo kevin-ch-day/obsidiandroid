@@ -21,9 +21,9 @@ from obsidiandroid.labeling.malware_family_constants import (
     normalize_family_name,
 )
 from obsidiandroid.reporting.cohort_count_contract import compute_cohort_identity_counts
-def build_dominant_family_type_robustness(**_kwargs):
-    """Stubbed in family-context commit; replaced by sensitivity module."""
-    return pd.DataFrame()
+from obsidiandroid.reporting.dominant_family_profile_sensitivity import (
+    build_dominant_family_type_robustness,
+)
 from obsidiandroid.reporting.permission_governance_lanes import permission_lane_lookup
 from obsidiandroid.reporting.type_permission_pattern_report import (
     detect_source_run_status,

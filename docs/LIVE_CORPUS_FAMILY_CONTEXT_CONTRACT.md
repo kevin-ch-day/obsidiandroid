@@ -82,6 +82,12 @@ Only permission-declaration hypotheses are tested. Overlay/virtualization/
 cloud-C2/runtime ATS claims are `NOT_TESTABLE_STATICALLY` unless a concrete
 manifest permission set is specified.
 
+## Implementation
+
+Type-level leave-dominant profile metrics are implemented in
+`obsidiandroid.reporting.dominant_family_profile_sensitivity` and emitted as
+`dominant_family_robustness.csv` by the live-corpus family-context composer.
+
 ## Related contracts
 
 - [`PERMISSION_GOVERNANCE_LANE_CONTRACT.md`](PERMISSION_GOVERNANCE_LANE_CONTRACT.md)
