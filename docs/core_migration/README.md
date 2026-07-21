@@ -36,13 +36,43 @@ fixture import, pipeline routing change, source-schema change, or benchmark.
 Phase 2B added the reviewed additive `0002` contract migration, a fail-closed
 Core-only migration executor, deterministic mapping planner, synthetic
 disposable validation, production provisioning, and narrow local service
-accounts. `obsidiandroid_core_prod` now has exactly seven Core tables and two
-applied migration rows, plus the one imported July 18 diagnostic fixture.
+accounts. The production Core foundation and Phase 2C fixture remain in place.
 Core persistence remains disabled; no pipeline routing or dual write has
 occurred. The durable design is in
 [phase2b_core_contract.md](phase2b_core_contract.md), the mapping is in
 [phase2b_source_mapping.md](phase2b_source_mapping.md), and the historical
 Phase 2 plan is not an operational runbook.
+
+## Phase 2A recovery status
+
+Phase 2A source recovery is complete through the replacement recovery-validated
+Erebus package (including the previously omitted stored procedures). Broader
+workstation disaster-recovery rehearsal remains an operations concern, but the
+Erebus recovery gap that blocked Phase 2A closeout is closed.
+
+## Phase 2D results migrations and the partial-0004 incident
+
+Migrations `0001`–`0005` under `database/core_migrations/` are immutable.
+`0003`/`0004` create temporary `core_*` result names; `0005` renames them to the
+final twelve concise result tables.
+
+A production apply before commit `c42dd45` used a migration executor that reused
+one ledger `receipt_id` across migrations in a single invocation. That collided
+with `UNIQUE (receipt_id)` after `0003`, leaving `0004` physically applied but
+unledgered. Current `main` contains the per-migration receipt-id fix
+(`c42dd45`) and hardened remediation/upgrade/audit/grant tooling (`ca1c8df` and
+later). Production itself remains in the partial-`0004` state until a separately
+approved ledger remediation, `0005` apply, and grants review. Core results
+writer work remains a later Phase 2D task and must not be enabled while the
+incident is open.
+
+Operator tooling (code-only until separately approved):
+
+- `scripts/core_migration/remediate_partial_0004_ledger.py`
+- `scripts/core_migration/rehearse_partial_0004_incident.py`
+- `scripts/core_migration/upgrade_core_schema.py`
+- `scripts/core_migration/audit_provisioned_core.py --contract phase2d_partial_0004`
+- `scripts/core_migration/apply_core_results_grants.py` (dry-run by default)
 
 Phase 2C completed its separately authorized controlled fixture import. Its
 [review gate](phase2c_controlled_import_review.md), retained as the historical
