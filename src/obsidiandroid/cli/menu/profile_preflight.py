@@ -238,6 +238,12 @@ def _print_current_source_coverage(note: str) -> None:
             du.print_stat(key.replace("_", " ").title(), value, width=20)
         else:
             du.print_stat("Detail", line, width=20)
+    du.print_stat(
+        "Note",
+        "Ungated catalog inventory. Governed runs also apply the reproducibility "
+        "time window, hash-registry join, and profile cohort gates.",
+        width=20,
+    )
     print("")
 
 
@@ -511,7 +517,8 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
                 "Run the explicit cohort diagnostics before retrying this profile.",
             )
         if not bool(viability.get("runnable", False)):
-            if str(viability.get("reason_code", "")) in {
+            reason_code = str(viability.get("reason_code", "") or "")
+            if reason_code in {
                 "inconclusive_candidate_window",
                 "inconclusive_quality_gate",
                 "inconclusive_authority_surface",
@@ -521,6 +528,12 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
                     "[PROFILE] Bounded cohort viability check was inconclusive; no pipeline was started. "
                     "Run the explicit cohort diagnostics before retrying this profile.",
                 )
+            if reason_code in {
+                "empty_catalog_cohort",
+                "empty_gated_cohort",
+                "empty_support_floor_cohort",
+            }:
+                return False, f"[PROFILE] Profile '{profile_id}' selected an empty cohort."
             return False, f"[PROFILE] Profile '{profile_id}' selected an empty cohort."
         return True, ""
 

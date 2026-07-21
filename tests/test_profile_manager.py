@@ -489,6 +489,10 @@ def test_select_profile_interactive_quick_resolves_robustness_submenu(monkeypatc
 def test_type_taxonomy_profile_declares_type_slug_training_target() -> None:
     profile = profile_manager.load_profile("android_malware_type_taxonomy")
     assert profile["training_label_field"] == "type_slug"
+    # Type targets require a mapped family→type path; do not claim unmapped admission.
+    assert profile["cohort_gates"]["require_mapped_family"] is True
+    assert profile["cohort_gates"]["exclude_unknown_type_slug"] is True
+    assert profile["cohort_gates"]["require_active_type_slug"] is True
 
 
 def test_select_profile_interactive_quick_resolves_development_submenu(monkeypatch) -> None:

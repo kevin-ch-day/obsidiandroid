@@ -148,17 +148,129 @@ def test_profile_viability_probe_returns_bounded_result(monkeypatch) -> None:
     def _fake_execute(query, params=None, **_kwargs):
         captured.setdefault("queries", []).append(query)
         captured.setdefault("params", []).append(params)
-        if "v_android_sample_family_type_authority" in query:
-            return (["sample_id", "family_id", "family_name", "type_id", "type_slug", "type_is_active"], [(1, 2, "fixture", 3, "banker", 1)])
-        return (["sample_id"], [(1,)])
+        if "v_android_sample_family_type_authority" in str(query):
+            return (
+                ["sample_id", "family_id", "family_name", "type_id", "type_slug", "type_is_active"],
+                [(1, 2, "fixture", 3, "banker", 1)],
+            )
+        return (["sample_id", "family_label"], [(1, "fixture")])
 
     monkeypatch.setattr(fetchers.db_engine, "execute_query", _fake_execute)
     result = fetchers.probe_profile_cohort_viability(type_slug="banker", timeout_seconds=2)
     assert result["runnable"] is True
-    assert result["probe_kind"] == "bounded_candidate_window"
+    assert result["probe_kind"] == "filtered_candidate_window"
     assert result["timed_out"] is False
-    assert all(str(query).startswith("SET STATEMENT max_statement_time") for query in captured["queries"])
+    assert len(captured["queries"]) == 2
+    authority_query = str(captured["queries"][0])
+    assert authority_query.startswith("SET STATEMENT max_statement_time")
+    assert "LIMIT %s" in authority_query
     assert tuple(captured["params"][0])[0] == 2.0
+
+
+def test_profile_viability_probe_filters_active_and_unknown_in_python(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_execute(query, params=None, **_kwargs):
+        captured.setdefault("queries", []).append(query)
+        if "v_android_sample_family_type_authority" in str(query) and "sample_id IN" not in str(query):
+            return (
+                ["sample_id", "family_id", "family_name", "type_id", "type_slug", "type_is_active"],
+                [
+                    (1, 2, "blankish", 3, "", 1),
+                    (2, 3, "fixture", 4, "banker", 1),
+                    (3, 4, "inactive", 5, "rat", 0),
+                ],
+            )
+        return (["sample_id", "family_label"], [(2, "fixture")])
+
+    monkeypatch.setattr(fetchers.db_engine, "execute_query", _fake_execute)
+    result = fetchers.probe_profile_cohort_viability(
+        require_mapped_family=True,
+        exclude_unknown_type_slug=True,
+        require_active_type_slug=True,
+        timeout_seconds=3,
+    )
+    assert result["runnable"] is True
+    assert result["probe_kind"] == "filtered_candidate_window"
+    # First query is unfiltered LIMIT window; type gates applied in Python.
+    assert "COALESCE(t.is_active, 0) = 1" not in str(captured["queries"][0])
+
+
+def test_profile_viability_probe_falls_back_to_catalog_seeded_lookup(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def _fake_execute(query, params=None, **_kwargs):
+        q = str(query)
+        calls.append(q)
+        if "v_android_sample_family_type_authority" in q and "sample_id IN" not in q:
+            # Unfiltered window is all blank/unknown → Python filter empties it.
+            return (
+                ["sample_id", "family_id", "family_name", "type_id", "type_slug", "type_is_active"],
+                [(1, 2, "x", 3, "", 1), (2, 3, "y", 4, "unknown", 1)],
+            )
+        if "FROM malware_sample_catalog" in q and "family_label" not in q:
+            return (["sample_id"], [(10,), (11,)])
+        if "sample_id IN" in q and "v_android_sample_family_type_authority" in q:
+            return (
+                ["sample_id", "family_id", "family_name", "type_id", "type_slug", "type_is_active"],
+                [(10, 99, "seeded", 7, "banker", 1)],
+            )
+        return (["sample_id", "family_label"], [(10, "seeded")])
+
+    monkeypatch.setattr(fetchers.db_engine, "execute_query", _fake_execute)
+    result = fetchers.probe_profile_cohort_viability(
+        require_mapped_family=True,
+        exclude_unknown_type_slug=True,
+        require_active_type_slug=True,
+    )
+    assert result["runnable"] is True
+    assert any("sample_id IN" in q for q in calls)
+
+
+def test_profile_viability_probe_quality_gates_use_filtered_window(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_execute(query, params=None, **_kwargs):
+        captured.setdefault("queries", []).append(query)
+        if "v_android_sample_family_type_authority" in str(query):
+            return (
+                ["sample_id", "family_id", "family_name", "type_id", "type_slug", "type_is_active"],
+                [(1, 2, "fixture", 3, "banker", 1)],
+            )
+        return (["sample_id", "family_label"], [(1, "fixture")])
+
+    monkeypatch.setattr(fetchers.db_engine, "execute_query", _fake_execute)
+    result = fetchers.probe_profile_cohort_viability(
+        require_mapped_family=True,
+        exclude_weak_label_kinds=True,
+        exclude_family_label_conflicts=True,
+    )
+    assert result["runnable"] is True
+    assert result["probe_kind"] == "filtered_candidate_window"
+    catalog_query = str(captured["queries"][1])
+    assert "sample_label_kind" in catalog_query
+
+
+def test_profile_viability_probe_reports_empty_gated_cohort(monkeypatch) -> None:
+    def _fake_execute(query, params=None, **_kwargs):
+        q = str(query)
+        if "v_android_sample_family_type_authority" in q and "sample_id IN" not in q:
+            return (
+                ["sample_id", "family_id", "family_name", "type_id", "type_slug", "type_is_active"],
+                [(1, 2, "x", 3, "", 1)],
+            )
+        if "FROM malware_sample_catalog" in q:
+            return (["sample_id"], [])
+        return (["sample_id"], [])
+
+    monkeypatch.setattr(fetchers.db_engine, "execute_query", _fake_execute)
+    result = fetchers.probe_profile_cohort_viability(
+        type_slug="banker",
+        exclude_unknown_type_slug=True,
+    )
+    assert result["runnable"] is False
+    assert result["reason_code"] == "empty_gated_cohort"
+    assert result["probe_kind"] == "filtered_candidate_window"
 
 
 def test_profile_viability_probe_marks_statement_timeout(monkeypatch) -> None:
@@ -174,11 +286,33 @@ def test_profile_viability_probe_marks_statement_timeout(monkeypatch) -> None:
     assert result["timed_out"] is True
 
 
-def test_profile_viability_probe_is_inconclusive_when_profile_admits_unmapped_rows(monkeypatch) -> None:
-    monkeypatch.setattr(fetchers.db_engine, "execute_query", lambda *_args, **_kwargs: pytest.fail("query not expected"))
+def test_profile_viability_probe_uses_catalog_when_profile_admits_unmapped_rows(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_execute_query(query, **kwargs):
+        captured["query"] = query
+        captured["params"] = kwargs.get("params")
+        return (["ok"], [(1,)])
+
+    monkeypatch.setattr(fetchers.db_engine, "execute_query", _fake_execute_query)
+    result = fetchers.probe_profile_cohort_viability(require_mapped_family=False)
+    assert result["runnable"] is True
+    assert result["reason_code"] == "eligible_sample_found"
+    assert result["probe_kind"] == "unmapped_catalog"
+    assert "malware_sample_catalog" in str(captured["query"])
+    assert "v_android_sample_family_type_authority" not in str(captured["query"])
+
+
+def test_profile_viability_probe_reports_empty_catalog_for_unmapped_admitting_profile(monkeypatch) -> None:
+    monkeypatch.setattr(
+        fetchers.db_engine,
+        "execute_query",
+        lambda *_args, **_kwargs: (["ok"], []),
+    )
     result = fetchers.probe_profile_cohort_viability(require_mapped_family=False)
     assert result["runnable"] is False
-    assert result["reason_code"] == "inconclusive_authority_surface"
+    assert result["reason_code"] == "empty_catalog_cohort"
+    assert result["probe_kind"] == "unmapped_catalog"
 
 
 def test_fetch_samples_by_type_uses_inner_hash_join_when_sha_required(monkeypatch) -> None:

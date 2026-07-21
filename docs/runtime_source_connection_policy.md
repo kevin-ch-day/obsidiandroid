@@ -70,12 +70,31 @@ credential-redacted configuration state and bounded `SELECT` health checks for
 the normal source surfaces; it never connects to Core, writes source data, or
 starts a pipeline.
 
-Routine menu profile selection uses a bounded candidate-window viability probe,
-not the full cohort aggregate/count diagnostic. A positive result proves that
-the selected window contains a family satisfying the configured support floor;
-an exhausted window or statement timeout is reported as inconclusive rather
-than as an empty cohort. `get_type_cohort_gate_stats()` remains the explicit,
-potentially expensive diagnostic path for exact counts and marginal exclusions.
+Routine menu profile selection uses a bounded viability probe, not the full
+cohort aggregate/count diagnostic:
+
+- Census profiles that admit unmapped families (`require_mapped_family: false`
+  without type/family/quality filters) use a catalog + hash-registry
+  `LIMIT 1` existence probe.
+- Mapped/typed profiles use a **filtered** authority candidate window: an
+  unfiltered `LIMIT` on the authority view (cheap on MariaDB), Python-side
+  type/family/active filters, then catalog + hash-registry + time checks.  If
+  the first window has no matching typed rows, the probe falls back to a
+  catalog-seeded authority point lookup (`sample_id IN (...)`) so typed profiles
+  are not false-negatived by an unlucky early authority sample.
+
+A positive result proves at least one eligible row (or one family meeting the
+configured support floor inside the filtered window). A statement timeout or an
+exhausted filtered window after catalog/time filtering is reported as
+inconclusive rather than as an empty cohort when authority candidates existed.
+An authority filter that returns no candidates is reported as an empty gated
+cohort. `get_type_cohort_gate_stats()` remains the explicit, potentially
+expensive diagnostic path for exact counts and marginal exclusions.
+
+Menu "Current Android Catalog Coverage" is ungated inventory
+(`android_platform` readiness). Governed runs also apply the reproducibility
+time window, hash-registry join, and profile cohort gates; those counts are
+often smaller than the inventory headline.
 
 ## Static read/write boundary inventory
 

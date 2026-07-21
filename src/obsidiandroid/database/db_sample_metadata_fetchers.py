@@ -10,10 +10,10 @@ Row-count terminology for operators and manifests is centralized in
 
 from __future__ import annotations
 
+from collections import Counter
 from hashlib import sha256
 from time import perf_counter
 from typing import Any
-from collections import Counter
 
 from mysql.connector import Error as MySQLError
 
@@ -383,14 +383,95 @@ def probe_profile_cohort_viability(
 
     MariaDB's statement timeout applies only to this existence query.  It does
     not alter server configuration or session state, and a timeout is reported
-    as an inconclusive preflight rather than an empty cohort.
+    as inconclusive rather than as an empty cohort.
+
+    Census profiles that admit unmapped rows use a catalog+hash existence probe.
+    Mapped/typed profiles use a filtered authority candidate window (type/family
+    predicates pushed into SQL before ``LIMIT``) plus a catalog/hash/time check.
     """
-    # A direct grouped query against the authority view can still force a full
-    # view materialization before MariaDB applies LIMIT.  First inspect a small
-    # authority window, then test those concrete sample ids against the catalog
-    # and hash registry.  A positive result is exact (three observed members
-    # prove support >= 3); an exhausted window is explicitly inconclusive.
     return _probe_profile_cohort_viability_windowed(timeout_seconds=timeout_seconds, **kwargs)
+
+
+def _probe_profile_cohort_viability_unmapped_catalog(
+    *,
+    timeout_seconds: float,
+    **kwargs: Any,
+) -> dict[str, object]:
+    """Prove at least one catalog row for profiles that admit unmapped families.
+
+    The authority view only contains resolved family assignments, so census
+    profiles with ``require_mapped_family=False`` cannot use that surface.  A
+    bounded catalog+hash existence probe matches the samples-stage gates that
+    do not require a mapped family.
+    """
+    fingerprint_source = "profile-viability-unmapped-catalog-v1|" + repr(sorted(kwargs.items()))
+    fingerprint = sha256(fingerprint_source.encode("utf-8")).hexdigest()
+    started = perf_counter()
+    if bool(kwargs.get("exclude_weak_label_kinds", False)) or bool(
+        kwargs.get("exclude_family_label_conflicts", False)
+    ):
+        # Quality gates need catalog label columns; callers should route those
+        # profiles through the predicate-exists path instead.
+        return _viability_result(
+            False,
+            "inconclusive_quality_gate",
+            fingerprint,
+            started,
+            timed_out=False,
+            probe_kind="unmapped_catalog",
+        )
+    predicates = ["y.platform = 'android'", "y.file_extension = 'apk'"]
+    params: list[Any] = []
+    if bool(kwargs.get("require_effective_first_seen", True)):
+        predicates.append("COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) IS NOT NULL")
+    if kwargs.get("effective_time_start_utc"):
+        predicates.append("COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) >= %s")
+        params.append(kwargs["effective_time_start_utc"])
+    if kwargs.get("effective_time_end_utc"):
+        predicates.append("COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) < %s")
+        params.append(kwargs["effective_time_end_utc"])
+    if bool(kwargs.get("require_sha256", True)):
+        predicates.extend(["y.sha256 IS NOT NULL", "LENGTH(TRIM(y.sha256)) = 64"])
+    if not bool(kwargs.get("allow_missing_package_name", True)):
+        predicates.append("COALESCE(TRIM(y.android_package_name), '') <> ''")
+    hash_join = (
+        "JOIN malware_artifact_hash_registry AS x ON x.sha256 = y.sha256"
+        if bool(kwargs.get("require_sha256", True))
+        else ""
+    )
+    catalog_sql = (
+        f"SELECT 1 FROM malware_sample_catalog AS y {hash_join} "
+        f"WHERE {' AND '.join(predicates)} LIMIT 1"
+    )
+    try:
+        _cols, rows = db_engine.execute_query(
+            "SET STATEMENT max_statement_time = %s FOR " + catalog_sql,
+            params=(max(0.1, float(timeout_seconds)), *params),
+            fetch=True,
+            return_columns=True,
+        )
+    except MySQLError as exc:
+        message = str(exc).lower()
+        timed_out = int(getattr(exc, "errno", 0) or 0) in {1969, 3024} or "max_statement_time" in message
+        if timed_out:
+            return _viability_result(
+                False,
+                "query_timeout",
+                fingerprint,
+                started,
+                timed_out=True,
+                probe_kind="unmapped_catalog",
+            )
+        raise
+    found = bool(rows)
+    return _viability_result(
+        found,
+        "eligible_sample_found" if found else "empty_catalog_cohort",
+        fingerprint,
+        started,
+        timed_out=False,
+        probe_kind="unmapped_catalog",
+    )
 
 
 def _probe_profile_cohort_viability_windowed(*, timeout_seconds: float, **kwargs: Any) -> dict[str, object]:
@@ -399,21 +480,39 @@ def _probe_profile_cohort_viability_windowed(*, timeout_seconds: float, **kwargs
     require_mapped = bool(kwargs.get("require_mapped_family", True))
     require_active_type = bool(kwargs.get("require_active_type_slug", False))
     exclude_unknown = bool(kwargs.get("exclude_unknown_type_slug", False))
-    include_families = {str(v).strip().lower() for v in (kwargs.get("include_family_canonical") or ()) if str(v).strip()}
-    exclude_families = {str(v).strip().lower() for v in (kwargs.get("exclude_family_canonical") or ()) if str(v).strip()}
+    include_families = {
+        str(v).strip().lower()
+        for v in (kwargs.get("include_family_canonical") or ())
+        if str(v).strip()
+    }
+    exclude_families = {
+        str(v).strip().lower()
+        for v in (kwargs.get("exclude_family_canonical") or ())
+        if str(v).strip()
+    }
     exclude_ids = {int(v) for v in (kwargs.get("exclude_family_ids") or ()) if str(v).strip()}
-    fingerprint_source = "profile-viability-windowed-v1|" + repr(sorted(kwargs.items()))
+    fingerprint_source = "profile-viability-filtered-window-v4|" + repr(sorted(kwargs.items()))
     fingerprint = sha256(fingerprint_source.encode("utf-8")).hexdigest()
     started = perf_counter()
-    # Keep this intentionally small: the authority surface is a view and the
-    # menu needs a fast positive proof, not a census.  A too-small window is
-    # reported as inconclusive rather than as an empty cohort.
-    candidate_limit = 64
-    # The authority surface contains resolved family assignments.  It cannot
-    # prove viability for profiles that intentionally admit unresolved rows.
-    if not require_mapped:
-        return _viability_result(False, "inconclusive_authority_surface", fingerprint, started, timed_out=False)
-    authority_sql = f"""
+    quality_gates = bool(kwargs.get("exclude_weak_label_kinds", False)) or bool(
+        kwargs.get("exclude_family_label_conflicts", False)
+    )
+    if not require_mapped and not quality_gates and not (
+        type_slug or include_families or exclude_families or exclude_ids or require_active_type or exclude_unknown
+    ):
+        return _probe_profile_cohort_viability_unmapped_catalog(
+            timeout_seconds=timeout_seconds,
+            **kwargs,
+        )
+
+    # Unfiltered LIMIT on the authority view is cheap on MariaDB; pushing type
+    # predicates into that same query before LIMIT can force a full view scan
+    # and hit max_statement_time.  Take a larger unfiltered window, filter in
+    # Python, then fall back to a catalog-seeded authority point lookup.
+    candidate_limit = 256
+    if min_support is not None:
+        candidate_limit = max(candidate_limit, int(min_support) * 32)
+    authority_sql = """
         SELECT a.sample_id, a.family_id, a.family_name, a.type_id, a.type_slug,
                COALESCE(t.is_active, 0) AS type_is_active
         FROM v_android_sample_family_type_authority AS a
@@ -427,73 +526,297 @@ def _probe_profile_cohort_viability_windowed(*, timeout_seconds: float, **kwargs
             fetch=True,
             return_columns=True,
         )
-        candidates = {
-            int(row[0]): {
-                "family_id": int(row[1]),
-                "family_name": str(row[2] or "").strip().lower(),
-                "type_id": row[3],
-                "type_slug": str(row[4] or "").strip().lower(),
-                "type_is_active": bool(row[5]),
-            }
-            for row in authority_rows
-            if row and row[0] is not None and row[1] is not None
-        }
-        candidates = {
-            sample_id: value
-            for sample_id, value in candidates.items()
-            if value["family_id"] not in exclude_ids
-            and (not include_families or value["family_name"] in include_families)
-            and value["family_name"] not in exclude_families
-            and (not type_slug or value["type_slug"] == str(type_slug).strip().lower())
-            and (not exclude_unknown or value["type_slug"] not in {"", "unknown"})
-            and (not require_active_type or value["type_is_active"])
-        }
+        candidates = _filter_authority_candidates(
+            authority_rows,
+            type_slug=type_slug,
+            require_active_type=require_active_type,
+            exclude_unknown=exclude_unknown,
+            include_families=include_families,
+            exclude_families=exclude_families,
+            exclude_ids=exclude_ids,
+        )
         if not candidates:
-            return _viability_result(False, "inconclusive_candidate_window", fingerprint, started, timed_out=False)
+            candidates = _catalog_seeded_authority_candidates(
+                timeout_seconds=timeout_seconds,
+                candidate_limit=candidate_limit,
+                type_slug=type_slug,
+                require_active_type=require_active_type,
+                exclude_unknown=exclude_unknown,
+                include_families=include_families,
+                exclude_families=exclude_families,
+                exclude_ids=exclude_ids,
+                require_sha256=bool(kwargs.get("require_sha256", True)),
+                allow_missing_package_name=bool(kwargs.get("allow_missing_package_name", True)),
+                require_effective_first_seen=bool(kwargs.get("require_effective_first_seen", True)),
+                effective_time_start_utc=kwargs.get("effective_time_start_utc"),
+                effective_time_end_utc=kwargs.get("effective_time_end_utc"),
+            )
+            if not candidates:
+                return _viability_result(
+                    False,
+                    "empty_gated_cohort",
+                    fingerprint,
+                    started,
+                    timed_out=False,
+                    probe_kind="filtered_candidate_window",
+                )
+            return _viability_from_family_support(
+                candidates,
+                min_support=min_support,
+                fingerprint=fingerprint,
+                started=started,
+                already_catalog_qualified=True,
+                kwargs=kwargs,
+            )
+        return _viability_from_family_support(
+            candidates,
+            min_support=min_support,
+            fingerprint=fingerprint,
+            started=started,
+            already_catalog_qualified=False,
+            kwargs=kwargs,
+            timeout_seconds=timeout_seconds,
+        )
+    except MySQLError as exc:
+        message = str(exc).lower()
+        timed_out = int(getattr(exc, "errno", 0) or 0) in {1969, 3024} or "max_statement_time" in message
+        if timed_out:
+            return _viability_result(
+                False,
+                "query_timeout",
+                fingerprint,
+                started,
+                timed_out=True,
+                probe_kind="filtered_candidate_window",
+            )
+        raise
+
+
+def _filter_authority_candidates(
+    authority_rows: list[tuple[Any, ...]] | tuple[Any, ...],
+    *,
+    type_slug: Any,
+    require_active_type: bool,
+    exclude_unknown: bool,
+    include_families: set[str],
+    exclude_families: set[str],
+    exclude_ids: set[int],
+) -> dict[int, dict[str, object]]:
+    candidates = {
+        int(row[0]): {
+            "family_id": int(row[1]),
+            "family_name": str(row[2] or "").strip().lower(),
+            "type_id": row[3],
+            "type_slug": str(row[4] or "").strip().lower(),
+            "type_is_active": bool(row[5]),
+        }
+        for row in authority_rows
+        if row and row[0] is not None and row[1] is not None
+    }
+    return {
+        sample_id: value
+        for sample_id, value in candidates.items()
+        if value["family_id"] not in exclude_ids
+        and (not include_families or value["family_name"] in include_families)
+        and value["family_name"] not in exclude_families
+        and (not type_slug or value["type_slug"] == str(type_slug).strip().lower())
+        and (not exclude_unknown or value["type_slug"] not in {"", "unknown"})
+        and (not require_active_type or value["type_is_active"])
+    }
+
+
+def _catalog_seeded_authority_candidates(
+    *,
+    timeout_seconds: float,
+    candidate_limit: int,
+    type_slug: Any,
+    require_active_type: bool,
+    exclude_unknown: bool,
+    include_families: set[str],
+    exclude_families: set[str],
+    exclude_ids: set[int],
+    require_sha256: bool,
+    allow_missing_package_name: bool,
+    require_effective_first_seen: bool,
+    effective_time_start_utc: Any,
+    effective_time_end_utc: Any,
+) -> dict[int, dict[str, object]]:
+    """Point-lookup authority rows for catalog samples that already pass time/hash gates."""
+    predicates = ["y.platform = 'android'", "y.file_extension = 'apk'"]
+    params: list[Any] = []
+    if require_effective_first_seen:
+        predicates.append("COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) IS NOT NULL")
+    if effective_time_start_utc:
+        predicates.append("COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) >= %s")
+        params.append(effective_time_start_utc)
+    if effective_time_end_utc:
+        predicates.append("COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) < %s")
+        params.append(effective_time_end_utc)
+    if require_sha256:
+        predicates.extend(["y.sha256 IS NOT NULL", "LENGTH(TRIM(y.sha256)) = 64"])
+    if not allow_missing_package_name:
+        predicates.append("COALESCE(TRIM(y.android_package_name), '') <> ''")
+    hash_join = "JOIN malware_artifact_hash_registry AS x ON x.sha256 = y.sha256" if require_sha256 else ""
+    seed_sql = (
+        f"SELECT y.sample_id FROM malware_sample_catalog AS y {hash_join} "
+        f"WHERE {' AND '.join(predicates)} LIMIT %s"
+    )
+    _cols, seed_rows = db_engine.execute_query(
+        "SET STATEMENT max_statement_time = %s FOR " + seed_sql,
+        params=(max(0.1, float(timeout_seconds)), *params, candidate_limit),
+        fetch=True,
+        return_columns=True,
+    )
+    sample_ids = tuple(int(row[0]) for row in seed_rows if row and row[0] is not None)
+    if not sample_ids:
+        return {}
+    placeholders = ", ".join(["%s"] * len(sample_ids))
+    authority_sql = f"""
+        SELECT a.sample_id, a.family_id, a.family_name, a.type_id, a.type_slug,
+               COALESCE(t.is_active, 0) AS type_is_active
+        FROM v_android_sample_family_type_authority AS a
+        LEFT JOIN android_malware_type AS t ON t.type_id = a.type_id
+        WHERE a.sample_id IN ({placeholders})
+    """
+    _cols, authority_rows = db_engine.execute_query(
+        "SET STATEMENT max_statement_time = %s FOR " + authority_sql,
+        params=(max(0.1, float(timeout_seconds)), *sample_ids),
+        fetch=True,
+        return_columns=True,
+    )
+    return _filter_authority_candidates(
+        authority_rows,
+        type_slug=type_slug,
+        require_active_type=require_active_type,
+        exclude_unknown=exclude_unknown,
+        include_families=include_families,
+        exclude_families=exclude_families,
+        exclude_ids=exclude_ids,
+    )
+
+
+def _viability_from_family_support(
+    candidates: dict[int, dict[str, object]],
+    *,
+    min_support: Any,
+    fingerprint: str,
+    started: float,
+    already_catalog_qualified: bool,
+    kwargs: dict[str, Any],
+    timeout_seconds: float = 15.0,
+) -> dict[str, object]:
+    surviving = candidates
+    if not already_catalog_qualified:
         sample_ids = tuple(candidates)
-        catalog_predicates = ["y.platform = 'android'", "y.file_extension = 'apk'", "y.sample_id IN (" + ", ".join(["%s"] * len(sample_ids)) + ")"]
+        catalog_predicates = [
+            "y.platform = 'android'",
+            "y.file_extension = 'apk'",
+            "y.sample_id IN (" + ", ".join(["%s"] * len(sample_ids)) + ")",
+        ]
         catalog_params: list[Any] = list(sample_ids)
         if bool(kwargs.get("require_effective_first_seen", True)):
-            catalog_predicates.append("COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) IS NOT NULL")
+            catalog_predicates.append(
+                "COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) IS NOT NULL"
+            )
         if kwargs.get("effective_time_start_utc"):
-            catalog_predicates.append("COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) >= %s")
+            catalog_predicates.append(
+                "COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) >= %s"
+            )
             catalog_params.append(kwargs["effective_time_start_utc"])
         if kwargs.get("effective_time_end_utc"):
-            catalog_predicates.append("COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) < %s")
+            catalog_predicates.append(
+                "COALESCE(y.vt_first_seen_itw_date, y.vt_first_submission_at_utc) < %s"
+            )
             catalog_params.append(kwargs["effective_time_end_utc"])
         if bool(kwargs.get("require_sha256", True)):
             catalog_predicates.extend(["y.sha256 IS NOT NULL", "LENGTH(TRIM(y.sha256)) = 64"])
         if not bool(kwargs.get("allow_missing_package_name", True)):
             catalog_predicates.append("COALESCE(TRIM(y.android_package_name), '') <> ''")
-        if bool(kwargs.get("exclude_weak_label_kinds", False)) or bool(kwargs.get("exclude_family_label_conflicts", False)):
-            return _viability_result(False, "inconclusive_quality_gate", fingerprint, started, timed_out=False)
-        hash_join = "JOIN malware_artifact_hash_registry AS x ON x.sha256 = y.sha256" if bool(kwargs.get("require_sha256", True)) else ""
-        catalog_sql = f"SELECT y.sample_id FROM malware_sample_catalog AS y {hash_join} WHERE {' AND '.join(catalog_predicates)}"
+        if bool(kwargs.get("exclude_weak_label_kinds", False)):
+            catalog_predicates.append(
+                """(
+                    COALESCE(LOWER(TRIM(y.sample_label_kind)), '') NOT IN
+                    ('filename', 'hash_like', 'opaque_string', 'unclassified')
+                    OR (
+                        LOWER(TRIM(COALESCE(y.sample_label, ''))) <> ''
+                        AND LOWER(TRIM(COALESCE(y.sample_label, ''))) =
+                            LOWER(TRIM(COALESCE(y.family_label, '')))
+                    )
+                )"""
+            )
+        hash_join = (
+            "JOIN malware_artifact_hash_registry AS x ON x.sha256 = y.sha256"
+            if bool(kwargs.get("require_sha256", True))
+            else ""
+        )
+        catalog_sql = (
+            f"SELECT y.sample_id, y.family_label FROM malware_sample_catalog AS y {hash_join} "
+            f"WHERE {' AND '.join(catalog_predicates)}"
+        )
         _cols, catalog_rows = db_engine.execute_query(
             "SET STATEMENT max_statement_time = %s FOR " + catalog_sql,
             params=(max(0.1, float(timeout_seconds)), *catalog_params),
             fetch=True,
             return_columns=True,
         )
-    except MySQLError as exc:
-        message = str(exc).lower()
-        timed_out = int(getattr(exc, "errno", 0) or 0) in {1969, 3024} or "max_statement_time" in message
-        if timed_out:
-            return _viability_result(False, "query_timeout", fingerprint, started, timed_out=True)
-        raise
-    support = Counter(candidates[int(row[0])]["family_id"] for row in catalog_rows if row and int(row[0]) in candidates)
-    if min_support is None:
-        return _viability_result(bool(support), "eligible_sample_found" if support else "inconclusive_candidate_window", fingerprint, started, timed_out=False)
-    if any(count >= int(min_support) for count in support.values()):
-        return _viability_result(True, "eligible_sample_found", fingerprint, started, timed_out=False)
-    return _viability_result(False, "inconclusive_candidate_window", fingerprint, started, timed_out=False)
+        weak_raw = {"", "unknown", "generic", "unclassified", "unlabeled", "n_a"}
+        weak_canonical = {"", "unknown", "other", "unmapped", "none", "null", "nan", "n_a"}
+        surviving = {}
+        for row in catalog_rows:
+            if not row or row[0] is None:
+                continue
+            sample_id = int(row[0])
+            if sample_id not in candidates:
+                continue
+            if bool(kwargs.get("exclude_family_label_conflicts", False)):
+                raw = str(row[1] or "").strip().lower()
+                canonical = str(candidates[sample_id]["family_name"] or "").strip().lower()
+                if raw not in weak_raw and canonical not in weak_canonical and raw != canonical:
+                    continue
+            surviving[sample_id] = candidates[sample_id]
+    if not surviving:
+        return _viability_result(
+            False,
+            "inconclusive_candidate_window",
+            fingerprint,
+            started,
+            timed_out=False,
+            probe_kind="filtered_candidate_window",
+        )
+    support = Counter(int(value["family_id"]) for value in surviving.values())
+    if min_support is None or any(count >= int(min_support) for count in support.values()):
+        return _viability_result(
+            True,
+            "eligible_sample_found",
+            fingerprint,
+            started,
+            timed_out=False,
+            probe_kind="filtered_candidate_window",
+        )
+    return _viability_result(
+        False,
+        "inconclusive_candidate_window",
+        fingerprint,
+        started,
+        timed_out=False,
+        probe_kind="filtered_candidate_window",
+    )
 
 
-def _viability_result(runnable: bool, reason_code: str, fingerprint: str, started: float, *, timed_out: bool) -> dict[str, object]:
+
+def _viability_result(
+    runnable: bool,
+    reason_code: str,
+    fingerprint: str,
+    started: float,
+    *,
+    timed_out: bool,
+    probe_kind: str = "filtered_candidate_window",
+) -> dict[str, object]:
     return {
         "runnable": runnable,
         "reason_code": reason_code,
-        "probe_kind": "bounded_candidate_window",
+        "probe_kind": probe_kind,
         "query_fingerprint": fingerprint,
         "elapsed_ms": round((perf_counter() - started) * 1000, 3),
         "timed_out": timed_out,
