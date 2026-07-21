@@ -242,8 +242,8 @@ def test_within_cross_lane_pairs_and_unresolved_gate() -> None:
     assert "permission_a_lane" in out.columns
     assert set(out["lane_pair_class"]).issubset({"within_lane", "cross_lane"})
     unresolved = out[
-        (out.permission_a_lane == "aosp_protection_unresolved")
-        | (out.permission_b_lane == "aosp_protection_unresolved")
+        (out.permission_a_lane == "unknown_unresolved")
+        | (out.permission_b_lane == "unknown_unresolved")
     ]
     if not unresolved.empty:
         assert (unresolved.reportability_status == "protection_level_unresolved").all()
@@ -280,7 +280,7 @@ def test_pair_reportability_fdr_and_lane_gates() -> None:
             min_sample_support=30,
             min_family_support=3,
             no_headline_types=frozenset(),
-            lane_a="aosp_protection_unresolved",
+            lane_a="unknown_unresolved",
             lane_b="aosp_dangerous",
             family_balanced_prevalence=0.2,
         )

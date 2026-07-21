@@ -27,7 +27,7 @@ from obsidiandroid.reporting.type_permission_pattern_report import (
 
 MAIN_COMPARISON_COMPOSER_VERSION = "1.0.0"
 MAIN_TYPES = ("banker", "rat", "spyware", "adware")
-FOCUS_LANES = ("aosp_normal", "aosp_dangerous", "oem_or_google")
+FOCUS_LANES = ("aosp_normal", "aosp_dangerous", "oem_platform", "google_platform")
 
 
 def _read(path: Path) -> pd.DataFrame:

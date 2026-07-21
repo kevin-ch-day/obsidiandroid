@@ -179,7 +179,7 @@ def classify_pair_reportability(
 ) -> str:
     """Explicit reportability / suppression class."""
     slug = str(type_slug).strip().lower()
-    unresolved = {"unknown_unresolved", "aosp_protection_unresolved"}
+    unresolved = {"unknown_unresolved"}
     if str(lane_a) in unresolved or str(lane_b) in unresolved:
         return "protection_level_unresolved"
     if str(lane_a) == "app_defined" or str(lane_b) == "app_defined":
@@ -819,7 +819,7 @@ def _render_pairwise_markdown(
     lines.append("- App-defined identity tokens are excluded from the default headline lane.")
     lines.append("- Backdoor/dropper/thin types are labeled exploratory or suppressed, not headline.")
     lines.append(
-        "- `aosp_protection_unresolved` pairs are labeled `protection_level_unresolved` "
+        "- `unknown_unresolved` pairs are labeled `protection_level_unresolved` "
         "(signature/privileged cannot be confirmed offline)."
     )
     lines.append("- Single-family-dominated pairs remain visible with that explicit status.")

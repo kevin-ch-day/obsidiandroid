@@ -220,7 +220,7 @@ def build_type_lane_coverage_matrix(
             distinct = int(lane_group["permission"].nunique()) if not lane_group.empty else 0
             obs_rows = int(len(lane_group))
             positive_sum = int(lane_group["permission_positive_count"].sum()) if not lane_group.empty else 0
-            unresolved_share = 1.0 if lane in {"unknown_unresolved", "aosp_protection_unresolved"} and distinct else 0.0
+            unresolved_share = 1.0 if lane in {"unknown_unresolved", "unknown_unresolved"} and distinct else 0.0
             rows.append(
                 {
                     "type_slug": type_slug,
@@ -233,7 +233,7 @@ def build_type_lane_coverage_matrix(
                     "type_permission_observation_rows": obs_rows,
                     "permission_positive_sum": positive_sum,
                     "unresolved_lane_flag": bool(
-                        lane in {"unknown_unresolved", "aosp_protection_unresolved"}
+                        lane in {"unknown_unresolved", "unknown_unresolved"}
                     ),
                     "unresolved_token_share_within_lane_table": unresolved_share,
                 }
@@ -361,8 +361,8 @@ def build_lane_leader_tables(
     section_map = {
         "normal_permissions": "aosp_normal",
         "dangerous_permissions": "aosp_dangerous",
-        "signature_privileged_descriptive": "aosp_protection_unresolved",
-        "oem_google_permissions": "oem_or_google",
+        "signature_privileged_descriptive": "unknown_unresolved",
+        "oem_google_permissions": "oem_platform",
         "app_defined_permissions": "app_defined",
         "unknown_unresolved_permissions": "unknown_unresolved",
     }

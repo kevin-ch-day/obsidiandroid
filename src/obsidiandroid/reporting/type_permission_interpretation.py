@@ -266,9 +266,9 @@ def _render_interpretation(
             status_allow={"family_balanced_supported", "descriptive_type_enriched"},
         )
         unresolved = _top_lane_rows(
-            lane_table, type_slug=type_slug, lane="aosp_protection_unresolved", n=3
+            lane_table, type_slug=type_slug, lane="unknown_unresolved", n=3
         )
-        oem = _top_lane_rows(lane_table, type_slug=type_slug, lane="oem_or_google", n=3)
+        oem = _top_lane_rows(lane_table, type_slug=type_slug, lane="oem_platform", n=3)
         lines.append(f"1. Common, non-discriminative normals: {_fmt_perm_list(common)}")
         lines.append(
             f"2. Type-enriched normals: {_fmt_perm_list(_top_lane_rows(lane_table, type_slug=type_slug, lane='aosp_normal', status_allow={'family_balanced_supported', 'descriptive_type_enriched'}))}"
