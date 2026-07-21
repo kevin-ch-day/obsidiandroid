@@ -84,7 +84,7 @@ PUBLIC_ROLE_TYPE_EXPECTATION: dict[str, tuple[str, ...]] = {
     "Triada": ("backdoor",),
     "Irata": ("banker", "rat", "spyware"),
     "CarrierBillingFraud": ("subscription-fraud", "banker", "adware"),
-    "Applite": (),  # identity uncertain — no forced expectation
+    "Applite": ("banker",),
     "SpyNote": ("rat",),
     "PixPirate": ("banker", "rat"),
 }
@@ -214,14 +214,16 @@ EXTERNAL_FAMILY_CONTEXT: tuple[dict[str, Any], ...] = (
     },
     {
         "family_slug": "Applite",
-        "external_source": "limited public writeups under this exact slug",
-        "source_date": "n/a",
-        "source_type": "identity_note",
-        "reported_campaign_sample_period": "n/a",
-        "reported_capabilities": "Unclear under exact slug",
-        "reported_delivery_mechanism": "Unknown",
-        "reported_geography": "Unknown",
-        "evidence_independence": "IDENTITY_UNCERTAIN",
+        "external_source": "limited public writeups under this exact slug; local authority curated",
+        "source_date": "2024-12",
+        "source_type": "local_authority_plus_sparse_external",
+        "reported_campaign_sample_period": "2024-2026 (local authority)",
+        "reported_capabilities": "Local authority: banking trojan with accessibility/overlay/SMS themes",
+        "reported_delivery_mechanism": "Mobile phishing / recruiter-themed lures (local notes)",
+        "reported_geography": "Not fixed in paraphrase",
+        "evidence_independence": "EXTERNAL_REPORTED",
+        "local_authority_status": "governed_curated",
+        "external_context_status": "sparse_or_thin",
     },
     {
         "family_slug": "SpyNote",
@@ -709,7 +711,19 @@ def build_external_context_matrix(
         first_y, last_y = year_by_family.get(family, ("", ""))
         local_n = int(local_counts.get(family, 0))
         independence = str(ext.get("evidence_independence") or "EXTERNAL_REPORTED")
-        if independence == "IDENTITY_UNCERTAIN":
+        local_auth = str(ext.get("local_authority_status") or "")
+        external_ctx = str(ext.get("external_context_status") or "")
+        if local_auth == "governed_curated" and external_ctx == "sparse_or_thin":
+            validation = "LOCALLY_SUPPORTED"
+            hypothesis = (
+                f"{family}: local authority is governed/curated; external public context is sparse/thin"
+            )
+            limitations = (
+                "Do not collapse dual status into IDENTITY_UNCERTAIN; "
+                "local_authority_status=governed_curated; external_context_status=sparse_or_thin"
+            )
+            independence = "EXTERNAL_REPORTED"
+        elif independence == "IDENTITY_UNCERTAIN":
             validation = "IDENTITY_UNCERTAIN"
             hypothesis = "Public identity under this exact slug is unclear; treat local labels as corpus-specific"
             limitations = "Do not import external role claims; identity uncertain"
@@ -740,6 +754,8 @@ def build_external_context_matrix(
                 "reported_geography": ext["reported_geography"],
                 "local_temporal_overlap": temporal,
                 "evidence_independence": independence,
+                "local_authority_status": local_auth or "",
+                "external_context_status": external_ctx or "",
                 "local_testable_hypothesis": hypothesis,
                 "local_validation_status": validation,
                 "limitations": limitations,
@@ -784,7 +800,13 @@ def build_family_type_assignment_audit(
         )
         expected = PUBLIC_ROLE_TYPE_EXPECTATION.get(family, ())
         primary = types[0] if types else ""
-        if family == "Applite" or not expected:
+        if family == "Applite":
+            agree = "LOCALLY_SUPPORTED"
+            disagreement = (
+                "none; local_authority_status=governed_curated; "
+                "external_context_status=sparse_or_thin"
+            )
+        elif not expected:
             agree = "IDENTITY_UNCERTAIN"
             disagreement = "IDENTITY_UNCERTAIN"
         elif not types:

@@ -167,7 +167,7 @@ def test_evidence_states_are_complete() -> None:
     assert "NOT_TESTABLE_STATICALLY" in EVIDENCE_STATES
 
 
-def test_identity_uncertain_family_in_external_matrix() -> None:
+def test_applite_dual_status_in_external_matrix() -> None:
     snap = _mini_snapshot()
     inv = pd.DataFrame(
         [
@@ -180,8 +180,13 @@ def test_identity_uncertain_family_in_external_matrix() -> None:
     )
     matrix = build_external_context_matrix(snapshot=snap, inventory=inv)
     applite = matrix[matrix.family_slug == "Applite"].iloc[0]
-    assert applite.evidence_independence == "IDENTITY_UNCERTAIN"
-    assert applite.local_validation_status == "IDENTITY_UNCERTAIN"
+    assert applite.local_authority_status == "governed_curated"
+    assert applite.external_context_status == "sparse_or_thin"
+    assert applite.local_validation_status == "LOCALLY_SUPPORTED"
+    assert applite.evidence_independence == "EXTERNAL_REPORTED"
+    assert "IDENTITY_UNCERTAIN" not in str(applite.limitations) or "Do not collapse" in str(
+        applite.limitations
+    )
 
 
 def test_multi_type_family_handling() -> None:
@@ -195,7 +200,9 @@ def test_multi_type_family_handling() -> None:
     clay = audit[audit.family_canonical == "ClayRat"].iloc[0]
     assert clay.public_role_agreement_status == "LOCALLY_SUPPORTED"
     app = audit[audit.family_canonical == "Applite"].iloc[0]
-    assert app.public_role_agreement_status == "IDENTITY_UNCERTAIN"
+    assert app.public_role_agreement_status == "LOCALLY_SUPPORTED"
+    assert "governed_curated" in str(app.disagreement_status)
+    assert "sparse_or_thin" in str(app.disagreement_status)
 
 
 
