@@ -34,6 +34,7 @@ The canonical implementations are **here**. Import them as **`scripts.diagnostic
 | [`report_backlog_debt_operator_summary.py`](report_backlog_debt_operator_summary.py) | Consolidated live backlog/debt operator summary (JSON + Markdown) |
 | [`report_vendor_verdict_debt.py`](report_vendor_verdict_debt.py) | Read-only vendor-verdict debt report that buckets malicious labels into family-ready, overlap, generic-signal, and provenance-noise classes and exports vendor/token/sample pressure CSVs |
 | [`report_zimperium_ioc_repo_coverage.py`](report_zimperium_ioc_repo_coverage.py) | Optional external IOC inventory (`research/external_iocs/Zimperium-IOC/`); exits cleanly with empty exports when the tree is absent |
+| [`generate_type_permission_pattern_report.py`](generate_type_permission_pattern_report.py) | Read-only malware-type permission-pattern report from an existing run's `permission_trends` tables (complete type accounting, provisional/final status, prevalence, lift, family balance, banker/dropper); does not query production. Contract: [`docs/TYPE_PERMISSION_PATTERN_REPORT.md`](../../docs/TYPE_PERMISSION_PATTERN_REPORT.md) |
 
 The optional Zimperium IOC source is pinned as a Git submodule. Materialize it
 only when running its coverage diagnostic:
