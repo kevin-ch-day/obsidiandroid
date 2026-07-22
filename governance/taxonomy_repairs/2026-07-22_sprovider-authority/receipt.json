@@ -1,0 +1,82 @@
+{
+  "repair_id": "2026-07-22_sprovider-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation_with_type_repair",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Cursor Auto taxonomy curation",
+  "applied_at_utc": "2026-07-22T04:14:15Z",
+  "receipt_created_at_utc": "2026-07-22T04:14:15Z",
+  "source_commit_at_application": "4d8bce89c8cc062bcf0afc22f445399a444f6a92",
+  "source_commit_at_receipt_creation": "4d8bce89c8cc062bcf0afc22f445399a444f6a92",
+  "affected_family_ids": [
+    284
+  ],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 8,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 8,
+    "primary_type_slug": "unknown",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 8,
+    "distinct_mapped_samples": 8,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Replace placeholder Unknown with Adware and reactivate the existing evidence-backed Android Sprovider family record without creating a duplicate identity or changing mappings.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_research",
+      "name": "Dr.Web Android.Sprovider.7",
+      "url": "https://vms.drweb.com/virus/?i=9013116"
+    },
+    {
+      "kind": "vendor_research",
+      "name": "Doctor Web firmware Trojan discovery (Sprovider)",
+      "url": "https://news.drweb.com/show/?i=10345&lng=en"
+    },
+    {
+      "kind": "android_malware_research",
+      "name": "CIC AndMal2020 adware family listing (Sprovider)",
+      "url": "https://www.unb.ca/cic/datasets/andmal2020.html"
+    }
+  ],
+  "before_sql_hash": "d70dc58d4f0e2e1ed975276f6facd724e57f4e8aaae1c6f0f67da39947225b95",
+  "applied_sql_hash": "aff6435f77650909e568b61e634b73bb9339b18773389abb06ed75ffee53e623",
+  "validation_sql_hash": "22e39df22d95d7c17115c2f856d9dad38e17f0b484cd5351c03bd3588fdab85a",
+  "rollback_sql_hash": "db6b0c351973bf1d9ea0f0510b24171de66b8c39bf12feae6715e96bcebeb6c4",
+  "evidence_hash": "1aa3738505bf8391e7ac9f718436591ea56fe60401853da0a7ac432d342f2b70",
+  "post_change_validation": {
+    "family_284_status": "active",
+    "family_284_is_active": 1,
+    "family_284_primary_type_id": 3,
+    "family_284_primary_type_slug": "adware",
+    "catalog_mapped_sample_count": 8,
+    "authority_family_284_sample_count": 8,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "Contemporaneous DB state and independent research support the narrow authority repair. They do not prove every mapped-sample behavior or create a frozen benchmark artifact."
+}

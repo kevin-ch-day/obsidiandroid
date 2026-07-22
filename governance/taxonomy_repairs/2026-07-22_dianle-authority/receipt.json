@@ -1,0 +1,77 @@
+{
+  "repair_id": "2026-07-22_dianle-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation_with_type_repair",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Cursor Auto taxonomy curation",
+  "applied_at_utc": "2026-07-22T04:14:15Z",
+  "receipt_created_at_utc": "2026-07-22T04:14:15Z",
+  "source_commit_at_application": "4d8bce89c8cc062bcf0afc22f445399a444f6a92",
+  "source_commit_at_receipt_creation": "4d8bce89c8cc062bcf0afc22f445399a444f6a92",
+  "affected_family_ids": [
+    287
+  ],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 7,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 8,
+    "primary_type_slug": "unknown",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 7,
+    "distinct_mapped_samples": 7,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Replace placeholder Unknown with Adware and reactivate the existing evidence-backed Android Dianle family record without creating a duplicate identity or changing mappings.",
+  "evidence_sources": [
+    {
+      "kind": "android_malware_research",
+      "name": "CIC AndMal2020 adware family listing (Dianle)",
+      "url": "https://www.unb.ca/cic/datasets/andmal2020.html"
+    },
+    {
+      "kind": "android_malware_research",
+      "name": "Understanding Android Malware Families: Adware and Backdoor (Dianle adware activities)",
+      "url": "https://docslib.org/doc/6753271/understanding-android-malware-families-adware-and-backdoor-articl"
+    }
+  ],
+  "before_sql_hash": "41be9b67510c56c5378569a6054b5140e681185c9b48bbdc86b2d284a48ce413",
+  "applied_sql_hash": "ba79f1ad2dd0f402649f25dcbc0d79d2abb5a04914f28541d27e8486d480f7f4",
+  "validation_sql_hash": "5d7cc0a9ab4c8cb0e0403a2299e18b4c238761f7cb1adc3f8d7bf562cfc5a2f0",
+  "rollback_sql_hash": "9bf295bcbb9a20b70b59031adb96445cb82d3467f8949096eb3ceed3ba176ce2",
+  "evidence_hash": "3253e630b2659a3fcfaf6850402a23c3f58385a5f43ab3818787de1b98ec674e",
+  "post_change_validation": {
+    "family_287_status": "active",
+    "family_287_is_active": 1,
+    "family_287_primary_type_id": 3,
+    "family_287_primary_type_slug": "adware",
+    "catalog_mapped_sample_count": 7,
+    "authority_family_287_sample_count": 7,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "Contemporaneous DB state and independent research support the narrow authority repair. They do not prove every mapped-sample behavior or create a frozen benchmark artifact."
+}

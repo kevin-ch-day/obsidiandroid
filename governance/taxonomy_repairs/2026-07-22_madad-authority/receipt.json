@@ -1,0 +1,72 @@
+{
+  "repair_id": "2026-07-22_madad-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Cursor Auto taxonomy curation",
+  "applied_at_utc": "2026-07-22T04:14:15Z",
+  "receipt_created_at_utc": "2026-07-22T04:14:15Z",
+  "source_commit_at_application": "4d8bce89c8cc062bcf0afc22f445399a444f6a92",
+  "source_commit_at_receipt_creation": "4d8bce89c8cc062bcf0afc22f445399a444f6a92",
+  "affected_family_ids": [
+    289
+  ],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 7,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 3,
+    "primary_type_slug": "adware",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 7,
+    "distinct_mapped_samples": 7,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Reactivate the existing evidence-backed Android MadAd/Madad family record using its existing Adware type without creating a duplicate identity or changing mappings.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_research",
+      "name": "Microsoft Adware:AndroidOS/MadAd!MTB",
+      "url": "https://www.microsoft.com/en-us/wdsi/threats/malware-encyclopedia-description?Name=Adware%3AAndroidOS%2FMadAd%21MTB"
+    }
+  ],
+  "before_sql_hash": "e58e3c930a546f610cf6c88dad3fcac16e9650fec557e62f44508cfaa216dd40",
+  "applied_sql_hash": "7eca8c72bc8221d4f613b382f245df9c699b62e51e0f5bf4d583a94c6332b92d",
+  "validation_sql_hash": "4cd80f556790545bc2ac773a323673c2ff83158a2563357e193a49b23551fc63",
+  "rollback_sql_hash": "18e793ad54de08ad4aae68937b6cef1d7f0ffcb1a4b55c0205f5a05a6e3b625d",
+  "evidence_hash": "db181dc86ba884f27538d44c6083feda34117e9a16cec4968ca5ee766a2399d7",
+  "post_change_validation": {
+    "family_289_status": "active",
+    "family_289_is_active": 1,
+    "family_289_primary_type_id": 3,
+    "family_289_primary_type_slug": "adware",
+    "catalog_mapped_sample_count": 7,
+    "authority_family_289_sample_count": 7,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "Contemporaneous DB state and independent research support the narrow authority repair. They do not prove every mapped-sample behavior or create a frozen benchmark artifact."
+}
