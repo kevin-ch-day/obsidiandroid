@@ -727,7 +727,7 @@ def compose_package_balanced_permission_analysis(
     type_prev = pd.read_csv(tables / f"permission_prevalence_by_type_{run_id}.csv")
     fam_prev = pd.read_csv(tables / f"permission_prevalence_by_family_{run_id}.csv")
     enrichment_path = diag / "permission_authority_enrichment" / "permission_authority_enrichment.csv"
-    lane_lookup = enrichment_lane_lookup(pd.read_csv(enrichment_path)) if enrichment_path.is_file() else {}
+    lane_lookup = enrichment_lane_lookup(optional_csv(enrichment_path)) if enrichment_path.is_file() else {}
     permissions = set(type_prev["permission"].astype(str).str.lower()) | set(
         fam_prev.loc[fam_prev["family_canonical"].isin(DEEP_DIVE_FAMILIES), "permission"].astype(str).str.lower())
     membership = assign_package_keys(labels)

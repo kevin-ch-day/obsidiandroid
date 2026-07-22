@@ -17,6 +17,7 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
+from obsidiandroid.common.csv_io import optional_csv, write_csv
 from obsidiandroid.reporting.permission_governance_lanes import (
     DEFAULT_THRESHOLDS,
     PROTECTION_LANE_CONTRACT_VERSION,
@@ -34,6 +35,50 @@ from obsidiandroid.reporting.type_permission_pattern_report import (
 
 PAIRWISE_COMPOSER_VERSION = "1.2.0"
 PAIRWISE_SCHEMA_VERSION = "type_permission_pairwise_v3"
+
+# Keep in sync with type_permission_protection.PAIRWISE_PROTECTION_EMPTY_COLUMNS.
+PAIRWISE_ALL_EMPTY_COLUMNS = (
+    "type_slug",
+    "permission_a",
+    "permission_b",
+    "vocab_lane_a",
+    "vocab_lane_b",
+    "protection_bucket_a",
+    "protection_bucket_b",
+    "permission_a_lane",
+    "permission_b_lane",
+    "lane_pair_class",
+    "lane_pair_ordered",
+    "type_sample_count",
+    "positive_sample_count",
+    "both_permission_sample_support",
+    "sample_weighted_prevalence",
+    "sample_weighted_prevalence_pct",
+    "permission_a_count",
+    "permission_b_count",
+    "jaccard",
+    "lift_vs_independence",
+    "odds_ratio_type_vs_rest",
+    "p_value_raw",
+    "prevalence_ci_low",
+    "prevalence_ci_high",
+    "families_used",
+    "families_with_pair",
+    "supporting_family_count",
+    "family_balanced_prevalence",
+    "family_balanced_prevalence_pct",
+    "median_family_prevalence_pct",
+    "largest_family_canonical",
+    "largest_family_positive_count",
+    "largest_family_share_of_positives",
+    "largest_family_contribution",
+    "rest_positive_count",
+    "rest_sample_count",
+    "q_value_fdr",
+    "reportability_status",
+    "suppression_reason",
+    "headline_strength",
+)
 
 HEADLINE_VOCAB_LANES = frozenset({"AOSP", "OEM", "GOOGLE"})
 UNKNOWN_LANE = "UNKNOWN"
@@ -233,7 +278,7 @@ def compute_type_pairwise_table(
     no_headline = no_headline_types or DEFAULT_NO_HEADLINE_TYPES
     n_perm = len(permission_names)
     if n_perm < 2:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=list(PAIRWISE_ALL_EMPTY_COLUMNS))
 
     meta = vocab_meta.set_index("permission_string")
     lanes = [
@@ -366,7 +411,7 @@ def compute_type_pairwise_table(
             )
 
     if not rows:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=list(PAIRWISE_ALL_EMPTY_COLUMNS))
 
     frame = pd.DataFrame(rows)
     q_map: dict[Any, float] = {}
@@ -592,13 +637,32 @@ def compose_type_permission_pairwise_report(
     output_hashes: dict[str, str] = {}
     for name, frame in derived.items():
         path = out_dir / f"{name}_{run_id}.csv"
-        frame.to_csv(path, index=False)
-        frame.to_csv(out_dir / f"{name}.latest.csv", index=False)
+        if name in {
+            "pairwise_all",
+            "pairwise_headline",
+            "pairwise_headline_strong",
+            "pairwise_headline_moderate",
+            "pairwise_within_lane",
+            "pairwise_cross_lane",
+        }:
+            empty_cols: tuple[str, ...] | None = PAIRWISE_ALL_EMPTY_COLUMNS
+        elif name == "pairwise_lane_pair_summary":
+            empty_cols = ("lane_pair_class", "lane_pair_ordered", "reportability_status", "pair_count")
+        elif name == "pairwise_headline_strength_summary":
+            empty_cols = ("headline_strength", "pair_count")
+        elif name == "pairwise_suppression_summary":
+            empty_cols = ("reportability_status", "pair_count")
+        elif name == "pairwise_unknown_token_inventory":
+            empty_cols = ("permission_string", "feature_column", "global_support")
+        else:
+            empty_cols = tuple(str(c) for c in frame.columns) if len(frame.columns) else None
+        write_csv(path, frame, empty_columns=empty_cols)
+        write_csv(out_dir / f"{name}.latest.csv", frame, empty_columns=empty_cols)
         output_hashes[path.name] = sha256_file(path)
 
     coverage_row: dict[str, Any] = {}
     if "coverage" in paths:
-        cov = pd.read_csv(paths["coverage"])
+        cov = optional_csv(paths["coverage"])
         if not cov.empty:
             coverage_row = cov.iloc[0].to_dict()
 

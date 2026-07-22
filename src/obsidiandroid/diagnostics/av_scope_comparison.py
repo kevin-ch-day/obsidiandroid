@@ -8,6 +8,8 @@ from typing import Any
 
 import pandas as pd
 
+from obsidiandroid.common.csv_io import optional_csv
+
 
 def _read_json(path: Path) -> dict[str, Any]:
     try:
@@ -35,7 +37,7 @@ def load_av_scope_run(run_root: str | Path) -> dict[str, Any]:
     ml_manifest = _read_json(ml_path) if ml_path else {}
     if not run_id:
         run_id = str(feature_contract.get("run_id", "") or ml_manifest.get("run_id", "")).strip()
-    model_rows = pd.read_csv(model_path) if model_path and model_path.is_file() else pd.DataFrame()
+    model_rows = optional_csv(model_path) if model_path else pd.DataFrame()
     return {
         "run_root": str(root.resolve()),
         "diagnostics_dir": str(diagnostics.resolve()),

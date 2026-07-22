@@ -11,15 +11,11 @@ from typing import Any
 import pandas as pd
 
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common.csv_io import optional_csv
 
 
 def _read_csv(path: Path) -> pd.DataFrame:
-    if not path.is_file():
-        return pd.DataFrame()
-    try:
-        return pd.read_csv(path)
-    except Exception:
-        return pd.DataFrame()
+    return optional_csv(path)
 
 
 def _safe_float(value: Any, default: float | None = 0.0) -> float | None:

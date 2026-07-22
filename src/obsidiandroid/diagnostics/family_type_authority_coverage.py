@@ -7,6 +7,7 @@ from typing import Any
 
 import pandas as pd
 
+from obsidiandroid.common.csv_io import write_csv
 from obsidiandroid.database import authority_contracts
 from obsidiandroid.database import db_engine
 from obsidiandroid.observability import get_logger, log_event
@@ -16,6 +17,24 @@ DEFAULT_MD = Path("output") / "diagnostics" / "family_type_authority_coverage_la
 DEFAULT_MISSING = Path("output") / "diagnostics" / "family_type_authority_missing_candidates_latest.csv"
 DEFAULT_UNKNOWN_TYPE = Path("output") / "diagnostics" / "family_type_authority_unknown_type_latest.csv"
 DEFAULT_YEAR_TYPE = Path("output") / "diagnostics" / "family_type_authority_year_type_latest.csv"
+
+MISSING_CANDIDATE_COLUMNS = (
+    "resolved_family_lc",
+    "authority_gap_reason",
+    "candidate_kind",
+    "row_count",
+    "years_present",
+    "priority_family_curation_flag",
+)
+UNKNOWN_TYPE_COLUMNS = (
+    "family_slug",
+    "family_name",
+    "row_count",
+    "active_years",
+    "priority_type_curation_flag",
+)
+YEAR_TYPE_COLUMNS = ("sample_year", "type_slug", "row_count")
+
 
 PRIORITY_FAMILY_CURATION = {
     "blankbot",
@@ -645,7 +664,7 @@ def build_year_summary(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 def build_missing_candidates(df: pd.DataFrame) -> pd.DataFrame:
     work = df[df["authority_bucket"].isin(["resolved_but_no_authority_family", "generic_label_candidate"])].copy()
     if work.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=list(MISSING_CANDIDATE_COLUMNS))
     work["candidate_kind"] = work.apply(
         lambda row: classify_missing_candidate(row.get("resolved_family_lc"), row.get("authority_gap_reason", "")),
         axis=1,
@@ -668,7 +687,7 @@ def build_missing_candidates(df: pd.DataFrame) -> pd.DataFrame:
 def build_unknown_type_queue(df: pd.DataFrame) -> pd.DataFrame:
     work = df[df["authority_bucket"] == "authority_family_unknown_type"].copy()
     if work.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=list(UNKNOWN_TYPE_COLUMNS))
     grouped = (
         work.groupby(["family_slug", "family_name"])
         .agg(
@@ -899,9 +918,9 @@ def generate_authority_coverage_artifacts(
     concentration_df = build_time_concentration(df)
 
     missing_out.parent.mkdir(parents=True, exist_ok=True)
-    missing_df.to_csv(missing_out, index=False)
-    unknown_type_df.to_csv(unknown_type_out, index=False)
-    year_type_df.to_csv(year_type_out, index=False)
+    write_csv(missing_out, missing_df, empty_columns=MISSING_CANDIDATE_COLUMNS)
+    write_csv(unknown_type_out, unknown_type_df, empty_columns=UNKNOWN_TYPE_COLUMNS)
+    write_csv(year_type_out, year_type_df, empty_columns=YEAR_TYPE_COLUMNS)
     emit_label_authority_alerts(
         source_mode=source_mode,
         bucket_df=bucket_df,

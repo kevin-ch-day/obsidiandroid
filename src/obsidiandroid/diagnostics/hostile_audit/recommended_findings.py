@@ -8,13 +8,13 @@ from pathlib import Path
 import pandas as pd
 
 
+from obsidiandroid.common.csv_io import optional_csv
+
+
 def _read_csv_tail(path: Path, max_rows: int = 12) -> str:
     if not path.exists():
         return "_missing_"
-    try:
-        df = pd.read_csv(path)
-    except Exception:
-        return "_unreadable_"
+    df = optional_csv(path)
     if df.empty:
         return "_empty_"
     return df.tail(max_rows).to_markdown(index=False)

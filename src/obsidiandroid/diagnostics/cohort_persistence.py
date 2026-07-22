@@ -8,6 +8,8 @@ from typing import Sequence
 import pandas as pd
 
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common.csv_io import optional_csv
+
 
 DEFAULT_COHORT_MEMBERSHIP_COLUMNS: tuple[str, ...] = (
     "sample_id",
@@ -22,12 +24,7 @@ DEFAULT_COHORT_MEMBERSHIP_COLUMNS: tuple[str, ...] = (
 
 
 def _read_csv_if_exists(path: Path) -> pd.DataFrame:
-    if not path.is_file():
-        return pd.DataFrame()
-    try:
-        return pd.read_csv(path)
-    except Exception:
-        return pd.DataFrame()
+    return optional_csv(path)
 
 
 def load_samples_df_fallback(diagnostics_dir: Path, run_id: str) -> pd.DataFrame:

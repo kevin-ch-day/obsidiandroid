@@ -12,6 +12,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common.csv_io import optional_csv, write_csv
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
 
 from obsidiandroid.reporting import operator_dashboard
@@ -24,6 +25,23 @@ from obsidiandroid.reporting.high_score_skeptic_helpers import (
     unique_families_from_drop_detail as _unique_families_from_drop_detail,
     write_false_attribution_empty as _write_false_attribution_empty,
 )
+
+PACKAGE_OVERLAP_COLUMNS = ("package_name", "n_train", "n_test", "n_total")
+FAMILY_PACKAGE_OVERLAP_COLUMNS = ("family_canonical", "package_name", "n_train", "n_test", "n_total")
+LEAKAGE_SCORE_COLUMNS = (
+    "feature_set_label",
+    "internal_experiment_key",
+    "macro_f1",
+    "delta_vs_headline_macro_f1",
+    "delta_vs_full_fused_ablation",
+)
+MODALITY_AUDIT_COLUMNS = ("feature_name", "importance", "modality_bucket")
+SUSPICIOUS_LABEL_COLUMNS = ("feature_name", "importance")
+FALSE_POSITIVE_COLUMNS = ("predicted_family", "false_positives", "true_positives", "fp_rate")
+FALSE_NEGATIVE_COLUMNS = ("true_family", "false_negatives", "recall", "support_holdout")
+CONFUSION_PAIR_COLUMNS = ("true_family", "predicted_family", "count", "shared_type")
+HIGH_CONF_WRONG_COLUMNS = ("sample_id", "true_family", "predicted_family", "confidence", "note")
+
 
 
 def write_headline_score_scope(
@@ -350,15 +368,43 @@ def write_false_attribution_audit(
     rows_fp.sort(key=lambda r: -int(r.get("false_positives", 0)))
     rows_fn.sort(key=lambda r: -int(r.get("false_negatives", 0)))
 
-    pd.DataFrame(rows_fp).to_csv(diagnostics_dir / "false_positive_by_predicted_family.csv", index=False)
-    pd.DataFrame(rows_fn).to_csv(diagnostics_dir / "false_negative_by_true_family.csv", index=False)
-    pd.DataFrame(pair_rows).to_csv(diagnostics_dir / "top_confusion_pairs.csv", index=False)
+    write_csv(
+        diagnostics_dir / "false_positive_by_predicted_family.csv",
+        pd.DataFrame(rows_fp),
+        empty_columns=FALSE_POSITIVE_COLUMNS,
+    )
+    write_csv(
+        diagnostics_dir / "false_negative_by_true_family.csv",
+        pd.DataFrame(rows_fn),
+        empty_columns=FALSE_NEGATIVE_COLUMNS,
+    )
+    write_csv(
+        diagnostics_dir / "top_confusion_pairs.csv",
+        pd.DataFrame(pair_rows),
+        empty_columns=CONFUSION_PAIR_COLUMNS,
+    )
     if hi_conf_rows:
-        pd.DataFrame(hi_conf_rows).to_csv(diagnostics_dir / "high_confidence_wrong_predictions.csv", index=False)
+        write_csv(
+            diagnostics_dir / "high_confidence_wrong_predictions.csv",
+            pd.DataFrame(hi_conf_rows),
+            empty_columns=HIGH_CONF_WRONG_COLUMNS,
+        )
     else:
-        pd.DataFrame(
-            [{"sample_id": "", "true_family": "", "predicted_family": "", "confidence": "", "note": "no_wrong_predictions_or_no_holdout"}]
-        ).to_csv(diagnostics_dir / "high_confidence_wrong_predictions.csv", index=False)
+        write_csv(
+            diagnostics_dir / "high_confidence_wrong_predictions.csv",
+            pd.DataFrame(
+                [
+                    {
+                        "sample_id": "",
+                        "true_family": "",
+                        "predicted_family": "",
+                        "confidence": "",
+                        "note": "no_wrong_predictions_or_no_holdout",
+                    }
+                ]
+            ),
+            empty_columns=HIGH_CONF_WRONG_COLUMNS,
+        )
 
     payload["holdout_wrong_predictions"] = int(n_wrong)
     payload["top_fp_families"] = rows_fp[:10]
@@ -525,8 +571,16 @@ def write_split_contamination_audit(
         "",
     ]
     (diagnostics_dir / "split_contamination_audit.md").write_text("\n".join(md) + "\n", encoding="utf-8")
-    pd.DataFrame(pkg_rows).to_csv(diagnostics_dir / "train_test_package_overlap.csv", index=False)
-    pd.DataFrame(fprows).to_csv(diagnostics_dir / "train_test_family_package_overlap.csv", index=False)
+    write_csv(
+        diagnostics_dir / "train_test_package_overlap.csv",
+        pd.DataFrame(pkg_rows),
+        empty_columns=PACKAGE_OVERLAP_COLUMNS,
+    )
+    write_csv(
+        diagnostics_dir / "train_test_family_package_overlap.csv",
+        pd.DataFrame(fprows),
+        empty_columns=FAMILY_PACKAGE_OVERLAP_COLUMNS,
+    )
     return payload
 
 
@@ -596,13 +650,8 @@ def write_leakage_safe_score_comparison(
 ) -> dict[str, Any]:
     """Map ablation_summary Macro-F1 (same model) to human-readable feature sets."""
     diagnostics_dir = Path(diagnostics_dir)
-    ab = pd.DataFrame()
     p = oh.resolve_ablation_summary_path(diagnostics_dir, run_id)
-    if p.is_file():
-        try:
-            ab = pd.read_csv(p)
-        except Exception:
-            pass
+    ab = optional_csv(p)
     rows_out: list[dict[str, Any]] = []
     note = ""
     if ab.empty or "experiment" not in ab.columns or "macro_f1_score" not in ab.columns or "model" not in ab.columns:
@@ -635,7 +684,11 @@ def write_leakage_safe_score_comparison(
     for r in rows_out:
         r["delta_vs_full_fused_ablation"] = round(headline_used - float(r.get("macro_f1") or 0.0), 6)
 
-    pd.DataFrame(rows_out).to_csv(diagnostics_dir / "leakage_safe_score_comparison.csv", index=False)
+    write_csv(
+        diagnostics_dir / "leakage_safe_score_comparison.csv",
+        pd.DataFrame(rows_out),
+        empty_columns=LEAKAGE_SCORE_COLUMNS,
+    )
     md = [
         f"# Leakage-safe score comparison — `{run_id}`",
         "",
@@ -694,19 +747,15 @@ def write_top_feature_modality_audit(
             run_filename=f"rf_impurity_importance_{getattr(app_config, 'RUNTIME_RUN_ID', 'unknown')}.csv",
             global_latest_name="rf_impurity_importance.latest.csv",
         )
-        if importances_path.is_file():
-            try:
-                frame = pd.read_csv(importances_path)
-                if {"feature_name", "impurity_importance"}.issubset(frame.columns):
-                    named = [
-                        {
-                            "feature_name": str(row.get("feature_name") or ""),
-                            "importance": float(row.get("impurity_importance") or 0.0),
-                        }
-                        for row in frame.to_dict(orient="records")
-                    ]
-            except Exception:
-                named = []
+        frame = optional_csv(importances_path)
+        if {"feature_name", "impurity_importance"}.issubset(frame.columns):
+            named = [
+                {
+                    "feature_name": str(row.get("feature_name") or ""),
+                    "importance": float(row.get("impurity_importance") or 0.0),
+                }
+                for row in frame.to_dict(orient="records")
+            ]
     rows: list[dict[str, Any]] = []
     suspicious: list[dict[str, Any]] = []
     bucket_counts: Counter[str] = Counter()
@@ -724,8 +773,16 @@ def write_top_feature_modality_audit(
             suspicious.append({"feature_name": fname, "importance": imp_f})
     rows.sort(key=lambda r: -float(r.get("importance") or 0))
     top25 = rows[:25]
-    pd.DataFrame(top25).to_csv(diagnostics_dir / "top_feature_modality_audit.csv", index=False)
-    pd.DataFrame(suspicious).to_csv(diagnostics_dir / "suspicious_label_like_features.csv", index=False)
+    write_csv(
+        diagnostics_dir / "top_feature_modality_audit.csv",
+        pd.DataFrame(top25),
+        empty_columns=MODALITY_AUDIT_COLUMNS,
+    )
+    write_csv(
+        diagnostics_dir / "suspicious_label_like_features.csv",
+        pd.DataFrame(suspicious),
+        empty_columns=SUSPICIOUS_LABEL_COLUMNS,
+    )
     summary = {k: round(float(v), 8) for k, v in bucket_counts.items()}
     payload = {
         "run_id": str(getattr(app_config, "RUNTIME_RUN_ID", "")),

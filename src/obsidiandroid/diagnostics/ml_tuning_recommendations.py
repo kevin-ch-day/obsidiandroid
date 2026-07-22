@@ -10,18 +10,14 @@ from typing import Any
 import pandas as pd
 
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common.csv_io import optional_csv
 
 
 FAMILY_TARGETS = ("family_id", "family_canonical_default", "family_within_type")
 
 
 def _read_csv(path: Path) -> pd.DataFrame:
-    if not path.is_file():
-        return pd.DataFrame()
-    try:
-        return pd.read_csv(path)
-    except Exception:
-        return pd.DataFrame()
+    return optional_csv(path)
 
 
 def _normalize_ablation_frame(df: pd.DataFrame) -> pd.DataFrame:

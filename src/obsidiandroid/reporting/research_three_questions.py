@@ -15,6 +15,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common.csv_io import optional_csv
 
 from obsidiandroid.common.json_io import read_json_dict
 from obsidiandroid.diagnostics.headline_ablation_parity import build_feature_contract_comparison
@@ -216,13 +217,8 @@ def _research_run_summary_blockers(bundle: dict[str, Any]) -> list[str]:
 def _permission_signal_quality_metric(diagnostics_dir: Path, metric: str) -> int | None:
     """Read one integer metric from permission-signal-quality CSV when present."""
     path = diagnostics_dir / "permission_signal_quality.csv"
-    if not path.is_file():
-        return None
-    try:
-        df = pd.read_csv(path)
-    except Exception:
-        return None
-    if "metric" not in df.columns or "value" not in df.columns:
+    df = optional_csv(path)
+    if df.empty or "metric" not in df.columns or "value" not in df.columns:
         return None
     match = df[df["metric"].astype(str) == str(metric)]
     if match.empty:
@@ -286,12 +282,9 @@ def _load_ablation_df(diagnostics_dir: Path, run_id: str) -> pd.DataFrame:
     rid = oh.normalize_artifact_run_id(run_id)
     candidates = (diagnostics_dir / f"ablation_summary_{rid}.csv",)
     for path in candidates:
-        if not path.is_file():
-            continue
-        try:
-            return pd.read_csv(path)
-        except Exception:
-            return pd.DataFrame()
+        df = optional_csv(path)
+        if not df.empty:
+            return df
     return pd.DataFrame()
 
 

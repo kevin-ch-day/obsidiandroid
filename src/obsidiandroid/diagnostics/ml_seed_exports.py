@@ -11,6 +11,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common.csv_io import optional_csv
 from obsidiandroid.diagnostics.cohort_persistence import resolve_effective_samples_df
 from obsidiandroid.diagnostics.run_artifact_resolve import resolve_run_artifact_path
 from obsidiandroid.common.run_slots import is_canonical_profile
@@ -57,12 +58,7 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def _read_csv_if_exists(path: Path) -> pd.DataFrame:
-    if not path.is_file():
-        return pd.DataFrame()
-    try:
-        return pd.read_csv(path)
-    except Exception:
-        return pd.DataFrame()
+    return optional_csv(path)
 
 
 def _resolve_existing_path(
