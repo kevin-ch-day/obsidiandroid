@@ -1,0 +1,72 @@
+{
+  "repair_id": "2026-07-22_fadeb-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Cursor Auto taxonomy curation",
+  "applied_at_utc": "2026-07-22T04:39:42Z",
+  "receipt_created_at_utc": "2026-07-22T04:39:42Z",
+  "source_commit_at_application": "5e1ad34a9e21f442e1a07dc337477b1e9c569e8f",
+  "source_commit_at_receipt_creation": "5e1ad34a9e21f442e1a07dc337477b1e9c569e8f",
+  "affected_family_ids": [
+    383
+  ],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 1,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 3,
+    "primary_type_slug": "adware",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 1,
+    "distinct_mapped_samples": 1,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Reactivate Fadeb using its existing Adware type backed by Kaspersky Fadeb silent download/install analyses.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_research",
+      "name": "Kaspersky Taking Root (Fadeb)",
+      "url": "https://securelist.ru/taking-root/26769/"
+    }
+  ],
+  "before_sql_hash": "982ce38c11610c95d79f2539321999aaa2d7b48fe4c8db3ae77e44d7f3308ecb",
+  "applied_sql_hash": "032e78aa0bb5c7de40429096cd27bb5c98e14dd54ce0fec1ea70bb66cbb9e8ca",
+  "validation_sql_hash": "3da822a7d04285728266069e948ac521e11e17f95530e17f2bc22db103bbfaab",
+  "rollback_sql_hash": "3ff96613a0e3b3dc603e7fa69c63d345136cfe45810895a19a933fcae8831f34",
+  "evidence_hash": "50ba6ba4c0ee4862175a1d55e6aec9a73bac8062a2df6a5d977d7d95c8335586",
+  "post_change_validation": {
+    "family_383_status": "active",
+    "family_383_is_active": 1,
+    "family_383_primary_type_id": 3,
+    "family_383_primary_type_slug": "adware",
+    "catalog_mapped_sample_count": 1,
+    "authority_family_383_sample_count": 1,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "Contemporaneous DB state and independent research support the narrow authority repair. They do not prove every mapped-sample behavior or create a frozen benchmark artifact."
+}

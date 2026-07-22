@@ -1,0 +1,77 @@
+{
+  "repair_id": "2026-07-22_spyoo-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation_with_type_repair",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Cursor Auto taxonomy curation",
+  "applied_at_utc": "2026-07-22T04:39:42Z",
+  "receipt_created_at_utc": "2026-07-22T04:39:42Z",
+  "source_commit_at_application": "5e1ad34a9e21f442e1a07dc337477b1e9c569e8f",
+  "source_commit_at_receipt_creation": "5e1ad34a9e21f442e1a07dc337477b1e9c569e8f",
+  "affected_family_ids": [
+    693
+  ],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 1,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 2,
+    "primary_type_slug": "spyware",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 1,
+    "distinct_mapped_samples": 1,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Reactivate Spyoo as Android stalkerware authority using Kaspersky iSpyoo/Spyoo stalkerware documentation.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_research",
+      "name": "Kaspersky Beware of stalkerware (iSpyoo)",
+      "url": "https://securelist.com/beware-of-stalkerware/90264/"
+    },
+    {
+      "kind": "vendor_research",
+      "name": "Zscaler stalkerware Spyoo mentions",
+      "url": "https://www.zscaler.com/blogs/security-research/new-wave-stalkerware-apps"
+    }
+  ],
+  "before_sql_hash": "73b91130c76993a87162fb3876e4cec7d2277a41ced70b045cfbfaef3d3e831c",
+  "applied_sql_hash": "7c0e7e4cdea1385d3b811d049a7c732235c431c8456ca2e0066ab37acdfa33bd",
+  "validation_sql_hash": "9fd65865cf70eaacc5cf13a2b09777a3a2c9f27cc19caf87e33c7f72d89274b6",
+  "rollback_sql_hash": "2aa2136af1f1e755e491357e27d7f9737f6c941c83d577415261c2f484efdd41",
+  "evidence_hash": "8b7fb2e9590233e35315d9bd2243ded56dffd1a8f612cf332e33308d0d37e8e0",
+  "post_change_validation": {
+    "family_693_status": "active",
+    "family_693_is_active": 1,
+    "family_693_primary_type_id": 17,
+    "family_693_primary_type_slug": "stalkerware",
+    "catalog_mapped_sample_count": 1,
+    "authority_family_693_sample_count": 1,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "Contemporaneous DB state and independent research support the narrow authority repair. They do not prove every mapped-sample behavior or create a frozen benchmark artifact."
+}

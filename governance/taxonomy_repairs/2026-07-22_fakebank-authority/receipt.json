@@ -1,0 +1,72 @@
+{
+  "repair_id": "2026-07-22_fakebank-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Cursor Auto taxonomy curation",
+  "applied_at_utc": "2026-07-22T04:39:42Z",
+  "receipt_created_at_utc": "2026-07-22T04:39:42Z",
+  "source_commit_at_application": "5e1ad34a9e21f442e1a07dc337477b1e9c569e8f",
+  "source_commit_at_receipt_creation": "5e1ad34a9e21f442e1a07dc337477b1e9c569e8f",
+  "affected_family_ids": [
+    385
+  ],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 1,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 12,
+    "primary_type_slug": "banker",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 1,
+    "distinct_mapped_samples": 1,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Reactivate Fakebank using its existing Banker type backed by Trend Micro FakeBank SMS-interception banking analyses.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_research",
+      "name": "GBHackers/Trend Micro FakeBank analysis",
+      "url": "https://gbhackers.com/fakebank-malware-layered-obfuscation-technique/"
+    }
+  ],
+  "before_sql_hash": "f76a096ed3f78f72f1d42c7499fab35114a0d07d9508a4c7975dc0466e77d410",
+  "applied_sql_hash": "4b9cd2d1b2c99c0b8f98eff14311be2d2dcc41b38ca9a8f668a31e6c16d7e6c5",
+  "validation_sql_hash": "0c69a845a5caf913e4647059791787c51299ceead754f32a2302f23c9bd6dfeb",
+  "rollback_sql_hash": "7fa83f57192b191ba4b91601a93e72d7516c1911fbc0c8ad54b7df87d9bbff88",
+  "evidence_hash": "5da52e23e505508d71318e6322aea12f6f2d6d4011783eb3065067deeab9d030",
+  "post_change_validation": {
+    "family_385_status": "active",
+    "family_385_is_active": 1,
+    "family_385_primary_type_id": 12,
+    "family_385_primary_type_slug": "banker",
+    "catalog_mapped_sample_count": 1,
+    "authority_family_385_sample_count": 1,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "Contemporaneous DB state and independent research support the narrow authority repair. They do not prove every mapped-sample behavior or create a frozen benchmark artifact."
+}

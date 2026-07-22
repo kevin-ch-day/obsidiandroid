@@ -1,0 +1,77 @@
+{
+  "repair_id": "2026-07-22_obad-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation_with_type_repair",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Cursor Auto taxonomy curation",
+  "applied_at_utc": "2026-07-22T04:39:42Z",
+  "receipt_created_at_utc": "2026-07-22T04:39:42Z",
+  "source_commit_at_application": "5e1ad34a9e21f442e1a07dc337477b1e9c569e8f",
+  "source_commit_at_receipt_creation": "5e1ad34a9e21f442e1a07dc337477b1e9c569e8f",
+  "affected_family_ids": [
+    497
+  ],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 1,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 3,
+    "primary_type_slug": "adware",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 1,
+    "distinct_mapped_samples": 1,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Reactivate Obad as Android backdoor authority, correcting the bootstrap adware type using Kaspersky Backdoor.AndroidOS.Obad evidence.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_research",
+      "name": "AWAKE Obad (Kaspersky Backdoor.AndroidOS.Obad)",
+      "url": "https://awakewiki.org/malware/families/obad/"
+    },
+    {
+      "kind": "vendor_research",
+      "name": "ZDNet Obad botnet distribution",
+      "url": "https://www.zdnet.com/article/first-case-of-android-trojan-spreading-via-mobile-botnets-discovered/"
+    }
+  ],
+  "before_sql_hash": "c777cbcead2cfb6578c37feb4410bbdda5f29f37b627ccbfd699d79ac72ce21d",
+  "applied_sql_hash": "c359078705b84ddb94cc7be786943b3bac94ec2c3cc64103f6e8a2aa2c60d207",
+  "validation_sql_hash": "16a596517bbfabf33999e8b5f7363c36bff23a98494d319c526d5f06a6ab5380",
+  "rollback_sql_hash": "88410556eacd2a969700518fcf957c9857a0d420f0abdb79b59785ee6442602d",
+  "evidence_hash": "4d451ca7b480a6772b42d8cfca0a359263d711043a4ec2ad7234a6e72f089c20",
+  "post_change_validation": {
+    "family_497_status": "active",
+    "family_497_is_active": 1,
+    "family_497_primary_type_id": 6,
+    "family_497_primary_type_slug": "backdoor",
+    "catalog_mapped_sample_count": 1,
+    "authority_family_497_sample_count": 1,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "Contemporaneous DB state and independent research support the narrow authority repair. They do not prove every mapped-sample behavior or create a frozen benchmark artifact."
+}
