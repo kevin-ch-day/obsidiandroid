@@ -16,6 +16,16 @@ Original source fields are retained. Platform-event annotations under
 `config/research/android_platform_event_annotations_v1.json` are contextual
 markers only; causal Android-update claims are not permitted.
 
+## Frozen-run caveats (`20260721T231415Z__e0c43b`)
+
+- Dominant source: first submission (~94%).
+- First-seen-in-the-wild: ~6%.
+- first_discovered: unavailable in artifacts.
+- 2026 is a partial year.
+- Results are affected by collection and source-batch composition.
+
+See also `docs/releases/2.4.0_OFFLINE_GRAPH_INDEX.md`.
+
 ## Offline generation
 
 ```bash

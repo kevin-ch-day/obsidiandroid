@@ -42,6 +42,7 @@ Current application version: **v2.4.0**.
 
 Release notes: [`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md).
 Code-complete checklist: [`docs/releases/2.4.0_CODE_COMPLETE_CHECKLIST.md`](docs/releases/2.4.0_CODE_COMPLETE_CHECKLIST.md).
+Offline graph index: [`docs/releases/2.4.0_OFFLINE_GRAPH_INDEX.md`](docs/releases/2.4.0_OFFLINE_GRAPH_INDEX.md).
 
 ---
 

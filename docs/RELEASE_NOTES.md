@@ -37,6 +37,14 @@ figures as paper-reproduction claims.
 Later taxonomy reactivation commits after `8b60754` are **not** part of this run’s
 model evidence.
 
+Frozen offline capability/temporal report packages were generated during the
+release-candidate window. Final-tag composer hardening (archive write guards,
+OEM-namespace ordering, CSV stub safety, temporal `pd.NA` handling) may differ
+from the exact composer revision that wrote those packages; regenerate offline
+reports only under a separate authorization if bit-identical refresh is required.
+
+Graph inventory: [`docs/releases/2.4.0_OFFLINE_GRAPH_INDEX.md`](releases/2.4.0_OFFLINE_GRAPH_INDEX.md).
+
 ## What v2.4.0 ships
 
 - Taxonomy count clarity (known vs observed; training vs held-out)
@@ -81,6 +89,14 @@ Precedence when fields are present and parseable:
 
 Original source fields are retained. Platform-event annotations are contextual
 markers only; no causal Android-update claims.
+
+On the frozen `e0c43b` offline package:
+
+- ~94% of rows select first submission;
+- ~6% select first-seen-in-the-wild;
+- `first_discovered` is unavailable (100% missing);
+- **2026 is a partial year**;
+- annual trends reflect collection/source-batch composition, not global prevalence.
 
 ```bash
 PYTHONPATH=src python scripts/diagnostics/generate_temporal_permission_trends.py \
