@@ -179,7 +179,7 @@ def prepare_run_root(
     run_instance_id: str,
     archive_run: bool,
     keep_last_failed_runs: int = 0,
-    keep_last_completed_runs: int = 1,
+    keep_last_completed_runs: int = 3,
 ) -> dict[str, Path | str | None]:
     """Prepare and return runtime output roots for the requested run contract."""
 

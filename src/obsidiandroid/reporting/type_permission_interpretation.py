@@ -13,6 +13,7 @@ from typing import Any
 
 import pandas as pd
 
+from obsidiandroid.common.csv_io import optional_csv as _read_csv
 from obsidiandroid.reporting.permission_governance_lanes import (
     DEFAULT_THRESHOLDS,
     PROTECTION_LANE_CONTRACT_VERSION,
@@ -31,12 +32,6 @@ from obsidiandroid.reporting.type_permission_pairwise import (
 INTERPRETATION_COMPOSER_VERSION = "1.0.0"
 MAIN_TYPES = ("banker", "rat", "spyware", "adware")
 EXPLORATORY_TYPES = ("backdoor", "dropper", "sms-trojan")
-
-
-def _read_csv(path: Path) -> pd.DataFrame:
-    if not path.is_file():
-        return pd.DataFrame()
-    return pd.read_csv(path)
 
 
 def compose_type_permission_interpretation(

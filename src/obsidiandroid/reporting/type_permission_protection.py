@@ -17,6 +17,9 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
+from obsidiandroid.common.csv_io import optional_csv as _optional_csv
+from obsidiandroid.common.csv_io import require_csv as _require_csv
+from obsidiandroid.common.csv_io import write_csv as _write_csv
 from obsidiandroid.reporting.cohort_count_contract import compute_cohort_identity_counts
 from obsidiandroid.reporting.dominant_family_profile_sensitivity import (
     build_dominant_family_type_robustness,
@@ -49,27 +52,6 @@ EXPECTED_RUN_ID = "20260721T231415Z__e0c43b"
 EXPECTED_PERM_BEARING = 9457
 MAIN_TYPES = ("banker", "rat", "spyware", "adware")
 EXPLORATORY_TYPES = ("backdoor", "dropper", "sms-trojan")
-
-
-def _require_csv(path: Path) -> pd.DataFrame:
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    if path.stat().st_size == 0:
-        raise ValueError(f"required CSV is empty: {path}")
-    try:
-        return pd.read_csv(path)
-    except pd.errors.EmptyDataError as exc:
-        raise ValueError(f"required CSV has no columns: {path}") from exc
-
-
-def _optional_csv(path: Path) -> pd.DataFrame:
-    """Load a CSV when present; treat missing or empty files as an empty frame."""
-    if not path.is_file() or path.stat().st_size == 0:
-        return pd.DataFrame()
-    try:
-        return pd.read_csv(path)
-    except pd.errors.EmptyDataError:
-        return pd.DataFrame()
 
 
 PAIRWISE_PROTECTION_EMPTY_COLUMNS = (
@@ -116,14 +98,6 @@ PAIRWISE_PROTECTION_EMPTY_COLUMNS = (
     "leave_largest_family_result",
     "pairwise_protection_contract_version",
 )
-
-
-def _write_csv(path: Path, frame: pd.DataFrame, *, empty_columns: Sequence[str] | None = None) -> None:
-    """Write a CSV; empty frames still emit a header row when columns are known."""
-    if frame.empty and empty_columns is not None and len(frame.columns) == 0:
-        pd.DataFrame(columns=list(empty_columns)).to_csv(path, index=False)
-        return
-    frame.to_csv(path, index=False)
 
 
 def _norm_perm(value: Any) -> str:

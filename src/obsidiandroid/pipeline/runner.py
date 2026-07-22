@@ -357,7 +357,7 @@ def run_pipeline(
             archive_run=slot_plan.archive_run,
             keep_last_failed_runs=int(getattr(app_config, "RUN_SLOT_KEEP_LAST_FAILED_RUNS", 1) or 1),
             keep_last_completed_runs=int(
-                getattr(app_config, "RUN_SLOT_KEEP_LAST_COMPLETED_RUNS", 1) or 1
+                getattr(app_config, "RUN_SLOT_KEEP_LAST_COMPLETED_RUNS", 3) or 3
             ),
         )
         output_root_base = Path(runtime_paths["output_root_base"])

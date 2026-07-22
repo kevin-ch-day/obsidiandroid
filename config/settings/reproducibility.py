@@ -31,4 +31,4 @@ ALIGNED_LABEL_CACHE_FILE = "output/diagnostics/aligned_labels.latest.csv"
 # Reusable benchmark slots are working directories. Before a completed slot is
 # replaced, retain this bounded number of completed instances under
 # ``output/runs/_archived/completed/<slot>`` for artifact review and recovery.
-RUN_SLOT_KEEP_LAST_COMPLETED_RUNS = 1
+RUN_SLOT_KEEP_LAST_COMPLETED_RUNS = 3

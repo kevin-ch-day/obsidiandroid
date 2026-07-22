@@ -16,6 +16,8 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
+from obsidiandroid.common.csv_io import optional_csv as _optional_csv
+from obsidiandroid.common.csv_io import require_csv as _require_csv
 from obsidiandroid.labeling.malware_family_constants import (
     canonicalize_family_label,
     normalize_family_name,
@@ -371,18 +373,6 @@ HYPOTHESIS_SPECS: tuple[dict[str, Any], ...] = (
 
 def _trends_table(run_root: Path, stem: str, run_id: str) -> Path:
     return run_root / "bundles" / "permission_trends" / "tables" / f"{stem}_{run_id}.csv"
-
-
-def _require_csv(path: Path) -> pd.DataFrame:
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    return pd.read_csv(path)
-
-
-def _optional_csv(path: Path) -> pd.DataFrame:
-    if not path.is_file():
-        return pd.DataFrame()
-    return pd.read_csv(path)
 
 
 def _norm_perm(value: Any) -> str:

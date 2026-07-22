@@ -18,10 +18,10 @@ from obsidiandroid.reporting.type_permission_protection import (
     build_dominant_family_lane_sensitivity,
     enrich_pairwise_protection,
     verify_completed_run,
-    _optional_csv,
-    _write_csv,
     PAIRWISE_PROTECTION_EMPTY_COLUMNS,
 )
+from obsidiandroid.common.csv_io import optional_csv as _optional_csv
+from obsidiandroid.common.csv_io import write_csv as _write_csv
 
 
 def test_lane_token_reconciliation_covers_all_lanes() -> None:

@@ -10,16 +10,12 @@ from typing import Any
 import pandas as pd
 
 from obsidiandroid.common import output_hygiene as oh
+from obsidiandroid.common.csv_io import optional_csv
 from obsidiandroid.common.json_io import read_json_dict
 
 
 def safe_read_split_audit(path: Path) -> pd.DataFrame:
-    if not path.is_file():
-        return pd.DataFrame()
-    try:
-        return pd.read_csv(path)
-    except Exception:
-        return pd.DataFrame()
+    return optional_csv(path)
 
 
 def unique_families_from_drop_detail(drop_detail: list[Any]) -> int:

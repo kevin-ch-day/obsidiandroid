@@ -121,6 +121,56 @@ def test_prepare_run_root_archives_complete_marker_when_manifest_status_stale(tm
     assert Path(prepared["run_root"]) == slot_root
 
 
+def test_prepare_run_root_retains_three_completed_archives(tmp_path: Path) -> None:
+    runs_root = tmp_path / "output" / "runs"
+    completed = runs_root / "_archived" / "completed" / "allcurrent_diagnostic"
+    completed.mkdir(parents=True, exist_ok=True)
+    for idx, stamp in enumerate(
+        ("20260601T010101Z__old1", "20260602T010101Z__old2", "20260603T010101Z__old3"),
+        start=1,
+    ):
+        prior = completed / stamp
+        prior.mkdir()
+        (prior / "run_manifest.json").write_text(
+            json.dumps(
+                {
+                    "run_id": stamp,
+                    "run_status": "complete",
+                    "run_started_at_utc": f"2026-06-0{idx}T01:01:01+00:00",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    slot_root = runs_root / "allcurrent_diagnostic"
+    slot_root.mkdir(parents=True, exist_ok=True)
+    (slot_root / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "20260604T010101Z__live",
+                "run_status": "complete",
+                "run_started_at_utc": "2026-06-04T01:01:01+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_slots.prepare_run_root(
+        runs_root=runs_root,
+        run_slot="allcurrent_diagnostic",
+        run_instance_id="20260605T010101Z__new",
+        archive_run=False,
+        keep_last_completed_runs=3,
+    )
+
+    kept = sorted(p.name for p in completed.iterdir() if p.is_dir())
+    assert kept == [
+        "20260602T010101Z__old2",
+        "20260603T010101Z__old3",
+        "20260604T010101Z__live",
+    ]
+
+
 def test_setup_runtime_context_uses_slot_run_root(monkeypatch, tmp_path: Path) -> None:
     output_root = tmp_path / "output"
     monkeypatch.setattr(runtime_reporting.app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)

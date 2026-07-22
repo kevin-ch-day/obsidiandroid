@@ -16,6 +16,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 import pandas as pd
 
+from obsidiandroid.common.csv_io import optional_csv
 from obsidiandroid.reporting.permission_governance_lanes import (
     CANONICAL_PROTECTION_LANES,
     LANE_AOSP_DANGEROUS,
@@ -798,16 +799,8 @@ def compose_permission_authority_enrichment(
 
 
 def _pairwise_comparison(artifact_csv: Path, enriched_csv: Path) -> pd.DataFrame:
-    def _safe_read(path: Path) -> pd.DataFrame:
-        try:
-            if path.stat().st_size == 0:
-                return pd.DataFrame()
-            return pd.read_csv(path)
-        except pd.errors.EmptyDataError:
-            return pd.DataFrame()
-
-    a = _safe_read(artifact_csv)
-    e = _safe_read(enriched_csv)
+    a = optional_csv(artifact_csv)
+    e = optional_csv(enriched_csv)
     def _counts(df: pd.DataFrame) -> dict[str, int]:
         out = {
             "rows": int(len(df)),

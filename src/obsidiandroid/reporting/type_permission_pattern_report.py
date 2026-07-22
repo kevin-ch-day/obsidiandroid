@@ -19,6 +19,7 @@ from typing import Any
 
 import pandas as pd
 
+from obsidiandroid.common.csv_io import require_csv as _require_csv
 from obsidiandroid.reporting.cohort_count_contract import compute_cohort_identity_counts
 from obsidiandroid.reporting.permission_governance_lanes import (
     CANONICAL_PROTECTION_LANES,
@@ -48,12 +49,6 @@ _MAIN_COMPARISON_CANDIDATES = frozenset(
         "stealer",
     }
 )
-
-
-def _require_csv(path: Path) -> pd.DataFrame:
-    if not path.is_file():
-        raise FileNotFoundError(f"required permission-trends table missing: {path}")
-    return pd.read_csv(path)
 
 
 def _table(run_root: Path, stem: str, run_id: str) -> Path:

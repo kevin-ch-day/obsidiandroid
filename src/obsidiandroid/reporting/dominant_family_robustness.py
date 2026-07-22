@@ -17,6 +17,7 @@ from typing import Any
 
 import pandas as pd
 
+from obsidiandroid.common.csv_io import require_csv as _require_csv
 from obsidiandroid.reporting.permission_governance_lanes import (
     DEFAULT_THRESHOLDS,
     PROTECTION_LANE_CONTRACT_VERSION,
@@ -36,12 +37,6 @@ FOCUS_LANES = ("aosp_normal", "aosp_dangerous")
 
 def _trends_table(run_root: Path, stem: str, run_id: str) -> Path:
     return run_root / "bundles" / "permission_trends" / "tables" / f"{stem}_{run_id}.csv"
-
-
-def _require_csv(path: Path) -> pd.DataFrame:
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    return pd.read_csv(path)
 
 
 def resolve_robustness_inputs(run_root: Path, run_id: str) -> dict[str, Path]:

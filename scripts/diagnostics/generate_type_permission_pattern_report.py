@@ -6,7 +6,7 @@ Read-only. Reuses ``bundles/permission_trends`` tables; does not query productio
 Example:
   python scripts/diagnostics/generate_type_permission_pattern_report.py \\
     --run-root output/runs/allcurrent_diagnostic \\
-    --run-id 20260721T014651Z__61b4a7
+    --run-id 20260721T231415Z__e0c43b
 """
 
 from __future__ import annotations

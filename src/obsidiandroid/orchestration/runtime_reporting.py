@@ -626,7 +626,7 @@ def setup_runtime_context(
     strict_run_scoped: bool = True,
     archive_run: bool = False,
     keep_last_failed_runs: int = 0,
-    keep_last_completed_runs: int = 1,
+    keep_last_completed_runs: int = 3,
 ) -> dict[str, Path | str]:
     """Initialize runtime output paths and route diagnostics for a run."""
     del strict_run_scoped

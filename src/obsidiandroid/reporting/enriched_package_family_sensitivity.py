@@ -15,6 +15,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
+from obsidiandroid.common.csv_io import optional_csv
 from obsidiandroid.pipeline.permission_trends.stats_core import js_distance
 from obsidiandroid.reporting.dominant_family_profile_sensitivity import spearman_rank_corr
 from obsidiandroid.reporting.package_balanced_permission_analysis import (
@@ -625,12 +626,7 @@ def compose_enriched_package_family_sensitivity(
     lane_lookup = enrichment_lane_lookup(enrichment)
     type_conc = pd.read_csv(pkg_dir / "type_package_concentration.csv")
     fam_conc = pd.read_csv(pkg_dir / "family_package_concentration.csv")
-    pairs = pd.DataFrame()
-    if pair_path.is_file() and pair_path.stat().st_size > 0:
-        try:
-            pairs = pd.read_csv(pair_path)
-        except pd.errors.EmptyDataError:
-            pairs = pd.DataFrame()
+    pairs = optional_csv(pair_path)
     # Candidate permissions: type prevalence for focus types, labeled by enrichment lane.
     type_prev = type_prev[type_prev["type_slug"].astype(str).isin(list(focus_types))].copy()
     type_prev["permission"] = type_prev["permission"].map(_norm)

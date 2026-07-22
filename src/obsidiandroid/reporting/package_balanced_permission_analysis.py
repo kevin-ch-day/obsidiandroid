@@ -16,6 +16,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
+from obsidiandroid.common.csv_io import optional_csv
 from obsidiandroid.pipeline.permission_trends.stats_core import js_distance
 from obsidiandroid.reporting.dominant_family_profile_sensitivity import spearman_rank_corr
 from obsidiandroid.reporting.permission_authority_enrichment import enrichment_lane_lookup
@@ -739,13 +740,7 @@ def compose_package_balanced_permission_analysis(
         membership=membership, type_prevalence=type_prev, family_prevalence=fam_prev, lane_lookup=lane_lookup,
         type_concentration=type_conc, family_concentration=family_conc)
     pair_path = diag / "type_permission_protection_enriched" / "type_permission_pairwise_protection.csv"
-    if pair_path.is_file() and pair_path.stat().st_size > 0:
-        try:
-            pairs = pd.read_csv(pair_path)
-        except pd.errors.EmptyDataError:
-            pairs = pd.DataFrame()
-    else:
-        pairs = pd.DataFrame()
+    pairs = optional_csv(pair_path)
     if not pairs.empty and load_features:
         # Keep frozen pair universe rows, but only reweight pairs whose permissions
         # were loaded from aligned features (type/family prevalence vocabulary).
