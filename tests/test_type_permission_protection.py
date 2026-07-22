@@ -216,7 +216,7 @@ def test_verify_completed_run_rejects_wrong_id(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="run identity mismatch"):
-        verify_completed_run(run, expected_run_id="20260721T142432Z__07f657")
+        verify_completed_run(run, expected_run_id="20260721T231415Z__e0c43b")
 
 
 def test_compose_does_not_import_database() -> None:

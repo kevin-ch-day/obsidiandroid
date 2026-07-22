@@ -13,7 +13,7 @@ from obsidiandroid.reporting.package_balance_attribution import compose_package_
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-root", required=True)
-    parser.add_argument("--run-id", default="20260721T142432Z__07f657")
+    parser.add_argument("--run-id", default="20260721T231415Z__e0c43b")
     parser.add_argument("--output-dir", default="")
     args = parser.parse_args()
     manifest = compose_package_balance_attribution(

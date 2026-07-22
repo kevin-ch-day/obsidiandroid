@@ -559,7 +559,7 @@ Observation UTC: `{observed_at_utc}`
 This note records that **live database counts** and **frozen run counts** are
 different scopes. Live counts must not be mixed into the frozen-run analysis.
 
-| Entity | Frozen run (`20260721T142432Z__07f657`) | Later live DB observation | Likely reason category |
+| Entity | Frozen run (`20260721T231415Z__e0c43b`) | Later live DB observation | Likely reason category |
 | --- | ---: | ---: | --- |
 | Godfather | 1,286 | 1,303 | source growth and/or profile/quality gate drift |
 | Gigabud | 496 | 860 | profile/quality filter and/or source growth (row-level audit deferred) |
@@ -795,8 +795,16 @@ def compose_permission_authority_enrichment(
 
 
 def _pairwise_comparison(artifact_csv: Path, enriched_csv: Path) -> pd.DataFrame:
-    a = pd.read_csv(artifact_csv)
-    e = pd.read_csv(enriched_csv)
+    def _safe_read(path: Path) -> pd.DataFrame:
+        try:
+            if path.stat().st_size == 0:
+                return pd.DataFrame()
+            return pd.read_csv(path)
+        except pd.errors.EmptyDataError:
+            return pd.DataFrame()
+
+    a = _safe_read(artifact_csv)
+    e = _safe_read(enriched_csv)
     def _counts(df: pd.DataFrame) -> dict[str, int]:
         out = {
             "rows": int(len(df)),

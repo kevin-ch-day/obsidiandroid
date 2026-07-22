@@ -625,8 +625,12 @@ def compose_enriched_package_family_sensitivity(
     lane_lookup = enrichment_lane_lookup(enrichment)
     type_conc = pd.read_csv(pkg_dir / "type_package_concentration.csv")
     fam_conc = pd.read_csv(pkg_dir / "family_package_concentration.csv")
-    pairs = pd.read_csv(pair_path) if pair_path.is_file() else pd.DataFrame()
-
+    pairs = pd.DataFrame()
+    if pair_path.is_file() and pair_path.stat().st_size > 0:
+        try:
+            pairs = pd.read_csv(pair_path)
+        except pd.errors.EmptyDataError:
+            pairs = pd.DataFrame()
     # Candidate permissions: type prevalence for focus types, labeled by enrichment lane.
     type_prev = type_prev[type_prev["type_slug"].astype(str).isin(list(focus_types))].copy()
     type_prev["permission"] = type_prev["permission"].map(_norm)

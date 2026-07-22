@@ -16,7 +16,7 @@ def main() -> int:
     """Parse CLI arguments and compose the read-only diagnostic package."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-root", required=True)
-    parser.add_argument("--run-id", default="20260721T142432Z__07f657")
+    parser.add_argument("--run-id", default="20260721T231415Z__e0c43b")
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--skip-aligned-features", action="store_true")
     args = parser.parse_args()

@@ -194,7 +194,7 @@ def test_applite_dual_status() -> None:
 def test_compose_enrichment_mocked_no_writes(tmp_path: Path) -> None:
     import obsidiandroid.reporting.permission_authority_enrichment as mod
 
-    run_id = "20260721T142432Z__07f657"
+    run_id = "20260721T231415Z__e0c43b"
     run = tmp_path / "run"
     diag = run / "diagnostics"
     tables = run / "bundles" / "permission_trends" / "tables"

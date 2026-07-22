@@ -4,7 +4,7 @@
 Example:
   python scripts/diagnostics/generate_live_corpus_family_context.py \\
     --run-root output/runs/allcurrent_diagnostic \\
-    --run-id 20260721T142432Z__07f657
+    --run-id 20260721T231415Z__e0c43b
 """
 
 from __future__ import annotations

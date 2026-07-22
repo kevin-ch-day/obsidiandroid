@@ -4,7 +4,7 @@
 Example:
   python scripts/diagnostics/generate_type_permission_protection.py \\
     --run-root output/runs/allcurrent_diagnostic \\
-    --run-id 20260721T142432Z__07f657
+    --run-id 20260721T231415Z__e0c43b
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from obsidiandroid.reporting.type_permission_protection import (
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run-id", default="20260721T142432Z__07f657")
+    parser.add_argument("--run-id", default="20260721T231415Z__e0c43b")
     parser.add_argument("--run-root", required=True)
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--pairwise-output-dir", default="")

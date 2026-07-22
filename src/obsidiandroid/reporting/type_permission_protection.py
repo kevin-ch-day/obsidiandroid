@@ -45,7 +45,7 @@ from obsidiandroid.reporting.type_permission_pattern_report import (
 
 PROTECTION_COMPOSER_VERSION = "1.0.0"
 PAIRWISE_PROTECTION_CONTRACT_VERSION = "1.0.0"
-EXPECTED_RUN_ID = "20260721T142432Z__07f657"
+EXPECTED_RUN_ID = "20260721T231415Z__e0c43b"
 EXPECTED_PERM_BEARING = 9457
 MAIN_TYPES = ("banker", "rat", "spyware", "adware")
 EXPLORATORY_TYPES = ("backdoor", "dropper", "sms-trojan")

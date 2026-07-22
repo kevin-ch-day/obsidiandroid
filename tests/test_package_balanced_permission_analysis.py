@@ -171,7 +171,7 @@ def test_compose_refuses_banned_dirs(tmp_path: Path) -> None:
 
     def fake_verify(run_root, expected_run_id="x"):
         return {
-            "run_id": "20260721T142432Z__07f657",
+            "run_id": "20260721T231415Z__e0c43b",
             "profile_id": "android_malware_all_current",
             "repository_commit": "abc",
             "prepared_sample_count": 9716,
