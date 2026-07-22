@@ -1,0 +1,89 @@
+{
+  "repair_id": "2026-07-22_kuguo-type-lifecycle",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_primary_type_lifecycle_remap",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Cursor Auto taxonomy curation",
+  "applied_at_utc": "2026-07-22T04:04:10Z",
+  "receipt_created_at_utc": "2026-07-22T04:04:10Z",
+  "source_commit_at_application": "97d7cd7727c0c50012e0510157ed57791861a2f1",
+  "source_commit_at_receipt_creation": "97d7cd7727c0c50012e0510157ed57791861a2f1",
+  "affected_family_ids": [
+    80
+  ],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 670,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "active",
+    "is_active": 1,
+    "primary_type_id": 19,
+    "primary_type_slug": "pua",
+    "type_is_active": 0,
+    "canonical_source_name": "Microsoft Security Intelligence",
+    "canonical_source_url": "https://www.microsoft.com/en-us/wdsi/threats/malware-encyclopedia-description?Name=PUA%3AAndroidOS%2FKuguo.A%21MTB",
+    "review_reason": null,
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 689,
+    "distinct_mapped_samples": 689,
+    "active_alias_rows": 0,
+    "authority_rows": 670,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Remap active Kuguo family primary type from retired pua to active adware without changing mappings or reactivating pua.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_research",
+      "name": "Dr.Web Adware.Kuguo.5",
+      "url": "https://vms.drweb.com/virus/?i=17938587"
+    },
+    {
+      "kind": "android_malware_research",
+      "name": "AMD 2017 deep ground-truth analysis",
+      "url": "http://www.arguslab.org/documents/tech_reports/2017/amd_fgwei_2017.pdf"
+    },
+    {
+      "kind": "android_malware_research",
+      "name": "SANER 2019 adware-as-malware study",
+      "url": "https://jacquesklein2302.github.io/papers/2019-saner19era-id277-p-960b992-39643-final.pdf"
+    },
+    {
+      "kind": "vendor_research",
+      "name": "Microsoft PUA:AndroidOS/Kuguo identity",
+      "url": "https://www.microsoft.com/en-us/wdsi/threats/malware-encyclopedia-description?Name=PUA%3AAndroidOS%2FKuguo.A%21MTB"
+    }
+  ],
+  "before_sql_hash": "0f9ec550f872a31b31190459f419a3f862014f66a5b011a89a5a83d21f0e1955",
+  "applied_sql_hash": "213b83b9294fd19bd7d57a12b1472084ac82f8eaa5fc30dc9eeedf57959668f9",
+  "validation_sql_hash": "ab9f891654d4c559e9814d55cdbd70a5cd71079fe0aca09b6b3533fd38a311fc",
+  "rollback_sql_hash": "125f996d59cd1cdf6376590d4ca34d75a7551a5f0e088f5226e14437ed0544c3",
+  "evidence_hash": "b99a7983254469efaf3f8923cec6401f586adba90c0b614addccd47d86ef7260",
+  "post_change_validation": {
+    "family_80_status": "active",
+    "family_80_is_active": 1,
+    "family_80_primary_type_id": 3,
+    "family_80_primary_type_slug": "adware",
+    "catalog_mapped_sample_count": 689,
+    "authority_family_80_sample_count": 670,
+    "active_family_inactive_type_gaps_for_kuguo": 0,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "External adware consensus and contemporaneous DB state support the narrow primary-type remap. They do not prove every mapped sample behavior or create a frozen benchmark artifact."
+}

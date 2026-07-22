@@ -1,0 +1,21 @@
+-- Contemporaneous pre-change capture. Execute before apply.sql.
+-- This receipt intentionally excludes raw sample identifiers and package names.
+SELECT f.family_id, f.family_name, f.family_slug, f.family_status, f.is_active,
+       f.primary_type_id, t.type_slug AS primary_type_slug, t.is_active AS type_is_active,
+       f.canonical_source_name, f.canonical_source_url, f.review_reason,
+       f.review_source_name, f.reviewed_at_utc, f.normalization_target_family_id
+FROM erebus_threat_intel_prod.android_malware_family AS f
+LEFT JOIN erebus_threat_intel_prod.android_malware_type AS t ON t.type_id = f.primary_type_id
+WHERE f.family_id = 80;
+
+SELECT COUNT(*) AS mapping_rows, COUNT(DISTINCT sample_id) AS distinct_mapped_samples
+FROM erebus_threat_intel_prod.malware_sample_family_mapping WHERE family_id = 80;
+
+SELECT
+    (SELECT COUNT(*) FROM erebus_threat_intel_prod.android_malware_family_alias WHERE family_id = 80) AS alias_rows,
+    (SELECT COUNT(*) FROM erebus_threat_intel_prod.android_malware_family_alias WHERE family_id = 80 AND is_active = 1) AS active_alias_rows,
+    (SELECT COUNT(*) FROM erebus_threat_intel_prod.v_android_sample_family_type_authority WHERE family_id = 80) AS authority_rows,
+    (SELECT COUNT(*) FROM (
+      SELECT LOWER(TRIM(family_slug)) AS token FROM erebus_threat_intel_prod.android_malware_family WHERE is_active = 1 AND family_id <> 80
+      UNION ALL SELECT LOWER(TRIM(alias_name)) FROM erebus_threat_intel_prod.android_malware_family_alias WHERE is_active = 1
+    ) AS active_tokens WHERE token = 'kuguo') AS active_slug_or_alias_collisions;

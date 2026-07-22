@@ -1,0 +1,84 @@
+{
+  "repair_id": "2026-07-22_smsworm-type-lifecycle",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_primary_type_lifecycle_remap",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Cursor Auto taxonomy curation",
+  "applied_at_utc": "2026-07-22T04:04:10Z",
+  "receipt_created_at_utc": "2026-07-22T04:04:10Z",
+  "source_commit_at_application": "97d7cd7727c0c50012e0510157ed57791861a2f1",
+  "source_commit_at_receipt_creation": "97d7cd7727c0c50012e0510157ed57791861a2f1",
+  "affected_family_ids": [
+    85
+  ],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 8,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "active",
+    "is_active": 1,
+    "primary_type_id": 10,
+    "primary_type_slug": "worm",
+    "type_is_active": 0,
+    "canonical_source_name": "SecurityWeek",
+    "canonical_source_url": "https://www.securityweek.com/android-users-targeted-with-new-sms-worm/",
+    "review_reason": "curated_import",
+    "review_source_name": "obsidiandroid",
+    "reviewed_at_utc": "2026-05-25 10:48:58",
+    "normalization_target_family_id": null,
+    "mapping_rows": 8,
+    "distinct_mapped_samples": 8,
+    "active_alias_rows": 1,
+    "authority_rows": 8,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Remap active SMSWorm family primary type from retired worm to active sms-trojan without changing mappings or reactivating worm.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_research",
+      "name": "SecurityWeek SMS worm report",
+      "url": "https://www.securityweek.com/sms-worm-hits-chinese-users-hard-installs-android-backdoor/"
+    },
+    {
+      "kind": "vendor_research",
+      "name": "F-Secure SMS-Worm",
+      "url": "https://www.f-secure.com/v-descs/sms-worm"
+    },
+    {
+      "kind": "vendor_research",
+      "name": "Cyble Android SMS Worm / SMSWorm",
+      "url": "https://cyble.com/blog/android-sms-worm-impersonating-covid-19-vaccine-registration-app-spreads-via-text-messages/"
+    }
+  ],
+  "before_sql_hash": "485bc4baf0afc4d8cd431d0d4d8134c6740337f7e444884088a14b6ff1a66a97",
+  "applied_sql_hash": "a470fd693b0e88063a995238371328495384e31c7cff0fe565656e075b930d15",
+  "validation_sql_hash": "22d9f09b7f50afd7b65ab8858242c028eedf935ac6cfab5f2c71ceb13abcd50e",
+  "rollback_sql_hash": "1e8f74200480a74200b4561ac4f7e6b9113eaf7f1328875671fd78eebfd4b9c6",
+  "evidence_hash": "7ea229ad23e8534ef6119af638d6e62e05ce3e17ef66b4d82d2eb29646b0807f",
+  "post_change_validation": {
+    "family_85_status": "active",
+    "family_85_is_active": 1,
+    "family_85_primary_type_id": 14,
+    "family_85_primary_type_slug": "sms-trojan",
+    "catalog_mapped_sample_count": 8,
+    "authority_family_85_sample_count": 8,
+    "active_family_inactive_type_gaps_for_smsworm": 0,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "External SMS-propagation evidence and local sms-trojan peer placement support the narrow primary-type remap. They do not prove every mapped sample behavior or create a frozen benchmark artifact."
+}
