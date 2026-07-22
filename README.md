@@ -38,7 +38,10 @@ All artifacts (models, reports, diagnostics) are saved under `output/`.
 
 ## Version
 
-Current application version: **v2.2.0**.
+Current application version: **v2.4.0**.
+
+Release notes: [`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md).
+Code-complete checklist: [`docs/releases/2.4.0_CODE_COMPLETE_CHECKLIST.md`](docs/releases/2.4.0_CODE_COMPLETE_CHECKLIST.md).
 
 ---
 
@@ -280,8 +283,8 @@ Contributions are welcome! To propose enhancements, bug fixes, or new features:
 
 ## License
 
-MIT License (see [LICENSE](LICENSE)).  
-For academic and research use only. Commercial use requires written permission.  
+MIT License (see [LICENSE](LICENSE)).
+For academic and research use only. Commercial use requires written permission.
 Handle malware data responsibly and comply with VirusTotal terms and all applicable laws.
 
 ---
