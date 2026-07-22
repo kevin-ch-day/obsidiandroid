@@ -1,0 +1,77 @@
+{
+  "repair_id": "2026-07-22_kmin-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation_with_type_repair",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Cursor Auto taxonomy curation",
+  "applied_at_utc": "2026-07-22T04:25:35Z",
+  "receipt_created_at_utc": "2026-07-22T04:25:35Z",
+  "source_commit_at_application": "8fe6def1eb5135a39268780e029184025c533a5b",
+  "source_commit_at_receipt_creation": "8fe6def1eb5135a39268780e029184025c533a5b",
+  "affected_family_ids": [
+    303
+  ],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 3,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 8,
+    "primary_type_slug": "unknown",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 3,
+    "distinct_mapped_samples": 3,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Reactivate Kmin as Android SMS-Trojan authority using F-Secure/Microsoft evidence of premium-rate SMS and device-data theft.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_research",
+      "name": "F-Secure Trojan:Android/Kmin",
+      "url": "https://www.f-secure.com/v-descs/trojan-android-kmin.shtml"
+    },
+    {
+      "kind": "vendor_research",
+      "name": "Microsoft Trojan:AndroidOS/Kmin.A",
+      "url": "https://www.microsoft.com/en-us/wdsi/threats/malware-encyclopedia-description?Name=Trojan%3AAndroidOS%2FKmin.A"
+    }
+  ],
+  "before_sql_hash": "de7d498d9a514f79f22c8ef5f10cb36108cfe1a2b04ae8876249b8aeee35ad7b",
+  "applied_sql_hash": "f261fae2bbc756d5ab8cd5c07f04aa369699bdb366b4055236f836ebdc035b62",
+  "validation_sql_hash": "403c41e5d52262c0739791eaf7bfb86e2db8153263f3cdf14235a6e3defe9e3b",
+  "rollback_sql_hash": "4075f89db4c4666f99617fa58c6a59d7a8b876d4fa52a1a54c2478e67330800d",
+  "evidence_hash": "7edf9259e3ad4b009af4d22f10cd6b5e5dc02501a5bb8606439459d977663646",
+  "post_change_validation": {
+    "family_303_status": "active",
+    "family_303_is_active": 1,
+    "family_303_primary_type_id": 14,
+    "family_303_primary_type_slug": "sms-trojan",
+    "catalog_mapped_sample_count": 3,
+    "authority_family_303_sample_count": 3,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "Contemporaneous DB state and independent research support the narrow authority repair. They do not prove every mapped-sample behavior or create a frozen benchmark artifact."
+}

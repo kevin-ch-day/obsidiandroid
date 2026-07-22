@@ -1,0 +1,72 @@
+{
+  "repair_id": "2026-07-22_smsbot-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Cursor Auto taxonomy curation",
+  "applied_at_utc": "2026-07-22T04:25:35Z",
+  "receipt_created_at_utc": "2026-07-22T04:25:35Z",
+  "source_commit_at_application": "8fe6def1eb5135a39268780e029184025c533a5b",
+  "source_commit_at_receipt_creation": "8fe6def1eb5135a39268780e029184025c533a5b",
+  "affected_family_ids": [
+    283
+  ],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 9,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 14,
+    "primary_type_slug": "sms-trojan",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 9,
+    "distinct_mapped_samples": 9,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Reactivate the existing evidence-backed Android SmsBot family record using its existing SMS-Trojan type without creating a duplicate identity or changing mappings.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_research",
+      "name": "Dr.Web Android.SmsBot.182",
+      "url": "https://vms.drweb.com/virus/?i=16422499"
+    }
+  ],
+  "before_sql_hash": "b692212039e7331346312283887bfb1f487687b5618bd81fa11a5eef433f2cb9",
+  "applied_sql_hash": "e7c83926ed10d45328e82e0f290cfe091580a4e29f5774945573bb401c1ba8bd",
+  "validation_sql_hash": "3c6fb4c5c6e68ebed59e39bfe21a25f1a4b6e6a3b3c2c7c09db1c6fbfdc426dd",
+  "rollback_sql_hash": "7ea0001e18c84472fe57e2843473823b87d95eed2207f1048e89ba2fe0016a09",
+  "evidence_hash": "5c3ec3cd3d36e66bae72d9571248cd1ea3a3b0c972cd04c2c731c4ea346d6c47",
+  "post_change_validation": {
+    "family_283_status": "active",
+    "family_283_is_active": 1,
+    "family_283_primary_type_id": 14,
+    "family_283_primary_type_slug": "sms-trojan",
+    "catalog_mapped_sample_count": 9,
+    "authority_family_283_sample_count": 9,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "Contemporaneous DB state and independent research support the narrow authority repair. They do not prove every mapped-sample behavior or create a frozen benchmark artifact."
+}

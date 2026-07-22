@@ -1,0 +1,77 @@
+{
+  "repair_id": "2026-07-22_uapush-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation_with_type_repair",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Cursor Auto taxonomy curation",
+  "applied_at_utc": "2026-07-22T04:25:35Z",
+  "receipt_created_at_utc": "2026-07-22T04:25:35Z",
+  "source_commit_at_application": "8fe6def1eb5135a39268780e029184025c533a5b",
+  "source_commit_at_receipt_creation": "8fe6def1eb5135a39268780e029184025c533a5b",
+  "affected_family_ids": [
+    294
+  ],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 5,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 8,
+    "primary_type_slug": "unknown",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 5,
+    "distinct_mapped_samples": 5,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Reactivate UaPush as Android spyware authority using independent ACM/Nokia evidence of info-theft plus adware/SMS side effects.",
+  "evidence_sources": [
+    {
+      "kind": "academic_research",
+      "name": "ACM Android spyware characterization (UaPush)",
+      "url": "https://dl.acm.org/doi/10.1145/3382158"
+    },
+    {
+      "kind": "vendor_research",
+      "name": "Nokia/TimesLive Uapush prevalence reporting",
+      "url": "https://www.timeslive.co.za/news/consumer-live/2016-09-05-rip-smstracker-and-uapush---be-alert-to-surging-mobile-device-infections/"
+    }
+  ],
+  "before_sql_hash": "815260c747283fd7afb6b5ff89e42d5370816282f604d330d04d27c9a635ee72",
+  "applied_sql_hash": "6e6dda6858f2c87abd02f16c26ffc8285154b009b5e13d951cdeeda63cd15a24",
+  "validation_sql_hash": "b0af432675a7cae4f0d8f98f6358ad85bac4cc06b9601f3d2445d940be86a86d",
+  "rollback_sql_hash": "9fec71c1c1275a065be59a1e2baa1c69bfc172c15b9f4cee18234c7fd603b02c",
+  "evidence_hash": "b0139d0bcbb58d2fd4733798c987a8eb549898ef0bbb7de34ed04a8d50fbf358",
+  "post_change_validation": {
+    "family_294_status": "active",
+    "family_294_is_active": 1,
+    "family_294_primary_type_id": 2,
+    "family_294_primary_type_slug": "spyware",
+    "catalog_mapped_sample_count": 5,
+    "authority_family_294_sample_count": 5,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "Contemporaneous DB state and independent research support the narrow authority repair. They do not prove every mapped-sample behavior or create a frozen benchmark artifact."
+}

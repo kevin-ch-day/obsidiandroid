@@ -1,0 +1,77 @@
+{
+  "repair_id": "2026-07-22_clientor-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation_with_type_repair",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Cursor Auto taxonomy curation",
+  "applied_at_utc": "2026-07-22T04:25:35Z",
+  "receipt_created_at_utc": "2026-07-22T04:25:35Z",
+  "source_commit_at_application": "8fe6def1eb5135a39268780e029184025c533a5b",
+  "source_commit_at_receipt_creation": "8fe6def1eb5135a39268780e029184025c533a5b",
+  "affected_family_ids": [
+    279
+  ],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 8,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 8,
+    "primary_type_slug": "unknown",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 8,
+    "distinct_mapped_samples": 8,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Reactivate Clientor as Android backdoor authority based on Avira/Malpedia evidence of persistent SSH proxy remote-control behavior.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_research",
+      "name": "Avira Clientor proxy malware analysis",
+      "url": "https://www.avira.com/en/blog/clientor-android-malware-makes-proxy"
+    },
+    {
+      "kind": "vendor_research",
+      "name": "Malpedia apk.clientor",
+      "url": "https://malpedia.caad.fkie.fraunhofer.de/details/apk.clientor"
+    }
+  ],
+  "before_sql_hash": "cae1ffaa82c0c902fca97d3f9fb94d612ff03dd566cabbef00efd40869d87937",
+  "applied_sql_hash": "3f66a713019e1b46dcef6d88f361d4e2a6fb0298d56d4d1bd937189d75ce362d",
+  "validation_sql_hash": "5dea1ff5d6f59a429d57afd7a0e87495d62ed8fbce113a5411806e5847e2efd4",
+  "rollback_sql_hash": "e3a815cfffb1248aabde337bf14eeacdfb72014028c6fdac7ed01b845db08b97",
+  "evidence_hash": "dd9a8c33c487e33a3b6fafd6669e629838bb9fea5fa382c0e5453eea3a380c24",
+  "post_change_validation": {
+    "family_279_status": "active",
+    "family_279_is_active": 1,
+    "family_279_primary_type_id": 6,
+    "family_279_primary_type_slug": "backdoor",
+    "catalog_mapped_sample_count": 8,
+    "authority_family_279_sample_count": 8,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "Contemporaneous DB state and independent research support the narrow authority repair. They do not prove every mapped-sample behavior or create a frozen benchmark artifact."
+}

@@ -1,0 +1,72 @@
+{
+  "repair_id": "2026-07-22_mobtes-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation_with_type_repair",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Cursor Auto taxonomy curation",
+  "applied_at_utc": "2026-07-22T04:25:35Z",
+  "receipt_created_at_utc": "2026-07-22T04:25:35Z",
+  "source_commit_at_application": "8fe6def1eb5135a39268780e029184025c533a5b",
+  "source_commit_at_receipt_creation": "8fe6def1eb5135a39268780e029184025c533a5b",
+  "affected_family_ids": [
+    297
+  ],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 4,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 8,
+    "primary_type_slug": "unknown",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 4,
+    "distinct_mapped_samples": 4,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Reactivate Mobtes as Android spyware authority using Kaspersky family documentation of unauthorized surveillance/exfiltration behavior.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_research",
+      "name": "Kaspersky Trojan.AndroidOS.Mobtes",
+      "url": "https://threats.kaspersky.com/en/threat/Trojan.AndroidOS.Mobtes/"
+    }
+  ],
+  "before_sql_hash": "30dfc77b2f9f3873cf3d696bb929ff35dc562fe7be73a438edae0332d4234daf",
+  "applied_sql_hash": "a129d61b04be7dfce29432edfefdf52fb03f7359b9f46da450194276ba60aac9",
+  "validation_sql_hash": "40c1c21c85bce69eee49bcbc4cfa7ea81924855e6de73171ab95893c7b9b527b",
+  "rollback_sql_hash": "53aa1b932bd70d251b669619c871c9e8d8963175db8a71fb37a1c50295a31125",
+  "evidence_hash": "fa7cfa6441ac58f752db7e7a78a8b4cb6fc5757b8332809a5c1616295d83f608",
+  "post_change_validation": {
+    "family_297_status": "active",
+    "family_297_is_active": 1,
+    "family_297_primary_type_id": 2,
+    "family_297_primary_type_slug": "spyware",
+    "catalog_mapped_sample_count": 4,
+    "authority_family_297_sample_count": 4,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "Contemporaneous DB state and independent research support the narrow authority repair. They do not prove every mapped-sample behavior or create a frozen benchmark artifact."
+}
