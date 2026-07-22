@@ -40,6 +40,19 @@ def test_write_csv_emits_header_for_empty_frame(tmp_path: Path) -> None:
     assert loaded.empty
 
 
+def test_raw_empty_dataframe_to_csv_is_poisonous_newline_stub(tmp_path: Path) -> None:
+    """Document why composers must use write_csv instead of DataFrame.to_csv."""
+    path = tmp_path / "stub.csv"
+    pd.DataFrame().to_csv(path, index=False)
+    assert path.read_bytes() in {b"\n", b""} or path.read_text(encoding="utf-8").strip() == ""
+    # Headerless newline stubs used to raise EmptyDataError on naive reads.
+    if path.read_bytes() == b"\n":
+        with pytest.raises(pd.errors.EmptyDataError):
+            pd.read_csv(path)
+    # Shared helper stays safe.
+    assert optional_csv(path).empty
+
+
 def test_optional_csv_handles_newline_only_file(tmp_path: Path) -> None:
     path = tmp_path / "newline.csv"
     path.write_text("\n", encoding="utf-8")

@@ -24,7 +24,9 @@ def test_freeze_and_group_split_are_deterministic() -> None:
     split = create_frozen_group_split(lock)
     assert set(split.split_role) == {"train", "test"}
     assert (split.groupby("family_id").size() >= 20).all()
-    assert split.groupby("family_id").apply(lambda part: (part.split_role == "test").sum()).min() >= 4
+    assert split.groupby("family_id").apply(
+        lambda part: (part.split_role == "test").sum(), include_groups=False
+    ).min() >= 4
 
 
 def test_cross_family_package_component_fails_lock() -> None:

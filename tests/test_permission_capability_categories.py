@@ -33,6 +33,14 @@ def test_explicit_and_multi_category_mapping() -> None:
     assert "android.permission.disable_keyguard" in EXPLICIT_PERMISSION_CAPABILITY_MAP
 
 
+def test_vendor_namespace_not_captured_by_capability_patterns() -> None:
+    assert classify_capability_categories("com.samsung.android.permission.access_wifi") == ("oem_platform",)
+    assert classify_capability_categories("com.google.android.c2dm.permission.receive") == ("oem_platform",)
+    assert classify_capability_categories("com.example.app.permission.custom_token") == ("app_defined_unknown",)
+    # AOSP tokens still use patterns / explicit map
+    assert classify_capability_categories("android.permission.access_wifi_state") == ("wifi_network",)
+
+
 def test_capability_separated_from_protection_lane() -> None:
     token = "android.permission.read_sms"
     cats = classify_capability_categories(token)
@@ -88,6 +96,56 @@ def test_sample_category_prevalence_family_and_package_balance() -> None:
     assert abs(pb - (1 / 3)) < 1e-9
     assert pd.notna(fb)
     assert sw != pb
+
+
+def test_composer_refuses_archived_path_without_receipt(tmp_path: Path) -> None:
+    run_id = "20260721T231415Z__e0c43b"
+    run_root = tmp_path / "runs" / "_archived" / "completed" / "allcurrent_diagnostic" / run_id
+    run_root.mkdir(parents=True)
+    import pytest
+    from obsidiandroid.reporting.permission_capability_categories import default_report_output_dir
+
+    with pytest.raises(ValueError, match="Refusing to write reports into archived run"):
+        default_report_output_dir(run_root, run_id=run_id, report_name="permission_capability_categories")
+
+
+def test_composer_refuses_default_write_into_immutable_archive(tmp_path: Path) -> None:
+    run_id = "20260721T231415Z__e0c43b"
+    run_root = tmp_path / "archived_run"
+    diag = run_root / "diagnostics"
+    tables = run_root / "bundles" / "permission_trends" / "tables"
+    diag.mkdir(parents=True)
+    tables.mkdir(parents=True)
+    (run_root / ".COMPLETE").write_text("ok\n", encoding="utf-8")
+    (run_root / "ARCHIVE_RECEIPT.json").write_text("{}\n", encoding="utf-8")
+    labels = pd.DataFrame(
+        [{"sample_id": 1, "family_canonical": "F", "type_slug": "rat", "package_name": "com.a", "family_id": 1, "sha256": "h"}]
+    )
+    labels.to_csv(diag / f"aligned_labels_{run_id}.csv", index=False)
+    labels.to_csv(diag / f"analysis_snapshot_{run_id}.csv", index=False)
+    pd.DataFrame(
+        [{"sample_id": 1, "permission_name": "android.permission.internet", "permission_present": 1}]
+    ).to_csv(diag / f"ml_sample_permission_feature_{run_id}.csv", index=False)
+    pd.DataFrame([{"samples_with_permission_rows": 1}]).to_csv(
+        tables / f"permission_coverage_report_{run_id}.csv", index=False
+    )
+    (run_root / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "profile_id": "android_malware_all_current",
+                "git_commit": "deadbeef",
+                "dataset_hash": "abc",
+                "cohort_prepared_row_count": 1,
+                "run_status": "complete",
+            }
+        ),
+        encoding="utf-8",
+    )
+    import pytest
+
+    with pytest.raises(ValueError, match="Refusing to write reports into archived run"):
+        compose_permission_capability_category_report(run_root=run_root, run_id=run_id, min_samples=1)
 
 
 def test_composer_deterministic_no_db(tmp_path: Path, monkeypatch) -> None:

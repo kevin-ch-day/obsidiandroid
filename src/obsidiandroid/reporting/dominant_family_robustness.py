@@ -18,6 +18,7 @@ from typing import Any
 import pandas as pd
 
 from obsidiandroid.common.csv_io import require_csv as _require_csv
+from obsidiandroid.common.csv_io import write_csv
 from obsidiandroid.reporting.permission_governance_lanes import (
     DEFAULT_THRESHOLDS,
     PROTECTION_LANE_CONTRACT_VERSION,
@@ -311,8 +312,8 @@ def compose_dominant_family_robustness_report(
     output_hashes: dict[str, str] = {}
     for name, frame in derived.items():
         path = out_dir / f"{name}_{run_id}.csv"
-        frame.to_csv(path, index=False)
-        frame.to_csv(out_dir / f"{name}.latest.csv", index=False)
+        write_csv(path, frame)
+        write_csv(out_dir / f"{name}.latest.csv", frame)
         output_hashes[path.name] = sha256_file(path)
 
     md = _render_markdown(

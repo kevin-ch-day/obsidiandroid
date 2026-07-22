@@ -104,8 +104,19 @@ def _norm_perm(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
-def verify_completed_run(run_root: Path, *, expected_run_id: str = EXPECTED_RUN_ID) -> dict[str, Any]:
-    """Hard-fail when the slot is not the expected completed run."""
+def verify_completed_run(
+    run_root: Path,
+    *,
+    expected_run_id: str = EXPECTED_RUN_ID,
+    require_canonical_counts: bool = True,
+) -> dict[str, Any]:
+    """Hard-fail when the slot is not a completed run matching ``expected_run_id``.
+
+    When ``require_canonical_counts`` is True (default for legacy protection
+    composers), also require the frozen e0c43b cohort sizes (9716 / 9457).
+    Offline capability/temporal composers may pass False to analyze other
+    completed runs that share the same artifact layout.
+    """
     run_root = Path(run_root)
     man_path = run_root / "run_manifest.json"
     if not man_path.is_file():
@@ -128,7 +139,7 @@ def verify_completed_run(run_root: Path, *, expected_run_id: str = EXPECTED_RUN_
     )
     perm_bearing = int(coverage.iloc[0]["samples_with_permission_rows"])
     prepared = int(manifest.get("cohort_prepared_row_count") or 0)
-    if prepared != 9716 or perm_bearing != EXPECTED_PERM_BEARING:
+    if require_canonical_counts and (prepared != 9716 or perm_bearing != EXPECTED_PERM_BEARING):
         raise ValueError(
             f"canonical count mismatch: prepared={prepared} perm_bearing={perm_bearing}"
         )
@@ -145,6 +156,7 @@ def verify_completed_run(run_root: Path, *, expected_run_id: str = EXPECTED_RUN_
         "run_status": status,
         "manifest": manifest,
         "snapshot": snap,
+        "require_canonical_counts": require_canonical_counts,
     }
 
 
@@ -203,8 +215,14 @@ def build_type_lane_summary(
     labels: pd.DataFrame,
     features: pd.DataFrame | None,
     audit: pd.DataFrame,
+    expected_permission_bearing: int | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
     """Per-type lane accounting + prevalence rows + sample reconciliations."""
+    expected_bearing = (
+        int(expected_permission_bearing)
+        if expected_permission_bearing is not None
+        else EXPECTED_PERM_BEARING
+    )
     inv = _type_inventory_from_snapshot(snap)
     type_prev = type_prev.copy()
     type_prev["permission"] = type_prev["permission"].map(_norm_perm)
@@ -257,7 +275,8 @@ def build_type_lane_summary(
                     continue
                 sample_lane_hits[(str(type_slug), lane)] = int(rows[:, cols_i].any(axis=1).sum())
     else:
-        global_bearing = EXPECTED_PERM_BEARING
+        # Do not invent the frozen e0c43b bearing count when features were skipped.
+        global_bearing = None
 
     summary_rows: list[dict[str, Any]] = []
     prevalence_rows: list[dict[str, Any]] = []
@@ -375,9 +394,18 @@ def build_type_lane_summary(
                     )
 
     recon = {
-        "permission_bearing_samples_expected": EXPECTED_PERM_BEARING,
-        "permission_bearing_samples_observed": global_bearing,
-        "permission_bearing_reconciles": int(global_bearing) == EXPECTED_PERM_BEARING,
+        "permission_bearing_samples_expected": expected_bearing,
+        "permission_bearing_samples_observed": (
+            int(global_bearing) if global_bearing is not None else ""
+        ),
+        "permission_bearing_reconciles": (
+            int(global_bearing) == expected_bearing if global_bearing is not None else False
+        ),
+        "permission_bearing_reconciliation_status": (
+            "computed_from_aligned_features"
+            if global_bearing is not None
+            else "skipped_no_aligned_features"
+        ),
         "type_count": int(len(inv)),
         "observed_types": sorted(inv["type_slug"].astype(str).tolist()),
         "lane_observation_sum": int(sum(r["total_observations"] for r in summary_rows)),
@@ -803,6 +831,7 @@ def compose_type_permission_protection(
         labels=labels,
         features=features,
         audit=audit,
+        expected_permission_bearing=identity.get("permission_bearing_sample_count"),
     )
     sensitivity = build_dominant_family_lane_sensitivity(
         fam_prev=fam_prev,
@@ -854,7 +883,7 @@ def compose_type_permission_protection(
     output_hashes: dict[str, str] = {}
     for name, frame in tables.items():
         path = out_dir / name
-        frame.to_csv(path, index=False)
+        _write_csv(path, frame)
         outputs[name] = path
         output_hashes[name] = sha256_file(path)
 

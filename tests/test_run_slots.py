@@ -50,7 +50,7 @@ def test_prepare_run_root_replaces_normal_slot_and_archives_failed_run(tmp_path:
     assert Path(prepared["run_root"]) == slot_root
     assert (slot_root / "diagnostics").is_dir()
     assert not (slot_root / "stale.txt").exists()
-    archived = runs_root / "_archived" / "failed" / "20260601T010101Z__old001"
+    archived = runs_root / "_archived" / "failed" / "majorfam_benchmark" / "20260601T010101Z__old001"
     assert archived.is_dir()
     assert (archived / "run_manifest.json").is_file()
 
@@ -169,6 +169,48 @@ def test_prepare_run_root_retains_three_completed_archives(tmp_path: Path) -> No
         "20260603T010101Z__old3",
         "20260604T010101Z__live",
     ]
+
+
+def test_prepare_run_root_failed_retention_is_per_slot(tmp_path: Path) -> None:
+    runs_root = tmp_path / "output" / "runs"
+    # Pre-seed a failed archive for a different slot; it must survive pruning.
+    other = runs_root / "_archived" / "failed" / "allcurrent_diagnostic" / "20260601T010101Z__other"
+    other.mkdir(parents=True)
+    (other / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "20260601T010101Z__other",
+                "run_status": "failed",
+                "run_started_at_utc": "2026-06-01T01:01:01+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    slot_root = runs_root / "majorfam_benchmark"
+    slot_root.mkdir(parents=True, exist_ok=True)
+    (slot_root / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "20260602T010101Z__fail1",
+                "run_status": "failed",
+                "run_started_at_utc": "2026-06-02T01:01:01+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_slots.prepare_run_root(
+        runs_root=runs_root,
+        run_slot="majorfam_benchmark",
+        run_instance_id="20260603T010101Z__new",
+        archive_run=False,
+        keep_last_failed_runs=1,
+    )
+
+    assert other.is_dir()
+    archived = runs_root / "_archived" / "failed" / "majorfam_benchmark" / "20260602T010101Z__fail1"
+    assert archived.is_dir()
 
 
 def test_setup_runtime_context_uses_slot_run_root(monkeypatch, tmp_path: Path) -> None:

@@ -229,11 +229,35 @@ def normalize_permission_token(value: Any) -> str:
     return str(value).strip().lower()
 
 
+def _classify_vendor_or_app_namespace(token: str) -> tuple[str, ...]:
+    """Map non-AOSP namespaces before generic capability pattern fallbacks."""
+    if any(
+        part in token
+        for part in (
+            ".samsung.",
+            ".huawei.",
+            ".oppo.",
+            ".xiaomi.",
+            ".meizu.",
+            ".sec.",
+            ".htc.",
+            ".sony",
+            ".oneplus.",
+        )
+    ):
+        return ("oem_platform",)
+    if token.startswith("com.google.") or token.startswith("com.android."):
+        return ("oem_platform",)
+    return ("app_defined_unknown",)
+
+
 def classify_capability_categories(permission: Any) -> tuple[str, ...]:
     """Map one permission token to one or more capability categories.
 
     Multi-label results occur only from ``EXPLICIT_PERMISSION_CAPABILITY_MAP``.
-    Pattern fallbacks and OEM/app-defined defaults are single-label.
+    Vendor/app namespaces are classified before pattern fallbacks so tokens such as
+    ``com.samsung...wifi...`` stay in ``oem_platform`` / ``app_defined_unknown``.
+    Pattern fallbacks and remaining defaults are single-label.
     """
     token = normalize_permission_token(permission)
     if not token:
@@ -244,16 +268,11 @@ def classify_capability_categories(permission: Any) -> tuple[str, ...]:
         if unknown:
             raise ValueError(f"Non-canonical capability categories for {token}: {unknown}")
         return cats
+    if token.startswith("com.") or token.startswith("android.permission.com."):
+        return _classify_vendor_or_app_namespace(token)
     for pattern, category in _PATTERN_FALLBACKS:
         if pattern.search(token):
             return (category,)
-    if token.startswith("com.") or token.startswith("android.permission.com."):
-        # Vendor / app-namespace tokens: OEM platform when clearly vendor-ish; else app-defined.
-        if any(part in token for part in (".samsung.", ".huawei.", ".oppo.", ".xiaomi.", ".meizu.", ".sec.", ".htc.", ".sony", ".oneplus.")):
-            return ("oem_platform",)
-        if token.startswith("com.google.") or token.startswith("com.android."):
-            return ("oem_platform",)
-        return ("app_defined_unknown",)
     if token.startswith("android.permission."):
         return ("app_defined_unknown",)
     return ("app_defined_unknown",)
@@ -333,9 +352,7 @@ def _load_permission_long(run_root: Path, run_id: str) -> pd.DataFrame:
     if not path.is_file():
         raise FileNotFoundError(f"Missing permission feature long table: {path}")
     cols = ["sample_id", "permission_name", "permission_present"]
-    frame = pd.read_csv(path, usecols=lambda c: c in cols or True)
-    keep = [c for c in cols if c in frame.columns]
-    frame = frame[keep].copy()
+    frame = pd.read_csv(path, usecols=lambda c: c in cols)
     frame["permission_name"] = frame["permission_name"].map(normalize_permission_token)
     frame["permission_present"] = pd.to_numeric(frame["permission_present"], errors="coerce").fillna(0).astype(int)
     frame = frame[frame["permission_present"] > 0]
@@ -382,15 +399,13 @@ def build_sample_category_matrix(
             out[cat] = 0
         return out
 
-    exploded_rows: list[dict[str, Any]] = []
-    for row in present.itertuples(index=False):
-        for cat in classify_capability_categories(row.permission_name):
-            exploded_rows.append({"sample_id": row.sample_id, "capability_category": cat})
-    if not exploded_rows:
+    present["capability_category"] = present["permission_name"].map(classify_capability_categories)
+    exploded = present[["sample_id", "capability_category"]].explode("capability_category", ignore_index=True)
+    exploded = exploded.dropna(subset=["capability_category"]).drop_duplicates()
+    if exploded.empty:
         for cat in CANONICAL_CAPABILITY_CATEGORIES:
             out[cat] = 0
         return out
-    exploded = pd.DataFrame(exploded_rows).drop_duplicates()
     wide = (
         exploded.assign(flag=1)
         .pivot_table(index="sample_id", columns="capability_category", values="flag", aggfunc="max", fill_value=0)
@@ -609,6 +624,47 @@ def _pivot_prevalence(df: pd.DataFrame, index: str, value: str) -> pd.DataFrame:
     return work.pivot_table(index=index, columns="capability_category", values=value, aggfunc="first")
 
 
+def default_report_output_dir(run_root: Path, *, run_id: str, report_name: str) -> Path:
+    """Resolve a default report directory that never mutates an immutable archive."""
+    resolved = Path(run_root).resolve()
+    if (
+        (resolved / "ARCHIVE_RECEIPT.json").is_file()
+        or (resolved / "ARCHIVE_SHA256SUMS.txt").is_file()
+        or "_archived" in resolved.parts
+    ):
+        raise ValueError(
+            f"Refusing to write reports into archived run {run_root}; pass output_dir "
+            f"(for example output/runs/_offline_reports/{run_id}/{report_name})"
+        )
+    return resolved / "diagnostics" / report_name
+
+
+def _path_is_under(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def assert_run_root_writable_for_reports(run_root: Path, *, output_dir: Path | None = None) -> None:
+    """Refuse destructive report writes into archived run trees."""
+    resolved = Path(run_root).resolve()
+    archived = "_archived" in resolved.parts or (resolved / "ARCHIVE_RECEIPT.json").is_file()
+    if not archived:
+        return
+    if output_dir is None:
+        raise ValueError(
+            f"Refusing to write reports into archived run {run_root}; pass an explicit output_dir "
+            "outside the archive"
+        )
+    if _path_is_under(Path(output_dir), resolved):
+        raise ValueError(
+            f"Refusing to write report output under archived run {run_root}; "
+            "choose an output_dir outside the archive"
+        )
+
+
 def compose_permission_capability_category_report(
     *,
     run_root: Path,
@@ -616,11 +672,20 @@ def compose_permission_capability_category_report(
     output_dir: Path | None = None,
     repo_root: Path | None = None,
     min_samples: int = 30,
+    require_canonical_counts: bool = False,
 ) -> dict[str, Any]:
     """Compose offline capability-category reports from a completed run root."""
     run_root = Path(run_root).resolve()
-    verify_completed_run(run_root, expected_run_id=run_id)
-    out_dir = Path(output_dir) if output_dir else run_root / "diagnostics" / "permission_capability_categories"
+    verify_completed_run(
+        run_root,
+        expected_run_id=run_id,
+        require_canonical_counts=require_canonical_counts,
+    )
+    out_dir = (
+        Path(output_dir)
+        if output_dir
+        else default_report_output_dir(run_root, run_id=run_id, report_name="permission_capability_categories")
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
 
     labels = _load_labels(run_root, run_id)
@@ -821,5 +886,7 @@ __all__ = [
     "capability_category_contract_metadata",
     "classify_capability_categories",
     "compose_permission_capability_category_report",
+    "default_report_output_dir",
+    "assert_run_root_writable_for_reports",
     "normalize_permission_token",
 ]

@@ -17,6 +17,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
+from obsidiandroid.common.csv_io import write_csv
 from obsidiandroid.pipeline.permission_trends.stats_core import js_distance
 from obsidiandroid.reporting.dominant_family_profile_sensitivity import spearman_rank_corr
 from obsidiandroid.reporting.package_balanced_permission_analysis import (
@@ -481,7 +482,7 @@ def compose_package_balance_attribution(
     hashes: dict[str, str] = {}
     for name, frame in outputs.items():
         path = out / name
-        frame.to_csv(path, index=False)
+        write_csv(path, frame)
         hashes[name] = sha256_file(path)
     md = out / "package_balance_attribution_interpretation.md"
     md.write_text(interpretation, encoding="utf-8")

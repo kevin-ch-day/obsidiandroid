@@ -186,7 +186,7 @@ def prepare_run_root(
     runs_root.mkdir(parents=True, exist_ok=True)
     archives_root = runs_root / "_archived"
     kept_root = archives_root / "kept"
-    failed_root = archives_root / "failed"
+    failed_root = archives_root / "failed" / run_slot
     slot_root = runs_root / run_slot
     completed_root = archives_root / "completed" / run_slot
 

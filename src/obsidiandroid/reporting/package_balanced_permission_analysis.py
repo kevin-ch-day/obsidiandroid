@@ -16,7 +16,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
-from obsidiandroid.common.csv_io import optional_csv
+from obsidiandroid.common.csv_io import optional_csv, write_csv
 from obsidiandroid.pipeline.permission_trends.stats_core import js_distance
 from obsidiandroid.reporting.dominant_family_profile_sensitivity import spearman_rank_corr
 from obsidiandroid.reporting.permission_authority_enrichment import enrichment_lane_lookup
@@ -715,6 +715,17 @@ def compose_package_balanced_permission_analysis(
     identity = verify_completed_run(run_root, expected_run_id=run_id)
     run_id = identity["run_id"]
     out = Path(output_dir) if output_dir else run_root / "diagnostics" / "package_balanced_permission_analysis"
+    resolved_run = run_root.resolve()
+    if "_archived" in resolved_run.parts or (resolved_run / "ARCHIVE_RECEIPT.json").is_file():
+        try:
+            out.resolve().relative_to(resolved_run)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(
+                f"Refusing to write report output under archived run {run_root}; "
+                "choose an output_dir outside the archive"
+            )
     if out.name in BANNED_OUTPUT_DIRS or any(out.resolve() == (run_root / "diagnostics" / x).resolve() for x in BANNED_OUTPUT_DIRS):
         raise RuntimeError("refusing to write into an existing protected research directory")
     if out.exists():
@@ -776,7 +787,7 @@ def compose_package_balanced_permission_analysis(
     hashes = {}
     for name, frame in outputs.items():
         path = out / name
-        frame.to_csv(path, index=False)
+        write_csv(path, frame)
         hashes[name] = sha256_file(path)
     md = out / "package_balanced_permission_interpretation.md"
     md.write_text(render_interpretation(family_concentration=family_conc, type_concentration=type_conc,
