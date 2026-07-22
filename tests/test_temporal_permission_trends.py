@@ -58,6 +58,58 @@ def test_discovered_over_submission_and_missing_handling() -> None:
     assert submission_only["selected_date_source"] == SOURCE_FIRST_ANALYZED_SUBMISSION
 
 
+def test_pd_na_and_unparseable_itw_count_as_missing() -> None:
+    selected = select_temporal_observation(
+        {
+            "vt_first_seen_itw_date": pd.NA,
+            "vt_first_submission_date": "2019-01-02",
+        }
+    )
+    assert selected["missing_first_seen_in_the_wild"] is True
+    assert selected["selected_date_source"] == SOURCE_FIRST_ANALYZED_SUBMISSION
+
+    bad_itw = select_temporal_observation(
+        {
+            "vt_first_seen_itw_date": "not-a-date",
+            "vt_first_submission_date": "2018-03-04",
+        }
+    )
+    assert bad_itw["missing_first_seen_in_the_wild"] is True
+    assert bad_itw["selected_date_source"] == SOURCE_FIRST_ANALYZED_SUBMISSION
+
+
+def test_missing_date_rates_use_clear_eligibility_metrics() -> None:
+    labels = pd.DataFrame(
+        [
+            {
+                "missing_first_seen_in_the_wild": True,
+                "missing_first_discovered": True,
+                "missing_first_analyzed_or_submission": False,
+                "missing_collection_timestamp": True,
+                "missing_selected_temporal_date": False,
+                "temporal_eligibility_status": "eligible",
+            },
+            {
+                "missing_first_seen_in_the_wild": True,
+                "missing_first_discovered": True,
+                "missing_first_analyzed_or_submission": True,
+                "missing_collection_timestamp": True,
+                "missing_selected_temporal_date": True,
+                "temporal_eligibility_status": "ineligible_missing_date",
+            },
+        ]
+    )
+    rates = build_missing_date_rates(labels)
+    metrics = set(rates["metric"])
+    assert "ineligible_missing_selected_date" in metrics
+    assert "eligible_observation_date_samples" in metrics
+    assert "temporal_eligible_samples" not in metrics
+    ineligible = rates[rates.metric == "ineligible_missing_selected_date"].iloc[0]
+    eligible = rates[rates.metric == "eligible_observation_date_samples"].iloc[0]
+    assert int(ineligible["count"]) == 1
+    assert int(eligible["count"]) == 1
+
+
 def test_year_extraction_and_attach() -> None:
     assert extract_observation_year("2021-05-01") == 2021
     assert extract_observation_year("") is None
@@ -197,6 +249,9 @@ def test_temporal_composer_deterministic_no_mutation(tmp_path: Path) -> None:
     assert m1["eligible_sample_count"] == m2["eligible_sample_count"]
     assert (out1 / "yearly_sample_counts_by_type.csv").read_bytes() == (out2 / "yearly_sample_counts_by_type.csv").read_bytes()
     assert (out1 / "sample_temporal_observations.csv").read_bytes() == (out2 / "sample_temporal_observations.csv").read_bytes()
+    pb_fig = "figures/yearly_capability_prevalence_package_balanced.png"
+    assert (out1 / pb_fig).is_file()
+    assert (out1 / pb_fig).read_bytes() == (out2 / pb_fig).read_bytes()
     assert (diag / f"aligned_labels_{run_id}.csv").read_bytes() == before
     rates = build_missing_date_rates(pd.read_csv(out1 / "sample_temporal_observations.csv"))
     assert not rates.empty

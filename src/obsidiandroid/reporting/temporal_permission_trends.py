@@ -24,6 +24,7 @@ from obsidiandroid.reporting.package_balanced_permission_analysis import (
 from obsidiandroid.reporting.permission_capability_categories import (
     CANONICAL_CAPABILITY_CATEGORIES,
     build_sample_category_matrix,
+    default_report_output_dir,
     normalize_permission_token,
 )
 from obsidiandroid.reporting.permission_governance_lanes import (
@@ -64,7 +65,8 @@ def _load_labels(run_root: Path, run_id: str) -> pd.DataFrame:
 
 def _load_permission_long(run_root: Path, run_id: str) -> pd.DataFrame:
     path = run_root / "diagnostics" / f"ml_sample_permission_feature_{run_id}.csv"
-    frame = pd.read_csv(path)
+    cols = ["sample_id", "permission_name", "permission_present"]
+    frame = pd.read_csv(path, usecols=lambda c: c in cols)
     frame["permission_name"] = frame["permission_name"].map(normalize_permission_token)
     frame["permission_present"] = pd.to_numeric(frame["permission_present"], errors="coerce").fillna(0).astype(int)
     return frame[frame["permission_present"] > 0].copy()
@@ -253,7 +255,13 @@ def build_timestamp_source_coverage(temporal_labels: pd.DataFrame) -> pd.DataFra
 
 
 def build_missing_date_rates(temporal_labels: pd.DataFrame) -> pd.DataFrame:
-    """Missingness summary for temporal fields."""
+    """Missingness and eligibility summary for temporal fields.
+
+    ``missing_*`` metrics count rows lacking a usable value for that source.
+    ``ineligible_missing_selected_date`` counts rows with no selected observation
+    date. ``eligible_observation_date_samples`` is the complementary eligible count
+    (stored in ``count``; ``missing_count`` is unused/zero for that row).
+    """
     n = len(temporal_labels)
     cols = [
         "missing_first_seen_in_the_wild",
@@ -262,19 +270,44 @@ def build_missing_date_rates(temporal_labels: pd.DataFrame) -> pd.DataFrame:
         "missing_collection_timestamp",
         "missing_selected_temporal_date",
     ]
-    rows = []
+    rows: list[dict[str, Any]] = []
     for col in cols:
         if col not in temporal_labels.columns:
             continue
         miss = int(temporal_labels[col].astype(bool).sum())
-        rows.append({"metric": col, "missing_count": miss, "missing_rate": miss / n if n else float("nan"), "denominator": n})
+        rows.append(
+            {
+                "metric": col,
+                "count": miss,
+                "missing_count": miss,
+                "rate": miss / n if n else float("nan"),
+                "missing_rate": miss / n if n else float("nan"),
+                "denominator": n,
+                "interpretation": f"rows lacking usable {col.removeprefix('missing_')}",
+            }
+        )
     eligible = int((temporal_labels["temporal_eligibility_status"] == "eligible").sum())
+    ineligible = n - eligible
     rows.append(
         {
-            "metric": "temporal_eligible_samples",
-            "missing_count": n - eligible,
-            "missing_rate": (n - eligible) / n if n else float("nan"),
+            "metric": "ineligible_missing_selected_date",
+            "count": ineligible,
+            "missing_count": ineligible,
+            "rate": ineligible / n if n else float("nan"),
+            "missing_rate": ineligible / n if n else float("nan"),
             "denominator": n,
+            "interpretation": "rows with no selected observation date (not APK-creation dating)",
+        }
+    )
+    rows.append(
+        {
+            "metric": "eligible_observation_date_samples",
+            "count": eligible,
+            "missing_count": 0,
+            "rate": eligible / n if n else float("nan"),
+            "missing_rate": 0.0,
+            "denominator": n,
+            "interpretation": "rows with a selected observation date under the temporal contract",
         }
     )
     return pd.DataFrame(rows)
@@ -355,11 +388,20 @@ def compose_temporal_permission_trends(
     repo_root: Path | None = None,
     min_support: int = DEFAULT_MIN_YEAR_SUPPORT,
     platform_events_path: Path | None = None,
+    require_canonical_counts: bool = False,
 ) -> dict[str, Any]:
     """Compose offline temporal trend reports from a completed run."""
     run_root = Path(run_root).resolve()
-    verify_completed_run(run_root, expected_run_id=run_id)
-    out_dir = Path(output_dir) if output_dir else run_root / "diagnostics" / "temporal_permission_trends"
+    verify_completed_run(
+        run_root,
+        expected_run_id=run_id,
+        require_canonical_counts=require_canonical_counts,
+    )
+    out_dir = (
+        Path(output_dir)
+        if output_dir
+        else default_report_output_dir(run_root, run_id=run_id, report_name="temporal_permission_trends")
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
     repo = Path(repo_root) if repo_root else Path(__file__).resolve().parents[3]
 
@@ -472,6 +514,18 @@ def compose_temporal_permission_trends(
         run_id=run_id,
         weighting="sample_weighted",
         denominator_note=f"min_support={min_support}",
+    )
+    cap_pb_focus = cap_pb[cap_pb["capability_category"].isin(focus_caps)]
+    _plot_lines(
+        cap_pb_focus,
+        x="observation_year",
+        y="prevalence",
+        series="capability_category",
+        out_path=fig_dir / "yearly_capability_prevalence_package_balanced.png",
+        title="Yearly capability prevalence (package-balanced)",
+        run_id=run_id,
+        weighting="package_balanced",
+        denominator_note=f"min_support={min_support}; known packages only",
     )
     dangerous = lane_year[lane_year["protection_lane"].isin(["aosp_dangerous", "aosp_signature", "aosp_signature_privileged"])]
     _plot_lines(

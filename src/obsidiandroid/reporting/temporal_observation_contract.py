@@ -72,10 +72,16 @@ def temporal_observation_contract_metadata() -> dict[str, Any]:
 def _is_missing_scalar(value: Any) -> bool:
     if value is None:
         return True
-    if isinstance(value, float) and pd.isna(value):
-        return True
+    try:
+        # Covers float NaN, pd.NaT, and pd.NA without treating non-empty strings as NA.
+        if value is pd.NA:
+            return True
+        if not isinstance(value, (str, bytes)) and pd.isna(value):
+            return True
+    except (TypeError, ValueError):
+        pass
     text = str(value).strip()
-    return text == "" or text.lower() in {"nan", "nat", "none", "null", "(null)"}
+    return text == "" or text.lower() in {"nan", "nat", "none", "null", "(null)", "<na>"}
 
 
 def parse_observation_timestamp(value: Any) -> pd.Timestamp | pd.NaT:
@@ -86,11 +92,15 @@ def parse_observation_timestamp(value: Any) -> pd.Timestamp | pd.NaT:
     return ts
 
 
-def _first_present(row: Mapping[str, Any], columns: tuple[str, ...]) -> tuple[str, Any]:
+def _usable_timestamp_field(row: Mapping[str, Any], columns: tuple[str, ...]) -> tuple[str, Any, pd.Timestamp]:
+    """Return the first column with a parseable timestamp, else empty."""
     for col in columns:
-        if col in row and not _is_missing_scalar(row[col]):
-            return col, row[col]
-    return "", None
+        if col not in row or _is_missing_scalar(row[col]):
+            continue
+        ts = parse_observation_timestamp(row[col])
+        if pd.notna(ts):
+            return col, row[col], ts
+    return "", None, pd.NaT
 
 
 def select_temporal_observation(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -100,41 +110,37 @@ def select_temporal_observation(row: Mapping[str, Any]) -> dict[str, Any]:
         if col in row:
             originals[f"original__{col}"] = row[col]
 
-    itw_col, itw_val = _first_present(row, ITW_COLUMNS)
-    disc_col, disc_val = _first_present(row, DISCOVERED_COLUMNS)
-    sub_col, sub_val = _first_present(row, SUBMISSION_COLUMNS)
-    col_col, col_val = _first_present(row, COLLECTION_COLUMNS)
+    itw_col, itw_val, itw_ts = _usable_timestamp_field(row, ITW_COLUMNS)
+    disc_col, disc_val, disc_ts = _usable_timestamp_field(row, DISCOVERED_COLUMNS)
+    sub_col, sub_val, sub_ts = _usable_timestamp_field(row, SUBMISSION_COLUMNS)
+    col_col, col_val, col_ts = _usable_timestamp_field(row, COLLECTION_COLUMNS)
 
     selected_source = SOURCE_MISSING
     selected_raw = None
     selected_field = ""
+    selected_ts: pd.Timestamp | pd.NaT = pd.NaT
 
     if itw_col:
-        ts = parse_observation_timestamp(itw_val)
-        if pd.notna(ts):
-            selected_source = SOURCE_FIRST_SEEN_IN_THE_WILD
-            selected_raw = itw_val
-            selected_field = itw_col
-    if selected_source == SOURCE_MISSING and disc_col:
-        ts = parse_observation_timestamp(disc_val)
-        if pd.notna(ts):
-            selected_source = SOURCE_FIRST_DISCOVERED
-            selected_raw = disc_val
-            selected_field = disc_col
-    if selected_source == SOURCE_MISSING and sub_col:
-        ts = parse_observation_timestamp(sub_val)
-        if pd.notna(ts):
-            selected_source = SOURCE_FIRST_ANALYZED_SUBMISSION
-            selected_raw = sub_val
-            selected_field = sub_col
-    if selected_source == SOURCE_MISSING and col_col:
-        ts = parse_observation_timestamp(col_val)
-        if pd.notna(ts):
-            selected_source = SOURCE_COLLECTION_TIMESTAMP
-            selected_raw = col_val
-            selected_field = col_col
+        selected_source = SOURCE_FIRST_SEEN_IN_THE_WILD
+        selected_raw = itw_val
+        selected_field = itw_col
+        selected_ts = itw_ts
+    elif disc_col:
+        selected_source = SOURCE_FIRST_DISCOVERED
+        selected_raw = disc_val
+        selected_field = disc_col
+        selected_ts = disc_ts
+    elif sub_col:
+        selected_source = SOURCE_FIRST_ANALYZED_SUBMISSION
+        selected_raw = sub_val
+        selected_field = sub_col
+        selected_ts = sub_ts
+    elif col_col:
+        selected_source = SOURCE_COLLECTION_TIMESTAMP
+        selected_raw = col_val
+        selected_field = col_col
+        selected_ts = col_ts
 
-    selected_ts = parse_observation_timestamp(selected_raw) if selected_source != SOURCE_MISSING else pd.NaT
     year = int(selected_ts.year) if pd.notna(selected_ts) else pd.NA
     eligible = bool(pd.notna(selected_ts))
     missingness = {
