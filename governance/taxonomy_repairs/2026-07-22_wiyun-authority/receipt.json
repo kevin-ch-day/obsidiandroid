@@ -1,0 +1,72 @@
+{
+  "repair_id": "2026-07-22_wiyun-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation_with_type_repair",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Cursor Auto taxonomy curation",
+  "applied_at_utc": "2026-07-22T04:34:34Z",
+  "receipt_created_at_utc": "2026-07-22T04:34:34Z",
+  "source_commit_at_application": "05c34b8b325ac8ee18933521917c3ca5f36cfc58",
+  "source_commit_at_receipt_creation": "05c34b8b325ac8ee18933521917c3ca5f36cfc58",
+  "affected_family_ids": [
+    737
+  ],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 1,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 8,
+    "primary_type_slug": "unknown",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 1,
+    "distinct_mapped_samples": 1,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Reactivate Wiyun as Android riskware authority using CIC AndMal2020 riskware family labeling.",
+  "evidence_sources": [
+    {
+      "kind": "dataset",
+      "name": "CIC AndMal2020",
+      "url": "https://www.unb.ca/cic/datasets/andmal2020.html"
+    }
+  ],
+  "before_sql_hash": "9321997c7bae8a8783ebe9103880d91f6e614e6f9cdf2828830f968d1f9460b3",
+  "applied_sql_hash": "62d33102e2076541136b7781a280764f22d0c9027a042aeed33ea09e5e3ded62",
+  "validation_sql_hash": "973912a08c472424ce221e443a9669c7269e48ccc01b20f36cd7cc00855ff77c",
+  "rollback_sql_hash": "c48941588775c5f3228ad920919fec23f2d1a87618391723bc70e783f48ea6dc",
+  "evidence_hash": "6b31573be90b5fb2cc62deec5595a56129e7517e85675822b469ffa94036fa7f",
+  "post_change_validation": {
+    "family_737_status": "active",
+    "family_737_is_active": 1,
+    "family_737_primary_type_id": 7,
+    "family_737_primary_type_slug": "riskware",
+    "catalog_mapped_sample_count": 1,
+    "authority_family_737_sample_count": 1,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "Contemporaneous DB state and independent research support the narrow authority repair. They do not prove every mapped-sample behavior or create a frozen benchmark artifact."
+}

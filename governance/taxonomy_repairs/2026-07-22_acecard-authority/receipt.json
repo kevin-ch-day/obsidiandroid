@@ -1,0 +1,77 @@
+{
+  "repair_id": "2026-07-22_acecard-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation_with_type_repair",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Cursor Auto taxonomy curation",
+  "applied_at_utc": "2026-07-22T04:34:34Z",
+  "receipt_created_at_utc": "2026-07-22T04:34:34Z",
+  "source_commit_at_application": "05c34b8b325ac8ee18933521917c3ca5f36cfc58",
+  "source_commit_at_receipt_creation": "05c34b8b325ac8ee18933521917c3ca5f36cfc58",
+  "affected_family_ids": [
+    317
+  ],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 1,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 8,
+    "primary_type_slug": "unknown",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 1,
+    "distinct_mapped_samples": 1,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Reactivate Acecard as Android banker authority using Kaspersky Trojan-Banker documentation of banking overlays and SMS interception.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_research",
+      "name": "Kaspersky Trojan-Banker.AndroidOS.Acecard",
+      "url": "https://threats.kaspersky.com/en/threat/Trojan-Banker.AndroidOS.Acecard/"
+    },
+    {
+      "kind": "vendor_research",
+      "name": "Kaspersky Acecard blog",
+      "url": "https://www.kaspersky.com/blog/acecard-android-trojan/11368/"
+    }
+  ],
+  "before_sql_hash": "a1704b005356103c1d2ce7e716cbc930c1d9776ba47ab88de06b93e815af2191",
+  "applied_sql_hash": "b8178ee03929fb180624e87dfde53acf38d23b423b1d24a7e8d1b0a73ae157fa",
+  "validation_sql_hash": "a293fa738ccd6d3fc86dd4cb49c4efffbf43f8af2a7331edf4d64df926cb46f0",
+  "rollback_sql_hash": "56b083ded9574be7578f4a504be19aaf445745733729428095fcac8ef153fcf2",
+  "evidence_hash": "9cbd02d8f5eca590b34b548f11e78f9c78675b584559a0a6b3bdc15039afdd76",
+  "post_change_validation": {
+    "family_317_status": "active",
+    "family_317_is_active": 1,
+    "family_317_primary_type_id": 12,
+    "family_317_primary_type_slug": "banker",
+    "catalog_mapped_sample_count": 1,
+    "authority_family_317_sample_count": 1,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "Contemporaneous DB state and independent research support the narrow authority repair. They do not prove every mapped-sample behavior or create a frozen benchmark artifact."
+}

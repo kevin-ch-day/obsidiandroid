@@ -1,0 +1,72 @@
+{
+  "repair_id": "2026-07-22_adpush-authority",
+  "schema_version": "taxonomy_repair_receipt_v1",
+  "repair_type": "family_reactivation",
+  "database_name": "erebus_threat_intel_prod",
+  "operator": "Cursor Auto taxonomy curation",
+  "applied_at_utc": "2026-07-22T04:34:34Z",
+  "receipt_created_at_utc": "2026-07-22T04:34:34Z",
+  "source_commit_at_application": "05c34b8b325ac8ee18933521917c3ca5f36cfc58",
+  "source_commit_at_receipt_creation": "05c34b8b325ac8ee18933521917c3ca5f36cfc58",
+  "affected_family_ids": [
+    305
+  ],
+  "affected_alias_ids": [],
+  "affected_mapping_table_surfaces": [
+    "android_malware_family",
+    "malware_sample_family_mapping",
+    "malware_family_authority_fact",
+    "v_android_sample_family_type_authority"
+  ],
+  "affected_sample_count": 2,
+  "before_state_capture_mode": "CONTEMPORANEOUS",
+  "before_state": {
+    "family_status": "needs_review",
+    "is_active": 0,
+    "primary_type_id": 3,
+    "primary_type_slug": "adware",
+    "canonical_source_name": null,
+    "canonical_source_url": null,
+    "review_reason": "lamda_catalog_gap_bootstrap",
+    "review_source_name": null,
+    "reviewed_at_utc": null,
+    "normalization_target_family_id": null,
+    "mapping_rows": 2,
+    "distinct_mapped_samples": 2,
+    "active_alias_rows": 0,
+    "authority_rows": 0,
+    "active_slug_or_alias_collisions": 0
+  },
+  "reason": "Reactivate Adpush using its existing Adware type backed by Dr.Web Adware.Adpush family documentation.",
+  "evidence_sources": [
+    {
+      "kind": "vendor_research",
+      "name": "Dr.Web Adware.Adpush",
+      "url": "https://vms.drweb.com/virus/?i=16473131"
+    }
+  ],
+  "before_sql_hash": "ec095e9a84faa718b0bf56c55c187a683c85235c7772a9bedfd04803e3407df6",
+  "applied_sql_hash": "bb5fcc17c874f67a1c7303406bf42b75ab3ba512aee4dd9e0f2020dff5d7f7cc",
+  "validation_sql_hash": "f75926cd4b5f5c61724051b28a5cafcf4fc191e1bf7b27ed769e63e699906cab",
+  "rollback_sql_hash": "df50470d84f98ab2bd884dabf838a63479a1bf5bddeca7892c0b1a7438646d3e",
+  "evidence_hash": "8fab6eaf85234b15869d03ae88fb5125f2a74c92e268e6ab2a43f8dbead49d58",
+  "post_change_validation": {
+    "family_305_status": "active",
+    "family_305_is_active": 1,
+    "family_305_primary_type_id": 3,
+    "family_305_primary_type_slug": "adware",
+    "catalog_mapped_sample_count": 2,
+    "authority_family_305_sample_count": 2,
+    "active_aliases_on_inactive_families": 0,
+    "active_normalized_alias_collisions": 0,
+    "model_features_changed": false,
+    "benchmark_executed": false
+  },
+  "integrity_status": "VERIFIED",
+  "database_review_event_integration": {
+    "status": "BLOCKED_MISSING_ENTITY",
+    "family_entity_id": null,
+    "recommendation": "Do not insert a V2 review event until a separately approved entity-migration decision creates and validates the required android_family_entity_v2 row."
+  },
+  "limitations": "Contemporaneous DB state and independent research support the narrow authority repair. They do not prove every mapped-sample behavior or create a frozen benchmark artifact."
+}
