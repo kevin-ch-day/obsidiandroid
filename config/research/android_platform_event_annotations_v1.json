@@ -1,0 +1,29 @@
+{
+  "annotation_set_version": "1.0.0",
+  "purpose": "Descriptive Android platform/security policy markers for contextual charts only.",
+  "causal_claim_permitted": false,
+  "notes": [
+    "Markers must not be interpreted as proven causes of malware permission shifts.",
+    "Do not hard-code causal links between Android updates and malware changes."
+  ],
+  "events": [
+    {
+      "event_id": "android_6_runtime_permissions",
+      "year": 2015,
+      "label": "Android 6 runtime permissions model",
+      "description": "Dangerous permissions moved toward runtime granting (contextual marker only)."
+    },
+    {
+      "event_id": "android_10_scoped_storage",
+      "year": 2019,
+      "label": "Android 10 scoped storage emphasis",
+      "description": "Storage access model changes (contextual marker only)."
+    },
+    {
+      "event_id": "android_13_notification_permission",
+      "year": 2022,
+      "label": "Android 13 notification permission",
+      "description": "POST_NOTIFICATIONS introduced as a runtime permission (contextual marker only)."
+    }
+  ]
+}
