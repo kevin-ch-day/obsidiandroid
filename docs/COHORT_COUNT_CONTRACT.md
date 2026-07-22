@@ -23,7 +23,9 @@ Version: `1.0.0`
 
 Illustrative values above came from one completed all-current diagnostic
 prepared cohort (`output/runs/allcurrent_diagnostic`, run id
-`20260721T142432Z__07f657` at documentation time). The contract itself is
+`20260721T231415Z__e0c43b` at documentation time; prior instance
+`20260721T142432Z__07f657` is retained under
+`output/runs/_archived/completed/allcurrent_diagnostic/`). The contract itself is
 run-independent: always recompute from the active analysis snapshot / prepared
 cohort artifacts and do not hard-code run ids or counts into callers.
 

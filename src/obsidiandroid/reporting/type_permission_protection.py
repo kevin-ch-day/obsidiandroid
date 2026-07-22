@@ -54,13 +54,76 @@ EXPLORATORY_TYPES = ("backdoor", "dropper", "sms-trojan")
 def _require_csv(path: Path) -> pd.DataFrame:
     if not path.is_file():
         raise FileNotFoundError(path)
-    return pd.read_csv(path)
+    if path.stat().st_size == 0:
+        raise ValueError(f"required CSV is empty: {path}")
+    try:
+        return pd.read_csv(path)
+    except pd.errors.EmptyDataError as exc:
+        raise ValueError(f"required CSV has no columns: {path}") from exc
 
 
 def _optional_csv(path: Path) -> pd.DataFrame:
-    if not path.is_file():
+    """Load a CSV when present; treat missing or empty files as an empty frame."""
+    if not path.is_file() or path.stat().st_size == 0:
         return pd.DataFrame()
-    return pd.read_csv(path)
+    try:
+        return pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame()
+
+
+PAIRWISE_PROTECTION_EMPTY_COLUMNS = (
+    "type_slug",
+    "permission_a",
+    "permission_b",
+    "vocab_lane_a",
+    "vocab_lane_b",
+    "protection_bucket_a",
+    "protection_bucket_b",
+    "permission_a_lane",
+    "permission_b_lane",
+    "lane_pair_class",
+    "lane_pair_ordered",
+    "type_sample_count",
+    "positive_sample_count",
+    "both_permission_sample_support",
+    "sample_weighted_prevalence",
+    "sample_weighted_prevalence_pct",
+    "permission_a_count",
+    "permission_b_count",
+    "jaccard",
+    "lift_vs_independence",
+    "odds_ratio_type_vs_rest",
+    "p_value_raw",
+    "prevalence_ci_low",
+    "prevalence_ci_high",
+    "families_used",
+    "families_with_pair",
+    "supporting_family_count",
+    "family_balanced_prevalence",
+    "family_balanced_prevalence_pct",
+    "median_family_prevalence_pct",
+    "largest_family_canonical",
+    "largest_family_positive_count",
+    "largest_family_share_of_positives",
+    "largest_family_contribution",
+    "rest_positive_count",
+    "rest_sample_count",
+    "q_value_fdr",
+    "reportability_status",
+    "suppression_reason",
+    "headline_strength",
+    "leave_largest_family_result",
+    "pairwise_protection_contract_version",
+)
+
+
+def _write_csv(path: Path, frame: pd.DataFrame, *, empty_columns: Sequence[str] | None = None) -> None:
+    """Write a CSV; empty frames still emit a header row when columns are known."""
+    if frame.empty and empty_columns is not None and len(frame.columns) == 0:
+        pd.DataFrame(columns=list(empty_columns)).to_csv(path, index=False)
+        return
+    frame.to_csv(path, index=False)
 
 
 def _norm_perm(value: Any) -> str:
@@ -822,12 +885,12 @@ def compose_type_permission_protection(
         output_hashes[name] = sha256_file(path)
 
     pair_path = pair_dir / "type_permission_pairwise_protection.csv"
-    pairwise_prot.to_csv(pair_path, index=False)
+    _write_csv(pair_path, pairwise_prot, empty_columns=PAIRWISE_PROTECTION_EMPTY_COLUMNS)
     outputs[pair_path.name] = pair_path
     output_hashes[pair_path.name] = sha256_file(pair_path)
     # Also copy into main package for the expected file list
     pair_copy = out_dir / "type_permission_pairwise_protection.csv"
-    pairwise_prot.to_csv(pair_copy, index=False)
+    _write_csv(pair_copy, pairwise_prot, empty_columns=PAIRWISE_PROTECTION_EMPTY_COLUMNS)
     output_hashes["type_permission_pairwise_protection.csv"] = sha256_file(pair_copy)
 
     md_path = out_dir / "type_permission_protection_interpretation.md"

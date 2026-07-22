@@ -18,6 +18,9 @@ from obsidiandroid.reporting.type_permission_protection import (
     build_dominant_family_lane_sensitivity,
     enrich_pairwise_protection,
     verify_completed_run,
+    _optional_csv,
+    _write_csv,
+    PAIRWISE_PROTECTION_EMPTY_COLUMNS,
 )
 
 
@@ -217,6 +220,20 @@ def test_verify_completed_run_rejects_wrong_id(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="run identity mismatch"):
         verify_completed_run(run, expected_run_id="20260721T231415Z__e0c43b")
+
+
+def test_optional_csv_treats_empty_files_as_empty_frame(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.csv"
+    empty = tmp_path / "empty.csv"
+    empty.write_text("", encoding="utf-8")
+    header_only = tmp_path / "header.csv"
+    _write_csv(header_only, pd.DataFrame(), empty_columns=PAIRWISE_PROTECTION_EMPTY_COLUMNS)
+
+    assert _optional_csv(missing).empty
+    assert _optional_csv(empty).empty
+    loaded = _optional_csv(header_only)
+    assert list(loaded.columns)[:3] == ["type_slug", "permission_a", "permission_b"]
+    assert loaded.empty
 
 
 def test_compose_does_not_import_database() -> None:

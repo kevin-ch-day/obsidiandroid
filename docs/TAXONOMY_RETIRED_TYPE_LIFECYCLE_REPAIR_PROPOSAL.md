@@ -5,7 +5,9 @@ reactivations applied.
 
 **Evidence export:** `output/diagnostics/taxonomy_active_family_inactive_type_gaps_latest.csv`  
 **Generator:** `scripts/diagnostics/report_taxonomy_type_lifecycle_gaps.py`  
-**Corpus context run (preserved, not modified):** `20260721T142432Z__07f657`
+**Corpus context run (archived, not modified):** `20260721T142432Z__07f657`
+(under `output/runs/_archived/completed/allcurrent_diagnostic/`; live slot is
+`20260721T231415Z__e0c43b`)
 (`output/runs/allcurrent_diagnostic`; this superseded the older slot run
 `20260721T014651Z__61b4a7`, which is no longer present).
 
@@ -82,7 +84,7 @@ choices for a later, explicitly authorized taxonomy curation session.
 
 - No `UPDATE` / `INSERT` / `DELETE` on taxonomy tables.
 - No Core writes; no grant/migration changes.
-- No modification of run `20260721T142432Z__07f657` evidence.
+- No modification of archived run `20260721T142432Z__07f657` evidence.
 - No automatic “fix” from this proposal document.
 
 ## Suggested follow-up ticket checklist

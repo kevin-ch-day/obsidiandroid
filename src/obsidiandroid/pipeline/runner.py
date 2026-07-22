@@ -377,6 +377,7 @@ def run_pipeline(
                 "run_root": str(runtime_run_root),
                 "keep_run_output": keep_run_output,
                 "run_cleanup_action": runtime_paths.get("cleanup_action", ""),
+                "previous_slot_archive": runtime_paths.get("previous_slot_archive", ""),
             }
         )
         st = PipelineRunStageControl(
@@ -394,6 +395,15 @@ def run_pipeline(
         print(f"Run instance: {run_id}")
         print(f"Output path: {du.format_console_path(runtime_run_root)}")
         print(f"Started UTC: {run_started_at_utc}")
+        cleanup_action = str(runtime_paths.get("cleanup_action") or "")
+        previous_archive = str(runtime_paths.get("previous_slot_archive") or "").strip()
+        if previous_archive:
+            du.print_info(
+                f"[PIPELINE] Prior slot contents archived ({cleanup_action}): "
+                f"{du.format_console_path(previous_archive)}"
+            )
+        elif cleanup_action and cleanup_action not in {"fresh_slot", "archived_run_new_root"}:
+            du.print_info(f"[PIPELINE] Slot cleanup action: {cleanup_action}")
         du.print_info(
             f"[PIPELINE] Scope: stop_after={stop_after} | profile_ref={profile_ref}"
         )

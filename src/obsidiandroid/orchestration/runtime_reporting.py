@@ -659,12 +659,14 @@ def setup_runtime_context(
     setattr(app_config, "DATASET_TIME_CONTRACT_FILE", str(runtime_diagnostics / f"dataset_time_contract_{rid}.json"))
     setattr(app_config, "ALIGNED_FEATURE_CACHE_FILE", str(runtime_diagnostics / f"aligned_features_{rid}.csv.gz"))
     setattr(app_config, "ALIGNED_LABEL_CACHE_FILE", str(runtime_diagnostics / f"aligned_labels_{rid}.csv"))
+    previous_archive = prepared.get("previous_slot_archive")
     return {
         "output_root_base": output_root_base,
         "runtime_run_root": runtime_run_root,
         "runtime_diagnostics_dir": runtime_diagnostics,
         "run_slot": str(run_slot),
         "cleanup_action": str(prepared["cleanup_action"]),
+        "previous_slot_archive": str(previous_archive) if previous_archive else "",
     }
 
 

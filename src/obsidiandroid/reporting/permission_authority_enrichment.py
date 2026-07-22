@@ -237,7 +237,10 @@ def _batched_in_query(
             chunks.append(part)
     if not chunks:
         return pd.DataFrame()
-    return pd.concat(chunks, ignore_index=True)
+    usable = [chunk for chunk in chunks if not chunk.empty and not bool(chunk.isna().all().all())]
+    if not usable:
+        return pd.DataFrame()
+    return pd.concat(usable, ignore_index=True)
 
 
 def fetch_permission_intel_authority(

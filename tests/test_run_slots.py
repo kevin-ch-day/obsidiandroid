@@ -81,8 +81,43 @@ def test_prepare_run_root_archives_previous_completed_slot_with_bounded_retentio
 
     archived = runs_root / "_archived" / "completed" / "majorfam_benchmark" / "20260601T010101Z__complete1"
     assert prepared["cleanup_action"] == "archived_completed_slot"
+    assert prepared["previous_slot_archive"] == archived
     assert archived.is_dir()
     assert (archived / "metrics.csv").is_file()
+    assert Path(prepared["run_root"]) == slot_root
+
+
+def test_prepare_run_root_archives_complete_marker_when_manifest_status_stale(tmp_path: Path) -> None:
+    runs_root = tmp_path / "output" / "runs"
+    slot_root = runs_root / "allcurrent_diagnostic"
+    slot_root.mkdir(parents=True, exist_ok=True)
+    (slot_root / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "20260601T010101Z__stale1",
+                "run_status": "running",
+                "run_started_at_utc": "2026-06-01T01:01:01+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (slot_root / ".COMPLETE").write_text("ok\n", encoding="utf-8")
+    (slot_root / "research.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+
+    prepared = run_slots.prepare_run_root(
+        runs_root=runs_root,
+        run_slot="allcurrent_diagnostic",
+        run_instance_id="20260602T010101Z__new001",
+        archive_run=False,
+        keep_last_completed_runs=1,
+    )
+
+    archived = (
+        runs_root / "_archived" / "completed" / "allcurrent_diagnostic" / "20260601T010101Z__stale1"
+    )
+    assert prepared["cleanup_action"] == "archived_completed_slot_via_marker"
+    assert prepared["previous_slot_archive"] == archived
+    assert (archived / "research.csv").is_file()
     assert Path(prepared["run_root"]) == slot_root
 
 
