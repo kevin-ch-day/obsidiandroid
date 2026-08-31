@@ -94,6 +94,12 @@ def _normal_reader_identity_status(operation: Callable[[str], object]) -> dict[s
     return {"ok": True, "status": "ok"}
 
 
+def permission_intel_reader_identity_status() -> dict[str, str | bool]:
+    """Check the Permission Intel connector's approved account without disclosing it."""
+
+    return _normal_reader_identity_status(_read_permission_surface)
+
+
 def build_runtime_database_config_audit(*, check_connections: bool = True) -> dict[str, object]:
     """Build a JSON-safe audit of normal analysis configuration and read health."""
     source_mechanism = _credential_mechanism(
@@ -153,7 +159,7 @@ def build_runtime_database_config_audit(*, check_connections: bool = True) -> di
             lambda: _read_primary_surface("SELECT 1 FROM `v_android_sample_family_type_authority` LIMIT 1")
         ),
     }
-    report["permission_intel_connection_health"] = _normal_reader_identity_status(_read_permission_surface)
+    report["permission_intel_connection_health"] = permission_intel_reader_identity_status()
     report["permission_intel_surface_checks"] = {
         "permission_observations": _connection_status(
             lambda: _read_permission_surface("SELECT 1 FROM `android_permission_obs_sample` LIMIT 1")

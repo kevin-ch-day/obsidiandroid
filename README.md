@@ -199,8 +199,9 @@ python -m obsidiandroid.database.split_db_health
 ```
 
 The versioned shadow contract has a separate bounded, credential-redacted
-readiness probe. It checks the accepted catalog gate, exact-case lookup,
-protection flags, split relations, and source evidence using `SELECT` only:
+readiness probe. It checks the approved read-only account, accepted catalog
+gate, exact-case lookup, protection flags, split relations, and source evidence
+using `SELECT` only:
 
 ```bash
 python -m obsidiandroid.database.permission_intel_v1 --json

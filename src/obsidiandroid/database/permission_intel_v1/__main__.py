@@ -9,7 +9,12 @@ from typing import Any
 from .adapter import PermissionIntelV1Adapter
 
 
-def run_probe(adapter: Any, permission: str) -> dict[str, object]:
+def run_probe(
+    adapter: Any,
+    permission: str,
+    *,
+    account_status: dict[str, object] | None = None,
+) -> dict[str, object]:
     """Exercise the gate and every v1 read surface without exposing DB settings."""
     canonical = str(permission or "").strip()
     if not canonical:
@@ -17,8 +22,13 @@ def run_probe(adapter: Any, permission: str) -> dict[str, object]:
 
     gate = adapter.read_catalog_gate()
     status = gate.catalog_status
+    account = account_status or {"ok": False, "status": "not_checked"}
+    account_ok = bool(account.get("ok"))
     payload: dict[str, object] = {
-        "status": "PASS" if gate.shadow_available else "BLOCKED",
+        "status": "PASS" if gate.shadow_available and account_ok else "BLOCKED",
+        "query_contract_status": "PASS" if gate.shadow_available else "BLOCKED",
+        "runtime_account_policy": str(account.get("status") or "unknown"),
+        "runtime_account_approved": account_ok,
         "gate_state": gate.state.value,
         "shadow_available": bool(gate.shadow_available),
         "diagnostic_codes": list(gate.diagnostic_codes),
@@ -70,7 +80,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        payload = run_probe(PermissionIntelV1Adapter(), args.permission)
+        from ..runtime_config_audit import permission_intel_reader_identity_status
+
+        payload = run_probe(
+            PermissionIntelV1Adapter(),
+            args.permission,
+            account_status=permission_intel_reader_identity_status(),
+        )
     except Exception as exc:
         payload = {
             "status": "ERROR",

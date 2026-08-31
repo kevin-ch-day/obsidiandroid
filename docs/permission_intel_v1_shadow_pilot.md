@@ -92,12 +92,13 @@ detail-view limitation instead of querying an unversioned table.
 
 ## Live verification status, not cutover approval
 
-A bounded read-only production verification now passes against the accepted
+A bounded read-only query-contract verification now passes against the accepted
 `android_permission_intel` catalog: the gate reports
 `COMPATIBLE_INCOMPLETE_SCOPE`, the exact `android.permission.INTERNET` anchor is
 `AOSP_PUBLIC`, the lowercase variant does not match, and the source-evidence
 query is executable. No SQL was deployed and no database row was changed by
-that verification.
+that verification. Overall routine readiness remains blocked when the connector
+does not use `obsidiandroid_pipeline_reader@localhost`.
 
 The checkout still has no private repo-local database configuration. Routine
 operation therefore requires an approved least-privilege reader option file or

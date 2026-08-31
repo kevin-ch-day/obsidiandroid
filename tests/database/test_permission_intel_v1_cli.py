@@ -38,7 +38,11 @@ class _Adapter:
 
 def test_probe_exercises_gate_exact_case_and_evidence_reads() -> None:
     adapter = _Adapter()
-    payload = run_probe(adapter, "android.permission.INTERNET")
+    payload = run_probe(
+        adapter,
+        "android.permission.INTERNET",
+        account_status={"ok": True, "status": "ok"},
+    )
 
     assert payload["status"] == "PASS"
     assert payload["exact_match"] is True
@@ -49,3 +53,15 @@ def test_probe_exercises_gate_exact_case_and_evidence_reads() -> None:
         "android.permission.INTERNET",
         "android.permission.internet",
     ]
+
+
+def test_probe_separates_query_success_from_account_policy() -> None:
+    payload = run_probe(
+        _Adapter(),
+        "android.permission.INTERNET",
+        account_status={"ok": False, "status": "unexpected_source_account"},
+    )
+    assert payload["status"] == "BLOCKED"
+    assert payload["query_contract_status"] == "PASS"
+    assert payload["runtime_account_approved"] is False
+    assert payload["runtime_account_policy"] == "unexpected_source_account"
