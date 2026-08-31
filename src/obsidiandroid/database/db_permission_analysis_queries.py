@@ -103,31 +103,31 @@ def fetch_android_banking_trojans_with_permissions():
 
             CASE
                 WHEN mp.permission_string IS NOT NULL
-                  OR UPPER(COALESCE(ops.classification, '')) IN ('OEM', 'APP_DEFINED')
+                  OR UPPER(COALESCE(ops.classification, '')) = 'OEM'
                 THEN ops.permission_string
                 ELSE NULL
             END AS manufacturer_permission_id,
             CASE
                 WHEN mp.permission_string IS NOT NULL
-                  OR UPPER(COALESCE(ops.classification, '')) IN ('OEM', 'APP_DEFINED')
+                  OR UPPER(COALESCE(ops.classification, '')) = 'OEM'
                 THEN mp.permission_string
                 ELSE NULL
             END AS manufacturer_constant,
             CASE
                 WHEN mp.permission_string IS NOT NULL
-                  OR UPPER(COALESCE(ops.classification, '')) IN ('OEM', 'APP_DEFINED')
+                  OR UPPER(COALESCE(ops.classification, '')) = 'OEM'
                 THEN mp.protection_level
                 ELSE NULL
             END AS manufacturer_protection,
             CASE
                 WHEN mp.permission_string IS NOT NULL
-                  OR UPPER(COALESCE(ops.classification, '')) IN ('OEM', 'APP_DEFINED')
+                  OR UPPER(COALESCE(ops.classification, '')) = 'OEM'
                 THEN ov.vendor_name
                 ELSE NULL
             END AS manufacturer_vendor,
             CASE
                 WHEN mp.permission_string IS NOT NULL
-                  OR UPPER(COALESCE(ops.classification, '')) IN ('OEM', 'APP_DEFINED')
+                  OR UPPER(COALESCE(ops.classification, '')) = 'OEM'
                 THEN UPPER(COALESCE(ops.classification, 'OEM'))
                 ELSE NULL
             END AS manufacturer_type,

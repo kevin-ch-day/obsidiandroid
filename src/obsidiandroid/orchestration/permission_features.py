@@ -236,7 +236,7 @@ def build_permission_feature_frame(
     permission_df["is_normal"] = protection.str.contains("NORMAL", regex=False).astype(int)
 
     source = permission_df["permission_source"].fillna("UNKNOWN").astype(str).str.upper()
-    permission_df["is_oem"] = source.isin({"OEM", "APP_DEFINED"}).astype(int)
+    permission_df["is_oem"] = source.eq("OEM").astype(int)
 
     counts = (
         permission_df.groupby("sample_id")

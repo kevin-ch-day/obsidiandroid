@@ -162,3 +162,22 @@ def test_permission_features_fall_back_when_permission_string_norm_is_unavailabl
     assert bool(captured["kwargs"]["as_dataframe"]) is True
     assert "perm__android_permission_read_sms" in out.columns
     assert int(out.loc[out["sample_id"] == 1, "perm__android_permission_read_sms"].iloc[0]) == 1
+
+
+def test_app_defined_is_not_counted_as_oem(monkeypatch) -> None:
+    monkeypatch.setattr(
+        permission_features,
+        "_fetch_permission_rows",
+        lambda _sample_ids: pd.DataFrame(
+            {
+                "sample_id": [1, 1],
+                "permission_string": ["com.example.permission.ONE", "com.vendor.permission.TWO"],
+                "permission_source": ["APP_DEFINED", "OEM"],
+                "protection_level": ["UNKNOWN", "SIGNATURE"],
+            }
+        ),
+    )
+    out = permission_features.build_permission_feature_frame(
+        pd.DataFrame({"sample_id": [1]}), min_permission_support=1
+    )
+    assert int(out.loc[0, "perm__oem_count"]) == 1
