@@ -1,5 +1,11 @@
 {
+  "artifact_generation_commit": "15d6b738ee8df85b473a08306fa7259fb5a747e6",
   "audited_commit": "b65d78993c417d1390062098f0b4e110d65bc224",
+  "baseline_commit": "b65d78993c417d1390062098f0b4e110d65bc224",
+  "catalog_digest": "075accc8aa2042d0d9454ba12e8625b87e76fe54366532c6bca21d56066fc334",
+  "catalog_release": "android-17-r1-audit-2026-08-30-source-identity-correction-1",
+  "evidence_digest": "bc3062d5298f8c88cdfdfc8908d894510f3663f14ed4a7092a1a0a67c04afaa9",
+  "integration_commit": "15d6b738ee8df85b473a08306fa7259fb5a747e6",
   "inventory_version": "permission-intel-v1-query-inventory-1",
   "notes": "Static inventory of executable Permission Intel query families. Report labels and prose-only object mentions are excluded.",
   "queries": [
@@ -227,5 +233,6 @@
       "source_file": "src/obsidiandroid/database/permission_intel_v1/adapter.py",
       "sql_objects": ["android_permission_v1_catalog_release", "android_permission_v1_source_evidence", "android_permission_v1_split_permission"]
     }
-  ]
+  ],
+  "shared_contract_commit": "0cf71e18e43f33f5bd43ac442e88c4a423529236"
 }

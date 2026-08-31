@@ -8,8 +8,8 @@ encouraging unsafe family-authority promotion.
 
 from __future__ import annotations
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import pandas as pd
 
@@ -24,14 +24,27 @@ prepare_script_runtime(__file__)
 from obsidiandroid.database import db_engine
 from obsidiandroid.database.db_config import PERMISSION_INTEL_DB_NAME
 
-
 OUTPUT_DIR = Path("output") / "diagnostics"
 CSV_OUT = OUTPUT_DIR / "android_policy_held_token_risk_latest.csv"
 
-_POLICY_HELD_BASE_CTE = """
+
+def _quote_identifier(value: str) -> str:
+    """Quote one configured MariaDB identifier without treating it as SQL text."""
+
+    normalized = str(value or "").strip()
+    if not normalized or "\x00" in normalized:
+        raise ValueError("permission-intel database identifier is invalid")
+    return f"`{normalized.replace('`', '``')}`"
+
+
+_PERMISSION_OBSERVATION_TABLE = (
+    f"{_quote_identifier(PERMISSION_INTEL_DB_NAME)}.`android_permission_obs_sample`"
+)
+
+_POLICY_HELD_BASE_CTE = f"""
 WITH pi AS (
     SELECT DISTINCT sample_id
-    FROM {permission_db}.android_permission_obs_sample
+    FROM {_PERMISSION_OBSERVATION_TABLE}
     WHERE sample_id IS NOT NULL
 ),
 held AS (
@@ -82,7 +95,7 @@ risk AS (
         END AS recommended_next_action
     FROM held AS h
 )
-""".format(permission_db=PERMISSION_INTEL_DB_NAME)
+"""
 
 
 def _fetch_dataframe(query: str) -> pd.DataFrame:

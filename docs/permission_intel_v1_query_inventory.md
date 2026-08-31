@@ -1,7 +1,21 @@
 # Permission Intel v1 Query Inventory
 
 Inventory version: `permission-intel-v1-query-inventory-1`
-Audited/current commit: `b65d78993c417d1390062098f0b4e110d65bc224`
+
+Audited legacy baseline: `b65d78993c417d1390062098f0b4e110d65bc224`
+
+Integration and artifact-generation commit:
+`15d6b738ee8df85b473a08306fa7259fb5a747e6`
+
+Shared contract commit: `0cf71e18e43f33f5bd43ac442e88c4a423529236`
+
+Accepted catalog release:
+`android-17-r1-audit-2026-08-30-source-identity-correction-1`
+
+The baseline identifies the legacy query surface that was audited. It is not
+the integration branch head. The machine inventory records the baseline,
+integration, artifact-generation, shared-contract, catalog, and semantic
+evidence identities separately.
 
 The machine-readable inventory is
 [`tests/fixtures/permission_intel_v1_query_inventory.json`](../tests/fixtures/permission_intel_v1_query_inventory.json).
