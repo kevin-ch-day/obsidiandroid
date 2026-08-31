@@ -185,7 +185,10 @@ Override via environment variables (recommended for deployment):
 | `OBSIDIAN_DB_USER`, `OBSIDIAN_DB_PASSWORD` | Credentials (same user typically has `SELECT` on both schemas) |
 | `OBSIDIAN_DB_OPTION_FILE` | Alternative explicit private MariaDB client option file (mode `0600`) for both upstream source schemas |
 | `OBSIDIAN_DB_NAME` | Primary Erebus schema |
-| `OBSIDIAN_PERMISSION_INTEL_DB_NAME` | Permission Intel schema |
+| `OBSIDIAN_PERMISSION_INTEL_DB_HOST`, `OBSIDIAN_PERMISSION_INTEL_DB_PORT` | Optional Permission Intel server override |
+| `OBSIDIAN_PERMISSION_INTEL_DB_USER`, `OBSIDIAN_PERMISSION_INTEL_DB_PASSWORD` | Optional dedicated Permission Intel reader credentials |
+| `OBSIDIAN_PERMISSION_INTEL_DB_OPTION_FILE` | Optional dedicated private MariaDB client option file (mode `0600`) |
+| `OBSIDIAN_PERMISSION_INTEL_DB_NAME` | Permission Intel schema (normally `android_permission_intel`) |
 
 Defaults match `obsidiandroid.database.db_config`. Cross-schema SQL (for example joining `malware_sample_catalog` to `android_permission_obs_sample`) fully qualifies both schema names so ObsidianDroid does not rely on live `android_permission_*` tables inside the primary DB.
 
@@ -193,6 +196,14 @@ Quick connectivity check (requires network access to the DB):
 
 ```bash
 python -m obsidiandroid.database.split_db_health
+```
+
+The versioned shadow contract has a separate bounded, credential-redacted
+readiness probe. It checks the accepted catalog gate, exact-case lookup,
+protection flags, split relations, and source evidence using `SELECT` only:
+
+```bash
+python -m obsidiandroid.database.permission_intel_v1 --json
 ```
 
 ### Pipeline and model settings

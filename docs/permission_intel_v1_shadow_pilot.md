@@ -90,21 +90,35 @@ versioned view, and the pinned selected declarations currently carry no
 non-null SDK-extension ID. The pilot preserves that separation and records the
 detail-view limitation instead of querying an unversioned table.
 
-## Not production approval
+## Live verification status, not cutover approval
 
-This phase changes no active database configuration, deploys no SQL, performs
-no live shadow read, and authorizes no production rollout. Before live shadow
-deployment the project still needs a read-only production schema attestation,
-approved backup/restore evidence, additive deployment authorization, least-
-privilege grants, and a reviewed parity plan.
+A bounded read-only production verification now passes against the accepted
+`android_permission_intel` catalog: the gate reports
+`COMPATIBLE_INCOMPLETE_SCOPE`, the exact `android.permission.INTERNET` anchor is
+`AOSP_PUBLIC`, the lowercase variant does not match, and the source-evidence
+query is executable. No SQL was deployed and no database row was changed by
+that verification.
+
+The checkout still has no private repo-local database configuration. Routine
+operation therefore requires an approved least-privilege reader option file or
+repo-local ignored `.env`/`.env.local` settings. Run the redacted probe after
+installing that configuration:
+
+```bash
+python -m obsidiandroid.database.permission_intel_v1 --json
+```
+
+This verification does not authorize v1 analytical cutover or production
+writes. The legacy analytical path remains authoritative and v1 remains a
+read-only shadow.
 
 The eventual sequence is:
 
 1. Disposable query validation.
 2. Read-only production schema attestation.
-3. Separately authorized additive production deployment.
-4. Live Obsidian shadow reads.
-5. Reviewed parity period.
-6. Explicit read cutover.
-7. Retained switchback.
-8. Later, separately scoped Erebus and ScytaleDroid integration.
+3. Separately authorized additive production deployment. **Completed for API-0001 through API-0007.**
+4. Live Obsidian shadow reads. **Bounded verification completed.**
+5. Install a durable least-privilege Obsidian reader configuration.
+6. Reviewed parity period.
+7. Explicit read cutover.
+8. Retained switchback.
