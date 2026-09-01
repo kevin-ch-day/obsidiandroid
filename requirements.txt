@@ -5,7 +5,7 @@ xgboost
 matplotlib
 seaborn
 scipy==1.17.1
-scikit-posthocs==0.14.0
+scikit-posthocs==0.16.1
 colorama
 joblib
 mysql-connector-python
