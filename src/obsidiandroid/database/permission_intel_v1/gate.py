@@ -11,6 +11,7 @@ from .models import (
     PINNED_CATALOG_DIGEST,
     PINNED_CATALOG_RELEASE_ID,
     PINNED_SCHEMA_CONTRACT_ID,
+    PINNED_SCHEMA_CONTRACT_RELEASE_STATUS,
     PINNED_SCHEMA_CONTRACT_VERSION,
     CatalogGateDecision,
     CatalogGateState,
@@ -34,7 +35,8 @@ SELECT
     catalog_import_status,
     import_receipt_count,
     parser_package_version,
-    notes_and_limitations
+    notes_and_limitations,
+    accepted_at_utc
 FROM android_permission_v1_catalog_release
 """.strip()
 
@@ -85,6 +87,16 @@ def evaluate_catalog_gate(rows: Sequence[Mapping[str, Any]]) -> CatalogGateDecis
             "schema_contract_identifier_mismatch",
             status,
         )
+    if (
+        status.schema_contract_release_status
+        != PINNED_SCHEMA_CONTRACT_RELEASE_STATUS
+    ):
+        return _decision(
+            CatalogGateState.EXPLICIT_DEGRADED_MODE_REQUIRED,
+            False,
+            "schema_contract_release_status_mismatch",
+            status,
+        )
 
     try:
         actual = _SemanticVersion.parse(status.schema_contract_version)
@@ -119,6 +131,13 @@ def evaluate_catalog_gate(rows: Sequence[Mapping[str, Any]]) -> CatalogGateDecis
             CatalogGateState.CATALOG_NOT_ACCEPTED,
             False,
             "catalog_import_not_proven",
+            status,
+        )
+    if not status.accepted_at_utc:
+        return _decision(
+            CatalogGateState.CATALOG_NOT_ACCEPTED,
+            False,
+            "catalog_acceptance_timestamp_missing",
             status,
         )
 

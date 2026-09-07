@@ -20,6 +20,7 @@ PINNED_CATALOG_PLAN_DIGEST = (
 )
 PINNED_SCHEMA_CONTRACT_ID = "org.android-permission-intel.schema-v1-draft"
 PINNED_SCHEMA_CONTRACT_VERSION = "1.0.0-draft"
+PINNED_SCHEMA_CONTRACT_RELEASE_STATUS = "DRAFT"
 PINNED_CATALOG_RELEASE_ID = (
     "android-17-r1-audit-2026-08-30-source-identity-correction-1"
 )
@@ -238,6 +239,7 @@ class CatalogStatus:
     import_receipt_count: int
     parser_package_version: str
     notes_and_limitations: str
+    accepted_at_utc: str
 
     @classmethod
     def from_row(cls, row: Mapping[str, Any]) -> CatalogStatus:
@@ -263,6 +265,7 @@ class CatalogStatus:
             import_receipt_count=int(row.get("import_receipt_count") or 0),
             parser_package_version=str(row.get("parser_package_version") or ""),
             notes_and_limitations=str(row.get("notes_and_limitations") or ""),
+            accepted_at_utc=str(row.get("accepted_at_utc") or ""),
         )
 
 

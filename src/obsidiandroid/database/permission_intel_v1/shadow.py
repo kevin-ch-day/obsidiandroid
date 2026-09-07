@@ -86,6 +86,24 @@ class PermissionIntelV1Shadow:
                     ),
                 )
             v1 = self._adapter.get_permission(canonical_permission)
+            status = gate.catalog_status
+            if v1 is not None and status is not None and (
+                v1.catalog_release_id != status.catalog_release_id
+                or v1.catalog_digest != status.catalog_digest
+            ):
+                return ShadowLookupResult(
+                    legacy_value,
+                    ShadowDiagnostic(
+                        ShadowMode.V1_UNAVAILABLE_LEGACY_ACTIVE,
+                        gate,
+                        PermissionComparison(
+                            canonical_permission,
+                            ComparisonState.ERROR,
+                            (),
+                        ),
+                        ("catalog_changed_during_shadow_read",),
+                    ),
+                )
             legacy = LegacyPlatformFact.from_mapping(legacy_value)
             comparison = compare_permission(legacy, v1)
             return ShadowLookupResult(

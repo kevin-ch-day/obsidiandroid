@@ -31,8 +31,14 @@ class FakeQuery:
             return [self.permission_row] if self.permission_row is not None else []
         if sql == PERMISSION_FLAGS_SQL:
             return [
-                {"normalized_flag": "hardRestricted"},
-                {"normalized_flag": "softRestricted"},
+                {
+                    "catalog_release_id": self.permission_row["catalog_release_id"],
+                    "normalized_flag": "hardRestricted",
+                },
+                {
+                    "catalog_release_id": self.permission_row["catalog_release_id"],
+                    "normalized_flag": "softRestricted",
+                },
             ]
         if sql == SPLIT_PERMISSION_SQL:
             return [
@@ -172,8 +178,29 @@ def test_unknown_source_flag_fails_closed() -> None:
         if sql == PERMISSION_LOOKUP_SQL:
             return [_permission_row()]
         if sql == PERMISSION_FLAGS_SQL:
-            return [{"normalized_flag": "inventedFlag"}]
+            return [
+                {
+                    "catalog_release_id": _permission_row()["catalog_release_id"],
+                    "normalized_flag": "inventedFlag",
+                }
+            ]
         return []
 
     with pytest.raises(ValueError, match="unrecognized v1 permission flags"):
         PermissionIntelV1Adapter(bad_flags).get_permission("android.permission.CAMERA")
+
+
+def test_permission_lookup_rejects_cross_catalog_flag_rows() -> None:
+    def drifted_flags(
+        sql: str, params: Sequence[object]
+    ) -> Sequence[Mapping[str, Any]]:
+        if sql == PERMISSION_LOOKUP_SQL:
+            return [_permission_row()]
+        if sql == PERMISSION_FLAGS_SQL:
+            return [{"catalog_release_id": "different-release", "normalized_flag": "runtime"}]
+        return []
+
+    with pytest.raises(ValueError, match="catalog changed"):
+        PermissionIntelV1Adapter(drifted_flags).get_permission(
+            "android.permission.CAMERA"
+        )

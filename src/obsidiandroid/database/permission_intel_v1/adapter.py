@@ -60,7 +60,7 @@ LIMIT 1
 """.strip()
 
 PERMISSION_FLAGS_SQL = """
-SELECT normalized_flag
+SELECT catalog_release_id, normalized_flag
 FROM android_permission_v1_current_flag
 WHERE BINARY canonical_permission = BINARY %s
 ORDER BY normalized_flag
@@ -116,6 +116,12 @@ class PermissionIntelV1Adapter:
             return None
         row = rows[0]
         flag_rows = self._query(PERMISSION_FLAGS_SQL, (permission,))
+        catalog_release_id = str(row.get("catalog_release_id") or "")
+        if any(
+            str(item.get("catalog_release_id") or "") != catalog_release_id
+            for item in flag_rows
+        ):
+            raise ValueError("catalog changed during v1 permission lookup")
         flags = tuple(str(item.get("normalized_flag") or "") for item in flag_rows)
         unknown_flags = tuple(
             flag for flag in flags if flag not in PERMISSION_FLAG_VOCABULARY
@@ -149,7 +155,7 @@ class PermissionIntelV1Adapter:
             health_module_declared=bool(row.get("health_module_declared")),
             protection=ProtectionSemantics.from_v1_row(row),
             flags=flags,
-            catalog_release_id=str(row.get("catalog_release_id") or ""),
+            catalog_release_id=catalog_release_id,
             catalog_digest=str(row.get("catalog_digest") or ""),
         )
 

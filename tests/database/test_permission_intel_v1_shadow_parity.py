@@ -9,6 +9,7 @@ from obsidiandroid.database.permission_intel_v1.models import (
     AuthorityClass,
     CatalogGateDecision,
     CatalogGateState,
+    CatalogStatus,
     ComparisonState,
     PlatformPermissionFact,
     ProtectionSemantics,
@@ -50,6 +51,30 @@ def _v1_fact(**overrides: object) -> PlatformPermissionFact:
     }
     values.update(overrides)
     return PlatformPermissionFact(**values)  # type: ignore[arg-type]
+
+
+def _catalog_status(**overrides: object) -> CatalogStatus:
+    values: dict[str, object] = {
+        "schema_contract_id": "org.android-permission-intel.schema-v1-draft",
+        "schema_contract_version": "1.0.0-draft",
+        "compatibility_floor": "1.0.0-draft",
+        "schema_contract_release_status": "DRAFT",
+        "catalog_release_id": "android-17-r1-audit-2026-08-30-source-identity-correction-1",
+        "catalog_digest": "a" * 64,
+        "source_set_id": "source-set",
+        "source_set_digest": "b" * 64,
+        "platform_release_coverage": "android-api-37",
+        "scope_completeness_statement": "Accepted scoped union only",
+        "exhaustive_scope": False,
+        "catalog_release_status": "ACCEPTED",
+        "catalog_import_status": "IMPORTED",
+        "import_receipt_count": 1,
+        "parser_package_version": "0.2.0",
+        "notes_and_limitations": "incomplete source scope",
+        "accepted_at_utc": "2026-08-30 00:00:00",
+    }
+    values.update(overrides)
+    return CatalogStatus(**values)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
@@ -195,7 +220,7 @@ class _Adapter:
             else CatalogGateState.CATALOG_MISSING,
             self.available,
             ("test_gate",),
-            None,
+            _catalog_status() if self.available else None,
         )
 
     def get_permission(
@@ -212,6 +237,28 @@ def test_shadow_success_never_replaces_legacy() -> None:
     ).lookup("android.permission.CAMERA", legacy)
     assert result.authoritative_legacy_value is legacy
     assert result.diagnostic.comparison is not None
+
+
+def test_shadow_rejects_catalog_change_between_gate_and_permission_read() -> None:
+    class DriftedAdapter(_Adapter):
+        def get_permission(
+            self, canonical_permission: str
+        ) -> PlatformPermissionFact | None:
+            return _v1_fact(
+                canonical_permission=canonical_permission,
+                catalog_release_id="different-release",
+            )
+
+    legacy = {"constant_value": "android.permission.CAMERA"}
+    result = PermissionIntelV1Shadow(
+        DriftedAdapter(),
+        mode=ShadowMode.LEGACY_WITH_V1_SHADOW,  # type: ignore[arg-type]
+    ).lookup("android.permission.CAMERA", legacy)
+    assert result.authoritative_legacy_value is legacy
+    assert result.diagnostic.mode is ShadowMode.V1_UNAVAILABLE_LEGACY_ACTIVE
+    assert result.diagnostic.diagnostic_codes == (
+        "catalog_changed_during_shadow_read",
+    )
 
 
 @pytest.mark.parametrize("adapter", [_Adapter(available=False), _Adapter(fail=True)])

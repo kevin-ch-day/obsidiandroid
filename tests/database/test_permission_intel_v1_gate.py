@@ -29,6 +29,7 @@ def _catalog_row() -> dict[str, object]:
         "import_receipt_count": 1,
         "parser_package_version": "0.2.0",
         "notes_and_limitations": "incomplete source scope",
+        "accepted_at_utc": "2026-08-30 00:00:00",
     }
 
 
@@ -102,6 +103,22 @@ def test_multiple_current_catalog_rows_fail_closed() -> None:
         evaluate_catalog_gate([_catalog_row(), deepcopy(_catalog_row())]).state
         is CatalogGateState.EXPLICIT_DEGRADED_MODE_REQUIRED
     )
+
+
+def test_schema_release_status_mismatch_requires_explicit_degraded_mode() -> None:
+    row = _catalog_row()
+    row["schema_contract_release_status"] = "RETIRED"
+    decision = evaluate_catalog_gate([row])
+    assert decision.state is CatalogGateState.EXPLICIT_DEGRADED_MODE_REQUIRED
+    assert decision.shadow_available is False
+
+
+def test_missing_acceptance_timestamp_rejects_catalog() -> None:
+    row = _catalog_row()
+    row["accepted_at_utc"] = None
+    decision = evaluate_catalog_gate([row])
+    assert decision.state is CatalogGateState.CATALOG_NOT_ACCEPTED
+    assert decision.shadow_available is False
 
 
 @pytest.mark.parametrize("raw", ["37", "36.1", "37.1", "37.2"])
