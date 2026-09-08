@@ -17,6 +17,9 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 import pandas as pd
 
 from obsidiandroid.common.csv_io import optional_csv
+from obsidiandroid.database.permission_current_interpretation import (
+    interpret_permission_evidence,
+)
 from obsidiandroid.reporting.permission_governance_lanes import (
     CANONICAL_PROTECTION_LANES,
     LANE_AOSP_DANGEROUS,
@@ -83,6 +86,9 @@ MATCH_STATUSES = (
     "unknown",
     "non_permission",
     "unresolved",
+    "historical_identity",
+    "source_backed_definition",
+    "provisional_withheld",
 )
 
 
@@ -165,7 +171,7 @@ def headline_lane_from_enrichment(
     """Map enrichment + run namespace to a single headline lane (contract 2.1.0)."""
     if match_status == "multiple_authority_conflict":
         return LANE_UNKNOWN_UNRESOLVED
-    if match_status == "non_permission":
+    if match_status in {"non_permission", "historical_identity", "provisional_withheld"}:
         return LANE_UNKNOWN_UNRESOLVED
     if match_status == "app_defined" or _norm(namespace_class) == "app_defined" or _norm(run_pi_bucket_source) == "app_defined":
         return LANE_APP_DEFINED
@@ -272,11 +278,34 @@ def fetch_permission_intel_authority(
 
     lookup_tokens = sorted({alias_map.get(t, t) for t in toks} | set(toks))
 
+    identities = _batched_in_query(
+        q,
+        """
+        SELECT p.permission_id, p.canonical_permission, p.authority_class,
+               p.lifecycle, p.feature_dependency,
+               v.compatibility_protection_expression,
+               COUNT(c.conflict_id) AS unresolved_conflict_count
+          FROM android_permission_v1_current_permission p
+          LEFT JOIN android_permission_v1_obsidiandroid_permission v
+            ON BINARY v.canonical_permission = BINARY p.canonical_permission
+           AND v.catalog_release_id = p.catalog_release_id
+           AND v.catalog_digest = p.catalog_digest
+          LEFT JOIN api_permission_declaration_conflict c
+            ON c.permission_id = p.permission_id
+           AND c.resolution_status = 'UNRESOLVED'
+         WHERE LOWER(p.canonical_permission) IN ({placeholders})
+         GROUP BY p.permission_id, p.canonical_permission, p.authority_class,
+                  p.lifecycle, p.feature_dependency,
+                  v.compatibility_protection_expression
+        """,
+        lookup_tokens,
+    )
+
     facts = _batched_in_query(
         q,
         """
         SELECT permission_string_norm, permission_string, source_family_key,
-               authority_source_type, protection_level, visibility_class,
+               authority_source_type, fact_scope, protection_level, visibility_class,
                lifecycle_status, authority_confidence, is_current_best,
                defining_package, updated_at_utc, authority_fact_id
         FROM android_permission_authority_fact
@@ -292,6 +321,7 @@ def fetch_permission_intel_authority(
                authority_source_type, source_family_key, record_updated_at_utc
         FROM android_permission_dict_aosp
         WHERE constant_value_norm IN ({placeholders})
+          AND COALESCE(lifecycle_status, '') <> 'invalid_token'
         """,
         lookup_tokens,
     )
@@ -324,6 +354,24 @@ def fetch_permission_intel_authority(
         """,
         lookup_tokens,
     )
+    non_permissions = _batched_in_query(
+        q,
+        """
+        SELECT token_value_norm, token_class
+          FROM android_permission_non_permission_fact
+         WHERE is_active = 1 AND token_value_norm IN ({placeholders})
+        """,
+        lookup_tokens,
+    )
+    anomalies = _batched_in_query(
+        q,
+        """
+        SELECT token_value_norm, anomaly_class
+          FROM android_permission_token_anomaly_fact
+         WHERE is_active = 1 AND token_value_norm IN ({placeholders})
+        """,
+        lookup_tokens,
+    )
 
     # Conflict detection among current-best facts (should be rare).
     fact_conflicts: set[str] = set()
@@ -335,11 +383,14 @@ def fetch_permission_intel_authority(
         "observed_at_utc": observed,
         "alias_map": alias_map,
         "aliases": aliases,
+        "identities": identities,
         "facts": facts,
         "aosp": aosp,
         "oem": oem,
         "unknown": unknown,
         "reviews": reviews,
+        "non_permissions": non_permissions,
+        "anomalies": anomalies,
         "fact_conflicts": fact_conflicts,
         "query_token_count": len(toks),
         "lookup_token_count": len(lookup_tokens),
@@ -353,14 +404,21 @@ def build_enrichment_table(
     """One enrichment row per run token."""
     universe = load_run_token_universe(run_audit)
     alias_map: dict[str, str] = dict(pi_bundle.get("alias_map") or {})
+    identities = pi_bundle.get("identities")
     facts = pi_bundle.get("facts")
     aosp = pi_bundle.get("aosp")
     oem = pi_bundle.get("oem")
     unknown = pi_bundle.get("unknown")
     reviews = pi_bundle.get("reviews")
+    non_permissions = pi_bundle.get("non_permissions")
+    anomalies = pi_bundle.get("anomalies")
     fact_conflicts: set[str] = set(pi_bundle.get("fact_conflicts") or set())
     observed = str(pi_bundle.get("observed_at_utc") or "")
 
+    identity_by = {}
+    if isinstance(identities, pd.DataFrame) and not identities.empty:
+        for r in identities.itertuples(index=False):
+            identity_by[_norm(r.canonical_permission)] = r
     fact_by = {}
     if isinstance(facts, pd.DataFrame) and not facts.empty:
         for r in facts.itertuples(index=False):
@@ -382,10 +440,19 @@ def build_enrichment_table(
     if isinstance(reviews, pd.DataFrame) and not reviews.empty:
         for r in reviews.itertuples(index=False):
             rev_by[_norm(r.permission_string_norm)] = r
+    non_permission_by = {}
+    if isinstance(non_permissions, pd.DataFrame) and not non_permissions.empty:
+        for r in non_permissions.itertuples(index=False):
+            non_permission_by[_norm(r.token_value_norm)] = r
+    anomaly_by = {}
+    if isinstance(anomalies, pd.DataFrame) and not anomalies.empty:
+        for r in anomalies.itertuples(index=False):
+            anomaly_by[_norm(r.token_value_norm)] = r
 
     rows: list[dict[str, Any]] = []
     for r in universe.itertuples(index=False):
         token = _norm(r.normalized_token)
+        raw_token = str(getattr(r, "permission_string", token) or token).strip()
         run_src = str(getattr(r, "pi_bucket_source", "") or "")
         run_dang = str(getattr(r, "dangerous_bucket", "") or "")
         alias_src = ""
@@ -401,6 +468,7 @@ def build_enrichment_table(
         review_status = ""
         conflict_status = "none"
         active_state = ""
+        decision = None
 
         if canonical in fact_conflicts or token in fact_conflicts:
             match_status = "multiple_authority_conflict"
@@ -409,49 +477,86 @@ def build_enrichment_table(
             if facts_list:
                 raw_pl = str(getattr(facts_list[0], "protection_level", "") or "")
                 authority_source = str(getattr(facts_list[0], "authority_source_type", "") or "")
-        elif canonical in fact_by or token in fact_by:
-            fr = (fact_by.get(canonical) or fact_by.get(token) or [None])[0]
-            raw_pl = str(getattr(fr, "protection_level", "") or "")
-            authority_source = str(getattr(fr, "authority_source_type", "") or "")
-            active_state = str(getattr(fr, "lifecycle_status", "") or "")
-            namespace_class = "aosp"
-            match_status = "alias_resolved" if alias_src else "exact_authority_match"
-            if not raw_pl:
-                # authority row exists but blank protection → try AOSP dict
-                if canonical in aosp_by:
-                    ar = aosp_by[canonical]
-                    raw_pl = str(getattr(ar, "protection_level", "") or "")
-                    authority_source = authority_source or "android_permission_dict_aosp"
-        elif canonical in aosp_by:
-            ar = aosp_by[canonical]
-            raw_pl = str(getattr(ar, "protection_level", "") or "")
-            authority_source = "android_permission_dict_aosp"
-            namespace_class = "aosp"
-            active_state = str(getattr(ar, "lifecycle_status", "") or "")
-            match_status = "alias_resolved" if alias_src else "exact_authority_match"
-        elif canonical in oem_by or token in oem_by:
+        else:
+            identity = identity_by.get(canonical) or identity_by.get(token)
+            fact_rows = fact_by.get(canonical) or fact_by.get(token) or []
+            fact = fact_rows[0] if fact_rows else None
+            legacy = aosp_by.get(canonical) or aosp_by.get(token)
+            decision_token = (
+                str(getattr(identity, "canonical_permission", "") or "")
+                if alias_src and identity is not None
+                else raw_token
+            )
+            decision = interpret_permission_evidence(
+                token=decision_token,
+                identity=identity,
+                legacy=legacy,
+                fact=fact,
+                non_permission=non_permission_by.get(canonical)
+                or non_permission_by.get(token),
+                anomaly=anomaly_by.get(canonical) or anomaly_by.get(token),
+            )
+            authority_source = (
+                "android_permission_v1_current_permission"
+                if decision.evidence_state == "ACCEPTED_CANONICAL"
+                else str(getattr(fact, "authority_source_type", "") or "")
+                if fact is not None
+                else "current_interpretation_guard"
+            )
+            raw_pl = str(decision.protection_result or "")
+            active_state = (
+                str(getattr(fact, "lifecycle_status", "") or "")
+                if fact is not None
+                else str(getattr(legacy, "lifecycle_status", "") or "")
+                if legacy is not None
+                else ""
+            )
+            if decision.authority_scope == "AOSP_PLATFORM":
+                namespace_class = "aosp"
+                match_status = "alias_resolved" if alias_src else "exact_authority_match"
+            elif decision.authority_scope == "HISTORICAL_PLATFORM":
+                namespace_class = "aosp_historical"
+                match_status = "alias_resolved" if alias_src else "historical_identity"
+            elif decision.authority_scope in {
+                "AOSP_PACKAGE_DEFINED",
+                "THIRD_PARTY_APPLICATION_DEFINED",
+                "SDK_INTEGRATION_CUSTOM_PERMISSION",
+            }:
+                namespace_class = "app_defined"
+                match_status = "source_backed_definition"
+            elif decision.authority_scope == "AOSP_PROVIDER_ACL":
+                namespace_class = "provider_permission"
+                match_status = "source_backed_definition"
+            elif decision.identifier_kind not in {"PERMISSION", "PROVIDER_PERMISSION", "UNKNOWN"}:
+                namespace_class = "non_permission"
+                match_status = "non_permission"
+            elif decision.evidence_state == "PROVISIONAL_SEED_ONLY":
+                namespace_class = "unknown"
+                match_status = "provisional_withheld"
+
+        if match_status == "unresolved" and (canonical in oem_by or token in oem_by):
             orow = oem_by.get(canonical) or oem_by.get(token)
             raw_pl = str(getattr(orow, "protection_level", "") or "")
             authority_source = "android_permission_dict_oem"
             namespace_class = "oem"
             match_status = "alias_resolved" if alias_src else "exact_authority_match"
-        elif _norm(run_src) == "app_defined" or _norm(run_dang) == "app_defined":
+        elif match_status == "unresolved" and (
+            _norm(run_src) == "app_defined" or _norm(run_dang) == "app_defined"
+        ):
             match_status = "app_defined"
             namespace_class = "app_defined"
             authority_source = "run_audit_pi_bucket_source"
-        elif _norm(run_src) == "oem":
+        elif match_status == "unresolved" and _norm(run_src) == "oem":
             namespace_class = "oem"
             match_status = "unresolved"
             authority_source = "run_audit_pi_bucket_source"
-        elif _norm(run_src) == "google":
+        elif match_status == "unresolved" and _norm(run_src) == "google":
             namespace_class = "google"
             match_status = "unresolved"
             authority_source = "run_audit_pi_bucket_source"
-        elif canonical in unk_by or token in unk_by:
+        elif match_status == "unresolved" and (canonical in unk_by or token in unk_by):
             match_status = "unknown"
             authority_source = "android_permission_dict_unknown"
-        else:
-            match_status = "unresolved"
 
         parsed = parse_protection_level_string(raw_pl)
         if parsed["multi_base_conflict"] and match_status != "multiple_authority_conflict":
@@ -485,6 +590,14 @@ def build_enrichment_table(
             "match_status": match_status,
             "conflict_status": conflict_status,
             "active_accepted_authority_state": active_state,
+            "identifier_recognition": getattr(
+                decision, "identifier_recognition", "UNRESOLVED_IDENTIFIER"
+            ),
+            "authority_scope": getattr(decision, "authority_scope", "UNKNOWN"),
+            "identifier_kind": getattr(decision, "identifier_kind", "UNKNOWN"),
+            "declaration_state": getattr(decision, "declaration_state", "NO_DECLARATION"),
+            "evidence_state": getattr(decision, "evidence_state", "INSUFFICIENT"),
+            "feature_dependency": getattr(decision, "feature_dependency", None),
             "alias_source": alias_src,
             "review_status": review_status,
             "run_pi_bucket_source": run_src,
@@ -694,11 +807,16 @@ def compose_permission_authority_enrichment(
                 "batch_size": BATCH_SIZE,
                 "tables": [
                     "android_permission_token_alias",
+                    "android_permission_v1_current_permission",
+                    "android_permission_v1_obsidiandroid_permission",
+                    "api_permission_declaration_conflict",
                     "android_permission_authority_fact",
                     "android_permission_dict_aosp",
                     "android_permission_dict_oem",
                     "android_permission_dict_unknown",
                     "android_permission_review_state",
+                    "android_permission_non_permission_fact",
+                    "android_permission_token_anomaly_fact",
                 ],
                 "token_universe_hash": token_hash,
                 "query_token_count": bundle.get("query_token_count"),

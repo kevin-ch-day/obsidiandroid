@@ -7,13 +7,15 @@ from . import db_engine
 
 _PERMISSION_OBS_NORM_AVAILABLE: bool | None = None
 _PERMISSION_DICTIONARY_NORM_AVAILABLE: bool | None = None
+_PERMISSION_UNKNOWN_NORM_AVAILABLE: bool | None = None
 
 
 def reset_permission_obs_norm_cache() -> None:
     """Reset cached `permission_string_norm` availability for tests or schema refresh."""
-    global _PERMISSION_OBS_NORM_AVAILABLE, _PERMISSION_DICTIONARY_NORM_AVAILABLE  # pylint: disable=global-statement
+    global _PERMISSION_OBS_NORM_AVAILABLE, _PERMISSION_DICTIONARY_NORM_AVAILABLE, _PERMISSION_UNKNOWN_NORM_AVAILABLE  # pylint: disable=global-statement
     _PERMISSION_OBS_NORM_AVAILABLE = None
     _PERMISSION_DICTIONARY_NORM_AVAILABLE = None
+    _PERMISSION_UNKNOWN_NORM_AVAILABLE = None
 
 
 def permission_obs_norm_available() -> bool:
@@ -57,3 +59,15 @@ def permission_dictionary_norm_available() -> bool:
             and "permission_string_norm" in oem_columns
         )
     return bool(_PERMISSION_DICTIONARY_NORM_AVAILABLE)
+
+
+def permission_unknown_norm_available() -> bool:
+    """Return whether the unknown lifecycle ledger exposes its indexed normalized key."""
+    global _PERMISSION_UNKNOWN_NORM_AVAILABLE  # pylint: disable=global-statement
+    if _PERMISSION_UNKNOWN_NORM_AVAILABLE is None:
+        columns = {
+            str(column).strip().lower()
+            for column in db_engine.get_table_columns("android_permission_dict_unknown")
+        }
+        _PERMISSION_UNKNOWN_NORM_AVAILABLE = "permission_string_norm" in columns
+    return bool(_PERMISSION_UNKNOWN_NORM_AVAILABLE)

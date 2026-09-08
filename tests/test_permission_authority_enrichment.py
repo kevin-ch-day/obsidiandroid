@@ -127,6 +127,24 @@ def test_one_row_per_token_alias_and_conflict(tmp_path: Path) -> None:
             "observed_at_utc": "2026-07-21T00:00:00+00:00",
             "alias_map": {"android.permission.send_sms": "android.permission.send_sms"},
             "fact_conflicts": set(),
+            "identities": pd.DataFrame(
+                [
+                    {
+                        "canonical_permission": "android.permission.SEND_SMS",
+                        "authority_class": "AOSP_PUBLIC",
+                        "feature_dependency": None,
+                        "unresolved_conflict_count": 0,
+                        "compatibility_protection_expression": "dangerous",
+                    },
+                    {
+                        "canonical_permission": "android.permission.BIND_ACCESSIBILITY_SERVICE",
+                        "authority_class": "AOSP_PUBLIC",
+                        "feature_dependency": None,
+                        "unresolved_conflict_count": 0,
+                        "compatibility_protection_expression": "signature",
+                    },
+                ]
+            ),
             "facts": pd.DataFrame(
                 [
                     {
@@ -160,6 +178,8 @@ def test_one_row_per_token_alias_and_conflict(tmp_path: Path) -> None:
             "oem": pd.DataFrame(),
             "unknown": pd.DataFrame(),
             "reviews": pd.DataFrame(),
+            "non_permissions": pd.DataFrame(),
+            "anomalies": pd.DataFrame(),
         }
         enrichment = build_enrichment_table(audit, pi)
         assert len(enrichment) == 3
@@ -290,6 +310,24 @@ def test_compose_enrichment_mocked_no_writes(tmp_path: Path) -> None:
             "observed_at_utc": "2026-07-21T12:00:00+00:00",
             "alias_map": {},
             "fact_conflicts": set(),
+            "identities": pd.DataFrame(
+                [
+                    {
+                        "canonical_permission": "android.permission.INTERNET",
+                        "authority_class": "AOSP_PUBLIC",
+                        "feature_dependency": None,
+                        "unresolved_conflict_count": 0,
+                        "compatibility_protection_expression": "normal",
+                    },
+                    {
+                        "canonical_permission": "android.permission.BIND_ACCESSIBILITY_SERVICE",
+                        "authority_class": "AOSP_PUBLIC",
+                        "feature_dependency": None,
+                        "unresolved_conflict_count": 0,
+                        "compatibility_protection_expression": "signature",
+                    },
+                ]
+            ),
             "facts": pd.DataFrame(
                 [
                     {
@@ -323,6 +361,8 @@ def test_compose_enrichment_mocked_no_writes(tmp_path: Path) -> None:
             "oem": pd.DataFrame(),
             "unknown": pd.DataFrame(),
             "reviews": pd.DataFrame(),
+            "non_permissions": pd.DataFrame(),
+            "anomalies": pd.DataFrame(),
         }
         out = compose_permission_authority_enrichment(
             run_root=run,

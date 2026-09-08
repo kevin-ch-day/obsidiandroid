@@ -157,8 +157,9 @@ def test_permission_features_fall_back_when_permission_string_norm_is_unavailabl
         min_permission_support=1,
     )
 
-    assert "permission_string_norm" not in str(captured.get("query", ""))
-    assert "LOWER(TRIM(ops.permission_string)) AS permission_string" in str(captured.get("query", ""))
+    query = str(captured.get("query", ""))
+    assert "ops.permission_string_norm" not in query
+    assert "LOWER(TRIM(ops.permission_string)) AS permission_string" in query
     assert bool(captured["kwargs"]["as_dataframe"]) is True
     assert "perm__android_permission_read_sms" in out.columns
     assert int(out.loc[out["sample_id"] == 1, "perm__android_permission_read_sms"].iloc[0]) == 1

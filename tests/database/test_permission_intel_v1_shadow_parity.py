@@ -104,6 +104,27 @@ def test_unknown_protection_token_remains_explicit() -> None:
     assert parsed.unresolved_tokens == ("invented",)
 
 
+def test_conditional_applicability_is_not_compared_as_legacy_certainty() -> None:
+    legacy = LegacyPlatformFact.from_mapping(
+        {
+            "constant_value": "android.permission.DEVICE_POWER",
+            "classification": "AOSP",
+            "protection_level": "signature|role",
+        }
+    )
+    comparison = compare_permission(
+        legacy,
+        _v1_fact(
+            canonical_permission="android.permission.DEVICE_POWER",
+            applicability_state="REQUIRES_BUILD_CONFIGURATION_EVIDENCE",
+            protection_state="UNKNOWN_REQUIRES_BUILD_CONFIGURATION",
+            protection=ProtectionSemantics(None, (), None, None),
+        ),
+    )
+    assert comparison.state is ComparisonState.APPLICABILITY_UNRESOLVED
+    assert comparison.field_differences[0].field == "applicability_state"
+
+
 def test_all_modifiers_are_serialized_without_loss() -> None:
     modifiers = ("module", "privileged", "knownSigner")
     assert (

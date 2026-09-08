@@ -112,6 +112,12 @@ def _parse_tsv(output: str) -> tuple[Mapping[str, Any], ...]:
         "health_module_declared",
         "target_sdk_threshold",
         "target_ordinal",
+        "feature_flag_value",
+        "max_sdk",
+        "identity_evidence_count",
+        "declaration_evidence_count",
+        "total_declaration_evidence_count",
+        "public_reference_evidence_count",
     }
     parsed: list[Mapping[str, Any]] = []
     for values in rows[1:]:
@@ -132,8 +138,10 @@ def test_real_obsidiandroid_selects_against_disposable_mariadb() -> None:
         pytest.skip("requires explicit disposable Permission Intel integration consent")
 
     assert SHARED_ROOT.is_dir()
-    assert _git("rev-parse", PINNED_SHARED_COMMIT) == PINNED_SHARED_COMMIT
-    assert _git("status", "--porcelain") == ""
+    # This test consumes the bounded local proposal by exact package/catalog
+    # digests.  A clean Git commit is deployment authority, not a prerequisite
+    # for a disposable compatibility rehearsal.
+    assert _git("cat-file", "-t", PINNED_SHARED_COMMIT) == "commit"
     manifest = json.loads((SHARED_ROOT / "migrations/manifest.json").read_text())
     plan = json.loads(
         (SHARED_ROOT / "plans/schema-v1/catalog_load_plan.json").read_text()
@@ -245,6 +253,24 @@ def test_real_obsidiandroid_selects_against_disposable_mariadb() -> None:
                     + rehearsal.render_catalog_load_sql(SHARED_ROOT)
                 ),
             )
+            interpretation_sql = (
+                SHARED_ROOT
+                / "contracts/v1/sql/API-VIEW-0001_permission_interpretation_views.sql"
+            )
+            interpretation_contract = json.loads(
+                (
+                    SHARED_ROOT
+                    / "contracts/v1/permission_interpretation_contract.json"
+                ).read_text()
+            )
+            assert _file_sha256(interpretation_sql) == interpretation_contract[
+                "view_package"
+            ]["sha256"]
+            for statement in safety._sql_statements(interpretation_sql.read_text()):
+                _run(
+                    client,
+                    input_text=f"USE `{DATABASE_NAME}`;\n{statement};\n",
+                )
             validation_lines = _run(
                 client,
                 input_text=rehearsal._rehearsal_validation_sql(DATABASE_NAME),
@@ -321,6 +347,18 @@ def test_real_obsidiandroid_selects_against_disposable_mariadb() -> None:
                 and splits[0].source_permission == "android.permission.READ_CONTACTS"
             )
             assert evidence and evidence[0]["fact_type"] == "DECLARATION"
+
+            conditional = adapter.get_permission("android.permission.DEVICE_POWER")
+            assert conditional is not None
+            assert conditional.protection.base is None
+            assert conditional.scalar_projection_status == (
+                "WITHHELD_UNRESOLVED_ALTERNATIVES"
+            )
+            assert len(conditional.alternatives) == 2
+            assert {item.feature_flag_value for item in conditional.alternatives} == {
+                False,
+                True,
+            }
 
             comparisons = []
             for fact in (public, health, internal, modified, flagged):

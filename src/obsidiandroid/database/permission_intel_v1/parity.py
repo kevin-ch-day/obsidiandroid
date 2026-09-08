@@ -100,6 +100,22 @@ def compare_permission(
             legacy.canonical_permission, ComparisonState.LEGACY_ONLY, ()
         )
 
+    if v1.applicability_state in {
+        "REQUIRES_BUILD_CONFIGURATION_EVIDENCE",
+        "UNRESOLVED_SELECTION",
+    }:
+        return PermissionComparison(
+            legacy.canonical_permission,
+            ComparisonState.APPLICABILITY_UNRESOLVED,
+            (
+                FieldDifference(
+                    "applicability_state",
+                    "legacy_does_not_encode_build_applicability",
+                    v1.applicability_state,
+                ),
+            ),
+        )
+
     if legacy.protection.unresolved_tokens and not v1.protection.unresolved_tokens:
         return PermissionComparison(
             legacy.canonical_permission,

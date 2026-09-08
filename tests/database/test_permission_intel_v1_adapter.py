@@ -7,6 +7,7 @@ import pytest
 
 from obsidiandroid.database.permission_intel_v1.adapter import (
     CATALOG_STATUS_SQL,
+    DECLARATION_ALTERNATIVES_SQL,
     PERMISSION_FLAGS_SQL,
     PERMISSION_LOOKUP_SQL,
     SOURCE_EVIDENCE_SQL,
@@ -29,6 +30,8 @@ class FakeQuery:
             return []
         if sql == PERMISSION_LOOKUP_SQL:
             return [self.permission_row] if self.permission_row is not None else []
+        if sql == DECLARATION_ALTERNATIVES_SQL:
+            return []
         if sql == PERMISSION_FLAGS_SQL:
             return [
                 {
@@ -60,11 +63,18 @@ def _permission_row(**overrides: object) -> dict[str, object]:
     row: dict[str, object] = {
         "catalog_release_id": "android-17-r1-audit-2026-08-30-source-identity-correction-1",
         "catalog_digest": "a" * 64,
+        "interpretation_contract_version": "1.1.0-draft",
         "canonical_permission": "android.permission.CAMERA",
         "symbolic_name": "CAMERA",
         "namespace": "android.permission",
         "defining_package": "android",
         "authority_class": "AOSP_PUBLIC",
+        "identity_recognition_state": "ACCEPTED_EXACT_IDENTITY",
+        "declaration_state": "SINGLE_UNCONDITIONAL_DECLARATION",
+        "applicability_state": "DECLARED_IN_ACCEPTED_SOURCE_SCOPE_NOT_DEVICE_GRANT",
+        "protection_state": "DECLARED_IN_ACCEPTED_SOURCE_SCOPE",
+        "evidence_basis": "MANIFEST_DECLARATION",
+        "scalar_projection_status": "DECLARED_SOURCE_SCOPED",
         "lifecycle": "declared_in_accepted_release",
         "visibility": "public",
         "accepted_platform_release": "37.2",
@@ -94,8 +104,13 @@ def test_parameterized_permission_lookup_and_typed_result() -> None:
     assert fact.protection.base == "dangerous"
     assert fact.protection.modifiers == ("instant", "runtime")
     assert fact.flags == ("hardRestricted", "softRestricted")
+    assert fact.declaration_state == "SINGLE_UNCONDITIONAL_DECLARATION"
     assert query.calls[0] == (PERMISSION_LOOKUP_SQL, ("android.permission.CAMERA",))
     assert "%s" in query.calls[0][0]
+    assert query.calls[1] == (
+        DECLARATION_ALTERNATIVES_SQL,
+        ("android.permission.CAMERA",),
+    )
 
 
 def test_unknown_permission_returns_none_without_flag_query() -> None:
@@ -177,6 +192,8 @@ def test_unknown_source_flag_fails_closed() -> None:
     def bad_flags(sql: str, params: Sequence[object]) -> Sequence[Mapping[str, Any]]:
         if sql == PERMISSION_LOOKUP_SQL:
             return [_permission_row()]
+        if sql == DECLARATION_ALTERNATIVES_SQL:
+            return []
         if sql == PERMISSION_FLAGS_SQL:
             return [
                 {
@@ -196,6 +213,8 @@ def test_permission_lookup_rejects_cross_catalog_flag_rows() -> None:
     ) -> Sequence[Mapping[str, Any]]:
         if sql == PERMISSION_LOOKUP_SQL:
             return [_permission_row()]
+        if sql == DECLARATION_ALTERNATIVES_SQL:
+            return []
         if sql == PERMISSION_FLAGS_SQL:
             return [{"catalog_release_id": "different-release", "normalized_flag": "runtime"}]
         return []
@@ -204,3 +223,84 @@ def test_permission_lookup_rejects_cross_catalog_flag_rows() -> None:
         PermissionIntelV1Adapter(drifted_flags).get_permission(
             "android.permission.CAMERA"
         )
+
+
+def test_conditional_alternatives_withhold_scalar_and_skip_selected_flags() -> None:
+    row = _permission_row(
+        canonical_permission="android.permission.DEVICE_POWER",
+        declaration_state="MULTIPLE_FEATURE_DEPENDENT_ALTERNATIVES",
+        applicability_state="REQUIRES_BUILD_CONFIGURATION_EVIDENCE",
+        protection_state="UNKNOWN_REQUIRES_BUILD_CONFIGURATION",
+        evidence_basis="MANIFEST_CONDITIONAL_ALTERNATIVES",
+        scalar_projection_status="WITHHELD_UNRESOLVED_ALTERNATIVES",
+        protection_base=None,
+        protection_modifiers=None,
+        compatibility_protection_expression=None,
+        raw_protection_expression=None,
+    )
+
+    def query(sql: str, params: Sequence[object]) -> Sequence[Mapping[str, Any]]:
+        if sql == PERMISSION_LOOKUP_SQL:
+            return [row]
+        if sql == DECLARATION_ALTERNATIVES_SQL:
+            return [
+                {
+                    "catalog_release_id": row["catalog_release_id"],
+                    "catalog_digest": row["catalog_digest"],
+                    "declaration_revision_id": "decl-false",
+                    "feature_dependency": "!flag.device_power",
+                    "feature_flag": "flag.device_power",
+                    "feature_flag_value": 0,
+                    "applicability_state": "REQUIRES_BUILD_CONFIGURATION_EVIDENCE",
+                    "accepted_platform_release": "37",
+                    "protection_base": "signature",
+                    "protection_modifiers": "role",
+                    "compatibility_protection_expression": "signature|role",
+                },
+                {
+                    "catalog_release_id": row["catalog_release_id"],
+                    "catalog_digest": row["catalog_digest"],
+                    "declaration_revision_id": "decl-true",
+                    "feature_dependency": "flag.device_power",
+                    "feature_flag": "flag.device_power",
+                    "feature_flag_value": 1,
+                    "applicability_state": "REQUIRES_BUILD_CONFIGURATION_EVIDENCE",
+                    "accepted_platform_release": "37",
+                    "protection_base": "signature",
+                    "protection_modifiers": "role|module",
+                    "compatibility_protection_expression": "signature|role|module",
+                },
+            ]
+        if sql == PERMISSION_FLAGS_SQL:
+            raise AssertionError("conditional branches must not use selected-scalar flags")
+        return []
+
+    fact = PermissionIntelV1Adapter(query).get_permission(
+        "android.permission.DEVICE_POWER"
+    )
+    assert fact is not None
+    assert fact.protection.compatibility_expression is None
+    assert fact.flags == ()
+    assert len(fact.alternatives) == 2
+    assert {alternative.protection.compatibility_expression for alternative in fact.alternatives} == {
+        "signature|role",
+        "signature|role|module",
+    }
+
+
+def test_duplicate_or_unsupported_interpretation_fails_closed() -> None:
+    def duplicate(sql: str, params: Sequence[object]) -> Sequence[Mapping[str, Any]]:
+        if sql == PERMISSION_LOOKUP_SQL:
+            return [_permission_row(), _permission_row()]
+        return []
+
+    with pytest.raises(ValueError, match="duplicate identity"):
+        PermissionIntelV1Adapter(duplicate).get_permission("android.permission.CAMERA")
+
+    def unsupported(sql: str, params: Sequence[object]) -> Sequence[Mapping[str, Any]]:
+        if sql == PERMISSION_LOOKUP_SQL:
+            return [_permission_row(interpretation_contract_version="2.0.0")]
+        return []
+
+    with pytest.raises(ValueError, match="interpretation contract"):
+        PermissionIntelV1Adapter(unsupported).get_permission("android.permission.CAMERA")

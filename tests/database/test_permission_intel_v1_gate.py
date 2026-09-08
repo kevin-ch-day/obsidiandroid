@@ -6,6 +6,8 @@ import pytest
 
 from obsidiandroid.database.permission_intel_v1.gate import evaluate_catalog_gate
 from obsidiandroid.database.permission_intel_v1.models import (
+    PINNED_CATALOG_DIGEST,
+    PINNED_CATALOG_RELEASE_ID,
     ApiVersion,
     CatalogGateState,
 )
@@ -17,10 +19,10 @@ def _catalog_row() -> dict[str, object]:
         "schema_contract_version": "1.0.0-draft",
         "compatibility_floor": "1.0.0-draft",
         "schema_contract_release_status": "DRAFT",
-        "catalog_release_id": "android-17-r1-audit-2026-08-30-source-identity-correction-1",
-        "catalog_digest": "075accc8aa2042d0d9454ba12e8625b87e76fe54366532c6bca21d56066fc334",
-        "source_set_id": "android-17-r1-audit-2026-08-30-source-identity-correction-1",
-        "source_set_digest": "54105d49b7b40b0ab792976b82fe52d579da19be181dcbde369ad86c7ae8febc",
+        "catalog_release_id": PINNED_CATALOG_RELEASE_ID,
+        "catalog_digest": PINNED_CATALOG_DIGEST,
+        "source_set_id": "android-17-r1-audit-2026-09-08-module-scope-expansion-3",
+        "source_set_digest": "9c3c85495eb44dd341e1318aa03b3f4a2675c3fdc0818076276868b3cfbe1af7",
         "platform_release_coverage": "android-api-37",
         "scope_completeness_statement": "Accepted scoped union only; not exhaustive.",
         "exhaustive_scope": 0,
@@ -29,7 +31,7 @@ def _catalog_row() -> dict[str, object]:
         "import_receipt_count": 1,
         "parser_package_version": "0.2.0",
         "notes_and_limitations": "incomplete source scope",
-        "accepted_at_utc": "2026-08-30 00:00:00",
+        "accepted_at_utc": "2026-09-08 00:00:00",
     }
 
 

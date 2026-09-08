@@ -612,7 +612,10 @@ def test_fetch_banking_trojans_sql_qualifies_primary_and_pi(monkeypatch) -> None
     sql = queries[0]
     assert f"`{DB_NAME}`.`malware_sample_catalog`" in sql
     assert f"`{PERMISSION_INTEL_DB_NAME}`.`android_permission_obs_sample`" in sql
-    assert f"`{PERMISSION_INTEL_DB_NAME}`.`android_permission_dict_aosp`" in sql
+    assert f"`{PERMISSION_INTEL_DB_NAME}`.`android_permission_v1_current_permission`" in sql
+    assert f"`{PERMISSION_INTEL_DB_NAME}`.`api_permission_declaration_conflict`" in sql
+    assert f"`{PERMISSION_INTEL_DB_NAME}`.`android_permission_authority_fact`" in sql
+    assert f"`{PERMISSION_INTEL_DB_NAME}`.`android_permission_dict_aosp`" not in sql
     assert "ORDER BY ms.sample_id ASC, ops.observed_at_utc ASC, ops.permission_string ASC" in sql
     assert "'golddigger'" in sql
     assert "'crocodilus'" in sql
@@ -629,13 +632,21 @@ def test_fetch_banking_trojans_sql_prefers_permission_string_norm_when_available
     monkeypatch.setattr(
         db_permission_analysis_queries.permission_contracts.db_engine,
         "get_table_columns",
-        lambda _table: ["sample_id", "permission_string", "permission_string_norm"],
+        lambda _table: [
+            "sample_id",
+            "permission_string",
+            "permission_string_norm",
+            "constant_value_norm",
+        ],
     )
     monkeypatch.setattr(db_engine, "execute_query", capture)
     fetch_android_banking_trojans_with_permissions()
     sql = queries[0]
     assert "permission_string_norm" in sql
     assert "COALESCE(NULLIF(TRIM(ops.permission_string_norm), ''), LOWER(TRIM(ops.permission_string)))" in sql
+    assert "mp.permission_string_norm = COALESCE" in sql
+    assert "up.permission_string_norm = COALESCE" in sql
+    assert "vtc.permission_string = TRIM(ops.permission_string)" in sql
 
 
 def test_fetch_banking_trojans_sql_falls_back_without_permission_string_norm(monkeypatch) -> None:
@@ -654,8 +665,10 @@ def test_fetch_banking_trojans_sql_falls_back_without_permission_string_norm(mon
     monkeypatch.setattr(db_engine, "execute_query", capture)
     fetch_android_banking_trojans_with_permissions()
     sql = queries[0]
-    assert "permission_string_norm" not in sql
-    assert "LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(kp.constant_value))" in sql
+    assert "ops.permission_string_norm" not in sql
+    assert "paf.permission_string_norm = LOWER(TRIM(ops.permission_string))" in sql
+    assert "LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(mp.permission_string))" in sql
+    assert "LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(up.permission_string))" in sql
 
 
 def test_fetch_banking_trojans_count_sql_uses_same_family_universe(monkeypatch) -> None:

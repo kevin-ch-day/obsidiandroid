@@ -8,21 +8,21 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-PINNED_SHARED_COMMIT = "54b23b581939184e8dd8668e38837ca1cd15013d"
+PINNED_SHARED_COMMIT = "e0741b368ae43528808dcf1e7144de642e877671"
 PINNED_MIGRATION_SET_DIGEST = (
     "1bec1edabf99fbebffc9737e8b5d14076d3566b963c4878c9b3361bbe269ed5c"
 )
 PINNED_CATALOG_DIGEST = (
-    "075accc8aa2042d0d9454ba12e8625b87e76fe54366532c6bca21d56066fc334"
+    "7cfe2b144aaa3e4dee0125cddf1153d8662ecde041d6c6da0e023e9d19501212"
 )
 PINNED_CATALOG_PLAN_DIGEST = (
-    "aae4c1b48f043e58293884183235f344d8ab0e7e18cfd2362b99725227234cca"
+    "11369d1946ddc8d2234ca06cf58e1f219e3b2f001c63d5c7ef1eb2f2ba86565d"
 )
 PINNED_SCHEMA_CONTRACT_ID = "org.android-permission-intel.schema-v1-draft"
 PINNED_SCHEMA_CONTRACT_VERSION = "1.0.0-draft"
 PINNED_SCHEMA_CONTRACT_RELEASE_STATUS = "DRAFT"
 PINNED_CATALOG_RELEASE_ID = (
-    "android-17-r1-audit-2026-08-30-source-identity-correction-1"
+    "android-17-r1-audit-2026-09-08-module-scope-expansion-3"
 )
 
 # Complete source-derived vocabularies from the pinned catalog plan. Keeping these
@@ -156,6 +156,7 @@ class ComparisonState(str, Enum):
     LIFECYCLE_DIFFERENCE = "LIFECYCLE_DIFFERENCE"
     PROVENANCE_DIFFERENCE = "PROVENANCE_DIFFERENCE"
     LEGACY_NOT_EXPRESSIVE = "LEGACY_NOT_EXPRESSIVE"
+    APPLICABILITY_UNRESOLVED = "APPLICABILITY_UNRESOLVED"
     UNSUPPORTED_QUERY = "UNSUPPORTED_QUERY"
     ERROR = "ERROR"
 
@@ -217,6 +218,29 @@ class ProtectionSemantics:
         """Serialize base first, retaining all modifiers in their supplied stable order."""
         tokens = ((base,) if base else ()) + modifiers
         return "|".join(tokens) if tokens else None
+
+
+@dataclass(frozen=True)
+class DeclarationAlternative:
+    """One source-backed declaration branch; never an implicit effective union."""
+
+    declaration_revision_id: str
+    feature_dependency: str | None
+    feature_flag: str | None
+    feature_flag_value: bool | None
+    applicability_state: str
+    lifecycle: str | None
+    platform_release: ApiVersion | None
+    sdk_extension_release_id: str | None
+    source_snapshot_id: str | None
+    declaration_locator: str | None
+    defining_package: str | None
+    permission_group: str | None
+    background_permission: str | None
+    visibility: str | None
+    max_sdk: int | None
+    protection: ProtectionSemantics
+    declaration_evidence_status: str | None
 
 
 @dataclass(frozen=True)
@@ -301,6 +325,14 @@ class PlatformPermissionFact:
     flags: tuple[str, ...]
     catalog_release_id: str
     catalog_digest: str
+    interpretation_contract_version: str = "1.1.0-draft"
+    identity_recognition_state: str = "ACCEPTED_EXACT_IDENTITY"
+    declaration_state: str = "SINGLE_UNCONDITIONAL_DECLARATION"
+    applicability_state: str = "DECLARED_IN_ACCEPTED_SOURCE_SCOPE_NOT_DEVICE_GRANT"
+    protection_state: str = "DECLARED_IN_ACCEPTED_SOURCE_SCOPE"
+    evidence_basis: str = "MANIFEST_DECLARATION"
+    scalar_projection_status: str = "DECLARED_SOURCE_SCOPED"
+    alternatives: tuple[DeclarationAlternative, ...] = ()
 
 
 @dataclass(frozen=True)

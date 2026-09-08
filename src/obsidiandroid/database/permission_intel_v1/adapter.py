@@ -11,6 +11,7 @@ from .models import (
     ApiVersion,
     AuthorityClass,
     CatalogGateDecision,
+    DeclarationAlternative,
     PlatformPermissionFact,
     ProtectionSemantics,
     SplitPermissionFact,
@@ -29,11 +30,18 @@ PERMISSION_LOOKUP_SQL = """
 SELECT
     p.catalog_release_id,
     p.catalog_digest,
+    p.interpretation_contract_version,
     p.canonical_permission,
     p.symbolic_name,
     p.namespace,
     p.defining_package,
     p.authority_class,
+    p.identity_recognition_state,
+    p.declaration_state,
+    p.applicability_state,
+    p.protection_state,
+    p.evidence_basis,
+    p.scalar_projection_status,
     p.lifecycle,
     p.visibility,
     p.accepted_platform_release,
@@ -43,20 +51,26 @@ SELECT
     p.public_manifest_exposed,
     p.public_health_exposed,
     p.health_module_declared,
-    protection.protection_base,
-    protection.protection_modifiers,
-    protection.compatibility_protection_expression,
-    protection.raw_protection_expression
-FROM android_permission_v1_obsidiandroid_permission AS consumer
-JOIN android_permission_v1_current_permission AS p
-  ON p.catalog_release_id = consumer.catalog_release_id
- AND p.canonical_permission = consumer.canonical_permission
-LEFT JOIN android_permission_v1_current_protection AS protection
-  ON protection.catalog_release_id = p.catalog_release_id
- AND protection.permission_id = p.permission_id
+    p.protection_base,
+    p.protection_modifiers,
+    p.compatibility_protection_expression,
+    p.raw_protection_expression
+FROM android_permission_v1_1_obsidiandroid_permission AS p
 WHERE BINARY p.canonical_permission = BINARY %s
-ORDER BY p.declaration_revision_id DESC
-LIMIT 1
+""".strip()
+
+DECLARATION_ALTERNATIVES_SQL = """
+SELECT catalog_release_id, catalog_digest, declaration_revision_id, lifecycle,
+       accepted_platform_release, sdk_extension_release_id, feature_dependency,
+       feature_flag, feature_flag_value, applicability_state, visibility,
+       defining_package, permission_group, background_permission, max_sdk,
+       source_snapshot_id, declaration_locator, protection_base,
+       protection_modifiers, compatibility_protection_expression,
+       raw_protection_expression, declaration_evidence_status
+FROM android_permission_v1_1_declaration_alternative
+WHERE BINARY canonical_permission = BINARY %s
+  AND (feature_dependency IS NOT NULL OR unresolved_conflict_count > 0)
+ORDER BY declaration_revision_id
 """.strip()
 
 PERMISSION_FLAGS_SQL = """
@@ -82,7 +96,7 @@ ORDER BY target_sdk_threshold, target_ordinal, target_permission
 SOURCE_EVIDENCE_SQL = """
 SELECT fact_type, fact_digest, source_snapshot_id, source_path, source_locator,
        parser_version, evidence_digest
-FROM android_permission_v1_source_evidence
+FROM android_permission_v1_1_identity_evidence
 WHERE BINARY canonical_permission = BINARY %s
 ORDER BY fact_type, source_snapshot_id, source_path, source_locator
 """.strip()
@@ -90,6 +104,7 @@ ORDER BY fact_type, source_snapshot_id, source_path, source_locator
 EXECUTABLE_SELECTS = (
     CATALOG_STATUS_SQL,
     PERMISSION_LOOKUP_SQL,
+    DECLARATION_ALTERNATIVES_SQL,
     PERMISSION_FLAGS_SQL,
     SPLIT_PERMISSION_SQL,
     SOURCE_EVIDENCE_SQL,
@@ -114,9 +129,26 @@ class PermissionIntelV1Adapter:
         rows = self._query(PERMISSION_LOOKUP_SQL, (permission,))
         if not rows:
             return None
+        if len(rows) != 1:
+            raise ValueError("Permission Intel interpretation returned duplicate identity rows")
         row = rows[0]
-        flag_rows = self._query(PERMISSION_FLAGS_SQL, (permission,))
+        if row.get("interpretation_contract_version") != "1.1.0-draft":
+            raise ValueError("unsupported Permission Intel interpretation contract")
         catalog_release_id = str(row.get("catalog_release_id") or "")
+        alternative_rows = self._query(DECLARATION_ALTERNATIVES_SQL, (permission,))
+        if any(
+            str(item.get("catalog_release_id") or "") != catalog_release_id
+            or str(item.get("catalog_digest") or "")
+            != str(row.get("catalog_digest") or "")
+            for item in alternative_rows
+        ):
+            raise ValueError("catalog changed during v1 declaration-alternative lookup")
+        alternatives = tuple(_alternative(item) for item in alternative_rows)
+        scalar_safe = row.get("scalar_projection_status") in {
+            "DECLARED_SOURCE_SCOPED",
+            "DECLARED_CONDITIONED_NOT_DEVICE_EFFECTIVE",
+        }
+        flag_rows = self._query(PERMISSION_FLAGS_SQL, (permission,)) if scalar_safe else ()
         if any(
             str(item.get("catalog_release_id") or "") != catalog_release_id
             for item in flag_rows
@@ -157,6 +189,18 @@ class PermissionIntelV1Adapter:
             flags=flags,
             catalog_release_id=catalog_release_id,
             catalog_digest=str(row.get("catalog_digest") or ""),
+            interpretation_contract_version=str(
+                row.get("interpretation_contract_version") or ""
+            ),
+            identity_recognition_state=str(
+                row.get("identity_recognition_state") or ""
+            ),
+            declaration_state=str(row.get("declaration_state") or ""),
+            applicability_state=str(row.get("applicability_state") or ""),
+            protection_state=str(row.get("protection_state") or ""),
+            evidence_basis=str(row.get("evidence_basis") or ""),
+            scalar_projection_status=str(row.get("scalar_projection_status") or ""),
+            alternatives=alternatives,
         )
 
     def get_split_relations(
@@ -208,3 +252,34 @@ def _validate_permission_parameter(value: str) -> str:
 def _optional_text(value: object) -> str | None:
     text = str(value or "").strip()
     return text or None
+
+
+def _alternative(row: Mapping[str, Any]) -> DeclarationAlternative:
+    platform_raw = row.get("accepted_platform_release")
+    return DeclarationAlternative(
+        declaration_revision_id=str(row.get("declaration_revision_id") or ""),
+        feature_dependency=_optional_text(row.get("feature_dependency")),
+        feature_flag=_optional_text(row.get("feature_flag")),
+        feature_flag_value=(
+            bool(row.get("feature_flag_value"))
+            if row.get("feature_flag_value") is not None
+            else None
+        ),
+        applicability_state=str(row.get("applicability_state") or ""),
+        lifecycle=_optional_text(row.get("lifecycle")),
+        platform_release=(
+            ApiVersion.parse(platform_raw) if platform_raw is not None else None
+        ),
+        sdk_extension_release_id=_optional_text(row.get("sdk_extension_release_id")),
+        source_snapshot_id=_optional_text(row.get("source_snapshot_id")),
+        declaration_locator=_optional_text(row.get("declaration_locator")),
+        defining_package=_optional_text(row.get("defining_package")),
+        permission_group=_optional_text(row.get("permission_group")),
+        background_permission=_optional_text(row.get("background_permission")),
+        visibility=_optional_text(row.get("visibility")),
+        max_sdk=int(row["max_sdk"]) if row.get("max_sdk") is not None else None,
+        protection=ProtectionSemantics.from_v1_row(row),
+        declaration_evidence_status=_optional_text(
+            row.get("declaration_evidence_status")
+        ),
+    )

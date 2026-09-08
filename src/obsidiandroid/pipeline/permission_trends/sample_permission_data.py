@@ -10,6 +10,10 @@ import pandas as pd
 
 from obsidiandroid.database import db_engine
 from obsidiandroid.database import permission_contracts
+from obsidiandroid.database.permission_current_interpretation import (
+    interpretation_joins,
+    interpretation_selects,
+)
 
 from .constants import COMMON_PERMISSIONS, PERMISSION_ALIAS_MAP
 
@@ -304,23 +308,37 @@ def fetch_permission_rows_for_samples(
         placeholders = ", ".join(["%s"] * len(chunk))
         permission_key_expr = _permission_obs_key_expr_ops()
         if permission_contracts.permission_dictionary_norm_available():
-            aosp_join = f"{permission_key_expr} = a.constant_value_norm"
             oem_join = f"{permission_key_expr} = o.permission_string_norm"
         else:
-            aosp_join = "LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(a.constant_value))"
             oem_join = "LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(o.permission_string))"
+        interpretation = interpretation_selects(
+            historical_source_expr="UPPER(COALESCE(ops.classification, 'UNKNOWN'))"
+        )
+        interpretation_sql = interpretation_joins(
+            key_expr=permission_key_expr,
+            raw_expr="ops.permission_string",
+        )
         query = f"""
             SELECT
                 ops.sample_id,
                 ops.permission_string AS permission_string_raw,
                 {permission_key_expr} AS permission_string,
-                UPPER(COALESCE(a.protection_level, o.protection_level, 'UNKNOWN')) AS protection_level,
-                UPPER(COALESCE(ops.classification, 'UNKNOWN')) AS permission_source,
-                CASE WHEN a.constant_value IS NOT NULL THEN 1 ELSE 0 END AS is_aosp_dict_match,
-                CASE WHEN o.permission_string IS NOT NULL THEN 1 ELSE 0 END AS is_oem_dict_match
+                UPPER(COALESCE(
+                    ({interpretation['safe_protection_expression']}),
+                    o.protection_level,
+                    'UNKNOWN'
+                )) AS protection_level,
+                {interpretation['historical_permission_source']} AS historical_permission_source,
+                {interpretation['permission_source']} AS permission_source,
+                {interpretation['is_aosp_dict_match']} AS is_aosp_dict_match,
+                CASE WHEN o.permission_string IS NOT NULL THEN 1 ELSE 0 END AS is_oem_dict_match,
+                {interpretation['current_authority_scope']} AS current_authority_scope,
+                {interpretation['current_identifier_kind']} AS current_identifier_kind,
+                {interpretation['current_declaration_state']} AS current_declaration_state,
+                {interpretation['current_evidence_state']} AS current_evidence_state,
+                {interpretation['current_feature_dependency']} AS current_feature_dependency
             FROM android_permission_obs_sample ops
-            LEFT JOIN android_permission_dict_aosp a
-              ON {aosp_join}
+            {interpretation_sql}
             LEFT JOIN android_permission_dict_oem o
               ON {oem_join}
              AND (ops.vendor_id = o.vendor_id OR o.vendor_id IS NULL)
