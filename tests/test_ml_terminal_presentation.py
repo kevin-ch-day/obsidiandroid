@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from config import app_config
+from obsidiandroid.cli.ui import console as console_ui
 from obsidiandroid.evaluation import ml_comparator_summary, ml_terminal_presentation as ml_term
 
 
@@ -25,7 +26,10 @@ def test_ablation_feature_build_suppression_applies_before_grid_execution(monkey
     assert ml_term.should_suppress_ablation_feature_build_terminal() is True
 
 
-def test_ablation_header_distinguishes_headline_and_ablation_vendor_contracts(capsys) -> None:
+def test_ablation_header_distinguishes_headline_and_ablation_vendor_contracts(
+    capsys, monkeypatch
+) -> None:
+    monkeypatch.setattr(console_ui, "USE_COLORS", False)
     ml_term.print_ablation_experiments_header(
         cohort_n=2848,
         headline_selected_vendors=0,

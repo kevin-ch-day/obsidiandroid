@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-PINNED_SHARED_COMMIT = "e0741b368ae43528808dcf1e7144de642e877671"
+PINNED_SHARED_COMMIT = "572f46c3a050d6f7d24fe0bb74669184fb45e0b5"
 PINNED_MIGRATION_SET_DIGEST = (
     "1bec1edabf99fbebffc9737e8b5d14076d3566b963c4878c9b3361bbe269ed5c"
 )

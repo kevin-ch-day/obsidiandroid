@@ -3,7 +3,7 @@
 ## Authority and scope
 
 This pilot is pinned to shared commit
-`e0741b368ae43528808dcf1e7144de642e877671`, migration-set digest
+`572f46c3a050d6f7d24fe0bb74669184fb45e0b5`, migration-set digest
 `1bec1edabf99fbebffc9737e8b5d14076d3566b963c4878c9b3361bbe269ed5c`,
 catalog digest
 `075accc8aa2042d0d9454ba12e8625b87e76fe54366532c6bca21d56066fc334`,
