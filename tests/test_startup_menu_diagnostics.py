@@ -398,7 +398,7 @@ def test_feature_matrix_modality_view_shows_artifact_origin_and_warns_on_global_
     run_id = "20260515T141956Z__58d84f"
     out_root, _rdiag, _ = make_run_diagnostics_layout(run_id)
     gdiag = out_root / "diagnostics"
-    write_text_file(gdiag / "feature_contract.json", json.dumps({"feature_columns": 10}))
+    write_text_file(gdiag / "feature_contract.latest.json", json.dumps({"feature_columns": 10}))
 
     artifact_views.launch_feature_matrix_modality_menu(
         read_latest_run_id=lambda: run_id,

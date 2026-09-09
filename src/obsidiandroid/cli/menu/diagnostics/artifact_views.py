@@ -145,7 +145,10 @@ def launch_feature_matrix_modality_menu(
     rdiag = output_root / "runs" / rid / "diagnostics"
     gdiag = output_root / "diagnostics"
     entries: list[tuple[str, list[Path]]] = [
-        ("Feature contract", [oh.resolve_feature_contract_path(rdiag, rid)]),
+        (
+            "Feature contract",
+            [oh.resolve_feature_contract_path(rdiag, rid, allow_global_latest=True)],
+        ),
         (
             "Modality contribution (JSON)",
             [rdiag / "modality_contribution_summary.json", gdiag / "modality_contribution_summary.json"],

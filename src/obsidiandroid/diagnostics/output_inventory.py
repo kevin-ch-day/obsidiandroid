@@ -627,7 +627,7 @@ def write_run_evidence_index_md(
 
     lines.extend(
         [
-            "## Research contracts (open first)",
+            "## canonical research contracts (open first)",
             "",
         ]
     )
@@ -650,7 +650,7 @@ def write_run_evidence_index_md(
     if ml_split_csv.exists():
         lines.append(f"- **Frozen train/test split ledger:** `{ml_split_csv}`")
     if dl_handoff_summary_json.exists():
-        lines.append(f"- **DL handoff summary:** `{dl_handoff_summary_json}`")
+        lines.append(f"- **canonical DL handoff summary:** `{dl_handoff_summary_json}`")
     lines.extend(
         [
             "",

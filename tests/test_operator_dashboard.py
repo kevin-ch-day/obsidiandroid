@@ -669,11 +669,11 @@ def test_clear_operator_state_resets_stale_smote_runtime_state(monkeypatch) -> N
     assert getattr(app_config, "RUNTIME_TEMPORAL_SPLIT_SUMMARY", "sentinel") is None
 
 
-def test_emit_research_operator_report_uses_global_feature_survival_mirror(
+def test_emit_research_operator_report_rejects_unbound_global_feature_survival_mirror(
     monkeypatch,
     make_run_diagnostics_layout,
 ) -> None:
-    """Operator summary should still find feature-column survival after local `.latest` pruning."""
+    """Claim-facing summaries must not consume a global mirror from an unverified run."""
     output_root, diagnostics_dir, global_diag = make_run_diagnostics_layout("run2")
     (global_diag / "feature_column_survival.latest.csv").write_text(
         "feature_name,nonzero_count_final_training\n"
@@ -727,7 +727,7 @@ def test_emit_research_operator_report_uses_global_feature_survival_mirror(
     )
 
     text = "\n".join(captured)
-    assert "Top permission columns by training nonzero: perm__android_CAMERA(9), perm__android_SMS(7)" in text
+    assert "Top permission columns by training nonzero" not in text
 
 
 def test_emit_research_operator_report_uses_compact_artifact_pointer(

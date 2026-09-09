@@ -26,6 +26,8 @@ def test_cohort_readiness_snapshot_separates_primary_and_permission_routing(monk
 
     def fake_primary(query, params=None, fetch=False, return_columns=False, **_kwargs):
         primary_queries.append(query)
+        if "FROM `erebus_threat_intel_prod`.`v_android_sample_family_type_authority` AS a" in query:
+            raise RuntimeError("authority view unavailable in fallback test")
         if "LEFT JOIN `erebus_threat_intel_prod`.`android_malware_family`" in query:
             columns = ["sample_id", "resolved_family_lc", "type_slug"]
             rows = [

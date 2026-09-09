@@ -1294,10 +1294,11 @@ def emit_research_operator_report(
                 f"Family/type targets are governed: `{family_target}` for family claims, `{type_target}` for type claims."
             )
         if isinstance(avoid, list) and avoid:
-            caution.append(
-                "Do not promote raw label surfaces such as "
-                + ", ".join(f"`{str(item)}`" for item in avoid)
-                + " into primary scientific claim targets."
+            caution.insert(
+                0,
+                "Avoid primary scientific claims on raw surfaces: "
+                + ", ".join(str(item) for item in avoid)
+                + ".",
             )
     nxt = [
         "Review lowest-recall families and top confusion pairs.",
@@ -1518,6 +1519,7 @@ def emit_research_operator_report(
     start_candidates = [
         diagnostics_dir / f"label_contract_{run_id}.md",
         diagnostics_dir / f"ml_run_manifest_{run_id}.json",
+        diagnostics_dir / f"dl_handoff_summary_{run_id}.json",
         diagnostics_dir / details_name,
         diagnostics_dir / f"backlog_debt_summary_{run_id}.md",
     ] if compact_terminal else [
