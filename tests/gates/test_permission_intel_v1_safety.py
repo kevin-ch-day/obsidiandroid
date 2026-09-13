@@ -25,6 +25,18 @@ def test_executable_adapter_queries_are_select_only() -> None:
         assert "START TRANSACTION" not in sql.upper()
 
 
+def test_permission_intel_connection_is_not_used_outside_db_engine() -> None:
+    """Consumers must go through the read-only Permission Intel query helper."""
+    call = re.compile(r"\bpermission_intel_database_connection\s*\(")
+    offenders = []
+    for path in (ROOT / "src" / "obsidiandroid").rglob("*.py"):
+        if path.name == "db_engine.py":
+            continue
+        if call.search(path.read_text(encoding="utf-8")):
+            offenders.append(str(path.relative_to(ROOT)))
+    assert offenders == []
+
+
 def test_adapter_has_no_production_names_credentials_or_host_sockets() -> None:
     source = "\n".join(
         path.read_text(encoding="utf-8") for path in PACKAGE.glob("*.py")

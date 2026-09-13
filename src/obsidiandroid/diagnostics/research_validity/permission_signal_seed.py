@@ -347,92 +347,6 @@ SIGNAL_MAPPING_ROWS: list[dict[str, Any]] = [
 ]
 
 
-def seed_permission_signal_catalog_and_mappings() -> dict[str, int]:
-    """Upsert conservative signal catalog rows and mappings into Permission Intel."""
-    catalog_insert = """
-        INSERT INTO permission_signal_catalog (
-            signal_key,
-            display_name,
-            description,
-            authority_lane,
-            default_malware_capability_posture,
-            include_in_model_features,
-            include_in_behavioral_claims,
-            mitre_candidate_only,
-            notes,
-            default_weight
-        ) VALUES (
-            %(signal_key)s,
-            %(display_name)s,
-            %(description)s,
-            %(authority_lane)s,
-            %(default_malware_capability_posture)s,
-            %(include_in_model_features)s,
-            %(include_in_behavioral_claims)s,
-            %(mitre_candidate_only)s,
-            %(notes)s,
-            %(default_weight)s
-        )
-        ON DUPLICATE KEY UPDATE
-            display_name = VALUES(display_name),
-            description = VALUES(description),
-            authority_lane = VALUES(authority_lane),
-            default_malware_capability_posture = VALUES(default_malware_capability_posture),
-            include_in_model_features = VALUES(include_in_model_features),
-            include_in_behavioral_claims = VALUES(include_in_behavioral_claims),
-            mitre_candidate_only = VALUES(mitre_candidate_only),
-            notes = VALUES(notes),
-            default_weight = VALUES(default_weight)
-    """
-    mapping_insert = """
-        INSERT INTO permission_signal_mappings (
-            signal_key,
-            perm_name,
-            namespace,
-            mapping_basis,
-            source_family_key,
-            include_in_model_features,
-            include_in_behavioral_claims,
-            candidate_behavior_area,
-            mitre_candidate_tactic,
-            confidence,
-            notes
-        ) VALUES (
-            %(signal_key)s,
-            %(perm_name)s,
-            %(namespace)s,
-            %(mapping_basis)s,
-            %(source_family_key)s,
-            %(include_in_model_features)s,
-            %(include_in_behavioral_claims)s,
-            %(candidate_behavior_area)s,
-            %(mitre_candidate_tactic)s,
-            %(confidence)s,
-            %(notes)s
-        )
-        ON DUPLICATE KEY UPDATE
-            mapping_basis = VALUES(mapping_basis),
-            source_family_key = VALUES(source_family_key),
-            include_in_model_features = VALUES(include_in_model_features),
-            include_in_behavioral_claims = VALUES(include_in_behavioral_claims),
-            candidate_behavior_area = VALUES(candidate_behavior_area),
-            mitre_candidate_tactic = VALUES(mitre_candidate_tactic),
-            confidence = VALUES(confidence),
-            notes = VALUES(notes)
-    """
-    with db_engine.permission_intel_database_connection() as conn:
-        cur = conn.cursor()
-        for row in SIGNAL_CATALOG_ROWS:
-            cur.execute(catalog_insert, row)
-        for row in SIGNAL_MAPPING_ROWS:
-            cur.execute(mapping_insert, row)
-        conn.commit()
-    return {
-        "signal_catalog_rows": len(SIGNAL_CATALOG_ROWS),
-        "signal_mapping_rows": len(SIGNAL_MAPPING_ROWS),
-    }
-
-
 def load_permission_signal_catalog_rows() -> list[dict[str, Any]]:
     """Load signal catalog rows from Permission Intel, falling back to bundled seed rows."""
     query = """
@@ -491,5 +405,4 @@ __all__ = [
     "SIGNAL_MAPPING_ROWS",
     "load_permission_signal_catalog_rows",
     "load_permission_signal_mapping_rows",
-    "seed_permission_signal_catalog_and_mappings",
 ]

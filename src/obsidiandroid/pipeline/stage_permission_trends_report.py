@@ -31,6 +31,14 @@ from obsidiandroid.pipeline.permission_trends_selection import (
     select_visual_families as _select_visual_families,
 )
 from obsidiandroid.common.hash_utils import hash_payload
+from obsidiandroid.database.permission_current_interpretation import (
+    is_androidx_dynamic_receiver_permission,
+)
+from obsidiandroid.reporting.package_balanced_permission_analysis import (
+    assign_package_keys as _assign_package_keys,
+    compute_hhi as _compute_package_hhi,
+    effective_package_count as _effective_package_count,
+)
 
 from obsidiandroid.pipeline.permission_trends.bundle_manifest import (
     export_permission_trends_bundle_manifest as _export_permission_trends_bundle_manifest,
@@ -52,6 +60,7 @@ from obsidiandroid.pipeline.permission_trends.constants import (
     PERMISSION_ALIAS_MAP_VERSION,
     PRIMARY_PERMISSION_VIEW,
     ReportArtifacts,
+    SIGNAL_EVIDENCE_CONTRACT_VERSION,
 )
 from obsidiandroid.pipeline.permission_trends.sample_permission_data import (
     attach_temporal_catalog_fields as _attach_temporal_catalog_fields,
@@ -427,9 +436,24 @@ def run_permission_trends_report_stage(
         bundle_dir=bundle_dir,
     )
     permission_signal_rows_df = _assign_permission_signal_keys(permission_rows_df)
+    androidx_receiver_review_df = _build_androidx_receiver_evidence_review(
+        permission_rows_df,
+        sample_core_df,
+        run_id=run_id,
+    )
+    androidx_receiver_review_csv = _export_df_with_latest(
+        androidx_receiver_review_df,
+        run_id=run_id,
+        file_stem="permission_androidx_receiver_evidence_review",
+        bundle_dir=bundle_dir,
+    )
     permission_signal_prevalence_by_type_df = _build_signal_prevalence_by_type(
         sample_core_df=sample_core_df,
         permission_signal_rows_df=permission_signal_rows_df,
+    )
+    _validate_signal_prevalence_contract(
+        permission_signal_prevalence_by_type_df,
+        support_column="type_sample_count",
     )
     permission_signal_prevalence_by_type_csv = _export_df_with_latest(
         permission_signal_prevalence_by_type_df,
@@ -541,6 +565,21 @@ def run_permission_trends_report_stage(
     permission_signal_prevalence_by_family_df = _build_signal_prevalence_by_family(
         sample_core_df=sample_core_df,
         permission_signal_rows_df=permission_signal_rows_df,
+    )
+    _validate_signal_prevalence_contract(
+        permission_signal_prevalence_by_family_df,
+        support_column="family_support",
+    )
+    signal_evidence_review_df = _build_signal_evidence_review_queue(
+        permission_signal_prevalence_by_type_df,
+        permission_signal_prevalence_by_family_df,
+        run_id=run_id,
+    )
+    signal_evidence_review_csv = _export_df_with_latest(
+        signal_evidence_review_df,
+        run_id=run_id,
+        file_stem="permission_signal_evidence_review",
+        bundle_dir=bundle_dir,
     )
     permission_signal_prevalence_by_family_csv = _export_df_with_latest(
         permission_signal_prevalence_by_family_df,
@@ -1228,6 +1267,7 @@ def run_permission_trends_report_stage(
         permission_prevalence_by_type_csv,
         permission_signal_prevalence_by_type_csv,
         permission_signal_prevalence_by_type_behavior_safe_csv,
+        androidx_receiver_review_csv,
         type_entropy_csv,
         family_profiles_csv,
         permission_prevalence_by_family_csv,
@@ -1256,6 +1296,7 @@ def run_permission_trends_report_stage(
         jsd_pair_verification_csv,
         signal_catalog_snapshot_csv,
         signal_mapping_snapshot_csv,
+        signal_evidence_review_csv,
         temporal_pattern_csv,
     ]:
         if isinstance(extra_path, str) and extra_path:
@@ -2107,6 +2148,7 @@ def _build_permission_signal_governance_coverage(
         return pd.DataFrame(columns=columns)
     work = permission_rows_df.copy()
     for col in (
+        "governance_precedence",
         "effective_source_family_key",
         "candidate_source_family_key",
         "effective_review_lane",
@@ -2120,42 +2162,162 @@ def _build_permission_signal_governance_coverage(
     work["has_any_governance_lane"] = (
         work["has_effective_lane"] | work["has_candidate_lane"] | work["has_review_lane"]
     )
-    unique_pairs = work.drop_duplicates(subset=["sample_id", "permission_string"]).copy()
-    signal_pairs = (
-        permission_signal_rows_df.drop_duplicates(subset=["sample_id", "signal_key"])
-        if isinstance(permission_signal_rows_df, pd.DataFrame) and not permission_signal_rows_df.empty
-        else pd.DataFrame(columns=["sample_id", "signal_key"])
+    permission_tokens = work["permission_string"].fillna("").astype(str)
+    work["is_androidx_guard_shape"] = permission_tokens.map(
+        is_androidx_dynamic_receiver_permission
     )
+    work["has_androidx_guard_effective_lane"] = work[
+        "effective_source_family_key"
+    ].eq("app_defined_dynamic_receiver_guard")
+    work["has_androidx_guard_candidate_lane"] = work[
+        "candidate_source_family_key"
+    ].eq("app_defined_dynamic_receiver_guard")
+    work["has_candidate_precedence"] = work["governance_precedence"].eq(
+        "candidate"
+    ) | work["effective_resolution_semantics"].eq("candidate")
+    work["is_androidx_guard_effective"] = work["is_androidx_guard_shape"] & work[
+        "has_androidx_guard_effective_lane"
+    ] & ~work["has_candidate_precedence"]
+    work["is_androidx_guard_candidate"] = work["is_androidx_guard_shape"] & (
+        work["has_androidx_guard_candidate_lane"]
+        | (
+            work["has_androidx_guard_effective_lane"]
+            & work["has_candidate_precedence"]
+        )
+    )
+    work["is_androidx_guard_candidate_only"] = work[
+        "is_androidx_guard_candidate"
+    ] & ~work["is_androidx_guard_effective"]
+    work["is_androidx_guard_effective_candidate_overlap"] = work[
+        "is_androidx_guard_candidate"
+    ] & work["is_androidx_guard_effective"]
+    work["is_androidx_guard_shape_only"] = work["is_androidx_guard_shape"] & ~(
+        work["is_androidx_guard_effective"] | work["is_androidx_guard_candidate"]
+    )
+    work["is_androidx_guard_lane_shape_mismatch"] = ~work[
+        "is_androidx_guard_shape"
+    ] & (
+        work["has_androidx_guard_effective_lane"]
+        | work["has_androidx_guard_candidate_lane"]
+    )
+    unique_pairs = work.drop_duplicates(subset=["sample_id", "permission_string"]).copy()
+    signal_assignments = _prepare_signal_assignments(permission_signal_rows_df)
+    signal_pairs = signal_assignments.drop_duplicates(subset=["sample_id", "signal_key"])
+    candidate_assignments = signal_assignments[
+        signal_assignments["signal_evidence_tier"].eq("candidate_governance")
+    ]
+    raw_pattern_assignments = signal_assignments[
+        signal_assignments["signal_evidence_tier"].eq("raw_pattern")
+    ]
     rows = [
         {"run_id": run_id, "metric": "permission_row_count", "value": int(len(work))},
         {"run_id": run_id, "metric": "unique_sample_permission_pairs", "value": int(len(unique_pairs))},
         {"run_id": run_id, "metric": "rows_with_effective_lane", "value": int(work["has_effective_lane"].sum())},
         {"run_id": run_id, "metric": "rows_with_candidate_lane", "value": int(work["has_candidate_lane"].sum())},
         {"run_id": run_id, "metric": "rows_with_review_lane", "value": int(work["has_review_lane"].sum())},
-        {"run_id": run_id, "metric": "rows_with_any_governance_lane", "value": int(work["has_any_governance_lane"].sum())},
-        {"run_id": run_id, "metric": "unique_pairs_with_any_governance_lane", "value": int(unique_pairs["has_any_governance_lane"].sum())},
+        {
+            "run_id": run_id,
+            "metric": "rows_with_any_governance_lane",
+            "value": int(work["has_any_governance_lane"].sum()),
+        },
+        {
+            "run_id": run_id,
+            "metric": "unique_pairs_with_any_governance_lane",
+            "value": int(unique_pairs["has_any_governance_lane"].sum()),
+        },
         {"run_id": run_id, "metric": "signal_assignment_pairs", "value": int(len(signal_pairs))},
+        {
+            "run_id": run_id,
+            "metric": "candidate_signal_assignment_pairs",
+            "value": int(len(candidate_assignments)),
+        },
+        {
+            "run_id": run_id,
+            "metric": "candidate_model_eligible_pairs",
+            "value": int(
+                candidate_assignments["assignment_model_eligible"].astype(bool).sum()
+            ),
+        },
+        {
+            "run_id": run_id,
+            "metric": "raw_pattern_signal_assignment_pairs",
+            "value": int(len(raw_pattern_assignments)),
+        },
+        {
+            "run_id": run_id,
+            "metric": "raw_pattern_model_eligible_pairs",
+            "value": int(
+                raw_pattern_assignments["assignment_model_eligible"].astype(bool).sum()
+            ),
+        },
+        {
+            "run_id": run_id,
+            "metric": "androidx_guard_shape_rows",
+            "value": int(work["is_androidx_guard_shape"].sum()),
+        },
+        {
+            "run_id": run_id,
+            "metric": "androidx_guard_effective_rows",
+            "value": int(work["is_androidx_guard_effective"].sum()),
+        },
+        {
+            "run_id": run_id,
+            "metric": "androidx_guard_candidate_rows",
+            "value": int(work["is_androidx_guard_candidate"].sum()),
+        },
+        {
+            "run_id": run_id,
+            "metric": "androidx_guard_candidate_only_rows",
+            "value": int(work["is_androidx_guard_candidate_only"].sum()),
+        },
+        {
+            "run_id": run_id,
+            "metric": "androidx_guard_effective_candidate_overlap_rows",
+            "value": int(work["is_androidx_guard_effective_candidate_overlap"].sum()),
+        },
+        {
+            "run_id": run_id,
+            "metric": "androidx_guard_shape_only_rows",
+            "value": int(work["is_androidx_guard_shape_only"].sum()),
+        },
+        {
+            "run_id": run_id,
+            "metric": "androidx_guard_lane_shape_mismatch_rows",
+            "value": int(work["is_androidx_guard_lane_shape_mismatch"].sum()),
+        },
     ]
     return pd.DataFrame(rows, columns=columns)
 
 
 def _assign_permission_signal_keys(permission_rows_df: pd.DataFrame) -> pd.DataFrame:
+    assignment_columns = [
+        "sample_id",
+        "signal_key",
+        "signal_evidence_tier",
+        "assignment_model_eligible",
+    ]
     if not isinstance(permission_rows_df, pd.DataFrame) or permission_rows_df.empty:
-        return pd.DataFrame(columns=["sample_id", "signal_key"])
+        return pd.DataFrame(columns=assignment_columns)
     work = permission_rows_df.copy()
     if "sample_id" not in work.columns or "permission_string" not in work.columns:
-        return pd.DataFrame(columns=["sample_id", "signal_key"])
+        return pd.DataFrame(columns=assignment_columns)
     work["sample_id"] = pd.to_numeric(work["sample_id"], errors="coerce")
     work = work.dropna(subset=["sample_id"]).copy()
     work["sample_id"] = work["sample_id"].astype(int)
     work["permission_string"] = work["permission_string"].fillna("").astype(str).str.strip().str.lower()
     work["permission_source"] = work.get("permission_source", "").fillna("").astype(str).str.upper()
-    for col in ("effective_source_family_key", "candidate_source_family_key", "effective_review_lane"):
+    for col in (
+        "governance_precedence",
+        "effective_source_family_key",
+        "candidate_source_family_key",
+        "effective_review_lane",
+        "effective_resolution_semantics",
+    ):
         series = work[col] if col in work.columns else pd.Series("", index=work.index, dtype="object")
         work[col] = series.fillna("").astype(str).str.strip().str.lower()
     work = work[work["permission_string"] != ""].copy()
     if work.empty:
-        return pd.DataFrame(columns=["sample_id", "signal_key"])
+        return pd.DataFrame(columns=assignment_columns)
 
     exact_map: dict[str, set[str]] = {}
     prefix_map: list[tuple[str, str]] = []
@@ -2174,7 +2336,6 @@ def _assign_permission_signal_keys(permission_rows_df: pd.DataFrame) -> pd.DataF
             remediation_lane_map.setdefault(perm_name, set()).add(signal_key)
 
     rows: list[dict[str, Any]] = []
-    dynamic_receiver_re = re.compile(r"\.dynamic_receiver_not_exported_permission[a-z0-9_]*$", re.IGNORECASE)
     legacy_push_re = re.compile(r"(?:\.permission)?\.c2d_message[a-z0-9_]*$", re.IGNORECASE)
     maps_receive_re = re.compile(r"\.permission\.maps_receive$", re.IGNORECASE)
     adm_re = re.compile(r"\.permission\.receive_adm_message$", re.IGNORECASE)
@@ -2201,9 +2362,11 @@ def _assign_permission_signal_keys(permission_rows_df: pd.DataFrame) -> pd.DataF
         "sample_id",
         "permission_string",
         "permission_source",
+        "governance_precedence",
         "effective_source_family_key",
         "candidate_source_family_key",
         "effective_review_lane",
+        "effective_resolution_semantics",
     ]
     for row in work[lane_columns].drop_duplicates().to_dict(orient="records"):
         sample_id = int(row["sample_id"])
@@ -2212,41 +2375,202 @@ def _assign_permission_signal_keys(permission_rows_df: pd.DataFrame) -> pd.DataF
         effective_lane = str(row.get("effective_source_family_key", "")).strip().lower()
         candidate_lane = str(row.get("candidate_source_family_key", "")).strip().lower()
         review_lane = str(row.get("effective_review_lane", "")).strip().lower()
-        signal_keys: set[str] = set()
-        signal_keys.update(exact_map.get(perm, set()))
+        precedence = str(row.get("governance_precedence", "")).strip().lower()
+        resolution_semantics = str(
+            row.get("effective_resolution_semantics", "")
+        ).strip().lower()
+        candidate_precedence = precedence == "candidate" or resolution_semantics == "candidate"
+        is_androidx_guard = is_androidx_dynamic_receiver_permission(perm)
+        signal_assignments: set[tuple[str, str, bool]] = set()
+
+        def add_signal(signal_key: str, evidence_tier: str, *, model_eligible: bool) -> None:
+            signal_assignments.add((signal_key, evidence_tier, model_eligible))
+
+        for signal_key in exact_map.get(perm, set()):
+            add_signal(signal_key, "exact_mapping", model_eligible=True)
         for prefix, signal_key in prefix_map:
             if perm.startswith(prefix):
-                signal_keys.add(signal_key)
-        for lane_value in {effective_lane, candidate_lane, review_lane}:
-            if lane_value:
-                signal_keys.update(remediation_lane_map.get(lane_value, set()))
+                add_signal(signal_key, "prefix_mapping", model_eligible=True)
+        if effective_lane != "app_defined_dynamic_receiver_guard":
+            for signal_key in remediation_lane_map.get(effective_lane, set()):
+                add_signal(
+                    signal_key,
+                    "candidate_governance"
+                    if candidate_precedence
+                    else "accepted_governance",
+                    model_eligible=not candidate_precedence,
+                )
+        if candidate_lane != "app_defined_dynamic_receiver_guard":
+            for signal_key in remediation_lane_map.get(candidate_lane, set()):
+                add_signal(signal_key, "candidate_governance", model_eligible=False)
+        for signal_key in remediation_lane_map.get(review_lane, set()):
+            add_signal(signal_key, "review_governance", model_eligible=False)
+
+        if is_androidx_guard:
+            has_accepted_guard = (
+                effective_lane == "app_defined_dynamic_receiver_guard"
+                and not candidate_precedence
+            )
+            has_candidate_guard = (
+                candidate_lane == "app_defined_dynamic_receiver_guard"
+                or (
+                    effective_lane == "app_defined_dynamic_receiver_guard"
+                    and candidate_precedence
+                )
+            )
+            if has_accepted_guard:
+                add_signal(
+                    "app_defined_scaffolding",
+                    "accepted_governance",
+                    model_eligible=True,
+                )
+            if has_candidate_guard:
+                add_signal(
+                    "app_defined_scaffolding",
+                    "candidate_governance",
+                    model_eligible=False,
+                )
+            if not has_accepted_guard and not has_candidate_guard:
+                add_signal(
+                    "app_defined_scaffolding",
+                    "raw_pattern",
+                    model_eligible=False,
+                )
         if source == "GOOGLE":
-            signal_keys.add("google_gms_ecosystem")
+            add_signal("google_gms_ecosystem", "source_classification", model_eligible=True)
         elif source == "OEM":
-            signal_keys.add("oem_vendor_ecosystem")
+            add_signal("oem_vendor_ecosystem", "source_classification", model_eligible=True)
         elif source == "APP_DEFINED":
-            if dynamic_receiver_re.search(perm):
-                signal_keys.add("app_defined_scaffolding")
-            elif legacy_push_re.search(perm):
-                signal_keys.add("app_defined_scaffolding")
+            if legacy_push_re.search(perm):
+                add_signal("app_defined_scaffolding", "heuristic_pattern", model_eligible=True)
             elif maps_receive_re.search(perm):
-                signal_keys.add("app_defined_scaffolding")
+                add_signal("app_defined_scaffolding", "heuristic_pattern", model_eligible=True)
             elif adm_re.search(perm):
-                signal_keys.add("app_defined_scaffolding")
+                add_signal("app_defined_scaffolding", "heuristic_pattern", model_eligible=True)
             elif apphub_re.search(perm):
-                signal_keys.add("app_defined_scaffolding")
+                add_signal("app_defined_scaffolding", "heuristic_pattern", model_eligible=True)
             elif any(pattern.search(perm) for pattern in push_sdk_patterns):
-                signal_keys.add("launcher_sdk_ecosystem_noise")
+                add_signal("launcher_sdk_ecosystem_noise", "heuristic_pattern", model_eligible=True)
             elif any(pattern.search(perm) for pattern in launcher_patterns):
-                signal_keys.add("launcher_sdk_ecosystem_noise")
-        if not signal_keys:
+                add_signal("launcher_sdk_ecosystem_noise", "heuristic_pattern", model_eligible=True)
+        if not signal_assignments:
             continue
-        for signal_key in sorted(signal_keys):
-            rows.append({"sample_id": sample_id, "signal_key": signal_key})
-    out = pd.DataFrame(rows)
+        for signal_key, evidence_tier, model_eligible in sorted(signal_assignments):
+            rows.append(
+                {
+                    "sample_id": sample_id,
+                    "signal_key": signal_key,
+                    "signal_evidence_tier": evidence_tier,
+                    "assignment_model_eligible": model_eligible,
+                }
+            )
+    out = pd.DataFrame(rows, columns=assignment_columns)
     if out.empty:
-        return pd.DataFrame(columns=["sample_id", "signal_key"])
-    return out.drop_duplicates(subset=["sample_id", "signal_key"]).reset_index(drop=True)
+        return pd.DataFrame(columns=assignment_columns)
+    return out.drop_duplicates(subset=assignment_columns).reset_index(drop=True)
+
+
+def _prepare_signal_assignments(permission_signal_rows_df: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "sample_id",
+        "signal_key",
+        "signal_evidence_tier",
+        "assignment_model_eligible",
+    ]
+    if not isinstance(permission_signal_rows_df, pd.DataFrame) or permission_signal_rows_df.empty:
+        return pd.DataFrame(columns=columns)
+    if not {"sample_id", "signal_key"}.issubset(permission_signal_rows_df.columns):
+        return pd.DataFrame(columns=columns)
+    out = permission_signal_rows_df.copy()
+    out["sample_id"] = pd.to_numeric(out["sample_id"], errors="coerce")
+    out = out.dropna(subset=["sample_id"]).copy()
+    out["sample_id"] = out["sample_id"].astype(int)
+    out["signal_key"] = out["signal_key"].fillna("").astype(str).str.strip()
+    if "signal_evidence_tier" not in out.columns:
+        out["signal_evidence_tier"] = "legacy_unspecified"
+    out["signal_evidence_tier"] = (
+        out["signal_evidence_tier"]
+        .fillna("legacy_unspecified")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .replace("", "legacy_unspecified")
+    )
+    if "assignment_model_eligible" not in out.columns:
+        out["assignment_model_eligible"] = True
+    else:
+        out["assignment_model_eligible"] = out["assignment_model_eligible"].map(
+            lambda value: value
+            if isinstance(value, bool)
+            else str(value).strip().lower() in {"1", "true", "yes", "on"}
+        )
+    out = out[out["signal_key"] != ""].copy()
+    return out[columns].drop_duplicates().reset_index(drop=True)
+
+
+def _prepare_signal_sample_core(
+    sample_core_df: pd.DataFrame,
+    *,
+    grouping_columns: list[str],
+) -> pd.DataFrame:
+    columns = ["sample_id", *grouping_columns]
+    columns.extend(
+        column
+        for column in ("package_name", "android_package_name")
+        if column in sample_core_df.columns
+    )
+    out = sample_core_df[columns].copy()
+    out["sample_id"] = pd.to_numeric(out["sample_id"], errors="coerce")
+    out = out.dropna(subset=["sample_id"]).copy()
+    out["sample_id"] = out["sample_id"].astype(int)
+    out = out.drop_duplicates(subset=["sample_id"], keep="first")
+    return _assign_package_keys(out)
+
+
+def _signal_package_metrics(
+    group: pd.DataFrame,
+    *,
+    eligible_sample_ids: set[int],
+    observed_sample_ids: set[int],
+) -> dict[str, float | int]:
+    known = group[~group["is_missing_package"].astype(bool)].copy()
+    if known.empty:
+        return {
+            "known_package_sample_count": 0,
+            "known_package_count": 0,
+            "largest_package_sample_share_pct": float("nan"),
+            "package_hhi": float("nan"),
+            "effective_package_count": float("nan"),
+            "package_positive_count": 0,
+            "package_balanced_prevalence_pct": float("nan"),
+            "observed_package_balanced_prevalence_pct": float("nan"),
+        }
+    package_counts = known["package_key"].value_counts()
+    eligible = known["sample_id"].isin(eligible_sample_ids).astype(float)
+    observed = known["sample_id"].isin(observed_sample_ids).astype(float)
+    eligible_by_package = eligible.groupby(known["package_key"])
+    return {
+        "known_package_sample_count": int(len(known)),
+        "known_package_count": int(known["package_key"].nunique()),
+        "largest_package_sample_share_pct": round(
+            float(package_counts.max() / len(known)) * 100.0,
+            6,
+        ),
+        "package_hhi": round(float(_compute_package_hhi(package_counts)), 9),
+        "effective_package_count": round(
+            float(_effective_package_count(package_counts)),
+            6,
+        ),
+        "package_positive_count": int((eligible_by_package.max() > 0).sum()),
+        "package_balanced_prevalence_pct": round(
+            float(eligible_by_package.mean().mean()) * 100.0,
+            6,
+        ),
+        "observed_package_balanced_prevalence_pct": round(
+            float(observed.groupby(known["package_key"]).mean().mean()) * 100.0,
+            6,
+        ),
+    }
 
 
 def _build_signal_prevalence_by_type(
@@ -2254,20 +2578,50 @@ def _build_signal_prevalence_by_type(
     permission_signal_rows_df: pd.DataFrame,
 ) -> pd.DataFrame:
     catalog_df = _signal_catalog_frame()
-    merged = sample_core_df[["sample_id", "type_slug"]].copy()
-    merged = merged.merge(permission_signal_rows_df, on="sample_id", how="left")
+    sample_membership = _prepare_signal_sample_core(
+        sample_core_df,
+        grouping_columns=["type_slug"],
+    )
+    assignments = _prepare_signal_assignments(permission_signal_rows_df)
     rows: list[dict[str, Any]] = []
-    for type_slug, group in merged.groupby("type_slug", dropna=False):
+    for type_slug, group in sample_membership.groupby("type_slug", dropna=False):
         n_samples = int(group["sample_id"].nunique())
-        present_keys = (
-            group.dropna(subset=["signal_key"])
-            .groupby("signal_key")["sample_id"]
-            .nunique()
-            .to_dict()
-        )
+        group_sample_ids = set(group["sample_id"].astype(int))
         for _, signal_row in catalog_df.iterrows():
             signal_key = str(signal_row["signal_key"])
-            positive_count = int(present_keys.get(signal_key, 0))
+            signal_assignments = assignments[
+                (assignments["signal_key"] == signal_key)
+                & assignments["sample_id"].isin(group_sample_ids)
+            ]
+            observed_sample_ids = set(signal_assignments["sample_id"].astype(int))
+            eligible_sample_ids = set(
+                signal_assignments.loc[
+                    signal_assignments["assignment_model_eligible"].astype(bool),
+                    "sample_id",
+                ].astype(int)
+            )
+            candidate_sample_ids = set(
+                signal_assignments.loc[
+                    signal_assignments["signal_evidence_tier"].eq("candidate_governance"),
+                    "sample_id",
+                ].astype(int)
+            )
+            raw_pattern_sample_ids = set(
+                signal_assignments.loc[
+                    signal_assignments["signal_evidence_tier"].eq("raw_pattern"),
+                    "sample_id",
+                ].astype(int)
+            )
+            positive_count = len(eligible_sample_ids)
+            package_metrics = _signal_package_metrics(
+                group,
+                eligible_sample_ids=eligible_sample_ids,
+                observed_sample_ids=observed_sample_ids,
+            )
+            prevalence_pct = round(
+                (float(positive_count) / float(max(n_samples, 1))) * 100.0,
+                6,
+            )
             rows.append(
                 {
                     "type_slug": str(type_slug),
@@ -2278,7 +2632,22 @@ def _build_signal_prevalence_by_type(
                     "include_in_behavioral_claims": bool(signal_row["include_in_behavioral_claims"]),
                     "type_sample_count": n_samples,
                     "positive_count": positive_count,
-                    "prevalence_pct": round((float(positive_count) / float(max(n_samples, 1))) * 100.0, 6),
+                    "observed_positive_count": len(observed_sample_ids),
+                    "candidate_positive_count": len(candidate_sample_ids),
+                    "raw_pattern_positive_count": len(raw_pattern_sample_ids),
+                    "prevalence_pct": prevalence_pct,
+                    "observed_prevalence_pct": round(
+                        (float(len(observed_sample_ids)) / float(max(n_samples, 1))) * 100.0,
+                        6,
+                    ),
+                    **package_metrics,
+                    "sample_minus_package_balanced_pp": round(
+                        prevalence_pct
+                        - float(package_metrics["package_balanced_prevalence_pct"]),
+                        6,
+                    ),
+                    "signal_evidence_contract_version": SIGNAL_EVIDENCE_CONTRACT_VERSION,
+                    "assignment_evidence_policy": "model_eligible_assignments_only",
                 }
             )
     return _annotate_prevalence_patterns(
@@ -2309,28 +2678,75 @@ def _build_signal_prevalence_by_family(
                 "include_in_model_features",
                 "include_in_behavioral_claims",
                 "positive_count",
+                "observed_positive_count",
+                "candidate_positive_count",
+                "raw_pattern_positive_count",
                 "prevalence_pct",
+                "observed_prevalence_pct",
+                "known_package_sample_count",
+                "known_package_count",
+                "largest_package_sample_share_pct",
+                "package_hhi",
+                "effective_package_count",
+                "package_positive_count",
+                "package_balanced_prevalence_pct",
+                "observed_package_balanced_prevalence_pct",
+                "sample_minus_package_balanced_pp",
+                "signal_evidence_contract_version",
+                "assignment_evidence_policy",
             ]
         )
-    merged = (
-        sample_core_df[["sample_id", "family_id", "family_canonical"]]
-        .merge(family_support_df, on=["family_id", "family_canonical"], how="inner")
-        .merge(permission_signal_rows_df, on="sample_id", how="left")
+    sample_membership = _prepare_signal_sample_core(
+        sample_core_df,
+        grouping_columns=["family_id", "family_canonical"],
     )
+    merged = (
+        sample_membership
+        .merge(family_support_df, on=["family_id", "family_canonical"], how="inner")
+    )
+    assignments = _prepare_signal_assignments(permission_signal_rows_df)
     rows: list[dict[str, Any]] = []
     for (family_name, type_slug, family_support, benchmark_eligible), group in merged.groupby(
         ["family_canonical", "type_slug", "family_support", "benchmark_eligible_n_ge_3"],
         dropna=False,
     ):
-        present_keys = (
-            group.dropna(subset=["signal_key"])
-            .groupby("signal_key")["sample_id"]
-            .nunique()
-            .to_dict()
-        )
+        group_sample_ids = set(group["sample_id"].astype(int))
         for _, signal_row in catalog_df.iterrows():
             signal_key = str(signal_row["signal_key"])
-            positive_count = int(present_keys.get(signal_key, 0))
+            signal_assignments = assignments[
+                (assignments["signal_key"] == signal_key)
+                & assignments["sample_id"].isin(group_sample_ids)
+            ]
+            observed_sample_ids = set(signal_assignments["sample_id"].astype(int))
+            eligible_sample_ids = set(
+                signal_assignments.loc[
+                    signal_assignments["assignment_model_eligible"].astype(bool),
+                    "sample_id",
+                ].astype(int)
+            )
+            candidate_sample_ids = set(
+                signal_assignments.loc[
+                    signal_assignments["signal_evidence_tier"].eq("candidate_governance"),
+                    "sample_id",
+                ].astype(int)
+            )
+            raw_pattern_sample_ids = set(
+                signal_assignments.loc[
+                    signal_assignments["signal_evidence_tier"].eq("raw_pattern"),
+                    "sample_id",
+                ].astype(int)
+            )
+            positive_count = len(eligible_sample_ids)
+            package_metrics = _signal_package_metrics(
+                group,
+                eligible_sample_ids=eligible_sample_ids,
+                observed_sample_ids=observed_sample_ids,
+            )
+            prevalence_pct = round(
+                (float(positive_count) / float(max(int(family_support), 1)))
+                * 100.0,
+                6,
+            )
             rows.append(
                 {
                     "family_canonical": str(family_name),
@@ -2343,7 +2759,26 @@ def _build_signal_prevalence_by_family(
                     "include_in_model_features": bool(signal_row["include_in_model_features"]),
                     "include_in_behavioral_claims": bool(signal_row["include_in_behavioral_claims"]),
                     "positive_count": positive_count,
-                    "prevalence_pct": round((float(positive_count) / float(max(int(family_support), 1))) * 100.0, 6),
+                    "observed_positive_count": len(observed_sample_ids),
+                    "candidate_positive_count": len(candidate_sample_ids),
+                    "raw_pattern_positive_count": len(raw_pattern_sample_ids),
+                    "prevalence_pct": prevalence_pct,
+                    "observed_prevalence_pct": round(
+                        (
+                            float(len(observed_sample_ids))
+                            / float(max(int(family_support), 1))
+                        )
+                        * 100.0,
+                        6,
+                    ),
+                    **package_metrics,
+                    "sample_minus_package_balanced_pp": round(
+                        prevalence_pct
+                        - float(package_metrics["package_balanced_prevalence_pct"]),
+                        6,
+                    ),
+                    "signal_evidence_contract_version": SIGNAL_EVIDENCE_CONTRACT_VERSION,
+                    "assignment_evidence_policy": "model_eligible_assignments_only",
                 }
             )
     out = pd.DataFrame(rows).sort_values(
@@ -2356,6 +2791,397 @@ def _build_signal_prevalence_by_family(
         support_col="family_support",
         basis="signal_prevalence_by_family",
     )
+
+
+def _validate_signal_prevalence_contract(
+    frame: pd.DataFrame,
+    *,
+    support_column: str,
+) -> None:
+    """Fail closed when model-safe and observed signal counts become ambiguous."""
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return
+    required = {
+        support_column,
+        "positive_count",
+        "observed_positive_count",
+        "candidate_positive_count",
+        "raw_pattern_positive_count",
+        "prevalence_pct",
+        "observed_prevalence_pct",
+        "package_balanced_prevalence_pct",
+        "signal_evidence_contract_version",
+        "assignment_evidence_policy",
+    }
+    missing = sorted(required.difference(frame.columns))
+    if missing:
+        raise ValueError(
+            "Signal prevalence evidence contract is incomplete; missing columns: "
+            + ", ".join(missing)
+        )
+    versions = set(frame["signal_evidence_contract_version"].dropna().astype(str))
+    if versions != {SIGNAL_EVIDENCE_CONTRACT_VERSION}:
+        raise ValueError(
+            "Signal prevalence evidence contract version mismatch: "
+            f"expected {SIGNAL_EVIDENCE_CONTRACT_VERSION}, found {sorted(versions)}"
+        )
+    policies = set(frame["assignment_evidence_policy"].dropna().astype(str))
+    if policies != {"model_eligible_assignments_only"}:
+        raise ValueError(
+            "Signal prevalence must use model-eligible assignments only; "
+            f"found policies {sorted(policies)}"
+        )
+
+    numeric = {
+        column: pd.to_numeric(frame[column], errors="coerce")
+        for column in (
+            support_column,
+            "positive_count",
+            "observed_positive_count",
+            "candidate_positive_count",
+            "raw_pattern_positive_count",
+            "prevalence_pct",
+            "observed_prevalence_pct",
+        )
+    }
+    if any(series.isna().any() for series in numeric.values()):
+        raise ValueError("Signal prevalence evidence contract contains non-numeric counts")
+    support = numeric[support_column]
+    positive = numeric["positive_count"]
+    observed = numeric["observed_positive_count"]
+    candidate = numeric["candidate_positive_count"]
+    raw_pattern = numeric["raw_pattern_positive_count"]
+    if (support <= 0).any():
+        raise ValueError("Signal prevalence evidence contract requires positive group support")
+    if ((positive < 0) | (positive > observed) | (observed > support)).any():
+        raise ValueError("Model-eligible and observed signal counts do not reconcile")
+    if ((candidate < 0) | (candidate > observed)).any():
+        raise ValueError("Candidate signal counts do not reconcile with observed counts")
+    if ((raw_pattern < 0) | (raw_pattern > observed)).any():
+        raise ValueError("Raw-pattern signal counts do not reconcile with observed counts")
+
+    expected_model_pct = positive / support * 100.0
+    expected_observed_pct = observed / support * 100.0
+    if not np.allclose(
+        numeric["prevalence_pct"],
+        expected_model_pct,
+        rtol=0.0,
+        atol=1e-5,
+    ):
+        raise ValueError("Model-eligible signal prevalence does not match its count denominator")
+    if not np.allclose(
+        numeric["observed_prevalence_pct"],
+        expected_observed_pct,
+        rtol=0.0,
+        atol=1e-5,
+    ):
+        raise ValueError("Observed signal prevalence does not match its count denominator")
+    package_prevalence = pd.to_numeric(
+        frame["package_balanced_prevalence_pct"],
+        errors="coerce",
+    ).dropna()
+    if ((package_prevalence < 0) | (package_prevalence > 100)).any():
+        raise ValueError("Package-balanced signal prevalence is outside [0, 100]")
+
+
+def _build_signal_evidence_review_queue(
+    type_prevalence_df: pd.DataFrame,
+    family_prevalence_df: pd.DataFrame,
+    *,
+    run_id: str,
+) -> pd.DataFrame:
+    """Build the diagnostic-only candidate/raw evidence review surface."""
+    frames: list[pd.DataFrame] = []
+    specifications = (
+        ("type", type_prevalence_df, "type_slug", "type_sample_count"),
+        ("family", family_prevalence_df, "family_canonical", "family_support"),
+    )
+    for group_kind, source, group_column, support_column in specifications:
+        if not isinstance(source, pd.DataFrame) or source.empty:
+            continue
+        work = source.copy()
+        for column in (
+            support_column,
+            "positive_count",
+            "observed_positive_count",
+            "candidate_positive_count",
+            "raw_pattern_positive_count",
+        ):
+            work[column] = pd.to_numeric(work[column], errors="coerce").fillna(0)
+        work["excluded_observed_positive_count"] = (
+            work["observed_positive_count"] - work["positive_count"]
+        ).clip(lower=0)
+        work = work[
+            work[
+                [
+                    "candidate_positive_count",
+                    "raw_pattern_positive_count",
+                    "excluded_observed_positive_count",
+                ]
+            ].max(axis=1)
+            > 0
+        ].copy()
+        if work.empty:
+            continue
+        work["run_id"] = run_id
+        work["group_kind"] = group_kind
+        work["group_value"] = work[group_column].astype(str)
+        work["group_support"] = work[support_column].astype(int)
+        work["candidate_prevalence_pct"] = (
+            work["candidate_positive_count"] / work["group_support"] * 100.0
+        ).round(6)
+        work["raw_pattern_prevalence_pct"] = (
+            work["raw_pattern_positive_count"] / work["group_support"] * 100.0
+        ).round(6)
+        frames.append(work)
+    columns = [
+        "run_id",
+        "group_kind",
+        "group_value",
+        "type_slug",
+        "signal_key",
+        "signal_label",
+        "group_support",
+        "positive_count",
+        "observed_positive_count",
+        "excluded_observed_positive_count",
+        "candidate_positive_count",
+        "candidate_prevalence_pct",
+        "raw_pattern_positive_count",
+        "raw_pattern_prevalence_pct",
+        "prevalence_pct",
+        "observed_prevalence_pct",
+        "package_balanced_prevalence_pct",
+        "observed_package_balanced_prevalence_pct",
+        "sample_minus_package_balanced_pp",
+        "signal_evidence_contract_version",
+        "assignment_evidence_policy",
+    ]
+    if not frames:
+        return pd.DataFrame(columns=["review_rank", *columns])
+    out = pd.concat(frames, ignore_index=True, sort=False)
+    for column in columns:
+        if column not in out.columns:
+            out[column] = ""
+    out = out.sort_values(
+        by=[
+            "candidate_positive_count",
+            "raw_pattern_positive_count",
+            "excluded_observed_positive_count",
+            "group_kind",
+            "group_value",
+            "signal_key",
+        ],
+        ascending=[False, False, False, True, True, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+    out.insert(0, "review_rank", np.arange(1, len(out) + 1, dtype=int))
+    return out[["review_rank", *columns]]
+
+
+def _build_androidx_receiver_evidence_review(
+    permission_rows_df: pd.DataFrame,
+    sample_core_df: pd.DataFrame,
+    *,
+    run_id: str,
+) -> pd.DataFrame:
+    """Return actionable AndroidX candidate and malformed-token cohorts."""
+    columns = [
+        "review_rank",
+        "run_id",
+        "permission_string",
+        "morphology",
+        "evidence_tier",
+        "review_reason",
+        "observation_count",
+        "sample_count",
+        "known_package_count",
+        "type_count",
+        "raw_token_variant_count",
+        "package_exact_observations",
+        "template_example_observations",
+        "prefix_related_observations",
+        "cross_package_reuse_observations",
+        "missing_package_observations",
+        "permission_source",
+        "governance_precedence",
+        "effective_source_family_key",
+        "candidate_source_family_key",
+        "effective_resolution_semantics",
+        "signal_evidence_contract_version",
+    ]
+    if (
+        not isinstance(permission_rows_df, pd.DataFrame)
+        or permission_rows_df.empty
+        or "permission_string" not in permission_rows_df.columns
+    ):
+        return pd.DataFrame(columns=columns)
+    work = permission_rows_df.copy()
+    work["permission_string"] = (
+        work["permission_string"].fillna("").astype(str).str.strip().str.lower()
+    )
+    work = work[
+        work["permission_string"].str.contains(
+            "dynamic_receiver_not_exported_permission",
+            regex=False,
+        )
+    ].copy()
+    if work.empty:
+        return pd.DataFrame(columns=columns)
+    for column in (
+        "permission_source",
+        "governance_precedence",
+        "effective_source_family_key",
+        "candidate_source_family_key",
+        "effective_resolution_semantics",
+    ):
+        values = (
+            work[column]
+            if column in work.columns
+            else pd.Series("", index=work.index, dtype="object")
+        )
+        work[column] = values.fillna("").astype(str).str.strip().str.lower()
+    if "permission_string_raw" not in work.columns:
+        work["permission_string_raw"] = work["permission_string"]
+    work["permission_string_raw"] = (
+        work["permission_string_raw"].fillna("").astype(str).str.strip()
+    )
+    work["is_exact_shape"] = work["permission_string"].map(
+        is_androidx_dynamic_receiver_permission
+    )
+    work["is_candidate"] = work["governance_precedence"].eq("candidate") | work[
+        "effective_resolution_semantics"
+    ].eq("candidate")
+    work["has_candidate_guard"] = work["candidate_source_family_key"].eq(
+        "app_defined_dynamic_receiver_guard"
+    ) | (
+        work["effective_source_family_key"].eq(
+            "app_defined_dynamic_receiver_guard"
+        )
+        & work["is_candidate"]
+    )
+    work["is_actionable_candidate"] = work["is_exact_shape"] & work[
+        "has_candidate_guard"
+    ]
+    work["is_malformed"] = ~work["is_exact_shape"]
+    work = work[work["is_actionable_candidate"] | work["is_malformed"]].copy()
+    if work.empty:
+        return pd.DataFrame(columns=columns)
+    malformed_extension = re.compile(
+        r"^[a-z0-9_]+(?:\.[a-z0-9_]+)+\."
+        r"dynamic_receiver_not_exported_permission[a-z0-9_]+$",
+        re.IGNORECASE,
+    )
+    work["morphology"] = np.where(
+        work["is_exact_shape"],
+        "exact_androidx_guard",
+        work["permission_string"].map(
+            lambda value: (
+                "trailing_extension"
+                if malformed_extension.fullmatch(str(value))
+                else "other_near_structure"
+            )
+        ),
+    )
+    work["evidence_tier"] = np.where(
+        work["is_actionable_candidate"],
+        "candidate_governance",
+        "malformed_raw_pattern",
+    )
+    work["review_reason"] = np.where(
+        work["is_actionable_candidate"],
+        "source_or_manifest_evidence_required",
+        "malformed_suffix_requires_exact_row_review",
+    )
+
+    membership = _prepare_signal_sample_core(
+        sample_core_df,
+        grouping_columns=["type_slug"],
+    )[
+        ["sample_id", "type_slug", "package_key", "is_missing_package"]
+    ]
+    work = work.merge(membership, on="sample_id", how="left", validate="many_to_one")
+    work["type_slug"] = work["type_slug"].fillna("unknown").astype(str)
+    work["package_key"] = work["package_key"].fillna("").astype(str)
+    work["is_missing_package"] = work["is_missing_package"].fillna(True).astype(bool)
+    suffix = ".dynamic_receiver_not_exported_permission"
+    work["permission_prefix"] = work["permission_string"].map(
+        lambda value: str(value).split(suffix, maxsplit=1)[0]
+    )
+
+    def package_relation(row: pd.Series) -> str:
+        if bool(row["is_missing_package"]):
+            return "missing_package"
+        prefix = str(row["permission_prefix"])
+        package = str(row["package_key"])
+        if prefix == package:
+            return "package_exact"
+        if "example" in prefix.split("."):
+            return "template_example"
+        if prefix.startswith(package + ".") or package.startswith(prefix + "."):
+            return "prefix_related"
+        return "cross_package_reuse"
+
+    work["package_relation"] = work.apply(package_relation, axis=1)
+    work["known_package_key"] = work["package_key"].where(
+        ~work["is_missing_package"],
+        "",
+    )
+    group_columns = [
+        "permission_string",
+        "morphology",
+        "evidence_tier",
+        "review_reason",
+        "permission_source",
+        "governance_precedence",
+        "effective_source_family_key",
+        "candidate_source_family_key",
+        "effective_resolution_semantics",
+    ]
+    out = (
+        work.groupby(group_columns, dropna=False)
+        .agg(
+            observation_count=("sample_id", "size"),
+            sample_count=("sample_id", "nunique"),
+            known_package_count=(
+                "known_package_key",
+                lambda values: int(values[values != ""].nunique()),
+            ),
+            type_count=("type_slug", "nunique"),
+            raw_token_variant_count=("permission_string_raw", "nunique"),
+            package_exact_observations=(
+                "package_relation",
+                lambda values: int((values == "package_exact").sum()),
+            ),
+            template_example_observations=(
+                "package_relation",
+                lambda values: int((values == "template_example").sum()),
+            ),
+            prefix_related_observations=(
+                "package_relation",
+                lambda values: int((values == "prefix_related").sum()),
+            ),
+            cross_package_reuse_observations=(
+                "package_relation",
+                lambda values: int((values == "cross_package_reuse").sum()),
+            ),
+            missing_package_observations=(
+                "package_relation",
+                lambda values: int((values == "missing_package").sum()),
+            ),
+        )
+        .reset_index()
+        .sort_values(
+            by=["observation_count", "sample_count", "permission_string"],
+            ascending=[False, False, True],
+            kind="mergesort",
+        )
+        .reset_index(drop=True)
+    )
+    out.insert(0, "run_id", run_id)
+    out.insert(0, "review_rank", np.arange(1, len(out) + 1, dtype=int))
+    out["signal_evidence_contract_version"] = SIGNAL_EVIDENCE_CONTRACT_VERSION
+    return out[columns]
 
 
 def _build_family_signal_similarity(

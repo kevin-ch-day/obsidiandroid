@@ -10,7 +10,7 @@
 -- particular, compare result rows for the reporting query and retain the
 -- previous SHOW CREATE VIEW output as the rollback statement.
 
-CREATE OR REPLACE ALGORITHM=UNDEFINED SQL SECURITY DEFINER
+CREATE OR REPLACE ALGORITHM=UNDEFINED SQL SECURITY INVOKER
 VIEW vw_permission_vt_current_concepts AS
 SELECT
     v.permission_string AS observed_token,

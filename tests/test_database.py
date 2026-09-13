@@ -173,6 +173,71 @@ def test_execute_permission_query_retries_permission_intel_localhost_via_tcp(mon
     assert [call["host"] for call in calls] == ["localhost", "127.0.0.1"]
 
 
+def test_permission_intel_connection_sets_server_read_only_before_yield(monkeypatch) -> None:
+    statements: list[str] = []
+
+    class _Cursor:
+        def execute(self, statement):
+            statements.append(statement)
+
+        def close(self):
+            return None
+
+    class _Conn:
+        def cursor(self):
+            return _Cursor()
+
+        def commit(self):
+            return None
+
+        def close(self):
+            return None
+
+        def is_connected(self):
+            return True
+
+    monkeypatch.setattr(db_engine, "_get_permission_intel_connection", _Conn)
+    with db_engine.permission_intel_database_connection():
+        assert statements == ["SET SESSION TRANSACTION READ ONLY"]
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "INSERT INTO permission_signal_catalog VALUES (1)",
+        "UPDATE android_permission_dict_aosp SET name = 'x'",
+        "DELETE FROM android_permission_dict_unknown",
+        "CREATE TABLE unsafe_example (id INT)",
+        "SELECT 1; SELECT 2",
+        "SELECT permission_string INTO OUTFILE '/tmp/pi-export' FROM android_permission_dict_aosp",
+        "SELECT permission_id FROM android_permission_v1_current_permission FOR UPDATE",
+        "SELECT permission_id FROM android_permission_v1_current_permission LOCK IN SHARE MODE",
+    ],
+)
+def test_execute_permission_query_blocks_writes_before_connect(monkeypatch, statement) -> None:
+    monkeypatch.setattr(
+        db_engine,
+        "_get_permission_intel_connection",
+        lambda: pytest.fail("blocked Permission Intel SQL must not connect"),
+    )
+
+    with pytest.raises(db_engine.PermissionIntelWriteBlockedError):
+        db_engine.execute_permission_query(statement, fetch=True)
+
+
+def test_permission_intel_read_only_guard_accepts_select_cte() -> None:
+    db_engine._assert_permission_intel_read_only_query(  # pylint: disable=protected-access
+        "WITH current_rows AS (SELECT 1 AS value) SELECT value FROM current_rows"
+    )
+
+
+def test_permission_intel_read_only_guard_rejects_write_cte() -> None:
+    with pytest.raises(db_engine.PermissionIntelWriteBlockedError):
+        db_engine._assert_permission_intel_read_only_query(  # pylint: disable=protected-access
+            "WITH chosen AS (SELECT 1) UPDATE permission_signal_catalog SET notes = 'x'"
+        )
+
+
 def test_mysql_error_summary_includes_errno_and_transient_flag() -> None:
     """Error helper should classify common MySQL transport failures as transient."""
     exc = MySQLError("server gone")
@@ -646,7 +711,12 @@ def test_fetch_banking_trojans_sql_prefers_permission_string_norm_when_available
     assert "COALESCE(NULLIF(TRIM(ops.permission_string_norm), ''), LOWER(TRIM(ops.permission_string)))" in sql
     assert "mp.permission_string_norm = COALESCE" in sql
     assert "up.permission_string_norm = COALESCE" in sql
-    assert "vtc.permission_string = TRIM(ops.permission_string)" in sql
+    assert "ON mp.vendor_id = ov.vendor_id" in sql
+    assert "AND ov.vendor_id IS NOT NULL" in sql
+    assert "BINARY pi.canonical_permission = BINARY ops.permission_string" in sql
+    assert "BINARY paf.permission_string = BINARY ops.permission_string" in sql
+    assert "BINARY mp.permission_string = BINARY ops.permission_string" in sql
+    assert "AND NOT COALESCE((BINARY mp.permission_string = BINARY ops.permission_string" in sql
 
 
 def test_fetch_banking_trojans_sql_falls_back_without_permission_string_norm(monkeypatch) -> None:

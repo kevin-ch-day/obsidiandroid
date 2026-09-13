@@ -131,7 +131,8 @@ def _fetch_permission_rows(sample_ids: list[int]) -> pd.DataFrame:
         else:
             oem_join = "LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(o.permission_string))"
         interpretation = interpretation_selects(
-            historical_source_expr="UPPER(COALESCE(ops.classification, 'UNKNOWN'))"
+            historical_source_expr="UPPER(COALESCE(ops.classification, 'UNKNOWN'))",
+            raw_expr="ops.permission_string",
         )
         interpretation_sql = interpretation_joins(
             key_expr=permission_key_expr,

@@ -243,10 +243,11 @@ def _default_query(sql: str, params: Sequence[object]) -> Sequence[Mapping[str, 
 
 
 def _validate_permission_parameter(value: str) -> str:
-    text = str(value or "").strip()
-    if not text:
+    if not isinstance(value, str) or not value.strip():
         raise ValueError("canonical permission must be non-empty")
-    return text
+    if value != value.strip():
+        raise ValueError("canonical permission must not contain surrounding whitespace")
+    return value
 
 
 def _optional_text(value: object) -> str | None:

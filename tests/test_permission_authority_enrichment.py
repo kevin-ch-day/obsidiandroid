@@ -13,6 +13,7 @@ from obsidiandroid.reporting.permission_authority_enrichment import (
     build_enrichment_table,
     build_lane_transition_table,
     compose_permission_authority_enrichment,
+    fetch_permission_intel_authority,
     headline_lane_from_enrichment,
     parse_protection_level_string,
 )
@@ -21,6 +22,7 @@ from obsidiandroid.reporting.permission_governance_lanes import (
     LANE_AOSP_NORMAL,
     LANE_AOSP_SIGNATURE,
     LANE_AOSP_SIGNATURE_PRIVILEGED,
+    LANE_APP_DEFINED,
     LANE_UNKNOWN_UNRESOLVED,
 )
 
@@ -86,6 +88,45 @@ def test_headline_lanes_from_enrichment() -> None:
         )
         == LANE_UNKNOWN_UNRESOLVED
     )
+
+
+def test_pi_fetch_requires_resolved_oem_and_detects_semantic_fact_conflicts() -> None:
+    seen_sql: list[str] = []
+
+    def query(sql, _params):
+        seen_sql.append(sql)
+        if "FROM android_permission_authority_fact" in sql:
+            return pd.DataFrame(
+                [
+                    {
+                        "permission_string_norm": "vendor.example.permission.access",
+                        "permission_string": "vendor.example.permission.ACCESS",
+                        "authority_source_type": "sdk_vendor_docs",
+                        "fact_scope": "permission_definition",
+                        "protection_level": "signature",
+                        "lifecycle_status": "current",
+                        "defining_package": "vendor.example",
+                    },
+                    {
+                        "permission_string_norm": "vendor.example.permission.access",
+                        "permission_string": "vendor.example.permission.ACCESS",
+                        "authority_source_type": "sdk_vendor_docs",
+                        "fact_scope": "provider_permission",
+                        "protection_level": "signature",
+                        "lifecycle_status": "current",
+                        "defining_package": "vendor.example",
+                    },
+                ]
+            )
+        return pd.DataFrame()
+
+    bundle = fetch_permission_intel_authority(
+        ["vendor.example.permission.ACCESS"], query_fn=query
+    )
+    assert bundle["fact_conflicts"] == {"vendor.example.permission.access"}
+    oem_sql = next(sql for sql in seen_sql if "android_permission_dict_oem" in sql)
+    assert "INNER JOIN android_permission_meta_oem_vendor" in oem_sql
+    assert "resolved_vendor_id" in oem_sql
 
 
 def test_one_row_per_token_alias_and_conflict(tmp_path: Path) -> None:
@@ -203,6 +244,180 @@ def test_one_row_per_token_alias_and_conflict(tmp_path: Path) -> None:
         assert len(moved) == 1
     finally:
         mod.EXPECTED_TOKEN_COUNT = old
+
+
+def test_oem_authority_requires_exact_raw_identity() -> None:
+    import obsidiandroid.reporting.permission_authority_enrichment as mod
+
+    def audit(token: str) -> pd.DataFrame:
+        return pd.DataFrame(
+            [
+                {
+                    "permission_string": token,
+                    "pi_bucket_source": "UNKNOWN",
+                    "dangerous_bucket": "unknown",
+                    "global_support": 1,
+                    "feature_column": "perm__vendor_access",
+                }
+            ]
+        )
+
+    pi = {
+        "alias_map": {},
+        "fact_conflicts": set(),
+        "identities": pd.DataFrame(),
+        "facts": pd.DataFrame(),
+        "aosp": pd.DataFrame(),
+        "oem": pd.DataFrame(
+            [
+                {
+                    "permission_string_norm": "vendor.example.permission.access",
+                    "permission_string": "vendor.example.permission.ACCESS",
+                    "protection_level": "signature",
+                    "resolved_vendor_id": 7,
+                }
+            ]
+        ),
+        "unknown": pd.DataFrame(),
+        "reviews": pd.DataFrame(),
+        "non_permissions": pd.DataFrame(),
+        "anomalies": pd.DataFrame(),
+    }
+    old = mod.EXPECTED_TOKEN_COUNT
+    mod.EXPECTED_TOKEN_COUNT = 1
+    try:
+        exact = build_enrichment_table(
+            audit("vendor.example.permission.ACCESS"), pi
+        ).iloc[0]
+        case_only = build_enrichment_table(
+            audit("VENDOR.EXAMPLE.PERMISSION.ACCESS"), pi
+        ).iloc[0]
+        unresolved_vendor = build_enrichment_table(
+            audit("vendor.example.permission.ACCESS"),
+            {**pi, "oem": pi["oem"].assign(resolved_vendor_id=pd.NA)},
+        ).iloc[0]
+    finally:
+        mod.EXPECTED_TOKEN_COUNT = old
+
+    assert exact.match_status == "exact_authority_match"
+    assert exact.namespace_class == "oem"
+    assert exact.raw_protection_level == "signature"
+    assert case_only.match_status == "unresolved"
+    assert case_only.namespace_class == ""
+    assert case_only.raw_protection_level == ""
+    assert unresolved_vendor.match_status == "unresolved"
+    assert unresolved_vendor.namespace_class == ""
+
+
+def test_normalized_lookup_selects_only_exact_identity_and_fact() -> None:
+    import obsidiandroid.reporting.permission_authority_enrichment as mod
+
+    audit = pd.DataFrame(
+        [
+            {
+                "permission_string": "vendor.example.permission.ACCESS",
+                "pi_bucket_source": "UNKNOWN",
+                "dangerous_bucket": "unknown",
+                "global_support": 1,
+                "feature_column": "perm__vendor_access",
+            }
+        ]
+    )
+    pi = {
+        "alias_map": {},
+        "fact_conflicts": set(),
+        "identities": pd.DataFrame(),
+        "facts": pd.DataFrame(
+            [
+                {
+                    "permission_string_norm": "vendor.example.permission.access",
+                    "permission_string": "VENDOR.EXAMPLE.PERMISSION.ACCESS",
+                    "fact_scope": "permission_definition",
+                    "authority_source_type": "sdk_vendor_docs",
+                    "protection_level": "signature",
+                    "lifecycle_status": "current",
+                },
+                {
+                    "permission_string_norm": "vendor.example.permission.access",
+                    "permission_string": "vendor.example.permission.ACCESS",
+                    "fact_scope": "permission_definition",
+                    "authority_source_type": "sdk_vendor_docs",
+                    "protection_level": "signature",
+                    "lifecycle_status": "current",
+                },
+            ]
+        ),
+        "aosp": pd.DataFrame(),
+        "oem": pd.DataFrame(),
+        "unknown": pd.DataFrame(),
+        "reviews": pd.DataFrame(),
+        "non_permissions": pd.DataFrame(),
+        "anomalies": pd.DataFrame(),
+    }
+    old = mod.EXPECTED_TOKEN_COUNT
+    mod.EXPECTED_TOKEN_COUNT = 1
+    try:
+        result = build_enrichment_table(audit, pi).iloc[0]
+    finally:
+        mod.EXPECTED_TOKEN_COUNT = old
+
+    assert result.match_status == "source_backed_definition"
+    assert result.namespace_class == "app_defined"
+    assert result.raw_protection_level == "signature"
+
+
+def test_androidx_pattern_evidence_is_preserved_without_authority_promotion() -> None:
+    import obsidiandroid.reporting.permission_authority_enrichment as mod
+
+    token = "com.example.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+    audit = pd.DataFrame(
+        [
+            {
+                "permission_string": token,
+                "pi_bucket_source": "UNKNOWN",
+                "dangerous_bucket": "unknown",
+                "global_support": 4,
+                "feature_column": "perm__androidx_guard",
+            }
+        ]
+    )
+    pi = {
+        "alias_map": {},
+        "fact_conflicts": set(),
+        "identities": pd.DataFrame(),
+        "facts": pd.DataFrame(
+            [
+                {
+                    "permission_string_norm": token.lower(),
+                    "permission_string": token,
+                    "source_family_key": "app_defined_dynamic_receiver_guard",
+                    "authority_source_type": "androidx_manifest",
+                    "fact_scope": "custom_permission_pattern",
+                    "protection_level": None,
+                    "lifecycle_status": "current",
+                }
+            ]
+        ),
+        "aosp": pd.DataFrame(),
+        "oem": pd.DataFrame(),
+        "unknown": pd.DataFrame(),
+        "reviews": pd.DataFrame(),
+        "non_permissions": pd.DataFrame(),
+        "anomalies": pd.DataFrame(),
+    }
+    old = mod.EXPECTED_TOKEN_COUNT
+    mod.EXPECTED_TOKEN_COUNT = 1
+    try:
+        result = build_enrichment_table(audit, pi).iloc[0]
+    finally:
+        mod.EXPECTED_TOKEN_COUNT = old
+
+    assert result.match_status == "app_defined"
+    assert result.namespace_class == "androidx_scaffolding"
+    assert result.headline_lane == LANE_APP_DEFINED
+    assert result.authority_scope == "UNKNOWN"
+    assert result.evidence_state == "INSUFFICIENT"
+    assert result.raw_protection_level == ""
 
 
 def test_applite_dual_status() -> None:

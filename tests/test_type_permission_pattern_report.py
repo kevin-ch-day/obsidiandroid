@@ -6,17 +6,22 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from obsidiandroid.reporting.type_permission_pattern_report import (
     COMPOSER_VERSION,
     build_complete_type_inventory,
     build_family_balanced_type_prevalence,
     build_overall_permission_prevalence,
+    build_signal_evidence_contract_summary,
     classify_permission_role,
     classify_type_inclusion,
     compose_type_permission_pattern_report,
     detect_source_run_status,
     sha256_file,
+)
+from obsidiandroid.pipeline.permission_trends.constants import (
+    SIGNAL_EVIDENCE_CONTRACT_VERSION,
 )
 
 
@@ -500,6 +505,44 @@ def _write_fixture_run(tmp_path: Path, *, run_id: str = "fixture_run", with_runn
             },
         ]
     ).to_csv(run_root / "diagnostics" / "permission_feature_audit.csv", index=False)
+    pd.DataFrame(
+        [
+            {
+                "type_slug": "banker",
+                "signal_key": "app_defined_scaffolding",
+                "type_sample_count": 100,
+                "positive_count": 40,
+                "observed_positive_count": 50,
+                "candidate_positive_count": 10,
+                "raw_pattern_positive_count": 0,
+                "prevalence_pct": 40.0,
+                "observed_prevalence_pct": 50.0,
+                "package_balanced_prevalence_pct": 35.0,
+                "sample_minus_package_balanced_pp": 5.0,
+                "signal_evidence_contract_version": SIGNAL_EVIDENCE_CONTRACT_VERSION,
+                "assignment_evidence_policy": "model_eligible_assignments_only",
+            },
+            {
+                "type_slug": "dropper",
+                "signal_key": "app_defined_scaffolding",
+                "type_sample_count": 10,
+                "positive_count": 2,
+                "observed_positive_count": 3,
+                "candidate_positive_count": 1,
+                "raw_pattern_positive_count": 0,
+                "prevalence_pct": 20.0,
+                "observed_prevalence_pct": 30.0,
+                "package_balanced_prevalence_pct": 18.0,
+                "sample_minus_package_balanced_pp": 2.0,
+                "signal_evidence_contract_version": SIGNAL_EVIDENCE_CONTRACT_VERSION,
+                "assignment_evidence_policy": "model_eligible_assignments_only",
+            },
+        ]
+    ).to_csv(
+        tables / f"permission_signal_prevalence_by_type_{run_id}.csv",
+        index=False,
+    )
+
     return run_root
 
 
@@ -622,6 +665,54 @@ def test_permission_role_and_run_status(tmp_path: Path) -> None:
     assert status2["report_status"] == "FINAL_FROM_COMPLETED_RUN"
 
 
+def test_signal_evidence_contract_summary_reconciles_model_and_observed_counts() -> None:
+    frame = pd.DataFrame(
+        {
+            "type_sample_count": [10],
+            "positive_count": [4],
+            "observed_positive_count": [6],
+            "candidate_positive_count": [2],
+            "raw_pattern_positive_count": [1],
+            "prevalence_pct": [40.0],
+            "observed_prevalence_pct": [60.0],
+            "package_balanced_prevalence_pct": [30.0],
+            "sample_minus_package_balanced_pp": [10.0],
+            "signal_evidence_contract_version": [SIGNAL_EVIDENCE_CONTRACT_VERSION],
+            "assignment_evidence_policy": ["model_eligible_assignments_only"],
+        }
+    )
+
+    out = build_signal_evidence_contract_summary(frame).iloc[0]
+
+    assert out["contract_status"] == "current_validated"
+    assert out["model_eligible_positive_total"] == 4
+    assert out["observed_positive_total"] == 6
+    assert out["candidate_positive_total"] == 2
+    assert out["raw_pattern_positive_total"] == 1
+    assert out["max_abs_sample_package_shift_pp"] == 10.0
+
+
+def test_signal_evidence_contract_summary_rejects_inflated_model_count() -> None:
+    frame = pd.DataFrame(
+        {
+            "type_sample_count": [10],
+            "positive_count": [7],
+            "observed_positive_count": [6],
+            "candidate_positive_count": [2],
+            "raw_pattern_positive_count": [0],
+            "prevalence_pct": [70.0],
+            "observed_prevalence_pct": [60.0],
+            "package_balanced_prevalence_pct": [30.0],
+            "sample_minus_package_balanced_pp": [40.0],
+            "signal_evidence_contract_version": [SIGNAL_EVIDENCE_CONTRACT_VERSION],
+            "assignment_evidence_policy": ["model_eligible_assignments_only"],
+        }
+    )
+
+    with pytest.raises(ValueError, match="do not reconcile"):
+        build_signal_evidence_contract_summary(frame)
+
+
 def test_compose_provisional_and_deterministic(tmp_path: Path) -> None:
     run_id = "fixture_run"
     run_root = _write_fixture_run(tmp_path, run_id=run_id, with_running=True)
@@ -632,11 +723,14 @@ def test_compose_provisional_and_deterministic(tmp_path: Path) -> None:
     assert manifest1["type_accounting_reconciliation"]["reconciles"] is True
     assert "input_sha256" in manifest1 and "coverage" in manifest1["input_sha256"]
     assert "output_sha256" in manifest1
+    assert manifest1["controls"]["signal_evidence_contract_status"] == "current_validated"
 
     out = Path(manifest1["output_dir"])
     report = (out / f"type_permission_pattern_report_{run_id}.md").read_text(encoding="utf-8")
     assert "Report status: **PROVISIONAL**" in report
     assert "Complete type inventory" in report
+    assert "Signal-evidence contract: **current_validated**" in report
+    assert "model-eligible=42; observed=53; candidate=11" in report
     inv = pd.read_csv(out / f"type_inventory_{run_id}.csv")
     assert int(inv["sample_count"].sum()) == 110
 

@@ -20,6 +20,9 @@ from typing import Any
 import pandas as pd
 
 from obsidiandroid.common.csv_io import require_csv as _require_csv
+from obsidiandroid.pipeline.permission_trends.constants import (
+    SIGNAL_EVIDENCE_CONTRACT_VERSION,
+)
 from obsidiandroid.reporting.cohort_count_contract import compute_cohort_identity_counts
 from obsidiandroid.reporting.permission_governance_lanes import (
     CANONICAL_PROTECTION_LANES,
@@ -32,8 +35,8 @@ from obsidiandroid.reporting.permission_governance_lanes import (
     reconcile_lane_token_counts,
 )
 
-COMPOSER_VERSION = "1.1.0"
-REPORT_SCHEMA_VERSION = "type_permission_pattern_report_v2"
+COMPOSER_VERSION = "1.2.0"
+REPORT_SCHEMA_VERSION = "type_permission_pattern_report_v3"
 
 # Types that can enter the headline comparison when support gates pass.
 _MAIN_COMPARISON_CANDIDATES = frozenset(
@@ -156,6 +159,152 @@ def resolve_type_permission_inputs(run_root: Path, run_id: str) -> dict[str, Pat
     if audit.is_file():
         paths["permission_feature_audit"] = audit
     return paths
+
+
+def build_signal_evidence_contract_summary(signal_by_type: pd.DataFrame) -> pd.DataFrame:
+    """Summarize the optional signal table without accepting ambiguous counts."""
+    columns = [
+        "contract_status",
+        "contract_version",
+        "assignment_evidence_policy",
+        "signal_type_rows",
+        "model_eligible_positive_total",
+        "observed_positive_total",
+        "candidate_positive_total",
+        "raw_pattern_positive_total",
+        "max_abs_sample_package_shift_pp",
+    ]
+    if not isinstance(signal_by_type, pd.DataFrame) or signal_by_type.empty:
+        return pd.DataFrame(
+            [
+                {
+                    "contract_status": "unavailable",
+                    "contract_version": "",
+                    "assignment_evidence_policy": "",
+                    "signal_type_rows": 0,
+                    "model_eligible_positive_total": 0,
+                    "observed_positive_total": 0,
+                    "candidate_positive_total": 0,
+                    "raw_pattern_positive_total": 0,
+                    "max_abs_sample_package_shift_pp": float("nan"),
+                }
+            ],
+            columns=columns,
+        )
+    if "signal_evidence_contract_version" not in signal_by_type.columns:
+        return pd.DataFrame(
+            [
+                {
+                    "contract_status": "legacy_unversioned",
+                    "contract_version": "",
+                    "assignment_evidence_policy": "unknown",
+                    "signal_type_rows": int(len(signal_by_type)),
+                    "model_eligible_positive_total": 0,
+                    "observed_positive_total": 0,
+                    "candidate_positive_total": 0,
+                    "raw_pattern_positive_total": 0,
+                    "max_abs_sample_package_shift_pp": float("nan"),
+                }
+            ],
+            columns=columns,
+        )
+
+    required = {
+        "signal_evidence_contract_version",
+        "assignment_evidence_policy",
+        "type_sample_count",
+        "positive_count",
+        "observed_positive_count",
+        "candidate_positive_count",
+        "raw_pattern_positive_count",
+        "prevalence_pct",
+        "observed_prevalence_pct",
+        "package_balanced_prevalence_pct",
+        "sample_minus_package_balanced_pp",
+    }
+    missing = sorted(required.difference(signal_by_type.columns))
+    if missing:
+        raise ValueError(
+            "Versioned signal evidence table is incomplete; missing columns: "
+            + ", ".join(missing)
+        )
+    versions = set(
+        signal_by_type["signal_evidence_contract_version"].dropna().astype(str)
+    )
+    if versions != {SIGNAL_EVIDENCE_CONTRACT_VERSION}:
+        raise ValueError(
+            "Unsupported signal evidence contract version: "
+            f"expected {SIGNAL_EVIDENCE_CONTRACT_VERSION}, found {sorted(versions)}"
+        )
+    policies = set(signal_by_type["assignment_evidence_policy"].dropna().astype(str))
+    if policies != {"model_eligible_assignments_only"}:
+        raise ValueError(
+            "Signal evidence table does not use the model-eligible assignment policy"
+        )
+    numeric_columns = (
+        "type_sample_count",
+        "positive_count",
+        "observed_positive_count",
+        "candidate_positive_count",
+        "raw_pattern_positive_count",
+        "prevalence_pct",
+        "observed_prevalence_pct",
+    )
+    numeric = {
+        column: pd.to_numeric(signal_by_type[column], errors="coerce")
+        for column in numeric_columns
+    }
+    if any(series.isna().any() for series in numeric.values()):
+        raise ValueError("Signal evidence table contains non-numeric count fields")
+    support = numeric["type_sample_count"]
+    model_positive = numeric["positive_count"]
+    observed_positive = numeric["observed_positive_count"]
+    candidate_positive = numeric["candidate_positive_count"]
+    raw_positive = numeric["raw_pattern_positive_count"]
+    if (support <= 0).any():
+        raise ValueError("Signal evidence table contains a non-positive type denominator")
+    if (
+        ((model_positive < 0) | (model_positive > observed_positive)).any()
+        or ((observed_positive < 0) | (observed_positive > support)).any()
+        or ((candidate_positive < 0) | (candidate_positive > observed_positive)).any()
+        or ((raw_positive < 0) | (raw_positive > observed_positive)).any()
+    ):
+        raise ValueError("Signal evidence counts do not reconcile")
+    if not (
+        (numeric["prevalence_pct"] - model_positive / support * 100.0).abs()
+        <= 1e-5
+    ).all():
+        raise ValueError("Signal model prevalence does not reconcile with its denominator")
+    if not (
+        (
+            numeric["observed_prevalence_pct"]
+            - observed_positive / support * 100.0
+        ).abs()
+        <= 1e-5
+    ).all():
+        raise ValueError("Signal observed prevalence does not reconcile with its denominator")
+    package_shift = pd.to_numeric(
+        signal_by_type["sample_minus_package_balanced_pp"],
+        errors="coerce",
+    ).abs()
+    return pd.DataFrame(
+        [
+            {
+                "contract_status": "current_validated",
+                "contract_version": SIGNAL_EVIDENCE_CONTRACT_VERSION,
+                "assignment_evidence_policy": "model_eligible_assignments_only",
+                "signal_type_rows": int(len(signal_by_type)),
+                "model_eligible_positive_total": int(model_positive.sum()),
+                "observed_positive_total": int(observed_positive.sum()),
+                "candidate_positive_total": int(candidate_positive.sum()),
+                "raw_pattern_positive_total": int(raw_positive.sum()),
+                "max_abs_sample_package_shift_pp": (
+                    float(package_shift.max()) if package_shift.notna().any() else float("nan")
+                ),
+            }
+        ],
+        columns=columns,
+    )
 
 
 def _map_permission_lanes(permissions: pd.Series, lane_lookup: dict[str, str]) -> pd.Series:
@@ -832,6 +981,12 @@ def compose_type_permission_pattern_report(
             "permission_feature_audit.csv is required for protection/governance lane stratification"
         )
     audit = _require_csv(paths["permission_feature_audit"])
+    signal_by_type = (
+        _require_csv(paths["signal_by_type"])
+        if "signal_by_type" in paths
+        else pd.DataFrame()
+    )
+    signal_evidence_contract = build_signal_evidence_contract_summary(signal_by_type)
 
     coverage_row = coverage.iloc[0].to_dict() if not coverage.empty else {}
     prepared = int(coverage_row.get("sample_count") or len(snapshot))
@@ -908,6 +1063,7 @@ def compose_type_permission_pattern_report(
         "protection_lane_token_inventory": lane_token_inventory,
         "type_lane_coverage_matrix": type_lane_coverage,
         "lane_stratified_type_permissions": lane_stratified,
+        "signal_evidence_contract_summary": signal_evidence_contract,
         **{f"lane_leaders_{key}": frame for key, frame in lane_leaders.items()},
     }
     output_hashes: dict[str, str] = {}
@@ -939,6 +1095,7 @@ def compose_type_permission_pattern_report(
         type_lane_coverage=type_lane_coverage,
         lane_stratified=lane_stratified,
         lane_leaders=lane_leaders,
+        signal_evidence_contract=signal_evidence_contract,
     )
     report_path = out_dir / f"type_permission_pattern_report_{run_id}.md"
     latest_path = out_dir / "type_permission_pattern_report.latest.md"
@@ -975,6 +1132,12 @@ def compose_type_permission_pattern_report(
             "permissions_are_declared_capabilities_not_runtime_behavior": True,
             "dropper_is_top_level_type_slug": True,
             "generated_outputs_must_not_be_committed": True,
+            "signal_evidence_contract_status": str(
+                signal_evidence_contract.iloc[0]["contract_status"]
+            ),
+            "signal_evidence_contract_version": str(
+                signal_evidence_contract.iloc[0]["contract_version"]
+            ),
             "protection_lane_thresholds": dict(DEFAULT_THRESHOLDS),
         },
         "protection_lane_contract": contract_metadata(),
@@ -1026,6 +1189,7 @@ def _render_markdown(
     type_lane_coverage: pd.DataFrame | None = None,
     lane_stratified: pd.DataFrame | None = None,
     lane_leaders: dict[str, pd.DataFrame] | None = None,
+    signal_evidence_contract: pd.DataFrame | None = None,
 ) -> str:
     lines: list[str] = []
     lines.append(f"# Malware-type permission-pattern report (`{run_id}`)")
@@ -1035,6 +1199,36 @@ def _render_markdown(
     lines.append(f"- Composer version: `{COMPOSER_VERSION}`")
     lines.append(f"- Schema: `{REPORT_SCHEMA_VERSION}`")
     lines.append(f"- Protection-lane contract: `{PROTECTION_LANE_CONTRACT_VERSION}`")
+    if isinstance(signal_evidence_contract, pd.DataFrame) and not signal_evidence_contract.empty:
+        signal_contract = signal_evidence_contract.iloc[0]
+        signal_status = str(signal_contract.get("contract_status", "unavailable"))
+        signal_version = str(signal_contract.get("contract_version", ""))
+        lines.append(
+            f"- Signal-evidence contract: **{signal_status}**"
+            + (f" (`{signal_version}`)" if signal_version else "")
+        )
+        if signal_status == "current_validated":
+            lines.append(
+                "- Signal counts: "
+                f"model-eligible={int(signal_contract['model_eligible_positive_total']):,}; "
+                f"observed={int(signal_contract['observed_positive_total']):,}; "
+                f"candidate={int(signal_contract['candidate_positive_total']):,}; "
+                f"raw-pattern={int(signal_contract['raw_pattern_positive_total']):,}."
+            )
+            shift = pd.to_numeric(
+                signal_contract.get("max_abs_sample_package_shift_pp"),
+                errors="coerce",
+            )
+            if pd.notna(shift):
+                lines.append(
+                    "- Maximum signal sample-vs-package prevalence shift: "
+                    f"{float(shift):.1f} percentage points."
+                )
+        elif signal_status == "legacy_unversioned":
+            lines.append(
+                "- The optional signal table predates evidence-tier separation and is not used "
+                "for model or behavioral conclusions in this report."
+            )
     if report_status == "PROVISIONAL":
         lines.append(
             "- This report is **provisional** because the source run is still active "
@@ -1370,6 +1564,7 @@ __all__ = [
     "build_lane_stratified_type_permission_table",
     "build_overall_permission_prevalence",
     "build_protection_lane_token_inventory",
+    "build_signal_evidence_contract_summary",
     "build_type_census",
     "build_type_lane_coverage_matrix",
     "build_type_lift_leaders",

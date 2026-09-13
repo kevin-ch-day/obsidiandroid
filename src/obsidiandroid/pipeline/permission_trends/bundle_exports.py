@@ -437,11 +437,55 @@ def export_permission_pattern_summary(
         lines.append("")
         lines.append("Model-only / fingerprint signal groups:")
         for _, row in model_only.iterrows():
+            observed_prevalence = float(
+                row.get("observed_prevalence_pct", row["prevalence_pct"])
+            )
+            package_prevalence = pd.to_numeric(
+                row.get("package_balanced_prevalence_pct"),
+                errors="coerce",
+            )
+            package_text = (
+                f", package-balanced={float(package_prevalence):.1f}%"
+                if pd.notna(package_prevalence)
+                else ""
+            )
             lines.append(
                 f"- {row['type_slug']} :: {row['signal_key']} "
-                f"({row['authority_lane']}): prevalence={float(row['prevalence_pct']):.1f}%, "
+                f"({row['authority_lane']}): model-eligible={float(row['prevalence_pct']):.1f}%, "
+                f"observed={observed_prevalence:.1f}%{package_text}, "
                 f"pattern={row.get('pattern_label', 'Weak Pattern')}"
             )
+
+        candidate_review = signal_prevalence_by_type_df.copy()
+        for column in ("candidate_positive_count", "raw_pattern_positive_count"):
+            values = (
+                candidate_review[column]
+                if column in candidate_review.columns
+                else pd.Series(0, index=candidate_review.index, dtype="int64")
+            )
+            candidate_review[column] = pd.to_numeric(
+                values,
+                errors="coerce",
+            ).fillna(0)
+        candidate_review = candidate_review[
+            candidate_review[["candidate_positive_count", "raw_pattern_positive_count"]]
+            .max(axis=1)
+            .gt(0)
+        ].sort_values(
+            by=["candidate_positive_count", "raw_pattern_positive_count", "type_slug", "signal_key"],
+            ascending=[False, False, True, True],
+            kind="mergesort",
+        )
+        lines.extend(["", "Candidate/raw signal evidence excluded from model-positive prevalence:"])
+        if candidate_review.empty:
+            lines.append("- No candidate-only or raw-pattern signal assignments were observed.")
+        else:
+            for _, row in candidate_review.head(12).iterrows():
+                lines.append(
+                    f"- {row['type_slug']} :: {row['signal_key']}: "
+                    f"candidate_samples={int(row['candidate_positive_count'])}, "
+                    f"raw_pattern_samples={int(row['raw_pattern_positive_count'])}"
+                )
     else:
         lines.append("")
         lines.append("No signal-group prevalence rows available.")
@@ -466,6 +510,30 @@ def export_permission_pattern_summary(
         signal_assignment_pairs = int(
             pd.to_numeric(coverage_metrics.get("signal_assignment_pairs", 0), errors="coerce")
         )
+        candidate_assignment_pairs = int(
+            pd.to_numeric(
+                coverage_metrics.get("candidate_signal_assignment_pairs", 0),
+                errors="coerce",
+            )
+        )
+        candidate_model_eligible_pairs = int(
+            pd.to_numeric(
+                coverage_metrics.get("candidate_model_eligible_pairs", 0),
+                errors="coerce",
+            )
+        )
+        raw_pattern_assignment_pairs = int(
+            pd.to_numeric(
+                coverage_metrics.get("raw_pattern_signal_assignment_pairs", 0),
+                errors="coerce",
+            )
+        )
+        raw_pattern_model_eligible_pairs = int(
+            pd.to_numeric(
+                coverage_metrics.get("raw_pattern_model_eligible_pairs", 0),
+                errors="coerce",
+            )
+        )
         pct_governed = (
             (rows_with_any_governance_lane / permission_row_count) * 100.0
             if permission_row_count > 0
@@ -483,6 +551,14 @@ def export_permission_pattern_summary(
         lines.append(f"- Rows with effective governed lane: {rows_with_effective_lane}")
         lines.append(f"- Rows with candidate lane: {rows_with_candidate_lane}")
         lines.append(f"- Sample-permission signal assignment pairs: {signal_assignment_pairs}")
+        lines.append(
+            f"- Candidate assignment pairs: {candidate_assignment_pairs}; "
+            f"model-eligible: {candidate_model_eligible_pairs}"
+        )
+        lines.append(
+            f"- Raw-pattern assignment pairs: {raw_pattern_assignment_pairs}; "
+            f"model-eligible: {raw_pattern_model_eligible_pairs}"
+        )
     else:
         lines.append("")
         lines.append("No signal governance coverage rows available.")
@@ -683,10 +759,18 @@ def export_permission_pattern_summary(
             kind="mergesort",
         )
         lines.append("")
-        lines.append("These signal groups stay available for ML/fingerprinting but are not behavior-claim-safe by default:")
+        lines.append(
+            "These signal groups are available for ML/fingerprinting only when their assignments are "
+            "evidence-eligible; candidate/raw assignments remain diagnostic-only:"
+        )
         for _, row in caution.head(15).iterrows():
+            observed_prevalence = float(
+                row.get("observed_prevalence_pct", row["prevalence_pct"])
+            )
             lines.append(
-                f"- {row['signal_key']} :: {row['type_slug']} prevalence={float(row['prevalence_pct']):.1f}% "
+                f"- {row['signal_key']} :: {row['type_slug']} "
+                f"model-eligible={float(row['prevalence_pct']):.1f}% "
+                f"observed={observed_prevalence:.1f}% "
                 f"(behavioral={'yes' if bool(row['include_in_behavioral_claims']) else 'no'})"
             )
     lines.append("- Treat behavior-safe signal tables as the primary interpretation surface; mixed signal tables are secondary diagnostics.")

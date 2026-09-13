@@ -53,24 +53,31 @@ def fetch_android_banking_trojans_with_permissions():
     family_filter_sql = _sql_string_list(BANKING_TROJAN_FAMILIES)
     permission_key_expr = _permission_obs_key_expr()
     if permission_contracts.permission_dictionary_norm_available():
-        oem_join = f"mp.permission_string_norm = {permission_key_expr}"
+        oem_join = f"""mp.permission_string_norm = {permission_key_expr}
+            AND BINARY mp.permission_string = BINARY ops.permission_string"""
     else:
-        oem_join = f"{permission_key_expr} = LOWER(TRIM(mp.permission_string))"
+        oem_join = f"""{permission_key_expr} = LOWER(TRIM(mp.permission_string))
+            AND BINARY mp.permission_string = BINARY ops.permission_string"""
     if permission_contracts.permission_unknown_norm_available():
         unknown_join = f"up.permission_string_norm = {permission_key_expr}"
     else:
         unknown_join = f"{permission_key_expr} = LOWER(TRIM(up.permission_string))"
     current_platform = """pi.permission_id IS NOT NULL
                   AND pi.authority_class IN ('AOSP_PUBLIC','AOSP_HIDDEN','AOSP_INTERNAL','AOSP_MODULE')"""
+    fact_exact = "BINARY paf.permission_string = BINARY ops.permission_string"
     historical_platform = f"""{current_platform} AND (
-                  paf.fact_scope = 'removed_api'
-                  OR paf.lifecycle_status IN ('historical','legacy_removed','removed')
+                  ({fact_exact} AND (
+                    paf.fact_scope = 'removed_api'
+                    OR paf.lifecycle_status IN ('historical','legacy_removed','removed')
+                  ))
                   OR pi.lifecycle IN ('historical','legacy_removed','removed')
                 )"""
     current_available_platform = f"({current_platform}) AND NOT ({historical_platform})"
     historical_fact = """(paf.fact_scope = 'removed_api' OR (
                   paf.lifecycle_status IN ('historical','legacy_removed','removed')
                   AND LEFT(COALESCE(paf.authority_source_type,''), 5) = 'aosp_'))"""
+    oem_exact = "BINARY mp.permission_string = BINARY ops.permission_string"
+    resolved_oem = f"COALESCE(({oem_exact} AND ov.vendor_id IS NOT NULL), FALSE)"
     safe_platform_protection = f"""CASE WHEN {current_available_platform}
                   AND COALESCE(pic.unresolved_conflict_count, 0) = 0
                   AND pi.feature_dependency IS NULL
@@ -82,17 +89,18 @@ def fetch_android_banking_trojans_with_permissions():
                 THEN 'OEM_OR_VENDOR'
                 WHEN pi.permission_id IS NOT NULL AND pi.authority_class = 'APPLICATION_DEFINED'
                 THEN 'THIRD_PARTY_APPLICATION_DEFINED'
-                WHEN {historical_fact} THEN 'HISTORICAL_PLATFORM'
-                WHEN paf.fact_scope = 'provider_permission'
+                WHEN {fact_exact} AND {historical_fact} THEN 'HISTORICAL_PLATFORM'
+                WHEN {fact_exact} AND paf.fact_scope = 'provider_permission'
                  AND paf.authority_source_type IN ('aosp_package_manifest','aosp_framework_manifest')
                 THEN 'AOSP_PROVIDER_ACL'
-                WHEN paf.fact_scope = 'permission_definition'
+                WHEN {fact_exact} AND paf.fact_scope = 'permission_definition'
                  AND paf.authority_source_type = 'aosp_package_manifest'
                 THEN 'AOSP_PACKAGE_DEFINED'
-                WHEN paf.authority_source_type IN ('sdk_vendor_docs','sdk_inventory')
+                WHEN {fact_exact} AND paf.fact_scope = 'permission_definition'
+                 AND paf.authority_source_type IN ('sdk_vendor_docs','sdk_inventory')
                 THEN 'SDK_INTEGRATION_CUSTOM_PERMISSION'
-                WHEN paf.authority_source_type IN ('chromium_source','androidx_manifest')
-                  OR paf.fact_scope = 'custom_permission_pattern'
+                WHEN {fact_exact} AND paf.fact_scope = 'permission_definition'
+                 AND paf.authority_source_type IN ('chromium_source','androidx_manifest')
                 THEN 'THIRD_PARTY_APPLICATION_DEFINED'
                 ELSE 'UNKNOWN' END"""
     query = f"""
@@ -141,41 +149,41 @@ def fetch_android_banking_trojans_with_permissions():
             UPPER(COALESCE(ops.classification, 'UNKNOWN')) AS historical_permission_source,
             {current_scope} AS current_authority_scope,
             CASE
-                WHEN paf.fact_scope = 'provider_permission' THEN 'PROVIDER_PERMISSION'
-                WHEN {current_platform} OR paf.fact_scope IN ('permission_definition','removed_api','custom_permission_pattern')
+                WHEN {fact_exact} AND paf.fact_scope = 'provider_permission' THEN 'PROVIDER_PERMISSION'
+                WHEN {current_platform} OR ({fact_exact} AND paf.fact_scope IN ('permission_definition','removed_api'))
                 THEN 'PERMISSION'
                 ELSE 'UNKNOWN'
             END AS current_identifier_kind,
 
             CASE
-                WHEN NOT ({current_platform}) AND mp.permission_string IS NOT NULL
+                WHEN NOT ({current_platform}) AND {resolved_oem}
                 THEN ops.permission_string
                 ELSE NULL
             END AS manufacturer_permission_id,
             CASE
-                WHEN NOT ({current_platform}) AND mp.permission_string IS NOT NULL
+                WHEN NOT ({current_platform}) AND {resolved_oem}
                 THEN mp.permission_string
                 ELSE NULL
             END AS manufacturer_constant,
             CASE
-                WHEN NOT ({current_platform}) AND mp.permission_string IS NOT NULL
+                WHEN NOT ({current_platform}) AND {resolved_oem}
                 THEN mp.protection_level
                 ELSE NULL
             END AS manufacturer_protection,
             CASE
-                WHEN NOT ({current_platform}) AND mp.permission_string IS NOT NULL
+                WHEN NOT ({current_platform}) AND {resolved_oem}
                 THEN ov.vendor_name
                 ELSE NULL
             END AS manufacturer_vendor,
             CASE
-                WHEN NOT ({current_platform}) AND mp.permission_string IS NOT NULL
+                WHEN NOT ({current_platform}) AND {resolved_oem}
                 THEN UPPER(COALESCE(ops.classification, 'OEM'))
                 ELSE NULL
             END AS manufacturer_type,
 
             CASE
                 WHEN NOT ({current_platform})
-                  AND mp.permission_string IS NULL
+                  AND NOT {resolved_oem}
                   AND (
                     UPPER(COALESCE(ops.classification, 'UNKNOWN')) = 'UNKNOWN'
                     OR up.permission_string IS NOT NULL
@@ -185,7 +193,7 @@ def fetch_android_banking_trojans_with_permissions():
             END AS unknown_permission_id,
             CASE
                 WHEN NOT ({current_platform})
-                  AND mp.permission_string IS NULL
+                  AND NOT {resolved_oem}
                   AND (
                     UPPER(COALESCE(ops.classification, 'UNKNOWN')) = 'UNKNOWN'
                     OR up.permission_string IS NOT NULL
@@ -196,7 +204,7 @@ def fetch_android_banking_trojans_with_permissions():
             NULL AS unknown_protection,
             CASE
                 WHEN NOT ({current_platform})
-                  AND mp.permission_string IS NULL
+                  AND NOT {resolved_oem}
                   AND (
                     UPPER(COALESCE(ops.classification, 'UNKNOWN')) = 'UNKNOWN'
                     OR up.permission_string IS NOT NULL
@@ -208,7 +216,7 @@ def fetch_android_banking_trojans_with_permissions():
         FROM {_primary("malware_sample_catalog")} ms
         JOIN {_permission_intel("android_permission_obs_sample")} ops ON ms.sample_id = ops.sample_id
         LEFT JOIN {_permission_intel("android_permission_v1_current_permission")} pi
-            ON BINARY pi.canonical_permission = BINARY TRIM(ops.permission_string)
+            ON BINARY pi.canonical_permission = BINARY ops.permission_string
         LEFT JOIN {_permission_intel("android_permission_v1_obsidiandroid_permission")} piv
             ON BINARY piv.canonical_permission = BINARY pi.canonical_permission
            AND piv.catalog_release_id = pi.catalog_release_id
@@ -231,7 +239,7 @@ def fetch_android_banking_trojans_with_permissions():
         LEFT JOIN {_permission_intel("android_permission_dict_unknown")} up
             ON {unknown_join}
         LEFT JOIN {_permission_intel("android_permission_meta_oem_vendor")} ov
-            ON ops.vendor_id = ov.vendor_id
+            ON mp.vendor_id = ov.vendor_id
         LEFT JOIN {_permission_intel("android_permission_enrich_vt_current")} vtc
             ON vtc.permission_string = TRIM(ops.permission_string)
         WHERE LOWER(ms.family_label) IN ({family_filter_sql})

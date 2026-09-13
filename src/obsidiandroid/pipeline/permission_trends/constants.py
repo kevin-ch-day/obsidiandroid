@@ -27,6 +27,7 @@ ARTIFACT_GROUP_CONTRACTS = "contracts"
 ARTIFACT_GROUP_DOCS = "docs"
 BUNDLE_CONTRACT_NAME = "permission_trends"
 BUNDLE_CONTRACT_VERSION = "v1"
+SIGNAL_EVIDENCE_CONTRACT_VERSION = "1.0.0"
 
 
 @dataclass(frozen=True)

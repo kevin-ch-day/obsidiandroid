@@ -19,6 +19,7 @@ import pandas as pd
 from obsidiandroid.common.csv_io import optional_csv
 from obsidiandroid.database.permission_current_interpretation import (
     interpret_permission_evidence,
+    is_androidx_dynamic_receiver_permission,
 )
 from obsidiandroid.reporting.permission_governance_lanes import (
     CANONICAL_PROTECTION_LANES,
@@ -328,10 +329,14 @@ def fetch_permission_intel_authority(
     oem = _batched_in_query(
         q,
         """
-        SELECT permission_string_norm, protection_level, confidence,
-               classification_source, record_updated_at_utc, vendor_id
-        FROM android_permission_dict_oem
-        WHERE permission_string_norm IN ({placeholders})
+        SELECT o.permission_string_norm, o.permission_string,
+               o.protection_level, o.confidence,
+               o.classification_source, o.record_updated_at_utc, o.vendor_id,
+               v.vendor_id AS resolved_vendor_id
+        FROM android_permission_dict_oem o
+        INNER JOIN android_permission_meta_oem_vendor v
+          ON v.vendor_id = o.vendor_id
+        WHERE o.permission_string_norm IN ({placeholders})
         """,
         lookup_tokens,
     )
@@ -373,11 +378,29 @@ def fetch_permission_intel_authority(
         lookup_tokens,
     )
 
-    # Conflict detection among current-best facts (should be rare).
+    # Conflict detection among current-best facts (should be rare). Equal
+    # protection text does not make different scopes or provenance equivalent.
     fact_conflicts: set[str] = set()
     if not facts.empty:
-        g = facts.groupby(facts["permission_string_norm"].map(_norm))["protection_level"].nunique()
-        fact_conflicts = set(g[g > 1].index.astype(str))
+        conflict_columns = [
+            name
+            for name in (
+                "fact_scope",
+                "authority_source_type",
+                "protection_level",
+                "lifecycle_status",
+                "defining_package",
+            )
+            if name in facts.columns
+        ]
+        evidence = facts.assign(
+            _permission_key=facts["permission_string_norm"].map(_norm)
+        )
+        fingerprints = evidence[conflict_columns].fillna("").astype(str).agg(
+            "\x1f".join, axis=1
+        )
+        distinct = fingerprints.groupby(evidence["_permission_key"]).nunique()
+        fact_conflicts = set(distinct[distinct > 1].index.astype(str))
 
     return {
         "observed_at_utc": observed,
@@ -415,10 +438,10 @@ def build_enrichment_table(
     fact_conflicts: set[str] = set(pi_bundle.get("fact_conflicts") or set())
     observed = str(pi_bundle.get("observed_at_utc") or "")
 
-    identity_by = {}
+    identity_by: dict[str, list[Any]] = {}
     if isinstance(identities, pd.DataFrame) and not identities.empty:
         for r in identities.itertuples(index=False):
-            identity_by[_norm(r.canonical_permission)] = r
+            identity_by.setdefault(_norm(r.canonical_permission), []).append(r)
     fact_by = {}
     if isinstance(facts, pd.DataFrame) and not facts.empty:
         for r in facts.itertuples(index=False):
@@ -428,10 +451,10 @@ def build_enrichment_table(
     if isinstance(aosp, pd.DataFrame) and not aosp.empty:
         for r in aosp.itertuples(index=False):
             aosp_by[_norm(r.constant_value_norm)] = r
-    oem_by = {}
+    oem_by: dict[str, list[Any]] = {}
     if isinstance(oem, pd.DataFrame) and not oem.empty:
         for r in oem.itertuples(index=False):
-            oem_by[_norm(r.permission_string_norm)] = r
+            oem_by.setdefault(_norm(r.permission_string_norm), []).append(r)
     unk_by = {}
     if isinstance(unknown, pd.DataFrame) and not unknown.empty:
         for r in unknown.itertuples(index=False):
@@ -452,7 +475,7 @@ def build_enrichment_table(
     rows: list[dict[str, Any]] = []
     for r in universe.itertuples(index=False):
         token = _norm(r.normalized_token)
-        raw_token = str(getattr(r, "permission_string", token) or token).strip()
+        raw_token = str(getattr(r, "permission_string", token) or token)
         run_src = str(getattr(r, "pi_bucket_source", "") or "")
         run_dang = str(getattr(r, "dangerous_bucket", "") or "")
         alias_src = ""
@@ -478,15 +501,35 @@ def build_enrichment_table(
                 raw_pl = str(getattr(facts_list[0], "protection_level", "") or "")
                 authority_source = str(getattr(facts_list[0], "authority_source_type", "") or "")
         else:
-            identity = identity_by.get(canonical) or identity_by.get(token)
+            identity_candidates = identity_by.get(canonical) or identity_by.get(token) or []
             fact_rows = fact_by.get(canonical) or fact_by.get(token) or []
-            fact = fact_rows[0] if fact_rows else None
+            if alias_src:
+                matching_identities = (
+                    identity_candidates if len(identity_candidates) == 1 else []
+                )
+            else:
+                matching_identities = [
+                    candidate
+                    for candidate in identity_candidates
+                    if raw_token
+                    == str(getattr(candidate, "canonical_permission", "") or "")
+                ]
+            identity = matching_identities[0] if len(matching_identities) == 1 else None
             legacy = aosp_by.get(canonical) or aosp_by.get(token)
             decision_token = (
                 str(getattr(identity, "canonical_permission", "") or "")
                 if alias_src and identity is not None
+                else str(getattr(fact_rows[0], "permission_string", "") or "")
+                if alias_src and len(fact_rows) == 1
                 else raw_token
             )
+            matching_facts = [
+                candidate
+                for candidate in fact_rows
+                if decision_token
+                == str(getattr(candidate, "permission_string", "") or "")
+            ]
+            fact = matching_facts[0] if len(matching_facts) == 1 else None
             decision = interpret_permission_evidence(
                 token=decision_token,
                 identity=identity,
@@ -527,6 +570,18 @@ def build_enrichment_table(
             elif decision.authority_scope == "AOSP_PROVIDER_ACL":
                 namespace_class = "provider_permission"
                 match_status = "source_backed_definition"
+            elif (
+                fact is not None
+                and str(getattr(fact, "fact_scope", "") or "").lower()
+                == "custom_permission_pattern"
+                and str(getattr(fact, "authority_source_type", "") or "").lower()
+                == "androidx_manifest"
+                and str(getattr(fact, "source_family_key", "") or "").lower()
+                == "app_defined_dynamic_receiver_guard"
+                and is_androidx_dynamic_receiver_permission(decision_token)
+            ):
+                namespace_class = "androidx_scaffolding"
+                match_status = "app_defined"
             elif decision.identifier_kind not in {"PERMISSION", "PROVIDER_PERMISSION", "UNKNOWN"}:
                 namespace_class = "non_permission"
                 match_status = "non_permission"
@@ -534,8 +589,27 @@ def build_enrichment_table(
                 namespace_class = "unknown"
                 match_status = "provisional_withheld"
 
-        if match_status == "unresolved" and (canonical in oem_by or token in oem_by):
-            orow = oem_by.get(canonical) or oem_by.get(token)
+        oem_candidates = oem_by.get(canonical) or oem_by.get(token) or []
+        resolved_oem_candidates = [
+            candidate
+            for candidate in oem_candidates
+            if getattr(candidate, "resolved_vendor_id", None) is not None
+            and not pd.isna(getattr(candidate, "resolved_vendor_id", None))
+        ]
+        if alias_src:
+            authorized_oem = (
+                resolved_oem_candidates
+                if len(resolved_oem_candidates) == 1
+                else []
+            )
+        else:
+            authorized_oem = [
+                candidate
+                for candidate in resolved_oem_candidates
+                if raw_token == str(getattr(candidate, "permission_string", "") or "")
+            ]
+        if match_status == "unresolved" and len(authorized_oem) == 1:
+            orow = authorized_oem[0]
             raw_pl = str(getattr(orow, "protection_level", "") or "")
             authority_source = "android_permission_dict_oem"
             namespace_class = "oem"

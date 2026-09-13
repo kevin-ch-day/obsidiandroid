@@ -14,7 +14,10 @@ def test_app_defined_is_not_manufacturer_authority(monkeypatch) -> None:
     queries.fetch_android_banking_trojans_with_permissions()
     sql = captured["query"]
     assert "IN ('OEM', 'APP_DEFINED')" not in sql
-    assert sql.count("mp.permission_string IS NOT NULL") >= 5
+    assert sql.count(
+        "BINARY mp.permission_string = BINARY ops.permission_string"
+    ) >= 5
+    assert sql.count("ov.vendor_id IS NOT NULL") >= 5
     assert "OR UPPER(COALESCE(ops.classification, '')) = 'OEM'" not in sql
     assert "AS historical_permission_source" in sql
     assert "LEFT(COALESCE(paf.authority_source_type,''), 5) = 'aosp_'" in sql

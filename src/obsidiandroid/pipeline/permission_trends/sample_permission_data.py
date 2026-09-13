@@ -28,6 +28,7 @@ def _permission_obs_key_expr_ops() -> str:
 
 
 _GOVERNANCE_COLUMNS = (
+    "governance_precedence",
     "effective_source_family_key",
     "candidate_source_family_key",
     "effective_review_lane",
@@ -55,6 +56,7 @@ def _fetch_governance_rows_for_tokens(permission_tokens: list[str]) -> pd.DataFr
         query = f"""
             SELECT
                 observed_token AS permission_string,
+                governance_precedence,
                 effective_source_family_key,
                 candidate_source_family_key,
                 effective_review_lane,
@@ -312,7 +314,8 @@ def fetch_permission_rows_for_samples(
         else:
             oem_join = "LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(o.permission_string))"
         interpretation = interpretation_selects(
-            historical_source_expr="UPPER(COALESCE(ops.classification, 'UNKNOWN'))"
+            historical_source_expr="UPPER(COALESCE(ops.classification, 'UNKNOWN'))",
+            raw_expr="ops.permission_string",
         )
         interpretation_sql = interpretation_joins(
             key_expr=permission_key_expr,

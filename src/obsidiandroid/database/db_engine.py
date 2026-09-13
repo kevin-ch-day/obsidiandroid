@@ -4,6 +4,7 @@
 # Canonical implementation; the repo-root ``database.db_engine`` shim has been retired.
 
 import json
+import re
 from pathlib import Path
 import mysql.connector
 from mysql.connector import Error
@@ -50,6 +51,16 @@ _CORE_FORBIDDEN_DATABASES = frozenset(
     {"erebus_threat_intel_prod", "android_permission_intel", "scytaledroid_core_prod"}
 )
 _CORE_READ_ONLY_SQL_PREFIXES = ("SELECT", "SHOW", "DESCRIBE", "DESC", "EXPLAIN")
+_PERMISSION_INTEL_READ_ONLY_SQL_PREFIXES = (*_CORE_READ_ONLY_SQL_PREFIXES, "WITH")
+_PERMISSION_INTEL_CTE_WRITE = re.compile(
+    r"\b(?:INSERT|UPDATE|DELETE|REPLACE|ALTER|CREATE|DROP|TRUNCATE|CALL|"
+    r"GRANT|REVOKE|SET|LOAD|LOCK|UNLOCK)\b",
+    re.IGNORECASE,
+)
+_PERMISSION_INTEL_SELECT_SIDE_EFFECT = re.compile(
+    r"\b(?:INTO\s+(?:OUTFILE|DUMPFILE)|FOR\s+UPDATE|LOCK\s+IN\s+SHARE\s+MODE)\b",
+    re.IGNORECASE,
+)
 
 
 class CoreDatabaseConfigurationError(RuntimeError):
@@ -58,6 +69,10 @@ class CoreDatabaseConfigurationError(RuntimeError):
 
 class CoreDatabaseWriteBlockedError(CoreDatabaseConfigurationError):
     """Raised when Phase 1 code attempts DDL or DML through the Core helper."""
+
+
+class PermissionIntelWriteBlockedError(RuntimeError):
+    """Raised when a consumer attempts to mutate the upstream PI catalog."""
 
 
 class SourceDatabaseConfigurationError(RuntimeError):
@@ -352,10 +367,15 @@ def database_connection():
 
 @contextmanager
 def permission_intel_database_connection():
-    """Context manager for Permission Intel database connections."""
+    """Yield a server-enforced read-only Permission Intel connection."""
     conn = None
     try:
         conn = _get_permission_intel_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SET SESSION TRANSACTION READ ONLY")
+        finally:
+            cursor.close()
         yield conn
         conn.commit()
     except (Error, SourceDatabaseConfigurationError) as e:
@@ -553,7 +573,8 @@ def execute_permission_query(
     as_dataframe=False,
     as_namedtuple=False,
 ):
-    """Execute SQL against the Permission Intel database (android_permission_* tables)."""
+    """Execute one read-only SQL statement against Permission Intel."""
+    _assert_permission_intel_read_only_query(query)
     started = perf_counter()
     with permission_intel_database_connection() as conn:
         return _run_query(
@@ -566,6 +587,39 @@ def execute_permission_query(
             as_namedtuple=as_namedtuple,
             started=started,
             log_label="permission_sql",
+        )
+
+
+def _assert_permission_intel_read_only_query(query: object) -> None:
+    """Keep the shared Permission Intel catalog a read-only upstream source."""
+    statement = str(query or "").strip()
+    if not statement:
+        raise PermissionIntelWriteBlockedError(
+            "Permission Intel query is empty; only read-only SQL is permitted"
+        )
+    if statement.endswith(";"):
+        statement = statement[:-1].rstrip()
+    if ";" in statement:
+        raise PermissionIntelWriteBlockedError(
+            "Permission Intel multi-statement SQL is blocked"
+        )
+    keyword = statement.split(None, 1)[0].upper() if statement else ""
+    if keyword not in _PERMISSION_INTEL_READ_ONLY_SQL_PREFIXES:
+        allowed = ", ".join(_PERMISSION_INTEL_READ_ONLY_SQL_PREFIXES)
+        raise PermissionIntelWriteBlockedError(
+            f"Permission Intel {keyword or 'unknown'} SQL is blocked; "
+            f"allowed read-only prefixes: {allowed}"
+        )
+    if keyword == "WITH" and (
+        not re.search(r"\bSELECT\b", statement, re.IGNORECASE)
+        or _PERMISSION_INTEL_CTE_WRITE.search(statement)
+    ):
+        raise PermissionIntelWriteBlockedError(
+            "Permission Intel CTE is not a SELECT-only statement"
+        )
+    if _PERMISSION_INTEL_SELECT_SIDE_EFFECT.search(statement):
+        raise PermissionIntelWriteBlockedError(
+            "Permission Intel SELECT side effects and row locks are blocked"
         )
 
 

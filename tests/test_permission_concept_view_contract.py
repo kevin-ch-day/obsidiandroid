@@ -18,3 +18,5 @@ def test_concept_view_keeps_exact_match_without_wrapping_indexed_token() -> None
 
     assert "ct.token_value = binary v.permission_string" in compact
     assert "cast(ct.token_value as char charset binary)" not in compact
+    assert "sql security invoker" in compact
+    assert "sql security definer" not in compact

@@ -215,10 +215,17 @@ def interpretation_surface(artifact_id: str) -> str:
         "permission_signal_prevalence_by_family",
         "family_signal_similarity",
     }
+    evidence_review_only = {
+        "permission_androidx_receiver_evidence_review",
+        "permission_signal_evidence_review",
+        "permission_signal_governance_coverage",
+    }
     if artifact_id in behavior_safe_primary:
         return "behavior_safe_primary"
     if artifact_id in mixed_secondary:
         return "mixed_signal_secondary"
+    if artifact_id in evidence_review_only:
+        return "evidence_review_only"
     return "not_applicable"
 
 
@@ -255,6 +262,8 @@ def bundle_table_policy(artifact_id: str) -> dict[str, Any]:
         "generic_vs_non_generic_summary",
         "permission_pattern_summary",
         "permission_signal_governance_coverage",
+        "permission_signal_evidence_review",
+        "permission_androidx_receiver_evidence_review",
     }
     diagnostic_tables = {
         "misclassified_samples_by_type",
@@ -315,6 +324,7 @@ def bundle_table_policy(artifact_id: str) -> dict[str, Any]:
         }
     if artifact_id in auxiliary_structural:
         notes = "Auxiliary/supporting analysis table."
+        used_by = "bundle_only,backfill"
         if artifact_id in {
             "permission_signal_prevalence_by_type",
             "permission_signal_prevalence_by_family",
@@ -324,8 +334,17 @@ def bundle_table_policy(artifact_id: str) -> dict[str, Any]:
                 "Mixed signal table; includes model-only/fingerprint lanes and should not be the default "
                 "surface for behavior claims."
             )
+        elif artifact_id in {
+            "permission_androidx_receiver_evidence_review",
+            "permission_signal_evidence_review",
+        }:
+            used_by = "diagnostic_only"
+            notes = (
+                "Candidate/raw evidence review queue; diagnostic only and excluded from "
+                "model-positive and behavior-claim prevalence."
+            )
         return {
-            "used_by": "bundle_only,backfill",
+            "used_by": used_by,
             "keep_in_permission_trends": "yes",
             "target_location": "bundles/permission_trends/tables",
             "needs_latex_export": "no",

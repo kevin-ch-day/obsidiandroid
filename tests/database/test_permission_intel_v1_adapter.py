@@ -188,6 +188,16 @@ def test_empty_permission_is_rejected_before_query() -> None:
     assert query.calls == []
 
 
+@pytest.mark.parametrize(
+    "value", [" android.permission.CAMERA", "android.permission.CAMERA "]
+)
+def test_surrounding_whitespace_is_rejected_before_query(value: str) -> None:
+    query = FakeQuery()
+    with pytest.raises(ValueError, match="surrounding whitespace"):
+        PermissionIntelV1Adapter(query).get_permission(value)
+    assert query.calls == []
+
+
 def test_unknown_source_flag_fails_closed() -> None:
     def bad_flags(sql: str, params: Sequence[object]) -> Sequence[Mapping[str, Any]]:
         if sql == PERMISSION_LOOKUP_SQL:

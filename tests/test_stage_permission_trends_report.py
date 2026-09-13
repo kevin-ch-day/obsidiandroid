@@ -1138,15 +1138,27 @@ def test_build_permission_prevalence_by_family_marks_benchmark_eligibility() -> 
 def test_assign_permission_signal_keys_respects_behavior_and_scaffolding_lanes() -> None:
     permission_rows_df = pd.DataFrame(
         {
-            "sample_id": [1, 1, 2, 3, 4],
+            "sample_id": [1, 1, 2, 3, 4, 5, 6, 7],
             "permission_string": [
                 "android.permission.read_sms",
                 "android.permission.bind_accessibility_service",
                 "com.foo.dynamic_receiver_not_exported_permission",
                 "com.anddoes.launcher.permission.update_count",
                 "com.google.android.c2dm.permission.receive",
+                "com.foo.dynamic_receiver_not_exported_permission_suffix",
+                "dynamic_receiver_not_exported_permission",
+                "com.google.example.dynamic_receiver_not_exported_permission",
             ],
-            "permission_source": ["AOSP", "AOSP", "APP_DEFINED", "APP_DEFINED", "GOOGLE"],
+            "permission_source": [
+                "AOSP",
+                "AOSP",
+                "APP_DEFINED",
+                "APP_DEFINED",
+                "GOOGLE",
+                "APP_DEFINED",
+                "APP_DEFINED",
+                "GOOGLE",
+            ],
         }
     )
     out = report_stage._assign_permission_signal_keys(permission_rows_df)
@@ -1156,6 +1168,61 @@ def test_assign_permission_signal_keys_respects_behavior_and_scaffolding_lanes()
     assert (2, "app_defined_scaffolding") in pairs
     assert (3, "launcher_sdk_ecosystem_noise") in pairs
     assert (4, "google_gms_ecosystem") in pairs
+    assert not any(sample_id in {5, 6} for sample_id, _signal in pairs)
+    assert (7, "google_gms_ecosystem") in pairs
+    assert (7, "app_defined_scaffolding") in pairs
+
+
+def test_assign_permission_signal_keys_keeps_androidx_candidates_out_of_model() -> None:
+    suffix = ".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+    permission_rows_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "permission_string": [
+                f"com.example.accepted{suffix}",
+                f"com.example.candidate{suffix}",
+                f"com.example.raw{suffix}",
+                f"com.example.malformed{suffix}tail",
+            ],
+            "permission_source": ["APP_DEFINED"] * 4,
+            "governance_precedence": ["concept", "candidate", "", "candidate"],
+            "effective_source_family_key": [
+                "app_defined_dynamic_receiver_guard",
+                "app_defined_dynamic_receiver_guard",
+                "",
+                "app_defined_dynamic_receiver_guard",
+            ],
+            "candidate_source_family_key": [
+                "",
+                "app_defined_dynamic_receiver_guard",
+                "",
+                "app_defined_dynamic_receiver_guard",
+            ],
+            "effective_review_lane": ["", "androidx_review", "", "androidx_review"],
+            "effective_resolution_semantics": [
+                "exact_concept",
+                "candidate",
+                "",
+                "candidate",
+            ],
+        }
+    )
+
+    out = report_stage._assign_permission_signal_keys(permission_rows_df)
+    scaffold = out[out["signal_key"].eq("app_defined_scaffolding")]
+    assignments = {
+        (
+            int(row["sample_id"]),
+            str(row["signal_evidence_tier"]),
+            bool(row["assignment_model_eligible"]),
+        )
+        for _, row in scaffold.iterrows()
+    }
+
+    assert (1, "accepted_governance", True) in assignments
+    assert (2, "candidate_governance", False) in assignments
+    assert (3, "raw_pattern", False) in assignments
+    assert not any(sample_id == 4 for sample_id, _tier, _eligible in assignments)
 
 
 def test_assign_permission_signal_keys_uses_governance_lane_mappings() -> None:
@@ -1177,6 +1244,16 @@ def test_assign_permission_signal_keys_uses_governance_lane_mappings() -> None:
 
     assert (1, "aosp_hidden_privileged") in pairs
     assert (2, "oem_vendor_ecosystem") in pairs
+    candidate = out[
+        (out["sample_id"] == 1) & (out["signal_key"] == "aosp_hidden_privileged")
+    ].iloc[0]
+    accepted = out[
+        (out["sample_id"] == 2) & (out["signal_key"] == "oem_vendor_ecosystem")
+    ].iloc[0]
+    assert candidate["signal_evidence_tier"] == "candidate_governance"
+    assert bool(candidate["assignment_model_eligible"]) is False
+    assert accepted["signal_evidence_tier"] == "accepted_governance"
+    assert bool(accepted["assignment_model_eligible"]) is True
 
 
 def test_build_signal_prevalence_by_type_separates_behavioral_and_model_only() -> None:
@@ -1207,6 +1284,214 @@ def test_build_signal_prevalence_by_type_separates_behavioral_and_model_only() -
     assert {"pattern_level", "pattern_label", "pattern_basis", "pattern_reason"}.issubset(out.columns)
 
 
+def test_build_signal_prevalence_by_type_is_evidence_and_package_balanced() -> None:
+    sample_core_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4],
+            "type_slug": ["banker"] * 4,
+            "android_package_name": ["clone.pkg", "clone.pkg", "clone.pkg", "solo.pkg"],
+        }
+    )
+    signal_rows_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2],
+            "signal_key": ["app_defined_scaffolding"] * 2,
+            "signal_evidence_tier": ["accepted_governance", "candidate_governance"],
+            "assignment_model_eligible": [True, False],
+        }
+    )
+
+    out = report_stage._build_signal_prevalence_by_type(
+        sample_core_df=sample_core_df,
+        permission_signal_rows_df=signal_rows_df,
+    )
+    row = out[
+        (out["type_slug"] == "banker")
+        & (out["signal_key"] == "app_defined_scaffolding")
+    ].iloc[0]
+
+    assert row["positive_count"] == 1
+    assert row["observed_positive_count"] == 2
+    assert row["candidate_positive_count"] == 1
+    assert row["raw_pattern_positive_count"] == 0
+    assert row["prevalence_pct"] == 25.0
+    assert row["observed_prevalence_pct"] == 50.0
+    assert row["known_package_count"] == 2
+    assert row["largest_package_sample_share_pct"] == 75.0
+    assert row["package_hhi"] == 0.625
+    assert row["effective_package_count"] == 1.6
+    assert row["package_positive_count"] == 1
+    assert row["package_balanced_prevalence_pct"] == pytest.approx(16.666667)
+    assert row["observed_package_balanced_prevalence_pct"] == pytest.approx(33.333333)
+    assert row["sample_minus_package_balanced_pp"] == pytest.approx(8.333333)
+    assert row["assignment_evidence_policy"] == "model_eligible_assignments_only"
+
+
+def test_signal_prevalence_contract_fails_closed_on_recombined_candidate_count() -> None:
+    frame = pd.DataFrame(
+        {
+            "type_sample_count": [10],
+            "positive_count": [6],
+            "observed_positive_count": [5],
+            "candidate_positive_count": [2],
+            "raw_pattern_positive_count": [0],
+            "prevalence_pct": [60.0],
+            "observed_prevalence_pct": [50.0],
+            "package_balanced_prevalence_pct": [40.0],
+            "signal_evidence_contract_version": [
+                report_stage.SIGNAL_EVIDENCE_CONTRACT_VERSION
+            ],
+            "assignment_evidence_policy": ["model_eligible_assignments_only"],
+        }
+    )
+
+    with pytest.raises(ValueError, match="do not reconcile"):
+        report_stage._validate_signal_prevalence_contract(
+            frame,
+            support_column="type_sample_count",
+        )
+
+
+def test_build_signal_evidence_review_queue_ranks_candidate_before_raw() -> None:
+    common = {
+        "signal_key": "app_defined_scaffolding",
+        "signal_label": "App-Defined Scaffolding",
+        "positive_count": 2,
+        "observed_positive_count": 5,
+        "prevalence_pct": 20.0,
+        "observed_prevalence_pct": 50.0,
+        "package_balanced_prevalence_pct": 15.0,
+        "observed_package_balanced_prevalence_pct": 45.0,
+        "sample_minus_package_balanced_pp": 5.0,
+        "signal_evidence_contract_version": report_stage.SIGNAL_EVIDENCE_CONTRACT_VERSION,
+        "assignment_evidence_policy": "model_eligible_assignments_only",
+    }
+    type_frame = pd.DataFrame(
+        [
+            {
+                **common,
+                "type_slug": "banker",
+                "type_sample_count": 10,
+                "candidate_positive_count": 4,
+                "raw_pattern_positive_count": 0,
+            }
+        ]
+    )
+    family_frame = pd.DataFrame(
+        [
+            {
+                **common,
+                "family_canonical": "Alpha",
+                "type_slug": "banker",
+                "family_support": 10,
+                "candidate_positive_count": 0,
+                "raw_pattern_positive_count": 2,
+            }
+        ]
+    )
+
+    out = report_stage._build_signal_evidence_review_queue(
+        type_frame,
+        family_frame,
+        run_id="review-run",
+    )
+
+    assert out["review_rank"].tolist() == [1, 2]
+    assert out["group_kind"].tolist() == ["type", "family"]
+    assert out.iloc[0]["candidate_prevalence_pct"] == 40.0
+    assert out.iloc[1]["raw_pattern_prevalence_pct"] == 20.0
+    assert set(out["assignment_evidence_policy"]) == {
+        "model_eligible_assignments_only"
+    }
+
+
+def test_build_androidx_receiver_evidence_review_is_actionable_and_bounded() -> None:
+    suffix = ".dynamic_receiver_not_exported_permission"
+    sample_core_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4, 5],
+            "type_slug": ["banker", "banker", "dropper", "rat", "banker"],
+            "android_package_name": [
+                "app.one",
+                "app.two",
+                "com.bad",
+                "com.accepted",
+                "com.reviewed",
+            ],
+        }
+    )
+    permission_rows_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4, 5],
+            "permission_string": [
+                f"com.example.shared{suffix}",
+                f"com.example.shared{suffix}",
+                f"com.bad{suffix}tail",
+                f"com.accepted{suffix}",
+                f"com.reviewed{suffix}",
+            ],
+            "permission_string_raw": [
+                "com.example.Shared.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+                "com.example.shared.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+                "com.bad.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSIONtail",
+                "com.accepted.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+                "com.reviewed.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+            ],
+            "permission_source": ["APP_DEFINED"] * 5,
+            "governance_precedence": [
+                "candidate",
+                "candidate",
+                "candidate",
+                "concept",
+                "override",
+            ],
+            "effective_source_family_key": [
+                "app_defined_dynamic_receiver_guard",
+                "app_defined_dynamic_receiver_guard",
+                "app_defined_dynamic_receiver_guard",
+                "app_defined_dynamic_receiver_guard",
+                "app_defined_custom_permission",
+            ],
+            "candidate_source_family_key": [
+                "app_defined_dynamic_receiver_guard",
+                "app_defined_dynamic_receiver_guard",
+                "app_defined_dynamic_receiver_guard",
+                "",
+                "",
+            ],
+            "effective_resolution_semantics": [
+                "candidate",
+                "candidate",
+                "candidate",
+                "exact_concept",
+                "override:app_defined",
+            ],
+        }
+    )
+
+    out = report_stage._build_androidx_receiver_evidence_review(
+        permission_rows_df,
+        sample_core_df,
+        run_id="androidx-review",
+    )
+
+    assert out["review_rank"].tolist() == [1, 2]
+    candidate = out.iloc[0]
+    malformed = out.iloc[1]
+    assert candidate["evidence_tier"] == "candidate_governance"
+    assert candidate["observation_count"] == 2
+    assert candidate["sample_count"] == 2
+    assert candidate["known_package_count"] == 2
+    assert candidate["raw_token_variant_count"] == 2
+    assert candidate["template_example_observations"] == 2
+    assert malformed["evidence_tier"] == "malformed_raw_pattern"
+    assert malformed["morphology"] == "trailing_extension"
+    assert malformed["package_exact_observations"] == 1
+    assert set(out["signal_evidence_contract_version"]) == {
+        report_stage.SIGNAL_EVIDENCE_CONTRACT_VERSION
+    }
+
+
 def test_build_signal_prevalence_by_family_marks_benchmark_eligibility() -> None:
     sample_core_df = pd.DataFrame(
         {
@@ -1219,6 +1504,7 @@ def test_build_signal_prevalence_by_family_marks_benchmark_eligibility() -> None
             "sample_label_kind": ["family_or_common_name"] * 4,
             "family_label_raw": ["Alpha", "Alpha", "Alpha", "Beta"],
             "vt_family_token": ["alpha", "alpha", "alpha", "beta"],
+            "android_package_name": ["alpha.clone", "alpha.clone", "alpha.solo", "beta.one"],
         }
     )
     signal_rows_df = pd.DataFrame(
@@ -1236,6 +1522,9 @@ def test_build_signal_prevalence_by_family_marks_benchmark_eligibility() -> None
     beta = out[(out["family_canonical"] == "Beta") & (out["signal_key"] == "sms")].iloc[0]
     assert bool(alpha["benchmark_eligible_n_ge_3"]) is True
     assert bool(beta["benchmark_eligible_n_ge_3"]) is False
+    assert alpha["known_package_count"] == 2
+    assert alpha["package_balanced_prevalence_pct"] == 50.0
+    assert alpha["sample_minus_package_balanced_pp"] == pytest.approx(16.666667)
     assert beta["pattern_label"] == "Trace Pattern"
 
 
@@ -1283,6 +1572,84 @@ def test_build_permission_signal_governance_coverage_counts_lane_presence() -> N
     assert metrics["rows_with_review_lane"] == 1
     assert metrics["rows_with_any_governance_lane"] == 3
     assert metrics["signal_assignment_pairs"] == 2
+
+
+def test_permission_signal_governance_coverage_separates_androidx_evidence_tiers() -> None:
+    suffix = ".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+    permission_rows_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4, 5],
+            "permission_string": [
+                f"com.example.effective{suffix}",
+                f"com.example.candidate{suffix}",
+                f"com.example.shapeonly{suffix}",
+                f"com.example.malformed{suffix}tail",
+                f"com.example.overlap{suffix}",
+            ],
+            "effective_source_family_key": [
+                "app_defined_dynamic_receiver_guard",
+                "app_defined_dynamic_receiver_guard",
+                "",
+                "app_defined_dynamic_receiver_guard",
+                "app_defined_dynamic_receiver_guard",
+            ],
+            "governance_precedence": [
+                "concept",
+                "candidate",
+                "candidate",
+                "concept",
+                "concept",
+            ],
+            "candidate_source_family_key": [
+                "",
+                "app_defined_dynamic_receiver_guard",
+                "",
+                "",
+                "app_defined_dynamic_receiver_guard",
+            ],
+            "effective_review_lane": ["", "androidx_review", "", "", "androidx_review"],
+            "effective_resolution_semantics": [
+                "accepted",
+                "candidate",
+                "",
+                "",
+                "accepted_with_candidate_overlap",
+            ],
+        }
+    )
+    signal_rows_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 5, 5],
+            "signal_key": ["app_defined_scaffolding"] * 5,
+            "signal_evidence_tier": [
+                "accepted_governance",
+                "candidate_governance",
+                "raw_pattern",
+                "accepted_governance",
+                "candidate_governance",
+            ],
+            "assignment_model_eligible": [True, False, False, True, False],
+        }
+    )
+
+    out = report_stage._build_permission_signal_governance_coverage(
+        permission_rows_df,
+        signal_rows_df,
+        run_id="androidx-run",
+    )
+    metrics = dict(zip(out["metric"], out["value"]))
+
+    assert metrics["androidx_guard_shape_rows"] == 4
+    assert metrics["androidx_guard_effective_rows"] == 2
+    assert metrics["androidx_guard_candidate_rows"] == 2
+    assert metrics["androidx_guard_candidate_only_rows"] == 1
+    assert metrics["androidx_guard_effective_candidate_overlap_rows"] == 1
+    assert metrics["androidx_guard_shape_only_rows"] == 1
+    assert metrics["androidx_guard_lane_shape_mismatch_rows"] == 1
+    assert metrics["candidate_signal_assignment_pairs"] == 2
+    assert metrics["candidate_model_eligible_pairs"] == 0
+    assert metrics["raw_pattern_signal_assignment_pairs"] == 1
+    assert metrics["raw_pattern_model_eligible_pairs"] == 0
 
 
 def test_family_support_distribution_uses_family_target_surface_and_marks_benchmark_eligibility() -> None:
@@ -1607,8 +1974,13 @@ def test_export_permission_pattern_summary_mentions_required_sections(tmp_path: 
                 "include_in_model_features": True,
                 "include_in_behavioral_claims": False,
                 "type_sample_count": 5,
-                "positive_count": 2,
-                "prevalence_pct": 40.0,
+                "positive_count": 1,
+                "observed_positive_count": 2,
+                "candidate_positive_count": 1,
+                "raw_pattern_positive_count": 0,
+                "prevalence_pct": 20.0,
+                "observed_prevalence_pct": 40.0,
+                "package_balanced_prevalence_pct": 15.0,
             },
         ]
     )
@@ -1699,6 +2071,10 @@ def test_export_permission_pattern_summary_mentions_required_sections(tmp_path: 
             {"metric": "rows_with_effective_lane", "value": 22},
             {"metric": "rows_with_candidate_lane", "value": 3},
             {"metric": "signal_assignment_pairs", "value": 10},
+            {"metric": "candidate_signal_assignment_pairs", "value": 3},
+            {"metric": "candidate_model_eligible_pairs", "value": 0},
+            {"metric": "raw_pattern_signal_assignment_pairs", "value": 1},
+            {"metric": "raw_pattern_model_eligible_pairs", "value": 0},
         ]
     )
     attack_hypotheses_df = pd.DataFrame(
@@ -1764,7 +2140,11 @@ def test_export_permission_pattern_summary_mentions_required_sections(tmp_path: 
     assert "Broad corpus signal" in text
     assert "Type-level signal" in text
     assert "Signal-group interpretation" in text
+    assert "Candidate/raw signal evidence excluded from model-positive prevalence" in text
+    assert "candidate_samples=1" in text
+    assert "model-eligible=20.0%" in text
     assert "Governance coverage" in text
+    assert "Candidate assignment pairs: 3; model-eligible: 0" in text
     assert "These counts describe how much of the permission surface carried live governance lane metadata" in text
     assert "Benchmark-eligible family signal" in text
     assert "Secondary mixed-signal family groups" in text
@@ -2245,6 +2625,36 @@ def test_bundle_manifest_behavior_safe_signal_table_is_primary_structural() -> N
     assert role == "primary_structural"
     assert is_primary is True
     assert policy["notes"] == "Primary structural table."
+
+
+def test_bundle_manifest_signal_evidence_review_is_diagnostic_only() -> None:
+    path = Path("permission_signal_evidence_review_20260601T164351Z__fe432f.csv")
+
+    artifact_id = perm_bundle_manifest.canonical_bundle_artifact_id_from_path(
+        path,
+        category="table",
+    )
+    role, is_primary = perm_bundle_manifest.bundle_artifact_role(artifact_id, "table")
+    policy = perm_bundle_manifest.bundle_table_policy(artifact_id)
+
+    assert artifact_id == "permission_signal_evidence_review"
+    assert role == "auxiliary_table"
+    assert is_primary is False
+    assert perm_bundle_manifest.interpretation_surface(artifact_id) == "evidence_review_only"
+    assert policy["used_by"] == "diagnostic_only"
+    assert "excluded from model-positive" in policy["notes"]
+
+    androidx_id = perm_bundle_manifest.canonical_bundle_artifact_id_from_path(
+        Path(
+            "permission_androidx_receiver_evidence_review_"
+            "20260601T164351Z__fe432f.csv"
+        ),
+        category="table",
+    )
+    androidx_policy = perm_bundle_manifest.bundle_table_policy(androidx_id)
+    assert androidx_id == "permission_androidx_receiver_evidence_review"
+    assert perm_bundle_manifest.interpretation_surface(androidx_id) == "evidence_review_only"
+    assert androidx_policy["used_by"] == "diagnostic_only"
 
 
 def test_bundle_manifest_temporal_pattern_table_is_primary_structural() -> None:
