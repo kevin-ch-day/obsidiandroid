@@ -14,7 +14,10 @@ from obsidiandroid.database.permission_intel_v1.adapter import (
     SPLIT_PERMISSION_SQL,
     PermissionIntelV1Adapter,
 )
-from obsidiandroid.database.permission_intel_v1.models import AuthorityClass
+from obsidiandroid.database.permission_intel_v1.models import (
+    PINNED_CATALOG_RELEASE_ID,
+    AuthorityClass,
+)
 
 
 class FakeQuery:
@@ -61,7 +64,7 @@ class FakeQuery:
 
 def _permission_row(**overrides: object) -> dict[str, object]:
     row: dict[str, object] = {
-        "catalog_release_id": "android-17-r1-audit-2026-08-30-source-identity-correction-1",
+        "catalog_release_id": PINNED_CATALOG_RELEASE_ID,
         "catalog_digest": "a" * 64,
         "interpretation_contract_version": "1.1.0-draft",
         "canonical_permission": "android.permission.CAMERA",
@@ -179,6 +182,154 @@ def test_split_and_evidence_queries_are_parameterized() -> None:
     assert evidence[0]["fact_type"] == "DECLARATION"
     assert query.calls[0][1] == ("android.permission.READ_CONTACTS",)
     assert query.calls[1][1] == ("android.permission.READ_CONTACTS",)
+
+
+def test_adapter_sql_uses_deployed_v1_views() -> None:
+    for sql in (
+        PERMISSION_LOOKUP_SQL,
+        DECLARATION_ALTERNATIVES_SQL,
+        PERMISSION_FLAGS_SQL,
+        SPLIT_PERMISSION_SQL,
+        SOURCE_EVIDENCE_SQL,
+    ):
+        assert "android_permission_v1_1_" not in sql
+        assert "BINARY" in sql
+    assert "android_permission_v1_current_permission" in PERMISSION_LOOKUP_SQL
+    assert "android_permission_v1_current_protection" in PERMISSION_LOOKUP_SQL
+    assert "api_permission_declaration_conflict" in PERMISSION_LOOKUP_SQL
+    assert "HAVING COUNT(*) = 1" in PERMISSION_LOOKUP_SQL
+    assert "android_permission_v1_source_evidence" in SOURCE_EVIDENCE_SQL
+    assert "android_permission_v1_current_flag" in PERMISSION_FLAGS_SQL
+    assert "android_permission_v1_split_permission" in SPLIT_PERMISSION_SQL
+
+
+def test_deployed_v1_row_derives_interpretation_and_withholds_conditioned_scalars() -> None:
+    camera = {
+        "catalog_release_id": PINNED_CATALOG_RELEASE_ID,
+        "catalog_digest": "a" * 64,
+        "canonical_permission": "android.permission.CAMERA",
+        "symbolic_name": "CAMERA",
+        "namespace": "android.permission",
+        "defining_package": "android",
+        "authority_class": "AOSP_PUBLIC",
+        "identity_status": "ACCEPTED",
+        "lifecycle": "declared_in_accepted_release",
+        "visibility": None,
+        "accepted_platform_release": "37",
+        "sdk_extension_release_id": None,
+        "source_snapshot_id": "aosp-core-manifest",
+        "source_provenance_status": "PRESENT",
+        "public_manifest_exposed": 1,
+        "public_health_exposed": 0,
+        "health_module_declared": 0,
+        "feature_dependency": None,
+        "unresolved_conflict_count": 0,
+        "protection_base": "dangerous",
+        "protection_modifiers": "instant",
+        "compatibility_protection_expression": "dangerous|instant",
+        "raw_protection_expression": "dangerous|instant",
+    }
+    fact = PermissionIntelV1Adapter(FakeQuery(camera)).get_permission(
+        "android.permission.CAMERA"
+    )
+    assert fact is not None
+    assert fact.interpretation_contract_version == "1.0.0-draft"
+    assert fact.identity_recognition_state == "ACCEPTED_EXACT_IDENTITY"
+    assert fact.declaration_state == "SINGLE_UNCONDITIONAL_DECLARATION"
+    assert fact.scalar_projection_status == "DECLARED_SOURCE_SCOPED"
+    assert fact.protection.base == "dangerous"
+    assert fact.flags == ("hardRestricted", "softRestricted")
+
+    conditioned = dict(camera)
+    conditioned["canonical_permission"] = "android.permission.DEVICE_POWER"
+    conditioned["feature_dependency"] = "flag.device_power"
+    conditioned["protection_base"] = "signature"
+    conditioned["protection_modifiers"] = "role"
+    conditioned["compatibility_protection_expression"] = "signature|role"
+    query = FakeQuery(conditioned)
+    withheld = PermissionIntelV1Adapter(query).get_permission(
+        "android.permission.DEVICE_POWER"
+    )
+    assert withheld is not None
+    assert withheld.declaration_state == "CONDITIONED"
+    assert withheld.scalar_projection_status == "WITHHELD_UNRESOLVED_ALTERNATIVES"
+    assert withheld.protection.base is None
+    assert withheld.flags == ()
+    assert [sql for sql, _ in query.calls] == [
+        PERMISSION_LOOKUP_SQL,
+        DECLARATION_ALTERNATIVES_SQL,
+    ]
+
+
+def test_null_split_threshold_is_preserved() -> None:
+    def query(sql: str, params: Sequence[object]) -> Sequence[Mapping[str, Any]]:
+        assert sql == SPLIT_PERMISSION_SQL
+        return [
+            {
+                "source_permission": params[0],
+                "target_permission": "android.permission.READ_EXTERNAL_STORAGE",
+                "target_sdk_threshold": None,
+                "target_ordinal": 1,
+                "platform_release_id": "android-api-37",
+                "source_snapshot_id": "aosp-platform-xml",
+            }
+        ]
+
+    splits = PermissionIntelV1Adapter(query).get_split_relations(
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+    )
+    assert splits[0].target_sdk_threshold is None
+
+
+def test_accepted_identity_without_protection_withholds_scalars() -> None:
+    row = {
+        "catalog_release_id": PINNED_CATALOG_RELEASE_ID,
+        "catalog_digest": "a" * 64,
+        "canonical_permission": "android.permission.MANAGE_CONTACTS",
+        "symbolic_name": "MANAGE_CONTACTS",
+        "namespace": "android.permission",
+        "defining_package": "android",
+        "authority_class": "AOSP_PUBLIC",
+        "identity_status": "ACCEPTED",
+        "lifecycle": None,
+        "visibility": None,
+        "accepted_platform_release": "37",
+        "sdk_extension_release_id": None,
+        "source_snapshot_id": None,
+        "source_provenance_status": "PRESENT",
+        "public_manifest_exposed": 1,
+        "public_health_exposed": 0,
+        "health_module_declared": 0,
+        "feature_dependency": None,
+        "unresolved_conflict_count": 0,
+        "protection_base": None,
+        "protection_modifiers": None,
+        "compatibility_protection_expression": None,
+        "raw_protection_expression": None,
+    }
+    query = FakeQuery(row)
+    fact = PermissionIntelV1Adapter(query).get_permission(
+        "android.permission.MANAGE_CONTACTS"
+    )
+    assert fact is not None
+    assert fact.declaration_state == "SINGLE_UNCONDITIONAL_DECLARATION"
+    assert fact.scalar_projection_status == "WITHHELD_MISSING_PROTECTION"
+    assert fact.protection.base is None
+    assert fact.flags == ()
+    assert [sql for sql, _ in query.calls] == [
+        PERMISSION_LOOKUP_SQL,
+        DECLARATION_ALTERNATIVES_SQL,
+    ]
+
+
+def test_case_variant_lookup_does_not_invent_catalog_identity() -> None:
+    query = FakeQuery(None)
+    assert (
+        PermissionIntelV1Adapter(query).get_permission("android.permission.internet")
+        is None
+    )
+    assert query.calls[0][1] == ("android.permission.internet",)
+    assert "BINARY p.canonical_permission = BINARY %s" in query.calls[0][0]
 
 
 def test_empty_permission_is_rejected_before_query() -> None:

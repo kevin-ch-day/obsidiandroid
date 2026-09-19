@@ -33,8 +33,8 @@ Forbidden: any write/DDL/`CALL`/temporary tables/Core/admin credentials/Phase 2C
 | Table | Role |
 | --- | --- |
 | `android_permission_authority_fact` | Primary structured protection-level authority (`is_current_best=1`) |
-| `android_permission_dict_aosp` | AOSP dictionary fallback (`constant_value_norm`) |
-| `android_permission_dict_oem` | OEM dictionary (`permission_string_norm`) |
+| `android_permission_dict_aosp` | AOSP dictionary fallback (exact `constant_value` bytes) |
+| `android_permission_dict_oem` | OEM dictionary (exact `permission_string` bytes plus resolved `vendor_id`) |
 | `android_permission_token_alias` | Alias raw → canonical (`raw_token_norm` → `canonical_token_norm`) |
 | `android_permission_review_state` | Optional review status join |
 | `android_permission_dict_unknown` | Unknown-token triage surface (non-authoritative) |

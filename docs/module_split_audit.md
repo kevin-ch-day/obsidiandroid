@@ -2,7 +2,9 @@
 
 This audit identifies oversized scripts/modules and split targets to reduce maintenance risk.
 
-**Note:** Line counts below were refreshed against the tree on the date of the last audit edit; re-run the inspection scripts below before relying on exact numbers. Root `main.py` is a **compatibility shim** (~60 LOC); real CLI imports live under **`src/obsidiandroid/cli/`**.
+**Note:** Line counts below were refreshed on 2026-09-19 with
+`python scripts/diagnostics/inspect_complexity_hotspots.py --top-files 15 --top-functions 20`.
+Root `main.py` is a **compatibility shim** (60 LOC); real CLI imports live under **`src/obsidiandroid/cli/`**.
 
 **Pipeline stages:** substantive implementations live under **`src/obsidiandroid/pipeline/`** (`obsidiandroid.pipeline.*`). Hotspot scans and refactors should target those canonical paths.
 
@@ -16,24 +18,32 @@ python scripts/diagnostics/inspect_complexity_hotspots.py --top-files 15 --top-f
 
 Representative file sizes (production + orchestration paths, approximate):
 
-| Module | LOC (approx.) | Notes |
-|--------|----------------|-------|
-| `src/obsidiandroid/pipeline/stage_permission_trends_report.py` | ~1910 | Largest stage module (orchestrates `permission_trends` subpackage) |
-| `src/obsidiandroid/cli/startup_menu.py` | ~1320 | Operator menu (canonical) |
-| `src/obsidiandroid/pipeline/stage_manifest.py` | ~610 | Manifest stage; heavy lifting in `obsidiandroid.pipeline.manifest.*` |
-| `src/obsidiandroid/pipeline/runner.py` | ~1590 | `run_pipeline` orchestration |
-| `src/obsidiandroid/pipeline/stage_results_warehouse.py` | ~1170 | Results warehouse stage |
-| `obsidiandroid.reporting.export_manager` | ~870 | Exports |
-| `src/obsidiandroid/modeling/pipeline_core.py` | ~1020 | Training orchestration (canonical; `ml_classification/training/pipeline_core.py` is a shim) |
-| `src/obsidiandroid/labeling/classification_label_resolver.py` | ~770 | Label / taxonomy (canonical; `ml_classification/labeling/classification_label_resolver.py` is a shim) |
-| `main.py` (repo root) | ~60 | Shim only — not the LOC-heavy CLI |
+| Module | LOC | Notes |
+|--------|-----|-------|
+| `src/obsidiandroid/pipeline/stage_permission_trends_report.py` | 4271 | Largest production file; `run_permission_trends_report_stage` is 1229 lines |
+| `src/obsidiandroid/pipeline/runner.py` | 2075 | `run_pipeline` is 1884 lines with 16 broad `except` handlers |
+| `src/obsidiandroid/database/db_sample_metadata_fetchers.py` | 2011 | Cohort / sample metadata SQL |
+| `src/obsidiandroid/reporting/research_three_questions.py` | 1727 | Research-question artifact composer |
+| `src/obsidiandroid/pipeline/stage_ablation.py` | 1658 | Ablation experiment stage |
+| `src/obsidiandroid/database/db_cohort_readiness.py` | 1655 | Readiness snapshot SQL and reporting |
+| `src/obsidiandroid/reporting/type_permission_pattern_report.py` | 1578 | Type-level permission pattern report |
+| `src/obsidiandroid/reporting/operator_dashboard.py` | 1567 | Operator research dashboard |
+| `src/obsidiandroid/modeling/pipeline_core.py` | 1234 | Training orchestration |
+| `src/obsidiandroid/pipeline/stage_results_warehouse.py` | 1171 | Results warehouse stage |
+| `src/obsidiandroid/pipeline/stage_manifest.py` | 1053 | Manifest stage; heavy lifting in `obsidiandroid.pipeline.manifest.*` |
+| `src/obsidiandroid/labeling/classification_label_resolver.py` | 1012 | Label / taxonomy resolver |
+| `obsidiandroid.reporting.export_manager` | 964 | Export orchestration |
+| `src/obsidiandroid/cli/startup_menu.py` | 890 | Operator menu (canonical) |
+| `main.py` (repo root) | 60 | Shim only — not the LOC-heavy CLI |
 
-Largest function hotspots (see inspect scripts for current line numbers):
+Largest function hotspots (current line numbers from the inspector):
 
-- `src/obsidiandroid/pipeline/stage_permission_trends_report.py` — `run_permission_trends_report_stage` (very large)
-- `src/obsidiandroid/pipeline/runner.py` — `run_pipeline` (primary orchestration; legacy shim exists)
-- `src/obsidiandroid/pipeline/stage_manifest.py` — manifest finalization wiring; submodules under `manifest/`
-- `src/obsidiandroid/pipeline/stage_samples.py` — `load_and_prepare_samples`
+- `src/obsidiandroid/pipeline/runner.py:192` — `run_pipeline` (1884 lines, 16 broad `except`)
+- `src/obsidiandroid/pipeline/stage_permission_trends_report.py:167` — `run_permission_trends_report_stage` (1229 lines)
+- `src/obsidiandroid/reporting/research_three_questions.py:474` — `write_research_question_artifacts` (883 lines)
+- `src/obsidiandroid/reporting/operator_dashboard.py:818` — `emit_research_operator_report` (750 lines)
+- `src/obsidiandroid/pipeline/stage_samples.py:195` — `load_and_prepare_samples` (731 lines)
+- `src/obsidiandroid/pipeline/stage_manifest.py:349` — `finalize_run_manifest_stage` (705 lines)
 
 ## Complexity signals to prioritize
 

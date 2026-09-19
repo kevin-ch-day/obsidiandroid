@@ -21,6 +21,7 @@ from obsidiandroid.database.permission_current_interpretation import (
     interpret_permission_evidence,
     is_androidx_dynamic_receiver_permission,
 )
+from obsidiandroid.database.permission_contracts import AUTHORITY_FACT_SCOPES
 from obsidiandroid.reporting.permission_governance_lanes import (
     CANONICAL_PROTECTION_LANES,
     LANE_AOSP_DANGEROUS,
@@ -265,7 +266,7 @@ def fetch_permission_intel_authority(
     aliases = _batched_in_query(
         q,
         """
-        SELECT raw_token_norm, canonical_token_norm, rule_version,
+        SELECT raw_token, raw_token_norm, canonical_token, canonical_token_norm, rule_version,
                first_seen_at_utc, last_seen_at_utc
         FROM android_permission_token_alias
         WHERE raw_token_norm IN ({placeholders})
@@ -275,7 +276,16 @@ def fetch_permission_intel_authority(
     alias_map = {}
     if not aliases.empty:
         for r in aliases.itertuples(index=False):
-            alias_map[_norm(r.raw_token_norm)] = _norm(r.canonical_token_norm)
+            raw_key = _norm(getattr(r, "raw_token_norm", None) or getattr(r, "raw_token", None))
+            canonical = str(getattr(r, "canonical_token", "") or "").strip()
+            if not raw_key or not canonical:
+                continue
+            existing = alias_map.get(raw_key)
+            if existing and existing != canonical:
+                alias_map[raw_key] = ""
+            else:
+                alias_map[raw_key] = canonical
+        alias_map = {key: value for key, value in alias_map.items() if value}
 
     lookup_tokens = sorted({alias_map.get(t, t) for t in toks} | set(toks))
 
@@ -322,7 +332,9 @@ def fetch_permission_intel_authority(
                authority_source_type, source_family_key, record_updated_at_utc
         FROM android_permission_dict_aosp
         WHERE constant_value_norm IN ({placeholders})
-          AND COALESCE(lifecycle_status, '') <> 'invalid_token'
+          AND (lifecycle_status = 'invalid_token'
+               OR authority_source_type = 'queue_apply_shell'
+               OR source_family_key = 'aosp_sparse_queue_apply_shell')
         """,
         lookup_tokens,
     )
@@ -396,11 +408,20 @@ def fetch_permission_intel_authority(
         evidence = facts.assign(
             _permission_key=facts["permission_string_norm"].map(_norm)
         )
-        fingerprints = evidence[conflict_columns].fillna("").astype(str).agg(
-            "\x1f".join, axis=1
-        )
-        distinct = fingerprints.groupby(evidence["_permission_key"]).nunique()
-        fact_conflicts = set(distinct[distinct > 1].index.astype(str))
+        if "fact_scope" in facts.columns:
+            evidence = evidence[
+                evidence["fact_scope"].fillna("").astype(str).str.lower().isin(
+                    AUTHORITY_FACT_SCOPES
+                )
+            ]
+        if evidence.empty:
+            fact_conflicts = set()
+        else:
+            fingerprints = evidence[conflict_columns].fillna("").astype(str).agg(
+                "\x1f".join, axis=1
+            )
+            distinct = fingerprints.groupby(evidence["_permission_key"]).nunique()
+            fact_conflicts = set(distinct[distinct > 1].index.astype(str))
 
     return {
         "observed_at_utc": observed,
@@ -418,6 +439,41 @@ def fetch_permission_intel_authority(
         "query_token_count": len(toks),
         "lookup_token_count": len(lookup_tokens),
     }
+
+
+def _unique_catalog_identity(
+    candidates: Sequence[Any],
+    raw_token: str,
+    *,
+    alias_resolved: bool,
+) -> Any | None:
+    """Return one catalog identity, or none when casefold would collide."""
+    if alias_resolved:
+        return candidates[0] if len(candidates) == 1 else None
+    exact = [
+        candidate
+        for candidate in candidates
+        if raw_token == str(getattr(candidate, "canonical_permission", "") or "")
+    ]
+    if len(exact) == 1:
+        return exact[0]
+    if not exact and len(candidates) == 1:
+        return candidates[0]
+    return None
+
+
+def _unique_authority_fact(candidates: Sequence[Any], token: str) -> Any | None:
+    """Return one authority-bearing fact, or none when exact identity collides."""
+    exact = [
+        candidate
+        for candidate in candidates
+        if token == str(getattr(candidate, "permission_string", "") or "")
+    ]
+    if len(exact) == 1:
+        return exact[0]
+    if not exact and len(candidates) == 1:
+        return candidates[0]
+    return None
 
 
 def build_enrichment_table(
@@ -503,33 +559,28 @@ def build_enrichment_table(
         else:
             identity_candidates = identity_by.get(canonical) or identity_by.get(token) or []
             fact_rows = fact_by.get(canonical) or fact_by.get(token) or []
-            if alias_src:
-                matching_identities = (
-                    identity_candidates if len(identity_candidates) == 1 else []
-                )
-            else:
-                matching_identities = [
-                    candidate
-                    for candidate in identity_candidates
-                    if raw_token
-                    == str(getattr(candidate, "canonical_permission", "") or "")
-                ]
-            identity = matching_identities[0] if len(matching_identities) == 1 else None
-            legacy = aosp_by.get(canonical) or aosp_by.get(token)
-            decision_token = (
-                str(getattr(identity, "canonical_permission", "") or "")
-                if alias_src and identity is not None
-                else str(getattr(fact_rows[0], "permission_string", "") or "")
-                if alias_src and len(fact_rows) == 1
-                else raw_token
+            identity = _unique_catalog_identity(
+                identity_candidates, raw_token, alias_resolved=bool(alias_src)
             )
-            matching_facts = [
+            authority_fact_rows = [
                 candidate
                 for candidate in fact_rows
-                if decision_token
-                == str(getattr(candidate, "permission_string", "") or "")
+                if str(getattr(candidate, "fact_scope", "") or "").lower()
+                in AUTHORITY_FACT_SCOPES
             ]
-            fact = matching_facts[0] if len(matching_facts) == 1 else None
+            legacy = aosp_by.get(canonical) or aosp_by.get(token)
+            if identity is not None:
+                decision_token = str(
+                    getattr(identity, "canonical_permission", "") or raw_token
+                )
+            else:
+                unique_fact = _unique_authority_fact(authority_fact_rows, raw_token)
+                decision_token = (
+                    str(getattr(unique_fact, "permission_string", "") or raw_token)
+                    if unique_fact is not None
+                    else raw_token
+                )
+            fact = _unique_authority_fact(authority_fact_rows, decision_token)
             decision = interpret_permission_evidence(
                 token=decision_token,
                 identity=identity,
@@ -571,13 +622,15 @@ def build_enrichment_table(
                 namespace_class = "provider_permission"
                 match_status = "source_backed_definition"
             elif (
-                fact is not None
-                and str(getattr(fact, "fact_scope", "") or "").lower()
-                == "custom_permission_pattern"
-                and str(getattr(fact, "authority_source_type", "") or "").lower()
-                == "androidx_manifest"
-                and str(getattr(fact, "source_family_key", "") or "").lower()
-                == "app_defined_dynamic_receiver_guard"
+                any(
+                    str(getattr(candidate, "fact_scope", "") or "").lower()
+                    == "custom_permission_pattern"
+                    and str(getattr(candidate, "authority_source_type", "") or "").lower()
+                    == "androidx_manifest"
+                    and str(getattr(candidate, "source_family_key", "") or "").lower()
+                    == "app_defined_dynamic_receiver_guard"
+                    for candidate in fact_rows
+                )
                 and is_androidx_dynamic_receiver_permission(decision_token)
             ):
                 namespace_class = "androidx_scaffolding"

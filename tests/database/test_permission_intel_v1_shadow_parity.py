@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from obsidiandroid.database.permission_intel_v1.models import (
+    PINNED_CATALOG_RELEASE_ID,
     AuthorityClass,
     CatalogGateDecision,
     CatalogGateState,
@@ -46,7 +47,7 @@ def _v1_fact(**overrides: object) -> PlatformPermissionFact:
             "dangerous", ("instant",), "dangerous|instant", "dangerous|instant"
         ),
         "flags": (),
-        "catalog_release_id": "android-17-r1-audit-2026-08-30-source-identity-correction-1",
+        "catalog_release_id": PINNED_CATALOG_RELEASE_ID,
         "catalog_digest": "a" * 64,
     }
     values.update(overrides)
@@ -59,7 +60,7 @@ def _catalog_status(**overrides: object) -> CatalogStatus:
         "schema_contract_version": "1.0.0-draft",
         "compatibility_floor": "1.0.0-draft",
         "schema_contract_release_status": "DRAFT",
-        "catalog_release_id": "android-17-r1-audit-2026-08-30-source-identity-correction-1",
+        "catalog_release_id": PINNED_CATALOG_RELEASE_ID,
         "catalog_digest": "a" * 64,
         "source_set_id": "source-set",
         "source_set_digest": "b" * 64,
@@ -314,7 +315,7 @@ def test_parity_output_is_deterministic_and_timestamp_free(tmp_path: Path) -> No
     report = ParityReport(
         obsidiandroid_commit="b65d78993c417d1390062098f0b4e110d65bc224",
         schema_contract_version="1.0.0-draft",
-        catalog_release_id="android-17-r1-audit-2026-08-30-source-identity-correction-1",
+        catalog_release_id=PINNED_CATALOG_RELEASE_ID,
         source_scope_status="INCOMPLETE_EXPLICIT",
         gate_state="COMPATIBLE_INCOMPLETE_SCOPE",
         test_environment_identity="rootless-network-none-mariadb-11.8",

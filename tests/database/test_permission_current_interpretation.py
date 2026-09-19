@@ -139,9 +139,9 @@ def test_historical_third_party_and_platform_identities_do_not_collapse() -> Non
     assert c2d.authority_scope == "UNKNOWN"
     assert c2d.declaration_state == "NO_DECLARATION"
     assert c2d.evidence_state == "INSUFFICIENT"
-    assert browser.authority_scope == "HISTORICAL_PLATFORM"
-    assert browser.declaration_state == "NOT_APPLICABLE"
-    assert browser.protection_result is None
+    assert browser.authority_scope == "AOSP_PLATFORM"
+    assert browser.declaration_state == "UNCONDITIONAL"
+    assert browser.platform_authority_accepted is True
 
 
 def test_exact_catalog_identity_rejects_nonexact_historical_fact() -> None:
@@ -174,9 +174,62 @@ def test_exact_catalog_identity_rejects_nonexact_historical_fact() -> None:
     assert mismatch.authority_scope == "AOSP_PLATFORM"
     assert mismatch.declaration_state == "UNCONDITIONAL"
     assert mismatch.protection_result == "dangerous"
-    assert exact.authority_scope == "HISTORICAL_PLATFORM"
-    assert exact.declaration_state == "NOT_APPLICABLE"
-    assert exact.protection_result is None
+    assert exact.authority_scope == "AOSP_PLATFORM"
+    assert exact.declaration_state == "UNCONDITIONAL"
+    assert exact.protection_result == "dangerous"
+
+
+def test_case_only_catalog_identity_wins_over_lowercase_anomaly() -> None:
+    decision = interpret_permission_evidence(
+        token="android.permission.internet",
+        identity={
+            "canonical_permission": "android.permission.INTERNET",
+            "authority_class": "AOSP_PUBLIC",
+            "compatibility_protection_expression": "normal",
+        },
+        anomaly={
+            "anomaly_class": "typo_variant",
+            "token_value": "android.permission.internet",
+        },
+    )
+    assert decision.identifier_recognition == "CASE_ONLY_CANONICAL_CANDIDATE"
+    assert decision.authority_scope == "AOSP_PLATFORM"
+    assert decision.evidence_state == "ACCEPTED_CANONICAL"
+    assert decision.protection_result == "normal"
+    assert decision.platform_authority_accepted is True
+
+
+def test_catalog_historical_and_fact_only_historical_stay_split() -> None:
+    retired = interpret_permission_evidence(
+        token="android.permission.FLASHLIGHT",
+        identity={
+            "canonical_permission": "android.permission.FLASHLIGHT",
+            "authority_class": "AOSP_HIDDEN",
+            "identity_status": "RETIRED",
+            "compatibility_protection_expression": "normal",
+        },
+        fact={
+            "permission_string": "android.permission.FLASHLIGHT",
+            "fact_scope": "permission_definition",
+            "authority_source_type": "aosp_framework_manifest",
+            "lifecycle_status": "current",
+        },
+    )
+    fact_only = interpret_permission_evidence(
+        token="android.permission.AUTHENTICATE_ACCOUNTS",
+        fact={
+            "permission_string": "android.permission.AUTHENTICATE_ACCOUNTS",
+            "fact_scope": "removed_api",
+            "authority_source_type": "aosp_framework_manifest",
+            "lifecycle_status": "legacy_removed",
+        },
+    )
+    assert retired.authority_scope == "HISTORICAL_PLATFORM"
+    assert retired.declaration_state == "NOT_APPLICABLE"
+    assert retired.protection_result is None
+    assert fact_only.authority_scope == "HISTORICAL_PLATFORM"
+    assert fact_only.declaration_state == "NOT_APPLICABLE"
+    assert fact_only.protection_result is None
 
 
 def test_sql_guard_uses_deployed_views_and_withholds_unsafe_scalars() -> None:
@@ -190,7 +243,14 @@ def test_sql_guard_uses_deployed_views_and_withholds_unsafe_scalars() -> None:
     )
     sql = "\n".join([joins, *columns.values()])
     assert "android_permission_v1_current_permission" in sql
-    assert "BINARY pi.canonical_permission = BINARY ops.permission_string" in sql
+    assert "COALESCE(als.canonical_token, ops.permission_string)" in sql
+    assert "BINARY als.raw_token = BINARY ops.permission_string" in sql
+    assert "BINARY a.constant_value = BINARY ops.permission_string" in sql
+    assert "a.lifecycle_status = 'invalid_token'" in sql
+    assert "queue_apply_shell" in sql
+    assert "constant_value_norm" not in sql
+    assert "paf.permission_string_norm" not in sql
+    assert "HAVING COUNT(*) = 1" in sql
     assert "BINARY TRIM(ops.permission_string)" not in sql
     assert "api_permission_declaration_conflict" in sql
     assert "android_permission_v1_1_" not in sql
@@ -199,8 +259,13 @@ def test_sql_guard_uses_deployed_views_and_withholds_unsafe_scalars() -> None:
     assert "feature_dependency IS NULL" in columns["safe_protection_expression"]
     assert "AND NOT" in columns["is_aosp_dict_match"]
     assert "NOT_APPLICABLE" in columns["current_declaration_state"]
-    assert "BINARY paf.permission_string = BINARY ops.permission_string" in columns["current_declaration_state"]
-    assert "OR pi.lifecycle IN" in columns["current_declaration_state"]
+    assert "pi.identity_status = 'RETIRED'" in columns["current_declaration_state"]
+    assert "pi.lifecycle IN" in columns["current_declaration_state"]
+    assert "BINARY paf.permission_string = BINARY COALESCE(als.canonical_token, ops.permission_string)" in columns["current_authority_scope"]
+    assert "fact_scope IN ('permission_definition','removed_api','provider_permission')" in sql
+    assert "BINARY pnf.token_value = BINARY ops.permission_string" in sql
+    assert "AND pi.permission_id IS NULL" in sql
+    assert sql.count("pi.permission_id IS NULL") >= 2
     assert "pi.authority_class = 'OEM_OR_VENDOR'" in columns["current_authority_scope"]
     assert "THIRD_PARTY_APPLICATION_DEFINED" in columns["current_authority_scope"]
     assert "LEFT(COALESCE(paf.authority_source_type,''), 5) = 'aosp_'" in columns["current_authority_scope"]

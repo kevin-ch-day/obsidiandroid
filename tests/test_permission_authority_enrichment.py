@@ -127,6 +127,13 @@ def test_pi_fetch_requires_resolved_oem_and_detects_semantic_fact_conflicts() ->
     oem_sql = next(sql for sql in seen_sql if "android_permission_dict_oem" in sql)
     assert "INNER JOIN android_permission_meta_oem_vendor" in oem_sql
     assert "resolved_vendor_id" in oem_sql
+    aosp_sql = next(sql for sql in seen_sql if "android_permission_dict_aosp" in sql)
+    assert "lifecycle_status = 'invalid_token'" in aosp_sql
+    assert "queue_apply_shell" in aosp_sql
+    assert "<> 'invalid_token'" not in aosp_sql
+    alias_sql = next(sql for sql in seen_sql if "android_permission_token_alias" in sql)
+    assert "canonical_token" in alias_sql
+    assert "raw_token" in alias_sql
 
 
 def test_one_row_per_token_alias_and_conflict(tmp_path: Path) -> None:
@@ -307,6 +314,121 @@ def test_oem_authority_requires_exact_raw_identity() -> None:
     assert case_only.raw_protection_level == ""
     assert unresolved_vendor.match_status == "unresolved"
     assert unresolved_vendor.namespace_class == ""
+
+
+def test_custom_permission_pattern_does_not_conflict_with_definition() -> None:
+    import obsidiandroid.reporting.permission_authority_enrichment as mod
+
+    audit = pd.DataFrame(
+        [
+            {
+                "permission_string": "com.google.android.googleapps.permission.GOOGLE_AUTH.mail",
+                "pi_bucket_source": "GOOGLE",
+                "dangerous_bucket": "unknown",
+                "global_support": 1,
+                "feature_column": "perm__google_auth_mail",
+            }
+        ]
+    )
+    pi = {
+        "alias_map": {},
+        "fact_conflicts": set(),
+        "identities": pd.DataFrame(),
+        "facts": pd.DataFrame(
+            [
+                {
+                    "permission_string_norm": "com.google.android.googleapps.permission.google_auth.mail",
+                    "permission_string": "com.google.android.googleapps.permission.GOOGLE_AUTH.mail",
+                    "fact_scope": "permission_definition",
+                    "authority_source_type": "sdk_inventory",
+                    "protection_level": None,
+                    "lifecycle_status": "historical",
+                },
+                {
+                    "permission_string_norm": "com.google.android.googleapps.permission.google_auth.mail",
+                    "permission_string": "com.google.android.googleapps.permission.GOOGLE_AUTH.mail",
+                    "fact_scope": "custom_permission_pattern",
+                    "authority_source_type": "manual_backfill",
+                    "protection_level": None,
+                    "lifecycle_status": "historical",
+                },
+            ]
+        ),
+        "aosp": pd.DataFrame(),
+        "oem": pd.DataFrame(),
+        "unknown": pd.DataFrame(),
+        "reviews": pd.DataFrame(),
+        "non_permissions": pd.DataFrame(),
+        "anomalies": pd.DataFrame(),
+    }
+    old = mod.EXPECTED_TOKEN_COUNT
+    mod.EXPECTED_TOKEN_COUNT = 1
+    try:
+        row = build_enrichment_table(audit, pi).iloc[0]
+        conflicts = fetch_permission_intel_authority(
+            ["com.google.android.googleapps.permission.GOOGLE_AUTH.mail"],
+            query_fn=lambda sql, params: (
+                pi["facts"]
+                if "android_permission_authority_fact" in sql
+                else pd.DataFrame()
+            ),
+        )["fact_conflicts"]
+    finally:
+        mod.EXPECTED_TOKEN_COUNT = old
+
+    assert conflicts == set()
+    assert row.match_status == "source_backed_definition"
+    assert row.namespace_class == "app_defined"
+
+
+def test_unique_casefold_catalog_identity_is_used_for_lowercase_audit_tokens() -> None:
+    import obsidiandroid.reporting.permission_authority_enrichment as mod
+
+    audit = pd.DataFrame(
+        [
+            {
+                "permission_string": "android.permission.internet",
+                "pi_bucket_source": "AOSP",
+                "dangerous_bucket": "normal",
+                "global_support": 1,
+                "feature_column": "perm__internet",
+            }
+        ]
+    )
+    pi = {
+        "alias_map": {},
+        "fact_conflicts": set(),
+        "identities": pd.DataFrame(
+            [
+                {
+                    "canonical_permission": "android.permission.INTERNET",
+                    "authority_class": "AOSP_PUBLIC",
+                    "lifecycle": "declared_in_accepted_release",
+                    "feature_dependency": None,
+                    "unresolved_conflict_count": 0,
+                    "compatibility_protection_expression": "normal",
+                }
+            ]
+        ),
+        "facts": pd.DataFrame(),
+        "aosp": pd.DataFrame(),
+        "oem": pd.DataFrame(),
+        "unknown": pd.DataFrame(),
+        "reviews": pd.DataFrame(),
+        "non_permissions": pd.DataFrame(),
+        "anomalies": pd.DataFrame(),
+    }
+    old = mod.EXPECTED_TOKEN_COUNT
+    mod.EXPECTED_TOKEN_COUNT = 1
+    try:
+        row = build_enrichment_table(audit, pi).iloc[0]
+    finally:
+        mod.EXPECTED_TOKEN_COUNT = old
+
+    assert row.match_status == "exact_authority_match"
+    assert row.namespace_class == "aosp"
+    assert row.canonical_permission == "android.permission.internet"
+    assert row.raw_protection_level == "normal"
 
 
 def test_normalized_lookup_selects_only_exact_identity_and_fact() -> None:

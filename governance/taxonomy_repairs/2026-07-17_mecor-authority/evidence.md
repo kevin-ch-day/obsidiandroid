@@ -24,7 +24,7 @@ Database locator: `database://erebus_threat_intel_prod/android_malware_family?fa
 - [AMD2017 family/type survey](https://www.cs.bgsu.edu/sanroy/Files/papers/amd2017.pdf)
   independently lists Mecor as an Android Trojan-Spy family.
 - The application’s parser policy maps `trojan-spy` to broad `trojan`
-  ([parser defaults](/home/secadmin/Laughlin/GitHub/obsidiandroid/src/obsidiandroid/vendors/parsing/parser_defaults.py)).
+  ([parser defaults](../../../src/obsidiandroid/vendors/parsing/parser_defaults.py)).
   The repair follows that policy rather than inferring a narrower subtype.
 
 ## Impact and limitations

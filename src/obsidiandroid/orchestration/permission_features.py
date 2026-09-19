@@ -126,10 +126,10 @@ def _fetch_permission_rows(sample_ids: list[int]) -> pd.DataFrame:
     for chunk in _iter_chunks(sample_ids):
         placeholders = ", ".join(["%s"] * len(chunk))
         permission_key_expr = _permission_obs_key_expr()
-        if permission_contracts.permission_dictionary_norm_available():
-            oem_join = f"{permission_key_expr} = o.permission_string_norm"
-        else:
-            oem_join = "LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(o.permission_string))"
+        oem_join = permission_contracts.oem_dictionary_join_predicate(
+            observation_alias="ops",
+            oem_alias="o",
+        )
         interpretation = interpretation_selects(
             historical_source_expr="UPPER(COALESCE(ops.classification, 'UNKNOWN'))",
             raw_expr="ops.permission_string",
@@ -159,7 +159,6 @@ def _fetch_permission_rows(sample_ids: list[int]) -> pd.DataFrame:
             {interpretation_sql}
             LEFT JOIN android_permission_dict_oem o
                 ON {oem_join}
-                AND (ops.vendor_id = o.vendor_id OR o.vendor_id IS NULL)
             WHERE ops.sample_id IN ({placeholders})
               AND ops.permission_string IS NOT NULL
               AND TRIM(ops.permission_string) <> ''

@@ -7,7 +7,11 @@ from pathlib import Path
 
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.database.permission_intel_v1.adapter import EXECUTABLE_SELECTS
-from obsidiandroid.database.permission_intel_v1.models import ShadowMode
+from obsidiandroid.database.permission_intel_v1.models import (
+    PINNED_CATALOG_DIGEST,
+    PINNED_CATALOG_RELEASE_ID,
+    ShadowMode,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "src/obsidiandroid/database/permission_intel_v1"
@@ -88,7 +92,8 @@ def test_machine_inventory_is_complete_and_has_explicit_scope() -> None:
     assert payload["artifact_generation_commit"] == payload["integration_commit"]
     assert payload["baseline_commit"] != payload["integration_commit"]
     assert payload["shared_contract_commit"] == "0cf71e18e43f33f5bd43ac442e88c4a423529236"
-    assert payload["catalog_release"]
+    assert payload["catalog_release"] == PINNED_CATALOG_RELEASE_ID
+    assert payload["catalog_digest"] == PINNED_CATALOG_DIGEST
     digest_body = {key: value for key, value in payload.items() if key != "evidence_digest"}
     assert payload["evidence_digest"] == hash_payload(digest_body)
     assert len(payload["queries"]) >= 16
@@ -103,6 +108,13 @@ def test_query_inventory_document_does_not_relabel_baseline_as_current() -> None
     assert "Audited/current commit" not in text
     assert "Audited legacy baseline" in text
     assert "Integration and artifact-generation commit" in text
+    assert PINNED_CATALOG_RELEASE_ID in text
+
+
+def test_shadow_pilot_document_matches_runtime_catalog_pin() -> None:
+    text = (ROOT / "docs/permission_intel_v1_shadow_pilot.md").read_text()
+    assert PINNED_CATALOG_RELEASE_ID in text
+    assert PINNED_CATALOG_DIGEST in text
 
 
 def test_policy_held_report_quotes_permission_database_identifier() -> None:

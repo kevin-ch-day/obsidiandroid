@@ -341,7 +341,7 @@ class SplitPermissionFact:
 
     source_permission: str
     target_permission: str
-    target_sdk_threshold: int
+    target_sdk_threshold: int | None
     target_ordinal: int
     platform_release_id: str
     source_snapshot_id: str

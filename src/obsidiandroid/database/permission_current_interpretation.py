@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import re
 from typing import Any, Mapping
 
+from . import permission_contracts
+
 
 AOSP_AUTHORITIES_SQL = "'AOSP_PUBLIC','AOSP_HIDDEN','AOSP_INTERNAL','AOSP_MODULE'"
 HISTORICAL_LIFECYCLES_SQL = "'historical','legacy_removed','removed'"
@@ -60,27 +62,24 @@ def interpret_permission_evidence(
     fact_exact = bool(fact_permission and token == fact_permission)
     fact_lifecycle = _text(value(fact, "lifecycle_status")).lower()
     catalog_lifecycle = _text(value(identity, "lifecycle")).lower()
+    identity_status = _text(value(identity, "identity_status")).upper()
     legacy_lifecycle = _text(value(legacy, "lifecycle_status")).lower()
     protection = _text(
         value(identity, "compatibility_protection_expression")
         or value(fact, "protection_level")
     ) or None
-    historical = catalog_lifecycle in {"historical", "legacy_removed", "removed"} or (
-        fact_exact
-        and (
-            fact_scope == "removed_api"
-            or fact_lifecycle in {"historical", "legacy_removed", "removed"}
-        )
-    )
+    catalog_historical = catalog_lifecycle in {
+        "historical", "legacy_removed", "removed",
+    } or identity_status == "RETIRED"
 
-    if exact:
+    if canonical:
         platform = authority in {
             "AOSP_PUBLIC", "AOSP_HIDDEN", "AOSP_INTERNAL", "AOSP_MODULE"
         }
         return CurrentPermissionInterpretation(
-            "EXACT_ACCEPTED_CANONICAL",
+            "EXACT_ACCEPTED_CANONICAL" if exact else "CASE_ONLY_CANONICAL_CANDIDATE",
             "HISTORICAL_PLATFORM"
-            if historical and platform
+            if catalog_historical and platform
             else "AOSP_PLATFORM"
             if platform
             else "OEM_OR_VENDOR"
@@ -89,9 +88,9 @@ def interpret_permission_evidence(
             if authority == "APPLICATION_DEFINED"
             else "UNKNOWN",
             "PERMISSION",
-            "NOT_APPLICABLE" if historical else "MULTIPLE_FEATURE_DEPENDENT_ALTERNATIVES" if conflicts else "CONDITIONED" if feature else "UNCONDITIONAL",
+            "NOT_APPLICABLE" if catalog_historical else "MULTIPLE_FEATURE_DEPENDENT_ALTERNATIVES" if conflicts else "CONDITIONED" if feature else "UNCONDITIONAL",
             "ACCEPTED_CANONICAL",
-            None if conflicts or historical else protection,
+            None if conflicts or catalog_historical else protection,
             feature,
             platform,
         )
@@ -161,11 +160,19 @@ def interpret_permission_evidence(
 def interpretation_joins(*, key_expr: str, raw_expr: str) -> str:
     """Return joins for one observation alias using deployed, read-only objects."""
 
+    aosp_join = permission_contracts.aosp_dictionary_join_predicate(
+        raw_expr=raw_expr,
+        aosp_alias="a",
+    )
+    alias_join = permission_contracts.token_alias_join(raw_expr=raw_expr)
+    identity_expr = permission_contracts.catalog_identity_expr(raw_expr=raw_expr)
+    fact_join = permission_contracts.authority_fact_join(raw_expr=identity_expr)
     return f"""
         LEFT JOIN android_permission_dict_aosp a
-          ON {key_expr} = a.constant_value_norm
+          ON {aosp_join}
+        {alias_join}
         LEFT JOIN android_permission_v1_current_permission pi
-          ON BINARY pi.canonical_permission = BINARY {raw_expr}
+          ON BINARY pi.canonical_permission = BINARY {identity_expr}
         LEFT JOIN android_permission_v1_obsidiandroid_permission piv
           ON BINARY piv.canonical_permission = BINARY pi.canonical_permission
          AND piv.catalog_release_id = pi.catalog_release_id
@@ -176,13 +183,17 @@ def interpretation_joins(*, key_expr: str, raw_expr: str) -> str:
              WHERE resolution_status = 'UNRESOLVED'
              GROUP BY permission_id
         ) pic ON pic.permission_id = pi.permission_id
-        LEFT JOIN android_permission_authority_fact paf
-          ON paf.permission_string_norm = {key_expr}
-         AND paf.is_current_best = 1
+        {fact_join}
         LEFT JOIN android_permission_non_permission_fact pnf
-          ON pnf.token_value_norm = {key_expr} AND pnf.is_active = 1
+          ON pnf.is_active = 1
+         AND pi.permission_id IS NULL
+         AND (BINARY pnf.token_value = BINARY {raw_expr}
+              OR pnf.token_value_norm = {key_expr})
         LEFT JOIN android_permission_token_anomaly_fact pta
-          ON pta.token_value_norm = {key_expr} AND pta.is_active = 1
+          ON pta.is_active = 1
+         AND pi.permission_id IS NULL
+         AND (BINARY pta.token_value = BINARY {raw_expr}
+              OR pta.token_value_norm = {key_expr})
     """
 
 
@@ -192,11 +203,10 @@ def interpretation_selects(
     """Return compatible SQL projections whose certainty follows evidence."""
 
     platform = f"pi.authority_class IN ({AOSP_AUTHORITIES_SQL})"
-    fact_exact = f"(BINARY paf.permission_string = BINARY {raw_expr})"
-    historical = (
-        f"(({fact_exact} AND (paf.fact_scope = 'removed_api' OR "
-        f"paf.lifecycle_status IN ({HISTORICAL_LIFECYCLES_SQL}))) "
-        f"OR pi.lifecycle IN ({HISTORICAL_LIFECYCLES_SQL}))"
+    identity_expr = permission_contracts.catalog_identity_expr(raw_expr=raw_expr)
+    fact_exact = f"(BINARY paf.permission_string = BINARY {identity_expr})"
+    catalog_historical = (
+        f"(pi.lifecycle IN ({HISTORICAL_LIFECYCLES_SQL}) OR pi.identity_status = 'RETIRED')"
     )
     invalid = """(a.lifecycle_status = 'invalid_token'
         OR pnf.non_permission_fact_id IS NOT NULL
@@ -216,7 +226,7 @@ def interpretation_selects(
     third_party = f"({fact_exact} AND {third_party})"
     provisional = "(a.authority_source_type = 'queue_apply_shell' OR a.source_family_key = 'aosp_sparse_queue_apply_shell')"
     scope = f"""CASE
-        WHEN pi.permission_id IS NOT NULL AND {platform} AND {historical} THEN 'HISTORICAL_PLATFORM'
+        WHEN pi.permission_id IS NOT NULL AND {platform} AND {catalog_historical} THEN 'HISTORICAL_PLATFORM'
         WHEN pi.permission_id IS NOT NULL AND {platform} THEN 'AOSP_PLATFORM'
         WHEN pi.permission_id IS NOT NULL AND pi.authority_class = 'OEM_OR_VENDOR' THEN 'OEM_OR_VENDOR'
         WHEN pi.permission_id IS NOT NULL AND pi.authority_class = 'APPLICATION_DEFINED' THEN 'THIRD_PARTY_APPLICATION_DEFINED'
@@ -236,7 +246,7 @@ def interpretation_selects(
         WHEN {package} OR {sdk_definition} OR {third_party} OR {historical_fact} THEN 'PERMISSION'
         ELSE 'UNKNOWN' END"""
     declaration = f"""CASE
-        WHEN pi.permission_id IS NOT NULL AND {historical} THEN 'NOT_APPLICABLE'
+        WHEN pi.permission_id IS NOT NULL AND {catalog_historical} THEN 'NOT_APPLICABLE'
         WHEN pi.permission_id IS NOT NULL AND COALESCE(pic.unresolved_conflict_count,0) > 0 THEN 'MULTIPLE_FEATURE_DEPENDENT_ALTERNATIVES'
         WHEN pi.permission_id IS NOT NULL AND pi.feature_dependency IS NOT NULL THEN 'CONDITIONED'
         WHEN pi.permission_id IS NOT NULL THEN 'UNCONDITIONAL'
@@ -253,7 +263,7 @@ def interpretation_selects(
     safe_protection = f"""CASE
         WHEN pi.permission_id IS NOT NULL AND {platform}
          AND COALESCE(pic.unresolved_conflict_count,0) = 0
-         AND pi.feature_dependency IS NULL AND NOT {historical}
+         AND pi.feature_dependency IS NULL AND NOT {catalog_historical}
         THEN piv.compatibility_protection_expression
         WHEN paf.authority_fact_id IS NOT NULL AND ({provider} OR {package} OR {third_party})
          AND NOT {historical_fact}
@@ -277,7 +287,7 @@ def interpretation_selects(
         "permission_source": source,
         "safe_protection_expression": safe_protection,
         "protection_level": f"UPPER(COALESCE(({safe_protection}), 'UNKNOWN'))",
-        "is_aosp_dict_match": f"CASE WHEN pi.permission_id IS NOT NULL AND {platform} AND NOT {historical} THEN 1 ELSE 0 END",
+        "is_aosp_dict_match": f"CASE WHEN pi.permission_id IS NOT NULL AND {platform} AND NOT {catalog_historical} THEN 1 ELSE 0 END",
     }
 
 

@@ -2,9 +2,9 @@
   "artifact_generation_commit": "15d6b738ee8df85b473a08306fa7259fb5a747e6",
   "audited_commit": "b65d78993c417d1390062098f0b4e110d65bc224",
   "baseline_commit": "b65d78993c417d1390062098f0b4e110d65bc224",
-  "catalog_digest": "075accc8aa2042d0d9454ba12e8625b87e76fe54366532c6bca21d56066fc334",
-  "catalog_release": "android-17-r1-audit-2026-08-30-source-identity-correction-1",
-  "evidence_digest": "bc3062d5298f8c88cdfdfc8908d894510f3663f14ed4a7092a1a0a67c04afaa9",
+  "catalog_digest": "7cfe2b144aaa3e4dee0125cddf1153d8662ecde041d6c6da0e023e9d19501212",
+  "catalog_release": "android-17-r1-audit-2026-09-08-module-scope-expansion-3",
+  "evidence_digest": "be9fa36f0f275c63426837b74048f9e676d06c1cc152d819597754e07c5359b1",
   "integration_commit": "15d6b738ee8df85b473a08306fa7259fb5a747e6",
   "inventory_version": "permission-intel-v1-query-inventory-1",
   "notes": "Static inventory of executable Permission Intel query families. Report labels and prose-only object mentions are excluded.",
@@ -12,30 +12,30 @@
     {
       "classification": "OBSERVATION",
       "current_caller": "banking-trojan permission analysis",
-      "current_fallback": "legacy dictionary and classification CASE expressions",
+      "current_fallback": "v1 identity plus unique exact OEM/unknown joins and unique casefold VT join",
       "function_or_class": "fetch_android_banking_trojans_with_permissions",
       "in_pilot_scope": false,
       "output_shape": "sample rows with known, manufacturer, and unknown permission columns",
       "parameters": ["static banking-family allowlist"],
-      "proposed_v1_source": "future selective platform joins only",
-      "reason_excluded": "mixes observations, AOSP, OEM, unknown, VT enrichment, and primary sample data",
-      "selected_columns": ["sample_id", "permission_string", "constant_value", "protection_level", "classification", "vendor_name", "andro_type"],
+      "proposed_v1_source": "android_permission_v1_current_permission already joined for platform identity",
+      "reason_excluded": "mixes observations, OEM, unknown, VT enrichment, and primary sample data",
+      "selected_columns": ["sample_id", "permission_string", "canonical_permission", "protection_level", "classification", "vendor_name", "andro_type"],
       "source_file": "src/obsidiandroid/database/db_permission_analysis_queries.py",
-      "sql_objects": ["malware_sample_catalog", "android_permission_obs_sample", "android_permission_dict_aosp", "android_permission_dict_oem", "android_permission_dict_unknown", "android_permission_meta_oem_vendor", "android_permission_enrich_vt_current"]
+      "sql_objects": ["malware_sample_catalog", "android_permission_obs_sample", "android_permission_token_alias", "android_permission_v1_current_permission", "android_permission_v1_obsidiandroid_permission", "api_permission_declaration_conflict", "android_permission_authority_fact", "android_permission_dict_oem", "android_permission_dict_unknown", "android_permission_meta_oem_vendor", "android_permission_enrich_vt_current"]
     },
     {
       "classification": "PLATFORM_PROVENANCE",
-      "current_caller": "legacy normalized-key capability checks",
-      "current_fallback": "LOWER(TRIM(...)) expressions",
-      "function_or_class": "permission_dictionary_norm_available",
+      "current_caller": "exact token-byte join helpers for OEM, AOSP guards, unknown, and unique authority facts",
+      "current_fallback": "none; exact BINARY predicates are required",
+      "function_or_class": "oem_dictionary_join_predicate / aosp_dictionary_join_predicate / authority_fact_join / token_alias_join / vt_current_join",
       "in_pilot_scope": false,
-      "output_shape": "boolean cached capability",
-      "parameters": [],
+      "output_shape": "SQL join predicates",
+      "parameters": ["table aliases and raw token expressions"],
       "proposed_v1_source": "not needed; v1 identity collation is contractual",
-      "reason_excluded": "brownfield schema discovery, not a platform fact lookup",
-      "selected_columns": ["information_schema column names"],
+      "reason_excluded": "join-contract helpers, not a platform fact lookup",
+      "selected_columns": ["permission_string", "constant_value", "vendor_id", "authority_fact_id", "raw_token"],
       "source_file": "src/obsidiandroid/database/permission_contracts.py",
-      "sql_objects": ["android_permission_dict_aosp", "android_permission_dict_oem"]
+      "sql_objects": ["android_permission_dict_oem", "android_permission_dict_aosp", "android_permission_authority_fact", "android_permission_token_alias", "android_permission_enrich_vt_current"]
     },
     {
       "classification": "OBSERVATION",
@@ -63,7 +63,7 @@
       "reason_excluded": "mixed observation and OEM analytical feature path",
       "selected_columns": ["sample_id", "permission_string", "classification", "protection_level"],
       "source_file": "src/obsidiandroid/orchestration/permission_features.py",
-      "sql_objects": ["android_permission_obs_sample", "android_permission_dict_aosp", "android_permission_dict_oem"]
+      "sql_objects": ["android_permission_obs_sample", "android_permission_token_alias", "android_permission_v1_current_permission", "android_permission_v1_obsidiandroid_permission", "api_permission_declaration_conflict", "android_permission_authority_fact", "android_permission_dict_aosp", "android_permission_dict_oem"]
     },
     {
       "classification": "OBSERVATION",
@@ -77,7 +77,7 @@
       "reason_excluded": "report behavior and observation semantics are explicitly unchanged",
       "selected_columns": ["sample_id", "permission_string", "classification", "protection_level"],
       "source_file": "src/obsidiandroid/pipeline/permission_trends/sample_permission_data.py",
-      "sql_objects": ["android_permission_obs_sample", "android_permission_dict_aosp", "android_permission_dict_oem"]
+      "sql_objects": ["android_permission_obs_sample", "android_permission_token_alias", "android_permission_v1_current_permission", "android_permission_v1_obsidiandroid_permission", "api_permission_declaration_conflict", "android_permission_authority_fact", "android_permission_dict_aosp", "android_permission_dict_oem"]
     },
     {
       "classification": "ANALYTICAL_GOVERNANCE",
@@ -91,7 +91,7 @@
       "reason_excluded": "combines platform, OEM, application, review, and analytical ownership",
       "selected_columns": ["raw_token", "canonical_token", "authority_class", "protection_level", "manufacturer", "review_status"],
       "source_file": "src/obsidiandroid/reporting/permission_authority_enrichment.py",
-      "sql_objects": ["android_permission_token_alias", "android_permission_authority_fact", "android_permission_dict_aosp", "android_permission_dict_oem", "android_permission_dict_unknown", "android_permission_review_state"]
+      "sql_objects": ["android_permission_token_alias", "android_permission_v1_current_permission", "android_permission_v1_obsidiandroid_permission", "api_permission_declaration_conflict", "android_permission_authority_fact", "android_permission_dict_aosp", "android_permission_dict_oem", "android_permission_dict_unknown", "android_permission_review_state", "android_permission_non_permission_fact", "android_permission_token_anomaly_fact"]
     },
     {
       "classification": "OBSERVATION",
@@ -208,16 +208,16 @@
     {
       "classification": "PLATFORM_REFERENCE",
       "current_caller": "new PermissionIntelV1Adapter.get_permission",
-      "current_fallback": "none; shadow diagnostic only",
+      "current_fallback": "none; shadow diagnostic only; missing protection withholds scalars",
       "function_or_class": "get_permission",
       "in_pilot_scope": true,
       "output_shape": "typed PlatformPermissionFact",
       "parameters": ["canonical permission string"],
-      "proposed_v1_source": "android_permission_v1_obsidiandroid_permission joined to versioned general/protection/flag views",
+      "proposed_v1_source": "android_permission_v1_current_permission joined to unique current protection/flag views",
       "reason_excluded": null,
-      "selected_columns": ["canonical identity", "authority", "lifecycle", "visibility", "defining package", "protection", "flags", "platform release", "SDK extension ID", "provenance"],
+      "selected_columns": ["canonical identity", "authority", "lifecycle", "visibility", "defining package", "protection", "flags", "platform release", "SDK extension ID", "provenance", "scalar projection status"],
       "source_file": "src/obsidiandroid/database/permission_intel_v1/adapter.py",
-      "sql_objects": ["android_permission_v1_obsidiandroid_permission", "android_permission_v1_current_permission", "android_permission_v1_current_protection", "android_permission_v1_current_flag"]
+      "sql_objects": ["android_permission_v1_current_permission", "android_permission_v1_current_protection", "android_permission_v1_current_flag", "api_permission_declaration_conflict"]
     },
     {
       "classification": "PLATFORM_PROVENANCE",

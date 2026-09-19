@@ -6,14 +6,15 @@ This pilot is pinned to shared commit
 `572f46c3a050d6f7d24fe0bb74669184fb45e0b5`, migration-set digest
 `1bec1edabf99fbebffc9737e8b5d14076d3566b963c4878c9b3361bbe269ed5c`,
 catalog digest
-`075accc8aa2042d0d9454ba12e8625b87e76fe54366532c6bca21d56066fc334`,
+`7cfe2b144aaa3e4dee0125cddf1153d8662ecde041d6c6da0e023e9d19501212`,
 and catalog-plan digest
-`aae4c1b48f043e58293884183235f344d8ab0e7e18cfd2362b99725227234cca`.
+`11369d1946ddc8d2234ca06cf58e1f219e3b2f001c63d5c7ef1eb2f2ba86565d`.
 
-The source set is `android-17-r1-audit-2026-08-30-source-identity-correction-1`.
-It supersedes the prior release only to correct the Health manifest's exact
-tagged Gitiles path; the frozen file bytes and all parsed permission facts are
-unchanged.
+The accepted catalog release and source set are
+`android-17-r1-audit-2026-09-08-module-scope-expansion-3`. That release expands
+the earlier `android-17-r1-audit-2026-08-30-source-identity-correction-1`
+candidate with reviewed Android 17 module manifests. Runtime pin constants live
+in `obsidiandroid.database.permission_intel_v1.models`.
 
 ObsidianDroid was selected because its normal Permission Intel role is
 read-oriented and its primary checkout was clean at the audited commit. Android

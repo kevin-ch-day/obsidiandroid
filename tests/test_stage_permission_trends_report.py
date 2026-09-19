@@ -137,7 +137,7 @@ def test_fetch_permission_rows_for_samples_prefers_permission_string_norm(monkey
     assert "permission_string_norm" in captured[0]
     assert out["permission_string"].tolist() == ["android.permission.read_sms"]
     assert out["effective_resolution_semantics"].tolist() == ["exact_concept"]
-    assert "WHERE observed_token IN" in captured[1]
+    assert "WHERE LOWER(observed_token) IN" in captured[1]
 
 
 def test_fetch_permission_rows_for_samples_falls_back_without_norm(monkeypatch) -> None:
@@ -317,12 +317,18 @@ def test_fetch_permission_rows_uses_indexed_dictionary_keys_when_available(monke
 
     sample_perm_data.fetch_permission_rows_for_samples([1])
 
-    assert "= a.constant_value_norm" in captured[0]
-    assert "= o.permission_string_norm" in captured[0]
+    assert "BINARY a.constant_value = BINARY ops.permission_string" in captured[0]
+    assert "a.lifecycle_status = 'invalid_token'" in captured[0]
+    assert "= a.constant_value_norm" not in captured[0]
+    assert "BINARY o.permission_string = BINARY ops.permission_string" in captured[0]
+    assert "AND o.vendor_id IS NOT NULL" in captured[0]
+    assert "= o.permission_string_norm" not in captured[0]
+    assert "ops.vendor_id = o.vendor_id" not in captured[0]
+    assert "OR o.vendor_id IS NULL" not in captured[0]
     assert "LOWER(TRIM(a.constant_value))" not in captured[0]
     assert "LEFT JOIN vw_permission_vt_current_governed" not in captured[0]
     assert "FROM vw_permission_vt_current_governed" in captured[1]
-    assert "WHERE observed_token IN" in captured[1]
+    assert "WHERE LOWER(observed_token) IN" in captured[1]
 
 
 def test_js_distance_zero_for_identical() -> None:

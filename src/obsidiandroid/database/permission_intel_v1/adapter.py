@@ -8,6 +8,7 @@ from typing import Any, Protocol
 from .gate import CATALOG_STATUS_SQL, evaluate_catalog_gate
 from .models import (
     PERMISSION_FLAG_VOCABULARY,
+    PINNED_SCHEMA_CONTRACT_VERSION,
     ApiVersion,
     AuthorityClass,
     CatalogGateDecision,
@@ -26,22 +27,33 @@ class ReadQuery(Protocol):
     ) -> Sequence[Mapping[str, Any]]: ...
 
 
+DEPLOYED_INTERPRETATION_CONTRACT = PINNED_SCHEMA_CONTRACT_VERSION
+SUPPORTED_INTERPRETATION_CONTRACTS = frozenset(
+    {DEPLOYED_INTERPRETATION_CONTRACT, "1.1.0-draft"}
+)
+_IDENTITY_STATUS_RECOGNITION = {
+    "ACCEPTED": "ACCEPTED_EXACT_IDENTITY",
+    "CANDIDATE": "CANDIDATE_IDENTITY",
+    "CONFLICT": "CONFLICT_IDENTITY",
+    "RETIRED": "RETIRED_IDENTITY",
+}
+_PROTECTION_KEYS = (
+    "protection_base",
+    "protection_modifiers",
+    "compatibility_protection_expression",
+    "raw_protection_expression",
+)
+
 PERMISSION_LOOKUP_SQL = """
 SELECT
     p.catalog_release_id,
     p.catalog_digest,
-    p.interpretation_contract_version,
     p.canonical_permission,
     p.symbolic_name,
     p.namespace,
     p.defining_package,
     p.authority_class,
-    p.identity_recognition_state,
-    p.declaration_state,
-    p.applicability_state,
-    p.protection_state,
-    p.evidence_basis,
-    p.scalar_projection_status,
+    p.identity_status,
     p.lifecycle,
     p.visibility,
     p.accepted_platform_release,
@@ -51,26 +63,73 @@ SELECT
     p.public_manifest_exposed,
     p.public_health_exposed,
     p.health_module_declared,
-    p.protection_base,
-    p.protection_modifiers,
-    p.compatibility_protection_expression,
-    p.raw_protection_expression
-FROM android_permission_v1_1_obsidiandroid_permission AS p
+    p.feature_dependency,
+    COALESCE(pic.unresolved_conflict_count, 0) AS unresolved_conflict_count,
+    prot.protection_base,
+    prot.protection_modifiers,
+    prot.compatibility_protection_expression,
+    prot.raw_protection_expression
+FROM android_permission_v1_current_permission AS p
+LEFT JOIN (
+    SELECT permission_id, COUNT(*) AS unresolved_conflict_count
+      FROM api_permission_declaration_conflict
+     WHERE resolution_status = 'UNRESOLVED'
+     GROUP BY permission_id
+) pic ON pic.permission_id = p.permission_id
+LEFT JOIN (
+    SELECT f.*
+      FROM android_permission_v1_current_protection f
+      INNER JOIN (
+          SELECT MIN(declaration_revision_id) AS declaration_revision_id,
+                 canonical_permission,
+                 catalog_release_id
+            FROM android_permission_v1_current_protection
+           GROUP BY canonical_permission, catalog_release_id
+          HAVING COUNT(*) = 1
+      ) one
+        ON one.declaration_revision_id = f.declaration_revision_id
+       AND BINARY one.canonical_permission = BINARY f.canonical_permission
+       AND one.catalog_release_id = f.catalog_release_id
+) prot
+  ON BINARY prot.canonical_permission = BINARY p.canonical_permission
+ AND prot.catalog_release_id = p.catalog_release_id
 WHERE BINARY p.canonical_permission = BINARY %s
 """.strip()
 
 DECLARATION_ALTERNATIVES_SQL = """
-SELECT catalog_release_id, catalog_digest, declaration_revision_id, lifecycle,
-       accepted_platform_release, sdk_extension_release_id, feature_dependency,
-       feature_flag, feature_flag_value, applicability_state, visibility,
-       defining_package, permission_group, background_permission, max_sdk,
-       source_snapshot_id, declaration_locator, protection_base,
-       protection_modifiers, compatibility_protection_expression,
-       raw_protection_expression, declaration_evidence_status
-FROM android_permission_v1_1_declaration_alternative
-WHERE BINARY canonical_permission = BINARY %s
-  AND (feature_dependency IS NOT NULL OR unresolved_conflict_count > 0)
-ORDER BY declaration_revision_id
+SELECT
+    p.catalog_release_id,
+    p.catalog_digest,
+    CAST(p.declaration_revision_id AS CHAR) AS declaration_revision_id,
+    p.lifecycle,
+    p.accepted_platform_release,
+    p.sdk_extension_release_id,
+    p.feature_dependency,
+    NULL AS feature_flag,
+    NULL AS feature_flag_value,
+    'REQUIRES_BUILD_CONFIGURATION_EVIDENCE' AS applicability_state,
+    p.visibility,
+    p.defining_package,
+    p.permission_group,
+    p.background_permission,
+    p.max_sdk,
+    p.source_snapshot_id,
+    NULL AS declaration_locator,
+    prot.protection_base,
+    prot.protection_modifiers,
+    prot.compatibility_protection_expression,
+    prot.raw_protection_expression,
+    NULL AS declaration_evidence_status
+FROM android_permission_v1_current_permission AS p
+LEFT JOIN android_permission_v1_current_protection AS prot
+  ON BINARY prot.canonical_permission = BINARY p.canonical_permission
+ AND prot.catalog_release_id = p.catalog_release_id
+ AND (p.declaration_revision_id IS NULL
+      OR prot.declaration_revision_id = p.declaration_revision_id)
+WHERE BINARY p.canonical_permission = BINARY %s
+  AND p.feature_dependency IS NOT NULL
+  AND TRIM(p.feature_dependency) <> ''
+ORDER BY p.declaration_revision_id
 """.strip()
 
 PERMISSION_FLAGS_SQL = """
@@ -96,7 +155,7 @@ ORDER BY target_sdk_threshold, target_ordinal, target_permission
 SOURCE_EVIDENCE_SQL = """
 SELECT fact_type, fact_digest, source_snapshot_id, source_path, source_locator,
        parser_version, evidence_digest
-FROM android_permission_v1_1_identity_evidence
+FROM android_permission_v1_source_evidence
 WHERE BINARY canonical_permission = BINARY %s
 ORDER BY fact_type, source_snapshot_id, source_path, source_locator
 """.strip()
@@ -131,10 +190,17 @@ class PermissionIntelV1Adapter:
             return None
         if len(rows) != 1:
             raise ValueError("Permission Intel interpretation returned duplicate identity rows")
-        row = rows[0]
-        if row.get("interpretation_contract_version") != "1.1.0-draft":
-            raise ValueError("unsupported Permission Intel interpretation contract")
+        row = dict(rows[0])
+        contract = _interpretation_contract(row)
         catalog_release_id = str(row.get("catalog_release_id") or "")
+        (
+            identity_recognition_state,
+            declaration_state,
+            applicability_state,
+            protection_state,
+            evidence_basis,
+            scalar_projection_status,
+        ) = _interpretation_fields(row)
         alternative_rows = self._query(DECLARATION_ALTERNATIVES_SQL, (permission,))
         if any(
             str(item.get("catalog_release_id") or "") != catalog_release_id
@@ -144,10 +210,13 @@ class PermissionIntelV1Adapter:
         ):
             raise ValueError("catalog changed during v1 declaration-alternative lookup")
         alternatives = tuple(_alternative(item) for item in alternative_rows)
-        scalar_safe = row.get("scalar_projection_status") in {
+        scalar_safe = scalar_projection_status in {
             "DECLARED_SOURCE_SCOPED",
             "DECLARED_CONDITIONED_NOT_DEVICE_EFFECTIVE",
         }
+        if not scalar_safe:
+            for key in _PROTECTION_KEYS:
+                row[key] = None
         flag_rows = self._query(PERMISSION_FLAGS_SQL, (permission,)) if scalar_safe else ()
         if any(
             str(item.get("catalog_release_id") or "") != catalog_release_id
@@ -189,17 +258,13 @@ class PermissionIntelV1Adapter:
             flags=flags,
             catalog_release_id=catalog_release_id,
             catalog_digest=str(row.get("catalog_digest") or ""),
-            interpretation_contract_version=str(
-                row.get("interpretation_contract_version") or ""
-            ),
-            identity_recognition_state=str(
-                row.get("identity_recognition_state") or ""
-            ),
-            declaration_state=str(row.get("declaration_state") or ""),
-            applicability_state=str(row.get("applicability_state") or ""),
-            protection_state=str(row.get("protection_state") or ""),
-            evidence_basis=str(row.get("evidence_basis") or ""),
-            scalar_projection_status=str(row.get("scalar_projection_status") or ""),
+            interpretation_contract_version=contract,
+            identity_recognition_state=identity_recognition_state,
+            declaration_state=declaration_state,
+            applicability_state=applicability_state,
+            protection_state=protection_state,
+            evidence_basis=evidence_basis,
+            scalar_projection_status=scalar_projection_status,
             alternatives=alternatives,
         )
 
@@ -209,17 +274,22 @@ class PermissionIntelV1Adapter:
         """Return accepted split targets for one case-sensitive source permission."""
         permission = _validate_permission_parameter(canonical_permission)
         rows = self._query(SPLIT_PERMISSION_SQL, (permission,))
-        return tuple(
-            SplitPermissionFact(
-                source_permission=str(row["source_permission"]),
-                target_permission=str(row["target_permission"]),
-                target_sdk_threshold=int(row["target_sdk_threshold"]),
-                target_ordinal=int(row["target_ordinal"]),
-                platform_release_id=str(row["platform_release_id"]),
-                source_snapshot_id=str(row["source_snapshot_id"]),
+        splits: list[SplitPermissionFact] = []
+        for row in rows:
+            threshold = row.get("target_sdk_threshold")
+            splits.append(
+                SplitPermissionFact(
+                    source_permission=str(row["source_permission"]),
+                    target_permission=str(row["target_permission"]),
+                    target_sdk_threshold=(
+                        int(threshold) if threshold is not None else None
+                    ),
+                    target_ordinal=int(row["target_ordinal"]),
+                    platform_release_id=str(row["platform_release_id"]),
+                    source_snapshot_id=str(row["source_snapshot_id"]),
+                )
             )
-            for row in rows
-        )
+        return tuple(splits)
 
     def get_source_evidence(
         self, canonical_permission: str
@@ -253,6 +323,68 @@ def _validate_permission_parameter(value: str) -> str:
 def _optional_text(value: object) -> str | None:
     text = str(value or "").strip()
     return text or None
+
+
+def _row_text(row: Mapping[str, Any], key: str) -> str | None:
+    if key not in row:
+        return None
+    return _optional_text(row.get(key))
+
+
+def _interpretation_contract(row: Mapping[str, Any]) -> str:
+    if "interpretation_contract_version" not in row:
+        return DEPLOYED_INTERPRETATION_CONTRACT
+    raw = row.get("interpretation_contract_version")
+    if raw in (None, ""):
+        return DEPLOYED_INTERPRETATION_CONTRACT
+    text = str(raw)
+    if text not in SUPPORTED_INTERPRETATION_CONTRACTS:
+        raise ValueError("unsupported Permission Intel interpretation contract")
+    return text
+
+
+def _interpretation_fields(row: Mapping[str, Any]) -> tuple[str, str, str, str, str, str]:
+    conflicts = int(row.get("unresolved_conflict_count") or 0)
+    feature = _optional_text(row.get("feature_dependency"))
+    identity_status = str(row.get("identity_status") or "").strip().upper()
+    withheld = bool(conflicts or feature or identity_status == "RETIRED")
+    missing_protection = not any(
+        _optional_text(row.get(key)) for key in _PROTECTION_KEYS
+    )
+    recognition = _row_text(row, "identity_recognition_state") or (
+        _IDENTITY_STATUS_RECOGNITION.get(identity_status, "ACCEPTED_EXACT_IDENTITY")
+    )
+    if _row_text(row, "declaration_state"):
+        declaration = str(_row_text(row, "declaration_state"))
+    elif conflicts:
+        declaration = "MULTIPLE_FEATURE_DEPENDENT_ALTERNATIVES"
+    elif feature:
+        declaration = "CONDITIONED"
+    else:
+        declaration = "SINGLE_UNCONDITIONAL_DECLARATION"
+    applicability = _row_text(row, "applicability_state") or (
+        "REQUIRES_BUILD_CONFIGURATION_EVIDENCE"
+        if withheld
+        else "DECLARED_IN_ACCEPTED_SOURCE_SCOPE_NOT_DEVICE_GRANT"
+    )
+    protection_state = _row_text(row, "protection_state") or (
+        "UNKNOWN_REQUIRES_BUILD_CONFIGURATION"
+        if withheld
+        else "DECLARED_IN_ACCEPTED_SOURCE_SCOPE"
+    )
+    evidence = _row_text(row, "evidence_basis") or (
+        "MANIFEST_CONDITIONAL_ALTERNATIVES"
+        if feature or conflicts
+        else "MANIFEST_DECLARATION"
+    )
+    scalar = _row_text(row, "scalar_projection_status") or (
+        "WITHHELD_UNRESOLVED_ALTERNATIVES"
+        if withheld
+        else "WITHHELD_MISSING_PROTECTION"
+        if missing_protection
+        else "DECLARED_SOURCE_SCOPED"
+    )
+    return recognition, declaration, applicability, protection_state, evidence, scalar
 
 
 def _alternative(row: Mapping[str, Any]) -> DeclarationAlternative:

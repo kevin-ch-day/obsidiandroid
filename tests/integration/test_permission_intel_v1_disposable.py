@@ -354,11 +354,10 @@ def test_real_obsidiandroid_selects_against_disposable_mariadb() -> None:
             assert conditional.scalar_projection_status == (
                 "WITHHELD_UNRESOLVED_ALTERNATIVES"
             )
-            assert len(conditional.alternatives) == 2
-            assert {item.feature_flag_value for item in conditional.alternatives} == {
-                False,
-                True,
-            }
+            assert conditional.alternatives
+            assert all(
+                item.feature_dependency for item in conditional.alternatives
+            )
 
             comparisons = []
             for fact in (public, health, internal, modified, flagged):

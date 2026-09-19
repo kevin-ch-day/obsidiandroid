@@ -686,7 +686,7 @@ def test_fetch_banking_trojans_sql_qualifies_primary_and_pi(monkeypatch) -> None
     assert "'crocodilus'" in sql
 
 
-def test_fetch_banking_trojans_sql_prefers_permission_string_norm_when_available(monkeypatch) -> None:
+def test_fetch_banking_trojans_sql_uses_exact_authority_joins(monkeypatch) -> None:
     queries: list[str] = []
 
     def capture(query, *_args, **_kwargs):
@@ -707,19 +707,26 @@ def test_fetch_banking_trojans_sql_prefers_permission_string_norm_when_available
     monkeypatch.setattr(db_engine, "execute_query", capture)
     fetch_android_banking_trojans_with_permissions()
     sql = queries[0]
-    assert "permission_string_norm" in sql
-    assert "COALESCE(NULLIF(TRIM(ops.permission_string_norm), ''), LOWER(TRIM(ops.permission_string)))" in sql
-    assert "mp.permission_string_norm = COALESCE" in sql
-    assert "up.permission_string_norm = COALESCE" in sql
     assert "ON mp.vendor_id = ov.vendor_id" in sql
     assert "AND ov.vendor_id IS NOT NULL" in sql
-    assert "BINARY pi.canonical_permission = BINARY ops.permission_string" in sql
-    assert "BINARY paf.permission_string = BINARY ops.permission_string" in sql
+    assert "BINARY pi.canonical_permission = BINARY COALESCE(als.canonical_token, ops.permission_string)" in sql
+    assert "BINARY paf.permission_string = BINARY COALESCE(als.canonical_token, ops.permission_string)" in sql
     assert "BINARY mp.permission_string = BINARY ops.permission_string" in sql
+    assert "BINARY up.permission_string = BINARY ops.permission_string" in sql
+    assert "BINARY vtc.permission_string = BINARY ops.permission_string" not in sql
+    assert "LOWER(vtc.permission_string) = LOWER(ops.permission_string)" in sql
+    assert "GROUP BY LOWER(permission_string)" in sql
+    assert "HAVING COUNT(*) = 1" in sql
+    assert "AND mp.vendor_id IS NOT NULL" in sql
+    assert "ops.vendor_id = mp.vendor_id" not in sql
+    assert "OR ops.vendor_id IS NULL" not in sql
+    assert "mp.permission_string_norm =" not in sql
+    assert "paf.permission_string_norm =" not in sql
+    assert "up.permission_string_norm =" not in sql
     assert "AND NOT COALESCE((BINARY mp.permission_string = BINARY ops.permission_string" in sql
 
 
-def test_fetch_banking_trojans_sql_falls_back_without_permission_string_norm(monkeypatch) -> None:
+def test_fetch_banking_trojans_sql_does_not_depend_on_permission_string_norm(monkeypatch) -> None:
     queries: list[str] = []
 
     def capture(query, *_args, **_kwargs):
@@ -736,9 +743,16 @@ def test_fetch_banking_trojans_sql_falls_back_without_permission_string_norm(mon
     fetch_android_banking_trojans_with_permissions()
     sql = queries[0]
     assert "ops.permission_string_norm" not in sql
-    assert "paf.permission_string_norm = LOWER(TRIM(ops.permission_string))" in sql
-    assert "LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(mp.permission_string))" in sql
-    assert "LOWER(TRIM(ops.permission_string)) = LOWER(TRIM(up.permission_string))" in sql
+    assert "paf.permission_string_norm =" not in sql
+    assert "BINARY paf.permission_string = BINARY COALESCE(als.canonical_token, ops.permission_string)" in sql
+    assert "BINARY mp.permission_string = BINARY ops.permission_string" in sql
+    assert "BINARY up.permission_string = BINARY ops.permission_string" in sql
+    assert "AND mp.vendor_id IS NOT NULL" in sql
+    assert "HAVING COUNT(*) = 1" in sql
+    assert "LOWER(TRIM(mp.permission_string))" not in sql
+    assert "LOWER(TRIM(up.permission_string))" not in sql
+    assert "ops.vendor_id = mp.vendor_id" not in sql
+    assert "OR ops.vendor_id IS NULL" not in sql
 
 
 def test_fetch_banking_trojans_count_sql_uses_same_family_universe(monkeypatch) -> None:
