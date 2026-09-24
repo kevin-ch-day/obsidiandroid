@@ -84,6 +84,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          python scripts/dev/install_build_requirements.py
           pip install -e .
 
       - name: Pip dependency graph check
@@ -132,6 +133,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          python scripts/dev/install_build_requirements.py
           pip install -e .
 
       - name: Integration pytest lane
@@ -171,6 +173,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          python scripts/dev/install_build_requirements.py
           pip install -e .
 
       - name: Pipeline-heavy pytest lane
@@ -208,6 +211,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          python scripts/dev/install_build_requirements.py
           pip install -e .
 
       - name: canonical closure contract tests

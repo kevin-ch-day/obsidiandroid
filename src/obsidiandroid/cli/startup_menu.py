@@ -75,6 +75,19 @@ def _run_full_pipeline(profile_id: str) -> int:
     return run_pipeline(profile_ref=profile_id)
 
 
+def _run_full_pipeline_with_persistence_choice(profile_id: str) -> int:
+    from obsidiandroid.pipeline import run_pipeline
+    choice = mu.display_menu(
+        ["Exploratory / read-only", "Persist analytical run/results"],
+        title="Persistence mode", exit_label="Back",
+    )
+    if choice == 0:
+        return 0
+    if choice == 1:
+        return _run_full_pipeline(profile_id)
+    return run_pipeline(profile_ref=profile_id, analysis_persistence=True)
+
+
 def _run_single_model(model_key: str, profile_id: str) -> int:
     """Run the full pipeline while training only one selected model."""
     from obsidiandroid.pipeline import run_pipeline
@@ -205,7 +218,7 @@ def _launch_pipeline_actions_menu() -> int:
             profile_id = resolve_and_validate_profile(prefer_quick=True)
             if not profile_id:
                 continue
-            return _run_full_pipeline(profile_id)
+            return _run_full_pipeline_with_persistence_choice(profile_id)
         if choice == 2:
             return _run_full_pipeline("dev_fast")
         if choice == 3:
@@ -682,6 +695,9 @@ def _launch_data_diagnostics_menu() -> None:
 
 def _launch_review_latest_run_menu() -> None:
     """Primary operator decision flow for the latest run."""
+    from obsidiandroid.cli.analysis import review_native_runs
+    if review_native_runs(latest=True):
+        return
     _review_menu.launch_review_latest_run_menu(
         read_latest_run_id=_read_latest_run_id,
         open_run_science_index_action=_open_run_science_index,
@@ -763,10 +779,14 @@ def _launch_run_overview_menu() -> None:
         if choice == 0:
             return
         if choice == 1:
-            _show_latest_run_snapshot()
+            from obsidiandroid.cli.analysis import review_native_runs
+            if not review_native_runs(latest=True):
+                _show_latest_run_snapshot()
             continue
         if choice == 2:
-            _show_recent_runs_overview()
+            from obsidiandroid.cli.analysis import review_native_runs
+            if not review_native_runs():
+                _show_recent_runs_overview()
             continue
         if choice == 3:
             _show_session_and_output_details()

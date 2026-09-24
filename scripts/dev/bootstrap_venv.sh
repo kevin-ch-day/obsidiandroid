@@ -29,6 +29,7 @@ source "${VENV_DIR}/bin/activate"
 
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+python scripts/dev/install_build_requirements.py
 python -m pip check
 
 echo "Fedora setup complete."

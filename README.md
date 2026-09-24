@@ -301,3 +301,46 @@ For academic and research use only. Commercial use requires written permission.
 Handle malware data responsibly and comply with VirusTotal terms and all applicable laws.
 
 ---
+
+
+### Operational artifact assessments (V1, local sidecar)
+
+The bounded assessment path consumes a frozen exact-SHA evidence snapshot and
+stores immutable revisions in an explicitly selected **local SQLite file**.
+It synthesizes existing governed evidence; it does not run a classifier or
+infer benignness from missing AV detections. Production persistence is not enabled.
+
+```bash
+PYTHONPATH=src .venv/bin/python -m obsidiandroid.cli.assessment assess "$SHA256" \
+  --snapshot /path/to/pilot_evidence.json --store /path/to/assessments.sqlite --json
+PYTHONPATH=src .venv/bin/python -m obsidiandroid.cli.assessment current "$SHA256" \
+  --store /path/to/assessments.sqlite
+PYTHONPATH=src .venv/bin/python -m obsidiandroid.cli.assessment history "$SHA256" \
+  --store /path/to/assessments.sqlite --json
+```
+
+An updated editable install also exposes `obsidiandroid-assess` with these same
+arguments. `assess` writes only the selected local sidecar; it does not query
+live databases. A hash outside the supplied snapshot returns `not_in_snapshot`,
+which is distinct from a source-confirmed `not_found`. Conflicts retain candidates;
+unresolved fields retain null values. Identical inputs reuse the current revision.
+
+The shared `obsidiandroid.assessment.AssessmentService` provides `assess`,
+`current` and `history` for the CLI and future API callers. See
+[the V1 contract and persistence proposal](docs/OPERATIONAL_ASSESSMENT_V1.md).
+
+### Operational assessment persistence (disposable validation)
+
+The V1 assessment CLI supports SQLite `--store` or explicit MariaDB `--database`
+plus a private `--db-option-file`. Use `assess`, `current`, or `history`, with
+`--json` for the unchanged service contract. MariaDB never auto-creates schema.
+Migration 0006 adds immutable operational revisions independently of model results;
+production activation remains a separate authorized step. See
+[the assessment contract](docs/OPERATIONAL_ASSESSMENT_V1.md#mariadb-persistence)
+for commands, grants, transaction semantics, and opt-in live tests.
+
+Assessment review now includes bounded `history --limit N --after-revision R`,
+`by-id`, and `compare BEFORE_ID --against AFTER_ID`. The read-only
+`obsidiandroid-assess-doctor` checks schema definitions and bounded exact-artifact
+integrity, with explicit partial results. See
+[review and health commands](docs/OPERATIONAL_ASSESSMENT_V1.md#review-and-read-only-health-checks).

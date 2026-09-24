@@ -637,7 +637,7 @@ def resolve_and_validate_profile(
     print(
         "[PROFILE] Persistence mode: "
         f"{persistence_mode} (legacy Erebus warehouse export {'enabled' if warehouse_enabled else 'disabled'}; "
-        "Core persistence disabled unless separately enabled)."
+        "Core persistence is selected explicitly in Full pipeline persistence mode)."
     )
     while True:
         profile_id = resolve_profile_for_run(

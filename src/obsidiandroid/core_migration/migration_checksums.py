@@ -7,11 +7,13 @@ from pathlib import Path
 
 
 MIGRATION_CHECKSUMS = {
+    "0007": "a63d52ec059d6f1b824ea623317c7e468f51af964c70ec82cf16365558527ee4",
     "0001": "fd65d0106b50484da3ca802f8a2b98649f9bac06993989c5602f09d30c0badae",
     "0002": "076fefdc613e9f359f03c2156027009f0950df33b4e049cd501c523dcb4c9b21",
     "0003": "ffb09f7fe5c8b476384dac4587f1c69a7f24ca1807d4cbb5bba2a809c11707f2",
     "0004": "39d8ebfa55f9a4113ac2469b184504ff750cb7548f3a735df04d4f029e381942",
     "0005": "de649016c32e0bc52fc02557e3d871be914d950cfc62f5bb7afc46ed7e2527c1",
+    "0006": "f56b1a677fc42ef9343795768c68c40837efe3edf1413729fedb43ca9ea28e4f",
 }
 
 CORE_FOUNDATION_TABLES = (
@@ -90,3 +92,19 @@ def verify_repository_migration_checksums(migrations_dir: Path, versions: tuple[
             raise ValueError(f"Migration {version} checksum mismatch: file={digest} expected={expected}")
         observed[version] = digest
     return observed
+
+
+def validate_applied_version_order(versions) -> None:
+    """Validate the experiment prefix plus independent operational migration 0006.
+
+    Assessment 0006 depends on 0001-0003, not the label/rename 0004-0005.
+    All other unknown versions and holes in the experiment prefix stay blocked.
+    """
+    versions = set(versions)
+    if versions - set(MIGRATION_CHECKSUMS):
+        raise ValueError("Unknown applied Core migration version")
+    if "0006" in versions and not {"0001", "0002", "0003"} <= versions:
+        raise ValueError("Assessment migration requires Core 0001-0003")
+    prefix = sorted(versions - {"0006"})
+    if prefix != [f"{n:04d}" for n in range(1, len(prefix) + 1)]:
+        raise ValueError("Experiment migration ledger is not contiguous from 0001")

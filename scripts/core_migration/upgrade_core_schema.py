@@ -29,6 +29,7 @@ from obsidiandroid.core_migration.migration_checksums import (
     MIGRATION_CHECKSUMS,
     PRODUCTION_CORE,
     verify_repository_migration_checksums,
+    validate_applied_version_order,
 )
 
 
@@ -158,9 +159,10 @@ def main() -> int:
     for version, checksum in applied.items():
         if version in MIGRATION_CHECKSUMS and checksum != MIGRATION_CHECKSUMS[version]:
             raise SystemExit(f"Upgrade blocked: ledger checksum mismatch for {version}")
-    expected_prefix = [f"{n:04d}" for n in range(1, len(applied) + 1)]
-    if sorted(applied) != expected_prefix:
-        raise SystemExit(f"Upgrade blocked: ledger versions are not contiguous from 0001: {sorted(applied)}")
+    try:
+        validate_applied_version_order(applied)
+    except ValueError as exc:
+        raise SystemExit(f"Upgrade blocked: {exc}") from exc
 
     missing = [item.version for item in discovered if item.version not in applied]
     issues = detect_unledgered_physical_ddl(state["tables"], applied)

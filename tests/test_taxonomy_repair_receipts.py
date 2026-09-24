@@ -81,3 +81,33 @@ def test_receipt_set_hash_rejects_invalid_receipt_root(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Cannot hash invalid taxonomy-repair receipt"):
         receipt_set_hash(tmp_path)
+
+
+def test_evidence_edit_requires_explicit_checksum_refresh(tmp_path: Path) -> None:
+    """Documentation bytes are governed; refreshing one checksum preserves history."""
+    import hashlib
+
+    package = tmp_path / "mecor"
+    shutil.copytree(RECEIPT_ROOT / "2026-07-17_mecor-authority", package)
+    assert validate_receipt_package(package).valid
+    receipt_before = (package / "receipt.json").read_bytes()
+    evidence = package / "evidence.md"
+    old_digest = hashlib.sha256(evidence.read_bytes()).hexdigest()
+    evidence.write_text(evidence.read_text() + "\nDocumentation maintenance note.\n")
+    assert not validate_receipt_package(package).valid
+    manifest = package / "SHA256SUMS"
+    manifest.write_text(manifest.read_text().replace(
+        old_digest, hashlib.sha256(evidence.read_bytes()).hexdigest()
+    ))
+    result = validate_receipt_package(package)
+    assert not result.valid and "evidence_hash does not match evidence.md" in result.errors
+    receipt_path = package / "receipt.json"
+    receipt = json.loads(receipt_before)
+    receipt["evidence_hash"] = hashlib.sha256(evidence.read_bytes()).hexdigest()
+    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+    manifest.write_text(manifest.read_text().replace(
+        hashlib.sha256(receipt_before).hexdigest(),
+        hashlib.sha256(receipt_path.read_bytes()).hexdigest()
+    ))
+    assert validate_receipt_package(package).valid
+    assert receipt["applied_at_utc"] == json.loads(receipt_before)["applied_at_utc"]

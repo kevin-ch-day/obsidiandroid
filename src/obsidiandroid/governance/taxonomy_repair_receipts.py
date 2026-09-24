@@ -176,6 +176,8 @@ def validate_receipt_package(package: Path) -> ReceiptValidationResult:
         ):
             errors.append("evidence.md must contain an evidence URL or database locator")
         errors.extend(_find_prohibited_keys(receipt))
+        if "evidence_hash" in receipt and receipt["evidence_hash"] != sha256_file(package / "evidence.md"):
+            errors.append("evidence_hash does not match evidence.md")
         for filename, field in SQL_HASH_FIELDS.items():
             expected_hash = receipt.get(field)
             actual_hash = sha256_file(package / filename)

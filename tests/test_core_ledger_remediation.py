@@ -320,3 +320,40 @@ def test_successful_finalize_status(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert result["status"] == STATUS_APPLIED_AND_VERIFIED
     payload = json.loads(receipt.read_text(encoding="utf-8"))
     assert payload["status"] == STATUS_APPLIED_AND_VERIFIED
+
+
+def test_independent_assessment_migration_does_not_hide_unfinished_results():
+    from obsidiandroid.core_migration.ledger_remediation import (
+        verify_ledger_partial_0004_preconditions,
+    )
+
+    class Cursor:
+        def execute(self, *args):
+            pass
+
+        def fetchall(self):
+            return [
+                (
+                    v,
+                    MIGRATION_CHECKSUMS[v],
+                    "applied",
+                    FAILED_PRODUCTION_RECEIPT_ID if v == "0003" else None,
+                )
+                for v in ("0001", "0002", "0003", "0006")
+            ]
+
+    cursor = Cursor()
+    result = verify_ledger_partial_0004_preconditions(
+        cursor, schema="obsidiandroid_core_prod"
+    )
+    assert "0006" in result["applied"]
+    cursor.fetchall = lambda: [
+        ("0001", "wrong", "applied", None),
+        ("0002", MIGRATION_CHECKSUMS["0002"], "applied", None),
+        ("0003", MIGRATION_CHECKSUMS["0003"], "applied", FAILED_PRODUCTION_RECEIPT_ID),
+        ("0006", MIGRATION_CHECKSUMS["0006"], "applied", None),
+    ]
+    with pytest.raises(CoreLedgerRemediationError, match="checksum"):
+        verify_ledger_partial_0004_preconditions(
+            cursor, schema="obsidiandroid_core_prod"
+        )

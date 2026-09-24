@@ -198,34 +198,61 @@ def attest_remediation_target(
     }
 
 
-def verify_ledger_partial_0004_preconditions(cursor: Any, *, schema: str) -> dict[str, Any]:
+def verify_ledger_partial_0004_preconditions(
+    cursor: Any, *, schema: str
+) -> dict[str, Any]:
     cursor.execute(
         f"SELECT migration_version, migration_checksum, execution_status, receipt_id "
         f"FROM `{schema}`.core_schema_migration ORDER BY migration_version"
     )
-    rows = [(str(v), str(c), str(s), None if r is None else str(r)) for v, c, s, r in cursor.fetchall()]
-    unexpected_status = [row for row in rows if row[2] not in {"applied", "rolled_back"}]
+    rows = [
+        (str(v), str(c), str(s), None if r is None else str(r))
+        for v, c, s, r in cursor.fetchall()
+    ]
+    unexpected_status = [
+        row for row in rows if row[2] not in {"applied", "rolled_back"}
+    ]
     if unexpected_status:
-        raise CoreLedgerRemediationError(f"Unexpected migration ledger status values: {unexpected_status}")
-    applied = {version: checksum for version, checksum, status, _receipt in rows if status == "applied"}
-    if set(applied) != {"0001", "0002", "0003"}:
         raise CoreLedgerRemediationError(
-            f"Ledger must contain exactly applied 0001-0003 before repair; found {sorted(applied)}"
+            f"Unexpected migration ledger status values: {unexpected_status}"
         )
-    for version in ("0001", "0002", "0003"):
+    applied = {
+        version: checksum
+        for version, checksum, status, _receipt in rows
+        if status == "applied"
+    }
+    if set(applied) not in ({"0001", "0002", "0003"}, {"0001", "0002", "0003", "0006"}):
+        raise CoreLedgerRemediationError(
+            f"Ledger must contain applied 0001-0003 with only optional independent 0006 before repair; found {sorted(applied)}"
+        )
+    for version in applied:
         if applied[version] != MIGRATION_CHECKSUMS[version]:
             raise CoreLedgerRemediationError(
                 f"Ledger checksum mismatch for {version}: ledger={applied[version]} expected={MIGRATION_CHECKSUMS[version]}"
             )
     versions = {version for version, *_rest in rows}
     if "0004" in versions:
-        raise CoreLedgerRemediationError("Refusing repair: 0004 is already present in the ledger")
+        raise CoreLedgerRemediationError(
+            "Refusing repair: 0004 is already present in the ledger"
+        )
     if "0005" in versions:
-        raise CoreLedgerRemediationError("Refusing repair: 0005 is already present in the ledger")
-    receipt_by_version = {version: receipt for version, _checksum, status, receipt in rows if status == "applied"}
-    if receipt_by_version.get("0003") != FAILED_PRODUCTION_RECEIPT_ID and schema == PRODUCTION_CORE:
-        raise CoreLedgerRemediationError("Ledger is missing the failed production receipt_id on 0003")
+        raise CoreLedgerRemediationError(
+            "Refusing repair: 0005 is already present in the ledger"
+        )
+    receipt_by_version = {
+        version: receipt
+        for version, _checksum, status, receipt in rows
+        if status == "applied"
+    }
+    if (
+        receipt_by_version.get("0003") != FAILED_PRODUCTION_RECEIPT_ID
+        and schema == PRODUCTION_CORE
+    ):
+        raise CoreLedgerRemediationError(
+            "Ledger is missing the failed production receipt_id on 0003"
+        )
     return {"applied": applied, "rows": rows, "receipt_by_version": receipt_by_version}
+
 
 
 def verify_fixture_identity(cursor: Any, *, schema: str) -> dict[str, Any]:

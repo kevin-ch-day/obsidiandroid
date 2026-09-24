@@ -234,4 +234,6 @@ def train_and_evaluate_model(
             accuracy=evaluation.get("accuracy"),
             f1_score=evaluation.get("f1_score"),
         )
+    from obsidiandroid.analysis_persistence.pipeline_bridge import capture_model
+    capture_model(model_type, final_result, prediction_features, labels)
     return final_result

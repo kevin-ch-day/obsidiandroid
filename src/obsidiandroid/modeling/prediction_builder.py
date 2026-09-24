@@ -211,6 +211,9 @@ def run_predictions_and_compile_result(
             label_name_map = {}
 
         final_result = {
+            "sample_ids_train": result.get("sample_ids_train", []),
+            "sample_ids_test": result.get("sample_ids_test", []),
+            "feature_selection_contract": result.get("feature_selection_contract", {}),
             "model": model,
             "X_test": result.get("X_test"),
             "y_test": result.get("y_test"),

@@ -182,3 +182,13 @@ administrator action.
 
 [phase2_apply_plan.md](phase2_apply_plan.md) is retained only as historical
 context. Use the current Phase 2B contract and provisioning runbook instead.
+
+## Operational assessment extension
+
+`0006_operational_assessment_v1.sql` is additive and independent of the experiment
+label/rename migrations 0004–0005. Its dedicated entry point is
+`python -m obsidiandroid.assessment.migration --help`; it requires verified
+0001–0003 and applies only 0006 using the same executor and ledger. A ledger with
+0001–0003 plus 0006 is valid; the general upgrader still checks the experiment
+prefix and rejects unreviewed partial experiment DDL. No prior SQL file changed.
+See [the operational contract](../OPERATIONAL_ASSESSMENT_V1.md#mariadb-persistence).

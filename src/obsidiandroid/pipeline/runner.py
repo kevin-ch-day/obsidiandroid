@@ -189,7 +189,7 @@ def _emit_post_finalize_operator_report(
         du.print_info(f"[TIME] Post-run operator dashboard: {du.format_elapsed_duration(elapsed)}")
 
 
-def run_pipeline(
+def _run_pipeline_impl(
     selected_models: Optional[Sequence[str]] = None,
     stop_after: str = "full",
     profile_ref: Optional[str] = None,
@@ -2073,3 +2073,44 @@ def run_pipeline(
             set_diagnostics_dir=_set_diagnostics_dir,
             original_diagnostics_dir=original_diagnostics_dir,
         )
+
+
+def run_pipeline(selected_models=None, stop_after="full", profile_ref=None,
+                 evidence_mode_override=None, paper_mode_override=None,
+                 allow_evidence_override=False, allow_global_artifacts=False,
+                 experiment_id=None, analysis_persistence=False):
+    """Preserve exploratory behavior; persist only through explicit opt-in."""
+    kwargs = dict(selected_models=selected_models, stop_after=stop_after,
+                  profile_ref=profile_ref, evidence_mode_override=evidence_mode_override,
+                  paper_mode_override=paper_mode_override,
+                  allow_evidence_override=allow_evidence_override,
+                  allow_global_artifacts=allow_global_artifacts, experiment_id=experiment_id)
+    if not analysis_persistence:
+        return _run_pipeline_impl(**kwargs)
+    if stop_after != "full":
+        raise ValueError("Persisted analytical mode requires a full model pipeline")
+    from uuid import uuid4
+    from obsidiandroid.cli.analysis import configured_store
+    from obsidiandroid.analysis_persistence.pipeline_bridge import ACTIVE, PipelineCapture
+    from obsidiandroid.cli.profile_manager import load_profile
+    expected_models = list(selected_models or load_profile(profile_ref)["model_list"])
+    capture = PipelineCapture(configured_store(), profile_ref,
+                              Path(__file__).resolve().parents[3],
+                              Path(app_config.DEFAULT_OUTPUT_DIR)/"analytical_runs"/str(uuid4()))
+    capture.expected_models = expected_models
+    du.print_info("Persistence mode: persisted analytical run; governed assessments remain separate")
+    token = ACTIVE.set(capture)
+    try:
+        result = _run_pipeline_impl(**kwargs)
+        if result != 0:
+            capture.store.fail_run(capture.run_id, stage="pipeline", error_type="PipelineFailure", cancelled=result==130, context=capture.failure_context())
+            return result
+        receipt = capture.finish()
+        du.print_success("Persisted analytical run: " + receipt["run_id"])
+        return 0
+    except BaseException as exc:
+        if capture.store.show(capture.run_id)["run"]["run_status"] == "running":
+            capture.store.fail_run(capture.run_id, stage="pipeline", error_type=type(exc).__name__, cancelled=isinstance(exc,KeyboardInterrupt), context=capture.failure_context())
+        raise
+    finally:
+        ACTIVE.reset(token)

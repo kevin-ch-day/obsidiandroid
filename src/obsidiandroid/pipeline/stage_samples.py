@@ -396,6 +396,8 @@ def load_and_prepare_samples(
             include_family_canonical=include_families,
             exclude_family_canonical=sql_exclude_families,
         )
+    from obsidiandroid.analysis_persistence.pipeline_bridge import capture_cohort
+    capture_cohort(samples_df)
     if loader_count_is_authoritative and not reuse_gate_stats_from_loaded_frame:
         # The normal loader uses the same governed predicate and has just
         # materialized every matching row.  Reusing its count avoids a second

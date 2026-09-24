@@ -1,0 +1,515 @@
+{
+  "contract_version": "obsidiandroid.assessment-schema.v1",
+  "migration_checksum": "f56b1a677fc42ef9343795768c68c40837efe3edf1413729fedb43ca9ea28e4f",
+  "reference_server": "MariaDB 11.8.8",
+  "schema": {
+    "objects": [
+      {
+        "TABLE_NAME": "core_assessment_artifact",
+        "TABLE_TYPE": "BASE TABLE",
+        "ENGINE": "InnoDB"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "TABLE_TYPE": "BASE TABLE",
+        "ENGINE": "InnoDB"
+      },
+      {
+        "TABLE_NAME": "v_core_assessment_current",
+        "TABLE_TYPE": "VIEW",
+        "ENGINE": null
+      }
+    ],
+    "columns": [
+      {
+        "TABLE_NAME": "core_assessment_artifact",
+        "COLUMN_NAME": "artifact_sha256",
+        "ORDINAL_POSITION": 1,
+        "COLUMN_TYPE": "char(64)",
+        "IS_NULLABLE": "NO",
+        "COLUMN_DEFAULT": null,
+        "COLLATION_NAME": "ascii_bin",
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "COLUMN_NAME": "assessment_id",
+        "ORDINAL_POSITION": 1,
+        "COLUMN_TYPE": "char(64)",
+        "IS_NULLABLE": "NO",
+        "COLUMN_DEFAULT": null,
+        "COLLATION_NAME": "ascii_bin",
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "COLUMN_NAME": "artifact_sha256",
+        "ORDINAL_POSITION": 2,
+        "COLUMN_TYPE": "char(64)",
+        "IS_NULLABLE": "NO",
+        "COLUMN_DEFAULT": null,
+        "COLLATION_NAME": "ascii_bin",
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "COLUMN_NAME": "revision",
+        "ORDINAL_POSITION": 3,
+        "COLUMN_TYPE": "bigint(20) unsigned",
+        "IS_NULLABLE": "NO",
+        "COLUMN_DEFAULT": null,
+        "COLLATION_NAME": null,
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "COLUMN_NAME": "previous_assessment_id",
+        "ORDINAL_POSITION": 4,
+        "COLUMN_TYPE": "char(64)",
+        "IS_NULLABLE": "YES",
+        "COLUMN_DEFAULT": "NULL",
+        "COLLATION_NAME": "ascii_bin",
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "COLUMN_NAME": "input_digest",
+        "ORDINAL_POSITION": 5,
+        "COLUMN_TYPE": "char(64)",
+        "IS_NULLABLE": "NO",
+        "COLUMN_DEFAULT": null,
+        "COLLATION_NAME": "ascii_bin",
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "COLUMN_NAME": "assessed_at_utc",
+        "ORDINAL_POSITION": 6,
+        "COLUMN_TYPE": "varchar(40)",
+        "IS_NULLABLE": "NO",
+        "COLUMN_DEFAULT": null,
+        "COLLATION_NAME": "ascii_bin",
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "COLUMN_NAME": "result_json",
+        "ORDINAL_POSITION": 7,
+        "COLUMN_TYPE": "longtext",
+        "IS_NULLABLE": "NO",
+        "COLUMN_DEFAULT": null,
+        "COLLATION_NAME": "utf8mb4_bin",
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "COLUMN_NAME": "family_id",
+        "ORDINAL_POSITION": 8,
+        "COLUMN_TYPE": "bigint(20) unsigned",
+        "IS_NULLABLE": "YES",
+        "COLUMN_DEFAULT": "NULL",
+        "COLLATION_NAME": null,
+        "EXTRA": "STORED GENERATED",
+        "GENERATION_EXPRESSION": "cast ( nullif ( json_unquote ( json_extract ( result_json , '$.assessment.family.value.id' ) ) , 'null' ) as unsigned )"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "COLUMN_NAME": "type_id",
+        "ORDINAL_POSITION": 9,
+        "COLUMN_TYPE": "bigint(20) unsigned",
+        "IS_NULLABLE": "YES",
+        "COLUMN_DEFAULT": "NULL",
+        "COLLATION_NAME": null,
+        "EXTRA": "STORED GENERATED",
+        "GENERATION_EXPRESSION": "cast ( nullif ( json_unquote ( json_extract ( result_json , '$.assessment.type.value.id' ) ) , 'null' ) as unsigned )"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "COLUMN_NAME": "processing_status",
+        "ORDINAL_POSITION": 10,
+        "COLUMN_TYPE": "varchar(40)",
+        "IS_NULLABLE": "YES",
+        "COLUMN_DEFAULT": "NULL",
+        "COLLATION_NAME": "$database_default",
+        "EXTRA": "STORED GENERATED",
+        "GENERATION_EXPRESSION": "json_unquote ( json_extract ( result_json , '$.processing.status' ) )"
+      },
+      {
+        "TABLE_NAME": "v_core_assessment_current",
+        "COLUMN_NAME": "assessment_id",
+        "ORDINAL_POSITION": 1,
+        "COLUMN_TYPE": "char(64)",
+        "IS_NULLABLE": "NO",
+        "COLUMN_DEFAULT": null,
+        "COLLATION_NAME": "ascii_bin",
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      },
+      {
+        "TABLE_NAME": "v_core_assessment_current",
+        "COLUMN_NAME": "artifact_sha256",
+        "ORDINAL_POSITION": 2,
+        "COLUMN_TYPE": "char(64)",
+        "IS_NULLABLE": "NO",
+        "COLUMN_DEFAULT": null,
+        "COLLATION_NAME": "ascii_bin",
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      },
+      {
+        "TABLE_NAME": "v_core_assessment_current",
+        "COLUMN_NAME": "revision",
+        "ORDINAL_POSITION": 3,
+        "COLUMN_TYPE": "bigint(20) unsigned",
+        "IS_NULLABLE": "NO",
+        "COLUMN_DEFAULT": null,
+        "COLLATION_NAME": null,
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      },
+      {
+        "TABLE_NAME": "v_core_assessment_current",
+        "COLUMN_NAME": "previous_assessment_id",
+        "ORDINAL_POSITION": 4,
+        "COLUMN_TYPE": "char(64)",
+        "IS_NULLABLE": "YES",
+        "COLUMN_DEFAULT": "NULL",
+        "COLLATION_NAME": "ascii_bin",
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      },
+      {
+        "TABLE_NAME": "v_core_assessment_current",
+        "COLUMN_NAME": "input_digest",
+        "ORDINAL_POSITION": 5,
+        "COLUMN_TYPE": "char(64)",
+        "IS_NULLABLE": "NO",
+        "COLUMN_DEFAULT": null,
+        "COLLATION_NAME": "ascii_bin",
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      },
+      {
+        "TABLE_NAME": "v_core_assessment_current",
+        "COLUMN_NAME": "assessed_at_utc",
+        "ORDINAL_POSITION": 6,
+        "COLUMN_TYPE": "varchar(40)",
+        "IS_NULLABLE": "NO",
+        "COLUMN_DEFAULT": null,
+        "COLLATION_NAME": "ascii_bin",
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      },
+      {
+        "TABLE_NAME": "v_core_assessment_current",
+        "COLUMN_NAME": "result_json",
+        "ORDINAL_POSITION": 7,
+        "COLUMN_TYPE": "longtext",
+        "IS_NULLABLE": "NO",
+        "COLUMN_DEFAULT": null,
+        "COLLATION_NAME": "utf8mb4_bin",
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      },
+      {
+        "TABLE_NAME": "v_core_assessment_current",
+        "COLUMN_NAME": "family_id",
+        "ORDINAL_POSITION": 8,
+        "COLUMN_TYPE": "bigint(20) unsigned",
+        "IS_NULLABLE": "YES",
+        "COLUMN_DEFAULT": "NULL",
+        "COLLATION_NAME": null,
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      },
+      {
+        "TABLE_NAME": "v_core_assessment_current",
+        "COLUMN_NAME": "type_id",
+        "ORDINAL_POSITION": 9,
+        "COLUMN_TYPE": "bigint(20) unsigned",
+        "IS_NULLABLE": "YES",
+        "COLUMN_DEFAULT": "NULL",
+        "COLLATION_NAME": null,
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      },
+      {
+        "TABLE_NAME": "v_core_assessment_current",
+        "COLUMN_NAME": "processing_status",
+        "ORDINAL_POSITION": 10,
+        "COLUMN_TYPE": "varchar(40)",
+        "IS_NULLABLE": "YES",
+        "COLUMN_DEFAULT": "NULL",
+        "COLLATION_NAME": "$database_default",
+        "EXTRA": "",
+        "GENERATION_EXPRESSION": null
+      }
+    ],
+    "indexes": [
+      {
+        "TABLE_NAME": "core_assessment_artifact",
+        "INDEX_NAME": "PRIMARY",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "artifact_sha256",
+        "SUB_PART": null,
+        "INDEX_TYPE": "BTREE",
+        "COLLATION": "A"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "INDEX_NAME": "fk_assessment_predecessor",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "artifact_sha256",
+        "SUB_PART": null,
+        "INDEX_TYPE": "BTREE",
+        "COLLATION": "A"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "INDEX_NAME": "fk_assessment_predecessor",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 2,
+        "COLUMN_NAME": "previous_assessment_id",
+        "SUB_PART": null,
+        "INDEX_TYPE": "BTREE",
+        "COLLATION": "A"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "INDEX_NAME": "ix_assessment_family",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "family_id",
+        "SUB_PART": null,
+        "INDEX_TYPE": "BTREE",
+        "COLLATION": "A"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "INDEX_NAME": "ix_assessment_status",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "processing_status",
+        "SUB_PART": null,
+        "INDEX_TYPE": "BTREE",
+        "COLLATION": "A"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "INDEX_NAME": "ix_assessment_type",
+        "NON_UNIQUE": 1,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "type_id",
+        "SUB_PART": null,
+        "INDEX_TYPE": "BTREE",
+        "COLLATION": "A"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "INDEX_NAME": "PRIMARY",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "assessment_id",
+        "SUB_PART": null,
+        "INDEX_TYPE": "BTREE",
+        "COLLATION": "A"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "INDEX_NAME": "uq_assessment_sha_id",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "artifact_sha256",
+        "SUB_PART": null,
+        "INDEX_TYPE": "BTREE",
+        "COLLATION": "A"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "INDEX_NAME": "uq_assessment_sha_id",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 2,
+        "COLUMN_NAME": "assessment_id",
+        "SUB_PART": null,
+        "INDEX_TYPE": "BTREE",
+        "COLLATION": "A"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "INDEX_NAME": "uq_assessment_sha_revision",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "artifact_sha256",
+        "SUB_PART": null,
+        "INDEX_TYPE": "BTREE",
+        "COLLATION": "A"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "INDEX_NAME": "uq_assessment_sha_revision",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 2,
+        "COLUMN_NAME": "revision",
+        "SUB_PART": null,
+        "INDEX_TYPE": "BTREE",
+        "COLLATION": "A"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "INDEX_NAME": "uq_assessment_successor",
+        "NON_UNIQUE": 0,
+        "SEQ_IN_INDEX": 1,
+        "COLUMN_NAME": "previous_assessment_id",
+        "SUB_PART": null,
+        "INDEX_TYPE": "BTREE",
+        "COLLATION": "A"
+      }
+    ],
+    "checks": [
+      {
+        "TABLE_NAME": "core_assessment_artifact",
+        "CONSTRAINT_NAME": "chk_assessment_artifact_sha",
+        "CHECK_CLAUSE": "artifact_sha256 regexp cast ( '^[0-9a-f]{64}$' as char charset binary )"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "CONSTRAINT_NAME": "chk_assessment_chain",
+        "CHECK_CLAUSE": "revision = 1 and previous_assessment_id is null or revision > 1 and previous_assessment_id is not null"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "CONSTRAINT_NAME": "chk_assessment_contract",
+        "CHECK_CLAUSE": "coalesce ( json_unquote ( json_extract ( result_json , '$.contract_version' ) ) = 'obsidiandroid.artifact-assessment.v1' , 0 )"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "CONSTRAINT_NAME": "chk_assessment_id",
+        "CHECK_CLAUSE": "assessment_id regexp cast ( '^[0-9a-f]{64}$' as char charset binary )"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "CONSTRAINT_NAME": "chk_assessment_input",
+        "CHECK_CLAUSE": "input_digest regexp cast ( '^[0-9a-f]{64}$' as char charset binary )"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "CONSTRAINT_NAME": "chk_assessment_json",
+        "CHECK_CLAUSE": "json_valid ( result_json )"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "CONSTRAINT_NAME": "chk_assessment_json_id",
+        "CHECK_CLAUSE": "coalesce ( convert ( json_unquote ( json_extract ( result_json , '$.assessment_id' ) ) using ascii ) = assessment_id , 0 )"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "CONSTRAINT_NAME": "chk_assessment_json_previous",
+        "CHECK_CLAUSE": "json_contains_path ( result_json , 'one' , '$.previous_assessment_id' ) and convert ( nullif ( json_unquote ( json_extract ( result_json , '$.previous_assessment_id' ) ) , 'null' ) using ascii ) <=> previous_assessment_id"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "CONSTRAINT_NAME": "chk_assessment_json_revision",
+        "CHECK_CLAUSE": "coalesce ( json_extract ( result_json , '$.revision' ) = revision , 0 )"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "CONSTRAINT_NAME": "chk_assessment_json_sha",
+        "CHECK_CLAUSE": "coalesce ( convert ( json_unquote ( json_extract ( result_json , '$.artifact.sha256' ) ) using ascii ) = artifact_sha256 , 0 )"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "CONSTRAINT_NAME": "chk_assessment_json_time",
+        "CHECK_CLAUSE": "coalesce ( convert ( json_unquote ( json_extract ( result_json , '$.assessed_at_utc' ) ) using ascii ) = assessed_at_utc , 0 )"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "CONSTRAINT_NAME": "chk_assessment_status",
+        "CHECK_CLAUSE": "coalesce ( processing_status in ( 'complete' , 'complete_with_unresolved_fields' , 'complete_with_conflict' , 'insufficient_evidence' , 'unsupported_artifact' , 'error' ) , 0 )"
+      }
+    ],
+    "foreign_keys": [
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "CONSTRAINT_NAME": "fk_assessment_artifact",
+        "COLUMN_NAME": "artifact_sha256",
+        "ORDINAL_POSITION": 1,
+        "REFERENCED_TABLE_SCHEMA": "$self",
+        "REFERENCED_TABLE_NAME": "core_assessment_artifact",
+        "REFERENCED_COLUMN_NAME": "artifact_sha256",
+        "UPDATE_RULE": "RESTRICT",
+        "DELETE_RULE": "RESTRICT"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "CONSTRAINT_NAME": "fk_assessment_predecessor",
+        "COLUMN_NAME": "artifact_sha256",
+        "ORDINAL_POSITION": 1,
+        "REFERENCED_TABLE_SCHEMA": "$self",
+        "REFERENCED_TABLE_NAME": "core_assessment_revision",
+        "REFERENCED_COLUMN_NAME": "artifact_sha256",
+        "UPDATE_RULE": "RESTRICT",
+        "DELETE_RULE": "RESTRICT"
+      },
+      {
+        "TABLE_NAME": "core_assessment_revision",
+        "CONSTRAINT_NAME": "fk_assessment_predecessor",
+        "COLUMN_NAME": "previous_assessment_id",
+        "ORDINAL_POSITION": 2,
+        "REFERENCED_TABLE_SCHEMA": "$self",
+        "REFERENCED_TABLE_NAME": "core_assessment_revision",
+        "REFERENCED_COLUMN_NAME": "assessment_id",
+        "UPDATE_RULE": "RESTRICT",
+        "DELETE_RULE": "RESTRICT"
+      }
+    ],
+    "triggers": [
+      {
+        "EVENT_OBJECT_TABLE": "core_assessment_revision",
+        "TRIGGER_NAME": "core_assessment_append",
+        "ACTION_TIMING": "BEFORE",
+        "EVENT_MANIPULATION": "INSERT",
+        "ACTION_ORIENTATION": "ROW",
+        "ACTION_STATEMENT": "begin declare locked_sha char ( 64 ) ; declare last_revision bigint unsigned default 0 ; declare last_id char ( 64 ) default null ; select artifact_sha256 into locked_sha from core_assessment_artifact where artifact_sha256 = new . artifact_sha256 for update ; select coalesce ( max ( revision ) , 0 ) into last_revision from core_assessment_revision where artifact_sha256 = new . artifact_sha256 ; if last_revision > 0 then select assessment_id into last_id from core_assessment_revision where artifact_sha256 = new . artifact_sha256 and revision = last_revision ; end if ; if new . revision <> last_revision + 1 or not ( new . previous_assessment_id <=> last_id ) then signal sqlstate '45000' set message_text = 'Revision must extend current assessment' ; end if ; end",
+        "SQL_MODE": "STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION"
+      },
+      {
+        "EVENT_OBJECT_TABLE": "core_assessment_revision",
+        "TRIGGER_NAME": "core_assessment_no_delete",
+        "ACTION_TIMING": "BEFORE",
+        "EVENT_MANIPULATION": "DELETE",
+        "ACTION_ORIENTATION": "ROW",
+        "ACTION_STATEMENT": "signal sqlstate '45000' set message_text = 'Assessment revisions are immutable'",
+        "SQL_MODE": "STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION"
+      },
+      {
+        "EVENT_OBJECT_TABLE": "core_assessment_revision",
+        "TRIGGER_NAME": "core_assessment_no_update",
+        "ACTION_TIMING": "BEFORE",
+        "EVENT_MANIPULATION": "UPDATE",
+        "ACTION_ORIENTATION": "ROW",
+        "ACTION_STATEMENT": "signal sqlstate '45000' set message_text = 'Assessment revisions are immutable'",
+        "SQL_MODE": "STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION"
+      }
+    ],
+    "views": [
+      {
+        "TABLE_NAME": "v_core_assessment_current",
+        "VIEW_DEFINITION": "select r . assessment_id as assessment_id , r . artifact_sha256 as artifact_sha256 , r . revision as revision , r . previous_assessment_id as previous_assessment_id , r . input_digest as input_digest , r . assessed_at_utc as assessed_at_utc , r . result_json as result_json , r . family_id as family_id , r . type_id as type_id , r . processing_status as processing_status from $self . core_assessment_revision r where ! exists ( select 1 from $self . core_assessment_revision newer where newer . artifact_sha256 = r . artifact_sha256 and newer . revision > r . revision limit 1 )",
+        "CHECK_OPTION": "NONE",
+        "SECURITY_TYPE": "INVOKER",
+        "IS_UPDATABLE": "YES"
+      }
+    ]
+  },
+  "normalization": "Own schema names and the migration-declared inherited processing_status collation are contextual; all explicit column collations remain exact."
+}

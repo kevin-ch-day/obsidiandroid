@@ -17,4 +17,9 @@ if [[ ! -x "${VENV_DIR}/bin/python" ]]; then
     exit 1
 fi
 
+if [[ "${1:-}" == "analysis" ]]; then
+    shift
+    exec "${VENV_DIR}/bin/python" -m obsidiandroid.cli.analysis "$@"
+fi
+
 exec "${VENV_DIR}/bin/python" -m obsidiandroid.cli.startup_menu "$@"

@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 import re
 from time import perf_counter
-from typing import Any, Callable, Iterable
+from typing import Any, Callable
 
 
 class CoreMigrationError(RuntimeError):
@@ -23,7 +23,7 @@ class CoreMigrationError(RuntimeError):
 
 _MIGRATION_NAME = re.compile(r"^(?P<version>\d{4})_(?P<name>[a-z0-9_]+)\.sql$")
 _DISPOSABLE_TARGET = re.compile(
-    r"^od_core_phase2(?:b_validate|c_rehearsal)_\d{8}T\d{6}Z(?:_[a-z0-9]+)?$"
+    r"^(?:od_core_phase2(?:b_validate|c_rehearsal)_\d{8}T\d{6}Z(?:_[a-z0-9]+)?|obsidiandroid_core_persistence_test_\d{8}(?:_[a-z0-9]+)?)$"
 )
 _FORBIDDEN_TARGETS = frozenset(
     {
@@ -64,7 +64,7 @@ def validate_target_name(target_database: str, *, allow_production: bool = False
         raise CoreMigrationError(f"Protected or source schema is not an approved target: {target!r}")
     if not _DISPOSABLE_TARGET.fullmatch(target):
         raise CoreMigrationError(
-            "Core migration target must be an explicit Phase 2B validation or Phase 2C rehearsal schema; "
+            "Core migration target must be an explicit disposable validation schema; "
             f"got {target!r}"
         )
     return target
@@ -108,6 +108,19 @@ def split_sql_statements(sql: str) -> tuple[str, ...]:
     boundaries; that footgun previously forced operators to avoid ``;`` in
     comments entirely.
     """
+    # Stored triggers use a client delimiter. Only standalone directives are
+    # accepted; each region still uses the quote/comment-aware scanner below.
+    if re.search(r"(?m)^DELIMITER ", sql):
+        parts = re.split(r"(?m)^DELIMITER ([^\s]+)[ \t]*$", sql)
+        result = list(split_sql_statements(parts[0])) if parts[0].strip() else []
+        for offset in range(1, len(parts), 2):
+            delimiter, region = parts[offset], parts[offset + 1]
+            result.extend(_split_sql_region(region, delimiter))
+        return tuple(result)
+    return _split_sql_region(sql, ";")
+
+
+def _split_sql_region(sql: str, delimiter: str) -> tuple[str, ...]:
     statements: list[str] = []
     buffer: list[str] = []
     quote: str | None = None
@@ -161,12 +174,12 @@ def split_sql_statements(sql: str) -> tuple[str, ...]:
             quote = character
             index += 1
             continue
-        if character == ";":
+        if sql.startswith(delimiter, index):
             statement = "".join(buffer).strip()
             if statement:
                 statements.append(statement)
             buffer = []
-            index += 1
+            index += len(delimiter)
             continue
         buffer.append(character)
         index += 1
@@ -236,8 +249,13 @@ def apply_migrations(
     dry_run: bool = True,
     allow_production: bool = False,
     receipt_path: Path | None = None,
+    selected_versions: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     """Plan or apply migrations through an injected Core-only connection factory.
+
+    Explicit selected_versions supports independent additive migrations without
+    applying unrelated pending experiment changes. Dependency checks belong to
+    the dedicated migration wrapper.
 
     Each migration is ledgered only after all its statements complete.  MariaDB
     DDL may auto-commit, so a failed DDL migration is reported in the receipt
@@ -249,6 +267,11 @@ def apply_migrations(
     """
     target = validate_target_name(target_database, allow_production=allow_production)
     migrations = discover_migrations(Path(migrations_dir))
+    if selected_versions is not None:
+        available = {item.version for item in migrations}
+        if not selected_versions or set(selected_versions) - available:
+            raise CoreMigrationError("Unknown or empty explicit migration selection")
+        migrations = tuple(item for item in migrations if item.version in selected_versions)
     invocation_id = sha256(f"{target}|{_utc_now()}|{executor_id}".encode()).hexdigest()
     planned_receipt_ids = {
         item.version: _migration_receipt_id(

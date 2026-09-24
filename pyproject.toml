@@ -16,6 +16,8 @@ dev = [
 ]
 
 [project.scripts]
+obsidiandroid-assess = "obsidiandroid.cli.assessment:main"
+obsidiandroid-assess-doctor = "obsidiandroid.assessment.doctor:main"
 obsidiandroid = "obsidiandroid.cli.startup_menu:main"
 
 [tool.setuptools]
@@ -34,6 +36,7 @@ dependencies = {file = ["requirements.txt"]}
 
 [tool.setuptools.package-data]
 profiles = ["*.yaml"]
+"obsidiandroid.assessment" = ["schema_contract_v1.json"]
 
 [tool.pytest.ini_options]
 # Default: fast PR / local loop. Full suite: `make test-full` or `./scripts/dev/run_tests_full.sh`.
