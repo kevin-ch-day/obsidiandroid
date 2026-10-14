@@ -1,9 +1,23 @@
 """Tests for modeling stage helper functions."""
 
 import pandas as pd
+import pytest
 
 from config import app_config
 from obsidiandroid.pipeline import stage_modeling
+
+
+def test_required_pi_failure_cannot_reach_model_fit(monkeypatch) -> None:
+    called = []
+    monkeypatch.setattr(app_config, "RUNTIME_PERMISSION_RUN_VALIDITY", {
+        "policy": "required", "evidence_status": "UNAVAILABLE",
+        "research_validity": "ACCEPTED_PI_INPUT",
+    }, raising=False)
+    monkeypatch.setattr(stage_modeling.pipeline_core, "train_all_models",
+                        lambda *_args, **_kwargs: called.append("fit"))
+    with pytest.raises(RuntimeError, match="invalid before training"):
+        stage_modeling.run_training_stage(pd.DataFrame(), pd.DataFrame(), ["test"])
+    assert called == []
 
 
 def test_run_training_stage_returns_none_when_trainer_fails(monkeypatch) -> None:

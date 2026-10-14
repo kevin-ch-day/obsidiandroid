@@ -665,6 +665,7 @@ def test_run_query_does_not_mask_lost_connection_with_rollback_error() -> None:
 
 
 def test_fetch_banking_trojans_sql_qualifies_primary_and_pi(monkeypatch) -> None:
+    monkeypatch.setattr(db_permission_analysis_queries.permission_v2_research_gate, "assert_legacy_observation_read_allowed", lambda: None)
     """Cross-schema banking trojan query must fully qualify both databases."""
     queries: list[str] = []
 
@@ -687,6 +688,7 @@ def test_fetch_banking_trojans_sql_qualifies_primary_and_pi(monkeypatch) -> None
 
 
 def test_fetch_banking_trojans_sql_uses_exact_authority_joins(monkeypatch) -> None:
+    monkeypatch.setattr(db_permission_analysis_queries.permission_v2_research_gate, "assert_legacy_observation_read_allowed", lambda: None)
     queries: list[str] = []
 
     def capture(query, *_args, **_kwargs):
@@ -727,6 +729,7 @@ def test_fetch_banking_trojans_sql_uses_exact_authority_joins(monkeypatch) -> No
 
 
 def test_fetch_banking_trojans_sql_does_not_depend_on_permission_string_norm(monkeypatch) -> None:
+    monkeypatch.setattr(db_permission_analysis_queries.permission_v2_research_gate, "assert_legacy_observation_read_allowed", lambda: None)
     queries: list[str] = []
 
     def capture(query, *_args, **_kwargs):

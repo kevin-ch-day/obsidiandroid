@@ -7,6 +7,7 @@
 from . import db_engine
 from . import permission_contracts
 from .db_config import DB_NAME, PERMISSION_INTEL_DB_NAME
+from obsidiandroid.orchestration import permission_v2_research_gate
 
 BANKING_TROJAN_FAMILIES = (
     "anubis",
@@ -45,6 +46,7 @@ def _sql_string_list(values: tuple[str, ...]) -> str:
 
 
 def fetch_android_banking_trojans_with_permissions():
+    permission_v2_research_gate.assert_legacy_observation_read_allowed()
     family_filter_sql = _sql_string_list(BANKING_TROJAN_FAMILIES)
     oem_join = permission_contracts.oem_dictionary_join_predicate(
         observation_alias="ops",

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import re
+import hashlib
+import json
+from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
@@ -15,6 +18,25 @@ from obsidiandroid.database.permission_current_interpretation import (
     interpretation_selects,
 )
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.orchestration.source_aware_permission_features import (
+    CONTRACT_VERSION as SOURCE_AWARE_CONTRACT_VERSION,
+    _build_from_verified_evidence,
+    _hash_evidence_file,
+)
+from obsidiandroid.orchestration.recovery_receipt_evidence import (
+    load_recovery_receipt_evidence,
+    reconcile_provider_observations,
+)
+from obsidiandroid.orchestration.static_projection_evidence import (
+    load_static_projection_evidence,
+)
+from obsidiandroid.orchestration.permission_v2_research_gate import (
+    assert_legacy_observation_read_allowed,
+)
+from obsidiandroid.orchestration.permission_v2_export import (
+    CONTRACT_VERSION as V2_EXPORT_CONTRACT_VERSION,
+    build_v2_unresolved_features,
+)
 
 # Grouped permission bundles (coarse capability families; counts are per observed permission row).
 PERMISSION_GROUP_DEFINITIONS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -122,6 +144,11 @@ def _fetch_permission_rows(sample_ids: list[int]) -> pd.DataFrame:
     if not sample_ids:
         return pd.DataFrame()
 
+    # Never degrade a governance refusal to an empty feature frame. The
+    # observation table can receive recovered rows without any v1 current-row
+    # change, so this check must precede the legacy feature query.
+    assert_legacy_observation_read_allowed()
+
     frames = []
     for chunk in _iter_chunks(sample_ids):
         placeholders = ", ".join(["%s"] * len(chunk))
@@ -194,10 +221,72 @@ def _fetch_permission_rows(sample_ids: list[int]) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
+def _fetch_source_aware_permission_rows(sample_ids: list[int]) -> pd.DataFrame:
+    """Read PI observation origin and exact VT event lineage without writes."""
+    assert_legacy_observation_read_allowed()
+    frames: list[pd.DataFrame] = []
+    for chunk in _iter_chunks(sample_ids):
+        placeholders = ", ".join(["%s"] * len(chunk))
+        interpretation_sql = interpretation_joins(
+            key_expr=_permission_obs_key_expr(), raw_expr="ops.permission_string"
+        )
+        query = f"""
+            SELECT ops.sample_id, ops.permission_string,
+                   ops.source AS observation_source,
+                   ops.classification_recovery_plan_core_sha256 AS recovery_plan_core,
+                   ops.classification_recovery_batch_id AS recovery_batch_id,
+                   DATE_FORMAT(vte.vt_analysis_date_utc, '%Y-%m-%dT%H:%i:%SZ')
+                       AS event_analysis_date_utc,
+                   vte.source_system AS event_source_system,
+                   vte.source_engine AS event_source_engine,
+                   pi.canonical_permission,
+                   CASE WHEN pi.identity_status = 'ACCEPTED'
+                              AND BINARY pi.source_provenance_status = BINARY 'PRESENT'
+                              AND pi.feature_dependency IS NULL
+                              AND COALESCE(pic.unresolved_conflict_count, 0) = 0
+                              AND COALESCE(pi.lifecycle, '') NOT IN
+                                  ('historical', 'legacy_removed', 'removed')
+                        THEN 'ACCEPTED_CANONICAL'
+                        ELSE 'UNRESOLVED' END AS current_evidence_state,
+                   CASE WHEN pi.identity_status = 'ACCEPTED' THEN 'PERMISSION'
+                        ELSE 'UNKNOWN' END AS current_identifier_kind,
+                   COALESCE(pic.unresolved_conflict_count, 0) AS unresolved_conflict_count
+              FROM android_permission_obs_sample ops
+              {interpretation_sql}
+              LEFT JOIN android_permission_enrich_vt_event vte
+                ON vte.sample_id = ops.sample_id
+               AND vte.permission_string_bin_sha256 = ops.permission_string_bin_sha256
+               AND BINARY vte.permission_string = BINARY ops.permission_string
+               AND vte.source_system = 'virustotal'
+               AND vte.source_engine = 'androguard'
+             WHERE ops.sample_id IN ({placeholders})
+        """
+        frame = db_engine.execute_permission_query(
+            query, params=tuple(chunk), fetch=True, as_dataframe=True
+        )
+        if isinstance(frame, pd.DataFrame) and not frame.empty:
+            frames.append(frame)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
 def build_permission_feature_frame(
     samples_df: pd.DataFrame,
     min_permission_support: int = 2,
     max_permission_features: int | None = None,
+    *,
+    feature_contract_version: str = "legacy",
+    source_aware_evidence: pd.DataFrame | None = None,
+    training_sample_ids: Iterable[int] | None = None,
+    recovery_plan_path: Path | None = None,
+    recovery_receipt_directory: Path | None = None,
+    expected_recovery_plan_digest: str | None = None,
+    expected_recovery_manifest_digest: str | None = None,
+    expected_recovery_selection_digest: str | None = None,
+    manifest_projection_paths: Iterable[Path] | None = None,
+    manifest_baseline_paths_by_sha: dict[str, Path] | None = None,
+    expected_manifest_projection_digests_by_sha: dict[str, str] | None = None,
+    accepted_aliases: dict[tuple[str, str], str] | None = None,
+    v2_export_path: Path | None = None,
 ) -> pd.DataFrame:
     """Build per-sample permission features from observed permission table.
 
@@ -210,6 +299,103 @@ def build_permission_feature_frame(
         DataFrame with ``sample_id`` plus permission-derived features.
     """
     setattr(app_config, "RUNTIME_PERMISSION_ENRICHMENT_DEGRADED", False)
+    if feature_contract_version == V2_EXPORT_CONTRACT_VERSION:
+        if v2_export_path is None or training_sample_ids is None:
+            raise ValueError("PI V2 requires export path and frozen training membership")
+        if (source_aware_evidence is not None or recovery_plan_path is not None
+            or manifest_projection_paths is not None or accepted_aliases):
+            raise ValueError("PI V2 export cannot be mixed with caller or legacy evidence")
+        return build_v2_unresolved_features(
+            samples_df, v2_export_path, training_sample_ids=training_sample_ids,
+            min_support=min_permission_support)
+    if feature_contract_version == SOURCE_AWARE_CONTRACT_VERSION:
+        if training_sample_ids is None:
+            raise ValueError(
+                "source-aware v1 requires training membership"
+            )
+        if source_aware_evidence is not None:
+            raise ValueError("caller-supplied source-aware DataFrames are untrusted")
+        evidence_parts: list[pd.DataFrame] = []
+        source_paths: list[Path] = []
+        if recovery_plan_path and recovery_receipt_directory and expected_recovery_plan_digest:
+            source_paths.extend([recovery_plan_path, *sorted(recovery_receipt_directory.glob(
+                "pi-production-sample-*.json"))])
+        if manifest_projection_paths is not None:
+            manifest_projection_paths = list(manifest_projection_paths)
+            source_paths.extend(manifest_projection_paths)
+            source_paths.extend((manifest_baseline_paths_by_sha or {}).values())
+        if not source_paths:
+            raise ValueError("source-aware evidence requires retained source files")
+
+        def bindings() -> tuple[tuple[str, str], ...]:
+            return tuple(sorted((str(path.resolve(strict=True)),
+                                 _hash_evidence_file(path))
+                                for path in source_paths))
+
+        def directories() -> tuple[tuple[str, tuple[str, ...]], ...]:
+            if recovery_receipt_directory is None:
+                return ()
+            return ((str(recovery_receipt_directory.resolve(strict=True)),
+                     tuple(sorted(path.name for path in recovery_receipt_directory.glob(
+                         "pi-production-sample-*.json")))),)
+
+        before_bindings = bindings()
+        before_directories = directories()
+        if recovery_plan_path and recovery_receipt_directory and expected_recovery_plan_digest:
+            receipt_rows = load_recovery_receipt_evidence(
+                recovery_plan_path, recovery_receipt_directory,
+                expected_plan_digest=expected_recovery_plan_digest,
+                expected_manifest_digest=expected_recovery_manifest_digest,
+                expected_selection_digest=expected_recovery_selection_digest,
+            )
+            pi_rows = _fetch_source_aware_permission_rows(
+                sorted(set(int(value) for value in samples_df["sample_id"]))
+            )
+            provider_evidence = reconcile_provider_observations(
+                samples_df, pi_rows, receipt_rows
+            ) if not pi_rows.empty else pd.DataFrame(columns=[
+                "sample_id", "sha256", "raw_token", "projected_token",
+                "observation_origin", "source_verified", "identity_status",
+                "source_receipt_digest", "event_verified", "canonical_token",
+                "alias_release_digest",
+            ])
+            evidence_parts.append(provider_evidence)
+        if manifest_projection_paths is not None:
+            if (manifest_baseline_paths_by_sha is None
+                    or expected_manifest_projection_digests_by_sha is None):
+                raise ValueError("static projection baseline paths and reviewed digests are required")
+            evidence_parts.append(load_static_projection_evidence(
+                samples_df, list(manifest_projection_paths),
+                baseline_paths_by_sha=manifest_baseline_paths_by_sha,
+                expected_projection_digests_by_sha=expected_manifest_projection_digests_by_sha,
+            ))
+        if not evidence_parts:
+            raise ValueError(
+                "source-aware v1 requires receipt-checked evidence and training membership"
+            )
+        if before_bindings != bindings() or before_directories != directories():
+            raise ValueError("source-aware evidence changed during verification")
+        source_aware_evidence = pd.concat(evidence_parts, ignore_index=True)
+        source_snapshot_digest = hashlib.sha256(json.dumps({
+            "files": before_bindings,
+            "directories": before_directories,
+            "rows": source_aware_evidence.to_json(orient="split", index=False),
+            "plan": expected_recovery_plan_digest,
+            "manifest": expected_recovery_manifest_digest,
+            "selection": expected_recovery_selection_digest,
+        }, sort_keys=True).encode()).hexdigest()
+        return _build_from_verified_evidence(
+            samples_df,
+            source_aware_evidence,
+            training_sample_ids=training_sample_ids,
+            min_support=min_permission_support,
+            accepted_aliases=accepted_aliases,
+            source_snapshot_digest=source_snapshot_digest,
+            source_file_bindings=before_bindings,
+            source_directory_memberships=before_directories,
+        )
+    if feature_contract_version != "legacy":
+        raise ValueError("unknown permission feature contract")
     if not isinstance(samples_df, pd.DataFrame) or samples_df.empty:
         return pd.DataFrame()
     if "sample_id" not in samples_df.columns:

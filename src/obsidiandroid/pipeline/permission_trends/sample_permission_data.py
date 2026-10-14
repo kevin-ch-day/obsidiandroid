@@ -14,6 +14,7 @@ from obsidiandroid.database.permission_current_interpretation import (
     interpretation_joins,
     interpretation_selects,
 )
+from obsidiandroid.orchestration import permission_v2_research_gate
 
 from .constants import COMMON_PERMISSIONS, PERMISSION_ALIAS_MAP
 
@@ -222,6 +223,7 @@ def fetch_temporal_fields_for_samples(sample_ids: list[int]) -> pd.DataFrame:
 
 
 def fetch_permission_aggregates() -> pd.DataFrame:
+    permission_v2_research_gate.assert_legacy_observation_read_allowed()
     common_a, common_b = COMMON_PERMISSIONS
     permission_key_expr = _permission_obs_key_expr()
     query = f"""
@@ -280,6 +282,7 @@ def fetch_permission_rows_for_samples(
                 "permission_source",
             ]
         )
+    permission_v2_research_gate.assert_legacy_observation_read_allowed()
     chunk_size = 500
     total_batches = (len(sample_ids) + chunk_size - 1) // chunk_size
     frames: list[pd.DataFrame] = []

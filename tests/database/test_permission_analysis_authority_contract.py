@@ -4,6 +4,7 @@ from obsidiandroid.database import db_permission_analysis_queries as queries
 
 
 def test_app_defined_is_not_manufacturer_authority(monkeypatch) -> None:
+    monkeypatch.setattr(queries.permission_v2_research_gate, "assert_legacy_observation_read_allowed", lambda: None)
     captured: dict[str, str] = {}
 
     def fake_execute(query, **_kwargs):

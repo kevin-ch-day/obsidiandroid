@@ -5,12 +5,58 @@ import json
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.linear_model import LogisticRegression
 
 from obsidiandroid.pipeline import stage_ablation
 from obsidiandroid.pipeline.ablation import registry
 from config import app_config
 from obsidiandroid.modeling import model_trainer_factory
+
+
+def test_direct_ablation_entry_refuses_permission_frame_when_gate_blocks(monkeypatch) -> None:
+    def blocked() -> None:
+        raise RuntimeError("PI V2 research gate BLOCK")
+
+    monkeypatch.setattr(stage_ablation, "assert_legacy_observation_read_allowed", blocked,
+                        raising=False)
+    with pytest.raises(RuntimeError, match="research gate BLOCK"):
+        stage_ablation.run_ablation_experiments(
+            samples_df=pd.DataFrame({"sample_id": [1]}),
+            weights_df=pd.DataFrame(), parsed_data={},
+            permission_features_df=pd.DataFrame({"sample_id": [1], "network_signal": [1]}),
+            model_list=["random_forest"], run_id="qa_gate_block",
+        )
+
+
+def test_direct_ablation_entry_refuses_unsealed_source_aware_frame(monkeypatch) -> None:
+    monkeypatch.setattr(stage_ablation, "assert_legacy_observation_read_allowed", lambda: None)
+    forged = pd.DataFrame({"sample_id": [1], "perm_provider__" + "a" * 64: [1]})
+    with pytest.raises(ValueError, match="feature contract is missing"):
+        stage_ablation.run_ablation_experiments(
+            samples_df=pd.DataFrame({"sample_id": [1], "sha256": ["1" * 64]}),
+            weights_df=pd.DataFrame(), parsed_data={},
+            permission_features_df=forged,
+            model_list=["random_forest"], run_id="qa_unsealed_frame",
+        )
+
+
+def test_source_aware_raw_ablation_keeps_modalities_and_status() -> None:
+    matrix = pd.DataFrame({
+        "sample_id": [1],
+        "perm_provider__" + "a" * 64: [1],
+        "perm_manifest__" + "b" * 64: [0],
+        "perm_status__provider_missing": [0],
+        "family_id": [7],
+    })
+    raw = stage_ablation._build_permissions_band_matrix(matrix, subset="raw")
+    assert set(raw.columns) == {
+        "perm_provider__" + "a" * 64,
+        "perm_manifest__" + "b" * 64,
+        "perm_status__provider_missing",
+    }
+    with pytest.raises(ValueError, match="no reviewed grouped"):
+        stage_ablation._build_permissions_band_matrix(matrix, subset="grouped")
 
 
 def test_resolve_vendor_include_fields_stays_full_under_evidence_controls(monkeypatch) -> None:

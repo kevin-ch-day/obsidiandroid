@@ -7,6 +7,14 @@ import pytest
 from config import app_config
 
 from obsidiandroid.pipeline import stage_feature_enrichment
+from obsidiandroid.orchestration.source_aware_permission_features import CONTRACT_VERSION
+
+
+@pytest.fixture(autouse=True)
+def _allow_gate_for_fusion_shape_tests(monkeypatch) -> None:
+    """The SQL-shape tests below exercise fusion; gate denial has its own tests."""
+    monkeypatch.setattr(stage_feature_enrichment,
+                        "assert_legacy_observation_read_allowed", lambda: None)
 
 
 def test_sample_id_coercion_copies_once_without_mutating_source() -> None:
@@ -32,6 +40,47 @@ def test_merge_sample_metadata_features_disabled_returns_original() -> None:
     )
 
     assert result is existing_df
+
+
+def test_cached_legacy_permission_frame_rechecks_gate_before_fusion(monkeypatch) -> None:
+    def blocked() -> None:
+        raise RuntimeError("gate BLOCK")
+    monkeypatch.setattr(stage_feature_enrichment,
+                        "assert_legacy_observation_read_allowed", blocked)
+    with pytest.raises(RuntimeError, match="gate BLOCK"):
+        stage_feature_enrichment.merge_sample_metadata_features(
+            None, pd.DataFrame({"sample_id": [1]}),
+            {"enable_sample_metadata_features": False},
+            permission_features_df=pd.DataFrame({"sample_id": [1], "perm__internet": [1]}),
+        )
+
+
+def test_permission_stage_requires_explicit_v1_evidence_and_training_ids(monkeypatch) -> None:
+    monkeypatch.setattr(app_config, "PERMISSION_MIN_SUPPORT", 1, raising=False)
+    samples = pd.DataFrame({"sample_id": [1], "sha256": ["a" * 64]})
+    flags = {
+        "enable_permission_features": True,
+        "permission_feature_contract_version": CONTRACT_VERSION,
+        "permission_training_sample_ids": [1],
+    }
+    with pytest.raises(ValueError, match="retained source files"):
+        stage_feature_enrichment.build_permission_enrichment_frame(
+            samples, flags, log_frame_built=False
+        )
+    flags["source_aware_permission_evidence"] = pd.DataFrame([{
+        "sample_id": 1, "sha256": "a" * 64,
+        "raw_token": "android.permission.INTERNET",
+        "projected_token": "android.permission.internet",
+        "observation_origin": "provider", "source_verified": True,
+        "source_receipt_digest": "b" * 64, "event_verified": True,
+        "identity_status": "ACCEPTED_EXACT",
+        "canonical_token": "android.permission.internet",
+        "alias_release_digest": "",
+    }])
+    with pytest.raises(ValueError, match="caller-supplied source-aware DataFrames are untrusted"):
+        stage_feature_enrichment.build_permission_enrichment_frame(
+            samples, flags, log_frame_built=False
+        )
 
 
 def test_merge_sample_metadata_features_disabled_still_fuses_permissions() -> None:
@@ -73,6 +122,22 @@ def test_merge_sample_metadata_features_merges_expected_columns() -> None:
     assert "meta__permissions" in result.columns
     assert "meta__vt_tag_count" in result.columns
     assert result.shape[0] == 2
+
+
+def test_sparse_av_does_not_remove_permission_only_sample() -> None:
+    samples = pd.DataFrame({"sample_id": [10, 20], "permissions": [2, 4]})
+    av = pd.DataFrame({"sample_id": [10], "av_score": [0.8]})
+    permissions = pd.DataFrame({"sample_id": [10, 20], "perm__internet": [1, 0]})
+    result = stage_feature_enrichment.merge_sample_metadata_features(
+        extra_features_df=av, samples_df=samples,
+        feature_flags={"enable_sample_metadata_features": True},
+        permission_features_df=permissions,
+    )
+    assert result is not None
+    assert set(result["sample_id"]) == {10, 20}
+    row = result.set_index("sample_id").loc[20]
+    assert row["perm__internet"] == 0
+    assert pd.isna(row["av_score"])
 
 
 def test_merge_sample_metadata_features_dedupes_before_permission_fuse() -> None:
@@ -324,3 +389,19 @@ def test_merge_extra_features_aligns_perm_columns_by_encoded_index() -> None:
     assert int(out.loc[495, col]) > 0
     assert int(out.loc[657, col]) > 0
     assert int(out.loc[579, col]) == 0
+def test_renamed_legacy_permission_column_cannot_bypass_research_gate(monkeypatch) -> None:
+    """The permission input is governed by its role, not by column prefix."""
+    from obsidiandroid.pipeline import stage_feature_enrichment as stage
+
+    def blocked() -> None:
+        raise RuntimeError("PI V2 research gate BLOCK")
+
+    monkeypatch.setattr(stage, "assert_legacy_observation_read_allowed", blocked)
+    samples = pd.DataFrame({"sample_id": [1], "sha256": ["1" * 64]})
+    renamed = pd.DataFrame({"sample_id": [1], "network_signal": [1]})
+    with pytest.raises(RuntimeError, match="research gate BLOCK"):
+        stage.merge_sample_metadata_features(
+            None, samples,
+            {"enable_sample_metadata_features": False},
+            permission_features_df=renamed,
+        )

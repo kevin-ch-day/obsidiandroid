@@ -101,6 +101,7 @@ def test_banking_and_observation_sql_share_the_oem_join_contract(monkeypatch) ->
     from obsidiandroid.database import db_permission_analysis_queries as banking
     from obsidiandroid.orchestration import permission_features
     from obsidiandroid.pipeline.permission_trends import sample_permission_data
+    monkeypatch.setattr(banking.permission_v2_research_gate, "assert_legacy_observation_read_allowed", lambda: None)
 
     captured: dict[str, str] = {}
 
@@ -119,6 +120,11 @@ def test_banking_and_observation_sql_share_the_oem_join_contract(monkeypatch) ->
         permission_features.db_engine,
         "execute_permission_query",
         capture_observation,
+    )
+    monkeypatch.setattr(
+        permission_features,
+        "assert_legacy_observation_read_allowed",
+        lambda: None,
     )
 
     banking.fetch_android_banking_trojans_with_permissions()

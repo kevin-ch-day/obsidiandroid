@@ -190,11 +190,19 @@ class ReadOnlyEvidenceReader:
             (sid,),
         )
         before_pi = len(result["errors"])
-        obs = get(
-            "permission_observations",
-            f"SELECT obs_id,sample_id,permission_string,source,classification,observed_at_utc,run_id FROM {PERMISSIONS}.android_permission_obs_sample WHERE sample_id=%s ORDER BY obs_id",
-            (sid,),
+        gate = get(
+            "permission_research_gate",
+            f"SELECT legacy_observation_reads FROM {PERMISSIONS}.android_permission_research_gate_v2_candidate WHERE gate_id=1",
         )
+        if len(gate) == 1 and gate[0].get("legacy_observation_reads") == "ALLOW":
+            obs = get(
+                "permission_observations",
+                f"SELECT obs_id,sample_id,permission_string,source,classification,observed_at_utc,run_id FROM {PERMISSIONS}.android_permission_obs_sample WHERE sample_id=%s ORDER BY obs_id",
+                (sid,),
+            )
+        else:
+            result["errors"].append("permission_observations:V2_RESEARCH_GATE_BLOCKED")
+            obs = []
         releases = get(
             "permission_release",
             f"SELECT catalog_release_id,semantic_catalog_digest,source_set_digest,release_status,is_current_accepted,exhaustive_scope,scope_completeness_statement,platform_release_coverage,accepted_at_utc FROM {PERMISSIONS}.api_catalog_content_release WHERE is_current_accepted=1 ORDER BY catalog_release_id",
