@@ -11,9 +11,11 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import secrets
 import stat
 from collections.abc import Iterable
+from contextlib import ExitStack
 from numbers import Integral
 from pathlib import Path
 
@@ -40,19 +42,30 @@ def _hex(value: object, length: int = 64) -> bool:
 
 def _trusted_anchor_bytes() -> bytes:
     """Read the separately installed root-owned approval; never accept a path from a run."""
-    info = _ANCHOR_PATH.lstat()
-    if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0
-        or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)):
-        raise ValueError("PI V2 export approval is not root-controlled")
-    parent = _ANCHOR_PATH.parent
-    for directory in (parent, parent.parent):
-        directory_info = directory.lstat()
-        if (not stat.S_ISDIR(directory_info.st_mode)
-            or directory_info.st_uid != 0
-            or directory_info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)):
-            raise ValueError("PI V2 export approval directory is not root-controlled")
-    with _ANCHOR_PATH.open("rb") as stream:
-        data = stream.read(1024 * 1024 + 1)
+    directory_flags = (os.O_RDONLY | os.O_DIRECTORY |
+                       getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
+    file_flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) |
+                  getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0))
+    try:
+        with ExitStack() as stack:
+            outer = os.open(_ANCHOR_PATH.parent.parent, directory_flags)
+            stack.callback(os.close, outer)
+            inner = os.open(_ANCHOR_PATH.parent.name, directory_flags, dir_fd=outer)
+            stack.callback(os.close, inner)
+            for descriptor in (outer, inner):
+                info = os.fstat(descriptor)
+                if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0
+                    or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)):
+                    raise ValueError("PI V2 export approval directory is not root-controlled")
+            descriptor = os.open(_ANCHOR_PATH.name, file_flags, dir_fd=inner)
+            with os.fdopen(descriptor, "rb") as stream:
+                info = os.fstat(stream.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0
+                    or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)):
+                    raise ValueError("PI V2 export approval is not root-controlled")
+                data = stream.read(1024 * 1024 + 1)
+    except OSError as exc:
+        raise ValueError("PI V2 export approval is unavailable") from exc
     if len(data) > 1024 * 1024:
         raise ValueError("PI V2 export approval is oversized")
     return data
@@ -78,10 +91,16 @@ def _checked_export(export_path: Path) -> tuple[bytes, bytes, dict]:
     if (anchor.get("format") != ANCHOR_FORMAT
         or not _hex(anchor.get("approved_export_sha256"))):
         raise ValueError("PI V2 approval anchor is malformed")
-    if export_path.is_symlink() or not export_path.is_file():
-        raise ValueError("PI V2 export is not a regular file")
-    with export_path.open("rb") as stream:
-        export_bytes = stream.read(64 * 1024 * 1024 + 1)
+    try:
+        descriptor = os.open(
+            export_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) |
+            getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0))
+        with os.fdopen(descriptor, "rb") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                raise ValueError("PI V2 export is not a regular file")
+            export_bytes = stream.read(64 * 1024 * 1024 + 1)
+    except OSError as exc:
+        raise ValueError("PI V2 export is unavailable") from exc
     if len(export_bytes) > 64 * 1024 * 1024:
         raise ValueError("PI V2 export exceeds reviewed size bound")
     digest = hashlib.sha256(export_bytes).hexdigest()

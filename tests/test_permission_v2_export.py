@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import os
+import stat
 
 import pandas as pd
 import pytest
@@ -108,6 +110,41 @@ def test_approved_bytes_with_duplicate_json_key_still_fail(monkeypatch, tmp_path
     monkeypatch.setattr(v2, "_trusted_anchor_bytes", lambda: json.dumps(anchor).encode())
     with pytest.raises(ValueError, match="duplicate"):
         v2.build_v2_unresolved_features(samples, path, training_sample_ids=[7])
+
+
+def test_approval_and_export_reads_refuse_symlinks_and_fifo(monkeypatch, tmp_path):
+    anchor_reader = v2._trusted_anchor_bytes
+    samples, path, _export, _anchor = _fixture(monkeypatch, tmp_path)
+    linked_export = tmp_path / "linked-export.json"
+    linked_export.symlink_to(path)
+    with pytest.raises(ValueError, match="export is unavailable"):
+        v2.build_v2_unresolved_features(samples, linked_export, training_sample_ids=[7])
+    pipe = tmp_path / "export-pipe.json"
+    os.mkfifo(pipe, 0o600)
+    with pytest.raises(ValueError, match="not a regular file"):
+        v2.build_v2_unresolved_features(samples, pipe, training_sample_ids=[7])
+
+    anchor = tmp_path / "approval.json"
+    anchor.write_text("{}")
+    anchor.chmod(0o600)
+    monkeypatch.setattr(v2, "_trusted_anchor_bytes", anchor_reader)
+    monkeypatch.setattr(v2, "_ANCHOR_PATH", anchor)
+    real_fstat = os.fstat
+
+    def root_fstat(descriptor):
+        fields = list(real_fstat(descriptor))
+        fields[4] = 0
+        if stat.S_ISDIR(fields[0]):
+            fields[0] &= ~(stat.S_IWGRP | stat.S_IWOTH)
+        return os.stat_result(fields)
+
+    monkeypatch.setattr(v2.os, "fstat", root_fstat)
+    assert v2._trusted_anchor_bytes() == b"{}"
+    linked_anchor = tmp_path / "linked-approval.json"
+    linked_anchor.symlink_to(anchor)
+    monkeypatch.setattr(v2, "_ANCHOR_PATH", linked_anchor)
+    with pytest.raises(ValueError, match="approval is unavailable"):
+        v2._trusted_anchor_bytes()
 
 
 def test_approved_partial_or_other_manifest_export_is_not_complete(monkeypatch, tmp_path):
