@@ -51,3 +51,27 @@ Legacy research accounts with direct `SELECT` on PI observation tables must
 lose that read path or use an independently reviewed compatibility mechanism.
 Application checks alone cannot stop direct SQL under an existing schema-wide
 grant. This candidate does not change any account or grant.
+
+## Normal launcher and installed command
+
+The read-only consumer is available from the selected source checkout:
+
+```bash
+./run.sh pi-v2 inspect --export /private/approved/EXACT_1813_EXPORT.json
+./run.sh pi-v2 features --export /private/approved/EXACT_1813_EXPORT.json --training-ids /private/approved/READINESS_TRAINING_IDS.json
+```
+
+Installed packages expose the same commands through `obsidiandroid-pi-v2`.
+Both use the existing root-controlled `/etc/obsidiandroid/pi-v2-export-approval.json`
+anchor. Export paths are inputs, never authority overrides. The feature check
+uses the existing frozen split, builds and reverifies the sealed frame in memory,
+and reports unresolved provider evidence. It does not train, persist results,
+or enable legacy database reads. Normal profile execution is not automatically
+redirected to this exact cohort.
+
+Source ZIPs and database ZIPs do not install approval. An isolated receiver
+needs the exact approved export and split plus a separately reviewed installation
+of the unchanged approval bytes under root control. Never replace historical
+source provenance with the receiver's current Git commit. Missing or tampered
+approval must fail closed. Raw database backups remain private; portable release
+content and final approval deployment require release-owner acceptance.

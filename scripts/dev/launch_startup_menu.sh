@@ -17,6 +17,11 @@ if [[ ! -x "${VENV_DIR}/bin/python" ]]; then
     exit 1
 fi
 
+if [[ "${1:-}" == "pi-v2" ]]; then
+    shift
+    exec "${VENV_DIR}/bin/python" -m obsidiandroid.cli.permission_v2 "$@"
+fi
+
 if [[ "${1:-}" == "analysis" ]]; then
     shift
     exec "${VENV_DIR}/bin/python" -m obsidiandroid.cli.analysis "$@"

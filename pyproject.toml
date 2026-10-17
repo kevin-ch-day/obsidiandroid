@@ -16,6 +16,7 @@ dev = [
 ]
 
 [project.scripts]
+obsidiandroid-pi-v2 = "obsidiandroid.cli.permission_v2:main"
 obsidiandroid-assess = "obsidiandroid.cli.assessment:main"
 obsidiandroid-assess-doctor = "obsidiandroid.assessment.doctor:main"
 obsidiandroid = "obsidiandroid.cli.startup_menu:main"

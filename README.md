@@ -362,3 +362,11 @@ Assessment review now includes bounded `history --limit N --after-revision R`,
 `obsidiandroid-assess-doctor` checks schema definitions and bounded exact-artifact
 integrity, with explicit partial results. See
 [review and health commands](docs/OPERATIONAL_ASSESSMENT_V1.md#review-and-read-only-health-checks).
+
+### Approved PI V2 evidence
+
+Use `./run.sh pi-v2 inspect --export /private/approved/EXACT_1813_EXPORT.json`
+for anchored read-only inspection. `./run.sh pi-v2 features` additionally
+requires `--training-ids` for an existing frozen split and checks in-memory
+feature construction without model training. See
+[`PI V2 deployment and commands`](docs/permission_v2_research_export_candidate.md).
