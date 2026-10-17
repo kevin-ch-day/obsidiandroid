@@ -71,3 +71,17 @@ def test_core_backup_failure_receipt_is_private_credential_free_and_immutable(tm
         error=RuntimeError("changed"),
         context={},
     ) is None
+
+
+def test_checkout_script_help_without_editable_install(tmp_path):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[1] / "scripts/core_migration/core_backup_rehearsal.py"
+    environment = dict(os.environ, PYTHONPATH="")
+    result = subprocess.run([sys.executable, str(script), "--help"], cwd=tmp_path,
+                            env=environment, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert "--rehearse" in result.stdout
