@@ -327,6 +327,11 @@ def run_training_stage(
     model_list: list[str] | None,
 ) -> dict | None:
     """Run classifier training stage and return model result dictionary."""
+    from obsidiandroid.pipeline.permission_run_validity import assert_training_permission_validity
+
+    decision = getattr(app_config, "RUNTIME_PERMISSION_RUN_VALIDITY", None)
+    if decision is not None:
+        assert_training_permission_validity(decision)
     if model_list:
         du.print_info(f"[TRAINING] Requested model subset: {', '.join(model_list)}")
     log_event(

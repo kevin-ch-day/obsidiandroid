@@ -147,6 +147,7 @@ def build_mutable_config_keys() -> set[str]:
         "RUNTIME_EVIDENCE_OVERRIDE_USED",
         "RUNTIME_NON_STANDARD_FEATURES",
         "RUNTIME_PERMISSION_ENRICHMENT_DEGRADED",
+        "RUNTIME_PERMISSION_RUN_VALIDITY",
         "RUNTIME_EXCLUDE_UNKNOWN_FROM_MAIN_RESULTS",
         "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD",
         "RUNTIME_ALLOW_GLOBAL_ARTIFACTS",
@@ -192,6 +193,7 @@ def reset_runtime_markers() -> None:
     setattr(app_config, "RUNTIME_EVIDENCE_OVERRIDE_USED", False)
     setattr(app_config, "RUNTIME_NON_STANDARD_FEATURES", False)
     setattr(app_config, "RUNTIME_PERMISSION_ENRICHMENT_DEGRADED", False)
+    setattr(app_config, "RUNTIME_PERMISSION_RUN_VALIDITY", None)
     setattr(app_config, "RUNTIME_EXCLUDE_UNKNOWN_FROM_MAIN_RESULTS", False)
     setattr(app_config, "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD", "")
     setattr(app_config, "RUNTIME_ALLOW_GLOBAL_ARTIFACTS", False)

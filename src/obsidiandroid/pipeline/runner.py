@@ -58,6 +58,10 @@ from obsidiandroid.pipeline.stage_av_vendor import (
 from obsidiandroid.pipeline.stage_samples import load_and_prepare_samples
 from obsidiandroid.pipeline.stage_feature_enrichment import merge_sample_metadata_features
 from obsidiandroid.pipeline.stage_feature_enrichment import build_permission_enrichment_frame
+from obsidiandroid.pipeline.permission_run_validity import (
+    assert_training_permission_validity, evaluate_permission_run_validity,
+    permission_frame_status,
+)
 from obsidiandroid.pipeline.stage_ablation import run_ablation_experiments
 from obsidiandroid.pipeline.stage_permission_trends_report import run_permission_trends_report_stage
 from obsidiandroid.pipeline.stage_modeling import (
@@ -951,7 +955,36 @@ def _run_pipeline_impl(
             samples_df=samples_df,
             feature_flags=feature_flags,
         )
+        permission_policy_flags = dict(feature_flags)
+        permission_policy_flags.setdefault(
+            "enable_permission_features",
+            bool(getattr(app_config, "ENABLE_PERMISSION_FEATURES", True)),
+        )
+        permission_degraded = bool(getattr(
+            app_config, "RUNTIME_PERMISSION_ENRICHMENT_DEGRADED", False))
+        permission_decision = evaluate_permission_run_validity(
+            permission_policy_flags,
+            available=isinstance(permission_features_df, pd.DataFrame)
+            and not permission_features_df.empty,
+            degraded=permission_degraded,
+            evidence_status=permission_frame_status(
+                permission_features_df, degraded=permission_degraded),
+        )
+        manifest_context["permission_run_validity"] = permission_decision
+        setattr(app_config, "RUNTIME_PERMISSION_RUN_VALIDITY", permission_decision)
         if isinstance(permission_features_df, pd.DataFrame) and not permission_features_df.empty:
+            permission_contract = permission_features_df.attrs.get(
+                "permission_feature_contract_version", "legacy"
+            )
+            if permission_contract != "legacy":
+                manifest_context["permission_feature_contract_version"] = permission_contract
+                manifest_context["permission_feature_schema_digest"] = hash_payload({
+                    "contract": permission_contract,
+                    "columns": sorted(str(column) for column in permission_features_df.columns),
+                })
+                manifest_context["permission_vocabulary_digest"] = (
+                    permission_features_df.attrs["permission_vocabulary_digest"]
+                )
             manifest_context["permission_unique_rows"] = int(
                 permission_features_df["sample_id"].nunique()
             )
@@ -1369,6 +1402,7 @@ def _run_pipeline_impl(
             claim_surface_label_for_profile(str(profile_id or "")),
         )
         setattr(app_config, "RUNTIME_MANIFEST_CONTEXT", manifest_context)
+        assert_training_permission_validity(manifest_context.get("permission_run_validity"))
         model_results = run_training_stage(
             aligned_feature_df=aligned_feature_df,
             aligned_labels_df=aligned_labels_df,

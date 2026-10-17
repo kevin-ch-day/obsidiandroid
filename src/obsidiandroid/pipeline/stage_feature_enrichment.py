@@ -19,6 +19,17 @@ from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.cv_fold_config import safe_int_config_value
 
 from obsidiandroid.orchestration.permission_features import build_permission_feature_frame
+from obsidiandroid.orchestration.source_aware_permission_features import (
+    CONTRACT_VERSION as SOURCE_AWARE_PERMISSION_CONTRACT,
+    assert_verified_source_aware_frame,
+)
+from obsidiandroid.orchestration.permission_v2_research_gate import (
+    assert_legacy_observation_read_allowed,
+)
+from obsidiandroid.orchestration.permission_v2_export import (
+    CONTRACT_VERSION as V2_EXPORT_CONTRACT_VERSION,
+    assert_verified_v2_frame,
+)
 from obsidiandroid.pipeline.sample_preparation import build_metadata_feature_frame
 
 
@@ -358,11 +369,54 @@ def build_permission_enrichment_frame(
         default=0,
     )
     max_features = max_features_n if max_features_n > 0 else None
-    permission_df = build_permission_feature_frame(
-        samples_df=samples_df,
-        min_permission_support=min_support,
-        max_permission_features=max_features,
-    )
+    contract = feature_flags.get("permission_feature_contract_version", "legacy")
+    if contract == "legacy":
+        permission_df = build_permission_feature_frame(
+            samples_df=samples_df,
+            min_permission_support=min_support,
+            max_permission_features=max_features,
+        )
+    else:
+        permission_df = build_permission_feature_frame(
+            samples_df=samples_df,
+            min_permission_support=min_support,
+            max_permission_features=max_features,
+            feature_contract_version=str(contract),
+            source_aware_evidence=feature_flags.get("source_aware_permission_evidence"),
+            training_sample_ids=feature_flags.get("permission_training_sample_ids"),
+            recovery_plan_path=(
+                Path(feature_flags["permission_recovery_plan_path"])
+                if feature_flags.get("permission_recovery_plan_path") else None
+            ),
+            recovery_receipt_directory=(
+                Path(feature_flags["permission_recovery_receipt_directory"])
+                if feature_flags.get("permission_recovery_receipt_directory") else None
+            ),
+            expected_recovery_plan_digest=feature_flags.get("permission_recovery_plan_digest"),
+            expected_recovery_manifest_digest=feature_flags.get(
+                "permission_recovery_manifest_digest"
+            ),
+            expected_recovery_selection_digest=feature_flags.get(
+                "permission_recovery_selection_digest"
+            ),
+            manifest_projection_paths=(
+                [Path(value) for value in feature_flags["permission_static_projection_paths"]]
+                if feature_flags.get("permission_static_projection_paths") is not None else None
+            ),
+            manifest_baseline_paths_by_sha=(
+                {sha: Path(value) for sha, value in feature_flags[
+                    "permission_static_baseline_paths_by_sha"
+                ].items()}
+                if feature_flags.get("permission_static_baseline_paths_by_sha") is not None
+                else None
+            ),
+            expected_manifest_projection_digests_by_sha=feature_flags.get(
+                "permission_static_projection_digests_by_sha"
+            ),
+            accepted_aliases=feature_flags.get("permission_accepted_aliases"),
+            v2_export_path=(Path(feature_flags["permission_v2_export_path"])
+                            if feature_flags.get("permission_v2_export_path") else None),
+        )
     if permission_df.empty:
         return None
     if log_frame_built:
@@ -380,6 +434,47 @@ def merge_sample_metadata_features(
     permission_features_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame | None:
     """Optionally merge sample metadata-derived features and permission columns by ``sample_id``."""
+    v2_frame = isinstance(permission_features_df, pd.DataFrame) and (
+        feature_flags.get("permission_feature_contract_version") == V2_EXPORT_CONTRACT_VERSION
+        or permission_features_df.attrs.get("permission_feature_contract_version") == V2_EXPORT_CONTRACT_VERSION
+        or any(str(name).startswith("perm_provider_unresolved__")
+               for name in permission_features_df.columns)
+    )
+    if v2_frame:
+        if feature_flags.get("permission_feature_contract_version") != V2_EXPORT_CONTRACT_VERSION:
+            raise ValueError("PI V2 frame cannot enter another fusion contract")
+        assert_verified_v2_frame(
+            permission_features_df, samples=samples_df,
+            training_sample_ids=feature_flags.get("permission_training_sample_ids") or (),
+            min_support=safe_int_config_value(
+                getattr(app_config, "PERMISSION_MIN_SUPPORT", 2), default=2),
+        )
+    if isinstance(permission_features_df, pd.DataFrame) and (
+        feature_flags.get("permission_feature_contract_version") == SOURCE_AWARE_PERMISSION_CONTRACT
+        or permission_features_df.attrs.get("permission_feature_contract_version") == SOURCE_AWARE_PERMISSION_CONTRACT
+        or (not v2_frame and any(str(name).startswith(
+            ("perm_provider__", "perm_manifest__", "perm_status__"))
+               for name in permission_features_df.columns)
+            )
+    ):
+        if feature_flags.get("permission_feature_contract_version") != SOURCE_AWARE_PERMISSION_CONTRACT:
+            raise ValueError("source-aware feature frame cannot enter a legacy fusion contract")
+        if feature_flags.get("permission_training_sample_ids") is None:
+            raise ValueError("source-aware fusion requires frozen training membership")
+        assert_verified_source_aware_frame(
+            permission_features_df,
+            accepted_aliases=feature_flags.get("permission_accepted_aliases"),
+            samples=samples_df,
+            training_sample_ids=feature_flags.get("permission_training_sample_ids"),
+            min_support=safe_int_config_value(
+                getattr(app_config, "PERMISSION_MIN_SUPPORT", 2), default=2),
+        )
+    if (isinstance(permission_features_df, pd.DataFrame) and not permission_features_df.empty
+        and not v2_frame):
+        # The argument is a permission-evidence input regardless of its column
+        # labels. Recheck at the final fusion boundary, including cached and
+        # renamed legacy frames.
+        assert_legacy_observation_read_allowed()
     setattr(app_config, "RUNTIME_PERMISSION_FUSE_AUDIT", {})
     setattr(app_config, "RUNTIME_DUPLICATE_SAMPLE_ID_PRE_FUSE_CSV", "")
 

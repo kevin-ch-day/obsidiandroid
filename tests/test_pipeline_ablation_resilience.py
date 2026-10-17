@@ -29,6 +29,9 @@ def _minimal_pipeline_fixture(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(app_config, "ENABLE_DB_LOGGING", False, raising=False)
     monkeypatch.setattr(app_config, "ENABLE_ML_LOGGING", False, raising=False)
     monkeypatch.setattr(app_config, "ENABLE_PERMISSION_TRENDS_REPORT", True, raising=False)
+    # These tests exercise ablation finalization, not permission evidence.
+    # Do not let the independently governed PI read gate mask that stage.
+    monkeypatch.setattr(app_config, "ENABLE_PERMISSION_FEATURES", False, raising=False)
     monkeypatch.setattr(app_config, "ENABLE_DYNAMIC_GENERIC_VENDOR_PARSERS", False, raising=False)
     monkeypatch.setattr(app_config, "PAPER_MODE_LOCKED_VALUE", None, raising=False)
     monkeypatch.setattr(app_config, "RUNTIME_RUN_ROOT", str(output_root), raising=False)

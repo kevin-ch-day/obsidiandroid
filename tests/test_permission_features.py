@@ -8,6 +8,15 @@ import pytest
 from obsidiandroid.orchestration import permission_features
 
 
+@pytest.fixture(autouse=True)
+def _permit_baseline_legacy_feature_tests(monkeypatch):
+    """Existing legacy feature tests exercise features, not the V2 gate."""
+
+    monkeypatch.setattr(
+        permission_features, "assert_legacy_observation_read_allowed", lambda: None
+    )
+
+
 def test_grouped_permission_counts_preserve_per_observation_pattern_counts() -> None:
     permissions = pd.DataFrame(
         {

@@ -28,6 +28,17 @@ from obsidiandroid.diagnostics import ablation_cohort_diagnostics
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.reporting.operator_dashboard import format_feature_set_label
 from obsidiandroid.pipeline.ablation import registry as ablation_registry
+from obsidiandroid.orchestration.permission_v2_research_gate import (
+    assert_legacy_observation_read_allowed,
+)
+from obsidiandroid.orchestration.source_aware_permission_features import (
+    CONTRACT_VERSION as SOURCE_AWARE_PERMISSION_CONTRACT,
+    assert_verified_source_aware_frame,
+)
+from obsidiandroid.orchestration.permission_v2_export import (
+    CONTRACT_VERSION as V2_EXPORT_CONTRACT_VERSION,
+    assert_verified_v2_frame,
+)
 
 
 class PaperCohortSource(str, Enum):
@@ -86,6 +97,24 @@ def _build_permissions_band_matrix(
     base = _build_permissions_only_matrix(permission_features_df)
     if base.empty:
         return base
+    source_aware = any(
+        str(column).startswith(("perm_provider__", "perm_manifest__"))
+        for column in base.columns
+    ) or "perm_status__provider_missing" in base.columns
+    if source_aware:
+        if subset == "grouped":
+            raise ValueError("source-aware v1 has no reviewed grouped-permission contract")
+        if subset == "raw":
+            keep = [column for column in base.columns if str(column).startswith(
+                ("perm_provider__", "perm_manifest__", "perm_status__")
+            )]
+            result = base[keep].copy()
+            result.attrs.update(base.attrs)
+            return result
+    if any(str(column).startswith("perm_provider_unresolved__") for column in base):
+        if subset != "raw":
+            raise ValueError("PI V2 unresolved export has no reviewed grouped contract")
+        return base.copy()
     raw_onehot_exclude = {
         "perm__dangerous_count",
         "perm__normal_count",
@@ -705,6 +734,31 @@ def run_ablation_experiments(
     manifest_context: dict[str, Any] | None = None,
 ) -> list[str]:
     """Run methodology ablations and export summary artifacts."""
+    if isinstance(permission_features_df, pd.DataFrame) and not permission_features_df.empty:
+        v2 = (permission_features_df.attrs.get("permission_feature_contract_version")
+              == V2_EXPORT_CONTRACT_VERSION
+              or any(str(column).startswith("perm_provider_unresolved__")
+                     for column in permission_features_df.columns))
+        if v2:
+            assert_verified_v2_frame(
+                permission_features_df, samples=samples_df,
+                training_sample_ids=permission_features_df.attrs.get(
+                    "permission_training_sample_ids", ()),
+                min_support=permission_features_df.attrs.get("permission_min_support", 0),
+            )
+        elif (
+            permission_features_df.attrs.get("permission_feature_contract_version")
+            == SOURCE_AWARE_PERMISSION_CONTRACT
+            or any(str(column).startswith(("perm_provider__", "perm_manifest__", "perm_status__"))
+                   for column in permission_features_df.columns)
+        ):
+            assert_verified_source_aware_frame(
+                permission_features_df, accepted_aliases=None, samples=samples_df,
+            )
+        # Direct Python callers cannot bypass the research gate by handing the
+        # ablation stage a cached or renamed permission frame.
+        if not v2:
+            assert_legacy_observation_read_allowed()
     artifact_paths: list[str] = []
     ablation_model_override = getattr(app_config, "ABLATION_MODEL_LIST", None)
     if isinstance(ablation_model_override, list) and len(ablation_model_override) > 0:
