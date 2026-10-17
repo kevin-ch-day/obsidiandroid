@@ -5,6 +5,12 @@ Permission Intel source schemas to a separate ObsidianDroid-owned evidence
 database. It is not a migration runner and it does not authorize database
 writes.
 
+The phase sections retain design and incident checkpoints; they are not a live
+Core migration-ledger report. Later native analysis persistence and its bounded
+production smoke are documented in
+[ANALYSIS_PERSISTENCE_V1.md](../ANALYSIS_PERSISTENCE_V1.md). Check the selected
+Core database before claiming current schema or writer state.
+
 ## Phase 1: closed historical foundation
 
 Phase 1 produced the design, validation, and evidence-preservation material
@@ -36,9 +42,10 @@ fixture import, pipeline routing change, source-schema change, or benchmark.
 Phase 2B added the reviewed additive `0002` contract migration, a fail-closed
 Core-only migration executor, deterministic mapping planner, synthetic
 disposable validation, production provisioning, and narrow local service
-accounts. The production Core foundation and Phase 2C fixture remain in place.
-Core persistence remains disabled; no pipeline routing or dual write has
-occurred. The durable design is in
+accounts. At the Phase 2B checkpoint, Core persistence remained disabled and
+no pipeline routing or dual write had occurred. Phase 2C later imported its
+controlled fixture; native analysis persistence has a separate later contract.
+The durable Phase 2B design is in
 [phase2b_core_contract.md](phase2b_core_contract.md), the mapping is in
 [phase2b_source_mapping.md](phase2b_source_mapping.md), and the historical
 Phase 2 plan is not an operational runbook.
@@ -61,12 +68,14 @@ one ledger `receipt_id` across migrations in a single invocation. That collided
 with `UNIQUE (receipt_id)` after `0003`, leaving `0004` physically applied but
 unledgered. Current `main` contains the per-migration receipt-id fix
 (`c42dd45`) and hardened remediation/upgrade/audit/grant tooling (`ca1c8df` and
-later). Production itself remains in the partial-`0004` state until a separately
-approved ledger remediation, `0005` apply, and grants review. Core results
-writer work remains a later Phase 2D task and must not be enabled while the
-incident is open.
+later). Production was in the partial-`0004` state at this incident checkpoint.
+The later native analysis persistence contract documents `0005`/`0007` and a
+bounded production smoke; verify the live ledger and grants before describing
+the present state. Do not enable a results writer while a selected deployment
+still has an open partial-migration incident.
 
-Operator tooling (code-only until separately approved):
+Operator tooling available at that incident checkpoint (any live apply still
+requires an exact review):
 
 - `scripts/core_migration/remediate_partial_0004_ledger.py`
 - `scripts/core_migration/rehearse_partial_0004_incident.py`
@@ -79,23 +88,24 @@ Phase 2C completed its separately authorized controlled fixture import. Its
 authorization record, bound the production write to one reviewed source-extract
 package, deterministic plan, exact migration bytes, preflight audit, target
 server, writer identity, and a
-single-use authorization-consumption receipt. Phase 2D remains separately
-authorized pipeline integration.
+single-use authorization-consumption receipt. Phase 2D pipeline integration
+was a separate authorization boundary from that fixture import.
 
-The completed import used only
-`scripts/core_migration/create_phase2c_source_extract.py` may create the first
-fixture package. It is locked to `20260718T032717Z__a8cf01`, requires the
-dedicated `obsidiandroid_erebus_reader` private `.env` credential file and an explicit read-only
-acknowledgement, uses a single consistent read-only transaction, writes outside
-the repository, and never opens Core. The older
+The controlled fixture package was created through
+`scripts/core_migration/create_phase2c_source_extract.py`. That extractor is
+locked to `20260718T032717Z__a8cf01`, requires the dedicated
+`obsidiandroid_erebus_reader` private `.env` credential file and an explicit
+read-only acknowledgement, uses a single consistent read-only transaction,
+writes outside the repository, and never opens Core. The older
 `dry_run_evidence_migration.py` remains Phase 1 historical planning material;
 it is not the Phase 2C extractor.
 
-`scripts/core_migration/build_phase2c_import_plan.py` is the next offline-only
-step. It verifies every compressed extract and canonical payload hash before it
-maps the reviewed rows into a plan. It binds that plan to the extract-manifest
-hash, the local repository commit, both exact Core migration checksums, expected
-counts, and post-import row/key reconciliation hashes. It has no database
+For that workflow, `scripts/core_migration/build_phase2c_import_plan.py` was
+the offline-only planning step. It verifies every compressed extract and
+canonical payload hash before mapping reviewed rows into a plan. It binds that
+plan to the extract-manifest hash, the local repository commit, both exact
+Core migration checksums, expected counts, and post-import row/key
+reconciliation hashes. It has no database
 connection code and cannot execute an import. Plan creation and production
 execution both require a clean checkout at the reviewed commit; a Git commit
 identifier alone does not authorize uncommitted code.

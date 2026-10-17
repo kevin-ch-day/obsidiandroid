@@ -90,10 +90,10 @@ test-full:
 
 # MySQL/MariaDB connectivity (primary + Permission Intel DB). Exit 0 when healthy.
 preflight-db:
-	python -m obsidiandroid.database.split_db_health
+	PYTHONPATH=src .venv/bin/python -m obsidiandroid.database.split_db_health
 
 audit-runtime-db:
-	python scripts/diagnostics/audit_runtime_database_config.py
+	PYTHONPATH=src .venv/bin/python scripts/diagnostics/audit_runtime_database_config.py
 
 preflight-migration-host:
 	@test -n "$(OPTION_FILE)" && test -n "$(MODE)" || (echo "Usage: make preflight-migration-host OPTION_FILE=<private.cnf> MODE=local|remote"; exit 1)

@@ -1,10 +1,12 @@
 # Normal Runtime Source-Connection Policy
 
-ObsidianDroid has three distinct database boundaries.  The two upstream source
-schemas are read by normal analysis; `obsidiandroid_core_prod` is an
-ObsidianDroid-owned evidence ledger and remains disabled until a separately
-authorized phase enables it.  Filesystem run artifacts remain the output
-authority for normal analysis today.
+ObsidianDroid has three distinct database boundaries. The two upstream source
+schemas are read by normal analysis. `obsidiandroid_core_prod` is a separate
+ObsidianDroid-owned evidence ledger. Normal profile execution defaults to
+read-only source access and filesystem run artifacts; the explicit native
+analysis-persistence route has its own plan, writer, and Core contract in
+[ANALYSIS_PERSISTENCE_V1.md](ANALYSIS_PERSISTENCE_V1.md). This document's
+mode table governs the legacy source-warehouse path, not that explicit route.
 
 ## Explicit runtime modes
 
@@ -13,8 +15,8 @@ output behavior.  The default is `read_only`:
 
 | Mode | Source grants | Legacy Erebus warehouse | Core persistence |
 | --- | --- | --- | --- |
-| `read_only` (default) | `SELECT` only | disabled | disabled |
-| `legacy_warehouse` | historical writer grants | enabled, temporary compatibility path | disabled |
+| `read_only` (default) | `SELECT` only | disabled | not selected by normal profile mode |
+| `legacy_warehouse` | historical writer grants | enabled, temporary compatibility path | not selected by this mode |
 
 The application never falls back from one mode to the other.  The first
 desktop acceptance run must use `read_only`; the profile menu prints the
@@ -28,28 +30,39 @@ path and must not be enabled with a reader credential.
 ## Normal pipeline reader
 
 `obsidiandroid_pipeline_reader@localhost` is the dedicated normal-analysis
-identity. It has schema-level `SELECT` on `erebus_threat_intel_prod` and
-`android_permission_intel`, and no grants on Core or rehearsal schemas. It has
-no DML, DDL, routine, or global privileges beyond MariaDB's implicit `USAGE`.
+identity. The verified 2026-10-17 PI V2 production boundary grants schema-level
+`SELECT` on `erebus_threat_intel_prod`, but only gate-table `SELECT` in
+`android_permission_intel`. Direct reads of `android_permission_obs_sample` and
+`android_permission_enrich_vt_current` are denied. No Core grants, DML, DDL,
+routine or grantable privileges were introduced by consumer activation.
 
-- `obsidiandroid_erebus_reader@localhost` remains restricted to five Phase 2C
-  recovery surfaces and is never a normal pipeline credential.
-- `erebus_app@localhost` retains broad legacy write and routine privileges on
-  both source schemas, so it is not suitable for read-only acceptance runs.
+The earlier schema-wide PI SELECT bootstrap is superseded on this gated host.
+Do not restore that grant to satisfy an old visibility check. Exact V2 research
+consumption uses the separately root-approved export and its validated consumer;
+legacy database readers remain blocked. Other hosts must verify their own reviewed
+account contract rather than infer it from this dated workstation observation.
 
-Schema-level `SELECT` for the dedicated reader is intentional: the
-normal pipeline uses a broad, evolving group of catalog, VirusTotal,
-family/type authority, cohort-readiness, permission-observation, dictionary,
-and view surfaces.  Object-by-object grants would be fragile and risk an
-incomplete runtime contract.
+- `obsidiandroid_erebus_reader@localhost` remains the separate Phase 2C identity.
+- `erebus_app@127.0.0.1` remains a separate Erebus application identity; its
+  broader read-only grants do not define the research-reader contract.
 
-The applied account contract is:
+### Split-database health under the V2 gate
 
-```sql
-CREATE USER 'obsidiandroid_pipeline_reader'@'localhost' IDENTIFIED BY '<generated secret>';
-GRANT SELECT ON `erebus_threat_intel_prod`.* TO 'obsidiandroid_pipeline_reader'@'localhost';
-GRANT SELECT ON `android_permission_intel`.* TO 'obsidiandroid_pipeline_reader'@'localhost';
-```
+`python -m obsidiandroid.database.split_db_health` distinguishes connection health,
+legacy table visibility and effective legacy access. `permission_obs_sample_in_pi`
+reports visibility to the current account; false does not prove the table is absent.
+For gate BLOCK, `LEGACY_ACCESS_PROTECTED` requires actual SELECT probes of both
+legacy surfaces to fail with table/column privilege denial (1142/1143). A successful
+legacy read reports `UNSAFE_LEGACY_ACCESS`; missing tables, malformed gates and
+unexpected query failures report `UNVERIFIED`, and the CLI fails. A pre-V2 host
+with no gate can retain its existing visible-table health behavior.
+
+Successful connectivity plus either verified protected access or the supported
+legacy-readable state passes this connectivity/access diagnostic. The report
+always sets `permission_v2_consumer_status` to `NOT_CHECKED`: it does not establish
+export approval, feature eligibility or research completeness. Use the separate
+anchored consumer acceptance for those claims. No health check changes grants,
+releases BLOCK, or starts model training.
 
 Store the generated secret only in
 `~/.config/obsidiandroid/pipeline-reader.cnf`, owned by the operator and mode
@@ -106,10 +119,11 @@ the following representative modules: `db_sample_metadata_fetchers.py`,
 objects include `malware_sample_catalog`, VirusTotal verdict and engine
 surfaces, `vt_sample_verdict_confidence_current`,
 `v_android_sample_family_type_authority`, taxonomy/alias facts, and
-cohort-readiness support views.  Permission Intel reads use
-`android_permission_obs_sample`, `android_permission_dict_aosp`,
-`android_permission_dict_oem`, `android_permission_dict_unknown`, and related
-enrichment/readiness views.
+cohort-readiness support views. Historical direct Permission Intel paths still
+reference observation, dictionary and enrichment tables, but they are not the
+approved recovered-evidence interface on the V2-gated host. Their storage
+inventory does not grant current read authority. Exact V2 consumption uses the
+separately approved export; unsupported legacy paths remain unavailable.
 
 Optional diagnostics use the same read boundary for temporal, family-mapping,
 and parser-health reports.  Maintenance scripts, including ingest-tranche and
@@ -118,3 +132,12 @@ source DML; they remain maintenance-only.  Phase 2C has its own five-table
 extract reader.  Future Core imports use the separately guarded Phase 2D
 route.  The only normal runtime source writer is the historical
 permission-trends warehouse exporter; it is disabled in `read_only` mode.
+
+### Runtime audit outcome
+
+`make audit-runtime-db` shares the split-health access classifier. Under verified
+legacy protection it reports observation reads as `blocked_as_intended` and
+skips dictionary availability checks not required by the exact export route.
+The report includes `audit_ok`; the CLI exits nonzero for failed or unverified
+required checks. It never reports V2 consumer approval: that remains an independent
+anchored acceptance check. `check_connections=False` remains explicitly unchecked.

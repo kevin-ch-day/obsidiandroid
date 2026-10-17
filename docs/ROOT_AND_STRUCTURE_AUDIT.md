@@ -2,6 +2,11 @@
 
 This document is a **status report** and **deep audit** of repository layout: what improved during the migration-style cleanup, why the repo root still looks busy, and how the project compares to a conventional professional Python application. It complements **[`STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md)** (pass-by-pass history).
 
+Its pass timeline and project-status observations are historical checkpoints.
+For current package paths, use the top snapshot in
+[`STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md); for current test
+targets, use `make help` and [`developer_guide.md`](developer_guide.md).
+
 ---
 
 ## 1. Executive summary
@@ -43,7 +48,7 @@ Work proceeded in **documented passes** (see **`STRUCTURE_MIGRATION_PLAN.md`**).
 | **CI/CD** | **`.github/workflows/ci.yml`**: **`make verify`**, **`make ml-scan-strict`**, **`pip check`**, Python matrix. |
 | **Dependency hygiene** | Dependabot for **GitHub Actions** and **pip**; **`requirements.txt`** wired via dynamic metadata. |
 | **Contributor docs** | **`docs/AGENTS.md`**, **`docs/developer_guide.md`**, **`Makefile`** help, optional **`.pre-commit-config.yaml`**. |
-| **Operational clarity** | **`make ci`** mirrors CI; **`make tree-source`** after **`make clean-bytecode`** for layout reviews. |
+| **Operational clarity** | **`make ci-fast`** mirrors the CI fast job; **`make ci`** adds canonical closure. Use **`make tree-source`** after **`make clean-bytecode`** for layout reviews. |
 
 **Gap vs a “clean single-package repo”:** the repo-root `database/` SQL-asset directory remains by design; the Python database API is canonical under `obsidiandroid.database`.
 

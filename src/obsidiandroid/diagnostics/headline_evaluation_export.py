@@ -47,13 +47,20 @@ def export_headline_test_tables(
 
     y_true = evaluation.get("y_true")
     y_pred = evaluation.get("y_pred")
-    if y_true is None or y_pred is None:
+    if (
+        y_true is None
+        or y_pred is None
+        or len(np.asarray(y_true).ravel()) != len(X_test)
+        or len(np.asarray(y_pred).ravel()) != len(X_test)
+    ):
         return None, None
 
     test_ids = pd.to_numeric(X_test.index, errors="coerce")
-    if test_ids.isna().any():
+    if test_ids.isna().any() or (test_ids % 1 != 0).any():
         return None, None
     test_ids = test_ids.astype(int)
+    if not test_ids.is_unique:
+        return None, None
 
     split_meta = _headline_split_meta()
     split_hash = str(split_meta.get("split_hash", "") or "")
@@ -89,11 +96,12 @@ def export_headline_test_tables(
         if any(marker in str(c).lower() for marker in vendor_markers)
     ]
 
-    def _row_flags(sid: int) -> tuple[int, int, int]:
-        try:
-            xr = X_test.loc[[sid]]
-        except Exception:
-            return 0, 0, 0
+    def _row_flags(sid: int, position: int) -> tuple[int, int, int]:
+        # ``test_ids`` is normalized to integers for the export, while the
+        # original feature-frame index may contain string sample IDs.  Read
+        # coverage from the corresponding test row rather than re-looking it
+        # up with a differently typed label.
+        xr = X_test.iloc[[position]]
         perm_ok = 0
         if perm_cols:
             mass = xr[perm_cols].fillna(0).abs().sum(axis=1).iloc[0]
@@ -139,7 +147,7 @@ def export_headline_test_tables(
     for i, sid in enumerate(test_ids.tolist()):
         yt = np.asarray(y_true).ravel()[i]
         yp = np.asarray(y_pred).ravel()[i]
-        perm_f, vend_f, tax_f = _row_flags(int(sid))
+        perm_f, vend_f, tax_f = _row_flags(int(sid), i)
         conf = None
         top2_label_id = ""
         top2_confidence_val = None
@@ -192,7 +200,69 @@ def export_headline_test_tables(
         run_id=run_id,
         promoted_model_key=promoted_model_key,
     )
+    _write_modality_error_slices(
+        pred_df=pred_df,
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+    )
     return pred_path, err_path
+
+
+def _write_modality_error_slices(
+    *, pred_df: pd.DataFrame, diagnostics_dir: Path, run_id: str
+) -> Path | None:
+    """Show held-out accuracy separately by actual source-feature coverage."""
+    coverage_path = diagnostics_dir / f"feature_modality_coverage_audit_{run_id}.csv"
+    if not coverage_path.is_file():
+        return None
+    required = {"sample_id", "in_av_enrichment_matrix", "permission_signal_positive"}
+    if not required.issubset(pd.read_csv(coverage_path, nrows=0).columns):
+        # Older coverage exports have no AV-presence field. Their vendor flag
+        # is not a substitute for actual AV enrichment membership.
+        return None
+    coverage = pd.read_csv(
+        coverage_path,
+        usecols=sorted(required),
+    )
+    coverage_ids = pd.to_numeric(coverage["sample_id"], errors="coerce")
+    if coverage_ids.isna().any() or (coverage_ids % 1 != 0).any():
+        return None
+    coverage["sample_id"] = coverage_ids.astype(int)
+    if coverage["sample_id"].duplicated().any():
+        return None
+    work = pred_df[["sample_id", "true_label_id", "predicted_label_id", "predicted_label_name"]].merge(
+        coverage, on="sample_id", how="left", validate="one_to_one"
+    )
+    flags = ["in_av_enrichment_matrix", "permission_signal_positive"]
+    for column in flags:
+        normalized = work[column].astype("string").str.lower().map({"true": True, "false": False})
+        if normalized.isna().any():
+            # Missing coverage or an unknown source flag cannot be called a
+            # negative modality observation.
+            return None
+        work[column] = normalized.astype(bool)
+    work["correct"] = work["true_label_id"].astype(str).eq(work["predicted_label_id"].astype(str))
+    rows: list[dict[str, Any]] = []
+    for (av_available, pi_available), group in work.groupby(
+        ["in_av_enrichment_matrix", "permission_signal_positive"], dropna=False
+    ):
+        top_predictions = group["predicted_label_name"].value_counts(dropna=False)
+        rows.append(
+            {
+                "run_id": run_id,
+                "av_matrix_row_present": av_available,
+                "permission_signal_positive": pi_available,
+                "test_rows": int(len(group)),
+                "correct_rows": int(group["correct"].sum()),
+                "error_rows": int((~group["correct"]).sum()),
+                "accuracy": round(float(group["correct"].mean()), 6),
+                "top_predicted_label": str(top_predictions.index[0]) if not top_predictions.empty else "",
+                "top_predicted_rows": int(top_predictions.iloc[0]) if not top_predictions.empty else 0,
+            }
+        )
+    output = diagnostics_dir / f"headline_modality_error_slices_{run_id}.csv"
+    pd.DataFrame(rows).to_csv(output, index=False)
+    return output
 
 
 def _write_headline_confidence_audit(

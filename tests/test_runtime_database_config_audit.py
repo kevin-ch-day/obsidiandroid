@@ -52,5 +52,46 @@ def test_audit_runs_only_primary_and_permission_select_checks(monkeypatch) -> No
 
 def test_audit_rejects_administrator_identity(monkeypatch) -> None:
     monkeypatch.setattr(audit, "_read_primary_surface", lambda _sql: [("root@localhost",)])
+    monkeypatch.setattr(audit, "_read_permission_surface", lambda _sql: [("root@localhost",)])
     report = audit.build_runtime_database_config_audit(check_connections=True)
     assert report["source_connection_health"]["status"] == "administrator_source_credential_rejected"
+
+
+def test_protected_audit_skips_legacy_data_and_dictionary(monkeypatch):
+    from mysql.connector import Error
+    calls = []
+    def read(sql):
+        calls.append(sql)
+        if sql == 'SELECT CURRENT_USER()':return [('obsidiandroid_pipeline_reader@localhost',)]
+        if 'research_gate' in sql:return [('BLOCK',)]
+        if 'LIMIT 0' in sql:raise Error('denied', errno=1142)
+        if 'information_schema' in sql:return []
+        raise AssertionError('Unexpected PI data read: '+sql)
+    monkeypatch.setattr(audit, '_read_primary_surface', lambda sql: [('obsidiandroid_pipeline_reader@localhost',)] if 'CURRENT_USER' in sql else [])
+    monkeypatch.setattr(audit, '_read_permission_surface', read)
+    report = audit.build_runtime_database_config_audit()
+    assert report['audit_ok'] is True
+    assert report['permission_access_status'] == 'LEGACY_ACCESS_PROTECTED'
+    assert report['permission_v2_consumer_status'] == 'not_checked'
+    assert report['permission_intel_surface_checks']['permission_dictionary']['ok'] is None
+    assert not any('dict_aosp' in sql for sql in calls)
+    assert sum('LIMIT 0' in sql for sql in calls) == 2
+
+
+def test_audit_does_not_accept_unprotected_blocked_gate(monkeypatch):
+    def read(sql):
+        if 'CURRENT_USER' in sql:return [('obsidiandroid_pipeline_reader@localhost',)]
+        if 'research_gate' in sql:return [('BLOCK',)]
+        return []
+    monkeypatch.setattr(audit, '_read_primary_surface', read)
+    monkeypatch.setattr(audit, '_read_permission_surface', read)
+    report = audit.build_runtime_database_config_audit()
+    assert report['permission_access_status'] == 'UNSAFE_LEGACY_ACCESS'
+    assert report['audit_ok'] is False
+
+
+def test_audit_command_failure_exit(monkeypatch):
+    from scripts.diagnostics import audit_runtime_database_config as command
+    for status, expected in [(True, 0), (False, 1), (None, 1)]:
+        monkeypatch.setattr(command, 'build_runtime_database_config_audit', lambda **kwargs: {'audit_ok':status})
+        assert command.main() == expected

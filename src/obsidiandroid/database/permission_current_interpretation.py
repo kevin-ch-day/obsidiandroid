@@ -172,9 +172,11 @@ def interpretation_joins(*, key_expr: str, raw_expr: str) -> str:
           ON {aosp_join}
         {alias_join}
         LEFT JOIN android_permission_v1_current_permission pi
-          ON BINARY pi.canonical_permission = BINARY {identity_expr}
+          ON pi.canonical_permission = {identity_expr}
+         AND BINARY pi.canonical_permission = BINARY {identity_expr}
         LEFT JOIN android_permission_v1_obsidiandroid_permission piv
-          ON BINARY piv.canonical_permission = BINARY pi.canonical_permission
+          ON piv.canonical_permission = pi.canonical_permission
+         AND BINARY piv.canonical_permission = BINARY pi.canonical_permission
          AND piv.catalog_release_id = pi.catalog_release_id
          AND piv.catalog_digest = pi.catalog_digest
         LEFT JOIN (

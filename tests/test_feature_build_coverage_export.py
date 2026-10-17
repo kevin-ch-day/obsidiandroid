@@ -213,6 +213,7 @@ def test_modality_audit_preserves_first_duplicate_row_and_supervised_drop_reason
         cohort_sample_ids=[1, 2, 3, 4],
         feature_df=feat,
         permission_features_df=perms,
+        av_enrichment_sample_ids=[1, 3],
         samples_df=samples,
         output_dir=tmp_path,
         run_id="indexed",
@@ -221,6 +222,7 @@ def test_modality_audit_preserves_first_duplicate_row_and_supervised_drop_reason
 
     assert csv_path is not None
     audit = pd.read_csv(csv_path).set_index("sample_id")
+    assert audit["in_av_enrichment_matrix"].to_dict() == {1: True, 2: False, 3: True, 4: False}
     assert bool(audit.loc[1, "has_vendor_features"]) is True
     assert bool(audit.loc[2, "has_permission_features"]) is True
     assert bool(audit.loc[3, "has_metadata_features"]) is True
@@ -229,6 +231,49 @@ def test_modality_audit_preserves_first_duplicate_row_and_supervised_drop_reason
     assert audit.loc[2, "dropped_reason_supervised_training"] == "missing_supervised_label"
     assert audit.loc[3, "dropped_reason_supervised_training"] == "missing_from_samples_metadata"
     assert audit.loc[4, "dropped_reason_supervised_training"] == "missing_fused_row"
+
+
+def test_missing_vendor_membership_is_unavailable_not_zero_or_fused_rows(tmp_path: Path) -> None:
+    """The fused cohort cannot stand in for an absent vendor-merge receipt."""
+    feat = pd.DataFrame({"meta__size": [1.0, 2.0]}, index=[10, 20])
+    _, _ = feature_build_coverage_export.export_feature_build_coverage(
+        cohort_sample_ids=[10, 20], feature_df=feat, output_dir=tmp_path, run_id="no_vendor", enabled=True
+    )
+    csv_path, json_path = feature_build_coverage_export.export_feature_modality_coverage_audit(
+        cohort_sample_ids=[10, 20], feature_df=feat, permission_features_df=None,
+        output_dir=tmp_path, run_id="no_vendor", enabled=True,
+    )
+
+    build = json.loads((tmp_path / "feature_build_coverage_no_vendor.json").read_text(encoding="utf-8"))
+    modality = json.loads(json_path.read_text(encoding="utf-8"))
+    flags = pd.read_csv(csv_path)
+    assert build["vendor_merge_authority_available"] is False
+    assert build["vendor_merge_authority_unique_count"] is None
+    assert build["vendor_merge_equals_final_index"] is None
+    assert modality["vendor_merge_n"] is None
+    assert flags["in_vendor_feature_matrix"].isna().all()
+    assert flags["vendor_parser_gate_passed"].isna().all()
+
+    feat.attrs["vendor_merge_sample_ids"] = []
+    _, _ = feature_build_coverage_export.export_feature_build_coverage(
+        cohort_sample_ids=[10, 20], feature_df=feat, output_dir=tmp_path, run_id="empty_vendor", enabled=True
+    )
+    measured_zero = json.loads((tmp_path / "feature_build_coverage_empty_vendor.json").read_text(encoding="utf-8"))
+    assert measured_zero["vendor_merge_authority_available"] is True
+    assert measured_zero["vendor_merge_authority_unique_count"] == 0
+
+
+def test_modality_audit_does_not_round_metadata_identity_into_cohort(tmp_path: Path) -> None:
+    feat = pd.DataFrame({"meta__size": [1.0]}, index=[10])
+    samples = pd.DataFrame({"sample_id": [10.4], "family_canonical": ["WrongFamily"]})
+
+    csv_path, _ = feature_build_coverage_export.export_feature_modality_coverage_audit(
+        cohort_sample_ids=[10], feature_df=feat, permission_features_df=None,
+        samples_df=samples, output_dir=tmp_path, run_id="bad_metadata_id", enabled=True,
+    )
+
+    audit = pd.read_csv(csv_path).set_index("sample_id")
+    assert audit.loc[10, "dropped_reason_supervised_training"] == "missing_from_samples_metadata"
 
 
 def test_export_sample_stage_lineage_defaults_off_in_compact_mode(
@@ -272,3 +317,34 @@ def test_gap_permission_bag_strata_on_missing_ids(tmp_path: Path) -> None:
     data = json.loads((tmp_path / "feature_build_coverage.latest.json").read_text(encoding="utf-8"))
     assert data["cohort_rows_missing_from_feature_matrix"] == 1
     assert data["gap_missing_with_any_perm_bag_positive"] == 1
+
+
+def test_permission_coverage_rejects_bad_ids_and_counts_distinct_samples(tmp_path: Path) -> None:
+    """Malformed and duplicate PI rows must not inflate exact cohort coverage."""
+    perms = pd.DataFrame(
+        {
+            "sample_id": [30, 30, 30.6, None, "bad", 40],
+            "perm__internet": [1, 0, 1, 1, 1, 0],
+            "perm__camera": [0, 0, 0, 0, 0, 1],
+        }
+    )
+    feat = pd.DataFrame({"meta__size": [1.0]}, index=[30])
+
+    csv_path, _ = feature_build_coverage_export.export_feature_modality_coverage_audit(
+        cohort_sample_ids=[30, 40],
+        feature_df=feat,
+        permission_features_df=perms,
+        av_enrichment_sample_ids=[30],
+        output_dir=tmp_path,
+        run_id="bad_pi_ids",
+        enabled=True,
+    )
+
+    assert csv_path is not None
+    audit = pd.read_csv(csv_path).set_index("sample_id")
+    assert audit["permission_signal_positive"].to_dict() == {30: True, 40: True}
+    gap = feature_build_coverage_export.gap_permission_bag_strata([30, 40], perms)
+    assert gap["gap_missing_rows_in_permission_frame"] == 3
+    assert gap["gap_missing_with_permission_frame_row"] == 2
+    assert gap["gap_missing_with_any_perm_bag_positive"] == 2
+    assert gap["gap_missing_perm_internet_nonzero"] == 1

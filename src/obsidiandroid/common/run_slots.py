@@ -15,6 +15,7 @@ KEEP_MARKER = ".keep"
 PROTECTED_MARKER = ".protected"
 
 _SLOT_BY_PROFILE = {
+    "android_catalog_all_exploratory": "allcatalog_exploratory",
     "android_malware_major_families": "majorfam_benchmark",
     "android_malware_all_current": "allcurrent_diagnostic",
     "android_malware_type_taxonomy": "typelevel_benchmark",
@@ -97,6 +98,8 @@ def resolve_run_slot_plan(
 
 
 def _run_mode_for_profile(profile_id: str) -> str:
+    if profile_id == "android_catalog_all_exploratory":
+        return "exploratory"
     if profile_id == "android_malware_major_families":
         return "benchmark"
     if profile_id == "android_malware_type_taxonomy":
@@ -111,6 +114,8 @@ def _run_mode_for_profile(profile_id: str) -> str:
 
 
 def _claim_surface_for_profile(profile_id: str) -> str:
+    if profile_id == "android_catalog_all_exploratory":
+        return "android_catalog_exploratory"
     if profile_id == "android_malware_major_families":
         return "governed_major_family_benchmark"
     if profile_id == "android_malware_type_taxonomy":

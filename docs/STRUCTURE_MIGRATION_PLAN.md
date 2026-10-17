@@ -39,7 +39,11 @@ Quick verification: `python scripts/dev/check_import_surface.py` or `make dev-im
 - **CLI shell:** Repo-root **`main.py`** is the compatibility entrypoint. It prepends `./src` when present, then calls **`obsidiandroid.common.repo_paths.ensure_repo_src_on_sys_path`**, then re-exports the canonical CLI implementation from **`obsidiandroid.cli.main`**.
 - **Database boundary:** repo-root **`database/`** holds SQL assets; DB Python implementations and the health-check entry point live under **`src/obsidiandroid/database/`** behind the curated **`obsidiandroid.database`** façade.
 - **Removed (Pass 33):** the **`analysis/observability`** package — pipeline observability APIs live only under **`obsidiandroid.observability.pipeline_observability`**.
-- **Quality gates:** **`make ci`** runs doc hygiene, **`scripts/dev/check_import_surface.py`** (imports, UTF-8 BOM scan, retired-tree absence, and database façade identity), fast pytest, and strict ML static scan.
+- **Quality gates:** **`make ci-fast`** runs doc hygiene,
+  **`scripts/dev/check_import_surface.py`** (imports, UTF-8 BOM scan,
+  retired-tree absence, and database façade identity), fast pytest, and the
+  strict ML static scan. **`make ci`** adds canonical-closure validation;
+  integration lanes are separate.
 - **Import-surface guard:** **`scripts/dev/check_import_surface.py`** rejects imports from retired **`analysis`** or **`ml_classification`** trees and root **`main`** inside canonical **`src/`** code and normal **`scripts/`; it also rejects those retired trees if recreated on disk. The guard rejects stale **`# Filename:`** headers in canonical **`src/`** whose first path segment names a retired root or repo-root **`database/`**.
 - **Test intent split:** package-surface, import-policy, and compatibility-boundary tests are explicit. New tests should use canonical **`obsidiandroid.*`** imports and avoid retired-root assumptions.
 
@@ -47,7 +51,10 @@ Quick verification: `python scripts/dev/check_import_surface.py` or `make dev-im
 
 - **Living sections** (use these for decisions): **Status labels**, **Snapshot — current truth**, **Restructure backlog (living)**, **Locked migration policy**, and **Intended future moves** (below).
 - **Historical sections:** The per-pass tables (**Pass 1**, **Pass 2**, …) are an **archive** of what shipped on each pass. They are **not** retro-edited when later passes supersede them. If an old pass table disagrees with the **Snapshot**, trust the **Snapshot**.
-- **Stale detail in archives:** Early pass sections may cite **old pytest counts** or paths that have since moved; treat those as **time capsules**, not current CI facts. Today’s gate is **`make ci`** (import surface + fast pytest + strict ML scan).
+- **Stale detail in archives:** Early pass sections may cite **old pytest counts**
+  or paths that have since moved; treat those as **time capsules**, not current
+  CI facts. Today's fast gate is **`make ci-fast`**; the full local pre-push
+  gate is **`make ci`** (fast plus canonical closure).
 - **Current working assumption:** Large new relocation passes are no longer the default. Prefer **small supportability passes** that either (a) remove overlap inside canonical **`src/`** code, (b) clarify interfaces around the canonical database API, or (c) deprecate legacy output compatibility with explicit lifecycle labeling before removing it.
 - **Vendor / evaluation nuance:** Physical modules for vendor parsers, evaluation glue, vendor execution, and run diagnostics live under **`src/obsidiandroid/`**. See **`docs/VENDOR_EVALUATION_BOUNDARY_PLAN.md`** for boundary and contract work still open.
 

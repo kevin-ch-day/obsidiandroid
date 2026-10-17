@@ -73,13 +73,15 @@ def oem_dictionary_join_predicate(
     plus a resolved ``android_permission_dict_oem.vendor_id``. Observation
     ``vendor_id`` is not a join key (the live warehouse is almost entirely
     NULL), and OEM rows with a NULL vendor are not authorized matches.
-    Case-folded or normalized equality over-matches tokens that differ only
-    in case or padding.
+    Case-folded equality alone over-matches tokens that differ in case or
+    padding. The collation comparison permits indexed lookup; the binary
+    comparison remains the final exact-byte guard.
     """
     obs = _sql_ident(observation_alias)
     oem = _sql_ident(oem_alias)
     return (
-        f"BINARY {oem}.permission_string = BINARY {obs}.permission_string"
+        f"{oem}.permission_string = {obs}.permission_string"
+        f" AND BINARY {oem}.permission_string = BINARY {obs}.permission_string"
         f" AND {oem}.vendor_id IS NOT NULL"
     )
 
@@ -91,12 +93,13 @@ def aosp_dictionary_join_predicate(*, raw_expr: str, aosp_alias: str = "a") -> s
     lookup. Interpretation only needs it for exact-byte invalid-token and
     provisional-seed guards; platform identity comes from the deployed v1
     views. Live collation is ``utf8mb4_unicode_ci``, so the token match
-    must be ``BINARY``.
+    must retain a ``BINARY`` guard after the indexable collation comparison.
     """
     aosp = _sql_ident(aosp_alias)
     raw = _sql_expr(raw_expr)
     return (
-        f"BINARY {aosp}.constant_value = BINARY {raw}"
+        f"{aosp}.constant_value = {raw}"
+        f" AND BINARY {aosp}.constant_value = BINARY {raw}"
         f" AND ({aosp}.lifecycle_status = 'invalid_token'"
         f" OR {aosp}.authority_source_type = 'queue_apply_shell'"
         f" OR {aosp}.source_family_key = 'aosp_sparse_queue_apply_shell')"
@@ -132,7 +135,8 @@ def token_alias_join(
     Live aliases are ``aosp_case_alias_v1``: lowercase ``raw_token`` to the
     accepted catalog ``canonical_token``. Norm equality is always true there
     and must not be used as “no alias”. Multiple rows for one exact raw token
-    are a conflict: attach no alias.
+    are a conflict: attach no alias. The collation comparison is only an
+    indexed prefilter for the exact-byte guard.
     """
     als = _sql_ident(alias_alias)
     raw = _sql_expr(raw_expr)
@@ -149,7 +153,8 @@ def token_alias_join(
                   HAVING COUNT(*) = 1
               ) one ON one.alias_id = a.alias_id
         ) {als}
-          ON BINARY {als}.raw_token = BINARY {raw}"""
+          ON {als}.raw_token = {raw}
+         AND BINARY {als}.raw_token = BINARY {raw}"""
 
 
 def catalog_identity_expr(*, raw_expr: str, alias_alias: str = "als") -> str:
@@ -222,4 +227,5 @@ def authority_fact_join(
                   HAVING COUNT(*) = 1
               ) one ON one.authority_fact_id = f.authority_fact_id
         ) {fact}
-          ON BINARY {fact}.permission_string = BINARY {raw}"""
+          ON {fact}.permission_string = {raw}
+         AND BINARY {fact}.permission_string = BINARY {raw}"""

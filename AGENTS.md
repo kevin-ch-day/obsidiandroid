@@ -4,4 +4,6 @@ The **canonical copy** of repository-wide guidance for contributors and automate
 
 This file stays at the repo root because some tooling expects `AGENTS.md` here; treat **`docs/AGENTS.md`** as the single source of truth.
 
-**Quick checks:** **`make ci`** mirrors **GitHub Actions** (`.github/workflows/ci.yml`): doc hygiene, import smoke, fast pytest, strict ML scan.
+**Quick checks:** **`make ci-fast`** runs doc hygiene, import smoke, fast pytest,
+and the strict ML scan. **`make ci`** adds canonical-closure validation; the
+GitHub workflow runs integration lanes separately when relevant paths change.

@@ -1121,7 +1121,7 @@ def _print_cohort_verdict(
             prepared_non_android_lane_rows = int((lane_norm != "android_artifact").sum())
         if sql_non_android_lane_rows > prepared_non_android_lane_rows:
             warning_messages.append(
-                "SQL scope contains more non-android analysis_lane drift than the prepared cohort "
+                "SQL scope contains more rows outside the android_artifact analysis lane than the prepared cohort "
                 f"({sql_non_android_lane_rows} vs {prepared_non_android_lane_rows})"
             )
         sql_weak_labels = int(sql_scope_semantics.get("weak_label_with_canonical_family_rows", 0))
@@ -1149,7 +1149,7 @@ def _print_cohort_verdict(
         non_android_lane_rows = int((lane_norm != "android_artifact").sum())
         if non_android_lane_rows > 0:
             warning_messages.append(
-                f"non-android analysis_lane rows present: {non_android_lane_rows}"
+                f"rows outside the android_artifact analysis lane: {non_android_lane_rows}"
             )
     if "payload_target_platform" in samples_df.columns:
         target_norm = (

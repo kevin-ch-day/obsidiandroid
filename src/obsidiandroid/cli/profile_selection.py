@@ -48,6 +48,8 @@ def build_profile_catalog(profiles: list[Path]) -> list[tuple[str, str]]:
 def profile_sort_key(profile_id: str) -> tuple[int, int, str]:
     """Return deterministic profile ordering for a cleaner selection menu."""
     pid = str(profile_id).strip().lower()
+    if pid == "android_catalog_all_exploratory":
+        return (0, -1, pid)
     if pid == "android_malware_all_current":
         return (0, 0, pid)
     if pid == "android_malware_major_families":
@@ -193,7 +195,8 @@ def _profile_status_label(raw: dict[str, object], profile_id: str) -> str:
 def _quick_intent_options() -> list[tuple[str, str]]:
     """Return the fixed operator-facing intent menu."""
     return [
-        ("Run analysis — all Android samples", "android_malware_all_current"),
+        ("Explore Android catalog — all APKs", "android_catalog_all_exploratory"),
+        ("Run analysis — current Android malware", "android_malware_all_current"),
         ("Current benchmark — major-family classification", "android_malware_major_families"),
         ("Candidate benchmark — n >= 20; lock required", "android_malware_major_families_support20"),
         ("Expanded exploration — major + mapped minor families", "android_malware_expanded_families"),

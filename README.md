@@ -106,7 +106,14 @@ Each markdown file can be browsed directly in GitHub’s file viewer for quick n
    source .venv/bin/activate
    pip install -e .
    ```
-4. **(Optional for full pipeline runs) Configure MariaDB** by setting explicit `OBSIDIAN_DB_*` and Permission Intel connection variables (see [Configuration](#configuration)). Source connections no longer fall back to root credentials or an embedded password. Do not commit real passwords; prefer a private `0600` client option file. The default runtime is read-only and keeps both legacy warehouse export and Core persistence disabled; see [`docs/runtime_source_connection_policy.md`](docs/runtime_source_connection_policy.md).
+4. **(Optional for full pipeline runs) Configure MariaDB** by setting explicit
+   `OBSIDIAN_DB_*` and Permission Intel connection variables (see
+   [Configuration](#configuration)). Source connections no longer fall back to
+   root credentials or an embedded password. Do not commit real passwords;
+   prefer a private `0600` client option file. Normal profile execution
+   defaults to read-only upstream access and no legacy warehouse export;
+   explicit native analysis persistence has a separate Core plan and writer.
+   See [`docs/runtime_source_connection_policy.md`](docs/runtime_source_connection_policy.md).
    The CLI can launch before database access is fully configured, but database-backed menu actions and pipeline stages still require a working database.
 5. **(Optional) Edit pipeline settings** in `config/app_config.py` (model selection, hyperparameters, etc).
 
@@ -116,7 +123,7 @@ After **`pip install -e .`**, new code and tooling should import the **`obsidian
 
 ```python
 from obsidiandroid.pipeline import run_pipeline
-from obsidiandroid.database import db_config  # thin façade; same module objects as database.db_config
+from obsidiandroid.database import db_config  # canonical package; repo-root database/ contains SQL only
 ```
 
 - **Console entrypoint:** `python -m obsidiandroid.cli.startup_menu` (same as the `obsidiandroid` setuptools script after install).
@@ -246,7 +253,8 @@ The repo uses a **src layout**: installable code in **`src/obsidiandroid/`** and
 
 ## Optional Tools
 
-- `make ci` – **`make doc-check`** + **`make verify`** + **`make ml-scan-strict`** (same pipeline as GitHub Actions).
+- `make ci-fast` – **`make doc-check`** + **`make verify`** + **`make ml-scan-strict`** (the GitHub fast lane).
+- `make ci` – `make ci-fast` plus **`make verify-canonical`**; integration lanes are separate.
 - `make setup` – Same as `./setup.sh`: create/update `.venv` and install `requirements.txt`.
 - `make menu` – Same as `./run.sh`: interactive startup menu with `PYTHONPATH=src`.
 - `make install-editable` – `pip install -e .` (run with venv active) so `import obsidiandroid` works outside pytest.
@@ -262,7 +270,8 @@ The repo uses a **src layout**: installable code in **`src/obsidiandroid/`** and
 After installing dependencies, run the **default fast suite** (recommended for local loops):
 
 ```bash
-make ci                       # same as GitHub Actions: doc-check + verify + strict ML scan
+make ci-fast                  # doc-check + verify + strict ML scan
+make ci                       # fast gate + canonical closure
 # or, without the ML strict scan:
 make verify
 # or run pytest only (after import checks manually if needed):
@@ -271,7 +280,13 @@ pytest -q
 make test
 ```
 
-**`make doc-check`** scans key docs for removed phantom paths (`scripts/dev/check_doc_hygiene.py`). **`make verify`** runs the import-surface check (`scripts/dev/check_import_surface.py`) and then the fast suite. **`make ci`** runs **`doc-check`**, then **`verify`**, then **`make ml-scan-strict`**. These exclude integration-heavy modules tagged `slow` (see `pyproject.toml` `[tool.pytest.ini_options]` and `tests/conftest.py`).
+**`make doc-check`** scans key docs for removed phantom paths
+(`scripts/dev/check_doc_hygiene.py`). **`make verify`** runs the import-surface
+check (`scripts/dev/check_import_surface.py`) and then the fast suite.
+**`make ci-fast`** adds the strict ML scan; **`make ci`** also validates canonical
+closure. Integration lanes are separate (`make verify-integration` and
+`make verify-pipeline-integration`). The fast suite excludes modules tagged
+`slow` (see `pyproject.toml` and `tests/conftest.py`).
 
 For the **complete** suite (CI / pre-merge):
 
@@ -288,7 +303,10 @@ make test-full
 Contributions are welcome! To propose enhancements, bug fixes, or new features:
 - Fork the repository and submit a pull request.
 - Please include tests and documentation for new features.
-- Before opening a PR, run **`make ci`** (or at least **`make verify`**) from the repo root with your venv active and **`pip install -e .`** so import smoke and the fast test suite pass. That matches **GitHub Actions** (`doc-check`, import surface, pytest, strict ML scan).
+- Before opening a PR, run **`make ci-fast`** (or at least **`make verify`**)
+  from the repo root with your venv active and **`pip install -e .`**. Run
+  **`make ci`** when canonical closure matters and the relevant integration
+  lane for pipeline changes. The GitHub workflow runs these lanes separately.
 - Layout and migration context: **[`docs/ROOT_AND_STRUCTURE_AUDIT.md`](docs/ROOT_AND_STRUCTURE_AUDIT.md)** and **[`docs/AGENTS.md`](docs/AGENTS.md)**. **Breaking change:** repo-root **`data_inspect/`** and **`devtools/`** were removed; use **`scripts.diagnostics`** and **`scripts.dev`** instead (see **`docs/STRUCTURE_MIGRATION_PLAN.md`** → Pass 24).
 - Open issues for questions, ideas, or feedback.
 

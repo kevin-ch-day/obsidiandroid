@@ -244,8 +244,16 @@ def test_sql_guard_uses_deployed_views_and_withholds_unsafe_scalars() -> None:
     sql = "\n".join([joins, *columns.values()])
     assert "android_permission_v1_current_permission" in sql
     assert "COALESCE(als.canonical_token, ops.permission_string)" in sql
+    assert "ON pi.canonical_permission = COALESCE(als.canonical_token, ops.permission_string)" in sql
+    assert "AND BINARY pi.canonical_permission = BINARY COALESCE(als.canonical_token, ops.permission_string)" in sql
+    assert "ON piv.canonical_permission = pi.canonical_permission" in sql
+    assert "AND BINARY piv.canonical_permission = BINARY pi.canonical_permission" in sql
+    assert "ON paf.permission_string = COALESCE(als.canonical_token, ops.permission_string)" in sql
+    assert "AND BINARY paf.permission_string = BINARY COALESCE(als.canonical_token, ops.permission_string)" in sql
     assert "BINARY als.raw_token = BINARY ops.permission_string" in sql
+    assert "ON als.raw_token = ops.permission_string" in sql
     assert "BINARY a.constant_value = BINARY ops.permission_string" in sql
+    assert "ON a.constant_value = ops.permission_string" in sql
     assert "a.lifecycle_status = 'invalid_token'" in sql
     assert "queue_apply_shell" in sql
     assert "constant_value_norm" not in sql

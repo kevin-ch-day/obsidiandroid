@@ -121,6 +121,34 @@ def test_modality_summary_falls_back_to_runtime_engine_counts_and_notes_raw_perm
     assert summary_payload["av_engines_observed"] == 10
 
 
+def test_modality_summary_does_not_turn_missing_vendor_receipt_into_zero(tmp_path: Path) -> None:
+    diagnostics_dir = tmp_path / "diagnostics"
+    diagnostics_dir.mkdir()
+    run_id = "missing_vendor"
+    (diagnostics_dir / "cohort_foundation.json").write_text(
+        json.dumps({"cohort_prepared_row_count": 1}), encoding="utf-8"
+    )
+    (diagnostics_dir / f"feature_modality_coverage_summary_{run_id}.json").write_text(
+        json.dumps({"permission_pi_signal_positive_n": 0, "vendor_merge_n": None}),
+        encoding="utf-8",
+    )
+
+    bundle = rtq.write_research_question_artifacts(
+        diagnostics_dir=diagnostics_dir,
+        run_id=run_id,
+        profile_id="android_catalog_all_exploratory",
+        manifest_context={},
+        samples_df=pd.DataFrame({"sample_id": [10]}),
+        model_results={},
+        top_model=None,
+    )
+
+    assert bundle["q2"]["vendor_merge_n"] is None
+    assert bundle["q2"]["vendor_merge_pct"] is None
+    assert any("not recorded" in note for note in bundle["q2"]["interpretation_notes"])
+    assert "**Unavailable**" in (diagnostics_dir / "modality_contribution_summary.md").read_text(encoding="utf-8")
+
+
 def test_write_research_question_artifacts_marks_family_claims_unsuitable_when_concentrated(
     tmp_path: Path,
 ) -> None:
@@ -1039,6 +1067,7 @@ def test_terminal_summary_bottom_line_is_not_promising_for_weak_macro_f1() -> No
 
 def test_terminal_summary_surfaces_dominant_blockers_for_weak_run(monkeypatch) -> None:
     captured: list[str] = []
+    monkeypatch.setattr(rtq.app_config, "ML_TERMINAL_COMPACT", True, raising=False)
 
     class _DummyDisplay:
         @staticmethod
@@ -1105,7 +1134,7 @@ def test_terminal_summary_surfaces_dominant_blockers_for_weak_run(monkeypatch) -
     assert "supervised family claims are not yet suitable" in text
     assert "temporal holdout dropped 219 future-only family row(s)" in text
     assert "weighted F1 exceeds Macro-F1 by +0.1662" in text
-    assert "cross-type confusions appear in 1/2 top confusion pairs" in text
+    assert "cross-type confusions appear in 1/2 top holdout confusion pairs" in text
 
 
 def test_print_research_questions_terminal_formats_failure_structure_and_decodes_unresolved_ids(

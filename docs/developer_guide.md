@@ -28,7 +28,16 @@ This guide documents the day-to-day workflow for engineers extending ObsidianDro
 
 ### Continuous integration
 
-GitHub Actions runs **`make verify`** and **`make ml-scan-strict`** on pushes to **`main`**, on pull requests, and on **workflow dispatch** (see **`.github/workflows/ci.yml`**). The fast job uses a **Python 3.11 / 3.12** matrix, **`pip check`** after install, and **`contents: read`** permissions. Integration jobs run only when pipeline-related paths change on pull requests (always on **`main`** pushes). Run **`make ci`** locally for the same gates. Dependabot bumps **GitHub Actions** monthly and **`requirements.txt`** weekly (see **`.github/dependabot.yml`**).
+GitHub Actions runs a fast job (**`make doc-check`**, **`make verify`**, and
+**`make ml-scan-strict`**) on Python 3.11 and 3.12, plus an unconditional
+canonical-closure job on 3.12. The integration and heavier pipeline-integration
+jobs run for relevant pull-request paths and on main pushes/workflow dispatch
+(see **`.github/workflows/ci.yml`**). The fast job also runs **`pip check`**
+after install and uses **`contents: read`** permissions. Locally,
+**`make ci-fast`** covers the fast job; **`make ci`** adds canonical closure.
+Run **`make verify-integration`** or **`make verify-pipeline-integration`** for
+changes that affect those lanes. Dependabot bumps GitHub Actions monthly and
+`requirements.txt` weekly (see **`.github/dependabot.yml`**).
 
 ### Importing the `obsidiandroid` package (`src/` layout)
 
@@ -99,7 +108,9 @@ Orchestration lives in **`src/obsidiandroid/pipeline/runner.py`** (`run_pipeline
 | `make dev-import-check` | Import surface smoke test for `obsidiandroid` and shims. |
 | `make doc-check` | Fails if operational docs reintroduce removed phantom paths (`scripts/dev/check_doc_hygiene.py`). |
 | `make verify` | Runs `dev-import-check` logic then **fast** pytest (same as `make test` after import smoke). |
-| `make ci` | **`make doc-check`**, then **`make verify`**, then **`make ml-scan-strict`** — matches **`.github/workflows/ci.yml`**. |
+| `make ci-fast` | **`make doc-check`**, **`make verify`**, then **`make ml-scan-strict`** — matches the CI fast job. |
+| `make ci` | `make ci-fast` plus **`make verify-canonical`**; integration lanes are separate targets. |
+| `make verify-integration` / `make verify-pipeline-integration` | Run the partial or heavier pipeline integration lane for matching changes. |
 | `make ml-scan-strict` | ML call-site scan; fails on any warning (stricter than `make ml-scan`). |
 | `make clean-bytecode` | Remove `__pycache__` and common junk under the repo root. |
 | `make tree-source` | Print a filtered repo-root tree (requires `tree` on `PATH`). |

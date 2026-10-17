@@ -95,6 +95,7 @@ def test_expanded_family_profile_uses_benchmark_eligibility_support_floor() -> N
 
 def test_quick_menu_canonical_profiles_default_to_non_publication_mode() -> None:
     expected_non_evidence = (
+        "android_catalog_all_exploratory",
         "android_malware_all_current",
         "android_malware_major_families",
         "android_malware_expanded_families",
@@ -445,7 +446,8 @@ def test_select_profile_interactive_quick_includes_support20_candidate(monkeypat
 
     assert selected is None
     assert captured["Execution profile"] == [
-        "Run analysis — all Android samples",
+        "Explore Android catalog — all APKs",
+        "Run analysis — current Android malware",
         "Current benchmark — major-family classification",
         "Candidate benchmark — n >= 20; lock required",
         "Expanded exploration — major + mapped minor families",
@@ -457,9 +459,27 @@ def test_select_profile_interactive_quick_includes_support20_candidate(monkeypat
     assert subtitles["Execution profile"] is None
 
 
+def test_quick_all_android_choice_is_unfiltered_exploration(monkeypatch) -> None:
+    monkeypatch.setattr(
+        profile_manager.profile_selection.mu,
+        "display_menu",
+        lambda *_args, **_kwargs: 1,
+    )
+
+    selected = profile_manager.select_profile_interactive_quick()
+
+    assert selected == "android_catalog_all_exploratory"
+    profile = profile_manager.load_profile(selected)
+    assert profile["dataset_filters"]["mode"] == "none"
+    assert profile["cohort_gates"]["require_mapped_family"] is False
+    assert profile["cohort_gates"]["time_window_start_utc"].startswith("1900-")
+    assert profile["runtime_overrides"]["ENABLE_PERMISSION_TRENDS_REPORT"] is False
+    assert profile["runtime_overrides"]["ENABLE_RESEARCH_VALIDITY_BUNDLE"] is False
+
+
 def test_select_profile_interactive_quick_resolves_robustness_submenu(monkeypatch) -> None:
     """Robustness intent should expose exactly two sensitivity profiles."""
-    choices = iter([6, 2])
+    choices = iter([7, 2])
     seen: dict[str, list[str]] = {}
 
     def _fake_display_menu(options, *_, **kwargs):
@@ -472,7 +492,8 @@ def test_select_profile_interactive_quick_resolves_robustness_submenu(monkeypatc
 
     assert selected == "malicious_temporal_family300"
     assert seen["Execution profile"] == [
-        "Run analysis — all Android samples",
+        "Explore Android catalog — all APKs",
+        "Run analysis — current Android malware",
         "Current benchmark — major-family classification",
         "Candidate benchmark — n >= 20; lock required",
         "Expanded exploration — major + mapped minor families",
@@ -497,7 +518,7 @@ def test_type_taxonomy_profile_declares_type_slug_training_target() -> None:
 
 def test_select_profile_interactive_quick_resolves_development_submenu(monkeypatch) -> None:
     """Development intent should expose exactly fast iteration and smoke."""
-    choices = iter([7, 1])
+    choices = iter([8, 1])
     seen: dict[str, list[str]] = {}
 
     def _fake_display_menu(options, *_, **kwargs):

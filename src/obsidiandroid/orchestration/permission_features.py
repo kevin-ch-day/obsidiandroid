@@ -246,6 +246,11 @@ def build_permission_feature_frame(
         bow = pd.crosstab(bow_df["sample_id"], bow_df["permission_string"])
         bow = (bow > 0).astype(int)
         bow.columns = [f"perm__{_sanitize_permission_name(col)}" for col in bow.columns]
+        # Distinct raw permissions can collapse to one feature name after
+        # punctuation is sanitized.  Keep presence semantics and unique column
+        # names before merging with count features.
+        if not bow.columns.is_unique:
+            bow = bow.T.groupby(level=0, sort=False).max().T
         bow = bow.reset_index()
         feature_df = feature_df.merge(bow, on="sample_id", how="left")
 

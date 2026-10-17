@@ -9,8 +9,9 @@ from obsidiandroid.database.runtime_config_audit import build_runtime_database_c
 
 
 def main() -> int:
-    print(json.dumps(build_runtime_database_config_audit(check_connections=True), indent=2, sort_keys=True))
-    return 0
+    report = build_runtime_database_config_audit(check_connections=True)
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0 if report.get("audit_ok") is True else 1
 
 
 if __name__ == "__main__":

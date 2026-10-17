@@ -20,6 +20,17 @@ def test_sample_id_coercion_copies_once_without_mutating_source() -> None:
     assert source["sample_id"].tolist() == ["1", "invalid"]
 
 
+def test_sample_id_coercion_does_not_round_into_another_sample() -> None:
+    source = pd.DataFrame(
+        {"sample_id": [1, 1.6, "2", float("inf"), None], "av_score": [1, 9, 2, 8, 7]}
+    )
+
+    out = stage_feature_enrichment._coerce_sample_id_to_int64_rows(source)  # pylint: disable=protected-access
+
+    assert out["sample_id"].tolist() == [1, 2]
+    assert out["av_score"].tolist() == [1, 2]
+
+
 def test_merge_sample_metadata_features_disabled_returns_original() -> None:
     """Disabled metadata flag should return the enrichment frame unchanged when no permissions."""
     existing_df = pd.DataFrame({"sample_id": [1], "existing": [1.0]})
@@ -73,6 +84,27 @@ def test_merge_sample_metadata_features_merges_expected_columns() -> None:
     assert "meta__permissions" in result.columns
     assert "meta__vt_tag_count" in result.columns
     assert result.shape[0] == 2
+
+
+def test_merge_sample_metadata_features_keeps_permission_only_cohort_row() -> None:
+    """Missing AV enrichment must not erase catalog metadata or PI evidence."""
+    samples = pd.DataFrame({"sample_id": [10, 20], "permissions": [2, 4]})
+    av = pd.DataFrame({"sample_id": [10], "av_score": [0.8]})
+    permissions = pd.DataFrame({"sample_id": [10, 20], "perm__x": [0, 1]})
+
+    result = stage_feature_enrichment.merge_sample_metadata_features(
+        extra_features_df=av,
+        samples_df=samples,
+        feature_flags={"enable_sample_metadata_features": True},
+        permission_features_df=permissions,
+    )
+
+    assert result is not None
+    assert set(result["sample_id"]) == {10, 20}
+    row = result.set_index("sample_id").loc[20]
+    assert row["meta__permissions"] == 4
+    assert row["perm__x"] == 1
+    assert pd.isna(row["av_score"])
 
 
 def test_merge_sample_metadata_features_dedupes_before_permission_fuse() -> None:

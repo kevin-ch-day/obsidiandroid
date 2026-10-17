@@ -20,6 +20,35 @@ def test_infer_primary_row_loss_stage_av_gap() -> None:
     assert out["stage"] == "av_binary_matrix"
 
 
+def test_sparse_vendor_subset_does_not_claim_fused_row_loss() -> None:
+    out = fmgl.infer_primary_row_loss_stage(
+        cohort_rows=100, av_binary_rows=40, vendor_merge_rows=20,
+        final_feature_rows=100, cohort_missing_from_final=0,
+    )
+    assert out["stage"] == "no_fused_row_loss"
+
+
+def test_gap_report_keeps_missing_vendor_membership_unavailable(tmp_path: Path) -> None:
+    diag = tmp_path / "diagnostics"
+    diag.mkdir()
+    pd.DataFrame({"sample_id": [10, 20]}).to_csv(diag / "cohort_membership.csv", index=False)
+    (diag / "unmatched_label_ids.csv").write_text("sample_id\n", encoding="utf-8")
+    (diag / "feature_build_coverage.latest.json").write_text(
+        json.dumps({
+            "feature_matrix_unique_row_count": 2,
+            "vendor_merge_authority_unique_count": None,
+            "vendor_merge_equals_final_index": None,
+            "cohort_rows_missing_from_feature_matrix": 0,
+        }), encoding="utf-8",
+    )
+
+    _, _, summary = fmgl.run_feature_matrix_gap_report(tmp_path, skip_db_recompute=True)
+
+    assert summary["stage_row_counts"]["vendor_merge_authority_rows"] is None
+    assert summary["row_loss"]["vendor_merge_rows_equal_final_feature_index"] is None
+    assert summary["primary_row_loss_stage_inference"]["stage"] == "no_fused_row_loss"
+
+
 def test_analyze_fusion_vs_training_columns() -> None:
     modality = {
         "fusion_modality": {"feature_count_total": 829, "matrix_shape": {"columns": 829}},

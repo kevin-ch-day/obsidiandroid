@@ -21,7 +21,8 @@ def test_oem_dictionary_join_is_exact_token_and_resolved_vendor() -> None:
         oem_alias="o",
     )
     assert predicate == (
-        "BINARY o.permission_string = BINARY ops.permission_string"
+        "o.permission_string = ops.permission_string"
+        " AND BINARY o.permission_string = BINARY ops.permission_string"
         " AND o.vendor_id IS NOT NULL"
     )
 

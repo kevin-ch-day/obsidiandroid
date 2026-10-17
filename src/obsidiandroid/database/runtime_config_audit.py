@@ -64,7 +64,7 @@ def _classify_connection_error(exc: BaseException) -> str:
         errno = int(getattr(exc, "errno", 0) or 0)
         if errno in {1045, 1698}:
             return "authentication_failed"
-        if errno in {1044, 1142, 1227}:
+        if errno in {1044, 1142, 1143, 1227}:
             return "insufficient_select_privilege"
         if errno == 1146:
             return "missing_source_object"
@@ -147,6 +147,8 @@ def build_runtime_database_config_audit(*, check_connections: bool = True) -> di
     if not check_connections:
         report["source_connection_health"] = {"ok": False, "status": "not_checked"}
         report["permission_intel_connection_health"] = {"ok": False, "status": "not_checked"}
+        report["audit_ok"] = None
+        report["permission_v2_consumer_status"] = "not_checked"
         return report
 
     report["source_connection_health"] = _normal_reader_identity_status(_read_primary_surface)
@@ -160,12 +162,41 @@ def build_runtime_database_config_audit(*, check_connections: bool = True) -> di
         ),
     }
     report["permission_intel_connection_health"] = permission_intel_reader_identity_status()
-    report["permission_intel_surface_checks"] = {
-        "permission_observations": _connection_status(
-            lambda: _read_permission_surface("SELECT 1 FROM `android_permission_obs_sample` LIMIT 1")
-        ),
-        "permission_dictionary": _connection_status(
-            lambda: _read_permission_surface("SELECT 1 FROM `android_permission_dict_aosp` LIMIT 1")
-        ),
-    }
+    access = "UNVERIFIED"
+    if report["permission_intel_connection_health"]["ok"]:
+        try:
+            visible = bool(_read_permission_surface(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema=DATABASE() AND table_name='android_permission_obs_sample' LIMIT 1"))
+            access = db_engine.permission_access_status(
+                _read_permission_surface, legacy_visible=visible)
+        except Exception:
+            access = "UNVERIFIED"
+    report["permission_access_status"] = access
+    report["permission_v2_consumer_status"] = "not_checked"
+    if access == "LEGACY_ACCESS_PROTECTED":
+        report["permission_intel_surface_checks"] = {
+            "permission_observations": {"ok": True, "status": "blocked_as_intended", "read_available": False},
+            "permission_dictionary": {"ok": None, "status": "not_checked_for_exact_export"},
+        }
+        permission_ok = True
+    elif access == "LEGACY_READABLE":
+        checks = {
+            "permission_observations": _connection_status(
+                lambda: _read_permission_surface("SELECT 1 FROM `android_permission_obs_sample` LIMIT 1")),
+            "permission_dictionary": _connection_status(
+                lambda: _read_permission_surface("SELECT 1 FROM `android_permission_dict_aosp` LIMIT 1")),
+        }
+        report["permission_intel_surface_checks"] = checks
+        permission_ok = all(item["ok"] for item in checks.values())
+    else:
+        report["permission_intel_surface_checks"] = {
+            "legacy_boundary": {"ok": False, "status": access.lower()},
+        }
+        permission_ok = False
+    report["audit_ok"] = bool(
+        report["source_connection_health"]["ok"]
+        and report["permission_intel_connection_health"]["ok"]
+        and all(item["ok"] for item in report["source_surface_checks"].values())
+        and permission_ok)
     return report

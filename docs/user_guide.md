@@ -37,19 +37,27 @@ This guide walks operators through setting up their environment, executing the m
    - `OBSIDIAN_DB_OPTION_FILE` — an alternative private (`0600`) MariaDB client option file. It is explicit configuration, not a fallback; use it only for the normal read-only pipeline account, never the restricted Phase 2C extract reader.
    - `OBSIDIAN_DB_NAME` — primary Erebus schema (samples, VirusTotal mirrors, catalog).
    - `OBSIDIAN_PERMISSION_INTEL_DB_NAME` — Permission Intel schema (all live `android_permission_*` tables).
-2. The same database user typically needs `SELECT` on **both** schemas so cross-schema joins and the Permission Intel connection helper can run.
+2. Use the reviewed read-only account contract. On the PI V2-gated host, primary source reads remain available, while legacy PI observation reads are deliberately denied. Do not grant schema-wide PI SELECT to clear a diagnostic; see [`runtime_source_connection_policy.md`](runtime_source_connection_policy.md).
 3. If you use read-only replicas for analytics, configure your connection parameters (or separate profiles) to target the appropriate host; ObsidianDroid still uses one logical primary name and one Permission Intel name per run.
 4. Ensure necessary tables are accessible (see [`data_sources.md`](data_sources.md) for schema details and refresh cadences):
    - Primary: `malware_sample_catalog`, `virustotal_sample_vendor_engine_verdicts`, and related VT/catalog tables.
-   - Permission Intel: `android_permission_obs_sample` and related `android_permission_*` dictionaries and enrichment tables.
+   - Permission Intel: verify the research gate and expected legacy denial. Use the separately approved exact V2 export consumer for recovered evidence; generic database health does not approve features.
    - Legacy docs may reference `vt_*` naming; the replicated wide verdict table in this project is `virustotal_sample_vendor_engine_verdicts`.
-5. Before starting a pipeline, run `make audit-runtime-db`. It performs only credential-redacted configuration checks and bounded source `SELECT` queries; it does not connect to Core or create output. The normal default is `OBSIDIANDROID_RESULTS_PERSISTENCE_MODE=read_only`, which disables legacy Erebus warehouse writes and Core persistence. See [`runtime_source_connection_policy.md`](runtime_source_connection_policy.md).
+5. Before starting a pipeline, run `make audit-runtime-db`. It performs only
+   credential-redacted configuration checks and bounded source `SELECT` queries;
+   it does not connect to Core or create output. The normal default is
+   `OBSIDIANDROID_RESULTS_PERSISTENCE_MODE=read_only`, which disables legacy
+   Erebus warehouse writes. Explicit native analysis persistence has a separate
+   Core plan and writer; see
+   [`runtime_source_connection_policy.md`](runtime_source_connection_policy.md).
 
 ### VirusTotal integration checklist
 
 - **Data sync:** Replicate VirusTotal exports into your MySQL instance (see [`data_sources.md`](data_sources.md) for physical table names such as `virustotal_sample_vendor_engine_verdicts`). ObsidianDroid does not call the live VirusTotal API; it reads preloaded tables, so schedule ETL jobs to keep them fresh.
 - **Column hygiene:** After large VirusTotal updates, rerun a **pipeline pass that includes vendor scoring** (startup menu or `main.py`) so engine weights reflect fresh detections; scoring logic lives under `obsidiandroid/feature_engineering/compute_vendor_scores.py` and is invoked from pipeline stages.
-- **Access scope:** Provide read access only—write operations are limited to ObsidianDroid's `output/` directory on disk.
+- **Access scope:** Normal upstream source access is read-only. Explicit native
+  analysis persistence uses a separate Core writer and contract; it never
+  grants writes to Erebus or Permission Intel source tables.
 - **Backfill strategy:** When onboarding new samples, ensure the corresponding VirusTotal reports have been ingested; otherwise, vendor consensus features will be sparse and confidence scores will degrade.
 
 ## 4. Customize the Pipeline
@@ -68,6 +76,22 @@ This guide walks operators through setting up their environment, executing the m
 ./run.sh
 ```
 Choose a profile-driven pipeline action from the startup menu. Use `dev_smoke` for the shortest sanity run and `dev_fast` for rapid local iteration once database access is configured.
+
+The first execution-profile choice, **Explore Android catalog — all APKs**, keeps
+benign and unresolved rows and admits dated Android APKs across all years. It
+is an exploratory census, not the published paper cohort. The separate
+**current Android malware** choice retains its malicious-only filter. Rows
+whose catalog entry has no APK extension or effective first-seen date remain
+visible in the catalog audit but are outside the APK modeling cohort. Family
+scores apply only to rows with an authoritative family target; inspect
+`headline_modality_error_slices_<run_id>.csv` before interpreting an overall
+score when AV or permission evidence is sparse. This first broad profile skips
+the expensive Permission Trends and research-validity bundles. It also skips
+the post-run operator dashboard, which would repeat the full Permission Intel
+read after the core run is complete. Review the census and model artifacts
+before scheduling separate deep audits. To run the
+exploratory profile without Core persistence from the command line, use
+`./run.sh analysis run --profile android_catalog_all_exploratory`.
 
 ### Model Tuning
 ```bash
@@ -114,7 +138,8 @@ Additional artifacts such as confusion matrices, feature importance exports, pap
 
 ## 9. Getting Help
 
-- Review inline docstrings and comments within `src/obsidiandroid/` modules. The remaining `analysis/` tree is compatibility-only.
+- Review inline docstrings and comments within `src/obsidiandroid/` modules.
+  The repo-root `analysis/` package has been retired.
 - Search the `tests/` directory for usage examples of specific utilities.
 - Open an issue or start a discussion thread in the repository with details about your environment and logs when requesting support.
 

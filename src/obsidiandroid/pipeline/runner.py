@@ -143,6 +143,12 @@ def _emit_post_finalize_operator_report(
     top_model: str | None,
 ) -> None:
     """Emit operator dashboard after manifest finalize so seed artifacts exist."""
+    if profile_id == "android_catalog_all_exploratory":
+        # This first broad pass already writes the cohort/model diagnostics.
+        # The optional dashboard repeats full-corpus Permission Intel reads
+        # after the run is complete and can consume another long DB pass.
+        du.print_info("[REPORT] Post-run dashboard skipped for all-catalog exploration; review run diagnostics.")
+        return
     started_at = perf_counter()
     du.print_info("[REPORT] Post-run operator dashboard started...")
     try:
@@ -517,12 +523,19 @@ def _run_pipeline_impl(
         profile_id = str(policy["profile_id"])
         if rr:
             mark_run_lifecycle_running(Path(rr), run_id=run_id, profile_id=profile_id)
-        if profile_id == "android_malware_all_current":
-            active_peer_runs = find_active_profile_runs(
-                output_root_base,
-                profile_id=profile_id,
-                exclude_run_id=run_id,
-            )
+        if profile_id in {"android_malware_all_current", "android_catalog_all_exploratory"}:
+            active_peer_runs = [
+                peer
+                for broad_profile in (
+                    "android_malware_all_current",
+                    "android_catalog_all_exploratory",
+                )
+                for peer in find_active_profile_runs(
+                    output_root_base,
+                    profile_id=broad_profile,
+                    exclude_run_id=run_id,
+                )
+            ]
             if active_peer_runs:
                 peer = active_peer_runs[0]
                 started = f" started={peer.started_at_utc}" if peer.started_at_utc else ""
@@ -531,9 +544,8 @@ def _run_pipeline_impl(
                     (
                         "[PIPELINE] Another active broad current-corpus run is already in progress: "
                         f"run_id={peer.run_id}{pid_hint}{started}. "
-                        "Refusing to start a second android_malware_all_current run because it is the "
-                        "highest-cost profile and duplicate concurrent runs were the main observed "
-                        "cause of machine thrash."
+                        "Refusing to start another broad Android run while one is active; "
+                        "duplicate concurrent runs were the main observed cause of machine thrash."
                     ),
                     stage_name="preflight",
                 )
@@ -1215,6 +1227,12 @@ def _run_pipeline_impl(
                     permission_features_df=permission_features_df
                     if isinstance(permission_features_df, pd.DataFrame)
                     else None,
+                    av_enrichment_sample_ids=(
+                        pipeline_results["enriched_matrix"]["sample_id"]
+                        if isinstance(pipeline_results.get("enriched_matrix"), pd.DataFrame)
+                        and "sample_id" in pipeline_results["enriched_matrix"].columns
+                        else None
+                    ),
                     output_dir=DIAGNOSTICS_DIR,
                     run_id=run_id,
                     samples_df=samples_df,
@@ -2037,18 +2055,6 @@ def _run_pipeline_impl(
                 samples_df=samples_df,
                 pipeline_results=pipeline_results,
                 vendor_eval=vendor_eval,
-            )
-            _emit_post_finalize_operator_report(
-                st=st,
-                diagnostics_dir=Path(
-                    str(getattr(app_config, "RUNTIME_DIAGNOSTICS_DIR", DIAGNOSTICS_DIR) or DIAGNOSTICS_DIR)
-                ),
-                run_id=run_id,
-                profile_id=str(profile.get("profile_id", "") or manifest_context.get("profile_id", "")),
-                manifest_context=manifest_context,
-                samples_df=samples_df,
-                model_results=model_results,
-                top_model=top_model_for_policy,
             )
         if bool(getattr(app_config, "EVIDENCE_MODE_ENABLED", getattr(app_config, "PAPER_MODE_ENABLED", False))) and bool(
             getattr(

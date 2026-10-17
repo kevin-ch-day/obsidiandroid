@@ -616,10 +616,10 @@ def write_research_question_artifacts(
     denom_pi = float(gov) or 1.0
     raw_perm_pct = _safe_pct(float(raw_perm_n or 0), denom_pi) if gov else 0.0
     pi_pct = _safe_pct(float(pi_n or 0), denom_pi)
-    vm_pct = _safe_pct(float(vmerge or 0), denom_pi)
+    vm_pct = _safe_pct(float(vmerge), denom_pi) if vmerge is not None else None
 
     concentration_warn = top_share > 25.0 or t5_share > 60.0
-    sparse_vendor = vm_pct < 10.0
+    sparse_vendor = vm_pct is not None and vm_pct < 10.0
     broad_perm = pi_pct >= 90.0
 
     if concentration_warn:
@@ -947,6 +947,8 @@ def write_research_question_artifacts(
 
     if sparse_vendor:
         interpret_q2.append("Parsed vendor metadata merge coverage is sparse — treat as partial enrichment.")
+    elif vmerge is None:
+        interpret_q2.append("Parsed vendor merge membership was not recorded; coverage is unavailable.")
     if broad_perm:
         interpret_q2.append("Permission signal covers most of the governed cohort — primary broad modality.")
     if (
@@ -980,7 +982,7 @@ def write_research_question_artifacts(
         [
             {
                 "metric": "vendor_merge_authority_n",
-                "value": int(vmerge or 0),
+                "value": int(vmerge) if vmerge is not None else None,
                 "denominator": gov,
                 "pct": vm_pct,
             },
@@ -1037,7 +1039,7 @@ def write_research_question_artifacts(
         "permission_raw_observation_n": int(raw_perm_n or 0),
         "permission_raw_observation_pct": raw_perm_pct,
         "permission_feature_columns": perm_cols_fused,
-        "vendor_merge_n": int(vmerge or 0),
+        "vendor_merge_n": int(vmerge) if vmerge is not None else None,
         "vendor_merge_pct": vm_pct,
         "av_engines_observed": eng_obs,
         "av_engines_included": eng_in,
@@ -1056,7 +1058,11 @@ def write_research_question_artifacts(
         "",
         f"- Permission signal: **{int(pi_n or 0)} / {gov}** ({pi_pct:.2f}%)",
         f"- Permission feature columns (fused / contract): **{perm_cols_fused if perm_cols_fused is not None else '—'}**",
-        f"- Parsed vendor weak-support coverage: **{int(vmerge or 0)} / {gov}** ({vm_pct:.2f}%)",
+        (
+            f"- Parsed vendor weak-support coverage: **{int(vmerge)} / {gov}** ({vm_pct:.2f}%)"
+            if vmerge is not None and vm_pct is not None
+            else "- Parsed vendor weak-support coverage: **Unavailable** (merge membership not recorded)"
+        ),
         f"- AV engines (observed / included): **{eng_obs}** / **{eng_in}**",
         "",
         "See `feature_set_ablation_summary.csv` and `.md`.",
@@ -1329,7 +1335,11 @@ def write_research_question_artifacts(
 
     top_confusion_csv = diagnostics_dir / "top_confusion_pairs.csv"
     try:
-        if not top_confusion_csv.exists() or top_confusion_csv.stat().st_size <= 1:
+        if (
+            not top_confusion_csv.exists()
+            or top_confusion_csv.stat().st_size <= 1
+            or pd.read_csv(top_confusion_csv).empty
+        ):
             _write_top_confusion_pairs_csv(diagnostics_dir, conf_rows)
     except Exception:
         pass
@@ -1436,10 +1446,12 @@ def print_research_questions_terminal(
         f"({float(q2.get('permission_signal_pct') or 0):.2f}%)"
     )
     pr(f"  Permission feature columns: {q2.get('permission_feature_columns', '—')}")
-    pr(
-        f"  Parsed vendor metadata (weak-support coverage): {q2.get('vendor_merge_n', '—')} / {gov} "
-        f"({float(q2.get('vendor_merge_pct') or 0):.2f}%)"
-    )
+    vendor_n = q2.get("vendor_merge_n")
+    vendor_pct = q2.get("vendor_merge_pct")
+    if vendor_n is None or vendor_pct is None:
+        pr("  Parsed vendor metadata (weak-support coverage): Unavailable")
+    else:
+        pr(f"  Parsed vendor metadata (weak-support coverage): {vendor_n} / {gov} ({float(vendor_pct):.2f}%)")
     pr(
         f"  AV engines observed / included: {q2.get('av_engines_observed', '—')} / "
         f"{q2.get('av_engines_included', '—')}"

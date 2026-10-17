@@ -14,10 +14,12 @@ ObsidianDroid does **not** call live VirusTotal APIs during execution. Instead, 
 
 ObsidianDroid consumes two **upstream read-only** logical databases on the same
 MySQL/MariaDB instance in typical deployments. A third, dedicated
-ObsidianDroid Core database is provisioned for preserved run evidence, but
-contains no evidence rows and remains disabled until separately approved Phase
-2C work. Configure source
-schema names with `OBSIDIAN_DB_NAME` (primary) and
+ObsidianDroid Core database holds separately governed downstream evidence.
+Core schema provisioning, controlled fixture import, native analysis
+persistence, and operational assessment have distinct lifecycle and approval
+boundaries; do not infer current production row counts or enabled writers from
+an older phase checkpoint. Configure source schema names with
+`OBSIDIAN_DB_NAME` (primary) and
 `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (Permission Intel). The core connection
 uses its own required `OBSIDIANDROID_CORE_DB_*` credentials and defaults only
 its database name to `obsidiandroid_core_prod`; it never falls back to primary
@@ -59,6 +61,15 @@ or family/type authority from the Android taxonomy layer.
 
 ### Permission Intel database (`OBSIDIAN_PERMISSION_INTEL_DB_NAME`, default `android_permission_intel`)
 
+The table inventory below describes storage ownership, not current research-reader
+privileges. On the V2-gated production host, recovered evidence is consumed through
+the separately approved exact export. Direct legacy observation/current-enrichment
+reads remain denied. Do not restore broad PI grants to run old cross-schema queries.
+The source contract preserves unresolved provider occurrences, not inferred manifest
+truth. See [runtime access policy](runtime_source_connection_policy.md).
+
+The rows below name versioned contracts, not a verified live schema inventory.
+
 | Schema area | Key tables | Purpose |
 | --- | --- | --- |
 | Android permissions | `android_permission_obs_sample`, `android_permission_dict_aosp`, `android_permission_dict_oem`, `android_permission_dict_unknown`, `android_permission_meta_oem_vendor`, `android_permission_enrich_vt_current`, `android_permission_enrich_vt_event` | Observed permission rows, dictionaries, OEM metadata, and enrichment used by permission-trend reporting and ML permission features. |
@@ -78,22 +89,27 @@ reviewed schema ledger exists. Configure it only with a dedicated account:
 - `OBSIDIANDROID_CORE_DB_NAME` (default `obsidiandroid_core_prod`)
 - `OBSIDIANDROID_CORE_DB_USER`
 - `OBSIDIANDROID_CORE_DB_PASSWORD`
-- `OBSIDIANDROID_CORE_PERSISTENCE_ENABLED` (default `false`; keep disabled until separately approved Phase 2C work)
+- `OBSIDIANDROID_CORE_PERSISTENCE_ENABLED` (default `false`; enable only for a separately reviewed runtime scope)
 
 | Schema area | Key tables | Purpose |
 | --- | --- | --- |
 | Migration governance | `core_schema_migration` | Applied schema-ledger entries and checksums |
 | Run evidence | `core_profile`, `core_source_snapshot`, `core_run`, `core_run_sample` | Frozen profile, source, run, and sample-membership evidence |
 | Artifact and quality evidence | `core_artifact`, `core_quality_finding` | Artifact hashes/availability and run-scoped findings |
+| Native analysis results | Normalized result tables and migration `0007` | Separately governed run-scoped model outcomes; see [`ANALYSIS_PERSISTENCE_V1.md`](ANALYSIS_PERSISTENCE_V1.md) |
+| Operational assessment | `core_assessment_artifact`, `core_assessment_revision`, `v_core_assessment_current` | Separate exact-SHA assessment revisions; see [`OPERATIONAL_ASSESSMENT_V1.md`](OPERATIONAL_ASSESSMENT_V1.md) |
 
-**Current status:** the seven-table Core schema is provisioned with migrations
-`0001` and `0002` applied, zero evidence rows, and persistence disabled.
-Dedicated Core accounts are separated from source readers; the local Core
-migrator is normally locked, and the writer is insert-only while persistence
-is disabled. No pipeline writes, historical import, or database cutover has
-occurred. Phase 2C fixture import and Phase 2D integration remain separately
-authorized. See the
-[`core_migration` documentation](core_migration/README.md).
+**Historical Phase 2B checkpoint:** the seven-table Core foundation had
+`0001`/`0002` applied, zero evidence rows, and pipeline persistence disabled.
+That snapshot predates the separately authorized Phase 2C fixture import and
+the later native-analysis production smoke documented in
+[`core_migration`](core_migration/README.md) and
+[`ANALYSIS_PERSISTENCE_V1.md`](ANALYSIS_PERSISTENCE_V1.md). Operational
+assessment migration `0006` has its own deployment boundary in
+[`OPERATIONAL_ASSESSMENT_V1.md`](OPERATIONAL_ASSESSMENT_V1.md). Check the live
+Core ledger, account grants, table counts, and writer configuration before
+reporting a current deployment state. Core remains downstream; no Core phase
+authorizes writes to Erebus or Permission Intel source tables.
 
 ### Contributor rules (split database)
 
@@ -103,13 +119,22 @@ authorized. See the
 
 Connections are built from `obsidiandroid.database.db_config`. Pooling applies to the primary connection when `OBSIDIAN_DB_ENABLE_POOLING` is enabled; Permission Intel uses a dedicated connection helper (`execute_permission_query` in `obsidiandroid.database.db_engine`).
 
-## Replication & Refresh Cadence
+## Source Refresh and Verification
 
-1. **Snapshot frequency:** Pull fresh VirusTotal exports nightly using the upstream sync job documented in the internal ops runbooks.
-2. **Permission Intel:** Erebus mines and stores permission intelligence; the Permission Intel schema is the live consumer-facing source for ObsidianDroid permission paths.
-3. **Ordering guarantees:** Apply engine metadata before loading detection facts to ensure foreign keys resolve.
-4. **Verification:** After each load, verify row counts and key coverage for the active ObsidianDroid tables above before running a profile. This repository does not currently ship a dedicated `validate_database_snapshot.py` helper.
-5. **Backups:** Retain seven days of dumps for rollback; the `operations_playbook.md` includes recovery instructions.
+1. **Cadence:** Confirm the actual upstream Erebus/VirusTotal and Permission
+   Intel refresh schedules and receipts. This repository does not establish a
+   nightly sync job or a provider request entitlement.
+2. **Permission Intel:** Use the approved exact V2 consumer on a gated host.
+   Verify its retained source membership and approval; do not infer observations
+   from catalog counts or require unsafe legacy reads.
+3. **Load ordering:** When an upstream owner loads new detection facts, ensure
+   engine metadata and dependent keys are available before analysis.
+4. **Verification:** Compare bounded row counts, timestamps, exact-key coverage,
+   and the run's frozen source snapshot before interpreting model results. The
+   `make audit-runtime-db` command checks source configuration and bounded
+   reads; it does not certify a full provider refresh.
+5. **Backups:** Follow the owning system's reviewed retention and restore
+   policy. No universal seven-day dump period is established by this repo.
 
 ## VirusTotal Terms of Use
 
@@ -125,7 +150,7 @@ Access to replicated VirusTotal data must comply with [VirusTotal’s Terms of S
 
 - [`architecture.md`](architecture.md) explains how each module consumes the tables listed above.
 - [`user_guide.md`](user_guide.md) contains step-by-step configuration instructions for pointing ObsidianDroid at your database instance.
-- [`operations_playbook.md`](operations_playbook.md) provides incident response and restore workflows for the replication jobs.
+- [`operations_playbook.md`](operations_playbook.md) provides deployment checks and incident triage boundaries; upstream restore procedures remain with their owners.
 - [`LABEL_AUTHORITY_SCHEMA_PLAN.md`](LABEL_AUTHORITY_SCHEMA_PLAN.md) defines the proposed
   family/type authority and vendor-label evidence layer for Erebus.
 - [`core_migration/phase2_apply_plan.md`](core_migration/phase2_apply_plan.md)

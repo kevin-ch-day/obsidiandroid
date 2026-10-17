@@ -31,15 +31,16 @@ def _perm_bag_positive_mask(
     ]
     if not bag_cols:
         return out
-    sid = pd.to_numeric(permission_features_df["sample_id"], errors="coerce").round().astype("int64")
+    sid = _exact_sample_id_series(permission_features_df["sample_id"])
     cohort_set = set(cohort_ids)
-    sub = permission_features_df.loc[sid.isin(cohort_set)].copy()
-    sub["_sid"] = pd.to_numeric(sub["sample_id"], errors="coerce").round().astype("int64")
+    selected = sid.isin(cohort_set)
+    sub = permission_features_df.loc[selected].copy()
+    sub["_sid"] = sid.loc[selected].to_numpy()
     mat = sub[bag_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
-    any_pos = (mat.sum(axis=1) > 0).to_numpy()
+    any_pos = (mat > 0).any(axis=1).to_numpy()
     ids = sub["_sid"].to_numpy()
     for i, sid_val in enumerate(ids):
-        out[int(sid_val)] = bool(any_pos[i])
+        out[int(sid_val)] |= bool(any_pos[i])
     return out
 
 
@@ -48,6 +49,7 @@ def export_feature_modality_coverage_audit(
     cohort_sample_ids: Iterable[Any],
     feature_df: pd.DataFrame,
     permission_features_df: pd.DataFrame | None,
+    av_enrichment_sample_ids: Iterable[Any] | None = None,
     output_dir: str | Path,
     run_id: str,
     samples_df: pd.DataFrame | None = None,
@@ -72,10 +74,13 @@ def export_feature_modality_coverage_audit(
     if not cohort_ids:
         return None, None
 
-    vendor_ids = set()
     vm = feature_df.attrs.get("vendor_merge_sample_ids")
-    if isinstance(vm, list):
-        vendor_ids = _normalize_sample_ids(vm)
+    vendor_ids = _normalize_sample_ids(vm) if isinstance(vm, list) else None
+    av_ids = (
+        _normalize_sample_ids(av_enrichment_sample_ids)
+        if av_enrichment_sample_ids is not None
+        else None
+    )
 
     perm_pi_positive = _perm_bag_positive_mask(permission_features_df, cohort_ids)
 
@@ -141,13 +146,20 @@ def export_feature_modality_coverage_audit(
 
     audit_df = pd.DataFrame(index=audit_index)
     audit_df["in_governed_cohort"] = True
-    audit_df["in_vendor_feature_matrix"] = audit_index.isin(vendor_ids)
+    audit_df["in_vendor_feature_matrix"] = (
+        audit_index.isin(vendor_ids) if vendor_ids is not None else pd.NA
+    )
+    audit_df["in_av_enrichment_matrix"] = (
+        audit_index.isin(av_ids) if av_ids is not None else pd.NA
+    )
     audit_df["in_permission_feature_matrix"] = [bool(perm_pi_positive.get(sid, False)) for sid in audit_index]
     audit_df["in_final_fused_matrix"] = audit_index.isin(idx_ids)
     audit_df["has_vendor_features"] = audit_index.map(vendor_signal).fillna(False).astype(bool)
     audit_df["has_permission_features"] = audit_index.map(permission_signal).fillna(False).astype(bool)
     audit_df["has_metadata_features"] = audit_index.map(metadata_signal).fillna(False).astype(bool)
-    audit_df["vendor_parser_gate_passed"] = audit_index.isin(vendor_ids)
+    audit_df["vendor_parser_gate_passed"] = (
+        audit_index.isin(vendor_ids) if vendor_ids is not None else pd.NA
+    )
     audit_df["permission_signal_positive"] = audit_df["in_permission_feature_matrix"]
     audit_df["has_any_feature"] = (
         audit_df["has_vendor_features"]
@@ -160,9 +172,9 @@ def export_feature_modality_coverage_audit(
 
     if isinstance(samples_df, pd.DataFrame) and not samples_df.empty and "sample_id" in samples_df.columns:
         sample_rows = samples_df.copy()
-        sample_rows["_audit_sid"] = pd.to_numeric(sample_rows["sample_id"], errors="coerce")
+        sample_rows["_audit_sid"] = _exact_sample_id_series(sample_rows["sample_id"])
         sample_rows = sample_rows.loc[sample_rows["_audit_sid"].notna()].copy()
-        sample_rows["_audit_sid"] = sample_rows["_audit_sid"].round().astype("int64")
+        sample_rows["_audit_sid"] = sample_rows["_audit_sid"].astype("int64")
         sample_rows = sample_rows.drop_duplicates("_audit_sid", keep="first").set_index("_audit_sid", drop=False)
         metadata_present = audit_index.isin(sample_rows.index)
         audit_df.loc[~metadata_present & audit_df["dropped_reason_supervised_training"].eq(""), "dropped_reason_supervised_training"] = (
@@ -203,7 +215,8 @@ def export_feature_modality_coverage_audit(
         "run_id": rid,
         "governed_cohort_n": len(cohort_ids),
         "fused_matrix_row_n": len(idx_ids),
-        "vendor_merge_n": len(vendor_ids),
+        "vendor_merge_n": len(vendor_ids) if vendor_ids is not None else None,
+        "av_enrichment_row_n": len(av_ids) if av_ids is not None else None,
         "vendor_merge_n_note": (
             "vendor_merge_n is the inner vendor-authority slice count before cohort expansion; "
             "fused_matrix_row_n remains governed-cohort-authoritative (see feature_build_coverage JSON)."
@@ -266,8 +279,9 @@ def gap_permission_bag_strata(
         out["gap_permission_bag_columns"] = 0
         return out
 
-    sid_series = pd.to_numeric(permission_features_df["sample_id"], errors="coerce").round().astype("int64")
-    sub = permission_features_df.loc[sid_series.isin(sorted(miss))].copy()
+    sid_series = _exact_sample_id_series(permission_features_df["sample_id"])
+    selected = sid_series.isin(miss)
+    sub = permission_features_df.loc[selected].copy()
     out["gap_missing_rows_in_permission_frame"] = int(len(sub))
     if sub.empty:
         out["gap_missing_with_permission_frame_row"] = 0
@@ -275,12 +289,20 @@ def gap_permission_bag_strata(
         return out
 
     mat = sub[bag_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
-    any_pos = (mat.sum(axis=1) > 0).astype(bool)
-    out["gap_missing_with_any_perm_bag_positive"] = int(any_pos.sum())
+    sub_ids = pd.Series(sid_series.loc[selected].astype("int64").to_numpy(), index=sub.index)
+    any_pos = (mat > 0).any(axis=1)
+    out["gap_missing_with_permission_frame_row"] = int(sub_ids.nunique())
+    out["gap_missing_with_any_perm_bag_positive"] = int(sub_ids[any_pos].nunique())
     internet = next((c for c in bag_cols if "internet" in str(c).lower()), None)
     if internet and internet in mat.columns:
-        out["gap_missing_perm_internet_nonzero"] = int((mat[internet] > 0).sum())
+        out["gap_missing_perm_internet_nonzero"] = int(sub_ids[mat[internet] > 0].nunique())
     return out
+
+
+def _exact_sample_id_series(values: pd.Series) -> pd.Series:
+    """Keep only integral sample IDs; malformed IDs must not round into a cohort."""
+    numeric = pd.to_numeric(values, errors="coerce")
+    return numeric.where(numeric.mod(1).eq(0)).astype("Int64")
 
 
 def _normalize_sample_ids(values: Iterable[Any]) -> set[int]:
@@ -346,10 +368,7 @@ def export_feature_build_coverage(
     cohort_set = _normalize_sample_ids(cohort_sample_ids)
     final_set = _matrix_row_sample_ids(feature_df)
     vendor_attrs = feature_df.attrs.get("vendor_merge_sample_ids")
-    if isinstance(vendor_attrs, list) and vendor_attrs:
-        vendor_set = _normalize_sample_ids(vendor_attrs)
-    else:
-        vendor_set = set(final_set)
+    vendor_set = _normalize_sample_ids(vendor_attrs) if isinstance(vendor_attrs, list) else None
 
     missing_from_feature = sorted(cohort_set - final_set)
     extra_in_feature = sorted(final_set - cohort_set)
@@ -358,10 +377,11 @@ def export_feature_build_coverage(
         "run_id": str(run_id),
         "cohort_unique_sample_count": len(cohort_set),
         "feature_matrix_unique_row_count": len(final_set),
-        "vendor_merge_authority_unique_count": len(vendor_set),
+        "vendor_merge_authority_unique_count": len(vendor_set) if vendor_set is not None else None,
+        "vendor_merge_authority_available": vendor_set is not None,
         "cohort_rows_missing_from_feature_matrix": len(missing_from_feature),
         "feature_rows_not_in_cohort": len(extra_in_feature),
-        "vendor_merge_equals_final_index": vendor_set == final_set,
+        "vendor_merge_equals_final_index": vendor_set == final_set if vendor_set is not None else None,
         "row_authority_note": (
             "Fused matrix index is governed-cohort-authoritative when cohort_sample_ids are passed to "
             "build_feature_vector (vendor-only rows are unknown/zero-filled; permissions/metadata come "

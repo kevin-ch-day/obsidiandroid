@@ -434,9 +434,19 @@ def test_exploratory_profile_is_not_blocked_by_publication_lock(
 
 
 @pytest.mark.pipeline_heavy
+@pytest.mark.parametrize(
+    ("requested_profile", "active_profile"),
+    [
+        ("android_malware_all_current", "android_malware_all_current"),
+        ("android_catalog_all_exploratory", "android_malware_all_current"),
+        ("android_malware_all_current", "android_catalog_all_exploratory"),
+    ],
+)
 def test_broad_current_profile_refuses_second_concurrent_run(
     monkeypatch,
     tmp_path: Path,
+    requested_profile: str,
+    active_profile: str,
 ) -> None:
     """Broad current-corpus runs should fail early when another active peer run exists."""
     output_root = tmp_path / "output"
@@ -451,7 +461,7 @@ def test_broad_current_profile_refuses_second_concurrent_run(
                 "pid": 1,
                 "hostname": "other-host",
                 "run_id": "existing_peer",
-                "profile_id": "android_malware_all_current",
+                "profile_id": active_profile,
             },
             indent=2,
             sort_keys=True,
@@ -478,7 +488,7 @@ def test_broad_current_profile_refuses_second_concurrent_run(
         main.profile_manager,
         "load_profile",
         lambda _ref: {
-            "profile_id": "android_malware_all_current",
+            "profile_id": requested_profile,
             "type_slug_filter": None,
             "cohort_gates": {},
             "model_list": ["logistic_regression"],
@@ -499,7 +509,7 @@ def test_broad_current_profile_refuses_second_concurrent_run(
 
     monkeypatch.setattr(main, "load_and_prepare_samples", _samples_should_not_run)
 
-    result = main.run_pipeline(profile_ref="android_malware_all_current")
+    result = main.run_pipeline(profile_ref=requested_profile)
 
     assert result == 1
     manifest_context = captured["manifest_context"]

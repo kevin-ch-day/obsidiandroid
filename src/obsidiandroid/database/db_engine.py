@@ -883,18 +883,64 @@ def test_permission_intel_connection(verbose: bool = False) -> bool:
             conn.close()
 
 
+def permission_access_status(read_rows, *, legacy_visible: bool) -> str:
+    """Classify effective legacy access using bounded SELECT-only probes.
+
+    This is not approval of an exact V2 export. Both diagnostics share this
+    classifier so missing evidence cannot silently become successful access.
+    """
+    try:
+        rows = read_rows("SELECT legacy_observation_reads FROM "
+                    "android_permission_research_gate_v2_candidate WHERE gate_id=1")
+    except Error as exc:
+        if exc.errno == 1146 and legacy_visible:
+            return "LEGACY_READABLE"
+        return "UNVERIFIED"
+    if rows == [("ALLOW",)]:
+        return "LEGACY_READABLE" if legacy_visible else "UNVERIFIED"
+    if rows != [("BLOCK",)]:
+        return "UNVERIFIED"
+    for table, column in (
+        ("android_permission_obs_sample", "sample_id"),
+        ("android_permission_enrich_vt_current", "permission_string"),
+    ):
+        try:
+            read_rows(f"SELECT {column} FROM {table} LIMIT 0")
+        except Error as exc:
+            if exc.errno not in (1142, 1143):
+                return "UNVERIFIED"
+        else:
+            return "UNSAFE_LEGACY_ACCESS"
+    return "LEGACY_ACCESS_PROTECTED"
+
+
+def _permission_access_health(conn, *, legacy_visible: bool) -> str:
+    cur = conn.cursor()
+    try:
+        def read_rows(sql):
+            cur.execute(sql)
+            return cur.fetchall()
+        return permission_access_status(read_rows, legacy_visible=legacy_visible)
+    finally:
+        cur.close()
+
+
 def check_split_database_health() -> dict:
-    """Verify primary DB, Permission Intel DB, and ``android_permission_obs_sample`` in PI.
+    """Verify connectivity and distinguish legacy visibility from enforced denial.
 
     Returns:
         Dict with keys: ``primary_ok``, ``permission_intel_ok``,
         ``permission_obs_sample_in_pi`` (all booleans), plus optional
         ``primary_error`` / ``permission_intel_error`` (short strings when checks fail).
+        ``permission_access_status`` distinguishes protected, readable, unsafe and
+        unverified access. V2 consumer approval is explicitly not checked.
     """
     result: dict = {
         "primary_ok": False,
         "permission_intel_ok": False,
         "permission_obs_sample_in_pi": False,
+        "permission_access_status": "UNVERIFIED",
+        "permission_v2_consumer_status": "NOT_CHECKED",
         "primary_error": None,
         "permission_intel_error": None,
     }
@@ -941,6 +987,9 @@ def check_split_database_health() -> dict:
                     )
                 finally:
                     cur.close()
+                if result["permission_intel_ok"]:
+                    result["permission_access_status"] = _permission_access_health(
+                        conn, legacy_visible=result["permission_obs_sample_in_pi"])
         finally:
             if conn and conn.is_connected():
                 conn.close()
@@ -959,6 +1008,7 @@ def split_database_health_cli() -> int:
     """Print JSON health status; exit 0 if all checks pass."""
     report = check_split_database_health()
     print(json.dumps(report, indent=2))
-    if report["primary_ok"] and report["permission_intel_ok"] and report["permission_obs_sample_in_pi"]:
+    if (report["primary_ok"] and report["permission_intel_ok"]
+            and report["permission_access_status"] in {"LEGACY_READABLE", "LEGACY_ACCESS_PROTECTED"}):
         return 0
     return 1

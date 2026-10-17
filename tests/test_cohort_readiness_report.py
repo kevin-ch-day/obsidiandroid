@@ -156,7 +156,7 @@ def test_cohort_readiness_report_warns_for_android_catalog_semantic_anomalies(ca
     assert "top data-quality pockets" in out.lower()
     assert "families" in out
     assert isinstance(warnings, list)
-    assert any("non-android analysis_lane rows present" in msg for msg in warnings)
+    assert any("rows outside the android_artifact analysis lane" in msg for msg in warnings)
     assert any("non-android payload_target_platform rows present" in msg for msg in warnings)
     assert any("hash-like sample labels remain" in msg for msg in warnings)
     assert any("unclassified sample labels remain" in msg.lower() for msg in warnings)
@@ -261,7 +261,7 @@ def test_cohort_readiness_report_includes_sql_scope_catalog_preview(capsys) -> N
     assert "SQL Scope Catalog Preview" not in out
     assert "Loader Slice Catalog Preview" not in out
     assert isinstance(warnings, list)
-    assert any("SQL scope contains more non-android analysis_lane drift" in msg for msg in warnings)
+    assert any("SQL scope contains more rows outside the android_artifact analysis lane" in msg for msg in warnings)
     assert any("SQL scope contains more weak-label rows with canonical family authority" in msg for msg in warnings)
 
 

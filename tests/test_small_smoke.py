@@ -94,4 +94,23 @@ def test_display_menu_returns_zero_on_keyboard_interrupt(monkeypatch) -> None:
 def test_startup_menu_main_returns_130_on_keyboard_interrupt(monkeypatch) -> None:
     """Top-level startup menu should convert Ctrl+C to exit code 130."""
     monkeypatch.setattr(startup_menu, "launch_startup_menu", lambda: (_ for _ in ()).throw(KeyboardInterrupt))
-    assert startup_menu.main() == 130
+    assert startup_menu.main([]) == 130
+
+
+def test_startup_menu_help_exits_without_launching_menu(monkeypatch, capsys) -> None:
+    """Help must be noninteractive and must not initialize the operator menu."""
+    launched = False
+
+    def _unexpected_launch() -> int:
+        nonlocal launched
+        launched = True
+        return 0
+
+    monkeypatch.setattr(startup_menu, "launch_startup_menu", _unexpected_launch)
+
+    with pytest.raises(SystemExit) as exc_info:
+        startup_menu.main(["--help"])
+
+    assert exc_info.value.code == 0
+    assert not launched
+    assert "Launch the interactive ObsidianDroid operator console." in capsys.readouterr().out

@@ -191,3 +191,29 @@ def test_app_defined_is_not_counted_as_oem(monkeypatch) -> None:
         pd.DataFrame({"sample_id": [1]}), min_permission_support=1
     )
     assert int(out.loc[0, "perm__oem_count"]) == 1
+
+
+def test_permission_bag_merges_sanitized_name_collisions(monkeypatch) -> None:
+    monkeypatch.setattr(
+        permission_features,
+        "_fetch_permission_rows",
+        lambda _sample_ids: pd.DataFrame(
+            {
+                "sample_id": [1, 2, 2],
+                "permission_string": [
+                    "android.permission.billing",
+                    "android.permission..billing",
+                    "android.permission.billing",
+                ],
+                "permission_source": ["AOSP", "UNKNOWN", "AOSP"],
+                "protection_level": ["NORMAL", "UNKNOWN", "NORMAL"],
+            }
+        ),
+    )
+    out = permission_features.build_permission_feature_frame(
+        pd.DataFrame({"sample_id": [1, 2]}), min_permission_support=1
+    )
+    name = "perm__android_permission_billing"
+    assert list(out.columns).count(name) == 1
+    assert out.set_index("sample_id")[name].to_dict() == {1: 1, 2: 1}
+    assert out.set_index("sample_id")["perm__total_count"].to_dict() == {1: 1, 2: 2}

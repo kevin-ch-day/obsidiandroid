@@ -67,9 +67,9 @@ def split_benign_malicious(samples_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.D
     vt_undetected = _num_nullable(samples_df, "vt_undetected_count")
     vt_reputation = _num_nullable(samples_df, "vt_reputation")
     vt_positive = vt_malicious.fillna(0.0) + vt_suspicious.fillna(0.0)
-    vt_consensus_known = vt_malicious.notna() | vt_suspicious.notna()
+    vt_consensus_complete = vt_malicious.notna() & vt_suspicious.notna()
 
-    benign_mask = vt_consensus_known & (vt_positive == 0) & (
+    benign_mask = vt_consensus_complete & (vt_positive == 0) & (
         (vt_undetected.fillna(0.0) > 0) | (vt_reputation.notna() & (vt_reputation >= 0))
     )
     malicious_mask = vt_positive > 0
@@ -83,8 +83,10 @@ def split_benign_malicious(samples_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.D
         )
         fallback_benign = primary.str.contains("benign|clean|harmless|safe", regex=True)
         fallback_malicious = malicious_signal_or_taxonomy_mask(samples_df)
-        benign_mask = benign_mask | (unresolved & fallback_benign)
-        malicious_mask = malicious_mask | (unresolved & fallback_malicious)
+        # Conflicting fallback labels are unresolved. A sample cannot enter
+        # both partitions or appear twice in balanced training selections.
+        benign_mask = benign_mask | (unresolved & fallback_benign & ~fallback_malicious)
+        malicious_mask = malicious_mask | (unresolved & fallback_malicious & ~fallback_benign)
 
     benign_df = samples_df[benign_mask].copy()
     malicious_df = samples_df[malicious_mask].copy()
@@ -148,11 +150,12 @@ def apply_dataset_filters(samples_df: pd.DataFrame, profile: dict) -> pd.DataFra
     dataset_filters = profile.get("dataset_filters", {}) if isinstance(profile, dict) else {}
     mode = str(dataset_filters.get("mode", "none") or "none").strip().lower()
     if mode in {"none", ""}:
+        benign_df, malicious_df = split_benign_malicious(samples_df)
         samples_df.attrs["cohort_filter_summary"] = summarize_dataset_partitions(
             source_df=samples_df,
             output_df=samples_df,
-            benign_df=pd.DataFrame(),
-            malicious_df=pd.DataFrame(),
+            benign_df=benign_df,
+            malicious_df=malicious_df,
             mode=mode,
         )
         return samples_df

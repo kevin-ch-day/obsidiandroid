@@ -248,6 +248,147 @@ def test_headline_test_predictions_prefer_runtime_label_name_map(
     assert pred_df.iloc[0]["predicted_label_name"] == "RoamingMantis"
 
 
+def test_headline_coverage_flags_use_test_row_when_index_is_text(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Numeric export IDs must not turn available feature evidence into zero flags."""
+    X_test = pd.DataFrame(
+        {"perm__internet": [1.0, 0.0], "parsed_family_vendorx": [2.0, 0.0]},
+        index=["10", "11"],
+    )
+    y_true = np.array([0, 1])
+    model = MagicMock()
+    model.predict_proba.return_value = np.array([[0.9, 0.1], [0.1, 0.9]])
+    results = {
+        "random_forest": {
+            "model": model,
+            "X_test": X_test,
+            "y_test": y_true,
+            "label_encoder": None,
+            "evaluation": {"y_true": y_true, "y_pred": y_true},
+        }
+    }
+    monkeypatch.setattr(app_config, "RUNTIME_HEADLINE_SPLIT_METADATA", {"split_hash": "aa" * 32}, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_HEADLINE_FEATURE_COLUMN_HASH", "ff", raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", pd.DataFrame({"sample_id": [10, 11]}), raising=False)
+
+    pred_path, _ = headline_evaluation_export.export_headline_test_tables(
+        results=results,
+        promoted_model_key="random_forest",
+        diagnostics_dir=tmp_path,
+        run_id="text_index_coverage",
+        label_field="family_id",
+    )
+
+    assert pred_path is not None
+    predictions = pd.read_csv(pred_path).set_index("sample_id")
+    assert predictions.loc[10, "permission_coverage_flag"] == 1
+    assert predictions.loc[10, "vendor_coverage_flag"] == 1
+    assert predictions.loc[11, "permission_coverage_flag"] == 0
+    assert predictions.loc[11, "vendor_coverage_flag"] == 0
+
+
+def test_headline_modality_slices_expose_no_av_prediction_collapse(tmp_path: Path) -> None:
+    run_id = "modality_slice_unit"
+    pd.DataFrame(
+        {
+            "sample_id": [10, 11, 12],
+            "in_av_enrichment_matrix": [True, False, False],
+            "permission_signal_positive": [True, False, True],
+        }
+    ).to_csv(tmp_path / f"feature_modality_coverage_audit_{run_id}.csv", index=False)
+    predictions = pd.DataFrame(
+        {
+            "sample_id": [10, 11, 12],
+            "true_label_id": [1, 2, 3],
+            "predicted_label_id": [1, 9, 9],
+            "predicted_label_name": ["FamilyA", "Congur", "Congur"],
+        }
+    )
+
+    output = headline_evaluation_export._write_modality_error_slices(  # pylint: disable=protected-access
+        pred_df=predictions, diagnostics_dir=tmp_path, run_id=run_id
+    )
+
+    assert output is not None
+    slices = pd.read_csv(output)
+    no_av = slices.loc[slices["av_matrix_row_present"] == False]  # noqa: E712
+    assert no_av["test_rows"].sum() == 2
+    assert no_av["error_rows"].sum() == 2
+    assert set(no_av["top_predicted_label"]) == {"Congur"}
+
+
+@pytest.mark.parametrize(
+    "coverage",
+    [
+        {"sample_id": [10], "permission_signal_positive": [True]},
+        {
+            "sample_id": [10],
+            "in_av_enrichment_matrix": [None],
+            "permission_signal_positive": [True],
+        },
+        {
+            "sample_id": [11],
+            "in_av_enrichment_matrix": [False],
+            "permission_signal_positive": [True],
+        },
+    ],
+)
+def test_modality_slices_do_not_infer_missing_av_evidence(
+    tmp_path: Path, coverage: dict[str, list[object]]
+) -> None:
+    """An old, unresolved, or incomplete coverage file cannot define an AV stratum."""
+    run_id = "incomplete_coverage"
+    pd.DataFrame(coverage).to_csv(
+        tmp_path / f"feature_modality_coverage_audit_{run_id}.csv", index=False
+    )
+    predictions = pd.DataFrame(
+        {
+            "sample_id": [10],
+            "true_label_id": [1],
+            "predicted_label_id": [1],
+            "predicted_label_name": ["FamilyA"],
+        }
+    )
+
+    result = headline_evaluation_export._write_modality_error_slices(  # pylint: disable=protected-access
+        pred_df=predictions, diagnostics_dir=tmp_path, run_id=run_id
+    )
+
+    assert result is None
+    assert not (tmp_path / f"headline_modality_error_slices_{run_id}.csv").exists()
+
+
+@pytest.mark.parametrize(
+    ("sample_ids", "evaluated_predictions"),
+    [([10.5, 11], [0, 1]), (["010", 10], [0, 1]), ([10, 11], [0])],
+)
+def test_headline_export_rejects_ambiguous_test_membership_before_writing(
+    tmp_path: Path, sample_ids: list[object], evaluated_predictions: list[int]
+) -> None:
+    """Held-out evidence cannot silently truncate IDs or pair labels by the wrong length."""
+    labels = np.array([0, 1])
+    results = {
+        "random_forest": {
+            "model": MagicMock(),
+            "X_test": pd.DataFrame({"perm__x": [1.0, 0.0]}, index=sample_ids),
+            "y_test": labels,
+            "evaluation": {"y_true": labels, "y_pred": np.array(evaluated_predictions)},
+        }
+    }
+
+    paths = headline_evaluation_export.export_headline_test_tables(
+        results=results,
+        promoted_model_key="random_forest",
+        diagnostics_dir=tmp_path,
+        run_id="bad_membership",
+        label_field="family_id",
+    )
+
+    assert paths == (None, None)
+    assert not list(tmp_path.glob("headline_*_bad_membership.*"))
+
+
 def test_headline_test_predictions_export_confidence_audit(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

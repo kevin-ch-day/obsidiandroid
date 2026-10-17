@@ -7,6 +7,52 @@ import pandas as pd
 from obsidiandroid.orchestration import profile_filters
 
 
+def test_unfiltered_exploration_keeps_benign_malicious_and_unresolved_rows() -> None:
+    samples = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "vt_malicious_count": [2, 0, pd.NA],
+            "vt_suspicious_count": [0, 0, pd.NA],
+            "vt_undetected_count": [0, 5, pd.NA],
+            "vt_reputation": [0, 1, pd.NA],
+        }
+    )
+
+    out = profile_filters.apply_dataset_filters(samples, {"dataset_filters": {"mode": "none"}})
+
+    assert out.sample_id.tolist() == [1, 2, 3]
+    summary = out.attrs["cohort_filter_summary"]
+    assert summary["malicious_candidates"] == 1
+    assert summary["benign_candidates"] == 1
+    assert summary["unresolved_candidates"] == 1
+
+
+def test_partitions_hold_conflicts_and_incomplete_zero_consensus() -> None:
+    """Partition counts must be disjoint and must not infer an absent VT count as zero."""
+    samples = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4, 5],
+            "vt_malicious_count": [pd.NA, 0, 1, 0, pd.NA],
+            "vt_suspicious_count": [pd.NA, pd.NA, pd.NA, 0, pd.NA],
+            "vt_undetected_count": [pd.NA, 5, 0, 5, pd.NA],
+            "vt_reputation": [pd.NA, 1, 0, 1, pd.NA],
+            "category_primary": ["benign", "", "", "", "benign"],
+            "family_canonical": ["NamedFamily", "", "", "", ""],
+        }
+    )
+
+    benign, malicious = profile_filters.split_benign_malicious(samples)
+    summary = profile_filters.apply_dataset_filters(
+        samples, {"dataset_filters": {"mode": "none"}}
+    ).attrs["cohort_filter_summary"]
+
+    assert benign.sample_id.tolist() == [4, 5]
+    assert malicious.sample_id.tolist() == [3]
+    assert summary["benign_candidates"] == 2
+    assert summary["malicious_candidates"] == 1
+    assert summary["unresolved_candidates"] == 2
+
+
 def test_malicious_only_retains_vt_positive_rows_only() -> None:
     """malicious_only should drop VT-clean rows instead of returning the full SQL cohort."""
     samples_df = pd.DataFrame(

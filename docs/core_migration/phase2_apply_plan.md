@@ -3,8 +3,10 @@
 > **Do not execute this document as an operational runbook.** It predates the
 > approved Phase 2B additive schema, dedicated fail-closed executor, source
 > mapping matrix, and disposable validation. The controlling design is
-> [phase2b_core_contract.md](phase2b_core_contract.md); production provisioning
-> and the July 18 controlled import remain separately authorized future work.
+> [phase2b_core_contract.md](phase2b_core_contract.md). Production provisioning
+> and the July 18 controlled import were future work when this plan was written;
+> the later Phase 2C import is recorded in [README.md](README.md). This plan
+> grants no present execution authority.
 
 # Historical Phase 2 approval package: Core evidence foundation
 

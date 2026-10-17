@@ -34,14 +34,14 @@ def _coerce_sample_id_to_int64_rows(df: pd.DataFrame | None) -> pd.DataFrame | N
     if "sample_id" not in df.columns:
         return df
     sid = pd.to_numeric(df["sample_id"], errors="coerce")
-    valid = sid.notna()
+    valid = sid.notna() & sid.mod(1).eq(0)
     # Select and copy once.  The former ``df.copy()`` followed by
     # ``out.loc[valid].copy()`` duplicated every full enrichment frame even
     # when all sample IDs were already valid.
     out = df.loc[valid].copy()
     if out.empty:
         return out
-    out["sample_id"] = sid.loc[valid].round().astype("int64")
+    out["sample_id"] = sid.loc[valid].astype("int64")
     return out
 
 
@@ -462,7 +462,10 @@ def merge_sample_metadata_features(
         if merged is None or merged.empty:
             merged = None
     if isinstance(merged, pd.DataFrame) and not merged.empty:
-        merged = merged.merge(metadata_features_df, on="sample_id", how="left", sort=False)
+        # The governed sample frame owns membership.  AV enrichment can be sparse;
+        # a left join here silently drops metadata and PI features for every
+        # sample without an AV row before the final cohort reindex can restore it.
+        merged = merged.merge(metadata_features_df, on="sample_id", how="right", sort=False)
     else:
         merged = metadata_features_df.copy()
 

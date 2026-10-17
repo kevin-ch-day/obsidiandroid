@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
+import sys
 from typing import Callable, Dict, List
 
 
@@ -897,8 +899,18 @@ def launch_startup_menu() -> int:
         continue
 
 
-def main() -> int:
+def _parse_args(argv: list[str]) -> None:
+    """Validate startup-menu arguments before any interactive work begins."""
+    parser = argparse.ArgumentParser(
+        prog="obsidiandroid",
+        description="Launch the interactive ObsidianDroid operator console.",
+    )
+    parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
     """Module CLI entrypoint."""
+    _parse_args(sys.argv[1:] if argv is None else argv)
     try:
         return launch_startup_menu()
     except KeyboardInterrupt:

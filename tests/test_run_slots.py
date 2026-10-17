@@ -23,6 +23,19 @@ def test_resolve_run_slot_plan_maps_major_family_profile() -> None:
     assert plan.archive_run is False
 
 
+def test_all_android_catalog_exploration_has_own_slot_and_claim() -> None:
+    plan = run_slots.resolve_run_slot_plan(
+        profile_id="android_catalog_all_exploratory",
+        paper_locked=False,
+        evidence_mode=False,
+        keep_run_output=False,
+    )
+
+    assert plan.run_slot == "allcatalog_exploratory"
+    assert plan.run_mode == "exploratory"
+    assert plan.claim_surface == "android_catalog_exploratory"
+
+
 def test_prepare_run_root_replaces_normal_slot_and_archives_failed_run(tmp_path: Path) -> None:
     runs_root = tmp_path / "output" / "runs"
     slot_root = runs_root / "majorfam_benchmark"

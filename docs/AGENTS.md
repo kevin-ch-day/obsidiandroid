@@ -41,6 +41,17 @@ The repo root keeps a short **[`AGENTS.md`](../AGENTS.md)** stub so tools that e
 
 - Keep edits **focused** on the requested task; avoid drive-by refactors or unrelated files.
 - Match existing patterns (imports, logging, SQL construction) in touched modules.
+- Inspect `git status` before editing and preserve unrelated in-progress work.
+  A historical lock, generated paper export, current diagnostic, and operational
+  assessment are different evidence classes. Verify the exact profile, source
+  snapshot, run manifest, and `paper_mode` before making a manuscript or
+  production-readiness claim. Do not present a current assessment as an
+  independent reproduction of a paper result.
+- Keep upstream ownership clear: Erebus owns sample/VT/taxonomy source facts,
+  Permission Intel owns live `android_permission_*` source facts, and
+  ObsidianDroid consumes those facts for research and owns only its downstream
+  run/result or assessment persistence. Check the selected source and Core
+  database identities before any write-oriented test or migration.
 
 ## Testing
 
@@ -77,7 +88,14 @@ pytest -q -m "not slow"
 
 **`make verify`** runs **`scripts/dev/check_import_surface.py`** and then the same fast pytest selection as **`make test`** (import paths + default **`slow`** exclusion).
 
-**CI:** GitHub Actions runs three parallel jobs: **fast** (`make doc-check` + `make verify` + `make ml-scan-strict` on Python 3.11/3.12), **integration** (`make verify-integration` on 3.12), and **canonical closure** (`make verify-canonical` on 3.12). Locally, use **`make ci-fast`** for the daily gate (~30–40s) and **`make ci`** only before push when canonical closure matters.
+**CI:** GitHub Actions runs the **fast** lane (`make doc-check` + `make verify` +
+`make ml-scan-strict` on Python 3.11/3.12), conditional **integration** and
+**pipeline integration** lanes on 3.12, and **canonical closure**
+(`make verify-canonical` on 3.12). The two integration lanes run for relevant
+pull-request paths and on main pushes/workflow dispatch. Locally, use
+**`make ci-fast`** for the daily gate and **`make ci`** for fast plus canonical
+closure; run `make verify-integration` or `make verify-pipeline-integration`
+when changing their code paths.
 
 Whole test **files** listed in `_SLOW_TEST_MODULES` inside `tests/conftest.py` are auto-marked `slow` at collection time so they stay out of the default run.
 

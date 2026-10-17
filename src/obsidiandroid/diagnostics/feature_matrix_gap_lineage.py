@@ -88,7 +88,7 @@ def analyze_fusion_vs_training_columns(
         "permission_columns_dropped_as_low_information": dropped_perm_like,
         "interpretation": (
             "Low-information pruning uses nunique<=1 per column on the **training** alignment slice. "
-            "Sparse permission one-hot columns (rare permutations across the 2142 aligned rows) are dropped "
+            "Sparse permission one-hot columns (rare patterns across the aligned training rows) are dropped "
             "even when Permission Intel ingestion is healthy — distinguish this from 'missing PI rows' using "
             "alignment_gap flags per sample."
         ),
@@ -176,11 +176,18 @@ def infer_primary_row_loss_stage(
     cohort_rows: int,
     av_binary_rows: int | None,
     vendor_merge_rows: int | None,
+    final_feature_rows: int | None = None,
+    cohort_missing_from_final: int | None = None,
 ) -> dict[str, Any]:
     """Heuristic: where cohort minus feature-matrix gap opens first."""
     cr = int(cohort_rows or 0)
     av = int(av_binary_rows or 0)
     vm = int(vendor_merge_rows or 0)
+    if cr > 0 and cohort_missing_from_final == 0 and final_feature_rows is not None and int(final_feature_rows) >= cr:
+        return {
+            "stage": "no_fused_row_loss",
+            "detail": "Final feature matrix retains the governed cohort; sparse AV/vendor subsets are not row loss.",
+        }
     if cr <= 0 or vm <= 0:
         return {"stage": "insufficient_counts", "detail": "missing recomputed or coverage counts"}
     if cr > vm:
@@ -290,7 +297,7 @@ def run_feature_matrix_gap_report(
         "cohort_prepared_table_rows": cohort_table_rows,
         "cohort_duplicate_surplus_rows": max(0, cohort_table_rows - cohort_distinct_ids),
         "feature_matrix_final_rows_pre_alignment": int(coverage.get("feature_matrix_unique_row_count") or 0),
-        "vendor_merge_authority_rows": int(coverage.get("vendor_merge_authority_unique_count") or 0),
+        "vendor_merge_authority_rows": coverage.get("vendor_merge_authority_unique_count"),
         "cohort_gap_rows": int(coverage.get("cohort_rows_missing_from_feature_matrix") or len(missing_ids)),
         "feature_rows_not_in_cohort": int(coverage.get("feature_rows_not_in_cohort") or 0),
     }
@@ -324,8 +331,9 @@ def run_feature_matrix_gap_report(
     row_loss_infer = infer_primary_row_loss_stage(
         cohort_rows=int(stage_counts.get("cohort_rows") or 0),
         av_binary_rows=stage_counts.get("av_binary_matrix_rows"),
-        vendor_merge_rows=stage_counts.get("vendor_merge_authority_rows")
-        or int(coverage.get("vendor_merge_authority_unique_count") or 0),
+        vendor_merge_rows=stage_counts.get("vendor_merge_authority_rows"),
+        final_feature_rows=stage_counts.get("feature_matrix_final_rows_pre_alignment"),
+        cohort_missing_from_final=coverage.get("cohort_rows_missing_from_feature_matrix"),
     )
 
     stage_lineage_table = [
@@ -340,13 +348,13 @@ def run_feature_matrix_gap_report(
         {"stage": "5_metadata_feature_frame", "row_count": stage_counts.get("metadata_feature_frame_rows")},
         {
             "stage": "6_extra_features_fused",
-            "row_count": stage_counts.get("av_binary_matrix_rows"),
-            "note": "Permission + metadata merged onto enriched_matrix with left joins.",
+            "row_count": stage_counts.get("metadata_feature_frame_rows"),
+            "note": "Catalog metadata owns this row set; AV enrichment and Permission Intel features join by sample_id.",
         },
         {
             "stage": "7_final_feature_matrix_vendor_encoded_index",
             "row_count": stage_counts.get("feature_matrix_final_rows_pre_alignment"),
-            "note": "Row authority = outer-merge of top-k vendor parsed frames (encoded before extras join).",
+            "note": "Final row authority is the governed cohort after vendor encoding and extra-feature fusion.",
         },
         {"stage": "8_aligned_labels_after_extract_aligned_labels", "row_count": aligned_n},
         {"stage": "9_training_matrix_after_low_support_family_filter", "row_count": training_rows_after_filter},
@@ -357,18 +365,18 @@ def run_feature_matrix_gap_report(
         "run_root": str(run_root.resolve()),
         "row_loss": {
             "description": (
-                "Samples that disappear between cohort lock and training are primarily missing from the "
-                "**encoded vendor-merge index** (extras are left-joined onto that index only)."
+                "Compare governed cohort, final feature matrix, label alignment, and training cuts. "
+                "Sparse AV or vendor subsets do not by themselves prove sample-row loss."
             ),
             "cohort_samples_locked": stage_counts.get("cohort_rows"),
             "feature_matrix_rows_pre_alignment": stage_counts.get("feature_matrix_final_rows_pre_alignment"),
-            "vendor_merge_rows_equal_final_feature_index": bool(coverage.get("vendor_merge_equals_final_index")),
+            "vendor_merge_rows_equal_final_feature_index": coverage.get("vendor_merge_equals_final_index"),
             "aligned_label_rows": aligned_n,
             "training_matrix_rows_after_low_support_family_drop": training_rows_after_filter,
             "gap_samples_unmatched_labels_csv": len(unmatched_ids),
             "key_finding": (
-                "No inner join drops cohort rows in enrichment: merge_sample_metadata_features uses left joins. "
-                "Row loss occurs when build_feature_vector encodes only the outer-merge of top-k vendor parsed frames."
+                "The final fused matrix is the row-authority checkpoint. If it matches the governed cohort, "
+                "any later reduction belongs to label alignment or training selection."
             ),
         },
         "column_loss": {
@@ -440,6 +448,8 @@ def _render_gap_summary_md(summary: dict[str, Any], gap_detail: pd.DataFrame) ->
     pr = summary.get("paper_reporting") or {}
     pri = summary.get("primary_row_loss_stage_inference") or {}
     sc = summary.get("stage_row_counts") or {}
+    vendor_rows = sc.get("vendor_merge_authority_rows")
+    vendor_rows_display = vendor_rows if vendor_rows is not None else "Unavailable"
     lines = [
         "# Feature matrix gap summary",
         "",
@@ -455,7 +465,7 @@ def _render_gap_summary_md(summary: dict[str, Any], gap_detail: pd.DataFrame) ->
         "",
         f"- Cohort locked: **{rl.get('cohort_samples_locked')}**",
         f"- Feature matrix rows (pre-alignment): **{rl.get('feature_matrix_rows_pre_alignment')}**",
-        f"- Vendor-merge authority rows: **{sc.get('vendor_merge_authority_rows')}**",
+        f"- Vendor-merge authority rows: **{vendor_rows_display}**",
         f"- Aligned label rows: **{rl.get('aligned_label_rows')}**",
         f"- Training rows after low-support family filter: **{rl.get('training_matrix_rows_after_low_support_family_drop')}**",
         f"- Unmatched label ids (documented gap): **{rl.get('gap_samples_unmatched_labels_csv')}**",
