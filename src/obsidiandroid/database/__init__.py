@@ -20,14 +20,12 @@ core DB modules (see :mod:`obsidiandroid.database.facade_manifest`).
 from __future__ import annotations
 
 import importlib
-import sys
 
 from .facade_manifest import FACADE_EXPORT_NAMES as _FACADE_EXPORT_NAMES
 
 for _name in _FACADE_EXPORT_NAMES:
     _canon = importlib.import_module(f"obsidiandroid.database.{_name}")
     globals()[_name] = _canon
-    sys.modules.setdefault(f"obsidiandroid.database.{_name}", _canon)
 
 __all__ = list(_FACADE_EXPORT_NAMES)
 

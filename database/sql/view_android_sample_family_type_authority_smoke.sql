@@ -2,7 +2,8 @@
 --
 -- Run after applying `view_android_sample_family_type_authority.sql`.
 
-SET NAMES utf8mb4;
+-- Match the collation used by authority-view bucket literals.
+SET NAMES utf8mb4 COLLATE utf8mb4_general_ci;
 
 SELECT authority_bucket, COUNT(*) AS row_count
 FROM v_android_sample_family_type_authority

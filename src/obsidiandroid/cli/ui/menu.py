@@ -83,6 +83,7 @@ def display_menu(
     context_lines: list[tuple[str, str]] | None = None,
     default_choice: int | None = None,
     action_hint: str | None = None,
+    selection_prompt: str | None = None,
 ) -> int:
     """Render a numbered menu and return selected index (0 = exit/back).
 
@@ -95,6 +96,7 @@ def display_menu(
         context_lines: Optional labeled context lines shown below the title.
         default_choice: If set (1..len(options)), blank input selects that row.
         action_hint: Footer hint; defaults to a standard key legend + default note.
+        selection_prompt: Optional prompt text; numeric validation is unchanged.
     """
     _print_menu_title(
         title,
@@ -107,7 +109,9 @@ def display_menu(
         "Type a row number. " + _format_action_hint(default_choice=default_choice)
     )
     _print_menu_footer(footer)
-    if default_choice is not None and 1 <= int(default_choice) <= len(options):
+    if selection_prompt is not None:
+        prompt = cc.apply_color(selection_prompt, fg=cc.Fore.CYAN, bold=True)
+    elif default_choice is not None and 1 <= int(default_choice) <= len(options):
         prompt = cc.apply_color(
             f"Enter your selection [default={int(default_choice)}, 0-{len(options)}]: ",
             fg=cc.Fore.CYAN,

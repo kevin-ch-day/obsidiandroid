@@ -1275,7 +1275,11 @@ def get_cohort_readiness_snapshot() -> dict[str, Any]:
     if not _table_exists_permission(_PERMISSION_OBS_TABLE):
         payload["status"] = "degraded"
         payload["warnings"].append(
-            "Permission Intel unavailable: android_permission_obs_sample not reachable on the Permission Intel connection."
+            "Legacy Permission Intel observation counts unavailable: "
+            "android_permission_obs_sample is not visible to this connection. "
+            "This check cannot distinguish restricted access from a missing table. "
+            "Approved PI V2 export access is checked separately with ./run.sh pi-v2; "
+            "this catalog profile does not automatically use that export."
         )
         return payload
 

@@ -245,14 +245,6 @@ def _authority_scope_payload(
     }
 
 
-def _taxonomy_split_reason_bucket(reason: str) -> str:
-    """Map taxonomy mismatch reasons into operator-facing split categories."""
-    token = str(reason or "").strip()
-    if token in {"type_mapping_mismatch", "type_label_missing", "type_label_noncanonical", "label_family_mismatch"}:
-        return "type_authority_vs_rendering_mismatch"
-    return "other_taxonomy_rendering_issue"
-
-
 def write_taxonomy_authority_split_reports(
     diagnostics_dir: Path,
     run_id: str,

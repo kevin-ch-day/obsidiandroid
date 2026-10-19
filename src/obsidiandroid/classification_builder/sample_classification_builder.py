@@ -134,40 +134,21 @@ def _build_all_classification_rows(
                 except Exception as ce:
                     du.print_warning(f"[BUILDER] Consensus function error for {sample_id}: {ce}")
 
-            try:
-                row = build_classification_row(
-                    sample_id=sample_id,
-                    pred_index=int(pred_index),
-                    label_decoder=label_decoder,
-                    true_labels=true_labels,
-                    metadata=metadata,
-                    label_name_map=label_name_map,
-                    records_by_vendor=records_by_vendor,
-                    records_by_sample_id=records_by_sample_id,
-                    label_format=label_format,
-                    include_confidence=include_confidence,
-                    debug=False,
-                    consensus_data=consensus_data,
-                    resolution_context=resolution_context,
-                )
-            except TypeError as type_error:
-                # Backward-compat: allow patched/legacy builders that do not
-                # accept newer keyword arguments.
-                fallback_tokens = ("label_name_map", "records_by_sample_id")
-                if not any(token in str(type_error) for token in fallback_tokens):
-                    raise
-                row = build_classification_row(
-                    sample_id=sample_id,
-                    pred_index=int(pred_index),
-                    label_decoder=label_decoder,
-                    true_labels=true_labels,
-                    metadata=metadata,
-                    records_by_vendor=records_by_vendor,
-                    label_format=label_format,
-                    include_confidence=include_confidence,
-                    debug=False,
-                    consensus_data=consensus_data
-                )
+            row = build_classification_row(
+                sample_id=sample_id,
+                pred_index=int(pred_index),
+                label_decoder=label_decoder,
+                true_labels=true_labels,
+                metadata=metadata,
+                label_name_map=label_name_map,
+                records_by_vendor=records_by_vendor,
+                records_by_sample_id=records_by_sample_id,
+                label_format=label_format,
+                include_confidence=include_confidence,
+                debug=False,
+                consensus_data=consensus_data,
+                resolution_context=resolution_context,
+            )
             output_rows.append(row)
         except Exception as e:
             du.print_warning(f"[BUILDER] Failed to build row for {sample_id}: {e}")

@@ -422,11 +422,6 @@ def _resolve_split_export_source(
     return None
 
 
-def _build_split_export(diagnostics_dir: Path, run_id: str, manifest: dict[str, Any]) -> pd.DataFrame:
-    source_path = _resolve_split_export_source(diagnostics_dir, run_id, manifest)
-    return _read_csv_if_exists(source_path) if source_path is not None else pd.DataFrame()
-
-
 def _run_root_for_diagnostics(diagnostics_dir: Path) -> Path:
     return diagnostics_dir.parent if diagnostics_dir.name == "diagnostics" else diagnostics_dir
 

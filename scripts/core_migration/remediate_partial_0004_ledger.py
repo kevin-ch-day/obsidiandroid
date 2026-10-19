@@ -35,7 +35,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS_DIR = REPO_ROOT / "database" / "core_migrations"
 SQL_0004 = MIGRATIONS_DIR / "0004_core_label_and_confusion_contracts.sql"
 DEFAULT_PROVISIONING_DIR = Path(
-    "/mnt/MERCURY_DATA_V2/obsidiandroid_core_results_provisioning/20260720T153822Z"
+    "/mnt/MERCURY_DATA/obsidiandroid_core_results_provisioning/20260720T153822Z"
 )
 
 

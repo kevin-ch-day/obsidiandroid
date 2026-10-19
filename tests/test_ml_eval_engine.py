@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from obsidiandroid.modeling import model_evaluation
+
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
@@ -214,7 +216,7 @@ def test_display_post_training_metrics_ablation_quiet_mode_accumulates_rows(monk
         lambda msg, *_args, **_kwargs: printed.append(str(msg)),
     )
 
-    ml_eval_engine.display_post_training_metrics(
+    model_evaluation.display_post_training_metrics(
         "xgboost",
         result={},
         evaluation={

@@ -236,20 +236,3 @@ def _get_model_name(model):
     if "logistic" in class_name:
         return "logistic_regression"
     return class_name
-
-
-def display_post_training_metrics(model_type, result, evaluation, features_df=None):
-    """Compatibility wrapper retained for callers that expect the historical location.
-
-    The canonical implementation now lives in
-    :mod:`obsidiandroid.modeling.model_evaluation`, but several call sites and tests
-    still import this helper from ``evaluation.ml_eval_engine``.
-    """
-    from obsidiandroid.modeling import model_evaluation
-
-    return model_evaluation.display_post_training_metrics(
-        model_type=model_type,
-        result=result,
-        evaluation=evaluation,
-        features_df=features_df,
-    )

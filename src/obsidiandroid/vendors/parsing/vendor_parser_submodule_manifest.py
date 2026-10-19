@@ -1,9 +1,8 @@
 # Filename: src/obsidiandroid/vendors/parsing/vendor_parser_submodule_manifest.py
 """Physical vendor-parser submodule names under :mod:`obsidiandroid.vendors.parsing`.
 
-Shared by the canonical package ``__init__``, legacy ``analysis.vendor_processing``
-registration, and import-surface parity checks so new parsers cannot land under
-``src/`` without updating the legacy shim contract.
+Shared by the canonical package ``__init__`` and import-surface parity checks
+so parser additions remain aligned with the canonical package manifest.
 """
 
 from __future__ import annotations

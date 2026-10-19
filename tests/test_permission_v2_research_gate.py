@@ -78,3 +78,37 @@ def test_alternate_observation_entry_points_fail_before_query(monkeypatch, entry
     monkeypatch.setattr(db_permission_analysis_queries.db_engine, "execute_query", unguarded)
     with pytest.raises(RuntimeError, match="gate BLOCK"):
         entry_point()
+
+
+@pytest.mark.parametrize("state", ["BLOCK", "UNKNOWN", "ALLOW"])
+def test_required_preflight_checks_authority_without_observation_reads(monkeypatch, state):
+    queries = []
+    def query(sql, **kwargs):
+        queries.append(sql)
+        return pd.DataFrame({"legacy_observation_reads": [state]})
+    monkeypatch.setattr(gate.db_engine, "execute_permission_query", query)
+    flags = {"enable_permission_features": True, "permission_input_policy": "required"}
+    if state == "ALLOW":
+        gate.preflight_required_permission_access(flags)
+    else:
+        with pytest.raises(RuntimeError, match="Permission preflight stopped"):
+            gate.preflight_required_permission_access(flags)
+    assert len(queries) == 1
+    assert "FROM android_permission_research_gate_v2_candidate" in queries[0]
+
+
+def test_required_menu_preflight_stops_before_cohort_probe(monkeypatch):
+    from obsidiandroid.cli.menu import profile_preflight as menu
+    def unexpected(*args, **kwargs):
+        pytest.fail("Cohort query must not run after permission denial")
+    monkeypatch.setattr(menu.db_sample_metadata_fetchers, "probe_profile_cohort_viability", unexpected)
+    monkeypatch.setattr(gate.db_engine, "execute_permission_query",
+                        lambda *args, **kwargs: pd.DataFrame({"legacy_observation_reads": ["BLOCK"]}))
+    ok, reason = menu.validate_profile_runnable("android_catalog_all_exploratory")
+    assert not ok
+    assert "Permission preflight stopped" in reason
+
+
+def test_required_permission_preflight_never_silently_disables_features():
+    with pytest.raises(ValueError, match="cannot disable"):
+        gate.preflight_required_permission_access({"permission_input_policy": "required", "enable_permission_features": False})

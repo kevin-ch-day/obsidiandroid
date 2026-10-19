@@ -20,6 +20,9 @@ from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path  # noqa:
 
 ensure_repo_src_on_sys_path()
 
+# Loaded before collection, so unmocked imports and fixture setup remain offline.
+pytest_plugins = ["scripts.dev.pytest_database_guard"]
+
 # Whole-module slow tier: keeps default `pytest` fast; run the full suite with
 # `make test-full` / `scripts/dev/run_tests_full.sh`, or include marker lanes
 # explicitly (`slow`, `integration`, `heavy`) when profiling narrower surfaces.
@@ -190,3 +193,37 @@ def write_text_file():
         path.write_text(content, encoding="utf-8")
 
     return _write
+
+
+@pytest.fixture(autouse=True)
+def offline_operator_source_fixtures(request, monkeypatch):
+    """Presentation tests use unavailable source fixtures, never live readiness."""
+    if request.path.name not in {
+        "test_operator_dashboard.py", "test_startup_menu_review.py",
+        "test_startup_menu_diagnostics.py", "test_operator_surface_refresh.py",
+        "test_small_smoke.py",
+    }:
+        return
+    if (
+        request.config.getoption("--allow-live-database")
+        and request.node.get_closest_marker("live_database")
+    ):
+        return
+    import pandas as pd
+    from obsidiandroid.reporting import operator_dashboard, research_three_questions
+    from obsidiandroid.cli.menu import diagnostics_banners
+    from obsidiandroid.diagnostics import contract_and_taxonomy_reports
+
+    def unavailable_readiness():
+        return {
+            "status": "unavailable", "warnings": ["Offline presentation fixture"],
+            "buckets": {}, "taxonomy_signals": {},
+        }
+
+    monkeypatch.setattr(operator_dashboard, "get_cohort_readiness_snapshot", unavailable_readiness)
+    monkeypatch.setattr(diagnostics_banners, "get_cohort_readiness_snapshot", unavailable_readiness)
+    monkeypatch.setattr(
+        contract_and_taxonomy_reports, "load_authority_df",
+        lambda **kwargs: (pd.DataFrame(), "offline_fixture", "No live source in presentation tests"),
+    )
+    monkeypatch.setattr(research_three_questions, "_raw_permission_observation_count", lambda _: None)

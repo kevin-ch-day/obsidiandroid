@@ -120,6 +120,13 @@ Orchestration lives in **`src/obsidiandroid/pipeline/runner.py`** (`run_pipeline
 | `make ml-scan` | Static scan for suspicious `.predict()` / `.predict_proba()` use. |
 | `make preflight-db` | MySQL/MariaDB connectivity check before long DB-backed runs. |
 
+The scanner uses Python syntax to exclude literal source examples and recognizes
+a local sklearn pipeline saved in a `joblib` dictionary and restored from its
+`model` member at the same path. Unknown loads, whole dictionaries, reassignment
+and ambiguous branch state retain warnings. This is a static heuristic, not a
+model-artifact validation or a reason to load an untrusted pickle. Historical
+experiment code need not be renamed to satisfy the scanner.
+
 ## Tooling Reference
 
 - **`scripts/README.md`** – How to run operator scripts from the repo root and DB preflight expectations.
@@ -139,3 +146,53 @@ Orchestration lives in **`src/obsidiandroid/pipeline/runner.py`** (`run_pipeline
 4. Coordinate with operations to schedule any downtime or data backfills.
 
 Maintainers can adapt this checklist as processes evolve, but the structure provides a baseline for consistent, auditable releases.
+
+### Retired compatibility entry points
+
+Unused Python wrappers were pruned after checking repository callers. Use the
+canonical APIs in new code and in any local scripts that still import old names:
+
+| Retired API | Canonical replacement |
+| --- | --- |
+| `cohort_reproducibility.apply_cohort_lock` | `apply_analysis_snapshot_lock`; pass `fail_closed=True` when strict evidence policy requires it |
+| `cohort_reproducibility.export_cohort_snapshot` | `export_analysis_snapshot` |
+| `finalize.patch_observability_scientific_adequacy_from_dataset_foundation` | `patch_observability_post_operator_artifacts` |
+| `ledger_remediation.physical_schema_verification_hash` | `structural_digest.package_structural_digest` |
+| `ledger_remediation.expected_table_digest_from_sql` | `structural_digest.expected_structural_digest_from_sql` |
+| `ledger_remediation.live_table_digest` | `structural_digest.live_structural_digest` |
+| `ledger_remediation.compare_table_digests` | `structural_digest.compare_structural_digests` |
+
+The `physical_schema_verification_hash` field in historical receipts remains
+supported; only the unused function with that name was removed. Historical
+research-packet readers, permission-lane interpretation and immutable audit
+artifacts remain supported. Local test runs of legacy menu/reporting code must
+isolate real database connections; those views can still request live readiness
+counts unless explicitly guarded.
+
+Further cleanup removes legacy argument guessing and retries:
+
+- `build_classification_row` now requires optional inputs by keyword. In
+  particular, pass `records_by_vendor=...`; the sixth positional argument is no
+  longer guessed to mean vendor records rather than a label-name map.
+- Classification builders no longer retry `TypeError` with label mapping,
+  sample-index and resolution context omitted. Existing failed-sample reporting
+  records the error instead.
+- Publication-export checks always pass their selected `output_root`; checker
+  errors propagate rather than retrying against the configured default root.
+- Import `display_post_training_metrics` from
+  `obsidiandroid.modeling.model_evaluation`, its canonical implementation.
+- The unused `LANE_OEM_OR_GOOGLE` Python constant is removed. Current reporting
+  uses separate OEM and Google lanes; historical `oem_or_google` migration
+  metadata remains intact.
+
+Reporting and diagnostic failure paths also use current APIs:
+
+- Banker-family pattern clustering uses the pinned sklearn `metric` interface.
+  Constructor or clustering failures propagate; the report no longer invents
+  row-number-based cluster assignments on failure. Previously written report
+  artifacts are not erased, and historical cluster artifacts are not rewritten.
+- Vendor parsers receive `(label, metadata)`. Internal `TypeError` is counted as a
+  parser error rather than retried as a one-argument parser. The existing generic
+  diagnostic fallback is retained and explicitly counted and identified in the UI.
+- Workbook loaders receive `emit_warnings=False`; internal failures propagate
+  without a second call that could obscure the error or change warning behavior.

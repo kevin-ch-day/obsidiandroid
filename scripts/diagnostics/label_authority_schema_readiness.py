@@ -137,33 +137,38 @@ def _active_column_contract(columns_df: pd.DataFrame, object_name: str) -> str:
 
 
 def _estimate_seedable_vendor_rows() -> pd.DataFrame:
+    """Count all seedable vendor columns in one scan, preserving token rules."""
     verdict_table = table("vendor_verdicts")
-    parts: list[str] = []
+    counts = []
     for vendor_col in CORE_VENDOR_COLUMNS:
-        parts.append(
+        counts.append(
             f"""
-            SELECT
-                '{vendor_col}' AS vendor_key,
-                COUNT(*) AS nonempty_rows
-            FROM {verdict_table}
-            WHERE {vendor_col} IS NOT NULL
+            COUNT(CASE WHEN {vendor_col} IS NOT NULL
               AND TRIM({vendor_col}) <> ''
               AND LOWER(TRIM({vendor_col})) NOT IN (
                   'none','null','n/a','undetected','clean','benign','harmless',
                   'safe','approved','verified','type-unsupported','type_unsupported',
                   'timeout','failure'
-              )
+              ) THEN 1 END) AS {vendor_col}
             """
         )
-    union_query = "\nUNION ALL\n".join(parts)
-    query = f"""
-        SELECT vendor_key, nonempty_rows
-        FROM (
-            {union_query}
-        ) AS vendor_counts
-        ORDER BY nonempty_rows DESC, vendor_key ASC
-    """
-    return db_engine.execute_query(query, fetch=True, as_dataframe=True)
+    query = f"SELECT {', '.join(counts)} FROM {verdict_table}"
+    aggregate = db_engine.execute_query(query, fetch=True, as_dataframe=True)
+    if (
+        not isinstance(aggregate, pd.DataFrame)
+        or len(aggregate) != 1
+        or any(column not in aggregate.columns for column in CORE_VENDOR_COLUMNS)
+        or aggregate[CORE_VENDOR_COLUMNS].isna().any().any()
+    ):
+        raise RuntimeError("Vendor seed-count aggregate is unavailable or incomplete")
+    return pd.DataFrame(
+        [
+            {"vendor_key": column, "nonempty_rows": int(aggregate.iloc[0][column])}
+            for column in CORE_VENDOR_COLUMNS
+        ]
+    ).sort_values(
+        ["nonempty_rows", "vendor_key"], ascending=[False, True], ignore_index=True
+    )
 
 
 def main() -> int:
@@ -199,6 +204,7 @@ def main() -> int:
 
     print("\nCurrent live authority objects")
     live_authority_present = False
+    live_authority_ready = True
     live_authority_contracts = evaluate_object_contracts(
         LIVE_AUTHORITY_REQUIRED_COLUMNS,
         columns_df=columns_df,
@@ -209,6 +215,8 @@ def main() -> int:
         if status != "missing":
             live_authority_present = True
         missing = list(live_authority_contracts.get(object_name, {}).get("missing_columns", []))
+        if status != "view" or missing:
+            live_authority_ready = False
         missing_text = ", ".join(missing) if missing else "-"
         print(f"- {object_name}: {status}; missing columns: {missing_text}")
 
@@ -222,7 +230,7 @@ def main() -> int:
     for object_name in CURRENT_OPERATOR_VIEW_COLUMNS:
         status = _object_presence(objects_df, object_name)
         missing = list(operator_contracts.get(object_name, {}).get("missing_columns", []))
-        if status == "missing" or missing:
+        if status != "view" or missing:
             operator_views_ready = False
         missing_text = ", ".join(missing) if missing else "-"
         print(f"- {object_name}: {status}; missing columns: {missing_text}")
@@ -247,28 +255,31 @@ def main() -> int:
         )
 
     print("\nEstimated seedable vendor-label evidence rows")
-    seed_df = _estimate_seedable_vendor_rows()
-    if isinstance(seed_df, pd.DataFrame) and not seed_df.empty:
+    if vendor_missing or _object_presence(objects_df, table("vendor_verdicts")) == "missing":
+        print("- unavailable: verdict table or required vendor columns are missing")
+    else:
+        seed_df = _estimate_seedable_vendor_rows()
         total_rows = int(seed_df["nonempty_rows"].sum())
         print(f"- total seedable rows across core vendor set: {total_rows}")
         for _, row in seed_df.iterrows():
             print(f"  - {row['vendor_key']}: {int(row['nonempty_rows'])}")
-    else:
-        print("- no seedable rows or verdict table unavailable")
 
     print("\nOverall readiness")
     if all_ready and not vendor_missing:
         print("- base schema looks ready for the label-authority foundation pack")
         if live_authority_present:
             print("- current live authority coverage view is already present")
-            if operator_views_ready and policy_tables_ready:
+            if live_authority_ready and operator_views_ready and policy_tables_ready:
                 print("- current operator triage views satisfy the expected live contract")
                 print("- current generic-token policy table satisfies the expected live contract")
             else:
+                if not live_authority_ready:
+                    print("- live authority view is missing or incomplete for the current contract")
                 if not operator_views_ready:
                     print("- one or more current operator triage views are missing or incomplete")
                 if not policy_tables_ready:
                     print("- generic-token policy table is missing or incomplete for the live contract")
+                return 1
         elif any(status != "missing" for status in proposed_presence.values()):
             print("- label-authority foundation rollout appears partially applied")
         else:

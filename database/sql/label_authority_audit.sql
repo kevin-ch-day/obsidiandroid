@@ -3,7 +3,8 @@
 -- These queries are intended for operators and researchers after the authority
 -- foundation objects are populated.
 
-SET NAMES utf8mb4;
+-- Pin the catalog-compatible collation rather than the server-version default.
+SET NAMES utf8mb4 COLLATE utf8mb4_general_ci;
 
 -- 1. Samples where explicit authority overrides differ from catalog resolution.
 SELECT
@@ -19,8 +20,8 @@ SELECT
 FROM label_authority_resolution_view AS larv
 WHERE larv.explicit_authority_override_flag = 1
   AND (
-      COALESCE(larv.catalog_family_slug, '') <> COALESCE(larv.governed_family_slug, '')
-      OR COALESCE(larv.catalog_type_slug, '') <> COALESCE(larv.governed_type_slug, '')
+      COALESCE(larv.catalog_family_slug, '') <> COALESCE(larv.governed_family_slug, '') COLLATE utf8mb4_general_ci
+      OR COALESCE(larv.catalog_type_slug, '') <> COALESCE(larv.governed_type_slug, '') COLLATE utf8mb4_general_ci
   )
 ORDER BY larv.sample_id ASC;
 
@@ -33,16 +34,20 @@ SELECT
     afa.confidence_score
 FROM malware_family_alias_fact AS afa
 LEFT JOIN android_malware_family AS fam
-    ON fam.family_slug = afa.canonical_family_slug
+    -- Compare using the catalog slug collation; the alias foundation uses unicode_ci.
+    ON fam.family_slug = afa.canonical_family_slug COLLATE utf8mb4_general_ci
    AND fam.is_active = 1
 WHERE afa.is_active = 1
   AND fam.family_id IS NULL
 ORDER BY afa.canonical_family_slug ASC, afa.alias_token ASC;
 
--- 3. Vendor evidence dominated by generic tokens.
+-- 3. Vendor evidence and parsed-family coverage. Blank parsed tokens are missing
+--    evidence, not evidence of vendor agreement or successful generic parsing.
 SELECT
     e.vendor_key,
     COUNT(*) AS evidence_rows,
+    SUM(CASE WHEN NULLIF(TRIM(e.parsed_family_token), '') IS NOT NULL THEN 1 ELSE 0 END) AS parsed_family_rows,
+    SUM(CASE WHEN NULLIF(TRIM(e.parsed_family_token), '') IS NULL THEN 1 ELSE 0 END) AS missing_parsed_family_rows,
     SUM(CASE WHEN e.generic_token_flag = 1 THEN 1 ELSE 0 END) AS generic_rows,
     ROUND(
         SUM(CASE WHEN e.generic_token_flag = 1 THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0),
@@ -74,8 +79,8 @@ SELECT
     larv.effective_type_slug,
     larv.temporal_anchor_source
 FROM label_authority_resolution_view AS larv
-WHERE COALESCE(larv.effective_family_slug, '') <> ''
-  AND COALESCE(larv.effective_type_slug, '') = ''
+WHERE COALESCE(larv.effective_family_slug, '') COLLATE utf8mb4_general_ci <> ''
+  AND COALESCE(larv.effective_type_slug, '') COLLATE utf8mb4_general_ci = ''
 ORDER BY larv.sample_id ASC;
 
 -- 6. Samples missing any usable temporal anchor.

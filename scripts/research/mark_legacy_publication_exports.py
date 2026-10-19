@@ -47,11 +47,7 @@ def mark_legacy_runs(*, output_root: Path) -> list[dict[str, str]]:
         if not paper_dir.exists():
             rows.append({"run_id": run_id, "status": "no_publication_exports", "marker": ""})
             continue
-        try:
-            report = check_evidence_bundle.check_run(run_id, output_root=root)
-        except TypeError:
-            # Backward compatibility for patched/mocked legacy signature.
-            report = check_evidence_bundle.check_run(run_id)
+        report = check_evidence_bundle.check_run(run_id, output_root=root)
         if bool(report.get("passed", False)):
             if marker_path.exists():
                 marker_path.unlink(missing_ok=True)

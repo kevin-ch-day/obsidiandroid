@@ -77,6 +77,8 @@ def _claim_surface_label(*, profile_id: str, evidence_mode: bool, paper_mode: bo
     profile = str(profile_id or "").strip()
     if bool(evidence_mode or paper_mode):
         return "Locked publication cohort"
+    if profile == "android_catalog_all_exploratory":
+        return "Android catalog exploratory surface"
     if profile == "android_malware_all_current":
         return "Current-corpus diagnostic surface"
     if profile == "android_malware_major_families":
@@ -776,7 +778,8 @@ def finalize_pipeline_observability(
         "observed_type_slug_count_including_unknown": observed_type_slug_count_including_unknown,
         "unknown_family_sample_count": unknown_family_sample_count,
         "unknown_type_sample_count": unknown_type_sample_count,
-        "family_conflict_count": int(taxonomy_summary_payload.get("taxonomy_mismatch_count", 0) or 0),
+        "family_conflict_count": _coerce_int(taxonomy_summary_payload.get("taxonomy_mismatch_count")),
+        "family_conflict_status": ("measured taxonomy mismatches" if "taxonomy_mismatch_count" in taxonomy_summary_payload else "not measured; taxonomy stage/report unavailable"),
         "temporal_future_only_family_drops_top": _format_top_count_pairs(temporal_dropped_family_counts),
         "main_training_row_authority": row_authority,
         "cohort_rows": _coerce_int(gov),
@@ -1089,14 +1092,6 @@ def patch_observability_post_operator_artifacts(
         manifest_context=manifest_context,
     )
     return True
-
-
-def patch_observability_scientific_adequacy_from_dataset_foundation(
-    *,
-    diagnostics_dir: Path,
-) -> bool:
-    """Backward-compatible alias for the expanded post-operator observability patch."""
-    return patch_observability_post_operator_artifacts(diagnostics_dir=diagnostics_dir)
 
 
 def _adjust_bundle_terminal_status(status: str, *, run_status_raw: str) -> str:

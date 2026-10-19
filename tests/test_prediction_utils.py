@@ -56,7 +56,8 @@ def test_builder_uses_prediction_metadata_confidence(monkeypatch):
 
     def stub_build_row(sample_id, pred_index, label_decoder, true_labels, metadata,
                        records_by_vendor, label_format, include_confidence,
-                       debug=False, consensus_data=None):
+                       debug=False, consensus_data=None, *, label_name_map=None,
+                       records_by_sample_id=None, resolution_context=None):
         return {
             'sample_id': sample_id,
             'confidence': pu.get_sample_confidence(metadata, sample_id, include_confidence)
@@ -130,7 +131,8 @@ def test_builder_accepts_nested_prediction_metadata(monkeypatch):
 
     def stub_build_row(sample_id, pred_index, label_decoder, true_labels, metadata,
                        records_by_vendor, label_format, include_confidence,
-                       debug=False, consensus_data=None):
+                       debug=False, consensus_data=None, *, label_name_map=None,
+                       records_by_sample_id=None, resolution_context=None):
         return {
             'sample_id': sample_id,
             'confidence': pu.get_sample_confidence(metadata, sample_id, include_confidence)

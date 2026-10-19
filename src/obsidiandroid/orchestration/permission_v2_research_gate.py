@@ -37,3 +37,23 @@ def assert_legacy_observation_read_allowed() -> None:
         raise RuntimeError(
             "PI V2 research gate blocks legacy permission features"
         )
+
+
+def preflight_required_permission_access(feature_flags: dict) -> None:
+    """Check required legacy access early; feature extraction rechecks authority."""
+    if feature_flags.get("permission_input_policy") != "required":
+        return
+    if feature_flags.get("enable_permission_features", True) is not True:
+        raise ValueError("Required permission input cannot disable permission features")
+    if feature_flags.get("permission_feature_contract_version", "legacy") != "legacy":
+        return  # Source-specific contracts are verified by their own loaders.
+    try:
+        assert_legacy_observation_read_allowed()
+    except RuntimeError as exc:
+        raise RuntimeError(
+            "Permission preflight stopped: this profile requires legacy permission "
+            "features, but access is blocked or unavailable. No cohort data was loaded. "
+            "The approved PI V2 export is a separate exact cohort and cannot replace "
+            "catalog-wide permission input. Keep the gate intact and use a reviewed "
+            "permission source before rerunning."
+        ) from exc

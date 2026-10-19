@@ -4,7 +4,8 @@
 --   1. label_authority_foundation.sql
 --   2. optional backfill via label_authority_backfill.sql
 
-SET NAMES utf8mb4;
+-- Pin the catalog-compatible collation rather than the server-version default.
+SET NAMES utf8mb4 COLLATE utf8mb4_general_ci;
 
 SELECT
     table_name,
@@ -58,9 +59,9 @@ ORDER BY explicit_authority_override_flag DESC;
 SELECT
     COUNT(*) AS rows_missing_effective_family_slug
 FROM label_authority_resolution_view
-WHERE COALESCE(TRIM(effective_family_slug), '') = '';
+WHERE COALESCE(TRIM(effective_family_slug), '') COLLATE utf8mb4_general_ci = '';
 
 SELECT
     COUNT(*) AS rows_missing_effective_type_slug
 FROM label_authority_resolution_view
-WHERE COALESCE(TRIM(effective_type_slug), '') = '';
+WHERE COALESCE(TRIM(effective_type_slug), '') COLLATE utf8mb4_general_ci = '';

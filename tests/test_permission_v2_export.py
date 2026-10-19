@@ -185,3 +185,17 @@ def test_support_policy_requires_positive_integer(monkeypatch, tmp_path, support
     with pytest.raises(ValueError, match="positive integer"):
         v2.build_v2_unresolved_features(
             samples, path, training_sample_ids=[7], min_support=support)
+
+
+def test_descriptive_occurrences_need_no_training_vocabulary(monkeypatch, tmp_path):
+    _, path, _, _ = _fixture(monkeypatch, tmp_path)
+    monkeypatch.setattr(v2, 'build_v2_unresolved_features', lambda *a, **k: pytest.fail('No training vocabulary'))
+    summary, identities, frequencies, occurrences = v2.describe_v2_occurrences(path)
+    assert summary['covered_samples'] == summary['projected_pairs'] == 1
+    assert summary['training_authorized'] is False
+    assert summary['manifest_verified'] is False
+    assert frequencies.iloc[0]['covered_sample_prevalence'] == 1
+    assert occurrences.iloc[0]['sample_id'] == identities.iloc[0]['sample_id'] == 7
+    path.write_text('{}')
+    with pytest.raises(ValueError, match='independent approval'):
+        v2.describe_v2_occurrences(path)

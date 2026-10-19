@@ -29,7 +29,7 @@ def test_build_row_handles_tuple_enrichment(monkeypatch):
     monkeypatch.setattr('obsidiandroid.classification_builder.classification_row_builder.prediction_utils.get_category_vector_string', lambda r: 'vect', raising=False)
     monkeypatch.setattr('obsidiandroid.classification_builder.classification_row_builder.prediction_utils.get_sample_confidence', lambda *a, **k: 0.5, raising=False)
 
-    row = build_classification_row(sample_id, 0, label_decoder, true_labels, metadata, records_by_vendor, label_format='structured', include_confidence=False)
+    row = build_classification_row(sample_id, 0, label_decoder, true_labels, metadata, records_by_vendor=records_by_vendor, label_format='structured', include_confidence=False)
     assert row['classification_label'] == 'label'
     assert row['variant'] == 'variant'
     assert row['threat_class'] == 'threat'
@@ -463,3 +463,31 @@ def test_generate_structured_fields_infers_values(label, family, threat_class, m
     assert fields['family'] == family
     assert fields['threat'] == exp_threat
     assert fields['mtype'] == exp_type
+
+
+@pytest.mark.parametrize('message', ['label_name_map processing failed', 'records_by_sample_id processing failed'])
+def test_builder_does_not_retry_type_error_without_resolution_context(monkeypatch, message):
+    """An internal error must not silently retry with weaker evidence inputs."""
+    calls = []
+
+    def failing_builder(**kwargs):
+        calls.append(kwargs)
+        if 'label_name_map' in kwargs:
+            raise TypeError(message)
+        return {'sample_id': 's1', 'classification_label': 'unsafe retry'}
+
+    monkeypatch.setattr(sample_classification_builder, 'build_classification_row', failing_builder)
+    result = sample_classification_builder.build_sample_classification_records(
+        {}, {'predictions': {'s1': 0}, 'true_labels': {'s1': 'foo'},
+             'label_decoder': {0: 'foo'}}, verbose=False,
+    )
+    assert len(calls) == 1
+    assert calls[0]['resolution_context'] is not None
+    assert result.empty
+    assert result.attrs['label_resolution_failed_sample_ids'] == ('s1',)
+    assert result.attrs['label_resolution_failed_sample_count'] == 1
+
+
+def test_row_builder_rejects_ambiguous_sixth_positional_argument():
+    with pytest.raises(TypeError):
+        build_classification_row('s1', 0, {0: 'foo'}, {'s1': 'foo'}, {}, {'vendor': []})

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from obsidiandroid.common.time_display import LocalUTCFormatter
 from pathlib import Path
 from typing import Any
 
@@ -144,9 +145,8 @@ def _sync_logger_handlers(logger: logging.Logger, category: str) -> None:
         except Exception:
             pass
 
-    fmt = logging.Formatter(
+    fmt = LocalUTCFormatter(
         "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%SZ",
     )
     for path in sorted(target_paths):
         if path in existing_paths:

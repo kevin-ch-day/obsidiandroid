@@ -19,6 +19,7 @@ import pandas as pd
 
 from config import app_config
 from obsidiandroid.modeling.model_trainer_factory import reset_runtime_training_caches
+from obsidiandroid.modeling.experiment_split import experiment_scope, prepare_experiment
 
 # === Database + Utilities ===
 from obsidiandroid.cli.ui import display as du
@@ -523,6 +524,11 @@ def _run_pipeline_impl(
             allow_global_artifacts=allow_global_artifacts,
             manifest_context=manifest_context,
         )
+        from obsidiandroid.orchestration.permission_v2_research_gate import preflight_required_permission_access
+        try:
+            preflight_required_permission_access(feature_flags)
+        except (RuntimeError, ValueError) as exc:
+            st.fail_pipeline(str(exc), stage_name="preflight")
         type_slug = policy["type_slug"]
         profile_id = str(policy["profile_id"])
         if rr:
@@ -799,6 +805,14 @@ def _run_pipeline_impl(
                 pipeline_results=pipeline_results,
                 vendor_eval=vendor_eval,
             )
+
+        # Own target eligibility and partition before any learned feature stage.
+        experiment_binding = prepare_experiment(samples_df, profile, run_id)
+        if experiment_binding is not None:
+            manifest_context["experiment_split_plan"] = json.loads(experiment_binding.plan.to_json())
+            manifest_context["experiment_split_digest"] = experiment_binding.plan.sha256
+            feature_flags = dict(feature_flags)
+            feature_flags["permission_training_sample_ids"] = list(experiment_binding.plan.train_ids)
 
         # Step 2: Run AV engine pipeline
         stage_started_at = perf_counter()
@@ -2115,6 +2129,7 @@ def _run_pipeline_impl(
         )
 
 
+@experiment_scope()
 def run_pipeline(selected_models=None, stop_after="full", profile_ref=None,
                  evidence_mode_override=None, paper_mode_override=None,
                  allow_evidence_override=False, allow_global_artifacts=False,

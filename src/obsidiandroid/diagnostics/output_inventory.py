@@ -59,6 +59,8 @@ def _claim_surface_label(*, profile_id: str, evidence_mode: bool, paper_mode: bo
     profile = str(profile_id or "").strip()
     if bool(evidence_mode or paper_mode):
         return "Locked publication cohort"
+    if profile == "android_catalog_all_exploratory":
+        return "Android catalog exploratory surface"
     if profile == "android_malware_all_current":
         return "Current-corpus diagnostic surface"
     if profile == "android_malware_major_families":

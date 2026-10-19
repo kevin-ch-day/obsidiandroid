@@ -850,12 +850,6 @@ def _cohort_catalog_semantics_base_sql(parts: dict[str, Any]) -> tuple[str, tupl
     return base_sql, tuple(parts["params"])
 
 
-def _scalar_semantics_count(base_sql: str, params: tuple[Any, ...], predicate_sql: str) -> int:
-    query = f"SELECT COUNT(*) AS c FROM ({base_sql}) sem WHERE {predicate_sql}"
-    _columns, rows = db_engine.execute_query(query, params=params, fetch=True, return_columns=True)
-    return int(rows[0][0]) if rows else 0
-
-
 def _semantics_aggregate_counts(base_sql: str, params: tuple[Any, ...]) -> dict[str, int]:
     """Return all scalar semantics counters from one governed-cohort scan."""
     raw_family_identity = family_identity_sql("family_label_raw")
@@ -1229,6 +1223,7 @@ def _execute_samples_by_type_query(
     require_active_type_slug: bool = False,
     as_dataframe: bool = False,
     id_only_projection: bool = False,
+    query_only: bool = False,
 ):
     """Execute the cohort loader query with a caller-provided projection."""
     parts = _cohort_loader_sql_parts(
@@ -1545,6 +1540,8 @@ def _execute_samples_by_type_query(
         query += "\nLIMIT %s"
         query_params.append(limit_value)
 
+    if query_only:
+        return query, tuple(query_params)
     return db_engine.execute_query(
         query,
         params=tuple(query_params),

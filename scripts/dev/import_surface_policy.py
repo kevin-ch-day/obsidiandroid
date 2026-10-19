@@ -2,8 +2,7 @@
 
 AST/file-system checks only (no ``importlib`` of project packages). Repo-root
 compatibility Python trees are retired; the repository-root ``database/``
-directory remains only for SQL assets. Thin-compat policy is empty but retained
-as an extension point.
+directory remains only for SQL assets.
 """
 
 from __future__ import annotations
@@ -12,15 +11,12 @@ import ast
 from pathlib import Path
 
 _UTF8_BOM = b"\xef\xbb\xbf"
-CANONICAL_CODE_LEGACY_IMPORT_ROOTS = frozenset({"analysis", "ml_classification", "main"})
+CANONICAL_CODE_LEGACY_IMPORT_ROOTS = frozenset({"analysis", "ml_classification", "database", "main"})
 # First path segment of ``# Filename:`` headers under ``src/`` must not name a legacy tree.
 CANONICAL_FILENAME_HEADER_BAD_ROOTS = frozenset({"analysis", "ml_classification", "database"})
 _CANONICAL_CODE_IMPORT_SCAN_ROOTS = ("src", "scripts")
 CANONICAL_CODE_IMPORT_SCAN_ALLOWLIST = frozenset({Path("scripts/dev/check_import_surface.py")})
 RETIRED_COMPATIBILITY_ROOTS = frozenset({"analysis", "ml_classification"})
-RETIRED_ROOT_COMPATIBILITY_FILES = frozenset(
-    {Path("database/__init__.py"), Path("database/split_db_health.py")}
-)
 # Directory name fragments skipped when scanning for UTF-8 BOM (generated / vendor trees).
 _BOM_SCAN_SKIP_DIR_PARTS = frozenset(
     {
@@ -51,7 +47,7 @@ __all__ = (
     "collect_canonical_code_legacy_imports",
     "collect_retired_compatibility_tree_violations",
     "collect_retired_compatibility_file_violations",
-    "collect_nonparity_test_legacy_imports",
+    "collect_test_legacy_imports",
     "collect_stale_canonical_filename_headers",
     "collect_utf8_bom_python_sources",
     "legacy_root_import_violations",
@@ -72,7 +68,7 @@ def legacy_root_import_violations(
                 root = alias.name.split(".", 1)[0]
                 if root in forbidden_roots:
                     bad.append(f"{rel_posix}:{node.lineno}: import {alias.name}")
-        elif isinstance(node, ast.ImportFrom) and node.module:
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
             root = node.module.split(".", 1)[0]
             if root in forbidden_roots:
                 bad.append(f"{rel_posix}:{node.lineno}: from {node.module} import ...")
@@ -125,11 +121,13 @@ def collect_retired_compatibility_tree_violations(repo_root: Path) -> list[str]:
 
 
 def collect_retired_compatibility_file_violations(repo_root: Path) -> list[str]:
-    """Return former root-level compatibility files that were accidentally recreated."""
+    """Reject Python modules anywhere in the SQL-only root database directory."""
     return [
         f"{rel.as_posix()}: retired compatibility file should not exist on disk"
-        for rel in sorted(RETIRED_ROOT_COMPATIBILITY_FILES)
-        if (repo_root / rel).exists()
+        for rel in sorted(
+            path.relative_to(repo_root)
+            for path in (repo_root / "database").rglob("*.py")
+        )
     ]
 
 
@@ -164,13 +162,13 @@ def collect_canonical_code_legacy_imports(repo_root: Path) -> list[str]:
     )
 
 
-def collect_nonparity_test_legacy_imports(repo_root: Path) -> list[str]:
-    """Return non-parity tests that import legacy compatibility roots directly."""
+def collect_test_legacy_imports(repo_root: Path) -> list[str]:
+    """Return tests that import legacy compatibility roots directly."""
     return _collect_legacy_imports_under_scan_roots(
         repo_root,
         scan_roots=(repo_root / "tests",),
         path_allowlist=frozenset(),
-        forbidden_roots=RETIRED_COMPATIBILITY_ROOTS,
+        forbidden_roots=RETIRED_COMPATIBILITY_ROOTS | {"database"},
     )
 
 

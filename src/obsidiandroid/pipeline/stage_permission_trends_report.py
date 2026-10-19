@@ -3498,12 +3498,6 @@ def _spearman_similarity_details(left: np.ndarray, right: np.ndarray) -> dict[st
         return {"spearman_correlation": None, "correlation_status": "error", "left_profile_constant": left_constant, "right_profile_constant": right_constant}
 
 
-def _spearman_similarity(left: np.ndarray, right: np.ndarray) -> float:
-    """Compatibility wrapper; new report builders should retain details."""
-    value = _spearman_similarity_details(left, right)["spearman_correlation"]
-    return float(value) if value is not None else float("nan")
-
-
 def _jaccard_similarity(left: np.ndarray, right: np.ndarray) -> float:
     left_set = set(np.flatnonzero(left > 0.0).tolist())
     right_set = set(np.flatnonzero(right > 0.0).tolist())
@@ -4082,16 +4076,11 @@ def _build_banker_family_pattern_clusters(
                 d = _js_distance(p, q)
                 dist[i, j] = d
                 dist[j, i] = d
-        try:
-            from sklearn.cluster import AgglomerativeClustering
+        from sklearn.cluster import AgglomerativeClustering
 
-            try:
-                model = AgglomerativeClustering(n_clusters=k, metric="precomputed", linkage="average")
-            except TypeError:
-                model = AgglomerativeClustering(n_clusters=k, affinity="precomputed", linkage="average")
-            labels = model.fit_predict(dist)
-        except Exception:
-            labels = np.arange(n) % k
+        model = AgglomerativeClustering(n_clusters=k, metric="precomputed", linkage="average")
+        # Failed clustering must not become apparently valid round-robin groups.
+        labels = model.fit_predict(dist)
     assignment_rows: list[dict[str, Any]] = []
     for idx, (family_id, family_name, sample_count) in enumerate(pivot.index.tolist()):
         assignment_rows.append(

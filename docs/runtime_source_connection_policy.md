@@ -126,7 +126,9 @@ inventory does not grant current read authority. Exact V2 consumption uses the
 separately approved export; unsupported legacy paths remain unavailable.
 
 Optional diagnostics use the same read boundary for temporal, family-mapping,
-and parser-health reports.  Maintenance scripts, including ingest-tranche and
+and parser-health reports. The former catalog-filename normalization and
+ingest-queue pruning scripts have been removed; upstream repairs belong to
+Erebus.  Maintenance scripts, including ingest-tranche and
 backfill tools, are not startup-menu analysis paths and may contain explicit
 source DML; they remain maintenance-only.  Phase 2C has its own five-table
 extract reader.  Future Core imports use the separately guarded Phase 2D

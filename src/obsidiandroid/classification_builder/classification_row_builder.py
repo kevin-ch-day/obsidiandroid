@@ -235,6 +235,7 @@ def build_classification_row(
     label_decoder: Dict[int, str],
     true_labels: Dict[str, str],
     metadata: Dict[str, Any],
+    *,
     label_name_map: Optional[Dict[str, str]] = None,
     records_by_vendor: Optional[Dict[str, Any]] = None,
     records_by_sample_id: Optional[Dict[str, Any]] = None,
@@ -248,13 +249,6 @@ def build_classification_row(
     Constructs a structured classification row for a malware sample based on ML prediction
     and AV vendor metadata.
     """
-    # Backward compatibility: older callers passed `records_by_vendor`
-    # as the 6th positional argument where `label_name_map` now lives.
-    if records_by_vendor is None and isinstance(label_name_map, dict):
-        if any(isinstance(v, list) for v in label_name_map.values()):
-            records_by_vendor = label_name_map
-            label_name_map = {}
-
     if label_name_map is None:
         label_name_map = {}
     if records_by_vendor is None:

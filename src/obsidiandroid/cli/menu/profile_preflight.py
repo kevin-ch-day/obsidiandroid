@@ -113,13 +113,6 @@ def _observed_note_lines(note: str) -> tuple[str, list[str]]:
     return text, []
 
 
-def _gap_note_lines(note: str) -> tuple[str, list[str]]:
-    parts = _split_sentences(note)
-    if not parts:
-        return "", []
-    return parts[0], parts[1:]
-
-
 def _summarize_live_readiness_gaps(
     *,
     readiness: dict[str, object] | None,
@@ -235,7 +228,8 @@ def _print_current_source_coverage(note: str) -> None:
     for line in lines:
         key, separator, value = line.partition("=")
         if separator:
-            du.print_stat(key.replace("_", " ").title(), value, width=20)
+            display_value = f"{int(value):,}" if value.isdecimal() else value
+            du.print_stat(key.replace("_", " ").title(), display_value, width=20)
         else:
             du.print_stat("Detail", line, width=20)
     du.print_stat(
@@ -333,11 +327,25 @@ def _profile_menu_latest_run_context(output_root: Path | None = None) -> list[tu
     modeled_families = payload.get("modeled_family_class_count")
     support_floor_families = payload.get("benchmark_trainable_family_count")
 
+    completed_stage = str(payload.get("completed_stage") or "unknown")
+    training_not_reached = (status.lower() not in {"complete", "completed", "success"}
+                            and completed_stage not in {"training", "ablation", "permission_trends", "label_resolution", "manifest"})
+    if training_not_reached:
+        trainable = None
+        modeled_families = None
+
     claim_surface = str(payload.get("claim_surface") or "").replace("_", " ").strip()
     status_text = status if not claim_surface else f"{status} · {claim_surface}"
     context: list[tuple[str, str]] = [("LAST RUN STATUS", status_text)]
+    run_id = str(payload.get("run_id") or "").strip()
+    if run_id:
+        context.append(("LAST RUN", run_id))
+    context.append(("NOTE", "Saved run results below; current catalog counts appear after profile selection."))
+    if training_not_reached:
+        stopped = payload.get("error_stage") or payload.get("failure_stage") or completed_stage
+        context.append(("TRAINING", f"Not reached; stopped at {stopped}. Population counts below are diagnostic previews."))
     if isinstance(prepared, int):
-        prepared_text = f"Latest cohort: {prepared:,} prepared samples"
+        prepared_text = f"Previous cohort: {prepared:,} prepared samples"
         if isinstance(trainable, int):
             context.append(("INFO", prepared_text))
             context.append(("INFO", f"Training-eligible samples: {trainable:,}"))
@@ -425,6 +433,12 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
         profile = profile_manager.load_profile(profile_id)
     except Exception as exc:
         return False, f"[PROFILE] Failed to load profile '{profile_id}': {exc}"
+
+    from obsidiandroid.orchestration.permission_v2_research_gate import preflight_required_permission_access
+    try:
+        preflight_required_permission_access(profile.get("feature_flags", {}))
+    except (RuntimeError, ValueError) as exc:
+        return False, f"[PROFILE] {exc}"
 
     gates = profile.get("cohort_gates", {}) if isinstance(profile, dict) else {}
     dataset_filters = profile.get("dataset_filters", {}) if isinstance(profile, dict) else {}
@@ -632,13 +646,6 @@ def resolve_and_validate_profile(
         if menu_subtitle is not None
         else _profile_menu_latest_run_context()
     )
-    persistence_mode = str(getattr(app_config, "RESULTS_PERSISTENCE_MODE", "read_only")).strip()
-    warehouse_enabled = bool(getattr(app_config, "ENABLE_RESULTS_WAREHOUSE_EXPORT", False))
-    print(
-        "[PROFILE] Persistence mode: "
-        f"{persistence_mode} (legacy Erebus warehouse export {'enabled' if warehouse_enabled else 'disabled'}; "
-        "Core persistence is selected explicitly in Full pipeline persistence mode)."
-    )
     while True:
         profile_id = resolve_profile_for_run(
             prefer_quick=prefer_quick,
@@ -714,6 +721,9 @@ def resolve_and_validate_profile(
         _print_profile_block("Preflight: verifying cohort against the database (quick check)...")
         ok, reason = validate_profile_runnable(profile_id)
         if ok:
+            _print_profile_block(
+                "Cohort preflight passed. Full data and feature checks run during analysis."
+            )
             log_event(
                 MENU_LOGGER,
                 "profile_preflight_passed",

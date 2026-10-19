@@ -80,3 +80,17 @@ See **`scripts/research/`** for publication and structural bundles.
 | **(Pipeline / manifest)** | After a full run, diagnostics also include **`headline_vs_ablation_contract_comparison_*.{md,csv}`** and **`taxonomy_type_authority_review_*.{md,csv}`** (operator dashboard + research validity bundle). |
 
 Pipeline staging: [`docs/pipeline_staging_guide.md`](../../docs/pipeline_staging_guide.md).
+
+### Label-authority readiness semantics
+
+The label-authority schema readiness diagnostic counts the 13 seed vendors in
+one verdict-table scan, preserving the existing token exclusions and per-vendor
+counts. Empty tables produce zero counts; missing columns or an unavailable
+aggregate must not be reported as zero evidence.
+
+When the live authority surface is present, incomplete authority, operator-view
+or policy contracts produce a nonzero exit status. A missing verdict table or
+vendor column skips the seed-count query and reports unavailable coverage.
+Before the live authority surface is deployed, a zero exit status means only
+that foundation prerequisites pass; it does not approve a rollout, assert live
+authority completeness, or authorize data loading.

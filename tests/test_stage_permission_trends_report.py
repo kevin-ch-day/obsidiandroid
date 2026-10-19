@@ -98,6 +98,8 @@ def test_fetch_permission_rows_for_samples_prefers_permission_string_norm(monkey
     captured: list[str] = []
 
     def _fake_execute_permission_query(query, **kwargs):
+        if "android_permission_research_gate_v2_candidate" in query:
+            return pd.DataFrame({"legacy_observation_reads": ["ALLOW"]})
         captured.append(query)
         if "vw_permission_vt_current_governed" in query:
             return pd.DataFrame(
@@ -150,7 +152,9 @@ def test_fetch_permission_rows_for_samples_falls_back_without_norm(monkeypatch) 
     captured: dict[str, object] = {}
 
     def _fake_execute_permission_query(query, **kwargs):
-        captured["query"] = query
+        if "android_permission_research_gate_v2_candidate" in query:
+            return pd.DataFrame({"legacy_observation_reads": ["ALLOW"]})
+        captured.setdefault("queries", []).append(query)
         return pd.DataFrame(
             {
                 "sample_id": [1, 1],
@@ -176,6 +180,9 @@ def test_fetch_permission_rows_for_samples_falls_back_without_norm(monkeypatch) 
     )
 
     out = sample_perm_data.fetch_permission_rows_for_samples([1])
+    assert "LOWER(TRIM(ops.permission_string))" in captured["queries"][0]
+    assert "ops.permission_string_norm" not in captured["queries"][0]
+    assert out["permission_string"].tolist() == ["android.permission.read_sms"]
 
 
 def test_fetch_permission_rows_governs_raw_token_before_display_alias(monkeypatch) -> None:
@@ -189,6 +196,8 @@ def test_fetch_permission_rows_governs_raw_token_before_display_alias(monkeypatc
     observed_governance_params: list[object] = []
 
     def _fake_execute_permission_query(query, *, params=(), **_kwargs):
+        if "android_permission_research_gate_v2_candidate" in query:
+            return pd.DataFrame({"legacy_observation_reads": ["ALLOW"]})
         if "vw_permission_vt_current_governed" in query:
             observed_governance_params.extend(params)
             return pd.DataFrame(
@@ -230,6 +239,8 @@ def test_fetch_permission_rows_reports_start_and_completion_for_each_batch(monke
     )
 
     def _fake_execute_permission_query(_query, *, params, **_kwargs):
+        if "android_permission_research_gate_v2_candidate" in _query:
+            return pd.DataFrame({"legacy_observation_reads": ["ALLOW"]})
         return pd.DataFrame(
             {
                 "sample_id": list(params),
@@ -286,6 +297,8 @@ def test_fetch_permission_rows_uses_indexed_dictionary_keys_when_available(monke
     captured: list[str] = []
 
     def _fake_execute_permission_query(query, **_kwargs):
+        if "android_permission_research_gate_v2_candidate" in query:
+            return pd.DataFrame({"legacy_observation_reads": ["ALLOW"]})
         captured.append(query)
         if "vw_permission_vt_current_governed" in query:
             return pd.DataFrame(
@@ -524,6 +537,8 @@ def test_fetch_permission_aggregates_prefers_permission_string_norm(monkeypatch)
     captured: dict[str, object] = {}
 
     def _fake_execute_permission_query(query, **kwargs):
+        if "android_permission_research_gate_v2_candidate" in query:
+            return pd.DataFrame({"legacy_observation_reads": ["ALLOW"]})
         captured["query"] = query
         return pd.DataFrame(
             {
