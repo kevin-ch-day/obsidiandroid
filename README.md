@@ -235,6 +235,7 @@ python -m obsidiandroid.database.permission_intel_v1 --json
 Model and pipeline settings can be customized in `config/settings/*.py` (re-exported by `config/app_config.py`):
 - Train/test split, random seed, estimator hyperparameters.
 - Split grouping: a profile may set `split_grouping: package` to hold out whole package-name groups (sha256 fallback) with a label-stratified grouped split; the default `none` keeps the historical split so earlier runs replay unchanged.
+- Modality requirement: `cohort_gates.require_vendor_and_permission: true` keeps only training samples that have AV detection data and at least one permission feature, in both headline and ablation pools, before the family support floor. Default off.
 - Enable/disable grid search (e.g., `ENABLE_RF_GRID_SEARCH`).
 - Edit vendor selection (top-k by ML score, inclusion/exclusion of generic vendors).
 - Tune XGBoost multiclass runtime guardrails (`XGB_GUARDRAIL_PROFILE_CAPS`) to cap boosting rounds and early stopping for large class spaces.
