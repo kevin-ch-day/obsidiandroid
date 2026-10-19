@@ -12,12 +12,13 @@ from sklearn.preprocessing import LabelEncoder
 
 from config import app_config
 from obsidiandroid.diagnostics import headline_evaluation_export
+from obsidiandroid.evaluation.ml_eval_engine import evaluate_model_performance
 
 
-def _fitted_result(model_seed: int) -> dict:
-    """Tiny synthetic three-class fit; test rows are indexed by sample ID."""
+def _fitted_result(model_seed: int, raw_classes=(101, 202, 303)) -> dict:
+    """Tiny synthetic three-class fit evaluated by the real evaluation engine."""
     rng = np.random.default_rng(model_seed)
-    raw_labels = np.array([101, 202, 303] * 10)
+    raw_labels = np.array(list(raw_classes) * 10)
     encoder = LabelEncoder().fit(raw_labels)
     y = encoder.transform(raw_labels)
     X = pd.DataFrame(rng.normal(size=(30, 3)) + y[:, None], index=np.arange(1, 31))
@@ -28,7 +29,9 @@ def _fitted_result(model_seed: int) -> dict:
         "X_test": X_test,
         "y_test": y_test,
         "label_encoder": encoder,
-        "evaluation": {"y_true": y_test, "y_pred": model.predict(X_test)},
+        "evaluation": evaluate_model_performance(
+            model, X_test, y_test, label_encoder=encoder, verbose=False
+        ),
     }
 
 
@@ -65,8 +68,55 @@ def test_every_model_writes_test_predictions_with_full_probabilities(
     proba_cols = ["proba__101", "proba__202", "proba__303"]
     assert [c for c in frame.columns if c.startswith("proba__")] == proba_cols
     np.testing.assert_allclose(frame[proba_cols].sum(axis=1), 1.0, atol=1e-6)
-    expected = result["label_encoder"].inverse_transform(result["evaluation"]["y_pred"])
+    expected = result["label_encoder"].inverse_transform(result["model"].predict(result["X_test"]))
     assert frame["predicted_label_id"].tolist() == list(expected)
+
+
+def test_string_labels_are_written_as_evaluated(tmp_path: Path, _split_runtime: None) -> None:
+    result = _fitted_result(4, raw_classes=("Irata", "Joker", "SpyNote"))
+    paths = headline_evaluation_export.export_model_test_predictions(
+        results={"logistic_regression": result}, diagnostics_dir=tmp_path, run_id="unit_run"
+    )
+    frame = pd.read_csv(paths["logistic_regression"])
+    assert frame["true_label_id"].tolist() == ["Irata", "Joker", "SpyNote"] * 2
+    assert [c for c in frame.columns if c.startswith("proba__")] == [
+        "proba__Irata", "proba__Joker", "proba__SpyNote"
+    ]
+
+
+def test_probability_columns_follow_model_class_remap(tmp_path: Path, _split_runtime: None) -> None:
+    result = _fitted_result(5)
+
+    class _RemappedModel:
+        classes_ = np.array([0, 1])
+        _obsidiandroid_prediction_index_remap = [0, 2]
+
+        def predict_proba(self, X):
+            return np.tile([0.25, 0.75], (len(X), 1))
+
+    result["model"] = _RemappedModel()
+    paths = headline_evaluation_export.export_model_test_predictions(
+        results={"xgboost": result}, diagnostics_dir=tmp_path, run_id="unit_run"
+    )
+    frame = pd.read_csv(paths["xgboost"])
+    assert [c for c in frame.columns if c.startswith("proba__")] == ["proba__101", "proba__303"]
+    assert frame["proba__303"].eq(0.75).all()
+
+
+def test_one_model_failure_does_not_skip_other_models(tmp_path: Path, _split_runtime: None) -> None:
+    broken = _fitted_result(6)
+
+    class _Broken:
+        def predict_proba(self, X):
+            raise RuntimeError("no probabilities")
+
+    broken["model"] = _Broken()
+    paths = headline_evaluation_export.export_model_test_predictions(
+        results={"aaa_broken": broken, "logistic_regression": _fitted_result(7)},
+        diagnostics_dir=tmp_path,
+        run_id="unit_run",
+    )
+    assert "logistic_regression" in paths
 
 
 def test_models_without_probabilities_still_write_labels(

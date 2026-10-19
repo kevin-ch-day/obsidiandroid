@@ -10,6 +10,7 @@ import pandas as pd
 import json
 
 from config import app_config
+from obsidiandroid.cli.ui import display as du
 
 
 def _headline_split_meta() -> dict[str, Any]:
@@ -28,9 +29,10 @@ def export_model_test_predictions(
 ) -> dict[str, Path]:
     """Write ``test_predictions_<model>_<run_id>.csv`` for every trained model.
 
-    One row per held-out sample: identity, true and predicted labels (decoded
-    through the model's label encoder), and one ``proba__<label>`` column per
-    class when the estimator exposes ``predict_proba``.
+    One row per held-out sample: identity, the true and predicted labels exactly
+    as ``evaluate_model_performance`` reports them (already decoded), and one
+    ``proba__<label>`` column per model class when the estimator exposes
+    ``predict_proba``. A failure for one model is reported and skipped.
     """
     split_hash = str(_headline_split_meta().get("split_hash", "") or "")
     meta = getattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", None)
@@ -46,46 +48,68 @@ def export_model_test_predictions(
     for model_key, result in (results or {}).items():
         if not isinstance(result, dict):
             continue
-        X_test = result.get("X_test")
-        evaluation = result.get("evaluation") if isinstance(result.get("evaluation"), dict) else {}
-        y_true = evaluation.get("y_true")
-        y_pred = evaluation.get("y_pred")
-        if not isinstance(X_test, pd.DataFrame) or y_true is None or y_pred is None:
+        try:
+            path = _write_model_test_predictions(
+                model_key=str(model_key),
+                result=result,
+                sha_by_id=sha_by_id,
+                split_hash=split_hash,
+                diagnostics_dir=diagnostics_dir,
+                run_id=run_id,
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            du.print_warning(f"[HEADLINE_EVAL] Test predictions skipped for {model_key}: {exc}")
             continue
-        y_true = np.asarray(y_true).ravel()
-        y_pred = np.asarray(y_pred).ravel()
-        if len(y_true) != len(X_test) or len(y_pred) != len(X_test):
-            continue
-        encoder = result.get("label_encoder")
-        classes = list(getattr(encoder, "classes_", []))
-
-        def _decode(values: np.ndarray) -> list[Any]:
-            if not classes:
-                return list(values)
-            return [classes[int(v)] if 0 <= int(v) < len(classes) else v for v in values]
-
-        sample_ids = pd.to_numeric(X_test.index, errors="coerce")
-        frame = pd.DataFrame(
-            {
-                "sample_id": sample_ids,
-                "sha256": [sha_by_id.get(int(s), "") if pd.notna(s) else "" for s in sample_ids],
-                "split_role": "test",
-                "split_hash": split_hash,
-                "model": str(model_key),
-                "true_label_id": _decode(y_true),
-                "predicted_label_id": _decode(y_pred),
-            }
-        )
-        model = result.get("model")
-        if hasattr(model, "predict_proba"):
-            proba = np.asarray(model.predict_proba(X_test))
-            labels = _decode(np.asarray(getattr(model, "classes_", range(proba.shape[1]))))
-            for column, label in enumerate(labels):
-                frame[f"proba__{label}"] = proba[:, column]
-        path = diagnostics_dir / f"test_predictions_{model_key}_{run_id}.csv"
-        frame.to_csv(path, index=False)
-        written[str(model_key)] = path
+        if path is not None:
+            written[str(model_key)] = path
     return written
+
+
+def _write_model_test_predictions(
+    *,
+    model_key: str,
+    result: dict[str, Any],
+    sha_by_id: dict[int, str],
+    split_hash: str,
+    diagnostics_dir: Path,
+    run_id: str,
+) -> Path | None:
+    X_test = result.get("X_test")
+    evaluation = result.get("evaluation") if isinstance(result.get("evaluation"), dict) else {}
+    y_true = evaluation.get("y_true")
+    y_pred = evaluation.get("y_pred")
+    if not isinstance(X_test, pd.DataFrame) or y_true is None or y_pred is None:
+        return None
+    y_true = list(np.asarray(y_true).ravel())
+    y_pred = list(np.asarray(y_pred).ravel())
+    if len(y_true) != len(X_test) or len(y_pred) != len(X_test):
+        return None
+    sample_ids = pd.to_numeric(X_test.index, errors="coerce")
+    frame = pd.DataFrame(
+        {
+            "sample_id": sample_ids,
+            "sha256": [sha_by_id.get(int(s), "") if pd.notna(s) else "" for s in sample_ids],
+            "split_role": "test",
+            "split_hash": split_hash,
+            "model": model_key,
+            "true_label_id": y_true,
+            "predicted_label_id": y_pred,
+        }
+    )
+    model = result.get("model")
+    if hasattr(model, "predict_proba"):
+        proba = np.asarray(model.predict_proba(X_test))
+        local = np.asarray(getattr(model, "classes_", np.arange(proba.shape[1])))
+        # Model-local class positions -> global encoded labels -> decoded labels.
+        remap = getattr(model, "_obsidiandroid_prediction_index_remap", None)
+        encoded = np.asarray(remap)[local.astype(int)] if remap is not None else local
+        classes = list(getattr(result.get("label_encoder"), "classes_", []))
+        for column, code in enumerate(encoded):
+            label = classes[int(code)] if classes else code
+            frame[f"proba__{label}"] = proba[:, column]
+    path = diagnostics_dir / f"test_predictions_{model_key}_{run_id}.csv"
+    frame.to_csv(path, index=False)
+    return path
 
 
 def export_headline_test_tables(
