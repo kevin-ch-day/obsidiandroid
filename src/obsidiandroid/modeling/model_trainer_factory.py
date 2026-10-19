@@ -12,7 +12,7 @@ from typing import Any, Dict, Union
 from obsidiandroid.cli.ui import display as du
 
 import pandas as pd
-from sklearn.model_selection import GroupShuffleSplit, train_test_split
+from sklearn.model_selection import GroupShuffleSplit, StratifiedGroupKFold, train_test_split
 from sklearn.preprocessing import LabelEncoder
 import numpy as np
 
@@ -121,6 +121,7 @@ def _build_split_cache_key(
     )
     temporal_token = int(1) if _temporal_holdout_requested() else int(0)
     return (
+        _resolve_split_grouping(),
         int(len(features_df)),
         n_features_key,
         index_hash,
@@ -358,6 +359,46 @@ def _build_lineage_groups_for_split(features_df: pd.DataFrame) -> tuple[np.ndarr
         return None, "degenerate_lineage_groups"
     codes, _ = pd.factorize(g_series)
     return codes.astype(np.int64), "ok"
+
+
+def _resolve_split_grouping() -> str:
+    """Return the validated ``TRAIN_TEST_SPLIT_GROUPING`` (``none`` keeps historical splits)."""
+    raw = getattr(app_config, "TRAIN_TEST_SPLIT_GROUPING", "none")
+    value = str(raw or "none").strip().lower()
+    choices = tuple(getattr(app_config, "SPLIT_GROUPING_CHOICES", ("none", "package")))
+    if value not in choices:
+        raise ValueError(
+            f"[SPLIT] Unsupported TRAIN_TEST_SPLIT_GROUPING {raw!r}; expected one of {list(choices)}."
+        )
+    return value
+
+
+def _package_grouped_holdout(
+    features_df: pd.DataFrame,
+    encoded_labels: np.ndarray,
+    test_size: float,
+    random_state: int,
+) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray, np.ndarray, str]:
+    """Hold out whole package groups while approximately preserving label proportions.
+
+    Uses one fold of ``StratifiedGroupKFold`` with ``round(1 / test_size)`` folds.
+    Fails closed when lineage groups cannot be built; there is no ungrouped fallback.
+    """
+    groups_arr, group_note = _build_lineage_groups_for_split(features_df)
+    if groups_arr is None:
+        raise ValueError(
+            f"[SPLIT] package-grouped split requires package_name/sha256 runtime metadata ({group_note})."
+        )
+    n_splits = max(2, int(round(1.0 / float(test_size))))
+    splitter = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    train_pos, test_pos = next(splitter.split(features_df, encoded_labels, groups_arr))
+    return (
+        features_df.iloc[train_pos],
+        features_df.iloc[test_pos],
+        encoded_labels[train_pos],
+        encoded_labels[test_pos],
+        "stratified_group_package_v1",
+    )
 
 
 def _partition_sample_hash(rows: list[dict[str, str | int]]) -> str:
@@ -754,7 +795,11 @@ def resolve_training_partition(features_df, labels, encoded_labels, test_size, r
                 setattr(app_config, "RUNTIME_SPLIT_CACHE_NOTICE_EMITTED", True)
         else:
             split_algo = "stratified_seeded"
-            if _temporal_holdout_requested():
+            if _resolve_split_grouping() == "package":
+                X_train, X_test, y_train, y_test, split_algo = _package_grouped_holdout(
+                    features_df, encoded_labels, test_size, random_state
+                )
+            elif _temporal_holdout_requested():
                 temporal_split = _build_temporal_holdout_split(
                     features_df,
                     encoded_labels,

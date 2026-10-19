@@ -18,3 +18,9 @@ MIN_TEST_SAMPLES_PER_CLASS = 2
 # Headline-only: ablations keep stratified label splits for comparability tooling.
 ENABLE_GROUP_AWARE_TRAIN_TEST_SPLIT = False
 
+# Explicit split grouping, selectable per profile via ``split_grouping``.
+# "none" keeps the historical split above; "package" uses a label-stratified
+# grouped holdout so no package_name (fallback sha256) spans train and test.
+TRAIN_TEST_SPLIT_GROUPING = "none"
+SPLIT_GROUPING_CHOICES = ("none", "package")
+
