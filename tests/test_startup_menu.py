@@ -8,12 +8,19 @@ import sys
 
 import pytest
 
+from ccncps2026_published_reference import PUBLISHED_TABLE_II_RF, PUBLISHED_TABLE_II_XGB
 from config import app_config
 
 import obsidiandroid.cli.startup_menu as startup_menu
 import obsidiandroid.cli.startup_menu_run_context as startup_menu_run_context
 import obsidiandroid.cli.startup_menu_run_overview as run_overview
 from obsidiandroid.cli.ui import menu
+
+
+# Published CCNCPS 2026 reference values (not reproduced by any retained run),
+# formatted as the run summary CSV stores them; display fixtures only.
+_PUBLISHED_RF_MACRO_F1 = f"{PUBLISHED_TABLE_II_RF['Macro F1-Score']:.4f}"
+_PUBLISHED_XGB_MACRO_F1 = f"{PUBLISHED_TABLE_II_XGB['Macro F1-Score']:.4f}"
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -1440,7 +1447,7 @@ def test_recent_runs_overview_uses_runtime_and_model_fallbacks(monkeypatch, tmp_
     _write_text(
         diagnostics_dir / f"model_comparison_summary_{run_id}.csv",
         "Model,Macro F1-Score,Rank,Top\n"
-        "random_forest,0.9530,1,*\n",
+        f"random_forest,{_PUBLISHED_RF_MACRO_F1},1,*\n",
     )
 
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
@@ -1450,7 +1457,7 @@ def test_recent_runs_overview_uses_runtime_and_model_fallbacks(monkeypatch, tmp_
 
     assert result == 0
     assert captured["rows"][0]["top_model"] == "random_forest"
-    assert captured["rows"][0]["top_macro_f1"] == "0.9530"
+    assert captured["rows"][0]["top_macro_f1"] == _PUBLISHED_RF_MACRO_F1
     assert captured["rows"][0]["runtime_sec"] == "5.00"
 
 
@@ -1618,8 +1625,8 @@ def test_current_run_summary_uses_status_aware_fallbacks(monkeypatch, tmp_path: 
     _write_text(
         diagnostics_dir / f"model_comparison_summary_{run_id}.csv",
         "Model,Macro F1-Score,Rank,Top\n"
-        "random_forest,0.9530,1,*\n"
-        "xgboost,0.9412,2,\n",
+        f"random_forest,{_PUBLISHED_RF_MACRO_F1},1,*\n"
+        f"xgboost,{_PUBLISHED_XGB_MACRO_F1},2,\n",
     )
 
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
@@ -1632,7 +1639,7 @@ def test_current_run_summary_uses_status_aware_fallbacks(monkeypatch, tmp_path: 
     assert values["Run Status"] == "Complete"
     assert values["Completed Through Stage"] == "Manifest Finalization"
     assert values["Top Model"] == "random_forest"
-    assert values["Top Macro F1"] == "0.9530"
+    assert values["Top Macro F1"] == _PUBLISHED_RF_MACRO_F1
 
 
 def test_current_run_summary_includes_methodology_fields(monkeypatch, tmp_path: Path) -> None:

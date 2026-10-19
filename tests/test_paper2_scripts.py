@@ -10,6 +10,11 @@ from scripts.research import generate_claim_artifact_map
 from scripts.research import mark_legacy_publication_exports as mark_legacy_partial_paper_exports
 from scripts.research import export_publication_tables as export_manuscript_tables
 import pandas as pd
+from ccncps2026_published_reference import (
+    PUBLISHED_TABLE_II_RF,
+    PUBLISHED_TABLE_II_XGB,
+    PUBLISHED_TABLE_III_VENDOR_PERMS_RF,
+)
 
 
 def _write_paper_registries(paper_docs: Path) -> None:
@@ -516,26 +521,12 @@ def _write_minimum_run_sources(root: Path, run_id: str) -> None:
         ]
     ).to_csv(diagnostics / "analysis_snapshot.latest.csv", index=False)
 
+    # Published reference values (not reproduced by any retained run) used as
+    # realistic export inputs only.
     pd.DataFrame(
         [
-            {
-                "Model": "random_forest",
-                "Accuracy": 0.9761,
-                "Precision": 0.9751,
-                "Recall": 0.9761,
-                "F1-Score": 0.9750,
-                "Macro F1-Score": 0.9530,
-                "Rank": 1,
-            },
-            {
-                "Model": "xgboost",
-                "Accuracy": 0.9681,
-                "Precision": 0.9684,
-                "Recall": 0.9681,
-                "F1-Score": 0.9665,
-                "Macro F1-Score": 0.9412,
-                "Rank": 2,
-            },
+            {"Model": "random_forest", **PUBLISHED_TABLE_II_RF, "Rank": 1},
+            {"Model": "xgboost", **PUBLISHED_TABLE_II_XGB, "Rank": 2},
         ]
     ).to_csv(diagnostics / f"model_comparison_summary_{run_id}.csv", index=False)
 
@@ -544,10 +535,7 @@ def _write_minimum_run_sources(root: Path, run_id: str) -> None:
             {
                 "experiment": "vendor_permissions_fused",
                 "model": "random_forest",
-                "accuracy": 0.9761,
-                "macro_precision": 0.9584,
-                "macro_recall": 0.9568,
-                "macro_f1_score": 0.9566,
+                **PUBLISHED_TABLE_III_VENDOR_PERMS_RF,
             }
         ]
     ).to_csv(diagnostics / "ablation_summary.csv", index=False)

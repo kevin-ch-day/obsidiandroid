@@ -5,30 +5,23 @@ from __future__ import annotations
 import pandas as pd
 
 import obsidiandroid.reporting.latex_tables as latex_tables
+from ccncps2026_published_reference import (
+    PUBLISHED_TABLE_II_RF,
+    PUBLISHED_TABLE_II_XGB,
+    PUBLISHED_TABLE_III_VENDOR_PERMS_RF,
+)
 
 
 def test_model_comparison_formatting_bolds_best_and_rounds() -> None:
-    """Model table should normalize names, round metrics, and bold best rank."""
+    """Model table should normalize names, round metrics, and bold best rank.
+
+    Inputs are published reference values (not reproduced by any retained run),
+    used only as formatting fixtures.
+    """
     raw = pd.DataFrame(
         [
-            {
-                "Model": "random_forest",
-                "Accuracy": 0.9761,
-                "Precision": 0.9751,
-                "Recall": 0.9761,
-                "F1-Score": 0.9750,
-                "Macro F1-Score": 0.9530,
-                "Rank": 1,
-            },
-            {
-                "Model": "xgboost",
-                "Accuracy": 0.9681,
-                "Precision": 0.9684,
-                "Recall": 0.9681,
-                "F1-Score": 0.9665,
-                "Macro F1-Score": 0.9412,
-                "Rank": 2,
-            },
+            {"Model": "random_forest", **PUBLISHED_TABLE_II_RF, "Rank": 1},
+            {"Model": "xgboost", **PUBLISHED_TABLE_II_XGB, "Rank": 2},
         ]
     )
     out = latex_tables.build_model_comparison_table(raw)
@@ -40,16 +33,17 @@ def test_model_comparison_formatting_bolds_best_and_rounds() -> None:
 
 
 def test_feature_ablation_exports_full_metrics_context() -> None:
-    """Ablation table should include feature set, model, and core metrics."""
+    """Ablation table should include feature set, model, and core metrics.
+
+    The input row is a published reference value (not reproduced by any
+    retained run), used only as a formatting fixture.
+    """
     raw = pd.DataFrame(
         [
             {
                 "experiment": "vendor_permissions_fused",
                 "model": "random_forest",
-                "accuracy": 0.9761,
-                "macro_precision": 0.9584,
-                "macro_recall": 0.9568,
-                "macro_f1_score": 0.9566,
+                **PUBLISHED_TABLE_III_VENDOR_PERMS_RF,
             }
         ]
     )
