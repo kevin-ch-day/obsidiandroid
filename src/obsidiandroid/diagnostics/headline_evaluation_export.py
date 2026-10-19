@@ -20,6 +20,74 @@ def _headline_split_meta() -> dict[str, Any]:
     return dict(fallback) if isinstance(fallback, dict) else {}
 
 
+def export_model_test_predictions(
+    *,
+    results: dict[str, Any],
+    diagnostics_dir: Path,
+    run_id: str,
+) -> dict[str, Path]:
+    """Write ``test_predictions_<model>_<run_id>.csv`` for every trained model.
+
+    One row per held-out sample: identity, true and predicted labels (decoded
+    through the model's label encoder), and one ``proba__<label>`` column per
+    class when the estimator exposes ``predict_proba``.
+    """
+    split_hash = str(_headline_split_meta().get("split_hash", "") or "")
+    meta = getattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", None)
+    sha_by_id: dict[int, str] = {}
+    if isinstance(meta, pd.DataFrame) and {"sample_id", "sha256"}.issubset(meta.columns):
+        ids = pd.to_numeric(meta["sample_id"], errors="coerce")
+        sha_by_id = {
+            int(sid): str(sha or "")
+            for sid, sha in zip(ids, meta["sha256"])
+            if pd.notna(sid)
+        }
+    written: dict[str, Path] = {}
+    for model_key, result in (results or {}).items():
+        if not isinstance(result, dict):
+            continue
+        X_test = result.get("X_test")
+        evaluation = result.get("evaluation") if isinstance(result.get("evaluation"), dict) else {}
+        y_true = evaluation.get("y_true")
+        y_pred = evaluation.get("y_pred")
+        if not isinstance(X_test, pd.DataFrame) or y_true is None or y_pred is None:
+            continue
+        y_true = np.asarray(y_true).ravel()
+        y_pred = np.asarray(y_pred).ravel()
+        if len(y_true) != len(X_test) or len(y_pred) != len(X_test):
+            continue
+        encoder = result.get("label_encoder")
+        classes = list(getattr(encoder, "classes_", []))
+
+        def _decode(values: np.ndarray) -> list[Any]:
+            if not classes:
+                return list(values)
+            return [classes[int(v)] if 0 <= int(v) < len(classes) else v for v in values]
+
+        sample_ids = pd.to_numeric(X_test.index, errors="coerce")
+        frame = pd.DataFrame(
+            {
+                "sample_id": sample_ids,
+                "sha256": [sha_by_id.get(int(s), "") if pd.notna(s) else "" for s in sample_ids],
+                "split_role": "test",
+                "split_hash": split_hash,
+                "model": str(model_key),
+                "true_label_id": _decode(y_true),
+                "predicted_label_id": _decode(y_pred),
+            }
+        )
+        model = result.get("model")
+        if hasattr(model, "predict_proba"):
+            proba = np.asarray(model.predict_proba(X_test))
+            labels = _decode(np.asarray(getattr(model, "classes_", range(proba.shape[1]))))
+            for column, label in enumerate(labels):
+                frame[f"proba__{label}"] = proba[:, column]
+        path = diagnostics_dir / f"test_predictions_{model_key}_{run_id}.csv"
+        frame.to_csv(path, index=False)
+        written[str(model_key)] = path
+    return written
+
+
 def export_headline_test_tables(
     *,
     results: dict[str, Any],

@@ -1138,6 +1138,14 @@ def run_classifier_pipeline(
             )
         except Exception as exc:
             du.print_warning(f"[HEADLINE_EVAL] Test evidence export skipped: {exc}")
+        try:
+            headline_evaluation_export.export_model_test_predictions(
+                results=results,
+                diagnostics_dir=diagnostics_dir,
+                run_id=str(getattr(app_config, "RUNTIME_RUN_ID", "unknown")),
+            )
+        except Exception as exc:
+            du.print_warning(f"[HEADLINE_EVAL] Per-model prediction export skipped: {exc}")
 
     if skipped:
         du.print_warning(f"[SUMMARY] Skipped models: {', '.join(skipped)}")
