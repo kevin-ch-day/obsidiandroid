@@ -58,6 +58,10 @@ from obsidiandroid.pipeline.stage_av_vendor import (
 from obsidiandroid.pipeline.stage_samples import load_and_prepare_samples
 from obsidiandroid.pipeline.stage_feature_enrichment import merge_sample_metadata_features
 from obsidiandroid.pipeline.stage_feature_enrichment import build_permission_enrichment_frame
+from obsidiandroid.modeling.modality_requirement import (
+    av_detection_sample_ids,
+    permission_present_sample_ids,
+)
 from obsidiandroid.pipeline.permission_run_validity import (
     assert_training_permission_validity, evaluate_permission_run_validity,
     permission_frame_status,
@@ -523,6 +527,11 @@ def _run_pipeline_impl(
             allow_global_artifacts=allow_global_artifacts,
             manifest_context=manifest_context,
         )
+        from obsidiandroid.orchestration.permission_v2_research_gate import preflight_required_permission_access
+        try:
+            preflight_required_permission_access(feature_flags)
+        except (RuntimeError, ValueError) as exc:
+            st.fail_pipeline(str(exc), stage_name="preflight")
         type_slug = policy["type_slug"]
         profile_id = str(policy["profile_id"])
         if rr:
@@ -954,6 +963,12 @@ def _run_pipeline_impl(
         permission_features_df = build_permission_enrichment_frame(
             samples_df=samples_df,
             feature_flags=feature_flags,
+        )
+        setattr(app_config, "RUNTIME_AV_DETECTION_SAMPLE_IDS", av_detection_sample_ids(pipeline_results))
+        setattr(
+            app_config,
+            "RUNTIME_PERMISSION_PRESENT_SAMPLE_IDS",
+            permission_present_sample_ids(permission_features_df),
         )
         permission_policy_flags = dict(feature_flags)
         permission_policy_flags.setdefault(

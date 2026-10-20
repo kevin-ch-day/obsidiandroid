@@ -29,6 +29,8 @@ model_list:
   - logistic_regression
 parser_overrides: {}
 feature_flags:
+  enable_permission_features: true
+  permission_input_policy: required
   enable_sample_metadata_features: true
   enable_dynamic_generic_vendor_parsers: false
 runtime_overrides:

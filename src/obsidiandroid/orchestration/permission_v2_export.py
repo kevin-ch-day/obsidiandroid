@@ -204,17 +204,8 @@ def assert_verified_v2_frame(frame: pd.DataFrame, *, samples: pd.DataFrame,
         raise ValueError("PI V2 cached frame source or approval changed")
 
 
-def build_v2_unresolved_features(samples: pd.DataFrame, export_path: Path, *,
-                                 training_sample_ids: Iterable[int],
-                                 min_support: int = 1) -> pd.DataFrame:
-    """Build occurrence features only under an exact independently approved export."""
-    if not isinstance(min_support, Integral) or isinstance(min_support, bool) or min_support < 1:
-        raise ValueError("PI V2 feature support must be a positive integer")
-    export_bytes, anchor_bytes, export = _checked_export(export_path)
-    expected = _sample_identity(samples)
-    training = _training_identity(training_sample_ids)
-    if not training or not set(training) <= {sample_id for sample_id, _ in expected}:
-        raise ValueError("PI V2 training membership is invalid")
+def _projected_occurrences(export, expected):
+    """Validate exact membership and preserve projected occurrence semantics."""
     records = export.get("samples")
     if not isinstance(records, list) or len(records) != len(expected):
         raise ValueError("PI V2 export sample membership is incomplete")
@@ -247,6 +238,21 @@ def build_v2_unresolved_features(samples: pd.DataFrame, export_path: Path, *,
         projected_by_sample[sample_id] = projected
     if sorted(observed) != expected:
         raise ValueError("PI V2 export sample identity differs")
+    return projected_by_sample
+
+
+def build_v2_unresolved_features(samples: pd.DataFrame, export_path: Path, *,
+                                 training_sample_ids: Iterable[int],
+                                 min_support: int = 1) -> pd.DataFrame:
+    """Build occurrence features only under an exact independently approved export."""
+    if not isinstance(min_support, Integral) or isinstance(min_support, bool) or min_support < 1:
+        raise ValueError("PI V2 feature support must be a positive integer")
+    export_bytes, anchor_bytes, export = _checked_export(export_path)
+    expected = _sample_identity(samples)
+    training = _training_identity(training_sample_ids)
+    if not training or not set(training) <= {sample_id for sample_id, _ in expected}:
+        raise ValueError("PI V2 training membership is invalid")
+    projected_by_sample = _projected_occurrences(export, expected)
     support: dict[str, int] = {}
     for sample_id in training:
         for token in projected_by_sample[sample_id]:
@@ -269,3 +275,27 @@ def build_v2_unresolved_features(samples: pd.DataFrame, export_path: Path, *,
     assert_verified_v2_frame(frame, samples=samples, training_sample_ids=training,
                              min_support=min_support)
     return frame
+
+
+def describe_v2_occurrences(export_path: Path):
+    """Describe approved unresolved occurrences; grants no training authority."""
+    from collections import Counter
+    export_bytes, anchor_bytes, export = _checked_export(export_path)
+    identities = pd.DataFrame([{k: row[k] for k in ('sample_id', 'sha256')}
+                               for row in export['samples']])
+    projected = _projected_occurrences(export, _sample_identity(identities))
+    support = Counter(token for tokens in projected.values() for token in tokens)
+    frequencies = pd.DataFrame([{'token': token, 'samples': count,
+                                'covered_sample_prevalence': count / len(projected)}
+                               for token, count in sorted(support.items(), key=lambda x: (-x[1], x[0]))])
+    occurrences = pd.DataFrame([{'sample_id': sample_id, 'token': token}
+                                for sample_id, tokens in sorted(projected.items()) for token in sorted(tokens)])
+    summary = {'export_sha256': hashlib.sha256(export_bytes).hexdigest(),
+               'anchor_sha256': hashlib.sha256(anchor_bytes).hexdigest(),
+               'covered_samples': len(projected), 'projected_pairs': len(occurrences),
+               'raw_members': sum(len(r['members']) for r in export['samples']),
+               'distinct_tokens': len(support), 'singleton_tokens': sum(n == 1 for n in support.values()),
+               'evidence_state': 'PROVIDER_REPORTED_UNRESOLVED',
+               'manifest_verified': False, 'training_authorized': False,
+               'category_resolution': 'Unavailable; no governed definitions in this export'}
+    return summary, identities, frequencies, occurrences

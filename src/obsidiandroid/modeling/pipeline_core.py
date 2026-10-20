@@ -33,6 +33,7 @@ from obsidiandroid.diagnostics import permission_training_survival_audit
 
 from obsidiandroid.modeling import data_alignment
 from obsidiandroid.modeling import distribution_reporter
+from obsidiandroid.modeling.modality_requirement import apply_modality_requirement
 from obsidiandroid.modeling import ml_result_validator
 from obsidiandroid.modeling.feature_selection_contract import collect_leakage_pruning_audit
 from . import pipeline_result_promoter
@@ -860,6 +861,21 @@ def run_classifier_pipeline(
             "distribution_report_skipped",
             event_id="ML_PIPELINE_210",
             error=str(exc),
+        )
+
+    # A requested modality cut must have evidence receipts before support filtering.
+    features_df, labels_df, modality_dropped = apply_modality_requirement(features_df, labels_df)
+    setattr(
+        app_config,
+        "RUNTIME_MODALITY_REQUIREMENT_SAMPLE_IDS",
+        _index_to_int_sample_ids(features_df.index)
+        if bool(getattr(app_config, "RUNTIME_REQUIRE_BOTH_MODALITIES", False))
+        else None,
+    )
+    if modality_dropped:
+        du.print_info(
+            f"[FILTER] {modality_dropped} sample(s) excluded: missing AV detections or permissions "
+            "(require_vendor_and_permission)."
         )
 
     try:

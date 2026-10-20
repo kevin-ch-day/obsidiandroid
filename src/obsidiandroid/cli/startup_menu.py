@@ -856,6 +856,13 @@ def _launch_operations_menu() -> None:
         du.print_warning("[MENU] Invalid choice received.")
 
 
+def _launch_explorer_menu() -> int:
+    """Open the read-only explorer, including retained source research."""
+    from .data_explorer import launch_data_explorer
+
+    return launch_data_explorer()
+
+
 def _build_main_menu_commands() -> list[_MenuCommand]:
     """Return the redesigned top-level operator menu."""
     return [
@@ -867,6 +874,7 @@ def _build_main_menu_commands() -> list[_MenuCommand]:
         _MenuCommand(label="Data Diagnostics", action=_launch_data_diagnostics_menu),
         _MenuCommand(label="Tools and Maintenance", action=_launch_operations_menu),
         _MenuCommand(label="Clear Screen", action=lambda: 0),
+        _MenuCommand(label="Explore Android data", action=_launch_explorer_menu),
     ]
 
 

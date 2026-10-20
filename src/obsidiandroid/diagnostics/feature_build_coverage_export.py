@@ -17,6 +17,8 @@ def _perm_bag_positive_mask(
     cohort_ids: list[int],
 ) -> dict[int, bool]:
     """Return sample_id -> any permission-bag column positive (Permission Intel signal)."""
+    # Delay the modeling package import: reporting initializes diagnostics first.
+    from obsidiandroid.modeling.modality_requirement import permission_presence_columns
     out: dict[int, bool] = {int(s): False for s in cohort_ids}
     if (
         not isinstance(permission_features_df, pd.DataFrame)
@@ -24,11 +26,7 @@ def _perm_bag_positive_mask(
         or "sample_id" not in permission_features_df.columns
     ):
         return out
-    bag_cols = [
-        c
-        for c in permission_features_df.columns
-        if str(c).startswith("perm__") or str(c).startswith("perm_grp__")
-    ]
+    bag_cols = permission_presence_columns(permission_features_df.columns)
     if not bag_cols:
         return out
     sid = _exact_sample_id_series(permission_features_df["sample_id"])
@@ -42,6 +40,57 @@ def _perm_bag_positive_mask(
     for i, sid_val in enumerate(ids):
         out[int(sid_val)] |= bool(any_pos[i])
     return out
+
+
+def summarize_modality_by_family(audit_df: pd.DataFrame, samples_df: pd.DataFrame) -> pd.DataFrame:
+    """Count AV-only / permission-only / both / neither samples per family.
+
+    AV presence uses the AV enrichment receipt; vendor label merge remains a
+    separate diagnostic. Missing receipts leave dependent counts unknown.
+    """
+    label_col = next(
+        (c for c in ("family_canonical", "family_id", "family_name") if c in samples_df.columns),
+        None,
+    )
+    if label_col is None or audit_df.empty:
+        return pd.DataFrame()
+    families = samples_df.assign(_sid=_exact_sample_id_series(samples_df["sample_id"]))
+    families = families.dropna(subset=["_sid"]).drop_duplicates("_sid")
+    family_by_id = families.set_index(families["_sid"].astype("int64"))[label_col]
+    work = audit_df.assign(family=audit_df["sample_id"].map(family_by_id).fillna("__unlabeled__"))
+    permission_known = work.groupby("family")["in_permission_feature_matrix"].agg(
+        lambda values: values.notna().all()
+    )
+    permission = work["in_permission_feature_matrix"].fillna(False).astype(bool)
+    av_known = work.groupby("family")["in_av_enrichment_matrix"].agg(
+        lambda values: values.notna().all()
+    )
+    av = work["in_av_enrichment_matrix"].fillna(False).astype(bool)
+    vendor_known = work.groupby("family")["in_vendor_feature_matrix"].agg(
+        lambda values: values.notna().all()
+    )
+    vendor = work["in_vendor_feature_matrix"].fillna(False).astype(bool)
+    work = work.assign(
+        with_permission=permission,
+        with_vendor_labels=vendor,
+        av_only=av & ~permission,
+        permission_only=~av & permission,
+        both=av & permission,
+        neither=~av & ~permission,
+    )
+    counts = ["with_permission", "with_vendor_labels", "av_only", "permission_only", "both", "neither"]
+    table = work.groupby("family")[counts].sum().astype(int)
+    table.insert(0, "samples", work.groupby("family").size())
+    table.loc["__all__"] = table.sum()
+    for known in (permission_known, av_known, vendor_known):
+        known.loc["__all__"] = bool(known.all())
+    categories = ["av_only", "permission_only", "both", "neither"]
+    table.loc[~av_known.reindex(table.index).fillna(False), categories] = pd.NA
+    table.loc[~permission_known.reindex(table.index).fillna(False),
+              ["with_permission", *categories]] = pd.NA
+    table.loc[~vendor_known.reindex(table.index).fillna(False),
+              "with_vendor_labels"] = pd.NA
+    return table.reset_index()
 
 
 def export_feature_modality_coverage_audit(
@@ -83,6 +132,14 @@ def export_feature_modality_coverage_audit(
     )
 
     perm_pi_positive = _perm_bag_positive_mask(permission_features_df, cohort_ids)
+    permission_known = (
+        isinstance(permission_features_df, pd.DataFrame)
+        and "sample_id" in permission_features_df.columns
+    )
+    permission_ids = (
+        _normalize_sample_ids(permission_features_df["sample_id"])
+        if permission_known else set()
+    )
 
     idx_ids = _matrix_row_sample_ids(feature_df)
     work = feature_df.copy()
@@ -152,7 +209,15 @@ def export_feature_modality_coverage_audit(
     audit_df["in_av_enrichment_matrix"] = (
         audit_index.isin(av_ids) if av_ids is not None else pd.NA
     )
-    audit_df["in_permission_feature_matrix"] = [bool(perm_pi_positive.get(sid, False)) for sid in audit_index]
+    audit_df["in_permission_feature_matrix"] = (
+        [bool(perm_pi_positive.get(sid, False)) if sid in permission_ids else pd.NA
+         for sid in audit_index]
+    )
+    audit_df["permission_evidence_state"] = [
+        "UNAVAILABLE" if sid not in permission_ids else
+        "AVAILABLE_POSITIVE" if perm_pi_positive.get(sid, False) else "AVAILABLE_EMPTY"
+        for sid in audit_index
+    ]
     audit_df["in_final_fused_matrix"] = audit_index.isin(idx_ids)
     audit_df["has_vendor_features"] = audit_index.map(vendor_signal).fillna(False).astype(bool)
     audit_df["has_permission_features"] = audit_index.map(permission_signal).fillna(False).astype(bool)
@@ -165,7 +230,7 @@ def export_feature_modality_coverage_audit(
         audit_df["has_vendor_features"]
         | audit_df["has_permission_features"]
         | audit_df["has_metadata_features"]
-        | audit_df["permission_signal_positive"]
+        | audit_df["permission_signal_positive"].fillna(False).astype(bool)
     )
     audit_df["dropped_reason_supervised_training"] = ""
     audit_df.loc[~audit_index.isin(present_ids), "dropped_reason_supervised_training"] = "missing_fused_row"
@@ -210,6 +275,13 @@ def export_feature_modality_coverage_audit(
         csv_text=csv_text,
         global_latest_name="feature_modality_coverage_audit.latest.csv",
     )
+    if isinstance(samples_df, pd.DataFrame) and "sample_id" in samples_df.columns:
+        try:
+            by_family = summarize_modality_by_family(audit_df, samples_df)
+            if not by_family.empty:
+                by_family.to_csv(out_dir / f"feature_modality_by_family_{rid}.csv", index=False)
+        except Exception as exc:  # A summary failure must not erase the row audit.
+            du.print_warning(f"[COVERAGE] Family modality summary unavailable: {exc}")
 
     summary = {
         "run_id": rid,
@@ -221,7 +293,7 @@ def export_feature_modality_coverage_audit(
             "vendor_merge_n is the inner vendor-authority slice count before cohort expansion; "
             "fused_matrix_row_n remains governed-cohort-authoritative (see feature_build_coverage JSON)."
         ),
-        "permission_pi_signal_positive_n": int(sum(perm_pi_positive.values())),
+        "permission_pi_signal_positive_n": int(sum(perm_pi_positive.values())) if permission_known else None,
         "matrix_authority": feature_df.attrs.get("feature_matrix_row_authority", ""),
     }
     json_named = out_dir / f"feature_modality_coverage_summary_{rid}.json"
@@ -568,6 +640,7 @@ def export_sample_stage_lineage_audit(
     perm = _optional_sid_set("RUNTIME_PERMISSION_FRAME_SAMPLE_IDS")
     fused = _optional_sid_set("RUNTIME_FUSED_MATRIX_SAMPLE_IDS")
     aligned = _optional_sid_set("RUNTIME_ALIGNED_SUPERVISED_SAMPLE_IDS")
+    modality = _optional_sid_set("RUNTIME_MODALITY_REQUIREMENT_SAMPLE_IDS")
     post_fam = _optional_sid_set("RUNTIME_POST_FAMILY_SUPPORT_TRAINABLE_SAMPLE_IDS")
 
     rows: list[dict[str, Any]] = []
@@ -577,11 +650,13 @@ def export_sample_stage_lineage_audit(
         in_fused = sid in fused if fused is not None else None
         in_al = sid in aligned if aligned is not None else None
         in_post = sid in post_fam if post_fam is not None else None
+        dropped_modality = bool(in_al and sid not in modality) if aligned is not None and modality is not None else None
         dropped_fam: bool | None
         if aligned is None or post_fam is None:
             dropped_fam = None
         else:
-            dropped_fam = bool(in_al and not in_post)
+            eligible_after_modality = in_al if modality is None else bool(in_al and sid in modality)
+            dropped_fam = bool(eligible_after_modality and not in_post)
         rows.append(
             {
                 "sample_id": sid,
@@ -590,6 +665,7 @@ def export_sample_stage_lineage_audit(
                 "in_permission_enrichment_frame": in_perm,
                 "in_fused_feature_matrix": in_fused,
                 "in_aligned_supervised_pool": in_al,
+                "dropped_by_modality_requirement": dropped_modality,
                 "dropped_by_family_support_filter": dropped_fam,
                 "in_post_family_support_trainable_pool": in_post,
                 "row_retained_after_low_information_column_prune": in_post,

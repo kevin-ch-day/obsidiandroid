@@ -130,18 +130,17 @@ def _permission_fuse_terminal_summary(
     du.print_subheader("Permission feature coverage")
     cohort_n = int(len(merged_out))
     perm_rows = int(len(permission_features_df)) if isinstance(permission_features_df, pd.DataFrame) else 0
-    perm_cols = sum(
-        1
-        for c in merged_out.columns
-        if str(c).startswith("perm__") or str(c).startswith("perm_grp__")
-    )
-    sig_val = audit.get("post_fuse_enrichment_rows_with_any_perm_bag_column_positive")
-    if sig_val is None:
-        sig_val = audit.get("post_fuse_enrichment_rows_with_any_perm_grp_positive")
-    try:
-        signal_n = int(sig_val) if sig_val is not None else cohort_n
-    except (TypeError, ValueError):
-        signal_n = cohort_n
+    permission_columns = [
+        c for c in merged_out.columns
+        if str(c).startswith(("perm__", "perm_grp__", "perm_provider__",
+                              "perm_manifest__", "perm_provider_unresolved__"))
+    ]
+    perm_cols = len(permission_columns)
+    # Status counts describe evidence availability, not observed feature signal.
+    signal_n = int(
+        merged_out[permission_columns].apply(pd.to_numeric, errors="coerce")
+        .fillna(0).gt(0).any(axis=1).sum()
+    ) if permission_columns else 0
 
     inet_n = audit.get(
         "post_fuse_enrichment_perm_bag_internet_nonzero_rows",
@@ -159,13 +158,13 @@ def _permission_fuse_terminal_summary(
     if ml_console.is_compact():
         du.print_info(
             "[FEATURES] Permission fuse: "
-            f"cohort={cohort_n}, perm_rows={perm_rows or cohort_n}, "
+            f"cohort={cohort_n}, perm_rows={perm_rows}, "
             f"perm_cols={perm_cols}, signal_rows={signal_n} ({pct(signal_n, cohort_n)})"
         )
         du.print_info(f"[FEATURES] INTERNET-positive rows: {inet_display}")
         return
     du.print_info(f"  cohort rows                         : {cohort_n}")
-    du.print_info(f"  permission frame rows               : {perm_rows or cohort_n}")
+    du.print_info(f"  permission frame rows               : {perm_rows}")
     du.print_info(
         f"  rows with permission-bag signal     : {signal_n} ({pct(signal_n, cohort_n)})"
     )

@@ -171,6 +171,10 @@ def build_mutable_config_keys() -> set[str]:
         "ENABLE_PERMISSION_FEATURES",
         "CONFUSION_MATRIX_EXPORT_MODE",
         "CONFUSION_MATRIX_HEADLINE_EXPERIMENT",
+        "RUNTIME_REQUIRE_BOTH_MODALITIES",
+        "RUNTIME_AV_DETECTION_SAMPLE_IDS",
+        "RUNTIME_PERMISSION_PRESENT_SAMPLE_IDS",
+        "RUNTIME_MODALITY_REQUIREMENT_SAMPLE_IDS",
         *PARSER_OVERRIDE_KEYS,
         *RUNTIME_OVERRIDE_KEYS,
     } | set(CROSS_RUN_ARTIFACT_POINTERS)
@@ -247,6 +251,12 @@ def enforce_paper_perturbation_axes(profile: dict[str, Any], paper_mode: bool) -
             "[EVIDENCE] Invalid perturbation axis(es) in profile: "
             f"{invalid}. Allowed: {sorted(allowed_axes)}"
         )
+
+
+def resolve_require_both_modalities(profile: dict[str, Any]) -> bool:
+    """Return ``cohort_gates.require_vendor_and_permission`` (default ``False``)."""
+    gates = profile.get("cohort_gates", {}) if isinstance(profile, dict) else {}
+    return bool(gates.get("require_vendor_and_permission", False)) if isinstance(gates, dict) else False
 
 
 def apply_profile_runtime_policy(
@@ -327,6 +337,10 @@ def apply_profile_runtime_policy(
         "RUNTIME_TRAINING_SUPERVISED_LABEL_FIELD",
         str(profile.get("training_label_field", "") or "").strip() or "family_id",
     )
+    setattr(app_config, "RUNTIME_REQUIRE_BOTH_MODALITIES", resolve_require_both_modalities(profile))
+    setattr(app_config, "RUNTIME_AV_DETECTION_SAMPLE_IDS", None)
+    setattr(app_config, "RUNTIME_PERMISSION_PRESENT_SAMPLE_IDS", None)
+    setattr(app_config, "RUNTIME_MODALITY_REQUIREMENT_SAMPLE_IDS", None)
     gates = profile.get("cohort_gates", {}) if isinstance(profile.get("cohort_gates"), dict) else {}
     setattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", resolve_diagnostic_min_samples_per_family(gates))
     setattr(app_config, "RUNTIME_SUPPORT_FLOOR_MODE", resolve_support_floor_mode(gates))

@@ -253,6 +253,8 @@ def test_missing_vendor_membership_is_unavailable_not_zero_or_fused_rows(tmp_pat
     assert modality["vendor_merge_n"] is None
     assert flags["in_vendor_feature_matrix"].isna().all()
     assert flags["vendor_parser_gate_passed"].isna().all()
+    assert flags["in_permission_feature_matrix"].isna().all()
+    assert modality["permission_pi_signal_positive_n"] is None
 
     feat.attrs["vendor_merge_sample_ids"] = []
     _, _ = feature_build_coverage_export.export_feature_build_coverage(
@@ -348,3 +350,93 @@ def test_permission_coverage_rejects_bad_ids_and_counts_distinct_samples(tmp_pat
     assert gap["gap_missing_with_permission_frame_row"] == 2
     assert gap["gap_missing_with_any_perm_bag_positive"] == 2
     assert gap["gap_missing_perm_internet_nonzero"] == 1
+
+
+def _modality_fixture() -> tuple[pd.DataFrame, pd.DataFrame]:
+    feat = pd.DataFrame({"perm__x": [1, 0, 1, 0, 0]}, index=[1, 2, 3, 4, 5])
+    samples = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3, 4, 5],
+            "family_canonical": ["FamA", "FamA", "FamB", "FamB", "FamB"],
+        }
+    )
+    return feat, samples
+
+
+def _permission_frame() -> pd.DataFrame:
+    return pd.DataFrame({"sample_id": [1, 2, 3, 4, 5], "perm__x": [1, 0, 1, 0, 0]})
+
+
+def test_modality_by_family_counts_av_permission_both_and_neither(tmp_path: Path) -> None:
+    """Categories use the require_vendor_and_permission definitions: AV detections + permissions."""
+    feat, samples = _modality_fixture()
+    feat.attrs["vendor_merge_sample_ids"] = [1]
+    feature_build_coverage_export.export_feature_modality_coverage_audit(
+        cohort_sample_ids=[1, 2, 3, 4, 5],
+        feature_df=feat,
+        permission_features_df=_permission_frame(),
+        av_enrichment_sample_ids=[1, 2, 5],
+        samples_df=samples,
+        output_dir=tmp_path,
+        run_id="by_family",
+        enabled=True,
+    )
+
+    table = pd.read_csv(tmp_path / "feature_modality_by_family_by_family.csv").set_index("family")
+    cols = ["samples", "av_only", "permission_only", "both", "neither"]
+    assert table.loc["FamA", cols].tolist() == [2, 1, 0, 1, 0]
+    assert table.loc["FamB", cols].tolist() == [3, 1, 1, 0, 1]
+    assert table.loc["__all__", cols].tolist() == [5, 2, 1, 1, 1]
+    assert table.loc["__all__", "with_vendor_labels"] == 1
+
+
+def test_modality_by_family_leaves_av_split_blank_without_av_receipt(tmp_path: Path) -> None:
+    feat, samples = _modality_fixture()
+    feature_build_coverage_export.export_feature_modality_coverage_audit(
+        cohort_sample_ids=[1, 2, 3, 4, 5],
+        feature_df=feat,
+        permission_features_df=_permission_frame(),
+        samples_df=samples,
+        output_dir=tmp_path,
+        run_id="no_receipt",
+        enabled=True,
+    )
+
+    table = pd.read_csv(tmp_path / "feature_modality_by_family_no_receipt.csv").set_index("family")
+    assert table.loc["__all__", "with_permission"] == 2
+    assert table[["av_only", "permission_only", "both", "neither"]].isna().all().all()
+    assert table["with_vendor_labels"].isna().all()
+
+
+def test_modality_summary_failure_does_not_block_the_audit(tmp_path: Path, monkeypatch) -> None:
+    feat, samples = _modality_fixture()
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("summary bug")
+
+    monkeypatch.setattr(feature_build_coverage_export, "summarize_modality_by_family", _boom)
+    csv_path, _ = feature_build_coverage_export.export_feature_modality_coverage_audit(
+        cohort_sample_ids=[1, 2, 3, 4, 5],
+        feature_df=feat,
+        permission_features_df=_permission_frame(),
+        samples_df=samples,
+        output_dir=tmp_path,
+        run_id="guarded",
+        enabled=True,
+    )
+    assert csv_path is not None and csv_path.is_file()
+
+
+def test_missing_permission_row_is_unavailable_but_explicit_zero_row_is_empty(tmp_path: Path) -> None:
+    feat = pd.DataFrame({"perm__x": [1, 0, 0]}, index=[1, 2, 3])
+    permission = pd.DataFrame({"sample_id": [1, 2], "perm__x": [1, 0]})
+    csv_path, _ = feature_build_coverage_export.export_feature_modality_coverage_audit(
+        cohort_sample_ids=[1, 2, 3], feature_df=feat,
+        permission_features_df=permission, av_enrichment_sample_ids=[1, 3],
+        output_dir=tmp_path, run_id="missingness", enabled=True,
+    )
+    rows = pd.read_csv(csv_path).set_index("sample_id")
+    assert rows.loc[1, "permission_evidence_state"] == "AVAILABLE_POSITIVE"
+    assert rows.loc[2, "permission_evidence_state"] == "AVAILABLE_EMPTY"
+    assert rows.loc[3, "permission_evidence_state"] == "UNAVAILABLE"
+    assert pd.isna(rows.loc[3, "in_permission_feature_matrix"])

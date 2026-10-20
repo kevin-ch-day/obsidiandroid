@@ -208,6 +208,13 @@ def _fetch_permission_rows(sample_ids: list[int]) -> pd.DataFrame:
                     "[INTEGRITY] Permission enrichment DB fetch failed in evidence mode: "
                     f"{exc}"
                 ) from exc
+            # Only dev/smoke profiles may continue: elsewhere an empty frame would
+            # train every sample as having no permissions.
+            if not bool(getattr(app_config, "RUNTIME_IS_DEV_PROFILE", False)):
+                raise RuntimeError(
+                    "[INTEGRITY] Permission enrichment DB fetch failed outside a dev profile: "
+                    f"{exc}"
+                ) from exc
             du.print_warning(
                 "[PERMISSIONS] Failed to fetch permission rows; "
                 f"continuing without permission enrichment ({exc})."
@@ -219,6 +226,30 @@ def _fetch_permission_rows(sample_ids: list[int]) -> pd.DataFrame:
     if not frames:
         return pd.DataFrame()
     return pd.concat(frames, ignore_index=True)
+
+
+def _one_row_per_observation(permission_df: pd.DataFrame) -> pd.DataFrame:
+    """Collapse dictionary-join fan-out to one row per (sample, exact permission).
+
+    The observation table holds one row per exact token per sample, so repeated
+    rows can only come from joins (for example several OEM dictionary matches).
+    Identical repeats are dropped; repeats that disagree on joined attributes
+    fail closed instead of choosing an interpretation.
+    """
+    token_col = (
+        "permission_string_raw"
+        if "permission_string_raw" in permission_df.columns
+        else "permission_string"
+    )
+    deduped = permission_df.drop_duplicates()
+    conflicting = deduped.duplicated(subset=["sample_id", token_col], keep=False)
+    if conflicting.any():
+        examples = deduped.loc[conflicting, ["sample_id", token_col]].drop_duplicates().head(3)
+        raise ValueError(
+            "[PERMISSIONS] Dictionary joins returned multiple rows for one observation "
+            f"with conflicting attributes: {examples.to_dict(orient='records')}"
+        )
+    return deduped
 
 
 def _fetch_source_aware_permission_rows(sample_ids: list[int]) -> pd.DataFrame:
@@ -412,6 +443,7 @@ def build_permission_feature_frame(
     feature_df = pd.DataFrame({"sample_id": sample_ids})
     if permission_df.empty:
         return feature_df
+    permission_df = _one_row_per_observation(permission_df)
 
     permission_df["sample_id"] = pd.to_numeric(permission_df["sample_id"], errors="coerce").fillna(-1).astype(int)
     permission_df["permission_string"] = (

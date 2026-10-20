@@ -15,6 +15,7 @@
 - **Output Transparency:** Produces detailed evaluation reports, summary tables, and intermediate feature matrices in the `output/` directory.
 - **Extensible/Modular:** Easy to adapt, extend, or integrate with other analysis tools and datasets.
 - **Data Inspection & Reporting:** Includes Jupyter notebooks, synthetic data fuzzing tools, and reporting utilities for model diagnostics and auditing.
+- **Read-only Data Explorer:** The startup menu can browse current catalog summaries and open an explicitly selected retained research packet. Missing permission coverage is shown as unavailable; this route does not train models or request provider data.
 - **Static Analysis Utilities:** Tools to check for `.predict()` misuse, clean bytecode/log artifacts, and stress-test trainers with synthetic data.
 
 ---

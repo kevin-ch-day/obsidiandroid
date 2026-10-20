@@ -44,8 +44,9 @@ def test_grouped_permission_counts_preserve_per_observation_pattern_counts() -> 
 
 
 def test_permission_fetch_sets_degraded_flag_on_db_error(monkeypatch) -> None:
-    """DB fetch failures should set degraded flag and return baseline frame."""
+    """Dev/smoke profiles: DB fetch failures set the degraded flag and return a baseline frame."""
     monkeypatch.setattr(permission_features.app_config, "RUNTIME_EVIDENCE_MODE", False, raising=False)
+    monkeypatch.setattr(permission_features.app_config, "RUNTIME_IS_DEV_PROFILE", True, raising=False)
     monkeypatch.setattr(
         permission_features.app_config,
         "PERMISSION_ENRICHMENT_STRICT_IN_EVIDENCE",
@@ -226,3 +227,83 @@ def test_permission_bag_merges_sanitized_name_collisions(monkeypatch) -> None:
     assert list(out.columns).count(name) == 1
     assert out.set_index("sample_id")[name].to_dict() == {1: 1, 2: 1}
     assert out.set_index("sample_id")["perm__total_count"].to_dict() == {1: 1, 2: 2}
+
+
+def _oem_fanout_rows(protection_levels: list[str]) -> pd.DataFrame:
+    """Rows as the feature query returns them when one OEM token matches several dictionary rows."""
+    count = len(protection_levels)
+    return pd.DataFrame(
+        {
+            "sample_id": [1] * count,
+            "permission_string_raw": ["com.vendor.permission.TWO"] * count,
+            "permission_string": ["com.vendor.permission.two"] * count,
+            "permission_source": ["OEM"] * count,
+            "protection_level": protection_levels,
+        }
+    )
+
+
+def test_oem_dictionary_fanout_counts_one_observation_once(monkeypatch) -> None:
+    monkeypatch.setattr(
+        permission_features,
+        "_fetch_permission_rows",
+        lambda _sample_ids: _oem_fanout_rows(["SIGNATURE", "SIGNATURE"]),
+    )
+    out = permission_features.build_permission_feature_frame(
+        pd.DataFrame({"sample_id": [1]}), min_permission_support=1
+    )
+    row = out.set_index("sample_id").loc[1]
+    assert int(row["perm__total_count"]) == 1
+    assert int(row["perm__oem_count"]) == 1
+
+
+def test_conflicting_oem_dictionary_fanout_fails_closed(monkeypatch) -> None:
+    monkeypatch.setattr(
+        permission_features,
+        "_fetch_permission_rows",
+        lambda _sample_ids: _oem_fanout_rows(["DANGEROUS", "NORMAL"]),
+    )
+    with pytest.raises(ValueError, match="multiple rows for one observation"):
+        permission_features.build_permission_feature_frame(
+            pd.DataFrame({"sample_id": [1]}), min_permission_support=1
+        )
+
+
+def test_case_variant_observations_are_not_collapsed(monkeypatch) -> None:
+    monkeypatch.setattr(
+        permission_features,
+        "_fetch_permission_rows",
+        lambda _sample_ids: pd.DataFrame(
+            {
+                "sample_id": [1, 1],
+                "permission_string_raw": [
+                    "com.google.android.c2dm.permission.RECEIVE",
+                    "com.google.android.c2dm.permission.receive",
+                ],
+                "permission_string": ["com.google.android.c2dm.permission.receive"] * 2,
+                "permission_source": ["GOOGLE", "GOOGLE"],
+                "protection_level": ["SIGNATURE", "UNKNOWN"],
+            }
+        ),
+    )
+    out = permission_features.build_permission_feature_frame(
+        pd.DataFrame({"sample_id": [1]}), min_permission_support=1
+    )
+    assert int(out.set_index("sample_id").loc[1, "perm__total_count"]) == 2
+
+
+def test_permission_fetch_failure_stops_research_profiles(monkeypatch) -> None:
+    """Non-dev profiles must not train on silently empty permission features."""
+    monkeypatch.setattr(permission_features.app_config, "RUNTIME_EVIDENCE_MODE", False, raising=False)
+    monkeypatch.setattr(permission_features.app_config, "RUNTIME_IS_DEV_PROFILE", False, raising=False)
+    monkeypatch.setattr(
+        permission_features.app_config, "PERMISSION_ENRICHMENT_STRICT_IN_EVIDENCE", False, raising=False
+    )
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(permission_features.db_engine, "execute_permission_query", _raise)
+    with pytest.raises(RuntimeError, match="Permission enrichment DB fetch failed"):
+        permission_features.build_permission_feature_frame(pd.DataFrame({"sample_id": [1, 2]}))
+    assert bool(permission_features.app_config.RUNTIME_PERMISSION_ENRICHMENT_DEGRADED) is True

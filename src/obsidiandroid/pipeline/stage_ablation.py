@@ -19,6 +19,7 @@ from config import app_config
 from obsidiandroid.common.cv_fold_config import safe_float_config_value, safe_int_config_value
 from obsidiandroid.modeling import distribution_reporter
 from obsidiandroid.modeling import pipeline_core
+from obsidiandroid.modeling.modality_requirement import apply_modality_requirement
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import ml_console
 from obsidiandroid.common.runtime_paths import resolve_diagnostics_dir
@@ -225,6 +226,7 @@ def _prepare_training_inputs(
     )
     if aligned_features is None or labels_df is None:
         return None, None
+    aligned_features, labels_df, _ = apply_modality_requirement(aligned_features, labels_df)
 
     min_support = int(
         getattr(

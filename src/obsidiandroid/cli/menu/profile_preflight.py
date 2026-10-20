@@ -426,6 +426,12 @@ def validate_profile_runnable(profile_id: str) -> tuple[bool, str]:
     except Exception as exc:
         return False, f"[PROFILE] Failed to load profile '{profile_id}': {exc}"
 
+    from obsidiandroid.orchestration.permission_v2_research_gate import preflight_required_permission_access
+    try:
+        preflight_required_permission_access(profile.get("feature_flags", {}))
+    except (RuntimeError, ValueError) as exc:
+        return False, f"[PROFILE] {exc}"
+
     gates = profile.get("cohort_gates", {}) if isinstance(profile, dict) else {}
     dataset_filters = profile.get("dataset_filters", {}) if isinstance(profile, dict) else {}
     raw_lock = profile.get("paper_lock") if isinstance(profile.get("paper_lock"), dict) else {}
