@@ -285,6 +285,8 @@ def print_stat(
     return_str: bool = False,
 ):
     """Print a key/value statistic line with optional styling."""
+    from obsidiandroid.common.time_display import format_timestamp
+    value = format_timestamp(value, assume_utc=str(label).lower().endswith('_utc'))
     if isinstance(value, (int, float)):
         value_str = f"{value:,.{precision}f}" if isinstance(value, float) else f"{value:,d}"
     else:

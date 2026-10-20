@@ -43,7 +43,7 @@ def test_validate_parser_coverage_uses_csv_fallback_when_workbook_missing(
     ).to_csv(out_dir / "vendor_parser_coverage.latest.csv", index=False)
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(vendor_diagnostics_actions, "load_enriched_matrix_for_menu", lambda: None)
+    monkeypatch.setattr(vendor_diagnostics_actions, "load_enriched_matrix_for_menu", lambda **_kwargs: None)
 
     result = vendor_diagnostics.validate_parser_columns_from_latest_export()
     assert result == 0
@@ -55,7 +55,7 @@ def test_validate_parser_coverage_fails_when_no_workbook_and_no_csv(
 ) -> None:
     """Coverage menu should fail cleanly when neither workbook nor CSV snapshots exist."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(vendor_diagnostics_actions, "load_enriched_matrix_for_menu", lambda: None)
+    monkeypatch.setattr(vendor_diagnostics_actions, "load_enriched_matrix_for_menu", lambda **_kwargs: None)
 
     result = vendor_diagnostics.validate_parser_columns_from_latest_export()
     assert result == 1

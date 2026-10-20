@@ -188,8 +188,15 @@ def open_research_packet(directory, *, av_packet=None):
             raise ValueError('Source permission reports are pinned in their manifest')
         from obsidiandroid.reporting.source_permission_research import SourcePermissionResearch
         return SourcePermissionResearch(directory)
-    if (Path(directory) / 'ATLAS_MANIFEST.json').exists() or (Path(directory) / 'PI_VIEW_MANIFEST.json').exists():
-        raise ValueError('This packet format requires the separate retained atlas or PI-view research candidate')
+    if (Path(directory) / 'ATLAS_MANIFEST.json').exists():
+        if av_packet is not None:
+            raise ValueError('Atlas source companions are pinned in its manifest')
+        from obsidiandroid.reporting.research_atlas import ResearchAtlas
+        return ResearchAtlas(directory)
+    if (Path(directory) / 'PI_VIEW_MANIFEST.json').exists():
+        from obsidiandroid.reporting.permission_research_view import PermissionResearchView
+        view = PermissionResearchView(directory)
+        return view.bind_av_packet(ResearchPacket(av_packet)) if av_packet is not None else view
     if av_packet is not None:
         raise ValueError('An AV companion requires a retained PI view')
     return ResearchPacket(directory)

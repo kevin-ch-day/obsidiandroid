@@ -162,6 +162,28 @@ def test_overview_is_live_not_saved_or_training(capsys):
     assert 'Live catalog' in out and 'Training eligibility' in out and 'Not evaluated' in out
 
 
+def test_classification_targets_open_readonly_overview(monkeypatch):
+    from obsidiandroid.cli import startup_menu as menu
+    from obsidiandroid.cli import classification_overview
+    choices = iter([1, 2, 0])
+    monkeypatch.setattr(menu.mu, 'display_menu', lambda *a, **k: next(choices))
+    overview = Mock()
+    monkeypatch.setattr(classification_overview, 'launch_experiment', overview)
+    run = Mock()
+    monkeypatch.setattr(menu, '_run_full_pipeline_with_persistence_choice', run)
+    menu._launch_classification_menu()
+    assert [call.args[0] for call in overview.call_args_list] == [
+        'android_malware_major_families', 'android_malware_type_taxonomy']
+    run.assert_not_called()
+
+
+def test_all_profiles_remain_discoverable():
+    from obsidiandroid.cli import profile_manager, profile_selection
+    paths = profile_manager.list_profiles()
+    catalog = profile_selection.build_profile_catalog(paths)
+    assert len(paths) == 25
+    assert {p.stem for p in paths} == {pid for pid, _ in catalog}
+    assert 'dev_ablation_fast' in {pid for pid, _ in catalog}
 
 
 
@@ -206,6 +228,14 @@ def test_av_observed_is_not_lifecycle_readiness(monkeypatch):
     assert result == {'observed_nonblank_engine_columns':1, 'visible_engine_columns':2, 'lifecycle_ready_engines':None}
 
 
+
+
+def test_frozen_contract_is_not_advertised_as_runnable_profile():
+    from obsidiandroid.cli.profile_selection import summarize_profile
+    from obsidiandroid.cli.profile_manager import PROFILES_DIR
+    summary = summarize_profile(PROFILES_DIR / 'android_malware_major_families_frozen_n20_v1.yaml')
+    assert 'Specialized frozen cohort contract' in summary
+    assert 'not a normal run profile' in summary
 
 
 def test_overview_paints_catalog_before_taxonomy(monkeypatch, capsys):

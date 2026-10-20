@@ -422,3 +422,18 @@ def test_renamed_legacy_permission_column_cannot_bypass_research_gate(monkeypatc
             {"enable_sample_metadata_features": False},
             permission_features_df=renamed,
         )
+
+
+def test_v2_permission_summary_counts_occurrences_not_status(monkeypatch, capsys):
+    monkeypatch.setattr(stage_feature_enrichment.ml_console, "is_compact", lambda: True)
+    frame = pd.DataFrame({"sample_id": [1, 2], "perm_provider_unresolved__token": [1, 0],
+                          "perm_status__provider_reported_unresolved_count": [1, 3]})
+    stage_feature_enrichment._permission_fuse_terminal_summary(frame, frame, {}, internet_col=None)
+    output = capsys.readouterr().out
+    assert "perm_cols=1" in output
+    assert "signal_rows=1" in output
+    status_only = frame.drop(columns=["perm_provider_unresolved__token"])
+    stage_feature_enrichment._permission_fuse_terminal_summary(status_only, status_only, {}, internet_col=None)
+    output = capsys.readouterr().out
+    assert "perm_cols=0" in output
+    assert "signal_rows=0" in output

@@ -262,7 +262,13 @@ def test_cohort_readiness_snapshot_degrades_when_permission_intel_missing(monkey
     assert snapshot["buckets"]["all_catalog"] == {"sample_count": 1, "family_count": 1}
     assert snapshot["buckets"]["android_platform"] == {"sample_count": 1, "family_count": 1}
     assert snapshot["buckets"]["android_with_permission_obs"] == {"sample_count": None, "family_count": None}
-    assert any("Permission Intel unavailable" in warning for warning in snapshot["warnings"])
+    warning = next(w for w in snapshot["warnings"] if "Legacy Permission Intel" in w)
+    assert "observation counts unavailable" in warning
+    assert "restricted access from a missing table" in warning
+    assert "PI V2 export access is checked separately" in warning
+    assert "does not automatically use that export" in warning
+    assert snapshot["permission_intel_available"] is False
+    assert snapshot["permission_obs_available"] is False
 
 
 def test_cohort_readiness_snapshot_splits_missing_primary_residual_lanes(monkeypatch) -> None:

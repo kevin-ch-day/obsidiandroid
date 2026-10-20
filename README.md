@@ -37,6 +37,21 @@ All artifacts (models, reports, diagnostics) are saved under `output/`.
 
 ---
 
+## Retained descriptive research
+
+The existing atlas family and structure views can display an optional, hash-bound
+source-context overlay. Catalog URLs, ingestion labels and inferred components
+remain distinct from independently supported acquisition origins. Association
+contrasts expose exact common-support membership, pooled effects on that same
+population, and the separate five-per-cell sensitivity population. Temporal views
+include observed-year gaps and retained-report timing.
+
+`python -m obsidiandroid.reporting.integrated_research --packet PATH structure`
+uses retained evidence only. A bounded local export needs exact identity, source
+and version validation, not a signing service, approval store or arbitrary expiry.
+Existing database access restrictions and the separate historical V2 export
+contract remain intact. See [offline research](docs/integrated_research.md).
+
 ## Version
 
 Current application version: **v2.4.0**.
@@ -371,3 +386,119 @@ for anchored read-only inspection. `./run.sh pi-v2 features` additionally
 requires `--training-ids` for an existing frozen split and checks in-memory
 feature construction without model training. See
 [`PI V2 deployment and commands`](docs/permission_v2_research_export_candidate.md).
+
+The catalog profile readiness preview checks legacy observation-table counts.
+If that table is not visible to its connection, those counts remain unavailable;
+this does not establish whether an independently approved PI V2 export is usable.
+Catalog-wide profiles do not automatically substitute the exact export cohort.
+The Full pipeline persistence choice controls Core result persistence, not PI
+source selection: exploratory/read-only runs can still train models and write
+local output files.
+
+In **Run Analysis**, the run modes describe their work (full analysis, one model,
+selected stages, or feature extraction). The execution-profile screen labels saved
+results with their previous run ID; the source counts shown after selection are
+separate current inventory. A successful cohort preflight is only a viability
+check, not proof that all feature inputs are available.
+
+Full analysis then asks **Save analysis results**: **Run with local files only**
+or **Run with local files + Core database results**. Both execute the configured
+analysis and model training; the second explicitly enables Core persistence.
+**Cancel run** exits without starting either operation.
+
+The all-APK exploratory profile explicitly requires Permission Intel features.
+Its legacy permission-access gate is checked before loading cohort data, both
+from the menu and from direct pipeline invocation. A blocked or unavailable gate
+stops the run during preflight; it does not disable features, grant access, or
+substitute the smaller approved PI V2 export. Feature extraction still rechecks
+the gate. Exploratory catalog summaries are labeled as exploration, not a
+publication benchmark.
+
+Permission fusion summaries count both legacy and source-bound occurrence
+features, including PI V2 unresolved tokens. Evidence-status columns do not
+count as permission features or positive feature signal. A valid feature export
+and fusion check alone does not validate model splits or classification results.
+
+### Explore data without starting analysis
+
+Run `./run.sh`, then choose **1 — Explore Android data**. The five screens show
+live dataset counts, paginated family/type distributions, label quality,
+AV/permission coverage, and exact sample lookup. Browsing uses read-only source
+transactions and does not train models or alter run slots. Counts describe Android
+APKs with dates and registry matches, before profile time/support/label gates;
+they are not training eligibility. Saved runs remain under main menu **3**.
+
+For PI coverage, enter the path to the independently approved export when prompted,
+or set `OBSIDIANDROID_EXPLORER_PI_V2_EXPORT` for the menu process. This selects a
+file, not an approval: the installed root-controlled anchor is still mandatory.
+Uncovered identities have unknown permission evidence. Provider-reported unresolved
+occurrences are not verified manifest permissions or training authorization.
+
+Main menu **2 — Run malware classification** offers family and malware-type
+classification, with the full profile catalog and execution modes under **3 —
+Advanced profiles and execution modes**. The specialized frozen cohort YAML remains
+a contract, not an ordinary runnable profile. Main menu **4** retains research
+checks; **5** retains maintenance, including Clear screen. Scientific acceptance,
+PI coverage/authority, nested CV and preprocessing limitations remain separate
+from source preflight and UI readiness. See [experiment integrity](docs/experiment_split_integrity.md).
+
+### Minnesota time display
+
+Console statistics, report tables and new text-log entries display both Minnesota
+local time (`America/Chicago`) and UTC, using 12-hour clocks without seconds.
+CST/CDT is resolved for each timestamp, including historical and future dates.
+For example: `Oct 17, 2026 · 9:00 PM CDT | Oct 18, 2026 · 2:00 AM UTC`.
+
+Exact UTC timestamps in machine-readable artifacts, database records, run IDs
+and filenames retain their precision. Existing logs and frozen reports are not
+rewritten. Date-only values remain dates. A timestamp without a known timezone
+is not silently assumed to be Minnesota time; explicitly UTC fields are read as
+UTC. The application currently has no event scheduler. Future scheduling UI must
+use `America/Chicago` and explicitly resolve ambiguous/nonexistent local times.
+
+### Classification overview and readiness
+
+Main menu **2 — Run malware classification** opens family or type experiment
+overviews. Merely entering an overview reads configuration; it does not run
+preflight, train models or prepare/archive a run slot. Choose **1** to check
+source prerequisites, **2** to inspect configuration, or **3** to request a run.
+Starting reloads configuration and repeats preflight, then uses the existing
+local-files/Core-results confirmation. **0** backs out without execution.
+The overview is shown once unless configuration changes. After a failed check,
+option **3** becomes **Why analysis is unavailable**, showing only the required
+blockers without retrying queries. Option **1** explicitly rechecks readiness;
+every subsequent start still runs fresh checks before confirmation.
+For the major-family profile, option **1** also reports a bounded live metadata
+population and AV-row coverage even when permissions block execution. These
+counts precede runtime dataset/feature/split admission; unavailable counts are
+shown as unknown. Non-PI training now also rejects misordered label identities
+and refuses fallback when group or temporal isolation was explicitly requested.
+
+The separate **dev_av_only_recorded_family** development workflow reads a frozen,
+digest-verified local Erebus report snapshot through
+`python -m obsidiandroid.modeling.av_only_experiment`. It defaults to plan-only;
+`--train` explicitly requests one Logistic Regression fit. Required arguments are
+`--snapshot`, `--snapshot-sha256` and `--output` (a new directory outside this
+repository). It does not use the benchmark's run slot or database persistence.
+It requires reviewed recorded-label provenance, coherent hash-bound AV reports,
+at least 20 samples and four package/signer/fingerprint components per family,
+and at least 10 train / 5 test samples in the first fixed group-stratified fold.
+Only train-fitted AV observation/detection features are admitted; CV, tuning,
+resampling and permission features are excluded by this development contract.
+This measures reconstruction of recorded attribution with shared AV-source
+dependence, not independent malware ground truth or paper reproduction.
+
+READY means only the named check passed. Profile viability is not a measured
+training cohort, feature-coverage audit, split acceptance or scientific approval.
+Unmeasured cohort counts, eligible classes and features show NOT EVALUATED.
+Required failed or unavailable prerequisites prevent starting from this overview.
+PI V2 split binding is implemented, but approval v1 still does not authorize
+target-specific model fitting. The overview preserves that blocker and all
+legacy permission gates. Classification option **3 — Compare models and features** opens the existing
+family/type multi-model profiles or the Random Forest development ablation
+profile. Ablation arms include binary AV, vendor semantics with family/type
+exclusions, raw/grouped permissions and fused inputs; this is not an AV-only
+permission bypass. Option **4 — Other experiments and tests** retains historical
+profiles, sensitivity studies, development/smoke modes and stage cutoffs.
+Advanced training modes also check source prerequisites and request an explicit
+continuation before execution. All existing scientific constraints remain.

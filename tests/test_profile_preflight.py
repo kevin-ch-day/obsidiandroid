@@ -22,6 +22,7 @@ def test_profile_menu_latest_run_context_summarizes_latest_artifact(tmp_path: Pa
             {
                 "run_id": "20260716T191247Z__3815fa",
                 "run_status": "failed",
+                "completed_stage": "training",
                 "cohort_prepared_row_count": 9_716,
                 "post_low_support_training_rows": 9_440,
                 "visible_family_count": 206,
@@ -41,7 +42,9 @@ def test_profile_menu_latest_run_context_summarizes_latest_artifact(tmp_path: Pa
 
     assert context == [
         ("LAST RUN STATUS", "Failed"),
-        ("INFO", "Latest cohort: 9,716 prepared samples"),
+        ("LAST RUN", "20260716T191247Z__3815fa"),
+        ("NOTE", "Saved run results below; current catalog counts appear after profile selection."),
+        ("INFO", "Previous cohort: 9,716 prepared samples"),
         ("INFO", "Training-eligible samples: 9,440"),
         ("INFO", "Family coverage: 206 known governed · 207 observed labels (incl. unknown) · 169 training targets"),
         ("INFO", "Support thresholds (preview): n>=3: 112 families · n>=20: 50 families"),
@@ -67,7 +70,9 @@ def test_profile_menu_latest_run_context_uses_pointer_matched_summary(tmp_path: 
 
     assert profile_preflight._profile_menu_latest_run_context(tmp_path) == [
         ("LAST RUN STATUS", "Complete"),
-        ("INFO", "Latest cohort: 20 prepared samples"),
+        ("LAST RUN", "current"),
+        ("NOTE", "Saved run results below; current catalog counts appear after profile selection."),
+        ("INFO", "Previous cohort: 20 prepared samples"),
     ]
 
 
@@ -641,7 +646,7 @@ def test_resolve_and_validate_profile_uses_human_readiness_block(monkeypatch, ca
     assert "Best matching readiness bucket" not in out
     assert "Declared readiness bucket" not in out
     assert "Samples" in out
-    assert "3285" in out
+    assert "3,285" in out
     assert "Families" in out
     assert "220" in out
     assert "[PROFILE] Live authority/taxonomy backlog: repair candidates=0, known unresolved families=0, policy-held tokens=67." in out
@@ -664,3 +669,18 @@ def test_readiness_scope_block_hardens_locked_cohort_wording() -> None:
     assert "Cohort gates determine membership." in lines
     assert "Checked during the run, not by this menu." in lines
     assert "Refresh the lock to change membership." in lines
+
+
+def test_failed_run_does_not_present_zero_training_targets(tmp_path):
+    from obsidiandroid.cli.menu.profile_preflight import _profile_menu_latest_run_context
+    import json
+    p = tmp_path / 'runs' / 'failed' / 'diagnostics' / 'run_observability_summary.json'
+    p.parent.mkdir(parents=True)
+    p.write_text(json.dumps({'run_id':'failed', 'run_status':'failed', 'completed_stage':'samples',
+                            'visible_family_count':711, 'modeled_family_class_count':0,
+                            'cohort_prepared_row_count':35369, 'post_low_support_training_rows':0}))
+    text = str(_profile_menu_latest_run_context(tmp_path))
+    assert 'Not reached; stopped at samples' in text
+    assert '0 training targets' not in text
+    assert 'Training-eligible samples: 0' not in text
+    assert '711' in text

@@ -40,3 +40,12 @@ def test_log_uses_record_time_not_current_zone():
 def test_missing_timestamp_remains_missing():
     import pandas as pd
     assert format_timestamp(pd.NaT) is pd.NaT
+
+def test_shared_console_table_does_not_mutate_source(capsys):
+    import pandas as pd
+    from obsidiandroid.cli.ui.display import print_table
+    frame = pd.DataFrame({'timestamp_utc': ['2026-10-18T02:45:38Z']})
+    print_table(frame)
+    text = capsys.readouterr().out
+    assert '9:45 PM CDT' in text and '2:45 AM UTC' in text
+    assert frame.iloc[0, 0] == '2026-10-18T02:45:38Z'

@@ -26,9 +26,8 @@ LANE_GOOGLE_PLATFORM = "google_platform"
 LANE_APP_DEFINED = "app_defined"
 LANE_UNKNOWN_UNRESOLVED = "unknown_unresolved"
 
-# Deprecated v1.1 aliases kept for migration / tests that still mention names.
+# Historical v1.1 label still interpreted when reading retained reports.
 LANE_AOSP_PROTECTION_UNRESOLVED = "aosp_protection_unresolved"  # folded → unknown_unresolved in v2
-LANE_OEM_OR_GOOGLE = "oem_or_google"  # split → oem_platform | google_platform in v2
 
 CANONICAL_PROTECTION_LANES: tuple[str, ...] = (
     LANE_AOSP_NORMAL,
@@ -508,7 +507,6 @@ __all__ = [
     "LANE_OEM_PLATFORM",
     "LANE_GOOGLE_PLATFORM",
     "LANE_AOSP_PROTECTION_UNRESOLVED",
-    "LANE_OEM_OR_GOOGLE",
     "LANE_APP_DEFINED",
     "LANE_UNKNOWN_UNRESOLVED",
     "classify_protection_lane",

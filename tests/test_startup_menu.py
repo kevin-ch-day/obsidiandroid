@@ -104,19 +104,15 @@ def test_run_to_stage_uses_canonical_pipeline_facade(monkeypatch) -> None:
     assert calls == [{"stop_after": "samples", "profile_ref": "profile_a"}]
 
 
-def test_main_menu_clear_screen_option(monkeypatch) -> None:
-    """Main menu clear option should call clear_screen and continue loop."""
-    choices = iter([8, 0])
-    clear_calls = {"count": 0}
-
+def test_main_menu_explorer_returns_without_starting_training(monkeypatch) -> None:
+    choices = iter([1, 0])
+    calls = []
     monkeypatch.setattr(startup_menu, "_print_startup_context", lambda: None)
-    monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: next(choices))
-    monkeypatch.setattr(startup_menu.du, "clear_console", lambda: clear_calls.__setitem__("count", clear_calls["count"] + 1))
-
-    result = startup_menu.launch_startup_menu()
-
-    assert result == 0
-    assert clear_calls["count"] == 1
+    monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_a, **_k: next(choices))
+    monkeypatch.setattr(startup_menu, "_launch_explorer_menu", lambda: calls.append("explorer"))
+    monkeypatch.setattr(startup_menu, "_launch_classification_menu", lambda: pytest.fail("training selected"))
+    assert startup_menu.launch_startup_menu() == 0
+    assert calls == ["explorer"]
 
 
 def test_display_menu_blank_input_selects_default(monkeypatch) -> None:
@@ -196,14 +192,11 @@ def test_main_menu_uses_concise_title_and_primary_workflow_order(monkeypatch) ->
     assert result == 0
     assert captured["title"] == "Main menu"
     assert captured["labels"] == [
-        "Run Analysis",
-        "Review Latest Run",
-        "Run Status and History",
-        "Research Reports",
-        "Reproducibility & research validity",
-        "Data Diagnostics",
-        "Tools and Maintenance",
-        "Clear Screen",
+        "Explore Android data",
+        "Run malware classification",
+        "Review results and run history",
+        "Research checks and diagnostics",
+        "Tools and maintenance",
     ]
 
 
@@ -223,20 +216,21 @@ def test_run_analysis_menu_uses_operator_facing_actions(monkeypatch) -> None:
     assert result == 0
     assert captured["title"] == "Pipeline run mode"
     assert captured["labels"] == [
-        "Full pipeline",
-        "Fast development",
-        "Smoke test",
-        "Single model only",
-        "Stop after a stage",
-        "Vendor extraction only",
-        "Retrain from cached alignment",
+        "Full analysis — configured models and reports",
+        "Fast development — reduced analysis",
+        "Smoke test — basic pipeline checks",
+        "Train and evaluate one model",
+        "Run through a selected stage",
+        "Extract vendor features only",
+        "Retrain using cached alignment",
     ]
 
 
-def test_single_model_mode_uses_quick_intent_profile_selector(monkeypatch) -> None:
+def test_single_model_mode_uses_advanced_profile_selector(monkeypatch) -> None:
     """Single-model runs should use the same intent-first quick selector as full pipeline."""
     choices = iter([4, 1])
     captured: list[bool] = []
+    monkeypatch.setattr(startup_menu, "_preview_classification", lambda _profile: True)
 
     monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: next(choices))
     monkeypatch.setattr(
@@ -250,13 +244,14 @@ def test_single_model_mode_uses_quick_intent_profile_selector(monkeypatch) -> No
     result = startup_menu._launch_pipeline_actions_menu()  # pylint: disable=protected-access
 
     assert result == 0
-    assert captured == [True]
+    assert captured == [False]
 
 
-def test_stop_after_stage_uses_quick_intent_profile_selector(monkeypatch) -> None:
+def test_stop_after_stage_uses_advanced_profile_selector(monkeypatch) -> None:
     """Stage-stop runs should use the same intent-first quick selector as full pipeline."""
     choices = iter([5])
     captured: list[bool] = []
+    monkeypatch.setattr(startup_menu, "_preview_classification", lambda _profile: True)
 
     monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: next(choices))
     monkeypatch.setattr(
@@ -269,13 +264,14 @@ def test_stop_after_stage_uses_quick_intent_profile_selector(monkeypatch) -> Non
     result = startup_menu._launch_pipeline_actions_menu()  # pylint: disable=protected-access
 
     assert result == 0
-    assert captured == [True]
+    assert captured == [False]
 
 
-def test_vendor_only_uses_quick_intent_profile_selector(monkeypatch) -> None:
+def test_vendor_only_uses_advanced_profile_selector(monkeypatch) -> None:
     """Vendor-only runs should use the same intent-first quick selector as full pipeline."""
     choices = iter([6])
     captured: list[bool] = []
+    monkeypatch.setattr(startup_menu, "_preview_classification", lambda _profile: True)
 
     monkeypatch.setattr(startup_menu.mu, "display_menu", lambda *_args, **_kwargs: next(choices))
     monkeypatch.setattr(
@@ -288,7 +284,7 @@ def test_vendor_only_uses_quick_intent_profile_selector(monkeypatch) -> None:
     result = startup_menu._launch_pipeline_actions_menu()  # pylint: disable=protected-access
 
     assert result == 0
-    assert captured == [True]
+    assert captured == [False]
 
 
 def test_tools_menu_lists_operational_actions_only(monkeypatch) -> None:
@@ -313,6 +309,7 @@ def test_tools_menu_lists_operational_actions_only(monkeypatch) -> None:
         "Cache / latest pointer (guidance)",
         "Repair / migration helpers (info)",
         "Developer utilities",
+        "Clear screen",
     ]
 
 
@@ -1991,3 +1988,23 @@ def test_evidence_readiness_hub_uses_generic_labels(monkeypatch) -> None:
     assert "Cohort Lock Checker" in options
     assert "Evidence Bundle Series Aggregator" in options
     assert captured["title"] == "Evidence readiness"
+
+
+@pytest.mark.parametrize("choice", [0, 1, 2])
+def test_result_destination_preserves_explicit_core_opt_in(monkeypatch, choice):
+    import obsidiandroid.pipeline as pipeline
+    calls = []
+    menus = []
+    def display(options, **kwargs):
+        menus.append((options, kwargs))
+        return choice
+    monkeypatch.setattr(startup_menu.mu, "display_menu", display)
+    monkeypatch.setattr(pipeline, "run_pipeline", lambda **kwargs: calls.append(kwargs) or 0)
+    assert startup_menu._run_full_pipeline_with_persistence_choice("fixture_profile") == 0
+    assert calls == ([] if choice == 0 else [
+        {"profile_ref": "fixture_profile", **({"analysis_persistence": True} if choice == 2 else {})}
+    ])
+    options, context = menus[0]
+    assert "Core database" in options[1]
+    assert context["exit_label"] == "Cancel run"
+    assert any("model training" in text for _, text in context["context_lines"])

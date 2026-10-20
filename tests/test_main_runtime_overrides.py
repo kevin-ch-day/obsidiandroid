@@ -553,3 +553,59 @@ def test_resolve_main_override_prefers_main_attribute(monkeypatch) -> None:
 
     monkeypatch.setitem(sys.modules, "main", _FakeMain())
     assert main_override_bridge.resolve_main_override("marker", "default") == "patched"
+
+
+@pytest.mark.pipeline_heavy
+def test_required_permission_denial_stops_pipeline_before_samples(monkeypatch, tmp_path: Path) -> None:
+    """Ordinary failed runs should persist failure diagnostics even outside evidence mode."""
+    output_root = tmp_path / "output"
+
+    monkeypatch.setattr(app_config, "ENABLE_DB_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_ML_LOGGING", False, raising=False)
+    monkeypatch.setattr(app_config, "PAPER_MODE_LOCKED_VALUE", None, raising=False)
+    monkeypatch.setattr(app_config, "EVIDENCE_MODE_LOCKED_VALUE", None, raising=False)
+    monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
+    monkeypatch.setattr(main, "DIAGNOSTICS_DIR", str(output_root / "diagnostics"))
+    monkeypatch.setattr(main.runtime_logging, "start_runtime_logging", lambda _run_id: None)
+    monkeypatch.setattr(main.runtime_logging, "stop_runtime_logging", lambda _ctx: None)
+    monkeypatch.setattr(main, "finalize_run_manifest_stage", lambda **_kwargs: 0)
+    monkeypatch.setattr(
+        main.profile_manager,
+        "load_profile",
+        lambda _ref: {
+            "profile_id": "unit_non_evidence_failure",
+            "type_slug_filter": None,
+            "cohort_gates": {},
+            "model_list": ["logistic_regression"],
+            "evidence_mode": False,
+            "feature_flags": {
+                "enable_dynamic_generic_vendor_parsers": False,
+                "enable_sample_metadata_features": False,
+                "enable_permission_features": True,
+                "permission_input_policy": "required",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "load_and_prepare_samples",
+        lambda **_kwargs: pd.DataFrame({"sample_id": [1], "family_canonical": ["fam_a"], "type_slug": ["banker"]}),
+    )
+    monkeypatch.setattr(main, "run_av_analysis_stage", lambda **_kwargs: {})
+
+    from obsidiandroid.orchestration import permission_v2_research_gate as gate
+    monkeypatch.setattr(gate.db_engine, "execute_permission_query",
+                        lambda *args, **kwargs: pd.DataFrame({"legacy_observation_reads": ["BLOCK"]}))
+    from unittest.mock import Mock
+    loader = Mock(side_effect=AssertionError("samples must not load"))
+    monkeypatch.setattr(main, "load_and_prepare_samples", loader)
+    result = main.run_pipeline(profile_ref="unit_non_evidence_failure")
+    loader.assert_not_called()
+
+    assert result == 1
+    preflight_paths = list(output_root.rglob("preflight_report.json"))
+    assert preflight_paths, "expected preflight_report.json under output tree for failed run"
+    failure_jsons = list(output_root.rglob("failure_summary.json"))
+    assert failure_jsons, "expected failure_summary.json under output tree for failed run"
+    payload = json.loads(failure_jsons[0].read_text(encoding="utf-8"))
+    assert payload["stage"] == "preflight"

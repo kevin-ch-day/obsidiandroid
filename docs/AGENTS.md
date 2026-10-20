@@ -8,7 +8,7 @@ The repo root keeps a short **[`AGENTS.md`](../AGENTS.md)** stub so tools that e
 
 - Primary language: **Python 3** (see `requirements.txt` for dependencies).
 - **Pipeline entry:** `main.py` is the thin CLI shell (prepends `./src` for checkout installs); **`run_pipeline`** and all stage modules (`stage_*`, AV/vendor chain, permission-trends report, manifest, …) are implemented under **`obsidiandroid.pipeline`**. Tests may monkeypatch symbols on `main`; canonical code resolves those overrides through `obsidiandroid.cli.main_override_bridge`. For scripts, use **`from obsidiandroid.pipeline import run_pipeline`**.
-- **Src layout:** installable package code lives under **`src/obsidiandroid/`** (`cli`, `pipeline`, `common`, `reporting`, `governance`, **`observability`** — **`logging`** + **`pipeline_observability`** for pipeline run narration — **`diagnostics`**, …). **`obsidiandroid.common`** holds hashing, canonicalization, path safety, **output path layout** (**`output_paths`**), runtime diagnostics paths, ML console verbosity gates, the distribution printer, and **export** helpers (**`export_naming`**, **`export_vendor_raw`**, **`export_workbook`**). **Excel / vendor / confusion-matrix export orchestration** is in **`obsidiandroid.reporting.export_manager`**. **Structured file logging and runtime tee logging** live in **`obsidiandroid.observability.logging`** (submodules **`logger`** / **`runtime`**); you may also use **`from obsidiandroid.observability import get_logger, log_event`**. **Pipeline observability** (JSONL timeline, stage summary, finalize, run health) is **`obsidiandroid.observability.pipeline_observability`** only — do not use removed **`analysis.observability`**. **`obsidiandroid.diagnostics`** is the canonical home for run diagnostics (`output_inventory`, `output_artifact_policy`, `research_validity`, `hostile_audit`, …). See [`STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md) for the remaining shim surfaces still on disk.
+- **Src layout:** installable package code lives under **`src/obsidiandroid/`** (`cli`, `pipeline`, `common`, `reporting`, `governance`, **`observability`** — **`logging`** + **`pipeline_observability`** for pipeline run narration — **`diagnostics`**, …). **`obsidiandroid.common`** holds hashing, canonicalization, path safety, **output path layout** (**`output_paths`**), runtime diagnostics paths, ML console verbosity gates, the distribution printer, and **export** helpers (**`export_naming`**, **`export_vendor_raw`**, **`export_workbook`**). **Excel / vendor / confusion-matrix export orchestration** is in **`obsidiandroid.reporting.export_manager`**. **Structured file logging and runtime tee logging** live in **`obsidiandroid.observability.logging`** (submodules **`logger`** / **`runtime`**); you may also use **`from obsidiandroid.observability import get_logger, log_event`**. **Pipeline observability** (JSONL timeline, stage summary, finalize, run health) is **`obsidiandroid.observability.pipeline_observability`** only — do not use removed **`analysis.observability`**. **`obsidiandroid.diagnostics`** is the canonical home for run diagnostics (`output_inventory`, `output_artifact_policy`, `research_validity`, `hostile_audit`, …). See [`STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md) for current package boundaries and the historical migration record.
 - **Making `obsidiandroid` importable:** Prefer **`pip install -e .`** from the repo root (shortcut: **`make install-editable`** with the venv active). Without an editable install, use **`export PYTHONPATH="$PWD/src:$PYTHONPATH"`**, run **`./run.sh`** or **`make menu`** (which injects `src` automatically), or rely on **`tests/conftest.py`** prepending `src/` during **pytest**. Initial venv + requirements: **`./setup.sh`** or **`make setup`**. Smoke-check: **`python scripts/dev/check_import_surface.py`** or **`make dev-import-check`**.
 - Other entry points: `run.sh` / **`python -m obsidiandroid.cli.startup_menu`** (`obsidiandroid` console script → `obsidiandroid.cli.startup_menu:main`), ML training under **`obsidiandroid.modeling`**, and **database:** every module on the **`obsidiandroid.database`** façade (connection, engine, sample metadata, AV Tier D helpers, utilities, split health, plus optional helper modules) is **canonical under `src/obsidiandroid/database/`**. Use **`python -m obsidiandroid.database.split_db_health`** for the health check. The ordered façade name list lives in **`obsidiandroid.database.facade_manifest`** (single source for package bootstrap and import checks). **Canonical DB imports** use **`obsidiandroid.database`**. Avoid ad-hoc re-exports beyond the façade.
 - **MySQL 8+** is assumed for cohort SQL that uses window functions (`ROW_NUMBER()`, etc.); see **`obsidiandroid.database.cohort_sql_fragments`**.
@@ -19,7 +19,7 @@ The repo root keeps a short **[`AGENTS.md`](../AGENTS.md)** stub so tools that e
 - **`src/obsidiandroid/`** is the **canonical package surface** for **new public imports** (`obsidiandroid.cli`, `obsidiandroid.common`, `obsidiandroid.governance`, `obsidiandroid.observability`, `obsidiandroid.pipeline` facade, etc.).
 - Top-level **`analysis/`**, **`utils/`**, **`model/`**, and **`ml_classification/`** were **removed** — use **`obsidiandroid.*`** (contracts under **`obsidiandroid.vendors.contracts`**, risk-band config under **`obsidiandroid.risk_band`**). Repo-root **`database/`** contains versioned SQL assets; all Python database code is under **`src/obsidiandroid/database/`**. Do not add Python modules beneath the root `database/` directory.
 - **New code** should **prefer `obsidiandroid.*`** wherever a canonical module or facade already exists; fall back to legacy paths only when no facade exists yet (see [`STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md)). **Pass 31:** pipeline/DB/ML implementation imports **`obsidiandroid.cli.ui.display`** and **`obsidiandroid.common.ml_console`** directly.
-- **Import-surface enforcement:** `scripts/dev/check_import_surface.py` runs import smoke plus static ratchets defined in **`scripts/dev/import_surface_policy.py`** (no `importlib` of project packages there). Those checks fail when canonical `src/` code or normal `scripts/` import retired compatibility roots (`analysis`, `ml_classification`, or root `main`), when tests import retired roots directly, or when canonical `src/` modules keep stale ``# Filename:`` headers (first path segment names `analysis`, `ml_classification`, or repo-root `database/`). UTF-8 BOM prefixes on tracked-style `*.py` trees are also rejected.
+- **Import-surface enforcement:** `scripts/dev/check_import_surface.py` runs import smoke plus static ratchets defined in **`scripts/dev/import_surface_policy.py`** (no `importlib` of project packages there). Those checks fail when canonical `src/` code or normal `scripts/` import retired compatibility roots (`analysis`, `ml_classification`, root `database`, or root `main`), when tests import retired roots directly, or when canonical `src/` modules keep stale ``# Filename:`` headers (first path segment names `analysis`, `ml_classification`, or repo-root `database/`). UTF-8 BOM prefixes on tracked-style `*.py` trees are also rejected.
 - **`output/`** and **`logs/`** are **runtime-generated** state (gitignored), not source. Do not treat them as part of the package API.
 - **`artifacts/baselines/`** is the **intentional** place for small preserved evidence / regression baselines (not ad-hoc run outputs under `output/`).
 - **Paper cohort identity:** the active manuscript-facing locked benchmark is the immutable **`20260504T044304Z__8c64e6`** lock (`1226` samples / `39` families / `6` malware types) resolved from **`artifacts/baselines/20260504T044304Z__8c64e6/cohort_lock_manifest.json`**. The later **`20260526T021235Z__8b6966`** `1187`-sample rebaseline is **archival drift evidence only**, not the active paper contract.
@@ -74,9 +74,9 @@ Use **one** of:
 
 Partial **`run_pipeline()`** integration tests live in the **`integration`** marker lane (`make test-integration`). Pipeline preflight backlog auto-refresh can be disabled with **`OBSIDIANDROID_PREFLIGHT_REFRESH_BACKLOG=0`** during fast iteration.
 
-### Package / layout validation (src package + shims)
+### Package / layout validation
 
-After changes that touch **`src/obsidiandroid/`**, legacy root shims (**`analysis/`**), or install layout, run:
+After changes that touch **`src/obsidiandroid/`**, import policy, or install layout, run:
 
 ```bash
 make verify
@@ -125,3 +125,29 @@ Use before releases or when changing behavior covered only by slow modules.
 ## User-facing documentation
 
 - Update **README.md** (or other user docs) when behavior, commands, or setup steps visible to users change.
+
+## Time presentation
+
+Use `obsidiandroid.common.time_display.format_timestamp` for human-facing
+timestamps: America/Chicago with date-specific CST/CDT plus UTC, 12-hour clock,
+minute precision. Keep exact machine-readable UTC instants and IDs intact.
+Do not convert date-only values or guess the timezone of naive timestamps.
+Future scheduling code must reject or explicitly resolve DST gaps/ambiguities
+before formatting; a display formatter does not define recurrence semantics.
+
+### Offline database boundary
+
+The test suite loads scripts/dev/pytest_database_guard.py before collection.
+Real MySQL connector entry points (including native connections and pool
+checkout) and socket connection attempts are blocked by default. The integration
+marker selects orchestration tests; it does not authorize live access.
+
+Separately authorized live database tests need both the live_database marker
+and the --allow-live-database invocation flag. Neither enables unmarked tests or
+collection-time connections. Do not set that flag in offline CI. The guard is a
+Python-process test boundary, not an OS sandbox for arbitrary external commands;
+Python pytest subprocesses must load the same plugin explicitly.
+
+Use --offline-connection-report=PATH for credential-free blocked-attempt traces.
+Operator presentation tests use unavailable source fixtures; production
+readiness code remains unchanged.

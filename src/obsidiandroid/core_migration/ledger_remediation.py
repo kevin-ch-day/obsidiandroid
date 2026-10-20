@@ -544,20 +544,3 @@ def plan_or_apply_remediation(
     finally:
         cursor.close()
         connection.close()
-
-
-# Backward-compatible wrappers used by older tests.
-def physical_schema_verification_hash(digests: dict[str, dict[str, Any]]) -> str:
-    return package_structural_digest(digests)
-
-
-def expected_table_digest_from_sql(table: str, body: str) -> dict[str, Any]:
-    return expected_structural_digest_from_sql(table, body)
-
-
-def live_table_digest(cursor: Any, schema: str, table: str) -> dict[str, Any]:
-    return live_structural_digest(cursor, schema, table)
-
-
-def compare_table_digests(expected: dict[str, Any], live: dict[str, Any]) -> list[str]:
-    return compare_structural_digests(expected, live)

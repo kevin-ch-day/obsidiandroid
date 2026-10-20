@@ -32,8 +32,8 @@ from scripts._bootstrap import prepare_script_runtime
 ROOT = prepare_script_runtime(__file__)
 from obsidiandroid.database import db_config  # noqa: E402
 
-BACKUP_ROOT = Path("/mnt/MERCURY_DATA_V2/mercury_backups")
-RECEIPT_ROOT = Path("/mnt/MERCURY_DATA_V2/mercury_restore_checks/obsidiandroid_phase2a")
+BACKUP_ROOT = Path("/mnt/MERCURY_DATA/mercury_backups")
+RECEIPT_ROOT = Path("/mnt/MERCURY_DATA/mercury_restore_checks/obsidiandroid_phase2a")
 TARGETS = {
     "erebus_threat_intel_prod": "od_phase2a_restore_20260719_r2_erebus",
     "android_permission_intel": "od_phase2a_restore_20260719_permission",

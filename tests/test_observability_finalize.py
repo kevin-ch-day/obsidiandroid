@@ -8,7 +8,7 @@ from pathlib import Path
 from config import app_config
 from obsidiandroid.observability.pipeline_observability.finalize import (
     finalize_pipeline_observability,
-    patch_observability_scientific_adequacy_from_dataset_foundation,
+    patch_observability_post_operator_artifacts,
 )
 from obsidiandroid.observability.pipeline_observability.logging_audit import write_logging_audit_artifacts
 from obsidiandroid.observability.pipeline_observability.session import PipelineObservabilitySession
@@ -71,6 +71,8 @@ def test_finalize_pipeline_observability_minimal(tmp_path: Path) -> None:
     paths = blob.get("paths") if isinstance(blob.get("paths"), dict) else {}
     assert "run_observability_summary_json" in paths
     assert "pipeline_observability_status_json" not in paths
+    assert blob["family_conflict_count"] is None
+    assert "not measured" in blob["family_conflict_status"]
     assert blob.get("publication_ready_status") == "NOT_APPLICABLE"
     assert blob.get("publication_ready_reasons") == []
     assert blob.get("run_status") == "complete"
@@ -770,7 +772,7 @@ def test_finalize_pipeline_observability_carries_degraded_cohort_contract_warnin
     assert warning in warnings
 
 
-def test_patch_observability_scientific_adequacy_from_dataset_foundation(tmp_path: Path) -> None:
+def test_patch_observability_post_operator_artifacts(tmp_path: Path) -> None:
     diagnostic = tmp_path / "diag"
     diagnostic.mkdir(parents=True, exist_ok=True)
     (diagnostic / "run_observability_summary.json").write_text(
@@ -792,7 +794,7 @@ def test_patch_observability_scientific_adequacy_from_dataset_foundation(tmp_pat
         encoding="utf-8",
     )
 
-    assert patch_observability_scientific_adequacy_from_dataset_foundation(diagnostics_dir=diagnostic) is True
+    assert patch_observability_post_operator_artifacts(diagnostics_dir=diagnostic) is True
     blob = json.loads((diagnostic / "run_observability_summary.json").read_text(encoding="utf-8"))
     sci = blob.get("scientific_adequacy") or {}
     assert sci.get("supervised_family_claims_suitable") is True

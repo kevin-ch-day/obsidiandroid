@@ -31,7 +31,7 @@ FACADE_EXPORT_NAMES: tuple[str, ...] = (
     "db_permission_analysis_queries",
     "db_utils",
     "split_db_health",
-    # Operator / diagnostics helpers (same identity shims as ``database.<name>``).
+    # Canonical operator and diagnostics helpers.
     "db_sample_timelines_queries",
     "db_av_disagreement_analysis",
     "db_av_engine_stats",

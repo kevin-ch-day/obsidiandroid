@@ -1,10 +1,13 @@
 # Filename: scripts/dev/scan_ml_predict_misuse.py
 # Purpose  : Static scan for misuse of `.predict()` or `.predict_proba()` on objects not known to be ML models
 
+import ast
 import os
 import re
 from datetime import datetime
 from typing import List, Tuple, Optional
+
+from scripts.dev.predict_roundtrip_analysis import restored_pipeline_prediction_lines
 
 # --- Optional terminal coloring ---
 try:
@@ -68,7 +71,21 @@ def scan_file_for_predict_misuse(filepath: str) -> List[str]:
     except Exception as e:
         return [f"[ERROR] Could not read {filepath} — {e}"]
 
+    roundtrip_lines = restored_pipeline_prediction_lines(''.join(lines))
+    try:
+        tree = ast.parse(''.join(lines))
+        prediction_lines = {
+            node.lineno for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {'predict', 'predict_proba'}
+        }
+    except SyntaxError:
+        prediction_lines = None  # Preserve the legacy scan for incomplete code.
     for i, line in enumerate(lines):
+        if prediction_lines is not None and i + 1 not in prediction_lines:
+            continue
+        if i + 1 in roundtrip_lines:
+            continue
         if not _is_probable_code(line) or len(line.strip()) < 8:
             continue
 

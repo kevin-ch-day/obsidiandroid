@@ -689,56 +689,10 @@ def _export_train_selection_audit(
     return str(primary)
 
 
-def train_model_factory(
-    features_df: pd.DataFrame,
-    labels: Union[list, pd.Series],
-    model_type: str = "random_forest",
-    test_size: float | None = None,
-    random_state: int | None = None,
-    enable_grid_search: bool = False,
-    cross_validate: bool = False,
-    use_smote: bool | None = None,
-    **kwargs,
-) -> Dict[str, Any]:
-    """
-    Trains an ML classifier using a unified interface.
-    Returns model, test splits, encoders, and metadata.
-    """
-    features_df = normalize_feature_column_names(features_df)
-    validate_training_inputs(features_df, labels)
-    if not features_df.index.is_unique:
-        duplicate_count = int(features_df.index.duplicated(keep=False).sum())
-        raise ValueError(
-            "Feature matrix index contains duplicate sample IDs "
-            f"({duplicate_count} duplicate row(s)); split ledgers require one row per sample."
-        )
-    test_size, random_state = _resolve_training_runtime_defaults(test_size, random_state)
+def resolve_training_partition(features_df, labels, encoded_labels, test_size, random_state,
+                               *, strict=False):
+    """Resolve the existing partition policy without fitting any features or model."""
     quiet_train = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
-
-    if isinstance(labels, pd.Series):
-        label_field_resolved = str(labels.name) if labels.name is not None else "label"
-    else:
-        label_field_resolved = "label"
-    label_target_slug = str(
-        getattr(app_config, "RUNTIME_ABLATION_LABEL_TARGET_SLUG", "") or label_field_resolved
-    ).strip()
-    feature_set_token = str(getattr(app_config, "RUNTIME_EXPERIMENT_ID", "") or "").strip()
-    _ablation_gate = bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
-    if _ablation_gate:
-        fs_override = str(getattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", "") or "").strip()
-        if fs_override:
-            feature_set_token = fs_override
-    if not feature_set_token and not _ablation_gate:
-        feature_set_token = "headline_pipeline"
-    elif not feature_set_token:
-        feature_set_token = "ablation_unscoped"
-
-    label_encoder = LabelEncoder()
-    encoded_labels = label_encoder.fit_transform(labels)
-    label_classes = list(label_encoder.classes_)
-
-    cv_scores = None
-
     group_aware_cfg = bool(getattr(app_config, "ENABLE_GROUP_AWARE_TRAIN_TEST_SPLIT", False))
     ablation_lock = bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
     auto_adjust = bool(getattr(app_config, "AUTO_ADJUST_TRAIN_TEST_SPLIT", False))
@@ -762,6 +716,9 @@ def train_model_factory(
             random_state=random_state,
             group_aware_requested=group_aware_requested,
         )
+        if strict:
+            metadata = _runtime_sample_metadata()
+            split_cache_key = ("strict-plan", hash_payload(metadata.to_json(orient="split", date_format="iso")), split_cache_key)
         cached_split = split_cache.get(split_cache_key)
         if cached_split is not None:
             if not isinstance(cached_split, dict):
@@ -934,6 +891,104 @@ def train_model_factory(
     except Exception as e:
         raise RuntimeError(f"Train/test split failed: {e}")
 
+    algorithm = str(getattr(app_config, "RUNTIME_LAST_SPLIT_ALGORITHM", ""))
+    if strict:
+        if algorithm == "stratified_seeded" and min(Counter(encoded_labels).values()) < 2:
+            raise ValueError("[EXPERIMENT] Mandatory stratification unavailable; random fallback refused")
+        train_ids, test_ids = set(X_train.index), set(X_test.index)
+        if (not X_train.index.is_unique or not X_test.index.is_unique
+            or train_ids & test_ids or train_ids | test_ids != set(features_df.index)):
+            raise ValueError("[EXPERIMENT] Cached partition violates exact eligibility or disjointness")
+        if group_aware_cfg:
+            groups, _ = _build_lineage_groups_for_split(features_df)
+            if groups is None:
+                raise ValueError("[EXPERIMENT] Mandatory group evidence unavailable")
+            group_map = dict(zip(features_df.index, groups))
+            if {group_map[i] for i in train_ids} & {group_map[i] for i in test_ids}:
+                raise ValueError("[EXPERIMENT] Mandatory group isolation violated")
+        if _temporal_holdout_requested() and not algorithm.startswith("temporal"):
+            raise ValueError("[EXPERIMENT] Mandatory temporal partition unavailable; fallback refused")
+        if group_aware_cfg and algorithm != "group_shuffle_seeded_v1":
+            raise ValueError("[EXPERIMENT] Mandatory group partition unavailable; fallback refused")
+    return X_train, X_test, y_train, y_test, split_cache_key
+
+
+def train_model_factory(
+    features_df: pd.DataFrame,
+    labels: Union[list, pd.Series],
+    model_type: str = "random_forest",
+    test_size: float | None = None,
+    random_state: int | None = None,
+    enable_grid_search: bool = False,
+    cross_validate: bool = False,
+    use_smote: bool | None = None,
+    av_partition=None,
+    **kwargs,
+) -> Dict[str, Any]:
+    """
+    Trains an ML classifier using a unified interface.
+    Returns model, test splits, encoders, and metadata.
+    """
+    features_df = normalize_feature_column_names(features_df)
+    validate_training_inputs(features_df, labels)
+    if not features_df.index.is_unique:
+        duplicate_count = int(features_df.index.duplicated(keep=False).sum())
+        raise ValueError(
+            "Feature matrix index contains duplicate sample IDs "
+            f"({duplicate_count} duplicate row(s)); split ledgers require one row per sample."
+        )
+    if isinstance(labels, pd.Series) and not labels.index.equals(features_df.index):
+        raise ValueError("[EXPERIMENT] Label sample IDs must match feature sample IDs in order")
+    test_size, random_state = _resolve_training_runtime_defaults(test_size, random_state)
+    quiet_train = bool(getattr(app_config, "RUNTIME_QUIET_TRAINING", False))
+
+    if isinstance(labels, pd.Series):
+        label_field_resolved = str(labels.name) if labels.name is not None else "label"
+    else:
+        label_field_resolved = "label"
+    label_target_slug = str(
+        getattr(app_config, "RUNTIME_ABLATION_LABEL_TARGET_SLUG", "") or label_field_resolved
+    ).strip()
+    feature_set_token = str(getattr(app_config, "RUNTIME_EXPERIMENT_ID", "") or "").strip()
+    _ablation_gate = bool(getattr(app_config, "RUNTIME_ABLATION_ACTIVE", False))
+    if _ablation_gate:
+        fs_override = str(getattr(app_config, "RUNTIME_ABLATION_FEATURE_SET_NAME", "") or "").strip()
+        if fs_override:
+            feature_set_token = fs_override
+    if not feature_set_token and not _ablation_gate:
+        feature_set_token = "headline_pipeline"
+    elif not feature_set_token:
+        feature_set_token = "ablation_unscoped"
+
+    label_encoder = LabelEncoder()
+    encoded_labels = label_encoder.fit_transform(labels)
+    label_classes = list(label_encoder.classes_)
+
+    cv_scores = None
+
+    from .experiment_split import validate_fit_boundary
+    binding = validate_fit_boundary(features_df, labels)
+    if av_partition is not None:
+        from .av_partition import AVPartition
+        if not isinstance(av_partition, AVPartition) or binding is not None:
+            raise ValueError('AV-only partition cannot replace another experiment binding')
+        if (use_smote is not False or cross_validate or enable_grid_search
+                or getattr(app_config, 'ENABLE_CROSS_VALIDATION', False)
+                or any(getattr(app_config, name, False) for name in
+                       ('ENABLE_LR_GRID_SEARCH', 'ENABLE_RF_GRID_SEARCH', 'ENABLE_XGB_GRID_SEARCH', 'ENABLE_SVM_GRID_SEARCH'))):
+            raise ValueError('AV-only development partition forbids resampling, CV and tuning')
+        X_train, X_test, y_train, y_test, split_cache_key = av_partition.partition(
+            features_df, labels, encoded_labels)
+        setattr(app_config, 'RUNTIME_LAST_SPLIT_ALGORITHM', 'retained_av_lineage_stratified_group_v1')
+    elif binding is None:
+        X_train, X_test, y_train, y_test, split_cache_key = resolve_training_partition(
+            features_df, labels, encoded_labels, test_size, random_state,
+            strict=bool(getattr(app_config, "ENABLE_GROUP_AWARE_TRAIN_TEST_SPLIT", False)
+                        or _temporal_holdout_requested()))
+    else:
+        X_train, X_test, y_train, y_test, split_cache_key = binding.partition(
+            features_df, labels, encoded_labels, test_size, random_state, kwargs)
+
     if not quiet_train and not bool(
         getattr(app_config, "RUNTIME_SPLIT_SIZE_NOTICE_EMITTED", False)
     ):
@@ -959,6 +1014,11 @@ def train_model_factory(
         y_train_series = pd.Series(y_train, index=X_train.index, name="encoded_label")
         selection_contract = fit_feature_selection_contract(X_train, y_train_series)
         selection_cache[selection_key] = dict(selection_contract)
+    if (binding is not None or av_partition is not None) and (
+        selection_contract.get("fit_sample_id_hash") != hash_payload([str(i) for i in X_train.index])
+        or selection_contract.get("fit_sample_count") != len(X_train)
+    ):
+        raise ValueError("[EXPERIMENT] Cached feature-selection fit membership changed")
     X_train_before_selection = X_train
     low_information_columns = list(
         selection_contract.get("dropped_low_information_columns", []) or []
@@ -1123,6 +1183,8 @@ def train_model_factory(
         )
 
     if use_smote_effective and model_type != "balanced_random_forest":
+        if binding is not None:
+            setattr(app_config, "RUNTIME_SMOTE_AUDIT_LAST", None)
         X_train, y_train = apply_smote(X_train, y_train, random_state)
         snap = getattr(app_config, "RUNTIME_SMOTE_AUDIT_LAST", None)
         if isinstance(snap, dict):
@@ -1134,6 +1196,13 @@ def train_model_factory(
                 by_model = {}
             by_model[str(model_type)] = dict(snap)
             setattr(app_config, "RUNTIME_SMOTE_AUDIT_BY_MODEL", by_model)
+
+    experiment_receipt = None
+    if binding is not None:
+        binding.validate_features(features_df, labels)
+        experiment_receipt = binding.resampling_receipt(
+            X_train_for_cv, y_train_for_cv, X_train, y_train,
+            enabled=use_smote_effective and model_type != "balanced_random_forest")
 
     if cross_validate or getattr(app_config, "ENABLE_CROSS_VALIDATION", False):
         # The external test partition remains untouched.  CV is performed on
@@ -1176,6 +1245,10 @@ def train_model_factory(
     )
     setattr(app_config, "RUNTIME_TRAINING_PROVENANCE_SUMMARY", prov)
 
+    if binding is not None:
+        binding.validate_features(features_df, labels)
+    if av_partition is not None:
+        av_partition.validate(features_df, labels)
     trainer = get_model_trainer(model_type)
     grid_search_flag = enable_grid_search
     if model_type == "random_forest":
@@ -1219,6 +1292,7 @@ def train_model_factory(
         "sample_ids_train": sample_ids_train,
         "sample_ids_test": sample_ids_test,
         "feature_selection_contract": dict(selection_contract),
+        "experiment_split_receipt": experiment_receipt,
         "cv_scores": cv_scores,
         "cv_score_mean": float(np.mean(cv_scores)) if cv_scores is not None else None,
         "cv_input_population": "pre_resample_train_partition" if cv_active else None,

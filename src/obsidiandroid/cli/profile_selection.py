@@ -93,6 +93,9 @@ def summarize_profile(profile_path: Path) -> str:
     except Exception:
         return "summary unavailable"
 
+    if raw.get("cohort_contract_id") and "model_list" not in raw:
+        return "Specialized frozen cohort contract; inspect with governed benchmark tooling, not a normal run profile"
+
     profile_id = str(raw.get("profile_id", profile_path.stem) or profile_path.stem)
     desc = str(raw.get("description", "")).strip()
     type_slug = raw.get("type_slug_filter")
@@ -156,6 +159,7 @@ def quick_profile_label(profile_id: str) -> str:
     """Return operator-facing quick-menu labels without exposing raw profile IDs as the main cue."""
     pid = str(profile_id).strip()
     labels = {
+        "android_catalog_all_exploratory": "Explore Android catalog — all APKs",
         "android_malware_all_current": "Research: all current Android malware",
         "android_malware_major_families": "Research: major-family classification",
         "android_malware_major_families_support20": "Candidate: frozen n >= 20 family benchmark",

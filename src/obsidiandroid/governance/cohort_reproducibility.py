@@ -298,28 +298,6 @@ def export_analysis_snapshot(
         )
 
 
-def apply_cohort_lock(samples_df: pd.DataFrame, lock_file: str) -> pd.DataFrame:
-    """Backward-compatible alias for analysis snapshot lock filtering."""
-    fail_closed = bool(
-        getattr(app_config, "REQUIRE_SNAPSHOT_LOCK_IN_EVIDENCE_MODE", True)
-        and getattr(app_config, "RUNTIME_EVIDENCE_STRICT_MODE", False)
-    )
-    return apply_analysis_snapshot_lock(
-        samples_df=samples_df,
-        lock_file=lock_file,
-        fail_closed=fail_closed,
-    )
-
-
-def export_cohort_snapshot(samples_df: pd.DataFrame, snapshot_file: str, meta_file: str) -> None:
-    """Backward-compatible alias for analysis snapshot export."""
-    export_analysis_snapshot(
-        samples_df=samples_df,
-        snapshot_file=snapshot_file,
-        meta_file=meta_file,
-    )
-
-
 def _sort_by_sample_id(df: pd.DataFrame) -> pd.DataFrame:
     if "sample_id" not in df.columns:
         return df

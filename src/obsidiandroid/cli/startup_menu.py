@@ -80,8 +80,16 @@ def _run_full_pipeline(profile_id: str) -> int:
 def _run_full_pipeline_with_persistence_choice(profile_id: str) -> int:
     from obsidiandroid.pipeline import run_pipeline
     choice = mu.display_menu(
-        ["Exploratory / read-only", "Persist analytical run/results"],
-        title="Persistence mode", exit_label="Back",
+        ["Run with local files only", "Run with local files + Core database results"],
+        title="Save analysis results", exit_label="Cancel run",
+        action_hint="Type a row number. 0 = cancel run · Ctrl+C = cancel",
+        breadcrumb="Run analysis › Full pipeline › Save results",
+        context_lines=[
+            ("PROFILE", profile_id),
+            ("RUN", "Both choices run the full analysis, including configured model training."),
+            ("OUTPUT", "Both save local reports and artifacts; only option 2 enables Core persistence."),
+            ("SOURCE", "This choice does not change the profile cohort or Permission Intel source."),
+        ],
     )
     if choice == 0:
         return 0
@@ -195,13 +203,13 @@ def _run_evidence_bundle_series_aggregator() -> int:
 def _pipeline_run_mode_labels() -> list[str]:
     """Ordered labels for the primary pipeline launcher."""
     return [
-        "Full pipeline",
-        "Fast development",
-        "Smoke test",
-        "Single model only",
-        "Stop after a stage",
-        "Vendor extraction only",
-        "Retrain from cached alignment",
+        "Full analysis — configured models and reports",
+        "Fast development — reduced analysis",
+        "Smoke test — basic pipeline checks",
+        "Train and evaluate one model",
+        "Run through a selected stage",
+        "Extract vendor features only",
+        "Retrain using cached alignment",
     ]
 
 
@@ -217,16 +225,22 @@ def _launch_pipeline_actions_menu() -> int:
         if choice == 0:
             return 0
         if choice == 1:
-            profile_id = resolve_and_validate_profile(prefer_quick=True)
+            profile_id = resolve_and_validate_profile(prefer_quick=False)
             if not profile_id:
                 continue
-            return _run_full_pipeline_with_persistence_choice(profile_id)
+            if _preview_classification(profile_id):
+                return _run_full_pipeline_with_persistence_choice(profile_id)
+            continue
         if choice == 2:
-            return _run_full_pipeline("dev_fast")
+            if _preview_classification("dev_fast"):
+                return _run_full_pipeline("dev_fast")
+            continue
         if choice == 3:
-            return _run_full_pipeline("dev_smoke")
+            if _preview_classification("dev_smoke"):
+                return _run_full_pipeline("dev_smoke")
+            continue
         if choice == 4:
-            profile_id = resolve_and_validate_profile(prefer_quick=True)
+            profile_id = resolve_and_validate_profile(prefer_quick=False)
             if not profile_id:
                 continue
             model_menu = _build_model_menu()
@@ -240,19 +254,26 @@ def _launch_pipeline_actions_menu() -> int:
                 continue
             model_names = list(model_menu.keys())
             model_key = model_menu[model_names[model_choice - 1]]
-            return _run_single_model(model_key, profile_id)
+            if _preview_classification(profile_id):
+                return _run_single_model(model_key, profile_id)
+            continue
         if choice == 5:
-            profile_id = resolve_and_validate_profile(prefer_quick=True)
+            profile_id = resolve_and_validate_profile(prefer_quick=False)
             if not profile_id:
                 continue
-            return _run_to_stage(profile_id)
+            if _preview_classification(profile_id):
+                return _run_to_stage(profile_id)
+            continue
         if choice == 6:
-            profile_id = resolve_and_validate_profile(prefer_quick=True)
+            profile_id = resolve_and_validate_profile(prefer_quick=False)
             if not profile_id:
                 continue
             return _run_vendor_only(profile_id)
         if choice == 7:
-            return _run_retrain_from_cached_alignment()
+            du.print_warning("Cached retraining uses the saved alignment population and evidence, not live explorer counts.")
+            du.print_info("Source preflight: not established here; cache and training checks remain authoritative. This action trains models and writes result artifacts.")
+            if mu.display_menu(["Run cached retraining with existing checks"], title="Cached retraining", exit_label="Cancel"):
+                return _run_retrain_from_cached_alignment()
         du.print_warning("[MENU] Invalid choice received.")
 
 
@@ -826,6 +847,7 @@ def _launch_operations_menu() -> None:
             "Cache / latest pointer (guidance)",
             "Repair / migration helpers (info)",
             "Developer utilities",
+            "Clear screen",
         ]
         choice = mu.display_menu(
             operations,
@@ -853,6 +875,9 @@ def _launch_operations_menu() -> None:
         if choice == 6:
             _launch_developer_utilities_menu()
             continue
+        if choice == 7:
+            du.clear_console()
+            continue
         du.print_warning("[MENU] Invalid choice received.")
 
 
@@ -863,18 +888,98 @@ def _launch_explorer_menu() -> int:
     return launch_data_explorer()
 
 
+def _group_menu(title, commands):
+    while True:
+        choice = mu.display_menu([c.label for c in commands], title=title, exit_label="Back")
+        if choice == 0:
+            return 0
+        result = commands[choice - 1].action()
+        if isinstance(result, int) and result:
+            du.print_warning(f"Action ended with status {result}; see diagnostics.")
+
+
+def _launch_results_menu():
+    return _group_menu("Saved results and run history", [
+        _MenuCommand("Review latest saved run", _launch_review_latest_run_menu),
+        _MenuCommand("Run status and history", _launch_run_overview_menu),
+        _MenuCommand("Research reports", _launch_research_reports_menu),
+    ])
+
+
+def _launch_checks_menu():
+    return _group_menu("Research checks and diagnostics", [
+        _MenuCommand("Data diagnostics", _launch_data_diagnostics_menu),
+        _MenuCommand("Reproducibility and research validity", _launch_reproducibility_menu),
+    ])
+
+
+def _preview_classification(profile_id):
+    """Require fresh source checks and an explicit choice in advanced run modes."""
+    from . import profile_manager
+    from .classification_overview import show_experiment, check_readiness, show_readiness, can_start
+    profile = profile_manager.load_profile(profile_id)
+    show_experiment(profile)
+    checks = check_readiness(profile)
+    show_readiness(checks)
+    if not can_start(checks):
+        return False
+    return mu.confirm_prompt("Continue with this execution mode and its output effects? [y/N]")
+
+
+def _launch_comparison_menu():
+    """Expose existing multi-model and feature-ablation profiles without running them."""
+    from .classification_overview import launch_experiment
+    profiles = (
+        "android_malware_major_families",
+        "android_malware_type_taxonomy",
+        "dev_ablation_fast",
+    )
+    while True:
+        choice = mu.display_menu([
+            "Compare configured models — major families",
+            "Compare configured models — malware types",
+            "Compare feature sets — development ablations (Random Forest)",
+        ], title="Compare models and features", exit_label="Back",
+            subtitle="Existing profiles; feature and evidence requirements still apply.",
+            action_hint="", selection_prompt="Enter your selection: ")
+        if choice == 0:
+            return 0
+        launch_experiment(profiles[choice - 1],
+                          start_analysis=_run_full_pipeline_with_persistence_choice)
+
+
+def _launch_classification_menu():
+    from .classification_overview import launch_experiment
+    while True:
+        choice = mu.display_menu([
+            "Malware-family classification",
+            "Malware-type classification",
+            "Compare models and features",
+            "Other experiments and tests",
+        ], title="Run malware classification", exit_label="Back to Main Menu",
+            subtitle="Select an analysis. Training starts only after explicit confirmation.",
+            action_hint="", selection_prompt="Enter your selection: ")
+        if choice == 0:
+            return 0
+        if choice == 3:
+            _launch_comparison_menu()
+            continue
+        if choice == 4:
+            _launch_pipeline_actions_menu()
+            continue
+        profile_id = ("android_malware_major_families" if choice == 1
+                      else "android_malware_type_taxonomy")
+        launch_experiment(profile_id, start_analysis=_run_full_pipeline_with_persistence_choice)
+
+
 def _build_main_menu_commands() -> list[_MenuCommand]:
-    """Return the redesigned top-level operator menu."""
+    """Everyday browsing is independent of training and saved run operations."""
     return [
-        _MenuCommand(label="Run Analysis", action=_launch_pipeline_actions_menu),
-        _MenuCommand(label="Review Latest Run", action=_launch_review_latest_run_menu),
-        _MenuCommand(label="Run Status and History", action=_launch_run_overview_menu),
-        _MenuCommand(label="Research Reports", action=_launch_research_reports_menu),
-        _MenuCommand(label="Reproducibility & research validity", action=_launch_reproducibility_menu),
-        _MenuCommand(label="Data Diagnostics", action=_launch_data_diagnostics_menu),
-        _MenuCommand(label="Tools and Maintenance", action=_launch_operations_menu),
-        _MenuCommand(label="Clear Screen", action=lambda: 0),
-        _MenuCommand(label="Explore Android data", action=_launch_explorer_menu),
+        _MenuCommand("Explore Android data", _launch_explorer_menu),
+        _MenuCommand("Run malware classification", _launch_classification_menu),
+        _MenuCommand("Review results and run history", _launch_results_menu),
+        _MenuCommand("Research checks and diagnostics", _launch_checks_menu),
+        _MenuCommand("Tools and maintenance", _launch_operations_menu),
     ]
 
 
@@ -887,7 +992,8 @@ def launch_startup_menu() -> int:
         choice = mu.display_menu(
             [c.label for c in commands],
             title="Main menu",
-            exit_label="Exit",
+            exit_label="Exit App",
+            action_hint="",
             breadcrumb="ObsidianDroid · operator console",
         )
 
@@ -896,11 +1002,6 @@ def launch_startup_menu() -> int:
             return 0
 
         selected = commands[choice - 1]
-        if selected.label == "Clear Screen":
-            du.clear_console()
-            _print_startup_context()
-            continue
-
         result = selected.action()
         if isinstance(result, int) and result != 0:
             return result

@@ -331,10 +331,7 @@ def build_parser_diagnostics_state(
     coverage_csv = resolve_vendor_parser_coverage_csv()
     candidates_csv = resolve_vendor_parser_coverage_candidates_csv()
     scores_csv = resolve_vendor_gate_pre_gate_csv()
-    try:
-        workbook_df = workbook_loader(emit_warnings=False)
-    except TypeError:
-        workbook_df = workbook_loader()
+    workbook_df = workbook_loader(emit_warnings=False)
     workbook_ready = isinstance(workbook_df, pd.DataFrame)
     csv_ready = coverage_csv is not None
     rid = run_locator.read_latest_run_id()

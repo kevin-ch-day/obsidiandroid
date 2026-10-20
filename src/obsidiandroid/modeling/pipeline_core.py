@@ -331,6 +331,12 @@ def align_data(
     forced_label_column: str | None = None,
 ) -> Tuple[pd.DataFrame, pd.Series]:
     """Align AV feature matrix with supervised labels by sample ID."""
+    from .experiment_split import ACTIVE, ExperimentIntegrityError
+    binding = ACTIVE.get()
+    if binding is not None:
+        if forced_label_column and forced_label_column != binding.plan.target:
+            raise ExperimentIntegrityError("[EXPERIMENT] Alignment target differs from plan")
+        return binding.align(features_df, samples_df)
     try:
         log_event(PIPELINE_LOGGER, "align_data_start", event_id="ML_ALIGN_001")
         from obsidiandroid.evaluation.ml_terminal_presentation import should_quiet_headline_training_preamble
@@ -902,7 +908,12 @@ def run_classifier_pipeline(
         group_label = (
             "other" if bool(getattr(app_config, "GROUP_LOW_SUPPORT_LABELS", False)) else None
         )
-        if support_floor_mode == "diagnostic_only":
+        from .experiment_split import ACTIVE
+        if ACTIVE.get() is not None:
+            # Eligibility is frozen before vocabulary fitting; never relabel/drop here.
+            ACTIVE.get().validate_features(features_df, labels_df)
+            affected, fams, low_fam_rows = 0, 0, []
+        elif support_floor_mode == "diagnostic_only":
             affected, fams, low_fam_rows = 0, 0, []
             if not quiet_train:
                 du.print_info(
@@ -1004,6 +1015,9 @@ def run_classifier_pipeline(
             feature_column_survival_export.nonzero_counts_for_columns(features_df),
         )
     except Exception as exc:
+        from .experiment_split import ACTIVE
+        if ACTIVE.get() is not None:
+            raise
         du.print_warning(f"[PIPELINE] Family support filtering failed: {exc}")
         log_event(
             PIPELINE_LOGGER,

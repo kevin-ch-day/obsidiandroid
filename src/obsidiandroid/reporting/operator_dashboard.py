@@ -669,35 +669,6 @@ def _top_confusion_pairs(
     return out
 
 
-def _read_model_comparison_leaderboard(path: Path) -> tuple[list[dict[str, Any]], str]:
-    """Return sorted rows by Macro F1 descending and best internal model key."""
-    if not path.is_file():
-        return [], ""
-    try:
-        df = pd.read_csv(path)
-    except Exception:
-        return [], ""
-    if df.empty or "Macro F1-Score" not in df.columns:
-        cols = [c for c in df.columns if str(c).lower().replace("-", "").replace("_", "") == "macrof1score"]
-        metric_col = cols[0] if cols else None
-    else:
-        metric_col = "Macro F1-Score"
-    if metric_col is None or "Model" not in df.columns:
-        return [], ""
-    work = df.copy()
-    work["_m"] = pd.to_numeric(work[metric_col], errors="coerce")
-    work = work.dropna(subset=["_m"]).sort_values("_m", ascending=False)
-    rows_out = []
-    for _, row in work.iterrows():
-        rows_out.append(dict(row.drop(labels=["_m"])))
-    best = ""
-    try:
-        best = str(work.iloc[0]["Model"]).strip().lower().replace(" ", "_")
-    except Exception:
-        best = ""
-    return rows_out, best
-
-
 def write_diagnostics_index_md(
     diagnostics_dir: Path,
     *,

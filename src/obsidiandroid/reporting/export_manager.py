@@ -235,20 +235,6 @@ def _should_emit_sheet_log(position: int, total: int, every_n: int = SHEET_LOG_E
     return position % max(1, every_n) == 0
 
 
-def _build_manifest_rows(rows: list[tuple[str, str, pd.DataFrame]]) -> pd.DataFrame:
-    """Build manifest rows for a batch of workbook writes."""
-    return workbook.build_manifest_rows(
-        rows=rows,
-        run_id=str(getattr(app_config, "RUNTIME_RUN_ID", "unknown")),
-        hash_payload=hash_payload,
-    )
-
-
-def _assert_workbook_integrity(path: Path) -> None:
-    """Validate workbook ZIP structure to catch broken writes early."""
-    workbook.assert_workbook_integrity(path)
-
-
 def _write_consolidated_batch(path: Path, sheets: list[tuple[str, pd.DataFrame]]) -> list[tuple[str, str, int]]:
     """Write many sheets into consolidated workbook in one ExcelWriter session."""
     return workbook.write_consolidated_batch(
@@ -261,17 +247,6 @@ def _write_consolidated_batch(path: Path, sheets: list[tuple[str, pd.DataFrame]]
         short_hash=short_hash,
     )
 
-
-def _record_manifest_row(path: Path, alias: str, logical_name: str, df: pd.DataFrame) -> None:
-    """Upsert workbook manifest row for a sheet alias."""
-    workbook.record_manifest_row(
-        path=path,
-        alias=alias,
-        logical_name=logical_name,
-        df=df,
-        run_id=str(getattr(app_config, "RUNTIME_RUN_ID", "unknown")),
-        hash_payload=hash_payload,
-    )
 
 # === Utility: Create Excel writer ===
 def create_excel_writer(filename: str) -> Tuple[pd.ExcelWriter, Path]:

@@ -6,12 +6,6 @@ from pandas.api.types import is_numeric_dtype
 from obsidiandroid.cli.ui import display as du
 
 
-def _encode_column_categorical(series: pd.Series) -> pd.Series:
-    """Convert a column to categorical codes."""
-    cat_series = series.astype("category")
-    return cat_series.cat.codes
-
-
 def _handle_low_info_columns(df: pd.DataFrame, verbose: bool) -> None:
     """Warn about columns with little to no variation."""
     low_info = [col for col in df.columns if df[col].nunique() <= 1 and col != "sample_id"]

@@ -89,6 +89,8 @@ def claim_surface_label_for_profile(profile_id: str | None = None) -> str:
     paper_mode = bool(getattr(app_config, "PAPER_MODE_ENABLED", False))
     if evidence_mode or paper_mode:
         return "Locked publication cohort"
+    if profile == "android_catalog_all_exploratory":
+        return "Android catalog exploratory surface"
     if profile == "android_malware_all_current":
         return "Current-corpus diagnostic surface"
     if profile == "android_malware_major_families":

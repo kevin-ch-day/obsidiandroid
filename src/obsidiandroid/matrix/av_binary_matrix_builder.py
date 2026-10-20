@@ -58,22 +58,6 @@ def convert_to_long_format(verdicts_df: pd.DataFrame) -> pd.DataFrame:
     return long_df
 
 
-def _normalize_result_token(value: object) -> str:
-    if value is None or pd.isna(value):
-        return ""
-    return str(value).strip().lower()
-
-
-def _is_scanned_result(value: object) -> bool:
-    """
-    True when a verdict value indicates the engine produced a result.
-
-    Note: 'undetected' is considered scanned (but not malicious).
-    """
-    token = _normalize_result_token(value)
-    return token not in MISSING_TOKENS
-
-
 def _is_positive_detection(value: object) -> int:
     """
     Return 1 when a vendor emitted any positive detection label.

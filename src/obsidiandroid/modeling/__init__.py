@@ -23,7 +23,6 @@ Physical training-stack helpers (**Pass 93**) load lazily via :func:`__getattr__
 from __future__ import annotations
 
 import importlib
-import sys
 
 from .modeling_facade_manifest import MODELING_FACADE_EAGER_SUBMODULE_NAMES
 
@@ -62,7 +61,6 @@ def __dir__():
 for _name in MODELING_FACADE_EAGER_SUBMODULE_NAMES:
     _canon = importlib.import_module(f"{__name__}.{_name}")
     globals()[_name] = _canon
-    sys.modules.setdefault(f"obsidiandroid.modeling.{_name}", _canon)
 
 __all__ = [
     "model_exporter",

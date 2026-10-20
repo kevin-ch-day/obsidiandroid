@@ -173,15 +173,15 @@ def run_single_vendor_parser_check() -> int:
 
     parsed_rows: list[dict[str, Any]] = []
     parser_errors = 0
+    generic_fallback_rows = 0
     for label in series:
         try:
             parsed = parser_fn(label, None)
-        except TypeError:
-            parsed = parser_fn(label)
         except Exception:
             parser_errors += 1
             try:
                 parsed = parse_generic_classification(label, None)
+                generic_fallback_rows += 1
             except Exception:
                 continue
         parsed_rows.append(_coerce_parsed_output(parsed))
@@ -198,6 +198,9 @@ def run_single_vendor_parser_check() -> int:
     du.print_section(f"Vendor Parser Diagnostic: {vendor_name}")
     du.print_stat("Parsed Rows", sample_total)
     du.print_stat("Parser Errors", parser_errors)
+    du.print_stat("Generic Fallback Rows", generic_fallback_rows)
+    if generic_fallback_rows:
+        du.print_warning("Generic fallback rows are not successful vendor-parser results.")
     du.print_stat("Known Family Rows", int(known_family))
     du.print_stat("Unknown/Generic %", f"{unknown_pct:.2f}%")
     du.print_table(out_df.value_counts("threat_class").reset_index(name="count").head(10), title=f"{vendor_name} threat_class top values", show_index=False)

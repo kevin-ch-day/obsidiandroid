@@ -128,6 +128,13 @@ def print_table(
         print_note(f"Showing first {max_rows} rows")
         df = df.head(max_rows)
 
+    from obsidiandroid.common.time_display import format_timestamp
+    df = df.copy()
+    for column in df.columns:
+        df[column] = df[column].map(
+            lambda value: format_timestamp(value, assume_utc=str(column).lower().endswith('_utc'))
+        )
+
     tab_kwargs = {
         "headers": "keys",
         "tablefmt": tablefmt,

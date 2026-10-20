@@ -55,7 +55,7 @@ from obsidiandroid.vendors.parsing.vendor_parser_submodule_manifest import (
 
 from scripts.dev.import_surface_policy import (
     collect_canonical_code_legacy_imports,
-    collect_nonparity_test_legacy_imports,
+    collect_test_legacy_imports,
     collect_retired_compatibility_file_violations,
     collect_retired_compatibility_tree_violations,
     collect_stale_canonical_filename_headers,
@@ -89,18 +89,6 @@ DIAGNOSTICS_NESTED_PACKAGES: tuple[str, ...] = ("research_validity", "hostile_au
 def _module_path(mod: ModuleType) -> str:
     path = getattr(mod, "__file__", None)
     return str(path) if path else "(namespace package)"
-
-
-def _legacy_ml_pkg_getattr_errors(pkg_qual: str, submodule_names: tuple[str, ...]) -> list[str]:
-    """Return human-readable failures when ``pkg.<name>`` disagrees with ``import pkg.name``."""
-
-    errors: list[str] = []
-    pkg_mod = importlib.import_module(pkg_qual)
-    for name in submodule_names:
-        sub_mod = importlib.import_module(f"{pkg_qual}.{name}")
-        if getattr(pkg_mod, name) is not sub_mod:
-            errors.append(f"{pkg_qual}.{name} getattr mismatch vs explicit submodule import")
-    return errors
 
 
 def _check_import_smoke() -> bool:
@@ -148,17 +136,17 @@ def _check_static_policy_scans() -> bool:
         return False
     print("OK   canonical src/scripts imports avoid legacy compatibility roots")
 
-    test_legacy_imports = collect_nonparity_test_legacy_imports(_REPO_ROOT)
+    test_legacy_imports = collect_test_legacy_imports(_REPO_ROOT)
     if test_legacy_imports:
         print(
-            "FAIL: non-parity tests import legacy compatibility roots "
+            "FAIL: tests import legacy compatibility roots "
             "(use obsidiandroid.*; analysis and ml_classification are retired import roots):",
             file=sys.stderr,
         )
         for item in test_legacy_imports:
             print(f"  {item}", file=sys.stderr)
         return False
-    print("OK   non-parity tests avoid legacy compatibility roots")
+    print("OK   tests avoid legacy compatibility roots")
 
     stale_headers = collect_stale_canonical_filename_headers(_REPO_ROOT)
     if stale_headers:
@@ -248,8 +236,8 @@ def _check_common_reporting_surfaces() -> bool:
     return True
 
 
-def _check_observability_diagnostics_database_shims() -> bool:
-    """Verify observability, diagnostics, and database package compatibility surfaces."""
+def _check_observability_diagnostics_database_surfaces() -> bool:
+    """Verify observability, diagnostics, and database canonical package surfaces."""
     try:
         obs_pkg = importlib.import_module("obsidiandroid.observability")
     except Exception as exc:
@@ -552,9 +540,9 @@ def main() -> int:
         return 1
     mfc_canon = importlib.import_module("obsidiandroid.labeling.malware_family_constants")
     if taxonomy_mod.normalize_family_name("Flu-Bot") != mfc_canon.normalize_family_name("Flu-Bot"):
-        print("FAIL: labeling.taxonomy.normalize_family_name diverged from legacy", file=sys.stderr)
+        print("FAIL: labeling.taxonomy.normalize_family_name diverged from canonical normalization", file=sys.stderr)
         return 1
-    print("OK   obsidiandroid.labeling.taxonomy wrapper resolves and matches legacy normalization")
+    print("OK   obsidiandroid.labeling.taxonomy wrapper resolves and matches canonical normalization")
     print("OK   malware-family constants canonical module resolves")
 
     try:
@@ -766,7 +754,7 @@ def main() -> int:
     if not _check_common_reporting_surfaces():
         return 1
 
-    if not _check_observability_diagnostics_database_shims():
+    if not _check_observability_diagnostics_database_surfaces():
         return 1
 
     if not _check_static_policy_scans():

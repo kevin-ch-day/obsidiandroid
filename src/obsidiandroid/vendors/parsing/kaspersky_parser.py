@@ -2,6 +2,7 @@
 # Description: Parses Kaspersky AV detection strings into structured fields for ObsidianDroid.
 
 from typing import Dict, Optional
+from obsidiandroid.labeling.taxonomy import is_known_family_name, normalize_family_name
 from .parser_defaults import ParserDefaults
 from . import parser_confidence_estimator
 from obsidiandroid.vendors.contracts.parsed_label_metadata import ParsedLabelMetadata
@@ -79,6 +80,13 @@ def parse_kaspersky_classification(classification: str, engine_metadata: Optiona
         family = sig["family"]
         if family in FAMILY_KEYWORDS:
             record["family"] = family
+        elif (parts[1].casefold() in {"android", "androidos"} and "_" not in classification
+              and is_known_family_name(normalize_family_name(family))):
+            # Vendor naming contract: Behaviour.Platform.Name[.Variant].
+            # Accept only the exact family slot through the existing taxonomy;
+            # never search a suffix or introduce an alias from catalog co-occurrence.
+            record["family"] = normalize_family_name(family)
+            record["edge_case_type"] = "shared_taxonomy_family_slot"
         else:
             record["family"] = "unknown"
             record["edge_case_type"] = "unknown_family"

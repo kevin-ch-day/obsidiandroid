@@ -262,6 +262,8 @@ def _cohort_summary_heading(*, profile_id: str, samples_df: pd.DataFrame) -> str
     publication_mode = _coalesce_attrs_publication_mode(samples_df)
     if publication_mode:
         return "Locked Publication Cohort Summary"
+    if profile_id == "android_catalog_all_exploratory":
+        return "Android Catalog Exploratory Summary"
     if profile_id == "android_malware_all_current":
         return "Current-Corpus Cohort Summary"
     return "Cohort Benchmark Summary"
@@ -270,6 +272,8 @@ def _cohort_summary_heading(*, profile_id: str, samples_df: pd.DataFrame) -> str
 def _profile_surface_label(*, profile_id: str, samples_df: pd.DataFrame) -> str:
     if _coalesce_attrs_publication_mode(samples_df):
         return "Locked publication cohort"
+    if profile_id == "android_catalog_all_exploratory":
+        return "All-APK catalog exploration; not a publication benchmark"
     if profile_id == "android_malware_all_current":
         return "Current Android malware corpus"
     return "Support-gated governed major-family benchmark"

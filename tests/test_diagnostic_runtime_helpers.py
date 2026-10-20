@@ -39,11 +39,11 @@ def test_runtime_source_does_not_import_scripts_namespace() -> None:
     assert offenders == []
 
 
-def test_database_mutator_scripts_are_outside_diagnostics_namespace() -> None:
+def test_retired_upstream_database_mutators_stay_absent() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     diagnostics_dir = repo_root / "scripts" / "diagnostics"
     maintenance_dir = repo_root / "scripts" / "maintenance"
 
     for filename in ("normalize_observed_filenames.py", "prune_malware_artifact_ingest_queue.py"):
         assert not (diagnostics_dir / filename).exists()
-        assert (maintenance_dir / filename).is_file()
+        assert not (maintenance_dir / filename).exists()

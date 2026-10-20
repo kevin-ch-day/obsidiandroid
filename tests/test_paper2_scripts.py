@@ -10,11 +10,21 @@ from scripts.research import generate_claim_artifact_map
 from scripts.research import mark_legacy_publication_exports as mark_legacy_partial_paper_exports
 from scripts.research import export_publication_tables as export_manuscript_tables
 import pandas as pd
+import pytest
 from ccncps2026_published_reference import (
     PUBLISHED_TABLE_II_RF,
     PUBLISHED_TABLE_II_XGB,
     PUBLISHED_TABLE_III_VENDOR_PERMS_RF,
 )
+
+
+def _write_run_manifest(run_root: Path) -> None:
+    """Give disposable runs explicit identity for canonical run discovery."""
+    (run_root / "run_manifest.json").write_text(
+        json.dumps({"run_id": run_root.name, "run_root": str(run_root),
+                    "created_at_utc": "2026-03-03T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
 
 
 def _write_paper_registries(paper_docs: Path) -> None:
@@ -116,6 +126,7 @@ def test_generate_claim_artifact_map_build_rows(tmp_path: Path, monkeypatch) -> 
     run_id = "r1"
     run_dir = tmp_path / "output" / "runs" / run_id / "diagnostics"
     run_dir.mkdir(parents=True, exist_ok=True)
+    _write_run_manifest(run_dir.parent)
     payload = {
         "roots": {"run_root": str((tmp_path / "output" / "runs" / run_id).resolve())},
         "artifacts": {
@@ -156,7 +167,7 @@ def test_check_paper2_freeze_reports_fail_when_missing(tmp_path: Path, monkeypat
     run_id = "r2"
     run_root = tmp_path / "output" / "runs" / run_id
     (run_root / "diagnostics").mkdir(parents=True, exist_ok=True)
-    (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
+    _write_run_manifest(run_root)
     # Write minimal run_paths manifest with no required artifact entries.
     run_paths = {
         "artifacts": {},
@@ -200,7 +211,7 @@ def test_check_paper2_freeze_reports_pass_when_complete(tmp_path: Path, monkeypa
     paper_docs = run_root / "paper_exports" / "docs"
     for path in (diagnostics, paper_figures, paper_tables, paper_docs):
         path.mkdir(parents=True, exist_ok=True)
-    (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
+    _write_run_manifest(run_root)
 
     for template in check_paper2_freeze.REQUIRED_DIAGNOSTICS_FILES:
         filename = template.format(run_id=run_id)
@@ -293,7 +304,7 @@ def test_check_paper2_freeze_accepts_lowercase_model_column(tmp_path: Path, monk
     paper_docs = run_root / "paper_exports" / "docs"
     for path in (diagnostics, paper_figures, paper_tables, paper_docs):
         path.mkdir(parents=True, exist_ok=True)
-    (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
+    _write_run_manifest(run_root)
     for template in check_paper2_freeze.REQUIRED_DIAGNOSTICS_FILES:
         (diagnostics / template.format(run_id=run_id)).write_text("{}", encoding="utf-8")
     (diagnostics / f"split_freeze_headline_{run_id}.csv").write_text("stub\n", encoding="utf-8")
@@ -351,7 +362,7 @@ def test_check_paper2_freeze_bundle_only_passes_without_paper_exports(
     run_root = tmp_path / "output" / "runs" / run_id
     diagnostics = run_root / "diagnostics"
     diagnostics.mkdir(parents=True, exist_ok=True)
-    (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
+    _write_run_manifest(run_root)
     for template in check_paper2_freeze.REQUIRED_DIAGNOSTICS_FILES:
         (diagnostics / template.format(run_id=run_id)).write_text("{}", encoding="utf-8")
     (diagnostics / f"split_freeze_headline_{run_id}.csv").write_text("stub\n", encoding="utf-8")
@@ -410,7 +421,7 @@ def test_check_paper2_freeze_fails_on_duplicate_bundle_table_ids(
     tables = run_root / "bundles" / "permission_trends" / "tables"
     for path in (diagnostics, contracts, tables):
         path.mkdir(parents=True, exist_ok=True)
-    (run_root / "run_manifest.json").write_text("{}", encoding="utf-8")
+    _write_run_manifest(run_root)
     for template in check_paper2_freeze.REQUIRED_DIAGNOSTICS_FILES:
         (diagnostics / template.format(run_id=run_id)).write_text("{}", encoding="utf-8")
     (diagnostics / f"split_freeze_headline_{run_id}.csv").write_text("stub\n", encoding="utf-8")
@@ -484,7 +495,8 @@ def test_mark_legacy_partial_paper_exports_marks_only_invalid_runs(
     valid_dir.mkdir(parents=True, exist_ok=True)
     invalid_dir.mkdir(parents=True, exist_ok=True)
 
-    def _fake_check_run(run_id: str) -> dict:
+    def _fake_check_run(run_id: str, *, output_root: Path) -> dict:
+        assert output_root == valid_dir.parents[2]
         return {"run_id": run_id, "passed": run_id == "valid_run"}
 
     monkeypatch.setattr(check_paper2_freeze, "check_run", _fake_check_run)
@@ -503,6 +515,7 @@ def _write_minimum_run_sources(root: Path, run_id: str) -> None:
     bundle_tables = run_root / "bundles" / "permission_trends" / "tables"
     diagnostics.mkdir(parents=True, exist_ok=True)
     bundle_tables.mkdir(parents=True, exist_ok=True)
+    _write_run_manifest(run_root)
 
     pd.DataFrame(
         [
@@ -603,3 +616,25 @@ def test_export_tables_produces_tex_with_expected_structure(tmp_path: Path) -> N
     reg = json.loads((dest / "docs" / "publication_tables_registry.json").read_text(encoding="utf-8"))
     assert reg["run_id"] == run_id
     assert len(reg["tables"]) == 5
+
+
+def test_legacy_export_check_never_retries_against_default_root(tmp_path, monkeypatch):
+    """Checker errors must preserve the selected root and existing marker bytes."""
+    output_root = tmp_path / 'selected'
+    paper_dir = output_root / 'runs' / 'run1' / 'paper_exports'
+    paper_dir.mkdir(parents=True)
+    marker = paper_dir / mark_legacy_partial_paper_exports.MARKER_FILE
+    marker.write_text('Preserve this historical disposition.\n')
+    calls = []
+
+    def broken_checker(run_id, *, output_root=None):
+        calls.append((run_id, output_root))
+        if output_root is not None:
+            raise TypeError('internal checker error')
+        return {'passed': True}
+
+    monkeypatch.setattr(check_paper2_freeze, 'check_run', broken_checker)
+    with pytest.raises(TypeError, match='internal checker error'):
+        mark_legacy_partial_paper_exports.mark_legacy_runs(output_root=output_root)
+    assert calls == [('run1', output_root.resolve())]
+    assert marker.read_text() == 'Preserve this historical disposition.\n'

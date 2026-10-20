@@ -369,6 +369,19 @@ def build_permission_enrichment_frame(
     )
     max_features = max_features_n if max_features_n > 0 else None
     contract = feature_flags.get("permission_feature_contract_version", "legacy")
+    from obsidiandroid.modeling.experiment_split import ACTIVE, ExperimentIntegrityError
+    binding = ACTIVE.get()
+    if binding is not None:
+        binding.validate_source()
+        if contract != V2_EXPORT_CONTRACT_VERSION:
+            raise ExperimentIntegrityError("[EXPERIMENT] Governed run cannot change permission source")
+        supplied = feature_flags.get("permission_training_sample_ids")
+        if supplied is not None and tuple(sorted(supplied)) != tuple(sorted(binding.plan.train_ids)):
+            raise ExperimentIntegrityError("[EXPERIMENT] Vocabulary training membership differs from plan")
+        feature_flags = dict(feature_flags)
+        feature_flags["permission_training_sample_ids"] = list(binding.plan.train_ids)
+        if min_support != binding.plan.permission_min_support:
+            raise ExperimentIntegrityError("[EXPERIMENT] Vocabulary support policy changed")
     if contract == "legacy":
         permission_df = build_permission_feature_frame(
             samples_df=samples_df,
@@ -416,6 +429,8 @@ def build_permission_enrichment_frame(
             v2_export_path=(Path(feature_flags["permission_v2_export_path"])
                             if feature_flags.get("permission_v2_export_path") else None),
         )
+    if binding is not None:
+        binding.bind_permission_frame(permission_df)
     if permission_df.empty:
         return None
     if log_frame_built:
