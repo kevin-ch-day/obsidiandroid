@@ -294,6 +294,9 @@ def test_main_menu_opens_readonly_data_explorer(monkeypatch):
 
 def test_explorer_menu_custom_prompt_keeps_numeric_selection(monkeypatch):
     from obsidiandroid.cli.ui import menu
+    from obsidiandroid.cli.ui import console as console_ui
+
+    monkeypatch.setattr(console_ui, "USE_COLORS", False)  # assert on plain prompt text
 
     prompts = []
     answers = iter(["invalid", "1"])

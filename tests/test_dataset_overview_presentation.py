@@ -4,6 +4,13 @@ from unittest.mock import Mock
 import pytest
 from obsidiandroid.cli import data_explorer as ui
 from obsidiandroid.database.data_explorer import ExplorerUnavailable
+from obsidiandroid.cli.ui import console as console_ui
+
+
+@pytest.fixture(autouse=True)
+def _plain_console(monkeypatch):
+    """These assertions read plain text; colour codes depend on the terminal."""
+    monkeypatch.setattr(console_ui, "USE_COLORS", False)
 
 
 def service(selected=10, known=6, unknown=4, rows=None, timestamp='2026-10-18T02:47:59Z'):

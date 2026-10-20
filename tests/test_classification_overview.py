@@ -3,6 +3,13 @@ from copy import deepcopy
 from unittest.mock import Mock
 import pytest
 from obsidiandroid.cli import classification_overview as ui
+from obsidiandroid.cli.ui import console as console_ui
+
+
+@pytest.fixture(autouse=True)
+def _plain_console(monkeypatch):
+    """These assertions read plain text; colour codes depend on the terminal."""
+    monkeypatch.setattr(console_ui, "USE_COLORS", False)
 
 
 @pytest.fixture

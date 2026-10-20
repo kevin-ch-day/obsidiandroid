@@ -319,7 +319,12 @@ def test_print_unified_run_health_compact_shortens_labels(tmp_path: Path, capsys
     assert "NEXT ARTIFACTS" in out
 
 
-def test_print_unified_run_health_compacts_model_and_artifact_handoff(tmp_path: Path, capsys) -> None:
+def test_print_unified_run_health_compacts_model_and_artifact_handoff(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    from obsidiandroid.cli.ui import console as console_ui
+
+    monkeypatch.setattr(console_ui, "USE_COLORS", False)  # assert on plain text
     run_root = tmp_path / "output" / "runs" / "r_handoff"
     diagnostics_dir = run_root / "diagnostics"
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
