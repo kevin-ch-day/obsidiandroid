@@ -27,6 +27,8 @@ make ci                         # ci-fast + verify-canonical (pre-push gate)
 make preflight-db               # DB connectivity check (needs OBSIDIAN_DB_* / .env)
 ```
 
+`make` targets require `source .venv/bin/activate` first (system Python 3.14 lacks `mysql.connector`, so imports fail outside the venv).
+
 Single test: `pytest -q tests/test_foo.py::test_bar` (pytest `addopts` excludes slow/integration/etc. markers by default; to run a marked test, override with e.g. `pytest -q -m "slow or not slow" tests/test_foo.py::test_bar`). `tests/conftest.py` prepends `src/` so no editable install is required for pytest.
 
 CI (GitHub Actions) runs the fast lane on Python 3.11/3.12, plus integration lanes and `verify-canonical` on 3.12.
