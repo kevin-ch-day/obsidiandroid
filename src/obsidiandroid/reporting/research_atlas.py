@@ -384,7 +384,8 @@ class ResearchAtlas:
         elif kind == 'sample':
             selected = [r for r in context if str(r['sample_id']) == value or r['sha256'] == value]
         elif kind == 'type':
-            type_ids = set(map(str, self.av.samples.loc[self.av.samples.malware_type.eq(value), 'sample_id']))
+            type_ids = set(map(str, self.av.samples.loc[
+                self.av.samples.malware_type.str.casefold().eq(str(value).casefold()), 'sample_id']))
             selected = [r for r in context if str(r['sample_id']) in type_ids]
         result['research_readiness'] = dict(
             admitted_population='RETAINED_DESCRIPTIVE', admitted_samples=len(self.pi.samples),
@@ -426,7 +427,10 @@ class ResearchAtlas:
         if self._pi_comparison is None:
             self._pi_comparison = self.pi.describe('comparison')['permission_comparison']
         families = set(pi['families'])
-        strata = [r for r in self._pi_comparison if r['family'] in families
+        # Family and type views have already narrowed their PI membership. The
+        # full-cohort table would silently include other types in a family.
+        comparison = pi['permission_comparison'] if kind in {'family', 'type'} else self._pi_comparison
+        strata = [r for r in comparison if r['family'] in families
                   and (kind != 'permission' or r['permission'] == str(value))]
         if kind != 'sample':
             result['permission_comparison'] = strata
