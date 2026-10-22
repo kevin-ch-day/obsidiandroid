@@ -287,7 +287,10 @@ labels include generic labels and specific claims the parser cannot resolve.
 Neither parser quality nor taxonomy agreement establishes detection accuracy.
 
 PI comparisons preserve zero-positive families and distinguish pooled sample
-frequencies from equal-family mean frequencies. Inferred lineage components and
+frequencies from equal-family mean frequencies. In family and type views, each
+family's PI numerator and denominator use only members of the selected view;
+type lookups also apply the same case-insensitive scope to source-context counts.
+Inferred lineage components and
 VT first-submission periods remain descriptive dependence/time proxies. The
 prior 1813-sample export remains an unresolved-evidence contract, separate from
 the governed 1212-sample view. Historical upstream coverage counts never authorize

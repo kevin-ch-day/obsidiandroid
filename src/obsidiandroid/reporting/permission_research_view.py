@@ -267,7 +267,7 @@ class PermissionResearchView:
                     packet_path=str(self.root), manifest_sha256=self.manifest_sha256,
                     classification_versions=self.manifest['versions'],
                     permission_query=query if kind == 'permission' else None,
-                    permission_comparison=tables['prevalence'] if kind in {'permission', 'comparison'} else [],
+                    permission_comparison=tables['prevalence'] if kind in {'permission', 'comparison', 'family', 'type'} else [],
                     samples=len(members), observations=len(rows), training_authorized=False,
                     production_authorized=False, governed_capabilities='Unavailable; candidate mappings are not governed definitions',
                     permission_consumer_availability={'mode': 'RETAINED_OFFLINE_ONLY',

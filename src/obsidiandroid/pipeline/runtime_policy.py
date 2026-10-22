@@ -175,6 +175,7 @@ def build_mutable_config_keys() -> set[str]:
         "RUNTIME_AV_DETECTION_SAMPLE_IDS",
         "RUNTIME_PERMISSION_PRESENT_SAMPLE_IDS",
         "RUNTIME_MODALITY_REQUIREMENT_SAMPLE_IDS",
+        "TRAIN_TEST_SPLIT_GROUPING",
         *PARSER_OVERRIDE_KEYS,
         *RUNTIME_OVERRIDE_KEYS,
     } | set(CROSS_RUN_ARTIFACT_POINTERS)
@@ -259,6 +260,18 @@ def resolve_require_both_modalities(profile: dict[str, Any]) -> bool:
     return bool(gates.get("require_vendor_and_permission", False)) if isinstance(gates, dict) else False
 
 
+def resolve_split_grouping(profile: dict[str, Any]) -> str:
+    """Return the profile's ``split_grouping`` (default ``none``), validated."""
+    raw = profile.get("split_grouping", "none") if isinstance(profile, dict) else "none"
+    value = str(raw or "none").strip().lower()
+    choices = tuple(getattr(app_config, "SPLIT_GROUPING_CHOICES", ("none", "package")))
+    if value not in choices:
+        raise ValueError(
+            f"[PROFILE] Unsupported split_grouping {raw!r}; expected one of {list(choices)}."
+        )
+    return value
+
+
 def apply_profile_runtime_policy(
     *,
     profile: dict[str, Any],
@@ -341,6 +354,7 @@ def apply_profile_runtime_policy(
     setattr(app_config, "RUNTIME_AV_DETECTION_SAMPLE_IDS", None)
     setattr(app_config, "RUNTIME_PERMISSION_PRESENT_SAMPLE_IDS", None)
     setattr(app_config, "RUNTIME_MODALITY_REQUIREMENT_SAMPLE_IDS", None)
+    setattr(app_config, "TRAIN_TEST_SPLIT_GROUPING", resolve_split_grouping(profile))
     gates = profile.get("cohort_gates", {}) if isinstance(profile.get("cohort_gates"), dict) else {}
     setattr(app_config, "RUNTIME_MIN_FAMILY_SUPPORT", resolve_diagnostic_min_samples_per_family(gates))
     setattr(app_config, "RUNTIME_SUPPORT_FLOOR_MODE", resolve_support_floor_mode(gates))

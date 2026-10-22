@@ -75,6 +75,39 @@ def test_permission_zeroes_type_balancing_and_exact_overlap(tmp_path):
     assert not r['training_authorized']
 
 
+def test_type_permission_rates_use_only_members_of_selected_type(tmp_path):
+    root = fixture(tmp_path)
+    pi = root / 'pi'
+    rewrite_csv(pi, 'COHORT_METADATA.csv', lambda rows: [
+        rows[0], dict(rows[1], family='A', malware_type='banker')])
+    rewrite_csv(pi, 'OBSERVATION_EVIDENCE.csv', lambda rows: [
+        rows[0], dict(rows[1], family='A')])
+    samples = pd.read_csv(root / 'av/SAMPLES.csv', keep_default_na=False,
+                          dtype={'payload_hash': str})
+    samples.loc[samples.sample_id.eq(2), ['recorded_family', 'malware_type']] = ['A', 'banker']
+    samples.to_csv(root / 'av/SAMPLES.csv', index=False)
+    refresh(root)
+    manifest_path = root / 'ATLAS_MANIFEST.json'
+    manifest = json.loads(manifest_path.read_text())
+    manifest['pi']['sha256'] = digest(pi / 'PI_VIEW_MANIFEST.json')
+    manifest_path.write_text(json.dumps(manifest))
+
+    atlas = ResearchAtlas(root)
+    selected = atlas.describe('type', 'spyware')
+    assert selected['pi_population']['samples'] == 1
+    assert [(row['family'], row['samples'], row['sample_denominator'])
+            for row in selected['permission_comparison'] if row['permission'] == 'p'] == [('A', 1, 1)]
+    assert selected['permission_totals'][0]['equal_family_prevalence'] == 1.0
+
+
+def test_type_source_context_uses_same_case_insensitive_scope(tmp_path):
+    atlas = ResearchAtlas(fixture(tmp_path))
+    atlas.source_context = {'1': dict(sample_id=1, family='A', disposition='NO_SUPPORTED_ACQUISITION_CONTEXT_LOCATED',
+                                      source_url=None, retained_batch=None)}
+    selected = atlas.describe('type', 'SPYWARE')
+    assert selected['research_readiness']['source_context']['samples'] == 1
+
+
 @pytest.mark.parametrize('case',['sha','report','duplicate','category','membership','hash','format'])
 def test_atlas_rejects_bad_bindings_and_verdicts(tmp_path,case):
     root=fixture(tmp_path);av=root/'av'

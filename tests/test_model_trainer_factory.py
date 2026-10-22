@@ -831,3 +831,88 @@ def test_temporal_holdout_summary_records_dropped_family_names(
     summary = getattr(app_config, "RUNTIME_TEMPORAL_SPLIT_SUMMARY", {}) or {}
     assert summary.get("test_rows_dropped_unseen_train_classes") == 1
     assert summary.get("test_rows_dropped_unseen_train_class_families") == {"Zanubis": 1}
+
+
+def _package_lineage_data(n_packages: int = 40, per_package: int = 4):
+    """Synthetic cohort where every package holds several samples of one class."""
+    rng = np.random.default_rng(0)
+    sample_ids = np.arange(1, n_packages * per_package + 1)
+    packages = np.repeat([f"com.example.p{i}" for i in range(n_packages)], per_package)
+    labels = np.repeat([i % 4 for i in range(n_packages)], per_package)
+    features = pd.DataFrame(
+        rng.normal(size=(len(sample_ids), 5)) + labels[:, None],
+        index=sample_ids,
+        columns=[f"f{i}" for i in range(5)],
+    )
+    meta = pd.DataFrame(
+        {
+            "sample_id": sample_ids,
+            "package_name": packages,
+            "sha256": [f"{sid:064x}" for sid in sample_ids],
+        }
+    )
+    return features, pd.Series(labels, index=sample_ids, name="family_id"), meta
+
+
+def _fake_trainer(**kwargs):
+    y_test = np.asarray(kwargs["y_test"])
+    label_encoder = kwargs["label_encoder"]
+    return object(), {
+        "predictions": [int(y_test[0])] * len(y_test),
+        "true_labels": list(y_test),
+        "confidences": np.ones(len(y_test)),
+        "label_encoder": label_encoder,
+        "label_classes": list(label_encoder.classes_),
+    }
+
+
+def _train_with_grouping(monkeypatch, grouping, meta):
+    features, labels, _ = _package_lineage_data()
+    monkeypatch.setattr(app_config, "RUNTIME_SPLIT_SAMPLE_METADATA", meta, raising=False)
+    monkeypatch.setattr(app_config, "TRAIN_TEST_SPLIT_GROUPING", grouping, raising=False)
+    monkeypatch.setattr(app_config, "ENABLE_CROSS_VALIDATION", False, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_RUN_ID", f"grouping_{grouping}", raising=False)
+    monkeypatch.setattr(model_trainer_factory, "get_model_trainer", lambda _: _fake_trainer)
+    model_trainer_factory.reset_runtime_training_caches()
+    return model_trainer_factory.train_model_factory(
+        features, labels, model_type="random_forest", use_smote=False, random_state=0
+    )
+
+
+def test_package_grouped_split_keeps_each_package_on_one_side(monkeypatch) -> None:
+    features, _, meta = _package_lineage_data()
+    result = _train_with_grouping(monkeypatch, "package", meta)
+    package_of = meta.set_index("sample_id")["package_name"]
+    test_ids = result["X_test"].index
+    train_packages = set(package_of.loc[features.index.difference(test_ids)])
+    test_packages = set(package_of.loc[test_ids])
+    assert train_packages and test_packages
+    assert train_packages.isdisjoint(test_packages)
+    assert getattr(app_config, "RUNTIME_LAST_SPLIT_ALGORITHM") == "stratified_group_package_v1"
+
+
+def test_default_split_grouping_replays_existing_balanced_split(monkeypatch) -> None:
+    from obsidiandroid.modeling.dataset_splitter import balanced_train_test_split
+
+    features, labels, meta = _package_lineage_data()
+    monkeypatch.setattr(app_config, "AUTO_ADJUST_TRAIN_TEST_SPLIT", True, raising=False)
+    result = _train_with_grouping(monkeypatch, "none", meta)
+    _, expected_test, _, _ = balanced_train_test_split(
+        features,
+        np.asarray(labels),
+        test_size=0.25,
+        random_state=0,
+        min_test_per_class=getattr(app_config, "MIN_TEST_SAMPLES_PER_CLASS", 1),
+    )
+    assert list(result["X_test"].index) == list(expected_test.index)
+
+
+def test_package_grouped_split_fails_closed_without_metadata(monkeypatch) -> None:
+    with pytest.raises(RuntimeError, match="package-grouped split requires"):
+        _train_with_grouping(monkeypatch, "package", pd.DataFrame())
+
+
+def test_unknown_split_grouping_is_rejected(monkeypatch) -> None:
+    _, _, meta = _package_lineage_data()
+    with pytest.raises(RuntimeError, match="TRAIN_TEST_SPLIT_GROUPING"):
+        _train_with_grouping(monkeypatch, "signer", meta)
