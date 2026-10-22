@@ -1,7 +1,7 @@
 # Normal Runtime Source-Connection Policy
 
 ObsidianDroid has three distinct database boundaries. The two upstream source
-schemas are read by normal analysis. `obsidiandroid_core_prod` is a separate
+schemas are read by normal analysis. `research_results_db` is a separate
 ObsidianDroid-owned evidence ledger. Normal profile execution defaults to
 read-only source access and filesystem run artifacts; the explicit native
 analysis-persistence route has its own plan, writer, and Core contract in
@@ -29,10 +29,10 @@ path and must not be enabled with a reader credential.
 
 ## Normal pipeline reader
 
-`obsidiandroid_pipeline_reader@localhost` is the dedicated normal-analysis
+`app_source_reader@localhost` is the dedicated normal-analysis
 identity. The verified 2026-10-17 PI V2 production boundary grants schema-level
-`SELECT` on `erebus_threat_intel_prod`, but only gate-table `SELECT` in
-`android_permission_intel`. Direct reads of `android_permission_obs_sample` and
+`SELECT` on `sample_source_db`, but only gate-table `SELECT` in
+`permission_source_db`. Direct reads of `android_permission_obs_sample` and
 `android_permission_enrich_vt_current` are denied. No Core grants, DML, DDL,
 routine or grantable privileges were introduced by consumer activation.
 
@@ -42,7 +42,7 @@ consumption uses the separately root-approved export and its validated consumer;
 legacy database readers remain blocked. Other hosts must verify their own reviewed
 account contract rather than infer it from this dated workstation observation.
 
-- `obsidiandroid_erebus_reader@localhost` remains the separate Phase 2C identity.
+- `app_catalog_reader@localhost` remains the separate Phase 2C identity.
 - `erebus_app@127.0.0.1` remains a separate Erebus application identity; its
   broader read-only grants do not define the research-reader contract.
 
@@ -71,8 +71,8 @@ or a repository file.  A non-secret `.env.local` reference may name that file:
 
 ```text
 OBSIDIAN_DB_OPTION_FILE=/home/<operator>/.config/obsidiandroid/pipeline-reader.cnf
-OBSIDIAN_DB_NAME=erebus_threat_intel_prod
-OBSIDIAN_PERMISSION_INTEL_DB_NAME=android_permission_intel
+OBSIDIAN_DB_NAME=sample_source_db
+OBSIDIAN_PERMISSION_INTEL_DB_NAME=permission_source_db
 OBSIDIANDROID_CORE_PERSISTENCE_ENABLED=false
 ```
 

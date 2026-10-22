@@ -114,30 +114,30 @@ It is diagnostic, non-publication, not paper evidence, not predictions, and is
 never automatically executed. It may be considered only after production
 provisioning and a separately approved controlled-import authorization.
 
-## Applied service-account grant contract
+## Example service-account grant contract (deployment identifiers configured locally)
 
 ```sql
-GRANT CREATE, ALTER, INDEX, REFERENCES ON obsidiandroid_core_prod.* TO 'obsidiandroid_core_migrator'@'localhost';
-GRANT SELECT, INSERT ON obsidiandroid_core_prod.core_schema_migration TO 'obsidiandroid_core_migrator'@'localhost';
-GRANT SELECT ON obsidiandroid_core_prod.core_run TO 'obsidiandroid_core_writer'@'localhost';
-GRANT INSERT ON obsidiandroid_core_prod.core_profile TO 'obsidiandroid_core_writer'@'localhost';
-GRANT INSERT ON obsidiandroid_core_prod.core_source_snapshot TO 'obsidiandroid_core_writer'@'localhost';
-GRANT INSERT ON obsidiandroid_core_prod.core_run TO 'obsidiandroid_core_writer'@'localhost';
-GRANT INSERT ON obsidiandroid_core_prod.core_run_sample TO 'obsidiandroid_core_writer'@'localhost';
-GRANT INSERT ON obsidiandroid_core_prod.core_artifact TO 'obsidiandroid_core_writer'@'localhost';
-GRANT INSERT ON obsidiandroid_core_prod.core_quality_finding TO 'obsidiandroid_core_writer'@'localhost';
-GRANT SELECT ON obsidiandroid_core_prod.core_schema_migration TO 'obsidiandroid_core_auditor'@'localhost';
-GRANT SELECT ON obsidiandroid_core_prod.core_profile TO 'obsidiandroid_core_auditor'@'localhost';
-GRANT SELECT ON obsidiandroid_core_prod.core_source_snapshot TO 'obsidiandroid_core_auditor'@'localhost';
-GRANT SELECT ON obsidiandroid_core_prod.core_run TO 'obsidiandroid_core_auditor'@'localhost';
-GRANT SELECT ON obsidiandroid_core_prod.core_run_sample TO 'obsidiandroid_core_auditor'@'localhost';
-GRANT SELECT ON obsidiandroid_core_prod.core_artifact TO 'obsidiandroid_core_auditor'@'localhost';
-GRANT SELECT ON obsidiandroid_core_prod.core_quality_finding TO 'obsidiandroid_core_auditor'@'localhost';
-GRANT SELECT ON erebus_threat_intel_prod.analysis_run TO 'obsidiandroid_erebus_reader'@'localhost';
-GRANT SELECT ON erebus_threat_intel_prod.analysis_snapshot TO 'obsidiandroid_erebus_reader'@'localhost';
-GRANT SELECT ON erebus_threat_intel_prod.analysis_snapshot_sample TO 'obsidiandroid_erebus_reader'@'localhost';
-GRANT SELECT ON erebus_threat_intel_prod.analysis_artifact TO 'obsidiandroid_erebus_reader'@'localhost';
-GRANT SELECT ON erebus_threat_intel_prod.snapshot_label_conflict TO 'obsidiandroid_erebus_reader'@'localhost';
+GRANT CREATE, ALTER, INDEX, REFERENCES ON research_results_db.* TO 'app_results_migrator'@'localhost';
+GRANT SELECT, INSERT ON research_results_db.core_schema_migration TO 'app_results_migrator'@'localhost';
+GRANT SELECT ON research_results_db.core_run TO 'app_results_writer'@'localhost';
+GRANT INSERT ON research_results_db.core_profile TO 'app_results_writer'@'localhost';
+GRANT INSERT ON research_results_db.core_source_snapshot TO 'app_results_writer'@'localhost';
+GRANT INSERT ON research_results_db.core_run TO 'app_results_writer'@'localhost';
+GRANT INSERT ON research_results_db.core_run_sample TO 'app_results_writer'@'localhost';
+GRANT INSERT ON research_results_db.core_artifact TO 'app_results_writer'@'localhost';
+GRANT INSERT ON research_results_db.core_quality_finding TO 'app_results_writer'@'localhost';
+GRANT SELECT ON research_results_db.core_schema_migration TO 'app_results_auditor'@'localhost';
+GRANT SELECT ON research_results_db.core_profile TO 'app_results_auditor'@'localhost';
+GRANT SELECT ON research_results_db.core_source_snapshot TO 'app_results_auditor'@'localhost';
+GRANT SELECT ON research_results_db.core_run TO 'app_results_auditor'@'localhost';
+GRANT SELECT ON research_results_db.core_run_sample TO 'app_results_auditor'@'localhost';
+GRANT SELECT ON research_results_db.core_artifact TO 'app_results_auditor'@'localhost';
+GRANT SELECT ON research_results_db.core_quality_finding TO 'app_results_auditor'@'localhost';
+GRANT SELECT ON sample_source_db.analysis_run TO 'app_catalog_reader'@'localhost';
+GRANT SELECT ON sample_source_db.analysis_snapshot TO 'app_catalog_reader'@'localhost';
+GRANT SELECT ON sample_source_db.analysis_snapshot_sample TO 'app_catalog_reader'@'localhost';
+GRANT SELECT ON sample_source_db.analysis_artifact TO 'app_catalog_reader'@'localhost';
+GRANT SELECT ON sample_source_db.snapshot_label_conflict TO 'app_catalog_reader'@'localhost';
 ```
 
 The initial normal writer is insert-only: it receives one `SELECT` privilege
@@ -154,7 +154,7 @@ deferred until an approved import contract demonstrates the need.
 Provisioning review must confirm exactly seven Core tables, migration versions
 and hashes, no views/triggers/routines/events, no cross-schema FKs, disabled
 persistence, no Phase 2A routing, appropriate accounts, and an empty
-`obsidiandroid_core_prod`. Phase 2C requires a reviewed live-source contract
+`research_results_db`. Phase 2C requires a reviewed live-source contract
 and a v2 `Phase2CImportAuthorization` bound to the exact deterministic plan,
 source-extract manifest, migration checksums, target server and writer,
 preflight audit, expected counts, and source run. A durable external ledger

@@ -7,9 +7,9 @@ or run ObsidianDroid.
 
 ## Immutable inputs and prerequisites
 
-1. Approval names target `obsidiandroid_core_prod`, the window owner, the Core
+1. Approval names target `research_results_db`, the window owner, the Core
    migrator identity, and this exact migration pair.
-2. Verify the target is exactly `obsidiandroid_core_prod`, not any Erebus,
+2. Verify the target is exactly `research_results_db`, not any Erebus,
    Permission Intel, restore, rehearsal, or disposable schema.
 3. Verify it has 0 tables, views, triggers, routines, and events; stop if not.
 4. Verify source readers, Core migrator, Core writer, and Core auditor are
@@ -48,28 +48,28 @@ Run as the Core auditor, with no DML:
 ```sql
 SELECT TABLE_NAME, ENGINE, TABLE_COLLATION
 FROM information_schema.TABLES
-WHERE TABLE_SCHEMA = 'obsidiandroid_core_prod'
+WHERE TABLE_SCHEMA = 'research_results_db'
 ORDER BY TABLE_NAME;
 
 SELECT migration_version, migration_checksum, execution_status
-FROM obsidiandroid_core_prod.core_schema_migration
+FROM research_results_db.core_schema_migration
 ORDER BY migration_version;
 
 SELECT TABLE_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE
 FROM information_schema.TABLE_CONSTRAINTS
-WHERE TABLE_SCHEMA = 'obsidiandroid_core_prod'
+WHERE TABLE_SCHEMA = 'research_results_db'
 ORDER BY TABLE_NAME, CONSTRAINT_NAME;
 
 SELECT COUNT(*) AS cross_schema_foreign_keys
 FROM information_schema.REFERENTIAL_CONSTRAINTS
-WHERE CONSTRAINT_SCHEMA = 'obsidiandroid_core_prod'
-  AND UNIQUE_CONSTRAINT_SCHEMA <> 'obsidiandroid_core_prod';
+WHERE CONSTRAINT_SCHEMA = 'research_results_db'
+  AND UNIQUE_CONSTRAINT_SCHEMA <> 'research_results_db';
 
 SELECT
-  (SELECT COUNT(*) FROM information_schema.VIEWS WHERE TABLE_SCHEMA = 'obsidiandroid_core_prod') AS views,
-  (SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = 'obsidiandroid_core_prod') AS triggers,
-  (SELECT COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = 'obsidiandroid_core_prod') AS routines,
-  (SELECT COUNT(*) FROM information_schema.EVENTS WHERE EVENT_SCHEMA = 'obsidiandroid_core_prod') AS events;
+  (SELECT COUNT(*) FROM information_schema.VIEWS WHERE TABLE_SCHEMA = 'research_results_db') AS views,
+  (SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = 'research_results_db') AS triggers,
+  (SELECT COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = 'research_results_db') AS routines,
+  (SELECT COUNT(*) FROM information_schema.EVENTS WHERE EVENT_SCHEMA = 'research_results_db') AS events;
 ```
 
 Expected result: exactly seven InnoDB `utf8mb4_unicode_ci` tables, two applied

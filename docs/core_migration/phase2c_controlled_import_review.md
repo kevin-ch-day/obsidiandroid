@@ -2,7 +2,7 @@
 
 Phase 2C is **not authorized by this document**. It is the review checklist
 for a future, separately approved import of one bounded fixture into the
-already provisioned `obsidiandroid_core_prod` database. Core persistence and
+already provisioned `research_results_db` database. Core persistence and
 normal pipeline routing remain disabled throughout Phase 2C.
 
 ## Preconditions that must be separately approved

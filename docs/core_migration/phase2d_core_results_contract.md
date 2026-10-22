@@ -5,11 +5,11 @@
 ObsidianDroid reads, but never writes, the two upstream source databases:
 
 ```text
-erebus_threat_intel_prod  — samples, AV evidence, taxonomy, and source lineage
-android_permission_intel  — permission observations and permission intelligence
+sample_source_db  — samples, AV evidence, taxonomy, and source lineage
+permission_source_db  — permission observations and permission intelligence
 ```
 
-`obsidiandroid_core_prod` is the application's sole write target. It owns
+`research_results_db` is the application's sole write target. It owns
 preserved run evidence, generated ML results, result contracts, predictions,
 and references to immutable run artifacts. It is not a scratch database and
 the retained Phase 2C fixture must not be cleared or overwritten.

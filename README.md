@@ -198,7 +198,7 @@ from obsidiandroid.database import db_config  # canonical package; repo-root dat
 
 ### Database (split Erebus + Permission Intel)
 
-ObsidianDroid reads **operational sample metadata, VirusTotal aggregates, and catalog fields** from the primary Erebus database (default schema name `erebus_threat_intel_prod`). It reads **live Android permission intelligence** (`android_permission_*` tables) from the Permission Intel database (default `android_permission_intel`). Both schemas normally live on the same MySQL/MariaDB server; queries use the credentials below for both connections.
+ObsidianDroid reads **operational sample metadata, VirusTotal aggregates, and catalog fields** from the primary Erebus database (illustrative schema `sample_source_db`). It reads **live Android permission intelligence** (`android_permission_*` tables) from the Permission Intel database (illustrative name `permission_source_db`). Both schemas normally live on the same MySQL/MariaDB server; queries use the credentials below for both connections.
 
 Override via environment variables (recommended for deployment):
 
@@ -211,9 +211,9 @@ Override via environment variables (recommended for deployment):
 | `OBSIDIAN_PERMISSION_INTEL_DB_HOST`, `OBSIDIAN_PERMISSION_INTEL_DB_PORT` | Optional Permission Intel server override |
 | `OBSIDIAN_PERMISSION_INTEL_DB_USER`, `OBSIDIAN_PERMISSION_INTEL_DB_PASSWORD` | Optional dedicated Permission Intel reader credentials |
 | `OBSIDIAN_PERMISSION_INTEL_DB_OPTION_FILE` | Optional dedicated private MariaDB client option file (mode `0600`) |
-| `OBSIDIAN_PERMISSION_INTEL_DB_NAME` | Permission Intel schema (normally `android_permission_intel`) |
+| `OBSIDIAN_PERMISSION_INTEL_DB_NAME` | Permission Intel schema (illustrative name `permission_source_db`) |
 
-Defaults match `obsidiandroid.database.db_config`. Cross-schema SQL (for example joining `malware_sample_catalog` to `android_permission_obs_sample`) fully qualifies both schema names so ObsidianDroid does not rely on live `android_permission_*` tables inside the primary DB.
+Consult `obsidiandroid.database.db_config` for runtime defaults; the schema names here are placeholders. Cross-schema SQL (for example joining `malware_sample_catalog` to `android_permission_obs_sample`) fully qualifies both schema names so ObsidianDroid does not rely on live `android_permission_*` tables inside the primary DB.
 
 Quick connectivity check (requires network access to the DB):
 
@@ -502,3 +502,5 @@ permission bypass. Option **4 — Other experiments and tests** retains historic
 profiles, sensitivity studies, development/smoke modes and stage cutoffs.
 Advanced training modes also check source prerequisites and request an explicit
 continuation before execution. All existing scientific constraints remain.
+
+Deployment identifiers in this guide are illustrative placeholders. Configure actual schema and account names locally; these documentation changes do not change runtime defaults.

@@ -23,7 +23,7 @@ in your private environment, then run:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m obsidiandroid.assessment.http_api \
-  --database obsidiandroid_core_prod \
+  --database research_results_db \
   --db-option-file /private/assessment-reader.cnf --allow-production
 ```
 

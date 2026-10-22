@@ -22,7 +22,7 @@ Permission Intel observation: current as of explicit UTC timestamp
 
 ## Database boundary
 
-Reader: `obsidiandroid_pipeline_reader` only.
+Reader: `app_source_reader` only.
 
 Allowed: `SELECT`, `SHOW`, `information_schema`.
 

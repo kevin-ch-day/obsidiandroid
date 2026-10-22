@@ -9,7 +9,7 @@ from scripts.core_migration.apply_service_accounts import CORE_RESULT_TABLES, gr
 
 def test_normal_core_writer_is_insert_oriented_without_delete() -> None:
     text = Path("docs/core_migration/phase2b_core_contract.md").read_text(encoding="utf-8")
-    writer_lines = [line for line in text.splitlines() if "obsidiandroid_core_writer" in line]
+    writer_lines = [line for line in text.splitlines() if "app_results_writer" in line]
     assert writer_lines
     assert all("DELETE" not in line for line in writer_lines)
     assert all("UPDATE" not in line for line in writer_lines)
@@ -19,9 +19,9 @@ def test_normal_core_writer_is_insert_oriented_without_delete() -> None:
 
 def test_source_reader_has_no_write_grants_and_migrator_is_separate() -> None:
     text = Path("docs/core_migration/phase2b_core_contract.md").read_text(encoding="utf-8")
-    source_lines = [line for line in text.splitlines() if "obsidiandroid_erebus_reader" in line]
+    source_lines = [line for line in text.splitlines() if "app_catalog_reader" in line]
     assert source_lines and all("GRANT SELECT" in line for line in source_lines)
-    assert "obsidiandroid_core_migrator" in text
+    assert "app_results_migrator" in text
     assert "No account receives `CREATE USER`, `GRANT OPTION`, global" in text
 
 

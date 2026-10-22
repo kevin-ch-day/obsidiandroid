@@ -41,4 +41,4 @@ Migration-created triggers require a durable definer. Never drop that account du
 The writer has scoped SELECT/INSERT rights and only the header UPDATE columns needed for lifecycle/finalization. It has no DDL, assessment mutations, or Erebus/Permission Intel writes. A source snapshot is appended when runtime inputs resolve the initial pending plan, preserving the original planning record.
 
 Validation evidence and the one production smoke are in:
-`/home/systemadmin/Documents/ObsidianDroid_Audits/ANALYSIS_PERSISTENCE_V1_20260921/`.
+`${HOME}/Documents/ObsidianDroid_Audits/ANALYSIS_PERSISTENCE_V1_20260921/`.

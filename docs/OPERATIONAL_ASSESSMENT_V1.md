@@ -182,7 +182,7 @@ Current-family searches can use the view, but historical revisions matching a
 family must not be confused with current family counts.
 
 The disposable acceptance packet is
-`/home/systemadmin/Documents/ObsidianDroid_Audits/OBSIDIAN_ASSESSMENT_PERSISTENCE_V1_20260919/`.
+`${HOME}/Documents/ObsidianDroid_Audits/OBSIDIAN_ASSESSMENT_PERSISTENCE_V1_20260919/`.
 Live tests require explicit `OBSIDIAN_ASSESSMENT_TEST_OPTION_FILE` and optionally
 `OBSIDIAN_ASSESSMENT_TEST_ADMIN_OPTION_FILE`; they never default to production.
 Synthetic rows and the database are retained for inspection. The 28 frozen pilot
@@ -192,7 +192,7 @@ expanded source fingerprint also changes code provenance without changing rules.
 ## Pilot evidence
 
 The September 19 pilot and all 16 requested audit documents are preserved under
-`/home/systemadmin/Documents/ObsidianDroid_Audits/OBSIDIAN_OPERATIONAL_ASSESSMENT_V1_20260919/`.
+`${HOME}/Documents/ObsidianDroid_Audits/OBSIDIAN_OPERATIONAL_ASSESSMENT_V1_20260919/`.
 The 28 samples cover seven each of unique accepted mapping, no accepted mapping,
 multiple accepted mappings and retained permission materialization gaps. It is an
 operational contract exercise, not a representative accuracy benchmark.
@@ -296,7 +296,7 @@ it does not compose, append, refresh sources, contact providers, or alter labels
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m obsidiandroid.cli.assessment explain SHA256 \
-  --database obsidiandroid_core_prod --allow-production \
+  --database research_results_db --allow-production \
   --db-option-file "$HOME/.config/obsidiandroid/assessment-writer.cnf" --json
 ```
 

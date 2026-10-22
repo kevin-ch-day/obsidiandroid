@@ -49,7 +49,15 @@ CI (GitHub Actions) runs the fast lane on Python 3.11/3.12, plus integration lan
 - **ML static scan** (`make ml-scan-strict`) flags suspicious `.predict()` / `.predict_proba()` call sites.
 - **Offline DB guard:** `scripts/dev/pytest_database_guard.py` blocks real MySQL connections and sockets in tests. The `integration` marker does not authorize live access; live tests need both the `live_database` marker and `--allow-live-database` (never in offline CI).
 - **Slow tests:** whole modules listed in `_SLOW_TEST_MODULES` in `tests/conftest.py` are auto-marked `slow`. Prefer narrow unit tests outside those modules.
-- **Paper cohort identity:** the active locked benchmark is `20260504T044304Z__8c64e6` (1226 samples / 39 families / 6 types; `artifacts/baselines/20260504T044304Z__8c64e6/cohort_lock_manifest.json`). `20260526T021235Z__8b6966` is archival drift evidence only. Don't conflate historical locks, generated paper exports, current diagnostics, and operational assessments; verify profile, source snapshot, run manifest, and `paper_mode` before making manuscript/readiness claims. Use `scripts/diagnostics/export_cohort_census.py` and `audit_locked_cohort_gap.py` rather than ad-hoc SQL for cohort questions.
+- **Paper cohort identity:** resolve the selected profile and its cohort-lock manifest. Keep historical locks, archival drift evidence, generated reports and current diagnostics distinct. Use the maintained cohort census and gap-audit tools; do not infer an active local audit status from tracked guidance.
 - **Timestamps:** human-facing times go through `obsidiandroid.common.time_display.format_timestamp` (America/Chicago + UTC); keep machine-readable UTC values intact.
 - **Style:** PEP 8, type hints where they clarify contracts, Google-style docstrings for public APIs; forward-slash paths or `pathlib` (never backslash path literals).
 - Keep `pyproject.toml` `packages.find.include` aligned with real top-level packages. Update `README.md` when user-visible commands/behavior change. The working tree often has unrelated in-progress edits — check `git status` and preserve them.
+
+## Local operator context
+
+Machine-specific paths, account/schema names and audit decisions belong in a local
+notes file outside this repository. Load that file through gitignored
+`CLAUDE.local.md`. Do not commit local notes, credentials or operational status.
+Tracked database names in examples are placeholders; configure the documented
+environment variables for the intended deployment.

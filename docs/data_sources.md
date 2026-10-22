@@ -21,11 +21,11 @@ boundaries; do not infer current production row counts or enabled writers from
 an older phase checkpoint. Configure source schema names with
 `OBSIDIAN_DB_NAME` (primary) and
 `OBSIDIAN_PERMISSION_INTEL_DB_NAME` (Permission Intel). The core connection
-uses its own required `OBSIDIANDROID_CORE_DB_*` credentials and defaults only
-its database name to `obsidiandroid_core_prod`; it never falls back to primary
-source credentials.
+uses its own required `OBSIDIANDROID_CORE_DB_*` credentials; configure its
+database name for the deployment (illustrated here as `research_results_db`).
+It never falls back to primary source credentials.
 
-### Primary Erebus database (`OBSIDIAN_DB_NAME`, default `erebus_threat_intel_prod`)
+### Primary Erebus database (`OBSIDIAN_DB_NAME`, illustrative name `sample_source_db`)
 
 | Schema area | Key tables / views | Purpose |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ These fields are **diagnostic/contextual inputs only** in current ObsidianDroid 
 They do not replace Android cohort gating (`platform='android'` + `file_extension='apk'`)
 or family/type authority from the Android taxonomy layer.
 
-### Permission Intel database (`OBSIDIAN_PERMISSION_INTEL_DB_NAME`, default `android_permission_intel`)
+### Permission Intel database (`OBSIDIAN_PERMISSION_INTEL_DB_NAME`, illustrative name `permission_source_db`)
 
 The table inventory below describes storage ownership, not current research-reader
 privileges. On the V2-gated production host, recovered evidence is consumed through
@@ -76,9 +76,9 @@ The rows below name versioned contracts, not a verified live schema inventory.
 
 On `android_permission_obs_sample`, the observation timestamp column is **`observed_at_utc`** (not `record_created_at_utc`). Diagnostics and SQL should use that name when filtering or ordering PI observation rows.
 
-Cross-schema reporting joins (for example banking trojan permission extracts) qualify both databases in SQL (e.g. ``primary.malware_sample_catalog`` joined to ``android_permission_intel.android_permission_obs_sample``). ObsidianDroid does **not** assume live `android_permission_*` tables exist in the primary database.
+Cross-schema reporting joins (for example banking trojan permission extracts) qualify both databases in SQL (e.g. ``primary.malware_sample_catalog`` joined to ``permission_source_db.android_permission_obs_sample``). ObsidianDroid does **not** assume live `android_permission_*` tables exist in the primary database.
 
-### ObsidianDroid Core database (`OBSIDIANDROID_CORE_DB_*`, default schema `obsidiandroid_core_prod`)
+### ObsidianDroid Core database (`OBSIDIANDROID_CORE_DB_*`, illustrative schema `research_results_db`)
 
 The core database is a downstream evidence store, not an upstream source. It
 is disabled by default and its connection preflight fails closed until the
@@ -86,7 +86,7 @@ reviewed schema ledger exists. Configure it only with a dedicated account:
 
 - `OBSIDIANDROID_CORE_DB_HOST`
 - `OBSIDIANDROID_CORE_DB_PORT` (default `3306`)
-- `OBSIDIANDROID_CORE_DB_NAME` (default `obsidiandroid_core_prod`)
+- `OBSIDIANDROID_CORE_DB_NAME` (illustrative name `research_results_db`)
 - `OBSIDIANDROID_CORE_DB_USER`
 - `OBSIDIANDROID_CORE_DB_PASSWORD`
 - `OBSIDIANDROID_CORE_PERSISTENCE_ENABLED` (default `false`; enable only for a separately reviewed runtime scope)
@@ -155,3 +155,5 @@ Access to replicated VirusTotal data must comply with [VirusTotal’s Terms of S
   family/type authority and vendor-label evidence layer for Erebus.
 - [`core_migration/phase2_apply_plan.md`](core_migration/phase2_apply_plan.md)
   is retained as historical planning material, not an operational runbook.
+
+Deployment identifiers in this guide are illustrative placeholders. Configure actual schema and account names locally; these documentation changes do not change runtime defaults.

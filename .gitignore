@@ -97,3 +97,7 @@ docs/core_migration/inventory/
 database/db_config.local.py
 database/local_applied/
 database/sql/android_permission_intel_semantic_repair_*.sql
+
+# Machine-specific agent context and local tool settings
+CLAUDE.local.md
+.claude/settings.local.json

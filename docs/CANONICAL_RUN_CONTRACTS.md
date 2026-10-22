@@ -197,7 +197,7 @@ inference UX).
 
 The retired v2.2 research-ledger draft has been removed and is not a
 canonical-run dependency. The reviewed successor is the separate
-`obsidiandroid_core_prod` evidence database, configured only through
+`research_results_db` evidence database, configured only through
 `OBSIDIANDROID_CORE_DB_*`. Its Phase 1 DDL remains un-applied, and no canonical
 run may claim Core persistence until the separate Phase 2 approval, restore
 rehearsal, dedicated credentials, and migration receipt are complete. See

@@ -1,6 +1,6 @@
 # Phase 2B approved-source to Core mapping matrix (v1)
 
-`erebus_threat_intel_prod` is read-only. The matrix lists every column seen in
+`sample_source_db` is read-only. The matrix lists every column seen in
 the approved source surfaces; absent Core fields are not invented. Source-row
 hash means SHA-256 of canonical JSON for the complete source row. Child tables
 use `run_id`; samples use SHA-256 or `erebus_sample_id:<id>` as a deterministic

@@ -38,7 +38,7 @@ DATABASE_NAME = "android_permission_intel_test_obsidian"
 SHARED_ROOT = Path(
     os.environ.get(
         "ANDROID_PERMISSION_INTEL_SHARED_ROOT",
-        "/home/systemadmin/GitHub/android-permission-intel",
+        str(Path.home() / "GitHub" / "android-permission-intel"),
     )
 ).resolve()
 EVIDENCE_ROOT = Path(

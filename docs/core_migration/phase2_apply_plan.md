@@ -21,16 +21,16 @@ Intel backups. It must not delete, rename, or update any source record.
 
 ```sql
 -- Names are requirements, not commands to run in Phase 1.
--- obsidiandroid_source_reader: SELECT on erebus_threat_intel_prod.*
--- obsidiandroid_permission_reader: SELECT on android_permission_intel.*
--- obsidiandroid_core_writer: SELECT, INSERT, UPDATE, DELETE on obsidiandroid_core_prod.*
+-- obsidiandroid_source_reader: SELECT on sample_source_db.*
+-- app_permission_reader: SELECT on permission_source_db.*
+-- app_results_writer: SELECT, INSERT, UPDATE, DELETE on research_results_db.*
 -- No source-reader account receives CREATE, INSERT, UPDATE, DELETE, or DROP.
 -- No core-writer account receives any privilege on the two source schemas.
 ```
 
 ## Ordered application steps
 
-1. Confirm `obsidiandroid_core_prod` is empty and the recovery-verification
+1. Confirm `research_results_db` is empty and the recovery-verification
    receipt is valid for the source backup IDs.
 2. Record the approved transition of `OBSIDIANDROID_CORE_PERSISTENCE_ENABLED`
    from its Phase 1 default (`false`) to `true` in the dated migration receipt.
@@ -73,14 +73,14 @@ be inferred from metadata alone.
 
 ## Expected writes
 
-- One reviewed DDL migration in `obsidiandroid_core_prod` only.
+- One reviewed DDL migration in `research_results_db` only.
 - One migration-ledger row.
 - Destination rows for the approved first-wave runs.
 - A dated migration receipt and validation report under the configured
   artifact root.
 
-No writes are permitted to `erebus_threat_intel_prod` or
-`android_permission_intel`. No source artifact path is rewritten, and no
+No writes are permitted to `sample_source_db` or
+`permission_source_db`. No source artifact path is rewritten, and no
 artifact file is copied in the first wave.
 
 ## Rollback

@@ -94,7 +94,7 @@ was a separate authorization boundary from that fixture import.
 The controlled fixture package was created through
 `scripts/core_migration/create_phase2c_source_extract.py`. That extractor is
 locked to `20260718T032717Z__a8cf01`, requires the dedicated
-`obsidiandroid_erebus_reader` private `.env` credential file and an explicit
+`app_catalog_reader` private `.env` credential file and an explicit
 read-only acknowledgement, uses a single consistent read-only transaction,
 writes outside the repository, and never opens Core. The older
 `dry_run_evidence_migration.py` remains Phase 1 historical planning material;
@@ -122,7 +122,7 @@ attestation, and writer identity before any transaction begins.
 After the committed import, use
 `scripts/core_migration/verify_phase2c_import.py` with the Core auditor
 `.env` credential file and the same private plan. It can only read the six Core evidence
-tables, requires the `obsidiandroid_core_auditor@localhost` identity, and
+tables, requires the `app_results_auditor@localhost` identity, and
 records a plan-bound count/key/row-hash reconciliation receipt outside Git.
 
 Before a Phase 2C authorization is issued, run the read-only Core audit and
@@ -132,7 +132,7 @@ server-id, version, and version comment). The importer rechecks those values
 immediately before writing. This is a deterministic MariaDB attestation, not a
 claim that the server exposes MySQL's unsupported `@@server_uuid` variable.
 The audit recognizes the separately approved normal
-`obsidiandroid_pipeline_reader` account as a runtime reader, while continuing
+`app_source_reader` account as a runtime reader, while continuing
 to require the four Phase 2B/Core identities and reject any unreviewed
 `obsidiandroid_*` account. The normal reader is not a Core identity and must
 never receive Core privileges.

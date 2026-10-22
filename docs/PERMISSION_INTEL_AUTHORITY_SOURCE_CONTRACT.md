@@ -2,14 +2,14 @@
 
 Durable documentation of Permission Intel surfaces used for post-run
 protection-authority enrichment. Inspected with
-`obsidiandroid_pipeline_reader` via `SELECT` / `information_schema` only.
+`app_source_reader` via `SELECT` / `information_schema` only.
 
 ## Connection identity
 
 | Field | Value |
 | --- | --- |
-| Database user | `obsidiandroid_pipeline_reader@localhost` |
-| Schema | `android_permission_intel` |
+| Database user | `app_source_reader@localhost` |
+| Schema | `permission_source_db` |
 | Write operations | Forbidden |
 
 ## Tables
