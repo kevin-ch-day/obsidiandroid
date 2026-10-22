@@ -1,5 +1,6 @@
 """Synthetic full runner-to-generic-trainer integrity checks; no real sources."""
 from pathlib import Path
+import sys
 import numpy as np
 import pandas as pd
 import pytest
@@ -50,17 +51,25 @@ def test_runner_reaches_governed_trainer(
         return frame.set_index('sample_id', drop=False)
     monkeypatch.setattr(main.runtime_logging, "start_runtime_logging", lambda _run_id: None)
     monkeypatch.setattr(main.runtime_logging, "stop_runtime_logging", lambda _ctx: None)
-    monkeypatch.setattr(main, "load_and_prepare_samples", lambda **_kwargs: samples_df.copy())
-    monkeypatch.setattr(
-        main,
-        "run_av_analysis_stage",
-        lambda **_kwargs: {
+    def fake_samples(**_kwargs):
+        return samples_df.copy()
+
+    def fake_av_stage(**_kwargs):
+        return {
             "engine_lifecycle": pd.DataFrame(
                 {"included_in_model_flag": [True, False], "engine_name_canonical": ["v1", "v2"]}
             ),
             "enriched_matrix": pd.DataFrame(),
-        },
-    )
+        }
+    # Full-suite collection may load the repo-root CLI shell. The runner's
+    # compatibility bridge prefers its attributes, so bind the same synthetic
+    # inputs there as well as on the canonical runner.
+    monkeypatch.setattr(main, "load_and_prepare_samples", fake_samples)
+    monkeypatch.setattr(main, "run_av_analysis_stage", fake_av_stage)
+    cli_shell = sys.modules.get("main")
+    if cli_shell is not None:
+        monkeypatch.setattr(cli_shell, "load_and_prepare_samples", fake_samples)
+        monkeypatch.setattr(cli_shell, "run_av_analysis_stage", fake_av_stage)
     monkeypatch.setattr(
         pipeline_runner,
         "extract_vendor_metadata_stage",
