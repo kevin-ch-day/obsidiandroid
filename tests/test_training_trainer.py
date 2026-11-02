@@ -204,9 +204,10 @@ def test_svm_grid_search(monkeypatch):
         gamma="auto",
     )
     assert result["metadata"]["params"]["C"] == 0.5
-    assert model.get_params()["kernel"] == "linear"
-    assert model.get_params()["gamma"] == "auto"
-    assert model.get_params()["random_state"] == 7
+    # The returned model is the CalibratedClassifierCV wrapper around the tuned SVC.
+    assert model.get_params()["estimator__kernel"] == "linear"
+    assert model.get_params()["estimator__gamma"] == "auto"
+    assert model.get_params()["estimator__random_state"] == 7
 
 
 def test_numpy_sample_ids_are_packaged_without_ambiguous_truth_checks(monkeypatch):
@@ -304,7 +305,7 @@ def test_svm_grid_search_config(monkeypatch):
         verbose=False,
     )
     assert result["metadata"]["params"]["C"] == 0.7
-    assert model.get_params()["kernel"] == "linear"
+    assert model.get_params()["estimator__kernel"] == "linear"
 
 
 def test_grid_search_small_class_counts(monkeypatch):
