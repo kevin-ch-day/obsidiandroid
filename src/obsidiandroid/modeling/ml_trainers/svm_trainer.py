@@ -1,12 +1,14 @@
 # Filename: training/ml_trainers/svm_trainer.py
 # Purpose  : Train a Support Vector Machine (SVM) classifier for Android malware classification
-#            Includes probability support, result packaging, and diagnostics
+#            Includes calibrated probability support, result packaging, and diagnostics
 
 import time
 from collections import Counter
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.frozen import FrozenEstimator
 from sklearn.svm import SVC
 from sklearn.metrics import classification_report
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import GridSearchCV, StratifiedKFold
 import numpy as np
 from config import app_config
 from obsidiandroid.cli.ui import display as du
@@ -38,6 +40,64 @@ def _validate_inputs(X_train, y_train):
     if np.isnan(x_values).any() or np.isnan(y_values).any():
         raise ValueError("NaN values detected in training data.")
 
+
+# ``SVC(probability=True)`` ran an internal 5-fold Platt scaling; scikit-learn 1.9
+# deprecated it (removed in 1.11) in favour of ``CalibratedClassifierCV``.
+PROBABILITY_CALIBRATION_METHOD = "sigmoid"
+PROBABILITY_CALIBRATION_MAX_FOLDS = 5
+
+
+def probability_calibration_folds(y_train, max_folds: int = PROBABILITY_CALIBRATION_MAX_FOLDS):
+    """Return the stratified fold count usable for probability calibration.
+
+    ``CalibratedClassifierCV`` needs every class in every training fold, so the
+    fold count is capped by the smallest class. ``None`` means some class has a
+    single sample and cross-validated calibration is impossible.
+    """
+    min_class_size = min(Counter(np.asarray(y_train).tolist()).values())
+    folds = min(int(max_folds), int(min_class_size))
+    return folds if folds >= 2 else None
+
+
+def fit_svm_with_probabilities(svc_params: dict, X_train, y_train, random_state):
+    """Fit an SVC and wrap it so ``predict_proba`` is available.
+
+    Cross-validated sigmoid calibration with ``ensemble=False`` refits the SVC on
+    the full training data, matching the old ``probability=True`` contract. When
+    a class is too small to cross-validate, the SVC is fitted once and calibrated
+    on its own training scores instead; the metadata records which path ran.
+
+    Returns:
+        ``(model, calibration_metadata)``.
+    """
+    folds = probability_calibration_folds(y_train)
+    base_model = SVC(**svc_params)
+    if folds is None:
+        base_model.fit(X_train, y_train)
+        model = CalibratedClassifierCV(
+            FrozenEstimator(base_model), method=PROBABILITY_CALIBRATION_METHOD
+        )
+        calibration = {
+            "method": PROBABILITY_CALIBRATION_METHOD,
+            "mode": "prefit_training_data",
+            "folds": None,
+        }
+    else:
+        model = CalibratedClassifierCV(
+            base_model,
+            method=PROBABILITY_CALIBRATION_METHOD,
+            cv=StratifiedKFold(n_splits=folds, shuffle=True, random_state=random_state),
+            ensemble=False,
+        )
+        calibration = {
+            "method": PROBABILITY_CALIBRATION_METHOD,
+            "mode": "cross_validated",
+            "folds": folds,
+        }
+    model.fit(X_train, y_train)
+    return model, calibration
+
+
 # Train an SVM model with sample-aware outputs
 def train_svm(
     X_train,
@@ -56,10 +116,11 @@ def train_svm(
         "kernel": getattr(app_config, "SVM_KERNEL", "rbf"),
         "C": getattr(app_config, "SVM_C", 1.0),
         "class_weight": "balanced",
-        "probability": True,
         "random_state": random_state,
     }
     model_params = {**params, **kwargs}
+    # Probabilities come from CalibratedClassifierCV; the deprecated SVC flag is ignored.
+    model_params.pop("probability", None)
 
     if verbose:
         print("[SVM] Training started...")
@@ -70,7 +131,6 @@ def train_svm(
         grid_search or getattr(app_config, "ENABLE_SVM_GRID_SEARCH", False)
     )
     grid_search_status = "disabled"
-    model = None
     if should_grid:
         param_grid = getattr(app_config, "SVM_PARAM_GRID", {
             "kernel": ["linear", "rbf"],
@@ -107,16 +167,15 @@ def train_svm(
                 pre_dispatch=grid_search_pre_dispatch(),
             )
             grid.fit(X_train, y_train)
-            model = grid.best_estimator_
             model_params.update(grid.best_params_)
             grid_search_status = "completed"
 
-    if model is None:
-        model = SVC(**model_params)
-        model.fit(X_train, y_train)
-        if verbose:
-            _debug_training_info(y_train)
-            _analyze_training_setup(X_train, y_train)
+    if grid_search_status != "completed" and verbose:
+        _debug_training_info(y_train)
+        _analyze_training_setup(X_train, y_train)
+    model, probability_calibration = fit_svm_with_probabilities(
+        model_params, X_train, y_train, random_state
+    )
     duration = time.time() - start
 
     if verbose:
@@ -130,6 +189,7 @@ def train_svm(
             "grid_search_requested": should_grid,
             "grid_search_active": grid_search_status == "completed",
             "grid_search_status": grid_search_status,
+            "probability_calibration": probability_calibration,
         }
     }
 
@@ -220,11 +280,11 @@ def _analyze_training_setup(X_train, y_train, param_grid=None, cv_folds=None):
 
 
 def get_default_svm_params():
+    """Default SVC parameters; probabilities come from calibration, not ``probability=True``."""
     return {
         "kernel": "rbf",
         "C": 1.0,
         "class_weight": "balanced",
-        "probability": True,
         "random_state": 42,
     }
 
