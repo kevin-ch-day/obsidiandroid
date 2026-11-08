@@ -9,8 +9,8 @@ def test_missing_values_never_become_shared_identifiers(value):
     assert groups[1]!=groups[2]
 
 
-def test_public_test_certificate_is_not_author_identity():
-    signer=next(iter(PUBLIC_TEST_CERTIFICATES))
+@pytest.mark.parametrize('signer', sorted(PUBLIC_TEST_CERTIFICATES))
+def test_public_test_certificate_is_not_author_identity(signer):
     rows=[{'sample_id':1,'package':'pkg.one','signer_sha1':signer},
           {'sample_id':2,'package':'pkg.two','signer_sha1':signer}]
     assert len(set(lineage_components(rows).values()))==2
@@ -31,3 +31,14 @@ def test_structural_vhash_alone_does_not_assert_lineage():
     assert len(set(lineage_components(rows).values()))==2
     rows[1]['signer_sha1']=rows[0]['signer_sha1']='a'*40
     assert len(set(lineage_components(rows).values()))==1
+
+
+def test_public_platform_certificate_fixture_matches_pinned_aosp_identity():
+    import hashlib
+    from pathlib import Path
+    import ssl
+    pem = (Path(__file__).parent / 'fixtures/aosp_platform_695b28f.x509.pem').read_text()
+    der = ssl.PEM_cert_to_DER_cert(pem)
+    assert hashlib.sha1(der).hexdigest() == '27196e386b875e76adf700e7ea84e4c6eee33dfa'
+    assert hashlib.sha256(der).hexdigest() == 'c8a2e9bccf597c2fb6dc66bee293fc13f2fc47ec77bc6b2b0d52c11f51192ab8'
+    assert hashlib.sha1(der).hexdigest() in PUBLIC_TEST_CERTIFICATES
