@@ -5,7 +5,6 @@
 import time
 from collections import Counter
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.frozen import FrozenEstimator
 from sklearn.svm import SVC
 from sklearn.metrics import classification_report
 from sklearn.model_selection import GridSearchCV, StratifiedKFold
@@ -63,37 +62,32 @@ def fit_svm_with_probabilities(svc_params: dict, X_train, y_train, random_state)
     """Fit an SVC and wrap it so ``predict_proba`` is available.
 
     Cross-validated sigmoid calibration with ``ensemble=False`` refits the SVC on
-    the full training data, matching the old ``probability=True`` contract. When
-    a class is too small to cross-validate, the SVC is fitted once and calibrated
-    on its own training scores instead; the metadata records which path ran.
+    the full training data. The returned wrapper predicts by calibrated-probability
+    argmax, which can differ from the previous SVC decision-function vote. A class
+    with fewer than two training samples cannot support cross-validated calibration
+    and is refused before fitting; training scores are not calibration evidence.
 
     Returns:
         ``(model, calibration_metadata)``.
     """
     folds = probability_calibration_folds(y_train)
-    base_model = SVC(**svc_params)
     if folds is None:
-        base_model.fit(X_train, y_train)
-        model = CalibratedClassifierCV(
-            FrozenEstimator(base_model), method=PROBABILITY_CALIBRATION_METHOD
+        raise ValueError(
+            "SVM probability calibration unavailable: at least two training samples "
+            "per class are required."
         )
-        calibration = {
-            "method": PROBABILITY_CALIBRATION_METHOD,
-            "mode": "prefit_training_data",
-            "folds": None,
-        }
-    else:
-        model = CalibratedClassifierCV(
-            base_model,
-            method=PROBABILITY_CALIBRATION_METHOD,
-            cv=StratifiedKFold(n_splits=folds, shuffle=True, random_state=random_state),
-            ensemble=False,
-        )
-        calibration = {
-            "method": PROBABILITY_CALIBRATION_METHOD,
-            "mode": "cross_validated",
-            "folds": folds,
-        }
+    base_model = SVC(**svc_params)
+    model = CalibratedClassifierCV(
+        base_model,
+        method=PROBABILITY_CALIBRATION_METHOD,
+        cv=StratifiedKFold(n_splits=folds, shuffle=True, random_state=random_state),
+        ensemble=False,
+    )
+    calibration = {
+        "method": PROBABILITY_CALIBRATION_METHOD,
+        "mode": "cross_validated",
+        "folds": folds,
+    }
     model.fit(X_train, y_train)
     return model, calibration
 

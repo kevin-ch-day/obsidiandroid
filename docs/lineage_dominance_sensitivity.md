@@ -31,3 +31,19 @@ The original and later paper populations differ from current AV-only data.
 Repeated selection on development folds cannot establish generalization gains.
 Keep baseline artifacts unchanged and require a separate independent evaluation
 before promotion.
+
+
+## Known public AOSP platform signer correction
+
+Policy `retained_lineage_v4_known_public_aosp_signers` also excludes the public
+AOSP platform certificate SHA-1 `27196e386b875e76adf700e7ea84e4c6eee33dfa`
+from signer-only edges. The public certificate fixture comes from
+`platform/build` commit `695b28f67c88b87486911f8881078e7857e989a8`,
+`target/product/security/platform.x509.pem`; its DER SHA-256 is
+`c8a2e9bccf597c2fb6dc66bee293fc13f2fc47ec77bc6b2b0d52c11f51192ab8`.
+Public build-key reuse does not identify an author or common malware origin.
+Other valid package/fuzzy-hash edges remain.
+
+Existing groups, manifests, locked cohorts and research results are unchanged.
+Future grouping uses the new policy identity; it does not certify independent
+malware lineages or silently relabel historical experiments.

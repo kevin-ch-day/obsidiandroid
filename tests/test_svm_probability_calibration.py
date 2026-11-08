@@ -59,16 +59,56 @@ def test_calibration_folds_are_capped_by_the_smallest_class() -> None:
     assert svm_trainer.probability_calibration_folds([0] * 50 + [1] * 50) == 5
 
 
-def test_singleton_class_falls_back_to_prefit_calibration(monkeypatch) -> None:
+@pytest.mark.parametrize("grid_search", [False, True])
+def test_singleton_class_is_refused_before_any_fit(monkeypatch, grid_search) -> None:
     X, y = _dataset(n_samples=60, n_classes=2)
     y = y.copy()
     y.iloc[0] = 2  # a third class with exactly one member
+
+    def unexpected_fit(*args, **kwargs):
+        pytest.fail("insufficient-support input reached a fit call")
+
+    monkeypatch.setattr(SVC, "fit", unexpected_fit)
+    monkeypatch.setattr(CalibratedClassifierCV, "fit", unexpected_fit)
+    with pytest.raises(ValueError, match="at least two training samples per class"):
+        _train(monkeypatch, X, y, grid_search=grid_search)
+
+
+def test_two_training_samples_per_class_supports_cross_validated_calibration(monkeypatch) -> None:
+    X = pd.DataFrame([[0.0], [0.2], [1.0], [1.2]])
+    y = pd.Series([0, 0, 1, 1])
     model, result = _train(monkeypatch, X, y)
 
-    assert result["metadata"]["probability_calibration"]["mode"] == "prefit_training_data"
-    assert result["metadata"]["probability_calibration"]["folds"] is None
-    assert model.predict_proba(X).shape == (len(X), 3)
-    assert set(result["predictions"]) <= {0, 1, 2}
+    assert result["metadata"]["probability_calibration"]["folds"] == 2
+    assert result["metadata"]["probability_calibration"]["mode"] == "cross_validated"
+    np.testing.assert_allclose(model.predict_proba(X).sum(axis=1), 1.0)
+
+
+def test_calibration_fits_training_rows_only_and_predicts_calibrated_argmax(monkeypatch) -> None:
+    X, y = _dataset(n_samples=160)
+    X_train, X_test = X.iloc[:120].copy(), X.iloc[120:].copy() + 1000.0
+    y_train, y_test = y.iloc[:120].copy(), y.iloc[120:].copy()
+    original_fit = CalibratedClassifierCV.fit
+    seen = []
+
+    def record_fit(self, fit_X, fit_y, *args, **kwargs):
+        pd.testing.assert_frame_equal(fit_X, X_train)
+        pd.testing.assert_series_equal(fit_y, y_train)
+        seen.append(True)
+        return original_fit(self, fit_X, fit_y, *args, **kwargs)
+
+    monkeypatch.setattr(CalibratedClassifierCV, "fit", record_fit)
+    monkeypatch.setattr(app_config, "ENABLE_SVM_GRID_SEARCH", False, raising=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        model, result = svm_trainer.train_svm(
+            X_train, y_train, X_test=X_test, y_test=y_test, verbose=False
+        )
+    assert seen == [True]
+    probabilities = model.predict_proba(X_test)
+    expected = model.classes_[np.argmax(probabilities, axis=1)]
+    np.testing.assert_array_equal(result["predictions"], expected)
+    np.testing.assert_allclose(result["confidences"], probabilities.max(axis=1))
 
 
 def test_explicit_probability_kwarg_is_ignored(monkeypatch) -> None:
