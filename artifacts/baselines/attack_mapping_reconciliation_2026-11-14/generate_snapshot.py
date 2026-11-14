@@ -56,7 +56,7 @@ def tsv_rows(text: str) -> list[dict]:
 def write_tsv(path: Path, rows: list[dict]) -> None:
     fields = list(dict.fromkeys(k for r in rows for k in r))
     with path.open("x", newline="", encoding="utf-8") as fh:
-        w = csv.DictWriter(fh, fieldnames=fields, delimiter="\t")
+        w = csv.DictWriter(fh, fieldnames=fields, delimiter="\t", lineterminator="\n")
         w.writeheader()
         w.writerows(rows)
 
