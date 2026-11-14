@@ -94,3 +94,8 @@ vendor column skips the seed-count query and reports unavailable coverage.
 Before the live authority surface is deployed, a zero exit status means only
 that foundation prerequisites pass; it does not approve a rollout, assert live
 authority completeness, or authorize data loading.
+
+`project_permission_attack.py` projects a hash-pinned retained PI catalog into
+local ATT&CK dispositions and SQLite, with optional root-approved source-aware
+sample reporting. See `docs/PERMISSION_ATTACK_INTEGRATION.md`; no training or
+production writes are performed.
