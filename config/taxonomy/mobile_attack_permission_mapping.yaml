@@ -1,114 +1,1044 @@
+schema_version: permission-attack-relationships-v2
 mapping_id: android_mobile_attack_permission_mapping
-version: 20260531-v1
-source: mitre_attack_mobile_permission_capability_hypotheses
-review_status: bootstrap
+version: 20261113-v3
+source: official_mitre_mobile_stix_and_android_permission_reference
+review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
 review_notes:
-  - Permission-derived ATT&CK mappings are capability hypotheses, not proof of runtime behavior.
-  - Rules should be interpreted with type/family context and updated as the permission corpus evolves.
+- Analytical assessment owned by ObsidianDroid; PI identity/observation authority unchanged
+- No technique is observed merely because a token is present
+- Legacy group prevalence is a hypothesis hint, not sample-level co-occurrence or identity authority
+- Bounded predeclared 40-identity source review; current owner catalog access remains blocked; no model
+  input change
+attack_source:
+  release: v20.1
+  commit: f59b03ecf828579d5f9e93683ce25b7e2e5fd9d7
+  sha256: 632e2ec40848394f9873a7a3485fc32f92b861a4e7271f7e88e0cb02f11bb6af
+  artifact: config/taxonomy/mitre/mobile-attack-v20.1.json
 rules:
-  - attack_id: T1636.004
-    attack_name: "Protected User Data: SMS Messages"
-    attack_url: https://attack.mitre.org/techniques/T1636/004/
-    tactic: collection
-    confidence: strong_inference
-    min_prevalence: 0.20
-    required_any:
-      - android.permission.read_sms
-      - android.permission.receive_sms
-      - android.permission.send_sms
-    required_count: 2
-  - attack_id: T1636.003
-    attack_name: "Protected User Data: Contact List"
-    attack_url: https://attack.mitre.org/techniques/T1636/003/
-    tactic: collection
-    confidence: direct
-    min_prevalence: 0.15
-    required_any:
-      - android.permission.read_contacts
-      - android.permission.write_contacts
-    required_count: 1
-  - attack_id: T1636.002
-    attack_name: "Protected User Data: Call Log"
-    attack_url: https://attack.mitre.org/techniques/T1636/002/
-    tactic: collection
-    confidence: direct
-    min_prevalence: 0.10
-    required_any:
-      - android.permission.read_call_log
-      - android.permission.write_call_log
-      - android.permission.process_outgoing_calls
-    required_count: 1
-  - attack_id: T1636.005
-    attack_name: "Protected User Data: Accounts"
-    attack_url: https://attack.mitre.org/techniques/T1636/005/
-    tactic: collection
-    confidence: strong_inference
-    min_prevalence: 0.10
-    required_any:
-      - android.permission.get_accounts
-      - android.permission.manage_accounts
-      - android.permission.authenticate_accounts
-      - android.permission.use_credentials
-    required_count: 1
-  - attack_id: T1430
-    attack_name: Location Tracking
-    attack_url: https://attack.mitre.org/techniques/T1430/
-    tactic: collection
-    confidence: direct
-    min_prevalence: 0.10
-    required_any:
-      - android.permission.access_fine_location
-      - android.permission.access_coarse_location
-    required_count: 1
-  - attack_id: T1429
-    attack_name: Audio Capture
-    attack_url: https://attack.mitre.org/techniques/T1429/
-    tactic: collection
-    confidence: direct
-    min_prevalence: 0.08
-    required_any:
-      - android.permission.record_audio
-    required_count: 1
-  - attack_id: T1512
-    attack_name: Video Capture
-    attack_url: https://attack.mitre.org/techniques/T1512/
-    tactic: collection
-    confidence: direct
-    min_prevalence: 0.08
-    required_any:
-      - android.permission.camera
-    required_count: 1
-  - attack_id: T1616
-    attack_name: Call Control
-    attack_url: https://attack.mitre.org/techniques/T1616/
-    tactic: collection
-    confidence: strong_inference
-    min_prevalence: 0.05
-    required_any:
-      - android.permission.answer_phone_calls
-      - android.permission.call_phone
-      - android.permission.process_outgoing_calls
-      - android.permission.manage_own_calls
-      - android.permission.bind_telecom_connection_service
-      - android.permission.write_call_log
-    required_count: 1
-  - attack_id: T1418
-    attack_name: Software Discovery
-    attack_url: https://attack.mitre.org/techniques/T1418/
-    tactic: discovery
-    confidence: strong_inference
-    min_prevalence: 0.08
-    required_any:
-      - android.permission.query_all_packages
-      - android.permission.get_installed_apps
-      - android.permission.read_install_sessions
-    required_count: 1
-  - attack_id: T1453
-    attack_name: Abuse Accessibility Features
-    attack_url: https://attack.mitre.org/techniques/T1453/
-    tactic: privilege-escalation
-    confidence: direct
-    min_prevalence: 0.05
-    required_any:
-      - android.permission.bind_accessibility_service
-    required_count: 1
+- rule_id: mobile-permission-T1636-004-v2
+  attack_id: T1636.004
+  stix_id: attack-pattern--c6421411-ae61-42bb-9098-73fddb315002
+  attack_name: SMS Messages
+  attack_url: https://attack.mitre.org/techniques/T1636/004/
+  tactics:
+  - collection
+  technique_version: '1.1'
+  technique_modified: '2026-05-12T15:12:00.715Z'
+  relationship_category: CAPABILITY_RELATED
+  behavioral_assertion: false
+  allowed_roles:
+  - REQUESTED
+  - RUNTIME_GRANT
+  observed_behavior_requires:
+  - SMS content access evidence
+  - exact sample/source binding
+  - adversarial collection context
+  required_any:
+  - android.permission.READ_SMS
+  - android.permission.RECEIVE_SMS
+  required_count: 1
+  min_prevalence: 0.2
+  permission_constraints:
+    android.permission.READ_SMS:
+      api_min: 1
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#READ_SMS
+    android.permission.RECEIVE_SMS:
+      api_min: 1
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#RECEIVE_SMS
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#READ_SMS
+  - https://developer.android.com/reference/android/Manifest.permission#RECEIVE_SMS
+  rationale: Source-checked potential capability/context only; permission presence does not establish
+    execution or adversarial intent. Defined permissions do not imply requested capability.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bootstrap-correction
+- rule_id: mobile-permission-T1636-003-v2
+  attack_id: T1636.003
+  stix_id: attack-pattern--e0b9ecb8-a7d1-43c7-aa30-8e19c6a92c86
+  attack_name: Contact List
+  attack_url: https://attack.mitre.org/techniques/T1636/003/
+  tactics:
+  - collection
+  technique_version: '1.1'
+  technique_modified: '2026-05-12T15:12:00.722Z'
+  relationship_category: CAPABILITY_RELATED
+  behavioral_assertion: false
+  allowed_roles:
+  - REQUESTED
+  - RUNTIME_GRANT
+  observed_behavior_requires:
+  - contacts content-provider read evidence
+  - exact sample/source binding
+  - adversarial collection context
+  required_any:
+  - android.permission.READ_CONTACTS
+  required_count: 1
+  min_prevalence: 0.15
+  permission_constraints:
+    android.permission.READ_CONTACTS:
+      api_min: 1
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#READ_CONTACTS
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#READ_CONTACTS
+  rationale: Source-checked potential capability/context only; permission presence does not establish
+    execution or adversarial intent. Defined permissions do not imply requested capability.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bootstrap-correction
+- rule_id: mobile-permission-T1636-002-v2
+  attack_id: T1636.002
+  stix_id: attack-pattern--1d1b1558-c833-482e-aabb-d07ef6eae63d
+  attack_name: Call Log
+  attack_url: https://attack.mitre.org/techniques/T1636/002/
+  tactics:
+  - collection
+  technique_version: '1.1'
+  technique_modified: '2026-05-12T15:12:00.622Z'
+  relationship_category: CAPABILITY_RELATED
+  behavioral_assertion: false
+  allowed_roles:
+  - REQUESTED
+  - RUNTIME_GRANT
+  observed_behavior_requires:
+  - call-log read evidence
+  - exact sample/source binding
+  - adversarial collection context
+  required_any:
+  - android.permission.READ_CALL_LOG
+  required_count: 1
+  min_prevalence: 0.1
+  permission_constraints:
+    android.permission.READ_CALL_LOG:
+      api_min: 16
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#READ_CALL_LOG
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#READ_CALL_LOG
+  rationale: Source-checked potential capability/context only; permission presence does not establish
+    execution or adversarial intent. Defined permissions do not imply requested capability.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bootstrap-correction
+- rule_id: mobile-permission-T1636-005-v2
+  attack_id: T1636.005
+  stix_id: attack-pattern--337e1136-a6d3-4465-a5c5-fdc658117747
+  attack_name: Accounts
+  attack_url: https://attack.mitre.org/techniques/T1636/005/
+  tactics:
+  - collection
+  technique_version: '1.0'
+  technique_modified: '2026-05-12T15:12:00.624Z'
+  relationship_category: CAPABILITY_RELATED
+  behavioral_assertion: false
+  allowed_roles:
+  - REQUESTED
+  - RUNTIME_GRANT
+  observed_behavior_requires:
+  - account enumeration/access evidence
+  - API/grant and account-visibility context
+  - adversarial collection context
+  required_any:
+  - android.permission.GET_ACCOUNTS
+  required_count: 1
+  min_prevalence: 0.1
+  permission_constraints:
+    android.permission.GET_ACCOUNTS:
+      api_min: 1
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#GET_ACCOUNTS
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#GET_ACCOUNTS
+  rationale: Source-checked potential capability/context only; permission presence does not establish
+    execution or adversarial intent. Defined permissions do not imply requested capability.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bootstrap-correction
+- rule_id: mobile-permission-T1430-v2
+  attack_id: T1430
+  stix_id: attack-pattern--99e6295e-741b-4857-b6e5-64989eb039b4
+  attack_name: Location Tracking
+  attack_url: https://attack.mitre.org/techniques/T1430/
+  tactics:
+  - collection
+  - discovery
+  technique_version: '1.2'
+  technique_modified: '2026-05-12T15:12:00.706Z'
+  relationship_category: CAPABILITY_RELATED
+  behavioral_assertion: false
+  allowed_roles:
+  - REQUESTED
+  - RUNTIME_GRANT
+  observed_behavior_requires:
+  - location API/sensor evidence
+  - foreground/background and OS/grant context
+  - adversarial tracking/discovery context
+  - background-location token requires accompanying coarse/fine access, grant scope and background tracking
+    evidence
+  required_any:
+  - android.permission.ACCESS_FINE_LOCATION
+  - android.permission.ACCESS_COARSE_LOCATION
+  - android.permission.ACCESS_BACKGROUND_LOCATION
+  required_count: 1
+  min_prevalence: 0.1
+  permission_constraints:
+    android.permission.ACCESS_FINE_LOCATION:
+      api_min: 1
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#ACCESS_FINE_LOCATION
+    android.permission.ACCESS_COARSE_LOCATION:
+      api_min: 1
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#ACCESS_COARSE_LOCATION
+    android.permission.ACCESS_BACKGROUND_LOCATION:
+      api_min: 29
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#ACCESS_BACKGROUND_LOCATION
+      applicability_notes: Background location supplements coarse/fine location and is not an independent
+        location grant; Android API/target and user settings apply.
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#ACCESS_FINE_LOCATION
+  - https://developer.android.com/reference/android/Manifest.permission#ACCESS_COARSE_LOCATION
+  - https://developer.android.com/reference/android/Manifest.permission#ACCESS_BACKGROUND_LOCATION
+  rationale: Source-checked potential capability/context only; permission presence does not establish
+    execution or adversarial intent. Defined permissions do not imply requested capability.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bootstrap-correction
+- rule_id: mobile-permission-T1429-v2
+  attack_id: T1429
+  stix_id: attack-pattern--6683aa0c-d98a-4f5b-ac57-ca7e9934a760
+  attack_name: Audio Capture
+  attack_url: https://attack.mitre.org/techniques/T1429/
+  tactics:
+  - collection
+  technique_version: '3.1'
+  technique_modified: '2026-05-12T15:12:00.637Z'
+  relationship_category: CAPABILITY_RELATED
+  behavioral_assertion: false
+  allowed_roles:
+  - REQUESTED
+  - RUNTIME_GRANT
+  observed_behavior_requires:
+  - microphone capture evidence
+  - runtime grant/app-op and foreground context
+  - adversarial collection context
+  required_any:
+  - android.permission.RECORD_AUDIO
+  required_count: 1
+  min_prevalence: 0.08
+  permission_constraints:
+    android.permission.RECORD_AUDIO:
+      api_min: 1
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#RECORD_AUDIO
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#RECORD_AUDIO
+  rationale: Source-checked potential capability/context only; permission presence does not establish
+    execution or adversarial intent. Defined permissions do not imply requested capability.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bootstrap-correction
+- rule_id: mobile-permission-T1512-v2
+  attack_id: T1512
+  stix_id: attack-pattern--d8940e76-f9c1-4912-bea6-e21c251370b6
+  attack_name: Video Capture
+  attack_url: https://attack.mitre.org/techniques/T1512/
+  tactics:
+  - collection
+  technique_version: '2.1'
+  technique_modified: '2026-05-12T15:12:00.721Z'
+  relationship_category: CAPABILITY_RELATED
+  behavioral_assertion: false
+  allowed_roles:
+  - REQUESTED
+  - RUNTIME_GRANT
+  observed_behavior_requires:
+  - camera image/video capture evidence
+  - runtime grant/app-op and foreground context
+  - adversarial collection context
+  required_any:
+  - android.permission.CAMERA
+  required_count: 1
+  min_prevalence: 0.08
+  permission_constraints:
+    android.permission.CAMERA:
+      api_min: 1
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#CAMERA
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#CAMERA
+  rationale: Source-checked potential capability/context only; permission presence does not establish
+    execution or adversarial intent. Defined permissions do not imply requested capability.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bootstrap-correction
+- rule_id: mobile-permission-T1616-v2
+  attack_id: T1616
+  stix_id: attack-pattern--351ddf79-2d3a-41b4-9bef-82ea5d3ccd69
+  attack_name: Call Control
+  attack_url: https://attack.mitre.org/techniques/T1616/
+  tactics:
+  - collection
+  - command-and-control
+  - impact
+  technique_version: '1.2'
+  technique_modified: '2026-05-12T15:12:00.625Z'
+  relationship_category: CONTEXT_REQUIRED
+  behavioral_assertion: false
+  allowed_roles:
+  - REQUESTED
+  - RUNTIME_GRANT
+  observed_behavior_requires:
+  - call placement/answer/control API evidence
+  - dialer/telecom role and OS constraints
+  - adversarial context matching the asserted tactic
+  required_any:
+  - android.permission.ANSWER_PHONE_CALLS
+  - android.permission.CALL_PHONE
+  required_count: 1
+  min_prevalence: 0.05
+  permission_constraints:
+    android.permission.ANSWER_PHONE_CALLS:
+      api_min: 26
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#ANSWER_PHONE_CALLS
+    android.permission.CALL_PHONE:
+      api_min: 1
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#CALL_PHONE
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#ANSWER_PHONE_CALLS
+  - https://developer.android.com/reference/android/Manifest.permission#CALL_PHONE
+  rationale: Source-checked potential capability/context only; permission presence does not establish
+    execution or adversarial intent. Defined permissions do not imply requested capability.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bootstrap-correction
+- rule_id: mobile-permission-T1418-v2
+  attack_id: T1418
+  stix_id: attack-pattern--198ce408-1470-45ee-b47f-7056050d4fc2
+  attack_name: Software Discovery
+  attack_url: https://attack.mitre.org/techniques/T1418/
+  tactics:
+  - discovery
+  technique_version: '2.1'
+  technique_modified: '2026-05-12T15:12:00.622Z'
+  relationship_category: CAPABILITY_RELATED
+  behavioral_assertion: false
+  allowed_roles:
+  - REQUESTED
+  - RUNTIME_GRANT
+  observed_behavior_requires:
+  - package enumeration evidence
+  - package visibility/API constraints
+  - adversarial discovery context
+  required_any:
+  - android.permission.QUERY_ALL_PACKAGES
+  required_count: 1
+  min_prevalence: 0.08
+  permission_constraints:
+    android.permission.QUERY_ALL_PACKAGES:
+      api_min: 30
+      protection_level: normal
+      reference: https://developer.android.com/reference/android/Manifest.permission#QUERY_ALL_PACKAGES
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#QUERY_ALL_PACKAGES
+  rationale: Source-checked potential capability/context only; permission presence does not establish
+    execution or adversarial intent. Defined permissions do not imply requested capability.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bootstrap-correction
+- rule_id: mobile-permission-T1453-v2
+  attack_id: T1453
+  stix_id: attack-pattern--2204c371-6100-4ae0-82f3-25c07c29772a
+  attack_name: Abuse Accessibility Features
+  attack_url: https://attack.mitre.org/techniques/T1453/
+  tactics:
+  - collection
+  - credential-access
+  technique_version: '3.0'
+  technique_modified: '2026-05-12T15:12:00.622Z'
+  relationship_category: CONTEXT_REQUIRED
+  behavioral_assertion: false
+  allowed_roles:
+  - COMPONENT_GUARD
+  observed_behavior_requires:
+  - accessibility service declaration
+  - user-enabled service
+  - accessibility actions/events
+  - adversarial abuse context
+  required_any:
+  - android.permission.BIND_ACCESSIBILITY_SERVICE
+  required_count: 1
+  min_prevalence: 0.05
+  permission_constraints:
+    android.permission.BIND_ACCESSIBILITY_SERVICE:
+      api_min: 16
+      protection_level: signature
+      reference: https://developer.android.com/reference/android/Manifest.permission#BIND_ACCESSIBILITY_SERVICE
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#BIND_ACCESSIBILITY_SERVICE
+  rationale: Source-checked potential capability/context only; permission presence does not establish
+    execution or adversarial intent. Defined permissions do not imply requested capability.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bootstrap-correction
+- rule_id: mobile-permission-T1624-001-v2
+  attack_id: T1624.001
+  stix_id: attack-pattern--3775a580-a1d1-46c4-8147-c614a715f2e9
+  attack_name: Broadcast Receivers
+  attack_url: https://attack.mitre.org/techniques/T1624/001/
+  tactics:
+  - persistence
+  technique_version: '1.1'
+  technique_modified: '2026-05-12T15:12:00.626Z'
+  relationship_category: CONTEXT_REQUIRED
+  behavioral_assertion: false
+  allowed_roles:
+  - REQUESTED
+  - RUNTIME_GRANT
+  observed_behavior_requires:
+  - boot receiver declaration and intent filter
+  - app/OS receiver restrictions
+  - event-triggered execution
+  - adversarial persistence context
+  required_any:
+  - android.permission.RECEIVE_BOOT_COMPLETED
+  required_count: 1
+  min_prevalence: 0.05
+  permission_constraints:
+    android.permission.RECEIVE_BOOT_COMPLETED:
+      api_min: 1
+      protection_level: normal
+      reference: https://developer.android.com/reference/android/Manifest.permission#RECEIVE_BOOT_COMPLETED
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#RECEIVE_BOOT_COMPLETED
+  rationale: Source-checked potential capability/context only; permission presence does not establish
+    execution or adversarial intent. Defined permissions do not imply requested capability.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bounded-extension
+- rule_id: mobile-permission-T1517-v2
+  attack_id: T1517
+  stix_id: attack-pattern--39dd7871-f59b-495f-a9a5-3cb8cc50c9b2
+  attack_name: Access Notifications
+  attack_url: https://attack.mitre.org/techniques/T1517/
+  tactics:
+  - collection
+  - credential-access
+  technique_version: '1.2'
+  technique_modified: '2026-05-12T15:12:00.627Z'
+  relationship_category: CONTEXT_REQUIRED
+  behavioral_assertion: false
+  allowed_roles:
+  - COMPONENT_GUARD
+  observed_behavior_requires:
+  - notification listener service declaration
+  - user-enabled notification access
+  - notification content access
+  - adversarial collection context
+  required_any:
+  - android.permission.BIND_NOTIFICATION_LISTENER_SERVICE
+  required_count: 1
+  min_prevalence: 0.05
+  permission_constraints:
+    android.permission.BIND_NOTIFICATION_LISTENER_SERVICE:
+      api_min: 18
+      protection_level: signature
+      reference: https://developer.android.com/reference/android/Manifest.permission#BIND_NOTIFICATION_LISTENER_SERVICE
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#BIND_NOTIFICATION_LISTENER_SERVICE
+  rationale: Source-checked potential capability/context only; permission presence does not establish
+    execution or adversarial intent. Defined permissions do not imply requested capability.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bounded-extension
+- rule_id: mobile-permission-T1626-001-v2
+  attack_id: T1626.001
+  stix_id: attack-pattern--9c049d7b-c92a-4733-9381-27e2bd2ccadc
+  attack_name: Device Administrator Permissions
+  attack_url: https://attack.mitre.org/techniques/T1626/001/
+  tactics:
+  - privilege-escalation
+  technique_version: '1.1'
+  technique_modified: '2026-05-12T15:12:00.706Z'
+  relationship_category: CONTEXT_REQUIRED
+  behavioral_assertion: false
+  allowed_roles:
+  - COMPONENT_GUARD
+  observed_behavior_requires:
+  - device-admin receiver declaration and metadata
+  - actual administrator activation
+  - privileged administrative action
+  - adversarial privilege-escalation context
+  required_any:
+  - android.permission.BIND_DEVICE_ADMIN
+  required_count: 1
+  min_prevalence: 0.05
+  permission_constraints:
+    android.permission.BIND_DEVICE_ADMIN:
+      api_min: 8
+      protection_level: signature
+      reference: https://developer.android.com/reference/android/Manifest.permission#BIND_DEVICE_ADMIN
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#BIND_DEVICE_ADMIN
+  rationale: Source-checked potential capability/context only; permission presence does not establish
+    execution or adversarial intent. Defined permissions do not imply requested capability.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bounded-extension
+- rule_id: mobile-permission-T1516-v2
+  attack_id: T1516
+  stix_id: attack-pattern--d1f1337e-aea7-454c-86bd-482a98ffaf62
+  attack_name: Input Injection
+  attack_url: https://attack.mitre.org/techniques/T1516/
+  tactics:
+  - defense-evasion
+  - impact
+  technique_version: '1.2'
+  technique_modified: '2026-05-12T15:12:00.717Z'
+  relationship_category: CONTEXT_REQUIRED
+  behavioral_assertion: false
+  allowed_roles:
+  - COMPONENT_GUARD
+  observed_behavior_requires:
+  - accessibility service enabled
+  - observed injected input actions
+  - adversarial defense-evasion or impact context
+  required_any:
+  - android.permission.BIND_ACCESSIBILITY_SERVICE
+  required_count: 1
+  min_prevalence: 0.05
+  permission_constraints:
+    android.permission.BIND_ACCESSIBILITY_SERVICE:
+      api_min: 16
+      protection_level: signature
+      reference: https://developer.android.com/reference/android/Manifest.permission#BIND_ACCESSIBILITY_SERVICE
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#BIND_ACCESSIBILITY_SERVICE
+  rationale: Source-checked potential capability/context only; permission presence does not establish
+    execution or adversarial intent. Defined permissions do not imply requested capability.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bounded-extension
+- rule_id: mobile-permission-T1636-001-v3
+  attack_id: T1636.001
+  stix_id: attack-pattern--a9fa0d30-a8ff-45bf-922e-7720da0b7922
+  attack_name: Calendar Entries
+  attack_url: https://attack.mitre.org/techniques/T1636/001/
+  tactics:
+  - collection
+  technique_version: '1.1'
+  technique_modified: '2025-10-24T17:49:12.650Z'
+  relationship_category: CAPABILITY_RELATED
+  behavioral_assertion: false
+  allowed_roles:
+  - REQUESTED
+  - RUNTIME_GRANT
+  observed_behavior_requires:
+  - calendar content-provider reads of actual entries
+  - exact sample/source binding and granted access
+  - adversarial collection context
+  required_any:
+  - android.permission.READ_CALENDAR
+  required_count: 1
+  min_prevalence: 0.05
+  permission_constraints:
+    android.permission.READ_CALENDAR:
+      api_min: 1
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#READ_CALENDAR
+      applicability_notes: Runtime grant and Calendar provider/API applicability; requested permission
+        alone does not collect entries.
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#READ_CALENDAR
+  rationale: Runtime grant and Calendar provider/API applicability; requested permission alone does not
+    collect entries. Source-checked potential relationship only; not evidence of execution.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bounded-40-identity-review-v3
+  review_tranche_sha256: 36fd9dbd576665ed8b7f5ed8348e61e473dc0c870ddf5c9f8a9540afd7a492b7
+- rule_id: mobile-permission-T1582-v3
+  attack_id: T1582
+  stix_id: attack-pattern--b327a9c0-e709-495c-aa6e-00b042136e2b
+  attack_name: SMS Control
+  attack_url: https://attack.mitre.org/techniques/T1582/
+  tactics:
+  - impact
+  technique_version: '1.1'
+  technique_modified: '2026-05-12T15:12:00.708Z'
+  relationship_category: CONTEXT_REQUIRED
+  behavioral_assertion: false
+  allowed_roles:
+  - REQUESTED
+  - RUNTIME_GRANT
+  observed_behavior_requires:
+  - SmsManager/send-message execution bound to source event
+  - recipient/content and applicable SMS/default-handler authorization
+  - absence of user authorization/adversarial context
+  required_any:
+  - android.permission.SEND_SMS
+  required_count: 1
+  min_prevalence: 0.05
+  permission_constraints:
+    android.permission.SEND_SMS:
+      api_min: 1
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#SEND_SMS
+      applicability_notes: Sending capability is distinct from READ_SMS collection. Carrier, default role,
+        user consent and Android policy can constrain behavior.
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#SEND_SMS
+  rationale: Sending capability is distinct from READ_SMS collection. Carrier, default role, user consent
+    and Android policy can constrain behavior. Source-checked potential relationship only; not evidence
+    of execution.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bounded-40-identity-review-v3
+  review_tranche_sha256: 36fd9dbd576665ed8b7f5ed8348e61e473dc0c870ddf5c9f8a9540afd7a492b7
+- rule_id: mobile-permission-T1533-v3
+  attack_id: T1533
+  stix_id: attack-pattern--e1c912a9-e305-434b-9172-8a6ce3ec9c4a
+  attack_name: Data from Local System
+  attack_url: https://attack.mitre.org/techniques/T1533/
+  tactics:
+  - collection
+  technique_version: '1.1'
+  technique_modified: '2026-05-12T15:12:00.722Z'
+  relationship_category: CONTEXT_REQUIRED
+  behavioral_assertion: false
+  allowed_roles:
+  - REQUESTED
+  - RUNTIME_GRANT
+  observed_behavior_requires:
+  - actual files/media reads and returned data bound to the sample
+  - device API, target SDK, storage scope and granted media selection
+  - adversarial collection context
+  required_any:
+  - android.permission.READ_EXTERNAL_STORAGE
+  - android.permission.READ_MEDIA_IMAGES
+  - android.permission.READ_MEDIA_VIDEO
+  - android.permission.READ_MEDIA_AUDIO
+  required_count: 1
+  min_prevalence: 0.05
+  permission_constraints:
+    android.permission.READ_EXTERNAL_STORAGE:
+      api_min: 16
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#READ_EXTERNAL_STORAGE
+      applicability_notes: Read permissions do not establish file access; storage scopes and selected-media
+        access vary by OS/target SDK. No exfiltration claim.
+      api_review_required_from: 33
+    android.permission.READ_MEDIA_IMAGES:
+      api_min: 33
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#READ_MEDIA_IMAGES
+      applicability_notes: Read permissions do not establish file access; storage scopes and selected-media
+        access vary by OS/target SDK. No exfiltration claim.
+    android.permission.READ_MEDIA_VIDEO:
+      api_min: 33
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#READ_MEDIA_VIDEO
+      applicability_notes: Read permissions do not establish file access; storage scopes and selected-media
+        access vary by OS/target SDK. No exfiltration claim.
+    android.permission.READ_MEDIA_AUDIO:
+      api_min: 33
+      protection_level: dangerous
+      reference: https://developer.android.com/reference/android/Manifest.permission#READ_MEDIA_AUDIO
+      applicability_notes: Read permissions do not establish file access; storage scopes and selected-media
+        access vary by OS/target SDK. No exfiltration claim.
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#READ_EXTERNAL_STORAGE
+  - https://developer.android.com/reference/android/Manifest.permission#READ_MEDIA_IMAGES
+  - https://developer.android.com/reference/android/Manifest.permission#READ_MEDIA_VIDEO
+  - https://developer.android.com/reference/android/Manifest.permission#READ_MEDIA_AUDIO
+  rationale: Read permissions do not establish file access; storage scopes and selected-media access vary
+    by OS/target SDK. No exfiltration claim. Source-checked potential relationship only; not evidence
+    of execution.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bounded-40-identity-review-v3
+  review_tranche_sha256: 36fd9dbd576665ed8b7f5ed8348e61e473dc0c870ddf5c9f8a9540afd7a492b7
+- rule_id: mobile-permission-T1422-001-v3
+  attack_id: T1422.001
+  stix_id: attack-pattern--45a5fe76-eda3-4d40-8f22-c186efd6278d
+  attack_name: Internet Connection Discovery
+  attack_url: https://attack.mitre.org/techniques/T1422/001/
+  tactics:
+  - discovery
+  technique_version: '1.0'
+  technique_modified: '2024-02-20T23:39:08.047Z'
+  relationship_category: CONTEXT_REQUIRED
+  behavioral_assertion: false
+  allowed_roles:
+  - REQUESTED
+  - RUNTIME_GRANT
+  observed_behavior_requires:
+  - connectivity-query API and actual returned connectivity results
+  - source-bound device/time context
+  - discovery use separate from ordinary network management
+  required_any:
+  - android.permission.ACCESS_NETWORK_STATE
+  required_count: 1
+  min_prevalence: 0.05
+  permission_constraints:
+    android.permission.ACCESS_NETWORK_STATE:
+      api_min: 1
+      protection_level: normal
+      reference: https://developer.android.com/reference/android/Manifest.permission#ACCESS_NETWORK_STATE
+      applicability_notes: Network-state permission does not establish an Internet probe, route enumeration
+        or C2 reachability.
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#ACCESS_NETWORK_STATE
+  rationale: Network-state permission does not establish an Internet probe, route enumeration or C2 reachability.
+    Source-checked potential relationship only; not evidence of execution.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bounded-40-identity-review-v3
+  review_tranche_sha256: 36fd9dbd576665ed8b7f5ed8348e61e473dc0c870ddf5c9f8a9540afd7a492b7
+- rule_id: mobile-permission-T1422-002-v3
+  attack_id: T1422.002
+  stix_id: attack-pattern--be63612f-a48f-44f2-a7a6-1763509fcf80
+  attack_name: Wi-Fi Discovery
+  attack_url: https://attack.mitre.org/techniques/T1422/002/
+  tactics:
+  - discovery
+  technique_version: '1.0'
+  technique_modified: '2026-05-12T15:12:00.713Z'
+  relationship_category: CONTEXT_REQUIRED
+  behavioral_assertion: false
+  allowed_roles:
+  - REQUESTED
+  - RUNTIME_GRANT
+  observed_behavior_requires:
+  - Wi-Fi information queries and actual returned fields
+  - applicable nearby/location grants and redaction policy
+  - adversarial discovery context
+  required_any:
+  - android.permission.ACCESS_WIFI_STATE
+  required_count: 1
+  min_prevalence: 0.05
+  permission_constraints:
+    android.permission.ACCESS_WIFI_STATE:
+      api_min: 1
+      protection_level: normal
+      reference: https://developer.android.com/reference/android/Manifest.permission#ACCESS_WIFI_STATE
+      applicability_notes: SSID/BSSID/network information availability depends on Android policy; no Wi-Fi-password
+        access is inferred.
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#ACCESS_WIFI_STATE
+  rationale: SSID/BSSID/network information availability depends on Android policy; no Wi-Fi-password
+    access is inferred. Source-checked potential relationship only; not evidence of execution.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bounded-40-identity-review-v3
+  review_tranche_sha256: 36fd9dbd576665ed8b7f5ed8348e61e473dc0c870ddf5c9f8a9540afd7a492b7
+- rule_id: mobile-permission-T1603-v3
+  attack_id: T1603
+  stix_id: attack-pattern--00290ac5-551e-44aa-bbd8-c4b913488a6d
+  attack_name: Scheduled Task/Job
+  attack_url: https://attack.mitre.org/techniques/T1603/
+  tactics:
+  - execution
+  - persistence
+  technique_version: '1.0'
+  technique_modified: '2025-10-24T17:48:18.936Z'
+  relationship_category: CONTEXT_REQUIRED
+  behavioral_assertion: false
+  allowed_roles:
+  - REQUESTED
+  - RUNTIME_GRANT
+  observed_behavior_requires:
+  - AlarmManager registration or equivalent scheduled-task evidence
+  - exact callback/job execution and schedule
+  - special-access/target-SDK applicability and adversarial recurring execution
+  required_any:
+  - android.permission.SCHEDULE_EXACT_ALARM
+  - android.permission.USE_EXACT_ALARM
+  required_count: 1
+  min_prevalence: 0.05
+  permission_constraints:
+    android.permission.SCHEDULE_EXACT_ALARM:
+      api_min: 31
+      protection_level: signature|privileged|appop
+      reference: https://developer.android.com/reference/android/Manifest.permission#SCHEDULE_EXACT_ALARM
+      applicability_notes: Exact-alarm permissions provide scheduling context only; many WorkManager jobs
+        need neither permission. They are not prerequisites for all T1603 behavior.
+    android.permission.USE_EXACT_ALARM:
+      api_min: 33
+      protection_level: normal
+      reference: https://developer.android.com/reference/android/Manifest.permission#USE_EXACT_ALARM
+      applicability_notes: Exact-alarm permissions provide scheduling context only; many WorkManager jobs
+        need neither permission. They are not prerequisites for all T1603 behavior.
+      protection_source: PI retained exact declaration, not inferred from missing public summary
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#SCHEDULE_EXACT_ALARM
+  - https://developer.android.com/reference/android/Manifest.permission#USE_EXACT_ALARM
+  rationale: Exact-alarm permissions provide scheduling context only; many WorkManager jobs need neither
+    permission. They are not prerequisites for all T1603 behavior. Source-checked potential relationship
+    only; not evidence of execution.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bounded-40-identity-review-v3
+  review_tranche_sha256: 36fd9dbd576665ed8b7f5ed8348e61e473dc0c870ddf5c9f8a9540afd7a492b7
+- rule_id: mobile-permission-T1541-v3
+  attack_id: T1541
+  stix_id: attack-pattern--648f8051-1a35-46d3-b1d8-3a3f5cf2cc8e
+  attack_name: Foreground Persistence
+  attack_url: https://attack.mitre.org/techniques/T1541/
+  tactics:
+  - defense-evasion
+  - persistence
+  technique_version: '2.1'
+  technique_modified: '2026-05-12T15:12:00.636Z'
+  relationship_category: CONTEXT_REQUIRED
+  behavioral_assertion: false
+  allowed_roles:
+  - REQUESTED
+  - RUNTIME_GRANT
+  observed_behavior_requires:
+  - service declaration and actual startForeground execution
+  - service type/notification and Android target-SDK policy
+  - adversarial persistence/sensor-access context and separate sensor grants
+  required_any:
+  - android.permission.FOREGROUND_SERVICE
+  required_count: 1
+  min_prevalence: 0.05
+  permission_constraints:
+    android.permission.FOREGROUND_SERVICE:
+      api_min: 28
+      protection_level: normal
+      reference: https://developer.android.com/reference/android/Manifest.permission#FOREGROUND_SERVICE
+      applicability_notes: API28 permission alone does not establish service start, continuous execution
+        or access to sensors; API34 service-type permissions can also be required.
+  android_reference:
+  - https://developer.android.com/reference/android/Manifest.permission#FOREGROUND_SERVICE
+  rationale: API28 permission alone does not establish service start, continuous execution or access to
+    sensors; API34 service-type permissions can also be required. Source-checked potential relationship
+    only; not evidence of execution.
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+  origin: bounded-40-identity-review-v3
+  review_tranche_sha256: 36fd9dbd576665ed8b7f5ed8348e61e473dc0c870ddf5c9f8a9540afd7a492b7
+identity_assessments:
+- permission: android.permission.INTERNET
+  disposition: NO_DIRECT_MAPPING
+  rationale: Generic network capability alone does not identify C2, exfiltration or adversary behavior.
+    This is permission-level assessment, not a negative behavior observation.
+  reference: https://developer.android.com/reference/android/Manifest.permission#INTERNET
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+- permission: android.permission.VIBRATE
+  disposition: NO_DIRECT_MAPPING
+  rationale: Haptic output control provides no attack-specific collection, execution or impact relationship
+    without separate behavior; it is not evidence of input injection. Reviewed assessment is limited to
+    this exact permission alone under pinned Mobile v20.1; it is not a verified absence of adversarial
+    behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#VIBRATE
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.WAKE_LOCK
+  disposition: NO_DIRECT_MAPPING
+  rationale: CPU/display wake retention is generic resource management; it does not start a foreground
+    service or establish foreground sensor persistence (T1541). Reviewed assessment is limited to this
+    exact permission alone under pinned Mobile v20.1; it is not a verified absence of adversarial behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#WAKE_LOCK
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.MODIFY_AUDIO_SETTINGS
+  disposition: NO_DIRECT_MAPPING
+  rationale: Audio routing/volume settings do not record microphone input; no direct T1429 collection
+    edge is justified. Reviewed assessment is limited to this exact permission alone under pinned Mobile
+    v20.1; it is not a verified absence of adversarial behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#MODIFY_AUDIO_SETTINGS
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.SET_WALLPAPER
+  disposition: NO_DIRECT_MAPPING
+  rationale: Wallpaper customization is a generic presentation operation; no direct reviewed Mobile v20.1
+    technique follows from permission presence. Reviewed assessment is limited to this exact permission
+    alone under pinned Mobile v20.1; it is not a verified absence of adversarial behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#SET_WALLPAPER
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.SET_WALLPAPER_HINTS
+  disposition: NO_DIRECT_MAPPING
+  rationale: Wallpaper size hints configure presentation, not capture or adversarial manipulation of collected
+    data. Reviewed assessment is limited to this exact permission alone under pinned Mobile v20.1; it
+    is not a verified absence of adversarial behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#SET_WALLPAPER_HINTS
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.CHANGE_NETWORK_STATE
+  disposition: NO_DIRECT_MAPPING
+  rationale: Network connectivity setting changes alone do not establish adversary-in-the-middle, proxying,
+    C2 or exfiltration. Reviewed assessment is limited to this exact permission alone under pinned Mobile
+    v20.1; it is not a verified absence of adversarial behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#CHANGE_NETWORK_STATE
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.CHANGE_WIFI_STATE
+  disposition: NO_DIRECT_MAPPING
+  rationale: Wi-Fi state changes alone do not establish Wi-Fi discovery results, credential collection
+    or adversary-in-the-middle interception. Reviewed assessment is limited to this exact permission alone
+    under pinned Mobile v20.1; it is not a verified absence of adversarial behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#CHANGE_WIFI_STATE
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.BLUETOOTH_CONNECT
+  disposition: NO_DIRECT_MAPPING
+  rationale: Connection to already-paired Bluetooth devices is generic transport access; it does not establish
+    scanning, compromise or adversarial traffic. Reviewed assessment is limited to this exact permission
+    alone under pinned Mobile v20.1; it is not a verified absence of adversarial behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#BLUETOOTH_CONNECT
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.NFC
+  disposition: NO_DIRECT_MAPPING
+  rationale: Near-field communication capability alone does not identify an adversarial Mobile technique
+    or compromised endpoint. Reviewed assessment is limited to this exact permission alone under pinned
+    Mobile v20.1; it is not a verified absence of adversarial behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#NFC
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.USE_BIOMETRIC
+  disposition: NO_DIRECT_MAPPING
+  rationale: Use of platform biometric authentication is not acquisition of biometric secrets or authentication
+    bypass. Reviewed assessment is limited to this exact permission alone under pinned Mobile v20.1; it
+    is not a verified absence of adversarial behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#USE_BIOMETRIC
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.USE_FINGERPRINT
+  disposition: NO_DIRECT_MAPPING
+  rationale: Deprecated platform fingerprint authentication access is not capture of fingerprint data
+    or lockscreen bypass; deprecated permission is not an invalid identity. Reviewed assessment is limited
+    to this exact permission alone under pinned Mobile v20.1; it is not a verified absence of adversarial
+    behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#USE_FINGERPRINT
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.READ_SYNC_SETTINGS
+  disposition: NO_DIRECT_MAPPING
+  rationale: Reading synchronization configuration does not read the synced content or account credentials.
+    Reviewed assessment is limited to this exact permission alone under pinned Mobile v20.1; it is not
+    a verified absence of adversarial behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#READ_SYNC_SETTINGS
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.READ_SYNC_STATS
+  disposition: NO_DIRECT_MAPPING
+  rationale: Synchronization statistics do not establish collection of synchronized user data or account
+    credentials. Reviewed assessment is limited to this exact permission alone under pinned Mobile v20.1;
+    it is not a verified absence of adversarial behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#READ_SYNC_STATS
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.WRITE_SYNC_SETTINGS
+  disposition: NO_DIRECT_MAPPING
+  rationale: Synchronization setting changes do not establish collection, credential theft or adversarial
+    data manipulation. Reviewed assessment is limited to this exact permission alone under pinned Mobile
+    v20.1; it is not a verified absence of adversarial behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#WRITE_SYNC_SETTINGS
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.EXPAND_STATUS_BAR
+  disposition: NO_DIRECT_MAPPING
+  rationale: Status-bar expansion/collapse is UI control, not notification-content reading or arbitrary
+    input injection. Reviewed assessment is limited to this exact permission alone under pinned Mobile
+    v20.1; it is not a verified absence of adversarial behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#EXPAND_STATUS_BAR
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.REORDER_TASKS
+  disposition: NO_DIRECT_MAPPING
+  rationale: Task Z-order changes do not independently establish foreground services, credential capture
+    or injected input. Reviewed assessment is limited to this exact permission alone under pinned Mobile
+    v20.1; it is not a verified absence of adversarial behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#REORDER_TASKS
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.DISABLE_KEYGUARD
+  disposition: NO_DIRECT_MAPPING
+  rationale: Android documentation limits this permission to disabling a nonsecure keyguard; it does not
+    bypass secure authentication as required for a lockscreen-bypass relationship. Reviewed assessment
+    is limited to this exact permission alone under pinned Mobile v20.1; it is not a verified absence
+    of adversarial behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#DISABLE_KEYGUARD
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.CHANGE_WIFI_MULTICAST_STATE
+  disposition: NO_DIRECT_MAPPING
+  rationale: Multicast mode changes are generic network resource control, not packet interception or attack
+    traffic evidence. Reviewed assessment is limited to this exact permission alone under pinned Mobile
+    v20.1; it is not a verified absence of adversarial behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#CHANGE_WIFI_MULTICAST_STATE
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.ACCESS_NOTIFICATION_POLICY
+  disposition: NO_DIRECT_MAPPING
+  rationale: Do-not-disturb notification-policy control is distinct from reading notification contents
+    under T1517; no direct reading edge is justified. Reviewed assessment is limited to this exact permission
+    alone under pinned Mobile v20.1; it is not a verified absence of adversarial behavior.
+  reference: https://developer.android.com/reference/android/Manifest.permission#ACCESS_NOTIFICATION_POLICY
+  review_status: SOURCE_CHECKED_DEVELOPMENT_NOT_PRODUCTION_APPROVED
+  independent_human_review: false
+- permission: android.permission.READ_PHONE_STATE
+  disposition: PENDING_REVIEW
+  rationale: Phone/network state is not the OS/hardware discovery described by T1426 without a source-specific
+    API/returned-field binding; keep candidate context unpromoted.
+  reference: https://developer.android.com/reference/android/Manifest.permission#READ_PHONE_STATE
+  review_status: HELD_FOR_ADDITIONAL_APPLICABILITY_OR_BEHAVIOR_EVIDENCE
+  independent_human_review: false
+- permission: android.permission.READ_PHONE_NUMBERS
+  disposition: PENDING_REVIEW
+  rationale: Own device telephone numbers do not establish the OS/hardware inventory in T1426; source
+    API/field and intended technique relationship need separate review.
+  reference: https://developer.android.com/reference/android/Manifest.permission#READ_PHONE_NUMBERS
+  review_status: HELD_FOR_ADDITIONAL_APPLICABILITY_OR_BEHAVIOR_EVIDENCE
+  independent_human_review: false
+- permission: android.permission.PACKAGE_USAGE_STATS
+  disposition: PENDING_REVIEW
+  rationale: Special usage-access applicability and exact returned usage/task/process semantics require
+    review before a software/process-discovery edge.
+  reference: https://developer.android.com/reference/android/Manifest.permission#PACKAGE_USAGE_STATS
+  review_status: HELD_FOR_ADDITIONAL_APPLICABILITY_OR_BEHAVIOR_EVIDENCE
+  independent_human_review: false
+- permission: android.permission.GET_TASKS
+  disposition: PENDING_REVIEW
+  rationale: Deprecated/restricted task visibility differs by API/target SDK; task lists must not be silently
+    converted to process or software discovery.
+  reference: https://developer.android.com/reference/android/Manifest.permission#GET_TASKS
+  review_status: HELD_FOR_ADDITIONAL_APPLICABILITY_OR_BEHAVIOR_EVIDENCE
+  independent_human_review: false
+- permission: android.permission.REQUEST_INSTALL_PACKAGES
+  disposition: PENDING_REVIEW
+  rationale: Requesting package installation does not establish malicious application delivery (T1476);
+    installer role, user mediation and actual delivery chain are missing.
+  reference: https://developer.android.com/reference/android/Manifest.permission#REQUEST_INSTALL_PACKAGES
+  review_status: HELD_FOR_ADDITIONAL_APPLICABILITY_OR_BEHAVIOR_EVIDENCE
+  independent_human_review: false
+- permission: android.permission.KILL_BACKGROUND_PROCESSES
+  disposition: PENDING_REVIEW
+  rationale: Android-version/target restrictions and target-process identity are required before a defense-impairment
+    relationship; no automatic T1629.003 mapping.
+  reference: https://developer.android.com/reference/android/Manifest.permission#KILL_BACKGROUND_PROCESSES
+  review_status: HELD_FOR_ADDITIONAL_APPLICABILITY_OR_BEHAVIOR_EVIDENCE
+  independent_human_review: false
+- permission: android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+  disposition: PENDING_REVIEW
+  rationale: Requesting an energy-management exemption is not running a foreground service; task/service
+    execution and applicable policy context remain unestablished.
+  reference: https://developer.android.com/reference/android/Manifest.permission#REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+  review_status: HELD_FOR_ADDITIONAL_APPLICABILITY_OR_BEHAVIOR_EVIDENCE
+  independent_human_review: false
+- permission: android.permission.REQUEST_DELETE_PACKAGES
+  disposition: PENDING_REVIEW
+  rationale: Requesting an uninstall with user mediation is not self-removal of a malicious app under
+    T1630.001 or demonstrated defense impairment.
+  reference: https://developer.android.com/reference/android/Manifest.permission#REQUEST_DELETE_PACKAGES
+  review_status: HELD_FOR_ADDITIONAL_APPLICABILITY_OR_BEHAVIOR_EVIDENCE
+  independent_human_review: false
