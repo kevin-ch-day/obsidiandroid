@@ -147,8 +147,15 @@ def build_attack_mobile_hypotheses(
     sample_count_field: str = "sample_count",
     prevalence_field: str = "prevalence",
     permission_field: str = "permission",
+    casefold_hint: bool = True,
 ) -> pd.DataFrame:
-    """Build legacy group-level candidate hints, never sample-level behavior evidence."""
+    """Build legacy group-level candidate hints, never sample-level behavior evidence.
+
+    ``casefold_hint=True`` (default) matches prevalence tokens to rule identities after
+    lowercasing both sides. That is an explicitly non-authoritative hint: authoritative
+    identity matching in ``obsidiandroid.governance.permission_attack_evidence`` is exact
+    and case-sensitive. Pass ``casefold_hint=False`` to require exact canonical tokens.
+    """
     if (
         not isinstance(prevalence_df, pd.DataFrame)
         or prevalence_df.empty
@@ -165,7 +172,8 @@ def build_attack_mobile_hypotheses(
 
     work = prevalence_df.copy()
     work[group_field] = work[group_field].fillna("").astype(str).str.strip()
-    work[permission_field] = work[permission_field].fillna("").astype(str).str.strip().str.lower()
+    normalize = (lambda value: value.lower()) if casefold_hint else (lambda value: value)
+    work[permission_field] = work[permission_field].fillna("").astype(str).str.strip().map(normalize)
     work[prevalence_field] = pd.to_numeric(work[prevalence_field], errors="coerce").fillna(0.0)
     if sample_count_field in work.columns:
         work[sample_count_field] = pd.to_numeric(work[sample_count_field], errors="coerce").fillna(0).astype(int)
@@ -182,7 +190,7 @@ def build_attack_mobile_hypotheses(
         )
         sample_count = int(group[sample_count_field].max()) if sample_count_field in group.columns else 0
         for rule in rules:
-            required_any = [str(value).strip().lower() for value in rule.get("required_any", []) if str(value).strip()]
+            required_any = [normalize(str(value).strip()) for value in rule.get("required_any", []) if str(value).strip()]
             required_count = int(rule.get("required_count", 1) or 1)
             min_prevalence = float(rule.get("min_prevalence", 0.0) or 0.0)
             matched = [
@@ -228,7 +236,10 @@ def build_attack_mobile_hypotheses(
                     "relationship_category": rule["relationship_category"],
                     "behavioral_interpretation": "INSUFFICIENT_EVIDENCE",
                     "technique_observed": False,
-                    "identity_matching": "LEGACY_CASEFOLD_HINT_NOT_IDENTITY_AUTHORITY",
+                    "identity_matching": (
+                        "LEGACY_CASEFOLD_HINT_NOT_IDENTITY_AUTHORITY" if casefold_hint
+                        else "EXACT_TOKEN_HINT_NOT_IDENTITY_AUTHORITY"
+                    ),
                     "permission_role": "UNKNOWN",
                     "cooccurrence_established": False,
                     "eligible_for_family_model_features": False,
