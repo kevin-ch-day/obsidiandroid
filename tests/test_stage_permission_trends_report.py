@@ -1003,11 +1003,13 @@ def test_build_attack_mobile_hypotheses_finds_sms_and_discovery_signals() -> Non
     assert ("banker", "T1636.003") in got
     assert ("banker", "T1418") in got
     sms_row = out[out["attack_id"] == "T1636.004"].iloc[0]
-    assert sms_row["pattern_basis"] == "BEHAVIOR+TYPE_LEVEL+MIXED"
-    assert sms_row["pattern_label"] == "Moderate Pattern"
-    assert sms_row["pattern_confidence"] == "moderate"
+    assert sms_row["pattern_basis"] == "PERMISSION_CAPABILITY_HYPOTHESIS+TYPE_LEVEL"
+    assert sms_row["pattern_label"] == "Moderate-Strong Pattern"
+    assert sms_row["pattern_confidence"] == "high"
     assert "permission-derived hypothesis" in sms_row["pattern_reason"]
-    assert "mapping_confidence" in sms_row["pattern_reason"]
+    assert "relationship_semantics=capability_hypothesis" in sms_row["pattern_reason"]
+    assert sms_row["confidence"] is None
+    assert not sms_row["technique_observed"]
 
 
 def test_build_attack_mobile_hypotheses_falls_back_when_pattern_fields_are_missing() -> None:
@@ -1037,9 +1039,9 @@ def test_build_attack_mobile_hypotheses_falls_back_when_pattern_fields_are_missi
 
     assert not out.empty
     sms_row = out[out["attack_id"] == "T1636.004"].iloc[0]
-    assert sms_row["pattern_basis"] == "BEHAVIOR+TYPE_LEVEL+MIXED"
-    assert sms_row["pattern_label"] == "Moderate Pattern"
-    assert sms_row["pattern_confidence"] == "moderate"
+    assert sms_row["pattern_basis"] == "PERMISSION_CAPABILITY_HYPOTHESIS+TYPE_LEVEL"
+    assert sms_row["pattern_label"] == "Moderate-Strong Pattern"
+    assert sms_row["pattern_confidence"] == "high"
 
 
 def test_build_type_capability_bundle_prevalence_reports_expected_bundles() -> None:
