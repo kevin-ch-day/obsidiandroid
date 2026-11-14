@@ -1,0 +1,45 @@
+{
+  "access_mode": "READ_ONLY_SELECT_AND_SHOW_VIEW",
+  "connection": "claude_ro@localhost (unix socket), database android_permission_intel",
+  "current_bundle": {
+    "collection_modified": "2026-11-05T05:02:21.441Z",
+    "collection_version": "20.1",
+    "path": "config/taxonomy/mitre/mobile-attack-v20.1.json",
+    "sha256": "632e2ec40848394f9873a7a3485fc32f92b861a4e7271f7e88e0cb02f11bb6af"
+  },
+  "ddl_or_dml_executed": false,
+  "earlier_bundle": {
+    "collection_modified": "2026-08-05T21:34:50.442Z",
+    "collection_version": "19.2",
+    "path": "/home/systemadmin/Documents/Erebus_Audits/EVIDENCE/archive/closed-codex-packets-2026-10-05/2026-10-04-android-research-evidence-release/run-003-attack-evidence/source/mobile-attack-19.2.json",
+    "sha256": "acfa5ca2d93484476f79bf38590e2b55bb675fc0ce85e76bffa0af2c82dada64"
+  },
+  "edge_disposition_counts": {
+    "case_only_difference": 9,
+    "db_only_legacy": 3,
+    "db_only_write_token": 3,
+    "technique_absent_from_yaml": 1,
+    "yaml_only": 20
+  },
+  "generated_at_utc": "2026-11-14T15:49:08.715947+00:00",
+  "lut_rows": 10,
+  "mapping_rows": 16,
+  "mapping_strength_semantics": "relationship property of seeded rows; not behavioural evidence",
+  "schema_migration_0058": [
+    {
+      "applied_at_utc": "2026-05-17 17:28:36",
+      "id": "12",
+      "note": "Add Permission Intel ATT&CK mapping and false-positive context surfaces",
+      "version": "0058"
+    }
+  ],
+  "strength_conflicts": 3,
+  "yaml": {
+    "edge_count": 29,
+    "path": "config/taxonomy/mobile_attack_permission_mapping.yaml",
+    "rule_count": 21,
+    "schema_version": "permission-attack-relationships-v2",
+    "sha256": "503bbdd9d3ca63097163781f6233c05e99c4987a5595bd7a109f5691b5372b50",
+    "version": "20261113-v3"
+  }
+}
