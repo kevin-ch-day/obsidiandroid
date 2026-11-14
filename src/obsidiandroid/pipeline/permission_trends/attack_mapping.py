@@ -56,18 +56,13 @@ def _aggregate_hypothesis_pattern(
         str(row.get("pattern_confidence", "low") or "low").strip().lower()
         for row in matched_rows
     ]
-    level_cap = _HYPOTHESIS_LEVEL_CAP.get(str(mapping_confidence).strip().lower(), 4)
+    # These fields describe the upstream prevalence pattern only. They are not
+    # a technique-observation confidence ladder.
     base_level = min(evidence_levels) if evidence_levels else 1
-    pattern_level = max(0, min(base_level, level_cap))
+    pattern_level = max(0, base_level)
     mean_score = round(sum(evidence_scores) / max(len(evidence_scores), 1), 2) if evidence_scores else 0.0
-    mapping_conf_cap = _PATTERN_CONFIDENCE_BY_ATTACK_CONFIDENCE.get(
-        str(mapping_confidence).strip().lower(),
-        "low",
-    )
-    confidence_rank = min(
-        [_PATTERN_CONFIDENCE_ORDER.get(mapping_conf_cap, 2)]
-        + [_PATTERN_CONFIDENCE_ORDER.get(value, 2) for value in evidence_confidences]
-    )
+    confidence_rank = min([_PATTERN_CONFIDENCE_ORDER.get(value, 2)
+                           for value in evidence_confidences] or [2])
     pattern_confidence = next(
         key for key, value in _PATTERN_CONFIDENCE_ORDER.items() if value == confidence_rank
     )
@@ -86,24 +81,25 @@ def _aggregate_hypothesis_pattern(
         if len(normalized_bases) == 1:
             base_basis = normalized_bases.pop()
             if "+TYPE_LEVEL" in base_basis:
-                pattern_basis = "BEHAVIOR+TYPE_LEVEL+MIXED"
+                pattern_basis = "PERMISSION_CAPABILITY_HYPOTHESIS+TYPE_LEVEL"
             elif "+FAMILY_LEVEL" in base_basis:
-                pattern_basis = "BEHAVIOR+FAMILY_LEVEL+MIXED"
+                pattern_basis = "PERMISSION_CAPABILITY_HYPOTHESIS+FAMILY_LEVEL"
             else:
-                pattern_basis = f"BEHAVIOR+{group_level}+MIXED"
+                pattern_basis = f"PERMISSION_CAPABILITY_HYPOTHESIS+{group_level}"
         else:
-            pattern_basis = f"BEHAVIOR+{group_level}+MIXED"
+            pattern_basis = f"PERMISSION_CAPABILITY_HYPOTHESIS+{group_level}"
     else:
-        pattern_basis = f"BEHAVIOR+{group_level}+MIXED"
+        pattern_basis = f"PERMISSION_CAPABILITY_HYPOTHESIS+{group_level}"
     return {
         "pattern_score": mean_score,
         "pattern_level": pattern_level,
         "pattern_label": pattern_label_for_level(pattern_level),
         "pattern_basis": pattern_basis,
         "pattern_confidence": pattern_confidence,
+        "pattern_semantics": "DESCRIPTIVE_PERMISSION_PREVALENCE_NOT_TECHNIQUE_CONFIDENCE",
         "pattern_reason": (
             f"permission-derived hypothesis from {matched_permission_count} matched permissions; "
-            f"upstream evidence={evidence_label_text}; mapping_confidence={mapping_confidence}"
+            f"upstream evidence={evidence_label_text}; relationship_semantics=capability_hypothesis; role/identity/current applicability unresolved"
         ),
     }
 
@@ -152,7 +148,7 @@ def build_attack_mobile_hypotheses(
     prevalence_field: str = "prevalence",
     permission_field: str = "permission",
 ) -> pd.DataFrame:
-    """Build ATT&CK-Mobile capability hypotheses from permission prevalence rows."""
+    """Build legacy group-level candidate hints, never sample-level behavior evidence."""
     if (
         not isinstance(prevalence_df, pd.DataFrame)
         or prevalence_df.empty
@@ -209,7 +205,7 @@ def build_attack_mobile_hypotheses(
                 )
                 if top_row is not None:
                     matched_rows.append(top_row)
-            attack_confidence = str(rule.get("confidence", "") or "").strip()
+            attack_confidence = ""  # Deprecated: no permission-to-behavior confidence score
             pattern_payload = _aggregate_hypothesis_pattern(
                 matched_rows=matched_rows,
                 group_kind=group_kind,
@@ -225,8 +221,20 @@ def build_attack_mobile_hypotheses(
                     "attack_id": str(rule.get("attack_id", "") or "").strip(),
                     "attack_name": str(rule.get("attack_name", "") or "").strip(),
                     "attack_url": str(rule.get("attack_url", "") or "").strip(),
-                    "tactic": str(rule.get("tactic", "") or "").strip(),
-                    "confidence": attack_confidence,
+                    "tactic": "; ".join(rule["tactics"]),
+                    "tactics": rule["tactics"],
+                    "stix_id": rule["stix_id"],
+                    "attack_release": mapping["attack_source"]["release"],
+                    "relationship_category": rule["relationship_category"],
+                    "behavioral_interpretation": "INSUFFICIENT_EVIDENCE",
+                    "technique_observed": False,
+                    "identity_matching": "LEGACY_CASEFOLD_HINT_NOT_IDENTITY_AUTHORITY",
+                    "permission_role": "UNKNOWN",
+                    "cooccurrence_established": False,
+                    "eligible_for_family_model_features": False,
+                    "missing_evidence": rule["observed_behavior_requires"],
+                    "confidence": None,
+                    "confidence_status": "DEPRECATED_NOT_A_BEHAVIOR_SCORE",
                     "required_permission_count": int(len(required_any)),
                     "matched_permission_count": int(len(matched)),
                     "min_required_prevalence": float(min_prevalence),
@@ -273,7 +281,7 @@ def build_attack_mobile_hypotheses_markdown(
         f"# ATT&CK-Mobile Hypotheses ({run_id})",
         "",
         "Permission-derived capability hypotheses only.",
-        "These are static-capability inferences from declared permission prevalence surfaces, not proof of runtime behavior.",
+        "Group prevalence supplies candidate hints only; permission roles, exact identity and sample co-occurrence are not established. These rows must not be used as family-classification inputs.",
     ]
     if not isinstance(hypotheses_df, pd.DataFrame) or hypotheses_df.empty:
         lines.extend(["", "- No ATT&CK-Mobile hypotheses met the configured prevalence rules."])
@@ -286,7 +294,7 @@ def build_attack_mobile_hypotheses_markdown(
             lines.append(f"- `{group_value}` (n={sample_count})")
             for _, row in subgroup.head(4).iterrows():
                 lines.append(
-                    f"  - `{row['attack_id']}` {row['attack_name']} [{row['confidence']}; "
+                    f"  - `{row['attack_id']}` {row['attack_name']} [{row.get('relationship_category', 'candidate hypothesis')}; "
                     f"{row.get('pattern_label', 'Inconclusive')}, {row.get('pattern_confidence', 'low')}] via "
                     f"`{row['evidence_permissions']}`"
                 )
