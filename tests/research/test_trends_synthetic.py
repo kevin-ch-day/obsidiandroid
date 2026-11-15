@@ -106,3 +106,14 @@ def test_study_runs_on_synthetic(tmp_path):
     assert (tmp_path / "out" / "scorecard.csv").exists() and (tmp_path / "out" / "T4_matched_benign_vs_malware.csv").exists()
     meta = json.loads((tmp_path / "out" / "T2_dangerous_prevalence.meta.json").read_text()); assert meta["weighting_mode"] == "cluster" and meta["preregistration_sha256"] == "0" * 64
     assert res["rows_malware"] > 0
+
+
+def test_stability_effects_and_format():
+    from obsidiandroid.research.trends import stability as S
+    t = pd.DataFrame({"permission": ["p"] * 2, "year": [2018, 2025], "weighted_prevalence": [0.2, 0.5], "lo95": [0.1, 0.4], "hi95": [0.3, 0.6]})
+    eff, excl = S._effect_T2T3(t, "p"); assert eff == pytest.approx(0.3) and excl is True and S._fmt((eff, excl)) == "+0.300*"
+    assert S._effect_T2T3(t, "missing") is None and S._fmt(None) == "n/a"
+    t4 = pd.DataFrame({"permission": ["q", "q"], "year": [2018, 2019], "malware": [0.5, 0.6], "benign": [0.2, 0.2], "difference": [0.3, 0.4], "malware_lo95": [0.4, 0.5], "malware_hi95": [0.6, 0.7]})
+    eff, excl = S._effect_T4(t4, "q"); assert eff == pytest.approx(0.35) and excl is True
+    t6 = pd.DataFrame({"year": [2019, 2024], "type_a": ["banker", "banker"], "type_b": ["rat", "rat"], "js_distance": [0.4, 0.6], "thin": [False, False]})
+    assert S._effect_T6(t6, "banker", "rat") == (pytest.approx(0.2), True)
