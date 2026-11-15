@@ -16,7 +16,7 @@ import pandas as pd
 
 
 def test_family_alias_normalization():
-    assert normalize_family_name("HQWar") == "trickmo"
+    assert normalize_family_name("HQWar") == "hqwar"
     assert normalize_family_name("Flu-Bot") == "flubot"
     assert normalize_family_name("OTPStealer") == "otpstealer"
     assert normalize_family_name("otp-stealer") == "otpstealer"
@@ -43,7 +43,7 @@ def test_family_alias_normalization():
 
 
 def test_known_family_with_alias():
-    assert is_known_family_name("hqwar")
+    assert not is_known_family_name("hqwar")
     assert is_known_family_name("TrickMo")
     assert is_known_family_name("ToxicPanda")
     assert is_known_family_name("MaliBot")
@@ -113,7 +113,19 @@ def test_completeness_uses_predicted_family_fallback():
 def test_category_vector_family_alias_normalized():
     record = SimpleNamespace(category_vector=["family:hqwar", "type:trojan"])
     vector = prediction_utils.get_category_vector_string(record)
-    assert "family:trickmo" in vector
+    assert "family:hqwar" in vector
+    assert "family:trickmo" not in vector
+
+
+def test_hqwar_dropper_token_does_not_create_trickmo_payload_evidence():
+    from obsidiandroid.vendors.parsing.kaspersky_parser import parse_kaspersky_classification
+
+    parsed = parse_kaspersky_classification("Trojan-Dropper.AndroidOS.Hqwar.a")
+    assert parsed.family == "hqwar"
+    assert normalize_family_name(parsed.family) == "hqwar"
+    assert canonicalize_family_label("HQWar") == "hqwar"
+    assert not is_known_family_name(parsed.family)
+    assert canonicalize_family_label("TrickMo") == "TrickMo"
 
 
 def test_training_label_normalization_merges_variants():

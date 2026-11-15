@@ -1,7 +1,7 @@
 """Conservative, versioned explanations over immutable retained vendor claims.
 
-Outcome labels describe interpretation evidence, not sample ground truth. Only the
-Kaspersky exact-family-slot correction changes a supported family interpretation.
+Outcome labels describe interpretation evidence, not sample ground truth. Changes
+cover the Kaspersky exact-family slot and retirement of the Hqwar payload alias.
 """
 import hashlib
 from pathlib import Path
@@ -11,7 +11,7 @@ from obsidiandroid.labeling import taxonomy, malware_family_constants
 from obsidiandroid.vendors.parsing import kaspersky_parser, parser_defaults, parser_confidence_estimator
 from obsidiandroid.vendors.contracts import parsed_label_metadata
 
-POLICY = 'vendor-interpretation-quality-v1'
+POLICY = 'vendor-interpretation-quality-v2'
 GENERIC = re.compile(
     r'(?:detected|malicious(?: \(score: \d+\))?|android[.:]malware[.:](?:trojan|spyware)|'
     r'trojan\.gen(?:\.(?:\d+|npe|[a-z]))?|android:evo-gen \[trj\]|apprisk:generisk)', re.I)
@@ -33,6 +33,14 @@ def interpret(engine, label, frozen_family, frozen_known, catalog_names=()):
     state, reason = 'G_INSUFFICIENT_SOURCE', 'No nonempty family-bearing detection label'
     if not label:
         return dict(state=state, reason=reason, family=None, recognized=False, corrected=False)
+    tokens = {t.casefold() for t in TOKENS.findall(label)}
+    if (frozen_known and taxonomy.normalize_family_name(frozen_family) == 'trickmo'
+            and 'hqwar' in tokens and 'trickmo' not in tokens):
+        return dict(
+            state='E_CORRECTED_IMPLEMENTATION',
+            reason='Retired Hqwar-to-TrickMo alias; the raw dropper/packer label does not establish its payload family',
+            family=None, recognized=False, corrected=True,
+        )
     if engine == 'Kaspersky':
         parsed = kaspersky_parser.parse_kaspersky_classification(label).to_dict()
         candidate = taxonomy.normalize_family_name(parsed.get('family','unknown'))
@@ -46,7 +54,6 @@ def interpret(engine, label, frozen_family, frozen_known, catalog_names=()):
     elif GENERIC.fullmatch(label):
         state, reason = 'A_GENERIC_DETECTION', 'Reviewed generic-only label pattern; no family assigned'
     else:
-        tokens = {t.casefold() for t in TOKENS.findall(label)}
         known = {taxonomy.normalize_family_name(t) for t in tokens if taxonomy.is_known_family_name(t)}
         catalog = tokens & set(catalog_names)
         if len(known) > 1:

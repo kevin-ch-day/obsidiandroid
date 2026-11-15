@@ -42,6 +42,18 @@ def test_generic_and_ambiguous_keep_abstention():
     assert interpret('Unknown','Android.TotallyNovel.X','unknown',False)['state']=='C_SPECIFIC_LOOKING_UNRESOLVED'
 
 
+def test_retired_hqwar_alias_cannot_reenter_through_frozen_recognition():
+    result = interpret('Kaspersky', 'HEUR:Trojan-Dropper.AndroidOS.Hqwar.a', 'trickmo', True)
+    assert result['family'] is None and not result['recognized']
+    assert result['corrected'] and 'Hqwar' in result['reason']
+
+
+@pytest.mark.parametrize('label', ['Trojan.AndroidOS.TrickMo.Hqwar', 'Trojan.AndroidOS.NotHqwar.a'])
+def test_alias_retirement_keeps_separate_explicit_or_unrelated_frozen_claims(label):
+    result = interpret('Kaspersky', label, 'trickmo', True)
+    assert result['family'] == 'trickmo' and result['recognized']
+
+
 def test_pinned_atlas_explains_without_changing_frozen_claims(tmp_path):
     from test_research_atlas import fixture
     from obsidiandroid.reporting.research_atlas import ResearchAtlas
