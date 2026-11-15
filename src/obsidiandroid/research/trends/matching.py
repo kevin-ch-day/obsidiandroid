@@ -54,6 +54,8 @@ def matched_prevalence(mal: pd.DataFrame, ben: pd.DataFrame, indicator_m: pd.Ser
         im = gm.index[mb == band]; ib = gb.index[bb == band]
         if len(im) == 0 or len(ib) == 0:
             dropped.append(band); continue
+        if w_m[im].sum() <= 0 or w_b[ib].sum() <= 0:   # e.g. one-per-cluster arms where no sampled row falls in the band
+            dropped.append(band); continue
         cap = min(len(im), len(ib))
         pm = (indicator_m[im] * w_m[im]).sum() / w_m[im].sum(); pb = (indicator_b[ib] * w_b[ib]).sum() / w_b[ib].sum()
         num_m += cap * pm; num_b += cap * pb; den += cap; used.append(band)

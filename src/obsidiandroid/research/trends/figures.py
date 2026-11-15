@@ -50,8 +50,11 @@ def fig_prevalence_lines(table: pd.DataFrame, out: Path, name: str, annotations:
         c = PALETTE[i % len(PALETTE)]; ax.plot(g["year"], g[value_col], marker="o", color=c, label=perm.replace("android.permission.", ""))
         if "lo95" in g and g["lo95"].notna().any():
             ax.fill_between(g["year"], g["lo95"], g["hi95"], color=c, alpha=0.12)
-    ax.set_ylim(0, 1); _annotate(ax, annotations, (int(table["year"].min()), int(table["year"].max())))
-    ax.set_xlabel("first-submission year"); ax.set_ylabel(value_col.replace("_", " ")); ax.legend(fontsize=6, ncol=2); ax.set_title(title or name)
+    ax.set_ylim(0, 1)
+    numeric_axis = pd.to_numeric(table["year"], errors="coerce").notna().all()
+    if annotations and numeric_axis:
+        _annotate(ax, annotations, (int(table["year"].min()), int(table["year"].max())))
+    ax.set_xlabel("first-submission year" if numeric_axis else "axis level"); ax.set_ylabel(value_col.replace("_", " ")); ax.legend(fontsize=6, ncol=2); ax.set_title(title or name)
     return _save(fig, out, name, table)
 
 

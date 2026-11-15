@@ -117,3 +117,10 @@ def test_stability_effects_and_format():
     eff, excl = S._effect_T4(t4, "q"); assert eff == pytest.approx(0.35) and excl is True
     t6 = pd.DataFrame({"year": [2019, 2024], "type_a": ["banker", "banker"], "type_b": ["rat", "rat"], "js_distance": [0.4, 0.6], "thin": [False, False]})
     assert S._effect_T6(t6, "banker", "rat") == (pytest.approx(0.2), True)
+
+
+def test_prevalence_figure_accepts_band_axis(tmp_path):
+    from obsidiandroid.research.trends import figures as F
+    t = pd.DataFrame({"year": ["<=22", "23-25", "(null)"], "permission": ["p"] * 3, "weighted_prevalence": [0.1, 0.2, 0.3], "lo95": [np.nan] * 3, "hi95": [np.nan] * 3})
+    out = F.fig_prevalence_lines(t, tmp_path, "band_axis", annotations={"events": [{"year": 2019, "label": "x"}], "causal_claim_permitted": False})
+    assert (tmp_path / out["png"]).exists()
