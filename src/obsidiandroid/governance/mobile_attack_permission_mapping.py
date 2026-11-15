@@ -15,7 +15,8 @@ MAPPING_HANDLE = 'mobile_attack_permission_mapping.rules'
 SCHEMA_VERSION = 'permission-attack-relationships-v2'
 DISPOSITIONS = frozenset({'CAPABILITY_RELATED', 'CONTEXT_REQUIRED', 'NO_DIRECT_MAPPING',
                           'UNRESOLVED', 'NOT_VALID_PERMISSION', 'PENDING_REVIEW'})
-ROLES = frozenset({'REQUESTED', 'DEFINED', 'COMPONENT_GUARD', 'UNKNOWN', 'RUNTIME_GRANT', 'API_BEHAVIOR'})
+ROLES = frozenset({'REQUESTED', 'DEFINED', 'COMPONENT_GUARD', 'UNKNOWN', 'RUNTIME_GRANT', 'API_BEHAVIOR', 'PROVIDER_REPORTED'})
+PROVIDER_TIER = 'PROVIDER_REPORTED_LOWER'
 
 
 def _stable_hash(payload: dict[str, Any]) -> str:
@@ -63,6 +64,14 @@ def validate_mapping(payload: dict, reference=None) -> dict:
         roles = rule.get('allowed_roles', [])
         if not roles or len(roles)!=len(set(roles)) or not set(roles)<=ROLES-{'UNKNOWN','DEFINED'}:
             raise ValueError('Invalid permission roles for capability mapping')
+        if 'PROVIDER_REPORTED' in roles:
+            note = rule.get('provider_review_note', '').lower()
+            if (rule['relationship_category'] != 'CAPABILITY_RELATED'
+                or rule.get('evidence_tier') != PROVIDER_TIER
+                or 'androguard' not in note or 'unobservable' not in note):
+                raise ValueError('Provider tier requires capability-only scope and explicit role-unobservable review')
+        elif rule.get('evidence_tier') == PROVIDER_TIER:
+            raise ValueError('Provider evidence tier requires its explicit provider role')
         if not isinstance(rule.get('required_count'),int) or not 1<=rule['required_count']<=len(perms):
             raise ValueError('Invalid required permission count')
         if not 0<=rule.get('min_prevalence',-1)<=1:
