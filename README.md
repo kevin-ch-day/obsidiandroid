@@ -507,3 +507,6 @@ Advanced training modes also check source prerequisites and request an explicit
 continuation before execution. All existing scientific constraints remain.
 
 Deployment identifiers in this guide are illustrative placeholders. Configure actual schema and account names locally; these documentation changes do not change runtime defaults.
+
+See [Permission evidence and ATT&CK Mobile relationships](docs/PERMISSION_ATTACK_INTEGRATION.md)
+for the pinned v20.1 source, corrected mapping semantics and offline PI projection.

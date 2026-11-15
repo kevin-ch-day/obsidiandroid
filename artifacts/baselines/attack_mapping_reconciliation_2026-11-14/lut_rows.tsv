@@ -1,0 +1,11 @@
+attack_technique_id	attack_name	tactic	platform	source_url	notes	record_created_at_utc	record_updated_at_utc
+T1453	Abuse Accessibility Features	Privilege Escalation	Android	https://attack.mitre.org/techniques/T1453/	MITRE ATT&CK Mobile technique for Android accessibility abuse.	2026-05-17 17:28:35	2026-05-17 17:28:35
+T1582	SMS Control	Command and Control	Android	https://attack.mitre.org/techniques/T1582/	MITRE ATT&CK Mobile technique for SMS-based control.	2026-05-17 17:28:35	2026-05-17 17:28:35
+T1626.001	Device Administrator Permissions	Privilege Escalation	Android	https://attack.mitre.org/techniques/T1626/001/	MITRE ATT&CK Mobile sub-technique for abusing Android Device Administrator permissions.	2026-05-17 17:28:35	2026-05-17 17:28:35
+T1636.001	Protected User Data: Calendar Entries	Collection	Android	https://attack.mitre.org/techniques/T1636/001/	MITRE ATT&CK Mobile protected user data sub-technique.	2026-05-17 17:28:35	2026-05-17 17:28:35
+T1636.002	Protected User Data: Call Log	Collection	Android	https://attack.mitre.org/techniques/T1636/002/	MITRE ATT&CK Mobile protected user data sub-technique.	2026-05-17 17:28:35	2026-05-17 17:28:35
+T1636.003	Protected User Data: Contact List	Collection	Android	https://attack.mitre.org/techniques/T1636/003/	MITRE ATT&CK Mobile protected user data sub-technique.	2026-05-17 17:28:35	2026-05-17 17:28:35
+T1636.004	Protected User Data: SMS Messages	Collection	Android	https://attack.mitre.org/techniques/T1636/004/	MITRE ATT&CK Mobile protected user data sub-technique.	2026-05-17 17:28:35	2026-05-17 17:28:35
+T1636.005	Protected User Data: Accounts	Collection	Android	https://attack.mitre.org/techniques/T1636/005/	MITRE ATT&CK Mobile protected user data sub-technique.	2026-05-17 17:28:35	2026-05-17 17:28:35
+T1643	Generate Traffic from Victim	Impact	Android	https://attack.mitre.org/techniques/T1643/	MITRE ATT&CK Mobile technique; SMS traffic can be relevant when SEND_SMS is present.	2026-05-17 17:28:35	2026-05-17 17:28:35
+T1644	Out of Band Data	Command and Control	Android	https://attack.mitre.org/techniques/T1644/	MITRE ATT&CK Mobile technique for out-of-band channels, including SMS examples.	2026-05-17 17:28:35	2026-05-17 17:28:35

@@ -1,0 +1,10 @@
+attack_technique_id	attack_name	tactic	sample_count	mapped_permission_observations
+T1453	Abuse Accessibility Features	Privilege Escalation	1074	1074
+T1582	SMS Control	Command and Control	10373	13546
+T1626.001	Device Administrator Permissions	Privilege Escalation	1019	1019
+T1636.001	Protected User Data: Calendar Entries	Collection	651	1104
+T1636.002	Protected User Data: Call Log	Collection	3973	4790
+T1636.003	Protected User Data: Contact List	Collection	8728	12253
+T1636.004	Protected User Data: SMS Messages	Collection	10787	18186
+T1636.005	Protected User Data: Accounts	Collection	6728	7980
+T1643	Generate Traffic from Victim	Impact	9565	9565

@@ -1,0 +1,18 @@
+{
+  "source_release": "v20.1",
+  "release_url": "https://github.com/mitre-attack/attack-stix-data/releases/tag/v20.1",
+  "published_at": "2026-11-05T16:35:43Z",
+  "commit": "f59b03ecf828579d5f9e93683ce25b7e2e5fd9d7",
+  "artifact_url": "https://github.com/mitre-attack/attack-stix-data/releases/download/v20.1/mobile-attack.json",
+  "sha256": "632e2ec40848394f9873a7a3485fc32f92b861a4e7271f7e88e0cb02f11bb6af",
+  "official_asset_digest": "sha256:632e2ec40848394f9873a7a3485fc32f92b861a4e7271f7e88e0cb02f11bb6af",
+  "bytes": 6144331,
+  "retrieved_utc": "2026-11-13T16:02:10.850826+00:00",
+  "stix_bundle_id": "bundle--5c356518-53ac-4943-bb48-eb34f30557d5",
+  "objects": 2706,
+  "attack_patterns": 190,
+  "spec_versions": [
+    "2.1"
+  ],
+  "redirect_host": "release-assets.githubusercontent.com"
+}

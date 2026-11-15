@@ -1,0 +1,37 @@
+edge_source	mapping_id	db_token	yaml_token	attack_id	db_mapping_strength	db_active_flag	yaml_rule_id	yaml_relationship_category	yaml_allowed_roles	yaml_tactics	dict_aosp_lifecycle_status	api_identity_authority_class	disposition	strength_conflict
+both	1	android.permission.bind_accessibility_service	android.permission.BIND_ACCESSIBILITY_SERVICE	T1453	strong	1	mobile-permission-T1453-v2	CONTEXT_REQUIRED	COMPONENT_GUARD	collection;credential-access	current	AOSP_PUBLIC	case_only_difference	True
+both	2	android.permission.bind_device_admin	android.permission.BIND_DEVICE_ADMIN	T1626.001	strong	1	mobile-permission-T1626-001-v2	CONTEXT_REQUIRED	COMPONENT_GUARD	privilege-escalation	current	AOSP_PUBLIC	case_only_difference	True
+both	3	android.permission.read_sms	android.permission.READ_SMS	T1636.004	strong	1	mobile-permission-T1636-004-v2	CAPABILITY_RELATED	REQUESTED;RUNTIME_GRANT	collection	current	AOSP_PUBLIC	case_only_difference	False
+both	4	android.permission.receive_sms	android.permission.RECEIVE_SMS	T1636.004	strong	1	mobile-permission-T1636-004-v2	CAPABILITY_RELATED	REQUESTED;RUNTIME_GRANT	collection	current	AOSP_PUBLIC	case_only_difference	False
+both	5	android.permission.send_sms	android.permission.SEND_SMS	T1582	strong	1	mobile-permission-T1582-v3	CONTEXT_REQUIRED	REQUESTED;RUNTIME_GRANT	impact	current	AOSP_PUBLIC	case_only_difference	True
+db_only	6	android.permission.send_sms		T1643	moderate	1					current	AOSP_PUBLIC	technique_absent_from_yaml	False
+db_only	7	android.permission.write_sms		T1582	moderate	1					current	AOSP_HIDDEN	db_only_legacy	False
+both	8	android.permission.read_contacts	android.permission.READ_CONTACTS	T1636.003	strong	1	mobile-permission-T1636-003-v2	CAPABILITY_RELATED	REQUESTED;RUNTIME_GRANT	collection	current	AOSP_PUBLIC	case_only_difference	False
+db_only	9	android.permission.write_contacts		T1636.003	moderate	1					current	AOSP_PUBLIC	db_only_write_token	False
+both	10	android.permission.read_call_log	android.permission.READ_CALL_LOG	T1636.002	strong	1	mobile-permission-T1636-002-v2	CAPABILITY_RELATED	REQUESTED;RUNTIME_GRANT	collection	current	AOSP_PUBLIC	case_only_difference	False
+db_only	11	android.permission.write_call_log		T1636.002	moderate	1					current	AOSP_PUBLIC	db_only_write_token	False
+both	12	android.permission.get_accounts	android.permission.GET_ACCOUNTS	T1636.005	strong	1	mobile-permission-T1636-005-v2	CAPABILITY_RELATED	REQUESTED;RUNTIME_GRANT	collection	current	AOSP_PUBLIC	case_only_difference	False
+db_only	13	android.permission.authenticate_accounts		T1636.005	moderate	1					legacy_removed	AOSP_HIDDEN	db_only_legacy	False
+db_only	14	android.permission.manage_accounts		T1636.005	moderate	1					legacy_removed	AOSP_HIDDEN	db_only_legacy	False
+both	15	android.permission.read_calendar	android.permission.READ_CALENDAR	T1636.001	strong	1	mobile-permission-T1636-001-v3	CAPABILITY_RELATED	REQUESTED;RUNTIME_GRANT	collection	current	AOSP_PUBLIC	case_only_difference	False
+db_only	16	android.permission.write_calendar		T1636.001	moderate	1					current	AOSP_PUBLIC	db_only_write_token	False
+yaml_only			android.permission.QUERY_ALL_PACKAGES	T1418			mobile-permission-T1418-v2	CAPABILITY_RELATED	REQUESTED;RUNTIME_GRANT	discovery			yaml_only	False
+yaml_only			android.permission.ACCESS_NETWORK_STATE	T1422.001			mobile-permission-T1422-001-v3	CONTEXT_REQUIRED	REQUESTED;RUNTIME_GRANT	discovery			yaml_only	False
+yaml_only			android.permission.ACCESS_WIFI_STATE	T1422.002			mobile-permission-T1422-002-v3	CONTEXT_REQUIRED	REQUESTED;RUNTIME_GRANT	discovery			yaml_only	False
+yaml_only			android.permission.RECORD_AUDIO	T1429			mobile-permission-T1429-v2	CAPABILITY_RELATED	REQUESTED;RUNTIME_GRANT	collection			yaml_only	False
+yaml_only			android.permission.ACCESS_BACKGROUND_LOCATION	T1430			mobile-permission-T1430-v2	CAPABILITY_RELATED	REQUESTED;RUNTIME_GRANT	collection;discovery			yaml_only	False
+yaml_only			android.permission.ACCESS_COARSE_LOCATION	T1430			mobile-permission-T1430-v2	CAPABILITY_RELATED	REQUESTED;RUNTIME_GRANT	collection;discovery			yaml_only	False
+yaml_only			android.permission.ACCESS_FINE_LOCATION	T1430			mobile-permission-T1430-v2	CAPABILITY_RELATED	REQUESTED;RUNTIME_GRANT	collection;discovery			yaml_only	False
+yaml_only			android.permission.CAMERA	T1512			mobile-permission-T1512-v2	CAPABILITY_RELATED	REQUESTED;RUNTIME_GRANT	collection			yaml_only	False
+yaml_only			android.permission.BIND_ACCESSIBILITY_SERVICE	T1516			mobile-permission-T1516-v2	CONTEXT_REQUIRED	COMPONENT_GUARD	defense-evasion;impact			yaml_only	False
+yaml_only			android.permission.BIND_NOTIFICATION_LISTENER_SERVICE	T1517			mobile-permission-T1517-v2	CONTEXT_REQUIRED	COMPONENT_GUARD	collection;credential-access			yaml_only	False
+yaml_only			android.permission.READ_EXTERNAL_STORAGE	T1533			mobile-permission-T1533-v3	CONTEXT_REQUIRED	REQUESTED;RUNTIME_GRANT	collection			yaml_only	False
+yaml_only			android.permission.READ_MEDIA_AUDIO	T1533			mobile-permission-T1533-v3	CONTEXT_REQUIRED	REQUESTED;RUNTIME_GRANT	collection			yaml_only	False
+yaml_only			android.permission.READ_MEDIA_IMAGES	T1533			mobile-permission-T1533-v3	CONTEXT_REQUIRED	REQUESTED;RUNTIME_GRANT	collection			yaml_only	False
+yaml_only			android.permission.READ_MEDIA_VIDEO	T1533			mobile-permission-T1533-v3	CONTEXT_REQUIRED	REQUESTED;RUNTIME_GRANT	collection			yaml_only	False
+yaml_only			android.permission.FOREGROUND_SERVICE	T1541			mobile-permission-T1541-v3	CONTEXT_REQUIRED	REQUESTED;RUNTIME_GRANT	defense-evasion;persistence			yaml_only	False
+yaml_only			android.permission.SCHEDULE_EXACT_ALARM	T1603			mobile-permission-T1603-v3	CONTEXT_REQUIRED	REQUESTED;RUNTIME_GRANT	execution;persistence			yaml_only	False
+yaml_only			android.permission.USE_EXACT_ALARM	T1603			mobile-permission-T1603-v3	CONTEXT_REQUIRED	REQUESTED;RUNTIME_GRANT	execution;persistence			yaml_only	False
+yaml_only			android.permission.ANSWER_PHONE_CALLS	T1616			mobile-permission-T1616-v2	CONTEXT_REQUIRED	REQUESTED;RUNTIME_GRANT	collection;command-and-control;impact			yaml_only	False
+yaml_only			android.permission.CALL_PHONE	T1616			mobile-permission-T1616-v2	CONTEXT_REQUIRED	REQUESTED;RUNTIME_GRANT	collection;command-and-control;impact			yaml_only	False
+yaml_only			android.permission.RECEIVE_BOOT_COMPLETED	T1624.001			mobile-permission-T1624-001-v2	CONTEXT_REQUIRED	REQUESTED;RUNTIME_GRANT	persistence			yaml_only	False

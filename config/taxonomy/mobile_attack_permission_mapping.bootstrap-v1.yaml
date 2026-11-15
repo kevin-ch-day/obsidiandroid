@@ -1,0 +1,114 @@
+mapping_id: android_mobile_attack_permission_mapping
+version: 20260531-v1
+source: mitre_attack_mobile_permission_capability_hypotheses
+review_status: bootstrap
+review_notes:
+  - Permission-derived ATT&CK mappings are capability hypotheses, not proof of runtime behavior.
+  - Rules should be interpreted with type/family context and updated as the permission corpus evolves.
+rules:
+  - attack_id: T1636.004
+    attack_name: "Protected User Data: SMS Messages"
+    attack_url: https://attack.mitre.org/techniques/T1636/004/
+    tactic: collection
+    confidence: strong_inference
+    min_prevalence: 0.20
+    required_any:
+      - android.permission.read_sms
+      - android.permission.receive_sms
+      - android.permission.send_sms
+    required_count: 2
+  - attack_id: T1636.003
+    attack_name: "Protected User Data: Contact List"
+    attack_url: https://attack.mitre.org/techniques/T1636/003/
+    tactic: collection
+    confidence: direct
+    min_prevalence: 0.15
+    required_any:
+      - android.permission.read_contacts
+      - android.permission.write_contacts
+    required_count: 1
+  - attack_id: T1636.002
+    attack_name: "Protected User Data: Call Log"
+    attack_url: https://attack.mitre.org/techniques/T1636/002/
+    tactic: collection
+    confidence: direct
+    min_prevalence: 0.10
+    required_any:
+      - android.permission.read_call_log
+      - android.permission.write_call_log
+      - android.permission.process_outgoing_calls
+    required_count: 1
+  - attack_id: T1636.005
+    attack_name: "Protected User Data: Accounts"
+    attack_url: https://attack.mitre.org/techniques/T1636/005/
+    tactic: collection
+    confidence: strong_inference
+    min_prevalence: 0.10
+    required_any:
+      - android.permission.get_accounts
+      - android.permission.manage_accounts
+      - android.permission.authenticate_accounts
+      - android.permission.use_credentials
+    required_count: 1
+  - attack_id: T1430
+    attack_name: Location Tracking
+    attack_url: https://attack.mitre.org/techniques/T1430/
+    tactic: collection
+    confidence: direct
+    min_prevalence: 0.10
+    required_any:
+      - android.permission.access_fine_location
+      - android.permission.access_coarse_location
+    required_count: 1
+  - attack_id: T1429
+    attack_name: Audio Capture
+    attack_url: https://attack.mitre.org/techniques/T1429/
+    tactic: collection
+    confidence: direct
+    min_prevalence: 0.08
+    required_any:
+      - android.permission.record_audio
+    required_count: 1
+  - attack_id: T1512
+    attack_name: Video Capture
+    attack_url: https://attack.mitre.org/techniques/T1512/
+    tactic: collection
+    confidence: direct
+    min_prevalence: 0.08
+    required_any:
+      - android.permission.camera
+    required_count: 1
+  - attack_id: T1616
+    attack_name: Call Control
+    attack_url: https://attack.mitre.org/techniques/T1616/
+    tactic: collection
+    confidence: strong_inference
+    min_prevalence: 0.05
+    required_any:
+      - android.permission.answer_phone_calls
+      - android.permission.call_phone
+      - android.permission.process_outgoing_calls
+      - android.permission.manage_own_calls
+      - android.permission.bind_telecom_connection_service
+      - android.permission.write_call_log
+    required_count: 1
+  - attack_id: T1418
+    attack_name: Software Discovery
+    attack_url: https://attack.mitre.org/techniques/T1418/
+    tactic: discovery
+    confidence: strong_inference
+    min_prevalence: 0.08
+    required_any:
+      - android.permission.query_all_packages
+      - android.permission.get_installed_apps
+      - android.permission.read_install_sessions
+    required_count: 1
+  - attack_id: T1453
+    attack_name: Abuse Accessibility Features
+    attack_url: https://attack.mitre.org/techniques/T1453/
+    tactic: privilege-escalation
+    confidence: direct
+    min_prevalence: 0.05
+    required_any:
+      - android.permission.bind_accessibility_service
+    required_count: 1
