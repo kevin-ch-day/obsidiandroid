@@ -32,6 +32,12 @@ def test_substantive_difference_and_placeholders_are_distinguished() -> None:
     assert normalize_family_identity_token("family_id=12") == ""
 
 
+def test_hqwar_does_not_join_trickmo_through_alias_identity() -> None:
+    assert is_family_label_conflict("Hqwar", "TrickMo")
+    assert normalize_family_identity_token("Hqwar") == "hqwar"
+    assert "WHEN 'hqwar' THEN 'trickmo'" not in family_identity_sql("y.family_label")
+
+
 def test_sql_identity_matches_separator_normalization_and_alias_contract() -> None:
     """The generated SQL handles parser separators without REGEXP_REPLACE."""
     expression = family_identity_sql("y.family_label")
