@@ -36,7 +36,7 @@ LEGACY_SET = [AP + x for x in ["READ_PHONE_STATE", "GET_TASKS", "READ_LOGS", "WR
 YEARS_TREND = list(range(2018, 2026)); YEARS_MATCH = list(range(2018, 2022))
 REGISTRY_ROW = "NOV15_ANALYTICAL_DATASET_V1"
 DANGEROUS_SELECTIONS = ("registered_full", "exploratory_1pct_either_arm")
-STUDY_VERSION = "trend-study-v1.2.1"
+STUDY_VERSION = "trend-study-v1.2.2"
 
 
 @dataclass(frozen=True)

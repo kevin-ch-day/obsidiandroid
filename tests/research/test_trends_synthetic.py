@@ -335,3 +335,23 @@ def test_study_t4_arms_s1_raw_and_s13_differ_from_primary(tmp_path):
         a, b = out["primary"], out[arm].reindex(out["primary"].index)
         assert not (np.allclose(a.malware_lo95, b.malware_lo95, equal_nan=True) and np.allclose(a.malware_hi95, b.malware_hi95, equal_nan=True)), arm
     meta = json.loads((tmp_path / "S1_raw" / "T4_matched_benign_vs_malware.meta.json").read_text()); assert all(v["design"] == "fixed_design" for v in meta["unit_checks"].values())
+
+
+def test_one_per_cluster_arms_take_the_fixed_design_path_with_their_own_bounds(tmp_path):
+    """v1.2 dispatched the five S1_one_per_cluster_seed* arms through the profile-unit fallback (cluster_col=ccol or
+    'perm_profile_hash'); their matched bounds must be a batch bootstrap over the chosen rows (weights 0/1 fixed at the draw)."""
+    from obsidiandroid.research.trends.matching import matched_malware_bootstrap_registered, matched_prevalence
+    from obsidiandroid.research.trends.study import StudyConfig, _cluster_col, run_study
+    ds = TrendDataset.from_frame(_frame_with_duplicated_profiles()); mal = ds.frame[ds.frame.year == 2020].copy()
+    mal["sdk_catalog_target"] = [22 if i % 2 else 26 for i in range(len(mal))]
+    cfg = {"variant": "t", "null_band": "(null)", "bands": [{"name": "<=22", "min": 1, "max": 22}, {"name": "26-28", "min": 26, "max": 28}]}
+    ind = M.indicator_matrix(mal["perms"], ["android.permission.READ_SMS", "android.permission.CAMERA"]); nben = {"<=22": 500, "26-28": 500}
+    assert _cluster_col(StudyConfig(weighting="one_per_cluster")) is None                     # the condition that triggered the v1.2 fallback
+    prof_w = Wt.cluster_weights(mal); primary = matched_malware_bootstrap_registered(mal, ind, 2020, cfg, nben, 200, 1, cluster_col="perm_profile_hash", estimator="cluster_unit_recomputed", weights=prof_w)
+    for seed in range(5):
+        w = Wt.weights_for_mode(mal, "one_per_cluster", seed); assert set(w.dropna().unique()) <= {0.0, 1.0}
+        res = matched_malware_bootstrap_registered(mal, ind, 2020, cfg, nben, 200, 1, cluster_col=None, estimator="cluster_unit_recomputed", weights=w)
+        assert res["design"] == "fixed_design" and res["point_check_max_abs_diff"] < 1e-12
+        ben = mal.iloc[:0]; disp = [matched_prevalence(mal, pd.DataFrame({"year": [2020] * 4, "sdk_catalog_target": [20, 20, 26, 26]}, index=range(10_000, 10_004)), pd.Series(ind[:, j], index=mal.index), pd.Series(0.0, index=range(10_000, 10_004)), w, pd.Series(1.0, index=range(10_000, 10_004)), 2020, cfg)["malware"] for j in range(2)]
+        assert np.allclose(res["point"], disp)                                                # bootstrap statistic on the original draw == displayed point
+        assert not (np.allclose(res["lo_recomputed"], primary["lo_recomputed"]) and np.allclose(res["hi_recomputed"], primary["hi_recomputed"]))   # not the profile-unit bounds
