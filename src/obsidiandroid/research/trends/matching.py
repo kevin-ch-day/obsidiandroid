@@ -184,9 +184,12 @@ def matched_malware_bootstrap_registered(mal: pd.DataFrame, indicator_m: pd.Seri
             total = np.zeros((counts.shape[0], k)); den = np.zeros(counts.shape[0]); band_prev = {}
             for nm in rows_b:
                 nben = benign_band_rows[nm]; RNb = counts @ Nb[nm]; mass = (w * RNb).sum(axis=1); present = mass > 0
-                num = np.empty((counts.shape[0], k))
-                for j in range(k):
-                    num[:, j] = (w * (counts @ Sb[nm][:, :, j])).sum(axis=1)
+                if constant_within_cluster:                                                   # permission profiles: RS = RN·ind_c exactly; keep the v1.2 arithmetic (bit-identical primary)
+                    num = (w * RNb) @ indc
+                else:                                                                         # e.g. signer clusters: per-band resampled indicator sums
+                    num = np.empty((counts.shape[0], k))
+                    for j in range(k):
+                        num[:, j] = (w * (counts @ Sb[nm][:, :, j])).sum(axis=1)
                 prev = num / np.where(present, mass, 1.0)[:, None]; band_prev[nm] = prev
                 cap = np.where(present, (np.minimum(counts @ rows_b[nm], nben) if caps_rule == "recomputed" else caps_point[nm]), 0.0)
                 total += cap[:, None] * prev; den += cap
