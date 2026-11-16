@@ -27,7 +27,7 @@ def prevalence_table(frame: pd.DataFrame, permissions: list[str], weights: pd.Se
 
     Rows are emitted for every requested permission including those never observed in a year (weighted_prevalence 0 with
     observed_any False), so a registered permission set is reported completely rather than silently dropped."""
-    rows = []
+    rows = []; weights = weights.reindex(frame.index)
     for year in years:
         g = frame[(frame["year"] == year) & weights.notna()]
         if len(g) == 0:
