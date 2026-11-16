@@ -217,10 +217,49 @@ def test_stability_labels_are_explicit(tmp_path):
 
 
 def test_matched_band_bootstrap_supports_both_estimators_and_many_permissions():
-    from obsidiandroid.research.trends.matching import matched_malware_band_bootstrap
+    from obsidiandroid.research.trends.matching import matched_malware_band_bootstrap_v1_1 as matched_malware_band_bootstrap
     ds = TrendDataset.from_frame(_frame_with_duplicated_profiles()); mal = ds.frame; w_m = Wt.cluster_weights(mal)
     cfg = {"variant": "t", "null_band": "(null)", "bands": [{"name": "23-28", "min": 23, "max": 28}]}
     ind = M.indicator_matrix(mal["perms"], ["android.permission.READ_SMS", "android.permission.CAMERA"])
     lo_r, hi_r, nb = matched_malware_band_bootstrap(mal, ind, w_m, 2020, cfg, {"23-28": 100.0}, 100, 1, estimator="cluster_unit_recomputed")
     lo_f, hi_f, _ = matched_malware_band_bootstrap(mal, ind, w_m, 2020, cfg, {"23-28": 100.0}, 100, 1, estimator="fixed_design")
     assert lo_r.shape == (2,) and nb == 4 and (lo_r <= hi_r).all() and (lo_f <= hi_f).all() and not (np.allclose(lo_r, lo_f) and np.allclose(hi_r, hi_f))
+
+
+# ---------------------------------------------------------------- v1.2: registered-unit matched bootstrap and fixed-target P3
+
+def test_registered_matched_bootstrap_uses_year_population_unit_and_reports_both_capacities():
+    from obsidiandroid.research.trends.matching import matched_malware_bootstrap_registered
+    ds = TrendDataset.from_frame(_frame_with_duplicated_profiles()); mal = ds.frame[ds.frame.year == 2020].copy()
+    mal["sdk_catalog_target"] = [22 if i % 2 else 26 for i in range(len(mal))]          # two bands; profiles span both bands
+    cfg = {"variant": "t", "null_band": "(null)", "bands": [{"name": "<=22", "min": 1, "max": 22}, {"name": "26-28", "min": 26, "max": 28}]}
+    ind = M.indicator_matrix(mal["perms"], ["android.permission.READ_SMS", "android.permission.CAMERA"])
+    res = matched_malware_bootstrap_registered(mal, ind, 2020, cfg, {"<=22": 500, "26-28": 500}, 200, 1)
+    assert res["unit_mass_check"] == 0.0 and res["n_batches"] == 4 and res["n_profiles"] == mal.perm_profile_hash.nunique()
+    # point = capacity-weighted band prevalence with YEAR-level profile weights (every profile unit mass across both bands)
+    w = 1.0 / mal.groupby("perm_profile_hash").id_sample_id.transform("size"); band = mal.sdk_catalog_target.map(lambda v: "<=22" if v <= 22 else "26-28")
+    num = den = 0.0
+    for b in ("<=22", "26-28"):
+        sel = (band == b).to_numpy(); cap = min(sel.sum(), 500); num += cap * (ind[sel, 0] * w[sel]).sum() / w[sel].sum(); den += cap
+    assert res["point"][0] == pytest.approx(num / den)
+    assert (res["lo_fixed"] <= res["hi_fixed"]).all() and (res["lo_recomputed"] <= res["hi_recomputed"]).all()
+    assert not (np.allclose(res["lo_fixed"], res["lo_recomputed"]) and np.allclose(res["hi_fixed"], res["hi_recomputed"]))   # the two capacity rules differ
+
+
+def test_fixed_target_gap_bootstrap_never_reselects_and_decomposes_additively():
+    from obsidiandroid.research.trends.matching import fixed_target_gap_bootstrap
+    ds = TrendDataset.from_frame(_frame_with_duplicated_profiles()); g = ds.frame[(ds.frame.year == 2020) & ds.frame.has_dict]
+    d = fixed_target_gap_bootstrap(g, "android.permission.READ_SMS", 100, 1)
+    assert d["permission"] == "android.permission.READ_SMS" and d["decomposition_sum_pp"] == pytest.approx(d["gap_pp"]) and d["gap_lo95_pp"] <= d["gap_hi95_pp"]
+    for row in d["leave_one_batch_out_fixed_target"]:
+        assert set(row) >= {"batch_removed", "rows_removed", "gap_pp"}                   # same permission throughout; no maximum re-selected
+    assert len(d["leave_one_batch_out_fixed_target"]) == g.batch.nunique()
+
+
+def test_study_writes_p3_detail_and_registered_t4_columns(tmp_path):
+    from obsidiandroid.research.trends.study import StudyConfig, run_study
+    ds = TrendDataset.from_frame(synthetic_frame(n=240, seed=5)); ds.frame["time_first_submission_year"] = ds.frame["year"] = ds.frame.year.where(ds.frame.year != 2020, 2024).astype("Int64")
+    run_study(ds, StudyConfig(n_resamples=30), tmp_path, "0" * 64, None, ["android.permission.READ_SMS"], make_figures=False, tables=("T4", "scorecard"))
+    t4 = pd.read_csv(tmp_path / "T4_matched_benign_vs_malware.csv"); assert {"malware_lo95_fixed_capacity", "malware_hi95_fixed_capacity", "matched_band_design"} <= set(t4.columns) and (t4.matched_band_design == "registered_year_profile").all()
+    meta = json.loads((tmp_path / "T4_matched_benign_vs_malware.meta.json").read_text()); assert "band_columns" in meta and "unit_checks" in meta
+    sc = pd.read_csv(tmp_path / "scorecard.csv"); p3 = sc[sc.prediction == "P3"].iloc[0]; assert "paired batch-resampled gap interval" in p3.evidence or "no batch band" in p3.evidence or p3.verdict == "INCONCLUSIVE"

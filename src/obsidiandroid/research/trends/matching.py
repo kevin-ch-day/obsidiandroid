@@ -72,9 +72,12 @@ def matched_prevalence(mal: pd.DataFrame, ben: pd.DataFrame, indicator_m: pd.Ser
     return {"malware": num_m / den if den else np.nan, "benign": num_b / den if den else np.nan, "capacity": den, "bands_used": used, "bands_dropped": dropped}
 
 
-def matched_malware_band_bootstrap(mal: pd.DataFrame, indicator_m: pd.Series | np.ndarray, w_m: pd.Series, year: int, config: dict, capacities: dict[str, float],
+def matched_malware_band_bootstrap_v1_1(mal: pd.DataFrame, indicator_m: pd.Series | np.ndarray, w_m: pd.Series, year: int, config: dict, capacities: dict[str, float],
                                    n_resamples: int, seed: int, sdk_col: str = "sdk_catalog_target", estimator: str = "cluster_unit_recomputed", cluster_col: str | None = "perm_profile_hash") -> tuple[np.ndarray, np.ndarray, int]:
-    """Batch-resampled band for the matched malware prevalence of one or several permissions at once.
+    """v1.1 design, retained ONLY as sensitivity arm S14. NOT the registered unit: it recomputes profile weights within each
+    SDK band (registered rule 3 is profile within year and population), draws year-level batch multiplicities once and reuses
+    them in every band, fixes capacities at the original point estimate, and drops a band from a draw when no profile of
+    that band is represented. See the v1.2 change log.
 
     Capacities (per band) are fixed at the point estimate. Within each band the weighted prevalence is recomputed from the
     resampled batches: with ``cluster_unit_recomputed`` the cluster weights are recomputed on each resampled population (unit
@@ -115,3 +118,87 @@ def matched_malware_band_bootstrap(mal: pd.DataFrame, indicator_m: pd.Series | n
     with np.errstate(invalid="ignore", divide="ignore"):
         out = total / denom[:, None]
     return (np.nanpercentile(out, 2.5, axis=0), np.nanpercentile(out, 97.5, axis=0), int(len(batches)))
+
+
+def matched_malware_bootstrap_registered(mal: pd.DataFrame, indicator_m: pd.Series | np.ndarray, year: int, config: dict, benign_band_rows: dict[str, int],
+                                         n_resamples: int, seed: int, sdk_col: str = "sdk_catalog_target", cluster_col: str = "perm_profile_hash") -> dict:
+    """Registered-unit batch bootstrap for the matched (SDK-band standardized) malware prevalence (v1.2).
+
+    Unit (pre-registration rule 3): permission-profile cluster within **year and population**. On every draw the year's batches
+    are resampled with replacement once (rule 4); the resampled population is the concatenation of the drawn batches, duplicates
+    counted as rows; profile weights 1/(rows in the year-level resampled cluster) are **recomputed** on that population and applied
+    to every SDK band the profile occupies. Band prevalence = Σ_c RN_band[c]·w_c·ind_c / Σ_c RN_band[c]·w_c over profiles present in
+    the band on that draw. Standardization (rule 5) combines bands with capacity weights. Rule 5 does not say whether the
+    capacity min(malware rows, benign rows) is fixed at the original data or re-estimated on each draw; both are returned:
+    ``fixed`` uses the original per-band capacities (bands absent from a draw drop out of the denominator), ``recomputed``
+    uses min(resampled malware rows in band, benign rows in band). ``indicator_m`` must be constant within a profile (any
+    statistic defined on the exact permission set is). Returns dict(point, lo_fixed, hi_fixed, lo_recomputed, hi_recomputed,
+    n_batches, n_profiles, unit_mass_check, bands_point, capacities_point)."""
+    from obsidiandroid.research.trends.bootstrap import _resample_counts
+    gm = mal[(mal["year"] == year).to_numpy()]
+    ind_all = indicator_m.to_numpy(dtype=float)[:, None] if isinstance(indicator_m, pd.Series) else np.asarray(indicator_m, dtype=float)
+    pos = {idx: i for i, idx in enumerate(mal.index)}; rows_gm = np.array([pos[i] for i in gm.index]); ind = ind_all[rows_gm]
+    k = ind.shape[1]; names = [b["name"] for b in config["bands"]] + [config["null_band"]]
+    if len(gm) == 0:
+        return {"point": np.full(k, np.nan), "lo_fixed": np.full(k, np.nan), "hi_fixed": np.full(k, np.nan), "lo_recomputed": np.full(k, np.nan), "hi_recomputed": np.full(k, np.nan), "n_batches": 0, "n_profiles": 0, "unit_mass_check": 0.0, "bands_point": {}, "capacities_point": {}}
+    batches, inv_b = np.unique(gm["batch"].to_numpy(), return_inverse=True); profiles, inv_c = np.unique(gm[cluster_col].to_numpy(), return_inverse=True)
+    band = assign_band(gm[sdk_col], config).to_numpy(); B, C = len(batches), len(profiles)
+    N = np.zeros((B, C)); np.add.at(N, (inv_b, inv_c), 1.0)                                # rows per batch x profile (whole year)
+    Nb = {}
+    for nm in names:
+        sel = band == nm
+        if sel.any():
+            m = np.zeros((B, C)); np.add.at(m, (inv_b[sel], inv_c[sel]), 1.0); Nb[nm] = m
+    indc = np.zeros((C, k)); indc[inv_c] = ind                                                 # indicator per profile (constant within profile)
+    assert np.allclose(np.abs(indc[inv_c] - ind).max(), 0.0), "indicator must be constant within a profile"
+    def standardize(RN, RNb, caps_rule):
+        w = np.where(RN > 0, 1.0 / np.where(RN > 0, RN, 1.0), 0.0)                              # (R, C) year-level recomputed weights
+        total = np.zeros((RN.shape[0], k)); den = np.zeros(RN.shape[0])
+        for nm, m in RNb.items():
+            nben = benign_band_rows.get(nm, 0)
+            if nben == 0: continue
+            wb = m * w; mass = wb.sum(axis=1); present = mass > 0
+            prev = (wb @ indc) / np.where(mass > 0, mass, 1.0)[:, None]
+            cap = np.where(present, (np.minimum(m.sum(axis=1), nben) if caps_rule == "recomputed" else min(Nb[nm].sum(), nben)), 0.0)
+            total += cap[:, None] * prev; den += cap
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return total / den[:, None]
+    one = np.ones((1, B)); RN0 = one @ N; RNb0 = {nm: one @ m for nm, m in Nb.items()}
+    point = standardize(RN0, RNb0, "fixed")[0]
+    caps_point = {nm: float(min(Nb[nm].sum(), benign_band_rows.get(nm, 0))) for nm in Nb if benign_band_rows.get(nm, 0) > 0}
+    bands_point = {nm: float(((one @ m) * (1.0 / RN0) @ indc)[0, 0] / (((one @ m) * (1.0 / RN0)).sum())) for nm, m in Nb.items() if benign_band_rows.get(nm, 0) > 0} if k == 1 else {}
+    if B < 2:
+        return {"point": point, "lo_fixed": np.full(k, np.nan), "hi_fixed": np.full(k, np.nan), "lo_recomputed": np.full(k, np.nan), "hi_recomputed": np.full(k, np.nan), "n_batches": int(B), "n_profiles": int(C), "unit_mass_check": 0.0, "bands_point": bands_point, "capacities_point": caps_point}
+    counts = _resample_counts(B, n_resamples, seed); RN = counts @ N; RNb = {nm: counts @ m for nm, m in Nb.items()}
+    mass = (np.where(RN > 0, 1.0 / np.where(RN > 0, RN, 1.0), 0.0) * RN).sum(axis=1); unit_mass_check = float(np.abs(mass - (RN > 0).sum(axis=1)).max())
+    fx = standardize(RN, RNb, "fixed"); rc = standardize(RN, RNb, "recomputed")
+    return {"point": point, "lo_fixed": np.nanpercentile(fx, 2.5, axis=0), "hi_fixed": np.nanpercentile(fx, 97.5, axis=0), "lo_recomputed": np.nanpercentile(rc, 2.5, axis=0), "hi_recomputed": np.nanpercentile(rc, 97.5, axis=0),
+            "n_batches": int(B), "n_profiles": int(C), "unit_mass_check": unit_mass_check, "bands_point": bands_point, "capacities_point": caps_point}
+
+
+def fixed_target_gap_bootstrap(g: pd.DataFrame, permission: str, n_resamples: int, seed: int, cluster_col: str = "perm_profile_hash") -> dict:
+    """v1.2 P3 detail for ONE fixed permission on the rows given (e.g. ME ∩ 2024 with dictionaries).
+
+    Paired batch bootstrap: on each year-level batch draw both raw prevalence and profile-weighted prevalence are computed on the
+    same resampled rows, with profile weights recomputed; the gap is their difference in percentage points. Also returns the
+    additive profile decomposition on the original rows (contribution_h = I(perm in h)·(n_h/N − 1/K), summing to the gap) and the
+    fixed-target leave-one-batch-out gaps. The target permission is fixed by the caller before any removal; nothing is re-selected."""
+    from obsidiandroid.research.trends.bootstrap import _resample_counts
+    hit = g["perms"].apply(lambda ps: float(permission in (ps or []))).to_numpy()
+    batches, inv_b = np.unique(g["batch"].to_numpy(), return_inverse=True); profiles, inv_c = np.unique(g[cluster_col].to_numpy(), return_inverse=True)
+    B, C, N = len(batches), len(profiles), len(g); Nm = np.zeros((B, C)); np.add.at(Nm, (inv_b, inv_c), 1.0); indc = np.zeros(C); indc[inv_c] = hit
+    n_h = Nm.sum(axis=0); raw = hit.mean(); prof = float(indc.mean()); gap = 100 * (raw - prof)
+    contrib = indc * (n_h / N - 1.0 / C) * 100
+    decomposition = sorted([{"profile": profiles[i], "rows": int(n_h[i]), "contribution_pp": float(contrib[i])} for i in range(C) if indc[i] > 0], key=lambda d: -abs(d["contribution_pp"]))
+    out = {"permission": permission, "rows": int(N), "profiles": int(C), "batches": int(B), "raw": float(raw), "profile_weighted": prof, "gap_pp": float(gap), "decomposition_sum_pp": float(contrib.sum()), "top_contributions": decomposition[:10]}
+    if B >= 2:
+        counts = _resample_counts(B, n_resamples, seed); RN = counts @ Nm; rows_r = RN.sum(axis=1); raw_r = (RN @ indc) / rows_r; present = RN > 0; prof_r = (present @ indc) / present.sum(axis=1)
+        gaps = 100 * (raw_r - prof_r); out.update({"gap_lo95_pp": float(np.percentile(gaps, 2.5)), "gap_hi95_pp": float(np.percentile(gaps, 97.5)), "gap_includes_zero": bool(np.percentile(gaps, 2.5) <= 0 <= np.percentile(gaps, 97.5)), "n_resamples": int(n_resamples)})
+    else: out.update({"gap_lo95_pp": None, "gap_hi95_pp": None, "gap_includes_zero": None, "n_resamples": 0})
+    loo = []
+    for b in range(B):
+        keep = inv_b != b
+        if keep.sum() == 0: continue
+        prof_keep = np.unique(inv_c[keep]); loo.append({"batch_removed": batches[b], "rows_removed": int((~keep).sum()), "rows": int(keep.sum()), "profiles": int(len(prof_keep)), "raw": float(hit[keep].mean()), "profile_weighted": float(indc[prof_keep].mean()), "gap_pp": float(100 * (hit[keep].mean() - indc[prof_keep].mean()))})
+    out["leave_one_batch_out_fixed_target"] = loo
+    return out

@@ -24,7 +24,7 @@ import pandas as pd
 from obsidiandroid.research.trends import figures as F
 from obsidiandroid.research.trends.bootstrap import DEFAULT_RESAMPLES, DEFAULT_SEED, ESTIMATORS, bands_for
 from obsidiandroid.research.trends.dataset import TrendDataset
-from obsidiandroid.research.trends.matching import assign_band, load_band_config, matched_malware_band_bootstrap, matched_prevalence, strata
+from obsidiandroid.research.trends.matching import assign_band, fixed_target_gap_bootstrap, load_band_config, matched_malware_band_bootstrap_v1_1, matched_malware_bootstrap_registered, matched_prevalence, strata
 from obsidiandroid.research.trends.metrics import herfindahl, indicator_matrix, pairwise_jsd, prevalence_table, top_k_share, top_permissions, type_profile_vectors
 from obsidiandroid.research.trends.weighting import weights_for_mode
 
@@ -36,7 +36,7 @@ LEGACY_SET = [AP + x for x in ["READ_PHONE_STATE", "GET_TASKS", "READ_LOGS", "WR
 YEARS_TREND = list(range(2018, 2026)); YEARS_MATCH = list(range(2018, 2022))
 REGISTRY_ROW = "NOV15_ANALYTICAL_DATASET_V1"
 DANGEROUS_SELECTIONS = ("registered_full", "exploratory_1pct_either_arm")
-STUDY_VERSION = "trend-study-v1.1"
+STUDY_VERSION = "trend-study-v1.2"
 
 
 @dataclass(frozen=True)
@@ -57,6 +57,7 @@ class StudyConfig:
     type_source: str = "v2"             # S8: v2 | v1_1 | avclass
     band_variant: str = "primary"       # S9: primary | tight | loose | unmatched_all_in
     casefold: bool = False              # S10
+    matched_band_design: str = "registered_year_profile"   # v1.2 default | within_band_v1_1 (S14)
     description: str = "pre-registered primary analysis"
     registered: bool = True             # False for arms that are not in the pre-registration (exploratory)
 
@@ -87,6 +88,7 @@ def arm_catalog(batches: list[str]) -> dict[str, StudyConfig]:
     arms["S11_signer_clusters"] = replace(base, arm="S11_signer_clusters", weighting="signer_cluster", description="S11 signer clusters as the unit", registered=False)
     arms["S12_dangerous_1pct_either_arm"] = replace(base, arm="S12_dangerous_1pct_either_arm", dangerous_selection="exploratory_1pct_either_arm", description="S12 exploratory: dangerous tier restricted to permissions with >= 1 % prevalence in either arm (v1 behaviour; not pre-registered)", registered=False)
     arms["S13_fixed_design_bootstrap"] = replace(base, arm="S13_fixed_design_bootstrap", estimator="fixed_design", description="S13 estimator: fixed original design weights inside the bootstrap (D0 / v1 behaviour; not the registered unit)", registered=False)
+    arms["S14_matched_within_band_v1_1"] = replace(base, arm="S14_matched_within_band_v1_1", matched_band_design="within_band_v1_1", description="S14 matched-band design of v1.1: profile weights recomputed within SDK band, fixed capacities (not the registered year-population unit)", registered=False)
     return arms
 
 
@@ -195,7 +197,7 @@ def run_study(ds: TrendDataset, cfg: StudyConfig, out: Path, prereg_hash: str, a
     six = typecol[w_m.notna()].dropna().value_counts().head(6).index.tolist()
     den_rows = f"DETECTED_V2 (floor {cfg.detection_floor}; eligible={'all years' if cfg.include_2017 else 'trend_year_eligible'})"
     unit = {"cluster": "permission-profile cluster within year x population (perm_profile_hash)", "signer_cluster": "signer cluster within year x population", "raw": "row", "one_per_cluster": "one sampled row per cluster"}[cfg.weighting]
-    manifest = {"study_version": STUDY_VERSION, "started_utc": started, "config": asdict(cfg), "rows_malware": int(len(mal)), "rows_malware_with_dict": int(w_m.notna().sum()), "rows_benign": int(len(ben)), "rows_benign_with_dict": int(w_b.notna().sum()), "six_types": six, "tables": {}}
+    manifest = {"study_version": STUDY_VERSION, "code_commit": _code_commit(), "started_utc": started, "config": asdict(cfg), "rows_malware": int(len(mal)), "rows_malware_with_dict": int(w_m.notna().sum()), "rows_benign": int(len(ben)), "rows_benign_with_dict": int(w_b.notna().sum()), "six_types": six, "tables": {}}
     perm_universe, dang_ledger = _dangerous_universe(mal, ben, w_m, w_b, dangerous, cfg)
     comp = list(COMPONENT_SET); t2t3 = perm_universe + [p for p in comp if p not in perm_universe]
     full = ds.detected(cfg.detection_floor, eligible_only=False)
@@ -250,19 +252,25 @@ def run_study(ds: TrendDataset, cfg: StudyConfig, out: Path, prereg_hash: str, a
         perms4 = t2t3 + ["SET:SMS_OR_CALL_LOG_ANY", "SET:CAPABILITY3_ANY", "SET:LEGACY_ANY"]
         members = {p: {"SET:SMS_OR_CALL_LOG_ANY": SMS_SET, "SET:CAPABILITY3_ANY": CAP3, "SET:LEGACY_ANY": LEGACY_SET}.get(p, [p]) for p in perms4}
         im_all = np.column_stack([_set_indicator(mal["perms"], members[p], cfg.casefold).to_numpy() for p in perms4]); ib_all = {p: _set_indicator(ben["perms"], members[p], cfg.casefold) for p in perms4}
-        rep_clusters = 0
+        rep_clusters = 0; t4_unit_checks = {}
         for y in YEARS_MATCH:
-            caps = {}
+            caps = {}; nben = {}
             if cfg.band_variant != "unmatched_all_in":
-                stt = st[(st["year"] == y) & (~st["dropped"])]; caps = dict(zip(stt["band"], stt["matched_capacity"].astype(float)))
+                stt = st[(st["year"] == y) & (~st["dropped"])]; caps = dict(zip(stt["band"], stt["matched_capacity"].astype(float))); nben = dict(zip(stt["band"], stt["benign_rows"].astype(int)))
                 rep_clusters += int(stt["malware_clusters"].sum() + stt["benign_clusters"].sum())
-            lo, hi, nb = matched_malware_band_bootstrap(mal, im_all, w_m, y, band_cfg, caps, cfg.n_resamples, cfg.seed, estimator=cfg.estimator, cluster_col=ccol) if caps else (np.full(len(perms4), np.nan), np.full(len(perms4), np.nan), int(mal[(mal["year"] == y)]["batch"].nunique()))
+            if caps and cfg.matched_band_design == "within_band_v1_1":
+                lo, hi, nb = matched_malware_band_bootstrap_v1_1(mal, im_all, w_m, y, band_cfg, caps, cfg.n_resamples, cfg.seed, estimator=cfg.estimator, cluster_col=ccol); lo_f = hi_f = np.full(len(perms4), np.nan)
+            elif caps:
+                sub_mask = (mal["year"] == y) & w_m.notna(); res = matched_malware_bootstrap_registered(mal[sub_mask], im_all[sub_mask.to_numpy()], y, band_cfg, nben, cfg.n_resamples, cfg.seed, cluster_col=ccol or "perm_profile_hash")
+                lo, hi, nb = res["lo_recomputed"], res["hi_recomputed"], res["n_batches"]; lo_f, hi_f = res["lo_fixed"], res["hi_fixed"]; t4_unit_checks[str(y)] = {"unit_mass_check": res["unit_mass_check"], "n_profiles": res["n_profiles"], "n_batches": res["n_batches"], "capacities_point": res["capacities_point"]}
+            else:
+                lo = hi = lo_f = hi_f = np.full(len(perms4), np.nan); nb = int(mal[(mal["year"] == y)]["batch"].nunique())
             for j, p in enumerate(perms4):
                 r = matched_prevalence(mal, ben, pd.Series(im_all[:, j], index=mal.index), ib_all[p], w_m, w_b, y, band_cfg, unmatched_all_in=cfg.band_variant == "unmatched_all_in")
-                rows.append({"permission": p, "year": y, "malware": r["malware"], "benign": r["benign"], "difference": (r["malware"] - r["benign"]) if not (pd.isna(r["malware"]) or pd.isna(r["benign"])) else np.nan, "malware_lo95": float(lo[j]), "malware_hi95": float(hi[j]), "matched_capacity": r["capacity"], "bands_used": "|".join(map(str, r["bands_used"])), "bands_dropped": "|".join(map(str, r["bands_dropped"])), "malware_batches": nb, "benign_batches": int(ben[ben["year"] == y]["batch"].nunique()), "estimator": cfg.estimator})
+                rows.append({"permission": p, "year": y, "malware": r["malware"], "benign": r["benign"], "difference": (r["malware"] - r["benign"]) if not (pd.isna(r["malware"]) or pd.isna(r["benign"])) else np.nan, "malware_lo95": float(lo[j]), "malware_hi95": float(hi[j]), "malware_lo95_fixed_capacity": float(lo_f[j]), "malware_hi95_fixed_capacity": float(hi_f[j]), "matched_capacity": r["capacity"], "bands_used": "|".join(map(str, r["bands_used"])), "bands_dropped": "|".join(map(str, r["bands_dropped"])), "malware_batches": nb, "benign_batches": int(ben[ben["year"] == y]["batch"].nunique()), "estimator": cfg.estimator, "matched_band_design": cfg.matched_band_design})
         t4 = pd.DataFrame(rows)
         n4 = int((mal["year"].isin(YEARS_MATCH) & w_m.notna()).sum()) + int((ben["year"].isin(YEARS_MATCH) & w_b.notna()).sum())
-        _write(out, "T4_matched_benign_vs_malware", t4, _meta(ds, cfg, prereg_hash, den_rows + " ∩ 2018-2021 ∩ PROVIDER_DICT_PRESENT vs BENIGN_SOURCE_V2 ∩ PROVIDER_DICT_PRESENT; matched year × target-SDK band (" + cfg.band_variant + ")", n4, rep_clusters, unit=unit, estimand="capacity-weighted standardized prevalence over year x target-SDK bands with both sides present; capacity = min(dictionary-conditioned malware rows, benign rows) per band", extra={"band_variant": cfg.band_variant, "malware_band_resamples": cfg.n_resamples, "n_clusters_definition": "sum over used strata of distinct profile clusters, malware plus benign", "capacity_definition": "dictionary-conditioned (v1 reported all-rows capacity; both are in T4_strata)"}))
+        _write(out, "T4_matched_benign_vs_malware", t4, _meta(ds, cfg, prereg_hash, den_rows + " ∩ 2018-2021 ∩ PROVIDER_DICT_PRESENT vs BENIGN_SOURCE_V2 ∩ PROVIDER_DICT_PRESENT; matched year × target-SDK band (" + cfg.band_variant + ")", n4, rep_clusters, unit=unit, estimand="capacity-weighted standardized prevalence over year x target-SDK bands with both sides present; capacity = min(dictionary-conditioned malware rows, benign rows) per band", extra={"band_variant": cfg.band_variant, "malware_band_resamples": cfg.n_resamples, "matched_band_design": cfg.matched_band_design, "band_columns": "malware_lo95/hi95 = recomputed capacities (min(resampled malware rows, benign rows) per band); malware_lo95/hi95_fixed_capacity = original capacities; registration rule 5 is silent on which, so both are reported", "unit_checks": t4_unit_checks, "n_clusters_definition": "sum over used strata of distinct profile clusters, malware plus benign", "capacity_definition": "dictionary-conditioned (v1 reported all-rows capacity; both are in T4_strata)"}))
         _write(out, "T4_strata", st, _meta(ds, cfg, prereg_hash, "matching strata (both capacity definitions retained)", len(st), int(st["malware_clusters"].sum() + st["benign_clusters"].sum()), unit="stratum (year x band)", estimand="row and cluster counts per stratum"))
         if make_figures and len(t4): manifest["tables"]["T4"] = F.fig_matched(t4[t4["permission"].isin(["SET:SMS_OR_CALL_LOG_ANY", "SET:CAPABILITY3_ANY", AP + "SYSTEM_ALERT_WINDOW", AP + "READ_PHONE_STATE", AP + "READ_SMS", AP + "ACCESS_FINE_LOCATION"])], figs)
     # T5 per type (exploratory table)
@@ -308,11 +316,21 @@ def run_study(ds: TrendDataset, cfg: StudyConfig, out: Path, prereg_hash: str, a
         t4p = pd.read_csv(out / "T4_matched_benign_vs_malware.csv") if (out / "T4_matched_benign_vs_malware.csv").exists() else None
         t6p = pd.read_csv(out / "T6_type_jsd.csv") if (out / "T6_type_jsd.csv").exists() else None
         sc = scorecard(series, t4p, mal, w_m, t6p, cfg)
+        if P3_DETAIL: (out / "P3_fixed_target_detail.json").write_text(json.dumps(P3_DETAIL, indent=1, default=str))
         inputs = {"P1": {"series": "series_SMS_OR_CALL_LOG_ANY.csv", "matched": "T4 SET:SMS_OR_CALL_LOG_ANY", "denominator": den_rows + " ∩ PROVIDER_DICT_PRESENT; matched 2018-2021"}, "P2": {"series": "series_CAPABILITY3_ANY.csv", "matched": "T4 SET:CAPABILITY3_ANY"}, "P3": {"table": "2024 top-10 by raw prevalence", "n_rows": int(((mal["year"] == 2024) & w_m.notna()).sum())}, "P4": {"table": "T6 banker/rat 2019 vs 2024"}, "P5": {"series": ["series_LEGACY_ANY_all_detected.csv", "series_LEGACY_ANY_eligible.csv"]}}
         _write(out, "scorecard", sc, _meta(ds, cfg, prereg_hash, "pre-registered rules; per-prediction inputs listed in prediction_inputs", len(mal), int(mal[w_m.notna()].groupby("year")["perm_profile_hash"].nunique().sum()), unit=unit, estimand="mechanical verdicts P1-P5", extra={"prediction_inputs": inputs}))
         if make_figures: manifest["tables"]["scorecard"] = F.fig_scorecard(sc, figs)
     manifest["wall_clock_seconds"] = round(time.time() - t0, 1); manifest["finished_utc"] = datetime.now(timezone.utc).isoformat(); (out / "run_manifest.json").write_text(json.dumps(manifest, indent=1, default=str))
     return manifest
+P3_DETAIL: dict = {}
+
+
+def _code_commit() -> str | None:
+    import subprocess
+    try: return subprocess.run(["git", "-C", str(Path(__file__).resolve().parent), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip() or None
+    except Exception: return None
+
+
 def _get(series: pd.DataFrame, year: int, col: str):
     return float(series.loc[year, col]) if year in series.index else np.nan
 
@@ -339,7 +357,13 @@ def scorecard(series: dict, t4: pd.DataFrame | None, mal: pd.DataFrame, w_m: pd.
     g = mal[(mal["year"] == 2024) & w_m.notna()]
     if len(g):
         top = top_permissions(g, w_m[g.index], 10); ind = indicator_matrix(g["perms"], top, cfg.casefold); w = w_m[g.index].to_numpy(dtype=float); raw = ind.mean(axis=0); wt = (ind * w[:, None]).sum(axis=0) / w.sum(); diffs = 100 * np.abs(raw - wt); j = int(np.argmax(diffs))
-        rows.append({"prediction": "P3", "verdict": "SUPPORTED" if diffs[j] > 10 else "NOT SUPPORTED", "decided_by": "2024 top-10 raw vs weighted", "evidence": f"largest |raw-weighted| = {diffs[j]:.1f} pp ({top[j]}); raw={raw[j]:.3f}, weighted={wt[j]:.3f}, n={len(g)}"})
+        # v1.2: the target is fixed HERE, on the original rows, before any resampling or removal; nothing below re-selects a maximum
+        detail = fixed_target_gap_bootstrap(g, top[j], cfg.n_resamples, cfg.seed, cluster_col="perm_profile_hash") if cfg.weighting in ("cluster", "one_per_cluster") or True else None
+        P3_DETAIL.clear(); P3_DETAIL.update(detail)
+        band = f"; paired batch-resampled gap interval [{detail['gap_lo95_pp']:.2f}, {detail['gap_hi95_pp']:.2f}] pp (includes zero: {detail['gap_includes_zero']}); largest profile contribution {detail['top_contributions'][0]['contribution_pp']:.2f} pp ({detail['top_contributions'][0]['rows']} rows)" if detail.get("gap_lo95_pp") is not None else "; no batch band (fewer than 2 batches)"
+        loo = detail["leave_one_batch_out_fixed_target"]; worst = min(loo, key=lambda d: d["gap_pp"]) if loo else None
+        band += f"; fixed-target gap without the single most influential batch ({worst['batch_removed']}, {worst['rows_removed']} rows removed): {worst['gap_pp']:.2f} pp" if worst else ""
+        rows.append({"prediction": "P3", "verdict": "SUPPORTED" if diffs[j] > 10 else "NOT SUPPORTED", "decided_by": "2024 top-10 raw vs weighted (registered point rule); interval, decomposition and fixed-target removal are reported, not part of the rule", "evidence": f"largest |raw-weighted| = {diffs[j]:.1f} pp ({top[j]}); raw={raw[j]:.3f}, weighted={wt[j]:.3f}, n={len(g)}" + band})
     else: rows.append({"prediction": "P3", "verdict": "INCONCLUSIVE", "decided_by": "2024 top-10", "evidence": "no 2024 rows in this arm"})
     if t6 is not None and len(t6):
         def js(y):

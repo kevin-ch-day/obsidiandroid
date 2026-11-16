@@ -1,4 +1,4 @@
-# Controlled permission-trend study v1.1 (`obsidiandroid.research.trends`)
+# Controlled permission-trend study v1.2 (supersedes v1.1) (`obsidiandroid.research.trends`)
 
 Descriptive statistics over the frozen analytical dataset `analytical_dataset_v1.parquet`
 (sha256 `affcf710ad0e630f3a1004637be1754a98c4c2b91f1fdb1224c67482557c874d`, registry row
@@ -9,6 +9,14 @@ v1.1 is the separately versioned correction of the v1 study (results packet `202
 the sealed descriptive report D0 (`2026-11-15_descriptive_report_d0`). Neither sealed packet nor the pre-registration is
 edited; the corrections respond to the independent D0 verification (`2026-11-15_d0_verification/REVIEW.md`) and the
 retrospective audit (`2026-11-15_independent_retrospective_audit_20261116T011238Z/REVIEW.md`).
+
+## v1.2 corrections (after Codex's verification `2026-11-16_source_type_lineage_verification_20261116T044315Z`)
+
+| # | Defect in v1.1 | v1.2 behaviour | Where |
+|---|---|---|---|
+| 1 | matched (T4) bootstrap recomputed profile weights **within SDK band**, with fixed capacities and bands dropping out of draws; registered rule 3 is profile within year and population | `matched_malware_bootstrap_registered`: one year-level batch draw, profile weights recomputed within year × population and applied to every band, re-standardization; capacities reported **both** fixed (`*_fixed_capacity` columns) and recomputed (default columns) because rule 5 is silent; `unit_mass_check` emitted; the v1.1 design survives only as arm S14 | `matching.py` |
+| 2 | P3 reported a point gap only | `fixed_target_gap_bootstrap`: target fixed on the original rows, paired batch-resampled interval with recomputed weights, additive profile decomposition, fixed-target leave-one-batch-out; written to `P3_fixed_target_detail.json` and into the scorecard evidence | `matching.py`, `study.py` |
+| 3 | manifests carried no code identity | `code_commit` in every manifest | `study.py`, `cli.py` |
 
 ## What v1.1 corrects (each recorded in table metadata and `selection_ledger.json`)
 

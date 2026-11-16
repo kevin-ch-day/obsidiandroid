@@ -33,7 +33,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.sensitivity is None: selected = ["primary"]
     elif args.sensitivity == "all": selected = list(arms)
     else: selected = [a.strip() for a in args.sensitivity.split(",")]
-    manifest = {"study_version": STUDY_VERSION, "started_utc": datetime.now(timezone.utc).isoformat(), "dataset_sha256": ds.digest, "preregistration_sha256": prereg_hash, "group_check": ds.check_stored_groups(), "arms": {}}
+    from obsidiandroid.research.trends.study import _code_commit
+    manifest = {"study_version": STUDY_VERSION, "code_commit": _code_commit(), "started_utc": datetime.now(timezone.utc).isoformat(), "dataset_sha256": ds.digest, "preregistration_sha256": prereg_hash, "group_check": ds.check_stored_groups(), "arms": {}}
     for name in selected:
         cfg = arms[name]; t0 = time.time(); tables = tuple(args.tables.split(","))
         res = run_study(ds, cfg, out / ("primary" if name == "primary" else f"sensitivity/{name}"), prereg_hash, annotations, dangerous, args.bands, tables=tables, make_figures=not args.no_figures)
