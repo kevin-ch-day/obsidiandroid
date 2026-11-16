@@ -121,59 +121,116 @@ def matched_malware_band_bootstrap_v1_1(mal: pd.DataFrame, indicator_m: pd.Serie
 
 
 def matched_malware_bootstrap_registered(mal: pd.DataFrame, indicator_m: pd.Series | np.ndarray, year: int, config: dict, benign_band_rows: dict[str, int],
-                                         n_resamples: int, seed: int, sdk_col: str = "sdk_catalog_target", cluster_col: str = "perm_profile_hash") -> dict:
-    """Registered-unit batch bootstrap for the matched (SDK-band standardized) malware prevalence (v1.2).
+                                         n_resamples: int, seed: int, sdk_col: str = "sdk_catalog_target", cluster_col: str | None = "perm_profile_hash",
+                                         estimator: str = "cluster_unit_recomputed", weights: pd.Series | None = None) -> dict:
+    """Batch bootstrap for the matched (SDK-band standardized) malware prevalence (v1.2.1).
 
-    Unit (pre-registration rule 3): permission-profile cluster within **year and population**. On every draw the year's batches
-    are resampled with replacement once (rule 4); the resampled population is the concatenation of the drawn batches, duplicates
-    counted as rows; profile weights 1/(rows in the year-level resampled cluster) are **recomputed** on that population and applied
-    to every SDK band the profile occupies. Band prevalence = Σ_c RN_band[c]·w_c·ind_c / Σ_c RN_band[c]·w_c over profiles present in
-    the band on that draw. Standardization (rule 5) combines bands with capacity weights. Rule 5 does not say whether the
-    capacity min(malware rows, benign rows) is fixed at the original data or re-estimated on each draw; both are returned:
-    ``fixed`` uses the original per-band capacities (bands absent from a draw drop out of the denominator), ``recomputed``
-    uses min(resampled malware rows in band, benign rows in band). ``indicator_m`` must be constant within a profile (any
-    statistic defined on the exact permission set is). Returns dict(point, lo_fixed, hi_fixed, lo_recomputed, hi_recomputed,
-    n_batches, n_profiles, unit_mass_check, bands_point, capacities_point)."""
+    Two designs, chosen by ``estimator`` and ``cluster_col`` so that every arm's matched bounds use that arm's own unit
+    (v1.2 dispatched every arm through the profile unit):
+
+    * ``cluster_unit_recomputed`` with a cluster column — the registered unit (pre-registration rule 3): cluster within
+      **year and population**. On every draw the year's batches are resampled with replacement once (rule 4); the resampled
+      population is the concatenation of the drawn batches, duplicates counted as rows; cluster weights w_c = 1/(rows of c in
+      the year-level resampled population) are **recomputed** on that population. Band prevalence on a draw =
+      Σ_c w_c·RS_band[c] / Σ_c w_c·RN_band[c], where RN_band[c] is c's resampled row count in the band and RS_band[c] the
+      resampled sum of the row indicators of c in the band. For permission profiles the indicator is constant within a cluster,
+      so RS = RN·ind_c and this is exactly the v1.2 statistic; for other clusters (signer clusters, arm S11) it is the
+      row-weighted statistic that ``matched_prevalence`` displays (v1.2 spread a frozen whole-year cluster mean into every band,
+      which differed from the displayed point). ``point_check_max_abs_diff`` witnesses the agreement on the original data.
+    * otherwise (``fixed_design``, arm S13; or a weighting without a cluster key: ``raw`` S1_raw, ``one_per_cluster`` S1 seeds)
+      — per-row design ``weights`` fixed at the original data; band prevalence on a draw =
+      Σ_b n_b·Σ_{rows in b∩band} w·ind / Σ_b n_b·Σ_{rows in b∩band} w with n_b the draw multiplicity of batch b.
+
+    Standardization (rule 5) combines bands with capacity weights. Rule 5 does not say whether the capacity
+    min(malware rows, benign rows) is fixed at the original data or re-estimated on each draw; both are returned: ``fixed`` uses
+    the original per-band capacities (bands absent from a draw drop out of the denominator), ``recomputed`` uses
+    min(resampled malware rows in band, benign rows in band). Returns dict(point, lo_fixed, hi_fixed, lo_recomputed,
+    hi_recomputed, n_batches, n_profiles, design, indicator_constant_within_cluster, point_check_max_abs_diff, unit_mass_check,
+    bands_point, capacities_point)."""
     from obsidiandroid.research.trends.bootstrap import _resample_counts
-    gm = mal[(mal["year"] == year).to_numpy()]
+    design = "cluster_unit_recomputed" if (estimator == "cluster_unit_recomputed" and cluster_col) else "fixed_design"
+    gm_mask = (mal["year"] == year).to_numpy().copy()
+    if weights is not None:
+        gm_mask &= weights.notna().to_numpy()
+    gm = mal[gm_mask]
     ind_all = indicator_m.to_numpy(dtype=float)[:, None] if isinstance(indicator_m, pd.Series) else np.asarray(indicator_m, dtype=float)
-    pos = {idx: i for i, idx in enumerate(mal.index)}; rows_gm = np.array([pos[i] for i in gm.index]); ind = ind_all[rows_gm]
-    k = ind.shape[1]; names = [b["name"] for b in config["bands"]] + [config["null_band"]]
+    pos = {idx: i for i, idx in enumerate(mal.index)}; rows_gm = np.array([pos[i] for i in gm.index], dtype=int); ind = ind_all[rows_gm] if len(gm) else ind_all[:0]
+    k = ind_all.shape[1]; names = [b["name"] for b in config["bands"]] + [config["null_band"]]
+    nan = np.full(k, np.nan)
+    empty = {"point": nan, "lo_fixed": nan, "hi_fixed": nan, "lo_recomputed": nan, "hi_recomputed": nan, "n_batches": 0, "n_profiles": 0, "design": design,
+             "indicator_constant_within_cluster": True, "point_check_max_abs_diff": 0.0, "unit_mass_check": 0.0, "bands_point": {}, "capacities_point": {}}
     if len(gm) == 0:
-        return {"point": np.full(k, np.nan), "lo_fixed": np.full(k, np.nan), "hi_fixed": np.full(k, np.nan), "lo_recomputed": np.full(k, np.nan), "hi_recomputed": np.full(k, np.nan), "n_batches": 0, "n_profiles": 0, "unit_mass_check": 0.0, "bands_point": {}, "capacities_point": {}}
-    batches, inv_b = np.unique(gm["batch"].to_numpy(), return_inverse=True); profiles, inv_c = np.unique(gm[cluster_col].to_numpy(), return_inverse=True)
-    band = assign_band(gm[sdk_col], config).to_numpy(); B, C = len(batches), len(profiles)
-    N = np.zeros((B, C)); np.add.at(N, (inv_b, inv_c), 1.0)                                # rows per batch x profile (whole year)
-    Nb = {}
+        return empty
+    batches, inv_b = np.unique(gm["batch"].to_numpy(), return_inverse=True); B = len(batches)
+    band = assign_band(gm[sdk_col], config).to_numpy()
+    w_row = np.ones(len(gm)) if weights is None else weights[gm.index].to_numpy(dtype=float)
+    rows_b = {}; caps_point = {}
     for nm in names:
         sel = band == nm
-        if sel.any():
+        if sel.any() and benign_band_rows.get(nm, 0) > 0:
+            rb = np.zeros(B); np.add.at(rb, inv_b[sel], 1.0); rows_b[nm] = rb; caps_point[nm] = float(min(rb.sum(), benign_band_rows[nm]))
+    if design == "cluster_unit_recomputed":
+        profiles, inv_c = np.unique(gm[cluster_col].to_numpy(), return_inverse=True); C = len(profiles)
+        N = np.zeros((B, C)); np.add.at(N, (inv_b, inv_c), 1.0)                              # rows per batch x cluster (whole year)
+        Nb, Sb = {}, {}
+        for nm in rows_b:
+            sel = band == nm
             m = np.zeros((B, C)); np.add.at(m, (inv_b[sel], inv_c[sel]), 1.0); Nb[nm] = m
-    indc = np.zeros((C, k)); np.add.at(indc, inv_c, ind); indc /= np.bincount(inv_c, minlength=C)[:, None]   # cluster mean of the indicator
-    constant_within_cluster = bool(np.abs(indc[inv_c] - ind).max() < 1e-12)                  # True for permission profiles; False for e.g. signer clusters (S11), where the cluster statistic is the within-cluster mean
-    def standardize(RN, RNb, caps_rule):
-        w = np.where(RN > 0, 1.0 / np.where(RN > 0, RN, 1.0), 0.0)                              # (R, C) year-level recomputed weights
-        total = np.zeros((RN.shape[0], k)); den = np.zeros(RN.shape[0])
-        for nm, m in RNb.items():
-            nben = benign_band_rows.get(nm, 0)
-            if nben == 0: continue
-            wb = m * w; mass = wb.sum(axis=1); present = mass > 0
-            prev = (wb @ indc) / np.where(mass > 0, mass, 1.0)[:, None]
-            cap = np.where(present, (np.minimum(m.sum(axis=1), nben) if caps_rule == "recomputed" else min(Nb[nm].sum(), nben)), 0.0)
-            total += cap[:, None] * prev; den += cap
-        with np.errstate(invalid="ignore", divide="ignore"):
-            return total / den[:, None]
-    one = np.ones((1, B)); RN0 = one @ N; RNb0 = {nm: one @ m for nm, m in Nb.items()}
-    point = standardize(RN0, RNb0, "fixed")[0]
-    caps_point = {nm: float(min(Nb[nm].sum(), benign_band_rows.get(nm, 0))) for nm in Nb if benign_band_rows.get(nm, 0) > 0}
-    bands_point = {nm: float(((one @ m) * (1.0 / RN0) @ indc)[0, 0] / (((one @ m) * (1.0 / RN0)).sum())) for nm, m in Nb.items() if benign_band_rows.get(nm, 0) > 0} if k == 1 else {}
+            s = np.zeros((B, C, k)); np.add.at(s, (inv_b[sel], inv_c[sel]), ind[sel]); Sb[nm] = s
+        indc = np.zeros((C, k)); np.add.at(indc, inv_c, ind); indc /= np.bincount(inv_c, minlength=C)[:, None]
+        constant_within_cluster = bool(np.abs(indc[inv_c] - ind).max() < 1e-12) if len(gm) else True
+        def standardize(counts, caps_rule):
+            RN = counts @ N; w = np.where(RN > 0, 1.0 / np.where(RN > 0, RN, 1.0), 0.0)              # (R, C) year-level recomputed weights
+            total = np.zeros((counts.shape[0], k)); den = np.zeros(counts.shape[0]); band_prev = {}
+            for nm in rows_b:
+                nben = benign_band_rows[nm]; RNb = counts @ Nb[nm]; mass = (w * RNb).sum(axis=1); present = mass > 0
+                num = np.empty((counts.shape[0], k))
+                for j in range(k):
+                    num[:, j] = (w * (counts @ Sb[nm][:, :, j])).sum(axis=1)
+                prev = num / np.where(present, mass, 1.0)[:, None]; band_prev[nm] = prev
+                cap = np.where(present, (np.minimum(counts @ rows_b[nm], nben) if caps_rule == "recomputed" else caps_point[nm]), 0.0)
+                total += cap[:, None] * prev; den += cap
+            with np.errstate(invalid="ignore", divide="ignore"):
+                return total / den[:, None], band_prev
+        n_units = int(C)
+    else:
+        num_b, den_b = {}, {}
+        for nm in rows_b:
+            sel = band == nm
+            nb_ = np.zeros((B, k)); np.add.at(nb_, inv_b[sel], ind[sel] * w_row[sel][:, None]); num_b[nm] = nb_
+            db_ = np.zeros(B); np.add.at(db_, inv_b[sel], w_row[sel]); den_b[nm] = db_
+        constant_within_cluster = True
+        def standardize(counts, caps_rule):
+            total = np.zeros((counts.shape[0], k)); den = np.zeros(counts.shape[0]); band_prev = {}
+            for nm in rows_b:
+                nben = benign_band_rows[nm]; rd = counts @ den_b[nm]; present = rd > 0
+                prev = (counts @ num_b[nm]) / np.where(present, rd, 1.0)[:, None]; band_prev[nm] = prev
+                cap = np.where(present, (np.minimum(counts @ rows_b[nm], nben) if caps_rule == "recomputed" else caps_point[nm]), 0.0)
+                total += cap[:, None] * prev; den += cap
+            with np.errstate(invalid="ignore", divide="ignore"):
+                return total / den[:, None], band_prev
+        n_units = int(len(gm))
+    one = np.ones((1, B))
+    point, band_prev0 = standardize(one, "fixed"); point = point[0]
+    bands_point = {nm: float(p[0, 0]) for nm, p in band_prev0.items()} if k == 1 else {}
+    # witness: the row-weighted statistic that matched_prevalence displays, computed directly on the original rows
+    w_disp = w_row if design == "fixed_design" else (1.0 / np.bincount(inv_c, minlength=C)[inv_c])
+    tot = np.zeros(k); dd = 0.0
+    for nm, cap in caps_point.items():
+        sel = band == nm; ws = w_disp[sel].sum()
+        if ws > 0:
+            tot += cap * (ind[sel] * w_disp[sel][:, None]).sum(axis=0) / ws; dd += cap
+    point_check = float(np.nanmax(np.abs(point - tot / dd))) if dd > 0 else 0.0
     if B < 2:
-        return {"point": point, "lo_fixed": np.full(k, np.nan), "hi_fixed": np.full(k, np.nan), "lo_recomputed": np.full(k, np.nan), "hi_recomputed": np.full(k, np.nan), "n_batches": int(B), "n_profiles": int(C), "indicator_constant_within_cluster": constant_within_cluster, "unit_mass_check": 0.0, "bands_point": bands_point, "capacities_point": caps_point}
-    counts = _resample_counts(B, n_resamples, seed); RN = counts @ N; RNb = {nm: counts @ m for nm, m in Nb.items()}
-    mass = (np.where(RN > 0, 1.0 / np.where(RN > 0, RN, 1.0), 0.0) * RN).sum(axis=1); unit_mass_check = float(np.abs(mass - (RN > 0).sum(axis=1)).max())
-    fx = standardize(RN, RNb, "fixed"); rc = standardize(RN, RNb, "recomputed")
+        return {**empty, "point": point, "n_batches": int(B), "n_profiles": n_units, "indicator_constant_within_cluster": constant_within_cluster, "point_check_max_abs_diff": point_check, "bands_point": bands_point, "capacities_point": caps_point}
+    counts = _resample_counts(B, n_resamples, seed)
+    if design == "cluster_unit_recomputed":
+        RN = counts @ N; mass = (np.where(RN > 0, 1.0 / np.where(RN > 0, RN, 1.0), 0.0) * RN).sum(axis=1); unit_mass_check = float(np.abs(mass - (RN > 0).sum(axis=1)).max())
+    else:
+        unit_mass_check = 0.0
+    fx, _ = standardize(counts, "fixed"); rc, _ = standardize(counts, "recomputed")
     return {"point": point, "lo_fixed": np.nanpercentile(fx, 2.5, axis=0), "hi_fixed": np.nanpercentile(fx, 97.5, axis=0), "lo_recomputed": np.nanpercentile(rc, 2.5, axis=0), "hi_recomputed": np.nanpercentile(rc, 97.5, axis=0),
-            "n_batches": int(B), "n_profiles": int(C), "indicator_constant_within_cluster": constant_within_cluster, "unit_mass_check": unit_mass_check, "bands_point": bands_point, "capacities_point": caps_point}
+            "n_batches": int(B), "n_profiles": n_units, "design": design, "indicator_constant_within_cluster": constant_within_cluster, "point_check_max_abs_diff": point_check, "unit_mass_check": unit_mass_check, "bands_point": bands_point, "capacities_point": caps_point}
 
 
 def fixed_target_gap_bootstrap(g: pd.DataFrame, permission: str, n_resamples: int, seed: int, cluster_col: str = "perm_profile_hash") -> dict:

@@ -41,5 +41,8 @@ def main(argv: list[str] | None = None) -> int:
         manifest["arms"][name] = {"wall_clock_seconds": round(time.time() - t0, 1), "rows_malware": res["rows_malware"], "rows_benign": res["rows_benign"], "six_types": res["six_types"]}
         print(f"{name}: {manifest['arms'][name]}", flush=True)
     manifest["finished_utc"] = datetime.now(timezone.utc).isoformat()
+    manifest["elapsed_wall_seconds"] = round((datetime.fromisoformat(manifest["finished_utc"]) - datetime.fromisoformat(manifest["started_utc"])).total_seconds(), 1)   # first start to last finish of THIS run
+    manifest["sum_arm_seconds"] = round(sum(a["wall_clock_seconds"] for a in manifest["arms"].values()), 1)                                  # sum of per-arm durations (not elapsed time)
+    manifest["arms_in_this_run"] = len(manifest["arms"])
     out.mkdir(parents=True, exist_ok=True); (out / "run_manifest.json").write_text(json.dumps(manifest, indent=1, default=str))
     return 0

@@ -36,7 +36,7 @@ LEGACY_SET = [AP + x for x in ["READ_PHONE_STATE", "GET_TASKS", "READ_LOGS", "WR
 YEARS_TREND = list(range(2018, 2026)); YEARS_MATCH = list(range(2018, 2022))
 REGISTRY_ROW = "NOV15_ANALYTICAL_DATASET_V1"
 DANGEROUS_SELECTIONS = ("registered_full", "exploratory_1pct_either_arm")
-STUDY_VERSION = "trend-study-v1.2"
+STUDY_VERSION = "trend-study-v1.2.1"
 
 
 @dataclass(frozen=True)
@@ -85,9 +85,9 @@ def arm_catalog(batches: list[str]) -> dict[str, StudyConfig]:
     arms["S9_bands_tight"] = replace(base, arm="S9_bands_tight", band_variant="tight", description="S9 tight target-SDK bands", registered=False); arms["S9_bands_loose"] = replace(base, arm="S9_bands_loose", band_variant="loose", description="S9 loose bands", registered=False)
     arms["S9_unmatched_all_in_WRONG_REFERENCE"] = replace(base, arm="S9_unmatched_all_in_WRONG_REFERENCE", band_variant="unmatched_all_in", description="S9 deliberately wrong reference arm: no matching", registered=False)
     arms["S10_casefold"] = replace(base, arm="S10_casefold", casefold=True, description="S10 permission identity: lexical casefold", registered=False)
-    arms["S11_signer_clusters"] = replace(base, arm="S11_signer_clusters", weighting="signer_cluster", description="S11 signer clusters as the unit", registered=False)
+    arms["S11_signer_clusters"] = replace(base, arm="S11_signer_clusters", weighting="signer_cluster", description="S11 signer clusters as the unit: cluster = signer_thumbprint_raw within year x population, weights 1/(rows of the signer in the year) recomputed on every batch resample; the matched (T4) bounds use the same row-weighted band statistic as the displayed point (v1.2.1; v1.2 spread a frozen whole-year signer mean into every band)", registered=False)
     arms["S12_dangerous_1pct_either_arm"] = replace(base, arm="S12_dangerous_1pct_either_arm", dangerous_selection="exploratory_1pct_either_arm", description="S12 exploratory: dangerous tier restricted to permissions with >= 1 % prevalence in either arm (v1 behaviour; not pre-registered)", registered=False)
-    arms["S13_fixed_design_bootstrap"] = replace(base, arm="S13_fixed_design_bootstrap", estimator="fixed_design", description="S13 estimator: fixed original design weights inside the bootstrap (D0 / v1 behaviour; not the registered unit)", registered=False)
+    arms["S13_fixed_design_bootstrap"] = replace(base, arm="S13_fixed_design_bootstrap", estimator="fixed_design", description="S13 estimator: fixed original design weights (profile weights computed once on the original data) inside the batch bootstrap for both the unmatched bands and, from v1.2.1, the matched (T4) bounds (D0 / v1 behaviour; not the registered unit)", registered=False)
     arms["S14_matched_within_band_v1_1"] = replace(base, arm="S14_matched_within_band_v1_1", matched_band_design="within_band_v1_1", description="S14 matched-band design of v1.1: profile weights recomputed within SDK band, fixed capacities (not the registered year-population unit)", registered=False)
     return arms
 
@@ -261,8 +261,8 @@ def run_study(ds: TrendDataset, cfg: StudyConfig, out: Path, prereg_hash: str, a
             if caps and cfg.matched_band_design == "within_band_v1_1":
                 lo, hi, nb = matched_malware_band_bootstrap_v1_1(mal, im_all, w_m, y, band_cfg, caps, cfg.n_resamples, cfg.seed, estimator=cfg.estimator, cluster_col=ccol); lo_f = hi_f = np.full(len(perms4), np.nan)
             elif caps:
-                sub_mask = (mal["year"] == y) & w_m.notna(); res = matched_malware_bootstrap_registered(mal[sub_mask], im_all[sub_mask.to_numpy()], y, band_cfg, nben, cfg.n_resamples, cfg.seed, cluster_col=ccol or "perm_profile_hash")
-                lo, hi, nb = res["lo_recomputed"], res["hi_recomputed"], res["n_batches"]; lo_f, hi_f = res["lo_fixed"], res["hi_fixed"]; t4_unit_checks[str(y)] = {"unit_mass_check": res["unit_mass_check"], "indicator_constant_within_cluster": res["indicator_constant_within_cluster"], "n_profiles": res["n_profiles"], "n_batches": res["n_batches"], "capacities_point": res["capacities_point"]}
+                sub_mask = (mal["year"] == y) & w_m.notna(); res = matched_malware_bootstrap_registered(mal[sub_mask], im_all[sub_mask.to_numpy()], y, band_cfg, nben, cfg.n_resamples, cfg.seed, cluster_col=ccol, estimator=cfg.estimator, weights=w_m[sub_mask])
+                lo, hi, nb = res["lo_recomputed"], res["hi_recomputed"], res["n_batches"]; lo_f, hi_f = res["lo_fixed"], res["hi_fixed"]; t4_unit_checks[str(y)] = {"design": res["design"], "point_check_max_abs_diff": res["point_check_max_abs_diff"], "unit_mass_check": res["unit_mass_check"], "indicator_constant_within_cluster": res["indicator_constant_within_cluster"], "n_profiles": res["n_profiles"], "n_batches": res["n_batches"], "capacities_point": res["capacities_point"]}
             else:
                 lo = hi = lo_f = hi_f = np.full(len(perms4), np.nan); nb = int(mal[(mal["year"] == y)]["batch"].nunique())
             for j, p in enumerate(perms4):

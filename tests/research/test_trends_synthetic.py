@@ -266,7 +266,7 @@ def test_study_writes_p3_detail_and_registered_t4_columns(tmp_path):
 
 
 def test_registered_matched_bootstrap_uses_cluster_mean_for_non_profile_clusters():
-    """Signer clusters (S11) do not have a constant indicator within a cluster; the cluster statistic is the within-cluster mean."""
+    """Signer clusters (S11) do not have a constant indicator within a cluster; in a single band the row-weighted statistic equals the mean of cluster means."""
     import numpy as np, pandas as pd
     from obsidiandroid.research.trends.matching import matched_malware_bootstrap_registered
     mal = pd.DataFrame({"year": [2018] * 6, "batch": ["a", "a", "a", "b", "b", "b"], "signer": ["s1", "s1", "s2", "s2", "s3", "s3"], "sdk_catalog_target": [20, 20, 20, 20, 20, 20]})
@@ -276,3 +276,62 @@ def test_registered_matched_bootstrap_uses_cluster_mean_for_non_profile_clusters
     assert res["indicator_constant_within_cluster"] is False
     # cluster means: s1 -> 0.5, s2 -> 1.0, s3 -> 0.0; each cluster weight 1 -> point 0.5
     assert abs(res["point"][0] - 0.5) < 1e-12
+
+
+def test_t4_arms_use_their_own_design_and_differ_where_they_must():
+    """Codex Part B §11: in v1.2 S1_raw and S13 received the primary profile-unit bounds. Each design must now give its own bounds."""
+    from obsidiandroid.research.trends.matching import matched_malware_bootstrap_registered
+    ds = TrendDataset.from_frame(_frame_with_duplicated_profiles()); mal = ds.frame[ds.frame.year == 2020].copy()
+    mal["sdk_catalog_target"] = [22 if i % 2 else 26 for i in range(len(mal))]
+    cfg = {"variant": "t", "null_band": "(null)", "bands": [{"name": "<=22", "min": 1, "max": 22}, {"name": "26-28", "min": 26, "max": 28}]}
+    ind = M.indicator_matrix(mal["perms"], ["android.permission.READ_SMS", "android.permission.CAMERA"]); nben = {"<=22": 500, "26-28": 500}
+    prof_w = Wt.cluster_weights(mal); raw_w = Wt.weights_for_mode(mal, "raw")
+    primary = matched_malware_bootstrap_registered(mal, ind, 2020, cfg, nben, 200, 1, cluster_col="perm_profile_hash", estimator="cluster_unit_recomputed", weights=prof_w)
+    s1_raw = matched_malware_bootstrap_registered(mal, ind, 2020, cfg, nben, 200, 1, cluster_col=None, estimator="cluster_unit_recomputed", weights=raw_w)
+    s13 = matched_malware_bootstrap_registered(mal, ind, 2020, cfg, nben, 200, 1, cluster_col="perm_profile_hash", estimator="fixed_design", weights=prof_w)
+    assert primary["design"] == "cluster_unit_recomputed" and s1_raw["design"] == "fixed_design" and s13["design"] == "fixed_design"
+    assert not np.allclose(primary["point"], s1_raw["point"])                       # raw point differs from profile point
+    assert np.allclose(primary["point"], s13["point"])                              # S13 keeps the profile point ...
+    for a, b in ((primary, s1_raw), (primary, s13), (s1_raw, s13)):                 # ... but every pair of designs has its own bounds
+        assert not (np.allclose(a["lo_recomputed"], b["lo_recomputed"]) and np.allclose(a["hi_recomputed"], b["hi_recomputed"]))
+    for r in (primary, s1_raw, s13):                                                # the bootstrap statistic on the original data equals the displayed point
+        assert r["point_check_max_abs_diff"] < 1e-12
+    # the registered profile design is unchanged from v1.2 on profile clusters (constant indicator): same call without the new arguments
+    legacy = matched_malware_bootstrap_registered(mal, ind, 2020, cfg, nben, 200, 1)
+    assert np.allclose(legacy["lo_recomputed"], primary["lo_recomputed"]) and np.allclose(legacy["hi_fixed"], primary["hi_fixed"])
+
+
+def test_s11_signer_bootstrap_statistic_equals_displayed_point_across_bands():
+    """Codex Part B §11: v1.2 spread a frozen whole-year signer mean into every band; the displayed point is row-weighted per band."""
+    from obsidiandroid.research.trends.matching import matched_malware_bootstrap_registered, matched_prevalence
+    # signer s1 declares the permission in band A rows but not in band B rows; a frozen whole-year mean (0.5) would be wrong in both bands
+    mal = pd.DataFrame({"year": [2018] * 8, "batch": ["a", "a", "b", "b", "a", "b", "a", "b"], "signer": ["s1", "s1", "s1", "s1", "s2", "s2", "s3", "s3"],
+                        "sdk_catalog_target": [20, 20, 26, 26, 20, 26, 20, 26], "has_dict": True}, index=range(8))
+    ind = np.array([[1.0], [1.0], [0.0], [0.0], [1.0], [0.0], [0.0], [1.0]])
+    cfg = {"variant": "t", "null_band": "(null)", "bands": [{"name": "<=22", "min": 1, "max": 22}, {"name": "26-28", "min": 26, "max": 28}]}
+    w = Wt.cluster_weights(mal, cluster_col="signer")
+    res = matched_malware_bootstrap_registered(mal, ind, 2018, cfg, {"<=22": 10, "26-28": 10}, 50, 1, cluster_col="signer", estimator="cluster_unit_recomputed", weights=w)
+    ben = pd.DataFrame({"year": [2018] * 4, "sdk_catalog_target": [20, 20, 26, 26], "has_dict": True}, index=range(100, 104)); wb = pd.Series(1.0, index=ben.index)
+    disp = matched_prevalence(mal, ben, pd.Series(ind[:, 0], index=mal.index), pd.Series([0.0] * 4, index=ben.index), w, wb, 2018, cfg)
+    assert res["indicator_constant_within_cluster"] is False and res["point_check_max_abs_diff"] < 1e-12
+    assert res["point"][0] == pytest.approx(disp["malware"])                        # bootstrap statistic on the original data == displayed point
+    # band A: rows s1,s1,s2,s3 with weights 1/4,1/4,1/2,1/2 -> (1/4+1/4+1/2+0)/(1.5) = 2/3 ; a frozen whole-year mean would give (0.5*0.5+1*0.5+0.5*0.5)/1.5 = 0.5
+    assert res["bands_point"]["<=22"] == pytest.approx(2 / 3)
+
+
+def test_study_t4_arms_s1_raw_and_s13_differ_from_primary(tmp_path):
+    from obsidiandroid.research.trends.study import StudyConfig, run_study
+    ds = TrendDataset.from_frame(_frame_with_duplicated_profiles()); f = ds.frame
+    f["sdk_catalog_target"] = [22 if i % 2 else 26 for i in range(len(f))]
+    # make a benign arm in the same year
+    f.loc[f.index[::5], ["source_class_state", "label_v2_provenance", "det_malicious"]] = ["BENIGN_0", "BENIGN_SOURCE_LABELED", 0]
+    f["time_first_submission_year"] = f["year"] = f.year.where(f.year != 2020, 2018).astype("Int64")
+    ds = TrendDataset.from_frame(f)
+    out = {}
+    for name, cfg in (("primary", StudyConfig(n_resamples=40)), ("S1_raw", StudyConfig(arm="S1_raw", weighting="raw", n_resamples=40)), ("S13", StudyConfig(arm="S13", estimator="fixed_design", n_resamples=40))):
+        run_study(ds, cfg, tmp_path / name, "0" * 64, None, ["android.permission.READ_SMS", "android.permission.CAMERA"], make_figures=False, tables=("T4",))
+        out[name] = pd.read_csv(tmp_path / name / "T4_matched_benign_vs_malware.csv").query("year == 2018").set_index("permission")
+    for arm in ("S1_raw", "S13"):
+        a, b = out["primary"], out[arm].reindex(out["primary"].index)
+        assert not (np.allclose(a.malware_lo95, b.malware_lo95, equal_nan=True) and np.allclose(a.malware_hi95, b.malware_hi95, equal_nan=True)), arm
+    meta = json.loads((tmp_path / "S1_raw" / "T4_matched_benign_vs_malware.meta.json").read_text()); assert all(v["design"] == "fixed_design" for v in meta["unit_checks"].values())
