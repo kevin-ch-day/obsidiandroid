@@ -68,10 +68,13 @@ def fig_matched(table: pd.DataFrame, out: Path, name: str = "T4_matched", title:
 
 
 def fig_heatmap(table: pd.DataFrame, out: Path, name: str, index: str, columns: str, values: str, title: str) -> dict:
-    piv = table.pivot_table(index=index, columns=columns, values=values).fillna(0)
+    """Cells with no measurement stay missing (hatched grey), never zero. The CSV behind the figure keeps NaN for them."""
+    import numpy as np
+    piv = table.pivot_table(index=index, columns=columns, values=values, aggfunc="first")
     fig, ax = plt.subplots(figsize=(10, max(3, 0.25 * len(piv))))
-    im = ax.imshow(piv.values, aspect="auto", cmap="viridis"); ax.set_yticks(range(len(piv.index))); ax.set_yticklabels([str(x).replace("android.permission.", "") for x in piv.index], fontsize=7)
-    ax.set_xticks(range(len(piv.columns))); ax.set_xticklabels(piv.columns, fontsize=7, rotation=45); fig.colorbar(im); ax.set_title(title)
+    data = np.ma.masked_invalid(piv.to_numpy(dtype=float)); cmap = plt.get_cmap("viridis").with_extremes(bad="#dddddd")
+    im = ax.imshow(data, aspect="auto", cmap=cmap, vmin=0, vmax=1); ax.set_yticks(range(len(piv.index))); ax.set_yticklabels([str(x).replace("android.permission.", "") for x in piv.index], fontsize=7)
+    ax.set_xticks(range(len(piv.columns))); ax.set_xticklabels(piv.columns, fontsize=7, rotation=45); fig.colorbar(im); ax.set_title(title + " (grey = not measured)")
     flat = piv.reset_index().melt(id_vars=index, var_name=columns, value_name=values)
     return _save(fig, out, name, flat)
 

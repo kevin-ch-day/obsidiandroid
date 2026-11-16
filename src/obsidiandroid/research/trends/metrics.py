@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from scipy.spatial.distance import jensenshannon
 
-from obsidiandroid.research.trends.bootstrap import per_batch_sums, ratio_bands
+from obsidiandroid.research.trends.bootstrap import bands_for
 
 
 def indicator_matrix(perms: pd.Series, permissions: list[str], casefold: bool = False) -> np.ndarray:
@@ -22,19 +22,24 @@ def indicator_matrix(perms: pd.Series, permissions: list[str], casefold: bool = 
     return mat
 
 
-def prevalence_table(frame: pd.DataFrame, permissions: list[str], weights: pd.Series, years: list[int], casefold: bool = False, **band_kw) -> pd.DataFrame:
-    """Per year × permission: raw prevalence, weighted prevalence, band, n_rows, n_clusters, n_batches."""
+def prevalence_table(frame: pd.DataFrame, permissions: list[str], weights: pd.Series, years: list[int], casefold: bool = False, *, estimator: str = "cluster_unit_recomputed", cluster_col: str | None = "perm_profile_hash", **band_kw) -> pd.DataFrame:
+    """Per year × permission: raw prevalence, weighted prevalence, band, n_rows, n_clusters, n_batches, observed_any, estimator.
+
+    Rows are emitted for every requested permission including those never observed in a year (weighted_prevalence 0 with
+    observed_any False), so a registered permission set is reported completely rather than silently dropped."""
     rows = []
     for year in years:
         g = frame[(frame["year"] == year) & weights.notna()]
         if len(g) == 0:
             continue
         ind = indicator_matrix(g["perms"], permissions, casefold); w = weights[g.index].to_numpy(dtype=float)
-        labels, num, den = per_batch_sums(ind, w, g["batch"].to_numpy()); bands = ratio_bands(num, den, **band_kw)
-        raw = ind.mean(axis=0)
+        clusters = g[cluster_col].to_numpy() if cluster_col else None
+        bands = bands_for(estimator, ind, w, clusters, g["batch"].to_numpy(), **band_kw)
+        raw = ind.mean(axis=0); observed = ind.sum(axis=0) > 0
         for j, p in enumerate(permissions):
             rows.append({"year": year, "permission": p, "raw_prevalence": float(raw[j]), "weighted_prevalence": float(bands["point"][j]), "lo95": float(bands["lo"][j]), "hi95": float(bands["hi"][j]),
-                         "diff_pp": 100 * (float(raw[j]) - float(bands["point"][j])), "n_rows": int(len(g)), "n_clusters": int(g["perm_profile_hash"].nunique()), "n_batches": bands["n_batches"]})
+                         "diff_pp": 100 * (float(raw[j]) - float(bands["point"][j])), "n_rows": int(len(g)), "n_clusters": int(g[cluster_col].nunique()) if cluster_col else 0, "n_batches": bands["n_batches"],
+                         "observed_any": bool(observed[j]), "estimator": bands["estimator"]})
     return pd.DataFrame(rows)
 
 

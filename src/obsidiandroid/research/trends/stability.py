@@ -1,6 +1,14 @@
 """STABILITY.csv: one row per (prediction/table, permission or pair), one column per arm, cell = sign+magnitude of the effect and
-whether the band excludes zero. REAL = same sign in every arm where defined (and band excludes zero in the primary);
-COMPOSITION-DEPENDENT = the sign flips in at least one arm (named)."""
+``*`` when the primary 95 % bands of the two compared levels are disjoint.
+
+Labels (v1.1; v1 used the ambiguous word REAL):
+- SIGN_STABLE_BAND_EXCLUDES_ZERO: same sign in every arm where defined AND the primary bands are disjoint.
+- SIGN_STABLE_BAND_INCLUDES_ZERO: same sign in every arm, but the primary bands overlap. Sign stability across arms is a
+  robustness statement about analysis choices; it is NOT a significance test and must not be read as one.
+- COMPOSITION_DEPENDENT: the sign flips in at least one arm (named in flipping_arms).
+- UNDEFINED: the primary effect is undefined.
+Scorecard rows: VERDICT_STABLE, VERDICT_ARM_DEPENDENT (flipping arms named) and VERDICT_DEGENERATE_IN_FLIPPING_ARMS when every
+flipping arm returns INCONCLUSIVE because an input (e.g. the only benign batch) is absent in that arm."""
 from __future__ import annotations
 
 import json
@@ -67,7 +75,7 @@ def build_stability(root: Path, arms: list[str], primary: str = "primary") -> pd
         if primary in signs:
             flips = [a for a, s in signs.items() if s != signs[primary]]
             prim_excl = row[primary].endswith("*")
-            row["verdict"] = "COMPOSITION-DEPENDENT" if flips else ("REAL" if prim_excl else "REAL(sign-stable; primary band includes zero)")
+            row["verdict"] = "COMPOSITION_DEPENDENT" if flips else ("SIGN_STABLE_BAND_EXCLUDES_ZERO" if prim_excl else "SIGN_STABLE_BAND_INCLUDES_ZERO")
             row["flipping_arms"] = "|".join(flips)
         else:
             row["verdict"] = "UNDEFINED"; row["flipping_arms"] = ""
@@ -81,8 +89,9 @@ def build_stability(root: Path, arms: list[str], primary: str = "primary") -> pd
                 if t is None: row[arm] = "n/a"; continue
                 v = t[t["prediction"] == pred]["verdict"].iloc[0]; row[arm] = v; verdicts[arm] = v
             flips = [a for a, v in verdicts.items() if v != verdicts.get(primary)]
-            row["verdict"] = "COMPOSITION-DEPENDENT" if flips else "REAL"; row["flipping_arms"] = "|".join(flips); rows.append(row)
-    return pd.DataFrame(rows)
+            degenerate = bool(flips) and all(verdicts[a] == "INCONCLUSIVE" for a in flips)
+            row["verdict"] = "VERDICT_DEGENERATE_IN_FLIPPING_ARMS" if degenerate else ("VERDICT_ARM_DEPENDENT" if flips else "VERDICT_STABLE"); row["flipping_arms"] = "|".join(flips); rows.append(row)
+    df = pd.DataFrame(rows); df["note"] = "sign stability across arms is not a significance test"; return df
 
 
 def main(argv: list[str] | None = None) -> int:

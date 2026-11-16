@@ -124,3 +124,103 @@ def test_prevalence_figure_accepts_band_axis(tmp_path):
     t = pd.DataFrame({"year": ["<=22", "23-25", "(null)"], "permission": ["p"] * 3, "weighted_prevalence": [0.1, 0.2, 0.3], "lo95": [np.nan] * 3, "hi95": [np.nan] * 3})
     out = F.fig_prevalence_lines(t, tmp_path, "band_axis", annotations={"events": [{"year": 2019, "label": "x"}], "causal_claim_permitted": False})
     assert (tmp_path / out["png"]).exists()
+
+
+# ---------------------------------------------------------------- v1.1 corrections (one regression test per corrected defect)
+
+def _frame_with_duplicated_profiles(n_batches: int = 4, seed: int = 11) -> pd.DataFrame:
+    """Profiles repeated unevenly across batches so that fixed-design and recomputed-unit bootstraps differ."""
+    rng = np.random.default_rng(seed); rows = []; profiles = [["android.permission.READ_SMS"], ["android.permission.CAMERA"], ["android.permission.READ_SMS", "android.permission.CAMERA"], ["android.permission.INTERNET"]]
+    for i in range(400):
+        p = profiles[0] if (i % n_batches == 0 and i % 3 != 0) else profiles[rng.integers(0, 4)]
+        rows.append({c: None for c in REQUIRED_COLUMNS} | {"id_sample_id": i, "id_sha256": hashlib.sha256(str(i).encode()).hexdigest(), "time_first_submission_year": 2020 if i < 380 else 2010, "trend_year_eligible": True, "corpus_resigned_2017": False,
+            "det_malicious": 10, "det_engines_present": 70, "source_class_state": "UNKNOWN", "label_v2_provenance": "AUTHORITY", "label_v2_type_v2": "banker", "label_v2_family_v2": "f", "label_has_family_v2": True, "label_has_type_v2": True,
+            "pay_permission_names_raw": json.dumps(p), "perm_profile_hash": hashlib.sha256("\n".join(p).encode()).hexdigest(), "signer_thumbprint_raw": f"tp{i % 3}", "signer_is_aosp_test_key": False, "signer_is_marco_test2014": False,
+            "report_age_days": 10, "batch_source_label": f"b{i % n_batches}", "sdk_catalog_target": 25, "sdk_catalog_min": 16, "det_report_state": "PRESENT", "attack_status": "ASSESSED"})
+    return pd.DataFrame(rows)
+
+
+def test_recomputed_unit_bootstrap_gives_unit_mass_per_represented_cluster():
+    """Defect 1: fixed design weights let a repeated batch carry > 1 mass per profile. The registered estimator recomputes weights."""
+    ds = TrendDataset.from_frame(_frame_with_duplicated_profiles()); f = ds.frame[ds.frame.year == 2020]
+    ind = M.indicator_matrix(f["perms"], ["android.permission.READ_SMS"]); w = Wt.cluster_weights(f)[f.index].to_numpy()
+    rec = B.cluster_unit_bands(ind, f["perm_profile_hash"].to_numpy(), f["batch"].to_numpy(), n_resamples=200, seed=1)
+    _, num, den = B.per_batch_sums(ind, w, f["batch"].to_numpy()); fix = B.ratio_bands(num, den, n_resamples=200, seed=1)
+    assert rec["estimator"] == "cluster_unit_recomputed" and rec["unit_mass_check"] == 0.0 and rec["n_clusters"] == f["perm_profile_hash"].nunique()
+    assert rec["point"][0] == pytest.approx(fix["point"][0])                 # identical point estimate on the original population
+    # with profile clusters the recomputed statistic is the share of represented distinct profiles containing the permission -> bounded by {k/C}
+    assert not (np.allclose(rec["lo"], fix["lo"]) and np.allclose(rec["hi"], fix["hi"]))   # the two estimators are not interchangeable
+    disp = B.bands_for("cluster_unit_recomputed", ind, w, f["perm_profile_hash"].to_numpy(), f["batch"].to_numpy(), n_resamples=50, seed=1); assert disp["estimator"] == "cluster_unit_recomputed"
+    fb = B.bands_for("cluster_unit_recomputed", ind, np.ones(len(f)), None, f["batch"].to_numpy(), n_resamples=50, seed=1); assert fb["estimator"].startswith("fixed_design")
+    with pytest.raises(ValueError):
+        B.bands_for("made_up", ind, w, None, f["batch"].to_numpy())
+
+
+def test_years_are_data_derived_and_t1_accounts_for_every_row(tmp_path):
+    """Defect 3: v1 hard-coded 2011..2026 and lost the single 2010 detected row."""
+    from obsidiandroid.research.trends.study import StudyConfig, run_study
+    ds = TrendDataset.from_frame(_frame_with_duplicated_profiles()); cfg = StudyConfig(n_resamples=20)
+    run_study(ds, cfg, tmp_path, "0" * 64, None, ["android.permission.READ_SMS"], make_figures=False, tables=("T1", "T7"))
+    t1 = pd.read_csv(tmp_path / "T1_detected_per_year.csv"); meta = json.loads((tmp_path / "T1_detected_per_year.meta.json").read_text())
+    assert 2010 in set(t1.year) and int(t1.rows.sum()) == len(ds.detected(eligible_only=False)) == meta["rows_total_check"]
+    assert set(pd.read_csv(tmp_path / "T7_concentration.csv").year) == {2010, 2020}
+    ledger = json.loads((tmp_path / "selection_ledger.json").read_text()); assert ledger["years_in_detected_population"] == [2010, 2020] and ledger["steps"][0]["step"].startswith("detected")
+
+
+def test_dangerous_selection_registered_full_reports_unobserved_permissions(tmp_path):
+    """Defect 5: the >= 1 % cutoff is not registered; the primary reports the full set and the cutoff is an explicit exploratory arm."""
+    from obsidiandroid.research.trends.study import StudyConfig, arm_catalog, run_study
+    ds = TrendDataset.from_frame(_frame_with_duplicated_profiles()); dangerous = ["android.permission.READ_SMS", "android.permission.CAMERA", "android.permission.NEVER_SEEN"]
+    run_study(ds, StudyConfig(n_resamples=20), tmp_path / "p", "0" * 64, None, dangerous, make_figures=False, tables=("T2",))
+    t2 = pd.read_csv(tmp_path / "p/T2_dangerous_prevalence.csv"); meta = json.loads((tmp_path / "p/T2_dangerous_prevalence.meta.json").read_text())
+    assert set(t2.permission) == set(dangerous) and meta["dangerous_selection"] == "registered_full" and meta["n_clusters"] > 0 and meta["unit"] and meta["estimand"] and meta["estimator"] == "cluster_unit_recomputed"
+    never = t2[t2.permission == "android.permission.NEVER_SEEN"]; assert (~never.observed_any).all() and (never.weighted_prevalence == 0).all()
+    arms = arm_catalog(["b0"]); s12 = arms["S12_dangerous_1pct_either_arm"]; assert s12.registered is False and arms["primary"].registered is True
+    run_study(ds, StudyConfig(n_resamples=20, dangerous_selection="exploratory_1pct_either_arm", arm="S12"), tmp_path / "s12", "0" * 64, None, dangerous, make_figures=False, tables=("T2",))
+    led = json.loads((tmp_path / "s12/selection_ledger.json").read_text())["dangerous_selection"]; assert led["registered"] is False and "android.permission.NEVER_SEEN" in led["omitted"]
+    with pytest.raises(ValueError):
+        StudyConfig(dangerous_selection="whatever")
+    with pytest.raises(ValueError):
+        StudyConfig(estimator="whatever")
+
+
+def test_strata_capacity_is_dictionary_conditioned():
+    """Defect 4 (T4 metadata): v1 reported all-rows capacity while computing on dictionary-conditioned rows."""
+    ds = TrendDataset.from_frame(synthetic_frame()); f = ds.frame; mal = f[ds.detected_mask()]; ben = f[ds.benign_source_mask()]
+    cfg = {"variant": "t", "null_band": "(null)", "bands": [{"name": "<=22", "min": 1, "max": 22}, {"name": "23-28", "min": 23, "max": 28}]}
+    w_m = Wt.cluster_weights(mal); w_b = Wt.cluster_weights(ben)
+    st_all = strata(mal, ben, [2018, 2019, 2020], cfg); st = strata(mal, ben, [2018, 2019, 2020], cfg, w_m=w_m, w_b=w_b)
+    assert (st.matched_capacity <= st.matched_capacity_all_rows).all() and (st.matched_capacity_all_rows == st_all.matched_capacity).all()
+    assert (st.matched_capacity < st.matched_capacity_all_rows).any()      # the fixture has rows without dictionaries, so the two definitions differ
+    assert {"malware_clusters", "benign_clusters"} <= set(st.columns) and (st.malware_clusters <= st.malware_rows).all()
+
+
+def test_heatmap_keeps_missing_cells_missing(tmp_path):
+    """Defect 6: unmeasured cells must stay NaN in the figure CSV, never become zero."""
+    from obsidiandroid.research.trends import figures as F
+    t = pd.DataFrame({"permission": ["a", "a", "b"], "year": [2018, 2019, 2018], "weighted_prevalence": [0.2, 0.3, 0.5]})
+    out = F.fig_heatmap(t, tmp_path, "hm", "permission", "year", "weighted_prevalence", "t"); back = pd.read_csv(tmp_path / out["csv"])
+    cell = back[(back.permission == "b") & (back.year == 2019)]["weighted_prevalence"]; assert len(cell) == 1 and cell.isna().all()
+    assert back[(back.permission == "b") & (back.year == 2018)]["weighted_prevalence"].iloc[0] == 0.5
+
+
+def test_stability_labels_are_explicit(tmp_path):
+    from obsidiandroid.research.trends import stability as S
+    def write(arm, lo0, hi0, lo1, hi1, v="NOT SUPPORTED"):
+        d = tmp_path / arm; d.mkdir()
+        pd.DataFrame({"permission": ["p", "p"], "year": [2018, 2025], "weighted_prevalence": [0.2, 0.5], "lo95": [lo0, lo1], "hi95": [hi0, hi1]}).to_csv(d / "T2_dangerous_prevalence.csv", index=False)
+        pd.DataFrame({"prediction": ["P1"], "verdict": [v]}).to_csv(d / "scorecard.csv", index=False)
+    write("primary", 0.1, 0.4, 0.3, 0.6); write("armA", 0.1, 0.3, 0.4, 0.6, v="INCONCLUSIVE")
+    df = S.build_stability(tmp_path, ["primary", "armA"])
+    assert df[df.item.str.startswith("T2")].verdict.iloc[0] == "SIGN_STABLE_BAND_INCLUDES_ZERO" and df[df.item == "scorecard verdict"].verdict.iloc[0] == "VERDICT_DEGENERATE_IN_FLIPPING_ARMS"
+    assert set(df.verdict) & {"REAL", "COMPOSITION-DEPENDENT"} == set() and (df.note == "sign stability across arms is not a significance test").all()
+
+
+def test_matched_band_bootstrap_supports_both_estimators_and_many_permissions():
+    from obsidiandroid.research.trends.matching import matched_malware_band_bootstrap
+    ds = TrendDataset.from_frame(_frame_with_duplicated_profiles()); mal = ds.frame; w_m = Wt.cluster_weights(mal)
+    cfg = {"variant": "t", "null_band": "(null)", "bands": [{"name": "23-28", "min": 23, "max": 28}]}
+    ind = M.indicator_matrix(mal["perms"], ["android.permission.READ_SMS", "android.permission.CAMERA"])
+    lo_r, hi_r, nb = matched_malware_band_bootstrap(mal, ind, w_m, 2020, cfg, {"23-28": 100.0}, 100, 1, estimator="cluster_unit_recomputed")
+    lo_f, hi_f, _ = matched_malware_band_bootstrap(mal, ind, w_m, 2020, cfg, {"23-28": 100.0}, 100, 1, estimator="fixed_design")
+    assert lo_r.shape == (2,) and nb == 4 and (lo_r <= hi_r).all() and (lo_f <= hi_f).all() and not (np.allclose(lo_r, lo_f) and np.allclose(hi_r, hi_f))
