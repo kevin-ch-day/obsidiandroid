@@ -262,7 +262,7 @@ def run_study(ds: TrendDataset, cfg: StudyConfig, out: Path, prereg_hash: str, a
                 lo, hi, nb = matched_malware_band_bootstrap_v1_1(mal, im_all, w_m, y, band_cfg, caps, cfg.n_resamples, cfg.seed, estimator=cfg.estimator, cluster_col=ccol); lo_f = hi_f = np.full(len(perms4), np.nan)
             elif caps:
                 sub_mask = (mal["year"] == y) & w_m.notna(); res = matched_malware_bootstrap_registered(mal[sub_mask], im_all[sub_mask.to_numpy()], y, band_cfg, nben, cfg.n_resamples, cfg.seed, cluster_col=ccol or "perm_profile_hash")
-                lo, hi, nb = res["lo_recomputed"], res["hi_recomputed"], res["n_batches"]; lo_f, hi_f = res["lo_fixed"], res["hi_fixed"]; t4_unit_checks[str(y)] = {"unit_mass_check": res["unit_mass_check"], "n_profiles": res["n_profiles"], "n_batches": res["n_batches"], "capacities_point": res["capacities_point"]}
+                lo, hi, nb = res["lo_recomputed"], res["hi_recomputed"], res["n_batches"]; lo_f, hi_f = res["lo_fixed"], res["hi_fixed"]; t4_unit_checks[str(y)] = {"unit_mass_check": res["unit_mass_check"], "indicator_constant_within_cluster": res["indicator_constant_within_cluster"], "n_profiles": res["n_profiles"], "n_batches": res["n_batches"], "capacities_point": res["capacities_point"]}
             else:
                 lo = hi = lo_f = hi_f = np.full(len(perms4), np.nan); nb = int(mal[(mal["year"] == y)]["batch"].nunique())
             for j, p in enumerate(perms4):

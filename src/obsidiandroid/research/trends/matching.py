@@ -149,8 +149,8 @@ def matched_malware_bootstrap_registered(mal: pd.DataFrame, indicator_m: pd.Seri
         sel = band == nm
         if sel.any():
             m = np.zeros((B, C)); np.add.at(m, (inv_b[sel], inv_c[sel]), 1.0); Nb[nm] = m
-    indc = np.zeros((C, k)); indc[inv_c] = ind                                                 # indicator per profile (constant within profile)
-    assert np.allclose(np.abs(indc[inv_c] - ind).max(), 0.0), "indicator must be constant within a profile"
+    indc = np.zeros((C, k)); np.add.at(indc, inv_c, ind); indc /= np.bincount(inv_c, minlength=C)[:, None]   # cluster mean of the indicator
+    constant_within_cluster = bool(np.abs(indc[inv_c] - ind).max() < 1e-12)                  # True for permission profiles; False for e.g. signer clusters (S11), where the cluster statistic is the within-cluster mean
     def standardize(RN, RNb, caps_rule):
         w = np.where(RN > 0, 1.0 / np.where(RN > 0, RN, 1.0), 0.0)                              # (R, C) year-level recomputed weights
         total = np.zeros((RN.shape[0], k)); den = np.zeros(RN.shape[0])
@@ -168,12 +168,12 @@ def matched_malware_bootstrap_registered(mal: pd.DataFrame, indicator_m: pd.Seri
     caps_point = {nm: float(min(Nb[nm].sum(), benign_band_rows.get(nm, 0))) for nm in Nb if benign_band_rows.get(nm, 0) > 0}
     bands_point = {nm: float(((one @ m) * (1.0 / RN0) @ indc)[0, 0] / (((one @ m) * (1.0 / RN0)).sum())) for nm, m in Nb.items() if benign_band_rows.get(nm, 0) > 0} if k == 1 else {}
     if B < 2:
-        return {"point": point, "lo_fixed": np.full(k, np.nan), "hi_fixed": np.full(k, np.nan), "lo_recomputed": np.full(k, np.nan), "hi_recomputed": np.full(k, np.nan), "n_batches": int(B), "n_profiles": int(C), "unit_mass_check": 0.0, "bands_point": bands_point, "capacities_point": caps_point}
+        return {"point": point, "lo_fixed": np.full(k, np.nan), "hi_fixed": np.full(k, np.nan), "lo_recomputed": np.full(k, np.nan), "hi_recomputed": np.full(k, np.nan), "n_batches": int(B), "n_profiles": int(C), "indicator_constant_within_cluster": constant_within_cluster, "unit_mass_check": 0.0, "bands_point": bands_point, "capacities_point": caps_point}
     counts = _resample_counts(B, n_resamples, seed); RN = counts @ N; RNb = {nm: counts @ m for nm, m in Nb.items()}
     mass = (np.where(RN > 0, 1.0 / np.where(RN > 0, RN, 1.0), 0.0) * RN).sum(axis=1); unit_mass_check = float(np.abs(mass - (RN > 0).sum(axis=1)).max())
     fx = standardize(RN, RNb, "fixed"); rc = standardize(RN, RNb, "recomputed")
     return {"point": point, "lo_fixed": np.nanpercentile(fx, 2.5, axis=0), "hi_fixed": np.nanpercentile(fx, 97.5, axis=0), "lo_recomputed": np.nanpercentile(rc, 2.5, axis=0), "hi_recomputed": np.nanpercentile(rc, 97.5, axis=0),
-            "n_batches": int(B), "n_profiles": int(C), "unit_mass_check": unit_mass_check, "bands_point": bands_point, "capacities_point": caps_point}
+            "n_batches": int(B), "n_profiles": int(C), "indicator_constant_within_cluster": constant_within_cluster, "unit_mass_check": unit_mass_check, "bands_point": bands_point, "capacities_point": caps_point}
 
 
 def fixed_target_gap_bootstrap(g: pd.DataFrame, permission: str, n_resamples: int, seed: int, cluster_col: str = "perm_profile_hash") -> dict:

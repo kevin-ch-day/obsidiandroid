@@ -263,3 +263,16 @@ def test_study_writes_p3_detail_and_registered_t4_columns(tmp_path):
     t4 = pd.read_csv(tmp_path / "T4_matched_benign_vs_malware.csv"); assert {"malware_lo95_fixed_capacity", "malware_hi95_fixed_capacity", "matched_band_design"} <= set(t4.columns) and (t4.matched_band_design == "registered_year_profile").all()
     meta = json.loads((tmp_path / "T4_matched_benign_vs_malware.meta.json").read_text()); assert "band_columns" in meta and "unit_checks" in meta
     sc = pd.read_csv(tmp_path / "scorecard.csv"); p3 = sc[sc.prediction == "P3"].iloc[0]; assert "paired batch-resampled gap interval" in p3.evidence or "no batch band" in p3.evidence or p3.verdict == "INCONCLUSIVE"
+
+
+def test_registered_matched_bootstrap_uses_cluster_mean_for_non_profile_clusters():
+    """Signer clusters (S11) do not have a constant indicator within a cluster; the cluster statistic is the within-cluster mean."""
+    import numpy as np, pandas as pd
+    from obsidiandroid.research.trends.matching import matched_malware_bootstrap_registered
+    mal = pd.DataFrame({"year": [2018] * 6, "batch": ["a", "a", "a", "b", "b", "b"], "signer": ["s1", "s1", "s2", "s2", "s3", "s3"], "sdk_catalog_target": [20, 20, 20, 20, 20, 20]})
+    ind = np.array([[1.0], [0.0], [1.0], [1.0], [0.0], [0.0]])
+    cfg = {"variant": "t", "null_band": "(null)", "bands": [{"name": "<=22", "min": 1, "max": 22}]}
+    res = matched_malware_bootstrap_registered(mal, ind, 2018, cfg, {"<=22": 10}, n_resamples=20, seed=1, cluster_col="signer")
+    assert res["indicator_constant_within_cluster"] is False
+    # cluster means: s1 -> 0.5, s2 -> 1.0, s3 -> 0.0; each cluster weight 1 -> point 0.5
+    assert abs(res["point"][0] - 0.5) < 1e-12
