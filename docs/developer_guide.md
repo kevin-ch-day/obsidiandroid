@@ -88,7 +88,7 @@ Orchestration lives in **`src/obsidiandroid/pipeline/runner.py`** (`run_pipeline
   python -m scripts.dev.run_ml_static_scan  # optional static analysis for ML misuse
   python scripts/dev/clean_bytecode_cache.py  # remove stale __pycache__ before committing
   ```
-- For changes touching data pipelines, run representative integration tests or dry-run `main.py` with a small batch.
+- For changes touching data pipelines, use `make verify-integration` with synthetic fixtures. `main.py --help` lists the supported options. `--dry-run` is rejected.
 - Prefer adding stage-level tests before full end-to-end tests so failures are easier to localize.
 
 ## Data and Secrets Handling

@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
+from collections.abc import Sequence
 
 from obsidiandroid.orchestration.runtime_reporting import (
     apply_confusion_matrix_policy as _apply_confusion_matrix_policy,
@@ -45,13 +47,15 @@ finalize_run_manifest_stage = stage_manifest.finalize_run_manifest_stage
 load_and_prepare_samples = stage_samples.load_and_prepare_samples
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """Execute the full malware classification workflow."""
-    allow_override = "--allow-evidence-override" in sys.argv[1:]
-    allow_global = "--allow-global-artifacts" in sys.argv[1:]
+    parser = argparse.ArgumentParser(description=main.__doc__, allow_abbrev=False)
+    parser.add_argument("--allow-evidence-override", action="store_true")
+    parser.add_argument("--allow-global-artifacts", action="store_true")
+    options = parser.parse_args(argv)
     return run_pipeline(
-        allow_evidence_override=allow_override,
-        allow_global_artifacts=allow_global,
+        allow_evidence_override=options.allow_evidence_override,
+        allow_global_artifacts=options.allow_global_artifacts,
     )
 
 
