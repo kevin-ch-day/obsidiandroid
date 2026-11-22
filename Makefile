@@ -72,6 +72,10 @@ install-editable:
 test:
 	./scripts/dev/run_tests.sh
 
+# Permission-trend study unit lane (synthetic fixtures; no data, no database).
+test-research-trends:
+	./scripts/dev/run_tests.sh tests/research
+
 # Diff-scoped loop for everyday development (BASE=origin/main by default).
 test-changed:
 	./scripts/dev/run_tests_changed.sh $(BASE)
