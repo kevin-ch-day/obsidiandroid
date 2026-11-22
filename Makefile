@@ -74,7 +74,7 @@ test:
 
 # Permission-trend study unit lane (synthetic fixtures; no data, no database).
 test-research-trends:
-	pytest -q tests/research
+	./scripts/dev/run_tests.sh tests/research
 
 # Diff-scoped loop for everyday development (BASE=origin/main by default).
 test-changed:
