@@ -9,12 +9,13 @@ from pathlib import Path
 import re
 import sqlite3
 
-from .mobile_attack_permission_mapping import mobile_attack_permission_mapping_payload, DISPOSITIONS, ROLES
+from .mobile_attack_permission_mapping import mobile_attack_permission_mapping_payload, DISPOSITIONS, ROLES, PROVIDER_TIER
 
 SOURCE_KINDS = frozenset({'PROVIDER_REPORT','STATIC_MANIFEST','STATIC_CODE','RUNTIME_GRANT','RUNTIME_TRACE'})
 INTERPRETATIONS = frozenset({'POTENTIAL_CAPABILITY','SUPPORTING_STATIC_INDICATOR',
                            'SUPPORTING_RUNTIME_OBSERVATION','CORROBORATED_TECHNIQUE_RELATED_BEHAVIOR',
-                           'INSUFFICIENT_EVIDENCE','NO_DIRECT_ATTACK_RELATIONSHIP'})
+                           'INSUFFICIENT_EVIDENCE','NO_DIRECT_ATTACK_RELATIONSHIP',
+                           'PROVIDER_REPORTED_CAPABILITY_HYPOTHESIS'})
 
 
 @dataclass(frozen=True)
@@ -69,7 +70,7 @@ class PermissionObservation:
             raise ValueError('Unknown source kind or permission role')
         if self.source_asserted_role is not None:
             if (self.source_asserted_role != 'PROVIDER_REPORTED_REQUIRED_PERMISSION'
-                or self.source_kind != 'PROVIDER_REPORT' or self.role != 'UNKNOWN'
+                or self.source_kind != 'PROVIDER_REPORT' or self.role not in {'UNKNOWN', 'PROVIDER_REPORTED'}
                 or self.source_validation != 'SOURCE_BOUND' or not self.source_payload_digest
                 or not self.source_event_id or not self.provenance_refs
                 or self.source_field_path != '$.data.attributes.androguard.permission_details'
@@ -77,7 +78,9 @@ class PermissionObservation:
                 raise ValueError('Provider role assertion requires exact source field/event/payload rule; no manifest-role promotion')
         elif self.source_field_path is not None or self.role_interpretation_rule is not None:
             raise ValueError('Source role interpretation metadata requires a supported assertion')
-        if self.source_kind=='PROVIDER_REPORT' and self.role!='UNKNOWN':
+        if self.role == 'PROVIDER_REPORTED' and (self.source_kind != 'PROVIDER_REPORT' or self.source_asserted_role is None):
+            raise ValueError('Provider tier requires a source-bound provider assertion')
+        if self.source_kind=='PROVIDER_REPORT' and self.role not in {'UNKNOWN', 'PROVIDER_REPORTED'}:
             raise ValueError('Unresolved provider evidence cannot assert requested/defined/granted/runtime roles')
         allowed = {'STATIC_MANIFEST':{'REQUESTED','DEFINED','COMPONENT_GUARD','UNKNOWN'},
                    'STATIC_CODE':{'API_BEHAVIOR','UNKNOWN'},'RUNTIME_GRANT':{'RUNTIME_GRANT','UNKNOWN'},
@@ -116,7 +119,7 @@ def assess_permission_observation(observation: PermissionObservation,
           'identity_api_release':identity.api_release if identity else None,
           'attack_release':mapping['attack_source']['release'],'mapping_version':mapping['version'],
           'mapping_hash':mapping.get('hash'), 'technique_observed':False,
-          'source_role_complete':observation.role!='UNKNOWN',
+          'source_role_complete':observation.role not in {'UNKNOWN', 'PROVIDER_REPORTED'},
           'source_role_assertion_available':observation.source_asserted_role is not None,
           'timestamp_available':observation.observed_at is not None,
           'evidence_availability':'RETAINED_SOURCE_BOUND' if observation.source_validation=='SOURCE_BOUND' and (observation.source_payload_digest or observation.source_snapshot_digest) and observation.provenance_refs else 'INSUFFICIENT_PROVENANCE'}
@@ -150,9 +153,12 @@ def assess_permission_observation(observation: PermissionObservation,
         if review_from is not None and observation.api_level is not None and observation.api_level>=review_from:
             api_status='CONTEXT_REVIEW_REQUIRED'
         role_compatible=observation.role in rule['allowed_roles']
+        provider_lower = (observation.role == 'PROVIDER_REPORTED'
+                          and rule.get('evidence_tier') == PROVIDER_TIER
+                          and rule['relationship_category'] == 'CAPABILITY_RELATED')
         supporting='INSUFFICIENT_EVIDENCE'
         if role_compatible and api_status not in {'UNSUPPORTED_API','CONTEXT_REVIEW_REQUIRED'}:
-            supporting='POTENTIAL_CAPABILITY'
+            supporting='PROVIDER_REPORTED_CAPABILITY_HYPOTHESIS' if provider_lower else 'POTENTIAL_CAPABILITY'
             if (observation.source_kind=='STATIC_MANIFEST' and observation.source_validation=='SOURCE_BOUND'
                 and observation.provenance_refs and observation.source_event_id):
                 supporting='SUPPORTING_STATIC_INDICATOR'
@@ -161,6 +167,8 @@ def assess_permission_observation(observation: PermissionObservation,
             and observation.observed_at and observation.provenance_refs and api_status not in {'UNSUPPORTED_API','CONTEXT_REVIEW_REQUIRED'}):
             supporting='SUPPORTING_RUNTIME_OBSERVATION'
         if not role_compatible:missing.insert(0,'permission role compatible with rule')
+        if provider_lower:
+            missing.insert(0, 'manifest element/request/grant role remains unobservable; provider parse only')
         if api_status=='CONTEXT_REVIEW_REQUIRED':missing.append('target SDK/storage-scope applicability review; permission presence may have no effect')
         if api_status=='UNKNOWN':missing.append('Android API applicability')
         if api_status=='UNSUPPORTED_API':missing.append('permission unavailable at supplied Android API level')
@@ -170,7 +178,9 @@ def assess_permission_observation(observation: PermissionObservation,
                         'relationship_category':rule['relationship_category'],
                         'disposition':rule['relationship_category'] if supporting!='INSUFFICIENT_EVIDENCE' else 'CONTEXT_REQUIRED',
                         'api_applicability':api_status,'behavioral_interpretation':supporting,
-                        'missing_evidence':missing,'permission_role_compatible':role_compatible})
+                        'missing_evidence':missing,'permission_role_compatible':role_compatible,
+                        'evidence_tier':PROVIDER_TIER if provider_lower else None,
+                        'permission_role_observable':observation.role not in {'UNKNOWN', 'PROVIDER_REPORTED'}})
     return results
 
 

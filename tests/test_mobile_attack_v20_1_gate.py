@@ -100,3 +100,20 @@ def test_casefold_matching_is_only_an_explicit_non_authoritative_hint():
     canonical = lower.assign(permission='android.permission.READ_SMS')
     exact = build_attack_mobile_hypotheses(prevalence_df=canonical, run_id='synthetic', group_field='group', group_kind='family', casefold_hint=False)
     assert not exact.empty and exact.identity_matching.eq('EXACT_TOKEN_HINT_NOT_IDENTITY_AUTHORITY').all()
+
+
+def test_v4_candidate_keeps_reference_pin_and_context_rules_unchanged():
+    import yaml
+    from obsidiandroid.governance.mobile_attack_permission_mapping import validate_mapping
+    candidate = yaml.safe_load((repo_root() / 'config/taxonomy/mobile_attack_permission_mapping.v4-candidate.yaml').read_text())
+    validate_mapping(candidate)
+    assert candidate['attack_source'] == MAPPING['attack_source']
+    assert candidate['version'].endswith('v4-candidate')
+    for old, new in zip(RULES, candidate['rules'], strict=True):
+        assert new['rule_id'] == old['rule_id']
+        if old['relationship_category'] == 'CONTEXT_REQUIRED':
+            assert new == old
+        else:
+            assert new['allowed_roles'] == old['allowed_roles'] + ['PROVIDER_REPORTED']
+            assert new['evidence_tier'] == 'PROVIDER_REPORTED_LOWER'
+            assert new['behavioral_assertion'] is False
