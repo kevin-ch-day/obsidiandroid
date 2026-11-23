@@ -193,10 +193,13 @@ def test_durable_audit_failure_rejects_access(setup, fault):
 
 
 def test_killed_transaction_requires_conservative_lease_recovery(setup):
-    root, view, client = setup(max_seconds=0.3)
+    root, view, client = setup()
     client.request(action='open', **scope(view))
     client.process.terminate(); client.process.join()
-    time.sleep(0.35)
+    assert recover(root) == 0
+    # Expire the abandoned job without putting a wall-clock limit on the new client.
+    with sqlite3.connect(root/'control.sqlite') as db:
+        assert db.execute("UPDATE jobs SET deadline=0 WHERE status='ACTIVE'").rowcount == 1
     assert recover(root) == 1
     fresh = DisposableClient(root)
     try:
