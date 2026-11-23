@@ -70,3 +70,34 @@ def publication_ready_payload(status: object, reasons: list[str] | None = None) 
         "publication_ready_status": normalized_status,
         "publication_ready_reasons": normalized_reasons,
     }
+
+
+def claim_audit_alias_name(*, profile_id: str, evidence_mode: bool, paper_mode: bool) -> str:
+    """Return the profile-appropriate claim audit alias for index artifacts."""
+    if bool(evidence_mode or paper_mode):
+        return "publication_claim_audit.md"
+    profile = str(profile_id or "").strip()
+    if profile in {
+        "android_malware_major_families",
+        "android_malware_type_taxonomy",
+    }:
+        return "benchmark_claim_audit.md"
+    return "research_claim_audit.md"
+
+
+def claim_surface_label(*, profile_id: str, evidence_mode: bool, paper_mode: bool) -> str:
+    """Return a human-readable claim surface label for index artifacts."""
+    profile = str(profile_id or "").strip()
+    if bool(evidence_mode or paper_mode):
+        return "Locked publication cohort"
+    if profile == "android_catalog_all_exploratory":
+        return "Android catalog exploratory surface"
+    if profile == "android_malware_all_current":
+        return "Current-corpus diagnostic surface"
+    if profile == "android_malware_major_families":
+        return "Support-gated benchmark cohort"
+    if profile == "android_malware_expanded_families":
+        return "Expanded-family exploratory cohort"
+    if profile == "android_malware_type_taxonomy":
+        return "Type taxonomy benchmark"
+    return "Benchmark research surface"

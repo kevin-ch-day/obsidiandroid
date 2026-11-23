@@ -22,9 +22,11 @@ Scripts here support **package layout, import hygiene, and local repo maintenanc
 | Script | Purpose |
 |--------|---------|
 | [`bootstrap_venv.sh`](bootstrap_venv.sh) | Create/refresh `.venv` and install `requirements.txt`; repo-root [`../../setup.sh`](../../setup.sh) delegates here. |
-| [`launch_startup_menu.sh`](launch_startup_menu.sh) | Prepend `src/` to `PYTHONPATH` and run `python -m obsidiandroid.cli.startup_menu`; repo-root [`../../run.sh`](../../run.sh) delegates here. |
-| [`run_tests.sh`](run_tests.sh) | Fast pytest (`-m "not (slow or integration or heavy or contract)"`); **`make test`** invokes this path. |
-| [`run_tests_changed.sh`](run_tests_changed.sh) | Diff-scoped pytest for touched modules; **`make test-changed`** (`BASE=origin/main` by default). |
+| [`checkout_venv.sh`](checkout_venv.sh) | Locate the local or primary checkout's `.venv` for the launcher, Makefile, and pytest wrappers. |
+| [`launch_startup_menu.sh`](launch_startup_menu.sh) | Prepend local `src/` and invoke `python -m obsidiandroid.cli`. Repo-root [`../../run.sh`](../../run.sh) delegates here. |
+| [`run_pytest.sh`](run_pytest.sh) | Run pytest with the selected Python and checkout import paths. |
+| [`run_tests.sh`](run_tests.sh) | Fast pytest with the default options from `pyproject.toml`. |
+| [`run_tests_changed.sh`](run_tests_changed.sh) | Map changes since the merge base, including local work, to fast tests. `make test-changed` defaults to `BASE=origin/main`. |
 | [`run_tests_integration.sh`](run_tests_integration.sh) | Integration lane only; **`make test-integration`** / **`make verify-integration`**. |
 | [`run_tests_pipeline_integration.sh`](run_tests_pipeline_integration.sh) | Full partial `run_pipeline` lane (`pipeline_heavy` marker); **`make verify-pipeline-integration`**. |
 | [`run_tests_full.sh`](run_tests_full.sh) | Full pytest including `slow` modules; **`make test-full`** invokes this path. |
@@ -36,7 +38,9 @@ Scripts here support **package layout, import hygiene, and local repo maintenanc
 - `OBSIDIANDROID_PREFLIGHT_REFRESH_BACKLOG=0` — keep snapshot lines but do not auto-refresh stale triage exports.
 - Pytest already sets `OBSIDIANDROID_TEST_OUTPUT_ROOT`, which disables backlog preflight automatically in partial `run_pipeline()` tests.
 
-**Layout review:** **`make tree-obsidiandroid`** (canonical package tree), **`make tree-source`** (repo root); **`tree-utils`** / **`tree-exporting-shims`** are stubs (former **`utils/`** removed). Requires the **`tree`** utility (`dnf install tree` on Fedora) for **`tree-obsidiandroid`** / **`tree-source`**.
+Use **`make tree-root`** for one level, **`make tree-source`** for the checkout
+tree, or **`make tree-obsidiandroid`** for the canonical Python package. These
+targets use the `tree` utility.
 
 Related **Makefile** shortcuts: **`make setup`** (→ **`./setup.sh`** / **`bootstrap_venv.sh`**), **`make menu`** (→ **`./run.sh`** / **`launch_startup_menu.sh`**), **`make install-editable`** (`pip install -e .`), **`make verify`** (this script + **`make test`**), **`make doc-check`**, **`make ci`** (same as **GitHub Actions**: **`doc-check`** + **`verify`** + **`ml-scan-strict`**).
 

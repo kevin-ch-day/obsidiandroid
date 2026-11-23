@@ -14,6 +14,7 @@ from config import app_config
 import obsidiandroid.cli.startup_menu as startup_menu
 import obsidiandroid.cli.startup_menu_run_context as startup_menu_run_context
 import obsidiandroid.cli.startup_menu_run_overview as run_overview
+from obsidiandroid.cli.menu import operator_state, run_locator
 from obsidiandroid.cli.ui import menu
 
 
@@ -1159,12 +1160,25 @@ def test_print_startup_context_reports_available_when_diagnostics_exist_without_
         encoding="utf-8",
     )
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(out_root), raising=False)
+    resolved_run_ids = []
+    resolve_run_root = run_locator.resolve_run_root_for_run_id
+
+    def count_run_root_resolution(selected_run_id, *, output_base):
+        resolved_run_ids.append(selected_run_id)
+        return resolve_run_root(selected_run_id, output_base=output_base)
+
+    def unexpected_parser_summary(**_kwargs):
+        pytest.fail("The startup banner does not display a parser summary")
+
+    monkeypatch.setattr(run_locator, "resolve_run_root_for_run_id", count_run_root_resolution)
+    monkeypatch.setattr(operator_state, "get_parser_summary_state", unexpected_parser_summary)
 
     startup_menu_run_context.print_startup_context()
 
     output = capsys.readouterr().out
     assert f"Latest run {run_id}" in output
     assert "Diagnostics available" in output
+    assert resolved_run_ids == [run_id]
 
 
 def test_quick_health_check_passes_with_complete_artifacts(

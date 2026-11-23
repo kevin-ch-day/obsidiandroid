@@ -7,12 +7,11 @@ source-batch × package coupling. Run-local artifacts only.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
@@ -25,6 +24,7 @@ from obsidiandroid.reporting.package_balanced_permission_analysis import (
     assign_package_keys,
     package_balanced_prevalence,
     package_within_family_balanced_prevalence,
+    read_aligned_permission_features,
     sample_weighted_prevalence,
 )
 from obsidiandroid.reporting.type_permission_pattern_report import resolve_git_commit, sha256_file
@@ -386,16 +386,6 @@ def render_attribution_interpretation(
     return "\n".join(lines)
 
 
-def _read_features(path: Path, audit: pd.DataFrame, permissions: set[str]) -> pd.DataFrame:
-    mapping = dict(
-        zip(audit["permission_string"].astype(str).str.lower(), audit["feature_column"].astype(str))
-    )
-    wanted = {"sample_id"} | {mapping[p] for p in permissions if p in mapping}
-    features = pd.read_csv(path, compression="gzip", usecols=lambda c: c in wanted)
-    rename = {feature: permission for permission, feature in mapping.items() if feature in features.columns}
-    return features.rename(columns=rename)
-
-
 def compose_package_balance_attribution(
     *,
     run_root: Path,
@@ -441,7 +431,7 @@ def compose_package_balance_attribution(
         .tolist()
     )
     membership = assign_package_keys(labels)
-    features = _read_features(diag / f"aligned_features_{run_id}.csv.gz", audit, set(rat_perms))
+    features = read_aligned_permission_features(diag / f"aligned_features_{run_id}.csv.gz", audit, set(rat_perms))
     membership = membership.merge(features, on="sample_id", how="inner")
 
     rat_attr = build_rat_family_leaveout_attribution(

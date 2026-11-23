@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
-import numpy as np
 import pandas as pd
 
 from obsidiandroid.reporting.enriched_package_family_sensitivity import BANNED_OUTPUT_DIRS as JOINT_BANNED
@@ -22,6 +21,8 @@ from obsidiandroid.reporting.package_balanced_permission_analysis import (
     assign_package_keys,
     package_balanced_prevalence,
     package_within_family_balanced_prevalence,
+    permission_indicator,
+    read_aligned_permission_features,
     sample_weighted_prevalence,
 )
 from obsidiandroid.reporting.permission_authority_enrichment import enrichment_lane_lookup
@@ -45,14 +46,6 @@ BANNED_OUTPUT_DIRS = set(JOINT_BANNED) | {"enriched_package_family_sensitivity"}
 
 def _norm(value: Any) -> str:
     return str(value or "").strip().lower()
-
-
-def _indicator(frame: pd.DataFrame, permission: str) -> pd.Series:
-    return (
-        pd.to_numeric(frame.get(permission, pd.Series(0, index=frame.index)), errors="coerce")
-        .fillna(0)
-        .gt(0)
-    )
 
 
 def prevalence(frame: pd.DataFrame, permission: str, *, mode: str) -> float:
@@ -203,7 +196,7 @@ def build_type_prevalence(
                     "leave_largest_family_pwf_prevalence": prevalence(
                         leave, perm, mode="package_within_family_balanced"
                     ),
-                    "supporting_samples": int(_indicator(full, perm).sum()),
+                    "supporting_samples": int(permission_indicator(full, perm).sum()),
                 }
             )
     return pd.DataFrame(rows)
@@ -370,16 +363,6 @@ def render_interpretation(
     return "\n".join(lines)
 
 
-def _read_features(path: Path, audit: pd.DataFrame, permissions: set[str]) -> pd.DataFrame:
-    mapping = dict(
-        zip(audit["permission_string"].astype(str).str.lower(), audit["feature_column"].astype(str))
-    )
-    wanted = {"sample_id"} | {mapping[p] for p in permissions if p in mapping}
-    features = pd.read_csv(path, compression="gzip", usecols=lambda c: c in wanted)
-    rename = {feature: permission for permission, feature in mapping.items() if feature in features.columns}
-    return features.rename(columns=rename)
-
-
 def compose_robust_type_contrast(
     *,
     run_root: Path,
@@ -452,7 +435,7 @@ def compose_robust_type_contrast(
     labels = pd.read_csv(diag / f"aligned_labels_{run_id}.csv", low_memory=False)
     audit = pd.read_csv(diag / "permission_feature_audit.csv")
     membership = assign_package_keys(labels)
-    features = _read_features(diag / f"aligned_features_{run_id}.csv.gz", audit, set(permissions))
+    features = read_aligned_permission_features(diag / f"aligned_features_{run_id}.csv.gz", audit, set(permissions))
     membership = membership.merge(features, on="sample_id", how="inner")
 
     largest_by_type = (

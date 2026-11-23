@@ -18,7 +18,7 @@ from obsidiandroid.modeling.parallel_layout import (
     tuning_grid_splitter,
 )
 from obsidiandroid.modeling.training_console_policy import (
-    emit_class_imbalance_notice,
+    print_training_debug_info,
     should_print_detailed_classification_report,
     should_print_training_analysis,
     should_print_training_label_summary,
@@ -82,7 +82,7 @@ def train_random_forest(
                 param_grid["oob_score"] = [True]
             n_splits = cv_splitter.n_splits
             if verbose:
-                _debug_training_info(y_train, n_splits)
+                print_training_debug_info(y_train, n_splits)
                 _analyze_training_setup(X_train, y_train, param_grid, n_splits)
             inner_jobs, grid_jobs = grid_search_job_counts()
             base_params = {key: value for key, value in model_params.items() if key not in param_grid}
@@ -105,7 +105,7 @@ def train_random_forest(
         model = RandomForestClassifier(**model_params)
         model.fit(X_train, y_train)
         if verbose:
-            _debug_training_info(y_train)
+            print_training_debug_info(y_train)
             _analyze_training_setup(X_train, y_train)
 
     duration = time.time() - start
@@ -185,14 +185,6 @@ def _print_training_summary(model, y_train):
     print(f"[RANDOM_FOREST] Top classes: {top}")
     print(f"[RANDOM_FOREST] Model Depth: {model.get_params().get('max_depth')}")
     print(f"[RANDOM_FOREST] Estimators: {len(model.estimators_)}")
-
-
-def _debug_training_info(y_train, cv_folds=None):
-    label_dist = Counter(int(x) for x in y_train)
-    du.print_debug(f"Class distribution: {dict(label_dist)}")
-    if cv_folds is not None:
-        du.print_debug(f"Using {cv_folds} CV folds")
-    emit_class_imbalance_notice(y_train)
 
 
 def _analyze_training_setup(X_train, y_train, param_grid=None, cv_folds=None):

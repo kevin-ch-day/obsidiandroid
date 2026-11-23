@@ -2,14 +2,16 @@
 # Purpose  : Encode merged feature matrix for ML use, supporting categorical and one-hot strategies
 
 import pandas as pd
-from pandas.api.types import is_numeric_dtype
+from pandas.api.types import is_bool_dtype, is_numeric_dtype
 from obsidiandroid.cli.ui import display as du
 
 
 def _handle_low_info_columns(df: pd.DataFrame, verbose: bool) -> None:
     """Warn about columns with little to no variation."""
-    low_info = [col for col in df.columns if df[col].nunique() <= 1 and col != "sample_id"]
-    if verbose and low_info:
+    if not verbose:
+        return
+    low_info = [col for col in df.columns if col != "sample_id" and df[col].nunique() <= 1]
+    if low_info:
         du.print_warning(f"[ENCODE] Low-information fields detected: {low_info}")
 
 
@@ -39,18 +41,20 @@ def encode_features(
         du.print_error("[ENCODE] Missing 'sample_id' column — cannot encode features.")
         return pd.DataFrame()
 
-    df = df.fillna("unknown").copy()
     encoder_mappings = {}
 
     try:
         if encoding == "category":
+            df = df.copy()
             for col in df.columns:
                 if col == "sample_id":
+                    df[col] = df[col].fillna("unknown")
                     continue
                 if skip_numeric and is_numeric_dtype(df[col]):
-                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+                    missing_value = False if is_bool_dtype(df[col]) else 0
+                    df[col] = df[col].fillna(missing_value)
                 else:
-                    cat_series = df[col].astype("category")
+                    cat_series = df[col].fillna("unknown").astype("category")
                     df[col] = cat_series.cat.codes
                     encoder_mappings[col] = {
                         str(category): int(code)
@@ -64,7 +68,7 @@ def encode_features(
             return encoded
 
         elif encoding == "onehot":
-            df = df.set_index("sample_id")
+            df = df.fillna("unknown").set_index("sample_id")
             encoded = pd.get_dummies(df, drop_first=True)
             encoded.index.name = "sample_id"
             return encoded

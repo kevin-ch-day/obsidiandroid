@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from obsidiandroid.diagnostics import research_validity
 from obsidiandroid.pipeline import stage_manifest
 from obsidiandroid.pipeline.manifest import paper_compliance_checks
 from obsidiandroid.pipeline.manifest import stage_manifest_writers as smw
@@ -268,6 +269,8 @@ def test_finalize_run_manifest_stage_success(monkeypatch, tmp_path: Path) -> Non
         "xgboost": {"evaluation": {"macro_f1_score": 0.5}},
     }
     vendor_eval_df = pd.DataFrame({"Vendor": ["VendorA", "VendorB"]})
+    # Manifest assembly uses an offline stand-in for the separate audit.
+    monkeypatch.setattr(research_validity, "write_research_validity_bundle", lambda **_kwargs: None)
 
     result = stage_manifest.finalize_run_manifest_stage(
         manifest_context={"run_id": "r1", "timestamp_utc": "t1", "config_hash": "cfg"},
@@ -855,6 +858,7 @@ def test_finalize_run_manifest_stage_preserves_interrupted_manifest_state(
     monkeypatch.setattr(stage_manifest, "_build_paper_ablation_table", lambda **_kwargs: None)
     monkeypatch.setattr(stage_manifest, "_build_paper_cohort_summary_table", lambda **_kwargs: None)
 
+    monkeypatch.setattr(research_validity, "write_research_validity_bundle", lambda **_kwargs: None)
     result = stage_manifest.finalize_run_manifest_stage(
         manifest_context={
             "run_id": "r_interrupt",

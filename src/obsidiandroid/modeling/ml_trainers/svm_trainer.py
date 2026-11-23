@@ -8,42 +8,34 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.svm import SVC
 from sklearn.metrics import classification_report
 from sklearn.model_selection import GridSearchCV, StratifiedKFold
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 import numpy as np
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.modeling.ml_trainers.input_validation import validate_numeric_training_inputs
 from obsidiandroid.modeling.parallel_layout import (
     grid_search_pre_dispatch,
     grid_search_job_counts,
     tuning_grid_splitter,
 )
 from obsidiandroid.modeling.training_console_policy import (
-    emit_class_imbalance_notice,
+    print_training_debug_info,
     should_print_detailed_classification_report,
     should_print_training_analysis,
     should_print_training_label_summary,
 )
 
 
-def _validate_inputs(X_train, y_train):
-    """Basic sanity checks for training data."""
-    if X_train is None or len(X_train) == 0:
-        raise ValueError("X_train is missing or empty.")
-    if y_train is None or len(y_train) == 0:
-        raise ValueError("y_train is missing or empty.")
-    if len(X_train) != len(y_train):
-        raise ValueError(
-            f"X_train and y_train length mismatch: {len(X_train)} != {len(y_train)}"
-        )
-    x_values = np.asarray(X_train)
-    y_values = np.asarray(y_train)
-    if np.isnan(x_values).any() or np.isnan(y_values).any():
-        raise ValueError("NaN values detected in training data.")
-
-
 # ``SVC(probability=True)`` ran an internal 5-fold Platt scaling; scikit-learn 1.9
 # deprecated it (removed in 1.11) in favour of ``CalibratedClassifierCV``.
 PROBABILITY_CALIBRATION_METHOD = "sigmoid"
 PROBABILITY_CALIBRATION_MAX_FOLDS = 5
+
+
+def build_svm_estimator(svc_params):
+    """Build an SVM whose scaler is fitted within each training fold."""
+    return make_pipeline(StandardScaler(), SVC(**svc_params))
 
 
 def probability_calibration_folds(y_train, max_folds: int = PROBABILITY_CALIBRATION_MAX_FOLDS):
@@ -76,7 +68,7 @@ def fit_svm_with_probabilities(svc_params: dict, X_train, y_train, random_state)
             "SVM probability calibration unavailable: at least two training samples "
             "per class are required."
         )
-    base_model = SVC(**svc_params)
+    base_model = build_svm_estimator(svc_params)
     model = CalibratedClassifierCV(
         base_model,
         method=PROBABILITY_CALIBRATION_METHOD,
@@ -105,13 +97,8 @@ def train_svm(
     grid_search=False,
     **kwargs
 ):
-    _validate_inputs(X_train, y_train)
-    params = {
-        "kernel": getattr(app_config, "SVM_KERNEL", "rbf"),
-        "C": getattr(app_config, "SVM_C", 1.0),
-        "class_weight": "balanced",
-        "random_state": random_state,
-    }
+    validate_numeric_training_inputs(X_train, y_train)
+    params = get_default_svm_params(random_state=random_state)
     model_params = {**params, **kwargs}
     # Probabilities come from CalibratedClassifierCV; the deprecated SVC flag is ignored.
     model_params.pop("probability", None)
@@ -147,25 +134,25 @@ def train_svm(
         else:
             n_splits = cv_splitter.n_splits
             if verbose:
-                _debug_training_info(y_train, n_splits)
+                print_training_debug_info(y_train, n_splits)
                 _analyze_training_setup(X_train, y_train, param_grid, n_splits)
             _, grid_jobs = grid_search_job_counts()
             base_params = {key: value for key, value in model_params.items() if key not in param_grid}
-            base_model = SVC(**base_params)
+            base_model = build_svm_estimator(base_params)
             grid = GridSearchCV(
                 estimator=base_model,
-                param_grid=param_grid,
+                param_grid={f"svc__{name}": values for name, values in param_grid.items()},
                 cv=cv_splitter,
                 scoring="f1_macro",
                 n_jobs=grid_jobs,
                 pre_dispatch=grid_search_pre_dispatch(),
             )
             grid.fit(X_train, y_train)
-            model_params.update(grid.best_params_)
+            model_params.update({name.removeprefix("svc__"): value for name, value in grid.best_params_.items()})
             grid_search_status = "completed"
 
     if grid_search_status != "completed" and verbose:
-        _debug_training_info(y_train)
+        print_training_debug_info(y_train)
         _analyze_training_setup(X_train, y_train)
     model, probability_calibration = fit_svm_with_probabilities(
         model_params, X_train, y_train, random_state
@@ -180,6 +167,7 @@ def train_svm(
         "metadata": {
             "duration": duration,
             "params": model_params,
+            "feature_scaling": "standard",
             "grid_search_requested": should_grid,
             "grid_search_active": grid_search_status == "completed",
             "grid_search_status": grid_search_status,
@@ -237,14 +225,6 @@ def _print_training_summary(y_train):
     print(f"[SVM] Top classes: {top_classes}")
 
 
-def _debug_training_info(y_train, cv_folds=None):
-    label_dist = Counter(int(x) for x in y_train)
-    du.print_debug(f"Class distribution: {dict(label_dist)}")
-    if cv_folds is not None:
-        du.print_debug(f"Using {cv_folds} CV folds")
-    emit_class_imbalance_notice(y_train)
-
-
 def _analyze_training_setup(X_train, y_train, param_grid=None, cv_folds=None):
     if not should_print_training_analysis(cv_folds=cv_folds):
         return
@@ -273,13 +253,13 @@ def _analyze_training_setup(X_train, y_train, param_grid=None, cv_folds=None):
         print(f"[ANALYSIS] Each fold trains on about {train_size} samples")
 
 
-def get_default_svm_params():
+def get_default_svm_params(random_state: int = 42):
     """Default SVC parameters; probabilities come from calibration, not ``probability=True``."""
     return {
-        "kernel": "rbf",
-        "C": 1.0,
+        "kernel": getattr(app_config, "SVM_KERNEL", "rbf"),
+        "C": getattr(app_config, "SVM_C", 1.0),
         "class_weight": "balanced",
-        "random_state": 42,
+        "random_state": random_state,
     }
 
 

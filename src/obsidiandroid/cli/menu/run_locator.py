@@ -288,6 +288,60 @@ def resolve_run_root_for_run_id(
     return fallback_runs_root / token
 
 
+def resolve_report_run(
+    *, repo_root: Path, run_id: str = "", run_root_arg: str = "", latest: bool = False
+) -> tuple[Path, str]:
+    """Resolve a run directory and identity for a permission-report command."""
+    if run_root_arg:
+        root = Path(run_root_arg).resolve()
+        if not run_id:
+            # Prefer analysis_snapshot / training checkpoint naming.
+            snaps = sorted((root / "diagnostics").glob("analysis_snapshot_*.csv"))
+            if snaps:
+                run_id = snaps[-1].stem.replace("analysis_snapshot_", "")
+            else:
+                raise SystemExit("provide --run-id when --run-root has no analysis_snapshot_*.csv")
+        return root, str(run_id).strip()
+    if latest:
+        latest_run_id = read_latest_run_id()
+        if not latest_run_id:
+            raise SystemExit("could not resolve latest run id from manifests/pointers")
+        run_id = latest_run_id
+    if not run_id:
+        raise SystemExit("provide --run-id, --run-root, or --latest")
+    manifest_payload, manifest_path = resolve_manifest_for_run_id(
+        str(run_id).strip(),
+        runs_dir=repo_root / "output" / "runs",
+    )
+    if not manifest_payload:
+        raise SystemExit(f"run directory not found for run_id: {run_id}")
+    root = resolve_run_root_for_manifest(
+        manifest_payload,
+        run_id=str(run_id).strip(),
+        manifest_path=manifest_path,
+    )
+    return root, str(run_id).strip()
+
+
+def resolve_run_under_output_root(*, output_root: Path, run_id: str) -> Path:
+    """Resolve and validate canonical run root under the configured output root."""
+    root = output_root.resolve()
+    manifest_payload, manifest_path = resolve_manifest_for_run_id(
+        str(run_id).strip(),
+        runs_dir=root / "runs",
+    )
+    if not manifest_payload:
+        raise FileNotFoundError(f"Run manifest not found for run_id: {run_id}")
+    run_root = resolve_run_root_for_manifest(
+        manifest_payload,
+        run_id=str(run_id).strip(),
+        manifest_path=manifest_path,
+    ).resolve()
+    if root not in run_root.parents:
+        raise ValueError(f"Run root escapes output_root: run_root={run_root} output_root={root}")
+    return run_root
+
+
 def read_locked_publication_run_id() -> str | None:
     """Return locked publication/evidence run pointer when available."""
     diagnostics_root = output_paths.diagnostics_root()

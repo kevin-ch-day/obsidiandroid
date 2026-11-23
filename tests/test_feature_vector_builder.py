@@ -6,7 +6,7 @@ import pandas as pd
 from pathlib import Path
 
 from obsidiandroid.features import feature_vector_builder
-from obsidiandroid.features.vectorization import feature_vendor_extractor
+from obsidiandroid.features.vectorization import feature_encoder, feature_vendor_extractor
 from config import app_config
 
 
@@ -275,6 +275,51 @@ def test_merge_vendor_features_does_not_count_sample_id_as_a_predictive_column(m
 
     assert out.columns.tolist() == ["sample_id"]
     assert any("policy-disabled" in message and "continuing to enrichment" in message for message in messages)
+
+
+def test_vendor_merge_aligns_partial_frames_in_one_pass(monkeypatch) -> None:
+    frames = [
+        pd.DataFrame({"sample_id": [3, 1], "alpha_family": ["a", "b"]}),
+        pd.DataFrame({"sample_id": [2, 3], "beta_score": [7, 10]}),
+        pd.DataFrame({"sample_id": [4, 3], "theta_type": ["alpha", "beta"]}),
+    ]
+    expected = frames[0].merge(frames[1], on="sample_id", how="outer").merge(
+        frames[2], on="sample_id", how="outer",
+    )
+
+    def unexpected_pairwise_merge(*args, **kwargs):
+        raise AssertionError("unique vendor frames should align together")
+
+    monkeypatch.setattr(feature_vendor_extractor.pd, "merge", unexpected_pairwise_merge)
+    actual = feature_vendor_extractor.merge_vendor_features(frames)
+    pd.testing.assert_frame_equal(actual, expected)
+
+
+def test_vendor_merge_preserves_join_semantics_for_duplicate_sample_ids() -> None:
+    left = pd.DataFrame({"sample_id": [3, 1, 3], "signal": [1, 2, 3]})
+    right = pd.DataFrame({"sample_id": [2, 3], "signal": [8, 9]})
+    expected = left.merge(right, on="sample_id", how="outer")
+    pd.testing.assert_frame_equal(feature_vendor_extractor.merge_vendor_features([left, right]), expected)
+
+
+def test_category_encoder_fills_numeric_nulls_without_encoding_them(monkeypatch) -> None:
+    frame = pd.DataFrame({
+        "sample_id": [9, 2, 3],
+        "vendor_score": [5.0, None, 8.0],
+        "vendor_flag": pd.array([True, None, True], dtype="boolean"),
+        "vendor_family": ["alpha", None, "beta"],
+    })
+
+    def unexpected_diagnostic_scan(*args, **kwargs):
+        raise AssertionError("quiet encoding should skip low-variation diagnostics")
+
+    monkeypatch.setattr(pd.Series, "nunique", unexpected_diagnostic_scan)
+    encoded = feature_encoder.encode_features(frame, skip_numeric=True, verbose=False)
+    assert encoded.index.tolist() == [9, 2, 3]
+    assert encoded["vendor_score"].tolist() == [5.0, 0.0, 8.0]
+    assert encoded["vendor_flag"].tolist() == [True, False, True]
+    assert encoded.attrs["encoder_mappings"] == {"vendor_family": {"alpha": 0, "beta": 1, "unknown": 2}}
+    assert frame["vendor_score"].isna().tolist() == [False, True, False]
 
 
 def test_expand_to_cohort_authoritative_adds_permission_row_for_vendor_gap() -> None:

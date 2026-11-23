@@ -6,6 +6,7 @@ from obsidiandroid.modeling import model_evaluation
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.preprocessing import LabelEncoder
 
 from config import app_config
@@ -361,6 +362,30 @@ def test_model_comparison_marks_different_metric_label_universes_invalid(monkeyp
 
     assert comparison["comparison_contract_status"].eq("invalid").all()
     assert "different evaluation-label counts" in comparison.iloc[0]["comparison_contract_reason"]
+
+
+def test_model_comparison_uses_true_test_classes_with_different_confusion_axes() -> None:
+    common = {"num_classes": 2, "evaluation_label_hash": "same_test_labels"}
+    results = {
+        "model_a": {"evaluation": {**common, "num_confusion_labels": 2}},
+        "model_b": {"evaluation": {**common, "num_confusion_labels": 3}},
+    }
+
+    comparison = ml_comparator_summary.compare_model_performance(results)
+
+    assert comparison["evaluation_label_count"].eq(2).all()
+    assert comparison["comparison_contract_status"].eq("verified").all()
+
+
+@pytest.mark.parametrize("field", ["num_classes", "evaluation_label_hash"])
+def test_model_comparison_requires_shared_contract_fields_on_every_row(field) -> None:
+    common = {"num_classes": 2, "evaluation_label_hash": "same_test_labels"}
+    incomplete = {key: value for key, value in common.items() if key != field}
+    results = {"model_a": {"evaluation": common}, "model_b": {"evaluation": incomplete}}
+
+    comparison = ml_comparator_summary.compare_model_performance(results)
+
+    assert comparison["comparison_contract_status"].eq("unverified").all()
 
 
 def test_compare_model_performance_uses_primary_metric_for_headline_tier(monkeypatch) -> None:

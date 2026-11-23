@@ -121,8 +121,6 @@ def _summarize_live_readiness_gaps(
 ) -> list[str]:
     token = str(bucket or "").strip()
     snapshot = readiness if isinstance(readiness, dict) else {}
-    buckets = snapshot.get("buckets", {}) if isinstance(snapshot, dict) else {}
-    payload = buckets.get(token, {}) if isinstance(buckets, dict) else {}
     warnings = snapshot.get("warnings", []) if isinstance(snapshot, dict) else []
     taxonomy = snapshot.get("taxonomy_signals", {}) if isinstance(snapshot, dict) else {}
 

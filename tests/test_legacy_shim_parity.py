@@ -11,13 +11,13 @@ def test_ml_facades_match_ml_classification_modules() -> None:
 
     from obsidiandroid.features.features_facade_manifest import FEATURES_FACADE_ALIAS_TARGETS
     from obsidiandroid.modeling.modeling_facade_manifest import (
-        MODELING_FACADE_EAGER_SUBMODULE_NAMES,
+        MODELING_FACADE_SUBMODULE_NAMES,
     )
 
     import obsidiandroid.features as features_facade
     import obsidiandroid.modeling as modeling_facade
 
-    for attr in MODELING_FACADE_EAGER_SUBMODULE_NAMES:
+    for attr in MODELING_FACADE_SUBMODULE_NAMES:
         canon_name = f"obsidiandroid.modeling.{attr}"
         canon_mod = importlib.import_module(canon_name)
         assert getattr(modeling_facade, attr) is canon_mod

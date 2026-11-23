@@ -1,5 +1,7 @@
+from contextlib import closing
 import json
 from pathlib import Path
+import sqlite3
 import numpy as np
 import pandas as pd
 import pytest
@@ -8,11 +10,13 @@ from obsidiandroid.pipeline import stage_permission_trends_report as report_stag
 from obsidiandroid.pipeline.permission_trends import attack_mapping as perm_attack_mapping
 from obsidiandroid.pipeline.permission_trends import bundle_exports as perm_bundle_exports
 from obsidiandroid.pipeline.permission_trends import bundle_manifest as perm_bundle_manifest
+from obsidiandroid.pipeline.permission_trends import bundle_metadata as perm_bundle_metadata
 from obsidiandroid.pipeline.permission_trends import pattern_framework as perm_pattern_framework
 from obsidiandroid.pipeline.permission_trends import sample_permission_data as sample_perm_data
 from obsidiandroid.pipeline.permission_trends import reporting_support as perm_trends_reporting_support
 from obsidiandroid.pipeline.permission_trends import publish_paths as permission_publish_paths
-from obsidiandroid.pipeline.permission_trends import stats_core
+from obsidiandroid.pipeline.permission_trends import signal_assignments, signal_prevalence
+from obsidiandroid.pipeline.permission_trends import stats, stats_core
 
 
 def test_compute_consensus_metrics_produces_expected_columns():
@@ -561,6 +565,83 @@ def test_fetch_permission_aggregates_prefers_permission_string_norm(monkeypatch)
     assert int(out.loc[0, "permission_unique_count"]) == 1
 
 
+def test_fetch_permission_aggregates_batches_only_cohort_members(monkeypatch) -> None:
+    monkeypatch.setattr(sample_perm_data.permission_contracts, "permission_obs_norm_available", lambda: True)
+    calls = []
+
+    def fake_query(query, *, params, **kwargs):
+        if "android_permission_research_gate_v2_candidate" in query:
+            calls.append(("gate", params, 1))
+            return pd.DataFrame({"legacy_observation_reads": ["ALLOW"]})
+        assert "COUNT(*)" in query
+        assert "COUNT(DISTINCT COALESCE(NULLIF(TRIM(permission_string_norm)" in query
+        if params is not None:
+            assert query.index("WHERE sample_id IN (") < query.index("GROUP BY sample_id")
+            assert query.count("%s") == len(params)
+        else:
+            assert "WHERE sample_id IN (" not in query
+        result = pd.read_sql_query(query.replace("%s", "?"), conn, params=params)
+        calls.append(("aggregate", params, len(result)))
+        return result
+
+    monkeypatch.setattr(sample_perm_data.db_engine, "execute_permission_query", fake_query)
+    sample_ids = list(range(100, 601))
+    values = (
+        ("android.permission.INTERNET", "android.permission.internet"),
+        ("android.permission.internet", "android.permission.internet"),
+        (" android.permission.CAMERA ", None),
+        (None, None),
+    )
+    with closing(sqlite3.connect(":memory:")) as conn:
+        conn.execute("CREATE TABLE android_permission_obs_sample (sample_id INTEGER, permission_string TEXT, permission_string_norm TEXT)")
+        conn.executemany(
+            "INSERT INTO android_permission_obs_sample VALUES (?, ?, ?)",
+            ((sample_id, raw, norm) for sample_id in range(1, 2_001) for raw, norm in values),
+        )
+        scoped = sample_perm_data.fetch_permission_aggregates([*sample_ids, 100])
+        assert calls == [("gate", (), 1), ("aggregate", tuple(sample_ids[:500]), 500), ("aggregate", (600,), 1)]
+
+        calls.clear()
+        all_samples = sample_perm_data.fetch_permission_aggregates()
+        assert calls == [("gate", (), 1), ("aggregate", None, 2_000)]
+    expected = all_samples[all_samples["sample_id"].isin(sample_ids)].reset_index(drop=True)
+    pd.testing.assert_frame_equal(scoped, expected)
+    assert scoped.iloc[0].tolist() == [100, 4, 2, 2]
+
+    calls.clear()
+    assert sample_perm_data.fetch_permission_aggregates([]).columns.tolist() == list(all_samples.columns)
+    assert calls == []
+
+
+def test_permission_trends_reads_aggregates_and_rows_for_the_same_cohort(monkeypatch, tmp_path) -> None:
+    class ReachedPermissionRows(Exception):
+        pass
+
+    samples = pd.DataFrame({"sample_id": [3, 2, 1], "sha256": ["b" * 64, "a" * 64, "a" * 64]})
+    calls = []
+
+    def capture_aggregates(sample_ids):
+        calls.append(("aggregates", sample_ids))
+        return pd.DataFrame({
+            "sample_id": [1], "permission_obs_rows": [3],
+            "permission_unique_count": [2], "permission_common_rows": [1],
+        })
+
+    def capture_rows(sample_ids, *, progress_callback):
+        calls.append(("rows", sample_ids))
+        assert callable(progress_callback)
+        raise ReachedPermissionRows
+
+    monkeypatch.setattr(report_stage, "_resolve_permission_bundle_dir", lambda _run_id: tmp_path)
+    monkeypatch.setattr(report_stage, "_attach_temporal_catalog_fields", lambda sample_core: sample_core)
+    monkeypatch.setattr(report_stage, "_fetch_permission_aggregates", capture_aggregates)
+    monkeypatch.setattr(report_stage, "_fetch_permission_rows_for_samples", capture_rows)
+
+    with pytest.raises(ReachedPermissionRows):
+        report_stage.run_permission_trends_report_stage(samples, None, None, None, "run", "profile")
+    assert calls == [("aggregates", [1, 3]), ("rows", [1, 3])]
+
+
 def test_build_permission_anomalies_excludes_stale_zero_count_rule():
     df = pd.DataFrame(
         {
@@ -642,13 +723,44 @@ def test_zip_bundle_for_permission_trends_module_root_uses_bundle_name(tmp_path:
     assert Path(zip_path).exists()
 
 
+@pytest.mark.parametrize("catalog_has_dates", [False, True])
+def test_temporal_enrichment_only_looks_up_missing_fields(monkeypatch, catalog_has_dates):
+    core = pd.DataFrame({
+        "sample_id": [1, 2, 3, 4],
+        "vt_first_seen_itw_date": ["2025-01-01", None, "2023-01-01", None],
+        "vt_first_submission_at_utc": ["2025-02-01", "2025-03-01", None, None],
+        "effective_first_seen_at_utc": [None, None, "2022-01-01", None],
+    })
+    lookups = []
+
+    def fetch(ids):
+        lookups.append(ids)
+        if not catalog_has_dates:
+            return pd.DataFrame()
+        return pd.DataFrame({
+            "sample_id": [2, 3],
+            "vt_first_seen_itw_date": ["2024-12-01", "2021-01-01"],
+            "vt_first_submission_at_utc": ["2025-04-01", "2023-05-01"],
+        })
+
+    monkeypatch.setattr(sample_perm_data, "fetch_temporal_fields_for_samples", fetch)
+    enriched = sample_perm_data.attach_temporal_catalog_fields(core).set_index("sample_id")
+    assert lookups == [[2, 3, 4]]
+    assert enriched.loc[1, "effective_first_seen_month"] == "2025-01"
+    assert enriched.loc[2, "effective_first_seen_month"] == ("2024-12" if catalog_has_dates else "2025-03")
+    assert enriched.loc[2, "vt_first_submission_at_utc"] == pd.Timestamp("2025-03-01", tz="UTC")
+    assert enriched.loc[3, "vt_first_seen_itw_date"] == pd.Timestamp("2023-01-01", tz="UTC")
+    assert enriched.loc[3, "effective_first_seen_month"] == "2022-01"
+    assert pd.isna(enriched.loc[4, "effective_first_seen_at_utc"])
+
+
 def test_sample_level_permission_metrics_inclusive_counts_unknown():
     sample_core_df = pd.DataFrame({"sample_id": [1, 2]})
     permission_rows_df = pd.DataFrame(
         {
-            "sample_id": [1, 1, 2],
-            "permission_string": ["a", "b", "c"],
-            "protection_level": ["DANGEROUS", "UNKNOWN", "NORMAL"],
+            "sample_id": [1, 1, 1, 2],
+            "permission_string": ["a", "b", "c", "d"],
+            "protection_level": pd.Series(["DANGEROUS", "UNKNOWN", pd.NA, "NORMAL"], dtype="string"),
         }
     )
 
@@ -657,9 +769,49 @@ def test_sample_level_permission_metrics_inclusive_counts_unknown():
     row2 = out[out["sample_id"] == 2].iloc[0]
 
     assert int(row1["dangerous_count_strict"]) == 1
-    assert int(row1["dangerous_count_inclusive"]) == 2
+    assert int(row1["dangerous_count_inclusive"]) == 3
     assert int(row2["dangerous_count_strict"]) == 0
     assert int(row2["dangerous_count_inclusive"]) == 0
+
+
+def test_cliffs_delta_counts_strict_comparisons_and_keeps_ties_neutral():
+    left = pd.Series([1.0, 2.0, 2.0, 4.0, np.nan])
+    right = pd.Series([1.0, 2.0, 3.0])
+    assert stats_core.cliffs_delta(left, right) == 1 / 12
+    assert stats_core.cliffs_delta(right, left) == -1 / 12
+    assert stats_core.cliffs_delta(left, left) == 0.0
+    assert stats_core.cliffs_delta(left, pd.Series([np.nan])) == 0.0
+
+
+def test_consensus_and_dangerous_statistics_reuse_prepared_metrics(monkeypatch):
+    samples = pd.DataFrame({"sample_id": [1, 2, 3], "type_slug": ["banker", "banker", "rat"]})
+    declarations = pd.DataFrame({
+        "sample_id": [1, 1, 2, 3],
+        "permission_string": ["a", "b", "a", "a"],
+        "protection_level": ["DANGEROUS", "UNKNOWN", "DANGEROUS", "NORMAL"],
+    })
+    consensus = pd.DataFrame({
+        "sample_id": [1, 2, 3], "vendor_count": [10, 10, 10],
+        "consensus_score_all_vendors": [0.7, 0.8, 0.5],
+    })
+    metrics = stats.build_sample_level_permission_metrics(samples, declarations)
+    kwargs = {"spearman_with_bootstrap_ci": lambda x, y: (0.0, 0.5, -0.1, 0.1)}
+    expected_corr, expected_text = stats.build_consensus_correlation_report(
+        samples, declarations, consensus, "run", **kwargs
+    )
+    expected_tests = stats.build_dangerous_stats_tests(samples, declarations, "run")
+
+    def unexpected_recalculation(*_args):
+        pytest.fail("The supplied metrics should be reused")
+
+    monkeypatch.setattr(stats, "build_sample_level_permission_metrics", unexpected_recalculation)
+    corr, text = stats.build_consensus_correlation_report(
+        samples, declarations, consensus, "run", sample_metrics_df=metrics, **kwargs
+    )
+    stats_tests = stats.build_dangerous_stats_tests(samples, declarations, "run", sample_metrics_df=metrics)
+    pd.testing.assert_frame_equal(corr, expected_corr)
+    assert text == expected_text
+    pd.testing.assert_frame_equal(stats_tests, expected_tests)
 
 
 def test_banker_family_pattern_clusters_produces_assignments():
@@ -1310,17 +1462,17 @@ def test_build_signal_prevalence_by_type_separates_behavioral_and_model_only() -
 def test_build_signal_prevalence_by_type_is_evidence_and_package_balanced() -> None:
     sample_core_df = pd.DataFrame(
         {
-            "sample_id": [1, 2, 3, 4],
-            "type_slug": ["banker"] * 4,
-            "android_package_name": ["clone.pkg", "clone.pkg", "clone.pkg", "solo.pkg"],
+            "sample_id": [1, 2, 3, 4, 5, 6],
+            "type_slug": ["banker"] * 4 + ["rat", "rat"],
+            "android_package_name": ["clone.pkg", "clone.pkg", "clone.pkg", "solo.pkg", None, ""],
         }
     )
     signal_rows_df = pd.DataFrame(
         {
-            "sample_id": [1, 2],
-            "signal_key": ["app_defined_scaffolding"] * 2,
-            "signal_evidence_tier": ["accepted_governance", "candidate_governance"],
-            "assignment_model_eligible": [True, False],
+            "sample_id": [1, 2, 5],
+            "signal_key": ["app_defined_scaffolding"] * 3,
+            "signal_evidence_tier": ["accepted_governance", "candidate_governance", "accepted_governance"],
+            "assignment_model_eligible": [True, False, True],
         }
     )
 
@@ -1348,6 +1500,45 @@ def test_build_signal_prevalence_by_type_is_evidence_and_package_balanced() -> N
     assert row["observed_package_balanced_prevalence_pct"] == pytest.approx(33.333333)
     assert row["sample_minus_package_balanced_pp"] == pytest.approx(8.333333)
     assert row["assignment_evidence_policy"] == "model_eligible_assignments_only"
+    unknown_packages = out[(out["type_slug"] == "rat") & (out["signal_key"] == row["signal_key"])].iloc[0]
+    assert unknown_packages["prevalence_pct"] == 50.0
+    assert unknown_packages["known_package_sample_count"] == 0
+    assert unknown_packages["package_positive_count"] == 0
+    assert pd.isna(unknown_packages["package_balanced_prevalence_pct"])
+    assert pd.isna(unknown_packages["observed_package_balanced_prevalence_pct"])
+
+
+def test_signal_assignment_and_prevalence_use_supplied_snapshots(monkeypatch) -> None:
+    def unexpected_lookup():
+        pytest.fail("The stage's signal snapshots should supply the permissions contract")
+
+    monkeypatch.setattr(signal_assignments, "signal_mapping_frame", unexpected_lookup)
+    monkeypatch.setattr(signal_prevalence, "signal_catalog_frame", unexpected_lookup)
+    mapping = pd.DataFrame([{
+        "signal_key": "fixture_signal", "perm_name": "android.permission.SEND_SMS",
+        "mapping_basis": "exact_permission",
+    }])
+    catalog = pd.DataFrame([{
+        "signal_key": "fixture_signal", "display_name": "Fixture",
+        "authority_lane": "behavior_safe_capability",
+        "include_in_model_features": True, "include_in_behavioral_claims": True,
+    }])
+    samples = pd.DataFrame({
+        "sample_id": [1, 2], "type_slug": ["banker", "banker"],
+        "family_canonical": ["FixtureFamily", "FixtureFamily"], "family_id": [9, 9],
+    })
+    declarations = pd.DataFrame({
+        "sample_id": [1, 1], "permission_string": ["android.permission.SEND_SMS"] * 2,
+        "permission_source": ["ANDROID"] * 2,
+    })
+    assignments = report_stage._assign_permission_signal_keys(declarations, mapping_df=mapping)
+    by_type = report_stage._build_signal_prevalence_by_type(samples, assignments, catalog_df=catalog)
+    by_family = report_stage._build_signal_prevalence_by_family(samples, assignments, catalog_df=catalog)
+
+    for table in (by_type, by_family):
+        assert table["signal_key"].tolist() == ["fixture_signal"]
+        assert table["observed_positive_count"].tolist() == [1]
+        assert table["prevalence_pct"].tolist() == [50.0]
 
 
 def test_signal_prevalence_contract_fails_closed_on_recombined_candidate_count() -> None:
@@ -2418,22 +2609,24 @@ def test_export_permission_trends_bundle_manifest_writes_contract_payload(tmp_pa
     signal_path.write_text("a,b\n1,2\n", encoding="utf-8")
     signal_behavior_safe_path.write_text("a,b\n1,2\n", encoding="utf-8")
 
-    out = report_stage._export_permission_trends_bundle_manifest(  # pylint: disable=protected-access
+    artifact_paths = [
+        str(fig_path), str(tbl_path), str(capability_path), str(signal_path),
+        str(signal_behavior_safe_path), str(tbl_path),
+    ]
+    published_paths = perm_bundle_manifest.register_permission_trends_bundle(
         run_id="r1",
         bundle_dir=bundle_dir,
         top_families_visual=12,
         min_visual_family_support=20,
         top_permissions=16,
-        artifact_paths=[
-            str(fig_path),
-            str(tbl_path),
-            str(capability_path),
-            str(signal_path),
-            str(signal_behavior_safe_path),
-        ],
+        artifact_paths=artifact_paths,
     )
 
-    payload = json.loads(Path(out).read_text(encoding="utf-8"))
+    manifest_path = contracts / "permission_trends_bundle_manifest.json"
+    inventory_path = contracts / "permission_trends_table_inventory.csv"
+    assert published_paths == [*artifact_paths, str(manifest_path), str(inventory_path)]
+    assert pd.read_csv(inventory_path).shape[0] == 4
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert payload["bundle_contract_name"] == "permission_trends"
     assert payload["bundle_contract_version"] == "v1"
     assert len(payload["artifacts"]) == 5
@@ -2468,7 +2661,7 @@ def test_build_bundle_metadata_includes_attack_mapping_and_capability_bundle_con
         }
     )
 
-    out = report_stage._build_bundle_metadata(
+    out = perm_bundle_metadata.build_bundle_metadata(
         run_id="r1",
         profile_id="android_malware_all_current",
         sample_core_df=sample_core_df,
@@ -2522,7 +2715,7 @@ def test_export_permission_trends_table_inventory_from_manifest(tmp_path: Path):
     }
     manifest_path.write_text(json.dumps(payload), encoding="utf-8")
 
-    out = report_stage._export_permission_trends_table_inventory_from_manifest(  # pylint: disable=protected-access
+    out = perm_bundle_manifest.export_permission_trends_table_inventory_from_manifest(
         bundle_dir=bundle_dir,
         run_id="r1",
         manifest_path=str(manifest_path),

@@ -7,8 +7,8 @@ from typing import Iterable
 import pandas as pd
 
 from obsidiandroid.common.hash_utils import hash_payload
-from obsidiandroid.features.av_detection_contract import classify_av_row, select_coherent_report_snapshot
-from obsidiandroid.pipeline.engine_normalization import canonicalize_engine_name, load_engine_aliases
+from obsidiandroid.features.av_detection_contract import PreparedAVReports, prepare_av_reports
+from obsidiandroid.pipeline.engine_normalization import canonicalize_engine_name
 
 
 READINESS_POLICY = {
@@ -36,7 +36,7 @@ def _flag(value: object) -> bool:
 
 
 def fit_av_readiness_contract(
-    rows: pd.DataFrame,
+    rows: pd.DataFrame | PreparedAVReports,
     engine_metadata: pd.DataFrame,
     train_sample_ids: Iterable[int],
     *,
@@ -49,25 +49,27 @@ def fit_av_readiness_contract(
     """
     resolved = {**READINESS_POLICY, **(policy or {})}
     train_ids = sorted({int(value) for value in train_sample_ids})
-    selected, _ = select_coherent_report_snapshot(rows)
-    aliases = load_engine_aliases()
-    selected["engine_canonical"] = selected["engine_name"].map(lambda item: canonicalize_engine_name(str(item), aliases))
-    selected[["avobs", "avdet", "normalized_status"]] = selected.apply(classify_av_row, axis=1, result_type="expand")
-    train = selected[selected["sample_id"].astype(int).isin(train_ids)].copy()
-    observed = train[train["avobs"].eq(1)]
+    reports = prepare_av_reports(rows, require_engine_names=False)
+    verdicts = reports.verdicts
+    train = verdicts[verdicts["sample_id"].isin(train_ids)]
     all_engines = sorted(set(train["engine_canonical"]))
+    observed = (
+        train[train["avobs"].eq(1)]
+        .groupby("engine_canonical")["avdet"]
+        .agg(scans="size", positives="sum")
+        .reindex(all_engines, fill_value=0)
+    )
     meta = engine_metadata.copy()
     if "engine_name" not in meta:
         meta = pd.DataFrame(columns=["engine_canonical", "active", "trusted"])
     else:
-        meta["engine_canonical"] = meta["engine_name"].map(lambda item: canonicalize_engine_name(str(item), aliases))
+        meta["engine_canonical"] = meta["engine_name"].map(
+            lambda name: canonicalize_engine_name(str(name), reports.engine_aliases)
+        )
     meta = meta.drop_duplicates("engine_canonical", keep="last").set_index("engine_canonical", drop=False)
     total_train = max(len(train_ids), 1)
     rows_out: list[dict[str, object]] = []
-    for engine in all_engines:
-        engine_observed = observed[observed["engine_canonical"].eq(engine)]
-        scans = int(len(engine_observed))
-        positives = int(engine_observed["avdet"].sum())
+    for engine, scans, positives in observed.itertuples(name=None):
         coverage = 100.0 * scans / total_train
         detection = 100.0 * positives / scans if scans else 0.0
         metadata = meta.loc[engine] if engine in meta.index else pd.Series(dtype="object")

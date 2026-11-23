@@ -15,6 +15,8 @@ from typing import Any
 from config import app_config
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common.publication_readiness import (
+    claim_audit_alias_name,
+    claim_surface_label as _claim_surface_label,
     evaluate_publication_ready_status,
     publication_ready_payload,
 )
@@ -28,7 +30,6 @@ from obsidiandroid.diagnostics.cohort_vocabulary import (
 )
 from obsidiandroid.diagnostics.research_validity.cohort_funnel import (
     build_cohort_funnel_plain,
-    describe_trainable_pool_funnel_segment,
 )
 from obsidiandroid.governance.evidence_mode_resolver import (
     coalesce_manifest_evidence_mode,
@@ -58,36 +59,6 @@ _RUNNER_CHAIN = [
 ]
 
 AUTHORITATIVE_SUMMARY_FILENAME = "run_observability_summary.json"
-
-
-def _claim_audit_alias_name(*, profile_id: str, evidence_mode: bool, paper_mode: bool) -> str:
-    """Return the profile-appropriate claim audit alias name."""
-    if bool(evidence_mode or paper_mode):
-        return "publication_claim_audit.md"
-    if str(profile_id or "").strip() in {
-        "android_malware_major_families",
-        "android_malware_type_taxonomy",
-    }:
-        return "benchmark_claim_audit.md"
-    return "research_claim_audit.md"
-
-
-def _claim_surface_label(*, profile_id: str, evidence_mode: bool, paper_mode: bool) -> str:
-    """Return a human-readable claim surface label for summaries."""
-    profile = str(profile_id or "").strip()
-    if bool(evidence_mode or paper_mode):
-        return "Locked publication cohort"
-    if profile == "android_catalog_all_exploratory":
-        return "Android catalog exploratory surface"
-    if profile == "android_malware_all_current":
-        return "Current-corpus diagnostic surface"
-    if profile == "android_malware_major_families":
-        return "Support-gated benchmark cohort"
-    if profile == "android_malware_expanded_families":
-        return "Expanded-family exploratory cohort"
-    if profile == "android_malware_type_taxonomy":
-        return "Type taxonomy benchmark"
-    return "Benchmark research surface"
 
 
 def _coerce_int(v: Any) -> int | None:
@@ -175,7 +146,7 @@ def _top_artifacts_to_open(
     if paper_mode:
         ordered.append(diagnostics_dir / f"paper_mode_compliance_report_{run_id}.json")
     if research_validity_enabled:
-        claim_audit_alias = _claim_audit_alias_name(
+        claim_audit_alias = claim_audit_alias_name(
             profile_id=profile_id,
             evidence_mode=bool(evidence_mode),
             paper_mode=bool(paper_mode),
@@ -685,7 +656,7 @@ def finalize_pipeline_observability(
     modeled_family_class_count = int(
         getattr(app_config, "RUNTIME_TRAINING_LABEL_CLASS_COUNT", 0) or 0
     )
-    claim_audit_alias = _claim_audit_alias_name(
+    claim_audit_alias = claim_audit_alias_name(
         profile_id=str(profile_id or ""),
         evidence_mode=bool(evidence_mode),
         paper_mode=bool(paper_mode),
@@ -1078,7 +1049,7 @@ def patch_observability_post_operator_artifacts(
     )
     obs["claim_audit_summary"] = str(
         diagnostics_dir
-        / _claim_audit_alias_name(
+        / claim_audit_alias_name(
             profile_id=profile_id,
             evidence_mode=publication_active,
             paper_mode=publication_active,

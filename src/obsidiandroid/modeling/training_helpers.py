@@ -21,7 +21,6 @@ from sklearn.model_selection import (
 )
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.svm import SVC
 from imblearn.pipeline import Pipeline as ImbPipeline
 
 from config import app_config
@@ -45,6 +44,7 @@ from .ml_trainers.random_forest_trainer import (
     train_random_forest,
 )
 from .ml_trainers.svm_trainer import (
+    build_svm_estimator,
     get_default_svm_params,
     train_svm,
 )
@@ -117,8 +117,7 @@ def build_base_estimator(
         params["random_state"] = random_state
         return BalancedRandomForestClassifier(**params)
     if model_type == "svm":
-        params = get_default_svm_params()
-        return SVC(**params)
+        return build_svm_estimator(get_default_svm_params(random_state=random_state))
     if model_type == "logistic_regression":
         params = get_default_lr_params()
         return make_pipeline(StandardScaler(), LogisticRegression(**params))

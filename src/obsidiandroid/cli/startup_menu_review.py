@@ -227,8 +227,6 @@ def _readiness_gap_notes(
     paper_locked: bool,
 ) -> list[str]:
     token = str(bucket or "").strip()
-    buckets = readiness.get("buckets", {}) if isinstance(readiness, dict) else {}
-    payload = buckets.get(token, {}) if isinstance(buckets, dict) else {}
     warnings = readiness.get("warnings", []) if isinstance(readiness, dict) else []
     taxonomy = readiness.get("taxonomy_signals", {}) if isinstance(readiness, dict) else {}
 

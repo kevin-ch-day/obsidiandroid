@@ -13,7 +13,6 @@ Original source fields are always retained alongside the selected date.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any, Mapping
 
 import pandas as pd
@@ -116,28 +115,23 @@ def select_temporal_observation(row: Mapping[str, Any]) -> dict[str, Any]:
     col_col, col_val, col_ts = _usable_timestamp_field(row, COLLECTION_COLUMNS)
 
     selected_source = SOURCE_MISSING
-    selected_raw = None
     selected_field = ""
     selected_ts: pd.Timestamp | pd.NaT = pd.NaT
 
     if itw_col:
         selected_source = SOURCE_FIRST_SEEN_IN_THE_WILD
-        selected_raw = itw_val
         selected_field = itw_col
         selected_ts = itw_ts
     elif disc_col:
         selected_source = SOURCE_FIRST_DISCOVERED
-        selected_raw = disc_val
         selected_field = disc_col
         selected_ts = disc_ts
     elif sub_col:
         selected_source = SOURCE_FIRST_ANALYZED_SUBMISSION
-        selected_raw = sub_val
         selected_field = sub_col
         selected_ts = sub_ts
     elif col_col:
         selected_source = SOURCE_COLLECTION_TIMESTAMP
-        selected_raw = col_val
         selected_field = col_col
         selected_ts = col_ts
 

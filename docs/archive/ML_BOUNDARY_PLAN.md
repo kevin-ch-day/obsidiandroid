@@ -6,8 +6,8 @@
 >
 > For current status, prefer:
 >
-> - [`docs/STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md)
-> - [`docs/module_split_audit.md`](module_split_audit.md)
+> - [`docs/STRUCTURE_MIGRATION_PLAN.md`](../STRUCTURE_MIGRATION_PLAN.md)
+> - [`docs/module_split_audit.md`](../module_split_audit.md)
 > - the canonical package layout under `src/obsidiandroid/`
 
 This document is the Pass 46 docs-first inventory/spec for `ml_classification` import usage.

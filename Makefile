@@ -1,9 +1,19 @@
 .DEFAULT_GOAL := help
 
+# Use the checkout interpreter for local targets or the caller's Python in CI.
+_CHECKOUT_VENV_BIN := $(shell ./scripts/dev/checkout_venv.sh)
+ifneq ($(_CHECKOUT_VENV_BIN),)
+export PATH := $(_CHECKOUT_VENV_BIN):$(PATH)
+endif
+
 # Shared ignore pattern for `tree` (noise / generated paths).
 _TREE_IGNORE := .git|.venv|__pycache__|*.pyc|output|logs|.pytest_cache|.pytest_tmp|*.egg-info|build|dist|.mypy_cache|.ruff_cache|.hypothesis|htmlcov|coverage.xml|wandb|mlruns
 
-.PHONY: clean clean-bytecode tree-source tree-obsidiandroid tree-utils tree-exporting-shims test test-changed test-integration test-pipeline-integration test-full setup menu install-editable doc-check verify verify-integration verify-pipeline-integration verify-canonical ci ci-fast ml-scan ml-scan-strict preflight-db audit-runtime-db preflight-migration-host check-phase1-closeout check-phase2b-schema check-run-integrity dev-import-check output-writer-audit help
+.PHONY: clean clean-bytecode tree-root tree-source tree-obsidiandroid \
+	test test-changed test-research-trends test-integration test-pipeline-integration test-full setup menu install-editable \
+	doc-check verify verify-integration verify-pipeline-integration verify-canonical ci ci-fast \
+	ml-scan ml-scan-strict preflight-db audit-runtime-db preflight-migration-host check-phase1-closeout \
+	check-phase2b-schema check-run-integrity dev-import-check output-writer-audit help
 
 help:
 	@echo "Targets:"
@@ -25,10 +35,9 @@ help:
 	@echo "  make ci            - ci-fast + verify-canonical (full pre-push gate)"
 	@echo "  make clean         - alias for clean-bytecode (bytecode + stray logs under .)"
 	@echo "  make clean-bytecode  - run scripts/dev/clean_bytecode_cache.py on the repo root"
+	@echo "  make tree-root       - one-level checkout view (respects gitignore; needs tree)"
 	@echo "  make tree-source     - repo-root layout (excludes .venv, output, caches; needs \`tree\`)"
 	@echo "  make tree-obsidiandroid  - package tree: src/obsidiandroid only (migration progress)"
-	@echo "  make tree-utils      - (removed) legacy utils/ retired; use tree-obsidiandroid"
-	@echo "  make tree-exporting-shims  - (removed) use src/obsidiandroid/common/export_*"
 	@echo "  make dev-import-check  - verify obsidiandroid import paths (scripts/dev/check_import_surface.py)"
 	@echo "  make output-writer-audit  - CSV audit of output-related write call-sites (scripts/dev/output_writer_audit.py)"
 	@echo "  make verify          - import smoke + fast pytest; use before PRs"
@@ -44,17 +53,15 @@ clean-bytecode:
 	python scripts/dev/clean_bytecode_cache.py . --exclude venv --exclude .venv
 
 # Optional: install the `tree` package on Fedora (`dnf install tree`) to use these targets.
+tree-root:
+	@command -v tree >/dev/null 2>&1 || { echo "Install tree to use this target."; exit 1; }
+	@tree --gitignore -a -L 1 -I '$(_TREE_IGNORE)' --noreport
+
 tree-source:
 	@command -v tree >/dev/null 2>&1 && tree -I '$(_TREE_IGNORE)' || (echo "Optional: install \`tree\` to list the source tree (e.g. dnf install tree)." >&2; exit 0)
 
 tree-obsidiandroid:
 	@command -v tree >/dev/null 2>&1 && tree -L 4 -I '$(_TREE_IGNORE)' src/obsidiandroid || (echo "Install \`tree\` (e.g. dnf install tree)." >&2; exit 0)
-
-tree-utils:
-	@echo "Legacy utils/ removed; see src/obsidiandroid/ (common/, reporting/, cli/)." && exit 0
-
-tree-exporting-shims:
-	@echo "Former utils/exporting/ lives under src/obsidiandroid/common/export_* and reporting/." && exit 0
 
 # Same as ./setup.sh -> scripts/dev/bootstrap_venv.sh
 setup:
@@ -94,10 +101,10 @@ test-full:
 
 # MySQL/MariaDB connectivity (primary + Permission Intel DB). Exit 0 when healthy.
 preflight-db:
-	PYTHONPATH=src .venv/bin/python -m obsidiandroid.database.split_db_health
+	PYTHONPATH=src python -m obsidiandroid.database.split_db_health
 
 audit-runtime-db:
-	PYTHONPATH=src .venv/bin/python scripts/diagnostics/audit_runtime_database_config.py
+	PYTHONPATH=src python scripts/diagnostics/audit_runtime_database_config.py
 
 preflight-migration-host:
 	@test -n "$(OPTION_FILE)" && test -n "$(MODE)" || (echo "Usage: make preflight-migration-host OPTION_FILE=<private.cnf> MODE=local|remote"; exit 1)

@@ -14,6 +14,7 @@ from obsidiandroid.database.permission_current_interpretation import (
     interpretation_joins,
     interpretation_selects,
 )
+from obsidiandroid.governance import family_tier_authority
 from obsidiandroid.orchestration import permission_v2_research_gate
 
 from .constants import COMMON_PERMISSIONS, PERMISSION_ALIAS_MAP
@@ -145,45 +146,72 @@ def build_sample_core(samples_df: pd.DataFrame) -> pd.DataFrame:
     return working
 
 
+def family_support_frame(
+    sample_core_df: pd.DataFrame,
+    *,
+    benchmark_min_support: int = 3,
+) -> pd.DataFrame:
+    """Count eligible sample support by family and mark benchmark eligibility."""
+    work = sample_core_df.copy()
+    masks = family_tier_authority.build_family_tier_masks(work)
+    work = work.assign(
+        __family_target_eligible=masks["family_target_eligible"],
+        __type_target_eligible=masks["type_target_eligible"],
+    )
+    work = work[work["__family_target_eligible"]].copy()
+    if work.empty:
+        return pd.DataFrame(
+            columns=[
+                "family_id",
+                "family_canonical",
+                "type_slug",
+                "family_support",
+                "benchmark_eligible_n_ge_3",
+            ]
+        )
+    grouped = (
+        work.groupby(["family_id", "family_canonical"], dropna=False)
+        .agg(
+            family_support=("sample_id", "nunique"),
+            type_slug=("type_slug", lambda values: next((str(v).strip() for v in values if str(v).strip()), "unknown")),
+        )
+        .reset_index()
+    )
+    grouped["benchmark_eligible_n_ge_3"] = (
+        pd.to_numeric(grouped["family_support"], errors="coerce").fillna(0).astype(int) >= int(benchmark_min_support)
+    )
+    return grouped.sort_values(
+        by=["family_support", "family_canonical"],
+        ascending=[False, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
 def attach_temporal_catalog_fields(sample_core_df: pd.DataFrame) -> pd.DataFrame:
     """Attach VT temporal columns from catalog for time-series analytics."""
     out = sample_core_df.copy()
-    sample_ids = out["sample_id"].dropna().astype(int).tolist()
-    catalog_df = fetch_temporal_fields_for_samples(sample_ids)
-    if catalog_df.empty:
-        for col in ("vt_first_seen_itw_date", "vt_first_submission_at_utc", "effective_first_seen_at_utc"):
-            out[col] = pd.to_datetime(out.get(col), errors="coerce", utc=True)
-        if "effective_first_seen_at_utc" not in out.columns:
-            out["effective_first_seen_at_utc"] = out["vt_first_seen_itw_date"].where(
-                out["vt_first_seen_itw_date"].notna(),
-                out["vt_first_submission_at_utc"],
-            )
-        out["effective_first_seen_year"] = out["effective_first_seen_at_utc"].dt.year.astype("Int64")
-        out["effective_first_seen_month"] = out["effective_first_seen_at_utc"].dt.strftime("%Y-%m")
-        out.loc[out["effective_first_seen_month"] == "NaT", "effective_first_seen_month"] = ""
-        return out
-    merged = out.merge(catalog_df, on="sample_id", how="left", suffixes=("", "_catalog"))
-    for col in ("vt_first_seen_itw_date", "vt_first_submission_at_utc"):
-        base = pd.to_datetime(merged.get(col), errors="coerce", utc=True)
-        catalog = pd.to_datetime(merged.get(f"{col}_catalog"), errors="coerce", utc=True)
-        merged[col] = base.where(base.notna(), catalog)
-        catalog_col = f"{col}_catalog"
-        if catalog_col in merged.columns:
-            merged = merged.drop(columns=[catalog_col])
-    merged["effective_first_seen_at_utc"] = pd.to_datetime(
-        merged.get("effective_first_seen_at_utc"), errors="coerce", utc=True
-    )
-    merged["effective_first_seen_at_utc"] = merged["effective_first_seen_at_utc"].where(
-        merged["effective_first_seen_at_utc"].notna(),
-        merged["vt_first_seen_itw_date"].where(
-            merged["vt_first_seen_itw_date"].notna(),
-            merged["vt_first_submission_at_utc"],
-        ),
-    )
-    merged["effective_first_seen_year"] = merged["effective_first_seen_at_utc"].dt.year.astype("Int64")
-    merged["effective_first_seen_month"] = merged["effective_first_seen_at_utc"].dt.strftime("%Y-%m")
-    merged.loc[merged["effective_first_seen_month"] == "NaT", "effective_first_seen_month"] = ""
-    return merged
+    source_fields = ["vt_first_seen_itw_date", "vt_first_submission_at_utc"]
+    effective_field = "effective_first_seen_at_utc"
+    for col in [*source_fields, effective_field]:
+        values = out[col] if col in out else pd.Series(pd.NaT, index=out.index)
+        out[col] = pd.to_datetime(values, errors="coerce", utc=True)
+
+    incomplete = out[source_fields].isna().any(axis=1)
+    sample_ids = out.loc[incomplete, "sample_id"].dropna().astype(int).unique().tolist()
+    if sample_ids:
+        catalog = fetch_temporal_fields_for_samples(sample_ids)
+        if not catalog.empty:
+            catalog = catalog.set_index("sample_id")
+            for col in source_fields:
+                fetched = pd.to_datetime(out["sample_id"].map(catalog[col]), errors="coerce", utc=True)
+                out[col] = out[col].fillna(fetched)
+
+    in_the_wild, submission = (out[col] for col in source_fields)
+    effective = out[effective_field].fillna(in_the_wild).fillna(submission)
+    out[effective_field] = effective
+    out["effective_first_seen_year"] = effective.dt.year.astype("Int64")
+    out["effective_first_seen_month"] = effective.dt.strftime("%Y-%m")
+    return out
 
 
 def fetch_temporal_fields_for_samples(sample_ids: list[int]) -> pd.DataFrame:
@@ -222,11 +250,24 @@ def fetch_temporal_fields_for_samples(sample_ids: list[int]) -> pd.DataFrame:
     return out.drop_duplicates(subset=["sample_id"], keep="last")
 
 
-def fetch_permission_aggregates() -> pd.DataFrame:
+_PERMISSION_AGGREGATE_COLUMNS = (
+    "sample_id",
+    "permission_obs_rows",
+    "permission_unique_count",
+    "permission_common_rows",
+)
+
+
+def fetch_permission_aggregates(sample_ids: list[int] | None = None) -> pd.DataFrame:
+    """Read raw observation counts for a selected cohort or the full catalog."""
+    ids = list(dict.fromkeys(sample_ids)) if sample_ids is not None else None
+    if ids == []:
+        return pd.DataFrame(columns=_PERMISSION_AGGREGATE_COLUMNS)
+
     permission_v2_research_gate.assert_legacy_observation_read_allowed()
     common_a, common_b = COMMON_PERMISSIONS
     permission_key_expr = _permission_obs_key_expr()
-    query = f"""
+    query_template = f"""
         SELECT
             sample_id,
             COUNT(*) AS permission_obs_rows,
@@ -236,18 +277,31 @@ def fetch_permission_aggregates() -> pd.DataFrame:
                 THEN 1 ELSE 0 END
             ) AS permission_common_rows
         FROM android_permission_obs_sample
+        {{where_clause}}
         GROUP BY sample_id
     """
-    df = db_engine.execute_permission_query(query, fetch=True, as_dataframe=True)
-    if not isinstance(df, pd.DataFrame) or df.empty:
-        return pd.DataFrame(
-            columns=[
-                "sample_id",
-                "permission_obs_rows",
-                "permission_unique_count",
-                "permission_common_rows",
-            ]
+    chunk_size = 500
+    batches = (
+        (tuple(ids[offset : offset + chunk_size]) for offset in range(0, len(ids), chunk_size))
+        if ids is not None
+        else (None,)
+    )
+    frames: list[pd.DataFrame] = []
+    for batch in batches:
+        placeholders = ", ".join(["%s"] * len(batch)) if batch else ""
+        where_clause = f"WHERE sample_id IN ({placeholders})" if batch else ""
+        frame = db_engine.execute_permission_query(
+            query_template.format(where_clause=where_clause),
+            params=batch,
+            fetch=True,
+            as_dataframe=True,
         )
+        if isinstance(frame, pd.DataFrame) and not frame.empty:
+            frames.append(frame)
+    if not frames:
+        return pd.DataFrame(columns=_PERMISSION_AGGREGATE_COLUMNS)
+
+    df = frames[0] if len(frames) == 1 else pd.concat(frames, ignore_index=True)
     df["sample_id"] = pd.to_numeric(df["sample_id"], errors="coerce")
     df = df.dropna(subset=["sample_id"])
     df["sample_id"] = df["sample_id"].astype(int)

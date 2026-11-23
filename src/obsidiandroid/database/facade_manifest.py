@@ -1,12 +1,9 @@
 # Filename: src/obsidiandroid/database/facade_manifest.py
 """Single source for canonical ``obsidiandroid.database`` façade names.
 
-``obsidiandroid.database`` :mod:`__init__` uses :data:`FACADE_EXPORT_NAMES` for eager
-submodule registration order. Import-surface checks and tests use the derived pair
-tuples so CI stays aligned with the package bootstrap order.
-
-Bootstrap note: ``db_sample_malicious_scoring`` must appear before
-``db_av_engine_detection_totals`` (the totals module imports the scoring module).
+The package uses :data:`FACADE_EXPORT_NAMES` for lazy submodule loading.
+Import-surface checks and tests use the derived pairs to verify that each
+export resolves to its canonical module.
 
 The repository-root ``database/`` directory is reserved for versioned SQL
 assets. Python callers use this canonical package exclusively.

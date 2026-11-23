@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
@@ -12,7 +11,8 @@ from typing import Callable, Dict, List
 
 from config import app_config
 from obsidiandroid.common.repo_paths import repo_operator_script
-from obsidiandroid.modeling import pipeline_core
+from obsidiandroid.modeling.model_catalog import ALL_SUPPORTED_MODELS
+from .entrypoint import parse_menu_args
 from .ui import display as du
 from .ui import menu as mu
 import obsidiandroid.cli.profile_manager as profile_manager
@@ -28,7 +28,6 @@ vendor_diagnostics = _diagnostics_menu.vendor_diagnostics
 from .startup_menu_health import run_health_check as _run_health_check
 from .startup_menu_run_context import (
     latest_run_context_status as _latest_run_context_status,
-    latest_run_has_provenance as _latest_run_has_provenance,
     print_availability_block as _print_availability_block,
     print_startup_context as _print_startup_context,
     read_json_object as _read_json_object,
@@ -145,7 +144,7 @@ def _build_model_menu() -> Dict[str, str]:
     """Return model menu mapping."""
     return {
         model.replace("_", " ").title(): model
-        for model in pipeline_core.ALL_SUPPORTED_MODELS
+        for model in ALL_SUPPORTED_MODELS
     }
 
 
@@ -447,7 +446,7 @@ def _launch_model_evaluation_menu() -> None:
         _print_availability_block(
             rows=[
                 ("Latest Run", str(context.get("latest_run_id", "")) or "No"),
-                ("Run-Scoped Provenance", "Yes" if _latest_run_has_provenance() else "No"),
+                ("Run-Scoped Provenance", "Yes" if context.get("latest_run_has_provenance", False) else "No"),
             ]
         )
         choice = mu.display_menu(
@@ -1008,18 +1007,9 @@ def launch_startup_menu() -> int:
         continue
 
 
-def _parse_args(argv: list[str]) -> None:
-    """Validate startup-menu arguments before any interactive work begins."""
-    parser = argparse.ArgumentParser(
-        prog="obsidiandroid",
-        description="Launch the interactive ObsidianDroid operator console.",
-    )
-    parser.parse_args(argv)
-
-
 def main(argv: list[str] | None = None) -> int:
     """Module CLI entrypoint."""
-    _parse_args(sys.argv[1:] if argv is None else argv)
+    parse_menu_args(sys.argv[1:] if argv is None else argv)
     try:
         return launch_startup_menu()
     except KeyboardInterrupt:

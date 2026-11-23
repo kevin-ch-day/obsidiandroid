@@ -513,3 +513,33 @@ def export_permission_trends_table_inventory_from_manifest(
     out_path = contracts_dir / "permission_trends_table_inventory.csv"
     out_df.to_csv(out_path, index=False)
     return str(out_path)
+
+
+def register_permission_trends_bundle(
+    *,
+    run_id: str,
+    bundle_dir: Path,
+    top_families_visual: int,
+    min_visual_family_support: int,
+    top_permissions: int,
+    artifact_paths: list[str],
+) -> list[str]:
+    """Append the manifest and its inventory to the existing artifact sequence."""
+    manifest_path = export_permission_trends_bundle_manifest(
+        run_id=run_id,
+        bundle_dir=bundle_dir,
+        top_families_visual=top_families_visual,
+        min_visual_family_support=min_visual_family_support,
+        top_permissions=top_permissions,
+        artifact_paths=artifact_paths,
+    )
+    if not isinstance(manifest_path, str) or not manifest_path:
+        return artifact_paths
+
+    inventory_path = export_permission_trends_table_inventory_from_manifest(
+        bundle_dir=bundle_dir, run_id=run_id, manifest_path=manifest_path,
+    )
+    completed_paths = [*artifact_paths, manifest_path]
+    if isinstance(inventory_path, str) and inventory_path:
+        completed_paths.append(inventory_path)
+    return completed_paths

@@ -537,11 +537,6 @@ def _ablation_metrics(diagnostics_dir: Path, run_id: str) -> dict[str, Any]:
 def _priority_score(metrics: dict[str, Any]) -> dict[str, Any]:
     dist = metrics.get("family_distribution", {}) if isinstance(metrics.get("family_distribution"), dict) else {}
     support_gap = metrics.get("support_gap", {}) if isinstance(metrics.get("support_gap"), dict) else {}
-    support_curve = (
-        metrics.get("support_threshold_curve")
-        if isinstance(metrics.get("support_threshold_curve"), dict)
-        else {}
-    )
     support = metrics.get("support_performance", {}) if isinstance(metrics.get("support_performance"), dict) else {}
     confusion = metrics.get("confusion", {}) if isinstance(metrics.get("confusion"), dict) else {}
     pred = metrics.get("prediction_errors", {}) if isinstance(metrics.get("prediction_errors"), dict) else {}

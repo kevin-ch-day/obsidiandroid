@@ -36,17 +36,11 @@ from obsidiandroid.modeling import distribution_reporter
 from obsidiandroid.modeling.modality_requirement import apply_modality_requirement
 from obsidiandroid.modeling import ml_result_validator
 from obsidiandroid.modeling.feature_selection_contract import collect_leakage_pruning_audit
+from obsidiandroid.modeling.model_catalog import ALL_SUPPORTED_MODELS
 from . import pipeline_result_promoter
 from . import train_model_executor
 
 # === Constants === #
-ALL_SUPPORTED_MODELS = [
-    "random_forest",
-    "balanced_random_forest",
-    "svm",
-    "xgboost",
-    "logistic_regression",
-]
 DEFAULT_MODEL_KEY = "xgboost"
 PIPELINE_LOGGER = get_logger(
     f"{getattr(app_config, 'APP_LOG_NAMESPACE', 'framework')}.ml.pipeline_core",

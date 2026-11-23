@@ -6,6 +6,20 @@ pytestmark = pytest.mark.contract
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SQL_ROOT = REPO_ROOT / "database" / "sql"
+LIVE_SQL_FILES = (
+    "label_authority_audit.sql",
+    "label_authority_backfill.sql",
+    "label_authority_foundation.sql",
+    "label_authority_reference_seed.sql",
+    "label_authority_schema_smoke.sql",
+    "label_authority_vendor_evidence_backfill.sql",
+    "label_authority_vendor_evidence_load_template.sql",
+    "malware_artifact_ingest_queue_buffer_audit.sql",
+    "malware_artifact_ingest_queue_prune_materialized_nonprocessing_rows.sql",
+    "permission_intel_concept_view.sql",
+    "view_android_sample_family_type_authority.sql",
+    "view_android_sample_family_type_authority_smoke.sql",
+)
 
 
 def _read_sql(name: str) -> str:
@@ -13,39 +27,12 @@ def _read_sql(name: str) -> str:
 
 
 def test_sql_surface_is_reduced_to_live_contract_files() -> None:
-    expected = {
-        "README.md",
-        "label_authority_audit.sql",
-        "label_authority_backfill.sql",
-        "label_authority_foundation.sql",
-        "label_authority_reference_seed.sql",
-        "label_authority_schema_smoke.sql",
-        "label_authority_vendor_evidence_backfill.sql",
-        "label_authority_vendor_evidence_load_template.sql",
-        "malware_artifact_ingest_queue_buffer_audit.sql",
-        "malware_artifact_ingest_queue_prune_materialized_nonprocessing_rows.sql",
-        "view_android_sample_family_type_authority.sql",
-        "view_android_sample_family_type_authority_smoke.sql",
-    }
     observed = {path.name for path in SQL_ROOT.iterdir() if path.is_file()}
-    assert observed == expected
+    assert observed == {"README.md", *LIVE_SQL_FILES}
 
 
 def test_live_sql_contract_files_do_not_hardcode_environment_schema() -> None:
-    live_files = [
-        "label_authority_audit.sql",
-        "label_authority_backfill.sql",
-        "label_authority_foundation.sql",
-        "label_authority_reference_seed.sql",
-        "label_authority_schema_smoke.sql",
-        "label_authority_vendor_evidence_backfill.sql",
-        "label_authority_vendor_evidence_load_template.sql",
-        "malware_artifact_ingest_queue_buffer_audit.sql",
-        "malware_artifact_ingest_queue_prune_materialized_nonprocessing_rows.sql",
-        "view_android_sample_family_type_authority.sql",
-        "view_android_sample_family_type_authority_smoke.sql",
-    ]
-    for name in live_files:
+    for name in LIVE_SQL_FILES:
         sql = _read_sql(name)
         assert "USE erebus_database_dev;" not in sql
         assert "USE erebus_threat_intel_prod;" not in sql

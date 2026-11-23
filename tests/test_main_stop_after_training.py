@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from config import app_config
 import obsidiandroid.pipeline.runner as pipeline_runner
@@ -12,11 +13,26 @@ import main
 from obsidiandroid.reporting import family_distribution_report
 
 
+@pytest.fixture
+def pipeline_monkeypatch():
+    """Restore config writes made directly by the runner as well as test patches."""
+    initial = vars(app_config).copy()
+    try:
+        with pytest.MonkeyPatch.context() as patch:
+            yield patch
+    finally:
+        config = vars(app_config)
+        for name in config.keys() - initial.keys():
+            del config[name]
+        config.update(initial)
+
+
 def test_stop_after_training_skips_ablation_and_permission_trends(
-    monkeypatch,
+    pipeline_monkeypatch,
     tmp_path: Path,
 ) -> None:
     """`stop_after='training'` should not execute post-training heavy stages."""
+    monkeypatch = pipeline_monkeypatch
     output_root = tmp_path / "output"
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
     monkeypatch.setattr(app_config, "ENABLE_DB_LOGGING", False, raising=False)
@@ -56,6 +72,8 @@ def test_stop_after_training_skips_ablation_and_permission_trends(
             "feature_flags": {
                 "enable_dynamic_generic_vendor_parsers": False,
                 "enable_sample_metadata_features": False,
+                "enable_permission_features": False,
+                "permission_input_policy": "intentionally_disabled",
             },
         },
     )
@@ -138,10 +156,11 @@ def test_stop_after_training_skips_ablation_and_permission_trends(
 
 
 def test_stop_after_ablation_skips_permission_trends(
-    monkeypatch,
+    pipeline_monkeypatch,
     tmp_path: Path,
 ) -> None:
     """`stop_after='ablation'` should execute ablation but skip later report stages."""
+    monkeypatch = pipeline_monkeypatch
     output_root = tmp_path / "output"
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
     monkeypatch.setattr(app_config, "ENABLE_DB_LOGGING", False, raising=False)
@@ -181,6 +200,8 @@ def test_stop_after_ablation_skips_permission_trends(
             "feature_flags": {
                 "enable_dynamic_generic_vendor_parsers": False,
                 "enable_sample_metadata_features": False,
+                "enable_permission_features": False,
+                "permission_input_policy": "intentionally_disabled",
             },
         },
     )
@@ -263,10 +284,11 @@ def test_stop_after_ablation_skips_permission_trends(
 
 
 def test_stop_after_label_resolution_with_stage_disabled(
-    monkeypatch,
+    pipeline_monkeypatch,
     tmp_path: Path,
 ) -> None:
     """`stop_after='label_resolution'` should finalize cleanly when stage is disabled."""
+    monkeypatch = pipeline_monkeypatch
     output_root = tmp_path / "output"
     monkeypatch.setattr(app_config, "DEFAULT_OUTPUT_DIR", str(output_root), raising=False)
     monkeypatch.setattr(app_config, "ENABLE_DB_LOGGING", False, raising=False)
@@ -306,6 +328,8 @@ def test_stop_after_label_resolution_with_stage_disabled(
             "feature_flags": {
                 "enable_dynamic_generic_vendor_parsers": False,
                 "enable_sample_metadata_features": False,
+                "enable_permission_features": False,
+                "permission_input_policy": "intentionally_disabled",
             },
         },
     )

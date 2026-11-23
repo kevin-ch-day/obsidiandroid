@@ -4,9 +4,9 @@
 >
 > Use this file as background context only. It captures earlier architecture and performance concerns from before later stage moves, shim retirement, and CLI/pipeline cleanup work. For current source-of-truth guidance, prefer:
 >
-> - [`docs/module_split_audit.md`](module_split_audit.md) for current oversized modules and split targets
-> - [`docs/pipeline_staging_guide.md`](pipeline_staging_guide.md) for current pipeline stage boundaries
-> - [`docs/STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md) for current migration / retirement status
+> - [`docs/module_split_audit.md`](../module_split_audit.md) for current oversized modules and split targets
+> - [`docs/pipeline_staging_guide.md`](../pipeline_staging_guide.md) for current pipeline stage boundaries
+> - [`docs/STRUCTURE_MIGRATION_PLAN.md`](../STRUCTURE_MIGRATION_PLAN.md) for current migration / retirement status
 
 ## Scope and approach
 

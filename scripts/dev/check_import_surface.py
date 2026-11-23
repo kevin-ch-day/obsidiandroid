@@ -38,7 +38,7 @@ prepare_script_runtime(__file__)
 from obsidiandroid.database.facade_manifest import FACADE_MODULE_PAIRS
 from obsidiandroid.features.features_facade_manifest import FEATURES_FACADE_ALIAS_TARGETS
 from obsidiandroid.modeling.modeling_facade_manifest import (
-    MODELING_FACADE_EAGER_SUBMODULE_NAMES,
+    MODELING_FACADE_SUBMODULE_NAMES,
 )
 from obsidiandroid.modeling.classification_facade_manifest import (
     CLASSIFICATION_BUILDER_FACADE_SUBMODULE_NAMES,
@@ -471,7 +471,7 @@ def main() -> int:
     print("OK   obsidiandroid.pipeline.permission_trends submodules resolve canonically")
 
     _modeling_facade = importlib.import_module("obsidiandroid.modeling")
-    for attr in MODELING_FACADE_EAGER_SUBMODULE_NAMES:
+    for attr in MODELING_FACADE_SUBMODULE_NAMES:
         canon_name = f"obsidiandroid.modeling.{attr}"
         canon_mod = importlib.import_module(canon_name)
         facade_mod = getattr(_modeling_facade, attr)

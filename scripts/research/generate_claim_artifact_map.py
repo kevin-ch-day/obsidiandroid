@@ -19,26 +19,7 @@ from scripts._bootstrap import prepare_script_runtime  # noqa: E402
 prepare_script_runtime(__file__)
 
 from config import app_config
-from obsidiandroid.cli.menu import run_locator as rl
-
-
-def _resolve_run_root(*, output_root: Path, run_id: str) -> Path:
-    """Resolve and validate canonical run root under the configured output root."""
-    root = output_root.resolve()
-    manifest_payload, manifest_path = rl.resolve_manifest_for_run_id(
-        str(run_id).strip(),
-        runs_dir=root / "runs",
-    )
-    if not manifest_payload:
-        raise FileNotFoundError(f"Run manifest not found for run_id: {run_id}")
-    run_root = rl.resolve_run_root_for_manifest(
-        manifest_payload,
-        run_id=str(run_id).strip(),
-        manifest_path=manifest_path,
-    ).resolve()
-    if root not in run_root.parents:
-        raise ValueError(f"Run root escapes output_root: run_root={run_root} output_root={root}")
-    return run_root
+from obsidiandroid.cli.menu.run_locator import resolve_run_under_output_root as _resolve_run_root
 
 
 def _load_run_manifest(run_id: str, *, output_root: Path) -> dict:

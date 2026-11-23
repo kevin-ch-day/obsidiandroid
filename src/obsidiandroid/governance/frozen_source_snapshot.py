@@ -18,7 +18,7 @@ from typing import Any, Mapping
 import pandas as pd
 
 from obsidiandroid.common.hash_utils import hash_payload
-from obsidiandroid.features.av_detection_contract import classify_av_row
+from obsidiandroid.features.av_detection_contract import classify_av_result
 from obsidiandroid.pipeline.engine_normalization import canonicalize_engine_name
 
 
@@ -98,19 +98,24 @@ def derive_normalized_vt_rows(
         raise ValueError(f"Snapshot VT wide rows missing: {sorted(missing)}")
     if missing := set(engine_columns).difference(wide_rows.columns):
         raise ValueError(f"Snapshot VT engine columns missing: {sorted(missing)}")
+    aliases = dict(engine_aliases or {})
+    canonical_engines = [canonicalize_engine_name(engine, aliases) for engine in engine_columns]
     output: list[dict[str, Any]] = []
     for row in wide_rows.to_dict("records"):
         row_hash = _wide_row_hash(row)
-        for engine in engine_columns:
+        sample_id = int(row["sample_id"])
+        snapshot_row_id = f"{snapshot_id}:{row_hash}"
+        updated_at = str(row["updated_at"])
+        for engine, canonical_engine in zip(engine_columns, canonical_engines):
             raw_result = row.get(engine)
-            avobs, avdet, status = classify_av_row(pd.Series({"result": raw_result}))
+            avobs, avdet, status = classify_av_result(raw_result)
             output.append({
-                "snapshot_id": snapshot_id, "sample_id": int(row["sample_id"]),
-                "snapshot_row_id": f"{snapshot_id}:{row_hash}", "raw_engine_name": engine,
-                "canonical_engine_name": canonicalize_engine_name(engine, dict(engine_aliases or {})),
+                "snapshot_id": snapshot_id, "sample_id": sample_id,
+                "snapshot_row_id": snapshot_row_id, "raw_engine_name": engine,
+                "canonical_engine_name": canonical_engine,
                 "raw_result": "" if pd.isna(raw_result) else str(raw_result),
                 "normalized_status": status, "avdet": int(avdet), "avobs": int(avobs),
-                "source_wide_row_hash": row_hash, "source_updated_at": str(row["updated_at"]),
+                "source_wide_row_hash": row_hash, "source_updated_at": updated_at,
                 "snapshot_created_at_utc": snapshot_created_at_utc,
             })
     return pd.DataFrame(output).sort_values(["sample_id", "raw_engine_name"], kind="stable").reset_index(drop=True)

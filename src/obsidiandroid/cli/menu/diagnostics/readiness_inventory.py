@@ -8,16 +8,12 @@ import obsidiandroid.cli.profile_manager as profile_manager
 from obsidiandroid.common import ml_console
 from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common.authority_taxonomy_terms import (
-    POLICY_HELD_FAMILY_TOKENS_LABEL,
     HIGH_PRIORITY_TAXONOMY_CONFLICTS_LABEL,
     TAXONOMY_CURATION_DISCIPLINE_TITLE,
     TOP_POLICY_HELD_TOKEN_BACKLOG_TITLE,
     TOP_TRUE_UNRESOLVED_FAMILY_BACKLOG_TITLE,
-    TRUE_FAMILY_TYPE_CONFLICT_CANDIDATES_LABEL,
     TRUE_UNRESOLVED_FAMILY_SLUGS_LABEL,
-    policy_held_only_note,
 )
-from obsidiandroid.common.backlog_semantics import build_taxonomy_curation_posture
 from obsidiandroid.database.db_cohort_readiness import get_cohort_readiness_snapshot
 
 _READINESS_BUCKET_MEANINGS: tuple[tuple[str, str], ...] = (
@@ -343,7 +339,6 @@ def show_profile_readiness_mapping_inventory(
     unresolved_family_count = taxonomy_signals.get("unresolved_family_count") if isinstance(taxonomy_signals, dict) else None
     known_unresolved_family_count = taxonomy_signals.get("known_unresolved_family_count") if isinstance(taxonomy_signals, dict) else None
     policy_held_family_count = taxonomy_signals.get("policy_held_family_count") if isinstance(taxonomy_signals, dict) else None
-    family_type_conflict_count = taxonomy_signals.get("family_type_conflict_count") if isinstance(taxonomy_signals, dict) else None
     high_priority_conflict_count = taxonomy_signals.get("high_priority_conflict_count") if isinstance(taxonomy_signals, dict) else None
     repair_candidate_count = taxonomy_signals.get("repair_candidate_count") if isinstance(taxonomy_signals, dict) else None
     unresolved_family_count_int = int(unresolved_family_count or 0) if unresolved_family_count is not None else 0
@@ -351,9 +346,6 @@ def show_profile_readiness_mapping_inventory(
         int(known_unresolved_family_count or 0) if known_unresolved_family_count is not None else 0
     )
     policy_held_family_count_int = int(policy_held_family_count or 0) if policy_held_family_count is not None else 0
-    family_type_conflict_count_int = (
-        int(family_type_conflict_count or 0) if family_type_conflict_count is not None else 0
-    )
     high_priority_conflict_count_int = (
         int(high_priority_conflict_count or 0) if high_priority_conflict_count is not None else 0
     )

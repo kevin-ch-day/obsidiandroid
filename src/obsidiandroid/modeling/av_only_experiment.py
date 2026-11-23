@@ -23,7 +23,11 @@ from config import app_config
 from obsidiandroid.common.repo_paths import repo_root
 from obsidiandroid.features.av_lineage import LINEAGE_POLICY_ID, identifier
 from obsidiandroid.features.retained_av_reports import prepare_retained_av
-from obsidiandroid.features.av_detection_contract import fit_av_detection_contract, transform_av_detection_features
+from obsidiandroid.features.av_detection_contract import (
+    fit_av_detection_contract,
+    prepare_av_reports,
+    transform_av_detection_features,
+)
 from .av_partition import AVPartition, frame_digest
 
 PROFILE_ID = 'dev_av_only_recorded_family'
@@ -50,9 +54,9 @@ def prepare(snapshot, source_digest):
         admitted, admitted.recorded_family_id, admitted.lineage_component))
     train_ids = tuple(int(i) for i in admitted.iloc[train].sample_id)
     test_ids = tuple(int(i) for i in admitted.iloc[test].sample_id)
-    rows = rows[rows.sample_id.isin(admitted.sample_id)]
-    contract = fit_av_detection_contract(rows, train_ids, scope='all_observed')
-    features = transform_av_detection_features(rows, contract, admitted.sample_id).set_index('sample_id')
+    reports = prepare_av_reports(rows[rows.sample_id.isin(admitted.sample_id)])
+    contract = fit_av_detection_contract(reports, train_ids, scope='all_observed')
+    features = transform_av_detection_features(reports, contract, admitted.sample_id).set_index('sample_id')
     labels = admitted.set_index('sample_id').recorded_family_id.astype(str).rename('family_id')
     plan = AVPartition(source_digest, frame_digest(features), frame_digest(labels), train_ids, test_ids,
                        tuple((int(r.sample_id), int(r.lineage_component)) for r in admitted.itertuples()))

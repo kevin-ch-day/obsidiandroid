@@ -156,7 +156,6 @@ def main() -> int:
         unexpected = [row for row in before if row not in expected_grant_set()]
         if unexpected:
             raise RuntimeError(f"Refusing unexpected existing result grants: {unexpected}")
-        missing = [statement for statement in plan if True]
         # Apply only missing grants by comparing canonical inventory.
         expected = expected_grant_set()
         missing_rows = [row for row in expected if row not in before]

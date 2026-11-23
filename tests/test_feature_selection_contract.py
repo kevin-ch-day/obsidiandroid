@@ -64,6 +64,18 @@ def test_column_name_normalization_rejects_collisions() -> None:
         selection.normalize_feature_column_names(pd.DataFrame([[1, 2]], columns=[1, "1"]))
 
 
+def test_selection_audits_cohort_relative_risk_features(monkeypatch) -> None:
+    monkeypatch.setattr(app_config, "RUNTIME_ABLATION_ACTIVE", True, raising=False)
+    monkeypatch.setattr(app_config, "RUNTIME_ABLATION_ALLOW_LABEL_ADJACENT_FEATURES", True, raising=False)
+    features = pd.DataFrame({"risk_rank": [3, 2, 1], "risk_band": [1, 1, 2], "risk_score": [8, 10, 12]})
+
+    contract = selection.fit_feature_selection_contract(features)
+
+    assert contract["retained_feature_columns"] == ["risk_score"]
+    reasons = {row["column_name"]: row["reason_code"] for row in contract["leakage_pruning_audit"]}
+    assert reasons == {"risk_rank": "cohort_relative_before_split", "risk_band": "cohort_relative_before_split"}
+
+
 def test_selection_detects_identifier_column_matching_sample_index() -> None:
     features = pd.DataFrame(
         {"opaque_identifier": ["10", "11"], "signal": [0, 1]},

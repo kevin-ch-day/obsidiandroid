@@ -268,12 +268,14 @@ def export_generic_scatter(
     consensus_df: pd.DataFrame,
     run_id: str,
     bundle_dir: Path,
+    sample_metrics_df: pd.DataFrame | None = None,
 ) -> str | None:
     try:
         plt = _import_pyplot()
     except Exception:
         return None
-    metrics = build_sample_level_permission_metrics(sample_core_df, permission_rows_df)
+    if sample_metrics_df is None:
+        sample_metrics_df = build_sample_level_permission_metrics(sample_core_df, permission_rows_df)
     min_vendor_count = safe_int_config_value(
         getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5),
         default=5,
@@ -281,7 +283,7 @@ def export_generic_scatter(
     consensus_keep = consensus_df[consensus_df["vendor_count"] >= min_vendor_count][
         ["sample_id", "consensus_score_all_vendors"]
     ].copy()
-    merged = sample_core_df[["sample_id", "type_slug", "family_id"]].merge(metrics, on="sample_id", how="left")
+    merged = sample_core_df[["sample_id", "type_slug", "family_id"]].merge(sample_metrics_df, on="sample_id", how="left")
     merged = merged.merge(consensus_keep, on="sample_id", how="left")
     merged = merged.dropna(subset=["consensus_score_all_vendors"])
     if merged.empty:

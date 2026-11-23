@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.datasets import make_classification
+from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 
 from config import app_config
@@ -50,6 +51,7 @@ def test_svm_training_emits_no_deprecation_and_returns_calibrated_probabilities(
         "folds": 5,
     }
     assert "probability" not in result["metadata"]["params"]
+    assert result["metadata"]["feature_scaling"] == "standard"
 
 
 def test_calibration_folds_are_capped_by_the_smallest_class() -> None:
@@ -90,6 +92,8 @@ def test_calibration_fits_training_rows_only_and_predicts_calibrated_argmax(monk
     y_train, y_test = y.iloc[:120].copy(), y.iloc[120:].copy()
     original_fit = CalibratedClassifierCV.fit
     seen = []
+    scaled = []
+    original_scale_fit = StandardScaler.fit
 
     def record_fit(self, fit_X, fit_y, *args, **kwargs):
         pd.testing.assert_frame_equal(fit_X, X_train)
@@ -97,7 +101,13 @@ def test_calibration_fits_training_rows_only_and_predicts_calibrated_argmax(monk
         seen.append(True)
         return original_fit(self, fit_X, fit_y, *args, **kwargs)
 
+    def record_scale_fit(self, fit_X, *args, **kwargs):
+        pd.testing.assert_frame_equal(fit_X, X_train.loc[fit_X.index])
+        scaled.append(len(fit_X))
+        return original_scale_fit(self, fit_X, *args, **kwargs)
+
     monkeypatch.setattr(CalibratedClassifierCV, "fit", record_fit)
+    monkeypatch.setattr(StandardScaler, "fit", record_scale_fit)
     monkeypatch.setattr(app_config, "ENABLE_SVM_GRID_SEARCH", False, raising=False)
     with warnings.catch_warnings():
         warnings.simplefilter("error", FutureWarning)
@@ -105,6 +115,7 @@ def test_calibration_fits_training_rows_only_and_predicts_calibrated_argmax(monk
             X_train, y_train, X_test=X_test, y_test=y_test, verbose=False
         )
     assert seen == [True]
+    assert sorted(scaled) == [96] * 5 + [120]
     probabilities = model.predict_proba(X_test)
     expected = model.classes_[np.argmax(probabilities, axis=1)]
     np.testing.assert_array_equal(result["predictions"], expected)
@@ -118,7 +129,7 @@ def test_explicit_probability_kwarg_is_ignored(monkeypatch) -> None:
     assert "probability" not in result["metadata"]["params"]
 
 
-def test_grid_search_tunes_plain_svc_then_calibrates(monkeypatch) -> None:
+def test_grid_search_tunes_scaled_svc_then_calibrates(monkeypatch) -> None:
     X, y = _dataset()
     monkeypatch.setattr(app_config, "SVM_PARAM_GRID", {"kernel": ["linear"], "C": [0.3]}, raising=False)
     monkeypatch.setattr(app_config, "CV_FOLDS", 2, raising=False)
@@ -129,12 +140,18 @@ def test_grid_search_tunes_plain_svc_then_calibrates(monkeypatch) -> None:
     assert result["metadata"]["grid_search_status"] == "completed"
     assert result["metadata"]["params"]["C"] == 0.3
     assert isinstance(model, CalibratedClassifierCV)
+    assert model.get_params()["estimator__svc__kernel"] == "linear"
     assert model.predict_proba(X).shape[1] == 3
 
 
-def test_default_params_and_base_estimator_do_not_request_svc_probability() -> None:
+def test_cv_estimator_and_training_use_the_same_scaled_svc(monkeypatch) -> None:
+    monkeypatch.setattr(app_config, "SVM_C", 0.7)
     assert "probability" not in svm_trainer.get_default_svm_params()
     estimator = training_helpers.build_base_estimator("svm", random_state=3)
-    assert isinstance(estimator, SVC)
+    assert isinstance(estimator.named_steps["standardscaler"], StandardScaler)
+    svc = estimator.named_steps["svc"]
+    assert isinstance(svc, SVC)
+    assert svc.C == 0.7
+    assert svc.random_state == 3
     # scikit-learn 1.9 leaves the deprecated flag at its sentinel unless a caller sets it.
-    assert estimator.get_params().get("probability") is not True
+    assert svc.get_params().get("probability") is not True

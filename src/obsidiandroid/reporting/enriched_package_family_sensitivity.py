@@ -25,10 +25,11 @@ from obsidiandroid.reporting.package_balanced_permission_analysis import (
     family_balanced_prevalence,
     package_balanced_prevalence,
     package_within_family_balanced_prevalence,
+    permission_indicator,
+    read_aligned_permission_features,
     sample_weighted_prevalence,
 )
 from obsidiandroid.reporting.permission_authority_enrichment import enrichment_lane_lookup
-from obsidiandroid.reporting.permission_governance_lanes import CANONICAL_PROTECTION_LANES
 from obsidiandroid.reporting.type_permission_pattern_report import resolve_git_commit, sha256_file
 from obsidiandroid.reporting.type_permission_protection import EXPECTED_RUN_ID, verify_completed_run
 
@@ -60,14 +61,6 @@ BANNED_OUTPUT_DIRS = set(PKG_BANNED) | {
 
 def _norm(value: Any) -> str:
     return str(value or "").strip().lower()
-
-
-def _indicator(frame: pd.DataFrame, permission: str) -> pd.Series:
-    return (
-        pd.to_numeric(frame.get(permission, pd.Series(0, index=frame.index)), errors="coerce")
-        .fillna(0)
-        .gt(0)
-    )
 
 
 def _profile(frame: pd.DataFrame, permissions: Sequence[str], mode: str) -> np.ndarray:
@@ -238,7 +231,7 @@ def build_type_lane_joint_weighting(
                     "delta_sw_vs_package_within_family_pp": pwf_delta,
                     "delta_sw_vs_leave_family_sw_pp": fam_delta,
                     "delta_sw_vs_leave_family_pwf_pp": leave_pwf_delta,
-                    "supporting_samples": int(_indicator(sub, perm).sum()),
+                    "supporting_samples": int(permission_indicator(sub, perm).sum()),
                     "joint_survival_status": status,
                 }
             )
@@ -437,7 +430,7 @@ def build_joint_pairwise_sensitivity(
             base["joint_pair_status"] = "identity_gated"
             rows.append(base)
             continue
-        both = (_indicator(sub, a) & _indicator(sub, b)).astype(int)
+        both = (permission_indicator(sub, a) & permission_indicator(sub, b)).astype(int)
         work = sub.copy()
         work["__pair__"] = both
         sw = float(both.mean()) if len(sub) else float("nan")
@@ -578,16 +571,6 @@ def render_joint_interpretation(
     return "\n".join(lines)
 
 
-def _read_features(path: Path, audit: pd.DataFrame, permissions: set[str]) -> pd.DataFrame:
-    mapping = dict(
-        zip(audit["permission_string"].astype(str).str.lower(), audit["feature_column"].astype(str))
-    )
-    wanted = {"sample_id"} | {mapping[p] for p in permissions if p in mapping}
-    features = pd.read_csv(path, compression="gzip", usecols=lambda c: c in wanted)
-    rename = {feature: permission for permission, feature in mapping.items() if feature in features.columns}
-    return features.rename(columns=rename)
-
-
 def compose_enriched_package_family_sensitivity(
     *,
     run_root: Path,
@@ -648,7 +631,7 @@ def compose_enriched_package_family_sensitivity(
         all_perms.update(fp["permission_b"].map(_norm))
 
     membership = assign_package_keys(labels)
-    features = _read_features(diag / f"aligned_features_{run_id}.csv.gz", audit, all_perms)
+    features = read_aligned_permission_features(diag / f"aligned_features_{run_id}.csv.gz", audit, all_perms)
     membership = membership.merge(features, on="sample_id", how="inner")
 
     # Largest family by type (sample count).
@@ -699,7 +682,7 @@ def compose_enriched_package_family_sensitivity(
     # Reload features if family perms added new columns (usually already covered).
     missing = [p for p in all_perms if p not in membership.columns]
     if missing:
-        extra = _read_features(diag / f"aligned_features_{run_id}.csv.gz", audit, set(missing))
+        extra = read_aligned_permission_features(diag / f"aligned_features_{run_id}.csv.gz", audit, set(missing))
         membership = membership.merge(extra, on="sample_id", how="left")
     family_weighting = build_family_joint_weighting(
         membership=membership,

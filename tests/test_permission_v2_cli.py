@@ -2,12 +2,13 @@
 import json
 import pytest
 from obsidiandroid.cli import permission_v2 as cli
+from obsidiandroid.orchestration import permission_v2_export as v2
 
 
 def test_missing_approval_is_a_refusal(monkeypatch, capsys):
     def unavailable(_):
         raise ValueError("private error detail")
-    monkeypatch.setattr(cli.v2, "_checked_export", unavailable)
+    monkeypatch.setattr(v2, "_checked_export", unavailable)
     assert cli.main(["inspect", "--export", "missing.json"]) == 2
     output = capsys.readouterr().out
     assert json.loads(output)["status"] == "PI_V2_CONSUMPTION_REFUSED"
@@ -18,10 +19,10 @@ def test_missing_approval_is_a_refusal(monkeypatch, capsys):
 def test_invalid_or_unpartitioned_split_refused(monkeypatch, tmp_path, training):
     export = {"samples": [{"sample_id": 1, "sha256": "a" * 64},
                            {"sample_id": 2, "sha256": "b" * 64}]}
-    monkeypatch.setattr(cli.v2, "_checked_export", lambda _: (b"", b"", export))
+    monkeypatch.setattr(v2, "_checked_export", lambda _: (b"", b"", export))
     def forbidden(*args, **kwargs):
         raise AssertionError("invalid split reached feature construction")
-    monkeypatch.setattr(cli.v2, "build_v2_unresolved_features", forbidden)
+    monkeypatch.setattr(v2, "build_v2_unresolved_features", forbidden)
     split = tmp_path / "split.json"
     split.write_text(json.dumps(training))
     with pytest.raises(ValueError):

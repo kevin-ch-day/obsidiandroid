@@ -225,7 +225,7 @@ def test_composer_deterministic_no_db(tmp_path: Path, monkeypatch) -> None:
     out1 = tmp_path / "out1"
     out2 = tmp_path / "out2"
     m1 = compose_permission_capability_category_report(run_root=run_root, run_id=run_id, output_dir=out1, min_samples=5)
-    m2 = compose_permission_capability_category_report(run_root=run_root, run_id=run_id, output_dir=out2, min_samples=5)
+    compose_permission_capability_category_report(run_root=run_root, run_id=run_id, output_dir=out2, min_samples=5)
     assert m1["sample_count"] == 40
     # Deterministic CSVs (ignore manifest timestamps/checksums)
     for name in (

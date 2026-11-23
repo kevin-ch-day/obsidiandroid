@@ -15,7 +15,6 @@ from typing import Any
 
 import pandas as pd
 
-from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.database import db_engine
 from obsidiandroid.database import db_sample_metadata_queries
 from obsidiandroid.governance.cohort_lock_manifest import load_lock_manifest, read_member_list
@@ -69,7 +68,6 @@ def materialize_locked_paper_cohort(
     raw_lock = profile.get("paper_lock", {}) if isinstance(profile.get("paper_lock"), dict) else {}
     manifest = load_lock_manifest(raw_lock) or {}
     lock_members = read_member_list(snapshot_lock_file)
-    lock_ids = set(lock_members["sample_id"].astype(int).tolist())
     current_ids = {int(sample_id) for sample_id in current_fetch_sample_ids}
 
     broad_df = db_sample_metadata_queries.load_samples_by_type(
@@ -99,7 +97,6 @@ def materialize_locked_paper_cohort(
         fail_closed=True,
     )
     live_label_df = materialized_df.copy()
-    broad_ids = _sample_id_set(materialized_df)
 
     archived_label_df, archived_meta = _load_archived_label_snapshot(
         manifest=manifest,
@@ -186,12 +183,6 @@ def materialize_locked_paper_cohort(
         archived_label_snapshot_path=str(archived_meta["path"]),
         archived_label_snapshot_hash=str(archived_meta["label_snapshot_hash"]),
     )
-
-
-def _sample_id_set(df: pd.DataFrame) -> set[int]:
-    if "sample_id" not in df.columns:
-        return set()
-    return set(pd.to_numeric(df["sample_id"], errors="coerce").dropna().astype(int).tolist())
 
 
 def _normalize_sample_id_frame(df: pd.DataFrame) -> pd.DataFrame:

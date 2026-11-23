@@ -183,14 +183,6 @@ def launch_taxonomy_support_tuning_compact_menu(
     low_support_path = first_existing_path_fn([rdiag / "low_support_families.csv"])
     trained_registry_path = first_existing_path_fn([rdiag / f"trained_family_registry_{rid}.csv"])
     family_distribution_path = first_existing_path_fn([rdiag / "family_distribution.csv"])
-    authority_review_path = first_existing_path_fn([oh.resolve_taxonomy_type_authority_review_path(rdiag, rid)])
-    rendering_csv_path = first_existing_path_fn(
-        [
-            oh.resolve_taxonomy_consistency_mismatches_path(rdiag, rid),
-            rdiag / f"taxonomy_rendering_mismatches_{rid}.csv",
-            output_root / "diagnostics" / "taxonomy_rendering_mismatches.latest.csv",
-        ]
-    )
     model_error_csv_path = first_existing_path_fn(
         [
             oh.resolve_prediction_errors_path(rdiag, rid),

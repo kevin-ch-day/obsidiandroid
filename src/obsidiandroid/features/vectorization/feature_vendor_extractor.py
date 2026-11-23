@@ -1,8 +1,10 @@
 # Filename: obsidiandroid/features/vectorization/feature_vendor_extractor.py
 # Purpose  : Extract, merge, and enrich vendor feature data for ML vector construction
 
-import pandas as pd
 from functools import reduce
+
+import pandas as pd
+
 from obsidiandroid.cli.ui import display as du
 
 
@@ -50,13 +52,39 @@ def extract_vendor_fields(parsed_vendor_data, vendor_list, fields):
 
     return extracted
 
+def _align_unique_vendor_frames(frames: list[pd.DataFrame]) -> pd.DataFrame | None:
+    """Align standard vendor frames in one pass when indexed and relational joins agree."""
+    if any(
+        frame.columns.empty or frame.columns[0] != "sample_id"
+        or not frame.columns.is_unique or frame.attrs
+        for frame in frames
+    ):
+        return None
+    key_dtype = frames[0]["sample_id"].dtype
+    if not pd.api.types.is_integer_dtype(key_dtype) or pd.api.types.is_extension_array_dtype(key_dtype):
+        return None
+    if any(frame["sample_id"].dtype != key_dtype for frame in frames):
+        return None
+    feature_names = [name for frame in frames for name in frame.columns[1:]]
+    if len(set(feature_names)) != len(feature_names):
+        return None
+
+    indexed = [frame.set_index("sample_id") for frame in frames]
+    if any(not frame.index.is_unique for frame in indexed):
+        return None
+    return pd.concat(indexed, axis=1, sort=True).reset_index()
+
+
 def merge_vendor_features(frames):
     if not frames:
         du.print_error("[MERGE] No vendor feature frames to merge.")
         return pd.DataFrame()
 
     try:
-        merged = reduce(lambda left, right: pd.merge(left, right, on="sample_id", how="outer"), frames)
+        frames = list(frames)
+        merged = frames[0] if len(frames) == 1 else _align_unique_vendor_frames(frames)
+        if merged is None:
+            merged = reduce(lambda left, right: pd.merge(left, right, on="sample_id", how="outer"), frames)
         from obsidiandroid.evaluation.ml_terminal_presentation import should_suppress_ablation_feature_build_terminal
 
         if not should_suppress_ablation_feature_build_terminal():

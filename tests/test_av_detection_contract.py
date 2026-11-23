@@ -2,7 +2,10 @@ import pandas as pd
 import pytest
 
 from obsidiandroid.features.av_detection_contract import (
+    classify_av_row,
+    classify_av_rows,
     fit_av_detection_contract,
+    prepare_av_reports,
     select_coherent_report_snapshot,
     transform_av_detection_features,
 )
@@ -39,11 +42,41 @@ def test_readiness_scope_intersects_train_observed_schema():
     assert contract.engine_columns == ()
 
 
+def test_prepared_reports_keep_feature_schema_fold_local():
+    rows = pd.DataFrame([
+        {"sample_id": 1, "engine_name": "Alpha", "result": "malicious", "report_id": "r1"},
+        {"sample_id": 2, "engine_name": "Beta", "result": "undetected", "report_id": "r2"},
+    ])
+    reports = prepare_av_reports(rows)
+    for train_ids, engine in (([1], "alpha"), ([2], "beta")):
+        contract = fit_av_detection_contract(reports, train_ids, scope="all_observed")
+        assert contract.engine_columns == (engine,)
+        features = transform_av_detection_features(reports, contract, [2, 1])
+        assert features.columns.tolist() == ["sample_id", f"avdet__{engine}", f"avobs__{engine}"]
+        assert features.loc[features["sample_id"].ne(train_ids[0]), f"avobs__{engine}"].tolist() == [0]
+
+
 def test_unknown_structured_status_fails_closed():
     rows = _rows().iloc[:1].copy()
     rows["status"] = "novel"
     with pytest.raises(ValueError, match="Unknown structured"):
         fit_av_detection_contract(rows, [1], scope="all_observed")
+
+
+def test_batch_av_classification_preserves_status_priority_and_row_index():
+    rows = pd.DataFrame(
+        {
+            "result": ["Trojan.X", "Trojan.X", "timeout", None, "undetected"],
+            "status": [None, " harmless ", "", None, "suspicious"],
+        },
+        index=[10, 10, -1, 3, 7],
+    )
+    classified = classify_av_rows(rows)
+    expected = rows.apply(classify_av_row, axis=1, result_type="expand")
+    expected.columns = ["avobs", "avdet", "normalized_status"]
+    pd.testing.assert_frame_equal(classified, expected)
+    assert classified.iloc[2].tolist() == [0, 0, "missing"]
+    assert classify_av_rows(rows.iloc[:0]).columns.tolist() == list(expected.columns)
 
 
 def test_ambiguous_missing_snapshot_identity_fails_closed():

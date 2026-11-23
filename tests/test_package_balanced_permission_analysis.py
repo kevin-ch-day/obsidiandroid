@@ -12,6 +12,7 @@ from obsidiandroid.reporting.package_balanced_permission_analysis import (
     assign_package_keys,
     build_family_package_concentration,
     build_package_collision_audit,
+    build_permission_weighting_comparison,
     build_source_batch_concentration,
     classify_package_collision,
     classify_package_concentration_state,
@@ -29,19 +30,26 @@ def test_package_normalization_and_missing_keys() -> None:
     assert normalize_package_name("  Com.Example.App ") == "com.example.app"
     assert normalize_package_name("") == ""
     assert normalize_package_name(None) == ""
+    assert normalize_package_name(pd.NA) == ""
+    assert normalize_package_name(pd.NaT) == ""
     labels = pd.DataFrame(
         [
             {"sample_id": 1, "package_name": "com.a", "android_package_name": "", "sha256": "x", "family_canonical": "F", "type_slug": "rat"},
             {"sample_id": 2, "package_name": "", "android_package_name": "", "sha256": "y", "family_canonical": "F", "type_slug": "rat"},
             {"sample_id": 3, "package_name": "", "android_package_name": "", "sha256": "z", "family_canonical": "F", "type_slug": "rat"},
+            {"sample_id": 4, "package_name": "", "android_package_name": " Com.Resolved ", "sha256": "w", "family_canonical": "F", "type_slug": "rat"},
         ]
     )
+    labels["package_name"] = labels["package_name"].astype(object)
+    labels.loc[[2, 3], "package_name"] = pd.NA
     keyed = assign_package_keys(labels)
     assert keyed.loc[0, "package_key"] == "com.a"
     assert keyed.loc[1, "is_missing_package"]
     assert keyed.loc[2, "is_missing_package"]
     assert keyed.loc[1, "package_key"] != keyed.loc[2, "package_key"]
     assert keyed.loc[1, "package_key"].startswith("__missing_package__:")
+    assert keyed.loc[3, "package_key"] == "com.resolved"
+    assert not keyed.loc[3, "is_missing_package"]
 
 
 def test_one_package_many_samples_and_many_packages_one_sample() -> None:
@@ -82,6 +90,19 @@ def test_weighting_schemes_and_missing_exclusion() -> None:
     assert abs(pb - (1 / 3)) < 1e-9
     assert pb != sw
     assert pd.notna(fb) and pd.notna(pwf)
+    report = build_permission_weighting_comparison(
+        membership=frame,
+        type_prevalence=pd.DataFrame({"type_slug": ["rat"], "permission": ["perm"]}),
+        family_prevalence=pd.DataFrame(),
+    ).iloc[0]
+    assert report["sample_weighted_prevalence"] == sw
+    assert report["package_balanced_prevalence"] == pb
+    assert report["family_balanced_prevalence"] == fb
+    assert report["package_within_family_balanced_prevalence"] == pwf
+    assert report["supporting_samples"] == 5
+    assert report["supporting_known_packages"] == 3
+    assert report["supporting_families"] == 2
+    assert report["largest_package_contribution"] == 1.0
 
 
 def test_collision_cross_family_and_cross_type() -> None:

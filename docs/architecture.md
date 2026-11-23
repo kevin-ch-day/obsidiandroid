@@ -4,22 +4,25 @@ This document explains how ObsidianDroid ingests antivirus telemetry, computes r
 
 ## High-Level Flow
 
-```
-┌──────────────┐     ┌────────────────┐     ┌────────────────┐     ┌────────────────┐
-│ Sample/AV DB │ --> │ obsidiandroid │ --> │ obsidiandroid   │ --> │ output/ exports │
-└──────────────┘     │ pipeline      │     │ modeling        │     └────────────────┘
-       ▲              └────────────────┘     └────────────────┘
-       │                     │                        │
-       │                     ▼                        │
-       │              Feature matrices                 │
-       │                                                ▼
-       └──── obsidiandroid.database ────────────> scripts/ + reports
+```mermaid
+flowchart LR
+    Erebus["Erebus sample, taxonomy, and AV data"] --> Cohort["Profile filters and cohort lock"]
+    Cohort --> AV["AV analysis and vendor scoring"]
+    Cohort --> Permission["Cohort-scoped permission evidence"]
+    PI["Permission Intel"] --> Permission
+    AV --> Features["Feature assembly by sample_id"]
+    Permission --> Features
+    Cohort --> Align["Feature and label alignment"]
+    Features --> Align
+    Align --> Models["Training and evaluation"]
+    Models --> Output["Run reports and manifest"]
+    Permission --> Output
 ```
 
-1. **Metadata ingestion** loads sample identifiers, vendor detections, and contextual attributes from a MySQL database using helpers in `obsidiandroid.database`. See [`data_sources.md`](data_sources.md) for a catalog of required tables and replication guidance.
-2. **Analysis and feature engineering** normalize AV labels, score vendors, and build per-sample feature matrices in **canonical** `src/obsidiandroid/` modules.
-3. **Model training and inference** use canonical `obsidiandroid.modeling`, `obsidiandroid.inference`, and `obsidiandroid.engine_weights` modules; the legacy repo-root `ml_classification/` surface has been retired.
-4. **Evaluation and export** routines write canonical family labels, diagnostics, and artifacts under `output/`.
+1. **Cohort admission.** The profile and cohort gates define the sample population before feature assembly. The runner records the population at each stage, from the fused matrix through the aligned supervised set. [`Pipeline runner`](../src/obsidiandroid/pipeline/runner.py)
+2. **Permission evidence.** The report sends the same selected sample IDs to the aggregate and detailed observation readers. Aggregate counts come from raw observation rows. Detailed rows pass through permission normalization and governance before the report builds presence and signal summaries. Temporal enrichment fills missing catalog fields and preserves existing timestamps. [`Permission ingestion`](../src/obsidiandroid/pipeline/permission_trends/sample_permission_data.py)
+3. **Feature assembly.** Vendor, metadata, and enabled permission features join by `sample_id`. The feature matrix can represent the governed cohort even when a vendor has no parsed row. Training then aligns that matrix with eligible labels and records any population loss. [`Feature stage`](../src/obsidiandroid/pipeline/stage_modeling.py)
+4. **Reporting and persistence.** Permission summaries, correlation plots, and statistical tests reuse one table of per-sample metrics. Package-balanced reports calculate their package denominators separately from sample counts. The manifest indexes the run's artifacts, and configured runs can persist selected results. [`Permission report stage`](../src/obsidiandroid/pipeline/stage_permission_trends_report.py)
 
 **Run-scoped path snapshot:** `obsidiandroid.pipeline.run_bounds` exposes `PipelineRunBounds` (set at the end of profile + evidence-mode path setup in `runner.py`, cleared when the run finishes). New diagnostics helpers can use `get_pipeline_run_bounds()` instead of re-deriving paths from scattered `app_config` keys. **DB settings surface:** `obsidiandroid.database.settings` provides `load_connection_settings()` as a typed view of `obsidiandroid.database.db_config` for scripts and tooling.
 
@@ -58,14 +61,38 @@ Consult [`modeling_reference.md`](modeling_reference.md) for estimator-specific 
 - `model_params/` holds estimator-specific hyperparameters.
 - Probability/consensus behavior is driven by **`app_config`**, profile YAML under **`profiles/`**, and labeling/inference modules under **`obsidiandroid.labeling`** and **`obsidiandroid.inference`** (there is no standalone **`config/thresholds.json`** in this repository).
 
-### 6. Execution Entrypoints (`main.py`, `obsidiandroid.pipeline.runner`, `scripts/`)
-- `main.py` is the **thin CLI entry**: argument parsing and stable symbols for tests (`run_pipeline`, diagnostics paths, and monkeypatch-friendly re-exports).
-- `src/obsidiandroid/pipeline/runner.py` holds **`run_pipeline`** orchestration; `obsidiandroid.cli.main_override_bridge` handles main-module test overrides.
+### 6. Execution and Import Boundaries
+
+```mermaid
+flowchart LR
+    Shell["run.sh"] --> Dispatch["cli.entrypoint"]
+    Installed["obsidiandroid command"] --> Dispatch
+    Dispatch --> Menu["cli.startup_menu"]
+    Dispatch --> Analysis["cli.analysis"]
+    Dispatch --> Permission["cli.permission_v2"]
+    Direct["python main.py"] --> PipelineCLI["cli.main"]
+    PipelineCLI --> Runner["pipeline.runner"]
+    Menu -->|Classification| Runner
+    Analysis -->|Run commands| Runner
+    Analysis -->|Read commands| Store["analysis_persistence"]
+    Permission --> Export["Approved Permission Intel export"]
+    Runner --> Stages["pipeline stages"]
+    Stages --> Sources["database adapters"]
+    Stages --> Models["features and modeling"]
+    Stages --> Reports["reports and run artifacts"]
+```
+
+`./run.sh` prepends the checkout's `src/` and calls `python -m obsidiandroid.cli`. The module and installed command both call `obsidiandroid.cli.entrypoint`. The dispatcher loads the selected command, and `cli.main` parses direct pipeline arguments before loading `pipeline.runner`. The root `main.py` forwards compatibility attributes to `cli.main`, and `cli.main_override_bridge` resolves test overrides.
+
+Library and operator script imports resolve to `src/obsidiandroid/`. Direct operator scripts use `scripts/_bootstrap.py` when they need checkout paths. Package façades such as `database`, `modeling`, `diagnostics`, and `reporting` resolve public exports on demand. The modeling menu reads `modeling.model_catalog` for supported model keys. The training and plotting libraries load when a command needs them.
+
 - `obsidiandroid.pipeline.stage_samples` loads cohorts and applies gates; `stage_av_vendor` runs AV analysis, vendor extraction, and alignment; `stage_modeling` covers weights, feature matrix, training, and label resolution.
 - `obsidiandroid.pipeline.stage_permission_trends_report` produces permission analytics (helpers under `obsidiandroid.pipeline.permission_trends`). `stage_manifest.py` writes the run manifest and paper/evidence exports.
+- The permission trends stage uses one catalog read and one mapping read per run. Assignment, prevalence calculations, and exported snapshots use those same inputs. Package denominators are computed once for each type or family and reused across signals.
+- The frozen A/B/C benchmark prepares one coherent AV report set per run. Both AV arms fit their engine schemas on outer-training observations. Arm C takes the readiness-eligible columns from arm B's feature matrix. The AV development experiments likewise share report preparation and fit a separate engine schema in each fold.
 - `stage_results_warehouse.py` persists selected outputs when configured.
 - `python -m obsidiandroid.evaluation.model_tuning` is the tuning entrypoint; `scripts/` holds operational CLIs (warehouse backfill, research utilities).
-- For extension patterns, see [`pipeline_staging_guide.md`](pipeline_staging_guide.md) and `main.run_pipeline` / `profiles/*.yaml`.
+- The staged pipeline guide covers extension patterns and profile contracts. [`pipeline_staging_guide.md`](pipeline_staging_guide.md)
 
 ### 7. Quality Assurance (`tests/`, `scripts/dev/`)
 - `tests/` is the primary pytest tree (`pytest -q`); `tests/conftest.py` routes outputs to tmp and guards filesystem writes during tests.

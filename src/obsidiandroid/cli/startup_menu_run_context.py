@@ -13,8 +13,6 @@ import pandas as pd
 from .menu.operator_state import (
     build_operator_state,
     has_structural_bundle as _shared_has_structural_bundle,
-    latest_run_has_diagnostics as _shared_latest_run_has_diagnostics,
-    latest_run_has_provenance as _shared_latest_run_has_provenance,
     output_root as _shared_output_root,
 )
 from .menu.run_artifact_state import resolve_model_comparison_summary_csv
@@ -47,7 +45,7 @@ def has_structural_bundle(run_id: str | None) -> bool:
 
 def latest_run_context_status() -> dict[str, object]:
     """Build lightweight run-context status for state-aware menus."""
-    shared = build_operator_state()
+    shared = build_operator_state(include_parser_summary=False)
     latest_run_id = str(shared.get("latest_run_id", "") or "")
     locked_publication_run_id = str(
         shared.get("locked_publication_run_id", "") or shared.get("locked_run_id", "") or ""
@@ -56,6 +54,8 @@ def latest_run_context_status() -> dict[str, object]:
         "latest_run_id": latest_run_id or "",
         "locked_publication_run_id": locked_publication_run_id or "",
         "has_latest_run": bool(latest_run_id),
+        "latest_run_has_diagnostics": bool(shared.get("latest_run_has_diagnostics", False)),
+        "latest_run_has_provenance": bool(shared.get("latest_run_has_provenance", False)),
         "has_structural_bundle": bool(shared.get("has_structural_bundle", False)),
         "has_publication_exports": bool(shared.get("has_publication_exports", False)),
         "has_locked_publication_run": bool(locked_publication_run_id),
@@ -66,22 +66,18 @@ def latest_run_context_status() -> dict[str, object]:
 
 def latest_run_publication_mode_enabled() -> bool:
     """Return whether latest run manifest indicates evidence mode enabled."""
-    shared = build_operator_state()
+    shared = build_operator_state(include_parser_summary=False)
     return bool(shared.get("publication_ready_mode", False))
 
 
 def latest_run_has_provenance() -> bool:
     """Return whether key run-scoped provenance files exist for latest run."""
-    shared = build_operator_state()
-    token = str(shared.get("latest_run_id", "") or "").strip()
-    return _shared_latest_run_has_provenance(token, base=_shared_output_root().resolve())
+    return bool(build_operator_state(include_parser_summary=False).get("latest_run_has_provenance", False))
 
 
 def latest_run_has_diagnostics() -> bool:
     """Return whether any run-scoped diagnostics artifacts exist for latest run."""
-    shared = build_operator_state()
-    token = str(shared.get("latest_run_id", "") or "").strip()
-    return _shared_latest_run_has_diagnostics(token, base=_shared_output_root().resolve())
+    return bool(build_operator_state(include_parser_summary=False).get("latest_run_has_diagnostics", False))
 
 
 def print_availability_block(*, rows: list[tuple[str, str]]) -> None:
@@ -248,8 +244,8 @@ def print_startup_context() -> None:
     context = latest_run_context_status()
     latest_run_id = str(context.get("latest_run_id", "")).strip() or "None yet"
     publication_ready = bool(context.get("has_publication_exports", False))
-    diagnostics_ready = latest_run_has_diagnostics()
-    provenance_ready = latest_run_has_provenance()
+    diagnostics_ready = bool(context["latest_run_has_diagnostics"])
+    provenance_ready = bool(context["latest_run_has_provenance"])
     diagnostics_status = "ready" if provenance_ready else "available" if diagnostics_ready else "missing"
 
     du.print_rule(" ObsidianDroid ")

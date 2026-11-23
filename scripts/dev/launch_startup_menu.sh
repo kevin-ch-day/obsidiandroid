@@ -1,30 +1,15 @@
 #!/usr/bin/env bash
-# Launch the ObsidianDroid startup menu from the local Fedora virtual environment.
-
+# Prepare a source checkout and hand arguments to the shared operator command.
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VENV_DIR="${ROOT_DIR}/.venv"
-
-cd "${ROOT_DIR}"
-
-# Allow ``import obsidiandroid`` when the venv has no editable install yet.
-export PYTHONPATH="${ROOT_DIR}/src:${PYTHONPATH:-}"
-
-if [[ ! -x "${VENV_DIR}/bin/python" ]]; then
-    echo "Missing virtual environment at ${VENV_DIR}."
-    echo "Run ./setup.sh first."
+DEV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "${DEV_DIR}/../.." && pwd)"
+venv_bin="$("${DEV_DIR}/checkout_venv.sh")"
+if [[ -z "${venv_bin}" ]]; then
+    echo "Missing checkout virtual environment. Run ./setup.sh first." >&2
     exit 1
 fi
 
-if [[ "${1:-}" == "pi-v2" ]]; then
-    shift
-    exec "${VENV_DIR}/bin/python" -m obsidiandroid.cli.permission_v2 "$@"
-fi
-
-if [[ "${1:-}" == "analysis" ]]; then
-    shift
-    exec "${VENV_DIR}/bin/python" -m obsidiandroid.cli.analysis "$@"
-fi
-
-exec "${VENV_DIR}/bin/python" -m obsidiandroid.cli.startup_menu "$@"
+cd "${ROOT}"
+export PYTHONPATH="${ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
+exec "${venv_bin}/python" -m obsidiandroid.cli "$@"

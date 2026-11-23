@@ -253,7 +253,6 @@ def build_label_contract(
         if row not in included_family_labels
     ]
 
-    included_type_labels = [row for row in type_summary if not row.get("exclusion_reason")]
     excluded_type_labels = [
         {
             "label": row.get("type_display_name"),
@@ -395,7 +394,6 @@ def export_label_contract(
             f"`{row.get('type_support_tier', '')}` | `{row.get('type_claim_readiness', '')}` | "
             f"`{row.get('exclusion_reason') or ''}` |"
         )
-    exclusions = payload.get("label_exclusion_reasons", {}) if isinstance(payload.get("label_exclusion_reasons"), dict) else {}
     lines.extend(
         [
             "",

@@ -4,7 +4,7 @@ Vectorization implementations live under
 ``obsidiandroid.features.vectorization`` and
 ``obsidiandroid.features.feature_schema_audit`` is also canonical here.
 
-See ``docs/ML_BOUNDARY_PLAN.md``.
+See ``docs/archive/ML_BOUNDARY_PLAN.md``.
 """
 
 from __future__ import annotations

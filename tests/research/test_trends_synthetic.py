@@ -352,6 +352,6 @@ def test_one_per_cluster_arms_take_the_fixed_design_path_with_their_own_bounds(t
         w = Wt.weights_for_mode(mal, "one_per_cluster", seed); assert set(w.dropna().unique()) <= {0.0, 1.0}
         res = matched_malware_bootstrap_registered(mal, ind, 2020, cfg, nben, 200, 1, cluster_col=None, estimator="cluster_unit_recomputed", weights=w)
         assert res["design"] == "fixed_design" and res["point_check_max_abs_diff"] < 1e-12
-        ben = mal.iloc[:0]; disp = [matched_prevalence(mal, pd.DataFrame({"year": [2020] * 4, "sdk_catalog_target": [20, 20, 26, 26]}, index=range(10_000, 10_004)), pd.Series(ind[:, j], index=mal.index), pd.Series(0.0, index=range(10_000, 10_004)), w, pd.Series(1.0, index=range(10_000, 10_004)), 2020, cfg)["malware"] for j in range(2)]
+        disp = [matched_prevalence(mal, pd.DataFrame({"year": [2020] * 4, "sdk_catalog_target": [20, 20, 26, 26]}, index=range(10_000, 10_004)), pd.Series(ind[:, j], index=mal.index), pd.Series(0.0, index=range(10_000, 10_004)), w, pd.Series(1.0, index=range(10_000, 10_004)), 2020, cfg)["malware"] for j in range(2)]
         assert np.allclose(res["point"], disp)                                                # bootstrap statistic on the original draw == displayed point
         assert not (np.allclose(res["lo_recomputed"], primary["lo_recomputed"]) and np.allclose(res["hi_recomputed"], primary["hi_recomputed"]))   # not the profile-unit bounds

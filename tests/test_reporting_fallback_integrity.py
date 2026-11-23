@@ -29,6 +29,25 @@ def test_current_cluster_api_and_single_group(monkeypatch):
     assert set(assignments.cluster_id) == {0}
 
 
+@pytest.mark.parametrize(
+    ("builder", "profile"),
+    [
+        (
+            reports._build_family_permission_similarity,
+            {"family_canonical": "A", "family_support": 3, "permission": "p"},
+        ),
+        (
+            reports._build_family_signal_similarity,
+            {"family_canonical": "A", "family_support": 3, "signal_key": "s"},
+        ),
+        (reports._build_type_permission_similarity, {"n_samples": 3, "permission": "p"}),
+    ],
+)
+def test_similarity_with_one_profile_returns_no_pairs(builder, profile):
+    frame = pd.DataFrame([{"type_slug": "banker", "prevalence_pct": 100.0, **profile}])
+    pd.testing.assert_frame_equal(builder(frame), builder(frame.iloc[:0]))
+
+
 @pytest.mark.parametrize('failure', ['constructor', 'fit'])
 def test_clustering_errors_never_produce_round_robin_assignments(monkeypatch, failure):
     import sklearn.cluster

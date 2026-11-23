@@ -193,12 +193,11 @@ via `obsidiandroid.diagnostics.cohort_persistence`; manifest finalize reloads th
 Remaining deferrals stay in later release+ (deep learning, ScytaleDroid, frozen-model
 inference UX).
 
-## Core evidence database (gated future phase)
+## Core evidence database
 
-The retired v2.2 research-ledger draft has been removed and is not a
-canonical-run dependency. The reviewed successor is the separate
-`research_results_db` evidence database, configured only through
-`OBSIDIANDROID_CORE_DB_*`. Its Phase 1 DDL remains un-applied, and no canonical
-run may claim Core persistence until the separate Phase 2 approval, restore
-rehearsal, dedicated credentials, and migration receipt are complete. See
-[`core_migration/phase2_apply_plan.md`](core_migration/phase2_apply_plan.md).
+The separate `research_results_db` owns Core records and uses the
+`OBSIDIANDROID_CORE_DB_*` connection settings. Canonical closure validates the
+run artifacts. A Core persistence claim requires a receipt for the explicit
+native persistence path and verification against the selected schema. See the
+[migration history](core_migration/README.md) and
+[analysis persistence contract](ANALYSIS_PERSISTENCE_V1.md).

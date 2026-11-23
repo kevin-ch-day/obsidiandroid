@@ -9,11 +9,22 @@ Example:
     --run-id 20260721T231415Z__e0c43b
 """
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
+import sys
+
+_CHECKOUT_ROOT = Path(__file__).resolve().parents[2]
+if str(_CHECKOUT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CHECKOUT_ROOT))
+
+from scripts._bootstrap import prepare_script_runtime  # noqa: E402
+
+prepare_script_runtime(__file__)
 
 from obsidiandroid.cli.menu import run_locator as rl
 from obsidiandroid.reporting.type_permission_pattern_report import (
@@ -23,38 +34,6 @@ from obsidiandroid.reporting.type_permission_pattern_report import (
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
-
-
-def _resolve_run_root(*, repo_root: Path, run_id: str = "", run_root_arg: str = "", latest: bool = False) -> tuple[Path, str]:
-    if run_root_arg:
-        root = Path(run_root_arg).resolve()
-        if not run_id:
-            # Prefer analysis_snapshot / training checkpoint naming.
-            snaps = sorted((root / "diagnostics").glob("analysis_snapshot_*.csv"))
-            if snaps:
-                run_id = snaps[-1].stem.replace("analysis_snapshot_", "")
-            else:
-                raise SystemExit("provide --run-id when --run-root has no analysis_snapshot_*.csv")
-        return root, str(run_id).strip()
-    if latest:
-        latest_run_id = rl.read_latest_run_id()
-        if not latest_run_id:
-            raise SystemExit("could not resolve latest run id from manifests/pointers")
-        run_id = latest_run_id
-    if not run_id:
-        raise SystemExit("provide --run-id, --run-root, or --latest")
-    manifest_payload, manifest_path = rl.resolve_manifest_for_run_id(
-        str(run_id).strip(),
-        runs_dir=repo_root / "output" / "runs",
-    )
-    if not manifest_payload:
-        raise SystemExit(f"run directory not found for run_id: {run_id}")
-    root = rl.resolve_run_root_for_manifest(
-        manifest_payload,
-        run_id=str(run_id).strip(),
-        manifest_path=manifest_path,
-    )
-    return root, str(run_id).strip()
 
 
 def main() -> int:
@@ -72,7 +51,7 @@ def main() -> int:
     args = parser.parse_args()
 
     repo_root = _repo_root()
-    run_root, run_id = _resolve_run_root(
+    run_root, run_id = rl.resolve_report_run(
         repo_root=repo_root,
         run_id=str(args.run_id or "").strip(),
         run_root_arg=str(args.run_root or "").strip(),

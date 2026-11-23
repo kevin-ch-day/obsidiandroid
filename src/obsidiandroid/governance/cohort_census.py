@@ -948,7 +948,6 @@ def build_cohort_census_bundle(profile_ids: tuple[str, ...] = TARGET_PROFILE_IDS
         if semantics.paper_locked and semantics.canonical_profile_id == "malicious_temporal_stability_locked":
             locked_row = row
             locked_member_ids = set(read_member_list(semantics.contract["sample_id_lock"]["path"])["sample_id"].tolist())
-            locked_members_df = broad_catalog_df[broad_catalog_df["sample_id"].isin(locked_member_ids)].copy()
             current_reference = next(
                 item for item in profiles if str(item.get("profile_id", "")) == "malicious_temporal_stability"
             )
@@ -1081,7 +1080,6 @@ def build_cohort_census_bundle(profile_ids: tuple[str, ...] = TARGET_PROFILE_IDS
 
 def _report_lines(bundle: dict[str, Any]) -> list[str]:
     rows: list[dict[str, Any]] = bundle["profile_rows"]
-    row_by_profile = {row["profile_id"]: row for row in rows}
     canonical_rows = {
         row["canonical_profile_id"]: row
         for row in rows

@@ -67,7 +67,7 @@ def test_repo_operator_script_resolves_under_repo_root() -> None:
     assert p.is_file()
 
 
-def test_prepare_script_runtime_prepends_repo_root_and_src() -> None:
+def test_prepare_script_runtime_prepends_repo_root_and_src(monkeypatch) -> None:
     import sys
     from pathlib import Path
 
@@ -80,13 +80,10 @@ def test_prepare_script_runtime_prepends_repo_root_and_src() -> None:
     root = here.parents[3]
     src = str((root / "src").resolve())
     root_s = str(root.resolve())
-    while root_s in sys.path:
-        sys.path.remove(root_s)
-    while src in sys.path:
-        sys.path.remove(src)
+    other_checkout_src = str(root.parent / "another-checkout" / "src")
+    monkeypatch.setattr(sys, "path", [other_checkout_src, src, root_s, src, root_s])
     assert prepare_script_runtime(root / "scripts" / "diagnostics" / "check_run_integrity.py") == root
-    assert root_s in sys.path
-    assert src in sys.path
+    assert sys.path == [src, root_s, other_checkout_src]
 
 
 def test_setuptools_package_discovery_excludes_retired_analysis_tree() -> None:

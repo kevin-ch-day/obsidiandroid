@@ -6,31 +6,7 @@ Diagnostics implementation lives under ``obsidiandroid.diagnostics``. Prefer
 
 from __future__ import annotations
 
-import importlib
-
-from . import ablation_cohort_diagnostics
-from . import alignment_gap_diagnostics
-from . import cohort_foundation_export
-from . import cohort_sample_id_audit
-from . import cohort_vocabulary
-from . import feature_builder_drop_trace
-from . import feature_build_coverage_export
-from . import feature_column_survival_export
-from . import feature_lineage_report
-from . import feature_matrix_gap_lineage
-from . import family_label_taxonomy_audit
-from . import reproducibility_workbench
-from . import fused_permission_matrix_audit
-from . import headline_evaluation_export
-from . import output_artifact_policy
-from . import rf_feature_importance_export
-from . import split_ledger_resolve
-from . import vendor_feature_validation
-from . import output_inventory
-from . import permission_training_survival_audit
-
-research_validity = importlib.import_module(f"{__name__}.research_validity")
-hostile_audit = importlib.import_module(f"{__name__}.hostile_audit")
+from importlib import import_module
 
 __all__ = [
     "ablation_cohort_diagnostics",
@@ -56,3 +32,13 @@ __all__ = [
     "rf_feature_importance_export",
     "research_validity",
 ]
+
+
+def __getattr__(name: str):
+    if name in __all__:
+        return import_module(f".{name}", __name__)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))

@@ -55,7 +55,7 @@ from obsidiandroid.pipeline.manifest.paper_evidence import (
 )
 from obsidiandroid.pipeline.manifest.paper_compliance_checks import build_paper_compliance_checks
 
-from obsidiandroid.modeling.pipeline_core import ALL_SUPPORTED_MODELS
+from obsidiandroid.modeling.model_catalog import ALL_SUPPORTED_MODELS
 from obsidiandroid.pipeline.manifest.stage_manifest_writers import (
     finalize_output_hygiene_bundle as _finalize_output_hygiene_bundle,
     write_evaluation_contract_json as _write_evaluation_contract_json,

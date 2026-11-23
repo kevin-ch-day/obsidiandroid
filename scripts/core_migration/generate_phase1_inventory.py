@@ -173,7 +173,6 @@ def _object_disposition(name: str, *, writer_created: bool) -> dict[str, str]:
 
 def _objects() -> list[dict[str, Any]]:
     writer_tables = _writer_table_lines()
-    source_text = WAREHOUSE.read_text(encoding="utf-8")
     placeholders = ", ".join(["%s"] * len(writer_tables))
     objects = _rows(
         f"""

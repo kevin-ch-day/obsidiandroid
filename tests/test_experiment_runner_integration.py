@@ -9,7 +9,7 @@ from obsidiandroid.pipeline import runner as pipeline_runner
 from obsidiandroid.modeling import pipeline_core, model_trainer_factory as factory
 from obsidiandroid.modeling import experiment_split as es
 from obsidiandroid.reporting import family_distribution_report
-from test_experiment_split_integrity import fixture  # noqa: F401
+from test_experiment_split_integrity import fixture as fixture
 main = pipeline_runner
 
 @pytest.mark.integration
@@ -40,7 +40,6 @@ def test_runner_reaches_governed_trainer(
     profile['runtime_overrides'] = {'AUTO_ADJUST_TRAIN_TEST_SPLIT': False,
                                     'ENABLE_GROUP_AWARE_TRAIN_TEST_SPLIT': False}
     monkeypatch.setattr(main.profile_manager, 'load_profile', lambda ref: profile)
-    labels_df = samples_df.copy()
     def feature_build(*args, **kwargs):
         frame = args[2].copy()
         frame['vendor_signal'] = np.arange(len(frame)) % 5

@@ -18,6 +18,7 @@ from obsidiandroid.cli.ui import display as du
 from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.common.hash_utils import hash_payload
 from obsidiandroid.common.publication_readiness import (
+    claim_audit_alias_name,
     evaluate_publication_ready_status,
     publication_ready_payload,
 )
@@ -53,19 +54,6 @@ def _claim_surface_label(*, profile_id: str, evidence_mode: bool, paper_mode: bo
     if profile == "android_malware_type_taxonomy":
         return "Type taxonomy benchmark"
     return "Benchmark research surface"
-
-
-def _claim_audit_alias_name(*, profile_id: str, evidence_mode: bool, paper_mode: bool) -> str:
-    """Return the profile-appropriate claim-audit alias name for summaries."""
-    if bool(evidence_mode or paper_mode):
-        return "publication_claim_audit.md"
-    profile = str(profile_id or "").strip()
-    if profile in {
-        "android_malware_major_families",
-        "android_malware_type_taxonomy",
-    }:
-        return "benchmark_claim_audit.md"
-    return "research_claim_audit.md"
 
 
 def emit_run_authority_coverage_bundle(
@@ -207,7 +195,7 @@ def write_run_summary_json(
         )
         claim_audit_summary = str(
             diagnostics_dir
-            / _claim_audit_alias_name(
+            / claim_audit_alias_name(
                 profile_id=profile_id,
                 evidence_mode=coalesce_manifest_publication_mode(manifest),
                 paper_mode=bool((manifest.get("paper_mode") or {}).get("resolved_value", False)),
@@ -627,7 +615,7 @@ def write_run_summary_onepager(
             evidence_mode=coalesce_manifest_publication_mode(manifest),
             paper_mode=bool(paper_mode_data.get("resolved_value", False)),
         )
-        claim_audit_summary = _claim_audit_alias_name(
+        claim_audit_summary = claim_audit_alias_name(
             profile_id=profile_id,
             evidence_mode=coalesce_manifest_publication_mode(manifest),
             paper_mode=bool(paper_mode_data.get("resolved_value", False)),

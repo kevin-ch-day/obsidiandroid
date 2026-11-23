@@ -1,12 +1,23 @@
 #!/usr/bin/env python3
 """Generate permission-pattern interpretation artifacts from saved run diagnostics."""
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
 
-import pandas as pd
+_CHECKOUT_ROOT = Path(__file__).resolve().parents[2]
+if str(_CHECKOUT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CHECKOUT_ROOT))
+
+from scripts._bootstrap import prepare_script_runtime  # noqa: E402
+
+prepare_script_runtime(__file__)
+
+import pandas as pd  # noqa: E402
 
 from obsidiandroid.cli.menu import run_locator as rl
 from obsidiandroid.pipeline import stage_permission_trends_report as report_stage

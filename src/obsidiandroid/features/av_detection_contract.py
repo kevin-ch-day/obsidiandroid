@@ -8,7 +8,8 @@ any engine feature is derived, preventing per-engine "latest row" joins.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable
+from itertools import repeat
+from typing import Iterable
 
 import pandas as pd
 
@@ -23,6 +24,7 @@ _OBSERVED_NON_DETECTIONS = frozenset({"undetected", "harmless"})
 _DETECTIONS = frozenset({"malicious", "suspicious", "detected", "positive"})
 _IDENTITY_COLUMNS = ("report_id", "analysis_id", "retrieval_batch", "report_timestamp", "snapshot_row_id")
 _ORDER_COLUMNS = ("report_timestamp", "updated_at", "record_created_at", "record_id")
+_PREPARATION_COLUMNS = {"sample_id", "engine_name", "status", "result", *_IDENTITY_COLUMNS, *_ORDER_COLUMNS}
 
 
 @dataclass(frozen=True)
@@ -33,12 +35,30 @@ class AVDetectionContract:
     policy_hash: str
     report_selection: pd.DataFrame
 
+    @property
+    def feature_columns(self) -> list[str]:
+        """Return feature columns in frozen export order."""
+        return [
+            f"{prefix}__{engine}"
+            for prefix in ("avdet", "avobs")
+            for engine in self.engine_columns
+        ]
+
+
+@dataclass(frozen=True)
+class PreparedAVReports:
+    """Coherent verdicts and provenance reusable within a single run."""
+
+    verdicts: pd.DataFrame
+    report_selection: pd.DataFrame
+    engine_aliases: dict[str, str]
+
 
 def _text(value: object) -> str:
     return str(value or "").strip().lower()
 
 
-def classify_av_row(row: pd.Series) -> tuple[int, int, str]:
+def classify_av_result(result: object, *, status: object = None) -> tuple[int, int, str]:
     """Return ``(avobs, avdet, normalized_status)`` under the frozen policy.
 
     A structured ``status`` must be one of the documented values.  A free-text
@@ -46,8 +66,8 @@ def classify_av_row(row: pd.Series) -> tuple[int, int, str]:
     non-observation/non-detection token.  This makes novel vendor labels
     explicit positive detections without treating timeout/failure as observed.
     """
-    status_present = "status" in row.index and pd.notna(row.get("status"))
-    value = _text(row.get("status") if status_present else row.get("result"))
+    status_present = status is not None and pd.notna(status)
+    value = _text(status if status_present else result)
     if value in _NON_OBSERVATIONS:
         return 0, 0, value or "missing"
     if value in _OBSERVED_NON_DETECTIONS:
@@ -58,6 +78,22 @@ def classify_av_row(row: pd.Series) -> tuple[int, int, str]:
         raise ValueError(f"Unknown structured AV status: {value!r}")
     # ``result`` is a vendor label (for example, a family or generic verdict).
     return 1, 1, "vendor_detection_label"
+
+
+def classify_av_row(row: pd.Series) -> tuple[int, int, str]:
+    """Apply the frozen verdict policy to a single pandas row."""
+    return classify_av_result(row.get("result"), status=row.get("status"))
+
+
+def classify_av_rows(rows: pd.DataFrame) -> pd.DataFrame:
+    """Classify verdict columns without constructing a Series per input row."""
+    results = rows.get("result", repeat(None, len(rows)))
+    statuses = rows.get("status", repeat(None, len(rows)))
+    return pd.DataFrame(
+        (classify_av_result(result, status=status) for result, status in zip(results, statuses)),
+        index=rows.index,
+        columns=["avobs", "avdet", "normalized_status"],
+    )
 
 
 def select_coherent_report_snapshot(rows: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -106,8 +142,37 @@ def select_coherent_report_snapshot(rows: pd.DataFrame) -> tuple[pd.DataFrame, p
     return kept.drop(columns=["_snapshot_identity", "_snapshot_kind", "_snapshot_order"]), selected.sort_values("sample_id").reset_index(drop=True)
 
 
+def prepare_av_reports(
+    rows: pd.DataFrame | PreparedAVReports, *, require_engine_names: bool = True
+) -> PreparedAVReports:
+    """Select coherent reports and normalize verdicts without fitting to a split."""
+    if isinstance(rows, PreparedAVReports):
+        if require_engine_names and rows.verdicts["engine_canonical"].eq("").any():
+            raise ValueError("AV contract contains an empty canonical engine name.")
+        return rows
+
+    selected, selection = select_coherent_report_snapshot(
+        rows.loc[:, rows.columns.isin(_PREPARATION_COLUMNS)]
+    )
+    aliases = load_engine_aliases()
+    names = selected["engine_name"].map(str)
+    canonical_by_name = {name: canonicalize_engine_name(name, aliases) for name in names.unique()}
+    canonical_names = names.map(canonical_by_name)
+    if require_engine_names and canonical_names.eq("").any():
+        raise ValueError("AV contract contains an empty canonical engine name.")
+
+    classified = classify_av_rows(selected)
+    verdicts = pd.DataFrame({
+        "sample_id": selected["sample_id"],
+        "engine_canonical": canonical_names,
+        "avobs": classified["avobs"].astype("int8"),
+        "avdet": classified["avdet"].astype("int8"),
+    })
+    return PreparedAVReports(verdicts, selection, aliases)
+
+
 def fit_av_detection_contract(
-    rows: pd.DataFrame,
+    rows: pd.DataFrame | PreparedAVReports,
     train_sample_ids: Iterable[int],
     *,
     scope: str,
@@ -116,18 +181,16 @@ def fit_av_detection_contract(
     """Fit the engine schema on outer-train observations only."""
     if scope not in {"all_observed", "readiness_eligible"}:
         raise ValueError(f"Unsupported AV contract scope: {scope}")
-    selected, selection = select_coherent_report_snapshot(rows)
-    aliases = load_engine_aliases()
-    selected["engine_canonical"] = selected["engine_name"].map(lambda value: canonicalize_engine_name(str(value), aliases))
-    if selected["engine_canonical"].eq("").any():
-        raise ValueError("AV contract contains an empty canonical engine name.")
-    status = selected.apply(classify_av_row, axis=1, result_type="expand")
-    selected[["avobs", "avdet", "normalized_status"]] = status
+    reports = prepare_av_reports(rows)
+    verdicts = reports.verdicts
     train_ids = {int(value) for value in train_sample_ids}
-    train = selected[selected["sample_id"].isin(train_ids)]
-    observed = set(train.loc[train["avobs"].eq(1), "engine_canonical"])
+    train_observed = verdicts["sample_id"].isin(train_ids) & verdicts["avobs"].eq(1)
+    observed = set(verdicts.loc[train_observed, "engine_canonical"])
     if scope == "readiness_eligible":
-        eligible = {canonicalize_engine_name(str(value), aliases) for value in (readiness_eligible_engines or ())}
+        eligible = {
+            canonicalize_engine_name(str(value), reports.engine_aliases)
+            for value in (readiness_eligible_engines or ())
+        }
         observed &= eligible
     engines = tuple(sorted(observed))
     policy = {
@@ -145,18 +208,18 @@ def fit_av_detection_contract(
         "engine_columns": list(engines),
         "active_only_temporal_meaning": "frozen_vendor_engine_metadata_snapshot_not_historical_observation_time",
     }
-    return AVDetectionContract(engines, scope, policy["snapshot_policy"], hash_payload(policy), selection)
+    return AVDetectionContract(
+        engines, scope, policy["snapshot_policy"], hash_payload(policy), reports.report_selection.copy()
+    )
 
 
-def transform_av_detection_features(rows: pd.DataFrame, contract: AVDetectionContract, sample_ids: Iterable[int]) -> pd.DataFrame:
+def transform_av_detection_features(
+    rows: pd.DataFrame | PreparedAVReports, contract: AVDetectionContract, sample_ids: Iterable[int]
+) -> pd.DataFrame:
     """Build fixed ``avdet``/``avobs`` columns with all absent cells zero."""
-    selected, _ = select_coherent_report_snapshot(rows)
-    aliases = load_engine_aliases()
-    selected["engine_canonical"] = selected["engine_name"].map(lambda value: canonicalize_engine_name(str(value), aliases))
-    selected[["avobs", "avdet", "_status"]] = selected.apply(classify_av_row, axis=1, result_type="expand")
-    selected = selected[selected["engine_canonical"].isin(contract.engine_columns)]
+    verdicts = prepare_av_reports(rows, require_engine_names=False).verdicts
+    selected = verdicts[verdicts["engine_canonical"].isin(contract.engine_columns)]
     index = pd.Index([int(value) for value in sample_ids], name="sample_id")
     matrix = selected.pivot_table(index="sample_id", columns="engine_canonical", values=["avdet", "avobs"], aggfunc="max", fill_value=0)
     matrix.columns = [f"{prefix}__{engine}" for prefix, engine in matrix.columns]
-    expected = [f"{prefix}__{engine}" for prefix in ("avdet", "avobs") for engine in contract.engine_columns]
-    return matrix.reindex(index=index, columns=expected, fill_value=0).astype("int8").reset_index()
+    return matrix.reindex(index=index, columns=contract.feature_columns, fill_value=0).astype("int8").reset_index()

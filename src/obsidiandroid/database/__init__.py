@@ -19,14 +19,18 @@ core DB modules (see :mod:`obsidiandroid.database.facade_manifest`).
 
 from __future__ import annotations
 
-import importlib
+from importlib import import_module
 
-from .facade_manifest import FACADE_EXPORT_NAMES as _FACADE_EXPORT_NAMES
+from .facade_manifest import FACADE_EXPORT_NAMES
 
-for _name in _FACADE_EXPORT_NAMES:
-    _canon = importlib.import_module(f"obsidiandroid.database.{_name}")
-    globals()[_name] = _canon
+__all__ = list(FACADE_EXPORT_NAMES)
 
-__all__ = list(_FACADE_EXPORT_NAMES)
 
-del _FACADE_EXPORT_NAMES, _name, _canon
+def __getattr__(name: str):
+    if name in __all__:
+        return import_module(f".{name}", __name__)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))

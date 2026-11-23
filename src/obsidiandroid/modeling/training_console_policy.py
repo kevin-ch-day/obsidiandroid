@@ -71,3 +71,12 @@ def emit_class_imbalance_notice(y_train) -> None:
     if not already_emitted:
         du.print_warning(msg)
         setattr(app_config, "RUNTIME_CLASS_IMBALANCE_NOTICE_EMITTED", True)
+
+
+def print_training_debug_info(y_train, cv_folds=None) -> None:
+    """Report training label counts, CV folds, and class imbalance."""
+    label_dist = Counter(int(x) for x in y_train)
+    du.print_debug(f"Class distribution: {dict(label_dist)}")
+    if cv_folds is not None:
+        du.print_debug(f"Using {cv_folds} CV folds")
+    emit_class_imbalance_notice(y_train)

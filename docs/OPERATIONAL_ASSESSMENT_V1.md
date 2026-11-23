@@ -89,6 +89,17 @@ record(s) returned (inspect `processing.status` for assessment outcome), 2 means
 invalid/unavailable input or sidecar error, 3 means no stored assessment. `--help`
 requires neither snapshot, credentials, nor database access.
 
+For a frozen local snapshot and an explicitly selected SQLite store:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m obsidiandroid.cli.assessment assess "$SHA256" \
+  --snapshot /path/to/pilot_evidence.json --store /path/to/assessments.sqlite --json
+PYTHONPATH=src .venv/bin/python -m obsidiandroid.cli.assessment current "$SHA256" \
+  --store /path/to/assessments.sqlite
+PYTHONPATH=src .venv/bin/python -m obsidiandroid.cli.assessment history "$SHA256" \
+  --store /path/to/assessments.sqlite --json
+```
+
 The frozen bundle contract is `obsidiandroid.assessment-evidence.v1`, with an
 `artifacts` object keyed by lowercase SHA and `content_sha256` over canonicalized
 artifact slices. Snapshot absence is `not_in_snapshot`; a completed source lookup

@@ -1,11 +1,13 @@
 # Root & structure audit — ObsidianDroid (project update)
 
-This document is a **status report** and **deep audit** of repository layout: what improved during the migration-style cleanup, why the repo root still looks busy, and how the project compares to a conventional professional Python application. It complements **[`STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md)** (pass-by-pass history).
+This document is a **status report** and **deep audit** of repository layout: what improved during the migration-style cleanup, why the repo root still looks busy, and how the project compares to a conventional professional Python application. It complements **[`STRUCTURE_MIGRATION_PLAN.md`](../STRUCTURE_MIGRATION_PLAN.md)** (pass-by-pass history).
 
 Its pass timeline and project-status observations are historical checkpoints.
 For current package paths, use the top snapshot in
-[`STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md); for current test
-targets, use `make help` and [`developer_guide.md`](developer_guide.md).
+[`STRUCTURE_MIGRATION_PLAN.md`](../STRUCTURE_MIGRATION_PLAN.md); for current test
+targets, use `make help` and [`developer_guide.md`](../developer_guide.md).
+The [root README](../../README.md#repository-layout) maps the current checkout.
+`make tree-root` shows one level and filters gitignored runtime files.
 
 ---
 
@@ -78,7 +80,8 @@ Work proceeded in **documented passes** (see **`STRUCTURE_MIGRATION_PLAN.md`**).
 
 | Item | Purpose |
 |------|---------|
-| **`AGENTS.md`**, **`GOVERNANCE.md`**, **`STRUCTURE_MIGRATION_PLAN.md`** | Point to **`docs/*.md`** so root stays grep-friendly for tools expecting filenames here. |
+| **`AGENTS.md`** | Points to the canonical guide for tools that discover it at the root. |
+| **`docs/GOVERNANCE.md`**, **`docs/STRUCTURE_MIGRATION_PLAN.md`** | Canonical governance and migration documents, linked from the root README. |
 
 ### 4.4 First-class source trees (large; cannot “hide” without moves)
 
@@ -162,9 +165,9 @@ Typically gitignored or partially ignored; often **still visible** in **`ls`** a
 
 ## 8. Related documents
 
-- **[`STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md)** — Pass-by-pass changelog and labels.
-- **[`docs/AGENTS.md`](AGENTS.md)** — Day-to-day contributor rules.
-- **[`README.md`](../README.md)** — User-facing overview (structure subsection intentionally partial).
+- **[`STRUCTURE_MIGRATION_PLAN.md`](../STRUCTURE_MIGRATION_PLAN.md)** — Pass-by-pass changelog and labels.
+- **[`docs/AGENTS.md`](../AGENTS.md)** — Day-to-day contributor rules.
+- **[`README.md`](../../README.md)** — User-facing overview (structure subsection intentionally partial).
 
 ### Documentation hygiene (ongoing)
 

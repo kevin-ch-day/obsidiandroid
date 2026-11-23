@@ -47,8 +47,10 @@ Canonical library code under **`src/obsidiandroid/`** should be importable as **
 
 - **Preferred:** after dependencies, run **`pip install -e .`** from the repository root so imports work in any working directory without manual `PYTHONPATH`.
 - **Checkout-only fallback:** **`export PYTHONPATH="$PWD/src:$PYTHONPATH"`** (adjust for your shell).
-- **`./run.sh`** sets **`PYTHONPATH=<repo>/src:…`** before invoking Python so the interactive menu works without an editable install.
+- **`./run.sh`** prepends the checkout's `src/` before invoking the same CLI dispatcher as the installed `obsidiandroid` command.
 - **`pytest`** prepends **`repo/src`** in **`tests/conftest.py`** so tests resolve **`obsidiandroid`** without extra env vars.
+
+The launcher, Makefile, and pytest wrappers look for `.venv` in the current checkout first and then in the primary checkout for linked Git worktrees. Make and pytest use the caller's `PATH` if neither has a venv. The checkout launcher requires a project venv.
 
 Quick sanity check: **`python scripts/dev/check_import_surface.py`** or **`make dev-import-check`**.
 
@@ -105,6 +107,7 @@ Orchestration lives in **`src/obsidiandroid/pipeline/runner.py`** (`run_pipeline
 | `make menu` | Launch the interactive menu (`run.sh`; sets `PYTHONPATH=src`). |
 | `make install-editable` | `pip install -e .` (run inside the venv). |
 | `make test` / `make test-full` | Fast or full pytest (see `pyproject.toml` defaults). |
+| `make test-changed` | Select fast tests for committed, staged, unstaged, and untracked work since the merge base with `BASE` (defaults to `origin/main`). |
 | `make dev-import-check` | Import surface smoke test for `obsidiandroid` and shims. |
 | `make doc-check` | Fails if operational docs reintroduce removed phantom paths (`scripts/dev/check_doc_hygiene.py`). |
 | `make verify` | Runs `dev-import-check` logic then **fast** pytest (same as `make test` after import smoke). |
@@ -113,10 +116,9 @@ Orchestration lives in **`src/obsidiandroid/pipeline/runner.py`** (`run_pipeline
 | `make verify-integration` / `make verify-pipeline-integration` | Run the partial or heavier pipeline integration lane for matching changes. |
 | `make ml-scan-strict` | ML call-site scan; fails on any warning (stricter than `make ml-scan`). |
 | `make clean-bytecode` | Remove `__pycache__` and common junk under the repo root. |
+| `make tree-root` | Show one level of the checkout, filtered by Git ignore rules (requires `tree` on `PATH`). |
 | `make tree-source` | Print a filtered repo-root tree (requires `tree` on `PATH`). |
 | `make tree-obsidiandroid` | **`src/obsidiandroid/`** only — canonical package tree. |
-| `make tree-utils` | Stub (**`utils/`** removed — see `Makefile`). |
-| `make tree-exporting-shims` | Stub (export helpers live under **`obsidiandroid.common`**). |
 | `make ml-scan` | Static scan for suspicious `.predict()` / `.predict_proba()` use. |
 | `make preflight-db` | MySQL/MariaDB connectivity check before long DB-backed runs. |
 

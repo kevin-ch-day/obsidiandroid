@@ -11,17 +11,10 @@ import json
 from pathlib import Path
 import warnings
 
-import pandas as pd
-
-from obsidiandroid.orchestration import permission_v2_export as v2
-from obsidiandroid.pipeline.permission_run_validity import (
-    assert_training_permission_validity,
-    evaluate_permission_run_validity,
-    permission_frame_status,
-)
-
 
 def inspect_export(export_path: Path) -> dict:
+    from obsidiandroid.orchestration import permission_v2_export as v2
+
     export_bytes, _, export = v2._checked_export(export_path)
     return {
         "status": "APPROVED_EXACT_EVIDENCE_AVAILABLE",
@@ -38,6 +31,15 @@ def inspect_export(export_path: Path) -> dict:
 
 def check_features(export_path: Path, training_ids_path: Path) -> dict:
     """Build and reverify an in-memory frame using the existing frozen split."""
+    import pandas as pd
+
+    from obsidiandroid.orchestration import permission_v2_export as v2
+    from obsidiandroid.pipeline.permission_run_validity import (
+        assert_training_permission_validity,
+        evaluate_permission_run_validity,
+        permission_frame_status,
+    )
+
     _, _, export = v2._checked_export(export_path)
     samples = pd.DataFrame([
         {"sample_id": row["sample_id"], "sha256": row["sha256"]}
@@ -76,8 +78,8 @@ def check_features(export_path: Path, training_ids_path: Path) -> dict:
     }
 
 
-def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+def main(argv=None, *, prog=None) -> int:
+    parser = argparse.ArgumentParser(prog=prog, description=__doc__)
     parser.add_argument("action", choices=("inspect", "features"))
     parser.add_argument("--export", type=Path, required=True)
     parser.add_argument("--training-ids", type=Path)

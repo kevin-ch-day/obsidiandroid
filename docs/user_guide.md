@@ -37,6 +37,7 @@ This guide walks operators through setting up their environment, executing the m
    - `OBSIDIAN_DB_OPTION_FILE` — an alternative private (`0600`) MariaDB client option file. It is explicit configuration, not a fallback; use it only for the normal read-only pipeline account, never the restricted Phase 2C extract reader.
    - `OBSIDIAN_DB_NAME` — primary Erebus schema (samples, VirusTotal mirrors, catalog).
    - `OBSIDIAN_PERMISSION_INTEL_DB_NAME` — Permission Intel schema (all live `android_permission_*` tables).
+   - For a separate Permission Intel connection, set the `OBSIDIAN_PERMISSION_INTEL_DB_HOST` and `OBSIDIAN_PERMISSION_INTEL_DB_PORT` overrides. Supply the dedicated reader through `OBSIDIAN_PERMISSION_INTEL_DB_OPTION_FILE` or through `OBSIDIAN_PERMISSION_INTEL_DB_USER` and `OBSIDIAN_PERMISSION_INTEL_DB_PASSWORD`.
 2. Use the reviewed read-only account contract. On the PI V2-gated host, primary source reads remain available, while legacy PI observation reads are deliberately denied. Do not grant schema-wide PI SELECT to clear a diagnostic; see [`runtime_source_connection_policy.md`](runtime_source_connection_policy.md).
 3. If you use read-only replicas for analytics, configure your connection parameters (or separate profiles) to target the appropriate host; ObsidianDroid still uses one logical primary name and one Permission Intel name per run.
 4. Ensure necessary tables are accessible (see [`data_sources.md`](data_sources.md) for schema details and refresh cadences):
@@ -50,6 +51,11 @@ This guide walks operators through setting up their environment, executing the m
    Erebus warehouse writes. Explicit native analysis persistence has a separate
    Core plan and writer; see
    [`runtime_source_connection_policy.md`](runtime_source_connection_policy.md).
+
+`python -m obsidiandroid.database.split_db_health` checks connectivity and
+legacy access. The separate bounded
+`python -m obsidiandroid.database.permission_intel_v1 --json` probe checks the
+versioned shadow reader with `SELECT` queries.
 
 ### VirusTotal integration checklist
 
@@ -68,8 +74,48 @@ This guide walks operators through setting up their environment, executing the m
   - Ensemble weighting strategies
 - Adjust estimator hyperparameters under `config/model_params/`; consult [`modeling_reference.md`](modeling_reference.md) for estimator strengths and tuning tips.
 - Tune recall vs precision via **`config/app_config.py`**, **`config/settings/`**, and profile YAML under **`profiles/`** (there is no repo-wide `config/thresholds.json` in this tree).
+- Use profile `runtime_overrides` for run-specific settings. To retain run-stamped
+  permission trend tables and figures, set
+  `WRITE_RUN_SCOPED_PERMISSION_TREND_ARTIFACTS` under the profile overrides or in
+  `config/settings/methodology.py`. Effective evidence mode enables this unless
+  the profile overrides it.
 
 ## 5. Run the Workflow
+
+### Explore Android data
+
+Choose **Explore Android data** in `./run.sh` to see catalog counts, family and
+type distributions, label quality, source coverage, or an exact sample lookup.
+Browsing uses read-only source transactions. Counts describe dated Android APKs
+with catalog matches before a profile applies its modeling eligibility gates.
+Saved runs use their own run IDs and remain accessible in the main menu.
+
+To see coverage from an approved PI V2 export, enter its path when prompted or
+set `OBSIDIANDROID_EXPLORER_PI_V2_EXPORT`. The installed approval anchor controls
+acceptance. Coverage outside the export remains unknown. See
+[offline research](integrated_research.md) for the retained-packet workflow.
+
+### Classification readiness and persistence
+
+**Run malware classification** opens the family and type experiment overviews.
+Choose **Check data and training readiness**, **View experiment configuration**,
+or **Start analysis**. The run action reloads configuration and checks readiness
+again before requesting confirmation. After a failed check, **Why analysis is unavailable**
+shows the required blockers. A readiness check establishes source prerequisites.
+The run still has to evaluate feature coverage, eligible labels and split
+membership. For the major-family profile, the preview can also report bounded
+catalog and AV coverage while required permission data is blocked.
+
+**Compare models and features** opens the multi-model profiles or the
+development Random Forest ablation. **Other experiments and tests** retains
+historical and sensitivity profiles, smoke runs and stage cutoffs. These modes
+use the same source-prerequisite and explicit continuation checks.
+
+At the **Save analysis results** prompt, choose **Run with local files only**
+or **Run with local files + Core database results**. Both choices execute the
+selected analysis, including training where configured. The second also enables
+explicit Core persistence. **Cancel run** exits before execution. See the
+[Core result persistence contract](ANALYSIS_PERSISTENCE_V1.md).
 
 ### Full Pipeline
 ```bash
@@ -93,11 +139,41 @@ before scheduling separate deep audits. To run the
 exploratory profile without Core persistence from the command line, use
 `./run.sh analysis run --profile android_catalog_all_exploratory`.
 
+The all-APK exploratory profile requires Permission Intel features. The menu
+and direct pipeline both check legacy permission access before loading the
+cohort. A blocked or unavailable check stops the run before cohort loading.
+Feature extraction rechecks access when that stage runs.
+
+### Inspect approved PI V2 evidence
+
+```bash
+./run.sh pi-v2 inspect --export /private/approved/EXACT_1813_EXPORT.json
+./run.sh pi-v2 features --export /private/approved/EXACT_1813_EXPORT.json --training-ids /private/approved/TRAINING_IDS.json
+```
+
+The feature check uses an existing frozen split and builds features in memory.
+The export approval authorizes inspection and feature acceptance for that exact
+export. Target-specific fitting requires a separate authority contract. Legacy
+observation-table counts and PI V2 coverage answer separate questions.
+Permission fusion summaries include accepted legacy and source-bound
+occurrences, including unresolved PI V2 tokens. Evidence status fields record
+coverage separately from permission feature values. See the
+[PI V2 commands](permission_v2_research_export_candidate.md#normal-launcher-and-installed-command)
+and [experiment integrity contract](experiment_split_integrity.md#current-authorization-limit).
+
 ### Model Tuning
 ```bash
 python -m obsidiandroid.evaluation.model_tuning
 ```
 This runs the module’s sample tuning workflow (`tune_models`); wire your own search grids via `config/model_params/` and canonical `obsidiandroid.modeling` trainers for production sweeps.
+
+The `dev_av_only_recorded_family` workflow uses
+`python -m obsidiandroid.modeling.av_only_experiment` with `--snapshot`,
+`--snapshot-sha256` and `--output` pointing to a new directory outside the
+checkout. It defaults to plan-only. `--train` requests one fit after the
+recorded-label, exact source identity and lineage support checks. The metric
+describes reconstruction of recorded attribution from retained AV evidence.
+See the [retained AV evaluation contract](experiment_split_integrity.md#bounded-retained-av-model-comparison).
 
 ### Utility Scripts (examples)
 - `python scripts/diagnostics/report_feature_lineage.py --help` – Feature lineage / gap reporting helpers.
@@ -119,6 +195,13 @@ After a successful run, inspect the run-scoped artifacts under `output/runs/<run
 | `final_classification_labels.xlsx` | Final label recommendations with supporting context when the run reaches export stages. |
 
 Additional artifacts such as confusion matrices, feature importance exports, paper bundles, and permission-trends outputs are emitted only when the selected profile and runtime path enable them.
+
+### Time display
+
+Operator-facing times show America/Chicago and UTC using a 12-hour clock at
+minute precision. CST and CDT follow the timestamp's date. Machine-readable
+UTC timestamps retain their precision. Date-only values and timestamps with
+unknown timezones retain their original meaning.
 
 ## 7. Troubleshooting
 

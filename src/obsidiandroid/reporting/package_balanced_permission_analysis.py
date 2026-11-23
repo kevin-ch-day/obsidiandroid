@@ -51,7 +51,7 @@ BANNED_OUTPUT_DIRS = {
 
 def normalize_package_name(value: Any) -> str:
     """Return the contract package key: trimmed and lower-cased."""
-    if value is None or (isinstance(value, float) and pd.isna(value)):
+    if value is None or value is pd.NA or value is pd.NaT:
         return ""
     text = str(value).strip().lower()
     return "" if text in {"", "nan", "none", "null", "(null)"} else text
@@ -60,14 +60,20 @@ def normalize_package_name(value: Any) -> str:
 def assign_package_keys(labels: pd.DataFrame) -> pd.DataFrame:
     """Attach normalized package keys; each missing package gets a synthetic key."""
     out = labels.copy()
-    source = out.get("package_name", pd.Series("", index=out.index))
+    normalized = (
+        out["package_name"].map(normalize_package_name)
+        if "package_name" in out else pd.Series("", index=out.index)
+    )
     if "android_package_name" in out.columns:
-        source = source.where(source.map(normalize_package_name).ne(""), out["android_package_name"])
-    normalized = source.map(normalize_package_name)
-    sample_ids = out.get("sample_id", pd.Series(out.index.astype(str), index=out.index)).astype(str)
-    out["is_missing_package"] = normalized.eq("")
-    out["package_key"] = normalized.where(~out["is_missing_package"],
-                                         "__missing_package__:" + sample_ids)
+        needs_fallback = normalized.eq("")
+        normalized.loc[needs_fallback] = out.loc[needs_fallback, "android_package_name"].map(
+            normalize_package_name
+        )
+    missing = normalized.eq("")
+    out["is_missing_package"] = missing
+    sample_ids = out.loc[missing, "sample_id"] if "sample_id" in out else out.index[missing]
+    normalized.loc[missing] = "__missing_package__:" + sample_ids.astype(str)
+    out["package_key"] = normalized
     out["package_key_hash"] = out["package_key"].map(
         lambda value: hashlib.sha256(str(value).encode("utf-8")).hexdigest()
     )
@@ -131,26 +137,30 @@ def classify_package_concentration_state(
     return "moderate_package_concentration"
 
 
-def _indicator(frame: pd.DataFrame, permission: str) -> pd.Series:
-    return pd.to_numeric(frame.get(permission, pd.Series(0, index=frame.index)), errors="coerce").fillna(0).gt(0)
+def permission_indicator(frame: pd.DataFrame, permission: str) -> pd.Series:
+    """Return binary permission presence, using zero for missing values."""
+    values = frame.get(permission)
+    if values is None:
+        return pd.Series(False, index=frame.index)
+    return pd.to_numeric(values, errors="coerce").fillna(0).gt(0)
 
 
 def sample_weighted_prevalence(frame: pd.DataFrame, permission: str) -> float:
-    return float(_indicator(frame, permission).mean()) if len(frame) else float("nan")
+    return float(permission_indicator(frame, permission).mean()) if len(frame) else float("nan")
 
 
 def package_balanced_prevalence(frame: pd.DataFrame, permission: str) -> float:
     known = frame[~frame["is_missing_package"].astype(bool)]
     if known.empty:
         return float("nan")
-    return float(_indicator(known, permission).groupby(known["package_key"]).mean().mean())
+    return float(permission_indicator(known, permission).groupby(known["package_key"]).mean().mean())
 
 
 def family_balanced_prevalence(frame: pd.DataFrame, permission: str) -> float:
     if frame.empty or "family_canonical" not in frame:
         return float("nan")
     valid = frame[frame["family_canonical"].fillna("").astype(str).str.strip().ne("")]
-    return float(_indicator(valid, permission).groupby(valid["family_canonical"]).mean().mean()) if len(valid) else float("nan")
+    return float(permission_indicator(valid, permission).groupby(valid["family_canonical"]).mean().mean()) if len(valid) else float("nan")
 
 
 def package_within_family_balanced_prevalence(frame: pd.DataFrame, permission: str) -> float:
@@ -158,7 +168,7 @@ def package_within_family_balanced_prevalence(frame: pd.DataFrame, permission: s
     known = known[known["family_canonical"].fillna("").astype(str).str.strip().ne("")]
     if known.empty:
         return float("nan")
-    per_package = _indicator(known, permission).groupby(
+    per_package = permission_indicator(known, permission).groupby(
         [known["family_canonical"], known["package_key"]]
     ).mean()
     return float(per_package.groupby(level=0).mean().mean())
@@ -290,13 +300,23 @@ def build_type_package_concentration(labels: pd.DataFrame) -> pd.DataFrame:
 
 
 def _weighting_row(frame: pd.DataFrame, permission: str) -> dict[str, Any]:
-    sw = sample_weighted_prevalence(frame, permission)
-    pb = package_balanced_prevalence(frame, permission)
-    fb = family_balanced_prevalence(frame, permission)
-    pwf = package_within_family_balanced_prevalence(frame, permission)
+    presence = permission_indicator(frame, permission)
+    packages = frame["package_key"]
+    families = frame["family_canonical"]
+    known = ~frame["is_missing_package"].astype(bool)
+    valid_family = families.fillna("").astype(str).str.strip().ne("")
+    known_family = known & valid_family
+    by_package = presence[known].groupby(packages[known]).agg(["mean", "sum"])
+    by_family = presence[valid_family].groupby(families[valid_family]).mean()
+    by_family_package = presence[known_family].groupby(
+        [families[known_family], packages[known_family]]
+    ).mean()
+    sw = float(presence.mean())
+    pb = float(by_package["mean"].mean())
+    fb = float(by_family.mean())
+    pwf = float(by_family_package.groupby(level=0).mean().mean())
     vals = [v for v in (pb, fb, pwf) if pd.notna(v)]
-    known = frame[~frame["is_missing_package"]]
-    positives_by_package = _indicator(known, permission).groupby(known["package_key"]).sum() if len(known) else pd.Series(dtype=float)
+    positives_by_package = by_package["sum"]
     positive_total = float(positives_by_package.sum())
     return {
         "sample_weighted_prevalence": sw, "package_balanced_prevalence": pb,
@@ -304,8 +324,8 @@ def _weighting_row(frame: pd.DataFrame, permission: str) -> dict[str, Any]:
         "lineage_balanced_prevalence": LINEAGE_BALANCE_UNAVAILABLE,
         "max_scheme_delta_pp": max((abs(sw - v) * 100 for v in vals), default=float("nan")),
         "supporting_samples": int(len(frame)),
-        "supporting_known_packages": int(known["package_key"].nunique()),
-        "supporting_families": int(frame.get("family_canonical", pd.Series("", index=frame.index)).nunique()),
+        "supporting_known_packages": int(packages[known].nunique()),
+        "supporting_families": int(families.nunique()),
         "largest_package_contribution": (
             float(positives_by_package.max() / positive_total) if positive_total else float("nan")
         ),
@@ -696,10 +716,13 @@ def render_interpretation(
     return "\n".join(lines)
 
 
-def _read_features(path: Path, audit: pd.DataFrame, permissions: set[str]) -> pd.DataFrame:
+def read_aligned_permission_features(
+    path: Path, audit: pd.DataFrame, permissions: set[str]
+) -> pd.DataFrame:
+    """Read sample IDs and selected permission columns from a frozen feature matrix."""
     mapping = dict(zip(audit["permission_string"].astype(str).str.lower(), audit["feature_column"].astype(str)))
-    cols = ["sample_id"] + sorted({mapping[p] for p in permissions if p in mapping})
-    features = pd.read_csv(path, compression="gzip", usecols=lambda c: c in cols)
+    wanted = {"sample_id"} | {mapping[p] for p in permissions if p in mapping}
+    features = pd.read_csv(path, compression="gzip", usecols=lambda column: column in wanted)
     # Public weighting functions use normalized permission strings, while the
     # feature matrix stores governed feature-column identifiers.
     rename = {feature: permission for permission, feature in mapping.items() if feature in features.columns}
@@ -743,7 +766,7 @@ def compose_package_balanced_permission_analysis(
         fam_prev.loc[fam_prev["family_canonical"].isin(DEEP_DIVE_FAMILIES), "permission"].astype(str).str.lower())
     membership = assign_package_keys(labels)
     if load_features:
-        features = _read_features(diag / f"aligned_features_{run_id}.csv.gz", audit, permissions)
+        features = read_aligned_permission_features(diag / f"aligned_features_{run_id}.csv.gz", audit, permissions)
         membership = membership.merge(features, on="sample_id", how="inner")
     collisions = build_package_collision_audit(membership)
     family_conc, type_conc = build_family_package_concentration(membership), build_type_package_concentration(membership)

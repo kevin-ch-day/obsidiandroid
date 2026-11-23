@@ -38,7 +38,6 @@ from obsidiandroid.common.repo_paths import ensure_repo_src_on_sys_path
 ensure_repo_src_on_sys_path()
 
 from obsidiandroid.database import authority_contracts
-from obsidiandroid.database import db_engine
 from scripts.diagnostics import export_label_authority_vendor_evidence as evidence_export
 
 
@@ -54,18 +53,6 @@ def _normalize(value: object) -> str:
 
 def _table_has_column(table_name: str, column_name: str) -> bool:
     return authority_contracts.table_has_column(table_name, column_name)
-
-
-def _alias_table_present() -> bool:
-    return authority_contracts.authority_alias_fact_present()
-
-
-def _legacy_alias_table_present() -> bool:
-    return authority_contracts.legacy_android_family_alias_present()
-
-
-def _authority_view_present() -> bool:
-    return authority_contracts.authority_view_present()
 
 
 def _load_alias_map() -> dict[str, str]:

@@ -22,6 +22,7 @@ _BLOCKED_EXACT = {
     "classification_label",
     "family_name",
 }
+_COHORT_RELATIVE_COLUMNS = {"risk_rank", "risk_band"}
 _SEMANTIC_TOKENS = (
     "parsed_family",
     "suggested_family",
@@ -92,6 +93,9 @@ def collect_leakage_pruning_audit(
         if normalized in _BLOCKED_EXACT:
             reason = "blocked_exact_name"
             details = "column name matches known identifier or label field"
+        elif normalized in _COHORT_RELATIVE_COLUMNS:
+            reason = "cohort_relative_before_split"
+            details = "value uses risk scores across the cohort before the model split"
         elif not allow_av_assisted and (
             normalized in _SEMANTIC_EXACT
             or any(token in normalized for token in _SEMANTIC_TOKENS)

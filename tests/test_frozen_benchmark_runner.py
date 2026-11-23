@@ -20,12 +20,27 @@ def _provider():
 
 
 def test_dedicated_runner_locks_contracts_without_legacy_pipeline(tmp_path, monkeypatch):
+    from obsidiandroid.features import av_detection_contract
     from obsidiandroid.features.vectorization import feature_vector_builder
+
     monkeypatch.setattr(feature_vector_builder, "build_feature_vector", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("parser path called")))
+    select_reports = av_detection_contract.select_coherent_report_snapshot
+    selections = []
+
+    def count_selections(rows):
+        selections.append(len(rows))
+        return select_reports(rows)
+
+    monkeypatch.setattr(av_detection_contract, "select_coherent_report_snapshot", count_selections)
     context = run_frozen_android_family_av_benchmark(_provider(), run_root=tmp_path)
     assert context.lifecycle.payload["state"] == "MODELS_LOCKED"
     assert set(context.features) == {"A", "B", "C"}
     assert {"perm__android_permission_camera", "perm__known_dangerous_count"}.issubset(context.features["A"].columns)
+    assert selections == [len(context.source_bundle.verdicts)]
+    arm_b, arm_c = context.features["B"], context.features["C"]
+    assert "avdet__alpha" in arm_b and "avdet__alpha" not in arm_c
+    assert "avdet__beta" in arm_c
+    pd.testing.assert_frame_equal(arm_b.loc[:, arm_c.columns], arm_c)
 
 
 @pytest.mark.integration

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pandas as pd
 import pytest
 
@@ -184,9 +186,10 @@ def test_cohort_readiness_report_distinguishes_visible_benchmark_and_modeled_fam
         gates={"min_samples_per_family": 20, "max_missing_package_pct": 10.0},
     )
     out = capsys.readouterr().out
-    assert "Represented taxonomy" in out
-    assert "4 known families" in out
-    assert "4 observed family labels" in out
+    normalized = " ".join(re.sub(r"\x1b\[[0-9;]*m", "", out).split())
+    assert "Represented taxonomy" in normalized
+    assert "4 known families" in normalized
+    assert "4 observed family labels" in normalized
     assert "Family target" in out
     assert "benchmark-eligible classes" in out
     assert "Diagnostic candidate family classes" in out

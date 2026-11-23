@@ -83,16 +83,26 @@ def bh_fdr(p_values: list[float]) -> list[float]:
 
 
 def cliffs_delta(a: pd.Series, b: pd.Series) -> float:
+    """Count the signed imbalance in pairwise comparisons, with ties neutral."""
     x = pd.to_numeric(a, errors="coerce").dropna().values
     y = pd.to_numeric(b, errors="coerce").dropna().values
     if len(x) == 0 or len(y) == 0:
         return 0.0
+    pairs = len(x) * len(y)
+    if isinstance(x, np.ndarray) and isinstance(y, np.ndarray) and x.dtype == y.dtype:
+        ordered = np.sort(y)
+        # The two insertion points bound ties and count strictly smaller and larger values.
+        gt = int(ordered.searchsorted(x, side="left").sum())
+        lt = pairs - int(ordered.searchsorted(x, side="right").sum())
+        return (gt - lt) / pairs
+
+    # Preserve pandas extension and mixed NumPy dtype comparison semantics.
     gt = 0
     lt = 0
     for xv in x:
         gt += int((xv > y).sum())
         lt += int((xv < y).sum())
-    return float((gt - lt) / (len(x) * len(y)))
+    return (gt - lt) / pairs
 
 
 def safe_series_mean(series: pd.Series) -> float:

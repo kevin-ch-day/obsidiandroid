@@ -91,7 +91,6 @@ def validate_result(spec, result):
         or any(not re.fullmatch("[a-f0-9]{64}", h) for h in hashes)
     ):
         raise ValueError("Unique exact SHA membership required")
-    bysha = {r["sha256"]: r for r in members}
     for r in members:
         if r["role"] not in ROLES or not r.get("eligibility") or not r.get("outcome"):
             raise ValueError("Explicit membership outcomes required")

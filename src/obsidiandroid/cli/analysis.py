@@ -23,8 +23,8 @@ def configured_store(option_file=None, database="obsidiandroid_core_prod"):
     )
 
 
-def main(argv=None):
-    p = argparse.ArgumentParser(description=__doc__)
+def main(argv=None, *, prog=None):
+    p = argparse.ArgumentParser(prog=prog, description=__doc__)
     p.add_argument(
         "action", choices=["history", "show", "predictions", "verify", "export", "run"]
     )

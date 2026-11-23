@@ -139,7 +139,6 @@ def build_dominant_family_type_robustness(
             frame["permission"].map(lambda p: lane_lookup.get(p, "unknown_unresolved") in FOCUS_LANES)
         ].copy()
 
-    inv = type_inventory.copy() if not type_inventory.empty else pd.DataFrame()
     rows: list[dict[str, Any]] = []
     for type_slug, group in frame.groupby("type_slug"):
         support = (
@@ -198,11 +197,6 @@ def build_dominant_family_type_robustness(
             for i, v in enumerate(sw_full)
             if float(v) * 100.0 >= HEADLINE_PREV_FLOOR
         }
-
-        pair_full = 0
-        if not pairwise_headline.empty:
-            ph = pairwise_headline[pairwise_headline["type_slug"].astype(str) == type_slug]
-            pair_full = int(len(ph))
 
         scenarios = [
             ("full", set()),

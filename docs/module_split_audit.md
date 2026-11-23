@@ -2,13 +2,13 @@
 
 This audit identifies oversized scripts/modules and split targets to reduce maintenance risk.
 
-**Note:** Line counts below were refreshed on 2026-09-19 with
+**Historical measurement.** The line counts below were captured on 2026-09-19 with
 `python scripts/diagnostics/inspect_complexity_hotspots.py --top-files 15 --top-functions 20`.
-Root `main.py` is a **compatibility shim** (60 LOC); real CLI imports live under **`src/obsidiandroid/cli/`**.
+The [structure migration plan](STRUCTURE_MIGRATION_PLAN.md#current-status) records the current backlog.
 
 **Pipeline stages:** substantive implementations live under **`src/obsidiandroid/pipeline/`** (`obsidiandroid.pipeline.*`). Hotspot scans and refactors should target those canonical paths.
 
-## Current hotspots (refreshed)
+## Historical hotspot measurements
 
 Command used:
 
@@ -36,7 +36,7 @@ Representative file sizes (production + orchestration paths, approximate):
 | `src/obsidiandroid/cli/startup_menu.py` | 890 | Operator menu (canonical) |
 | `main.py` (repo root) | 60 | Shim only — not the LOC-heavy CLI |
 
-Largest function hotspots (current line numbers from the inspector):
+Largest functions at that checkpoint:
 
 - `src/obsidiandroid/pipeline/runner.py:192` — `run_pipeline` (1884 lines, 16 broad `except`)
 - `src/obsidiandroid/pipeline/stage_permission_trends_report.py:167` — `run_permission_trends_report_stage` (1229 lines)
@@ -71,6 +71,12 @@ Largest function hotspots (current line numbers from the inspector):
 ### 1) `src/obsidiandroid/pipeline/stage_permission_trends_report.py` (further decomposition)
 
 Much logic already lives in **`obsidiandroid.pipeline.permission_trends.*`** (`bundle_*`, `stats`, `stats_core`, `sample_permission_data`, figure/diagnostic exports, …). Prefer **new focused modules under that package**.
+
+Signal assignment, prevalence, review tables, and profile similarity live in
+`signal_assignments`, `signal_prevalence`, `signal_review`, and `similarity`.
+`bundle_metadata` assembles provenance and coverage. `bundle_manifest` registers
+the manifest and its table inventory from the artifact path list. The stage
+still assembles that ordered list and owns the optional legacy persistence call.
 
 Goal: keep `run_permission_trends_report_stage` as orchestration + wiring; push new helpers out of the stage module rather than growing a parallel tree.
 

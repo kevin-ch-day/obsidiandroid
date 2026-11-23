@@ -19,7 +19,11 @@ from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
 from obsidiandroid.common.hash_utils import hash_payload, sha256_hex
-from obsidiandroid.features.av_detection_contract import fit_av_detection_contract, transform_av_detection_features
+from obsidiandroid.features.av_detection_contract import (
+    fit_av_detection_contract,
+    prepare_av_reports,
+    transform_av_detection_features,
+)
 from obsidiandroid.features.av_readiness_contract import fit_av_readiness_contract
 from obsidiandroid.features.frozen_abc_features import build_abc_feature_contracts
 from obsidiandroid.features.permission_contract import (fit_permission_vocabulary, freeze_permission_knowledge_snapshot, load_primary_allowlist, transform_permission_features)
@@ -115,15 +119,21 @@ def run_frozen_android_family_av_benchmark(provider: FrozenBenchmarkSourceProvid
     allowlist = load_primary_allowlist()
     permission_contract = fit_permission_vocabulary(bundle.permissions, train_ids, aliases=aliases, allowlist=allowlist)
     permission_features, _ = transform_permission_features(bundle.permissions, all_ids, permission_contract)
-    av_b_contract = fit_av_detection_contract(bundle.verdicts, train_ids, scope="all_observed")
-    readiness = fit_av_readiness_contract(bundle.verdicts, bundle.engines, train_ids)
+    reports = prepare_av_reports(bundle.verdicts)
+    av_b_contract = fit_av_detection_contract(reports, train_ids, scope="all_observed")
+    readiness = fit_av_readiness_contract(reports, bundle.engines, train_ids)
     if not readiness.eligible_engines:
         raise ValueError("No eligible engines satisfy the frozen outer-train readiness policy.")
-    av_c_contract = fit_av_detection_contract(bundle.verdicts, train_ids, scope="readiness_eligible", readiness_eligible_engines=readiness.eligible_engines)
+    av_c_contract = fit_av_detection_contract(
+        reports, train_ids, scope="readiness_eligible",
+        readiness_eligible_engines=readiness.eligible_engines,
+    )
     if not av_c_contract.engine_columns:
         raise ValueError("No readiness-eligible observed engines satisfy arm C.")
-    av_b = transform_av_detection_features(bundle.verdicts, av_b_contract, all_ids)
-    av_c = transform_av_detection_features(bundle.verdicts, av_c_contract, all_ids)
+    av_b = transform_av_detection_features(reports, av_b_contract, all_ids)
+    # The readiness contract takes a subset of the same train-observed engines.
+    av_c = av_b.loc[:, ["sample_id", *av_c_contract.feature_columns]]
+    del reports
     contracts = build_abc_feature_contracts(permission_features, bundle.metadata, av_b, av_c, permission_contract=permission_contract, av_b_contract=av_b_contract, av_c_contract=av_c_contract)
     frames = {arm: frame.set_index("sample_id").reindex(all_ids) for arm, frame in contracts.frames.items()}
     sdk_train = bundle.metadata.set_index("sample_id").reindex(train_ids)

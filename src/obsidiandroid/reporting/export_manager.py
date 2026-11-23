@@ -154,25 +154,6 @@ def _safe_artifact_name(name: str) -> str:
     return naming.safe_artifact_name(name)
 
 
-def _get_runtime_fallback_workbook_path() -> Path:
-    """Return deterministic per-run fallback workbook path."""
-    run_id = _safe_artifact_name(getattr(app_config, "RUNTIME_RUN_ID", "unknown"))
-    fallback_name = f"{Path(CONSOLIDATED_FILENAME).stem}__{run_id}.xlsx"
-    runtime_root = str(getattr(app_config, "RUNTIME_RUN_ROOT", "") or "").strip()
-    if runtime_root:
-        path = Path(runtime_root).resolve() / fallback_name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        return path
-    run_id = str(getattr(app_config, "RUNTIME_RUN_ID", "") or "").strip()
-    if run_id and run_id != "unknown":
-        path = output_paths.runs_root() / run_id / fallback_name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        return path
-    path = _output_root() / "reports" / fallback_name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return path
-
-
 def _get_consolidated_target_path() -> Path:
     """Return active consolidated workbook target for this process."""
     if _CONSOLIDATED_RUNTIME_TARGET is not None:
@@ -190,14 +171,6 @@ def _get_consolidated_target_path() -> Path:
     path = _output_root() / "reports" / CONSOLIDATED_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
-
-
-def _set_runtime_consolidated_fallback() -> Path:
-    """Pin consolidated writes to fallback workbook for the remainder of the run."""
-    global _CONSOLIDATED_RUNTIME_TARGET
-    fallback_path = _get_runtime_fallback_workbook_path()
-    _CONSOLIDATED_RUNTIME_TARGET = fallback_path
-    return fallback_path
 
 
 def _copy_workbook_to_latest(*, source_path: Path, filename: str) -> None:

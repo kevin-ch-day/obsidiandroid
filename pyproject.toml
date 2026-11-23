@@ -19,7 +19,7 @@ dev = [
 obsidiandroid-pi-v2 = "obsidiandroid.cli.permission_v2:main"
 obsidiandroid-assess = "obsidiandroid.cli.assessment:main"
 obsidiandroid-assess-doctor = "obsidiandroid.assessment.doctor:main"
-obsidiandroid = "obsidiandroid.cli.startup_menu:main"
+obsidiandroid = "obsidiandroid.cli.entrypoint:main"
 
 [tool.setuptools]
 py-modules = ["main"]
@@ -36,6 +36,7 @@ include = [
 dependencies = {file = ["requirements.txt"]}
 
 [tool.setuptools.package-data]
+config = ["experiments/*.yaml"]
 profiles = ["*.yaml"]
 "obsidiandroid.assessment" = ["schema_contract_v1.json"]
 

@@ -48,21 +48,22 @@ def _comparison_contract_status(df: pd.DataFrame) -> tuple[str, str]:
     """
     if df.empty or len(df) <= 1:
         return "single_model", "one model row"
-    label_counts = {
+    missing = {"", "-", "None", "nan", "<NA>"}
+    label_counts = [
         str(value)
         for value in df.get("evaluation_label_count", pd.Series(dtype=object)).tolist()
-        if str(value) not in {"", "-", "None", "nan"}
-    }
-    label_hashes = {
+        if str(value) not in missing
+    ]
+    label_hashes = [
         str(value)
         for value in df.get("evaluation_label_hash", pd.Series(dtype=object)).tolist()
-        if str(value) not in {"", "-", "None", "nan"}
-    }
-    if len(label_counts) > 1:
+        if str(value) not in missing
+    ]
+    if len(set(label_counts)) > 1:
         return "invalid", "models use different evaluation-label counts"
-    if len(label_hashes) > 1:
+    if len(set(label_hashes)) > 1:
         return "invalid", "models use different evaluation-label hashes"
-    if not label_counts or not label_hashes:
+    if len(label_counts) != len(df) or len(label_hashes) != len(df):
         return "unverified", "evaluation-label contract missing from one or more model rows"
     return "verified", "shared evaluation-label count and hash"
 
@@ -122,7 +123,7 @@ def compare_model_performance(
                     "test_sample_hash": test_sample_hash_contract,
                     "headline_feature_column_hash": feature_hash_headline,
                     "fit_feature_column_hash": fit_h,
-                    "evaluation_label_count": eval_data.get("num_confusion_labels", eval_data.get("num_classes", "-")),
+                    "evaluation_label_count": eval_data.get("true_test_class_count", eval_data.get("num_classes", "-")),
                     "evaluation_label_hash": str(eval_data.get("evaluation_label_hash", "") or ""),
                 }
             )

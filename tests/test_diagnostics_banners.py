@@ -127,6 +127,7 @@ def test_build_diagnostics_overview_includes_traffic_lights_and_run_science_path
     run_id = "20260515T141956Z__58d84f"
     rdiag = out_root / "runs" / run_id / "diagnostics"
     rdiag.mkdir(parents=True, exist_ok=True)
+    (rdiag / f"feature_build_coverage_{run_id}.json").write_text("{}", encoding="utf-8")
     (out_root / "diagnostics").mkdir(parents=True, exist_ok=True)
     (rdiag / "cohort_foundation.json").write_text("{}", encoding="utf-8")
     (rdiag / "run_science_index.md").write_text("# run science\n", encoding="utf-8")
@@ -213,6 +214,7 @@ def test_print_compact_diagnostics_overview_shows_triage_backlog_counts(
     run_id = "20260515T141956Z__58d84f"
     rdiag = out_root / "runs" / run_id / "diagnostics"
     rdiag.mkdir(parents=True, exist_ok=True)
+    (rdiag / f"feature_build_coverage_{run_id}.json").write_text("{}", encoding="utf-8")
     (out_root / "diagnostics").mkdir(parents=True, exist_ok=True)
     (rdiag / "cohort_foundation.json").write_text("{}", encoding="utf-8")
     (rdiag / "run_science_index.md").write_text("# run science\n", encoding="utf-8")
@@ -284,6 +286,7 @@ def test_build_diagnostics_overview_marks_stale_triage_export_red(
     run_id = "20260515T141956Z__58d84f"
     rdiag = out_root / "runs" / run_id / "diagnostics"
     rdiag.mkdir(parents=True, exist_ok=True)
+    (rdiag / f"feature_build_coverage_{run_id}.json").write_text("{}", encoding="utf-8")
     gdiag = out_root / "diagnostics"
     gdiag.mkdir(parents=True, exist_ok=True)
     (rdiag / "cohort_foundation.json").write_text("{}", encoding="utf-8")
@@ -379,6 +382,7 @@ def test_build_diagnostics_overview_does_not_focus_green_zero_row_queue(
     run_id = "20260515T141956Z__58d84f"
     rdiag = out_root / "runs" / run_id / "diagnostics"
     rdiag.mkdir(parents=True, exist_ok=True)
+    (rdiag / f"feature_build_coverage_{run_id}.json").write_text("{}", encoding="utf-8")
     gdiag = out_root / "diagnostics"
     gdiag.mkdir(parents=True, exist_ok=True)
     (rdiag / "run_science_index.md").write_text("# run science\n", encoding="utf-8")

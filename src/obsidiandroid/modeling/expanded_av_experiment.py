@@ -24,7 +24,11 @@ from sklearn.preprocessing import StandardScaler
 from obsidiandroid.common.repo_paths import repo_root
 from obsidiandroid.features.av_lineage import LINEAGE_POLICY_ID, identifier
 from obsidiandroid.features.retained_av_reports import prepare_retained_av
-from obsidiandroid.features.av_detection_contract import fit_av_detection_contract, transform_av_detection_features
+from obsidiandroid.features.av_detection_contract import (
+    fit_av_detection_contract,
+    prepare_av_reports,
+    transform_av_detection_features,
+)
 
 
 def plan_population(metadata, excluded_ids):
@@ -93,11 +97,12 @@ def execute(snapshot_path, digest, old_partition_path, old_partition_digest, out
     summary={'status':'PLAN_ONLY','samples':len(selected),'families':names,'config_sha256':config_digest,'folds':[]}
     predictions=[]
     try:
+        reports = prepare_av_reports(rows)
         for number,(tr,va) in enumerate(folds,1):
             train_ids=selected.iloc[tr].sample_id.tolist();valid_ids=selected.iloc[va].sample_id.tolist()
             fold={'fold':number,'train_ids':train_ids,'validation_ids':valid_ids}
-            contract=fit_av_detection_contract(rows,train_ids,scope='all_observed')
-            features=transform_av_detection_features(rows,contract,selected.sample_id).set_index('sample_id')
+            contract=fit_av_detection_contract(reports,train_ids,scope='all_observed')
+            features=transform_av_detection_features(reports,contract,selected.sample_id).set_index('sample_id')
             fold['feature_policy_hash']=contract.policy_hash;fold['features']=list(features)
             summary['folds'].append(fold)
             if not train: continue

@@ -6,7 +6,7 @@ policy helpers live under :mod:`obsidiandroid.governance`.
 
 from __future__ import annotations
 
-import importlib
+from importlib import import_module
 
 _CANONICAL_SUBMODULE_NAMES = (
     "artifacts",
@@ -22,10 +22,14 @@ _CANONICAL_SUBMODULE_NAMES = (
     "run_manifest",
 )
 
-for _name in _CANONICAL_SUBMODULE_NAMES:
-    _canon = importlib.import_module(f"{__name__}.{_name}")
-    globals()[_name] = _canon
-
 __all__ = list(_CANONICAL_SUBMODULE_NAMES)
 
-del _CANONICAL_SUBMODULE_NAMES, _name, _canon
+
+def __getattr__(name: str):
+    if name in __all__:
+        return import_module(f".{name}", __name__)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))

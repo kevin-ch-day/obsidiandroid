@@ -15,14 +15,10 @@ ObsidianDroid is an end-to-end framework for Android malware analysis, AV engine
 | [`operations_playbook.md`](operations_playbook.md) | Runbooks and checklists for production support, monitoring, incident response, and change management. |
 | [`GOVERNANCE.md`](GOVERNANCE.md) | Mandatory governance behavior for runtime, diagnostics, and reproducibility. |
 | [`AGENTS.md`](AGENTS.md) | Contributor and automated-agent conventions (layout, testing, hygiene); repo-root `AGENTS.md` is a pointer. |
-| [`ROOT_AND_STRUCTURE_AUDIT.md`](ROOT_AND_STRUCTURE_AUDIT.md) | **Project status & deep root/layout audit** — hybrid layout rationale, what moved vs what stays, CI/professionalism checklist. |
-| [`STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md) | Living migration/status ledger for canonical `src/obsidiandroid` relocation and shim retirement. |
+| [`STRUCTURE_MIGRATION_PLAN.md`](STRUCTURE_MIGRATION_PLAN.md) | Current layout snapshot and history of package moves and shim retirement. |
 | [`LABEL_AUTHORITY_ROLLOUT_RUNBOOK.md`](LABEL_AUTHORITY_ROLLOUT_RUNBOOK.md) | Operator workflow for label-authority rollout and validation. |
 | [`LABEL_AUTHORITY_SCHEMA_PLAN.md`](LABEL_AUTHORITY_SCHEMA_PLAN.md) | Schema and view plan for label-authority adoption. |
-| [`ML_BOUNDARY_PLAN.md`](ML_BOUNDARY_PLAN.md) | Boundary notes for ML pipeline responsibilities and future cleanup seams. |
-| [`VENDOR_EVALUATION_BOUNDARY_PLAN.md`](VENDOR_EVALUATION_BOUNDARY_PLAN.md) | Boundary notes for vendor parsing, evaluation, and related contract cleanup. |
 | [`module_split_audit.md`](module_split_audit.md) | Audit of large modules/functions and candidates for decomposition. |
-| [`code_review.md`](code_review.md) | Historical engineering review notes that still inform migration and cleanup work. |
 | [`PERMISSION_PATTERN_REPORT_PLAN.md`](PERMISSION_PATTERN_REPORT_PLAN.md) | Design plan for making permission-pattern analysis a first-class reporting lane across broad corpus, family benchmark, and type-level surfaces. |
 | [`CANONICAL_RUN_CONTRACTS.md`](CANONICAL_RUN_CONTRACTS.md) | Final canonical scope boundary: permission-pattern contract, DB ownership, inference-vs-rebuild, and explicit later release deferrals. |
 | [`OPERATIONAL_ASSESSMENT_V1.md`](OPERATIONAL_ASSESSMENT_V1.md) | Exact-SHA, revisioned operational assessment from existing evidence; distinct from model prediction and paper evaluation. |
@@ -47,6 +43,22 @@ records, and Core persistence are separate evidence surfaces. A dated lock or
 checkpoint is not a live database count or proof of independent paper
 reproduction; verify its profile, run manifest, and source snapshot before
 reusing a claim.
+
+## Open work
+
+| Area | Remaining work |
+| --- | --- |
+| Pipeline maintainability | Bundle metadata and index registration have been extracted. The ordered artifact list, legacy persistence handoff, and broader orchestration splits remain. [Structure migration plan](STRUCTURE_MIGRATION_PLAN.md#current-status) |
+| Permission Intel research | Governed PI V2 fitting requires reviewed target-specific authority. Split binding and exact-export feature acceptance are implemented. [Experiment integrity](experiment_split_integrity.md#current-authorization-limit) |
+| Core result persistence | The documented production smoke covered a bounded run. Full-corpus persistence still needs its own execution and verification. [Analysis persistence](ANALYSIS_PERSISTENCE_V1.md) |
+| Assessment API | The read-only service is implemented. Production hosting, ingress and multi-user authorization remain deployment work. [Assessment API](ASSESSMENT_HTTP_API.md) |
+
+## Historical reviews
+
+- [Root and layout audit](archive/ROOT_AND_STRUCTURE_AUDIT.md)
+- [ML boundary inventory](archive/ML_BOUNDARY_PLAN.md)
+- [Vendor and evaluation boundary inventory](archive/VENDOR_EVALUATION_BOUNDARY_PLAN.md)
+- [Earlier architecture and performance review](archive/code_review.md)
 
 ## PI V2 access and historical evidence
 

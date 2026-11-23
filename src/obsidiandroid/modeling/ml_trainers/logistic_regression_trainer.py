@@ -14,33 +14,19 @@ from sklearn.metrics import classification_report
 from sklearn.model_selection import GridSearchCV
 from config import app_config
 from obsidiandroid.cli.ui import display as du
+from obsidiandroid.modeling.ml_trainers.input_validation import validate_numeric_training_inputs
 from obsidiandroid.modeling.parallel_layout import (
     grid_search_pre_dispatch,
     grid_search_job_counts,
     tuning_grid_splitter,
 )
 from obsidiandroid.modeling.training_console_policy import (
-    emit_class_imbalance_notice,
+    print_training_debug_info,
     should_print_detailed_classification_report,
     should_print_training_analysis,
     should_print_training_label_summary,
 )
 
-
-def _validate_inputs(X_train, y_train):
-    """Basic sanity checks for training data."""
-    if X_train is None or len(X_train) == 0:
-        raise ValueError("X_train is missing or empty.")
-    if y_train is None or len(y_train) == 0:
-        raise ValueError("y_train is missing or empty.")
-    if len(X_train) != len(y_train):
-        raise ValueError(
-            f"X_train and y_train length mismatch: {len(X_train)} != {len(y_train)}"
-        )
-    x_values = np.asarray(X_train)
-    y_values = np.asarray(y_train)
-    if np.isnan(x_values).any() or np.isnan(y_values).any():
-        raise ValueError("NaN values detected in training data.")
 
 # Train Logistic Regression Classifier
 def train_logistic_regression(
@@ -54,7 +40,7 @@ def train_logistic_regression(
     grid_search=False,
     **kwargs
 ):
-    _validate_inputs(X_train, y_train)
+    validate_numeric_training_inputs(X_train, y_train)
     # Define default training parameters
     params = {
         "max_iter": getattr(app_config, "LR_MAX_ITER", 2000),
@@ -112,7 +98,7 @@ def train_logistic_regression(
         else:
             n_splits = cv_splitter.n_splits
             if verbose:
-                _debug_training_info(y_train, n_splits)
+                print_training_debug_info(y_train, n_splits)
                 _analyze_training_setup(X_train, y_train, param_grid, n_splits)
             # GridSearchCV owns parallelism; sklearn 1.8 ignores (and warns
             # about) LogisticRegression.n_jobs for this solver family.
@@ -177,7 +163,7 @@ def train_logistic_regression(
         )
         model.fit(X_train, y_train)
         if verbose:
-            _debug_training_info(y_train)
+            print_training_debug_info(y_train)
             _analyze_training_setup(X_train, y_train)
 
     duration = time.time() - start_time
@@ -248,14 +234,6 @@ def _print_training_summary(y_train):
     top_classes = [(cls, cnt) for cls, cnt in label_dist.most_common(5)]
     print(f"[LOGISTIC_REGRESSION] Classes trained on: {len(label_dist)}")
     print(f"[LOGISTIC_REGRESSION] Top classes: {top_classes}")
-
-
-def _debug_training_info(y_train, cv_folds=None):
-    label_dist = Counter(int(x) for x in y_train)
-    du.print_debug(f"Class distribution: {dict(label_dist)}")
-    if cv_folds is not None:
-        du.print_debug(f"Using {cv_folds} CV folds")
-    emit_class_imbalance_notice(y_train)
 
 
 def _analyze_training_setup(X_train, y_train, param_grid=None, cv_folds=None):

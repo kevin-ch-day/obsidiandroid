@@ -167,7 +167,6 @@ def transform_permission_features(
     protection = prepared.get("protection_level", pd.Series("UNKNOWN", index=prepared.index)).fillna("UNKNOWN").astype(str).str.upper()
     prepared["_dangerous"] = protection.str.contains("DANGEROUS", regex=False).astype(int)
     prepared["_normal"] = protection.str.contains("NORMAL", regex=False).astype(int)
-    source = prepared["permission_source"]
     count_frame = prepared.groupby("sample_id").agg(
         perm__known_dangerous_count=("_dangerous", "sum"),
         perm__known_normal_count=("_normal", "sum"),

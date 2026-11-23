@@ -25,7 +25,11 @@ from sklearn.metrics import classification_report, confusion_matrix
 from obsidiandroid.common.repo_paths import repo_root
 from obsidiandroid.features.av_lineage import LINEAGE_POLICY_ID, identifier
 from obsidiandroid.features.retained_av_reports import prepare_retained_av
-from obsidiandroid.features.av_detection_contract import fit_av_detection_contract, transform_av_detection_features
+from obsidiandroid.features.av_detection_contract import (
+    fit_av_detection_contract,
+    prepare_av_reports,
+    transform_av_detection_features,
+)
 from obsidiandroid.vendors.retained_analysis import describe_retained_vendors
 from .expanded_av_experiment import plan_population
 
@@ -187,10 +191,11 @@ def compare_models(rows,selected,folds,output,source_digest):
     config={'seed':1337,'folds':3,'source_manifest_sha256':source_digest,'classes':names,
             'claim':'development CV, no holdout or hyperparameter selection','models':{name:repr(factory()) for name,factory in models.items()}}
     (output/'MODEL_CONFIG.json').write_text(json.dumps(config,indent=2))
+    reports = prepare_av_reports(rows)
     for number,(tr,va) in enumerate(folds,1):
         train_ids=selected.iloc[tr].sample_id.tolist();valid_ids=selected.iloc[va].sample_id.tolist()
-        contract=fit_av_detection_contract(rows,train_ids,scope='all_observed')
-        features=transform_av_detection_features(rows,contract,selected.sample_id).set_index('sample_id')
+        contract=fit_av_detection_contract(reports,train_ids,scope='all_observed')
+        features=transform_av_detection_features(reports,contract,selected.sample_id).set_index('sample_id')
         folder=output/f'fold_{number}';folder.mkdir();features.to_csv(folder/'FEATURES.csv')
         ledgers.append({'fold':number,'train_ids':train_ids,'validation_ids':valid_ids,'feature_policy_hash':contract.policy_hash,'features':list(features)})
         for name,factory in models.items():

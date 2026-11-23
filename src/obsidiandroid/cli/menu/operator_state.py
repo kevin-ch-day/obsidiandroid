@@ -64,11 +64,14 @@ def latest_run_has_provenance(run_id: str | None, *, base: Path) -> bool:
     if not token:
         return False
     diagnostics = run_locator.resolve_run_root_for_run_id(token, output_base=base) / "diagnostics"
-    split_ledger = diagnostics / f"split_freeze_headline_{token}.csv"
+    return _diagnostics_has_provenance(diagnostics, token)
+
+
+def _diagnostics_has_provenance(diagnostics: Path, run_id: str) -> bool:
     required = [
-        split_ledger,
-        diagnostics / f"run_paths_manifest_{token}.json",
-        diagnostics / f"experiment_registry_{token}.json",
+        diagnostics / f"split_freeze_headline_{run_id}.csv",
+        diagnostics / f"run_paths_manifest_{run_id}.json",
+        diagnostics / f"experiment_registry_{run_id}.json",
     ]
     return all(path.exists() for path in required)
 
@@ -79,6 +82,10 @@ def latest_run_has_diagnostics(run_id: str | None, *, base: Path) -> bool:
     if not token:
         return False
     diagnostics = run_locator.resolve_run_root_for_run_id(token, output_base=base) / "diagnostics"
+    return _diagnostics_has_entries(diagnostics)
+
+
+def _diagnostics_has_entries(diagnostics: Path) -> bool:
     if not diagnostics.is_dir():
         return False
     try:
@@ -92,14 +99,16 @@ def _resolve_cohort_contract_state(run_root: Path, run_id: str) -> dict[str, Any
     return load_cohort_contract_state(diagnostics_dir=run_root / "diagnostics", run_id=run_id)
 
 
-def build_operator_state(*, output_base: Path | None = None, run_id: str | None = None) -> dict[str, Any]:
+def build_operator_state(
+    *, output_base: Path | None = None, run_id: str | None = None,
+    include_parser_summary: bool = True,
+) -> dict[str, Any]:
     """Build shared operator-facing state for the latest run and workspace."""
     display_mode = resolve_display_mode()
     base = Path(output_base).resolve() if output_base is not None else output_root().resolve()
-    latest_run_id = run_locator.read_latest_run_id()
     locked_run_id = run_locator.read_locked_publication_run_id()
     manifest, resolved_run_id, manifest_path = run_locator.resolve_latest_manifest_payload(output_base=base)
-    effective_run_id = str(run_id or resolved_run_id or latest_run_id or "").strip()
+    effective_run_id = str(run_id or resolved_run_id or run_locator.read_latest_run_id() or "").strip()
     if effective_run_id and effective_run_id != str(resolved_run_id or "").strip():
         manifest, manifest_path = run_locator.resolve_manifest_for_run_id(effective_run_id)
         resolved_run_id = effective_run_id
@@ -153,10 +162,12 @@ def build_operator_state(*, output_base: Path | None = None, run_id: str | None 
         "diagnostics_dir": diagnostics_dir,
         "canonical_manifest_path": canonical_manifest_path,
         "profile_id": profile_id,
-        "latest_run_has_provenance": latest_run_has_provenance(effective_run_id, base=base),
-        "latest_run_has_diagnostics": latest_run_has_diagnostics(effective_run_id, base=base),
-        "has_publication_exports": publication_exports_available(effective_run_id, base=base),
-        "has_structural_bundle": has_structural_bundle(effective_run_id, base=base),
+        "latest_run_has_provenance": bool(effective_run_id) and _diagnostics_has_provenance(
+            diagnostics_dir, effective_run_id
+        ),
+        "latest_run_has_diagnostics": bool(effective_run_id) and _diagnostics_has_entries(diagnostics_dir),
+        "has_publication_exports": bool(effective_run_id) and (run_root / "paper_exports").is_dir(),
+        "has_structural_bundle": bool(effective_run_id) and (run_root / "bundles" / "permission_trends").is_dir(),
         "publication_ready_status": publication_ready_status,
         "cohort_lock_status": cohort_lock_status,
         "taxonomy_label_drift": taxonomy_label_drift,
@@ -165,7 +176,7 @@ def build_operator_state(*, output_base: Path | None = None, run_id: str | None 
         "has_locked_publication_run": bool(str(locked_run_id or "").strip()),
         "best_run_index_path": best_index_path,
         "has_canonical_run_science": has_canonical_run_science,
-        "parser_summary": get_parser_summary_state(mode=display_mode),
+        "parser_summary": get_parser_summary_state(mode=display_mode) if include_parser_summary else {},
         **cohort_contract_state,
     }
 

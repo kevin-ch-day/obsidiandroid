@@ -36,6 +36,27 @@ To introduce a new model, wire it through **`obsidiandroid.modeling.model_traine
 - `python -m obsidiandroid.evaluation.model_tuning` exposes `tune_models` / `print_summary` for experimental sweeps; production grid search is driven through `obsidiandroid.modeling` trainers and `config/model_params/`.
 - Persist tuned parameters back into configuration files and document rationale in commit messages or the operations logbook.
 
+## Calibration and profile policies
+
+- The SVM trainer standardizes features inside each training fold before fitting
+  `SVC`. Grid search, cross-validation and sigmoid `CalibratedClassifierCV` with
+  `ensemble=False` share that preprocessing. The smallest class caps the calibration folds, and classes
+  with fewer than two training rows fail before fitting. Predictions use the
+  calibrated probability argmax. `metadata.probability_calibration` records the
+  method used by the run.
+- A profile can set `split_grouping: package` to hold out whole package groups,
+  using SHA-256 where the package is unavailable. The default `none` preserves
+  historical split behavior.
+- New model fits exclude cohort-wide `risk_rank` and `risk_band` values computed
+  before the split. The per-sample `risk_score` remains eligible for training.
+- `cohort_gates.require_vendor_and_permission: true` requires AV detection data
+  and a permission feature in both headline and ablation pools before applying
+  the family support floor. This gate is off by default.
+- `XGB_GUARDRAIL_PROFILE_CAPS` bounds boosting rounds and early stopping for
+  large class spaces. `FEATURE_ENFORCE_TRUSTED_VENDOR` enables trusted-vendor
+  feature selection. `ENABLE_AV_VERDICT_QUERY_CACHE` and
+  `AV_VERDICT_QUERY_CACHE_SIZE` control reuse of AV verdict query results.
+
 ## Evaluation Outputs
 
 Running `main.py` or `python -m obsidiandroid.evaluation.model_tuning` emits artefacts in `output/` that analysts can review:
@@ -44,6 +65,10 @@ Running `main.py` or `python -m obsidiandroid.evaluation.model_tuning` emits art
 - `family_metrics/` – per-family confusion matrices and class-specific metrics in CSV format.
 - `feature_importance/` – SHAP and permutation importance exports for supported models.
 - `final_classification_labels.xlsx` – canonical label recommendations with consensus context.
+
+The model comparison verifies the true test-label count and hash on every model
+row before treating its Macro-F1 scores as comparable. Confusion matrices also
+display any classes predicted only by the model.
 
 Use **`obsidiandroid.evaluation.ml_report_builder`** for consolidated evaluation summaries and exporter-driven artefacts under **`output/`**.
 

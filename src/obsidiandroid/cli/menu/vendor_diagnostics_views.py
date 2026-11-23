@@ -279,7 +279,7 @@ def print_workbook_requirements() -> int:
     """Explain workbook requirements without implying CSV snapshots are missing."""
     state = get_parser_summary_state()
     du.print_section("Workbook requirements")
-    _print_workbook_missing_guidance(csv_ready=bool(state.get("csv_ready")))
+    print_workbook_missing_guidance(csv_ready=bool(state.get("csv_ready")))
     if state.get("onboarding_candidate_count"):
         print(
             f"[ENGINES] {int(state['onboarding_candidate_count'])} parser onboarding candidates are still reviewable from CSV snapshots."
@@ -303,7 +303,7 @@ def print_parser_export_paths() -> int:
     return 0
 
 
-def _print_workbook_missing_guidance(*, csv_ready: bool = False) -> None:
+def print_workbook_missing_guidance(*, csv_ready: bool = False) -> None:
     """Print concise workbook-missing guidance with next step."""
     du.print_subheader("Workbook Required")
     du.print_stat("CSV snapshots", "Available" if csv_ready else "Unavailable")

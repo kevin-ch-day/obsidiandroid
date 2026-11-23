@@ -24,7 +24,11 @@ from obsidiandroid.common import output_hygiene as oh
 from obsidiandroid.database.db_cohort_readiness import get_cohort_readiness_snapshot
 from . import output_artifact_policy
 from obsidiandroid.cli.ui import display as du
-from obsidiandroid.common.publication_readiness import evaluate_publication_ready_status
+from obsidiandroid.common.publication_readiness import (
+    claim_audit_alias_name,
+    claim_surface_label as _claim_surface_label,
+    evaluate_publication_ready_status,
+)
 from obsidiandroid.common import ml_console
 from obsidiandroid.governance.evidence_mode_resolver import (
     coalesce_manifest_evidence_mode,
@@ -52,37 +56,6 @@ def _resolve_publication_mode_flags(
         return evidence_mode, paper_mode
     resolved = bool(paper_mode_param)
     return resolved, resolved
-
-
-def _claim_surface_label(*, profile_id: str, evidence_mode: bool, paper_mode: bool) -> str:
-    """Return a human-readable claim surface label for index artifacts."""
-    profile = str(profile_id or "").strip()
-    if bool(evidence_mode or paper_mode):
-        return "Locked publication cohort"
-    if profile == "android_catalog_all_exploratory":
-        return "Android catalog exploratory surface"
-    if profile == "android_malware_all_current":
-        return "Current-corpus diagnostic surface"
-    if profile == "android_malware_major_families":
-        return "Support-gated benchmark cohort"
-    if profile == "android_malware_expanded_families":
-        return "Expanded-family exploratory cohort"
-    if profile == "android_malware_type_taxonomy":
-        return "Type taxonomy benchmark"
-    return "Benchmark research surface"
-
-
-def _claim_audit_alias_name(*, profile_id: str, evidence_mode: bool, paper_mode: bool) -> str:
-    """Return the profile-appropriate claim audit alias for index artifacts."""
-    if bool(evidence_mode or paper_mode):
-        return "publication_claim_audit.md"
-    profile = str(profile_id or "").strip()
-    if profile in {
-        "android_malware_major_families",
-        "android_malware_type_taxonomy",
-    }:
-        return "benchmark_claim_audit.md"
-    return "research_claim_audit.md"
 
 
 def _iter_files(root: Path) -> list[Path]:
@@ -436,7 +409,7 @@ def write_run_evidence_index_md(
             str(
                 summary_obs.get("claim_audit_summary")
                 or diagnostics_dir
-                / _claim_audit_alias_name(
+                / claim_audit_alias_name(
                     profile_id=profile_id,
                     evidence_mode=evidence_mode_flag,
                     paper_mode=paper_mode_flag,
@@ -722,7 +695,7 @@ def write_run_science_index_md(
             str(
                 summary_obs.get("claim_audit_summary")
                 or diagnostics_dir
-                / _claim_audit_alias_name(
+                / claim_audit_alias_name(
                     profile_id=profile_id,
                     evidence_mode=bool(evidence_mode),
                     paper_mode=paper_mode_flag,

@@ -570,7 +570,6 @@ def enrich_pairwise_protection(
 
     # Leave-largest-family: if largest family share of positives >= dominance, mark sensitive.
     share = pd.to_numeric(frame.get("largest_family_share_of_positives"), errors="coerce").fillna(0.0)
-    fb = pd.to_numeric(frame.get("family_balanced_prevalence"), errors="coerce")
     leave = []
     for i, row in enumerate(frame.itertuples(index=False)):
         sh = float(share.iloc[i])

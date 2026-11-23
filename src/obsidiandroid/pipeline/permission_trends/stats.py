@@ -24,13 +24,17 @@ def build_sample_level_permission_metrics(
             dangerous_count_strict=0,
             dangerous_count_inclusive=0,
         )
-    work = permission_rows_df.copy()
-    work["bucket"] = np.where(
-        work["protection_level"].str.contains("DANGEROUS", regex=False),
+    protection = permission_rows_df["protection_level"]
+    buckets = np.where(
+        protection.str.contains("DANGEROUS", regex=False, na=False),
         "dangerous",
-        np.where(work["protection_level"].str.contains("NORMAL", regex=False), "normal", "unknown"),
+        np.where(protection.str.contains("NORMAL", regex=False, na=False), "normal", "unknown"),
     )
-    counts = work.groupby(["sample_id", "bucket"])["permission_string"].count().unstack(fill_value=0)
+    counts = (
+        permission_rows_df["permission_string"]
+        .groupby([permission_rows_df["sample_id"], buckets]).count()
+        .unstack(fill_value=0)
+    )
     for bucket in ("dangerous", "normal", "unknown"):
         if bucket not in counts.columns:
             counts[bucket] = 0
@@ -57,14 +61,16 @@ def build_consensus_correlation_report(
     run_id: str,
     *,
     spearman_with_bootstrap_ci: Callable[[pd.Series, pd.Series], tuple[float, float, float, float]],
+    sample_metrics_df: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, str]:
-    metrics_df = build_sample_level_permission_metrics(sample_core_df, permission_rows_df)
+    if sample_metrics_df is None:
+        sample_metrics_df = build_sample_level_permission_metrics(sample_core_df, permission_rows_df)
     min_vendor_count = safe_int_config_value(
         getattr(app_config, "CONSENSUS_MIN_VENDOR_COUNT", 5),
         default=5,
     )
     consensus_keep = consensus_df[consensus_df["vendor_count"] >= min_vendor_count][["sample_id", "consensus_score_all_vendors"]].copy()
-    merged = metrics_df.merge(consensus_keep, on="sample_id", how="inner")
+    merged = sample_metrics_df.merge(consensus_keep, on="sample_id", how="inner")
     if merged.empty:
         out = pd.DataFrame([
             {"run_id": run_id, "metric_x": "consensus_score_all_vendors", "metric_y": "permission_entropy", "spearman_rho": 0.0, "p_value": np.nan, "ci_low": np.nan, "ci_high": np.nan, "n_samples": 0}
@@ -137,9 +143,12 @@ def build_dangerous_stats_tests(
     sample_core_df: pd.DataFrame,
     permission_rows_df: pd.DataFrame,
     run_id: str,
+    *,
+    sample_metrics_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    metrics_df = build_sample_level_permission_metrics(sample_core_df, permission_rows_df)
-    frame = sample_core_df[["sample_id", "type_slug"]].merge(metrics_df, on="sample_id", how="left").fillna(0)
+    if sample_metrics_df is None:
+        sample_metrics_df = build_sample_level_permission_metrics(sample_core_df, permission_rows_df)
+    frame = sample_core_df[["sample_id", "type_slug"]].merge(sample_metrics_df, on="sample_id", how="left").fillna(0)
     metric = "dangerous_count_strict"
     groups = {str(k): pd.to_numeric(g[metric], errors="coerce").dropna().astype(float) for k, g in frame.groupby("type_slug", dropna=False)}
     group_values = [vals.values for vals in groups.values() if len(vals) > 0]

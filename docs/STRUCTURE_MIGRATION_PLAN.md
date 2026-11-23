@@ -2,6 +2,22 @@
 
 This document maps the current repository layout to the target `src/obsidiandroid/` domain layout.
 
+## Current status
+
+The package relocation is complete. The remaining work is inside the canonical
+packages, including permission-report export assembly and the optional legacy
+persistence handoff, manifest and runner orchestration, and menu workflows that
+still rebuild operator state. Evidence naming, `.latest` readers, logging, and
+vendor/evaluation contracts have separate compatibility work in the backlog.
+
+Permission bundle metadata and manifest/inventory registration now live in
+`pipeline.permission_trends`. The stage still assembles the ordered artifact
+list and invokes the optional warehouse writer after registration.
+
+The numbered passes below record the history through Pass 107. Current Core
+database migration and recovery evidence belong to the separate [Core migration
+plan](core_migration/README.md).
+
 ## Developer import modes (verified)
 
 Use one of the following so `import obsidiandroid` resolves to `src/obsidiandroid/`:
@@ -29,14 +45,21 @@ Quick verification: `python scripts/dev/check_import_surface.py` or `make dev-im
 
 ### Snapshot — current truth (update when passes land)
 
+- The root README links directly to this plan and to [governance](GOVERNANCE.md).
+  The A/B/C benchmark manifest lives in `config/experiments/` and ships as
+  package data. The cohort profile remains in `profiles/`.
+- The [documentation index](README.md#historical-reviews) links to the retired
+  layout, ML, vendor, and engineering reviews under `docs/archive/`.
+  Earlier passes record the paths those documents had at the time.
+
 - **Canonical code** under **`src/obsidiandroid/`** includes **CLI**, **common** (hashing, paths, exports, hygiene, …), **governance** (compliance, manifest, cohort, artifacts, …), **reporting** (notably **`export_manager`** and related exporters), **observability** (**`logging/`** + **`pipeline_observability`**), and the complete **`pipeline`** implementation: **`run_pipeline`**, stages, **`sample_preparation`**, **`sample_exports`**, and policy leaves. **`runner`** imports **`reset_runtime_training_caches`** from **`obsidiandroid.modeling.model_trainer_factory`**; vendor/feature-engineering helpers live under **`obsidiandroid.feature_engineering`**; pipeline orchestration support lives under **`obsidiandroid.orchestration`**, and AV binary-matrix / enrichment under **`obsidiandroid.matrix`**. Diagnostics live under **`obsidiandroid.diagnostics`**; database implementations live under **`src/obsidiandroid/database/`** behind the curated **`obsidiandroid.database`** façade. Repo-root **`database/`** contains SQL assets only. The old **`analysis/`** and **`ml_classification/`** compatibility trees are retired.
-- **Migration phase (2026-07):** The repository is in a **supportability and boundary-simplification** phase, not a large-scale relocation phase. The highest remaining engineering work is: (a) simplifying the CLI/control layer so operator UX does not mirror old subsystem boundaries, (b) reducing large orchestration functions, and (c) finishing naming/control-plane cleanup where old **`paper_mode`** language still coexists with canonical **`evidence_mode`** / **`publication_ready`** semantics.
-- **Canonical relocation complete for core domains:** The following domains should now be treated as physically relocated and canonical under **`src/obsidiandroid/`**: **pipeline**, **common**, **governance**, **observability**, **diagnostics**, **database**, **modeling**, **evaluation**, **reporting**, **vendors**, **features**, **labeling**, **classification_builder**, **inference**, **engine_weights**, **risk_band**, **matrix**, and **orchestration**. Remaining work in these areas is about **shim retirement**, **API boundary cleanup**, or **docs/tests**, not moving implementation files.
+- **Supportability:** Prefer internal extractions and explicit ownership of run state, validation, and artifact writing. Maintain historical `paper_mode` readers where retained artifacts still use that name.
+- **Canonical relocation complete for core domains:** The following domains live under **`src/obsidiandroid/`**: **pipeline**, **common**, **governance**, **observability**, **diagnostics**, **database**, **modeling**, **evaluation**, **reporting**, **vendors**, **features**, **labeling**, **classification_builder**, **inference**, **engine_weights**, **risk_band**, **matrix**, and **orchestration**.
 - **Retired-path guard:** **`scripts/dev/import_surface_policy.py`** contains the small concrete set of retired import roots and root files. The former empty retirement matrix and report were removed once no compatibility trees remained.
 - **Retired root-file guard:** **`scripts/dev/check_import_surface.py`** rejects Python files anywhere under the SQL-only root `database/` directory, including nested helpers, and rejects absolute root `database` imports in source, scripts, and tests. Relative package imports remain supported.
 - **CLI/control layer:** The canonical CLI is under **`src/obsidiandroid/cli/`** and recent support passes have already split some high-churn surfaces into smaller modules (for example **`startup_menu_diagnostics`**, **`menu/operator_state`**, **`menu/vendor_parser_state`**, and **`profile_selection`**). The remaining support hotspot is not package placement but **responsibility overlap**: **`startup_menu.py`** is still large, and several intent areas still recompute mini-context/state blocks locally instead of consuming one shared operator-state model.
 - **Dev tooling (Pass 101):** Repo-root thin wrappers **`run_tests.sh`**, **`run_tests_full.sh`**, **`clean_bytecode_cache.py`**, and **`run_ml_static_scan.py`** were removed; use **`make test`** / **`./scripts/dev/run_tests.sh`**, **`make ml-scan`** / **`python -m scripts.dev.run_ml_static_scan`**, **`python scripts/dev/clean_bytecode_cache.py`** / **`make clean-bytecode`**. **`pyproject.toml`** **`py-modules`** lists **`main`** only.
-- **CLI shell:** Repo-root **`main.py`** is the compatibility entrypoint. It prepends `./src` when present, then calls **`obsidiandroid.common.repo_paths.ensure_repo_src_on_sys_path`**, then re-exports the canonical CLI implementation from **`obsidiandroid.cli.main`**.
+- **CLI shell:** Root `main.py` prepends the checkout's `src/` and delegates the direct pipeline CLI to `obsidiandroid.cli.main`. `./run.sh`, `python -m obsidiandroid.cli`, and the installed `obsidiandroid` command share `obsidiandroid.cli.entrypoint`.
 - **Retired upstream maintenance:** catalog filename normalization and ingest-queue pruning scripts and their implementation tests have been removed. Those mutations belong to Erebus; a retirement check prevents their return under diagnostics or maintenance. Canonical modeling, vendor-parser, and permission-trends imports use Python module registration without redundant alias registration.
 - **Database boundary:** repo-root **`database/`** holds SQL assets; DB Python implementations and the health-check entry point live under **`src/obsidiandroid/database/`** behind the curated **`obsidiandroid.database`** façade.
 - **Removed (Pass 33):** the **`analysis/observability`** package — pipeline observability APIs live only under **`obsidiandroid.observability.pipeline_observability`**.
@@ -48,32 +71,36 @@ Quick verification: `python scripts/dev/check_import_surface.py` or `make dev-im
 - **Import-surface guard:** **`scripts/dev/check_import_surface.py`** rejects imports from retired **`analysis`** or **`ml_classification`** trees and root **`main`** inside canonical **`src/`** code and normal **`scripts/`; it also rejects those retired trees if recreated on disk. The guard rejects stale **`# Filename:`** headers in canonical **`src/`** whose first path segment names a retired root or repo-root **`database/`**.
 - **Test intent split:** package-surface, import-policy, and compatibility-boundary tests are explicit. New tests should use canonical **`obsidiandroid.*`** imports and avoid retired-root assumptions.
 
-### How to read this document (maintenance, 2026-05)
+### How to read this document
 
-- **Living sections** (use these for decisions): **Status labels**, **Snapshot — current truth**, **Restructure backlog (living)**, **Locked migration policy**, and **Intended future moves** (below).
+- **Living sections** (use these for decisions): **Current status**, **Snapshot — current truth**, **Restructure backlog (living)**, and **Locked migration policy**.
 - **Historical sections:** The per-pass tables (**Pass 1**, **Pass 2**, …) are an **archive** of what shipped on each pass. They are **not** retro-edited when later passes supersede them. If an old pass table disagrees with the **Snapshot**, trust the **Snapshot**.
 - **Stale detail in archives:** Early pass sections may cite **old pytest counts**
   or paths that have since moved; treat those as **time capsules**, not current
   CI facts. Today's fast gate is **`make ci-fast`**; the full local pre-push
   gate is **`make ci`** (fast plus canonical closure).
 - **Current working assumption:** Large new relocation passes are no longer the default. Prefer **small supportability passes** that either (a) remove overlap inside canonical **`src/`** code, (b) clarify interfaces around the canonical database API, or (c) deprecate legacy output compatibility with explicit lifecycle labeling before removing it.
-- **Vendor / evaluation nuance:** Physical modules for vendor parsers, evaluation glue, vendor execution, and run diagnostics live under **`src/obsidiandroid/`**. See **`docs/VENDOR_EVALUATION_BOUNDARY_PLAN.md`** for boundary and contract work still open.
+- **Vendor / evaluation boundary:** Vendor parsers, execution, evaluation, and
+  run diagnostics live under **`src/obsidiandroid/`**. The restructuring
+  backlog tracks current contract work. The [boundary inventory](archive/VENDOR_EVALUATION_BOUNDARY_PLAN.md)
+  records the earlier migration decisions.
 
 ### Restructure backlog (living)
 
 | Priority | Item | Status |
 |----------|------|--------|
 | P0 | **`obsidiandroid.database`** thin façade + outer callers (no **`database/*.py`** internal churn) | **Done** through **Pass 43** (Tiers **A–D** narrow AV set on façade). |
-| P1 | **`README.md`** operator quickstart: **`pip install -e .`**, **`obsidiandroid`**, canonical vs legacy imports | **Improved** — Installation adds **Canonical package & imports** subsection with `obsidiandroid.pipeline` / `obsidiandroid.database` examples, CLI entrypoints, and pointer to `STRUCTURE_MIGRATION_PLAN.md`; deeper command cookbook still optional |
+| P1 | Operator quickstart | **Done** for editable installation and checkout/installed launcher examples. [README](../README.md#installation) |
 | P1 | **`analysis/`** compatibility retirement | **Done** — substantive pipeline implementation is canonical under **`obsidiandroid.*`** and the retired root is guarded against reappearance. |
+| P1 | Permission report, manifest, and runner orchestration | **Active**. Bundle metadata and manifest/inventory registration are extracted. Remaining boundaries include ordered artifact assembly, optional legacy persistence, and smaller manifest and runner control flows. [Module split audit](module_split_audit.md#split-priority-recommended-order) |
 | P1 | **CLI/control-layer supportability** (reduce overlap inside canonical **`src/obsidiandroid/cli`**) | **Active** — Recent passes split diagnostics, parser state, and profile selection into smaller modules, but **`startup_menu.py`** remains large and several intent areas still rebuild local state/path logic. Next high-ROI slice: continue decomposing by operator intent and converge on one shared operator-state model. |
-| P1 | **Erebus family/type authority view adoption** (**`v_android_sample_family_type_authority`**) | **Active** — read-only view now exists and is the current safe path for label-authority work. Next high-ROI slice: switch ObsidianDroid readiness/taxonomy diagnostics to consume the view directly, keep training behavior unchanged, and defer the broader `label_authority_*` foundation pack until the view-backed workflow is stable. |
+| P1 | Erebus family/type authority view adoption (`v_android_sample_family_type_authority`) | **Implemented** in readiness and taxonomy diagnostics. Readiness still needs a canonical-only fixture and review of the legacy-view check that precedes the canonical query. [Readiness routing](../src/obsidiandroid/database/db_cohort_readiness.py) |
 | P2 | **`obsidiandroid.diagnostics`** migration | **Done** — implementations live under **`src/obsidiandroid/diagnostics/`**; the former root namespace is retired. |
 | P2 | **`ml_classification/`** → **`obsidiandroid.modeling` / `features` / `labeling`** façades + **wrappers** where needed | **Done** — The repo-root **`ml_classification/`** compatibility tree is retired. New code should use **`obsidiandroid.*`** only. |
 | P2 | **malware-family constants** | **Done** (**Pass 85**) — implementation now **`obsidiandroid.labeling.malware_family_constants`**; public callers should prefer wrapper functions from **`obsidiandroid.labeling.taxonomy`** unless raw taxonomy tables are explicitly needed |
 | P2 | Vendor / evaluation domain boundary (**`obsidiandroid.vendors`**, **`obsidiandroid.evaluation`**) | **Canonical relocation complete** — implementations are canonical (Passes **59**, **63**, **64**) and stable entrypoints exist (**`obsidiandroid.vendors.parse_generic_classification`**, **`obsidiandroid.evaluation.parse_vendor_classifications`**) with CI guardrails. Remaining work is *contract freezing* (typed results / schema) before widening public API further. |
 | P2 | **Legacy output compatibility retirement** (remaining old **`paper_mode`** naming and `.latest` mirror dependence) | **Active** — the old **`paper2_pack`** mirror and duplicated split-audit exports are retired. The main remaining cleanup is control-plane and artifact naming drift where older **`paper_mode`** terminology still coexists with newer **`evidence_mode`** / **`publication_ready`** language. |
-| P2 | **Logging engine debt closure** (stable `event_id`, explicit error severity, legacy short-name log retirement) | **Active** — canonical log names and `error.log` aggregate sink exist, but several call sites still lack `event_id` / explicit `level`, and legacy `analysis.log` / `database.log` / `export.log` / `menu.log` / `ml.log` / `pipeline.log` files should be pruned after one confirming run with the new names. |
+| P2 | Logging contracts | **Active** for event IDs and explicit failure severity. Canonical log names and the `error.log` aggregate sink are implemented. |
 | P2 | **Dead compatibility wrapper pruning** (private helpers and one-hop pass-throughs) | **Active** — several low-risk orphan helpers have already been removed from startup-menu and ablation modules. Next slice: continue trimming unused compatibility aliases and stale helper wrappers where there are no in-repo callers and no external API commitment. |
 | P2 | Remaining **`model/*`** helper imports from canonical code | **Done** (**Pass 84**) — risk-band config and vendor contract helpers are canonical; repo-root **`model/`** tree has been removed. |
 | P3 | Retire **`utils/*`** shims after caller + doc sunset | **Done** — repo-root **`utils/`** tree has been removed; remaining docs/tests now use canonical `obsidiandroid.*` / `scripts.*` surfaces. |
@@ -145,15 +172,15 @@ Quick verification: `python scripts/dev/check_import_surface.py` or `make dev-im
 
 ### Locked migration policy (product + imports)
 
-These choices govern Pass 38+ work; they intentionally favor **operator stability** over **tree cosmetics**.
+These choices govern current restructuring and prioritize operator stability.
 
 1. **Product identity** — ObsidianDroid is both a **research pipeline CLI / operator tool** and an **internal Python package** (`obsidiandroid.*`) for tooling, tests, and future integrations. **When goals conflict, priority order is:** (a) operator/research pipeline stability, (b) reproducibility and evidence integrity, (c) canonical package cleanliness, (d) external library polish. Do not change real pipeline behavior or paper/evidence outputs solely to tidy imports.
 
-2. **Canonical surface** — **`obsidiandroid.*`** is the long-term **public/canonical** import surface. Root **`analysis.*`**, **`database.*`**, and **`ml_classification.*`** remain **implementation** paths until each domain has an appropriate façade and migration coverage.
+2. **Canonical surface.** Library and application code use `obsidiandroid.*`. The root `analysis/`, `ml_classification/`, `model/`, and `utils/` packages are retired. Root `database/` contains versioned SQL.
 
-3. **Breaking changes / shims** — No sudden flag day. **New and internal code** should prefer **`obsidiandroid.*`**. Legacy imports remain via **shims** during migration. Retire old paths only after: internal code no longer needs them; tests rely on them only where shim parity is the point; docs do not recommend them; and at least one stable checkpoint exists after the canonical path is real. For now: root **`main.py` stays** for operators, and remaining legacy trees stay until façades land.
+3. **Compatibility entrypoints.** Root `main.py` remains the direct CLI and parity surface. `run.sh` and `setup.sh` remain checkout launchers. Retire a compatibility surface after checking its callers, tests, documentation, and the canonical replacement.
 
-4. **Tests** — **New tests should use canonical imports by default** (`obsidiandroid.*`, **`scripts.dev`**, **`scripts.diagnostics`** as already documented). Use **`main`**, or raw **`analysis.*` / `database.*`** only when testing shims, unavoidable monkeypatch surfaces, or migration parity explicitly.
+4. **Tests.** Import behavior from canonical `obsidiandroid.*` and `scripts.*` modules. Use `main` for direct-entry parity and compatibility overrides. Legacy path assertions should confirm retirement.
 
 ## Pass 2 (complete): `common.repo_paths` + `pipeline` facade
 
@@ -215,7 +242,7 @@ These choices govern Pass 38+ work; they intentionally favor **operator stabilit
 | `pyproject.toml` | `[project.scripts] obsidiandroid` → `obsidiandroid.cli.startup_menu:main`; `[tool.setuptools.packages.find] where = ["src", "."]` + `obsidiandroid*` in `include` | **moved_now** |
 | `tests/conftest.py` | Prepend `repo/src` to `sys.path` for `import obsidiandroid` during pytest | **moved_now** |
 
-### Intended future moves (reference)
+### Intended future moves (historical Pass 1 reference)
 
 This table mixes **completed** (**moved_now**) and **remaining** targets; use the **Snapshot** for narrative current truth.
 
@@ -1932,7 +1959,9 @@ Other **`database.db_*`** helpers (e.g. **`db_sample_timelines_queries`**, **`db
 
 ---
 
-## Next pass suggestions
+## Next pass suggestions (historical Pass 38 reference)
+
+These suggestions describe the Pass 38 checkpoint. See [Current status](#current-status) and the [living backlog](#restructure-backlog-living) for current work.
 
 1. **Database surface:** **`obsidiandroid.database`** includes **Passes 38 + 43** façade exports; optional helpers are **canonical under `src/`** with repo-root shims (**`facade_manifest`**). **`python -m database.split_db_health`** remains a valid **`database`** module path for CLI entry. Optional: widen package **`__all__`** for the four optional helper modules when operators want **`from obsidiandroid.database import …`** ergonomics.
 2. **`obsidiandroid.diagnostics`:** physical move (optional) or remaining **`analysis.diagnostics`** caller sweep in non-test code.

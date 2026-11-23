@@ -11,19 +11,10 @@ from obsidiandroid.vendors.parsing import vendor_parser_map
 from obsidiandroid.vendors import ParsedLabelMetadata, parse_generic_classification
 
 from .vendor_parser_state import get_parser_summary_state, read_csv, resolve_vendor_gate_pre_gate_csv, resolve_vendor_parser_coverage_candidates_csv, resolve_vendor_parser_coverage_csv
-from .vendor_diagnostics_views import print_parser_diagnostics_state
+from .vendor_diagnostics_views import print_parser_diagnostics_state, print_workbook_missing_guidance
 from .workbook_loader import load_enriched_matrix_for_menu
 from ..ui import display as du
 from ..ui import menu as mu
-
-
-def _print_workbook_missing_guidance(*, csv_ready: bool = False) -> None:
-    du.print_subheader("Workbook Required")
-    du.print_stat("CSV snapshots", "Available" if csv_ready else "Unavailable")
-    du.print_stat("Workbook drill-down", "Unavailable")
-    du.print_stat("Blocked action", "Single-vendor parser drill-down")
-    du.print_stat("Next step", "Generate workbook-backed enriched matrix export")
-    print("")
 
 
 def _print_parser_coverage_snapshot() -> None:
@@ -103,7 +94,7 @@ def validate_parser_columns_from_latest_export() -> int:
         cov_path = resolve_vendor_parser_coverage_csv()
         coverage_df = read_csv(cov_path) if cov_path is not None else pd.DataFrame()
         if coverage_df.empty:
-            _print_workbook_missing_guidance(csv_ready=False)
+            print_workbook_missing_guidance(csv_ready=False)
             du.print_warning("[MENU] No parser coverage snapshot is available yet.")
             return 1
         du.print_note("[MENU] Workbook unavailable. Falling back to latest diagnostics snapshots.")
